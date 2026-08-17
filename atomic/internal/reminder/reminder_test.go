@@ -15,8 +15,6 @@ func remindersDir(root string) string {
 	return filepath.Join(root, ".claude", ".scratchpad", "reminders")
 }
 
-// TestAdd_WritesFileWithCorrectFrontmatter verifies Add creates a file with
-// the right frontmatter fields and body.
 func TestAdd_WritesFileWithCorrectFrontmatter(t *testing.T) {
 	root := t.TempDir()
 	id, err := reminder.Add(root, "benchmark the new query plan")
@@ -27,7 +25,6 @@ func TestAdd_WritesFileWithCorrectFrontmatter(t *testing.T) {
 		t.Errorf("id %q should start with 'r-'", id)
 	}
 
-	// Verify a file was written.
 	entries, err := os.ReadDir(remindersDir(root))
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
@@ -42,24 +39,20 @@ func TestAdd_WritesFileWithCorrectFrontmatter(t *testing.T) {
 	}
 	raw := string(content)
 
-	// Frontmatter id matches returned id.
 	if !strings.Contains(raw, "id: "+id) {
 		t.Errorf("file missing id field %q; got:\n%s", id, raw)
 	}
-	// created is today (UTC).
 	today := time.Now().UTC().Format("2006-01-02")
 	if !strings.Contains(raw, "created: "+today) {
 		t.Errorf("file missing created field %q; got:\n%s", today, raw)
 	}
-	// Body is present.
 	if !strings.Contains(raw, "benchmark the new query plan") {
 		t.Errorf("body missing from file; got:\n%s", raw)
 	}
 }
 
-// TestAdd_UnderNonDefaultHarnessDir verifies Add/List thread repoRoot through
-// config.RemindersDir — under a ".pi" harness dir, reminders live at
-// .pi/.scratchpad/reminders, not the default .claude/.scratchpad/reminders.
+// Add and List both go through config.RemindersDir, so a ".pi" harness moves
+// both the write and the read path.
 func TestAdd_UnderNonDefaultHarnessDir(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".pi")
 	defer restore()
@@ -79,12 +72,10 @@ func TestAdd_UnderNonDefaultHarnessDir(t *testing.T) {
 		t.Fatalf("expected 1 file under %s, got %d", dir, len(entries))
 	}
 
-	// The default .claude location must not have been touched.
 	if _, err := os.Stat(filepath.Join(root, ".claude", ".scratchpad", "reminders")); !os.IsNotExist(err) {
 		t.Errorf(".claude/.scratchpad/reminders should not exist under a .pi harness, stat err=%v", err)
 	}
 
-	// The read path (List) must resolve the same directory as Add wrote to.
 	rows, err := reminder.List(root)
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -94,7 +85,6 @@ func TestAdd_UnderNonDefaultHarnessDir(t *testing.T) {
 	}
 }
 
-// TestAdd_RejectsEmptyBody ensures blank/whitespace-only body is rejected.
 func TestAdd_RejectsEmptyBody(t *testing.T) {
 	root := t.TempDir()
 	for _, bad := range []string{"", "   ", "\t\n"} {
@@ -105,8 +95,7 @@ func TestAdd_RejectsEmptyBody(t *testing.T) {
 	}
 }
 
-// TestAdd_CollisionRetry verifies that if the target path already exists,
-// Add generates a non-colliding filename with the id suffix.
+// A colliding slug must yield an id-suffixed filename, not an overwrite.
 func TestAdd_CollisionRetry(t *testing.T) {
 	root := t.TempDir()
 	dir := remindersDir(root)
@@ -114,13 +103,11 @@ func TestAdd_CollisionRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Add once to learn the exact filename.
 	id1, err := reminder.Add(root, "same text")
 	if err != nil {
 		t.Fatalf("first Add: %v", err)
 	}
 
-	// Add again with the same body — must not fail and must produce a different file.
 	id2, err := reminder.Add(root, "same text")
 	if err != nil {
 		t.Fatalf("second Add (collision retry): %v", err)
@@ -134,7 +121,6 @@ func TestAdd_CollisionRetry(t *testing.T) {
 		t.Errorf("expected 2 files after collision, got %d", len(entries))
 	}
 
-	// Assert filename shapes: one plain <date>-<slug>.md and one <date>-<slug>-r????.md.
 	today := time.Now().UTC().Format("2006-01-02")
 	plainCount := 0
 	suffixCount := 0
@@ -143,8 +129,7 @@ func TestAdd_CollisionRetry(t *testing.T) {
 		if !strings.HasSuffix(name, ".md") {
 			continue
 		}
-		// Plain: <date>-same-text.md (no extra -r segment)
-		// Suffixed: <date>-same-text-r<hex>.md
+		// <date>-same-text.md vs <date>-same-text-r<hex>.md
 		base := strings.TrimSuffix(name, ".md")
 		prefix := today + "-same-text"
 		if base == prefix {
@@ -161,7 +146,6 @@ func TestAdd_CollisionRetry(t *testing.T) {
 	}
 }
 
-// TestList_EmptyDir returns empty output without error.
 func TestList_EmptyDir(t *testing.T) {
 	root := t.TempDir()
 	rows, err := reminder.List(root)
@@ -173,7 +157,6 @@ func TestList_EmptyDir(t *testing.T) {
 	}
 }
 
-// TestList_MissingDir returns empty output without error.
 func TestList_MissingDir(t *testing.T) {
 	root := t.TempDir()
 	rows, err := reminder.List(root)
@@ -185,7 +168,6 @@ func TestList_MissingDir(t *testing.T) {
 	}
 }
 
-// TestList_SortedByCreatedThenID verifies ascending sort.
 func TestList_SortedByCreatedThenID(t *testing.T) {
 	root := t.TempDir()
 	dir := remindersDir(root)
@@ -193,7 +175,6 @@ func TestList_SortedByCreatedThenID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Write two files manually with distinct dates to control order.
 	writeFixture(t, dir, "2026-05-14-aaa.md", "---\nid: r-0001\ncreated: 2026-05-14\n---\n\nOlder reminder\n")
 	writeFixture(t, dir, "2026-05-15-bbb.md", "---\nid: r-0002\ncreated: 2026-05-15\n---\n\nNewer reminder\n")
 
@@ -212,8 +193,6 @@ func TestList_SortedByCreatedThenID(t *testing.T) {
 	}
 }
 
-// TestList_TieBreakByID verifies that when two reminders share the same created
-// date, they are sorted by id ascending.
 func TestList_TieBreakByID(t *testing.T) {
 	root := t.TempDir()
 	dir := remindersDir(root)
@@ -232,7 +211,6 @@ func TestList_TieBreakByID(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
-	// r-aaa < r-zzz → r-aaa should come first.
 	if rows[0].ID != "r-aaa" {
 		t.Errorf("first row should be r-aaa (id tie-break), got %q", rows[0].ID)
 	}
@@ -241,7 +219,6 @@ func TestList_TieBreakByID(t *testing.T) {
 	}
 }
 
-// TestAdd_FrontmatterKeyOrder verifies that Add writes id before created in the file.
 func TestAdd_FrontmatterKeyOrder(t *testing.T) {
 	root := t.TempDir()
 	_, err := reminder.Add(root, "check database indices")
@@ -266,9 +243,8 @@ func TestAdd_FrontmatterKeyOrder(t *testing.T) {
 	}
 }
 
-// TestList_PreviewIsRaw verifies that reminder.List returns the raw first body
-// line without truncation. Truncation is the rendering layer's responsibility
-// (hooks package truncates for display; main.go may truncate for its own output).
+// List returns the raw first body line; truncation belongs to the rendering
+// layer, not here.
 func TestList_PreviewIsRaw(t *testing.T) {
 	root := t.TempDir()
 	dir := remindersDir(root)
@@ -287,13 +263,11 @@ func TestList_PreviewIsRaw(t *testing.T) {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 	preview := rows[0].Preview
-	// Raw body is returned untruncated.
 	if preview != long {
 		t.Errorf("List should return raw body; got %q, want %q", preview, long)
 	}
 }
 
-// TestShow_ReturnBodyStripsFrontmatter verifies frontmatter is stripped.
 func TestShow_ReturnBodyStripsFrontmatter(t *testing.T) {
 	root := t.TempDir()
 	id, err := reminder.Add(root, "check the logs")
@@ -313,7 +287,6 @@ func TestShow_ReturnBodyStripsFrontmatter(t *testing.T) {
 	}
 }
 
-// TestShow_UnknownIDErrors verifies exit with error for unknown id.
 func TestShow_UnknownIDErrors(t *testing.T) {
 	root := t.TempDir()
 	_, err := reminder.Show(root, "r-ffff")
@@ -322,7 +295,6 @@ func TestShow_UnknownIDErrors(t *testing.T) {
 	}
 }
 
-// TestRm_DeletesFile verifies rm removes the reminder.
 func TestRm_DeletesFile(t *testing.T) {
 	root := t.TempDir()
 	id, err := reminder.Add(root, "to be deleted")
@@ -334,13 +306,11 @@ func TestRm_DeletesFile(t *testing.T) {
 		t.Fatalf("Rm: %v", err)
 	}
 
-	// Second rm should error.
 	if err := reminder.Rm(root, id); err == nil {
 		t.Error("second Rm of same id should return an error")
 	}
 }
 
-// TestRm_UnknownIDErrors verifies rm errors for unknown id.
 func TestRm_UnknownIDErrors(t *testing.T) {
 	root := t.TempDir()
 	if err := reminder.Rm(root, "r-0000"); err == nil {
@@ -348,8 +318,6 @@ func TestRm_UnknownIDErrors(t *testing.T) {
 	}
 }
 
-// TestAdd_DueAndTransportFlags verifies that --due and --transport values are
-// written into frontmatter when supplied.
 func TestAdd_DueAndTransportFlags(t *testing.T) {
 	root := t.TempDir()
 	due := "2026-05-24T09:00:00Z"
@@ -377,8 +345,6 @@ func TestAdd_DueAndTransportFlags(t *testing.T) {
 	}
 }
 
-// TestAdd_NoDueNoTransport verifies legacy callers (no options) still work and
-// the file does not contain due or transport keys.
 func TestAdd_NoDueNoTransport(t *testing.T) {
 	root := t.TempDir()
 	_, err := reminder.Add(root, "legacy reminder")
@@ -398,7 +364,6 @@ func TestAdd_NoDueNoTransport(t *testing.T) {
 	}
 }
 
-// TestAdd_FrontmatterKeyOrderV2 verifies the four-key order: id, created, due, transport.
 func TestAdd_FrontmatterKeyOrderV2(t *testing.T) {
 	root := t.TempDir()
 	_, err := reminder.Add(root, "order test",
@@ -426,7 +391,6 @@ func TestAdd_FrontmatterKeyOrderV2(t *testing.T) {
 	}
 }
 
-// TestAdd_InvalidDue verifies that a malformed due timestamp is rejected.
 func TestAdd_InvalidDue(t *testing.T) {
 	root := t.TempDir()
 	_, err := reminder.Add(root, "bad due", reminder.WithDue("not-a-date"))
@@ -435,7 +399,6 @@ func TestAdd_InvalidDue(t *testing.T) {
 	}
 }
 
-// TestAdd_InvalidTransport verifies that an unknown transport kind is rejected.
 func TestAdd_InvalidTransport(t *testing.T) {
 	root := t.TempDir()
 	_, err := reminder.Add(root, "bad transport", reminder.WithTransport("ftp"))
@@ -444,7 +407,6 @@ func TestAdd_InvalidTransport(t *testing.T) {
 	}
 }
 
-// TestSetDue_HappyPath verifies SetDue rewrites only the due field in place.
 func TestSetDue_HappyPath(t *testing.T) {
 	root := t.TempDir()
 	id, err := reminder.Add(root, "snooze me",
@@ -467,20 +429,17 @@ func TestSetDue_HappyPath(t *testing.T) {
 	if !strings.Contains(content, "due: "+newDue) {
 		t.Errorf("expected new due %q in file; got:\n%s", newDue, content)
 	}
-	// id, transport unchanged
 	if !strings.Contains(content, "id: "+id) {
 		t.Errorf("id field changed unexpectedly; got:\n%s", content)
 	}
 	if !strings.Contains(content, "transport: cron") {
 		t.Errorf("transport field changed unexpectedly; got:\n%s", content)
 	}
-	// old due must be gone
 	if strings.Contains(content, "due: 2026-05-24T09:00:00Z") {
 		t.Errorf("old due still present; got:\n%s", content)
 	}
 }
 
-// TestSetDue_UnknownID verifies SetDue errors on missing id.
 func TestSetDue_UnknownID(t *testing.T) {
 	root := t.TempDir()
 	err := reminder.SetDue(root, "r-ffff", "2026-05-25T09:00:00Z")
@@ -489,7 +448,6 @@ func TestSetDue_UnknownID(t *testing.T) {
 	}
 }
 
-// TestSetDue_MalformedISO verifies SetDue rejects non-RFC3339 timestamps.
 func TestSetDue_MalformedISO(t *testing.T) {
 	root := t.TempDir()
 	id, err := reminder.Add(root, "snooze me", reminder.WithDue("2026-05-24T09:00:00Z"), reminder.WithTransport("cron"))
@@ -501,8 +459,7 @@ func TestSetDue_MalformedISO(t *testing.T) {
 	}
 }
 
-// TestList_ExposeDueAndTransport verifies that Row.Due and Row.Transport are
-// populated from frontmatter when present, and zero-valued for legacy files.
+// Legacy files predate due/transport and must read back zero-valued.
 func TestList_ExposeDueAndTransport(t *testing.T) {
 	root := t.TempDir()
 	dir := remindersDir(root)
@@ -525,7 +482,6 @@ func TestList_ExposeDueAndTransport(t *testing.T) {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
 
-	// Sorted ascending by created: legacy first, modern second.
 	legacy := rows[0]
 	modern := rows[1]
 

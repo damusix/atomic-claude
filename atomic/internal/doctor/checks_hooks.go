@@ -7,11 +7,11 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 )
 
-// checkHooks implements category 2: session-start hook installed.
+// checkHooks implements category 2: session-start hook installed. Any missing
+// or legacy-wrapper registration WARNs.
 //
-// The scope root is $HOME — hooks.IsInstalled appends ".claude/settings.json"
-// to it. Passing ~/.claude here would double the segment (~/.claude/.claude),
-// which is the bug this resolves. Mirrors resolveScopeRoot("user") in main.go.
+// The scope root is $HOME, not ~/.claude: hooks.IsInstalled appends
+// ".claude/settings.json" itself, so passing ~/.claude doubles the segment.
 func checkHooks(_ Opts) Result {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -21,7 +21,7 @@ func checkHooks(_ Opts) Result {
 }
 
 // RunCheckHooksWith runs the hooks check against an explicit scopeRoot.
-// Exported for testing; production callers use checkHooks.
+// Exported for testing.
 func RunCheckHooksWith(scopeRoot string) Result {
 	installed, drifted, err := hooks.IsInstalled(scopeRoot)
 	if err != nil {

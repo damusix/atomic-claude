@@ -1,29 +1,13 @@
 package extraction
 
-// embedded_literals.go — generic config-driven string-literal harvester for
-// embedded-SQL extraction across the 16 remaining tree-sitter languages.
-//
-// HarvestEmbeddedLiterals is the single entry point. Callers supply an
-// EmbeddedLiteralConfig that encodes which tree-sitter node kinds are string
-// literals, raw-text content children, and interpolation children for the
-// target language. The algorithm then applies one of two extraction shapes:
-//
-//   Shape 1 (content-child grammars): the string node has descendant nodes
-//   whose kind ∈ ContentKinds. Walk descendants in source order; content →
-//   append its text; interpolation → append "?"; join.
-//
-//   Shape 2 (inline-content grammars): the string node carries delimiters and
-//   content inline (no raw-text child). Take the node's own source text;
-//   for each interpolation descendant in descending byte order splice "?" over
-//   its byte range; then strip a leading and trailing run of delimiter
-//   alphabet chars: " ' ` @ [ ] =
-//
-// Node types and shape assignment verified by grammar probing — see
-// docs/spec/embedded-sql-language-expansion.md § Grammar node-kind config.
-//
-// Return type note: this package cannot import extraction/standalone (cycle:
-// standalone/sql.go imports extraction). EmbeddedSpan mirrors
-// standalone.StringLiteralSpan field-for-field; the indexer (CP2) converts.
+// Generic config-driven string-literal harvester for embedded-SQL extraction.
+// Callers supply the per-language node kinds; the harvester picks a shape.
+// Shape 1 (content-child grammars): join ContentKinds descendants in source
+// order, interpolations as "?". Shape 2 (inline-content grammars): the node
+// carries its delimiters and content inline, so splice "?" over interpolation
+// byte ranges and strip the delimiter alphabet off both ends. Node kinds and
+// shape assignment come from grammar probing — see
+// docs/spec/embedded-sql-language-expansion.md.
 
 import (
 	"context"
@@ -33,44 +17,30 @@ import (
 	sitter "github.com/malivvan/tree-sitter"
 )
 
-// EmbeddedSpan holds one harvested string literal span. It mirrors
-// standalone.StringLiteralSpan field-for-field; the indexer (CP2) converts
-// between them. A separate type is required because extraction/standalone
-// imports extraction (for GenerateNodeID), so extraction cannot import
-// standalone without a cycle.
+// EmbeddedSpan mirrors standalone.StringLiteralSpan field-for-field; the
+// indexer converts. A separate type exists only because standalone imports this
+// package, so the reverse import would cycle.
 type EmbeddedSpan struct {
 	Text      string // literal content after delimiter stripping / interpolation substitution
 	StartLine int    // 1-based file-absolute line of the opening delimiter
 	EndLine   int    // 1-based file-absolute line of the closing delimiter
 }
 
-// EmbeddedLiteralConfig carries the three node-kind sets that vary per
-// language. All three are map[string]bool for O(1) membership (per project
-// preference over slice.contains).
+// EmbeddedLiteralConfig carries the node-kind sets that vary per language.
 type EmbeddedLiteralConfig struct {
-	// StringKinds: node kinds that represent top-level string literals.
-	// DFS stops recursing at a StringKinds node (avoids harvesting nested
-	// string nodes inside an already-harvested literal).
+	// StringKinds are top-level string literals. The walk stops here, so
+	// strings nested inside a harvested literal are not harvested again.
 	StringKinds map[string]bool
 
-	// ContentKinds: node kinds that carry raw literal text (no delimiters).
-	// Presence of ≥1 ContentKinds descendant inside a StringKinds node
-	// selects Shape 1.
+	// ContentKinds carry raw literal text. One such descendant selects Shape 1.
 	ContentKinds map[string]bool
 
-	// InterpKinds: node kinds that represent interpolation segments (e.g.
-	// ${…}, #{…}, \(…)). These become "?" in the harvested text.
+	// InterpKinds are interpolation segments; each becomes "?" in the text.
 	InterpKinds map[string]bool
 }
 
-// HarvestEmbeddedLiterals parses src in the given language, walks the AST,
-// and returns one EmbeddedSpan per string literal whose harvested text is
-// non-empty. Line numbers are 1-based and file-absolute.
-//
-// The caller is responsible for borrowing inst from a pool and returning it
-// after this call.
-//
-// Returns (nil, nil) when the source has no string literals.
+// HarvestEmbeddedLiterals returns one span per non-empty string literal in src.
+// Lines are 1-based and file-absolute. The caller borrows and returns inst.
 func HarvestEmbeddedLiterals(
 	ctx context.Context,
 	inst Instance,
@@ -99,8 +69,7 @@ func HarvestEmbeddedLiterals(
 	return spans, nil
 }
 
-// embWalkNode recursively walks the AST. At a StringKinds node it harvests and
-// stops recursing. Best-effort: Kind() errors skip the subtree silently.
+// embWalkNode is best-effort: a Kind() error skips the subtree silently.
 func embWalkNode(
 	ctx context.Context,
 	node sitter.Node,
@@ -122,7 +91,6 @@ func embWalkNode(
 		return // do not recurse into string children
 	}
 
-	// General descent.
 	cnt, err := node.NamedChildCount(ctx)
 	if err != nil {
 		return
@@ -136,8 +104,7 @@ func embWalkNode(
 	}
 }
 
-// embHarvestString harvests one string-literal node using Shape 1 or Shape 2.
-// Returns nil when the resulting text is empty.
+// embHarvestString applies Shape 1 or Shape 2; nil when the text comes out empty.
 func embHarvestString(
 	ctx context.Context,
 	node sitter.Node,
@@ -157,8 +124,8 @@ func embHarvestString(
 	startLine := pyByteToLine(lineOffsets, startByte)
 	endLine := pyByteToLine(lineOffsets, endByte)
 
-	// Determine shape by collecting descendants. A single pass collects both
-	// content and interpolation descendants.
+	// One pass collects both descendant sets; whether contentDescs is empty
+	// picks the shape.
 	type descNode struct {
 		kind      string
 		startByte uint64
@@ -169,8 +136,7 @@ func embHarvestString(
 	var contentDescs []descNode
 	var interpDescs []descNode
 
-	// collectDescendants walks descendants of n (excluding n itself), stopping
-	// at nested StringKinds nodes (do not harvest inside a harvested literal).
+	// Stops at nested StringKinds nodes so a harvested literal is not re-entered.
 	var collectDescendants func(n sitter.Node)
 	collectDescendants = func(n sitter.Node) {
 		cnt, err := n.NamedChildCount(ctx)
@@ -187,7 +153,6 @@ func embHarvestString(
 				continue
 			}
 			if cfg.StringKinds[childKind] {
-				// Nested string node — do not descend into it.
 				continue
 			}
 			csb, err := child.StartByte(ctx)
@@ -206,8 +171,7 @@ func embHarvestString(
 				interpDescs = append(interpDescs, descNode{childKind, csb, ceb, child})
 				continue // stop-at-leaf: do not recurse into interp nodes
 			}
-			// Recurse into non-string, non-content, non-interp nodes to find
-			// deeper content/interp descendants (e.g. PHP/Ruby heredoc bodies).
+			// Content/interp can hide under wrapper nodes (PHP/Ruby heredocs).
 			collectDescendants(child)
 		}
 	}
@@ -216,8 +180,7 @@ func embHarvestString(
 	var text string
 
 	if len(contentDescs) > 0 {
-		// Shape 1: walk all content + interp descendants in source order.
-		// Build a unified sorted list tagged with type.
+		// Shape 1: content + interp descendants merged in source order.
 		type seg struct {
 			startByte uint64
 			endByte   uint64
@@ -246,14 +209,13 @@ func embHarvestString(
 		}
 		text = strings.Join(parts, "")
 	} else {
-		// Shape 2: node's own text with interpolations spliced in descending
-		// byte order, then delimiter alphabet stripped.
+		// Shape 2: splice interps into the node's own text, descending so the
+		// remaining offsets stay valid, then strip delimiters.
 		if int(endByte) > len(src) || startByte >= endByte {
 			return nil
 		}
 		nodeSrc := src[startByte:endByte]
 
-		// Sort interp descendants in descending byte order for in-place splicing.
 		type interp struct {
 			relStart int
 			relEnd   int
@@ -275,7 +237,6 @@ func embHarvestString(
 			result = result[:ip.relStart] + "?" + result[ip.relEnd:]
 		}
 
-		// Strip leading and trailing delimiter-alphabet characters.
 		result = embStripDelimiters(result)
 		text = result
 	}
@@ -291,24 +252,18 @@ func embHarvestString(
 	}
 }
 
-// delimAlphabet is the set of characters that may appear as delimiters around
-// string content in inline-content (Shape 2) grammars.
-// Characters: double-quote, single-quote, backtick, at-sign, open-bracket,
-// close-bracket, equals.
+// delimAlphabet is the delimiter set for inline-content (Shape 2) grammars.
 const delimAlphabet = "\"'`@[]="
 
-// embStripDelimiters strips a leading run and a trailing run of delimiter
-// alphabet characters from s. SQL always begins with a letter (A-Z/a-z), so
-// the leading strip cannot eat SQL content.
+// embStripDelimiters strips delimiter runs off both ends of s. Safe because SQL
+// always begins with a letter, so the leading strip cannot eat content.
 func embStripDelimiters(s string) string {
-	// Strip leading delimiters.
 	start := 0
 	for start < len(s) && strings.ContainsRune(delimAlphabet, rune(s[start])) {
 		start++
 	}
 	s = s[start:]
 
-	// Strip trailing delimiters.
 	end := len(s)
 	for end > 0 && strings.ContainsRune(delimAlphabet, rune(s[end-1])) {
 		end--

@@ -11,46 +11,24 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 )
 
-// ProfileRef is the @-ref string that must appear in one of the candidate
-// CLAUDE.md files to wire the user profile into every Claude session.
-// Exported so tests can reference the canonical value without duplicating it.
+// ProfileRef is the @-ref that must appear in one of the candidate CLAUDE.md
+// files to wire the user profile into every Claude session.
 const ProfileRef = "@~/.atomic/profile.md"
 
-// legacyProfileRef is the pre-v6 @-ref string (profile.md under the old
-// ~/.claude/.atomic/ location). A CLAUDE.md that still carries this ref was
-// installed by a v5 bundle and needs `atomic claude install` to pick up the
-// v6 refs — the compat symlink keeps it *resolving*, but the check should
-// still nudge the user toward the current path.
+// legacyProfileRef is the pre-relocation @-ref. The compat symlink keeps it
+// resolving, so a CLAUDE.md carrying it still works — the check nudges anyway.
 const legacyProfileRef = "@~/.claude/.atomic/profile.md"
 
 // profileStaleDays is the doctor-WARN threshold for lastcheck freshness.
-//
-// INTENTIONALLY distinct from the 7-day session-start --if-stale gate:
-//   - The 7d gate keeps the environment block fresh during active use (fires on
-//     every session open; cheap file-read check).
-//   - The 30d threshold here is a longer safety net — it fires only when the
-//     user hasn't opened a Claude session (and thus hasn't run the hook) for a
-//     month or more. Implementers must NOT unify these two constants.
-//
-// (See docs/spec/user-profile.md §v2 Doctor staleness extension.)
+// Deliberately not the 7-day session-start --if-stale gate: that one keeps the
+// environment block fresh during active use, this one is the longer safety net
+// for a user who hasn't opened a session in a month. Do not unify them.
 const profileStaleDays = 30
 
-// checkProfile implements category 10: user profile wired.
-//
-// Checks four conditions against the user's home directory:
-//  1. ~/.atomic/profile.md exists on disk and is readable.
-//  2. The @~/.atomic/profile.md @-ref is present in one of the
-//     candidate files (same search order as checkRefs, but rooted at
-//     ~/.claude — the installed CLAUDE.md's home — not the git repo toplevel).
-//  3. The <deterministic lastcheck=YYYY-MM-DD> stamp inside the file is
-//     within the last 30 days (see profileStaleDays).
-//  4. None of the candidate files still carry the legacy
-//     @~/.claude/.atomic/profile.md ref (see legacyProfileRef) — a v5-bundle
-//     install that hasn't run `atomic claude install` since the v6 relocation.
-//
-// Returns PASS when all four conditions hold. WARN otherwise with detail
-// explaining which leg(s) failed. Severity: WARN (profile absence is
-// degraded experience, not a broken installation).
+// checkProfile implements category 10: user profile wired. PASS when
+// profile.md exists, its @-ref is present in a candidate file, the lastcheck
+// stamp is within profileStaleDays, and no candidate carries legacyProfileRef.
+// Any failed leg WARNs — an unwired profile is degraded, not broken.
 func checkProfile(_ Opts) Result {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -60,16 +38,15 @@ func checkProfile(_ Opts) Result {
 }
 
 // RunCheckProfileWith runs the profile check against an explicit home dir.
-// Exported for testing; production callers use checkProfile.
+// Exported for testing.
 func RunCheckProfileWith(home string) Result {
 	profilePath := config.ProfilePath(home)
-	// The installed CLAUDE.md family lives under ~/.claude — the Claude
-	// integration target (D4), separate from the ~/.atomic state root.
+	// The installed CLAUDE.md family lives under ~/.claude, not the ~/.atomic
+	// state root.
 	claudeHome := filepath.Join(home, ".claude")
 
-	// Use os.Stat for existence and os.ReadFile for content so that a file
-	// that exists but is unreadable (e.g. permissions 000) is reported as
-	// "unreadable" rather than "absent".
+	// Stat then ReadFile so an existing-but-unreadable file (mode 000) is
+	// reported as unreadable rather than absent.
 	_, statErr := os.Stat(profilePath)
 	fileExists := statErr == nil
 	var raw []byte
@@ -99,7 +76,6 @@ func RunCheckProfileWith(home string) Result {
 		}
 	}
 
-	// A file that exists but can't be read is a distinct failure from absent.
 	if fileExists && readErr != nil {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("profile.md exists but is unreadable: %v", readErr)}
 	}
@@ -117,17 +93,13 @@ func RunCheckProfileWith(home string) Result {
 		return Result{Severity: WARN, Detail: "profile.md present but @-ref not found in CLAUDE.md, claude.local.md, CLAUDE.local.md, or claude.md"}
 	}
 
-	// Leg 3: lastcheck freshness.  Both file and ref are present; check whether
-	// the <deterministic> block has been refreshed within the last 30 days.
-	// today is computed here (real clock) so tests control freshness via fixture
-	// content rather than a clock-injection seam.
+	// Real clock rather than an injected seam: tests control freshness through
+	// fixture content instead.
 	today := time.Now().Format("2006-01-02")
 	content := string(raw)
 
 	lc, ok := profile.ParseLastcheck(content)
 	if !ok {
-		// v1-format file: no lastcheck attribute.  Not a broken install — user
-		// just needs to run the refresh subcommand to stamp the attribute.
 		return Result{Severity: WARN, Detail: "profile.md has no lastcheck stamp; run `atomic profile refresh` to update the Environment section"}
 	}
 	if profile.IsStale(lc, today, profileStaleDays) {

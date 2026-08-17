@@ -1,18 +1,8 @@
 package wiki_test
 
-// CP4: tests for atomic wiki stale comparator.
-//
-// Covers every success criterion from the brief:
-//   - all fresh → exit 0, no DRIFT/STALE lines
-//   - moved HEAD on a summarized repo → exit 1 + STALE summary <path>
-//   - signals.md changed, HEAD unchanged, indexed repo cited by concern → exit 1 + STALE concern (content-hash path)
-//   - pending→indexed flip → DRIFT status line
-//   - repo added / removed → DRIFT added / DRIFT removed
-//   - missing/garbled reflects_* → stale, no crash, no exit 2
-//   - repo with no commits (no HEAD) → stale, not exit 2
-//   - hard error (wiki/ absent) → exit 2
-//   - literal DRIFT/STALE prefixes exactly
-//   - read-only: no wiki file is mutated by Stale
+// Tests for the `atomic wiki stale` comparator, covering membership drift,
+// both fingerprint paths (git HEAD and content hash), the fail-safe cases,
+// and the read-only contract.
 
 import (
 	"bytes"
@@ -28,10 +18,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// --- helpers ------------------------------------------------------------------
-
-// makeCommittedRepo creates a git repo under parent/name with one commit.
-// Returns the repo dir and the HEAD SHA.
+// makeCommittedRepo returns the repo dir and its HEAD SHA.
 func makeCommittedRepo(t *testing.T, parent, name string) (dir, sha string) {
 	t.Helper()
 	dir = filepath.Join(parent, name)
@@ -66,7 +53,6 @@ func makeCommittedRepo(t *testing.T, parent, name string) (dir, sha string) {
 	return dir, sha
 }
 
-// addCommit adds a new commit to a git repo and returns the new HEAD SHA.
 func addCommit(t *testing.T, dir string) string {
 	t.Helper()
 	f := filepath.Join(dir, "extra.txt")
@@ -88,7 +74,6 @@ func addCommit(t *testing.T, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// writeSignalsMD writes .claude/project/signals.md with the given content.
 func writeSignalsMD(t *testing.T, repoDir, content string) {
 	t.Helper()
 	p := filepath.Join(repoDir, ".claude", "project", "signals.md")
@@ -100,7 +85,6 @@ func writeSignalsMD(t *testing.T, repoDir, content string) {
 	}
 }
 
-// signalsMDSHA returns the sha256 hex of the signals.md content.
 func signalsMDSHA(t *testing.T, repoDir string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(repoDir, ".claude", "project", "signals.md"))
@@ -111,8 +95,7 @@ func signalsMDSHA(t *testing.T, repoDir string) string {
 	return fmt.Sprintf("%x", h)
 }
 
-// buildScanBlock writes the <wiki-scan> block into wiki/index.md by running
-// Scan so subsequent Stale calls have the block to parse.
+// buildScanBlock runs a real Scan, so Stale has a block to parse.
 func runScan(t *testing.T, root string) []wiki.Member {
 	t.Helper()
 	members, err := wiki.Scan(root, wiki.Options{Clock: func() time.Time {
@@ -124,7 +107,6 @@ func runScan(t *testing.T, root string) []wiki.Member {
 	return members
 }
 
-// writeSummaryFile writes a repos/<name>.md with the given reflects_rev in frontmatter.
 func writeSummaryFile(t *testing.T, wikiDir, name, reflectsRev string) string {
 	t.Helper()
 	p := filepath.Join(wikiDir, "repos", name+".md")
@@ -143,8 +125,6 @@ func writeSummaryFile(t *testing.T, wikiDir, name, reflectsRev string) string {
 	return p
 }
 
-// writeSplitSummaryFile writes a domain-split summary at
-// repos/<name>/<domain>.md with the given reflects_rev in frontmatter.
 func writeSplitSummaryFile(t *testing.T, wikiDir, name, domain, reflectsRev string) string {
 	t.Helper()
 	p := filepath.Join(wikiDir, "repos", name, domain+".md")
@@ -180,7 +160,6 @@ func patchMemberSummarized(t *testing.T, wikiDir, path, summaryRelPath string) {
 	}
 }
 
-// writeConcernFile writes a concerns/<name>.md with a reflects: list in frontmatter.
 func writeConcernFile(t *testing.T, wikiDir, name string, entries []string) string {
 	t.Helper()
 	p := filepath.Join(wikiDir, "concerns", name+".md")
@@ -201,9 +180,8 @@ func writeConcernFile(t *testing.T, wikiDir, name string, entries []string) stri
 	return p
 }
 
-// runStale calls wiki.Stale and returns (exitCode, stdout).
-// Hard errors (exit 2) are surfaced as t.Logf output; the data buffer is
-// guaranteed empty on exit-2 paths per the new contract.
+// runStale surfaces a hard error via t.Logf; the data buffer is empty on that
+// path by contract.
 func runStale(t *testing.T, root string) (int, string) {
 	t.Helper()
 	var out bytes.Buffer
@@ -224,9 +202,6 @@ func modtime(t *testing.T, path string) time.Time {
 	return fi.ModTime()
 }
 
-// --- tests --------------------------------------------------------------------
-
-// TestStale_AllFresh verifies that a fully fresh wiki emits no lines and exits 0.
 func TestStale_AllFresh(t *testing.T) {
 	root := t.TempDir()
 
@@ -253,8 +228,6 @@ func TestStale_AllFresh(t *testing.T) {
 	}
 }
 
-// TestStale_MovedHEAD verifies that a summarized repo whose HEAD moved emits
-// STALE summary <path> and exits 1.
 func TestStale_MovedHEAD(t *testing.T) {
 	root := t.TempDir()
 
@@ -305,9 +278,8 @@ func TestStale_MovedHEAD(t *testing.T) {
 	}
 }
 
-// TestStale_SignalsMDChanged_IndexedConcern is the KEY test: signals.md changes
-// on an indexed repo (HEAD unchanged) — the concern citing it must show STALE.
-// This exercises the content-hash fingerprint path.
+// An indexed repo whose signals.md changed without a new commit: only the
+// content-hash path can catch this, since HEAD has not moved.
 func TestStale_SignalsMDChanged_IndexedConcern(t *testing.T) {
 	root := t.TempDir()
 
@@ -354,7 +326,6 @@ func TestStale_SignalsMDChanged_IndexedConcern(t *testing.T) {
 	}
 }
 
-// TestStale_StatusDrift verifies that a pending→indexed flip emits DRIFT status.
 func TestStale_StatusDrift(t *testing.T) {
 	root := t.TempDir()
 
@@ -378,7 +349,6 @@ func TestStale_StatusDrift(t *testing.T) {
 	}
 }
 
-// TestStale_RepoAdded verifies that a new repo not in the block emits DRIFT added.
 func TestStale_RepoAdded(t *testing.T) {
 	root := t.TempDir()
 
@@ -400,7 +370,6 @@ func TestStale_RepoAdded(t *testing.T) {
 	}
 }
 
-// TestStale_RepoRemoved verifies that a repo in the block but gone from disk emits DRIFT removed.
 func TestStale_RepoRemoved(t *testing.T) {
 	root := t.TempDir()
 
@@ -425,8 +394,6 @@ func TestStale_RepoRemoved(t *testing.T) {
 	}
 }
 
-// TestStale_MissingReflectsRev verifies that a summarized repo file without
-// reflects_rev counts as stale (fail-safe) — no crash, no exit 2.
 func TestStale_MissingReflectsRev(t *testing.T) {
 	root := t.TempDir()
 
@@ -472,8 +439,6 @@ func TestStale_MissingReflectsRev(t *testing.T) {
 	}
 }
 
-// TestStale_GarbledReflects verifies that a concern with garbled reflects entries
-// counts as stale — no crash, no exit 2.
 func TestStale_GarbledReflects(t *testing.T) {
 	root := t.TempDir()
 
@@ -498,8 +463,6 @@ func TestStale_GarbledReflects(t *testing.T) {
 	}
 }
 
-// TestStale_NoHeadRepo verifies that a repo with no commits (no HEAD) is treated
-// as stale (always-needs-summary) but does NOT cause exit 2.
 func TestStale_NoHeadRepo(t *testing.T) {
 	root := t.TempDir()
 
@@ -552,8 +515,6 @@ func TestStale_NoHeadRepo(t *testing.T) {
 	}
 }
 
-// TestStale_HardError verifies that a missing wiki/ dir causes exit 2 with a
-// non-nil error and NO DRIFT/STALE lines written to the data buffer.
 func TestStale_HardError(t *testing.T) {
 	root := t.TempDir()
 	// Do NOT run Scan — wiki/ does not exist.
@@ -572,7 +533,6 @@ func TestStale_HardError(t *testing.T) {
 	}
 }
 
-// TestStale_LiteralPrefixes verifies that output lines use the exact required prefixes.
 func TestStale_LiteralPrefixes(t *testing.T) {
 	root := t.TempDir()
 
@@ -599,7 +559,6 @@ func TestStale_LiteralPrefixes(t *testing.T) {
 	}
 }
 
-// TestStale_ReadOnly verifies that Stale does not mutate any wiki file.
 func TestStale_ReadOnly(t *testing.T) {
 	root := t.TempDir()
 
@@ -647,9 +606,7 @@ func TestStale_ReadOnly(t *testing.T) {
 	})
 }
 
-// TestStale_ConcernNoFrontmatter verifies that a concern file with NO frontmatter
-// at all is treated as stale (exit 1 + "STALE concern"), not fresh.
-// Rationale: no recorded fingerprint baseline → can't prove freshness → re-author.
+// No baseline means freshness is unprovable, so the fail-safe is stale.
 func TestStale_ConcernNoFrontmatter(t *testing.T) {
 	root := t.TempDir()
 
@@ -683,9 +640,6 @@ func TestStale_ConcernNoFrontmatter(t *testing.T) {
 	}
 }
 
-// TestStale_ConcernNoReflectsKey verifies that a concern file with valid frontmatter
-// but no "reflects:" key is treated as stale (exit 1 + "STALE concern"), not fresh.
-// Rationale: no reflects baseline → can't verify freshness → fail-safe toward re-authoring.
 func TestStale_ConcernNoReflectsKey(t *testing.T) {
 	root := t.TempDir()
 
@@ -720,12 +674,8 @@ func TestStale_ConcernNoReflectsKey(t *testing.T) {
 	}
 }
 
-// TestStale_ShapeMatrixAllFresh is the C3 centerpiece: it builds a realm
-// covering all four rows of the spec's shape matrix — root+flat, root+split,
-// nested+split, nested+flat — stamps every summary to its member's HEAD, and
-// asserts Stale reports fresh with zero output. Before the fix, only
-// root+domain-split (the "beta" member here) passed; the other three
-// resolved to a nonexistent repoDir and reported a false STALE summary.
+// All four member-location x summary-layout shapes at once: three of them
+// used to resolve to a nonexistent repo dir and report a false STALE.
 func TestStale_ShapeMatrixAllFresh(t *testing.T) {
 	root := t.TempDir()
 
@@ -760,10 +710,7 @@ func TestStale_ShapeMatrixAllFresh(t *testing.T) {
 	}
 }
 
-// TestStale_ShapeMatrixOneMovedHEAD is the companion to the shape-matrix
-// test: starting from the all-fresh realm, only one member's HEAD moves, and
-// only that member's summary is reported stale — the other three shapes
-// stay fresh.
+// One HEAD moves in the same four-shape realm; only that summary goes stale.
 func TestStale_ShapeMatrixOneMovedHEAD(t *testing.T) {
 	root := t.TempDir()
 

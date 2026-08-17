@@ -26,9 +26,8 @@ func buildRealmGraph(t *testing.T, files map[string]string) (string, *serve.Grap
 	return root, serve.BuildLinkGraph(root)
 }
 
-// TestWikilink_ResolvedBecomesHtmxLink reproduces the user's exact case: a
-// tickets page links two knowledge pages by bare wikilink. Both must render as
-// in-shell htmx links to the resolved /page/ route, not as literal [[…]] text.
+// A page carrying two bare wikilinks must render both as links to the resolved
+// /page/ route, not as literal [[…]] text.
 func TestWikilink_ResolvedBecomesHtmxLink(t *testing.T) {
 	page := "tickets/012-directus-editorial-cms.md"
 	root, g := buildRealmGraph(t, map[string]string{

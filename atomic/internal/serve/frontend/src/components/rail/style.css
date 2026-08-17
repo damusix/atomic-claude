@@ -264,3 +264,674 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ============================================================
+   INSPECTOR — tabbed rail (Overview / Links / Graph)
+   ============================================================ */
+
+/* The rail is a fixed-height column: the tab strip pins, the panel scrolls.
+   Without this the 49-link list grew the aside and scrolled the whole rail,
+   taking the tab strip off-screen with it. */
+#right-rail:has(.rail-tabs) {
+  padding: 0;
+  overflow: hidden;
+}
+
+.rail-tabs {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.rail-tab-list {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  gap: 2px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.rail-tab {
+  padding: 13px 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+
+.rail-tab:hover {
+  color: var(--ink-soft);
+}
+
+.rail-tab[data-selected] {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.rail-tab-count {
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.rail-tab[data-selected] .rail-tab-count {
+  background: var(--amber-wash);
+  color: var(--amber);
+}
+
+.rail-tab-indicator {
+  position: absolute;
+  bottom: -1px;
+  height: 1.5px;
+  background: var(--amber);
+}
+
+.rail-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 16px 40px;
+}
+
+/* Section rhythm. The label carries the gap above its own group, so the
+   spacing follows the heading wherever a section is moved to — zeroed only
+   when the label is the first thing in the panel and has nothing to separate
+   itself from. */
+.rail-panel .rail-slot-label {
+  margin-top: 30px;
+}
+
+.rail-panel > .rail-slot-label:first-child,
+.rail-panel > section:first-child > .rail-slot-label:first-child {
+  margin-top: 0;
+}
+
+/* A page with no frontmatter hides the properties section (app.css), which
+   leaves the next label separating itself from nothing. */
+#rail-props:has(.rail-slot-content:empty) + .rail-slot-label {
+  margin-top: 0;
+}
+
+.rail-panel-graph {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ark hides an unselected panel with the `hidden` attribute, whose UA
+   display:none loses to the class rule above — without this the graph panel
+   keeps its box on every tab and squeezes whatever is actually selected. */
+.rail-panel[hidden] {
+  display: none;
+}
+
+/* Relationship counts — the summary the old flat list buried. */
+.rail-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.rail-stat {
+  padding: 9px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: var(--paper-raised);
+}
+
+.rail-stat b {
+  display: block;
+  margin-bottom: 1px;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.rail-stat span {
+  color: var(--ink-faint);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+
+/* Link rows: filename first, parent directory as muted context. The raw
+   authored specifier ("../../..", "../spec/x.md") is kept in the title
+   attribute — it is provenance, not a label. */
+.rail-edge-list li {
+  margin-bottom: 1px;
+}
+
+.rail-edge {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  text-decoration: none;
+  transition: background 0.12s;
+}
+
+a.rail-edge:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.rail-edge-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.rail-edge-context {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--ink-ghost);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+/* A directory link resolves to a listing page, so it needs to read
+   differently from a file of the same name. */
+.rail-edge-glyph {
+  flex-shrink: 0;
+  color: var(--ink-ghost);
+}
+
+/* ============================================================
+   LINK FILTERS — search + type chips
+   ============================================================ */
+
+.rail-filters {
+  margin-bottom: 6px;
+}
+
+.rail-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.rail-search-input {
+  width: 100%;
+  padding: 6px 24px 6px 9px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 7px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 11.5px;
+}
+
+.rail-search-input::placeholder {
+  color: var(--ink-ghost);
+}
+
+.rail-search-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--amber) 55%, var(--hairline-2));
+}
+
+/* The native search decoration is inconsistent across browsers and cannot be
+   themed; the clear button beside it is ours. */
+.rail-search-input::-webkit-search-decoration,
+.rail-search-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.rail-search-clear {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.rail-search-clear:hover {
+  color: var(--ink);
+}
+
+.rail-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.rail-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.rail-kind:hover {
+  color: var(--ink);
+  border-color: var(--ink-ghost);
+}
+
+.rail-kind[data-on] {
+  border-color: color-mix(in srgb, var(--amber) 55%, var(--hairline-2));
+  background: var(--amber-wash);
+  color: var(--amber);
+}
+
+.rail-kind-count {
+  color: var(--ink-ghost);
+}
+
+.rail-kind[data-on] .rail-kind-count {
+  color: var(--amber);
+}
+
+.rail-filter-result {
+  margin: 8px 0 0;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+
+/* ============================================================
+   CONTENTS — the on-page heading tree
+   ============================================================ */
+
+.rail-toc {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  border-left: 1px solid var(--hairline);
+}
+
+/* Link states pinned: app.css's site-wide `a:visited` (0,1,1) outranks a
+   bare class, so a heading you had jumped to once rendered amber forever —
+   indistinguishable from the section you are actually in. */
+.rail-toc-link,
+.rail-toc-link:link,
+.rail-toc-link:visited {
+  display: block;
+  padding: 3px 8px;
+  border-radius: 5px;
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  line-height: 1.4;
+  text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+
+.rail-toc-link:hover,
+.rail-toc-link:link:hover,
+.rail-toc-link:visited:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink);
+}
+
+/* Depth reads through weight as well as indent, so the shape of a document
+   survives when several sibling headings wrap onto two lines. */
+.rail-toc-link[data-level="1"],
+.rail-toc-link[data-level="1"]:visited {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.rail-toc-link[data-level="2"],
+.rail-toc-link[data-level="2"]:visited {
+  font-weight: 500;
+}
+
+.rail-toc-link[data-level="4"],
+.rail-toc-link[data-level="4"]:visited {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+/* ============================================================
+   JSON PROPERTY VALUES
+   ============================================================ */
+
+.rail-json {
+  position: relative;
+}
+
+/* Capped: a sources: list of forty entries would otherwise push the whole
+   rail down. The dialog carries the full value. */
+.rail-json .rail-prop-json {
+  max-height: 132px;
+  margin: 0;
+  overflow: hidden;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+/* Fades the clipped edge so a cut-off value reads as continuing rather than
+   as having ended there. */
+.rail-json::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 22px;
+  left: 0;
+  height: 30px;
+  background: linear-gradient(transparent, var(--paper-sunk));
+  pointer-events: none;
+}
+
+.rail-json-expand {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.rail-json-expand:hover {
+  background: rgb(0 0 0 / 0.3);
+  color: var(--ink);
+}
+
+.rail-json-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.rail-json-positioner {
+  position: fixed;
+  inset: 0;
+  z-index: 81;
+  display: grid;
+  place-items: center;
+  padding: 40px;
+}
+
+.rail-json-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 100%);
+  max-height: 80vh;
+  border: 1px solid var(--hairline-2);
+  border-radius: 12px;
+  background: var(--paper-raised);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 0.4);
+  overflow: hidden;
+}
+
+.rail-json-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.rail-json-dialog-title {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.rail-json-dialog-close {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rail-json-dialog-close:hover {
+  color: var(--ink);
+}
+
+.rail-json-dialog-body {
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* Token colours reuse the graph ramps rather than introducing a code theme:
+   these are short values in a sidebar, not a source listing. */
+.json-key {
+  color: var(--amber);
+}
+
+.json-string {
+  color: var(--c-domain-ink, var(--ink-soft));
+}
+
+.json-number,
+.json-boolean {
+  color: var(--c-repo-ink, var(--ink));
+}
+
+.json-null {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.json-punct {
+  color: var(--ink-ghost);
+}
+
+/* The count doubles as the expand control, so it is a real button: centered,
+   full width, and it keeps the muted mono voice it had as a caption. */
+.rail-edge-more {
+  display: block;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.rail-edge-more:hover {
+  background: rgb(0 0 0 / 0.3);
+  color: var(--ink);
+}
+
+.rail-edge-more:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: -1px;
+}
+
+/* The graph tab is the one place the mini-graph has room to be legible. The
+   carried card treatment was scoped to #rail-graph-content, which the tabbed
+   rail no longer renders — restated here against the mount container itself. */
+.rail-panel-graph [data-rail-graph-url] {
+  flex: 1;
+  min-height: 320px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 10px;
+  background: var(--graph-bg);
+  box-shadow: inset 0 1px 3px color-mix(in srgb, var(--ink) 4%, transparent);
+  transition: background-color 0.35s ease, border-color 0.35s ease;
+}
+
+/* --- Schema rail: directories and the files inside them --- */
+
+.rail-schema {
+  height: 100%;
+  overflow-y: auto;
+  padding: 18px 14px 40px;
+}
+
+.rail-schema-total {
+  margin-left: 8px;
+  color: var(--ink-ghost);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.rail-schema-list,
+.rail-schema-children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rail-schema-list {
+  margin-top: 10px;
+}
+
+.rail-schema-children {
+  margin-bottom: 14px;
+}
+
+/* :link/:visited pinned explicitly — a bare class loses to the global
+   a:visited rule, which would colour every followed entry as if it were the
+   active one. */
+.rail-schema-link,
+.rail-schema-link:link,
+.rail-schema-link:visited {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border-bottom: 0;
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+
+.rail-schema-link:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink);
+}
+
+/* The directory is a divider, the file is the destination — so the directory
+   reads as a heading and the files under it read as the list. */
+.rail-schema-link[data-depth="0"],
+.rail-schema-link[data-depth="0"]:link,
+.rail-schema-link[data-depth="0"]:visited {
+  margin-top: 4px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rail-schema-link[data-depth="1"],
+.rail-schema-link[data-depth="1"]:link,
+.rail-schema-link[data-depth="1"]:visited {
+  padding-left: 12px;
+}
+
+.rail-schema-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-schema-count {
+  margin-left: auto;
+  color: var(--ink-ghost);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+/* Mini-graph key. Compact and wrapping — the rail is 300px, and this sits
+   under a graph that already takes most of the panel. */
+.mini-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 9px;
+  margin: 8px 0 0;
+  padding: 8px 2px 0;
+  border-top: 1px solid var(--hairline);
+  list-style: none;
+}
+
+.mini-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+
+.mini-legend-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+
+/* Direction key swatch: a line, because that is what it describes. */
+.mini-legend-line {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.mini-legend + .mini-legend {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 0;
+}
+
+/* Open button on the preview card. The card is click-opened and sticky, so
+   unlike a hover tooltip it can hold a control the pointer has to travel to. */
+.cy-pc-open {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 5px 9px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 6px;
+  background: var(--paper-sunk);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cy-pc-open:hover {
+  border-color: color-mix(in srgb, var(--amber) 55%, var(--hairline-2));
+  color: var(--amber);
+}

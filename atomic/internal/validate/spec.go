@@ -11,21 +11,15 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 )
 
-// checkpointsRequiredColumns are the four required columns for the S5 Checkpoints
-// table, which must appear as an ordered subsequence in the header row. Extra
-// columns (e.g. "Agent", "Est. files") are allowed between or after them.
+// checkpointsRequiredColumns must appear in the header row as an ordered
+// subsequence; extra columns may sit between or after them.
 var checkpointsRequiredColumns = []string{"#", "Checkpoint", "Files/areas", "Verifies"}
 
-// RunSpecRules runs S0/S1/S5/S6 on a single markdown file given its content.
-// path is used for Finding.Path only (no filesystem access). Returns findings
-// sorted by (Path, Line, Rule) and any parsing error.
-//
-// Exported so tests can inspect per-rule findings independently of the CLI
-// dispatch layer.
+// RunSpecRules runs the spec-structure rules over one file's content. path
+// feeds Finding.Path only — nothing is read from disk.
 func RunSpecRules(path string, src []byte) ([]Finding, error) {
 	var findings []Finding
 
-	// S0: ATX headings only.
 	if !mdparse.IsATXOnly(src) {
 		findings = append(findings, Finding{
 			Severity: "FAIL",
@@ -34,8 +28,8 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 			Line:     0,
 			Message:  "file contains Setext-style headings; use ATX headings only (# ## ###)",
 		})
-		// S0 failure: mdparse section parsing is unreliable on Setext docs.
-		// Return early — S1/S5/S6 results would be meaningless.
+		// Section parsing is unreliable on Setext docs, so the later rules
+		// would report noise.
 		return findings, nil
 	}
 
@@ -44,7 +38,6 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
-	// S1: File must start with # <title> (H1) at line 1.
 	s1ok := false
 	if len(sections) > 0 && sections[0].Level == 1 && sections[0].Start == 1 {
 		s1ok = true
@@ -59,7 +52,6 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 		})
 	}
 
-	// S5: Must have ## Checkpoints section with exact table header.
 	var checkpointsSection *mdparse.Section
 	for i := range sections {
 		if sections[i].Level == 2 && sections[i].Heading == "Checkpoints" {
@@ -76,7 +68,6 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 			Message:  "missing `## Checkpoints` section",
 		})
 	} else {
-		// Section exists — check the table header within its line range.
 		found, line, err := findTableInSection(src, checkpointsSection, checkpointsRequiredColumns)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s S5: %w", path, err)
@@ -94,7 +85,6 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 		}
 	}
 
-	// S6: Must have ## Change log section (body may be empty).
 	var hasChangeLog bool
 	for _, s := range sections {
 		if s.Level == 2 && s.Heading == "Change log" {
@@ -116,17 +106,14 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 	return findings, nil
 }
 
-// findTableInSection looks for a table whose header contains requiredCols as an
-// ordered subsequence within sec's line range in src. Returns found=true if a
-// matching table exists inside the section.
+// findTableInSection looks within sec's line range for a table whose header
+// contains requiredCols as an ordered subsequence.
 func findTableInSection(src []byte, sec *mdparse.Section, requiredCols []string) (bool, int, error) {
-	// Extract the section's source bytes by line range.
 	sectionSrc := extractLines(src, sec.Start, sec.End)
 	found, lineInSection, err := mdparse.FindTableByRequiredColumns(sectionSrc, requiredCols)
 	if err != nil {
 		return false, 0, err
 	}
-	// Adjust line number back to global coordinates.
 	var globalLine int
 	if found {
 		globalLine = sec.Start + lineInSection - 1
@@ -134,8 +121,8 @@ func findTableInSection(src []byte, sec *mdparse.Section, requiredCols []string)
 	return found, globalLine, nil
 }
 
-// extractLines returns the bytes of src from lines [start, end] inclusive
-// (1-indexed). If end is 0, returns to end of file.
+// extractLines returns lines [start, end] of src, 1-indexed and inclusive. An
+// end of 0 runs to EOF.
 func extractLines(src []byte, start, end int) []byte {
 	lines := splitLines(src)
 	if start < 1 {
@@ -147,7 +134,6 @@ func extractLines(src []byte, start, end int) []byte {
 	if start > len(lines) {
 		return nil
 	}
-	// Rejoin the relevant lines.
 	var out []byte
 	for i := start - 1; i < end && i < len(lines); i++ {
 		out = append(out, lines[i]...)
@@ -156,7 +142,6 @@ func extractLines(src []byte, start, end int) []byte {
 	return out
 }
 
-// splitLines splits src into individual lines (without trailing newlines).
 func splitLines(src []byte) [][]byte {
 	var lines [][]byte
 	start := 0
@@ -172,12 +157,9 @@ func splitLines(src []byte) [][]byte {
 	return lines
 }
 
-// runSpec is the spec validator entry point. Implements CP-5 rule logic.
 func runSpec(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
-	// Second flag parse on subArgs to honor flags placed after the subcommand
-	// (F-1 fix). Pre-existing top-level flags (jsonOut, suggest) already win
-	// since they were parsed first; sub-flags only fill gaps where top-level
-	// left them false.
+	// Re-parsed so flags placed after the subcommand are honored; top-level
+	// flags already won, so these only fill gaps left false.
 	subFS := flag.NewFlagSet("validate spec", flag.ContinueOnError)
 	cliutil.SetUsage(subFS, "atomic validate spec [--json] [--suggest]")
 	subFS.SetOutput(w)
@@ -187,7 +169,6 @@ func runSpec(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 	_ = subFS.Parse(subArgs)
 	paths := subFS.Args()
 
-	// Merge: OR the two parses — either source sets the flag.
 	if subJSON {
 		jsonOut = true
 	}
@@ -196,7 +177,6 @@ func runSpec(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 	}
 
 	if len(paths) == 0 {
-		// Glob docs/spec/*.md from repo root.
 		cwd, err := os.Getwd()
 		if err != nil {
 			fmt.Fprintf(w, "atomic validate spec: cannot get working directory: %v\n", err)
@@ -238,7 +218,6 @@ func runSpec(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 	s := summarize(all)
 
 	if jsonOut {
-		// No header in JSON mode — JSON envelope is the only UI chrome.
 		printJSON(w, all, s)
 	} else {
 		printHeader(w, "spec", "structural integrity")

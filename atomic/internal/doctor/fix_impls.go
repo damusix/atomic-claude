@@ -11,22 +11,18 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 )
 
-// resolveClaudeHome returns the resolved ~/.claude path.
 func resolveClaudeHome() (string, error) {
 	return claudeinstall.ResolveTarget("~/.claude")
 }
 
-// resolveHome returns the user's home directory — the root of atomic-owned
-// config state (~/.atomic), distinct from resolveClaudeHome's ~/.claude
-// install-target root.
+// resolveHome returns the root of atomic-owned config state (~/.atomic),
+// distinct from resolveClaudeHome's ~/.claude install target.
 func resolveHome() (string, error) {
 	return os.UserHomeDir()
 }
 
-// applyInstallRepair runs claudeinstall.Install (which is idempotent) against ~/.claude.
-// This mirrors `atomic claude install --merge` behavior: unchanged files are no-ops,
-// changed files get backed up and overwritten, CLAUDE.md gets block-aware handling
-// (in-place <atomic> block replacement, or the proposed-file path when no block parses).
+// applyInstallRepair mirrors `atomic claude install --merge`: idempotent, so
+// unchanged files no-op and changed ones are backed up before being overwritten.
 func applyInstallRepair(targetDir, home string) error {
 	plan, err := claudeinstall.Install(targetDir, home, false, claudeinstall.RealClock)
 	if err != nil {
@@ -41,7 +37,6 @@ func applyHooksRepair() error {
 	if err != nil {
 		return fmt.Errorf("resolve home: %w", err)
 	}
-	// Repo root for the hook script: we use the cwd's git toplevel.
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("resolve cwd: %w", err)
@@ -50,7 +45,6 @@ func applyHooksRepair() error {
 	return hooks.Install(repoRoot, home)
 }
 
-// defaultInstallRepair is the production install repair: prints the command then applies.
 func defaultInstallRepair(out io.Writer) error {
 	fmt.Fprintln(out, "$ atomic claude install --merge")
 	target, err := resolveClaudeHome()
@@ -64,20 +58,18 @@ func defaultInstallRepair(out io.Writer) error {
 	return applyInstallRepair(target, home)
 }
 
-// defaultHooksRepair is the production hooks repair: prints the command then applies.
 func defaultHooksRepair(out io.Writer) error {
 	fmt.Fprintln(out, "$ atomic hooks install")
 	return applyHooksRepair()
 }
 
-// defaultFollowupsRenderRepair shells out to `atomic followups render`.
 func defaultFollowupsRenderRepair(out io.Writer) error {
 	fmt.Fprintln(out, "$ atomic followups render")
 	return applyFollowupsRenderRepair(out)
 }
 
-// applyFollowupsRenderRepair runs `atomic followups render` from the git toplevel,
-// streaming combined output to out.
+// applyFollowupsRenderRepair shells out from the git toplevel, streaming
+// combined output to out.
 func applyFollowupsRenderRepair(out io.Writer) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -94,15 +86,13 @@ func applyFollowupsRenderRepair(out io.Writer) error {
 	return nil
 }
 
-// defaultManifestRepair is the production manifest repair: prints the command then applies,
-// streaming make's combined output to out.
 func defaultManifestRepair(out io.Writer) error {
 	fmt.Fprintln(out, "$ make -C atomic bundle")
 	return applyManifestRepair(out)
 }
 
-// applyManifestRepair runs `make -C atomic bundle` from the git toplevel,
-// streaming combined stdout+stderr to out.
+// applyManifestRepair shells out from the git toplevel, streaming combined
+// stdout+stderr to out.
 func applyManifestRepair(out io.Writer) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -118,10 +108,4 @@ func applyManifestRepair(out io.Writer) error {
 		return fmt.Errorf("make -C atomic bundle: %w", err)
 	}
 	return nil
-}
-
-// defaultConfigRepair re-renders config.resolved.md from the current TOML.
-// Called by Repairer.ConfigFn in production.
-func defaultConfigRepair(home string) error {
-	return RunConfigRepairWith(home)
 }

@@ -16,6 +16,10 @@ export interface NavGroup {
 
 export interface NavResponse {
   scope: "realm" | "repo";
+  /** Directory name of the resolved scope root — what the header's chip shows. */
+  name: string;
+  /** Checked-out git branch at that root; empty when there isn't one. */
+  branch: string;
   groups: NavGroup[];
 }
 

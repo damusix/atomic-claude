@@ -10,13 +10,11 @@ import (
 	"strings"
 )
 
-// manifestHandler maps a base filename to its parser.
 type manifestHandler struct {
 	name    string
 	parseFn func(absPath, relPath string) (string, error)
 }
 
-// manifestHandlers lists all supported manifest types by base filename.
 var manifestHandlers = []manifestHandler{
 	{"Cargo.toml", func(p, rel string) (string, error) { return parseCargoTOML(p, rel) }},
 	{"Gemfile", func(p, rel string) (string, error) { return parseGemfile(p, rel) }},
@@ -28,7 +26,6 @@ var manifestHandlers = []manifestHandler{
 	{"requirements.txt", func(p, rel string) (string, error) { return parseRequirementsTXT(p, rel) }},
 }
 
-// handlerByName provides O(1) lookup for manifest parsers.
 var handlerByName = func() map[string]func(absPath, relPath string) (string, error) {
 	m := make(map[string]func(absPath, relPath string) (string, error), len(manifestHandlers))
 	for _, h := range manifestHandlers {
@@ -37,16 +34,13 @@ var handlerByName = func() map[string]func(absPath, relPath string) (string, err
 	return m
 }()
 
-// ManifestEntry holds the display line for one detected manifest.
 type ManifestEntry struct {
 	relPath string // repo-relative path (e.g. "atomic/go.mod")
 	line    string
 }
 
-// ScanManifests detects and extracts key fields from known manifests anywhere
-// in the repo (not just the root). Uses enumerateFiles as the source of truth
-// so that git-tracked manifests in subdirectories (e.g. atomic/go.mod) appear.
-// Returns a sorted (by relPath) multi-line string, one bullet per manifest.
+// ScanManifests finds manifests anywhere in the repo, not just the root, so a
+// tracked subdirectory go.mod appears. One bullet per manifest, sorted by path.
 func ScanManifests(root string) (string, error) {
 	files, err := enumerateFiles(root)
 	if err != nil {
@@ -68,7 +62,6 @@ func ScanManifests(root string) (string, error) {
 		entries = append(entries, ManifestEntry{relPath: rel, line: line})
 	}
 
-	// Sort by repo-relative path for deterministic output.
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].relPath < entries[j].relPath
 	})
@@ -80,7 +73,6 @@ func ScanManifests(root string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-// parsePackageJSON extracts name, version, and script names.
 func parsePackageJSON(path, rel string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -113,7 +105,6 @@ func parsePackageJSON(path, rel string) (string, error) {
 	return rel + ": " + strings.Join(parts, ", "), nil
 }
 
-// parseGoMod extracts module path and Go version using simple line scanning.
 func parseGoMod(path, rel string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -146,7 +137,6 @@ func parseGoMod(path, rel string) (string, error) {
 	return rel + ": " + strings.Join(parts, ", "), nil
 }
 
-// parseCargoTOML extracts package name and version using line regex.
 func parseCargoTOML(path, rel string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -189,8 +179,7 @@ func parseCargoTOML(path, rel string) (string, error) {
 	return rel + ": " + strings.Join(parts, ", "), nil
 }
 
-// parsePyprojectTOML extracts project name and version.
-// Tries [project] table first, falls back to [tool.poetry].
+// parsePyprojectTOML prefers [project], falling back to [tool.poetry].
 func parsePyprojectTOML(path, rel string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -232,7 +221,6 @@ func parsePyprojectTOML(path, rel string) (string, error) {
 		return "", err
 	}
 
-	// Prefer [project] over [tool.poetry].
 	var name, ver string
 	if te := tables["[project]"]; te.name != "" || te.ver != "" {
 		name, ver = te.name, te.ver
@@ -250,7 +238,6 @@ func parsePyprojectTOML(path, rel string) (string, error) {
 	return rel + ": " + strings.Join(parts, ", "), nil
 }
 
-// parseRequirementsTXT counts pinned packages (non-comment, non-blank lines).
 func parseRequirementsTXT(path, rel string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -273,7 +260,6 @@ func parseRequirementsTXT(path, rel string) (string, error) {
 	return rel + ": packages=" + strconv.Itoa(count), nil
 }
 
-// parseGemfile counts declared gems (lines starting with "gem ").
 func parseGemfile(path, rel string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -295,9 +281,8 @@ func parseGemfile(path, rel string) (string, error) {
 	return rel + ": gems=" + strconv.Itoa(count), nil
 }
 
-// parseComposerJSON extracts name and script names.
-// Scripts values may be strings or arrays, so we decode into json.RawMessage
-// and extract keys only.
+// parseComposerJSON decodes scripts as json.RawMessage: the values may be
+// strings or arrays, and only the keys are needed.
 func parseComposerJSON(path, rel string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -326,7 +311,6 @@ func parseComposerJSON(path, rel string) (string, error) {
 	return rel + ": " + strings.Join(parts, ", "), nil
 }
 
-// parsePomXML extracts artifactId and version using simple string search.
 func parsePomXML(path, rel string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -347,7 +331,7 @@ func parsePomXML(path, rel string) (string, error) {
 	return rel + ": " + strings.Join(parts, ", "), nil
 }
 
-// extractXMLTag returns the first text content of <tag>...</tag> using simple string search.
+// extractXMLTag returns the first text content of <tag>...</tag>.
 func extractXMLTag(content, tag string) string {
 	open := "<" + tag + ">"
 	close := "</" + tag + ">"
@@ -363,14 +347,12 @@ func extractXMLTag(content, tag string) string {
 	return strings.TrimSpace(content[start : start+end])
 }
 
-// extractTOMLValue parses a TOML key = "value" or key = value line.
 func extractTOMLValue(line string) string {
 	idx := strings.Index(line, "=")
 	if idx < 0 {
 		return ""
 	}
 	val := strings.TrimSpace(line[idx+1:])
-	// Strip surrounding quotes.
 	if len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"' {
 		return val[1 : len(val)-1]
 	}

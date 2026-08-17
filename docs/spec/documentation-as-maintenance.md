@@ -8,7 +8,7 @@ Replace the hardcoded artifact-index-updating behavior of `/documentation` and `
 
 ## Non-goals
 
-- Replacing `atomic-writing` (voice/tone for narrative docs stays there).
+- Replacing `atomic-writing` (voice and tone for file contents stays there).
 - Auto-committing documentation changes (edits are staged; user commits via ship verb).
 - Bootstrapping docs from zero for undocumented projects (that's `/atomic-plan` territory).
 - Non-markdown doc formats (Confluence, Notion, Google Docs).
@@ -186,7 +186,7 @@ Add to `claude.local.md`:
 | `docs/reference/skills.md` | skills reference table | atomic-writing |
 | `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-writing |
 | `docs/reference/output-style.md` | atomic output style reference | atomic-writing |
-| `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
+| `CLAUDE.md` | global contract, agent/command/skill registry | atomic-writing |
 ```
 
 

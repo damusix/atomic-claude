@@ -10,19 +10,13 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
 
-// fixedClock returns a fixed timestamp for internal snapshot tests.
 func fixedClock() time.Time {
 	return time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 }
 
-// TestWritePreInstallSnapshot_CustomManifest directly exercises writePreInstallSnapshot
-// with a controlled artifact list. This is more targeted than TestSnapshotCreatedOnFirstInstall
-// (which goes through the full Install flow) — it verifies the core snapshot logic in
-// isolation and catches regressions in the write-once guard without coupling to Install().
 func TestWritePreInstallSnapshot_CustomManifest(t *testing.T) {
 	targetDir := t.TempDir()
 
-	// Pre-populate one artifact on disk so Existed=true is exercised.
 	existingRelPath := "agents/atomic-builder.md"
 	existingContent := []byte("# atomic-builder agent")
 	existingOnDisk := filepath.Join(targetDir, filepath.FromSlash(existingRelPath))
@@ -33,7 +27,6 @@ func TestWritePreInstallSnapshot_CustomManifest(t *testing.T) {
 		t.Fatalf("write existing file: %v", err)
 	}
 
-	// One artifact exists, one does not.
 	artifacts := []embedded.Artifact{
 		{Target: existingRelPath, SHA256: "irrelevant-for-snapshot"},
 		{Target: "agents/atomic-surgeon.md", SHA256: "also-irrelevant"},
@@ -43,7 +36,6 @@ func TestWritePreInstallSnapshot_CustomManifest(t *testing.T) {
 		t.Fatalf("writePreInstallSnapshot: %v", err)
 	}
 
-	// Read back and assert the manifest.
 	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
 	manifestPath := filepath.Join(preInstallDir, "manifest.json")
 	data, err := os.ReadFile(manifestPath)
@@ -60,13 +52,11 @@ func TestWritePreInstallSnapshot_CustomManifest(t *testing.T) {
 		t.Error("Created timestamp is zero")
 	}
 
-	// Build a lookup for assertions.
 	byPath := make(map[string]PreInstallFile, len(m.Files))
 	for _, f := range m.Files {
 		byPath[f.Path] = f
 	}
 
-	// Pre-existing file must be Existed=true with a non-empty SHA and a copy on disk.
 	existing, ok := byPath[existingRelPath]
 	if !ok {
 		t.Fatalf("manifest missing entry for %q", existingRelPath)
@@ -82,7 +72,6 @@ func TestWritePreInstallSnapshot_CustomManifest(t *testing.T) {
 		t.Errorf("pre-install copy not created at %s: %v", snappedCopy, err)
 	}
 
-	// Absent file must be Existed=false with empty SHA.
 	absentRelPath := "agents/atomic-surgeon.md"
 	absent, ok := byPath[absentRelPath]
 	if !ok {
@@ -96,8 +85,6 @@ func TestWritePreInstallSnapshot_CustomManifest(t *testing.T) {
 	}
 }
 
-// TestWritePreInstallSnapshot_WriteOnce verifies calling writePreInstallSnapshot twice
-// leaves the first manifest untouched (write-once semantics enforced at the dir level).
 func TestWritePreInstallSnapshot_WriteOnce(t *testing.T) {
 	targetDir := t.TempDir()
 
@@ -126,7 +113,6 @@ func TestWritePreInstallSnapshot_WriteOnce(t *testing.T) {
 		t.Fatalf("unmarshal manifest: %v", err)
 	}
 
-	// Must reflect the first clock, not the second.
 	want := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	if !m.Created.Equal(want) {
 		t.Errorf("Created = %v, want %v (write-once: second call must not overwrite)", m.Created, want)

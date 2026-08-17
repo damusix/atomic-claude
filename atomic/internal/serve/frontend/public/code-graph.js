@@ -83,6 +83,20 @@ window.CodeGraph = (function() {
     other: 'gray'
   };
 
+  // Shape per group, a second channel alongside hue (cosmos point-shape
+  // indices — see POINT_SHAPE in utils/typeColors.ts). callable keeps the
+  // circle: it is the bulk of any code graph, so it gets the quietest mark.
+  var GROUP_SHAPE = {
+    callable: 0,        // circle
+    'module-file': 5,   // hexagon
+    'type': 3,          // diamond
+    value: 1,           // square
+    'sql-data': 2,      // triangle
+    'sql-routine': 4,   // pentagon
+    'import-export': 6, // star
+    other: 7            // cross
+  };
+
   // colors() re-reads the --cc-*/--ramp-* CSS vars on every call (never
   // cached) so a theme flip picks up the new values — same contract
   // graph-core.js's applyStyling expects from every profile.colors().
@@ -95,11 +109,13 @@ window.CodeGraph = (function() {
     var out = {};
     Object.keys(GROUP_HUE).forEach(function(group) {
       var hue = GROUP_HUE[group];
-      out[group] = v('--cc-' + group) || ramps[hue + '-2'];
-      // Full 5-shade bright ramp for this group — degree-quintile shading
-      // indexes into this (graph-core.js's computeNodeColors; quintile
-      // 1..5 maps to index 0..4).
-      out[group + '-ramp'] = [1, 2, 3, 4, 5].map(function(n) { return ramps[hue + '-' + n]; });
+      // Vivid band, not bright: this canvas is near-black and the marks are a
+      // few pixels each, where a muted fill has too little area to carry its
+      // hue. The --cc-<group> var is no longer consulted for the node fill —
+      // nodes and legend chip have to be the same color, and the chip is
+      // drawn from this same entry.
+      out[group + '-ramp'] = [1, 2, 3, 4, 5].map(function(n) { return ramps[hue + '-vivid-' + n]; });
+      out[group] = out[group + '-ramp'][2];
     });
     out['default-fill'] = out['other'];
     out['default-ramp'] = out['other-ramp'];
@@ -171,22 +187,37 @@ window.CodeGraph = (function() {
   // item 4: "contains edges in the code view stay the faintest tier") — only
   // the three tiers above it move, alongside the --edge/--edge-strong
   // brightening in app.css.
-  var CONTAINS_ALPHA = 0.18, CONTAINS_WIDTH = 0.5;
-  var CALLS_ALPHA = 1, CALLS_WIDTH = 1.75;
-  var IMPORTS_ALPHA = 0.8, IMPORTS_WIDTH = 1.25;
-  var TERTIARY_ALPHA = 0.7, TERTIARY_WIDTH = 0.9;
+  // 0.18 was tuned against the old flat --edge color, which is deliberately
+  // brightened for contrast against the canvas. Tinted edges start from a node
+  // fill instead, so the faintest tier needed the alpha back — and this tier is
+  // not a rare accent: `contains` is ~40% of every code graph's edges, so at
+  // "invisible" it removes the file-to-symbol structure from the picture.
+  // Kind separates on alpha again, but across a deliberately narrow band —
+  // five steps of 0.07 from 1 down to 0.72 (2026-08-16 user feedback). The
+  // original tiers ran from 1 down to 0.18, which is what let the bottom tier
+  // vanish; within this range every kind stays legible and the ordering is
+  // still readable as emphasis. Width is uniform at 1px.
+  var EDGE_ALPHA = {
+    calls: 1,
+    imports: 0.93,
+    // Mutating and contract edges: fewer, and each one says more than a
+    // reference does.
+    writes: 0.86,
+    implements: 0.86,
+    references: 0.79,
+    // The most numerous kind in any code graph, and the least surprising.
+    contains: 0.72,
+  };
+  var EDGE_ALPHA_DEFAULT = 0.79;
+  var EDGE_WIDTH = 1;
 
+  // Every edge tints from its source node (graph-core's computeLinkStyling),
+  // so the flat color here is only the fallback for a graph rendering without
+  // point colors; alpha is what carries the kind.
   function linkStyle(kind, colors) {
-    if (kind === 'contains') {
-      return { color: window.GraphCore.hexToRGBA01(colors['edge'], CONTAINS_ALPHA), width: CONTAINS_WIDTH };
-    }
-    if (kind === 'calls') {
-      return { color: window.GraphCore.hexToRGBA01(colors['edge-strong'], CALLS_ALPHA), width: CALLS_WIDTH };
-    }
-    if (kind === 'imports') {
-      return { color: window.GraphCore.hexToRGBA01(colors['edge-strong'], IMPORTS_ALPHA), width: IMPORTS_WIDTH };
-    }
-    return { color: window.GraphCore.hexToRGBA01(colors['edge'], TERTIARY_ALPHA), width: TERTIARY_WIDTH };
+    var alpha = EDGE_ALPHA[kind];
+    if (alpha === undefined) { alpha = EDGE_ALPHA_DEFAULT; }
+    return { color: window.GraphCore.hexToRGBA01(colors['edge-strong'], alpha), width: EDGE_WIDTH, tint: true };
   }
 
   // ── Meta / label resolvers ──────────────────────────────────────────────────
@@ -282,6 +313,18 @@ window.CodeGraph = (function() {
       // instead of /code/file.
       onClick: function(id, meta) {
         if (window.AtomicCodeExplorer) { window.AtomicCodeExplorer.openNode(id, member, meta); }
+      },
+      shapeOf: function(_colors, group) {
+        var shape = GROUP_SHAPE[group];
+        return shape === undefined ? 0 : shape;
+      },
+      // Answers whether the modal THIS profile opens is up, so the core can
+      // leave Escape to it (see the Escape branch in graph-core's mount()).
+      // components/code-modal mirrors its open state onto the positioner as
+      // `open`, since app.css shows the modal off that class.
+      isModalOpen: function() {
+        var el = document.getElementById('code-modal');
+        return !!el && el.classList.contains('open');
       },
       onTeardown: function() {
         if (window.AtomicGraphUI) { window.AtomicGraphUI.hidePreviewCard(); }

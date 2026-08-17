@@ -1,19 +1,5 @@
 package serve_test
 
-// code_graph_members_test.go — code-graph spec CP6 TDD: GET /code/graph/members.
-//
-// TDD: written before the implementation.
-//
-// Covers:
-//  1. Repo scope, no local index: one member, empty prefix, indexed=false.
-//  2. Repo scope, local index present: indexed=true.
-//  3. Realm scope (federation): every declared member is listed regardless of
-//     indexed state — one built (indexed=true), one declared-but-unbuilt
-//     (indexed=false) — mirrors discoverCodeMembers' "always listed" federation
-//     contract (code_members.go), so an unindexed member is reachable by the
-//     picker instead of being silently omitted (the wiki-self-index-only path's
-//     "not noise" omission does not apply to federation members).
-
 import (
 	"encoding/json"
 	"net/http"
@@ -85,6 +71,8 @@ func TestCodeGraphMembers_RepoScope_Indexed(t *testing.T) {
 	}
 }
 
+// Federation lists every declared member regardless of index state, so the
+// picker can reach an unbuilt one. The self-index path omits them instead.
 func TestCodeGraphMembers_RealmFederation_ListsBuiltAndUnbuilt(t *testing.T) {
 	realmRoot := t.TempDir()
 
@@ -98,8 +86,7 @@ func TestCodeGraphMembers_RealmFederation_ListsBuiltAndUnbuilt(t *testing.T) {
 		{"beta", "repos/beta"},
 	})
 
-	// alpha gets a self-index (the federation db itself is never built —
-	// memberDB falls back to the member's own self-index when it exists).
+	// The federation db is never built here, so memberDB falls back to this.
 	alphaDB := filepath.Join(realmRoot, "repos", "alpha", ".claude", ".atomic-index", "atomic.db")
 	if err := os.MkdirAll(filepath.Dir(alphaDB), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -107,7 +94,7 @@ func TestCodeGraphMembers_RealmFederation_ListsBuiltAndUnbuilt(t *testing.T) {
 	if err := os.WriteFile(alphaDB, []byte("x"), 0o644); err != nil {
 		t.Fatalf("write db: %v", err)
 	}
-	// beta has no index anywhere — declared-but-unbuilt.
+	// beta gets no index at all: declared but unbuilt.
 
 	h := serve.NewCodeGraphMembersHandler(serve.CodeGraphOptions{
 		RealmRoot:    realmRoot,

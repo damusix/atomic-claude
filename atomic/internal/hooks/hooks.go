@@ -1,5 +1,5 @@
-// Package hooks implements the session-start hook output and install/uninstall
-// of the Claude Code session-start hook script and settings.json registration.
+// Package hooks builds the Claude Code session-start payload and manages its
+// settings.json registration.
 package hooks
 
 import (
@@ -16,17 +16,14 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// DefaultProfileRefresh is the real implementation used in production.
-// Exposed so tests can restore the original after overriding ProfileRefresh.
+// ProfileRefresh is a test seam — spying on it avoids real tool detection and
+// disk writes. DefaultProfileRefresh lets a test restore production behavior.
 var DefaultProfileRefresh = profile.RefreshIfStale
 
-// ProfileRefresh is an injectable seam for tests: swap it with a spy to
-// capture calls without real detection, home-dir resolution, or disk writes.
-// Production code always calls DefaultProfileRefresh; only tests override this.
 var ProfileRefresh = profile.RefreshIfStale
 
-// refreshProfile performs a best-effort profile refresh. Errors are swallowed —
-// the hook's primary job is reminder context; refresh is a ride-along.
+// refreshProfile swallows errors: reminder context is the hook's job, and the
+// refresh only rides along.
 func refreshProfile(now time.Time) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -36,37 +33,31 @@ func refreshProfile(now time.Time) {
 	_, _ = ProfileRefresh(home, today, profile.DefaultRefreshDays)
 }
 
-// WikiCheckStalenessFn is the function signature for wiki staleness checks.
-// Uses raw func types (not wiki.ExecRunner) so test function literals are
-// directly assignable without a cast.
+// WikiCheckStalenessFn takes raw func types rather than wiki.ExecRunner so test
+// function literals assign without a cast.
 type WikiCheckStalenessFn func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error)
 
-// DefaultWikiCheckStaleness is the real implementation used in production.
-// Exposed so tests can restore the original after overriding WikiCheckStaleness.
+// WikiCheckStaleness is a test seam; DefaultWikiCheckStaleness restores it.
 var DefaultWikiCheckStaleness WikiCheckStalenessFn = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
 	return wiki.CheckStaleness(claudeHome, thresholdDays, wiki.ExecRunner(runner), clock)
 }
 
-// WikiCheckStaleness is an injectable seam for tests: swap it with a spy to
-// assert nudge injection and no-git semantics without real disk I/O.
-// Production code always calls DefaultWikiCheckStaleness; only tests override this.
 var WikiCheckStaleness WikiCheckStalenessFn = DefaultWikiCheckStaleness
 
-// wikiStalenessThresholdDays is the deterministic floor for wiki neglect.
-// The spec's "from memory" override is an LLM-layer concern, not this code.
+// wikiStalenessThresholdDays is the deterministic floor for wiki neglect; the
+// "from memory" override is an LLM-layer concern, not this code's.
 const wikiStalenessThresholdDays = 30
 
-// checkWikiStaleness performs a best-effort wiki staleness check.
-// Errors and empty nudge lists are both silent — the hook must never block.
-// Returns the nudge lines, or nil when nothing to surface.
+// checkWikiStaleness is silent on both errors and empty results — the hook must
+// never block.
 func checkWikiStaleness(now time.Time) []string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil
 	}
 	claudeHome := filepath.Join(home, ".claude")
-	// nil runner is intentional: CheckStaleness performs stats/reads only and
-	// never invokes the runner in production; the runner is a test-recording seam.
+	// nil runner is deliberate: CheckStaleness only stats and reads in production;
+	// the runner exists as a test-recording seam.
 	nudges, err := WikiCheckStaleness(claudeHome, wikiStalenessThresholdDays, nil, func() time.Time { return now })
 	if err != nil {
 		return nil
@@ -74,23 +65,16 @@ func checkWikiStaleness(now time.Time) []string {
 	return nudges
 }
 
-// WherePositionFn is the function signature for orientation position resolution.
 type WherePositionFn func(cwd, claudeMDPath string) (where.Report, error)
 
-// DefaultWherePosition is the real implementation used in production.
-// Exposed so tests can restore the original after overriding WherePosition.
+// WherePosition is a test seam — stubbing it keeps tests off the developer
+// machine's ~/.claude/CLAUDE.md <wikis> registry. DefaultWherePosition restores it.
 var DefaultWherePosition WherePositionFn = where.Resolve
 
-// WherePosition is an injectable seam for tests: swap it with a stub to
-// control the resolved Report without real disk I/O or dependency on the
-// developer machine's ~/.claude/CLAUDE.md <wikis> registry.
-// Production code always calls DefaultWherePosition; only tests override this.
 var WherePosition WherePositionFn = DefaultWherePosition
 
-// checkWherePosition performs a best-effort orientation check.
-// Errors are silent — the hook must never block. Returns nil when the
-// resolved position is the plain no-wiki/no-realm case (nothing interesting
-// to report) or when resolution fails.
+// checkWherePosition returns nil on failure or on the plain no-wiki/no-realm
+// case — the hook must never block.
 func checkWherePosition(cwd string) []string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -107,13 +91,10 @@ func checkWherePosition(cwd string) []string {
 	return []string{whereNudgeLine(report)}
 }
 
-// isPlainPosition reports whether report describes the plain no-wiki/no-realm
-// case — no repo-scope wiki, and cwd is not under any registered realm.
 func isPlainPosition(report where.Report) bool {
 	return !report.RepoScope.Found && report.RealmScope.Position == where.RealmNone
 }
 
-// whereNudgeLine renders report as a single terse orientation line.
 func whereNudgeLine(report where.Report) string {
 	var parts []string
 	if report.RepoScope.Found {
@@ -131,15 +112,12 @@ func whereNudgeLine(report where.Report) string {
 }
 
 const (
-	// sessionStartCommand is the command registered directly in settings.json's
-	// SessionStart hook. Claude Code runs hook commands through a shell, so the
-	// multi-word command resolves `atomic` on PATH and execs it — no wrapper
-	// script needed.
+	// Registered inline: Claude Code runs hook commands through a shell, so this
+	// resolves `atomic` on PATH without a wrapper script.
 	sessionStartCommand = "atomic hooks session-start"
 
-	// legacyScriptName / legacyHooksSubdir locate the pre-inline wrapper script
-	// that older installs registered. Retained only so Install can migrate it
-	// away and Uninstall can clean it up.
+	// The pre-inline wrapper script older installs registered. Retained only so
+	// Install can migrate it away and Uninstall can clean it up.
 	legacyScriptName  = "session-start-reminders.sh"
 	legacyHooksSubdir = ".claude/hooks"
 
@@ -149,22 +127,16 @@ const (
 	oldThresholdDay = 14
 )
 
-// SessionStart returns the JSON hook payload for the SessionStart event.
-// If no reminders are pending, no wiki nudges exist, and the orientation
-// position is plain (no repo-scope wiki, not under any registered realm),
-// it returns an empty string (no-op for Claude).
-// now is the reference time used for relative date formatting (allows testing).
+// SessionStart returns the JSON hook payload, or "" when there is nothing to
+// surface. now is the reference time for relative date formatting.
 func SessionStart(repoRoot string, now time.Time) (string, error) {
 	refreshProfile(now)
 
-	// Best-effort wiki staleness nudges — swallowed on error (ride-along).
 	wikiNudges := checkWikiStaleness(now)
 
-	// Best-effort orientation nudge — swallowed on error (ride-along).
 	whereNudges := checkWherePosition(repoRoot)
 
-	// Call reminder.List once and filter to past-due immediately so both the
-	// body builder and the systemMessage count use the same surfaced set.
+	// Filter once, so the body builder and the systemMessage count agree.
 	rows, err := reminder.List(repoRoot)
 	if err != nil {
 		return "", err
@@ -188,8 +160,8 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 		"suppressOutput": true,
 	}
 
-	// Check for old reminders (older than oldThresholdDay days) among the
-	// surfaced (past-due) set only — systemMessage warns about what Claude sees.
+	// Age is measured over the surfaced set only — systemMessage warns about what
+	// Claude actually sees.
 	oldestDays := 0
 	for _, r := range pastDue {
 		d, err := parseDateDays(r.Created, now)
@@ -219,9 +191,7 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 	return string(out), nil
 }
 
-// SessionStartText returns the plain-markdown version of the session-start
-// context (no JSON envelope). Returns empty string when no reminders, wiki
-// nudges, or orientation nudges exist.
+// SessionStartText is SessionStart without the JSON envelope.
 func SessionStartText(repoRoot string, now time.Time) (string, error) {
 	refreshProfile(now)
 
@@ -235,9 +205,7 @@ func SessionStartText(repoRoot string, now time.Time) (string, error) {
 	return buildBody(filterPastDue(rows, now), wikiNudges, whereNudges, now)
 }
 
-// buildBody constructs the full markdown body from past-due reminders, wiki
-// nudge lines, and orientation nudge lines. Orientation appears first, then
-// wiki staleness, then reminders. Returns empty string when all three are empty.
+// buildBody orders orientation, then wiki staleness, then reminders.
 func buildBody(pastDue []reminder.Row, wikiNudges []string, whereNudges []string, now time.Time) (string, error) {
 	reminderBody, err := buildBodyFromPastDue(pastDue, now)
 	if err != nil {
@@ -258,7 +226,6 @@ func buildBody(pastDue []reminder.Row, wikiNudges []string, whereNudges []string
 	return strings.Join(sections, "\n\n"), nil
 }
 
-// buildNudgeSection renders a markdown header followed by one bullet per nudge.
 func buildNudgeSection(header string, nudges []string) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "%s\n", header)
@@ -268,8 +235,7 @@ func buildNudgeSection(header string, nudges []string) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// buildBodyFromPastDue constructs the markdown body from an already-filtered
-// past-due slice. Applies the 10-item cap.
+// buildBodyFromPastDue applies the maxReminders cap to an already-filtered slice.
 func buildBodyFromPastDue(pastDue []reminder.Row, now time.Time) (string, error) {
 	if len(pastDue) == 0 {
 		return "", nil
@@ -297,37 +263,29 @@ func buildBodyFromPastDue(pastDue []reminder.Row, now time.Time) (string, error)
 	return strings.TrimRight(sb.String(), "\n"), nil
 }
 
-// filterPastDue returns only the rows that are past-due relative to now.
-// A row is past-due when:
-//   - Due is empty (legacy reminder — no due field): surface to avoid silent loss.
-//   - Due parses as RFC3339 and now >= due.
-//   - Due is present but cannot be parsed: surface defensively and log to stderr.
+// filterPastDue keeps rows at or past their due time. A missing or unparseable
+// Due surfaces the row rather than dropping it silently.
 func filterPastDue(rows []reminder.Row, now time.Time) []reminder.Row {
 	out := make([]reminder.Row, 0, len(rows))
 	for _, r := range rows {
 		if r.Due == "" {
-			// Legacy reminder — treat as past-due.
 			out = append(out, r)
 			continue
 		}
 		due, err := time.Parse(time.RFC3339, r.Due)
 		if err != nil {
-			// Malformed due value — surface defensively.
 			fmt.Fprintf(os.Stderr, "hooks: reminder %q has malformed due %q: %v; treating as past-due\n", r.ID, r.Due, err)
 			out = append(out, r)
 			continue
 		}
 		if !now.Before(due) {
-			// now >= due: past-due.
 			out = append(out, r)
 		}
-		// now < due: not yet past-due — silent.
 	}
 	return out
 }
 
-// relativeAge returns a human-readable string like "today", "yesterday",
-// "3 days ago", "2 weeks ago", "1 month ago".
+// relativeAge renders "today", "3 days ago", "1 month ago", and so on.
 func relativeAge(createdDate string, now time.Time) string {
 	days, err := parseDateDays(createdDate, now)
 	if err != nil {
@@ -358,13 +316,13 @@ func pluralS(n int) string {
 	return "s"
 }
 
-// parseDateDays returns how many days ago createdDate (YYYY-MM-DD) was from now.
+// parseDateDays returns how many days ago createdDate (YYYY-MM-DD) was, both
+// sides truncated to a UTC date so partial days never count.
 func parseDateDays(createdDate string, now time.Time) (int, error) {
 	t, err := time.Parse("2006-01-02", createdDate)
 	if err != nil {
 		return 0, err
 	}
-	// Truncate both to UTC date.
 	created := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	diff := today.Sub(created)
@@ -375,7 +333,7 @@ func parseDateDays(createdDate string, now time.Time) (int, error) {
 	return days, nil
 }
 
-// truncate shortens s to at most maxLen runes, appending "…" if truncated.
+// truncate caps s at maxLen runes, appending "…" when it cuts.
 func truncate(s string, maxLen int) string {
 	runes := []rune(s)
 	if len(runes) <= maxLen {
@@ -384,39 +342,29 @@ func truncate(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "…"
 }
 
-// legacyScriptPath returns the absolute path for the pre-inline wrapper script
-// under scopeRoot. Used only for migration and cleanup.
 func legacyScriptPath(scopeRoot string) string {
 	return filepath.Join(scopeRoot, legacyHooksSubdir, legacyScriptName)
 }
 
-// settingsPath returns the absolute path for settings.json under scopeRoot.
 func settingsPath(scopeRoot string) string {
 	return filepath.Join(scopeRoot, settingsRelPath)
 }
 
-// Install registers the inline session-start command in settings.json under
-// scopeRoot. repoRoot is unused at this layer (scopeRoot determines paths).
-//
-// Migration: any registration left by an older install — a wrapper-script path
-// instead of the inline command — is removed first so the hook does not
-// double-fire, and the stale script file is deleted.
+// Install registers the inline command under scopeRoot; repoRoot is unused here.
+// Any older wrapper-script registration is removed first so the hook cannot
+// double-fire. Idempotent.
 func Install(repoRoot, scopeRoot string) error {
 	sfPath := settingsPath(scopeRoot)
 
-	// 1. Migrate away the legacy wrapper-script registration + file.
 	if err := migrateLegacy(sfPath, scopeRoot); err != nil {
 		return err
 	}
 
-	// 2. Register the inline command (idempotent).
 	return registerInSettings(sfPath, sessionStartCommand)
 }
 
-// Uninstall removes the session-start hook registration from settings.json and
-// deletes any lingering legacy wrapper script.
+// Uninstall removes the registration and any lingering legacy wrapper script.
 func Uninstall(repoRoot, scopeRoot string) error {
-	// 1. Remove the legacy script file (no-op if absent).
 	if err := os.Remove(legacyScriptPath(scopeRoot)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("hooks uninstall: remove legacy script: %w", err)
 	}
@@ -426,16 +374,14 @@ func Uninstall(repoRoot, scopeRoot string) error {
 		return nil
 	}
 
-	// 2. Remove the inline registration, then any legacy script-path registration.
 	if err := unregisterFromSettings(sfPath, sessionStartCommand); err != nil {
 		return err
 	}
 	return unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot))
 }
 
-// migrateLegacy removes a pre-inline wrapper-script registration from
-// settings.json and deletes the stale script file. No-op when neither exists.
-// A malformed settings.json surfaces as an error so Install refuses to proceed.
+// migrateLegacy is a no-op when no wrapper-script install exists. A malformed
+// settings.json errors, so Install refuses to proceed.
 func migrateLegacy(sfPath, scopeRoot string) error {
 	if _, err := os.Stat(sfPath); err == nil {
 		if err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil {
@@ -448,8 +394,6 @@ func migrateLegacy(sfPath, scopeRoot string) error {
 	return nil
 }
 
-// hasRegistration returns true if settings already has a SessionStart entry
-// whose inner hooks[].command equals command.
 func hasRegistration(settings map[string]any, command string) bool {
 	hooksMap, ok := settings["hooks"].(map[string]any)
 	if !ok {
@@ -481,23 +425,13 @@ func hasRegistration(settings map[string]any, command string) bool {
 	return false
 }
 
-// IsInstalled reports whether the session-start hook is registered in
-// scopeRoot/.claude/settings.json.
-//
-// "drifted" means the hook is registered in the legacy wrapper-script form
-// (an older install) rather than the inline command — functional, but it
-// should be migrated by re-running `atomic hooks install`.
-//
-// Returns:
-//   - installed=true, drifted=false, err=nil   → inline command registered
-//   - installed=true, drifted=true, err=nil    → legacy wrapper-script registration present
-//   - installed=false, drifted=false, err=nil  → hook not registered (settings missing or no entry)
-//   - installed=false, drifted=false, err!=nil → settings.json unreadable / malformed
+// IsInstalled reports registration state in scopeRoot/.claude/settings.json.
+// drifted means the hook still fires but through a legacy wrapper-script (or a
+// half-migrated pair), and `atomic hooks install` should be re-run.
 func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
 	sfPath := settingsPath(scopeRoot)
 	settings, _, _, readErr := readSettingsHujson(sfPath)
 	if readErr != nil {
-		// Could not read / parse settings.json.
 		return false, false, readErr
 	}
 
@@ -508,20 +442,16 @@ func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
 	case inline && !legacy:
 		return true, false, nil
 	case inline && legacy:
-		// Both present (partial migration) — still needs cleanup.
 		return true, true, nil
 	case legacy:
-		// Legacy-only: the wrapper still execs atomic, so the hook fires, but
-		// the registration is stale.
 		return true, true, nil
 	default:
 		return false, false, nil
 	}
 }
 
-// malformedSettingsError returns an error for a malformed settings.json,
-// including the manual-registration snippet with the actual command so the
-// user can copy-paste it without manual substitution.
+// malformedSettingsError embeds the real command in the snippet so the user can
+// paste it without substitution.
 func malformedSettingsError(sfPath, command string) error {
 	snippet := fmt.Sprintf(`{
   "hooks": {

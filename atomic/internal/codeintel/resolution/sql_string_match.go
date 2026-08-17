@@ -1,35 +1,14 @@
 package resolution
 
-// sql_string_match.go — sql-string-match resolution pass A (C2), pass B
-// (C3), the query-builder vocabulary check (C4), the C8 fragment tier, and
-// speculative-ref cleanup (C5).
+// Matching SQL identifiers found in host-language string literals against
+// already-indexed SQL objects. Contract: docs/spec/sql-string-match.md.
 //
-// Pass A runs as a batch step after ResolveAndPersistBatched's standard
-// per-ref loop completes (sql_string/sql_fragment refs are skipped by that
-// loop per C1/C8). It matches dotless refs against already-indexed SQL
-// object names (table/view/procedure/function) using one bulk fetch per
-// kind, loaded into an in-memory lowercase-name map for the whole pass —
-// never a per-ref DB round trip. It returns the owner→anchor map
-// (FromNodeID → matched table/view nodes) that pass B consumes for
-// anchored bare-column matching. Only table/view matches count as anchors —
-// procedure/function matches do not anchor column resolution.
+// Two passes, in order. Pass A matches bare names against object names and
+// records which tables each owner touched. Pass B needs that map: a column
+// name alone matches nothing useful, so a bare column resolves only within
+// the tables its owner already referenced, and an unanchored one gets no edge.
 //
-// Pass B runs after pass A and handles columns, which never match on their
-// own: a qualified ref ("x.y") resolves x against the same table/view
-// candidates pass A uses, then matches y against that table's columns by
-// QualifiedName; a bare ref left over from pass A is matched against the
-// columns of its owner's pass-A anchors only — no anchor, no edge. A bare
-// column match is upgraded low → medium when the ref's CalleeExpr is in the
-// C4 vocabulary.
-//
-// C8: sql_fragment refs run through passes A and B exactly like sql_string
-// refs — same object/column matching, same vocabulary upgrade, same anchor
-// contribution — then have their computed tier demoted one notch
-// (high → medium, medium → low, low stays low) via demoteConfidence.
-//
-// C5 cleanup: every ref (either kind) neither pass consumed (ambiguous
-// matches, refs with zero candidates, unanchored bare columns) is deleted.
-// Post-resolution, zero sql_string and zero sql_fragment rows remain.
+// Every ref neither pass consumed is deleted, so no speculative rows survive.
 
 import (
 	"context"
@@ -41,7 +20,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// sqlObjectKinds are the node kinds pass A matches sql_string refs against.
+// sqlObjectKinds are the node kinds pass A matches bare names against.
 var sqlObjectKinds = []types.NodeKind{
 	types.NodeKindTable,
 	types.NodeKindView,
@@ -49,16 +28,15 @@ var sqlObjectKinds = []types.NodeKind{
 	types.NodeKindFunction,
 }
 
-// anchorKinds are the subset of sqlObjectKinds that count as anchors for
-// pass B's (C3) bare-column scoping.
+// anchorKinds scope pass B's bare columns. Procedures and functions are
+// excluded: they own no columns.
 var anchorKinds = map[types.NodeKind]bool{
 	types.NodeKindTable: true,
 	types.NodeKindView:  true,
 }
 
-// demoteConfidence applies the C8 one-notch demotion sql_fragment refs get
-// after passes A/B compute their tier the same way a sql_string ref would:
-// high → medium, medium → low, low stays low.
+// demoteConfidence drops a fragment ref one tier. A fragment is a partial
+// statement, so the same match is weaker evidence than from a whole one.
 func demoteConfidence(tier string) string {
 	switch tier {
 	case "high":
@@ -70,19 +48,15 @@ func demoteConfidence(tier string) string {
 	}
 }
 
-// resolveSQLStringRefs is the sql_string/sql_fragment batch step: pass A
-// object-name matching (C2), pass B qualified/anchored column matching
-// (C3), vocabulary-driven confidence tiering (C4), the C8 fragment-tier
-// one-notch demotion, and cleanup of every ref left unconsumed by either
-// pass (C5). Returns the owner→anchor map and the total edge count created.
+// resolveSQLStringRefs runs both passes and the cleanup, returning the
+// owner→anchor map and the number of edges created.
 func (p *Pipeline) resolveSQLStringRefs(ctx context.Context) (map[string][]types.Node, int, error) {
 	stringRefs, err := p.db.GetUnresolvedRefsByKind(ctx, types.ReferenceKindSQLString)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// C8: sql_fragment refs run through the exact same passes A/B as
-	// sql_string refs, then get their computed tier demoted one notch.
+	// Fragments take the same two passes, differing only in the final tier.
 	fragmentRefs, err := p.db.GetUnresolvedRefsByKind(ctx, types.ReferenceKindSQLFragment)
 	if err != nil {
 		return nil, 0, err
@@ -94,9 +68,8 @@ func (p *Pipeline) resolveSQLStringRefs(ctx context.Context) (map[string][]types
 
 	refs := append(append([]types.UnresolvedReference{}, stringRefs...), fragmentRefs...)
 
-	// Bulk fetch, one call per candidate kind, filtered to Language == SQL,
-	// loaded once into an in-memory lowercase-name map reused for the whole
-	// pass.
+	// One fetch per kind, held in memory for the whole pass — never a per-ref
+	// DB round trip.
 	byName := make(map[string][]types.Node)
 	for _, kind := range sqlObjectKinds {
 		nodes, err := p.db.GetNodesByKind(ctx, kind)
@@ -120,8 +93,7 @@ func (p *Pipeline) resolveSQLStringRefs(ctx context.Context) (map[string][]types
 	var dotlessLeftovers []types.UnresolvedReference
 
 	for _, ref := range refs {
-		// Dotted refs are pass B's (C3) qualified-form job — deferred until
-		// pass A finishes so the object-name map above is available to it.
+		// Deferred to pass B, which needs the map pass A is still building.
 		if strings.Contains(ref.ReferenceName, ".") {
 			dottedRefs = append(dottedRefs, ref)
 			continue
@@ -132,7 +104,7 @@ func (p *Pipeline) resolveSQLStringRefs(ctx context.Context) (map[string][]types
 		case len(candidates) == 0:
 			dotlessLeftovers = append(dotlessLeftovers, ref)
 		case len(candidates) > 3:
-			// Ambiguity cap: no edges, ref dropped.
+			// Too ambiguous to be evidence of anything; drop it.
 			leftoverIDs = append(leftoverIDs, ref.ID)
 		default:
 			confidence := "medium"
@@ -164,9 +136,7 @@ func (p *Pipeline) resolveSQLStringRefs(ctx context.Context) (map[string][]types
 		}
 	}
 
-	// Pass B (C3): qualified and anchored-bare column matching. Runs after
-	// pass A so it can consume both the object-name map (for resolving the
-	// "x" in "x.y") and the owner→anchor map pass A just built.
+	// Pass B: columns, qualified and anchored-bare.
 	columnByQName := make(map[string][]types.Node)
 	if len(dottedRefs) > 0 || len(dotlessLeftovers) > 0 {
 		columns, err := p.db.GetNodesByKind(ctx, types.NodeKindColumn)

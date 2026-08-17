@@ -1,37 +1,13 @@
 package languages_test
 
-// EE3 extractor tests — field-assignment capture.
+// Field-assignment capture, which is how the callback synthesizer finds a
+// registration site ("this.onData = handler") and not merely the later call.
 //
-// EE3 convention (see also extractor.go FieldAssignmentTypes comment):
-//
-//	A field-assignment UnresolvedReference is emitted when an assignment_expression
-//	inside a function/method body has:
-//	  - left = member_expression (this.x, obj.x) — confirms it is a property assignment
-//	  - right = a callable node kind (identifier, arrow_function, function_expression)
-//	            — non-callable right-hand sides (number, string, …) are silently skipped
-//
-//	The emitted reference carries:
-//	  ReferenceKind = EdgeKindReferences
-//	  ReferenceName = the RHS identifier text (e.g. "handleData"); for inline
-//	                  arrow/function RHS the callable is anonymous → ReferenceName = ""
-//	  Arguments[0]  = "field:<fieldName>" sentinel (e.g. "field:onData")
-//	                  — this single-element slice is the discriminator the callback
-//	                    synthesizer uses to distinguish field-assignment refs from
-//	                    plain JSX refs and ordinary call refs.
-//	  FromNodeID    = enclosing method/function node
-//
-// These tests prove:
-//  1. `this.onData = handleData` inside a method emits a field-assignment ref,
-//     ReferenceName="handleData", Arguments=["field:onData"], from the method node.
-//  2. `this.h = () => {}` emits a ref with ReferenceName="" (anonymous callable),
-//     Arguments=["field:h"], from the method node.
-//  3. `this.count = 0` (non-callable RHS) emits NOTHING.
-//  4. No regression: EE1 JSX refs and EE2 call-arg refs are unaffected.
-//  5. Node count is stable across two extractions.
-//
-// WHY: The callback synthesizer (CP16 batch 4) needs to find the *registration* site
-// (`this.onData = handler`) not just the invocation (`this.onData()`). Without EE3
-// the synthesizer has no signal to link the assignment to the later call.
+// The reference is emitted only when an assignment has a member_expression on
+// the left and a callable on the right; a primitive right-hand side is skipped.
+// ReferenceName is the callable's name, empty for an inline function, and
+// Arguments[0] holds a "field:<name>" sentinel — the discriminator that keeps
+// these apart from JSX and call references, which share the same kind.
 
 import (
 	"context"
@@ -43,12 +19,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ee3Fixture is a TypeScript class with field-assignment patterns covering all cases.
-//
-// Verified AST (from tmp/ee3_probe): assignment_expression has
-//   - left = member_expression (first named child = "this" or identifier, last named
-//     child = property_identifier with the field name)
-//   - right = identifier (handleData) | arrow_function (() => {}) | number (0)
+// Covers every right-hand-side shape: named callable, inline callable, primitive.
 const ee3Fixture = `
 class EventSource {
   constructor() {
@@ -62,15 +33,14 @@ class EventSource {
 
 const ee3FixturePath = "src/EventSource.ts"
 
-// isFieldAssignmentRef returns true when the ref is an EE3 field-assignment ref.
-// A field-assignment ref is a references-kind ref whose Arguments[0] starts with "field:".
+// isFieldAssignmentRef keys on the "field:" sentinel in Arguments[0].
 func isFieldAssignmentRef(r types.UnresolvedReference) bool {
 	return r.ReferenceKind == types.EdgeKindReferences &&
 		len(r.Arguments) > 0 &&
 		strings.HasPrefix(r.Arguments[0], "field:")
 }
 
-// fieldAssignmentRefs filters the full ref list to EE3 field-assignment refs only.
+// fieldAssignmentRefs keeps only the field-assignment references.
 func fieldAssignmentRefs(refs []types.UnresolvedReference) []types.UnresolvedReference {
 	out := make([]types.UnresolvedReference, 0, len(refs))
 	for _, r := range refs {
@@ -81,7 +51,7 @@ func fieldAssignmentRefs(refs []types.UnresolvedReference) []types.UnresolvedRef
 	return out
 }
 
-// fieldNameFromRef extracts the field name from Arguments[0] = "field:<name>".
+// fieldNameFromRef strips the "field:" sentinel prefix.
 func fieldNameFromRef(r types.UnresolvedReference) string {
 	if len(r.Arguments) == 0 {
 		return ""
@@ -98,15 +68,10 @@ func ee3Extractor(t *testing.T) *extraction.TreeSitterExtractor {
 	return newExtractor(t, extLang, cfg)
 }
 
-// ---------------------------------------------------------------------------
-// EE3 core: callable RHS → emit field-assignment ref
-// ---------------------------------------------------------------------------
-
-// TestEE3_IdentifierRHS_EmitsRef proves that `this.onData = handleData` emits
-// a field-assignment ref with ReferenceName="handleData" and Arguments=["field:onData"].
-// WHY: The callback synthesizer reads Arguments[0] to locate which field was
-// assigned and ReferenceName to know which callable was stored.
+// The core contract: the synthesizer reads Arguments[0] for the field assigned
+// and ReferenceName for the callable stored in it.
 func TestEE3_IdentifierRHS_EmitsRef(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -132,11 +97,10 @@ func TestEE3_IdentifierRHS_EmitsRef(t *testing.T) {
 	}
 }
 
-// TestEE3_ArrowFunctionRHS_EmitsRef proves that `this.h = () => {}` emits
-// a field-assignment ref with ReferenceName="" (anonymous) and Arguments=["field:h"].
-// WHY: An inline arrow function is still a callable — the callback synthesizer
-// must know the field `h` was assigned a callback even if the callable has no name.
+// An anonymous callable still counts: the synthesizer needs to know the field
+// holds a callback even when there is no name to record.
 func TestEE3_ArrowFunctionRHS_EmitsRef(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -159,11 +123,9 @@ func TestEE3_ArrowFunctionRHS_EmitsRef(t *testing.T) {
 	}
 }
 
-// TestEE3_FunctionExpressionRHS_EmitsRef proves that `this.process = function() {}`
-// emits a field-assignment ref (function_expression is callable).
-// WHY: The pattern `this.handler = function() { ... }` is common in older JS — EE3
-// must capture it the same as arrow functions.
+// The older-JS spelling of the same pattern, which must behave like an arrow.
 func TestEE3_FunctionExpressionRHS_EmitsRef(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -183,12 +145,10 @@ func TestEE3_FunctionExpressionRHS_EmitsRef(t *testing.T) {
 	}
 }
 
-// TestEE3_NonCallableRHS_EmitsNothing proves `this.count = 0` (non-callable RHS)
-// does NOT emit a field-assignment ref.
-// WHY: Primitive assignments are data, not callbacks — recording them would add
-// noise without value and could mislead the synthesizer into treating numeric
-// properties as callback-bearing fields.
+// A primitive assignment is data, not a callback; recording it would leave the
+// synthesizer treating plain properties as callback-bearing.
 func TestEE3_NonCallableRHS_EmitsNothing(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 
@@ -200,11 +160,10 @@ func TestEE3_NonCallableRHS_EmitsNothing(t *testing.T) {
 	}
 }
 
-// TestEE3_FromEnclosingMethod proves the field-assignment ref's FromNodeID
-// is the enclosing method node, not the file node.
-// WHY: The callback synthesizer anchors the registration edge at the method that
-// does the assignment. File-level attribution would be unusable.
+// The synthesizer anchors its registration edge at the method doing the
+// assignment, so file-level attribution would be unusable.
 func TestEE3_FromEnclosingMethod(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -216,7 +175,6 @@ func TestEE3_FromEnclosingMethod(t *testing.T) {
 		t.Fatal("no field-assignment refs found")
 	}
 
-	// All field-assignment refs must come from a non-file node.
 	fileID := "file:" + ee3FixturePath
 	for _, r := range faRefs {
 		if r.FromNodeID == fileID {
@@ -228,17 +186,12 @@ func TestEE3_FromEnclosingMethod(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Discriminability: EE3 refs must not be confused with EE1/EE2 refs
-// ---------------------------------------------------------------------------
-
-// TestEE3_DistinguishableFromJSXRefs proves EE3 field-assignment refs are
-// distinguishable from EE1 JSX refs by the Arguments[0] = "field:<name>" sentinel.
-// WHY: The callback synthesizer and JSX synthesizer both read EdgeKindReferences
-// refs. Without a discriminator, the wrong synthesizer fires on the wrong ref.
+// The callback and JSX synthesizers both read references-kind refs, so without
+// the sentinel each would fire on the other's.
 func TestEE3_DistinguishableFromJSXRefs(t *testing.T) {
-	// EE3 fixture has no JSX. JSX refs would have no "field:" prefix in Arguments.
-	// This test simply confirms the sentinel is present on all EE3 refs.
+	t.Parallel()
+	// The fixture has no JSX, so every references-kind ref in it should carry
+	// the sentinel.
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 
@@ -246,8 +199,6 @@ func TestEE3_DistinguishableFromJSXRefs(t *testing.T) {
 		if r.ReferenceKind != types.EdgeKindReferences {
 			continue
 		}
-		// Every references ref in this fixture must be a field-assignment ref
-		// (no JSX in ee3Fixture) — verify all have the sentinel.
 		if !isFieldAssignmentRef(r) {
 			t.Errorf("references ref %q lacks field: sentinel — would be confused with EE1 JSX ref; Arguments=%v",
 				r.ReferenceName, r.Arguments)
@@ -255,14 +206,10 @@ func TestEE3_DistinguishableFromJSXRefs(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Regression: existing EE1/EE2 refs unaffected, node count stable
-// ---------------------------------------------------------------------------
-
-// TestEE3_NodeCountStable proves extraction is deterministic after adding EE3.
-// WHY: node-count stability is a core invariant (CP6/CP10) — field-assignment
-// UnresolvedReference rows must not cause node count to vary between runs.
+// Re-extracting a fixture must yield the same counts: field-assignment adds
+// reference rows, and that must never read as node growth.
 func TestEE3_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	ctx := context.Background()
 	r1 := e.Extract(ctx, ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
@@ -277,11 +224,10 @@ func TestEE3_NodeCountStable(t *testing.T) {
 	}
 }
 
-// TestEE3_EE2CallRefsUnaffected proves EE2 call-argument capture still works
-// after adding the EE3 code path.
-// WHY: EE3 adds a new branch in visitFunctionBody; a bug there could break the
-// existing CallTypes arm that EE2 depends on.
+// Field assignment added a branch to the body walk, next to the call arm that
+// argument capture depends on.
 func TestEE3_EE2CallRefsUnaffected(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -307,24 +253,16 @@ func TestEE3_EE2CallRefsUnaffected(t *testing.T) {
 	}
 }
 
-// TestEE3_NestedCallInAssignmentRHS_EE2ArgsStillCaptured proves that a
-// call_expression nested inside an assignment RHS still has its EE2 string
-// arguments captured, even when the LHS is NOT a member_expression.
-//
-// Scenario: `x = factory('evt')` — plain identifier LHS, so extractFieldAssignment
-// returns false/emits nothing. The EE3 branch must NOT skip recursion in that case;
-// it must fall through so the nested call_expression (`factory('evt')`) is visited
-// by the CallTypes arm and its string arg "evt" is captured.
-//
-// WHY: before the fix, the EE3 branch did `continue` unconditionally after calling
-// extractFieldAssignment — even when extractFieldAssignment emitted nothing. That
-// silently dropped EE2 argument capture for any call inside an assignment RHS.
+// Regression guard: the field-assignment branch once stopped recursion for every
+// assignment it saw, even the ones it emitted nothing for, which silently
+// dropped argument capture for any call on the right-hand side.
 func TestEE3_NestedCallInAssignmentRHS_EE2ArgsStillCaptured(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
-	// Plain LHS (not member_expression) — extractFieldAssignment will emit nothing.
-	// The nested call `factory('evt')` must still surface via the CallTypes path.
+	// A plain identifier on the left, so nothing is emitted for the assignment
+	// itself and the nested call must still surface.
 	src := "function handler() {\n  x = factory('evt');\n}"
 	result := e.Extract(ctx, "src/ee3nested.js", src, types.LanguageJavaScript)
 	if len(result.Errors) > 0 {
@@ -347,8 +285,9 @@ func TestEE3_NestedCallInAssignmentRHS_EE2ArgsStillCaptured(t *testing.T) {
 	}
 }
 
-// TestEE3_EE1JSXRefsUnaffected proves EE1 JSX refs still work after adding EE3.
+// JSX refs share the reference kind that field assignment now also emits.
 func TestEE3_EE1JSXRefsUnaffected(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")

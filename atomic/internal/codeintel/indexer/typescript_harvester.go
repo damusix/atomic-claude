@@ -1,19 +1,10 @@
 package indexer
 
-// typescript_harvester.go — CP4: TypeScript/TSX string-literal harvester.
+// TypeScript and TSX string-literal harvesters.
 //
-// harvestTypeScriptStringLiterals and harvestTSXStringLiterals implement
-// literalHarvester for .ts and .tsx files respectively. They adapt
-// extraction.HarvestTypeScriptLiterals to the literalHarvester function
-// signature used by embeddedSQLPostPass. Each:
-//   - Borrows a pool instance.
-//   - Sets LangTypeScript or LangTSX language on the instance.
-//   - Parses src and returns all literal spans (no docstring concept in TS/TSX).
-//
-// WHY tree-sitter instead of a flat scanner: template-literal ${...} segments
-// need structural detection so they can be substituted to "?" per decision 8.
-// A byte scanner cannot reliably distinguish ${expr} from literal dollar-brace
-// text inside strings.
+// Tree-sitter rather than a byte scanner because template-literal ${...}
+// segments must be found structurally to be substituted with "?"; a scanner
+// cannot tell an interpolation from literal dollar-brace text in a string.
 
 import (
 	"context"
@@ -22,10 +13,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction/standalone"
 )
 
-// harvestTypeScriptStringLiterals implements literalHarvester for .ts files.
-// It borrows a pool instance, parses src as TypeScript, and returns all string
-// literal spans. Template-literal interpolations are already substituted to "?"
-// by HarvestTypeScriptLiterals (decision 8).
 func harvestTypeScriptStringLiterals(ctx context.Context, src string, pool *extraction.Pool) ([]standalone.StringLiteralSpan, error) {
 	inst, err := pool.Borrow(ctx)
 	if err != nil {
@@ -41,8 +28,8 @@ func harvestTypeScriptStringLiterals(ctx context.Context, src string, pool *extr
 	return convertTSSpans(tsSpans), nil
 }
 
-// harvestTSXStringLiterals implements literalHarvester for .tsx files.
-// Uses LangTSX grammar — same node types as TypeScript, adds JSX syntax.
+// harvestTSXStringLiterals differs only in grammar: TSX adds JSX syntax over
+// the same string node types.
 func harvestTSXStringLiterals(ctx context.Context, src string, pool *extraction.Pool) ([]standalone.StringLiteralSpan, error) {
 	inst, err := pool.Borrow(ctx)
 	if err != nil {
@@ -58,8 +45,8 @@ func harvestTSXStringLiterals(ctx context.Context, src string, pool *extraction.
 	return convertTSSpans(tsSpans), nil
 }
 
-// convertTSSpans converts []TSLiteralSpan to []standalone.StringLiteralSpan.
-// This is a field-level copy — no filtering (TS/TSX has no docstring exclusion).
+// convertTSSpans copies field-for-field, filtering nothing: TS and TSX have no
+// docstrings to exclude.
 func convertTSSpans(spans []extraction.TSLiteralSpan) []standalone.StringLiteralSpan {
 	if len(spans) == 0 {
 		return nil

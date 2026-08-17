@@ -1,14 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch E (Ruby): rails resolver.
-//
-// Coverage:
-//  1. Detect true on Gemfile with 'rails' gem + false for non-rails project.
-//  2. Extract: get/post/put/patch/delete → uppercase method + controller#action last-segment handler ref.
-//  3. `root` verb produces path "/" with the action last-segment.
-//  4. Hash-rocket form: `get '/p' => 'controller#action'`.
-//  5. A `# get '/x'` commented-out route emits NOTHING (# line comment stripping).
-//  6. Resolve 0.8–0.9 + ClaimsReference.
+// Rails resolver tests.
 
 import (
 	"context"
@@ -306,7 +298,7 @@ end
 }
 
 // TestRailsScope_NamespacePrefix verifies that routes inside a namespace block
-// carry the namespace path prefix. F-76: namespace :api means all nested routes
+// carry the namespace path prefix: namespace :api means all nested routes
 // get /api as a prefix.
 func TestRailsScope_NamespacePrefix(t *testing.T) {
 	r := frameworks.NewRailsResolver(t.TempDir())
@@ -405,7 +397,6 @@ end
 	}
 }
 
-// rubyNodeIDs is a test helper.
 func rubyNodeIDs(nodes []types.Node) []string {
 	ids := make([]string, len(nodes))
 	for i, n := range nodes {

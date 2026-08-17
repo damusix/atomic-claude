@@ -13,12 +13,9 @@ import (
 	"time"
 )
 
-// testBusHome creates a short, /tmp-rooted (not t.TempDir()) directory for
-// tests that bind a real Unix domain socket at SocketPath(home)/
-// LockPath(home). t.TempDir() embeds the full test name and can produce a
-// path well over the ~104-108 byte sun_path limit on macOS/Linux — the
-// exact reason daemon_test.go's testListener avoids it too. Falls back to
-// t.TempDir() if /tmp is unavailable, e.g. a sandboxed CI environment.
+// testBusHome creates a short /tmp-rooted directory for tests that bind a real
+// Unix socket: t.TempDir() embeds the full test name and can exceed the ~104-byte
+// sun_path limit. Falls back to t.TempDir() when /tmp is unavailable.
 func testBusHome(t *testing.T) string {
 	t.Helper()
 
@@ -30,29 +27,21 @@ func testBusHome(t *testing.T) string {
 	return dir
 }
 
-// testCwd returns a directory outside any git repository or scope marker,
-// for joinAction/chatAction tests that resolve position (position.go's
-// resolvePosition) but don't care about the derived value — most such
-// tests supply --as explicitly and never touch the default name. t.TempDir()
-// (unlike testBusHome's /tmp-rooted dir) is fine here: nothing binds a
-// socket under it, so the sun_path length limit that motivates testBusHome
-// doesn't apply.
+// testCwd returns a directory outside any repo or scope marker, for tests that
+// resolve position but do not care about the derived value. t.TempDir() is fine
+// here: nothing binds a socket under it, so the sun_path limit does not apply.
 func testCwd(t *testing.T) string {
 	t.Helper()
 	return t.TempDir()
 }
 
-// startTestDaemon binds a real listener at SocketPath(home) and runs the
-// committed Serve loop against it in the background, for the life of the
-// test. Matches daemon_test.go's startServe (cancel + bounded wait on
-// cleanup) but binds the fixed production socket path instead of an
-// arbitrary one, since EnsureDaemon dials exactly SocketPath(home). Also
-// mirrors serveAction's own rehydrate-before-serve step (action.go), so a
-// test that uses this as its Ensurer.Spawn (client_test.go's countingSpawn)
-// exercises the same "whole roster comes back on respawn" behavior a real
-// `atomic bus serve` gives production callers — a bare NewHub(home) here
-// would silently drop that and reintroduce the per-session recovery gap
-// this replaced.
+// startTestDaemon binds a real listener at SocketPath(home) and runs Serve
+// against it for the life of the test. Like daemon_test.go's startServe, but on
+// the fixed production path since EnsureDaemon dials exactly that. It also
+// mirrors serveAction's rehydrate-before-serve step, so a test using this as its
+// Ensurer.Spawn exercises the same whole-roster-comes-back behavior production
+// gets — a bare NewHub(home) would silently reintroduce the per-session recovery
+// gap this replaced.
 func startTestDaemon(t *testing.T, home string) error {
 	t.Helper()
 
@@ -68,13 +57,9 @@ func startTestDaemon(t *testing.T, home string) error {
 	return nil
 }
 
-// leaveStaleSocket binds and then closes a listener at SocketPath(home)
-// with SetUnlinkOnClose(false), reproducing exactly the scenario the
-// brief's stale-socket recovery step targets: a socket file left behind
-// by a crashed daemon, present on disk but refusing every connection.
-// Plain Close on a *net.UnixListener created via net.Listen unlinks the
-// socket file automatically (see daemon.go's Serve doc) — this is why the
-// unlink step is disabled first.
+// leaveStaleSocket reproduces a crashed daemon's leftover: a socket file present
+// on disk but refusing every connection. SetUnlinkOnClose(false) first, because
+// a plain Close on a net.Listen unix listener unlinks the file automatically.
 func leaveStaleSocket(t *testing.T, home string) {
 	t.Helper()
 
@@ -95,10 +80,9 @@ func leaveStaleSocket(t *testing.T, home string) {
 	}
 }
 
-// serveFakePingVersion is a minimal stand-in for the real daemon, used
-// only to make ping report an arbitrary ProtocolVersion — something the
-// committed daemon.go always reports truthfully, so a version-skew
-// scenario can only be reproduced against a fake.
+// serveFakePingVersion makes ping report an arbitrary ProtocolVersion — the real
+// daemon always reports truthfully, so version skew is only reproducible against
+// a fake.
 func serveFakePingVersion(ln net.Listener, version int) {
 	for {
 		conn, err := ln.Accept()
@@ -159,9 +143,7 @@ func TestClient_Do_PingRoundTrip(t *testing.T) {
 	}
 }
 
-// TestClient_Do_FailedResponseMapsToErrorWithDaemonsCode proves the
-// contract in client.go's Do doc: the daemon assigns the exit code
-// (protocol.go's Response.Code), and Do must surface that exact code as a
+// The daemon assigns the exit code, and Do must surface that exact code as a
 // *bus.Error rather than re-deriving one from the error text.
 func TestClient_Do_FailedResponseMapsToErrorWithDaemonsCode(t *testing.T) {
 	ln := testListener(t)
@@ -194,21 +176,16 @@ func TestClient_Do_FailedResponseMapsToErrorWithDaemonsCode(t *testing.T) {
 	}
 }
 
-// TestClient_Subscribe_DeliversFramePublishedAfterSubscription is the
-// checkpoint's explicit Subscribe deliverable: subscribe, publish from a
-// second connection, read the delivered frame under a bounded select —
-// never an unbounded read.
+// Subscribe, publish from a second connection, read the delivered frame under a
+// bounded select — never an unbounded read.
 func TestClient_Subscribe_DeliversFramePublishedAfterSubscription(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
 	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
-	// Each daemon connection is one-shot — the daemon closes it after a
-	// single non-subscription round trip (daemon.go's handleConn) — so
-	// join and send below each use their own fresh connection via
-	// daemon_test.go's dialAndDo helper; only the Subscribe call under
-	// test gets a dedicated, persistent Client.
+	// Each daemon connection is one-shot, so join and send below each use a fresh
+	// one; only the Subscribe call under test gets a persistent Client.
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: KindAgent, Session: "sess-fe"}); !resp.OK {
 		t.Fatalf("join: %s", resp.Error)
 	}
@@ -316,12 +293,10 @@ func TestEnsureDaemon_ColdSingleCaller_SpawnsAndConnects(t *testing.T) {
 	}
 }
 
-// TestEnsureDaemon_ConcurrentFromCold_SpawnsExactlyOneDaemon is the
-// marquee test of this checkpoint: N callers race EnsureDaemon from a home
-// with nothing in it. Each call reaches acquireLock through its own fresh
-// os.OpenFile, so this genuinely exercises flock contention per POSIX's
-// per-open-file-description semantics — not a shared fd, not a Go mutex
-// standing in for the lock. Exactly one of them may spawn.
+// N callers race EnsureDaemon from an empty home. Each reaches acquireLock
+// through its own os.OpenFile, so this exercises real flock contention under
+// POSIX's per-open-file-description semantics — not a shared fd, not a Go mutex
+// standing in. Exactly one may spawn.
 func TestEnsureDaemon_ConcurrentFromCold_SpawnsExactlyOneDaemon(t *testing.T) {
 	home := testBusHome(t)
 	var spawnCount int32
@@ -354,11 +329,9 @@ func TestEnsureDaemon_ConcurrentFromCold_SpawnsExactlyOneDaemon(t *testing.T) {
 		t.Fatalf("spawn invoked %d times across %d concurrent callers, want exactly 1", got, n)
 	}
 
-	// "Connects to the same daemon": every client's ping must report the
-	// identical Started timestamp — a second daemon bound to the same
-	// socket path is impossible (net.Listen fails with "address already
-	// in use"), so this also verifies no client silently talked to
-	// nothing and no client's spawn attempt raced past the address check.
+	// Every client's ping must report the identical Started timestamp. A second
+	// daemon on the same socket path is impossible, so this also verifies no
+	// client silently talked to nothing and none raced past the address check.
 	var wantStarted time.Time
 	for i, c := range clients {
 		resp, err := c.Do(Request{Op: OpPing})
@@ -380,13 +353,10 @@ func TestEnsureDaemon_ConcurrentFromCold_SpawnsExactlyOneDaemon(t *testing.T) {
 	}
 }
 
-// TestEnsureDaemon_LockLoserBlocksThenWakesAndConnectsToSameDaemon
-// deterministically proves the "loser blocks, wakes, finds the socket,
-// connects" success criterion, rather than relying on timing luck in the
-// N-way concurrent test above: the winner is held inside its locked
-// spawn step until the test releases it, and the loser — started only
-// after the winner has had time to acquire the lock — must still be
-// blocked at that point.
+// Proves "loser blocks, wakes, finds the socket, connects" deterministically
+// rather than on timing luck: the winner is held inside its locked spawn step
+// until the test releases it, and the loser — started only after the winner has
+// had time to take the lock — must still be blocked at that point.
 func TestEnsureDaemon_LockLoserBlocksThenWakesAndConnectsToSameDaemon(t *testing.T) {
 	home := testBusHome(t)
 	var spawnCount int32
@@ -478,10 +448,8 @@ func TestEnsureDaemon_LockLoserBlocksThenWakesAndConnectsToSameDaemon(t *testing
 	}
 }
 
-// TestEnsureDaemon_StaleSocket_UnlinkedRespawnedConnected_SpawnOnce proves
-// the stale-socket recovery path: a socket file present with nothing
-// listening (a crashed daemon's leftover) is unlinked, the daemon is
-// respawned once, and the caller connects — spawn invoked exactly once.
+// A socket file present with nothing listening is unlinked, the daemon respawned
+// once, and the caller connects — spawn invoked exactly once.
 func TestEnsureDaemon_StaleSocket_UnlinkedRespawnedConnected_SpawnOnce(t *testing.T) {
 	home := testBusHome(t)
 	leaveStaleSocket(t, home)
@@ -510,11 +478,8 @@ func TestEnsureDaemon_StaleSocket_UnlinkedRespawnedConnected_SpawnOnce(t *testin
 	}
 }
 
-// TestEnsureDaemon_PersistentFailure_ExitsSixAfterExactlyOneRetry_NoLoop
-// pins the "do not loop" property explicitly by counting spawn attempts:
-// a Spawn that never actually brings up a working listener must be called
-// exactly maxSpawnAttempts times (the initial attempt plus one retry),
-// never a third time, and the final failure must carry exit code 6.
+// A Spawn that never brings up a working listener must be called exactly
+// maxSpawnAttempts times, never a third, and the final failure must carry exit 6.
 func TestEnsureDaemon_PersistentFailure_ExitsSixAfterExactlyOneRetry_NoLoop(t *testing.T) {
 	home := testBusHome(t)
 	leaveStaleSocket(t, home)
@@ -547,11 +512,9 @@ func TestEnsureDaemon_PersistentFailure_ExitsSixAfterExactlyOneRetry_NoLoop(t *t
 	}
 }
 
-// TestEnsureDaemon_VersionMismatch_ExitsSix_NamesBothVersionsAndRemedy
-// pins the version-skew refusal: a daemon reporting a different
-// ProtocolVersion must be refused (exit 6) without ever spawning, and the
-// error must name both versions plus the remedy — the message is the
-// entire actionable output here.
+// A daemon reporting a different ProtocolVersion must be refused without ever
+// spawning, and the error must name both versions plus the remedy — the message
+// is the entire actionable output here.
 func TestEnsureDaemon_VersionMismatch_ExitsSix_NamesBothVersionsAndRemedy(t *testing.T) {
 	home := testBusHome(t)
 	if err := EnsureDirs(home); err != nil {

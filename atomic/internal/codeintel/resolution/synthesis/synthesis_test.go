@@ -1,22 +1,6 @@
 package synthesis_test
 
-// CP16 synthesis infrastructure + batch-1 synthesizer tests.
-//
-// # Why these tests are the spec gate
-//
-//   - Cap constants are asserted literally (40/6/8) — R6 compliance.
-//   - Composite.SynthesizeCallbackEdges stamps every edge kind='calls',
-//     provenance='heuristic', metadata.synthesizedBy=<name>.
-//   - Dedup by "source>target": two synthesizers proposing the same source→target
-//     produce exactly one edge.
-//   - DB dedup: a second SynthesizeCallbackEdges call on the same DB produces
-//     zero new edges (idempotent).
-//   - Node-count stable: no new nodes across two synthesis runs.
-//   - react-render gate: real .ts fixtures indexed through the real indexer +
-//     ResolveAndPersistBatched with the composite wired; setState-calling methods
-//     gain a 'calls' edge to the render method.
-//   - jsx-render + event-emitter + callback: emit no edges (absent signal —
-//     the tests assert the synthesizers return empty and document why).
+// Composite infrastructure and first-batch synthesizer tests.
 
 import (
 	"context"
@@ -32,10 +16,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution/synthesis"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 func openTestDB(t *testing.T) *db.DB {
 	t.Helper()
@@ -163,10 +143,6 @@ func writeFixture(t *testing.T, dir, name, content string) string {
 	return path
 }
 
-// ---------------------------------------------------------------------------
-// Cap const assertions — R6: test asserts literal values
-// ---------------------------------------------------------------------------
-
 func TestCapConsts(t *testing.T) {
 	// Appendix G mandates exact values. These tests catch any accidental change.
 	if synthesis.MAX_CALLBACKS_PER_CHANNEL != 40 {
@@ -179,10 +155,6 @@ func TestCapConsts(t *testing.T) {
 		t.Errorf("CC_FANOUT_CAP = %d, want 8", synthesis.CC_FANOUT_CAP)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Composite stamps kind + provenance + metadata
-// ---------------------------------------------------------------------------
 
 type fixedSynthesizer struct {
 	name  string
@@ -240,10 +212,6 @@ func TestCompositeStampsEdge(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Dedup: within-run dedup (same source>target from two synthesizers)
-// ---------------------------------------------------------------------------
-
 func TestCompositeDedupWithinRun(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
@@ -273,10 +241,6 @@ func TestCompositeDedupWithinRun(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Dedup: idempotent across runs (re-run produces zero new edges)
-// ---------------------------------------------------------------------------
-
 func TestCompositeDedupAcrossRuns(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
@@ -305,10 +269,6 @@ func TestCompositeDedupAcrossRuns(t *testing.T) {
 		t.Errorf("heuristic edge count after run1=%d run2=%d, want equal (idempotent)", countAfterRun1, countAfterRun2)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Node-count stable across two synthesis runs
-// ---------------------------------------------------------------------------
 
 func TestNodeCountStableAcrossRuns(t *testing.T) {
 	d := openTestDB(t)
@@ -341,10 +301,6 @@ func TestNodeCountStableAcrossRuns(t *testing.T) {
 		t.Errorf("node count after run1=%d run2=%d, want equal (stable)", nodeCountAfterRun1, nodeCountAfterRun2)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// react-render gate: real fixture through indexer + pipeline
-// ---------------------------------------------------------------------------
 
 func TestReactRenderSynthesizer_Gate(t *testing.T) {
 	ctx := context.Background()
@@ -484,10 +440,6 @@ func assertSynthEdge(t *testing.T, d *db.DB, sourceID, targetID, synthesizedBy, 
 	t.Errorf("no heuristic calls edge %s→%s (synthesizedBy=%s via=%s)", sourceID, targetID, synthesizedBy, via)
 }
 
-// ---------------------------------------------------------------------------
-// jsx-render: gate test — real .tsx parent+child fixture through full pipeline
-// ---------------------------------------------------------------------------
-
 func TestJSXRenderSynthesizer_Gate(t *testing.T) {
 	ctx := context.Background()
 	d := openTestDB(t)
@@ -623,10 +575,6 @@ func TestJSXRenderSynthesizer_WithDiscriminator(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// event-emitter: asserts empty (absent signal documented)
-// ---------------------------------------------------------------------------
-
 func TestEventEmitterSynthesizer_AbsentSignal(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
@@ -647,10 +595,6 @@ func TestEventEmitterSynthesizer_AbsentSignal(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// callback: asserts empty (absent signal documented)
-// ---------------------------------------------------------------------------
-
 func TestCallbackSynthesizer_AbsentSignal(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
@@ -670,10 +614,6 @@ func TestCallbackSynthesizer_AbsentSignal(t *testing.T) {
 		t.Errorf("CallbackSynthesizer produced %d edges, want 0 (absent signal: assignment tracking absent)", len(edges))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// vue-handler: gate test — real .vue parent+child fixture through full pipeline
-// ---------------------------------------------------------------------------
 
 func TestVueHandlerSynthesizer_Gate(t *testing.T) {
 	ctx := context.Background()
@@ -861,10 +801,6 @@ export default {
 	assertSynthEdge(t, d, compID, onSubmitID, "vue-handler", "")
 }
 
-// ---------------------------------------------------------------------------
-// Default returns composite with 6 synthesizers (batch 1 + batch 2 + batch 3)
-// ---------------------------------------------------------------------------
-
 func TestDefaultCompositeHasSixSynthesizers(t *testing.T) {
 	d := openTestDB(t)
 	// Default should not panic and the returned composite should work.
@@ -877,10 +813,6 @@ func TestDefaultCompositeHasSixSynthesizers(t *testing.T) {
 		t.Fatalf("Default composite on empty DB: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Pipeline integration: NewPipelineWithSeams with Default composite
-// ---------------------------------------------------------------------------
 
 func TestPipelineWithSeams_SynthesisRunsLast(t *testing.T) {
 	ctx := context.Background()
@@ -923,10 +855,6 @@ export { Widget };
 		t.Errorf("expected at least one heuristic edge (Widget.update→Widget.render via react-render), got 0")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 func containsSubstring(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub ||

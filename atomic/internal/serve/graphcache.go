@@ -1,20 +1,11 @@
-// graphcache.go — fingerprint-invalidated cache for the full Network View graph.
+// Fingerprint-invalidated cache for the full docs-graph response.
 //
-// The full /graph/data response (no ?node= param) is assembled from
-// BuildProvenanceDAG + buildCytoElements + injectProvenanceEdges + JSON marshal.
-// The provenance walk (reads + sha256s every wiki page) and the whole-realm
-// element assembly used to run on EVERY Network View open — a noticeable wait
-// each time.
-//
-// graphDataCache assembles it once, warmed in a background goroutine at startup,
-// and serves the bytes verbatim until the realm changes. Change detection and the
-// link graph itself both come from a snapshotStore (CP1): the store's ensureFresh
-// does the stat-only fingerprint walk (and, when stale, the heavier graph rebuild)
-// so this cache no longer walks the filesystem on its own — it only owns the
-// provenance+cyto-JSON assembly and its cache. Concurrent (re)builds of that
-// assembly are still deduped via singleflight keyed by the store's fingerprint, so
-// a burst of requests — or the warm goroutine racing the first request — triggers
-// exactly one assembly.
+// Assembling it means a provenance walk that reads and hashes every wiki page,
+// plus a whole-realm element build — too slow to repeat on every open. This
+// cache owns only that assembly; the fingerprint and the link graph both come
+// from the shared snapshot store, so it never walks the filesystem itself.
+// Singleflight keyed on the fingerprint collapses a burst of requests, or the
+// warm goroutine racing the first request, into one assembly.
 package serve
 
 import (
@@ -26,21 +17,19 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// graphDataCache caches the full-view /graph/data JSON keyed by the
-// snapshotStore's filesystem fingerprint. Safe for concurrent use.
+// graphDataCache is safe for concurrent use.
 type graphDataCache struct {
 	root    string
 	wikiDir string
-	store   *snapshotStore // source of the link graph + fingerprint (CP1)
+	store   *snapshotStore // source of both the link graph and the fingerprint
 
-	sf singleflight.Group // dedupes concurrent assembles by fingerprint
+	sf singleflight.Group
 
 	mu         sync.RWMutex
 	fp         string // fingerprint the cached bytes were assembled for
-	cachedJSON []byte // cached full-view elements JSON (nil until first build)
+	cachedJSON []byte // nil until the first build
 }
 
-// newGraphDataCache builds a cache over store, rooted at root.
 func newGraphDataCache(root string, store *snapshotStore) *graphDataCache {
 	return &graphDataCache{
 		root:    root,
@@ -49,12 +38,13 @@ func newGraphDataCache(root string, store *snapshotStore) *graphDataCache {
 	}
 }
 
-// assemble builds the full-view elements JSON exactly as GraphDataHandler does for
-// a no-node-param request (SetEscapeHTML(false) so labels keep raw <, >, &).
+// assemble mirrors GraphDataHandler's no-node-param path. Escaping stays off
+// so labels keep raw <, >, and &.
 func (c *graphDataCache) assemble(g *Graph) ([]byte, error) {
 	provDAG := BuildProvenanceDAG(c.root, c.wikiDir)
 	elems := buildCytoElements(g)
-	injectProvenanceEdges(&elems, provDAG)
+	// Unscoped: the whole DAG belongs in a full view, nodes included.
+	injectProvenanceEdges(&elems, provDAG, false)
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -65,16 +55,9 @@ func (c *graphDataCache) assemble(g *Graph) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// fullJSON returns the cached full-view elements JSON and the filesystem
-// fingerprint it was assembled for, (re)assembling when the fingerprint has
-// changed since the last build. Concurrent callers with the same fingerprint
-// share one assemble via singleflight. The fingerprint is surfaced to the client
-// (X-Graph-Fingerprint header) so the browser can key its layout cache off the
-// exact realm state — it changes on any edit, not just node-set changes.
-//
-// ensureFresh does the store's own lightweight (or, when stale, full) walk on
-// every call — the same lazy-validation cost this cache always paid, now
-// shared with nav paths instead of duplicated here.
+// fullJSON reassembles only when the fingerprint moved. The fingerprint is
+// returned so the handler can hand it to the client, which keys its layout
+// cache off it — it changes on any edit, not just a node-set change.
 func (c *graphDataCache) fullJSON() (data []byte, fingerprint string, err error) {
 	snap, _ := c.store.ensureFresh()
 	fp := snap.fp
@@ -89,7 +72,7 @@ func (c *graphDataCache) fullJSON() (data []byte, fingerprint string, err error)
 	c.mu.RUnlock()
 
 	v, sfErr, _ := c.sf.Do(fp, func() (any, error) {
-		// Another caller may have finished the build between our RUnlock and here.
+		// Another caller may have finished between the RUnlock above and here.
 		c.mu.RLock()
 		if c.fp == fp && c.cachedJSON != nil {
 			b := c.cachedJSON
@@ -114,9 +97,8 @@ func (c *graphDataCache) fullJSON() (data []byte, fingerprint string, err error)
 	return v.([]byte), fp, nil
 }
 
-// warm precomputes the full-view JSON in the background at startup so the first
-// Network View render serves cached bytes instead of waiting on the assembly.
-// Errors are non-fatal (the request path falls back to a live assemble).
+// warm precomputes at startup so the first graph open serves cached bytes.
+// Errors are non-fatal: the request path falls back to a live assemble.
 func (c *graphDataCache) warm() {
 	_, _, _ = c.fullJSON()
 }

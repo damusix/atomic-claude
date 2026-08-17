@@ -8,8 +8,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 )
 
-// buildWikiIndex writes a wiki/index.md with a <wiki-scan> block listing the
-// provided members (path + status).
 func buildWikiIndex(t *testing.T, indexPath string, members []struct{ path, status string }) {
 	t.Helper()
 	var block string
@@ -21,10 +19,6 @@ func buildWikiIndex(t *testing.T, indexPath string, members []struct{ path, stat
 	writeFile(t, indexPath, "# wiki index\n\n"+block)
 }
 
-// ─── SeedConfig tests ────────────────────────────────────────────────────────
-
-// TestSeedConfig_SeedsFromWikiScan verifies that seeding from a fresh wiki index
-// produces the expected TOML entries with correct keys and exclude flags.
 func TestSeedConfig_SeedsFromWikiScan(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "wiki", "index.md")
@@ -51,7 +45,6 @@ func TestSeedConfig_SeedsFromWikiScan(t *testing.T) {
 		byPath[m.Path] = m
 	}
 
-	// alpha: indexed → exclude=false
 	if m, ok := byPath["repos/alpha"]; !ok {
 		t.Error("missing repos/alpha")
 	} else {
@@ -63,36 +56,30 @@ func TestSeedConfig_SeedsFromWikiScan(t *testing.T) {
 		}
 	}
 
-	// beta: summarized → exclude=false
 	if m, ok := byPath["repos/beta"]; !ok {
 		t.Error("missing repos/beta")
 	} else if m.Exclude {
 		t.Error("repos/beta should not be excluded (summarized)")
 	}
 
-	// pending-repo: pending → exclude=true
 	if m, ok := byPath["repos/pending-repo"]; !ok {
 		t.Error("missing repos/pending-repo")
 	} else if !m.Exclude {
 		t.Error("repos/pending-repo should be excluded (pending)")
 	}
 
-	// trash/old-repo: trash path → exclude=true
 	if m, ok := byPath["trash/old-repo"]; !ok {
 		t.Error("missing trash/old-repo")
 	} else if !m.Exclude {
 		t.Error("trash/old-repo should be excluded (trash path)")
 	}
 
-	// Verify code.toml was written.
 	tomlPath := filepath.Join(dir, ".atomic", "code.toml")
 	if _, err := os.Stat(tomlPath); err != nil {
 		t.Fatalf("code.toml not written: %v", err)
 	}
 }
 
-// TestSeedConfig_SlugOnCollision verifies that two members with the same
-// basename get different keys (e.g. "beta" and "beta-2").
 func TestSeedConfig_SlugOnCollision(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "wiki", "index.md")
@@ -119,12 +106,9 @@ func TestSeedConfig_SlugOnCollision(t *testing.T) {
 	}
 }
 
-// TestSeedConfig_AppendDoesNotClobber verifies that re-seeding appends only new
-// members and does not overwrite existing entries or manual edits.
 func TestSeedConfig_AppendDoesNotClobber(t *testing.T) {
 	dir := t.TempDir()
 
-	// Write an initial code.toml with a manually edited entry.
 	initialTOML := `[[member]]
 key = "custom-key"
 path = "repos/alpha"
@@ -132,7 +116,6 @@ exclude = false
 `
 	writeFile(t, filepath.Join(dir, ".atomic", "code.toml"), initialTOML)
 
-	// Wiki now also lists beta.
 	indexPath := filepath.Join(dir, "wiki", "index.md")
 	buildWikiIndex(t, indexPath, []struct{ path, status string }{
 		{"repos/alpha", "indexed"}, // already in config
@@ -147,7 +130,6 @@ exclude = false
 		t.Fatalf("expected 2 members, got %v", cfg)
 	}
 
-	// The alpha entry must preserve the manually edited key.
 	if cfg.Members[0].Key != "custom-key" {
 		t.Errorf("expected custom-key preserved, got %q", cfg.Members[0].Key)
 	}
@@ -155,18 +137,14 @@ exclude = false
 		t.Errorf("expected path=repos/alpha, got %q", cfg.Members[0].Path)
 	}
 
-	// Beta was appended.
 	if cfg.Members[1].Path != "repos/beta" {
 		t.Errorf("expected repos/beta appended, got %q", cfg.Members[1].Path)
 	}
 }
 
-// TestSeedConfig_AbsentWikiIndex returns nil config without error when the
-// wiki/index.md does not exist.
 func TestSeedConfig_AbsentWikiIndex(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "wiki", "index.md")
-	// indexPath not created.
 
 	cfg, err := realm.SeedConfig(dir, indexPath)
 	if err != nil {
@@ -177,9 +155,6 @@ func TestSeedConfig_AbsentWikiIndex(t *testing.T) {
 	}
 }
 
-// TestSeedConfig_NoNewMembersReturnsExisting verifies that when all wiki members
-// are already in code.toml, SeedConfig returns the existing config unchanged
-// (no new write).
 func TestSeedConfig_NoNewMembersReturnsExisting(t *testing.T) {
 	dir := t.TempDir()
 	initialTOML := `[[member]]
@@ -204,15 +179,13 @@ exclude = false
 	}
 
 	statAfter, _ := os.Stat(filepath.Join(dir, ".atomic", "code.toml"))
-	// File should not have been rewritten (mtime unchanged).
 	if statBefore.ModTime() != statAfter.ModTime() {
 		t.Error("code.toml was rewritten even though no new members were added")
 	}
 }
 
-// TestSeedConfig_DBNotWrittenIntoMemberDir verifies SC 3: the realm db files
-// are placed at <realm>/.atomic/<key>.db, never inside member directories.
-// SeedConfig itself doesn't write dbs; this verifies DBPath helper.
+// SeedConfig writes no dbs; this pins DBPath, which must never point inside a
+// member directory.
 func TestSeedConfig_DBPathAtRealm(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "wiki", "index.md")
@@ -228,7 +201,6 @@ func TestSeedConfig_DBPathAtRealm(t *testing.T) {
 		t.Fatalf("expected 1 member, got %v", cfg)
 	}
 
-	// Construct a Resolution to test DBPath.
 	res := realm.Resolution{
 		Scope:     realm.ScopeRealmAll,
 		RealmRoot: dir,
@@ -242,7 +214,6 @@ func TestSeedConfig_DBPathAtRealm(t *testing.T) {
 		t.Errorf("DBPath %q does not start with realm .atomic dir %q", dbPath, expectedPrefix)
 	}
 
-	// Confirm the path is NOT inside any member directory.
 	memberAbs := filepath.Join(dir, "repos", "alpha")
 	if hasPrefix(dbPath, memberAbs) {
 		t.Errorf("DBPath %q must not be inside member dir %q", dbPath, memberAbs)

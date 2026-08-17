@@ -1,25 +1,27 @@
 package wiki
 
-// action_test.go — CP1 tests for the shared argument scanner hardening
-// (resolveWikiRoot / parseBucketDocArgs) behind `atomic wiki bucket`.
+// action_test.go — tests for the shared argument scanner hardening
+// (resolveWikiRoot / parseBucketDocArgs) behind `atomic wiki bucket`, plus
+// wikiStampAction's flag/positional argument order handling.
 //
 // Covers: -h/-help/--help yield errUsageRequested and print usage without
-// mutating state (issue #164 — `bucket add -h` used to silently create a
+// mutating state (`bucket add -h` used to silently create a
 // bucket named "-h"); an unrecognized single-dash token is rejected with
 // the same parity as an unrecognized double-dash token; parseBucketDocArgs'
 // collapse to delegate at resolveWikiRoot still honors --router in any
-// position.
+// position; wikiStampAction accepts flags before, after, or interspersed
+// with the positional <file> argument, and honors "--" as a global
+// terminator ending flag parsing.
 
 import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// ---- resolveWikiRoot: help sentinel ----
 
 func TestResolveWikiRoot_HelpTokensYieldSentinel(t *testing.T) {
 	cwd := t.TempDir()
@@ -43,8 +45,6 @@ func TestResolveWikiRoot_HelpTokenAnyPosition(t *testing.T) {
 		t.Fatalf("expected errUsageRequested after --root and a positional, got %v", err)
 	}
 }
-
-// ---- resolveWikiRoot: unrecognized dash tokens ----
 
 func TestResolveWikiRoot_UnrecognizedSingleDashRejected(t *testing.T) {
 	cwd := t.TempDir()
@@ -80,8 +80,6 @@ func TestResolveWikiRoot_UnrecognizedDashTokenDoesNotLeakIntoPositional(t *testi
 		t.Fatalf("expected rejection, got positional %v", positional)
 	}
 }
-
-// ---- parseBucketDocArgs: delegates to resolveWikiRoot ----
 
 func TestParseBucketDocArgs_HelpSentinel(t *testing.T) {
 	cwd := t.TempDir()
@@ -133,7 +131,7 @@ func TestParseBucketDocArgs_RouterAnyPosition(t *testing.T) {
 }
 
 // TestParseBucketDocArgs_RouterConsumedBeforeRootValue pins a deliberate
-// behavior delta flagged in CP1 review: parseBucketDocArgs strips every
+// behavior delta flagged in review: parseBucketDocArgs strips every
 // literal "--router" token before delegating to resolveWikiRoot, so
 // `--root --router` reaches resolveWikiRoot as bare "--root" and errors
 // "flag --root requires a value" rather than silently taking "--router" as
@@ -167,10 +165,6 @@ func TestParseBucketDocArgs_RouterAbsentDefaultsFalse(t *testing.T) {
 	}
 }
 
-// ---- wikiAction integration: help probe across all seven bucket verbs ----
-
-// TestBucketVerbs_HelpFlagPrintsUsageAndExitsZero verifies -h, -help, and
-// --help all print usage to out and exit 0 for every bucket sub-verb.
 func TestBucketVerbs_HelpFlagPrintsUsageAndExitsZero(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -195,7 +189,7 @@ func TestBucketVerbs_HelpFlagPrintsUsageAndExitsZero(t *testing.T) {
 	}
 }
 
-// TestBucketAdd_HelpProbeCreatesNothing reproduces issue #164 directly:
+// TestBucketAdd_HelpProbeCreatesNothing reproduces that directly:
 // `atomic wiki bucket add -h` must not create a bucket named "-h" (or
 // anything else).
 func TestBucketAdd_HelpProbeCreatesNothing(t *testing.T) {
@@ -261,4 +255,192 @@ func TestBucketVerbs_UnrecognizedSingleDashTokenExits2(t *testing.T) {
 			}
 		})
 	}
+}
+
+//
+// Stdlib flag.FlagSet stops parsing at the first non-flag argument, so the
+// documented `atomic wiki stamp <file> --repo <path>` form (flags after the
+// positional) never consumed the trailing flags and fell through to the
+// "supply either --repo ..." error. wikiStampAction must accept flags in any
+// position — flags-first, flags-after-path, and interspersed.
+
+// makeStampGitRepo creates a git repo with one commit and returns its dir.
+func makeStampGitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	cmds := [][]string{
+		{"git", "-C", dir, "init"},
+		{"git", "-C", dir, "config", "user.email", "t@t.com"},
+		{"git", "-C", dir, "config", "user.name", "T"},
+	}
+	for _, c := range cmds {
+		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", c, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	addCmds := [][]string{
+		{"git", "-C", dir, "add", "."},
+		{"git", "-C", dir, "commit", "-m", "init"},
+	}
+	for _, c := range addCmds {
+		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", c, err, out)
+		}
+	}
+	return dir
+}
+
+// TestWikiStampAction_FlagOrder is a table test over the three stamp modes
+// (summary / concern / knowledge) crossed with three argument orders
+// (flags-first, flags-after-path, interspersed). All nine combinations must
+// exit 0 and actually write the expected frontmatter key.
+func TestWikiStampAction_FlagOrder(t *testing.T) {
+	repoDir := makeStampGitRepo(t)
+
+	knowledgeRoot := t.TempDir()
+	citedSignalsDir := filepath.Join(knowledgeRoot, "cited-repo", ".claude", "project")
+	if err := os.MkdirAll(citedSignalsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(citedSignalsDir, "signals.md"), []byte("signals\n"), 0o644); err != nil {
+		t.Fatalf("write signals.md: %v", err)
+	}
+
+	type modeCase struct {
+		name     string
+		pairs    [][]string // each element is one complete flag unit (name, or name+value) — never split
+		wantKey  string
+		fileName string // must be kebab-case for knowledge mode
+	}
+	modes := []modeCase{
+		{name: "summary", pairs: [][]string{{"--repo", repoDir}}, wantKey: "reflects_rev", fileName: "target.md"},
+		{name: "concern", pairs: [][]string{{"--root", knowledgeRoot}, {"--cites", "cited-repo"}}, wantKey: "reflects", fileName: "target.md"},
+		{name: "knowledge", pairs: [][]string{{"--knowledge"}, {"--sources", "research/notes.md@abc123"}}, wantKey: "sources", fileName: "topic.md"},
+	}
+
+	flatten := func(pairs [][]string) []string {
+		var out []string
+		for _, p := range pairs {
+			out = append(out, p...)
+		}
+		return out
+	}
+
+	orders := []struct {
+		name  string
+		build func(file string, pairs [][]string) []string
+	}{
+		{name: "flags-first", build: func(file string, pairs [][]string) []string {
+			return append(flatten(pairs), file)
+		}},
+		{name: "flags-after-path", build: func(file string, pairs [][]string) []string {
+			return append([]string{file}, flatten(pairs)...)
+		}},
+		{name: "interspersed", build: func(file string, pairs [][]string) []string {
+			// Split at a pair boundary — never inside a flag/value pair,
+			// which would otherwise swallow the positional as the flag's value.
+			mid := len(pairs) / 2
+			out := flatten(pairs[:mid])
+			out = append(out, file)
+			out = append(out, flatten(pairs[mid:])...)
+			return out
+		}},
+	}
+
+	for _, m := range modes {
+		for _, o := range orders {
+			t.Run(m.name+"/"+o.name, func(t *testing.T) {
+				dir := t.TempDir()
+				file := filepath.Join(dir, m.fileName)
+				if err := os.WriteFile(file, []byte("---\ntitle: x\n---\nbody\n"), 0o644); err != nil {
+					t.Fatalf("write %s: %v", file, err)
+				}
+
+				args := o.build(file, m.pairs)
+				code := wikiStampAction(args)
+				if code != 0 {
+					t.Fatalf("wikiStampAction(%v) = %d, want 0", args, code)
+				}
+
+				data, err := os.ReadFile(file)
+				if err != nil {
+					t.Fatalf("read %s: %v", file, err)
+				}
+				if !strings.Contains(string(data), m.wantKey+":") {
+					t.Errorf("expected %q key written to %s; got:\n%s", m.wantKey, file, data)
+				}
+			})
+		}
+	}
+}
+
+// TestWikiStampAction_MissingModeFlagsStillErrors verifies a genuinely
+// missing mode flag (no --repo/--root+--cites/--knowledge+--sources) still
+// produces the existing "supply either" error and exit 1 — the flag/position
+// fix must not mask real usage errors.
+func TestWikiStampAction_MissingModeFlagsStillErrors(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "target.md")
+	if err := os.WriteFile(file, []byte("---\ntitle: x\n---\nbody\n"), 0o644); err != nil {
+		t.Fatalf("write %s: %v", file, err)
+	}
+
+	code := wikiStampAction([]string{file})
+	if code != 1 {
+		t.Fatalf("wikiStampAction with no mode flags: exit %d, want 1", code)
+	}
+}
+
+// TestWikiStampAction_TerminatorEndsFlagParsing pins POSIX "--" terminator
+// semantics: the re-parse loop must honor the first
+// bare "--" globally, not just within the single fs.Parse call that consumes
+// it. Everything after "--" is positional, verbatim, never re-parsed as a
+// flag — so `wiki stamp -- <file> --repo <repo>` must NOT stamp.
+func TestWikiStampAction_TerminatorEndsFlagParsing(t *testing.T) {
+	repoDir := makeStampGitRepo(t)
+
+	t.Run("post-terminator flags are literal, no mode set", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "target.md")
+		if err := os.WriteFile(file, []byte("---\ntitle: x\n---\nbody\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", file, err)
+		}
+
+		code := wikiStampAction([]string{"--", file, "--repo", repoDir})
+		if code != 1 {
+			t.Fatalf("wikiStampAction(-- %s --repo %s) = %d, want 1 (--repo after -- must be literal)", file, repoDir, code)
+		}
+
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		if strings.Contains(string(data), "reflects_rev:") {
+			t.Errorf("expected no stamp written after literal --repo, got:\n%s", data)
+		}
+	})
+
+	t.Run("flags before terminator still parse, positional after stamps", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "target.md")
+		if err := os.WriteFile(file, []byte("---\ntitle: x\n---\nbody\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", file, err)
+		}
+
+		code := wikiStampAction([]string{"--repo", repoDir, "--", file})
+		if code != 0 {
+			t.Fatalf("wikiStampAction(--repo %s -- %s) = %d, want 0", repoDir, file, code)
+		}
+
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		if !strings.Contains(string(data), "reflects_rev:") {
+			t.Errorf("expected reflects_rev stamp written, got:\n%s", data)
+		}
+	})
 }

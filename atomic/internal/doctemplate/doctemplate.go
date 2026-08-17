@@ -1,9 +1,6 @@
-// Package doctemplate embeds and exposes the fill-in skeletons for every
-// document the workflow coordinates (design doc, spec, scratchpad brief/state/
-// followups, session report, diagnose context, implementation log), served via
-// `atomic template <name>`. Templates are NOT install artifacts — they are
-// embedded directly in this package and never shipped into the ~/.claude
-// bundle, so Claude Code cannot surface them as invocable commands.
+// Package doctemplate serves the fill-in document skeletons behind
+// `atomic template <name>`. They are embedded here, never shipped into the
+// ~/.claude bundle, so Claude Code cannot surface them as invocable commands.
 package doctemplate
 
 import (
@@ -17,9 +14,8 @@ import (
 //go:embed templates/*.md
 var templatesFS embed.FS
 
-// Get returns the embedded template text for the given name (the filename
-// without the .md extension). Returns a non-nil error when name is not in the
-// registered set; the error lists valid names.
+// Get returns the template for name — the filename without .md — erroring
+// with the valid names listed.
 func Get(name string) (string, error) {
 	data, err := templatesFS.ReadFile("templates/" + name + ".md")
 	if err != nil {

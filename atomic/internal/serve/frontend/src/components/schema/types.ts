@@ -9,9 +9,27 @@ export interface ApiTableSchema {
   writers: ApiCodeNode[];
 }
 
+/** A stored routine and the tables it touches. */
+export interface ApiRoutineSchema {
+  node: ApiCodeNode;
+  reads: ApiCodeNode[];
+  writes: ApiCodeNode[];
+}
+
 export interface ApiCodeSchemaResponse {
   tables: ApiTableSchema[];
+  /** Stored procedures and SQL functions. */
+  routines: ApiRoutineSchema[];
+  /** User-defined SQL types — Postgres domains and composite types. */
+  types: ApiCodeNode[];
   // Soft state: set (with tables empty) when no index is available for the
   // requested member — mirrors ApiCodeFileResponse.degraded.
   degraded?: string;
+}
+
+/** Whether the shell should offer the schema view at all. */
+export interface ApiCapabilitiesResponse {
+  schema: boolean;
+  /** "config" when .claude/atomic.toml decided, "detected" otherwise. */
+  source: string;
 }

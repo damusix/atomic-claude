@@ -1,29 +1,8 @@
 package extraction
 
-// python_literals.go — tree-sitter-based Python string literal harvester.
-//
-// HarvestPythonLiterals parses a Python source file and returns all string
-// literal spans with:
-//   - The literal text (post-substitution for f-strings: interpolation segments
-//     replaced with "?" so they act as SQL parameter placeholders).
-//   - 1-based file-absolute StartLine / EndLine.
-//   - IsDocstring flag: true when the string is the first expression_statement
-//     in a module, class_definition body, or function_definition body — the
-//     three docstring positions Python defines (PEP 257).
-//
-// WHY tree-sitter instead of a flat scanner: docstring exclusion requires
-// structural position (first statement in a body), which a byte scanner cannot
-// determine. F-string segment composition also requires the child node list.
-//
-// Node types verified by probe (tmp/probe-py-strings):
-//   - string        — all string literals (single/double/triple, f-strings)
-//   - string_start  — opening delimiter (may have f/r/b prefix, e.g. f", """)
-//   - string_content — raw text segments
-//   - string_end    — closing delimiter
-//   - interpolation — {expr} inside f-strings
-//   - expression_statement — bare expression (wraps docstrings)
-//   - block         — body of function_definition / class_definition
-//   - module        — top-level module node
+// Tree-sitter Python string-literal harvester. tree-sitter rather than a byte
+// scanner because docstring exclusion needs structural position — first statement
+// in a body — and f-string composition needs the child node list.
 
 import (
 	"context"
@@ -32,41 +11,27 @@ import (
 	sitter "github.com/malivvan/tree-sitter"
 )
 
-// PythonLiteralSpan holds one Python string literal span returned by
-// HarvestPythonLiterals.
+// PythonLiteralSpan is one string literal returned by HarvestPythonLiterals.
 type PythonLiteralSpan struct {
-	// Text is the literal content after f-string interpolation substitution.
-	// For plain strings: the raw content between the delimiters.
-	// For f-strings: string_content segments joined with "?" replacing each
-	// interpolation segment — so `f"SELECT a FROM {t} WHERE id = {id}"`
-	// becomes "SELECT a FROM ? WHERE id = ?".
+	// Text is the content between the delimiters; in an f-string each
+	// interpolation is replaced by "?" so it reads as a SQL parameter.
 	Text string
-	// StartLine is the 1-based line where the opening delimiter sits.
+	// StartLine and EndLine are 1-based.
 	StartLine int
-	// EndLine is the 1-based line where the closing delimiter sits.
-	EndLine int
-	// IsDocstring is true when this string is the first expression_statement
-	// in a module, class body, or function body — the three PEP 257 docstring
-	// positions. IsDocstring strings must be excluded from SQL gating.
+	EndLine   int
+	// IsDocstring marks the three PEP 257 positions — first statement of a
+	// module, class body, or function body. These are excluded from SQL gating.
 	IsDocstring bool
-	// CalleeExpr is the bare name of the nearest enclosing call's callee
-	// (e.g. "select" for db.select("x")) when the literal sits in that call's
-	// argument list. Empty when the literal is not inside a call. Used by
-	// sql-string-match (C1) confidence tiering.
+	// CalleeExpr is the bare name of the nearest enclosing call ("select" for
+	// db.select("x")), empty when the literal sits outside any call.
 	CalleeExpr string
 }
 
-// HarvestPythonLiterals parses src as Python via inst (which must already have
-// LangPython set, or the caller should set it before calling). It returns all
-// string literal spans.
-//
-// The caller is responsible for borrowing inst from a pool and returning it
-// after this call. HarvestPythonLiterals does not borrow or return instances.
-//
-// Returns (nil, nil) when the source has no string literals.
+// HarvestPythonLiterals returns every string literal span in src. The caller owns
+// inst: borrow it from a pool and return it afterwards. (nil, nil) means the
+// source has no string literals.
 func HarvestPythonLiterals(ctx context.Context, inst Instance, src string) ([]PythonLiteralSpan, error) {
-	// Set language to Python — the pool instance may be set to another language
-	// from a prior call in the same goroutine.
+	// The pooled instance may still be set to another language.
 	if err := inst.SetLanguage(ctx, LangPython); err != nil {
 		return nil, err
 	}
@@ -81,13 +46,9 @@ func HarvestPythonLiterals(ctx context.Context, inst Instance, src string) ([]Py
 		return nil, err
 	}
 
-	// lineOffsets[i] = byte offset of the first character of line i+1.
-	// Used to convert byte positions back to 1-based line numbers.
 	lineOffsets := buildLineOffsets(src)
 
 	var spans []PythonLiteralSpan
-	// Walk the module's direct named children. The recursive helper tracks the
-	// docstring-position contract per scope.
 	if err := pyWalkNode(ctx, root, src, lineOffsets, false /* isFirstInBody */, "", &spans); err != nil {
 		return nil, err
 	}
@@ -95,14 +56,9 @@ func HarvestPythonLiterals(ctx context.Context, inst Instance, src string) ([]Py
 	return spans, nil
 }
 
-// pyWalkNode recursively walks the tree rooted at node.
-//
-// isFirstInBody is true when node is the first named child of a block that is
-// a function/class body, or the first named child of module — meaning a string
-// at this position is a docstring.
-//
-// calleeCtx is the bare callee name of the nearest enclosing call's callee
-// (sql-string-match C1 callee capture), or "" when node is not inside a call.
+// pyWalkNode walks the tree rooted at node. isFirstInBody marks the docstring
+// position: first named child of a module or of a function/class body. calleeCtx
+// is the nearest enclosing call's bare callee, "" outside any call.
 func pyWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets []int, isFirstInBody bool, calleeCtx string, out *[]PythonLiteralSpan) error {
 	kind, err := node.Kind(ctx)
 	if err != nil {
@@ -121,9 +77,8 @@ func pyWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets [
 		return nil // do not recurse into string children
 
 	case "expression_statement":
-		// An expression_statement wrapping a single string is the docstring
-		// form. Pass isFirstInBody down to the first child so the string node
-		// picks up the flag.
+		// A string wrapped in an expression_statement is the docstring form, so
+		// isFirstInBody has to reach the string child itself.
 		cnt, _ := node.NamedChildCount(ctx)
 		for i := uint64(0); i < cnt; i++ {
 			child, err := node.NamedChild(ctx, i)
@@ -131,7 +86,6 @@ func pyWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets [
 				continue
 			}
 			childKind, _ := child.Kind(ctx)
-			// Only the first child and only a string node gets the docstring flag.
 			childIsDocstring := isFirstInBody && i == 0 && childKind == "string"
 			if err := pyWalkNode(ctx, child, src, lineOffsets, childIsDocstring, calleeCtx, out); err != nil {
 				return err
@@ -140,37 +94,30 @@ func pyWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets [
 		return nil
 
 	case "call":
-		// Nearest enclosing call: recompute calleeCtx for this subtree, but
-		// scope it to the "arguments" field only — a literal in the callee/
-		// receiver position (e.g. "tbl".upper()) must not inherit the call's
-		// own callee. Children outside "arguments" keep the outer calleeCtx;
-		// deeper nested calls will overwrite it again for their own
-		// arguments subtree.
+		// Scope the new callee to the "arguments" subtree only: a literal in
+		// callee position ("tbl".upper()) must not inherit this call's own callee.
+		// A deeper call overwrites it again for its own arguments.
 		newCallee := pyCalleeBareName(ctx, node, src)
 		return pyWalkCallChildren(ctx, node, src, lineOffsets, calleeCtx, newCallee, out)
 
 	case "module":
-		// Module top-level: first named child at position 0 may be a docstring.
 		return pyWalkChildren(ctx, node, src, lineOffsets, true, calleeCtx, out)
 
 	case "block":
-		// block is the body of function_definition / class_definition.
-		// First named child at position 0 may be a docstring.
+		// A block is a function or class body.
 		return pyWalkChildren(ctx, node, src, lineOffsets, true, calleeCtx, out)
 
 	case "function_definition", "class_definition":
-		// Descend but don't mark children here; the block child handles it.
+		// The block child owns the docstring position, not this node.
 		return pyWalkChildren(ctx, node, src, lineOffsets, false, calleeCtx, out)
 
 	default:
-		// General descent — no docstring context.
 		return pyWalkChildren(ctx, node, src, lineOffsets, false, calleeCtx, out)
 	}
 }
 
-// pyWalkChildren visits all named children of node.
-// bodyDocstringEnabled: when true, the FIRST child is considered the potential
-// docstring position (pass isFirstInBody=true to child 0, false to the rest).
+// pyWalkChildren visits all named children. With bodyDocstringEnabled the first
+// child is the potential docstring position.
 func pyWalkChildren(ctx context.Context, node sitter.Node, src string, lineOffsets []int, bodyDocstringEnabled bool, calleeCtx string, out *[]PythonLiteralSpan) error {
 	cnt, err := node.NamedChildCount(ctx)
 	if err != nil {
@@ -189,9 +136,8 @@ func pyWalkChildren(ctx context.Context, node sitter.Node, src string, lineOffse
 	return nil
 }
 
-// pyWalkCallChildren visits the named children of a "call" node, passing
-// argsCallee to the subtree rooted at the "arguments" field and outerCallee
-// to every other child (the "function" field).
+// pyWalkCallChildren passes argsCallee to the "arguments" subtree and
+// outerCallee to every other child.
 func pyWalkCallChildren(ctx context.Context, node sitter.Node, src string, lineOffsets []int, outerCallee, argsCallee string, out *[]PythonLiteralSpan) error {
 	argsNode, argsErr := node.ChildByFieldName(ctx, "arguments")
 	var argsStart, argsEnd uint64
@@ -225,11 +171,9 @@ func pyWalkCallChildren(ctx context.Context, node sitter.Node, src string, lineO
 	return nil
 }
 
-// pyCalleeBareName returns the bare invoked name of a "call" node's
-// "function" field: the identifier itself for a plain call ("select(...)"),
-// or the "attribute" field of an attribute node for a method call
-// ("db.select(...)" → "select"). Returns "" for any other callee shape —
-// best-effort, per the harvester's existing failure policy.
+// pyCalleeBareName returns a call's bare invoked name: the identifier for
+// "select(…)", the attribute for "db.select(…)". Any other callee shape returns
+// "", matching this harvester's best-effort failure policy.
 func pyCalleeBareName(ctx context.Context, callNode sitter.Node, src string) string {
 	fn, err := callNode.ChildByFieldName(ctx, "function")
 	if err != nil {
@@ -266,12 +210,9 @@ func pyNodeText(ctx context.Context, node sitter.Node, src string) string {
 	return src[sb:eb]
 }
 
-// pyHarvestString extracts text and line numbers from a "string" node.
-// Returns nil when the node cannot be processed.
-//
-// For f-strings: collects string_content segments and replaces each
-// interpolation child with "?" — the substitution contract for decision 8.
-// For plain strings: collects all string_content children and joins them.
+// pyHarvestString extracts text and line numbers from a "string" node, returning
+// nil when it cannot. Each f-string interpolation becomes "?", so the text reads
+// as parameterised SQL.
 func pyHarvestString(ctx context.Context, node sitter.Node, src string, lineOffsets []int) (*PythonLiteralSpan, error) {
 	startByte, err := node.StartByte(ctx)
 	if err != nil {
@@ -285,7 +226,6 @@ func pyHarvestString(ctx context.Context, node sitter.Node, src string, lineOffs
 	startLine := pyByteToLine(lineOffsets, startByte)
 	endLine := pyByteToLine(lineOffsets, endByte)
 
-	// Walk children to collect content segments and substitute interpolations.
 	cnt, _ := node.NamedChildCount(ctx)
 	var textParts []string
 
@@ -300,19 +240,16 @@ func pyHarvestString(ctx context.Context, node sitter.Node, src string, lineOffs
 
 		switch childKind {
 		case "string_start":
-			// Opening delimiter — no content to collect.
+			// Delimiter, no content.
 
 		case "string_content":
-			// Plain content segment.
 			if int(ceb) <= len(src) && csb < ceb {
 				textParts = append(textParts, src[csb:ceb])
 			}
 
 		case "interpolation":
-			// Substitute interpolation segment with "?" per decision 8.
-			// An interpolated value placeholder becomes a SQL parameter.
-			// An interpolated table target becomes "SELECT FROM ?" (no
-			// recognisable identifier after FROM), yielding zero refs.
+			// A value interpolation becomes a SQL parameter; an interpolated table
+			// target becomes "FROM ?", which yields no refs at all.
 			textParts = append(textParts, "?")
 
 		case "string_end":
@@ -332,8 +269,7 @@ func pyHarvestString(ctx context.Context, node sitter.Node, src string, lineOffs
 	}, nil
 }
 
-// pyByteToLine converts a byte offset to a 1-based line number using the
-// pre-built lineOffsets table. Mirrors visitor.byteToLine in extractor.go.
+// pyByteToLine mirrors visitor.byteToLine in extractor.go.
 func pyByteToLine(lineOffsets []int, byteOffset uint64) int {
 	off := int(byteOffset)
 	lo, hi := 0, len(lineOffsets)-1

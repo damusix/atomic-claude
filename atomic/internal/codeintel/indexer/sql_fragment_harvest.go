@@ -1,15 +1,10 @@
 package indexer
 
-// sql_fragment_harvest.go — CP5: C8 fragment-tier harvest.
-//
-// Covers builder-arg SQL fragments (ActiveRecord where("title LIKE ?"), GORM
-// Where("name = ?"), order("created_at DESC"), comma lists like
-// select("isbn, out_of_print")) that fail both C1's identifier shape and the
-// IsSQLLiteral gate. Checked only after both of those fail (see
-// embeddedSQLPostPass / emitSpeculativeSQLStringRef caller ordering).
-//
-// Resolution-side handling (pass A/B consuming sql_fragment refs, one-notch
-// confidence demotion) is CP6 — this file only harvests and tokenizes.
+// Last-resort harvest tier for query-builder argument fragments —
+// where("title LIKE ?"), order("created_at DESC"), select("isbn, out_of_print")
+// — which are neither whole SQL statements nor bare identifiers, so both
+// earlier gates reject them. This file only harvests and tokenizes; the
+// resolution side demotes confidence for what it finds.
 
 import (
 	"regexp"
@@ -20,28 +15,21 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// fragmentMaxLen is the C8 fragment-gate length cap.
 const fragmentMaxLen = 160
 
-// fragmentTokenRE extracts bare identifiers and one-dot qualified pairs —
-// the same per-token shape as sqlStringIdentifierRE (C1), applied to
-// substrings found anywhere in the fragment rather than the whole literal.
+// fragmentTokenRE is sqlStringIdentifierRE's per-token shape, matched anywhere
+// inside the fragment rather than against the whole literal.
 var fragmentTokenRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}(\.[A-Za-z_][A-Za-z0-9_]+)?`)
 
-// fragmentComparisonRE matches SQL comparison operators.
 var fragmentComparisonRE = regexp.MustCompile(`<>|!=|<=|>=|=|<|>`)
 
-// fragmentPlaceholderRE matches bind-parameter placeholders: $N or :name.
-// Bare `?` is checked separately (no regex needed for a literal rune).
+// fragmentPlaceholderRE covers $N and :name; bare `?` is checked directly.
 var fragmentPlaceholderRE = regexp.MustCompile(`\$\d+|:[A-Za-z_][A-Za-z0-9_]*`)
 
-// fragmentConnectiveRE matches the word-boundary case-insensitive SQL
-// connective/order discriminator tokens.
 var fragmentConnectiveRE = regexp.MustCompile(`(?i)\b(ASC|DESC|LIKE|IN|IS|AND|OR|NOT|NULL|BETWEEN)\b`)
 
-// fragmentStoplist is the case-insensitive keyword stoplist tokenization
-// drops. Includes the discriminator connectives plus the clause/keyword set
-// from C8.
+// fragmentStoplist drops SQL keywords that would otherwise tokenize as if they
+// named an object.
 var fragmentStoplist = map[string]bool{
 	"asc": true, "desc": true, "like": true, "in": true, "is": true,
 	"and": true, "or": true, "not": true, "null": true, "between": true,
@@ -51,9 +39,8 @@ var fragmentStoplist = map[string]bool{
 	"then": true, "else": true, "end": true,
 }
 
-// matchesSQLFragmentGate applies the C8 fragment gate: length cap, at least
-// one identifier token, and at least one discriminator (comparison operator,
-// placeholder, comma, or connective keyword).
+// matchesSQLFragmentGate demands a length cap, one identifier token, and one
+// discriminator, so arbitrary prose cannot pass as a query fragment.
 func matchesSQLFragmentGate(text string) bool {
 	if len(text) > fragmentMaxLen {
 		return false
@@ -68,9 +55,6 @@ func matchesSQLFragmentGate(text string) bool {
 		fragmentConnectiveRE.MatchString(text)
 }
 
-// tokenizeSQLFragment extracts the surviving identifier/qualified-pair
-// tokens from a fragment that passed the gate, dropping anything on the
-// keyword stoplist (case-insensitive, exact match on the full token).
 func tokenizeSQLFragment(text string) []string {
 	matches := fragmentTokenRE.FindAllString(text, -1)
 	if len(matches) == 0 {
@@ -86,13 +70,9 @@ func tokenizeSQLFragment(text string) []string {
 	return tokens
 }
 
-// emitSpeculativeSQLFragmentRefs appends one UnresolvedReference with
-// ReferenceKind sql_fragment per surviving token when span.Text fails both
-// C1's identifier shape and IsSQLLiteral but passes the C8 fragment gate.
-// seen mirrors C1's sql_string dedupe map shape (per ownerID+token) but must
-// be a separate map instance from the caller's sql_string one — a fragment
-// token and an unrelated same-text sql_string literal from the same owner
-// would otherwise collide.
+// emitSpeculativeSQLFragmentRefs appends one ref per surviving token. seen
+// must be a different map from the caller's sql_string one, or a fragment
+// token would cancel an unrelated same-text literal from the same owner.
 func emitSpeculativeSQLFragmentRefs(
 	relPath, ownerID string,
 	hostLang types.Language,

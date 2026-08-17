@@ -1,17 +1,5 @@
 package serve_test
 
-// provenance_test.go — CP10 TDD: provenance DAG walk + drift detection.
-//
-// Test-first contract (failing → impl → passing):
-//  1. ReadProvenance parses reflects: (concern) and sources: (knowledge) correctly.
-//  2. ReadProvenance tolerates pages with no frontmatter and no target keys.
-//  3. BuildProvenanceDAG links concern → knowledge → bucket-file.
-//  4. No drift when stamped fingerprint == live hash (happy path).
-//  5. Drift detected when bucket file content changes after stamping.
-//  6. /graph/data includes fingerprint-class edges for the provenance chain.
-//  7. A drifted edge carries the "drift" marker in its classes string.
-//  8. The hash function matches wiki's stamper exactly (known-content sha256).
-
 import (
 	"crypto/sha256"
 	"encoding/json"
@@ -29,8 +17,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// --- helpers ------------------------------------------------------------------
-
 // writeFM writes a file with YAML frontmatter.
 func writeFM(t *testing.T, path string, meta map[string]any, body string) {
 	t.Helper()
@@ -46,24 +32,17 @@ func writeFM(t *testing.T, path string, meta map[string]any, body string) {
 	}
 }
 
-// sha256Hex returns the lowercase hex SHA-256 of data.
 func sha256Hex(data []byte) string {
 	h := sha256.Sum256(data)
 	return fmt.Sprintf("%x", h)
 }
 
-// buildProvenanceRealm creates a realm with:
-//
-//	<root>/wiki/concerns/c.md     — reflects: ["knowledge/topic.md@<hash>"]
-//	<root>/wiki/knowledge/topic.md — sources: ["research/note.txt@<sha256>"]
-//	<root>/research/note.txt      — bucket file (the original content)
-//
-// Returns (root, bucketFilePath, knowledgeSHA256, bucketFileSHA256).
+// buildProvenanceRealm stamps a full concern -reflects-> knowledge -sources->
+// bucket-file chain, every hash matching its target's content on return.
 func buildProvenanceRealm(t *testing.T) (root, bucketFile, knowledgeHash, bucketHash string) {
 	t.Helper()
 	root = t.TempDir()
 
-	// 1. Bucket file.
 	bucketDir := filepath.Join(root, "research")
 	if err := os.MkdirAll(bucketDir, 0o755); err != nil {
 		t.Fatalf("mkdir research: %v", err)
@@ -75,7 +54,6 @@ func buildProvenanceRealm(t *testing.T) (root, bucketFile, knowledgeHash, bucket
 	}
 	bucketHash = sha256Hex(bucketContent)
 
-	// 2. Knowledge page — sources: ["research/note.txt@<bucketHash>"]
 	knowledgeDir := filepath.Join(root, "wiki", "knowledge")
 	if err := os.MkdirAll(knowledgeDir, 0o755); err != nil {
 		t.Fatalf("mkdir knowledge: %v", err)
@@ -88,14 +66,13 @@ func buildProvenanceRealm(t *testing.T) (root, bucketFile, knowledgeHash, bucket
 		"sources": []any{sourcesEntry},
 	}, knowledgeContent)
 
-	// Compute SHA-256 of the knowledge page file as written (the stamped content).
+	// Hash the emitted file, not the body string: that is what gets stamped.
 	knowledgeBytes, err := os.ReadFile(knowledgePath)
 	if err != nil {
 		t.Fatalf("read knowledge page: %v", err)
 	}
 	knowledgeHash = sha256Hex(knowledgeBytes)
 
-	// 3. Concern — reflects: ["knowledge/topic.md@<knowledgeHash>"]
 	concernDir := filepath.Join(root, "wiki", "concerns")
 	if err := os.MkdirAll(concernDir, 0o755); err != nil {
 		t.Fatalf("mkdir concerns: %v", err)
@@ -109,9 +86,6 @@ func buildProvenanceRealm(t *testing.T) (root, bucketFile, knowledgeHash, bucket
 	return root, bucketFile, knowledgeHash, bucketHash
 }
 
-// --- Unit tests (no HTTP server) ----------------------------------------------
-
-// Test 1: ReadProvenance correctly parses reflects: from a concern page.
 func TestReadProvenance_ParsesReflects(t *testing.T) {
 	root := t.TempDir()
 	wikiDir := filepath.Join(root, "wiki")
@@ -140,7 +114,6 @@ func TestReadProvenance_ParsesReflects(t *testing.T) {
 	}
 }
 
-// Test 2: ReadProvenance correctly parses sources: from a knowledge page.
 func TestReadProvenance_ParsesSources(t *testing.T) {
 	root := t.TempDir()
 	knowledgeDir := filepath.Join(root, "wiki", "knowledge")
@@ -169,7 +142,6 @@ func TestReadProvenance_ParsesSources(t *testing.T) {
 	}
 }
 
-// Test 3: ReadProvenance tolerates pages with no frontmatter.
 func TestReadProvenance_NoFrontmatter(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "page.md")
@@ -186,7 +158,6 @@ func TestReadProvenance_NoFrontmatter(t *testing.T) {
 	}
 }
 
-// Test 4: ReadProvenance tolerates pages with frontmatter but no reflects:/sources:.
 func TestReadProvenance_NoTargetKeys(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "page.md")
@@ -201,19 +172,16 @@ func TestReadProvenance_NoTargetKeys(t *testing.T) {
 	}
 }
 
-// Test 5: BuildProvenanceDAG links concern → knowledge → bucket-file.
 func TestBuildProvenanceDAG_Links(t *testing.T) {
 	root, _, _, _ := buildProvenanceRealm(t)
 	wikiDir := filepath.Join(root, "wiki")
 
 	dag := serve.BuildProvenanceDAG(root, wikiDir)
 
-	// Must have edges: concern→knowledge and knowledge→bucket-file.
 	if len(dag.Edges) == 0 {
 		t.Fatalf("BuildProvenanceDAG returned no edges; want at least 2")
 	}
 
-	// Expect at least one concern→knowledge edge and one knowledge→bucket edge.
 	var hasConcernKnowledge, hasKnowledgeBucket bool
 	for _, e := range dag.Edges {
 		if strings.Contains(e.Source, "concerns/") && strings.Contains(e.Target, "knowledge/") {
@@ -231,7 +199,6 @@ func TestBuildProvenanceDAG_Links(t *testing.T) {
 	}
 }
 
-// Test 6: No drift when stamped fingerprint matches live content.
 func TestBuildProvenanceDAG_NoDrift(t *testing.T) {
 	root, _, _, _ := buildProvenanceRealm(t)
 	wikiDir := filepath.Join(root, "wiki")
@@ -250,19 +217,17 @@ func TestBuildProvenanceDAG_NoDrift(t *testing.T) {
 	}
 }
 
-// Test 7: Drift detected when bucket file content changes after stamping.
 func TestBuildProvenanceDAG_DriftOnBucketChange(t *testing.T) {
 	root, bucketFile, _, _ := buildProvenanceRealm(t)
 	wikiDir := filepath.Join(root, "wiki")
 
-	// Mutate the bucket file — hash will no longer match the stamped value.
+	// Breaks the stamped hash.
 	if err := os.WriteFile(bucketFile, []byte("# Research note v2 — changed\n"), 0o644); err != nil {
 		t.Fatalf("update bucket file: %v", err)
 	}
 
 	dag := serve.BuildProvenanceDAG(root, wikiDir)
 
-	// The knowledge→bucket edge should be drifted.
 	var foundDrift bool
 	for _, e := range dag.Edges {
 		if e.Drift {
@@ -273,7 +238,6 @@ func TestBuildProvenanceDAG_DriftOnBucketChange(t *testing.T) {
 		t.Errorf("expected at least one drifted edge after bucket file mutation; got none\nedges: %+v", dag.Edges)
 	}
 
-	// The knowledge node should be flagged.
 	var knowledgeDrifted bool
 	for _, n := range dag.Nodes {
 		if strings.Contains(n.ID, "knowledge/") && n.Drift {
@@ -285,12 +249,10 @@ func TestBuildProvenanceDAG_DriftOnBucketChange(t *testing.T) {
 	}
 }
 
-// Test 8: The hash function matches wiki's stamper exactly.
 func TestFileSHA256_MatchesWikiStamper(t *testing.T) {
 	content := []byte("# known content\nsome data\n")
 	wantHex := sha256Hex(content)
 
-	// Write to a temp file and compute via wiki.FileSHA256.
 	tmp, err := os.CreateTemp("", "sha256-test-*.txt")
 	if err != nil {
 		t.Fatalf("create temp: %v", err)
@@ -310,19 +272,14 @@ func TestFileSHA256_MatchesWikiStamper(t *testing.T) {
 	}
 }
 
-// --- HTTP integration tests ---------------------------------------------------
-
-// provenanceRealm builds a realm with wiki/concerns/, wiki/knowledge/ and
-// wires the serve server to use it.
 func buildProvenanceServerRealm(t *testing.T) (root string) {
 	t.Helper()
 	root, _, _, _ = buildProvenanceRealm(t)
-	// Add a plain markdown file so the server has something in the link graph.
+	// Gives the link graph a node; the provenance DAG alone would leave it empty.
 	writeFile(t, filepath.Join(root, "index.md"), "# Realm index\n")
 	return root
 }
 
-// graphDataResponse is a subset of Cytoscape elements JSON for provenance tests.
 type graphDataResponse struct {
 	Nodes []struct {
 		Data struct {
@@ -342,7 +299,6 @@ type graphDataResponse struct {
 	} `json:"edges"`
 }
 
-// Test 9: /graph/data includes fingerprint-class edges for a fresh provenance chain.
 func TestGraphData_IncludesFingerprintEdges(t *testing.T) {
 	root := buildProvenanceServerRealm(t)
 
@@ -362,7 +318,6 @@ func TestGraphData_IncludesFingerprintEdges(t *testing.T) {
 		t.Fatalf("JSON unmarshal: %v\nbody: %s", err, body)
 	}
 
-	// Expect at least one "fingerprint" edge.
 	var foundFingerprint bool
 	for _, e := range elems.Edges {
 		if strings.Contains(e.Classes, "fingerprint") {
@@ -375,11 +330,10 @@ func TestGraphData_IncludesFingerprintEdges(t *testing.T) {
 	}
 }
 
-// Test 10: /graph/data marks a drifted edge with "fingerprint drift" classes.
 func TestGraphData_DriftedEdgeHasDriftClass(t *testing.T) {
 	root := buildProvenanceServerRealm(t)
 
-	// Mutate the bucket file to create drift.
+	// Breaks the stamped hash.
 	bucketFile := filepath.Join(root, "research", "note.txt")
 	if err := os.WriteFile(bucketFile, []byte("changed content\n"), 0o644); err != nil {
 		t.Fatalf("mutate bucket file: %v", err)
@@ -401,7 +355,7 @@ func TestGraphData_DriftedEdgeHasDriftClass(t *testing.T) {
 		t.Fatalf("JSON unmarshal: %v\nbody: %s", err, body)
 	}
 
-	// Expect at least one "fingerprint drift" edge (space-separated classes).
+	// Classes are space-separated, so both markers ride one string.
 	var foundDrift bool
 	for _, e := range elems.Edges {
 		if strings.Contains(e.Classes, "fingerprint") && strings.Contains(e.Classes, "drift") {

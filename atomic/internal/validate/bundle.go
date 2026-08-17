@@ -9,17 +9,13 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/manifestcheck"
 )
 
-// RunBundleCheckAt runs the bundle parity check against an explicit repoRoot
-// and writes output to w. Returns 0 (OK), 1 (FAIL — drift found), or
-// 2 (internal error). Exported for tests and future atomic doctor.
+// RunBundleCheckAt runs the bundle parity check against an explicit repoRoot.
 func RunBundleCheckAt(repoRoot string, w io.Writer) int {
 	return runBundleAt(repoRoot, false, false, w)
 }
 
-// bundleFindings runs manifestcheck.Compare and converts its Result into
-// Findings (Rule="bundle", Severity="FAIL"). Returns (findings, exit) where
-// exit is 0 (clean) or 2 (internal error from Compare). The caller decides
-// final exit by inspecting the summary.
+// bundleFindings converts manifestcheck drift into Findings. exit is 0 or 2;
+// the caller derives the final exit from the summary.
 func bundleFindings(repoRoot string) ([]Finding, int) {
 	result, err := manifestcheck.Compare(repoRoot, embedded.Manifest())
 	if err != nil {
@@ -55,8 +51,7 @@ func bundleFindings(repoRoot string) ([]Finding, int) {
 		})
 	}
 
-	// Cap visible findings at 5; emit synthetic overflow so the cap is visible
-	// in both human and JSON output.
+	// A synthetic overflow entry keeps the cap visible in both output modes.
 	if len(findings) > 5 {
 		overflow := len(findings) - 5
 		findings = append(findings[:5], Finding{
@@ -70,10 +65,8 @@ func bundleFindings(repoRoot string) ([]Finding, int) {
 	return findings, 0
 }
 
-// runBundleCollect runs the bundle parity check and returns findings + summary
-// without printing anything. Used by runWholeRepo to aggregate findings before
-// printing a unified header+block. Returns (findings, summary, exitCode)
-// where exitCode is 0 (ok) or 2 (internal error).
+// runBundleCollect returns findings without printing, so runWholeRepo can
+// aggregate before emitting its own block.
 func runBundleCollect(repoRoot string) ([]Finding, summary, int) {
 	findings, exit := bundleFindings(repoRoot)
 	if exit != 0 {
@@ -83,7 +76,6 @@ func runBundleCollect(repoRoot string) ([]Finding, summary, int) {
 }
 
 // runBundleImpl discovers repoRoot from cwd and delegates to runBundleAt.
-// Called from the validate dispatch when no explicit root is available.
 func runBundleImpl(jsonOut, suggest bool, w io.Writer) int {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -91,21 +83,14 @@ func runBundleImpl(jsonOut, suggest bool, w io.Writer) int {
 		return 2
 	}
 
-	// repoRoot may be "" outside a git repo; runBundleAt skips cleanly when the
-	// tree is not the atomic-claude dev repo, so no .git error is raised here.
+	// An empty repoRoot is fine: runBundleAt skips outside the dev repo.
 	repoRoot := findRepoRoot(cwd)
 	return runBundleAt(repoRoot, jsonOut, suggest, w)
 }
 
-// runBundleAt performs the actual bundle parity check against repoRoot via
-// manifestcheck.Compare (shared with atomic doctor). Drift entries are
-// converted to Findings with Rule="bundle" and Severity="FAIL", emitted via
-// the unified formatter so all three subcommands share one output contract.
-//
-// Bundle parity only has meaning in the atomic-claude dev repo (it compares the
-// working tree against the embedded source snapshot). When repoRoot is not that
-// repo, the check is skipped cleanly with exit 0 rather than crashing on the
-// absent source (issue #35).
+// runBundleAt checks bundle parity via manifestcheck.Compare. Parity only has
+// meaning in the atomic-claude dev repo, which owns the embedded source
+// snapshot; elsewhere the check skips cleanly with exit 0.
 func runBundleAt(repoRoot string, jsonOut, suggest bool, w io.Writer) int {
 	if !repoDev(repoRoot) {
 		if jsonOut {

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// today used in tests: 2026-05-21 (matches expected_index.md fixture)
+// Matches the expected_index.md fixture.
 var testToday = time.Date(2026, 5, 21, 0, 0, 0, 0, time.UTC)
 
 func TestRender_GoldenIndex(t *testing.T) {
@@ -51,7 +51,6 @@ func TestRender_SeverityBucketOrder(t *testing.T) {
 }
 
 func TestRender_StaleMarking(t *testing.T) {
-	// review_by is yesterday → stale
 	yesterday := testToday.AddDate(0, 0, -1).Format("2006-01-02")
 	entries := []Entry{
 		{ID: "stale-F-1", Title: "Stale entry", Created: "2026-05-17", Severity: SeverityRisk,
@@ -67,7 +66,7 @@ func TestRender_StaleMarking(t *testing.T) {
 }
 
 func TestRender_NotStaleWhenReviewByIsToday(t *testing.T) {
-	// review_by == today → not stale (stale = today > review_by)
+	// Stale means today > review_by, so equality is fresh.
 	entries := []Entry{
 		{ID: "fresh-F-1", Title: "Fresh entry", Created: "2026-05-21", Severity: SeverityRisk,
 			ReviewBy: testToday.Format("2006-01-02"), Status: StatusOpen},
@@ -82,7 +81,6 @@ func TestRender_NotStaleWhenReviewByIsToday(t *testing.T) {
 }
 
 func TestRender_AgeInDays(t *testing.T) {
-	// created = 2026-05-10 → age = 11d when today = 2026-05-21
 	entries := []Entry{
 		{ID: "age-F-1", Title: "Old entry", Created: "2026-05-10", Severity: SeverityNit,
 			ReviewBy: "2026-07-09", Status: StatusOpen},
@@ -91,15 +89,13 @@ func TestRender_AgeInDays(t *testing.T) {
 	if !strings.Contains(out, "11d") {
 		t.Errorf("expected 11d age in output:\n%s", out)
 	}
-	// Must not contain weeks/months format
 	if strings.Contains(out, "1w") || strings.Contains(out, "1m") {
 		t.Errorf("age must stay in days only:\n%s", out)
 	}
 }
 
 func TestRender_FutureCreatedRendersAsQuestionMark(t *testing.T) {
-	// created in the future (clock skew or typo) must surface as `?d`
-	// rather than silently rendering 0d. testToday is 2026-05-21.
+	// A future created date is clock skew or a typo; `?d` surfaces it, `0d` hides it.
 	entries := []Entry{
 		{ID: "future-F-1", Title: "Time traveler", Created: "2027-01-01", Severity: SeverityNit,
 			ReviewBy: "2027-03-02", Status: StatusOpen},
@@ -115,7 +111,7 @@ func TestRender_FutureCreatedRendersAsQuestionMark(t *testing.T) {
 
 func TestRender_UnparseableCreatedRendersAsQuestionMark(t *testing.T) {
 	entries := []Entry{
-		// Bypass ParseEntry validation by constructing directly with a bogus date.
+		// Direct construction bypasses ParseEntry's date validation.
 		{ID: "bogus-F-1", Title: "Bad date", Created: "not-a-date", Severity: SeverityNit,
 			ReviewBy: "2027-03-02", Status: StatusOpen},
 	}
@@ -152,11 +148,9 @@ func TestRender_PlanExcludedFromSeverityBuckets(t *testing.T) {
 	}
 	out := Render(entries, testToday)
 
-	// Plans section must show it.
 	if !strings.Contains(out, "📋 plans (1)") {
 		t.Errorf("expected plans section count 1:\n%s", out)
 	}
-	// Severity buckets must all be empty.
 	if !strings.Contains(out, "🟡 risks (0)") {
 		t.Errorf("expected risks bucket empty:\n%s", out)
 	}
@@ -196,7 +190,6 @@ func TestRender_PlanWithoutFileNoArrow(t *testing.T) {
 }
 
 func TestRender_FindingEntriesUnchanged(t *testing.T) {
-	// Explicitly-typed finding entries must render in severity buckets unchanged.
 	entries := []Entry{
 		{ID: "r-1", Title: "A risk finding", Created: "2026-05-17", Kind: KindFinding,
 			Severity: SeverityRisk, ReviewBy: "2026-07-16", Status: StatusOpen},
@@ -217,7 +210,6 @@ func TestRender_EmptyBuckets(t *testing.T) {
 			ReviewBy: "2026-07-16", Status: StatusOpen},
 	}
 	out := Render(entries, testToday)
-	// All three buckets must appear even when empty
 	if !strings.Contains(out, "🔵 nits (0)") {
 		t.Errorf("expected empty nits bucket:\n%s", out)
 	}
@@ -230,7 +222,6 @@ func TestRender_EmptyBuckets(t *testing.T) {
 }
 
 func TestRender_HeaderCounts(t *testing.T) {
-	// Stale entries must be included in header Open count
 	yesterday := testToday.AddDate(0, 0, -1).Format("2006-01-02")
 	entries := []Entry{
 		{ID: "stale-r-1", Title: "Stale risk", Created: "2026-05-17", Severity: SeverityRisk,
@@ -247,10 +238,7 @@ func TestRender_HeaderCounts(t *testing.T) {
 	}
 }
 
-// CP2: plan staleness exemption tests.
-
 func TestIsStale_PlanNeverStale(t *testing.T) {
-	// A plan entry with review_by far in the past must not be stale.
 	yesterday := testToday.AddDate(0, 0, -30).Format("2006-01-02")
 	e := Entry{ID: "p-1", Kind: KindPlan, ReviewBy: yesterday}
 	if isStale(e, testToday) {
@@ -259,7 +247,6 @@ func TestIsStale_PlanNeverStale(t *testing.T) {
 }
 
 func TestIsStale_FindingStillStale(t *testing.T) {
-	// A finding entry with review_by in the past must still be stale.
 	yesterday := testToday.AddDate(0, 0, -1).Format("2006-01-02")
 	e := Entry{ID: "f-1", Kind: KindFinding, Severity: SeverityRisk, ReviewBy: yesterday}
 	if !isStale(e, testToday) {
@@ -268,7 +255,6 @@ func TestIsStale_FindingStillStale(t *testing.T) {
 }
 
 func TestRender_PlanNotCountedAsStale(t *testing.T) {
-	// A plan with an old review_by must NOT add to the stale-count in the header.
 	yesterday := testToday.AddDate(0, 0, -1).Format("2006-01-02")
 	entries := []Entry{
 		{ID: "p-1", Title: "Old plan", Created: "2026-05-17", Kind: KindPlan,

@@ -1,11 +1,7 @@
 package synthesis_test
 
-// batch6_test.go — CP16 batch-6 synthesizer tests:
-//
-//   - gin-middleware-chain (real — EE5 .Use args + route nodes from CP15)
-//   - go-grpc-stub-impl   (documented stub — missing Go interface method signal)
-//   - mybatis-java-xml    (real — XML function QualifiedName ↔ Java method name)
-//   - fabric-native-impl  (documented stub — no cross-language component correlation)
+// gin-middleware-chain, go-grpc-stub-impl, mybatis-java-xml, and
+// fabric-native-impl synthesizer tests.
 
 import (
 	"context"
@@ -19,10 +15,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution/synthesis"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// gin-middleware-chain: real fixture through full pipeline
-// ---------------------------------------------------------------------------
 
 // TestGinMiddlewareChainSynthesizer_Gate indexes a Go file that registers a
 // middleware with r.Use(authMiddleware) and a route r.GET("/api/items", listHandler).
@@ -164,10 +156,6 @@ func TestGinMiddlewareChainSynthesizer_NoEdgesWithoutRoutes(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// go-grpc-stub-impl: documented gap — zero edges, gap documented
-// ---------------------------------------------------------------------------
-
 // TestGoGRPCStubImplSynthesizer_GapDocumented verifies the synthesizer emits
 // zero edges and documents the missing signals:
 //  1. Go interface method signatures inside interface_type are NOT extracted as
@@ -201,10 +189,6 @@ func TestGoGRPCStubImplSynthesizer_GapDocumented(t *testing.T) {
 		)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// mybatis-java-xml: real fixture through full pipeline
-// ---------------------------------------------------------------------------
 
 // TestMyBatisJavaXMLSynthesizer_Gate indexes a Java mapper interface + MyBatis
 // XML mapper file. After the full pipeline, a heuristic calls edge must exist
@@ -329,10 +313,6 @@ func TestMyBatisJavaXMLSynthesizer_ScopedToJavaAndXML(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// fabric-native-impl: documented gap — zero edges, gap documented
-// ---------------------------------------------------------------------------
-
 // TestFabricNativeImplSynthesizer_GapDocumented verifies the synthesizer emits
 // zero edges and documents the missing signals:
 //  1. No Fabric-specific native registration extraction: ObjC RCT_EXPORT_VIEW_PROPERTY,
@@ -376,10 +356,6 @@ func TestFabricNativeImplSynthesizer_GapDocumented(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Default composite has all batch-6 synthesizers registered
-// ---------------------------------------------------------------------------
-
 // TestDefaultCompositeHasFourteenSynthesizers verifies Default(d) includes all
 // batch-6 synthesizers by running each against an empty DB (no panic, no error)
 // and checking they appear in the composite's output via SynthesizerNames.
@@ -414,10 +390,6 @@ func TestDefaultCompositeHasFourteenSynthesizers(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // assertSynthEdgeByName verifies a heuristic calls edge exists from source → target
 // with the given synthesizedBy tag in metadata. Unlike assertSynthEdge it does not

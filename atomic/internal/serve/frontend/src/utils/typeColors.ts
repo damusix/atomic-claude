@@ -60,6 +60,22 @@ const RAMP_FALLBACK: Record<string, RampShades> = {
   },
 };
 
+// Vivid band base, one saturated mid-tone per hue. The graph canvas is
+// near-black and covered in very small marks: at a few px a muted fill has
+// almost no area to carry its hue, so the dusky and bright bands both read as
+// grey-brown there. These are graph-only — nothing on a paper surface uses
+// them, where they would be garish.
+const VIVID_BASE: Record<string, string> = {
+  gold: "#f5c542",
+  slate: "#818cf8",
+  moss: "#a3e635",
+  plum: "#a78bfa",
+  magenta: "#f472b6",
+  terra: "#fb923c",
+  cyan: "#2dd4bf",
+  gray: "#94a3b8",
+};
+
 // Maps each OKF type to its ramp hue — docs graph reads the DUSKY band.
 const TYPE_HUE: Record<OkfType, string> = {
   page: "gold",
@@ -90,6 +106,20 @@ export function darken(hex: string, amount: number): string {
   return "#" + channel(0) + channel(2) + channel(4);
 }
 
+// Mixes `hex` toward white by `amount` (0..1) — the counterpart to darken(),
+// used to spread a single vivid base into a 5-shade ramp.
+export function lighten(hex: string, amount: number): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return hex;
+  const channel = (start: number) => {
+    const c = parseInt(h.slice(start, start + 2), 16);
+    return Math.round(c + (255 - c) * amount)
+      .toString(16)
+      .padStart(2, "0");
+  };
+  return "#" + channel(0) + channel(2) + channel(4);
+}
+
 function readVar(style: CSSStyleDeclaration, name: string, fallback = ""): string {
   return style.getPropertyValue(name).trim() || fallback;
 }
@@ -106,6 +136,16 @@ export function atomicRampColors(): Record<string, string> {
       out[`${hue}-${n}`] = readVar(style, `--ramp-${hue}-${n}`, shades.bright[n - 1]);
       out[`${hue}-dusky-${n}`] = readVar(style, `--ramp-${hue}-dusky-${n}`, shades.dusky[n - 1]);
     }
+    // Spread around the base rather than declaring five hexes per hue: the
+    // degree-quintile shading only needs the shades to be ordered and to stay
+    // recognisably one hue, which a mix toward white/black guarantees by
+    // construction.
+    const base = VIVID_BASE[hue] || shades.bright[1];
+    out[`${hue}-vivid-1`] = lighten(base, 0.3);
+    out[`${hue}-vivid-2`] = lighten(base, 0.15);
+    out[`${hue}-vivid-3`] = base;
+    out[`${hue}-vivid-4`] = darken(base, 0.18);
+    out[`${hue}-vivid-5`] = darken(base, 0.34);
   }
   return out;
 }
@@ -154,10 +194,59 @@ export function atomicCyTypeColors(): TypeColorMap {
   return out;
 }
 
+// Cosmos point-shape indices (its own enum, values 0-8). Shape is a second,
+// redundant channel on top of hue: at graph scale a mark is a few pixels, and
+// hue alone fails for the reader who cannot separate the teal from the green.
+// Redundant encoding is the point — neither channel has to carry it alone.
+export const POINT_SHAPE = {
+  circle: 0,
+  square: 1,
+  triangle: 2,
+  diamond: 3,
+  pentagon: 4,
+  hexagon: 5,
+  star: 6,
+  cross: 7,
+} as const;
+
+// One shape per OKF type. `page` keeps the circle because it is the bulk of
+// any docs graph — the default mark should be the quietest one.
+export const TYPE_SHAPE: Record<OkfType, number> = {
+  page: POINT_SHAPE.circle,
+  repo: POINT_SHAPE.hexagon,
+  domain: POINT_SHAPE.square,
+  concern: POINT_SHAPE.triangle,
+  knowledge: POINT_SHAPE.star,
+  bucket: POINT_SHAPE.pentagon,
+  index: POINT_SHAPE.diamond,
+  external: POINT_SHAPE.cross,
+};
+
+// graphTypeColors is atomicCyTypeColors with the vivid band swapped in for
+// fills and ramps. The full-page graph is the only surface that wants it; the
+// rail's mini-graph calls atomicCyTypeColors directly and keeps dusky, since
+// it sits on paper next to prose.
+export function graphTypeColors(): TypeColorMap {
+  const out = atomicCyTypeColors();
+  const ramps = atomicRampColors();
+  for (const type of Object.keys(TYPE_HUE) as OkfType[]) {
+    const hue = TYPE_HUE[type];
+    const vivid = [1, 2, 3, 4, 5].map((n) => ramps[`${hue}-vivid-${n}`]);
+    out[`${type}-ramp`] = vivid;
+    // Shade 3 is the base tone, and the legend chip has to match the nodes.
+    out[type] = vivid[2];
+    out[`${type}-shape`] = String(TYPE_SHAPE[type]);
+  }
+  out["default-fill"] = out.page;
+  out["default-ramp"] = out["page-ramp"];
+  return out;
+}
+
 declare global {
   interface Window {
     atomicCyTypeColors: typeof atomicCyTypeColors;
     atomicRampColors: typeof atomicRampColors;
+    graphTypeColors: typeof graphTypeColors;
   }
 }
 
@@ -166,4 +255,5 @@ declare global {
 export function installTypeColorsGlobal(target: Window = window): void {
   target.atomicCyTypeColors = atomicCyTypeColors;
   target.atomicRampColors = atomicRampColors;
+  target.graphTypeColors = graphTypeColors;
 }

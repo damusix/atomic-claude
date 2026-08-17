@@ -1,17 +1,11 @@
 package extraction
 
-// Internal test (package extraction) for lazy pool instantiation.
-//
-// WHY this exists: NewPool used to boot one wazero runtime per CPU eagerly —
-// each runtime compiles a tree-sitter grammar, measured at ~0.5 s and totaling
-// ~4.7 s of CPU / ~1.9 GB RSS for a default-size pool. A no-op `atomic code
-// sync` (every file unchanged, zero parses) and a small incremental sync (a
-// handful of changed files) both paid that full up-front cost even though they
-// borrow few or zero instances. Instances must be created on first Borrow, so
-// a pool that is never borrowed from boots no runtime at all.
-//
-// The instance count is observable only via the package-internal channel, so
-// this lives in package extraction. It pins a resource-lifecycle guarantee.
+// NewPool used to boot one wazero runtime per CPU eagerly; each compiles a
+// tree-sitter grammar (~0.5 s, ~4.7 s CPU and ~1.9 GB RSS for a default pool).
+// A no-op or small incremental `atomic code sync` paid that in full while
+// borrowing few or zero instances, so instantiation must defer to first Borrow.
+// This is an internal test because the instance count is observable only
+// through the package-private channel.
 
 import (
 	"context"
@@ -32,7 +26,7 @@ func TestNewPoolDefersInstantiationUntilBorrow(t *testing.T) {
 		t.Fatalf("ChannelLen after NewPool = %d, want %d (one permit per slot)", got, size)
 	}
 
-	// Every slot must be an unbooted permit (nil) — no wazero runtime yet.
+	// A nil slot is an unbooted permit; anything else is a live runtime.
 	booted := 0
 	tokens := make([]*tsInstance, 0, size)
 	for i := 0; i < size; i++ {
@@ -49,7 +43,6 @@ func TestNewPoolDefersInstantiationUntilBorrow(t *testing.T) {
 		t.Fatalf("NewPool eagerly booted %d instance(s); all instantiation must defer to Borrow", booted)
 	}
 
-	// First Borrow lazily creates exactly one live instance and it must parse.
 	inst, err := p.Borrow(ctx)
 	if err != nil {
 		t.Fatalf("Borrow: %v", err)

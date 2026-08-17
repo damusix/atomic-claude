@@ -1,8 +1,7 @@
 package db
 
-// resolution.go adds the CRUD methods required by the resolution package
-// (CP11–CP16). These are kept in a separate file from crud.go to avoid
-// growing that file indefinitely as more engine layers come online.
+// CRUD for the resolution package, split out of crud.go to keep that file from
+// growing without bound as engine layers land.
 
 import (
 	"context"
@@ -14,13 +13,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// UnresolvedReference CRUD
-// ---------------------------------------------------------------------------
-
-// InsertUnresolvedRef inserts one row into unresolved_refs. The id must be
-// unique; callers are responsible for deduplication (the extraction layer
-// generates a UUID-style id per reference site).
+// InsertUnresolvedRef needs a unique id; dedup is the extraction layer's job,
+// which mints one per reference site.
 func (d *DB) InsertUnresolvedRef(ctx context.Context, r types.UnresolvedReference) error {
 	_, err := d.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO unresolved_refs
@@ -39,10 +33,7 @@ func (d *DB) InsertUnresolvedRef(ctx context.Context, r types.UnresolvedReferenc
 	return nil
 }
 
-// GetUnresolvedRefs returns up to limit unresolved_refs rows starting at
-// offset. Passing limit=0 returns all rows.  The re-read-at-offset-0 loop
-// in resolveAndPersistBatched (CP13) always passes offset=0 after deleting
-// a batch — this signature supports that pattern.
+// GetUnresolvedRefs returns all rows when limit is 0.
 func (d *DB) GetUnresolvedRefs(ctx context.Context, limit, offset int) ([]types.UnresolvedReference, error) {
 	var q string
 	var args []any
@@ -61,12 +52,10 @@ func (d *DB) GetUnresolvedRefs(ctx context.Context, limit, offset int) ([]types.
 	return collectUnresolvedRefs(rows)
 }
 
-// GetUnresolvedRefsAfter returns up to limit unresolved_refs rows whose id sorts
-// strictly after afterID, in id order. Passing afterID="" starts from the
-// beginning. This is the keyset-pagination primitive used by
-// ResolveAndPersistBatched (CP13): it advances by the last id seen rather than a
-// numeric offset, so refs left behind unresolved (intentionally not deleted)
-// never stall the scan and every ref is visited exactly once.
+// GetUnresolvedRefsAfter is the keyset-pagination primitive for batched
+// resolution; afterID="" starts from the beginning. Advancing by last-id-seen
+// rather than a numeric offset means refs deliberately left unresolved cannot
+// stall the scan, and every ref is visited exactly once.
 func (d *DB) GetUnresolvedRefsAfter(ctx context.Context, afterID string, limit int) ([]types.UnresolvedReference, error) {
 	if limit <= 0 {
 		limit = 1
@@ -80,12 +69,9 @@ func (d *DB) GetUnresolvedRefsAfter(ctx context.Context, afterID string, limit i
 	return collectUnresolvedRefs(rows)
 }
 
-// GetUnresolvedRefsByKind returns every unresolved_refs row matching the
-// given reference_kind, in id order. Unlike GetUnresolvedRefsAfter (keyset
-// pagination for the main resolveOne loop), this is a single bulk fetch — it
-// backs the sql_string pass-A/pass-B batch step (C2/C3), which is its own
-// pass over a bounded, sql_string-only slice of the table, not the full
-// unresolved_refs scan.
+// GetUnresolvedRefsByKind is a single bulk fetch rather than paginated: its
+// caller is the SQL string-match pass, which works over a bounded slice of the
+// table instead of the full scan.
 func (d *DB) GetUnresolvedRefsByKind(ctx context.Context, kind types.EdgeKind) ([]types.UnresolvedReference, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments, callee_expr
@@ -96,7 +82,6 @@ func (d *DB) GetUnresolvedRefsByKind(ctx context.Context, kind types.EdgeKind) (
 	return collectUnresolvedRefs(rows)
 }
 
-// DeleteUnresolvedRef deletes the unresolved_ref with the given id.
 func (d *DB) DeleteUnresolvedRef(ctx context.Context, id string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM unresolved_refs WHERE id = ?", id)
 	if err != nil {
@@ -105,10 +90,7 @@ func (d *DB) DeleteUnresolvedRef(ctx context.Context, id string) error {
 	return nil
 }
 
-// DeleteUnresolvedRefsByIDs deletes the unresolved_refs with the given ids.
-// The IN (...) clause is chunked to SQLITE_PARAM_CHUNK_SIZE (appendix O).
-// This is the bulk-delete primitive used by resolveAndPersistBatched (CP13)
-// after a batch resolves: delete the ids that resolved, re-read from offset 0.
+// DeleteUnresolvedRefsByIDs chunks its IN (...) to SQLITE_PARAM_CHUNK_SIZE.
 func (d *DB) DeleteUnresolvedRefsByIDs(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -135,8 +117,8 @@ func (d *DB) DeleteUnresolvedRefsByIDs(ctx context.Context, ids []string) error 
 	return nil
 }
 
-// DeleteUnresolvedRefsByFile deletes all unresolved_refs whose file_path
-// matches the given path. Called by the orchestrator on re-index.
+// DeleteUnresolvedRefsByFile clears a file's refs so re-index replaces rather
+// than duplicates them.
 func (d *DB) DeleteUnresolvedRefsByFile(ctx context.Context, filePath string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM unresolved_refs WHERE file_path = ?", filePath)
 	if err != nil {
@@ -145,10 +127,8 @@ func (d *DB) DeleteUnresolvedRefsByFile(ctx context.Context, filePath string) er
 	return nil
 }
 
-// collectUnresolvedRefs drains a *sql.Rows into []types.UnresolvedReference.
-// The SELECT must include columns in the order:
-//
-//	id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments
+// collectUnresolvedRefs requires the SELECT column order used by every query
+// in this file.
 func collectUnresolvedRefs(rows *sql.Rows) ([]types.UnresolvedReference, error) {
 	defer rows.Close()
 	var result []types.UnresolvedReference
@@ -178,15 +158,8 @@ func collectUnresolvedRefs(rows *sql.Rows) ([]types.UnresolvedReference, error) 
 	return result, rows.Err()
 }
 
-// ---------------------------------------------------------------------------
-// GetNodesByName — name-based lookup (used by CP11 re-export chain + CP12)
-// ---------------------------------------------------------------------------
-
-// GetNodesByName returns all nodes whose name (case-insensitive) matches the
-// given name string.  The caller may optionally restrict to a specific kind by
-// passing a non-empty kind; pass "" to match all kinds.
-//
-// Uses the idx_nodes_lower_name index (appendix A, v3 migration).
+// GetNodesByName matches case-insensitively via idx_nodes_lower_name. An empty
+// kind matches all kinds.
 func (d *DB) GetNodesByName(ctx context.Context, name string, kind types.NodeKind) ([]types.Node, error) {
 	var (
 		rows *sql.Rows
@@ -224,14 +197,8 @@ func (d *DB) GetNodesByName(ctx context.Context, name string, kind types.NodeKin
 	return collectNodes(rows)
 }
 
-// ---------------------------------------------------------------------------
-// GetFilesByPath — look up file nodes matching a path prefix (used in
-// alias resolution where we expand a glob pattern to candidate paths).
-// ---------------------------------------------------------------------------
-
-// GetFileByPath returns the file record for the given exact path. Delegates to
-// GetFile but returns (nil, nil) instead of ErrNotFound when absent — callers
-// doing candidate probing prefer a nil-check to an errors.Is test.
+// GetFileByPath is GetFile returning (nil, nil) rather than ErrNotFound, since
+// its callers probe candidate paths and want a nil check, not errors.Is.
 func (d *DB) GetFileByPath(ctx context.Context, path string) (*types.FileRecord, error) {
 	f, err := d.GetFile(ctx, path)
 	if err != nil {
@@ -243,11 +210,6 @@ func (d *DB) GetFileByPath(ctx context.Context, path string) (*types.FileRecord,
 	return &f, nil
 }
 
-// ---------------------------------------------------------------------------
-// Tx extensions for resolution (CP13)
-// ---------------------------------------------------------------------------
-
-// InsertUnresolvedRef inserts one unresolved_ref row within a transaction.
 func (t *Tx) InsertUnresolvedRef(ctx context.Context, r types.UnresolvedReference) error {
 	_, err := t.tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO unresolved_refs
@@ -266,8 +228,6 @@ func (t *Tx) InsertUnresolvedRef(ctx context.Context, r types.UnresolvedReferenc
 	return nil
 }
 
-// DeleteUnresolvedRefsByFile deletes all unresolved_refs for a file path
-// within a transaction.
 func (t *Tx) DeleteUnresolvedRefsByFile(ctx context.Context, filePath string) error {
 	_, err := t.tx.ExecContext(ctx, "DELETE FROM unresolved_refs WHERE file_path = ?", filePath)
 	if err != nil {
@@ -276,9 +236,6 @@ func (t *Tx) DeleteUnresolvedRefsByFile(ctx context.Context, filePath string) er
 	return nil
 }
 
-// DeleteUnresolvedRefsByIDs deletes unresolved_refs by id within a transaction.
-// Mirrors *DB.DeleteUnresolvedRefsByIDs but executes inside the caller's transaction.
-// The IN (...) clause is chunked to SQLITE_PARAM_CHUNK_SIZE (appendix O).
 func (t *Tx) DeleteUnresolvedRefsByIDs(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil

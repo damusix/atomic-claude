@@ -36,7 +36,7 @@ The resolved scope reaches the client as `GET /api/status`'s `isRealmScope` fiel
 
 ## Architecture
 
-`atomic/internal/serve/frontend/` is a Bun-toolchained React + TypeScript workspace: Bun is the package manager, bundler, and test runner (`bun install`, `bun test`, `bun run build.ts`). The build output (`frontend/dist/`) is committed and embedded into the `atomic` binary via `go:embed` (`frontend_dist.go`) — `go build ./internal/serve/...` needs no Bun or Node invocation, and `make frontend` regenerates `dist/` from source with a `git diff --exit-code` drift gate (same pattern as the `commands/`/`agents/` render pipeline).
+`atomic/internal/serve/frontend/` is a Bun-toolchained React + TypeScript workspace: Bun is the package manager, bundler, and test runner (`bun install`, `bun test`, `bun run build.ts`). The build output (`frontend/dist/`) is committed and embedded into the `atomic` binary via `go:embed` (`frontend_dist.go`) — `go build ./internal/serve/...` needs no Bun or Node invocation, and `make frontend` regenerates `dist/` from source with a `git diff --exit-code` drift gate (same pattern as the `context/commands/` and `context/agents/` render pipeline).
 
 The Go server exposes two kinds of routes:
 

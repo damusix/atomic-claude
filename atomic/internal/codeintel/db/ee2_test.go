@@ -1,6 +1,6 @@
 package db_test
 
-// EE2 tests — call-argument capture (CP16 prerequisite).
+// EE2 tests — call-argument capture (prerequisite).
 //
 // These tests prove:
 //   - The production v2 migration adds the `arguments` column to unresolved_refs
@@ -11,7 +11,7 @@ package db_test
 //   - NULL / empty round-trip: an UnresolvedReference with nil Arguments reads back
 //     as nil.
 //
-// WHY: EE2 is the first real use of the CP4 forward-migration machinery. These
+// WHY: EE2 is the first real use of the forward-migration machinery. These
 // tests prove the machinery works end-to-end for a real production migration, not
 // just a synthetic test migration.
 

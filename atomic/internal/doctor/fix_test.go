@@ -16,12 +16,11 @@ type fakePrompter struct {
 	nextIdx     int
 	indexInputs []int // returned from Indexed calls in order
 	nextIdxIdx  int
-	// output accumulates anything written to the prompter's output writer.
 }
 
 func (f *fakePrompter) Confirm(prompt string) doctor.Decision {
 	if f.nextIdx >= len(f.decisions) {
-		return doctor.DecisionNo // default safe
+		return doctor.DecisionNo
 	}
 	d := f.decisions[f.nextIdx]
 	f.nextIdx++
@@ -30,27 +29,24 @@ func (f *fakePrompter) Confirm(prompt string) doctor.Decision {
 
 func (f *fakePrompter) Indexed(items []string) int {
 	if f.nextIdxIdx >= len(f.indexInputs) {
-		return 0 // cancel
+		return 0
 	}
 	i := f.indexInputs[f.nextIdxIdx]
 	f.nextIdxIdx++
 	return i
 }
 
-// makeResult builds a Result for a single named category with the given severity.
 func makeResult(idx int, name string, sev doctor.Severity, detail string) doctor.Result {
 	return doctor.Result{Index: idx, Name: name, Severity: sev, Detail: detail}
 }
 
-// nopRepairer returns a Repairer with all injectable functions stubbed to no-ops.
-// Tests override only the fields they care about.
+// nopRepairer stubs every injectable function; tests override what they need.
 func nopRepairer() doctor.Repairer {
 	return doctor.Repairer{
 		InstallFn:         func(io.Writer) error { return nil },
 		HooksFn:           func(io.Writer) error { return nil },
 		ManifestFn:        func(io.Writer) error { return nil },
 		FollowupsRenderFn: func(io.Writer) error { return nil },
-		ConfigFn:          func(string) error { return nil },
 		HomeFn:            func() (string, error) { return os.TempDir(), nil },
 		IsRepoDevFn:       func() (bool, error) { return true, nil },
 		RepoRootFn:        func() string { return os.TempDir() },
@@ -69,10 +65,6 @@ func TestRepairSummaryFields(t *testing.T) {
 // -- prompter parsing tests --
 
 func TestStdinPrompterParsing(t *testing.T) {
-	// DecisionYes: "y" and "Y"
-	// DecisionNo: "" (default) and "n"
-	// DecisionAll: "a"
-	// DecisionQuit: "q"
 	cases := []struct {
 		input string
 		want  doctor.Decision
@@ -119,7 +111,6 @@ func TestRepair_Signals_NonFixable(t *testing.T) {
 	if !strings.Contains(output, "/refresh-wiki") {
 		t.Errorf("expected /refresh-wiki instruction in output, got:\n%s", output)
 	}
-	// No prompt should be shown (non-fixable).
 	if p.nextIdx != 0 {
 		t.Errorf("Confirm called %d times, want 0", p.nextIdx)
 	}
@@ -235,7 +226,7 @@ func TestRepair_Install_Yes(t *testing.T) {
 	if summary.Applied != 1 {
 		t.Errorf("Applied = %d, want 1", summary.Applied)
 	}
-	// Print-before-run: synthetic command line present.
+	// The command line is printed before it runs.
 	if !strings.Contains(sb.String(), "atomic claude install --merge") {
 		t.Errorf("print-before-run missing in output:\n%s", sb.String())
 	}
@@ -276,7 +267,6 @@ func TestRepair_Install_All_RunsRemainingWithoutPrompt(t *testing.T) {
 		makeResult(2, "hooks", doctor.WARN, "missing"),
 	}
 	var sb strings.Builder
-	// "all" on first prompt → no second prompt needed.
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionAll}}
 	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
@@ -286,7 +276,6 @@ func TestRepair_Install_All_RunsRemainingWithoutPrompt(t *testing.T) {
 	if summary.Applied != 2 {
 		t.Errorf("Applied = %d, want 2", summary.Applied)
 	}
-	// Only one prompt should have been fired.
 	if p.nextIdx != 1 {
 		t.Errorf("Confirm called %d times, want 1", p.nextIdx)
 	}
@@ -399,7 +388,8 @@ func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
 		makeResult(4, "refs", doctor.FAIL, "refs not present"),
 	}
 	var sb strings.Builder
-	// No Indexed call expected — defaults to CLAUDE.md.
+	// The prompter offers no Indexed answer: with no candidate there is
+	// nothing to pick from.
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
 	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
@@ -418,7 +408,6 @@ func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
 
 func TestRepair_Refs_OneCandidateExisting_SingleYesNo(t *testing.T) {
 	dir := t.TempDir()
-	// Write one existing candidate (CLAUDE.md with unrelated content).
 	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# existing content\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +419,7 @@ func TestRepair_Refs_OneCandidateExisting_SingleYesNo(t *testing.T) {
 		makeResult(4, "refs", doctor.FAIL, "refs not present"),
 	}
 	var sb strings.Builder
-	// One existing candidate → user confirms at outer prompt; no inner Indexed needed.
+	// One candidate needs only the outer confirm, no Indexed answer.
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
 	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
@@ -445,7 +434,6 @@ func TestRepair_Refs_OneCandidateExisting_SingleYesNo(t *testing.T) {
 
 func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 	dir := t.TempDir()
-	// Write two existing candidates.
 	if err := os.WriteFile(filepath.Join(dir, "claude.local.md"), []byte("# local\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +448,6 @@ func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 		makeResult(4, "refs", doctor.FAIL, "refs not present"),
 	}
 	var sb strings.Builder
-	// Outer "apply?" prompt → Yes; then Indexed returns 2 → choose the second candidate.
 	p := &fakePrompter{
 		decisions:   []doctor.Decision{doctor.DecisionYes},
 		indexInputs: []int{2},
@@ -471,10 +458,8 @@ func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 		t.Errorf("Applied = %d, want 1\noutput:\n%s", summary.Applied, sb.String())
 	}
 
-	// Candidate iteration order is the fixed search order from checks_refs.go:
-	// claude.local.md, CLAUDE.local.md, CLAUDE.md, claude.md. Of the two on disk
-	// (claude.local.md and CLAUDE.md), existing[1]=claude.local.md, existing[2]=CLAUDE.md.
-	// Index 2 -> CLAUDE.md. Assert exactly that file was patched.
+	// Candidates keep candidateFiles order, so of the two on disk index 1 is
+	// claude.local.md and index 2 is CLAUDE.md.
 	localData, _ := os.ReadFile(filepath.Join(dir, "claude.local.md"))
 	globalData, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 
@@ -499,7 +484,6 @@ func TestRepair_Refs_Idempotent(t *testing.T) {
 		makeResult(4, "refs", doctor.FAIL, "refs not present"),
 	}
 
-	// Run repair twice.
 	for i := 0; i < 2; i++ {
 		var sb strings.Builder
 		p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
@@ -554,10 +538,8 @@ func TestRepair_Refs_ExistingContent_AppendsRef(t *testing.T) {
 	}
 }
 
+// Pins the user-visible section title so a rename cannot regress it silently.
 func TestRepair_Refs_HeadingIsProjectWiki(t *testing.T) {
-	// The refsBlock constant must use "## Project wiki (auto-loaded)" as the
-	// heading, not "## Project signals (auto-loaded)". This test pins the heading
-	// so a rename doesn't silently regress the user-visible section title.
 	dir := t.TempDir()
 
 	rp := nopRepairer()
@@ -598,7 +580,6 @@ func TestRepair_SummaryLine(t *testing.T) {
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
 	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
-	// 1 applied (install), 2 non-fixable (signals + binary)
 	if summary.Applied != 1 || summary.NonFixable != 2 {
 		t.Errorf("summary = %+v, want Applied=1 NonFixable=2", summary)
 	}
@@ -608,18 +589,13 @@ func TestRepair_SummaryLine(t *testing.T) {
 	}
 }
 
-// -- DecisionAbort: Repair loop stops on Abort (Ctrl+C / huh ErrUserAborted) --
+// -- DecisionAbort --
 
-// TestRepair_DecisionAbort_stopsLoop verifies the Repair loop short-circuits
-// on DecisionAbort, prints "Aborted", and counts remaining items as Skipped.
-// WHY: silently treating Ctrl+C as "No" means a user trying to escape the
-// entire repair loop gets only the current item skipped, not the whole loop.
+// Treating Ctrl+C as "No" would skip only the current item when the user is
+// trying to escape the whole loop.
 //
-// Part (a) — prompt.Confirm surfaces ErrAborted — is covered in the prompt
-// package via stubbed runConfirm. Part (b) — stdinPrompter translates
-// ErrAborted → DecisionAbort — has no direct unit test because the
-// translation lives in the huh-path branch of stdin_prompter.Confirm and is
-// reachable only with a real TTY. Tracked as a structural coverage gap.
+// Coverage gap: stdinPrompter's own ErrAborted → DecisionAbort translation
+// lives in the huh branch of Confirm and is reachable only with a real TTY.
 func TestRepair_DecisionAbort_stopsLoop(t *testing.T) {
 	installCalled := false
 	hooksCalled := false
@@ -632,7 +608,6 @@ func TestRepair_DecisionAbort_stopsLoop(t *testing.T) {
 		makeResult(2, "hooks", doctor.WARN, "missing"),
 	}
 	var sb strings.Builder
-	// First prompt returns Abort; second should never be reached.
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionAbort}}
 	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
@@ -651,11 +626,8 @@ func TestRepair_DecisionAbort_stopsLoop(t *testing.T) {
 	}
 }
 
-// TestRepair_PrintsFixedOnSuccess verifies that after a successful repair
-// the Repair loop prints "✓ fixed: <summary>" to the writer.
-// WHY: the user needs inline feedback that a repair ran and what it did;
-// FormatHuman is called before Repair in main.go so the Repair loop is the
-// only output channel that reaches the user at repair time.
+// FormatHuman runs before Repair, so this loop is the only channel that can
+// tell the user a repair ran.
 func TestRepair_PrintsFixedOnSuccess(t *testing.T) {
 	rp := nopRepairer()
 	rp.InstallFn = func(out io.Writer) error { return nil }
@@ -671,19 +643,15 @@ func TestRepair_PrintsFixedOnSuccess(t *testing.T) {
 		t.Fatalf("Applied = %d, want 1", summary.Applied)
 	}
 	output := sb.String()
-	// The loop prints "✓ fixed: <summary>" immediately after a successful repair.
 	if !strings.Contains(output, "✓ fixed:") {
 		t.Errorf("expected '✓ fixed:' in output after successful repair, got:\n%s", output)
 	}
 }
 
-// -- manifest repair streams make output to writer (f-4) --
+// -- manifest repair streams make output --
 
-// TestRepair_Manifest_WriterReceivesMakeOutput verifies that the ManifestFn is called
-// with the repair's io.Writer, so make's combined output flows to the caller.
-// WHY: the old applyManifestRepair discarded output on success (CombinedOutput with no
-// streaming) — the user had no visibility into what regenerated. The injected fn now
-// receives the writer and can write known bytes to it.
+// ManifestFn must receive the repair's writer, or the user sees nothing of
+// what make regenerated.
 func TestRepair_Manifest_WriterReceivesMakeOutput(t *testing.T) {
 	const fakeOutput = "FAKE MAKE OUTPUT SENTINEL"
 	rp := nopRepairer()

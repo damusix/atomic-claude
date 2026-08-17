@@ -1,18 +1,11 @@
-// codegraph.go — code-graph spec CP2: full-repo code graph export.
+// GET /code/graph/data: a member's entire symbol graph as flat JSON for the
+// force-directed view.
 //
-// Route: GET /code/graph/data[?member=<prefix>]
-//
-// Serves the resolved member's ENTIRE symbol graph (all nodes + all edges) as
-// flat JSON for the code graph view (cosmos.gl force-directed render). Unlike
-// the sibling /code/* explorer routes (which render HTML fragments and degrade
-// silently to a "not indexed" note), this endpoint is a data API: an unknown
-// member or an unopenable index is reported as a non-200 JSON error body so
-// the client-side adapter can distinguish "no data yet" from "loading".
-//
-// Member resolution mirrors codeExplorerHandler.engineForRequest, except an
-// explicit ?member= that does not resolve is reported as an error instead of
-// silently falling back to the local index — the data endpoint must not mask
-// a typo'd member as "single repo, zero nodes".
+// Unlike the /api/code/* routes, which degrade quietly to a "not indexed"
+// note, this endpoint errors with a non-200 body so the client can tell "no
+// data yet" from "still loading". For the same reason an explicit ?member=
+// that does not resolve is an error, never a silent fallback to the local
+// index — a typo must not read as "single repo, zero nodes".
 package serve
 
 import (
@@ -28,7 +21,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// graphNode is one flat node element in the /code/graph/data response.
 type graphNode struct {
 	ID       string `json:"id"`
 	Label    string `json:"label"`
@@ -38,48 +30,43 @@ type graphNode struct {
 	Language string `json:"language"`
 }
 
-// graphEdge is one flat edge element in the /code/graph/data response.
 type graphEdge struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
 	Kind   string `json:"kind"`
 }
 
-// graphDataResponse is the /code/graph/data success payload. Flat means no
-// nested per-element envelope (contrast with graphoverlay.go's Cytoscape
-// {data:{...}} shape) — the client-side adapter fills typed arrays directly.
+// graphDataResponse carries no per-element envelope, unlike graphoverlay.go's
+// Cytoscape shape, so the client fills typed arrays directly.
 type graphDataResponse struct {
 	Fingerprint string      `json:"fingerprint"`
 	Nodes       []graphNode `json:"nodes"`
 	Edges       []graphEdge `json:"edges"`
 }
 
-// graphErrorResponse is the /code/graph/data error payload (paired with a
-// non-200 status).
 type graphErrorResponse struct {
 	Error string `json:"error"`
 }
 
 // CodeGraphOptions configures NewCodeGraphHandler.
 type CodeGraphOptions struct {
-	// RealmRoot is the root of the repository (or realm) being served.
+	// RealmRoot is the root of the repository or realm being served.
 	RealmRoot string
-	// ClaudeMDPath is used by realm.Resolve to discover federation members.
+	// ClaudeMDPath lets realm.Resolve discover federation members.
 	ClaudeMDPath string
-	// WikiIndexPath is the realm wiki/index.md, used to discover self-indexed
-	// members. Defaults to <realmRoot>/wiki/index.md when empty.
+	// WikiIndexPath locates self-indexed members; empty means
+	// <realmRoot>/wiki/index.md.
 	WikiIndexPath string
-	// EngineProvider opens an engine per request. nil → DefaultEngineProvider().
+	// EngineProvider nil takes DefaultEngineProvider.
 	EngineProvider EngineProvider
 }
 
-// codeGraphHandler implements http.Handler for GET /code/graph/data.
 type codeGraphHandler struct {
 	memberResolver
 	provider EngineProvider
 }
 
-// NewCodeGraphHandler returns an http.Handler for GET /code/graph/data.
+// NewCodeGraphHandler serves GET /code/graph/data.
 func NewCodeGraphHandler(opts CodeGraphOptions) http.Handler {
 	prov := opts.EngineProvider
 	if prov == nil {
@@ -95,10 +82,8 @@ func NewCodeGraphHandler(opts CodeGraphOptions) http.Handler {
 	}
 }
 
-// engineForGraphRequest resolves the engine for the ?member= query param. An
-// explicit member that does not resolve reports unknownMember=true rather than
-// the silent local-index fallback codeExplorerHandler's HTML routes use — the
-// data endpoint must distinguish a typo'd member from "single repo, zero nodes".
+// engineForGraphRequest reports unknownMember rather than falling back to the
+// local index, so a typo'd ?member= surfaces instead of reading as empty.
 func (h *codeGraphHandler) engineForGraphRequest(ctx context.Context, r *http.Request) (eng CodeEngine, err error, unknownMember bool) {
 	prefix := strings.TrimSpace(r.URL.Query().Get("member"))
 	members := h.members()
@@ -178,12 +163,10 @@ func (h *codeGraphHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = enc.Encode(resp) // headers already sent on error; nothing to recover
 }
 
-// dedupParallelEdges collapses edges sharing the same (source, target, kind)
-// triple to a single edge, preserving first-seen order. The edges table
-// stores one edge per call site (line/col granularity — correct data at the
-// DB layer), so a helper called N times from the same caller yields N
-// identical rows; the cosmos client would otherwise draw N stacked identical
-// links. This is a display-layer dedup only — nothing upstream changes.
+// dedupParallelEdges collapses edges sharing a (source, target, kind) triple.
+// The edges table is correct to store one row per call site, but a helper
+// called N times from one caller would otherwise draw N stacked identical
+// links. Display-layer only — nothing upstream changes.
 func dedupParallelEdges(edges []types.Edge) []types.Edge {
 	seen := make(map[string]struct{}, len(edges))
 	out := make([]types.Edge, 0, len(edges))
@@ -198,16 +181,10 @@ func dedupParallelEdges(edges []types.Edge) []types.Edge {
 	return out
 }
 
-// graphFingerprint derives a content-sensitive fingerprint from the actual
-// graph identity — sorted (id, label, line) node tuples and sorted
-// (source, target, kind) edge tuples — rather than counts + a timestamp. A
-// count-preserving mutation (e.g. renaming a symbol, which deletes the old
-// node id and inserts a new one in its place) still changes the hash, so the
-// client-side layout cache never replays a stale layout keyed to node ids
-// that no longer exist (SC2: "changes iff the index content changes"). Bulk
-// counts + files.indexed_at cannot distinguish this case: a same-second
-// re-index with an unchanged node/edge count would reproduce the same
-// fingerprint even though every id changed.
+// graphFingerprint hashes the graph's actual identity rather than counts plus
+// a timestamp, so a count-preserving mutation — renaming a symbol swaps one
+// node id for another — still changes it. Otherwise the client would replay a
+// cached layout keyed to node ids that no longer exist.
 func graphFingerprint(nodes []types.Node, edges []types.Edge) string {
 	nodeLines := make([]string, len(nodes))
 	for i, n := range nodes {
@@ -233,7 +210,7 @@ func graphFingerprint(nodes []types.Node, edges []types.Edge) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// writeGraphError writes a JSON error body with the given non-200 status code.
+// writeGraphError writes a JSON error body with a non-200 status.
 func writeGraphError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

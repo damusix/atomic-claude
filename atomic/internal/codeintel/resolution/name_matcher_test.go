@@ -1,21 +1,6 @@
 package resolution_test
 
-// CP12 name matcher tests.
-//
-// Why this file is the spec gate:
-//   - Weight consts are asserted literally (calibration gate — prevents silent
-//     drift of the appendix-F values).
-//   - obj.method resolves to the right method def (methodCall + receiver
-//     inference for C++/Java).
-//   - Two same-named funcs in different files: same-file +100 wins.
-//   - Cross-language candidate penalized (−80) vs same-language.
-//   - Kind affinity: call ref prefers function over same-named class (+25).
-//   - Fuzzy fires only when exact and qualified lookups both miss.
-//   - MatchReference sub-order: filePath → qualifiedName → methodCall →
-//     exactName → fuzzy (first match wins).
-//
-// All tests seed a temp DB under t.TempDir() via openTestDB (defined in
-// resolver_test.go, same package).
+// Name matcher tests. Helpers come from resolver_test.go, same package.
 
 import (
 	"context"
@@ -27,12 +12,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Calibration gate — assert the weight consts equal appendix-F values exactly.
-// ---------------------------------------------------------------------------
-
 func TestNameMatcherWeightConsts(t *testing.T) {
-	// WHY: the scoring weights in appendix F are CALIBRATED constants. If any
+	// WHY: the scoring weights are calibrated constants. If any
 	// const drifts (typo, rounding, refactor), this test fails loudly. It is
 	// the single gate that prevents silent divergence from the reference.
 	if resolution.ScoreSameFile != 100 {
@@ -55,12 +36,8 @@ func TestNameMatcherWeightConsts(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: same-file +100 wins over any other same-named candidate
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_SameFileWins(t *testing.T) {
-	// WHY: appendix F says same-file +100. Two same-named functions in different
+	// WHY: same-file scores +100. Two same-named functions in different
 	// files — the one in the same file as the reference must win. The +100 bonus
 	// must dominate over all other factors for an equal starting point.
 	d, _ := openTestDB(t)
@@ -106,12 +83,8 @@ func TestNameMatcher_SameFileWins(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: cross-language candidate penalized (−80) vs same-language (+50)
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_CrossLanguagePenalty(t *testing.T) {
-	// WHY: appendix F penalises cross-language candidates by −80 and rewards
+	// WHY: a cross-language candidate is penalised −80 while a same-language one
 	// same-language by +50. A Python function named "process" should beat a
 	// JavaScript function named "process" when the reference is from Python.
 	d, _ := openTestDB(t)
@@ -151,12 +124,8 @@ func TestNameMatcher_CrossLanguagePenalty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: kind affinity — call ref prefers function over same-named class
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_KindAffinity_CallPrefersFunction(t *testing.T) {
-	// WHY: appendix F grants +25 for call→function affinity. A `call` ref to
+	// WHY: call→function affinity is worth +25. A `call` ref to
 	// "fetch" should prefer a function node over a class node of the same name,
 	// holding language and file path equal.
 	d, _ := openTestDB(t)
@@ -218,12 +187,8 @@ func TestNameMatcher_KindAffinity_CallPrefersFunction(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: instantiates ref prefers class over same-named function
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_KindAffinity_InstantiatesPrefersClass(t *testing.T) {
-	// WHY: appendix F grants +25 for instantiates→class. An `instantiates` ref
+	// WHY: instantiates→class affinity is worth +25. An `instantiates` ref
 	// should prefer a class node over a function of the same name.
 	d, _ := openTestDB(t)
 	ctx := context.Background()
@@ -272,10 +237,6 @@ func TestNameMatcher_KindAffinity_InstantiatesPrefersClass(t *testing.T) {
 			result.Node.ID, result.Node.Kind, classID)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test: method call (obj.method) resolves to correct method via methodCall path
-// ---------------------------------------------------------------------------
 
 func TestNameMatcher_MethodCall(t *testing.T) {
 	// WHY: `obj.method()` references must resolve to the right method definition.
@@ -337,10 +298,6 @@ func TestNameMatcher_MethodCall(t *testing.T) {
 		t.Errorf("method call: got name %q, want %q", result.Node.Name, "connect")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test: receiver inference for C++/Java method calls
-// ---------------------------------------------------------------------------
 
 func TestNameMatcher_ReceiverInference_Java(t *testing.T) {
 	// WHY: for Java/C++, obj.method() should use the receiver type to scope the
@@ -407,10 +364,6 @@ func TestNameMatcher_ReceiverInference_Java(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: fuzzy fires only on exact/qualified miss
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_FuzzyFiresOnlyOnMiss(t *testing.T) {
 	// WHY: fuzzy matching should only activate when exact name lookup and
 	// qualified-name lookup both fail to find candidates. If an exact match
@@ -470,12 +423,8 @@ func TestNameMatcher_FuzzyFiresOnlyOnMiss(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: matchReference sub-order — filePath wins first
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_SubOrderFilePath(t *testing.T) {
-	// WHY: appendix F sub-order is filePath → qualifiedName → methodCall →
+	// WHY: the strategy order is filePath → qualifiedName → methodCall →
 	// exactName → fuzzy. A ref whose ReferenceName looks like a file path
 	// (contains "/") should match via the filePath strategy.
 	d, _ := openTestDB(t)
@@ -510,10 +459,6 @@ func TestNameMatcher_SubOrderFilePath(t *testing.T) {
 		t.Errorf("filepath strategy: got %q, want %q", result.Strategy, resolution.StrategyFilePath)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test: qualifiedName match (::- or .-separated)
-// ---------------------------------------------------------------------------
 
 func TestNameMatcher_QualifiedName(t *testing.T) {
 	// WHY: a ref like "MyClass::myMethod" must resolve via the qualifiedName
@@ -563,14 +508,10 @@ func TestNameMatcher_QualifiedName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: GetAllCandidates returns multiple results
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_GetAllCandidates(t *testing.T) {
-	// WHY: appendix F says "expose a way to get all candidates". MatchReference
+	// WHY: callers need every candidate, not just the winner. MatchReference
 	// returns the best; NameMatcher must also offer GetAllCandidates for the
-	// node tool (MCP CP22) to surface overloads.
+	// node tool (MCP) to surface overloads.
 	d, _ := openTestDB(t)
 	ctx := context.Background()
 
@@ -611,12 +552,8 @@ func TestNameMatcher_GetAllCandidates(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: path proximity — closer directory scores higher
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_PathProximity(t *testing.T) {
-	// WHY: appendix F says path proximity 0–80 (closer dir = higher). A function
+	// WHY: path proximity scores 0–80, closer directory scoring higher. A function
 	// in a sibling directory should outscore one in a distant directory, all else
 	// equal (different files, same language, neither in the ref file).
 	d, _ := openTestDB(t)
@@ -657,10 +594,6 @@ func TestNameMatcher_PathProximity(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: no match → nil result (not an error)
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_NoMatch(t *testing.T) {
 	// WHY: when no candidate exists for a name, MatchReference must return
 	// (nil, nil) — not an error. The pipeline treats nil-result as unresolved.
@@ -687,12 +620,8 @@ func TestNameMatcher_NoMatch(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: exported bias (+10) — exported candidate ranks higher than unexported
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_ExportedBias(t *testing.T) {
-	// WHY: appendix F awards +10 for exported symbols. Two otherwise-identical
+	// WHY: an exported symbol scores +10. Two otherwise-identical
 	// candidates (same file, same kind, same name, different lines) where one
 	// is exported — the exported one must score higher.
 	d, _ := openTestDB(t)
@@ -745,12 +674,8 @@ func TestNameMatcher_ExportedBias(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: line distance — nearer line scores higher
-// ---------------------------------------------------------------------------
-
 func TestNameMatcher_LineDistance(t *testing.T) {
-	// WHY: appendix F says "nearer line = slight boost". Two candidates in
+	// WHY: a nearer line gets a slight boost. Two candidates in
 	// the same file with the same properties but at different lines — the one
 	// closer to the reference line must score higher.
 	d, _ := openTestDB(t)
@@ -803,10 +728,6 @@ func TestNameMatcher_LineDistance(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Sanity: ScorePathProximityMax gradient is in [0, ScorePathProximityMax]
-// ---------------------------------------------------------------------------
-
 func TestPathProximityGradient(t *testing.T) {
 	// WHY: pathProximityScore must always return a value in [0, ScorePathProximityMax].
 	// This asserts the invariant holds for a range of path pairs.
@@ -840,10 +761,6 @@ func TestPathProximityGradient(t *testing.T) {
 	_ = math.IsNaN // avoid unused import
 }
 
-// ---------------------------------------------------------------------------
-// levenshteinDistance unit test
-// ---------------------------------------------------------------------------
-
 func TestLevenshteinDistance(t *testing.T) {
 	// WHY: bounded levenshtein is the core of the new in-memory byFuzzy.
 	// These known pairs pin the correctness of the two-row DP; early-exit
@@ -875,10 +792,6 @@ func TestLevenshteinDistance(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// F-68: LevenshteinDistance empty-string base case must respect max
-// ---------------------------------------------------------------------------
-
 func TestLevenshteinDistance_EmptyStringRespectsMax(t *testing.T) {
 	// WHY: when one input is empty, the distance equals the length of the other.
 	// If that length exceeds max, the function must return max+1 (consistent with
@@ -906,10 +819,6 @@ func TestLevenshteinDistance_EmptyStringRespectsMax(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// In-memory byFuzzy behaviour test (SetKnownNames)
-// ---------------------------------------------------------------------------
 
 func TestNameMatcher_InMemoryFuzzy_ResolvesTypo(t *testing.T) {
 	// WHY: the new byFuzzy scans the in-memory known-names set rather than
@@ -987,10 +896,6 @@ func TestNameMatcher_InMemoryFuzzy_ResolvesTypo(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// CP4 resolver tweaks: single-dot SQL → qualified routing; exact-QName preference
-// ---------------------------------------------------------------------------
-
 // seedColumn inserts a column node with Name=col (bare) and QualifiedName=tableQName.col.
 func seedColumn(t *testing.T, d *db.DB, filePath, tableQName, col string, line int) string {
 	t.Helper()
@@ -1045,13 +950,13 @@ func TestNameMatcher_CP4_SingleDotSQLResolvesToColumn(t *testing.T) {
 		t.Fatalf("MatchReference: %v", err)
 	}
 	if result == nil {
-		t.Fatal("CP4 tweak 1: MatchReference returned nil — single-dot SQL ref did not resolve")
+		t.Fatal("MatchReference returned nil — single-dot SQL ref did not resolve")
 	}
 	if result.Node.ID != colID {
-		t.Errorf("CP4 tweak 1: resolved to %q, want column node %q", result.Node.ID, colID)
+		t.Errorf("resolved to %q, want column node %q", result.Node.ID, colID)
 	}
 	if result.Strategy != resolution.StrategyQualifiedName {
-		t.Errorf("CP4 tweak 1: strategy = %q, want %q", result.Strategy, resolution.StrategyQualifiedName)
+		t.Errorf("strategy = %q, want %q", result.Strategy, resolution.StrategyQualifiedName)
 	}
 }
 
@@ -1088,16 +993,16 @@ func TestNameMatcher_CP4_ExactQNamePreferred(t *testing.T) {
 		t.Fatalf("MatchReference: %v", err)
 	}
 	if result == nil {
-		t.Fatal("CP4 tweak 2: MatchReference returned nil — no column resolved")
+		t.Fatal("MatchReference returned nil — no column resolved")
 	}
 	if result.Node.ID != acctColID {
-		t.Errorf("CP4 tweak 2: resolved to %q, want acct.id node %q (exact-QName must beat suffix match)",
+		t.Errorf("resolved to %q, want acct.id node %q (exact-QName must beat suffix match)",
 			result.Node.ID, acctColID)
 	}
 }
 
 func TestNameMatcher_CP4_SC9_NonSQLSingleDotUnchanged(t *testing.T) {
-	// WHY SC9: the SQL-scoped single-dot fall-through must NOT affect non-SQL languages.
+	// WHY: the SQL-scoped single-dot fall-through must NOT affect non-SQL languages.
 	// A Go/TS "receiver.method" ref that currently resolves via byMethodCall must
 	// continue to do so — the new path is gated strictly on LanguageSQL.
 	d, _ := openTestDB(t)
@@ -1150,7 +1055,7 @@ func TestNameMatcher_CP4_SC9_NonSQLSingleDotUnchanged(t *testing.T) {
 }
 
 func TestNameMatcher_CP4_SC9_NonSQLColumnGateBlocks(t *testing.T) {
-	// WHY SC9 gate-coverage: the previous SC9 test only exercises the byMethodCall-
+	// WHY: the sibling test only exercises the byMethodCall-
 	// succeeds path, so removing the LanguageSQL gate leaves it green. This sibling
 	// test exercises the gate directly: a NON-SQL single-dot ref where byMethodCall
 	// finds NOTHING (no method/function node named "doWork" exists), but a COLUMN

@@ -1,6 +1,6 @@
 package wiki
 
-// bucket_doc_cli_test.go — CP5 tests for the `atomic wiki bucket doc|skill|index`
+// bucket_doc_cli_test.go — tests for the `atomic wiki bucket doc|skill|index`
 // CLI verbs (action.go's wikiBucketDocAction / wikiBucketSkillAction /
 // wikiBucketIndexAction). Exercises the CLI dispatch layer only — the
 // underlying scaffold/index logic (ScaffoldBucketDoc, ScaffoldBucketSkill,
@@ -25,8 +25,6 @@ func registerBucketCLI(t *testing.T, root, claudeHome, name string) {
 		t.Fatalf("bucket add %q setup failed: %d; output: %q", name, code, out.String())
 	}
 }
-
-// ---- wiki bucket doc ----
 
 func TestBucketDoc_HappyPathWritesFile(t *testing.T) {
 	root := t.TempDir()
@@ -139,8 +137,6 @@ func TestBucketDoc_MissingArgsUsageError(t *testing.T) {
 	}
 }
 
-// ---- wiki bucket skill ----
-
 func TestBucketSkill_WritesFileAndReportsNote(t *testing.T) {
 	root := t.TempDir()
 	claudeHome := t.TempDir()
@@ -217,8 +213,6 @@ func TestBucketSkill_UnregisteredBucketRejected(t *testing.T) {
 		t.Fatal("expected non-zero exit for unregistered bucket")
 	}
 }
-
-// ---- wiki bucket index ----
 
 func TestBucketIndex_AllRebuildsEveryBucketAndRealmList(t *testing.T) {
 	root := t.TempDir()

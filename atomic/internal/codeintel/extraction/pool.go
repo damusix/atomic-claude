@@ -9,24 +9,19 @@ import (
 	sitter "github.com/malivvan/tree-sitter"
 )
 
-// RecycleInterval is the number of parses after which a pooled instance is
-// dropped and recreated. Wazero's linear memory is grow-only; this reclaim
-// strategy keeps RSS flat at ~1 GB for a large repo (spike A3: unbounded
-// without recycle vs ~1 GB flat at 500-parse cadence).
+// RecycleInterval is the parse count after which a pooled instance is dropped
+// and recreated. Wazero's linear memory is grow-only; recycling at this cadence
+// holds RSS flat at ~1 GB on a large repo instead of growing unbounded.
 const RecycleInterval = 500
 
-// Pool is a bounded pool of independent tree-sitter parsing instances.
-// Each instance owns its own wazero runtime+module+parser and must never be
-// shared across goroutines. The pool enforces this via borrow/return.
+// Pool hands out independent tree-sitter parsing instances. Each owns its own
+// wazero runtime+module+parser and must never cross goroutines; borrow/return
+// enforces that, and all pool state lives in the buffered channel.
 //
-// Pool is safe for concurrent use (all state is accessed via a buffered
-// channel; no mutexes needed).
-//
-// The channel holds a fixed number of tokens equal to the pool size. A token
-// is either a live *tsInstance or nil — a nil token is an unbooted permit: the
-// right to create one instance on first borrow. This keeps concurrency bounded
-// at exactly `size` while deferring the expensive wazero-runtime + grammar
-// compile to the moment a parse actually needs it (lazy instantiation).
+// The channel holds exactly size tokens, each a live *tsInstance or nil. A nil
+// token is an unbooted permit — the right to instantiate on first borrow —
+// which bounds concurrency at size while deferring the expensive wazero-runtime
+// + grammar compile until a parse needs it.
 type Pool struct {
 	ch           chan *tsInstance
 	recycleCount atomic.Int64
@@ -35,18 +30,14 @@ type Pool struct {
 
 // PoolOptions configures a Pool. Zero-value fields use defaults.
 type PoolOptions struct {
-	// Size is the number of independent instances. Defaults to GOMAXPROCS.
-	// Must be >= 1.
+	// Size is the number of independent instances; <= 0 means GOMAXPROCS.
 	Size int
 }
 
-// NewPool creates a pool of the given size. No wazero runtime is booted here:
-// the pool is filled with `size` unbooted permits (nil tokens), and each is
-// upgraded to a live instance on its first Borrow. This defers the per-instance
-// grammar-compile cost (~0.5 s each) to actual parse demand, so a pool that is
-// never borrowed from — e.g. a no-op sync where every file is unchanged — boots
-// nothing, and a small incremental sync boots only as many instances as it has
-// concurrent parsers.
+// NewPool fills the pool with unbooted permits; no wazero runtime is booted
+// until a Borrow demands one. That defers the ~0.5 s per-instance grammar
+// compile to actual parse demand, so a sync where every file is unchanged boots
+// nothing.
 func NewPool(ctx context.Context, opts PoolOptions) (*Pool, error) {
 	size := opts.Size
 	if size <= 0 {
@@ -63,18 +54,11 @@ func NewPool(ctx context.Context, opts PoolOptions) (*Pool, error) {
 	return &Pool{ch: ch}, nil
 }
 
-// Borrow takes a token from the pool. It blocks until one is available or ctx
-// is cancelled. The caller must call Return when done — failure to return leaks
-// the pool. The returned Instance is ready to parse (language defaults to Go;
-// callers may call SetLanguage before use).
-//
-// If the token is an unbooted permit (nil), Borrow instantiates a fresh
-// instance here — so Borrow can now also fail with an instantiation error, not
-// only a ctx error. On instantiation failure the permit is returned to the pool
-// so the slot is not lost.
-//
-// ctx is used both for the blocking wait and for the lazy instantiation. A
-// cancelled ctx returns a wrapped ctx error so callers can handle shutdown.
+// Borrow blocks until a token is available or ctx is cancelled. The caller must
+// Return it — a dropped Instance leaks a pool slot. The Instance defaults to the
+// Go grammar; call SetLanguage for anything else. Borrowing an unbooted permit
+// instantiates here, so Borrow can fail with an instantiation error as well as
+// a ctx error.
 func (p *Pool) Borrow(ctx context.Context) (Instance, error) {
 	select {
 	case inst := <-p.ch:
@@ -92,10 +76,8 @@ func (p *Pool) Borrow(ctx context.Context) (Instance, error) {
 	}
 }
 
-// Return puts an instance back into the pool, recycling it first if its
-// parse counter has reached RecycleInterval. The caller must pass the exact
-// value obtained from Borrow — passing a different Instance or returning an
-// Instance to the wrong pool will corrupt pool state.
+// Return puts an instance back, recycling it first at RecycleInterval parses.
+// Must be the exact value from Borrow — a foreign Instance corrupts pool state.
 func (p *Pool) Return(inst Instance) {
 	ti := inst.(*tsInstance) //nolint:forcetypeassert // only *tsInstance enters the pool
 	if ti.parseCount >= RecycleInterval {
@@ -105,38 +87,34 @@ func (p *Pool) Return(inst Instance) {
 	}
 }
 
-// recycle drops the given instance, runs GC to release wazero's mmap'd
-// linear memory, and creates a fresh replacement with the same ID.
+// recycle swaps in a fresh instance with the same ID.
 func (p *Pool) recycle(old *tsInstance) {
 	ctx := context.Background()
 	id := old.id
 	old.close(ctx)
 	old = nil
 
-	// Two GC passes: first collects the wazero runtime reference, second
-	// runs any finalizers that free mmap'd module pages (spike A3 pattern).
+	// First pass collects the wazero runtime; the second runs the finalizers
+	// that free its mmap'd module pages.
 	runtime.GC()
 	runtime.GC()
 
 	fresh, err := newTSInstance(ctx, id)
 	if err != nil {
-		// Recycling failure is fatal: without this slot the pool blocks.
-		// Panic rather than silently deadlock.
+		// Losing this slot would deadlock every future Borrow.
 		panic(fmt.Sprintf("extraction.Pool.recycle: failed to recreate instance %d: %v", id, err))
 	}
 	p.recycleCount.Add(1)
 	p.ch <- fresh
 }
 
-// RecycleCount returns the total number of recycle operations performed since
-// the pool was created. Used in tests to verify recycle cadence.
+// RecycleCount reports recycles since creation; tests assert the cadence.
 func (p *Pool) RecycleCount() int {
 	return int(p.recycleCount.Load())
 }
 
-// Close drains the pool and shuts down all available instances. It must be
-// called only after all outstanding borrows have been returned. Any instances
-// still borrowed at Close time are the caller's responsibility.
+// Close drains and shuts down every available instance. Instances still
+// borrowed are left to the caller — Return them first.
 func (p *Pool) Close() {
 	ctx := context.Background()
 	for len(p.ch) > 0 {
@@ -146,21 +124,15 @@ func (p *Pool) Close() {
 	}
 }
 
-// ChannelLen returns the number of instances currently available in the pool.
-// Used in tests to verify drain completeness after Close.
+// ChannelLen reports available instances; tests assert drain completeness.
 func (p *Pool) ChannelLen() int {
 	return len(p.ch)
 }
 
-// ---------------------------------------------------------------------------
-// tsInstance — the concrete pooling unit
-// ---------------------------------------------------------------------------
+// --- tsInstance: the concrete pooling unit ---
 
-// tsInstance is one fully-independent parsing unit: its own wazero
-// runtime+module (TreeSitter), its own Parser, with the current language set.
-// This is the concrete type that implements Instance.
-//
-// It must never be shared across goroutines (data race — proven in spike A2).
+// tsInstance implements Instance. Never share one across goroutines — the
+// wazero module behind it is not concurrency-safe.
 type tsInstance struct {
 	id         int
 	ts         sitter.TreeSitter
@@ -169,8 +141,7 @@ type tsInstance struct {
 	parseCount int
 }
 
-// newTSInstance creates a fully-initialised instance with Go as the default
-// language. id is used to detect double-lending in tests.
+// newTSInstance defaults to the Go grammar; id lets tests detect double-lending.
 func newTSInstance(ctx context.Context, id int) (*tsInstance, error) {
 	ts, err := sitter.New(ctx)
 	if err != nil {
@@ -190,19 +161,15 @@ func newTSInstance(ctx context.Context, id int) (*tsInstance, error) {
 	return &tsInstance{id: id, ts: ts, parser: p, lang: lang}, nil
 }
 
-// close shuts down the wazero module. Called only by the pool's recycle and
-// Close paths — never by external callers.
+// close is for the pool's recycle and Close paths only.
 func (ti *tsInstance) close(ctx context.Context) {
-	// Parser.Close frees the ts_parser_t inside WASM; the module itself is
-	// released when the GC collects the wazero runtime (no explicit close
-	// on the runtime API at the version we use).
+	// Frees ts_parser_t inside WASM; the module itself goes when GC collects
+	// the wazero runtime, which the binding exposes no explicit close for.
 	_ = ti.parser.Close(ctx)
 }
 
-// ID implements Instance.
 func (ti *tsInstance) ID() int { return ti.id }
 
-// SetLanguage implements Instance. It changes the parser's grammar.
 func (ti *tsInstance) SetLanguage(ctx context.Context, lang Lang) error {
 	sl, err := ti.resolveLanguage(ctx, lang)
 	if err != nil {
@@ -215,8 +182,7 @@ func (ti *tsInstance) SetLanguage(ctx context.Context, lang Lang) error {
 	return nil
 }
 
-// ParseString implements Instance. It increments the parse counter (used for
-// recycle cadence — checked by the pool on Return).
+// ParseString advances the parse counter the pool reads on Return.
 func (ti *tsInstance) ParseString(ctx context.Context, src string) (Tree, error) {
 	tree, err := ti.parser.ParseString(ctx, src)
 	if err != nil {
@@ -226,8 +192,7 @@ func (ti *tsInstance) ParseString(ctx context.Context, src string) (Tree, error)
 	return &tsTree{ts: ti.ts, t: tree}, nil
 }
 
-// resolveLanguage maps a Lang constant to a sitter.Language loaded from the
-// wazero module embedded in this instance.
+// resolveLanguage loads the grammar from this instance's own wazero module.
 func (ti *tsInstance) resolveLanguage(ctx context.Context, lang Lang) (sitter.Language, error) {
 	ts := ti.ts
 	switch lang {
@@ -280,17 +245,14 @@ func (ti *tsInstance) resolveLanguage(ctx context.Context, lang Lang) (sitter.La
 	}
 }
 
-// ---------------------------------------------------------------------------
-// tsTree — concrete Tree implementation
-// ---------------------------------------------------------------------------
+// --- tsTree: concrete Tree implementation ---
 
 type tsTree struct {
 	ts sitter.TreeSitter
 	t  sitter.Tree
 }
 
-// rootNode satisfies treeRooter. It is package-internal so sitter.Node does
-// not appear in any public interface (callers use WalkNamed instead).
+// rootNode is unexported so sitter.Node stays out of the public Tree interface.
 func (tr *tsTree) rootNode(ctx context.Context) (sitter.Node, error) {
 	return tr.t.RootNode(ctx)
 }

@@ -10,8 +10,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// cliTestRepo creates a fake repo with a followups/ folder, wires in a today clock,
-// and returns the repo root and the followups dir.
+// cliTestRepo returns the repo root and its followups dir, clock already fixed.
 func cliTestRepo(t *testing.T) (root, dir string, today time.Time) {
 	t.Helper()
 	tmp := t.TempDir()
@@ -36,9 +35,8 @@ func TestCLIPath(t *testing.T) {
 	}
 }
 
-// TestCLIPath_UnderNonDefaultHarnessDir verifies Run threads repoRoot through
-// config.FollowupsDir — under a ".pi" harness dir, followups live at
-// .pi/project/followups, not the default .claude/project/followups.
+// Run threads repoRoot through config.FollowupsDir, so a ".pi" harness moves
+// followups off the .claude default.
 func TestCLIPath_UnderNonDefaultHarnessDir(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".pi")
 	defer restore()
@@ -58,7 +56,6 @@ func TestCLIPath_UnderNonDefaultHarnessDir(t *testing.T) {
 
 func TestCLIRender(t *testing.T) {
 	root, dir, today := cliTestRepo(t)
-	// Pre-create an entry.
 	if _, err := Add(dir, AddOpts{ID: "r-001", Title: "Render test", Severity: "risk", Origin: "o", Today: today}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -70,7 +67,6 @@ func TestCLIRender(t *testing.T) {
 		t.Errorf("exit code=%d, want 0; stderr=%s", code, errOut.String())
 	}
 
-	// INDEX.md should be regenerated.
 	indexPath := filepath.Join(dir, "INDEX.md")
 	if _, err := os.Stat(indexPath); err != nil {
 		t.Errorf("INDEX.md not created after render: %v", err)
@@ -92,11 +88,9 @@ func TestCLIAdd(t *testing.T) {
 		t.Errorf("exit code=%d, want 0; stderr=%s", code, errOut.String())
 	}
 
-	// Entry file should exist.
 	if _, err := os.Stat(filepath.Join(dir, "new-entry.md")); err != nil {
 		t.Errorf("entry file not created: %v", err)
 	}
-	// stdout should contain the path.
 	if !strings.Contains(out.String(), "new-entry") {
 		t.Errorf("stdout=%q, want it to contain 'new-entry'", out.String())
 	}
@@ -106,7 +100,6 @@ func TestCLIAdd_ValidationFails(t *testing.T) {
 	root, _, _ := cliTestRepo(t)
 	var out strings.Builder
 	var errOut strings.Builder
-	// Missing required flags.
 	code := Run([]string{"add", "--id", "ok-id"}, root, &out, &errOut, nowFixed(2026, 5, 22))
 	if code != 1 {
 		t.Errorf("exit code=%d, want 1", code)
@@ -128,7 +121,6 @@ func TestCLIAdd_KindPlan(t *testing.T) {
 		t.Errorf("exit code=%d, want 0; stderr=%s", code, errOut.String())
 	}
 
-	// Entry file must exist and parse cleanly.
 	raw, err := os.ReadFile(filepath.Join(dir, "plan-entry.md"))
 	if err != nil {
 		t.Fatalf("read entry: %v", err)
@@ -140,18 +132,15 @@ func TestCLIAdd_KindPlan(t *testing.T) {
 	if e.Kind != KindPlan {
 		t.Errorf("kind=%q, want %q", e.Kind, KindPlan)
 	}
-	// severity must be absent.
 	if e.Severity != "" {
 		t.Errorf("severity=%q, want empty for plan", e.Severity)
 	}
-	// frontmatter must include kind: plan.
 	if !strings.Contains(string(raw), "kind: plan") {
 		t.Errorf("expected 'kind: plan' in frontmatter:\n%s", raw)
 	}
 }
 
 func TestCLIAdd_KindPlan_SeverityStillOptional(t *testing.T) {
-	// Providing --severity with --kind plan must also succeed.
 	root, _, _ := cliTestRepo(t)
 	var out strings.Builder
 	var errOut strings.Builder
@@ -188,7 +177,7 @@ func TestCLIAdd_InvalidKind(t *testing.T) {
 	}
 }
 
-// CP2 F-2: --kind foo without --severity must show invalid-kind error, not missing-severity.
+// A bad --kind must report itself, not a missing --severity.
 func TestCLIAdd_InvalidKindWithoutSeverity(t *testing.T) {
 	root, _, _ := cliTestRepo(t)
 	var out strings.Builder
@@ -199,25 +188,21 @@ func TestCLIAdd_InvalidKindWithoutSeverity(t *testing.T) {
 		"--title", "t",
 		"--kind", "badvalue",
 		"--origin", "o",
-		// no --severity
 	}, root, &out, &errOut, nowFixed(2026, 5, 22))
 	if code != 1 {
 		t.Errorf("exit code=%d, want 1", code)
 	}
 	stderr := errOut.String()
-	// Must mention 'kind'.
 	if !strings.Contains(strings.ToLower(stderr), "kind") {
 		t.Errorf("stderr=%q, expected mention of 'kind'", stderr)
 	}
-	// Must NOT report missing --severity as the primary error — kind validation
-	// fires first. This would regress if the validation order were swapped.
+	// Swapping the validation order would regress this.
 	if strings.Contains(stderr, "missing required flag --severity") {
 		t.Errorf("stderr reports missing-severity instead of invalid-kind: %q", stderr)
 	}
 }
 
 func TestCLIAdd_FindingStillRequiresSeverity(t *testing.T) {
-	// --kind finding without --severity must fail.
 	root, _, _ := cliTestRepo(t)
 	var out strings.Builder
 	var errOut strings.Builder
@@ -280,7 +265,6 @@ func TestCLIClose(t *testing.T) {
 		t.Errorf("exit code=%d, want 0; stderr=%s", code, errOut.String())
 	}
 
-	// Entry file should be gone.
 	if _, err := os.Stat(filepath.Join(dir, "to-close.md")); err == nil {
 		t.Error("expected to-close.md deleted, still exists")
 	}
@@ -316,7 +300,6 @@ func TestCLINoArgs(t *testing.T) {
 	}
 }
 
-// nowFixed returns a Clock function that always returns the given date.
 func nowFixed(year, month, day int) func() time.Time {
 	return func() time.Time {
 		return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)

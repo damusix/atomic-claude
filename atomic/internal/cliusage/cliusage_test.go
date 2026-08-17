@@ -6,9 +6,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 )
 
-// TestCommandsNotEmpty verifies the surface table is non-empty and that
-// every Command has a non-empty verb path and description — failing on the
-// zero-value struct would indicate a transcription error.
 func TestCommandsNotEmpty(t *testing.T) {
 	cmds := cliusage.Commands()
 	if len(cmds) == 0 {
@@ -24,8 +21,6 @@ func TestCommandsNotEmpty(t *testing.T) {
 	}
 }
 
-// TestLookupByPath verifies LookupByPath finds known commands and returns nil
-// for unknown paths.
 func TestLookupByPath(t *testing.T) {
 	got := cliusage.LookupByPath([]string{"code", "search"})
 	if got == nil {
@@ -43,14 +38,11 @@ func TestLookupByPath(t *testing.T) {
 		t.Errorf("doctor: expected --fix flag, got %v", got2.Flags)
 	}
 
-	// Unknown path returns nil.
 	if cliusage.LookupByPath([]string{"nonexistent", "verb"}) != nil {
 		t.Error("LookupByPath([nonexistent verb]) should return nil")
 	}
 }
 
-// TestTopLevelVerbs verifies TopLevelVerbs returns a non-empty set covering
-// the documented top-level nouns.
 func TestTopLevelVerbs(t *testing.T) {
 	verbs := cliusage.TopLevelVerbs()
 	required := []string{"code", "signals", "validate", "wiki", "followups", "claude", "config", "docs", "doctor", "update", "profile", "hooks", "reminder", "docker", "prompt"}
@@ -61,9 +53,7 @@ func TestTopLevelVerbs(t *testing.T) {
 	}
 }
 
-// TestCodeFanOutVerbs_HaveOnlyExclude verifies SC 9: the six fan-out code verbs
-// carry --only and --exclude, and no code verb carries --db (which was
-// explicitly rejected in the spec).
+// The fan-out code verbs carry --only/--exclude; --db is rejected everywhere.
 func TestCodeFanOutVerbs_HaveOnlyExclude(t *testing.T) {
 	fanOutVerbs := [][]string{
 		{"code", "index"},
@@ -92,9 +82,8 @@ func TestCodeFanOutVerbs_HaveOnlyExclude(t *testing.T) {
 	}
 }
 
-// TestCodeNonFanOutVerbs_NoOnlyExclude verifies that the non-fan-out code verbs
-// (sync, status, node, files, affected) do NOT carry --only/--exclude, since
-// they don't fan out across realm members.
+// The counterpart: verbs that never fan out across realm members must not
+// advertise --only/--exclude.
 func TestCodeNonFanOutVerbs_NoOnlyExclude(t *testing.T) {
 	nonFanOutVerbs := [][]string{
 		{"code", "sync"},
@@ -119,9 +108,8 @@ func TestCodeNonFanOutVerbs_NoOnlyExclude(t *testing.T) {
 	}
 }
 
-// TestUpdate_HasForceFlag verifies SC 13/14 of selfupdate-state: the update
-// verb's Flags carries --force alongside the pre-existing flags, and the
-// internal background-invocation marker never leaks into the public surface.
+// The internal background-invocation marker must never reach the public
+// surface, only --force alongside the pre-existing flags.
 func TestUpdate_HasForceFlag(t *testing.T) {
 	cmd := cliusage.LookupByPath([]string{"update"})
 	if cmd == nil {
@@ -139,8 +127,6 @@ func TestUpdate_HasForceFlag(t *testing.T) {
 		t.Error("update: --__background-check is an internal marker, must not appear in cliusage")
 	}
 }
-
-// helpers
 
 func containsFlag(flags []string, want string) bool {
 	for _, f := range flags {

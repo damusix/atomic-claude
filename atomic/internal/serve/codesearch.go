@@ -1,24 +1,10 @@
-// codesearch.go — CP7: federated code search handler (/code/search).
+// Federated code search. In realm scope it fans out across members, each
+// queried independently; a member whose db is missing or unopenable is
+// reported as not indexed and the rest of the search continues. The only and
+// exclude params filter the member set, mirroring `atomic code`'s flags.
 //
-// Route: GET /code/search?q=<query>[&only=k1,k2][&exclude=k3]
-//
-// Scope handling:
-//   - ScopeRealmAll: fan out across non-excluded members; each queried
-//     independently via MemberSearchFn. Results grouped under [key] headers.
-//     A member whose db is missing/unopenable is skipped with a visible
-//     "not indexed — run atomic code index" note; the operation continues.
-//   - ScopeRealmMember: search the single member db (no [key] wrap).
-//   - ScopeRepo / ScopeNoIndex: search the single local index db.
-//
-// "only" / "exclude" query params (comma-separated keys) filter the member set,
-// mirroring the atomic code --only/--exclude flag semantics.
-//
-// Each result links to /file/<FilePath>#L<StartLine> (the CP2 file view).
-//
-// Design seam: MemberSearchFn is the injectable seam for opening an engine,
-// querying SearchNodes, and closing it.  DefaultMemberSearchFn is the production
-// implementation.  Tests inject a fake so they never touch a real SQLite file
-// (except in the production-wiring test, which builds a tiny real index).
+// MemberSearchFn is the seam that opens, queries, and closes an engine, so
+// tests never touch a real SQLite file.
 package serve
 
 import (
@@ -34,16 +20,12 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// MemberSearchFn is the seam for opening a member's index and running a search.
-// ctx is the request context; memberPath is the absolute member repo root;
-// dbPath is the absolute path to the member's db file; query is the raw query
-// string.  Returns the ranked results, or an error if the db is absent or
-// unopenable (treated as "not indexed" by the handler).
+// MemberSearchFn searches one member's index. An error — including an absent
+// or unopenable db — is what the handler reports as "not indexed".
 type MemberSearchFn func(ctx context.Context, memberPath, dbPath, query string) ([]types.SearchResult, error)
 
-// DefaultMemberSearchFn returns the production MemberSearchFn:
-// NewWithDBPath → Open(ctx) → SearchNodes → Close.
-// The engine is opened read-only (Open, not Init) and closed before return.
+// DefaultMemberSearchFn opens the engine read-only and closes it before
+// returning.
 func DefaultMemberSearchFn() MemberSearchFn {
 	return func(ctx context.Context, memberPath, dbPath string, query string) ([]types.SearchResult, error) {
 		eng, err := engine.NewWithDBPath(memberPath, dbPath)
@@ -69,36 +51,28 @@ func DefaultMemberSearchFn() MemberSearchFn {
 
 // CodeSearchOptions configures NewAPICodeSearchHandler.
 type CodeSearchOptions struct {
-	// RealmRoot is the root directory to resolve realm config from.
+	// RealmRoot is the root to resolve realm config from.
 	RealmRoot string
-	// ClaudeMDPath is used by realm.Resolve to find <wikis> registrations.
+	// ClaudeMDPath lets realm.Resolve find <wikis> registrations.
 	ClaudeMDPath string
-	// SearchFn is the MemberSearchFn to use. nil → DefaultMemberSearchFn().
+	// SearchFn nil takes DefaultMemberSearchFn.
 	SearchFn MemberSearchFn
 }
 
-// memberResult is the result for one realm member (or the single-repo case).
+// memberResult is one member's slice of a search.
 type memberResult struct {
-	Key        string // empty for single-repo scope (no [key] header)
-	Prefix     string // realm-relative path prefix for result /file/ links ("" = served root)
+	Key        string // empty in single-repo scope
+	Prefix     string // realm-relative prefix for result links
 	Results    []types.SearchResult
-	NotIndexed bool   // true when the member db was absent/unopenable
-	ErrMsg     string // descriptive note when NotIndexed == true
+	NotIndexed bool
+	ErrMsg     string
 }
 
-// codeSearchGroups resolves the search targets for a realm.Resolution and runs
-// the per-member search. It is shared by the synchronous /code/search handler
-// and the streaming /search/stream endpoint.
-//
-// Members are discovered via discoverCodeMembers, which unions realm federation
-// with per-member self-indexes (so a member indexed with `cd member; atomic code
-// index` is searchable even when the realm has no <code-index> federation). They
-// are searched CONCURRENTLY (bounded goroutine pool): one slow/large member no
-// longer blocks the others. The returned slice is in member order (deterministic);
-// when onGroup is non-nil it is also invoked once per member AS THAT MEMBER
-// COMPLETES (completion order) — the seam the SSE endpoint uses to push each
-// result the moment it is ready. onGroup calls are serialized, so a streaming
-// writer never sees interleaved output.
+// codeSearchGroups runs the per-member search, shared by the synchronous
+// handler and the SSE stream. The returned slice is in member order; onGroup,
+// when set, fires in completion order instead — the seam the stream uses to
+// push each member the moment it lands. Its calls are serialized, so a
+// streaming writer never sees interleaved output.
 func codeSearchGroups(
 	ctx context.Context,
 	res realm.Resolution,
@@ -117,9 +91,8 @@ func codeSearchGroups(
 	return fanOutMembers(ctx, members, query, fn, onGroup)
 }
 
-// fanOutMembers searches every member concurrently (bounded by CPU count, max 8)
-// and returns the results in member order. onGroup, when non-nil, fires once per
-// member at completion time (serialized) for streaming.
+// fanOutMembers searches concurrently, bounded by CPU count, so one large
+// member does not block the rest.
 func fanOutMembers(
 	ctx context.Context,
 	members []codeMember,
@@ -142,7 +115,7 @@ func fanOutMembers(
 	}
 	sem := make(chan struct{}, maxConc)
 	var wg sync.WaitGroup
-	var emitMu sync.Mutex // serializes onGroup so streaming writes never interleave
+	var emitMu sync.Mutex // so streaming writes never interleave
 
 	for i, m := range members {
 		wg.Add(1)
@@ -164,9 +137,7 @@ func fanOutMembers(
 	return out
 }
 
-// searchMember searches one member; never aborts — error → NotIndexed note.
-// The searchFn is the sole authority: if it errors (including db absent/unopenable),
-// the member is reported "not indexed" and the fan-out continues.
+// searchMember never aborts the fan-out: any error becomes a NotIndexed note.
 func searchMember(ctx context.Context, fn MemberSearchFn, m codeMember, query string) memberResult {
 	mr := memberResult{Key: m.Key, Prefix: m.Prefix}
 	if query == "" {
@@ -182,8 +153,7 @@ func searchMember(ctx context.Context, fn MemberSearchFn, m codeMember, query st
 	return mr
 }
 
-// splitCommaParam splits a comma-separated query param value into trimmed keys.
-// Empty param → nil (no filter).
+// splitCommaParam returns nil for an empty param, meaning no filter.
 func splitCommaParam(s string) []string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -200,8 +170,8 @@ func splitCommaParam(s string) []string {
 	return out
 }
 
-// filterMemberSet applies only/exclude filters to the member list,
-// mirroring cli.filterMembers semantics: --only takes precedence over --exclude.
+// filterMemberSet mirrors cli.filterMembers: only takes precedence over
+// exclude.
 func filterMemberSet(members []codeMember, only, excl []string) []codeMember {
 	if len(only) > 0 {
 		onlySet := make(map[string]bool, len(only))

@@ -9,7 +9,6 @@ import (
 )
 
 // sampleResults is a consistent fixture used across format tests.
-// Matches the spec example output (abbreviated).
 var sampleResults = []doctor.Result{
 	{Index: 1, Name: "install", Severity: doctor.PASS, Detail: "36/36 files match bundle"},
 	{Index: 2, Name: "hooks", Severity: doctor.WARN, Detail: "session-start hook missing"},
@@ -18,7 +17,6 @@ var sampleResults = []doctor.Result{
 	{Index: 5, Name: "manifest", Severity: doctor.SKIP, Detail: "not in atomic-claude repo"},
 }
 
-// TestFormatHumanHeader verifies the header line contains "atomic doctor" and the project name.
 func TestFormatHumanHeader(t *testing.T) {
 	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	if !strings.Contains(out, "atomic doctor") {
@@ -29,11 +27,9 @@ func TestFormatHumanHeader(t *testing.T) {
 	}
 }
 
-// TestFormatHumanIndexedRows verifies each result appears with its index.
 func TestFormatHumanIndexedRows(t *testing.T) {
 	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	for _, r := range sampleResults {
-		// Each row must contain [N] prefix.
 		marker := "[" + string(rune('0'+r.Index)) + "]"
 		if !strings.Contains(out, marker) {
 			t.Errorf("output missing row marker %q: %q", marker, out)
@@ -41,7 +37,6 @@ func TestFormatHumanIndexedRows(t *testing.T) {
 	}
 }
 
-// TestFormatHumanSeverityColumn verifies severity values appear in output.
 func TestFormatHumanSeverityColumn(t *testing.T) {
 	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	for _, sev := range []string{"PASS", "WARN", "FAIL", "SKIP"} {
@@ -51,8 +46,6 @@ func TestFormatHumanSeverityColumn(t *testing.T) {
 	}
 }
 
-// TestFormatHumanCountersLine verifies the counters line is present and correct.
-// 2 PASS, 1 WARN, 1 FAIL, 1 SKIP (SKIP excluded from PASS/WARN/FAIL tally but shown).
 func TestFormatHumanCountersLine(t *testing.T) {
 	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	if !strings.Contains(out, "2 PASS") {
@@ -69,7 +62,6 @@ func TestFormatHumanCountersLine(t *testing.T) {
 	}
 }
 
-// TestFormatHumanExitCodeInCounters verifies the exit code appears in the counters line.
 func TestFormatHumanExitCodeInCounters(t *testing.T) {
 	exitCode := doctor.ExitCode(sampleResults)
 	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
@@ -78,7 +70,6 @@ func TestFormatHumanExitCodeInCounters(t *testing.T) {
 	}
 }
 
-// TestFormatHumanRepairHintShownOnWarnOrFail verifies "To repair:" appears when WARN/FAIL present.
 func TestFormatHumanRepairHintShownOnWarnOrFail(t *testing.T) {
 	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	if !strings.Contains(out, "To repair:") {
@@ -86,7 +77,6 @@ func TestFormatHumanRepairHintShownOnWarnOrFail(t *testing.T) {
 	}
 }
 
-// TestFormatHumanRepairHintAbsentOnAllPass verifies "To repair:" absent when all results are PASS.
 func TestFormatHumanRepairHintAbsentOnAllPass(t *testing.T) {
 	allPass := []doctor.Result{
 		{Index: 1, Name: "install", Severity: doctor.PASS, Detail: "ok"},
@@ -98,7 +88,6 @@ func TestFormatHumanRepairHintAbsentOnAllPass(t *testing.T) {
 	}
 }
 
-// TestFormatHumanRepairHintAbsentOnAllSkip verifies "To repair:" absent when all results are SKIP.
 func TestFormatHumanRepairHintAbsentOnAllSkip(t *testing.T) {
 	allSkip := []doctor.Result{
 		{Index: 5, Name: "manifest", Severity: doctor.SKIP, Detail: "not in repo"},
@@ -109,7 +98,6 @@ func TestFormatHumanRepairHintAbsentOnAllSkip(t *testing.T) {
 	}
 }
 
-// TestFormatHumanDetailPresent verifies detail text appears in output rows.
 func TestFormatHumanDetailPresent(t *testing.T) {
 	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	if !strings.Contains(out, "36/36 files match bundle") {
@@ -117,25 +105,21 @@ func TestFormatHumanDetailPresent(t *testing.T) {
 	}
 }
 
-// TestFormatResultLine verifies the canonical column layout used by both
-// FormatHuman and updatedoctor. The name field must be padded to 25 characters
-// so columns align regardless of name length.
+// FormatHuman and updatedoctor share this layout, so the padding is a
+// cross-package contract, not a local formatting choice.
 func TestFormatResultLine(t *testing.T) {
 	r := doctor.Result{Index: 4, Name: "refs", Severity: doctor.FAIL, Detail: "@-refs not present"}
 	line := doctor.FormatResultLine(r)
-	// Must start with index and severity.
 	if !strings.HasPrefix(line, "[4] FAIL") {
 		t.Errorf("line does not start with '[4] FAIL': %q", line)
 	}
-	// Name must be padded: "refs" + 21 spaces = 25 chars, then "  " separator.
-	// Check the raw column by looking for the padded name followed by detail.
+	// "refs" padded to 25 chars, then the two-space separator.
 	want := "[4] FAIL  refs                       @-refs not present\n"
 	if line != want {
 		t.Errorf("FormatResultLine =\n  %q\nwant\n  %q", line, want)
 	}
 }
 
-// TestFormatJSONSchemaVersion verifies schema_version=1 in JSON output.
 func TestFormatJSONSchemaVersion(t *testing.T) {
 	data, err := doctor.FormatJSON(sampleResults, "myproject", 1)
 	if err != nil {
@@ -152,7 +136,6 @@ func TestFormatJSONSchemaVersion(t *testing.T) {
 	}
 }
 
-// TestFormatJSONProject verifies the project field is set.
 func TestFormatJSONProject(t *testing.T) {
 	data, err := doctor.FormatJSON(sampleResults, "myproject", 1)
 	if err != nil {
@@ -169,7 +152,6 @@ func TestFormatJSONProject(t *testing.T) {
 	}
 }
 
-// TestFormatJSONResults verifies the results array contains all results in order.
 func TestFormatJSONResults(t *testing.T) {
 	data, err := doctor.FormatJSON(sampleResults, "myproject", 1)
 	if err != nil {
@@ -203,7 +185,6 @@ func TestFormatJSONResults(t *testing.T) {
 	}
 }
 
-// TestFormatJSONSummary verifies the summary object has correct counters and exit code.
 func TestFormatJSONSummary(t *testing.T) {
 	data, err := doctor.FormatJSON(sampleResults, "myproject", 1)
 	if err != nil {
@@ -221,7 +202,6 @@ func TestFormatJSONSummary(t *testing.T) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	// 2 PASS, 1 WARN, 1 FAIL, 1 SKIP
 	if got.Summary.Pass != 2 {
 		t.Errorf("summary.pass = %d, want 2", got.Summary.Pass)
 	}
@@ -239,7 +219,6 @@ func TestFormatJSONSummary(t *testing.T) {
 	}
 }
 
-// TestFormatJSONMissingHome verifies the short-circuit JSON form has the spec shape.
 func TestFormatJSONMissingHome(t *testing.T) {
 	msg := "atomic-claude not installed; run `atomic claude install`."
 	data, err := doctor.FormatJSONMissingHome(msg)

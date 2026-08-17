@@ -8,21 +8,18 @@ import (
 	"time"
 )
 
-// ListOpts controls ListEntries behavior.
 type ListOpts struct {
 	StaleOnly bool
 	Today     time.Time
 }
 
-// ListEntry extends Entry with computed display fields.
 type ListEntry struct {
 	Entry
 	AgeInDays int
 	IsStale   bool
 }
 
-// ListEntries loads entries from dir and optionally filters to stale-only.
-// Entries are sorted by severity (risk → nit → question), then by id.
+// ListEntries sorts by severity (risk, nit, question) then id.
 func ListEntries(dir string, opts ListOpts) ([]ListEntry, error) {
 	today := opts.Today
 	if today.IsZero() {
@@ -47,7 +44,6 @@ func ListEntries(dir string, opts ListOpts) ([]ListEntry, error) {
 		})
 	}
 
-	// Sort: severity order risk → nit → question, then id.
 	sevOrder := map[Severity]int{
 		SeverityRisk:     0,
 		SeverityNit:      1,
@@ -64,7 +60,6 @@ func ListEntries(dir string, opts ListOpts) ([]ListEntry, error) {
 	return result, nil
 }
 
-// FormatListHuman returns a human-readable grouped listing of entries.
 func FormatListHuman(entries []ListEntry, today time.Time) string {
 	var sb strings.Builder
 
@@ -110,7 +105,6 @@ func FormatListHuman(entries []ListEntry, today time.Time) string {
 	return sb.String()
 }
 
-// jsonEntry is the JSON serialization shape for a list entry.
 type jsonEntry struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
@@ -124,7 +118,6 @@ type jsonEntry struct {
 	Origin    string `json:"origin,omitempty"`
 }
 
-// FormatListJSON returns a JSON array of entries.
 func FormatListJSON(entries []ListEntry) (string, error) {
 	out := make([]jsonEntry, 0, len(entries))
 	for _, e := range entries {

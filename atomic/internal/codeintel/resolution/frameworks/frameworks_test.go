@@ -1,11 +1,6 @@
 package frameworks_test
 
-// Failing tests first (TDD) for res-CP4 / master CP14:
-//
-//   1. Route-node id/qn/name format (exact appendix-H strings)
-//   2. Express.Detect on a package.json fixture
-//   3. Express.Extract emits the route node + handler ref
-//   4. End-to-end persist → resolve → edge integration test
+// Registry and Express resolver tests.
 
 import (
 	"context"
@@ -18,10 +13,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution/frameworks"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Test 1: Route-node id / qualifiedName / name format (appendix H verbatim)
-// ---------------------------------------------------------------------------
 
 func TestRouteNodeFormat(t *testing.T) {
 	filePath := "/project/src/routes/users.js"
@@ -63,10 +54,6 @@ func TestRouteNodeFormat(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test 2: Express.Detect
-// ---------------------------------------------------------------------------
-
 func TestExpressDetect_PackageJSON(t *testing.T) {
 	dir := t.TempDir()
 
@@ -105,10 +92,6 @@ func TestExpressDetect_ContentFallback(t *testing.T) {
 		t.Error("Express.Detect should return true when a JS file requires express")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test 3: Express.Extract
-// ---------------------------------------------------------------------------
 
 func TestExpressExtract_NamedHandler(t *testing.T) {
 	filePath := "src/routes/users.js"
@@ -165,10 +148,6 @@ router.post('/users', createUser);
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test 4: ClaimsReference
-// ---------------------------------------------------------------------------
-
 func TestExpressClaimsReference(t *testing.T) {
 	filePath := "src/routes/users.js"
 	content := `
@@ -184,10 +163,6 @@ router.get('/users/:id', getUser);
 		t.Error("ClaimsReference should return false for handler not seen in Extract")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test 5: Express.Resolve
-// ---------------------------------------------------------------------------
 
 func TestExpressResolve(t *testing.T) {
 	tmp := t.TempDir()
@@ -241,10 +216,6 @@ func TestExpressResolve(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test 6: Registry — DetectFrameworks + GetApplicableFrameworks
-// ---------------------------------------------------------------------------
-
 func TestRegistry_DetectFrameworks(t *testing.T) {
 	dir := t.TempDir()
 	pkgJSON := `{"dependencies": {"express": "^4.18.0"}}`
@@ -281,12 +252,8 @@ func TestRegistry_GetApplicableFrameworks(t *testing.T) {
 
 	// Go language should return zero frameworks from this registry
 	goFrameworks := reg.GetApplicableFrameworks(types.LanguageGo)
-	_ = goFrameworks // Go frameworks come in CP15
+	_ = goFrameworks // Go frameworks land in a later batch
 }
-
-// ---------------------------------------------------------------------------
-// Test 7: End-to-end — Express fixture index → route node + references edge
-// ---------------------------------------------------------------------------
 
 func TestEndToEnd_ExpressRouteToEdge(t *testing.T) {
 	tmp := t.TempDir()
@@ -380,10 +347,6 @@ app.get('/users/:id', getUser);
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test 8: Language inference from file extension (item 1 fix)
-// ---------------------------------------------------------------------------
-
 // TestExtract_TSFileLang asserts that a .ts file gets Language=typescript,
 // not javascript. This was broken before the fix: Extract hardcoded
 // LanguageJavaScript regardless of filePath extension.
@@ -413,10 +376,6 @@ router.get('/users/:id', getUser);
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test 9: Comment stripping (item 2 fix)
-// ---------------------------------------------------------------------------
-
 // TestExtract_CommentStripping proves that the comment stripper runs before
 // the route regex. Commented-out routes must emit ZERO nodes; a real
 // uncommented route must still be extracted.
@@ -441,10 +400,6 @@ app.get('/real', realHandler);
 		t.Errorf("Extract: expected ref for realHandler, got none")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test 10: Inline-body handler (item 3 fix)
-// ---------------------------------------------------------------------------
 
 // TestExtract_InlineBodyHandler verifies that an inline arrow handler emits
 // a route node + a calls ref for identifiers inside the body, excluding

@@ -1,18 +1,6 @@
 package resolution_test
 
-// CP11 import resolver tests.
-//
-// Why this file is the spec gate:
-//   - Relative import  → resolves to the target file node (proves extension
-//     candidate logic + file lookup).
-//   - Re-export chain  → follows export-from edges to the underlying symbol,
-//     depth ≤ REEXPORT_MAX_DEPTH, self-cycle terminates (proves cycle guard).
-//   - tsconfig alias   → @app/util via paths expands to a real file (proves
-//     JSONC load + alias map).
-//   - External import  → react / node:fs classified as external, no fabricated
-//     node (proves skip-set classification).
-//
-// All tests seed a temp DB via the db package (per BRIEF).
+// Import resolver tests. Temp DBs live under the system tmp dir.
 
 import (
 	"context"
@@ -29,10 +17,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // openTestDB opens a fresh temp SQLite DB for one test.
 func openTestDB(t *testing.T) (*db.DB, string) {
@@ -104,10 +88,6 @@ func seedFunction(t *testing.T, d *db.DB, filePath, name string, line int, lang 
 	return id
 }
 
-// ---------------------------------------------------------------------------
-// Test: relative import resolves to the target file node
-// ---------------------------------------------------------------------------
-
 func TestResolver_RelativeImport(t *testing.T) {
 	// WHY: a TS file at src/app.ts that does `import { foo } from "./util"` must
 	// resolve to the file node for src/util.ts. This exercises the
@@ -151,10 +131,6 @@ func TestResolver_RelativeImport(t *testing.T) {
 		t.Errorf("TargetNodeID = %q, want %q", result.TargetNodeID, targetNodeID)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test: re-export chain follows to the underlying symbol
-// ---------------------------------------------------------------------------
 
 func TestResolver_ReExportChain(t *testing.T) {
 	// WHY: a barrel file `export * from './util'` should let the resolver follow
@@ -262,10 +238,6 @@ func TestResolver_ReExportCycle(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: tsconfig path alias resolves to real file
-// ---------------------------------------------------------------------------
-
 func TestResolver_TsconfigAlias(t *testing.T) {
 	// WHY: a ref `@app/util` must expand via tsconfig paths to the real file
 	// path. This validates the JSONC tsconfig load (via hujson) + alias map.
@@ -316,10 +288,6 @@ func TestResolver_TsconfigAlias(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: external import (react, node:fs) → classified external
-// ---------------------------------------------------------------------------
-
 func TestResolver_ExternalImport(t *testing.T) {
 	// WHY: node_modules packages and Node.js built-ins must be classified as
 	// external (no fabricated DB node, just a classification marker). This
@@ -363,10 +331,6 @@ func TestResolver_ExternalImport(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: JS extension candidates
-// ---------------------------------------------------------------------------
-
 func TestResolver_JSExtensionCandidates(t *testing.T) {
 	// WHY: JS relative imports use .js/.jsx/index.js candidates; this test
 	// exercises the JS candidate set specifically.
@@ -402,10 +366,6 @@ func TestResolver_JSExtensionCandidates(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: Python extension candidates
-// ---------------------------------------------------------------------------
-
 func TestResolver_PythonImport(t *testing.T) {
 	// WHY: Python relative imports use .py / __init__.py package style.
 	d, _ := openTestDB(t)
@@ -437,10 +397,6 @@ func TestResolver_PythonImport(t *testing.T) {
 		t.Errorf("python: TargetNodeID = %q, want %q", result.TargetNodeID, "file:"+targetPath)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test: concurrent ResolveImport on one Resolver is race-clean
-// ---------------------------------------------------------------------------
 
 func TestResolver_ConcurrentAliasInit(t *testing.T) {
 	// WHY: Resolver.aliases() lazily initialises r.aliasMap. If two goroutines
@@ -494,10 +450,6 @@ func TestResolver_ConcurrentAliasInit(t *testing.T) {
 		t.Errorf("concurrent ResolveImport: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test: re-export cycle A→B→A is bounded (multi-node)
-// ---------------------------------------------------------------------------
 
 func TestResolver_ReExportCycleMultiNode(t *testing.T) {
 	// WHY: a multi-node A→B→A cycle must terminate within REEXPORT_MAX_DEPTH hops
@@ -563,10 +515,6 @@ func TestResolver_ReExportCycleMultiNode(t *testing.T) {
 		t.Fatal("A→B→A cycle test timed out — infinite loop in re-export resolution")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test: cache-busted specifier (query string / fragment) resolves
-// ---------------------------------------------------------------------------
 
 func TestResolver_QueryStringSpecifier(t *testing.T) {
 	// WHY: browser-native-ESM projects cache-bust local imports with a trailing
@@ -759,10 +707,6 @@ func TestResolver_URLSchemeSpecifier_External(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: unresolved when file not found in DB
-// ---------------------------------------------------------------------------
-
 func TestResolver_UnresolvedWhenFileMissing(t *testing.T) {
 	// WHY: if the resolved path doesn't exist in the DB, resolution must return
 	// ResolvedKindUnresolved (not an error, not external) — the target simply
@@ -789,10 +733,6 @@ func TestResolver_UnresolvedWhenFileMissing(t *testing.T) {
 		t.Errorf("missing: expected unresolved, got %v", result.Kind)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test: npm scoped packages and package subpaths classify as external
-// ---------------------------------------------------------------------------
 
 func TestResolver_PackageSubpathAndScopedExternal(t *testing.T) {
 	// WHY: the old JS-family rule classified external only by the ABSENCE of
@@ -871,12 +811,8 @@ func TestResolver_RelativeAbsoluteHashStayNonExternal(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test: ResolvedImport.PackageName populated for JS-family external imports
-// ---------------------------------------------------------------------------
-
 func TestResolver_ExternalImport_PackageName(t *testing.T) {
-	// WHY: PackageName is the seam checkpoint 2's mint loop reads to derive
+	// WHY: PackageName is the seam the mint loop reads to derive
 	// the shared package-node identity. It must be populated for a
 	// JS-family external specifier and empty for relative/alias/internal
 	// specifiers and for non-JS-family externals (no npm identity rule

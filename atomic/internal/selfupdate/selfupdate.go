@@ -30,15 +30,12 @@ const (
 // banner from state.json alone and never re-notifies within this window.
 const BannerWindow = 24 * time.Hour
 
-// displayVersion strips the leading "v" from a release tag so user-facing
-// version strings match `atomic --version` (which prints version.Version
-// without a "v", per goreleaser {{.Version}}).
+// displayVersion strips a tag's leading "v" so version strings match
+// `atomic --version`, which prints goreleaser's {{.Version}} without one.
 func displayVersion(tag string) string { return strings.TrimPrefix(tag, "v") }
 
-// DisplayVersion is the exported form of displayVersion, for callers outside
-// this package that must normalize a raw release tag (no leading "v") before
-// it reaches state.json or a banner — e.g. the check-branch state write and
-// the parent fast path's banner render.
+// DisplayVersion normalizes a raw release tag for callers outside this package,
+// before it reaches state.json or a banner.
 func DisplayVersion(tag string) string { return displayVersion(tag) }
 
 // Release is a minimal representation of a GitHub release.
@@ -76,9 +73,8 @@ func (c *Client) httpClient() *http.Client {
 	return &http.Client{Timeout: lookupTimeout}
 }
 
-// Lookup fetches the latest release for the given channel from GitHub.
-// channel: "stable" (default) or "prerelease".
-// token: optional GitHub personal access token (from GITHUB_TOKEN env).
+// Lookup fetches the latest GitHub release for channel ("stable" or
+// "prerelease"). token is an optional GitHub personal access token.
 func (c *Client) Lookup(ctx context.Context, channel, token string) (Release, error) {
 	url := c.baseURL() + "/releases"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -117,13 +113,8 @@ func (c *Client) Lookup(ctx context.Context, channel, token string) (Release, er
 	return Release{}, fmt.Errorf("selfupdate: no suitable release found for channel %q", channel)
 }
 
-// Apply downloads the release asset matching the current OS/arch, verifies the
-// SHA256 checksum, and atomically replaces currentBinary.
-//
-// EXDEV mitigation: the downloaded binary is staged into the same directory as
-// currentBinary (not $TMPDIR) so that os.Rename is a same-filesystem operation.
-// Downloads still use a system-temp working directory; only the final staged
-// binary is placed next to the target.
+// Apply downloads the release asset for the current OS/arch, verifies its
+// SHA256, and atomically replaces currentBinary.
 func (c *Client) Apply(ctx context.Context, rel Release, currentBinary string) error {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
@@ -148,7 +139,6 @@ func (c *Client) Apply(ctx context.Context, rel Release, currentBinary string) e
 		return fmt.Errorf("selfupdate: no asset %q in release %s", checksumName, rel.TagName)
 	}
 
-	// Temp dir for downloads. Still uses os.TempDir() for the archive files.
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "atomic-update-")
 	if err != nil {
 		return fmt.Errorf("selfupdate: make tempdir: %w", err)
@@ -165,29 +155,24 @@ func (c *Client) Apply(ctx context.Context, rel Release, currentBinary string) e
 		return fmt.Errorf("selfupdate: download checksums: %w", err)
 	}
 
-	// verify SHA256
 	if err := verifySHA256(archivePath, checksumPath, assetName); err != nil {
 		return err
 	}
 
-	// Extract binary into tmpDir first, then stage it next to the target binary.
-	// Staging next to the target guarantees a same-filesystem rename (avoids EXDEV
-	// when $TMPDIR is on a different mount than the install path).
 	extractedBinary, err := extractBinary(archivePath, tmpDir, goos)
 	if err != nil {
 		return fmt.Errorf("selfupdate: extract: %w", err)
 	}
 
-	// Stage in the install directory so os.Rename is same-filesystem.
+	// Stage beside the target, not in $TMPDIR, so the final rename is
+	// same-filesystem and cannot fail with EXDEV.
 	stagedBinary := filepath.Join(filepath.Dir(currentBinary), ".atomic.new")
-	// Register cleanup BEFORE the copy attempt: if renameCrossFS partially writes
-	// and then errors, the staged file must not be left on disk.
+	// Registered before the copy: a partial write must not survive an error.
 	defer os.Remove(stagedBinary) //nolint:errcheck — best-effort cleanup
 	if err := renameCrossFS(extractedBinary, stagedBinary); err != nil {
 		return fmt.Errorf("selfupdate: stage binary: %w", err)
 	}
 
-	// Atomic replace.
 	if err := os.Rename(stagedBinary, currentBinary); err != nil {
 		return fmt.Errorf(
 			"selfupdate: replace binary: %w\nhint: try: sudo install %s %s",
@@ -197,15 +182,11 @@ func (c *Client) Apply(ctx context.Context, rel Release, currentBinary string) e
 	return nil
 }
 
-// ApplyStaged swaps currentBinary using an already-downloaded archive at
-// stagedPath — never re-downloading the archive itself — after
-// re-verifying its SHA256 against a freshly fetched checksums.txt for rel.
-// The staged archive may have been downloaded against an EARLIER release
-// cut (the release can be re-published since staging), so this never
-// trusts the staged record's own recorded checksum: the expected hash is
-// re-derived from rel here. Returns an error, without touching
-// currentBinary, on a missing/unreadable staged file or any checksum
-// mismatch — callers fall back to Apply's full download flow in that case.
+// ApplyStaged swaps currentBinary from an already-downloaded archive without
+// re-downloading it. The staged record's own checksum is never trusted — a
+// release can be re-published after staging — so the expected hash is re-derived
+// from a freshly fetched checksums.txt. Any mismatch errors with currentBinary
+// untouched, and callers fall back to Apply's full download.
 func (c *Client) ApplyStaged(ctx context.Context, rel Release, stagedPath, currentBinary string) error {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
@@ -250,8 +231,7 @@ func (c *Client) ApplyStaged(ctx context.Context, rel Release, stagedPath, curre
 		return fmt.Errorf("selfupdate: extract: %w", err)
 	}
 
-	// Stage in the install directory so os.Rename is same-filesystem —
-	// mirrors Apply's own EXDEV mitigation.
+	// Same EXDEV mitigation as Apply.
 	stagedBinary := filepath.Join(filepath.Dir(currentBinary), ".atomic.new")
 	defer os.Remove(stagedBinary) //nolint:errcheck — best-effort cleanup
 	if err := renameCrossFS(extractedBinary, stagedBinary); err != nil {
@@ -267,13 +247,12 @@ func (c *Client) ApplyStaged(ctx context.Context, rel Release, stagedPath, curre
 	return nil
 }
 
-// renameCrossFS moves src to dst, falling back to copy+remove if they are on
-// different filesystems (EXDEV). Used to move from tmpDir to the install dir.
+// renameCrossFS moves src to dst, falling back to a copy when they sit on
+// different filesystems (EXDEV).
 func renameCrossFS(src, dst string) (err error) {
 	if err := os.Rename(src, dst); err == nil {
 		return nil
 	}
-	// Fallback: copy then remove.
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -287,7 +266,7 @@ func renameCrossFS(src, dst string) (err error) {
 	if err != nil {
 		return err
 	}
-	// Commit close error if nothing else failed.
+	// A close error still fails the copy if nothing else did.
 	defer func() {
 		cerr := out.Close()
 		if err == nil {
@@ -300,22 +279,16 @@ func renameCrossFS(src, dst string) (err error) {
 	return nil
 }
 
-// StageDir returns the directory where background staging downloads land:
-// ~/.cache/atomic/staged/. home must be the caller's already-resolved home
-// directory — this never calls os.UserHomeDir() itself — so tests (and any
-// future caller) can point staging at a temp directory without mutating the
-// process environment.
+// StageDir returns ~/.cache/atomic/staged/. home must already be resolved by
+// the caller so tests can redirect staging without mutating the environment.
 func StageDir(home string) string {
 	return filepath.Join(home, ".cache", "atomic", "staged")
 }
 
-// Stage downloads the release archive for the current OS/arch, verifies its
-// SHA256 against checksums.txt, and moves the checksum-verified archive into
-// stageDir — never swapping the running binary. The archive (not the
-// extracted binary) is what gets staged: its recorded SHA256 is the same
-// value carried in the release's checksums.txt, so a later swap can
-// re-verify the staged file against a fresh checksums.txt without any
-// format translation, and extract only once it decides to use it.
+// Stage downloads and checksum-verifies the release archive into stageDir,
+// never swapping the running binary. The archive is staged rather than the
+// extracted binary so a later swap can re-verify it against a fresh
+// checksums.txt with no format translation.
 func (c *Client) Stage(ctx context.Context, rel Release, stageDir string) (StagedInfo, error) {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
@@ -380,7 +353,6 @@ func (c *Client) assetURL(rel Release, name string) string {
 	for _, a := range rel.Assets {
 		if a.Name == name {
 			if c.DownloadURL != "" {
-				// strip the real host and prepend test server URL
 				return c.DownloadURL + "/" + name
 			}
 			return a.BrowserDownloadURL
@@ -411,8 +383,8 @@ func (c *Client) download(ctx context.Context, url, dst string) error {
 	return err
 }
 
-// verifySHA256 checks that the SHA256 of the file at archivePath matches the
-// entry in the checksums file (one line per file: "<hex>  <name>").
+// verifySHA256 checks archivePath against its entry in a checksums file, whose
+// lines are "<hex>  <name>".
 func verifySHA256(archivePath, checksumPath, assetName string) error {
 	data, err := os.ReadFile(checksumPath)
 	if err != nil {
@@ -429,7 +401,7 @@ func verifySHA256(archivePath, checksumPath, assetName string) error {
 			continue
 		}
 		name := fields[len(fields)-1]
-		// some tools emit "  filename" with leading spaces — strip
+		// Some tools prefix the name with "*" or spaces.
 		name = strings.TrimLeft(name, "* ")
 		if name == assetName {
 			expected = fields[0]
@@ -450,7 +422,6 @@ func verifySHA256(archivePath, checksumPath, assetName string) error {
 	return nil
 }
 
-// sha256File returns the lowercase hex SHA256 digest of the file at path.
 func sha256File(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -464,8 +435,7 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// extractBinary extracts the "atomic" (or "atomic.exe" on Windows) binary
-// from the archive, writes it to destDir, and returns its path.
+// extractBinary writes the atomic binary from the archive into destDir.
 func extractBinary(archivePath, destDir, goos string) (string, error) {
 	binaryName := "atomic"
 	if goos == "windows" {
@@ -550,8 +520,7 @@ func writeFile(dst string, src io.Reader, mode os.FileMode) error {
 	return err
 }
 
-// Check looks up the latest release and reports whether an update is available.
-// Returns (isNewer, latestTag, error).
+// Check reports whether an update is available, with the latest tag.
 func (c *Client) Check(ctx context.Context, channel, currentVersion string) (bool, string, error) {
 	token := os.Getenv("GITHUB_TOKEN")
 	rel, err := c.Lookup(ctx, channel, token)
@@ -565,9 +534,8 @@ func (c *Client) Check(ctx context.Context, channel, currentVersion string) (boo
 	return newer, displayVersion(rel.TagName), nil
 }
 
-// IsNewer reports whether latest is a newer semver than current, wrapping
-// the internal newerThan. A malformed or empty latest reports false — the
-// parent's state-only banner decision must never error, only skip.
+// IsNewer reports whether latest is a newer semver than current. A malformed or
+// empty latest reports false: the parent's banner decision must skip, not error.
 func IsNewer(current, latest string) bool {
 	if latest == "" {
 		return false
@@ -579,9 +547,8 @@ func IsNewer(current, latest string) bool {
 	return newer
 }
 
-// ShouldNotify reports whether the parent fast path should render the
-// update-available banner: latest is newer than current, AND lastNotified is
-// zero or older than BannerWindow.
+// ShouldNotify reports whether to render the update-available banner: latest is
+// newer, and lastNotified is zero or older than BannerWindow.
 func ShouldNotify(current, latest string, lastNotified, now time.Time) bool {
 	if !IsNewer(current, latest) {
 		return false
@@ -589,13 +556,9 @@ func ShouldNotify(current, latest string, lastNotified, now time.Time) bool {
 	return lastNotified.IsZero() || now.Sub(lastNotified) >= BannerWindow
 }
 
-// AcquireLock attempts to acquire the update lock on s — the simple
-// acquire-when-free primitive used by background staging (CP4), setting
-// Updating=true and UpdateStartedAt=now. Returns the updated state and
-// whether the lock was acquired — false, with s returned unmodified, when
-// s.Update.Updating is already true. The foreground apply path (CP5) uses
-// AcquireOrTakeoverLock instead, which adds stale-lock takeover, refusal
-// messaging naming the lock's age, and --force.
+// AcquireLock takes the update lock only when it is free; background staging
+// uses it. The foreground apply path needs AcquireOrTakeoverLock instead, which
+// adds stale-lock takeover and --force.
 func AcquireLock(s State, now time.Time) (State, bool) {
 	if s.Update.Updating {
 		return s, false
@@ -605,17 +568,11 @@ func AcquireLock(s State, now time.Time) (State, bool) {
 	return s, true
 }
 
-// ReleaseLock clears the update lock fields on s only if s's own
-// UpdateStartedAt still equals ownedSince — the fencing token the caller
-// recorded when it acquired the lock. Callers must pass a freshly-loaded s
-// (LoadState called immediately before release) so the comparison reflects
-// the current on-disk owner rather than the caller's own stale in-memory
-// copy — otherwise the mismatch this guards against can never be observed.
-// A mismatch means a newer holder has since taken over (stale-lock takeover
-// or --force); s's lock fields are then left untouched so that holder's
-// active lock survives, while any other field the caller already set on s
-// (e.g. staged, last_result, stage_attempted_for) is still returned as
-// given.
+// ReleaseLock clears the lock only if UpdateStartedAt still equals ownedSince,
+// the fencing token from acquisition. Callers must pass a freshly-loaded s, or
+// the comparison reads their own stale copy and the guard never fires. On
+// mismatch a newer holder has taken over, so its lock survives untouched while
+// every other field the caller set on s is still returned.
 func ReleaseLock(s State, ownedSince time.Time) State {
 	if !s.Update.UpdateStartedAt.Equal(ownedSince) {
 		return s
@@ -625,21 +582,14 @@ func ReleaseLock(s State, ownedSince time.Time) State {
 	return s
 }
 
-// StaleLockAfter is the age at which a held update lock is considered
-// abandoned by a crashed or killed updater and may be taken over by a later
-// `atomic update` invocation.
+// StaleLockAfter is the age at which a held lock is treated as abandoned by a
+// crashed updater and may be taken over.
 const StaleLockAfter = 10 * time.Minute
 
-// AcquireOrTakeoverLock implements the foreground apply lock policy (spec
-// Flow "staged fast-path swap", step 2, and Flow "--force"): a free lock is
-// always acquired; a held lock younger than StaleLockAfter is refused with
-// an error naming its age; a held lock at or past that age is considered
-// abandoned and taken over. force bypasses this check entirely and
-// (re)acquires unconditionally, regardless of the current lock's age or
-// presence — it never weakens the swap's own checksum verification, which
-// happens downstream of locking. On any acquisition (free, takeover, or
-// forced) Updating is set true and UpdateStartedAt is stamped to now; on
-// refusal s is returned unmodified.
+// AcquireOrTakeoverLock is the foreground apply lock policy: acquire when free,
+// refuse a lock younger than StaleLockAfter with an error naming its age, take
+// over one at or past that age. force skips the check entirely; it never
+// weakens the swap's checksum verification, which happens downstream.
 func AcquireOrTakeoverLock(s State, now time.Time, force bool) (State, error) {
 	if !force && s.Update.Updating {
 		age := now.Sub(s.Update.UpdateStartedAt)

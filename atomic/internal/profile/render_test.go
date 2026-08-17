@@ -7,10 +7,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 )
 
-// --- RenderEnvironmentSection ---
-
-// TestRenderEnvSection_DateInjected verifies the lastcheck attribute uses the
-// injected date, not time.Now().
+// lastcheck uses the injected date, never time.Now.
 func TestRenderEnvSection_DateInjected(t *testing.T) {
 	e := profile.Env{
 		GitUserName:  "Test User",
@@ -31,7 +28,6 @@ func TestRenderEnvSection_DateInjected(t *testing.T) {
 	}
 }
 
-// TestRenderEnvSection_HasHeading verifies the section starts with "## Environment".
 func TestRenderEnvSection_HasHeading(t *testing.T) {
 	e := profile.Env{GOOS: "linux", GOARCH: "amd64", NumCPU: 4}
 	section := profile.RenderEnvironmentSection(e, nil, profile.ShellResult{}, "2026-01-01")
@@ -41,7 +37,6 @@ func TestRenderEnvSection_HasHeading(t *testing.T) {
 	}
 }
 
-// TestRenderEnvSection_BaseEnvFields verifies git/OS/arch/CPU appear in the section.
 func TestRenderEnvSection_BaseEnvFields(t *testing.T) {
 	e := profile.Env{
 		GitUserName:  "Alice",
@@ -66,9 +61,8 @@ func TestRenderEnvSection_BaseEnvFields(t *testing.T) {
 	}
 }
 
-// TestRenderEnvSection_ToolProvenance verifies detected tools appear with
-// "name: version (source)" format for runtimes with a resolved path.
-// v2.1: source labels are the manager name, "brew", or "sys".
+// A resolved path renders as "name: version (source)", source being the manager
+// name, "brew", or "sys".
 func TestRenderEnvSection_ToolProvenance(t *testing.T) {
 	tools := []profile.ToolResult{
 		{
@@ -99,7 +93,6 @@ func TestRenderEnvSection_ToolProvenance(t *testing.T) {
 	e := profile.Env{GOOS: "darwin", GOARCH: "arm64", NumCPU: 10}
 	section := profile.RenderEnvironmentSection(e, tools, profile.ShellResult{}, "2026-05-28")
 
-	// Runtime provenance: "name: version (source)"
 	if !strings.Contains(section, "python: Python 3.12.0 (pyenv)") {
 		t.Errorf("section missing python provenance line\ngot:\n%s", section)
 	}
@@ -111,15 +104,13 @@ func TestRenderEnvSection_ToolProvenance(t *testing.T) {
 	}
 }
 
-// TestRenderEnvSection_VersionManagerPresenceFlag verifies version managers render
-// as "name: installed" presence flags (no version when directory-only).
+// Directory-only detection renders "name: installed" with no version.
 func TestRenderEnvSection_VersionManagerPresenceFlag(t *testing.T) {
 	tools := []profile.ToolResult{
 		{
 			Name:      "nvm",
 			Category:  profile.CategoryVersionManager,
 			Installed: true,
-			// No ResolvedPath or Version — directory-only detection.
 		},
 		{
 			Name:         "pyenv",
@@ -133,17 +124,14 @@ func TestRenderEnvSection_VersionManagerPresenceFlag(t *testing.T) {
 	e := profile.Env{GOOS: "linux", GOARCH: "amd64", NumCPU: 4}
 	section := profile.RenderEnvironmentSection(e, tools, profile.ShellResult{}, "2026-05-28")
 
-	// nvm has no resolved path → presence flag only.
 	if !strings.Contains(section, "nvm: installed") {
 		t.Errorf("section missing 'nvm: installed'\ngot:\n%s", section)
 	}
-	// pyenv has a resolved path → provenance line with manager name.
 	if !strings.Contains(section, "pyenv: pyenv 2.3.0 (pyenv)") {
 		t.Errorf("section missing pyenv provenance\ngot:\n%s", section)
 	}
 }
 
-// TestRenderEnvSection_ShellInfo verifies shell and framework appear.
 func TestRenderEnvSection_ShellInfo(t *testing.T) {
 	e := profile.Env{GOOS: "darwin", GOARCH: "arm64", NumCPU: 10}
 	shell := profile.ShellResult{
@@ -165,8 +153,6 @@ func TestRenderEnvSection_ShellInfo(t *testing.T) {
 	}
 }
 
-// TestRenderEnvSection_CustomScripts verifies oh-my-zsh custom scripts render
-// as a "custom scripts" line (only when non-empty).
 func TestRenderEnvSection_CustomScripts(t *testing.T) {
 	e := profile.Env{GOOS: "darwin", GOARCH: "arm64", NumCPU: 10}
 	shell := profile.ShellResult{
@@ -181,8 +167,6 @@ func TestRenderEnvSection_CustomScripts(t *testing.T) {
 	}
 }
 
-// TestRenderEnvSection_CustomScriptsOmittedWhenEmpty verifies that when
-// CustomScripts is empty, no "custom scripts" line is emitted.
 func TestRenderEnvSection_CustomScriptsOmittedWhenEmpty(t *testing.T) {
 	e := profile.Env{GOOS: "darwin", GOARCH: "arm64", NumCPU: 10}
 	shell := profile.ShellResult{
@@ -197,7 +181,6 @@ func TestRenderEnvSection_CustomScriptsOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
-// TestRenderEnvSection_ClosingTag verifies the section ends with </deterministic>.
 func TestRenderEnvSection_ClosingTag(t *testing.T) {
 	e := profile.Env{GOOS: "darwin", GOARCH: "arm64", NumCPU: 10}
 	section := profile.RenderEnvironmentSection(e, nil, profile.ShellResult{}, "2026-05-28")
@@ -207,7 +190,6 @@ func TestRenderEnvSection_ClosingTag(t *testing.T) {
 	}
 }
 
-// TestRenderEnvSection_OnlyInstalledTools verifies non-installed tools are omitted.
 func TestRenderEnvSection_OnlyInstalledTools(t *testing.T) {
 	tools := []profile.ToolResult{
 		{Name: "docker", Category: profile.CategoryContainer, Installed: true, Version: "Docker 24.0.0", ResolvedPath: "/usr/local/bin/docker", SourceClass: profile.SourceSys},
@@ -224,10 +206,6 @@ func TestRenderEnvSection_OnlyInstalledTools(t *testing.T) {
 	}
 }
 
-// --- RewriteEnvironmentSection ---
-
-// TestRewrite_CleanReplace verifies the section is replaced in a file that
-// already has a clean ## Environment section.
 func TestRewrite_CleanReplace(t *testing.T) {
 	existing := `# User profile
 
@@ -245,21 +223,18 @@ func TestRewrite_CleanReplace(t *testing.T) {
 
 	got := profile.RewriteEnvironmentSection(existing, newSection)
 
-	// Old OS gone, new OS present.
 	if strings.Contains(got, "- OS: linux") {
 		t.Errorf("old environment content still present\ngot:\n%s", got)
 	}
 	if !strings.Contains(got, "- OS: darwin") {
 		t.Errorf("new environment content missing\ngot:\n%s", got)
 	}
-	// Identity preserved.
 	if !strings.Contains(got, "- Name: Alice") {
 		t.Errorf("Identity section was destroyed\ngot:\n%s", got)
 	}
 }
 
-// TestRewrite_MalformedSelfHeals verifies a malformed section (tags stripped)
-// is replaced wholesale without duplicating the heading.
+// A section with its tags stripped is replaced wholesale, heading not duplicated.
 func TestRewrite_MalformedSelfHeals(t *testing.T) {
 	existing := `# User profile
 
@@ -276,16 +251,13 @@ more garbage
 
 	got := profile.RewriteEnvironmentSection(existing, newSection)
 
-	// Exactly one "## Environment" heading.
 	count := strings.Count(got, "## Environment")
 	if count != 1 {
 		t.Errorf("expected exactly 1 '## Environment' heading, got %d\ngot:\n%s", count, got)
 	}
-	// Old malformed content gone.
 	if strings.Contains(got, "orphan text") {
 		t.Errorf("malformed content still present\ngot:\n%s", got)
 	}
-	// New content present.
 	if !strings.Contains(got, "- OS: darwin") {
 		t.Errorf("new environment content missing\ngot:\n%s", got)
 	}
@@ -295,8 +267,6 @@ more garbage
 	}
 }
 
-// TestRewrite_SectionAbsentAppends verifies a fresh section is appended when
-// ## Environment is not in the file.
 func TestRewrite_SectionAbsentAppends(t *testing.T) {
 	existing := `# User profile
 
@@ -321,32 +291,24 @@ func TestRewrite_SectionAbsentAppends(t *testing.T) {
 	}
 }
 
-// TestRewrite_FileAbsentProducesStub verifies that empty/absent content
-// produces the full stub with the new Environment section.
 func TestRewrite_FileAbsentProducesStub(t *testing.T) {
 	newSection := "## Environment\n<deterministic lastcheck=2026-05-28>\n- OS: darwin\n</deterministic>\n"
 
-	// Empty string simulates absent file content.
 	got := profile.RewriteEnvironmentSection("", newSection)
 
-	// Must contain the h1 title (from stub).
 	if !strings.Contains(got, "# User profile") {
 		t.Errorf("stub h1 missing\ngot:\n%s", got)
 	}
-	// Must contain the environment section.
 	if !strings.Contains(got, "- OS: darwin") {
 		t.Errorf("environment content missing in stub\ngot:\n%s", got)
 	}
-	// Must have exactly 1 ## Environment heading.
 	count := strings.Count(got, "## Environment")
 	if count != 1 {
 		t.Errorf("expected 1 '## Environment', got %d\ngot:\n%s", count, got)
 	}
 }
 
-// TestRewrite_UserSectionAfterEnvPreserved verifies that a user-authored section
-// AFTER ## Environment is NOT truncated by the rewrite.
-// This is the load-bearing boundary-detection test from the spec.
+// The boundary test: a user section after ## Environment must survive.
 func TestRewrite_UserSectionAfterEnvPreserved(t *testing.T) {
 	existing := `# User profile
 
@@ -379,7 +341,6 @@ func TestRewrite_UserSectionAfterEnvPreserved(t *testing.T) {
 
 	got := profile.RewriteEnvironmentSection(existing, newSection)
 
-	// Sections before Environment preserved.
 	if !strings.Contains(got, "- Name: Dave") {
 		t.Errorf("Identity section destroyed\ngot:\n%s", got)
 	}
@@ -387,7 +348,6 @@ func TestRewrite_UserSectionAfterEnvPreserved(t *testing.T) {
 		t.Errorf("Work section destroyed\ngot:\n%s", got)
 	}
 
-	// Environment updated.
 	if !strings.Contains(got, "lastcheck=2026-05-28") {
 		t.Errorf("new lastcheck missing\ngot:\n%s", got)
 	}
@@ -395,7 +355,6 @@ func TestRewrite_UserSectionAfterEnvPreserved(t *testing.T) {
 		t.Errorf("old lastcheck still present\ngot:\n%s", got)
 	}
 
-	// Sections AFTER Environment preserved — the critical boundary test.
 	if !strings.Contains(got, "## Active projects") {
 		t.Errorf("'## Active projects' after Environment was truncated\ngot:\n%s", got)
 	}
@@ -416,8 +375,6 @@ func TestRewrite_UserSectionAfterEnvPreserved(t *testing.T) {
 	}
 }
 
-// TestRewrite_EnvAtEOF verifies correct behavior when ## Environment is the last
-// section (no following ## heading).
 func TestRewrite_EnvAtEOF(t *testing.T) {
 	existing := `# User profile
 
@@ -446,15 +403,10 @@ func TestRewrite_EnvAtEOF(t *testing.T) {
 	}
 }
 
-// --- LookPath seam for starship (F-1) ---
-
-// TestShellEnumeration_NoFramework_Isolated verifies the no-framework path
-// does not depend on the runner's real PATH by injecting a LookPath seam
-// that always returns "not found".
+// The seam keeps the no-framework path off the runner's real PATH.
 func TestShellEnumeration_NoFramework_Isolated(t *testing.T) {
 	home := t.TempDir() // empty — no .oh-my-zsh, no .zprezto
 
-	// LookPath seam: always returns not-found, regardless of real PATH.
 	notFound := func(string) (string, error) {
 		return "", &notFoundError{}
 	}
@@ -470,12 +422,9 @@ func TestShellEnumeration_NoFramework_Isolated(t *testing.T) {
 	}
 }
 
-// TestShellEnumeration_StarshipViaLookPath verifies that starship is detected
-// when the LookPath seam succeeds.
 func TestShellEnumeration_StarshipViaLookPath(t *testing.T) {
 	home := t.TempDir() // empty — no .oh-my-zsh, no .zprezto
 
-	// LookPath seam: starship "found".
 	found := func(name string) (string, error) {
 		if name == "starship" {
 			return "/usr/local/bin/starship", nil
@@ -494,7 +443,6 @@ func TestShellEnumeration_StarshipViaLookPath(t *testing.T) {
 	}
 }
 
-// notFoundError satisfies the error interface for the LookPath seam.
 type notFoundError struct{}
 
 func (e *notFoundError) Error() string { return "not found" }

@@ -1,15 +1,6 @@
-// render.go — goldmark+chroma markdown renderer and chroma source-file viewer.
-//
-// RenderMarkdown converts markdown bytes to an HTML fragment string using
-// goldmark with GFM extensions (tables, strikethrough, autolinks, tasklists).
-// Fenced code blocks with language "mermaid" are emitted as
-// <pre class="mermaid">…raw…</pre>; all others are chroma-highlighted.
-//
-// RenderMarkdownWithGraph feeds the /api/page HTML-in-JSON body
-// (api_handlers.go); chromaHighlightLines feeds the /api/file HTML-in-JSON
-// body. Rewritten link destinations are plain hrefs — client-side routing
-// (React Router) intercepts in-shell navigation, so the renderer never emits
-// hx-* attributes.
+// Server-side markdown rendering (goldmark + chroma) behind /api/page and the
+// chroma source-file view behind /api/file. Rewritten links are plain hrefs;
+// the client router intercepts in-shell navigation.
 package serve
 
 import (
@@ -17,6 +8,7 @@ import (
 	"fmt"
 	"html/template"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	chroma "github.com/alecthomas/chroma/v2"
@@ -33,28 +25,21 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-// chromaStyleName is the chroma style used for all syntax highlighting.
-// "monokai" pairs well with the dark app.css theme.
 const chromaStyleName = "monokai"
 
-// chromaFmt is the shared chroma HTML formatter (inline styles, no line numbers —
-// line numbers for /file/* are added manually via wrapWithLineAnchors).
+// chromaFmt emits no line numbers; wrapWithLineAnchors adds them for /api/file.
 var chromaFmt = chromahtml.New(
 	chromahtml.TabWidth(4),
 )
 
-// chromaHighlight returns an HTML string of the highlighted code.
-// Falls back to plain HTML-escaped text on any chroma error.
+// chromaHighlight highlights code, degrading to escaped plain text on error.
 func chromaHighlight(lang, code string) string {
 	style := styles.Get(chromaStyleName)
 	if style == nil {
 		style = styles.Fallback
 	}
-	// Resolve by the explicit fence language only. Do NOT fall back to
-	// lexers.Analyse (content-based guessing): an unlabeled or non-code fence
-	// (e.g. a terminal transcript) would otherwise be mis-detected as some
-	// language and rendered with spurious keyword highlighting. An unknown or
-	// absent language falls through to the plaintext lexer (no token colors).
+	// Explicit fence language only — lexers.Analyse would mis-detect an
+	// unlabeled fence (a terminal transcript, say) and colour it as code.
 	lexer := lexers.Get(lang)
 	if lexer == nil {
 		lexer = lexers.Fallback
@@ -72,8 +57,8 @@ func chromaHighlight(lang, code string) string {
 	return buf.String()
 }
 
-// chromaHighlightLines returns a <table class="file-view"> with chroma-highlighted
-// code split into rows, each row having id="L<n>" for anchor navigation.
+// chromaHighlightLines renders code as a table whose rows carry id="L<n>"
+// anchors.
 func chromaHighlightLines(lang, code string) string {
 	style := styles.Get(chromaStyleName)
 	if style == nil {
@@ -81,14 +66,11 @@ func chromaHighlightLines(lang, code string) string {
 	}
 	lexer := lexers.Get(lang)
 	if lexer == nil {
-		// Try matching by filename extension, e.g. "go" → Go lexer.
 		lexer = lexers.Match("file." + lang)
 	}
 	if lexer == nil {
-		// No lexer maps to this extension. Do NOT fall back to lexers.Analyse
-		// (content-based guessing) — a plain-text file (.txt, .mod, LICENSE, …)
-		// would otherwise be mis-detected and get spurious highlighting. The
-		// plaintext fallback renders the source verbatim with no token colors.
+		// Plaintext, not lexers.Analyse: content guessing colours .txt/.mod/
+		// LICENSE files as code.
 		lexer = lexers.Fallback
 	}
 	lexer = chroma.Coalesce(lexer)
@@ -104,10 +86,8 @@ func chromaHighlightLines(lang, code string) string {
 	return wrapWithLineAnchors(buf.String())
 }
 
-// wrapWithLineAnchors strips the outer <pre>…</pre> that chroma emits,
-// splits on newlines, and wraps each line in a <tr id="L<n>"> row.
+// wrapWithLineAnchors turns chroma's <pre> block into anchored table rows.
 func wrapWithLineAnchors(highlighted string) string {
-	// Strip the outer <pre …> tag (chroma always emits one).
 	inner := highlighted
 	if preStart := strings.Index(inner, ">"); strings.HasPrefix(strings.TrimSpace(inner), "<pre") && preStart >= 0 {
 		inner = inner[preStart+1:]
@@ -118,7 +98,6 @@ func wrapWithLineAnchors(highlighted string) string {
 	}
 
 	rawLines := strings.Split(inner, "\n")
-	// Drop trailing empty entry from the final newline.
 	for len(rawLines) > 0 && strings.TrimSpace(rawLines[len(rawLines)-1]) == "" {
 		rawLines = rawLines[:len(rawLines)-1]
 	}
@@ -127,7 +106,7 @@ func wrapWithLineAnchors(highlighted string) string {
 	sb.WriteString(`<table class="file-view"><tbody>`)
 	for i, line := range rawLines {
 		n := i + 1
-		// %s is intentional: chroma already emits escaped HTML, so no further escaping is needed here.
+		// Unescaped %s is safe: chroma already emits escaped HTML.
 		fmt.Fprintf(&sb, `<tr id="L%d"><td class="ln"><a href="#L%d">%d</a></td><td class="ld">%s</td></tr>`, n, n, n, line)
 	}
 	sb.WriteString(`</tbody></table>`)
@@ -151,15 +130,13 @@ func buildPlainLineView(code string) string {
 	return sb.String()
 }
 
-// ─── mermaid-aware goldmark code-block renderer ──────────────────────────────
-
-// mermaidCodeRenderer is a goldmark NodeRenderer that handles FencedCodeBlock
-// nodes. Language "mermaid" → raw <pre class="mermaid">; others → chroma.
+// mermaidCodeRenderer routes a "mermaid" fence to a raw <pre class="mermaid">
+// for client-side rendering; every other fence goes through chroma.
 type mermaidCodeRenderer struct {
 	hasMermaid *bool
 }
 
-// RegisterFuncs registers the FencedCodeBlock rendering function.
+// RegisterFuncs implements goldrenderer.NodeRenderer.
 func (r *mermaidCodeRenderer) RegisterFuncs(reg goldrenderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindFencedCodeBlock, r.renderFencedCode)
 }
@@ -179,7 +156,6 @@ func (r *mermaidCodeRenderer) renderFencedCode(
 	}
 	lang := string(node.Language(source))
 
-	// Collect raw code text from lines.
 	var buf bytes.Buffer
 	lines := node.Lines()
 	for i := 0; i < lines.Len(); i++ {
@@ -196,40 +172,24 @@ func (r *mermaidCodeRenderer) renderFencedCode(
 		return ast.WalkContinue, nil
 	}
 
-	// Chroma-highlight the block.
 	_, _ = w.WriteString(chromaHighlight(lang, code))
 	_ = w.WriteByte('\n')
 	return ast.WalkContinue, nil
 }
 
-// Ensure mermaidCodeRenderer implements goldrenderer.NodeRenderer.
 var _ goldrenderer.NodeRenderer = (*mermaidCodeRenderer)(nil)
 
-// ─── RenderMarkdown ──────────────────────────────────────────────────────────
-
-// RenderMarkdown converts markdown source to an HTML fragment string.
-// GFM extensions are enabled: tables, strikethrough, autolinks, tasklists.
-// Fenced code blocks with language "mermaid" are emitted as
-// <pre class="mermaid">…raw…</pre>; all other fenced blocks are chroma-highlighted.
-//
-// Link destinations are left verbatim — use RenderMarkdownWithLinks to rewrite
-// in-page links into server routes resolved against the realm root.
-//
-// Returns the HTML string, hasMermaid (true if any mermaid block is present),
-// and any error.
+// RenderMarkdown converts markdown to an HTML fragment with GFM enabled,
+// leaving link destinations verbatim. The bool reports whether the page
+// contains a mermaid block.
 func RenderMarkdown(src []byte) (string, bool, error) {
 	return renderMarkdown(src, nil, nil)
 }
 
-// RenderMarkdownWithLinks is RenderMarkdown plus server-side link rewriting.
-//
-// Every relative link destination on the page (located at pageRelPath, a
-// realm-root-relative path) is resolved against the realm root and rewritten
-// into a real server route so clicking it navigates inside the shell rather
-// than triggering a full-page browser navigation (which loses the user's
-// place, and 404s when the browser resolves the raw href against the wrong
-// base URL). See resolvePageHref for the routing rules. External links and
-// in-page anchors are preserved; realm-escaping links are left untouched.
+// RenderMarkdownWithLinks is RenderMarkdown with every relative destination
+// rewritten to a server route (see resolvePageHref), so a click stays in the
+// shell instead of the browser resolving the raw href against the wrong base.
+// External links, anchors, and realm-escaping paths are left alone.
 func RenderMarkdownWithLinks(src []byte, root, pageRelPath string) (string, bool, error) {
 	rewrite := func(raw string) (string, bool, bool) {
 		return resolvePageHref(root, pageRelPath, raw)
@@ -237,16 +197,10 @@ func RenderMarkdownWithLinks(src []byte, root, pageRelPath string) (string, bool
 	return renderMarkdown(src, rewrite, nil)
 }
 
-// RenderMarkdownWithGraph is RenderMarkdownWithLinks plus in-body wikilink
-// resolution. Obsidian-style [[page]] / [[page|alias]] links in the body are
-// turned into in-shell htmx navigations, resolved through the focused page's
-// already-computed graph edges (the same resolution the right rail uses), so the
-// body and the rail can never disagree. A broken wikilink renders as a visible
-// non-navigable span.
-//
-// g may be nil; nil leaves [[…]] as literal text (the RenderMarkdownWithLinks
-// behaviour) since wikilink resolution needs the realm-wide basename index the
-// graph carries.
+// RenderMarkdownWithGraph is RenderMarkdownWithLinks plus [[wikilink]]
+// resolution, reusing the page's own graph edges so the body and the rail
+// cannot disagree. A nil g leaves [[…]] as literal text, since resolution
+// needs the realm-wide basename index the graph carries.
 func RenderMarkdownWithGraph(src []byte, root, pageRelPath string, g *Graph) (string, bool, error) {
 	rewrite := func(raw string) (string, bool, bool) {
 		return resolvePageHref(root, pageRelPath, raw)
@@ -254,10 +208,8 @@ func RenderMarkdownWithGraph(src []byte, root, pageRelPath string, g *Graph) (st
 	return renderMarkdown(src, rewrite, wikilinkResolverFromGraph(g, pageRelPath))
 }
 
-// markdownLinkRewriter maps a raw markdown link destination to (href, htmxPage,
-// external): href is the rewritten destination; htmxPage requests in-shell htmx
-// navigation; external requests a new-tab link. A nil rewriter disables
-// rewriting (hrefs render verbatim).
+// markdownLinkRewriter rewrites one link destination. A nil rewriter leaves
+// hrefs verbatim.
 type markdownLinkRewriter func(rawHref string) (href string, htmxPage bool, external bool)
 
 func renderMarkdown(src []byte, rewrite markdownLinkRewriter, wikiResolve wikilinkResolver) (string, bool, error) {
@@ -271,10 +223,9 @@ func renderMarkdown(src []byte, rewrite markdownLinkRewriter, wikiResolve wikili
 
 	parserOpts := []parser.Option{parser.WithAutoHeadingID()}
 	if wikiResolve != nil {
-		// Register the wikilink inline parser above goldmark's default link parser
-		// (priority 200) so [[…]] is recognised before a single '[' link, and the
-		// matching node renderer so the AST node has a renderer (goldmark errors on
-		// an unrendered node kind). The two are always wired together.
+		// Priority must beat goldmark's link parser (200) so [[…]] wins over a
+		// single '['. Parser and renderer are wired together — goldmark errors
+		// on a node kind with no renderer.
 		parserOpts = append(parserOpts, parser.WithInlineParsers(
 			util.Prioritized(&wikilinkInlineParser{}, 150),
 		))
@@ -291,15 +242,14 @@ func renderMarkdown(src []byte, rewrite markdownLinkRewriter, wikiResolve wikili
 		),
 	)
 
-	// Strip YAML frontmatter before goldmark sees it.  Without this, a leading
-	// "---" becomes a goldmark thematic break (<hr>) and the following key:value
-	// lines collapse into a bogus setext <h2>.  On parse error (malformed /
-	// unclosed block) we fall through with the original src so no content is
-	// ever lost due to a bad frontmatter block.
+	// Without this, a leading "---" becomes a thematic break and the key:value
+	// lines below it collapse into a bogus setext <h2>. A parse failure falls
+	// through with the original source so no content is lost.
 	body := src
 	if _, bodyStr, err := frontmatter.Parse(string(src)); err == nil {
 		body = []byte(bodyStr)
 	}
+	body = stripLeadingMetaTags(body)
 
 	var out bytes.Buffer
 	if err := md.Convert(body, &out); err != nil {
@@ -308,18 +258,52 @@ func renderMarkdown(src []byte, rewrite markdownLinkRewriter, wikiResolve wikili
 	return out.String(), hasMermaid, nil
 }
 
-// ─── link-rewriting goldmark renderer ────────────────────────────────────────
+// metaTagLine matches the opening of a line like "<scan-sha>e7f83d…</scan-sha>".
+// RE2 has no backreferences, so isMetaTagLine checks the closing tag instead.
+var metaTagLine = regexp.MustCompile(`^<([a-z][a-z0-9-]*)>`)
 
-// linkRewriteRenderer is a goldmark NodeRenderer that fully controls <a> output
-// for inline links so it can rewrite the destination and attach htmx navigation
-// (or new-tab) attributes. It replaces goldmark's default link rendering; link
-// children (text, code spans, emphasis) still render via their own renderers
-// between the opening and closing tags.
+// isMetaTagLine reports whether line is a single complete metadata element.
+func isMetaTagLine(line []byte) bool {
+	m := metaTagLine.FindSubmatch(line)
+	if m == nil {
+		return false
+	}
+	return bytes.HasSuffix(line, []byte("</"+string(m[1])+">"))
+}
+
+// stripLeadingMetaTags removes the metadata block some wiki pages open with
+// (<wiki-type>, <scan-sha>, <wiki-schema>). These are not YAML, so goldmark
+// drops the tags as unsafe raw HTML but keeps their text, surfacing as a stray
+// paragraph above the title. Only a leading run is stripped — the same tag
+// further down the page is prose or an example.
+func stripLeadingMetaTags(body []byte) []byte {
+	lines := bytes.Split(body, []byte("\n"))
+
+	cut := 0
+	for _, line := range lines {
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) == 0 {
+			cut++
+			continue
+		}
+		if !isMetaTagLine(trimmed) {
+			break
+		}
+		cut++
+	}
+	if cut == 0 {
+		return body
+	}
+	return bytes.Join(lines[cut:], []byte("\n"))
+}
+
+// linkRewriteRenderer replaces goldmark's <a> rendering so the destination can
+// be rewritten. Link children still render through their own renderers.
 type linkRewriteRenderer struct {
 	rewrite markdownLinkRewriter
 }
 
-// RegisterFuncs registers the inline-link rendering function.
+// RegisterFuncs implements goldrenderer.NodeRenderer.
 func (r *linkRewriteRenderer) RegisterFuncs(reg goldrenderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindLink, r.renderLink)
 }
@@ -356,17 +340,12 @@ func (r *linkRewriteRenderer) renderLink(
 	return ast.WalkContinue, nil
 }
 
-// Ensure linkRewriteRenderer implements goldrenderer.NodeRenderer.
 var _ goldrenderer.NodeRenderer = (*linkRewriteRenderer)(nil)
 
-// ─── safeResolve ─────────────────────────────────────────────────────────────
-
-// safeResolve resolves relPath relative to root, rejecting any attempt to
-// escape the root via .. components or absolute paths.
-// Returns ("", false) if the path escapes root.
+// safeResolve joins relPath onto root, rejecting absolute paths and any ..
+// escape. This is the containment guard for every path the server serves.
 func safeResolve(root, relPath string) (string, bool) {
 	cleaned := filepath.Clean(relPath)
-	// An absolute path or one that starts with ".." after Clean is invalid.
 	if filepath.IsAbs(cleaned) ||
 		cleaned == ".." ||
 		strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
@@ -374,8 +353,8 @@ func safeResolve(root, relPath string) (string, bool) {
 	}
 	joined := filepath.Join(root, cleaned)
 
-	// Use EvalSymlinks on both sides so macOS /var↔/private/var mismatches
-	// don't cause false-negative rejections when root resolves differently.
+	// Both sides go through EvalSymlinks so a root that resolves differently
+	// (macOS /var↔/private/var) does not reject valid paths.
 	rootReal, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		rootReal, err = filepath.Abs(root)
@@ -383,23 +362,16 @@ func safeResolve(root, relPath string) (string, bool) {
 			return "", false
 		}
 	}
-	// For the joined path, try EvalSymlinks first (works when the file exists);
-	// fall back to Abs (for not-yet-created paths the guard still works because
-	// the path contains no symlinks — we only created it from root + clean).
 	joinedReal, err := filepath.EvalSymlinks(joined)
 	if err != nil {
 		joinedReal, err = filepath.Abs(joined)
 		if err != nil {
 			return "", false
 		}
-		// Normalise the joinedReal to the same symlink-resolved base as rootReal
-		// so the prefix comparison is consistent.
-		// Safe: EvalSymlinks failed, meaning the path does not exist on disk.
-		// The ".." guard above already rejected any traversal, so the only paths
-		// that reach here are non-existent children of root. Rewriting the
-		// rootPrefix segment to rootReal keeps the subsequent prefix check
-		// consistent when root itself resolves through a symlink (e.g. macOS
-		// /var → /private/var), preventing false-negative rejections.
+		// EvalSymlinks failing means the path does not exist, and the ".."
+		// guard above already rejected traversal, so this can only be a
+		// non-existent child of root. Rebasing onto rootReal keeps the prefix
+		// check below honest when root itself resolves through a symlink.
 		rootPrefix, _ := filepath.Abs(root)
 		if rootPrefix != rootReal && strings.HasPrefix(joinedReal, rootPrefix) {
 			joinedReal = rootReal + joinedReal[len(rootPrefix):]

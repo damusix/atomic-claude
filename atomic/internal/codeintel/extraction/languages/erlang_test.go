@@ -1,25 +1,7 @@
 package languages_test
 
-// Erlang extraction tests.
-//
-// Fixture: a representative Erlang source module exercising all constructs the
-// extractor must handle — module attribute, exported + unexported functions with
-// arity, a record, a behaviour declaration, a -define macro, a remote call, and
-// local recursive calls.
-//
-// Probe used to verify node types:
-//   tmp/probe-erlang/main.go  + tmp/probe-erlang/fields.go
-//
-// Key node-type/field shapes confirmed by the probe:
-//
-//	module_attribute  .name → atom
-//	behaviour_attribute .name → atom
-//	record_decl       .name → atom; named children include record_field
-//	pp_define         first named child → macro_lhs; macro_lhs .name → var
-//	fun_decl          .clause → function_clause
-//	function_clause   .name → atom; .args → expr_args (arity = NamedChildCount)
-//	call              first named child → atom (callee name)
-//	remote            → remote_module + call (inner call carries the fn name)
+// Every fixture here runs through the real grammar, so these also cover ABI and
+// pool wiring, not only the config.
 
 import (
 	"context"
@@ -30,15 +12,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// erlangFixture is a representative Erlang source file (.erl).
-// It includes:
-//   - -module, -behaviour, -export declarations
-//   - -define(MAX_RETRIES, 3) macro
-//   - -record(state, {name, retries}) with two fields
-//   - add/2 (exported, 2 args), loop/1 (unexported, 1 arg)
-//   - multi/1 (multi-clause: pattern-match on 0 and N)
-//   - remote call to math:sqrt(Z) inside sqrt_sum/2
-//   - local call to add/2 inside sqrt_sum/2
+// One fixture covering every construct the config handles: a module, exported
+// and unexported functions, a multi-clause function, a record, a behaviour, a
+// macro, and both a local and a remote call.
 const erlangFixture = `-module(mymod).
 -behaviour(gen_server).
 -export([add/2, sqrt_sum/2]).
@@ -73,7 +49,6 @@ sqrt_sum(A, B) ->
 
 const erlangFixturePath = "src/mymod.erl"
 
-// newErlangExtractor returns a configured TreeSitterExtractor for Erlang.
 func newErlangExtractor(t *testing.T) *extraction.TreeSitterExtractor {
 	t.Helper()
 	cfg, lang, ok := languages.NewRegistry().For(types.LanguageErlang)
@@ -83,8 +58,7 @@ func newErlangExtractor(t *testing.T) *extraction.TreeSitterExtractor {
 	return newExtractor(t, lang, cfg)
 }
 
-// extractErlang runs the Erlang extractor on erlangFixture and fails fast if
-// there are extraction errors.
+// extractErlang fails the test rather than returning extraction errors.
 func extractErlang(t *testing.T) types.ExtractionResult {
 	t.Helper()
 	e := newErlangExtractor(t)
@@ -98,13 +72,9 @@ func extractErlang(t *testing.T) types.ExtractionResult {
 	return result
 }
 
-// ---------------------------------------------------------------------------
-// Module
-// ---------------------------------------------------------------------------
-
-// TestErlang_ModuleExtracted asserts that -module(mymod). emits a NodeKindModule.
-// WHY: The module is the top-level namespace; resolution depends on it.
+// The module is Erlang's namespace, and resolution is keyed on it.
 func TestErlang_ModuleExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	mod := findNode(result.Nodes, types.NodeKindModule, "mymod")
 	if mod == nil {
@@ -115,13 +85,8 @@ func TestErlang_ModuleExtracted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Functions + arity
-// ---------------------------------------------------------------------------
-
-// TestErlang_ExportedFunctionExtracted asserts add/2 is extracted and marked exported.
-// WHY: add/2 is in -export([add/2, sqrt_sum/2]); IsExported must reflect that.
 func TestErlang_ExportedFunctionExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 
 	add := findNode(result.Nodes, types.NodeKindFunction, "add")
@@ -131,15 +96,13 @@ func TestErlang_ExportedFunctionExtracted(t *testing.T) {
 	if !add.IsExported {
 		t.Errorf("add IsExported=false, want true (add/2 is in -export)")
 	}
-	// Arity captured in Signature.
 	if add.Signature != "add/2" {
 		t.Errorf("add Signature=%q, want %q", add.Signature, "add/2")
 	}
 }
 
-// TestErlang_UnexportedFunctionExtracted asserts loop/1 is extracted but NOT exported.
-// WHY: loop/1 is not in -export([...]); IsExported must be false.
 func TestErlang_UnexportedFunctionExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 
 	loop := findNode(result.Nodes, types.NodeKindFunction, "loop")
@@ -154,29 +117,25 @@ func TestErlang_UnexportedFunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestErlang_MultiClauseFunctionExtracted asserts multi/1 is extracted with correct arity.
-// WHY: Multi-clause functions produce separate fun_decl nodes in the grammar;
-// the extractor must produce at least one function node for the shared name,
-// and the Signature must carry the arity identity contract ("multi/1").
+// Each clause is its own fun_decl in the grammar, but they share one name and
+// arity, which is the identity that has to survive.
 func TestErlang_MultiClauseFunctionExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	multi := findNode(result.Nodes, types.NodeKindFunction, "multi")
 	if multi == nil {
 		t.Fatalf("function node 'multi' not found; nodes: %s", nodeKindList(result.Nodes))
 	}
-	// multi is not exported; confirm.
 	if multi.IsExported {
 		t.Errorf("multi IsExported=true, want false")
 	}
-	// Arity captured in Signature.
 	if multi.Signature != "multi/1" {
 		t.Errorf("multi Signature=%q, want %q", multi.Signature, "multi/1")
 	}
 }
 
-// TestErlang_SqrtSumExportedWithArity asserts sqrt_sum/2 is exported with correct arity.
-// WHY: sqrt_sum/2 is in -export([...]); IsExported must be true; Signature must be "sqrt_sum/2".
 func TestErlang_SqrtSumExportedWithArity(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	fn := findNode(result.Nodes, types.NodeKindFunction, "sqrt_sum")
 	if fn == nil {
@@ -190,14 +149,9 @@ func TestErlang_SqrtSumExportedWithArity(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Record
-// ---------------------------------------------------------------------------
-
-// TestErlang_RecordExtracted asserts -record(state, {name, retries}) → NodeKindStruct.
-// WHY: Records are the primary data structure in Erlang; callers index them for
-// field resolution. Missing record nodes break struct-field resolution.
+// Records are Erlang's data structure, and field resolution is keyed on them.
 func TestErlang_RecordExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	rec := findNode(result.Nodes, types.NodeKindStruct, "state")
 	if rec == nil {
@@ -208,13 +162,9 @@ func TestErlang_RecordExtracted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Macro (define)
-// ---------------------------------------------------------------------------
-
-// TestErlang_MacroExtracted asserts -define(MAX_RETRIES, 3) → NodeKindVariable.
-// WHY: Macro constants are indexed as named bindings for reference tracking.
+// Macro constants are indexed as named bindings so references to them resolve.
 func TestErlang_MacroExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	macro := findNode(result.Nodes, types.NodeKindVariable, "MAX_RETRIES")
 	if macro == nil {
@@ -222,20 +172,15 @@ func TestErlang_MacroExtracted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Imports / behaviour
-// ---------------------------------------------------------------------------
-
-// TestErlang_BehaviourImportEmitted asserts -behaviour(gen_server) emits an import edge.
-// WHY: Behaviour declarations are module-level dependencies; the resolution layer
-// uses import edges to discover which OTP behaviours a module implements.
+// A behaviour is a module-level dependency, and the import edge is how the
+// resolution layer learns which behaviours a module implements.
 func TestErlang_BehaviourImportEmitted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	importCount := countUnresolved(result.UnresolvedReferences, types.EdgeKindImports)
 	if importCount == 0 {
 		t.Fatalf("no EdgeKindImports references emitted; expected at least one for -behaviour(gen_server)")
 	}
-	// Verify the gen_server reference exists.
 	found := false
 	for _, ref := range result.UnresolvedReferences {
 		if ref.ReferenceKind == types.EdgeKindImports && ref.ReferenceName == "gen_server" {
@@ -248,13 +193,9 @@ func TestErlang_BehaviourImportEmitted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Calls
-// ---------------------------------------------------------------------------
-
-// TestErlang_LocalCallExtracted asserts a local call (add/loop) emits EdgeKindCalls.
-// WHY: Call edges drive the call-graph; without them, callers/callees queries are empty.
+// Without call refs the callers and callees queries return nothing.
 func TestErlang_LocalCallExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	callCount := countUnresolved(result.UnresolvedReferences, types.EdgeKindCalls)
 	if callCount == 0 {
@@ -262,15 +203,10 @@ func TestErlang_LocalCallExtracted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Stability
-// ---------------------------------------------------------------------------
-
-// TestErlang_ExtractionStable asserts the same fixture produces the same node count
-// on two successive extractions.
-// WHY: Non-deterministic output (e.g. from map iteration or state leakage) would
-// silently corrupt the index on re-indexing.
+// Non-deterministic output, from map iteration or leaked state, would corrupt
+// the index silently on every re-index.
 func TestErlang_ExtractionStable(t *testing.T) {
+	t.Parallel()
 	e := newErlangExtractor(t)
 	ctx := context.Background()
 	r1 := e.Extract(ctx, erlangFixturePath, erlangFixture, types.LanguageErlang)
@@ -285,16 +221,7 @@ func TestErlang_ExtractionStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// export_all
-// ---------------------------------------------------------------------------
-
-// erlangExportAllFixture is an Erlang module that uses -compile(export_all)
-// with no -export([...]) list. All functions must be marked exported.
+// -compile(export_all) with no -export list at all.
 const erlangExportAllFixture = `-module(mymod_all).
 -compile(export_all).
 
@@ -302,14 +229,10 @@ foo(X) -> X.
 bar(X, Y) -> X + Y.
 `
 
-// TestErlang_ExportAll_FunctionsAreExported asserts that -compile(export_all)
-// causes all fun_decl nodes to be marked IsExported=true, even without an
-// explicit -export([...]) list.
-// WHY: OTP test and umbrella modules commonly use -compile(export_all) as a
-// shorthand to export everything. Without this short-circuit, none of their
-// functions would appear in the symbol graph as exported, silently hiding the
-// public surface from callers queries.
+// OTP test and umbrella modules lean on this shorthand, and without the
+// short-circuit their entire public surface reads as unexported.
 func TestErlang_ExportAll_FunctionsAreExported(t *testing.T) {
+	t.Parallel()
 	e := newErlangExtractor(t)
 	result := e.Extract(context.Background(), "src/mymod_all.erl", erlangExportAllFixture, types.LanguageErlang)
 	if len(result.Errors) > 0 {
@@ -333,16 +256,10 @@ func TestErlang_ExportAll_FunctionsAreExported(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Record fields
-// ---------------------------------------------------------------------------
-
-// TestErlang_RecordFieldsEmitted asserts that -record(state, {name, retries})
-// emits NodeKindField nodes for each field.
-// WHY: FieldTypes is wired (record_field → NodeKindField); if the framework
-// does not walk into record_decl children and match record_field nodes, field
-// resolution callers will silently get no field symbols.
+// Record fields only surface if the walk descends into the record declaration,
+// so this pins the descent, not just the config entry.
 func TestErlang_RecordFieldsEmitted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 
 	nameField := findNode(result.Nodes, types.NodeKindField, "name")
@@ -356,14 +273,7 @@ func TestErlang_RecordFieldsEmitted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Export false-positive regression (Bug #4)
-// ---------------------------------------------------------------------------
-
-// erlangFalsePositiveFixture is an Erlang module that exports foo/1 explicitly
-// but references bar/0 only as "fun bar/0" in a lookup table — a pattern
-// identical to the rabbit_amqqueue.erl false-positive case. bar/0 must NOT be
-// marked exported.
+// Exports foo/1, and mentions bar/0 only as a "fun bar/0" reference in a table.
 const erlangFalsePositiveFixture = `-module(mymod_fp).
 -export([foo/1]).
 
@@ -378,19 +288,16 @@ table() ->
     [{check, fun bar/0}].
 `
 
-// TestErlang_FunRefDoesNotFalsePositiveExport asserts that a function referenced
-// only via "fun bar/0" in the source is NOT marked exported=1.
-// WHY: The previous implementation used strings.Contains(source, "bar/0") which
-// matched the "fun bar/0" expression and produced a false positive. The fix parses
-// -export([…]) attributes into a set and checks set membership instead.
+// Regression guard: export status was once a substring search over the source,
+// which any "fun name/arity" reference satisfied.
 func TestErlang_FunRefDoesNotFalsePositiveExport(t *testing.T) {
+	t.Parallel()
 	e := newErlangExtractor(t)
 	result := e.Extract(context.Background(), "src/mymod_fp.erl", erlangFalsePositiveFixture, types.LanguageErlang)
 	if len(result.Errors) > 0 {
 		t.Fatalf("unexpected extraction errors: %v", result.Errors)
 	}
 
-	// foo/1 must be exported (it is in -export([foo/1])).
 	foo := findNode(result.Nodes, types.NodeKindFunction, "foo")
 	if foo == nil {
 		t.Fatalf("function node 'foo' not found; nodes: %s", nodeKindList(result.Nodes))
@@ -399,7 +306,6 @@ func TestErlang_FunRefDoesNotFalsePositiveExport(t *testing.T) {
 		t.Errorf("foo IsExported=false, want true (foo/1 is in -export)")
 	}
 
-	// bar/0 must NOT be exported — it only appears as "fun bar/0", not in -export.
 	bar := findNode(result.Nodes, types.NodeKindFunction, "bar")
 	if bar == nil {
 		t.Fatalf("function node 'bar' not found; nodes: %s", nodeKindList(result.Nodes))
@@ -408,7 +314,6 @@ func TestErlang_FunRefDoesNotFalsePositiveExport(t *testing.T) {
 		t.Errorf("bar IsExported=true, want false (bar/0 is only referenced as 'fun bar/0', not in -export) — false-positive regression")
 	}
 
-	// table/0 must also NOT be exported.
 	table := findNode(result.Nodes, types.NodeKindFunction, "table")
 	if table == nil {
 		t.Fatalf("function node 'table' not found; nodes: %s", nodeKindList(result.Nodes))
@@ -418,20 +323,17 @@ func TestErlang_FunRefDoesNotFalsePositiveExport(t *testing.T) {
 	}
 }
 
-// erlangExportAllCommentFixture has "export_all" only in a comment — NOT in a
-// -compile attribute. Functions must NOT be marked exported as a result.
+// "export_all" appears only inside a comment, never in a -compile attribute.
 const erlangExportAllCommentFixture = `-module(mymod_ea_comment).
 %% Note: we intentionally do NOT use -compile(export_all) here.
 
 foo(X) -> X.
 `
 
-// TestErlang_ExportAllInCommentDoesNotExport asserts that the literal string
-// "export_all" appearing only in a comment does NOT cause all functions to be
-// marked exported.
-// WHY: The previous erlangHasExportAll used strings.Contains(source, "export_all")
-// which would have matched the comment. The fix anchors to the -compile(...) form.
+// Regression guard: the export_all check was once a substring search, which a
+// comment mentioning it satisfied.
 func TestErlang_ExportAllInCommentDoesNotExport(t *testing.T) {
+	t.Parallel()
 	e := newErlangExtractor(t)
 	result := e.Extract(context.Background(), "src/mymod_ea_comment.erl", erlangExportAllCommentFixture, types.LanguageErlang)
 	if len(result.Errors) > 0 {
@@ -447,7 +349,7 @@ func TestErlang_ExportAllInCommentDoesNotExport(t *testing.T) {
 	}
 }
 
-// erlangExportAllListFixture uses the bracketed -compile([…, export_all]) form.
+// The bracketed -compile([…]) form.
 const erlangExportAllListFixture = `-module(mymod_ea_list).
 -compile([debug_info, export_all]).
 
@@ -455,11 +357,10 @@ baz(X, Y) -> X + Y.
 qux() -> ok.
 `
 
-// TestErlang_ExportAllListForm asserts that -compile([debug_info, export_all])
-// causes all functions to be marked exported.
-// WHY: OTP modules commonly bundle compile options in a list; the export_all
-// option must be recognized in that list form, not only as a bare atom.
+// OTP modules bundle compile options in a list, so the bare-atom form is not
+// the only one that has to be recognized.
 func TestErlang_ExportAllListForm(t *testing.T) {
+	t.Parallel()
 	e := newErlangExtractor(t)
 	result := e.Extract(context.Background(), "src/mymod_ea_list.erl", erlangExportAllListFixture, types.LanguageErlang)
 	if len(result.Errors) > 0 {
@@ -483,14 +384,10 @@ func TestErlang_ExportAllListForm(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
-// TestErlang_RegistryEntry asserts LanguageErlang is registered with LangErlang.
-// WHY: A missing registry entry means .erl/.hrl files are silently skipped by the
-// orchestrator during indexing.
+// A missing registry entry makes the orchestrator skip the language's files
+// silently rather than fail.
 func TestErlang_RegistryEntry(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	cfg, lang, ok := reg.For(types.LanguageErlang)
 	if !ok {

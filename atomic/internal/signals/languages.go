@@ -10,7 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-// fileMeta holds per-file metadata derived from a single file read.
 type fileMeta struct {
 	sha   string // 7-char hex prefix of SHA-256 of file bytes
 	lines int
@@ -18,7 +17,6 @@ type fileMeta struct {
 	bytes int
 }
 
-// extToLang maps file extensions to language names.
 var extToLang = map[string]string{
 	".go":         "Go",
 	".ts":         "TypeScript",
@@ -74,17 +72,14 @@ var extToLang = map[string]string{
 	".xml":        "XML",
 }
 
-// langStats accumulates LOC and file count for one language.
 type langStats struct {
 	loc   int
 	files int
 }
 
-// ScanLanguages counts LOC and file count per language by extension across the
-// repo. Uses enumerateFiles as the source of truth. Returns top 10 by LOC
-// (tie-break: file count descending), sorted descending.
-// Format: "- Go: 1820 LOC (27%), 14 files (33%)"
-// Percentages are computed over the union of files that match any language.
+// ScanLanguages returns the top 10 languages by LOC, tie-broken on file count,
+// as "- Go: 1820 LOC (27%), 14 files (33%)". Percentages are over the files that
+// matched any language, not the whole repo.
 func ScanLanguages(root string) (string, error) {
 	files, err := enumerateFiles(root)
 	if err != nil {
@@ -113,11 +108,8 @@ func ScanLanguages(root string) (string, error) {
 	return formatLangStats(byLang), nil
 }
 
-// scanLanguagesFromCache counts LOC per language using metadata from the tree
-// pass where available (metaCache), falling back to os.ReadFile only for files
-// that were beyond the depth cap and therefore not read during the tree pass.
-// This eliminates the double os.ReadFile for every non-beyond file (f-2 fix).
-// The output is identical to ScanLanguages — same format, same top-10 cap.
+// scanLanguagesFromCache reuses the tree pass's metadata, re-reading only files
+// beyond the depth cap. Output matches ScanLanguages exactly.
 func scanLanguagesFromCache(root string, metaCache map[string]fileMeta) (string, error) {
 	files, err := enumerateFiles(root)
 	if err != nil {
@@ -135,10 +127,8 @@ func scanLanguagesFromCache(root string, metaCache map[string]fileMeta) (string,
 
 		var loc int
 		if m, cached := metaCache[rel]; cached {
-			// Already read during the tree pass — reuse the line count.
 			loc = m.lines
 		} else {
-			// File was beyond the tree depth cap; read it now.
 			absPath := filepath.Join(root, filepath.FromSlash(rel))
 			l, err := countLines(absPath)
 			if err != nil {
@@ -157,10 +147,8 @@ func scanLanguagesFromCache(root string, metaCache map[string]fileMeta) (string,
 	return formatLangStats(byLang), nil
 }
 
-// formatLangStats formats the per-language stats into the signals output string.
-// Extracted so both ScanLanguages and scanLanguagesFromCache produce identical output.
+// formatLangStats is shared so both scan paths emit identical output.
 func formatLangStats(byLang map[string]*langStats) string {
-	// Totals across all matched files (for percentage computation).
 	totalLOC := 0
 	totalFiles := 0
 	for _, s := range byLang {
@@ -177,7 +165,6 @@ func formatLangStats(byLang map[string]*langStats) string {
 	for lang, s := range byLang {
 		entries = append(entries, langEntry{lang, s.loc, s.files})
 	}
-	// Sort descending by LOC; tie-break by file count descending; then by name.
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].loc != entries[j].loc {
 			return entries[i].loc > entries[j].loc
@@ -188,7 +175,6 @@ func formatLangStats(byLang map[string]*langStats) string {
 		return entries[i].name < entries[j].name
 	})
 
-	// Top 10.
 	if len(entries) > 10 {
 		entries = entries[:10]
 	}
@@ -212,9 +198,7 @@ func formatLangStats(byLang map[string]*langStats) string {
 	return strings.Join(lines, "\n")
 }
 
-// readFileMeta reads the file at path once and computes all per-file metadata:
-// SHA-256 (7-char hex prefix), line count, character count, and byte size.
-// This is the single-read source for both LOC counting and tree metadata.
+// readFileMeta is the single read behind both LOC counting and tree metadata.
 func readFileMeta(path string) (fileMeta, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -229,7 +213,7 @@ func readFileMeta(path string) (fileMeta, error) {
 	lineCount := 0
 	if byteSize > 0 {
 		lineCount = strings.Count(string(data), "\n")
-		// If file doesn't end in newline, the last line still counts.
+		// A file not ending in a newline still has a final line.
 		if data[byteSize-1] != '\n' {
 			lineCount++
 		}
@@ -243,7 +227,6 @@ func readFileMeta(path string) (fileMeta, error) {
 	}, nil
 }
 
-// countLines counts the number of lines in a file (thin wrapper over readFileMeta).
 func countLines(path string) (int, error) {
 	m, err := readFileMeta(path)
 	if err != nil {

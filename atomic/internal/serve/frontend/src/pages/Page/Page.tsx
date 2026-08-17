@@ -8,10 +8,12 @@
 // relpath to fetch /api/rail for.
 import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
+import { faFolder } from "@fortawesome/free-solid-svg-icons";
 import { openFile } from "../../components/code-modal/store";
+import { FaGlyph, FileIcon } from "../../components/ui";
 import { shouldRefetchPage } from "../../hooks/useLiveReload";
 import { useApi } from "../../utils/api";
-import { events } from "../../utils/events";
+import { emitPageHeadings, events, type PageHeading } from "../../utils/events";
 import { mountMermaid } from "../../utils/mermaid";
 import { resolvePageLinkAction } from "./linkInterception";
 import type { DirEntry, PageDirResponse, PageResponse } from "./types";
@@ -45,14 +47,42 @@ function DirListing({ dir }: { dir: PageDirResponse }) {
     <div className="page-content-inner page-dir-listing">
       <h1>{dir.relpath || "/"}</h1>
       <ul>
-        {dir.entries.map((entry: DirEntry) => (
-          <li key={entry.relpath}>
-            <a href={`/page/${entry.relpath}`} className="wikilink">
-              {entry.name}
-              {entry.folder ? "/" : ""}
-            </a>
-          </li>
-        ))}
+        {dir.entries.map((entry: DirEntry) => {
+          // The title is what the document calls itself; the addressable name
+          // is how it is linked to. Both are shown — unless they are the same
+          // string, which is the common case for an untitled file and would
+          // otherwise print twice.
+          const title = entry.title || entry.name;
+          const addressable = entry.folder ? `${entry.name}/` : (entry.filename ?? entry.name);
+
+          return (
+            <li key={entry.relpath} className="dir-entry">
+              <a href={`/page/${entry.relpath}`} className="dir-entry-link">
+                {entry.folder ? (
+                  <FaGlyph icon={faFolder} size={12} className="dir-entry-icon" />
+                ) : (
+                  <FileIcon relpath={entry.filename ?? entry.relpath} className="dir-entry-icon" />
+                )}
+                <span className="dir-entry-text">
+                  <span className="dir-entry-head">
+                    <span className="dir-entry-title">{title}</span>
+                    {addressable === title ? null : (
+                      <span className="dir-entry-name">{addressable}</span>
+                    )}
+                    {/* A folder that opens a page behaves differently from one
+                        that opens another listing. */}
+                    {entry.folder ? (
+                      <span className="dir-entry-badge">{entry.index ? "index" : "folder"}</span>
+                    ) : null}
+                  </span>
+                  {entry.summary ? (
+                    <span className="dir-entry-summary">{entry.summary}</span>
+                  ) : null}
+                </span>
+              </a>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -92,6 +122,44 @@ export function Page() {
     void mountMermaid(bodyRef.current);
   }, [data]);
 
+  // Wide tables get their own scroll container rather than widening the
+  // column or wrapping cells into unreadable slivers. goldmark emits a bare
+  // <table>, so the wrapper is added here — the same post-injection pass
+  // mermaid already uses.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    for (const table of body.querySelectorAll("table")) {
+      if (table.parentElement?.classList.contains("table-scroll")) continue;
+      const scroller = document.createElement("div");
+      scroller.className = "table-scroll";
+      table.replaceWith(scroller);
+      scroller.appendChild(table);
+    }
+  }, [data]);
+
+  // Publish the on-page contents. Read from the injected DOM rather than
+  // parsed from markdown: goldmark already assigned the anchor ids, and
+  // reading them back is what guarantees the rail's links match the ids that
+  // actually exist on the page.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) {
+      emitPageHeadings([]);
+      return;
+    }
+    const headings: PageHeading[] = [];
+    for (const el of body.querySelectorAll("h1, h2, h3, h4")) {
+      if (!el.id) continue;
+      headings.push({
+        id: el.id,
+        text: el.textContent?.trim() ?? "",
+        level: Number(el.tagName.slice(1)),
+      });
+    }
+    emitPageHeadings(headings);
+  }, [data]);
+
   if (loading && !data) return <Skeleton />;
 
   if (failure || !data) return <NotFound relpath={relpath} />;
@@ -110,18 +178,17 @@ export function Page() {
   }
 
   return (
+    // No in-page breadcrumb: the header carries one already, and two
+    // breadcrumbs for one page is one too many — especially when only the
+    // header's is always visible.
     <div className="page-content-inner page-view" data-route="page">
-      <nav className="page-breadcrumb" aria-label="Breadcrumb">
-        {(data.breadcrumb ?? []).map((seg, i) => (
-          <span key={`${seg.label}:${i}`}>
-            {seg.path ? <a href={`/page/${seg.path}`}>{seg.label}</a> : seg.label}
-            {i < (data.breadcrumb ?? []).length - 1 ? " / " : ""}
-          </span>
-        ))}
-      </nav>
       <div
         ref={bodyRef}
-        className="page-body"
+        // md-content carries the whole editorial typography set in the
+        // carried app.css — serif heading scale, prose measure, links,
+        // blockquotes, lists, tables, mermaid sizing. The React cutover
+        // rendered the body without it, so none of it applied.
+        className="page-body md-content"
         onClick={handleClick}
         // eslint-disable-next-line react/no-danger -- server-rendered markdown, same trust domain as the pre-cutover htmx fragments
         dangerouslySetInnerHTML={{ __html: data.html }}

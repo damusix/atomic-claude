@@ -1,23 +1,11 @@
 package wiki
 
-// staleness.go — CP5: CheckStaleness + MarkDirty + ReadWikiIndexPaths.
+// Staleness nudges for registered wikis, driven by the <wikis> block in
+// <claudeHome>/CLAUDE.md.
 //
-// CheckStaleness reads the <wikis> block from <claudeHome>/CLAUDE.md, and for
-// each registered wiki index reads the <wiki-scan> generated date and stats the
-// sibling .dirty marker.  It emits one nudge line per wiki where:
-//
-//   - (clock() - generated) > thresholdDays, OR
-//   - .dirty marker exists.
-//
-// CONTRACT: zero git spawns.  The runner parameter exists solely so a test can
-// pass a recording runner and assert it was NEVER called.  CheckStaleness itself
-// only performs os.ReadFile / os.Stat — no exec.Command.
-//
-// MarkDirty reads the <wikis> block, normalises each registered index path, derives
-// the wiki root (parent of the wiki/ directory = parent of parent of index.md),
-// and checks whether cwd is under that root via a normalized path-prefix comparison
-// (filepath.Abs + filepath.Clean, no symlink resolution).  If so it touches
-// <root>/wiki/.dirty.  No-op (returns nil) when cwd is under no registered root.
+// Hard contract: zero git spawns. This runs at session start, where a
+// subprocess per registered wiki would be felt. Path comparisons use
+// Abs+Clean and never resolve symlinks, for the same reason.
 
 import (
 	"fmt"
@@ -27,15 +15,12 @@ import (
 	"time"
 )
 
-// ExecRunner is the function signature for spawning an external command.
-// CheckStaleness accepts this as a parameter to allow tests to inject a
-// recording no-op that proves no git is ever spawned.
+// ExecRunner exists so a test can hand CheckStaleness a recording no-op and
+// assert it was never invoked, proving the zero-git-spawn contract.
 type ExecRunner func(name string, args ...string) error
 
-// ReadWikiIndexPaths parses the <wikis> block from claudeMDPath and returns the
-// list of registered wiki index.md absolute paths.  Returns an empty slice when
-// the block is absent or the file does not exist — never returns an error for
-// those cases (best-effort, matches the spec's non-fatal requirement).
+// ReadWikiIndexPaths returns the registered index.md paths, or nothing at all
+// when the file or block is absent. Those cases are never errors.
 func ReadWikiIndexPaths(claudeMDPath string) ([]string, error) {
 	data, err := os.ReadFile(claudeMDPath)
 	if err != nil {
@@ -72,28 +57,15 @@ func ReadWikiIndexPaths(claudeMDPath string) ([]string, error) {
 	return paths, nil
 }
 
-// CheckStaleness checks registered wikis for neglect (old generated date) or
-// uncommitted drift (.dirty marker).
-//
-// Parameters:
-//   - claudeHome: path to ~/.claude; CLAUDE.md is read from here.
-//   - thresholdDays: number of days after which a wiki is considered stale.
-//   - runner: injected exec runner — CheckStaleness itself never calls it;
-//     it is accepted solely so tests can assert it was never invoked.
-//   - clock: returns "now" for age calculation; inject a fixed clock in tests.
-//
-// Returns a slice of human-readable nudge lines (one per stale wiki) and nil
-// error.  Missing CLAUDE.md, absent <wikis> block, missing wiki index files,
-// and garbled generated dates are all non-fatal — the affected wiki is skipped.
+// CheckStaleness returns one human-readable nudge per wiki that is either
+// neglected past thresholdDays or carrying a .dirty marker. It never fails:
+// an unreadable registry, index, or date skips the wiki in question.
 func CheckStaleness(claudeHome string, thresholdDays int, runner ExecRunner, clock func() time.Time) ([]string, error) {
-	// runner is accepted but never called — its only purpose is to let tests
-	// assert zero invocations (proving no git spawns).
 	_ = runner
 
 	claudeMDPath := filepath.Join(claudeHome, "CLAUDE.md")
 	indexPaths, err := ReadWikiIndexPaths(claudeMDPath)
 	if err != nil {
-		// Non-fatal: if we can't read the registry, return no nudges.
 		return nil, nil
 	}
 	if len(indexPaths) == 0 {
@@ -104,14 +76,11 @@ func CheckStaleness(claudeHome string, thresholdDays int, runner ExecRunner, clo
 	var nudges []string
 
 	for _, rawIndexPath := range indexPaths {
-		// Normalize the index path.
 		indexPath := filepath.Clean(rawIndexPath)
 		wikiDir := filepath.Dir(indexPath)
 
-		// Read the index.md.
 		data, readErr := os.ReadFile(indexPath)
 		if readErr != nil {
-			// Missing index — skip this wiki (non-fatal).
 			continue
 		}
 
@@ -119,25 +88,22 @@ func CheckStaleness(claudeHome string, thresholdDays int, runner ExecRunner, clo
 		needsNudge := false
 		reason := ""
 
-		// --- Check .dirty marker ---
+		// .dirty outranks age: it means known drift, not suspected neglect.
 		dirtyPath := filepath.Join(wikiDir, ".dirty")
 		if _, statErr := os.Stat(dirtyPath); statErr == nil {
-			// .dirty exists → nudge regardless of age.
 			needsNudge = true
 			reason = "uncommitted changes since last refresh (.dirty)"
 		}
 
-		// --- Check generated age ---
 		if !needsNudge {
 			generatedDate := extractGeneratedDate(content)
 			if generatedDate == "" {
-				// No generated date — treat as stale (fail-safe).
+				// An unreadable date is treated as stale, never as fresh.
 				needsNudge = true
 				reason = "wiki scan date unknown — re-run atomic wiki scan"
 			} else {
 				generated, parseErr := time.Parse("2006-01-02", generatedDate)
 				if parseErr != nil {
-					// Garbled date — treat as stale (fail-safe).
 					needsNudge = true
 					reason = "wiki scan date unreadable — re-run atomic wiki scan"
 				} else {
@@ -158,14 +124,13 @@ func CheckStaleness(claudeHome string, thresholdDays int, runner ExecRunner, clo
 	return nudges, nil
 }
 
-// extractGeneratedDate extracts the generated="YYYY-MM-DD" attribute value from
-// the <wiki-scan ...> open tag in content.  Returns "" when not found.
+// extractGeneratedDate reads the <wiki-scan> open tag's generated attribute,
+// or "" when there is none.
 func extractGeneratedDate(content string) string {
 	openIdx := strings.Index(content, scanMarkerOpen)
 	if openIdx == -1 {
 		return ""
 	}
-	// Find the end of the open tag (">").
 	closeTagIdx := strings.Index(content[openIdx:], ">")
 	if closeTagIdx == -1 {
 		return ""
@@ -174,19 +139,15 @@ func extractGeneratedDate(content string) string {
 	return attrValue(openTagLine, "generated")
 }
 
-// MarkDirty reads the <wikis> block, checks whether cwd is under any registered
-// wiki root (normalized path-prefix, no symlink resolution), and if so touches
-// <root>/wiki/.dirty.  No-op when cwd is under no registered root.
-// Never errors on missing CLAUDE.md or absent <wikis> block.
+// MarkDirty touches <root>/wiki/.dirty when cwd sits under a registered wiki
+// root, and does nothing otherwise.
 func MarkDirty(claudeHome, cwd string) error {
 	claudeMDPath := filepath.Join(claudeHome, "CLAUDE.md")
 	indexPaths, err := ReadWikiIndexPaths(claudeMDPath)
 	if err != nil || len(indexPaths) == 0 {
-		// Non-fatal: no wikis registered.
 		return nil
 	}
 
-	// Normalize cwd.
 	absCwd, err := filepath.Abs(cwd)
 	if err != nil {
 		return fmt.Errorf("wiki mark-dirty: normalize cwd: %w", err)
@@ -194,51 +155,44 @@ func MarkDirty(claudeHome, cwd string) error {
 	absCwd = filepath.Clean(absCwd)
 
 	for _, rawIndexPath := range indexPaths {
-		// Normalize the index path.
 		absIndex, err := filepath.Abs(rawIndexPath)
 		if err != nil {
 			continue
 		}
 		absIndex = filepath.Clean(absIndex)
 
-		// wikiDir = parent of index.md (= <root>/wiki/)
+		// index.md sits at <root>/wiki/index.md.
 		wikiDir := filepath.Dir(absIndex)
-		// root = parent of wiki/ dir
 		root := filepath.Dir(wikiDir)
 		absRoot := filepath.Clean(root)
 
-		// Check: is cwd under root?  Use path-prefix with a separator suffix to
-		// avoid false matches (e.g. /home/user/realm-other matching /home/user/realm).
 		if isUnder(absCwd, absRoot) {
 			dirtyPath := filepath.Join(wikiDir, ".dirty")
 			if err := touchFile(dirtyPath); err != nil {
 				return fmt.Errorf("wiki mark-dirty: touch %s: %w", dirtyPath, err)
 			}
-			// A cwd can only be under one root — stop after first match.
+			// A cwd can be under only one root.
 			return nil
 		}
 	}
 
-	// cwd is under no registered root — no-op.
 	return nil
 }
 
-// isUnder reports whether child is equal to or under parent, using normalized
-// path-prefix comparison (no symlink resolution).
+// isUnder compares normalized paths, requiring a separator after the parent so
+// /home/user/realm-other does not read as inside /home/user/realm.
 func isUnder(child, parent string) bool {
-	// Ensure both are clean (already done by caller, but be defensive).
 	child = filepath.Clean(child)
 	parent = filepath.Clean(parent)
 
 	if child == parent {
 		return true
 	}
-	// child must start with parent + separator.
 	return strings.HasPrefix(child, parent+string(filepath.Separator))
 }
 
-// touchFile creates the file at path if absent (existence-based marker, not
-// mtime-based).  It does NOT update the modification time of an existing file.
+// touchFile creates path if absent. The marker is existence-based, so an
+// existing file's mtime is deliberately left alone.
 func touchFile(path string) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {

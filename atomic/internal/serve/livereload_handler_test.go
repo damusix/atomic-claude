@@ -1,21 +1,5 @@
 package serve_test
 
-// livereload_handler_test.go — CP2 (live-reload): handler migration tests.
-//
-// CP1 built the shared snapshotStore; CP2 wires nav, page, rail, and
-// graph-data to read through it (retiring the startup-frozen BuildLinkGraph
-// singleton and the per-request nav walk). These tests exercise that wiring
-// through real HTTP round-trips against the full production server
-// (startTestServer / RunWithContext), proving a file added after the server
-// starts is reflected on the very next request — no restart required.
-//
-// A newly-written fixture file's mtime is "now", which falls inside the
-// snapshotStore's default 2s quiet window (see snapshot.go) and would not
-// yet flip the fingerprint. Each test backdates the new file's mtime past
-// that window (mirroring snapshot_internal_test.go's writeSnapFile helper)
-// so the very next request already observes it, rather than sleeping in the
-// test.
-
 import (
 	"io"
 	"net/http"
@@ -26,8 +10,8 @@ import (
 	"time"
 )
 
-// backdateFile sets path's mtime an hour in the past so a freshly-written
-// fixture file clears the snapshot store's quiet window immediately.
+// A fresh file's mtime sits inside the snapshot store's quiet window; backdating
+// it lets the next request observe the change without a sleep.
 func backdateFile(t *testing.T, path string) {
 	t.Helper()
 	old := time.Now().Add(-time.Hour)
@@ -36,11 +20,6 @@ func backdateFile(t *testing.T, path string) {
 	}
 }
 
-// TestGraphDataFullView_ReflectsFileAddedAfterStartup verifies F-1: a file
-// added to the realm after the server has started appears in the full-view
-// /graph/data response on a later request, proving GraphDataHandler no
-// longer serves a startup-frozen graph — through real HTTP round-trips
-// against the public handler (not a store-internal unit test).
 func TestGraphDataFullView_ReflectsFileAddedAfterStartup(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "alpha.md"), "# Alpha\n")
@@ -81,10 +60,6 @@ func TestGraphDataFullView_ReflectsFileAddedAfterStartup(t *testing.T) {
 	}
 }
 
-// TestNav_ReflectsFileAddedAfterStartup verifies that a repo-scope nav tree
-// reflects a docs file created after the server has started, without a
-// restart — proving the per-request docs-tree walk is now sourced from the
-// shared snapshot instead of a frozen or independently-walked file list.
 func TestNav_ReflectsFileAddedAfterStartup(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "README.md"), "# Readme\n")
@@ -125,9 +100,6 @@ func TestNav_ReflectsFileAddedAfterStartup(t *testing.T) {
 	}
 }
 
-// TestRail_ReflectsBacklinkFromFileAddedAfterStartup verifies that the
-// /api/rail "in" backlinks reflect a backlink from a page created after the
-// server started, without a restart.
 func TestRail_ReflectsBacklinkFromFileAddedAfterStartup(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "hub.md"), "# Hub\n\nNo links yet.\n")
@@ -168,9 +140,6 @@ func TestRail_ReflectsBacklinkFromFileAddedAfterStartup(t *testing.T) {
 	}
 }
 
-// TestPage_WikilinkToFileAddedAfterStartup_Resolves verifies that a wikilink
-// pointing at a page created after the server started resolves (renders as a
-// real link, not the wikilink-broken class) on the next /api/page request.
 func TestPage_WikilinkToFileAddedAfterStartup_Resolves(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "hub.md"), "# Hub\n\nSee [[leaf]].\n")

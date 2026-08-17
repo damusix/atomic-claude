@@ -1,9 +1,5 @@
-// context_handler.go — shared page resolution helpers for the /api/page
-// (api_handlers.go) and /api/rail (rail_handler.go) JSON endpoints.
-//
-// Both endpoints resolve a relpath against the realm root the same way
-// (index-file resolution, directory listing, path-traversal guard) so link
-// resolution stays single-sourced between the page body and the rail.
+// Page-resolution helpers shared by /api/page and /api/rail, so the page body
+// and the rail cannot resolve the same relpath differently.
 package serve
 
 import (
@@ -12,37 +8,133 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
-// normRelPath converts a URL path segment to the forward-slash form stored in
-// the graph (filepath.ToSlash + filepath.Clean). It strips a leading slash and
-// cleans the path so that segments like "." and ".." are resolved before the
-// graph lookup, preventing spurious 404s on requests like /context/./b.md.
+// normRelPath resolves "." and ".." segments before the graph lookup, so a
+// request like /page/./b.md is not a spurious 404.
 func normRelPath(p string) string {
 	return filepath.ToSlash(filepath.Clean(strings.TrimPrefix(p, "/")))
 }
 
-// readFile reads the file at absPath.
 func readFile(absPath string) ([]byte, error) {
 	return os.ReadFile(absPath) //nolint:gosec // caller must validate path before calling
 }
 
-// baseName returns the base filename from a path string.
 func baseName(p string) string {
 	return filepath.Base(p)
 }
 
-// dirEntry is one entry (file or subfolder) in a directory listing, used by
-// the /api/page JSON handler (api_handlers.go).
+// dirEntry is one file or subfolder in a directory listing.
 type dirEntry struct {
-	Name    string `json:"name"`    // display name (subfolder name, or file name with .md stripped)
-	RelPath string `json:"relpath"` // realm-root-relative target: "<dir>/<name>/" for a folder, "<dir>/<file>" for a file
+	Name    string `json:"name"`
+	RelPath string `json:"relpath"`
 	Folder  bool   `json:"folder"`
+
+	// Filename keeps the extension Name drops, so a file listing cannot be
+	// mistaken for a folder listing.
+	Filename string `json:"filename,omitempty"`
+
+	// Title and Summary come from frontmatter, then the document's own heading
+	// and opening prose; a directory takes them from its index file. Without
+	// them a listing is a column of slugs.
+	Title   string `json:"title,omitempty"`
+	Summary string `json:"summary,omitempty"`
+
+	// Index is the file a folder resolves to, empty when it has none — a
+	// folder that opens a page should not look like one that opens a listing.
+	Index string `json:"index,omitempty"`
 }
 
-// listDirEntries reads the immediate markdown files and subfolders of
-// dirRel (realm-root-relative), sorted, hidden files and skip-dirs omitted.
-// ok is false when dirRel cannot be resolved or read.
+// summaryCap keeps a listing a listing.
+const summaryCap = 150
+
+// describeEntry reuses the graph hover-card extraction, so a document is
+// described identically wherever it appears.
+func describeEntry(root, fileRel string) (title, summary string) {
+	abs, ok := safeResolve(root, fileRel)
+	if !ok {
+		return "", ""
+	}
+	data, err := readFile(abs)
+	if err != nil {
+		return "", ""
+	}
+
+	meta := extractNodeMeta(fileRel, data)
+	summary = meta.Description
+	if summary == "" {
+		summary = meta.Snippet
+	}
+
+	// extractNodeMeta falls back to a humanized filename, which in a listing
+	// only restates the name already shown. The first heading beats that
+	// fallback, but never an explicit frontmatter title.
+	title = meta.Title
+	if !hasFrontmatterTitle(data) {
+		if heading := firstHeading(data); heading != "" {
+			title = heading
+		}
+	}
+	return title, truncateRunes(summary, summaryCap)
+}
+
+// hasFrontmatterTitle reports whether the file declares its own title.
+func hasFrontmatterTitle(data []byte) bool {
+	meta, _, err := frontmatter.Parse(string(data))
+	if err != nil || meta == nil {
+		return false
+	}
+	raw, ok := meta["title"]
+	if !ok {
+		return false
+	}
+	s, ok := raw.(string)
+	return ok && strings.TrimSpace(s) != ""
+}
+
+// firstHeading skips fenced code, where a leading "#" is a comment rather than
+// a heading.
+func firstHeading(data []byte) string {
+	_, body, err := frontmatter.Parse(string(data))
+	if err != nil {
+		body = string(data)
+	}
+
+	inFence := false
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
+			inFence = !inFence
+			continue
+		}
+		if inFence || !strings.HasPrefix(line, "#") {
+			continue
+		}
+		heading := strings.TrimSpace(strings.TrimLeft(line, "#"))
+		if heading != "" {
+			return heading
+		}
+	}
+	return ""
+}
+
+// truncateRunes cuts at the last word break so a summary never ends mid-word.
+func truncateRunes(s string, limit int) string {
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	cut := string(runes[:limit])
+	if space := strings.LastIndexByte(cut, ' '); space > limit/2 {
+		cut = cut[:space]
+	}
+	return strings.TrimRight(cut, " ,;:—-") + "…"
+}
+
+// listDirEntries returns dirRel's immediate markdown files and subfolders,
+// sorted, omitting hidden files and skip-dirs.
 func listDirEntries(root, dirRel string) (entries []dirEntry, ok bool) {
 	abs, resolveOK := safeResolve(root, dirRel)
 	if !resolveOK {
@@ -69,33 +161,42 @@ func listDirEntries(root, dirRel string) (entries []dirEntry, ok bool) {
 	sort.Strings(files)
 
 	for _, d := range dirs {
-		entries = append(entries, dirEntry{
+		entry := dirEntry{
 			Name:    d,
 			RelPath: filepath.ToSlash(filepath.Join(dirRel, d)) + "/",
 			Folder:  true,
-		})
+		}
+		// A folder with an index opens that document, so describe it by that.
+		if index, found := resolveDirIndex(root, filepath.ToSlash(filepath.Join(dirRel, d))); found {
+			entry.Index = index
+			entry.Title, entry.Summary = describeEntry(root, index)
+		}
+		entries = append(entries, entry)
 	}
 	for _, f := range files {
+		fileRel := filepath.ToSlash(filepath.Join(dirRel, f))
+		title, summary := describeEntry(root, fileRel)
 		entries = append(entries, dirEntry{
-			Name:    stripMDExt(f),
-			RelPath: filepath.ToSlash(filepath.Join(dirRel, f)),
-			Folder:  false,
+			Name:     stripMDExt(f),
+			Filename: f,
+			RelPath:  fileRel,
+			Folder:   false,
+			Title:    title,
+			Summary:  summary,
 		})
 	}
 	return entries, true
 }
 
-// breadcrumbSeg is one segment of a page's breadcrumb, used by the /api/page
-// JSON handler (api_handlers.go) — the client renders these into the
-// breadcrumb bar.
+// breadcrumbSeg is one breadcrumb segment. Path is the cumulative ancestor
+// prefix, omitted on the final (current-page) segment.
 type breadcrumbSeg struct {
 	Label  string `json:"label"`
-	Path   string `json:"path,omitempty"` // cumulative ancestor prefix; omitted for the final (current-page) segment
+	Path   string `json:"path,omitempty"`
 	Folder bool   `json:"folder,omitempty"`
 }
 
-// breadcrumbSegmentsData builds the ancestor-then-current segment sequence
-// for a page's breadcrumb, as structured data for JSON responses.
+// breadcrumbSegmentsData builds the ancestor-then-current segment sequence.
 func breadcrumbSegmentsData(relPath string) []breadcrumbSeg {
 	clean := filepath.ToSlash(strings.TrimPrefix(relPath, "/"))
 	parts := strings.Split(clean, "/")
@@ -116,16 +217,11 @@ func breadcrumbSegmentsData(relPath string) []breadcrumbSeg {
 	return segs
 }
 
-// isNilGraphProvider reports whether g represents "no graph": a bare nil
-// interface, or a typed-nil value (nil *Graph, nil *snapshotStore, or any
-// other nilable-kind implementor) boxed into the graphProvider interface. A
-// boxed typed-nil value carries a non-nil type descriptor, so a plain
-// `g == nil` comparison is always false for it — the interface only equals
-// nil when both its type and value are unset — even though the underlying
-// value has nothing to read. The Kind switch covers every nilable reflect
-// kind (Ptr, Map, Slice, Chan, Func, Interface) so any typed-nil provider
-// degrades, not just pointer implementors; IsNil panics on a non-nilable
-// kind, which is why the switch guards it.
+// isNilGraphProvider catches a typed-nil boxed into the interface, which
+// `g == nil` cannot: the interface equals nil only when both its type and
+// value are unset, so a nil *Graph inside it compares non-nil while having
+// nothing to read. The Kind switch guards IsNil, which panics on a
+// non-nilable kind.
 func isNilGraphProvider(g graphProvider) bool {
 	if g == nil {
 		return true

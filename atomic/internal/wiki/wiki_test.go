@@ -12,13 +12,11 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// fixedClock returns a fixed time for deterministic test output.
 func fixedClock() func() time.Time {
 	t := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 	return func() time.Time { return t }
 }
 
-// makeGitRepo creates a directory and runs git init in it.
 func makeGitRepo(t *testing.T, parent, name string) string {
 	t.Helper()
 	dir := filepath.Join(parent, name)
@@ -34,7 +32,6 @@ func makeGitRepo(t *testing.T, parent, name string) string {
 	return dir
 }
 
-// writeSignals creates the .claude/project/signals.md file in dir.
 func writeSignals(t *testing.T, dir string) {
 	t.Helper()
 	p := filepath.Join(dir, ".claude", "project", "signals.md")
@@ -84,7 +81,6 @@ func setupFixtureTree(t *testing.T) string {
 	}
 	makeGitRepo(t, notRepo, "repoC")
 
-	// Junk dirs
 	for _, junk := range []string{"node_modules", "dist", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(root, junk), 0o755); err != nil {
 			t.Fatal(err)
@@ -94,12 +90,10 @@ func setupFixtureTree(t *testing.T) string {
 	return root
 }
 
-// indexMDPath returns the path to wiki/index.md under root.
 func indexMDPath(root string) string {
 	return filepath.Join(root, "wiki", "index.md")
 }
 
-// readIndexMD reads wiki/index.md content.
 func readIndexMD(t *testing.T, root string) string {
 	t.Helper()
 	data, err := os.ReadFile(indexMDPath(root))
@@ -109,8 +103,6 @@ func readIndexMD(t *testing.T, root string) string {
 	return string(data)
 }
 
-// ---- Tests ----
-
 func TestScan_HappyPath(t *testing.T) {
 	root := setupFixtureTree(t)
 	opts := wiki.Options{Clock: fixedClock()}
@@ -119,7 +111,6 @@ func TestScan_HappyPath(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 
-	// Scaffold created
 	for _, sub := range []string{"wiki/index.md", "wiki/README.md", "wiki/.gitignore", "wiki/repos", "wiki/concerns"} {
 		p := filepath.Join(root, sub)
 		if _, err := os.Lstat(p); err != nil {
@@ -144,7 +135,6 @@ func TestScan_HappyPath(t *testing.T) {
 
 	content := readIndexMD(t, root)
 
-	// Block markers present
 	if !strings.Contains(content, `<wiki-scan`) {
 		t.Error("index.md missing <wiki-scan open tag")
 	}
@@ -273,7 +263,6 @@ func TestScan_Idempotent_NarrativePreserved(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Re-scan
 	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("second Scan: %v", err)
 	}
@@ -285,7 +274,6 @@ func TestScan_Idempotent_NarrativePreserved(t *testing.T) {
 		t.Errorf("narrative lost after re-scan\nbefore rescan had: %q\nafter rescan: %s", narrative, afterRescan)
 	}
 
-	// Block still present
 	if !strings.Contains(afterRescan, `<wiki-scan`) {
 		t.Error("wiki-scan block missing after re-scan")
 	}
@@ -622,8 +610,6 @@ func TestScan_IndexedMemberHasSignalsAttribute(t *testing.T) {
 	}
 }
 
-// --- ## Members section tests ---
-
 // TestScan_MembersSectionPresent verifies that after a scan, wiki/index.md
 // contains a managed ## Members section wrapped in the wiki-member-list XML
 // region, with no legacy comment markers.
@@ -653,8 +639,6 @@ func TestScan_MembersSectionPresent(t *testing.T) {
 	}
 }
 
-// TestScan_MembersSectionLinksIndexed verifies that an "indexed" member links to
-// ../<repo>/.claude/project/signals.md (relative to index.md which is at wiki/index.md).
 func TestScan_MembersSectionLinksIndexed(t *testing.T) {
 	root := t.TempDir()
 	repoA := makeGitRepo(t, root, "repoA")
@@ -676,8 +660,6 @@ func TestScan_MembersSectionLinksIndexed(t *testing.T) {
 	}
 }
 
-// TestScan_MembersSectionLinksPending verifies that a "pending" member links to
-// ../<repo>/ (relative to index.md).
 func TestScan_MembersSectionLinksPending(t *testing.T) {
 	root := t.TempDir()
 	makeGitRepo(t, root, "repoB") // no signals → pending
@@ -697,8 +679,6 @@ func TestScan_MembersSectionLinksPending(t *testing.T) {
 	}
 }
 
-// TestScan_MembersSectionLinksSummarized verifies that a "summarized" member links to
-// repos/<repo>.md (relative to index.md).
 func TestScan_MembersSectionLinksSummarized(t *testing.T) {
 	root := t.TempDir()
 	makeGitRepo(t, root, "repoA")
@@ -736,8 +716,6 @@ func TestScan_MembersSectionLinksSummarized(t *testing.T) {
 	}
 }
 
-// TestScan_MembersSectionIdempotent verifies that re-scanning replaces the managed
-// Members section in-place while preserving narrative outside the managed region.
 func TestScan_MembersSectionIdempotent(t *testing.T) {
 	root := t.TempDir()
 	makeGitRepo(t, root, "repoA")
@@ -774,10 +752,6 @@ func TestScan_MembersSectionIdempotent(t *testing.T) {
 	}
 }
 
-// TestScan_MembersSectionNarrativePreservedByExistingTests verifies that the new
-// Members managed section does not break the existing narrative preservation test.
-// (This documents intent — the existing TestScan_Idempotent_NarrativePreserved
-// already covers this, but we re-check the Members-section variant.)
 func TestScan_MembersSectionDoesNotBreakNarrativePreservation(t *testing.T) {
 	root := t.TempDir()
 	makeGitRepo(t, root, "repoA")
@@ -804,10 +778,6 @@ func TestScan_MembersSectionDoesNotBreakNarrativePreservation(t *testing.T) {
 	}
 }
 
-// --- OKF §6 Members listing description tests (CP5) ---
-
-// TestDeriveMemberDescription_FrontmatterDescription asserts that a summary file
-// with a "description:" frontmatter key returns that value.
 func TestDeriveMemberDescription_FrontmatterDescription(t *testing.T) {
 	dir := t.TempDir()
 	summaryPath := filepath.Join(dir, "repos", "repoA.md")
@@ -826,8 +796,6 @@ func TestDeriveMemberDescription_FrontmatterDescription(t *testing.T) {
 	}
 }
 
-// TestDeriveMemberDescription_FirstBodySentence asserts that when no "description:"
-// frontmatter is present, the first non-heading prose sentence is used.
 func TestDeriveMemberDescription_FirstBodySentence(t *testing.T) {
 	dir := t.TempDir()
 	summaryPath := filepath.Join(dir, "repos", "repoB.md")
@@ -846,8 +814,7 @@ func TestDeriveMemberDescription_FirstBodySentence(t *testing.T) {
 	}
 }
 
-// TestDeriveMemberDescription_NoMatch asserts that a file with no usable
-// description returns an empty string (link-only entry is valid per OKF §6).
+// A link-only entry is valid per OKF §6, so no usable description is not an error.
 func TestDeriveMemberDescription_NoMatch(t *testing.T) {
 	dir := t.TempDir()
 	summaryPath := filepath.Join(dir, "repos", "repoC.md")
@@ -866,8 +833,6 @@ func TestDeriveMemberDescription_NoMatch(t *testing.T) {
 	}
 }
 
-// TestDeriveMemberDescription_MissingFile asserts that an unreadable path
-// returns an empty string without panicking.
 func TestDeriveMemberDescription_MissingFile(t *testing.T) {
 	got := wiki.DeriveMemberDescription("/nonexistent/path/that/does/not/exist.md")
 	if got != "" {
@@ -875,8 +840,6 @@ func TestDeriveMemberDescription_MissingFile(t *testing.T) {
 	}
 }
 
-// TestDeriveMemberDescription_SingleLine asserts that the returned description
-// never contains embedded newlines.
 func TestDeriveMemberDescription_SingleLine(t *testing.T) {
 	dir := t.TempDir()
 	summaryPath := filepath.Join(dir, "repos", "repoD.md")
@@ -894,8 +857,6 @@ func TestDeriveMemberDescription_SingleLine(t *testing.T) {
 	}
 }
 
-// TestDeriveMemberDescription_LengthBound asserts that the returned description
-// is at most 120 characters.
 func TestDeriveMemberDescription_LengthBound(t *testing.T) {
 	dir := t.TempDir()
 	summaryPath := filepath.Join(dir, "repos", "repoE.md")
@@ -915,11 +876,7 @@ func TestDeriveMemberDescription_LengthBound(t *testing.T) {
 	}
 }
 
-// --- CP5 body-extraction filter tests ---
-
-// TestDeriveMemberDescription_NavLineSkipped asserts that a body whose first
-// non-heading line is a nav-bar pattern (Repo: [url] | Signal: [url]) is skipped
-// and the result does not contain "](" or " | ".
+// A nav bar reads as prose to a naive scan; the " | " separator rules it out.
 func TestDeriveMemberDescription_NavLineSkipped(t *testing.T) {
 	dir := t.TempDir()
 	summaryPath := filepath.Join(dir, "repos", "accept.md")
@@ -948,8 +905,6 @@ func TestDeriveMemberDescription_NavLineSkipped(t *testing.T) {
 	}
 }
 
-// TestDeriveMemberDescription_NavLineOnlyBody asserts that when the only body
-// line is a nav pattern and no prose follows, the result is "" (link-only).
 func TestDeriveMemberDescription_NavLineOnlyBody(t *testing.T) {
 	dir := t.TempDir()
 	summaryPath := filepath.Join(dir, "repos", "navonly.md")
@@ -968,9 +923,7 @@ func TestDeriveMemberDescription_NavLineOnlyBody(t *testing.T) {
 	}
 }
 
-// TestDeriveMemberDescription_ProseWithInlineLink asserts that a prose line
-// containing a single inline link survives after normalization — the link is
-// reduced to its visible text and the result has no "](" or " | ".
+// One inline link must not disqualify an otherwise clean prose line.
 func TestDeriveMemberDescription_ProseWithInlineLink(t *testing.T) {
 	dir := t.TempDir()
 	summaryPath := filepath.Join(dir, "repos", "alpha.md")
@@ -1003,8 +956,6 @@ func TestDeriveMemberDescription_ProseWithInlineLink(t *testing.T) {
 	}
 }
 
-// TestDeriveMemberDescription_TableRowSkipped asserts that a body whose first
-// non-heading line is a markdown table row (leading |) is skipped.
 func TestDeriveMemberDescription_TableRowSkipped(t *testing.T) {
 	dir := t.TempDir()
 	summaryPath := filepath.Join(dir, "repos", "tablerow.md")
@@ -1026,8 +977,6 @@ func TestDeriveMemberDescription_TableRowSkipped(t *testing.T) {
 	}
 }
 
-// TestDeriveMemberDescription_ListItemSkipped asserts that a body whose first
-// non-heading lines are list items (-, *, +, N.) is skipped.
 func TestDeriveMemberDescription_ListItemSkipped(t *testing.T) {
 	dir := t.TempDir()
 	summaryPath := filepath.Join(dir, "repos", "listfirst.md")
@@ -1188,8 +1137,6 @@ func TestBuildMembersSection_OKFListingForm(t *testing.T) {
 	}
 }
 
-// --- dual-layout indexed detection tests ---
-
 // writeWikiIndex creates the docs/wiki/index.md file in dir (new layout).
 func writeWikiIndex(t *testing.T, dir string) {
 	t.Helper()
@@ -1202,8 +1149,6 @@ func writeWikiIndex(t *testing.T, dir string) {
 	}
 }
 
-// TestScan_IndexedByNewLayout verifies that a member repo with docs/wiki/index.md
-// (new layout) is classified "indexed" even without the old .claude/project/signals.md.
 func TestScan_IndexedByNewLayout(t *testing.T) {
 	root := t.TempDir()
 	repoA := makeGitRepo(t, root, "repoA")
@@ -1220,8 +1165,6 @@ func TestScan_IndexedByNewLayout(t *testing.T) {
 	}
 }
 
-// TestScan_IndexedByNewLayout_LinksToWikiIndex verifies that the Members section
-// for a new-layout indexed member links to docs/wiki/index.md.
 func TestScan_IndexedByNewLayout_LinksToWikiIndex(t *testing.T) {
 	root := t.TempDir()
 	repoA := makeGitRepo(t, root, "repoA")
@@ -1239,8 +1182,6 @@ func TestScan_IndexedByNewLayout_LinksToWikiIndex(t *testing.T) {
 	}
 }
 
-// TestScan_IndexedByOldLayout_BackCompat verifies that a member repo with only
-// .claude/project/signals.md (old layout) is still classified "indexed" — backward compat.
 func TestScan_IndexedByOldLayout_BackCompat(t *testing.T) {
 	root := t.TempDir()
 	repoA := makeGitRepo(t, root, "repoA")
@@ -1284,8 +1225,6 @@ func TestScan_NewLayoutPreferredOverOld(t *testing.T) {
 		t.Errorf("new-layout should be preferred; expected docs/wiki/index.md link; content:\n%s", content)
 	}
 }
-
-// --- ## Members legacy-marker migration (CP3) ---
 
 // TestScan_MigratesLegacyMemberMarkers verifies that a wiki/index.md carrying
 // the legacy HTML-comment Members section is rewritten to the
@@ -1704,8 +1643,6 @@ func TestScan_MigratesLegacyMemberMarkers_StartOfFileNoLeadingArtifact(t *testin
 		t.Errorf("region at start-of-file must have no leading blank-line artifact:\n%q", migrated)
 	}
 }
-
-// --- Scan wiring: bucket index rebuild (CP3) ---
 
 // TestScan_RebuildsBucketIndexesAndSurvivesBrokenBucket verifies that Scan
 // rebuilds both the realm <wiki-bucket-list> region and each registered

@@ -1,13 +1,8 @@
 package db
 
-// Transaction seam for atomic store operations (CP10).
-//
-// WithTx begins a transaction, calls fn, and commits on success or rolls back
-// on any error (including panics via defer). The Tx type exposes only the CRUD
-// methods that storeExtractionResult needs — keeping the surface minimal.
-//
-// The single-connection mandate in db.go (SetMaxOpenConns(1)) means SQLite
-// serialises all writes; BEGIN/COMMIT/ROLLBACK is straightforward.
+// Transaction seam for atomic store operations. The single connection db.go
+// pins means SQLite serialises all writes, so BEGIN/COMMIT/ROLLBACK needs no
+// contention handling here.
 
 import (
 	"context"
@@ -18,17 +13,15 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// Tx wraps a *sql.Tx and exposes the subset of CRUD operations that the
-// orchestrator's storeExtractionResult needs. All methods mirror their *DB
-// counterparts but execute within the transaction.
+// Tx mirrors the *DB CRUD methods storeExtractionResult needs, deliberately
+// no more, executing them inside a transaction.
 type Tx struct {
 	tx *sql.Tx
 }
 
-// WithTx begins a transaction, calls fn with a *Tx handle, and commits if fn
-// returns nil. If fn returns an error (or panics) the transaction is rolled
-// back and the error is returned. The defer-rollback pattern is used: ROLLBACK
-// after a COMMIT is a no-op in SQLite, so the defer is always safe.
+// WithTx commits when fn returns nil and rolls back otherwise, including on a
+// panic. The unconditional deferred rollback is safe because SQLite treats
+// ROLLBACK after COMMIT as a no-op.
 func (d *DB) WithTx(ctx context.Context, fn func(*Tx) error) error {
 	sqlTx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -36,7 +29,6 @@ func (d *DB) WithTx(ctx context.Context, fn func(*Tx) error) error {
 	}
 	t := &Tx{tx: sqlTx}
 	defer func() {
-		// Rollback is a no-op after a successful Commit.
 		_ = sqlTx.Rollback()
 	}()
 
@@ -50,8 +42,7 @@ func (d *DB) WithTx(ctx context.Context, fn func(*Tx) error) error {
 	return nil
 }
 
-// DeleteNodesByFile deletes all nodes with the given file_path within the
-// transaction. FK CASCADE removes their edges.
+// DeleteNodesByFile takes the nodes' edges with it, by FK cascade.
 func (t *Tx) DeleteNodesByFile(ctx context.Context, filePath string) error {
 	_, err := t.tx.ExecContext(ctx, "DELETE FROM nodes WHERE file_path = ?", filePath)
 	if err != nil {
@@ -60,8 +51,6 @@ func (t *Tx) DeleteNodesByFile(ctx context.Context, filePath string) error {
 	return nil
 }
 
-// DeleteFile deletes the file record with the given path within the
-// transaction.
 func (t *Tx) DeleteFile(ctx context.Context, path string) error {
 	_, err := t.tx.ExecContext(ctx, "DELETE FROM files WHERE path = ?", path)
 	if err != nil {
@@ -70,9 +59,8 @@ func (t *Tx) DeleteFile(ctx context.Context, path string) error {
 	return nil
 }
 
-// NodeExists reports whether a node with the given id exists within the
-// transaction — used by storeExtractionResult to verify an unresolved ref's
-// owner before insert (from_node_id has a FOREIGN KEY REFERENCES nodes(id)).
+// NodeExists lets storeExtractionResult check an unresolved ref's owner before
+// inserting, since from_node_id has an FK to nodes(id).
 func (t *Tx) NodeExists(ctx context.Context, id string) (bool, error) {
 	var exists int
 	err := t.tx.QueryRowContext(ctx, "SELECT 1 FROM nodes WHERE id = ? LIMIT 1", id).Scan(&exists)
@@ -85,8 +73,6 @@ func (t *Tx) NodeExists(ctx context.Context, id string) (bool, error) {
 	return true, nil
 }
 
-// UpsertNodeAt inserts or replaces a node within the transaction with an
-// explicit updatedAt Unix timestamp.
 func (t *Tx) UpsertNodeAt(ctx context.Context, n types.Node, updatedAt int64) error {
 	_, err := t.tx.ExecContext(ctx, `
 		INSERT OR REPLACE INTO nodes
@@ -110,7 +96,7 @@ func (t *Tx) UpsertNodeAt(ctx context.Context, n types.Node, updatedAt int64) er
 	return nil
 }
 
-// InsertEdge inserts a new edge within the transaction and returns the new row id.
+// InsertEdge returns the new ROWID.
 func (t *Tx) InsertEdge(ctx context.Context, e types.Edge) (int64, error) {
 	res, err := t.tx.ExecContext(ctx, `
 		INSERT INTO edges (source, target, kind, metadata, line, col, provenance)
@@ -128,7 +114,6 @@ func (t *Tx) InsertEdge(ctx context.Context, e types.Edge) (int64, error) {
 	return id, nil
 }
 
-// UpsertFile inserts or replaces a file record within the transaction.
 func (t *Tx) UpsertFile(ctx context.Context, f types.FileRecord) error {
 	_, err := t.tx.ExecContext(ctx, `
 		INSERT OR REPLACE INTO files

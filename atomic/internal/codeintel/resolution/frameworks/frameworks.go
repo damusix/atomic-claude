@@ -1,44 +1,13 @@
-// Package frameworks implements the FrameworkResolver registry and the Express
-// resolver (CP14 template), plus all CP15 batches A–E (Python, Go, Node/JS-TS,
-// Rust/Java, and PHP/Ruby/Elixir resolvers). CP15 is complete — all 23
-// framework resolvers are registered.
+// Package frameworks recovers the routes and handlers a web framework wires up
+// at runtime, which generic extraction cannot see: a route is a string and a
+// callback, not a declaration.
 //
-// # File input type
+// Each resolver implements resolution.FrameworkResolver; Extract and
+// PostExtract are optional and reached by type assertion, so a resolver that
+// only resolves need not stub them.
 //
-// FileInput is the named type for (path, content) pairs passed to
-// ExtractAndPersist. Tests and callers use this type directly.
-//
-// # Architecture
-//
-// Each resolver implements resolution.FrameworkResolver (Name/Languages/
-// Detect/ClaimsReference/Resolve). Extract and PostExtract are optional — a
-// resolver that only does Resolve need not stub them; the Registry checks for
-// resolution.FrameworkExtractor and resolution.FrameworkPostExtractor via type
-// assertion at ExtractAndPersist time.
-//
-// # Registry construction
-//
-// NewRegistry(projectRoot, db) creates the Registry seeded with every
-// framework resolver. DetectFrameworks filters to the ones whose Detect(ctx)
-// returns true. GetApplicableFrameworks filters by language. FrameworkRegistry()
-// returns the full list as resolution.FrameworkRegistry for NewPipelineWithSeams.
-//
-// # Route node format (appendix H — verbatim)
-//
-//   - id:            route:{filePath}:{line}:{METHOD}:{path}
-//   - qualifiedName: {filePath}::METHOD:{path}
-//   - name:          "METHOD /path"  (e.g. "GET /users/:id")
-//
-// MakeRouteNode is exported so tests can assert the exact format independently.
-//
-// # CP15 complete — all 23 resolvers registered
-//
-// allResolvers() holds all framework resolvers in language-cluster order.
-// Batch A (django, flask, fastapi), B (gin, echo, fiber, gorilla, chi),
-// C (nestjs, koa, hapi, fastify, sails, adonisjs), D (actix, axum, rocket,
-// spring), and E (rails, laravel, symfony, phoenix) are all registered.
-// To add a future resolver, append to allResolvers() and create a new
-// <framework>.go + <framework>_test.go pair in this package.
+// Adding a framework means appending to allResolvers and adding a
+// <framework>.go / <framework>_test.go pair here.
 package frameworks
 
 import (
@@ -55,16 +24,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Extension → language mapper (appendix D subset for JS/TS family)
-// ---------------------------------------------------------------------------
-
-// jsExtToLanguage maps lower-case file extensions to the canonical
-// types.Language for the JS/TS family. The source of truth is the indexer's
-// extToLanguage table (appendix D); this local copy covers only the extensions
-// that framework resolvers care about. The indexer's table is unexported, so
-// we keep a small local copy here rather than duplicating the full table or
-// creating a cross-package import cycle.
+// jsExtToLanguage duplicates the JS/TS slice of the indexer's extension table.
+// That table is unexported, and importing it here would cycle.
 var jsExtToLanguage = map[string]types.Language{
 	".ts":  types.LanguageTypeScript,
 	".mts": types.LanguageTypeScript,
@@ -76,9 +37,8 @@ var jsExtToLanguage = map[string]types.Language{
 	".cjs": types.LanguageJavaScript,
 }
 
-// langFromFilePath infers the types.Language from a file path's extension.
-// Falls back to LanguageJavaScript for unrecognised extensions so that
-// JS/TS framework resolvers remain functional on ambiguous inputs.
+// langFromFilePath falls back to JavaScript on an unknown extension, so a
+// JS/TS resolver stays functional rather than emitting unknown-language nodes.
 func langFromFilePath(filePath string) types.Language {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	if lang, ok := jsExtToLanguage[ext]; ok {
@@ -87,16 +47,9 @@ func langFromFilePath(filePath string) types.Language {
 	return types.LanguageJavaScript
 }
 
-// ---------------------------------------------------------------------------
-// Route node helpers (appendix H verbatim)
-// ---------------------------------------------------------------------------
-
-// MakeRouteNode constructs a types.Node for an HTTP route with the exact
-// id / qualifiedName / name format mandated by appendix H.
-//
-//	id:            route:{filePath}:{line}:{METHOD}:{path}
-//	qualifiedName: {filePath}::METHOD:{path}
-//	name:          "METHOD /path"
+// MakeRouteNode is the one place route node ids are formatted, so every
+// resolver produces identical shapes. Exported so tests can assert the format
+// without going through a resolver.
 func MakeRouteNode(filePath string, line int, method, path string, lang types.Language) types.Node {
 	id := fmt.Sprintf("route:%s:%d:%s:%s", filePath, line, method, path)
 	qualifiedName := fmt.Sprintf("%s::METHOD:%s", filePath, path)
@@ -110,39 +63,26 @@ func MakeRouteNode(filePath string, line int, method, path string, lang types.La
 		Language:      lang,
 		StartLine:     line,
 		EndLine:       line,
-		IsExported:    true, // routes are entry points
+		// A route is always an entry point.
+		IsExported: true,
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FileInput — named type for (path, content) pairs
-// ---------------------------------------------------------------------------
-
 // FileInput is a (filePath, content) pair passed to ExtractAndPersist.
-// Using a named type avoids anonymous-struct type-identity mismatches between
-// the caller and the function signature.
 type FileInput struct {
 	Path    string
 	Content string
 }
 
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
-// Registry holds the full ordered list of framework resolvers and the project
-// context needed for Detect and Extract.
+// Registry holds the ordered resolver list plus the project context Detect
+// and Extract need.
 type Registry struct {
 	projectRoot string
 	db          *db.DB
 	resolvers   []resolution.FrameworkResolver
 }
 
-// NewRegistry creates a Registry pre-seeded with all 23 framework resolvers.
-// Pass db=nil when no DB access is needed (e.g. in Detect-only flows).
-//
-// CP15 is complete: all batches A–E are registered (batch E = laravel, symfony,
-// rails, phoenix).
+// NewRegistry seeds every framework resolver. Pass d=nil for Detect-only use.
 func NewRegistry(projectRoot string, d *db.DB) *Registry {
 	r := &Registry{
 		projectRoot: projectRoot,
@@ -152,52 +92,46 @@ func NewRegistry(projectRoot string, d *db.DB) *Registry {
 	return r
 }
 
-// allResolvers returns the full ordered registry of all 23 framework resolvers.
-//
-// Express is first (CP14 template). CP15 batch A adds the three Python
-// frameworks; batch B adds the five Go frameworks; batch C adds the six
-// Node/JS-TS frameworks; batch D adds the Rust and Java frameworks; batch E
-// adds the Ruby, PHP, and Elixir (Phoenix) frameworks. CP15 complete.
-// Insertion order = resolution priority within a language.
+// allResolvers is grouped by language cluster; within a language, insertion
+// order is resolution priority.
 func (r *Registry) allResolvers() []resolution.FrameworkResolver {
 	return []resolution.FrameworkResolver{
 		NewExpressResolverWithDB(r.projectRoot, r.db),
-		// CP15 batch A — Python cluster
+		// Python
 		NewDjangoResolver(r.projectRoot),
 		NewFlaskResolver(r.projectRoot),
 		NewFastAPIResolver(r.projectRoot),
-		// CP15 batch B — Go cluster
+		// Go
 		NewGinResolver(r.projectRoot),
 		NewEchoResolver(r.projectRoot),
 		NewFiberResolver(r.projectRoot),
 		NewGorillaResolver(r.projectRoot),
 		NewChiResolver(r.projectRoot),
-		// CP15 batch C — Node/JS-TS cluster
+		// Node / JS-TS
 		NewNestJSResolver(r.projectRoot),
 		NewKoaResolver(r.projectRoot),
 		NewHapiResolver(r.projectRoot),
 		NewFastifyResolver(r.projectRoot),
 		NewSailsResolver(r.projectRoot),
 		NewAdonisResolver(r.projectRoot),
-		// CP15 batch D — Rust cluster
+		// Rust
 		NewActixResolver(r.projectRoot),
 		NewAxumResolver(r.projectRoot),
 		NewRocketResolver(r.projectRoot),
-		// CP15 batch D — Java/Kotlin cluster
+		// Java / Kotlin
 		NewSpringResolver(r.projectRoot),
-		// CP15 batch E — Ruby cluster
+		// Ruby
 		NewRailsResolver(r.projectRoot),
-		// CP15 batch E — PHP cluster
+		// PHP
 		NewLaravelResolver(r.projectRoot),
 		NewSymfonyResolver(r.projectRoot),
-		// CP15 batch E — Elixir cluster (uses LanguageUnknown; Elixir absent from appendix C)
+		// Elixir — no types.Language of its own, so it uses LanguageUnknown.
 		NewPhoenixResolver(r.projectRoot),
 	}
 }
 
-// DetectFrameworks returns the subset of resolvers for which Detect returns
-// true. This is called once per pipeline session (after the index is ready)
-// to determine which frameworks are active in the project.
+// DetectFrameworks narrows to the frameworks actually present. Called once per
+// pipeline session, after the index is ready.
 func (r *Registry) DetectFrameworks(ctx context.Context) []resolution.FrameworkResolver {
 	var active []resolution.FrameworkResolver
 	for _, res := range r.resolvers {
@@ -208,9 +142,8 @@ func (r *Registry) DetectFrameworks(ctx context.Context) []resolution.FrameworkR
 	return active
 }
 
-// GetApplicableFrameworks returns all resolvers that handle the given language
-// (i.e. whose Languages() includes lang, or whose Languages() is nil meaning
-// "any language").
+// GetApplicableFrameworks returns resolvers handling lang, plus any whose
+// Languages is nil (meaning any language).
 func (r *Registry) GetApplicableFrameworks(lang types.Language) []resolution.FrameworkResolver {
 	var result []resolution.FrameworkResolver
 	for _, res := range r.resolvers {
@@ -229,27 +162,17 @@ func (r *Registry) GetApplicableFrameworks(lang types.Language) []resolution.Fra
 	return result
 }
 
-// FrameworkRegistry returns the full resolver list as a resolution.FrameworkRegistry
-// (an alias for []resolution.FrameworkResolver). Pass this to
-// resolution.NewPipelineWithSeams so the pipeline uses framework resolution.
+// FrameworkRegistry adapts the resolver list for NewPipelineWithSeams.
 func (r *Registry) FrameworkRegistry() resolution.FrameworkRegistry {
 	return resolution.FrameworkRegistry(r.resolvers)
 }
 
-// ExtractAndPersist runs the Extract step for each active framework resolver
-// over the provided files, persisting route nodes and unresolved handler
-// references to the DB in one transaction per file. Call this BEFORE
-// resolution.Pipeline.ResolveAndPersistBatched so the route nodes and their
-// handler refs are in the DB when resolution runs.
-//
-// files is a slice of (path, content) pairs — the same files the generic
-// extractor already processed. The framework layer adds route nodes on top.
-//
-// This method is the "ExtractFrameworkNodes" seam (brief §5). The engine
-// facade (CP20) will call it as part of the index pipeline.
+// ExtractAndPersist writes route nodes and their handler refs, one transaction
+// per file. Must run before ResolveAndPersistBatched, which is what turns
+// those refs into edges.
 func (r *Registry) ExtractAndPersist(ctx context.Context, files []FileInput) error {
 	if r.db == nil {
-		return nil // no-op in DB-less mode
+		return nil
 	}
 
 	active := r.DetectFrameworks(ctx)
@@ -267,7 +190,6 @@ func (r *Registry) ExtractAndPersist(ctx context.Context, files []FileInput) err
 			if len(nodes) == 0 && len(refs) == 0 {
 				continue
 			}
-			// Persist route nodes + unresolved refs in one transaction.
 			if err := r.db.WithTx(ctx, func(tx *db.Tx) error {
 				for _, n := range nodes {
 					if err := tx.UpsertNodeAt(ctx, n, 0); err != nil {
@@ -286,7 +208,7 @@ func (r *Registry) ExtractAndPersist(ctx context.Context, files []FileInput) err
 		}
 	}
 
-	// Run PostExtract for resolvers that implement it.
+	// PostExtract runs only after every file, since it aggregates across them.
 	for _, res := range active {
 		pe, ok := res.(resolution.FrameworkPostExtractor)
 		if !ok {
@@ -314,15 +236,9 @@ func (r *Registry) ExtractAndPersist(ctx context.Context, files []FileInput) err
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Comment stripping helper (shared by all JS/TS framework resolvers)
-// ---------------------------------------------------------------------------
-
-// stripJSComments removes single-line (//) and multi-line (/* */) comments
-// from JS/TS source, preserving line numbers so regex matches return the
-// correct original line. The implementation is line-oriented and handles the
-// common cases; it does not handle nested comments (JS has none) or template
-// literals with comment-like sequences (rare in route files).
+// stripJSComments blanks comments while preserving line and column positions,
+// so a regex match still reports the source location. It does not handle
+// comment-like sequences inside template literals.
 func stripJSComments(src string) string {
 	var out strings.Builder
 	lines := strings.Split(src, "\n")
@@ -332,14 +248,12 @@ func stripJSComments(src string) string {
 			end := strings.Index(line, "*/")
 			if end >= 0 {
 				inBlock = false
-				// Replace the consumed part with spaces to preserve column positions.
 				line = strings.Repeat(" ", end+2) + line[end+2:]
 			} else {
 				out.WriteByte('\n')
 				continue
 			}
 		}
-		// Scan for // and /* in the remaining line.
 		result := removeInlineComments(line, &inBlock)
 		out.WriteString(result)
 		out.WriteByte('\n')
@@ -347,18 +261,15 @@ func stripJSComments(src string) string {
 	return out.String()
 }
 
-// removeInlineComments handles a single line, modifying inBlock as it finds
-// block-comment delimiters.
+// removeInlineComments updates inBlock as it crosses block delimiters.
 func removeInlineComments(line string, inBlock *bool) string {
 	var b strings.Builder
 	i := 0
 	for i < len(line) {
 		if i+1 < len(line) && line[i] == '/' && line[i+1] == '/' {
-			// Single-line comment — rest of line is comment.
 			break
 		}
 		if i+1 < len(line) && line[i] == '/' && line[i+1] == '*' {
-			// Start of block comment.
 			*inBlock = true
 			end := strings.Index(line[i+2:], "*/")
 			if end >= 0 {
@@ -374,13 +285,8 @@ func removeInlineComments(line string, inBlock *bool) string {
 	return b.String()
 }
 
-// ---------------------------------------------------------------------------
-// Reserved JS/TS names (inline body — not real handler references)
-// ---------------------------------------------------------------------------
-
-// jsReservedInlineNames is the set of identifiers that appear inside route
-// handler bodies but are not themselves handlers (built-ins, common patterns).
-// Used by Extract's inline-body call extraction to skip non-meaningful refs.
+// jsReservedInlineNames are identifiers common inside handler bodies that are
+// never handlers themselves — built-ins and the req/res idiom.
 var jsReservedInlineNames = map[string]bool{
 	"console": true, "process": true, "require": true,
 	"module": true, "exports": true, "Error": true,
@@ -397,8 +303,7 @@ var jsReservedInlineNames = map[string]bool{
 	"router": true,
 }
 
-// readFirstNLines reads up to n lines from file at path, returning them joined.
-// Used for content-pattern detection without loading whole files.
+// readFirstNLines lets Detect pattern-match imports without reading whole files.
 func readFirstNLines(path string, n int) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -413,54 +318,34 @@ func readFirstNLines(path string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// ---------------------------------------------------------------------------
-// Express resolver
-// ---------------------------------------------------------------------------
-
-// expressHTTPMethods is the set of Express route-registering method names.
 var expressHTTPMethods = []string{
 	"get", "post", "put", "delete", "patch", "all", "use",
 }
 
-// routeRegexp matches Express route registrations of the form:
-//
-//	app.METHOD('path', handler)
-//	router.METHOD('path', handler)
-//	app.METHOD("path", handler)
-//
-// Capture groups:
-//
-//	1 — HTTP METHOD (lowercased)
-//	2 — route path (single- or double-quoted)
-//	3 — first handler argument (identifier, or start of inline function)
+// routeRegexp matches `app.get('/p', handler)` and its router/quote variants.
+// Groups: method, path, first handler argument.
 var routeRegexp = regexp.MustCompile(
 	`(?m)(?:app|router)\.(get|post|put|delete|patch|all|use)\s*\(\s*` +
 		`['"]([^'"]+)['"]\s*,\s*` +
 		`([^)]+)`,
 )
 
-// expressRequireRegexp matches `require('express')` or `require("express")`.
 var expressRequireRegexp = regexp.MustCompile(`require\s*\(\s*['"]express['"]\s*\)`)
 
-// expressImportRegexp matches `import ... from 'express'` or `"express"`.
 var expressImportRegexp = regexp.MustCompile(`from\s+['"]express['"]`)
 
-// expressRouterCallRegexp matches `app.get(` or `router.post(` etc. as a
-// content-based detection fallback.
 var expressRouterCallRegexp = regexp.MustCompile(`(?:app|router)\.(get|post|put|delete|patch|use)\s*\(`)
 
-// ExpressResolver implements resolution.FrameworkResolver + FrameworkExtractor
-// for Express.js / Express.Router routes.
+// ExpressResolver handles Express.js and Express.Router routes.
 type ExpressResolver struct {
 	projectRoot string
 	db          *db.DB
-	// claimed is the set of handler names seen during Extract. It backs
-	// ClaimsReference so the pipeline pre-filter passes handler refs.
+	// claimed accumulates handler names during Extract; ClaimsReference reads
+	// it so the pipeline pre-filter admits those refs.
 	claimed map[string]bool
 }
 
-// NewExpressResolver creates an ExpressResolver without a DB. Useful for
-// Detect and Extract calls when no resolution is needed.
+// NewExpressResolver builds a DB-less resolver, enough for Detect and Extract.
 func NewExpressResolver(projectRoot string) *ExpressResolver {
 	return &ExpressResolver{
 		projectRoot: projectRoot,
@@ -468,8 +353,7 @@ func NewExpressResolver(projectRoot string) *ExpressResolver {
 	}
 }
 
-// NewExpressResolverWithDB creates an ExpressResolver that can perform DB
-// lookups during Resolve.
+// NewExpressResolverWithDB adds the DB access Resolve needs.
 func NewExpressResolverWithDB(projectRoot string, d *db.DB) *ExpressResolver {
 	return &ExpressResolver{
 		projectRoot: projectRoot,
@@ -478,10 +362,8 @@ func NewExpressResolverWithDB(projectRoot string, d *db.DB) *ExpressResolver {
 	}
 }
 
-// Name returns "express".
 func (e *ExpressResolver) Name() string { return "express" }
 
-// Languages returns the JS/TS family supported by Express.
 func (e *ExpressResolver) Languages() []types.Language {
 	return []types.Language{
 		types.LanguageTypeScript,
@@ -491,16 +373,11 @@ func (e *ExpressResolver) Languages() []types.Language {
 	}
 }
 
-// Detect returns true when the project uses Express:
-//  1. package.json lists "express" as a dependency or devDependency.
-//  2. Fallback: any .js/.ts file in projectRoot (top-level) uses
-//     require('express') / from 'express' / app.get( / router.post(.
-//
-// The fallback is intentionally modest — only top-level files are scanned to
-// avoid a full directory walk at detection time.
+// Detect reads package.json first, then falls back to source patterns. The
+// fallback scans only top-level files: a full directory walk at detection
+// time would cost more than the frameworks it would find.
 func (e *ExpressResolver) Detect(ctx context.Context) bool {
-	// Primary: package.json — match the JSON key form ("express":) so that
-	// substrings like "express-validator" or devDep names don't trip this check.
+	// Matching the JSON key form keeps "express-validator" from tripping this.
 	pkgPath := filepath.Join(e.projectRoot, "package.json")
 	if data, err := os.ReadFile(pkgPath); err == nil {
 		s := string(data)
@@ -509,7 +386,6 @@ func (e *ExpressResolver) Detect(ctx context.Context) bool {
 		}
 	}
 
-	// Fallback: scan top-level .js/.ts/.jsx/.tsx files for express patterns.
 	entries, err := os.ReadDir(e.projectRoot)
 	if err != nil {
 		return false
@@ -532,7 +408,6 @@ func (e *ExpressResolver) Detect(ctx context.Context) bool {
 	return false
 }
 
-// isJSFile returns true for .js/.ts/.jsx/.tsx file names.
 func isJSFile(name string) bool {
 	switch filepath.Ext(name) {
 	case ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs":
@@ -541,27 +416,18 @@ func isJSFile(name string) bool {
 	return false
 }
 
-// Extract scans filePath/content for Express route registrations and returns:
-//   - One route node per matched route (id/qn/name per appendix H).
-//   - For named-handler routes (e.g. `router.get('/p', myHandler)`): one
-//     references UnresolvedReference from the route node to the handler name.
-//   - For inline-body routes (e.g. `router.get('/p', function(req,res){...})`):
-//     calls refs for call sites in the body, minus reserved/builtin names.
-//
-// Extract also populates the internal claimed set used by ClaimsReference.
+// Extract returns one route node per registration, plus a reference to the
+// named handler or, for an inline body, calls refs for what that body invokes.
+// It also fills the claimed set that ClaimsReference reads.
 func (e *ExpressResolver) Extract(filePath, content string) ([]types.Node, []types.UnresolvedReference) {
 	stripped := stripJSComments(content)
-	// Infer language from the file extension so that .ts/.tsx/.jsx files get
-	// the correct Language value instead of always LanguageJavaScript.
 	lang := langFromFilePath(filePath)
 
-	// Total line count for bounds clamping — O(1) scan, no allocation.
 	totalLines := strings.Count(content, "\n") + 1
 
 	var nodes []types.Node
 	var refs []types.UnresolvedReference
 
-	// Compute line number for a byte offset in stripped content.
 	lineOf := func(offset int) int {
 		return strings.Count(stripped[:offset], "\n") + 1
 	}
@@ -576,26 +442,18 @@ func (e *ExpressResolver) Extract(filePath, content string) ([]types.Node, []typ
 		handlerRaw := strings.TrimSpace(stripped[loc[6]:loc[7]])
 
 		line := lineOf(loc[0])
-		// Clamp line to valid range.
 		if line > totalLines {
 			line = totalLines
 		}
 
-		// Build the route node using the exact appendix-H format.
 		node := MakeRouteNode(filePath, line, methodStr, routePath, lang)
 		nodes = append(nodes, node)
 
-		// Determine handler type:
-		// - inline function/arrow: starts with "function" or has "=>"
-		//   → emit calls refs for identifiers in the body, skip reserved.
-		// - named handler: a plain identifier
-		//   → emit one references ref.
 		isInline := strings.HasPrefix(handlerRaw, "function") ||
 			strings.HasPrefix(handlerRaw, "(") ||
 			strings.Contains(handlerRaw, "=>")
 
 		if !isInline {
-			// Named handler: extract the identifier (stop at comma, space, newline, paren).
 			handlerName := extractIdentifier(handlerRaw)
 			if handlerName != "" && !jsReservedInlineNames[handlerName] {
 				e.claimed[handlerName] = true
@@ -610,12 +468,8 @@ func (e *ExpressResolver) Extract(filePath, content string) ([]types.Node, []typ
 				})
 			}
 		} else {
-			// Inline body: the regex captures only up to the first ')' in the
-			// handler argument (because [^)]+ stops there). To get the actual
-			// function body we scan forward from the start of the handler
-			// argument in the stripped source, tracking paren depth until the
-			// route registration's closing paren is consumed.
-			// This is an approximation (no full AST); sufficient for the template.
+			// routeRegexp's [^)]+ stops at the first ')', truncating the body,
+			// so recover it by rescanning the source with paren tracking.
 			bodyText := extractInlineBody(stripped, loc[6])
 			callRefs := extractCallsFromBody(filePath, node.ID, line, bodyText, lang)
 			for _, cr := range callRefs {
@@ -628,11 +482,8 @@ func (e *ExpressResolver) Extract(filePath, content string) ([]types.Node, []typ
 	return nodes, refs
 }
 
-// extractInlineBody returns the full text of an inline handler starting at
-// offset start in src. It scans forward tracking paren/brace/bracket depth
-// until the outer call's closing ')' is found, then returns everything from
-// start to that position. This recovers the complete body text that the
-// routeRegexp [^)]+ capture group truncates at the first ')'.
+// extractInlineBody returns the handler text from start to the bracket that
+// closes the enclosing call, tracking nesting depth as it scans.
 func extractInlineBody(src string, start int) string {
 	if start >= len(src) {
 		return ""
@@ -644,7 +495,6 @@ func extractInlineBody(src string, start int) string {
 			depth++
 		case ')', '}', ']':
 			if depth == 0 {
-				// We've closed the outer route call's argument list.
 				return src[start:i]
 			}
 			depth--
@@ -653,8 +503,7 @@ func extractInlineBody(src string, start int) string {
 	return src[start:]
 }
 
-// extractIdentifier returns the leading identifier from s, stopping at the
-// first non-identifier character.
+// extractIdentifier returns the leading identifier from s.
 func extractIdentifier(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -668,11 +517,10 @@ func extractIdentifier(s string) string {
 	return b.String()
 }
 
-// callExprRegexp finds simple identifier call expressions: word followed by (.
 var callExprRegexp = regexp.MustCompile(`\b([A-Za-z_$][A-Za-z0-9_$]*)\s*\(`)
 
-// extractCallsFromBody extracts call-expression identifiers from a handler
-// body text, skipping reserved names. Returns calls-kind UnresolvedReferences.
+// extractCallsFromBody turns an inline handler's call sites into refs, minus
+// the reserved names.
 func extractCallsFromBody(
 	filePath, fromNodeID string,
 	baseLine int,
@@ -700,16 +548,13 @@ func extractCallsFromBody(
 	return refs
 }
 
-// ClaimsReference returns true if a handler with this name was seen during
-// Extract. This is the pre-filter used by resolveOne (appendix F step 2).
+// ClaimsReference reports a handler name seen during Extract.
 func (e *ExpressResolver) ClaimsReference(name string) bool {
 	return e.claimed[name]
 }
 
-// Resolve resolves handler-name references that ClaimsReference accepted.
-// It looks up the handler by name in the DB and returns confidence 0.85
-// (midpoint of 0.8–0.9 per appendix H). Returns empty TargetNodeID when
-// the DB is nil or no matching node is found.
+// Resolve looks up a claimed handler by name. Returns an empty TargetNodeID
+// when the DB is absent or nothing matches.
 func (e *ExpressResolver) Resolve(ctx context.Context, ref types.UnresolvedReference) (resolution.ResolvedRef, error) {
 	if e.db == nil {
 		return resolution.ResolvedRef{}, nil
@@ -726,7 +571,6 @@ func (e *ExpressResolver) Resolve(ctx context.Context, ref types.UnresolvedRefer
 		return resolution.ResolvedRef{}, nil
 	}
 
-	// Prefer a node in the same language; otherwise take the first match.
 	best := nodes[0]
 	for _, n := range nodes {
 		if n.Language == ref.Language {
@@ -735,8 +579,10 @@ func (e *ExpressResolver) Resolve(ctx context.Context, ref types.UnresolvedRefer
 		}
 	}
 
+	// Below the pipeline's 0.9 early-return threshold: a name match is strong
+	// evidence, but the pipeline should still weigh other candidates.
 	return resolution.ResolvedRef{
 		TargetNodeID: best.ID,
-		Confidence:   0.85, // midpoint of 0.8–0.9 (appendix H)
+		Confidence:   0.85,
 	}, nil
 }

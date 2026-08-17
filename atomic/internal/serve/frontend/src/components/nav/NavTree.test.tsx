@@ -11,6 +11,8 @@ import type { NavResponse } from "./types";
 // nodes plus the stale badge.
 const NAV_FIXTURE: NavResponse = {
   scope: "realm",
+  name: "sample-realm",
+  branch: "main",
   groups: [
     { name: "Realm", items: [{ label: "index", relpath: "wiki/index.md" }] },
     {

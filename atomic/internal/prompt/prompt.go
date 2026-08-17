@@ -15,19 +15,16 @@ import (
 // caller should fall back to a non-interactive default.
 var ErrNonInteractive = errors.New("non-interactive terminal")
 
-// ErrAborted is returned when the user force-quits the TUI (Ctrl+C /
-// huh.ErrUserAborted). Distinct from ErrNonInteractive so callers can
-// differentiate "no TTY" from "user intentionally aborted".
+// ErrAborted is a deliberate Ctrl+C, kept distinct from ErrNonInteractive so a
+// caller can tell "no TTY" from "user said no".
 var ErrAborted = errors.New("user aborted")
 
-// Option is a selectable item for Select.
 type Option[T comparable] struct {
 	Label       string
 	Value       T
 	Description string
 }
 
-// isInteractive returns true when both stdin and stdout are TTYs.
 func isInteractive() bool {
 	return charmterm.IsTerminal(os.Stdin.Fd()) &&
 		charmterm.IsTerminal(os.Stdout.Fd())
@@ -36,10 +33,8 @@ func isInteractive() bool {
 // runConfirm is the internal seam; tests replace it to avoid spawning a TTY.
 var runConfirm = defaultRunConfirm
 
-// runSelect is the internal seam for tests. Because package-level vars cannot
-// be generic in Go 1.23, we store it as interface{} and type-assert inside
-// Select[T]. Tests set it via withSelectStub with a concrete closure; nil
-// means: use defaultRunSelect.
+// runSelect is stored as interface{} and type-asserted inside Select[T]
+// because a package-level var cannot be generic. nil means defaultRunSelect.
 var runSelect interface{} = nil
 
 func defaultRunConfirm(title, desc string, def bool) (bool, error) {
@@ -55,7 +50,6 @@ func defaultRunConfirm(title, desc string, def bool) (bool, error) {
 				Value(&result),
 		),
 	)
-	// Initialise result to the default value before running the form.
 	result = def
 	if err := form.Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
@@ -67,12 +61,10 @@ func defaultRunConfirm(title, desc string, def bool) (bool, error) {
 }
 
 // Confirm presents a yes/no prompt and returns the user's choice.
-// Returns (false, ErrNonInteractive) when stdin/stdout are not TTYs.
 func Confirm(title, desc string, def bool) (bool, error) {
 	return runConfirm(title, desc, def)
 }
 
-// defaultRunSelect[T] is the real huh-backed implementation.
 func defaultRunSelect[T comparable](title string, opts []Option[T]) (T, error) {
 	var zero T
 	if !isInteractive() {
@@ -98,13 +90,11 @@ func defaultRunSelect[T comparable](title string, opts []Option[T]) (T, error) {
 }
 
 // Select presents a single-pick list and returns the chosen value.
-// Returns (zero, ErrNonInteractive) when stdin/stdout are not TTYs.
 func Select[T comparable](title string, opts []Option[T]) (T, error) {
 	var zero T
 	if len(opts) == 0 {
 		return zero, fmt.Errorf("prompt.Select: no options provided")
 	}
-	// If a test has injected a stub for this T, use it.
 	if runSelect != nil {
 		if fn, ok := runSelect.(func(string, []Option[T]) (T, error)); ok {
 			return fn(title, opts)

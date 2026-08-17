@@ -10,21 +10,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Fixture
-// ---------------------------------------------------------------------------
-
-// goFixture is a representative Go source file used across extractor tests.
-// It exercises the main node kinds the Go extractor must handle:
-//   - package + import_declaration
-//   - struct type (type_declaration > type_spec > struct_type)
-//   - interface type (type_declaration > type_spec > interface_type)
-//   - top-level function (function_declaration)
-//   - method (method_declaration)
-//   - field_declaration inside struct
-//   - call_expression inside function body
-//   - type alias (type_declaration > type_alias)
-//   - const_declaration (iota / enum-like)
+// goFixture covers every Go node kind the extractor classifies: import, struct,
+// interface, method, function, field, call, type alias, named type, iota const.
 const goFixture = `package service
 
 import (
@@ -68,10 +55,6 @@ type Label = string
 `
 
 const goFixturePath = "service/user.go"
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
 
 func newGoExtractor(t *testing.T) *extraction.TreeSitterExtractor {
 	t.Helper()
@@ -128,12 +111,7 @@ func countUnresolved(refs []types.UnresolvedReference, kind types.EdgeKind) int 
 	return n
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_FileNode
-// WHY: The file: node is the root of every extraction. If it is missing or
-// wrongly formed, every contains edge loses its origin and the graph is broken.
-// ---------------------------------------------------------------------------
-
+// The file: node roots every contains edge; malformed, the graph loses its origin.
 func TestExtractor_FileNode(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -157,13 +135,8 @@ func TestExtractor_FileNode(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_FunctionExtracted
-// WHY: Top-level functions are the primary call targets in Go. If they are not
-// extracted, call edges can't be resolved and the graph is useless for
-// callers/callees queries.
-// ---------------------------------------------------------------------------
-
+// Top-level functions are the primary call targets; unextracted, no call edge
+// resolves and callers/callees queries return nothing.
 func TestExtractor_FunctionExtracted(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -184,19 +157,13 @@ func TestExtractor_FunctionExtracted(t *testing.T) {
 	if fn.StartLine == 0 {
 		t.Errorf("NewUser.StartLine = 0, want > 0")
 	}
-	// QualifiedName must contain the function name.
 	if !strings.Contains(fn.QualifiedName, "NewUser") {
 		t.Errorf("NewUser.QualifiedName = %q, does not contain \"NewUser\"", fn.QualifiedName)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_MethodExtracted
-// WHY: Methods are the primary call targets for object-oriented code. If they
-// are not extracted with NodeKindMethod (not function), the kind-based routing
-// in resolution and search breaks.
-// ---------------------------------------------------------------------------
-
+// A method stored as NodeKindFunction breaks kind-based routing in resolution
+// and search.
 func TestExtractor_MethodExtracted(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -216,13 +183,7 @@ func TestExtractor_MethodExtracted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_StructExtracted
-// WHY: Structs are the container types in Go. If they are not extracted as
-// NodeKindStruct, structural queries (find all fields of X, extends/implements
-// edges) silently break.
-// ---------------------------------------------------------------------------
-
+// Structural queries (fields of X, extends/implements) key off NodeKindStruct.
 func TestExtractor_StructExtracted(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -242,13 +203,8 @@ func TestExtractor_StructExtracted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_ContainsEdges
-// WHY: contains edges are the backbone of the containment hierarchy
-// (file→function, struct→field). Without them the explorer cannot walk the
-// tree and callers/callees queries lose context.
-// ---------------------------------------------------------------------------
-
+// contains edges are the containment hierarchy (file→function, struct→field);
+// without them the explorer cannot walk the tree.
 func TestExtractor_ContainsEdges(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -264,8 +220,6 @@ func TestExtractor_ContainsEdges(t *testing.T) {
 		t.Fatalf("no contains edges; want at least one (file→symbol)")
 	}
 
-	// Every non-file node must have a contains edge pointing at it.
-	// Build target set from edges.
 	targets := map[string]bool{}
 	for _, e := range result.Edges {
 		if e.Kind == types.EdgeKindContains {
@@ -282,14 +236,9 @@ func TestExtractor_ContainsEdges(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_CallEmitsUnresolvedReference
-// WHY: The extractor contract (appendix E §9) mandates that calls emit
-// UnresolvedReference, NOT edges. Emitting edges directly would bypass the
-// resolution layer, which is responsible for confidence scoring and kind
-// promotion. A single premature edge here means wrong provenance forever.
-// ---------------------------------------------------------------------------
-
+// Calls emit UnresolvedReference, never edges: a direct edge bypasses the
+// resolution layer's confidence scoring and kind promotion, freezing wrong
+// provenance. See docs/spec/code-intel-extraction.md.
 func TestExtractor_CallEmitsUnresolvedReference(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -305,13 +254,11 @@ func TestExtractor_CallEmitsUnresolvedReference(t *testing.T) {
 		t.Fatalf("no calls-kind UnresolvedReferences; fixture has fmt.Sprintf and strings.TrimSpace calls")
 	}
 
-	// Verify that NO call edges were directly emitted.
 	callEdges := countEdges(result.Edges, types.EdgeKindCalls)
 	if callEdges != 0 {
 		t.Errorf("found %d calls edges — calls must be UnresolvedReferences, NOT edges", callEdges)
 	}
 
-	// Spot-check: fixture calls fmt.Sprintf and strings.TrimSpace.
 	var refNames []string
 	for _, r := range result.UnresolvedReferences {
 		if r.ReferenceKind == types.EdgeKindCalls {
@@ -330,11 +277,9 @@ func TestExtractor_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestExtractor_CalleeNameIsBareFinalSegment_Go proves a member/selector call
-// (fmt.Sprintf, strings.TrimSpace) emits the BARE final invoked segment
-// (Sprintf, TrimSpace) as the call ref name — not the dotted "fmt.Sprintf"
-// receiver-chain text. The resolution name matcher resolves bare symbol names;
-// storing the whole callee subtree text makes the ref permanently unresolvable.
+// The name matcher resolves bare symbol names, so a selector call must store
+// the final segment ("Sprintf"), not the dotted receiver chain — the latter is
+// permanently unresolvable.
 func TestExtractor_CalleeNameIsBareFinalSegment_Go(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -361,9 +306,8 @@ func TestExtractor_CalleeNameIsBareFinalSegment_Go(t *testing.T) {
 	}
 }
 
-// TestExtractor_CalleeNameIsBareFinalSegment_TS proves the same for a TypeScript
-// member-call chain: each invoked segment is stored bare, never as the whole
-// "db.connect().query(...).execute" subtree text.
+// Same rule down a TypeScript member chain: every invoked segment stored bare,
+// never the whole "db.connect().query(...).execute" subtree text.
 func TestExtractor_CalleeNameIsBareFinalSegment_TS(t *testing.T) {
 	ctx := context.Background()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -410,21 +354,14 @@ func mapKeys(m map[string]bool) []string {
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_BestEffortBrokenSource
-// WHY: The brief mandates best-effort extraction — a broken file must record
-// the error and return a partial (or empty) result, never panic. If the
-// extractor panics on garbage input, one bad file brings down the whole index.
-// ---------------------------------------------------------------------------
-
+// Extraction is best-effort: one unparseable file must not panic and take the
+// whole index down with it.
 func TestExtractor_BestEffortBrokenSource(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
 
-	// Feed truly garbage input.
 	garbage := "}{{{THIS IS NOT GO CODE @#$%^&*()_+<>?:[]\\/.,;'\"!~`\x00\xff"
 
-	// Must not panic.
 	var result types.ExtractionResult
 	func() {
 		defer func() {
@@ -435,9 +372,8 @@ func TestExtractor_BestEffortBrokenSource(t *testing.T) {
 		result = e.Extract(ctx, "bad/file.go", garbage, types.LanguageGo)
 	}()
 
-	// The file: node may or may not be present (partial result is OK).
-	// What matters: the extractor didn't panic and Errors may be populated.
-	// If Errors is populated, it must contain some message.
+	// tree-sitter error-recovery may still yield a partial tree, so an empty
+	// Errors slice is a valid outcome; only a blank message is a defect.
 	if len(result.Errors) > 0 {
 		for _, err := range result.Errors {
 			if err == "" {
@@ -445,19 +381,10 @@ func TestExtractor_BestEffortBrokenSource(t *testing.T) {
 			}
 		}
 	}
-	// Note: tree-sitter is resilient and may produce a partial parse tree even
-	// for garbage input (it uses error-recovery). So Errors may be empty and
-	// result.Nodes may have the file: node. Either is acceptable.
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_NodeCountStable
-// WHY: "Node-count stable across re-extract" is an explicit success criterion.
-// If extracting the same file twice produces different node counts, there is
-// non-determinism in the extractor — likely a bug in stack management or a
-// missed skipChildren that causes double-extraction.
-// ---------------------------------------------------------------------------
-
+// Differing counts across two extractions of one file mean non-determinism —
+// usually stack mismanagement or a missed skipChildren double-extracting.
 func TestExtractor_NodeCountStable(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -477,12 +404,8 @@ func TestExtractor_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_ImportExtracted
-// WHY: Imports are the starting point for the resolution layer's import
-// resolver. If they are not extracted, cross-file references can't be resolved.
-// ---------------------------------------------------------------------------
-
+// Imports seed the resolution layer's import resolver; without them no
+// cross-file reference resolves.
 func TestExtractor_ImportExtracted(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -493,20 +416,14 @@ func TestExtractor_ImportExtracted(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// Fixture imports "fmt" and "strings".
 	importRefs := countUnresolved(result.UnresolvedReferences, types.EdgeKindImports)
 	if importRefs == 0 {
 		t.Fatalf("no import UnresolvedReferences; fixture imports fmt and strings")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_QualifiedNameHierarchy
-// WHY: Qualified names ("User::FullName") are the lookup key for the resolution
-// layer's name matcher (appendix F §matchReference qualifiedName). If the ::
-// separator is missing or the hierarchy is wrong, cross-reference lookups fail.
-// ---------------------------------------------------------------------------
-
+// Qualified names ("User::FullName") are the name matcher's lookup key; a wrong
+// separator or hierarchy fails every cross-reference lookup.
 func TestExtractor_QualifiedNameHierarchy(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -517,22 +434,15 @@ func TestExtractor_QualifiedNameHierarchy(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// The FullName method should be qualified as something containing "::"
-	// when the extractor is inside the struct scope.
-	// (Go methods are not lexically inside the struct, so FullName may just be
-	// "FullName" — but the struct's fields should be "User::ID", "User::Name".)
+	// Go methods sit outside the struct lexically, so FullName stays bare;
+	// fields are the nodes that must carry the "User::" prefix.
 	idField := findNode(result.Nodes, types.NodeKindField, "ID")
 	if idField != nil && !strings.Contains(idField.QualifiedName, "::") {
 		t.Errorf("field ID qualified name = %q, expected to contain \"::\"", idField.QualifiedName)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_NodeIDFormat
-// WHY: Node IDs follow the appendix-B formula (kind:hex32). Any deviation
-// breaks every edge in the graph that references this node.
-// ---------------------------------------------------------------------------
-
+// Node ids are kind:hex32; any deviation breaks every edge referencing the node.
 func TestExtractor_NodeIDFormat(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -547,7 +457,6 @@ func TestExtractor_NodeIDFormat(t *testing.T) {
 			}
 			continue
 		}
-		// Non-file nodes must be "kind:hex32".
 		prefix := string(n.Kind) + ":"
 		if !strings.HasPrefix(n.ID, prefix) {
 			t.Errorf("node %q (kind=%s) ID %q does not start with %q", n.Name, n.Kind, n.ID, prefix)
@@ -559,14 +468,9 @@ func TestExtractor_NodeIDFormat(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_InterfaceExtracted
-// WHY: Go interfaces (type Namer interface{}) must be stored as NodeKindInterface,
-// not NodeKindStruct. Resolution's kind-promotion (calls→instantiates when target
-// is class/struct, extends→implements when target is interface) depends on the
-// correct kind. A misclassified interface silently breaks edge promotion at CP13.
-// ---------------------------------------------------------------------------
-
+// Resolution's kind promotion (calls→instantiates for struct targets,
+// extends→implements for interface targets) reads the node kind, so an
+// interface misclassified as a struct silently breaks edge promotion.
 func TestExtractor_InterfaceExtracted(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -577,7 +481,6 @@ func TestExtractor_InterfaceExtracted(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// The fixture defines: type Namer interface { Name() string }
 	iface := findNode(result.Nodes, types.NodeKindInterface, "Namer")
 	if iface == nil {
 		t.Fatalf("Namer interface not found as NodeKindInterface; nodes: %v", nodeKindList(result.Nodes))
@@ -587,18 +490,12 @@ func TestExtractor_InterfaceExtracted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_TypeAliasExtracted
-// WHY: Go type aliases (type Label = string) must be stored as NodeKindTypeAlias.
-// The search layer assigns kindBonus=6 to type_alias — wrong classification
-// silently changes search ranking and resolution confidence scores.
-// ---------------------------------------------------------------------------
-
+// Search assigns kindBonus=6 to type_alias, so a misclassified alias silently
+// shifts search ranking and resolution confidence.
 func TestExtractor_TypeAliasExtracted(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
 
-	// goFixture already contains: type Label = string
 	result := e.Extract(ctx, goFixturePath, goFixture, types.LanguageGo)
 
 	if len(result.Errors) > 0 {
@@ -614,41 +511,26 @@ func TestExtractor_TypeAliasExtracted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_NamedTypeExtracted
-// WHY: Go named types (type Status int) that are neither struct nor interface
-// nor alias should be stored as NodeKindTypeAlias (closest kind per appendix C
-// — no "named_type" kind exists). Consistent classification is required so
-// search rankings and resolution scores behave predictably.
-// ---------------------------------------------------------------------------
-
+// A named type (type Status int) is neither struct, interface, nor alias, but
+// there is no named_type NodeKind — it lands on NodeKindTypeAlias, the closest.
 func TestExtractor_NamedTypeExtracted(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
 
-	// goFixture contains: type Status int
 	result := e.Extract(ctx, goFixturePath, goFixture, types.LanguageGo)
 
 	if len(result.Errors) > 0 {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// Status is a named type (type Status int) — stored as NodeKindTypeAlias
-	// because there is no dedicated "named_type" NodeKind in appendix C.
 	namedType := findNode(result.Nodes, types.NodeKindTypeAlias, "Status")
 	if namedType == nil {
 		t.Fatalf("Status named type not found as NodeKindTypeAlias; nodes: %v", nodeKindList(result.Nodes))
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_IsExported
-// WHY: IsExported drives the resolution +10 scoring bonus for exported symbols
-// (appendix F). If always false, every exported Go symbol loses the bonus and
-// cross-file resolution confidence degrades. GoIsExportedByName is the real
-// test — this test verifies it is wired through to the node's IsExported field.
-// ---------------------------------------------------------------------------
-
+// IsExported drives resolution's +10 exported-symbol bonus. GoIsExportedByName
+// is tested on its own; this only proves it reaches the node field.
 func TestExtractor_IsExported(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -659,7 +541,6 @@ func TestExtractor_IsExported(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// Exported: NewUser (function), User (struct), FullName (method), Namer (interface)
 	for _, tc := range []struct {
 		kind types.NodeKind
 		name string
@@ -682,63 +563,37 @@ func TestExtractor_IsExported(t *testing.T) {
 		}
 	}
 
-	// Fields are lower-case by convention in the fixture: ID, Name are capitalized
-	// but they are field_declaration nodes — test one that must be exported.
+	// Fields take the same uppercase-first rule, on a different node kind.
 	idField := findNode(result.Nodes, types.NodeKindField, "ID")
 	if idField != nil && !idField.IsExported {
 		t.Errorf("field ID: IsExported = false, want true (starts with uppercase)")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractor_BestEffortPartialResultSurvives
-// WHY: When visitChildren encounters a top-level error on a subsequent node,
-// the extractor must return the partial result (file node + already-extracted
-// nodes) with the error appended, not a fresh empty struct. The file: node
-// surviving is the minimum signal that partial extraction is working — callers
-// rely on it for provenance tracking.
-// ---------------------------------------------------------------------------
-
+// A per-node error inside visitChildren must leave the partial result intact —
+// file: node first, already-extracted nodes kept — not a fresh empty struct;
+// callers read Nodes[0] for provenance. The error cannot be injected without
+// touching extractor internals, so the invariant is pinned on the happy path.
 func TestExtractor_BestEffortPartialResultSurvives(t *testing.T) {
-	// This test uses a real extraction of valid Go source to verify that the
-	// file: node is always present in the result, regardless of any per-node
-	// errors encountered during visitChildren. Since we cannot inject a
-	// top-level error without modifying the extractor internals, we verify the
-	// invariant on the happy path: result.Nodes[0] is always the file: node.
 	ctx := context.Background()
 	e := newGoExtractor(t)
 
 	result := e.Extract(ctx, goFixturePath, goFixture, types.LanguageGo)
 
-	// File: node must survive even when visitChildren appends per-node errors.
 	fileNode := findNode(result.Nodes, types.NodeKindFile, goFixturePath)
 	if fileNode == nil {
 		t.Fatalf("file: node missing from result — partial result contract violated; nodes: %v", nodeKindList(result.Nodes))
 	}
 
-	// Verify it is always the first node (callers depend on this for provenance).
 	if len(result.Nodes) > 0 && result.Nodes[0].Kind != types.NodeKindFile {
 		t.Errorf("result.Nodes[0].Kind = %q, want NodeKindFile — file: node must be first", result.Nodes[0].Kind)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Function-scope local-variable suppression (FunctionScopeTypes)
-// ---------------------------------------------------------------------------
-
-// scopeSuppressionFixture exercises every case in the spec's success criteria:
-// a module-scope const (kept), a const inside a single arrow callback (dropped),
-// a const nested two arrow-callbacks deep (dropped), a const inside a
-// function_expression callback body (dropped), a const inside a
-// generator_function callback body (dropped), and two destructuring
-// declarations — one at module scope, one inside a callback — both dropped by
-// the identifier guard regardless of depth. Every declaration's initializer
-// contains a call so the "walk continues either way" contract is exercised for
-// every suppressed case, not just the kept one. The function_expression and
-// generator_function cases are call arguments (not named declarations), so
-// they are reached via visitChildren the same way the arrow callback is —
-// this exercises the FunctionScopeTypes membership for those two kinds
-// specifically, not just arrow_function.
+// scopeSuppressionFixture covers each FunctionScopeTypes member (arrow_function,
+// function_expression, generator_function), nesting, and destructuring. Every
+// initializer holds a call so the walk-continues contract is exercised on the
+// suppressed declarations too. See docs/spec/code-intel-local-variable-suppression.md.
 const scopeSuppressionFixture = `export const moduleConst = 1;
 
 items.forEach((item) => {
@@ -772,14 +627,9 @@ items.forEach((item) => {
 
 const scopeSuppressionFixturePath = "src/scope.ts"
 
-// TestExtractor_FunctionScopeSuppression_TS is the failing-first test for the
-// checkpoint: before FunctionScopeTypes/scopeDepth landed, "inCallback",
-// "twoDeep", "{ a, b }", and "{ c }" were ALL minted as variable nodes parented
-// to the file node (verified against pre-fix extractor.go + typescript.go).
-// WHY: TS/JS function-body locals were an orphan starfield in the graph (51%
-// of nodes on a real repo, per the design doc) and a source of false calls
-// edges (cross-file resolution landing on test-local names). Only
-// module-scope, single-identifier declarations should mint a node.
+// TS/JS function-body locals used to mint nodes: 51% of a real repo's graph was
+// orphaned, and cross-file resolution landed calls edges on test-local names.
+// Only module-scope, single-identifier declarations may mint a node.
 func TestExtractor_FunctionScopeSuppression_TS(t *testing.T) {
 	ctx := context.Background()
 	e := newTSExtractor(t)
@@ -788,42 +638,34 @@ func TestExtractor_FunctionScopeSuppression_TS(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// Kept: module-scope const.
 	if n := findNode(result.Nodes, types.NodeKindVariable, "moduleConst"); n == nil {
 		t.Errorf("moduleConst not found as a variable node; nodes: %s", nodeKindList(result.Nodes))
 	}
 
-	// Dropped: const inside a single arrow callback.
 	if n := findNode(result.Nodes, types.NodeKindVariable, "inCallback"); n != nil {
 		t.Errorf("inCallback minted as a variable node (want suppressed — scopeDepth 1); nodes: %s", nodeKindList(result.Nodes))
 	}
 
-	// Dropped: const nested two arrow callbacks deep.
 	if n := findNode(result.Nodes, types.NodeKindVariable, "twoDeep"); n != nil {
 		t.Errorf("twoDeep minted as a variable node (want suppressed — scopeDepth 2); nodes: %s", nodeKindList(result.Nodes))
 	}
 
-	// Dropped: const inside a function_expression callback body — proves
-	// FunctionScopeTypes suppression for "function_expression" specifically,
-	// not only "arrow_function".
 	if n := findNode(result.Nodes, types.NodeKindVariable, "inFunctionExpr"); n != nil {
 		t.Errorf("inFunctionExpr minted as a variable node (want suppressed — function_expression scope); nodes: %s", nodeKindList(result.Nodes))
 	}
 
-	// Dropped: const inside a generator_function callback body — proves
-	// FunctionScopeTypes suppression for "generator_function" specifically.
 	if n := findNode(result.Nodes, types.NodeKindVariable, "inGenerator"); n != nil {
 		t.Errorf("inGenerator minted as a variable node (want suppressed — generator_function scope); nodes: %s", nodeKindList(result.Nodes))
 	}
 
-	// Dropped everywhere: destructuring patterns, module scope and callback.
+	// Destructuring is dropped at module scope too — the guard is on the name
+	// shape, not the depth.
 	for _, name := range []string{"a", "b", "c", "{ a, b }", "{ c }"} {
 		if n := findNode(result.Nodes, types.NodeKindVariable, name); n != nil {
 			t.Errorf("destructuring pattern minted a variable node (name %q); nodes: %s", n.Name, nodeKindList(result.Nodes))
 		}
 	}
 
-	// Total variable-kind node count: exactly one (moduleConst).
 	varCount := 0
 	for _, n := range result.Nodes {
 		if n.Kind == types.NodeKindVariable {
@@ -834,8 +676,8 @@ func TestExtractor_FunctionScopeSuppression_TS(t *testing.T) {
 		t.Errorf("variable node count = %d, want 1 (moduleConst only); nodes: %s", varCount, nodeKindList(result.Nodes))
 	}
 
-	// "Walk continues either way": every call in every declaration's
-	// initializer — kept or suppressed — is still harvested as a calls ref.
+	// Suppressing the node must not stop the walk: initializer calls are still
+	// harvested from the declarations that minted nothing.
 	wantCalls := []string{
 		"forEach", "helperCall", "outerCallback", "innerCallback", "log",
 		"callbackWithFunctionExpr", "functionExprCall",
@@ -855,16 +697,8 @@ func TestExtractor_FunctionScopeSuppression_TS(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// No-op languages: byte-identical output (FunctionScopeTypes/VariableTypes
-// gating must be inert for languages that never invoke the new code paths).
-// ---------------------------------------------------------------------------
-
-// TestExtractor_GoByteIdenticalAfterScopeSuppression pins the Go fixture's
-// exact node/edge/ref counts. Go has no VariableTypes config at all, so
-// extractSimpleNode is never called with NodeKindVariable for Go — the new
-// gating is structurally unreachable. Counts verified identical against
-// pre-fix extractor.go (stash-and-rerun) before this test was written.
+// Go has no VariableTypes config, so scope-suppression gating is structurally
+// unreachable for it. These exact counts pin that it stays inert.
 func TestExtractor_GoByteIdenticalAfterScopeSuppression(t *testing.T) {
 	ctx := context.Background()
 	e := newGoExtractor(t)
@@ -882,10 +716,6 @@ func TestExtractor_GoByteIdenticalAfterScopeSuppression(t *testing.T) {
 		t.Errorf("Go unresolved-ref count = %d, want 4 (byte-identical to pre-change)", len(result.UnresolvedReferences))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// helper — format node kinds for test output
-// ---------------------------------------------------------------------------
 
 func nodeKindList(nodes []types.Node) string {
 	sb := strings.Builder{}

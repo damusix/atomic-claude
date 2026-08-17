@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// --- Registry writer tests ---
-
 // TestRegistry_BlockAbsent_AppendsAfterAtomicClose verifies that when CLAUDE.md
 // exists with an <atomic> block but no <wikis> block, the registry writer appends
 // the <wikis> block immediately after </atomic> and leaves everything else byte-identical.
@@ -63,8 +61,6 @@ func TestRegistry_BlockAbsent_AppendsAfterAtomicClose(t *testing.T) {
 	}
 }
 
-// TestRegistry_BlockAbsent_NoAtomicTag_AppendsAtEOF verifies that when there is
-// no <atomic> block at all, the <wikis> block is appended at EOF.
 func TestRegistry_BlockAbsent_NoAtomicTag_AppendsAtEOF(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(dir, "CLAUDE.md")
@@ -97,8 +93,6 @@ func TestRegistry_BlockAbsent_NoAtomicTag_AppendsAtEOF(t *testing.T) {
 	}
 }
 
-// TestRegistry_FileAbsent_CreatesWithBlock verifies that when CLAUDE.md does not
-// exist at all, the writer creates it containing only the <wikis> block.
 func TestRegistry_FileAbsent_CreatesWithBlock(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(dir, "CLAUDE.md")
@@ -123,8 +117,6 @@ func TestRegistry_FileAbsent_CreatesWithBlock(t *testing.T) {
 	}
 }
 
-// TestRegistry_Idempotent verifies that calling RegisterWiki twice with the same
-// path does not add a duplicate entry.
 func TestRegistry_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(dir, "CLAUDE.md")
@@ -152,8 +144,6 @@ func TestRegistry_Idempotent(t *testing.T) {
 	}
 }
 
-// TestRegistry_NormalizedPathDedup verifies that two spellings of the same path
-// (one with trailing component relative, one absolute) produce only one entry.
 func TestRegistry_NormalizedPathDedup(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(dir, "CLAUDE.md")
@@ -336,8 +326,6 @@ func TestRegistry_ProseMentionNotMatched(t *testing.T) {
 	}
 }
 
-// --- wikiAction integration tests ---
-
 // TestWikiAction_ScanWritesRegistryAndHandoff verifies that wikiAction:
 //   - calls Scan (scaffold + wiki-scan block)
 //   - writes registry entry to the temp claudeHome's CLAUDE.md
@@ -404,7 +392,6 @@ func TestWikiAction_ScanWritesRegistryAndHandoff(t *testing.T) {
 	}
 }
 
-// TestWikiAction_RootFlag verifies that --root=<path> selects the scan root.
 func TestWikiAction_RootFlag(t *testing.T) {
 	root := t.TempDir()
 	claudeHome := t.TempDir()
@@ -427,7 +414,6 @@ func TestWikiAction_RootFlag(t *testing.T) {
 	}
 }
 
-// TestWikiAction_NoRootFlag_UsesCwd verifies that bare `atomic wiki scan` uses cwd.
 func TestWikiAction_NoRootFlag_UsesCwd(t *testing.T) {
 	cwd := t.TempDir()
 	claudeHome := t.TempDir()

@@ -2,12 +2,9 @@ package claudeinstall
 
 import "testing"
 
-// The <atomic> block parser is the foundation for deterministic CLAUDE.md
-// updates: install/update must replace exactly the atomic-owned block and
-// nothing else. These tests pin the line-anchored detection semantics
-// (mirroring the <wikis> block parser in internal/wiki): a line whose
-// trimmed content is exactly "<atomic>" opens, "</atomic>" closes. Inline
-// or backtick mentions never match.
+// These pin the line-anchored detection semantics: only a line whose trimmed
+// content is exactly "<atomic>" opens and "</atomic>" closes, so an inline or
+// backtick mention never shifts the block install/update replaces.
 
 func TestExtractAtomicBlockHappyPath(t *testing.T) {
 	content := "# CLAUDE.md\n\n<atomic>\n\n## Principles\n\nstuff\n\n</atomic>\n\n## User section\n"

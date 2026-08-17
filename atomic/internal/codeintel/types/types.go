@@ -1,29 +1,17 @@
-// Package types defines the shared data contract for the code-intelligence
-// engine. Every layer — extraction, resolution, graph, search, and the engine
-// facade — depends on this package and nothing else from within the engine.
+// Package types is the shared data contract every engine layer depends on, and
+// the only engine package it may depend on in turn.
 //
-// # Cross-cutting Go conventions (decided once here)
+// Three conventions are settled here rather than per-layer.
 //
-// JSON-in-TEXT columns (decorators, type_parameters, metadata, candidates,
-// errors): stored as json.RawMessage. Rationale: these columns are opaque JSON
-// blobs at the types layer; their internal schemas belong to the extraction and
-// resolution layers, not to the shared contract. json.RawMessage roundtrips
-// without mutation, represents SQL NULL as nil, and defers schema decisions to
-// the db layer (CP3/CP4) without forcing typed structs into the shared contract
-// prematurely. If a layer needs to inspect a specific field it unmarshals into
-// a local type; the contract layer stays schema-agnostic.
+// JSON-in-TEXT columns stay json.RawMessage: their schemas belong to extraction
+// and resolution, so the contract layer stays schema-agnostic. A layer needing a
+// field unmarshals into a local type.
 //
-// Integer-bool flags (is_exported, is_async, is_static, is_const): struct
-// fields use Go bool. The db layer (CP3) is responsible for scanning SQLite
-// INTEGER columns (0/1) into bool — modernc.org/sqlite does not auto-convert,
-// so the db layer must do: var n int; rows.Scan(&n); node.IsExported = n != 0.
-// No db code lives in this package.
+// Integer-bool columns are Go bool here, but modernc.org/sqlite will not convert
+// them, so the db layer must scan into an int and compare against 0 itself.
 //
-// Subgraph stable sort: Subgraph.Nodes is map[string]Node for O(1) lookup,
-// but Go map iteration is non-deterministic. Any code that serialises or
-// renders a Subgraph must iterate nodes in a stable order. Use
-// SubgraphSortedNodes to obtain a []Node sorted ascending by Node.ID. Never
-// range over Subgraph.Nodes directly in serialisation paths.
+// Subgraph.Nodes is a map, so anything that serialises or renders a Subgraph
+// must go through SubgraphSortedNodes rather than ranging it directly.
 package types
 
 import (
@@ -32,12 +20,8 @@ import (
 	"sort"
 )
 
-// ---------------------------------------------------------------------------
-// NodeKind — the 38 node-type strings (appendix C, verbatim)
-// ---------------------------------------------------------------------------
-
-// NodeKind is the type of a symbol node in the knowledge graph. The string
-// value is stored in SQLite and must never be changed once data is on disk.
+// NodeKind is the type of a symbol node. These string values are persisted in
+// SQLite, so none may ever be renamed once an index exists on disk.
 type NodeKind string
 
 const (
@@ -63,7 +47,7 @@ const (
 	NodeKindExport     NodeKind = "export"
 	NodeKindRoute      NodeKind = "route"
 	NodeKindComponent  NodeKind = "component"
-	// SQL-specific kinds (added for SQL language support).
+	// SQL
 	NodeKindTable      NodeKind = "table"
 	NodeKindView       NodeKind = "view"
 	NodeKindColumn     NodeKind = "column"
@@ -73,7 +57,7 @@ const (
 	NodeKindIndex      NodeKind = "index"
 	NodeKindSequence   NodeKind = "sequence"
 	NodeKindPolicy     NodeKind = "policy"
-	// Snowflake/dbt-specific kinds (added for dbt+Snowflake SQL extraction).
+	// Snowflake and dbt
 	NodeKindStage      NodeKind = "stage"
 	NodeKindStream     NodeKind = "stream"
 	NodeKindTask       NodeKind = "task"
@@ -81,15 +65,12 @@ const (
 	NodeKindFileFormat NodeKind = "file_format"
 	NodeKindMacro      NodeKind = "macro"
 	NodeKindScript     NodeKind = "script"
-	// NodeKindPackage is a synthesized shared hub for an external import
-	// specifier (docs/design/code-intel-package-nodes.md) — one node per
-	// resolved package identity, converging every importer's edge onto a
-	// single target instead of leaving each import node an orphan.
+	// Synthesized hub, one per external package identity, so importers converge
+	// on a single target instead of each import node orphaning.
 	NodeKindPackage NodeKind = "package"
 )
 
-// AllNodeKinds is the complete set of NodeKind values, ordered as in
-// appendix C. Use for iteration and validation; do not append to this slice.
+// AllNodeKinds is every NodeKind, for iteration and validation. Read-only.
 var AllNodeKinds = []NodeKind{
 	NodeKindFile,
 	NodeKindModule,
@@ -132,13 +113,8 @@ var AllNodeKinds = []NodeKind{
 	NodeKindPackage,
 }
 
-// ---------------------------------------------------------------------------
-// EdgeKind — the 12 edge-type strings (appendix C, verbatim)
-// ---------------------------------------------------------------------------
-
-// EdgeKind is the relationship type between two nodes in the knowledge graph.
-// The string value is stored in SQLite and must never be changed once data is
-// on disk.
+// EdgeKind is the relationship between two nodes. Persisted like NodeKind, with
+// the same no-rename rule.
 type EdgeKind string
 
 const (
@@ -154,14 +130,12 @@ const (
 	EdgeKindInstantiates EdgeKind = "instantiates"
 	EdgeKindOverrides    EdgeKind = "overrides"
 	EdgeKindDecorates    EdgeKind = "decorates"
-	// EdgeKindWrites records a routine→table mutation: INSERT INTO / UPDATE /
-	// DELETE FROM / MERGE INTO in a function or procedure body. Lets
-	// code-impact distinguish writers from readers (references).
+	// A routine→table mutation, so impact analysis can tell writers from the
+	// readers recorded as references.
 	EdgeKindWrites EdgeKind = "writes"
 )
 
-// AllEdgeKinds is the complete set of EdgeKind values, ordered as in
-// appendix C. Use for iteration and validation; do not append to this slice.
+// AllEdgeKinds is every EdgeKind, for iteration and validation. Read-only.
 var AllEdgeKinds = []EdgeKind{
 	EdgeKindContains,
 	EdgeKindCalls,
@@ -178,34 +152,18 @@ var AllEdgeKinds = []EdgeKind{
 	EdgeKindWrites,
 }
 
-// ReferenceKindSQLString is a discriminator value valid only in
-// UnresolvedReference.ReferenceKind — it is never a valid Edge.Kind and is
-// deliberately excluded from AllEdgeKinds. It marks a speculative reference
-// harvested from a host-language string literal that looks identifier-shaped
-// but failed the embedded-SQL admission gate (docs/spec/sql-string-match.md
-// C1). The standard resolution pipeline filters these refs out before
-// resolveOne ever sees one; passes A/B (C2/C3) consume them instead and
-// always create edges with Kind: EdgeKindReferences explicitly.
+// ReferenceKindSQLString and ReferenceKindSQLFragment are discriminators valid
+// only in UnresolvedReference.ReferenceKind — never an Edge.Kind, hence their
+// absence from AllEdgeKinds. Both mark speculative references harvested from
+// host-language string literals; the standard pipeline drops them, and the
+// SQL string-match passes that consume them always emit EdgeKindReferences.
+// See docs/spec/sql-string-match.md.
 const ReferenceKindSQLString EdgeKind = "sql_string"
 
-// ReferenceKindSQLFragment is a discriminator value valid only in
-// UnresolvedReference.ReferenceKind — it is never a valid Edge.Kind and is
-// deliberately excluded from AllEdgeKinds. It marks a speculative reference
-// harvested from a host-language string literal that failed both C1's
-// identifier shape and the embedded-SQL admission gate, but passed the C8
-// fragment gate (docs/spec/sql-string-match.md C8). The standard resolution
-// pipeline filters these refs out before resolveOne ever sees one; passes
-// A/B (C2/C3) consume them instead and always create edges with Kind:
-// EdgeKindReferences explicitly.
 const ReferenceKindSQLFragment EdgeKind = "sql_fragment"
 
-// ---------------------------------------------------------------------------
-// Language — the 31 language strings (appendix C, verbatim)
-// ---------------------------------------------------------------------------
-
-// Language identifies the programming language of a file or node.
-// The string value is stored in SQLite and must never be changed once data is
-// on disk.
+// Language identifies the language of a file or node. Persisted like NodeKind,
+// with the same no-rename rule.
 type Language string
 
 const (
@@ -243,8 +201,7 @@ const (
 	LanguageErlang     Language = "erlang"
 )
 
-// AllLanguages is the complete set of Language values, ordered as in
-// appendix C. Use for iteration and validation; do not append to this slice.
+// AllLanguages is every Language, for iteration and validation. Read-only.
 var AllLanguages = []Language{
 	LanguageTypeScript,
 	LanguageJavaScript,
@@ -280,20 +237,8 @@ var AllLanguages = []Language{
 	LanguageErlang,
 }
 
-// ---------------------------------------------------------------------------
-// Core structs (appendix C + appendix A column names)
-// ---------------------------------------------------------------------------
-
-// Node is a symbol in the knowledge graph. Field names follow appendix A
-// schema columns (snake_case → CamelCase). JSON tags use the schema column
-// names so that any JSON serialisation of nodes stays wire-compatible with the
-// reference data model.
-//
-// JSON-in-TEXT fields (Decorators, TypeParameters, Metadata): see package doc
-// for the json.RawMessage convention.
-//
-// IsExported, IsAsync, IsStatic, IsConst: Go bool; the db layer scans SQLite
-// INTEGER (0/1) into bool — see package doc.
+// Node is a symbol in the graph. JSON tags mirror the schema column names, so
+// serialised nodes stay wire-compatible with the reference data model.
 type Node struct {
 	ID             string          `json:"id"`
 	Kind           NodeKind        `json:"kind"`
@@ -318,12 +263,9 @@ type Node struct {
 	UpdatedAt      string          `json:"updated_at,omitempty"`
 }
 
-// Edge is a directed relationship between two nodes. Field names follow
-// appendix A schema columns.
-//
-// Metadata (JSON-in-TEXT): see package doc for the json.RawMessage convention.
-// Provenance is empty for static edges; "heuristic" for synthesized edges
-// (appendix G — the explore/node renderers depend on this value).
+// Edge is a directed relationship between two nodes. Provenance is empty for
+// statically extracted edges and non-empty for synthesized ones; the explore and
+// node renderers branch on it.
 type Edge struct {
 	ID         int64           `json:"id"`
 	Source     string          `json:"source"`
@@ -335,9 +277,7 @@ type Edge struct {
 	Provenance string          `json:"provenance,omitempty"`
 }
 
-// FileRecord is a row in the files table. Field names follow appendix A.
-//
-// Errors (JSON-in-TEXT): see package doc for the json.RawMessage convention.
+// FileRecord is a row in the files table.
 type FileRecord struct {
 	Path        string          `json:"path"`
 	ContentHash string          `json:"content_hash"`
@@ -349,8 +289,8 @@ type FileRecord struct {
 	Errors      json.RawMessage `json:"errors,omitempty"`
 }
 
-// ExtractionResult is the output of one file extraction. It is not persisted
-// directly; the db layer breaks it into node/edge/unresolved_ref inserts.
+// ExtractionResult is one file's extraction output. Never persisted as a unit —
+// the db layer splits it into node, edge, and unresolved_ref inserts.
 type ExtractionResult struct {
 	Nodes                []Node
 	Edges                []Edge
@@ -358,19 +298,10 @@ type ExtractionResult struct {
 	Errors               []string
 }
 
-// UnresolvedReference is a reference that extraction recorded but resolution
-// has not yet turned into an Edge. Field names follow appendix A schema
-// columns (unresolved_refs table).
-//
-// Candidates (JSON-in-TEXT): a JSON array of candidate node IDs / scores
-// populated by the resolution layer. See package doc for the json.RawMessage
-// convention.
-//
-// Arguments (EE2): the string-literal arguments of the call site, in positional
-// order. Only string-literal args are recorded; non-string args (identifiers,
-// expressions) are skipped. nil means no string args (including non-call refs
-// such as imports). Persisted as a JSON array in the unresolved_refs.arguments
-// TEXT column (added by the v2 forward migration).
+// UnresolvedReference is a reference extraction recorded that resolution has not
+// yet turned into an Edge. Candidates holds resolution's scored node IDs.
+// Arguments holds only the call site's string-literal arguments in positional
+// order, with identifiers and expressions skipped; nil means none.
 type UnresolvedReference struct {
 	ID            string          `json:"id"`
 	FromNodeID    string          `json:"from_node_id"`
@@ -382,35 +313,24 @@ type UnresolvedReference struct {
 	FilePath      string          `json:"file_path"`
 	Language      Language        `json:"language"`
 	Arguments     []string        `json:"arguments,omitempty"`
-	// CalleeExpr is the full callee expression as written for a call/instantiation
-	// ref (e.g. "emitter.on", "DeviceEventEmitter.addListener", "pkg.Func"), while
-	// ReferenceName holds only the bare invoked segment ("on", "addListener",
-	// "Func") that resolution matches against. Empty for non-call refs and for refs
-	// from pre-v3 indexes; consumers that need the receiver (the callback
-	// synthesizers) fall back to ReferenceName when this is empty.
+	// CalleeExpr is the callee as written ("emitter.on"), where ReferenceName is
+	// only the invoked segment ("on") that resolution matches on. Empty for
+	// non-call refs and for older indexes, so receiver-sensitive consumers must
+	// fall back to ReferenceName.
 	CalleeExpr string `json:"callee_expr,omitempty"`
 }
 
-// Subgraph is a self-contained view of a portion of the knowledge graph:
-// a node map for O(1) lookup, a flat edge list, the root node IDs for
-// rendering, and an optional confidence score.
-//
-// Stable-sort rule: Subgraph.Nodes is map[string]Node. Go map iteration is
-// non-deterministic. Any serialisation or rendering that needs a consistent
-// node ordering MUST use SubgraphSortedNodes — never range over Nodes directly.
+// Subgraph is a self-contained view of part of the graph. Nodes is a map for
+// O(1) lookup; serialise it only through SubgraphSortedNodes.
 type Subgraph struct {
 	Nodes      map[string]Node
 	Edges      []Edge
 	Roots      []string
-	Confidence float64 // optional; 0 means unset
+	Confidence float64 // 0 means unset
 }
 
-// SubgraphSortedNodes returns the nodes in sg sorted ascending by Node.ID.
-// The returned slice is a snapshot; mutations do not affect sg.Nodes.
-//
-// This helper exists because Subgraph.Nodes is a map and Go map iteration is
-// non-deterministic. All serialisation and rendering paths must use this
-// function to produce stable, diff-friendly output (see package doc).
+// SubgraphSortedNodes snapshots sg's nodes sorted ascending by ID, giving every
+// serialisation path stable, diff-friendly output. Mutating it does not affect sg.
 func SubgraphSortedNodes(sg Subgraph) []Node {
 	nodes := make([]Node, 0, len(sg.Nodes))
 	for _, n := range sg.Nodes {
@@ -422,18 +342,13 @@ func SubgraphSortedNodes(sg Subgraph) []Node {
 	return nodes
 }
 
-// MergeSubgraphs unions several subgraphs into one: nodes are keyed by ID
-// (last write wins for duplicates), edges are deduped by
-// source/target/kind/line/col, and roots are deduped preserving first-seen
-// order.
+// MergeSubgraphs unions subgraphs: nodes keyed by ID (last write wins), edges
+// deduped on source/target/kind/line/col, roots deduped in first-seen order.
 //
-// This exists because a single symbol name routinely maps to several definition
-// nodes (overloads, an interface and its implementation, two classes that each
-// declare a same-named method). A callers/callees/impact query must run for
-// every matching node and merge the results; querying only the first match
-// silently drops the relationships that live on the siblings — the bug that made
-// `callers $proc` return nothing while 37 caller edges sat on the second `$proc`
-// definition.
+// One symbol name routinely maps to several definition nodes — overloads, an
+// interface and its implementation, two classes declaring the same method — so
+// callers/callees/impact must query every match and merge. Taking only the first
+// match silently drops every relationship sitting on the siblings.
 func MergeSubgraphs(sgs []Subgraph) Subgraph {
 	merged := Subgraph{Nodes: make(map[string]Node)}
 	seenEdge := make(map[string]bool)
@@ -461,31 +376,30 @@ func MergeSubgraphs(sgs []Subgraph) Subgraph {
 	return merged
 }
 
-// TraversalOptions controls how the graph traversal engine follows edges.
+// TraversalOptions controls how the traversal engine follows edges.
 type TraversalOptions struct {
-	// MaxDepth limits the number of hops from the starting node. 0 means
-	// no limit (use with care on dense graphs).
+	// 0 means unlimited, which is punishing on dense graphs.
 	MaxDepth int
-	// EdgeKinds restricts traversal to edges of the given kinds. An empty
-	// slice means follow all edge kinds.
+	// Empty follows every kind.
 	EdgeKinds []EdgeKind
-	// Direction is "outgoing", "incoming", or "both". Defaults to "outgoing".
+	// "outgoing" (default), "incoming", or "both".
 	Direction string
-	// IncludeContains controls whether contains edges are followed.
+	// Whether contains edges are followed.
 	IncludeContains bool
 }
 
-// SearchOptions parameterises a node search query.
+// SearchOptions parameterises a node search query. Zero-valued filters match
+// everything; Limit 0 defers to the caller's default.
 type SearchOptions struct {
-	// Query is the raw search string (may include field: prefixes).
+	// May include field: prefixes.
 	Query string
-	// Kind filters results to a specific node kind. Empty means all kinds.
+	// Empty means all kinds.
 	Kind NodeKind
-	// Language filters results to a specific language. Empty means all.
+	// Empty means all languages.
 	Language Language
-	// FilePath is a case-insensitive substring filter on file_path.
+	// Case-insensitive substring match on file_path.
 	FilePath string
-	// Limit caps the number of results. 0 means the caller's default.
+	// 0 means the caller's default.
 	Limit int
 }
 
@@ -495,11 +409,8 @@ type SearchResult struct {
 	Score float64
 }
 
-// Context is the formatted output of the context builder: structured markdown
-// or JSON ready to hand to an AI agent.
-//
-// Source is "fts", "like", or "fuzzy" depending on which search tier produced
-// the results (appendix J).
+// Context is the context builder's agent-ready markdown or JSON. Source names
+// the search tier that produced it: "fts", "like", or "fuzzy".
 type Context struct {
 	Content   string
 	Truncated bool
@@ -508,8 +419,7 @@ type Context struct {
 	EdgeCount int
 }
 
-// CodeBlock holds a code excerpt with its location metadata, used when
-// including source in context or node details.
+// CodeBlock is a source excerpt with its location.
 type CodeBlock struct {
 	Content   string
 	FilePath  string
@@ -518,8 +428,7 @@ type CodeBlock struct {
 	Language  Language
 }
 
-// GraphStats summarises the current state of the index. Returned by
-// engine.GetStats and surfaced by `atomic code status`.
+// GraphStats summarises the index, as surfaced by `atomic code status`.
 type GraphStats struct {
 	NodeCount     int
 	EdgeCount     int

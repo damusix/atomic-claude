@@ -9,14 +9,12 @@ import (
 	"time"
 )
 
-// chatTestTimeout bounds every wait in this file, per the checkpoint
-// brief: no test here may be capable of hanging the suite.
+// chatTestTimeout bounds every wait here: no test may be able to hang the suite.
 const chatTestTimeout = 2 * time.Second
 
-// syncBuffer is a mutex-guarded io.Writer with a String() reader — Chat.Run
-// executes in its own goroutine in every test here while the test goroutine
-// writes input and polls output, so a plain bytes.Buffer (unsafe for
-// concurrent use) would race under `go test -race`.
+// syncBuffer is a mutex-guarded io.Writer with a String() reader. Chat.Run runs
+// in its own goroutine in every test here while the test writes input and polls
+// output, so a plain bytes.Buffer would race under -race.
 type syncBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -40,12 +38,10 @@ type sendCall struct {
 	to   []string
 }
 
-// chatHarness bundles a Chat wired to spies plus the pipe feeding its
-// input, so each test only assembles what it actually exercises. in and
-// out are connected through a real io.Pipe: a pipe write blocks until
-// Chat.Run's own reader goroutine consumes it, so every test here starts
-// Run first (via start) and only writes input afterward — writing before
-// Run exists to read it would deadlock the pipe.
+// chatHarness bundles a Chat wired to spies plus the pipe feeding its input. in
+// and out are a real io.Pipe: a write blocks until Chat.Run's reader consumes
+// it, so every test starts Run first and only then writes — writing before Run
+// exists to read would deadlock the pipe.
 type chatHarness struct {
 	chat *Chat
 	out  *syncBuffer
@@ -151,10 +147,8 @@ func (h *chatHarness) wait(t *testing.T, done <-chan error) error {
 	}
 }
 
-// waitForOutput polls h.out until it contains want, bounded by
-// chatTestTimeout — the same poll-until-condition pattern action_test.go's
-// publishUntilDelivered/waitForDaemonGone use for the identical reason:
-// there is no other signal to synchronize on across the goroutine boundary.
+// waitForOutput polls h.out until it contains want. There is no other signal to
+// synchronize on across the goroutine boundary.
 func (h *chatHarness) waitForOutput(t *testing.T, want string) {
 	t.Helper()
 	deadline := time.Now().Add(chatTestTimeout)
@@ -358,8 +352,8 @@ func TestChat_SlashQuit_ExitsCleanlyAndLeaves(t *testing.T) {
 	h := newChatHarness(nil)
 	done := h.start(t)
 	h.writeInput(t, "/quit\n")
-	// Deliberately not closing the pipe: /quit must end Run on its own,
-	// without relying on EOF.
+	// Deliberately not closing the pipe: /quit must end Run on its own, without
+	// relying on EOF.
 
 	if err := h.wait(t, done); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -402,20 +396,18 @@ func TestChat_EOFOnInput_ExitsCleanlyAndLeaves(t *testing.T) {
 
 // --- envelope delivery: must not corrupt a half-typed input line ---
 
-// TestChat_EnvelopeMidInput_DoesNotCorruptPendingLine_BuffersAndCounts is the
-// checkpoint's two hardest requirements proven together: an envelope
-// arriving while the operator has typed a partial, unsubmitted line must
-// not interleave into the transcript (it is held and counted instead), and
-// the partial line itself must survive intact so the operator can keep
-// typing and eventually submit exactly what they started.
+// The two hardest requirements together: an envelope arriving while a partial
+// line is unsubmitted must not interleave into the transcript (it is held and
+// counted), and the partial line must survive intact so the operator can finish
+// and submit exactly what they started.
 func TestChat_EnvelopeMidInput_DoesNotCorruptPendingLine_BuffersAndCounts(t *testing.T) {
 	envelopes := make(chan Envelope, 4)
 	h := newChatHarness(envelopes)
 	done := h.start(t)
 
-	// Type a partial line — deliberately no trailing newline — and wait
-	// for it to actually reach the (separate) Run goroutine and get
-	// echoed, so the envelope sent next is unambiguously "mid-input".
+	// A partial line with no trailing newline, waited on so it has reached the
+	// separate Run goroutine and been echoed — making the next envelope
+	// unambiguously mid-input.
 	h.writeInput(t, "hello wor")
 	h.waitForOutput(t, "> hello wor")
 
@@ -454,11 +446,9 @@ func TestChat_EnvelopeMidInput_DoesNotCorruptPendingLine_BuffersAndCounts(t *tes
 	}
 }
 
-// TestChat_MultipleEnvelopesWhileComposing_CountAccumulatesThenFlushesInOrder
-// is the "scrolled up" backpressure requirement in isolation: several
-// envelopes arriving during one composition must accumulate a growing
-// count rather than each yanking a line into the transcript, and must
-// flush in arrival order once the operator stops composing.
+// The backpressure requirement in isolation: several envelopes arriving during
+// one composition accumulate a growing count rather than each yanking a line
+// into the transcript, and flush in arrival order once composing stops.
 func TestChat_MultipleEnvelopesWhileComposing_CountAccumulatesThenFlushesInOrder(t *testing.T) {
 	envelopes := make(chan Envelope, 4)
 	h := newChatHarness(envelopes)
@@ -479,8 +469,7 @@ func TestChat_MultipleEnvelopesWhileComposing_CountAccumulatesThenFlushesInOrder
 		t.Fatalf("buffered envelopes leaked into the transcript before the line was submitted: %q", h.out.String())
 	}
 
-	// Backspace all the way to empty: per the buffering contract this must
-	// flush on its own, without requiring Enter.
+	// Backspacing to empty must flush on its own, without requiring Enter.
 	for range "still typing" {
 		h.writeInput(t, "\x7f")
 	}
@@ -499,9 +488,8 @@ func TestChat_MultipleEnvelopesWhileComposing_CountAccumulatesThenFlushesInOrder
 	}
 }
 
-// TestChat_EnvelopeWhileIdle_PrintsImmediately proves the non-buffered
-// path: with nothing pending, an arriving envelope must render right away,
-// not wait for anything.
+// The non-buffered path: with nothing pending, an arriving envelope renders
+// right away.
 func TestChat_EnvelopeWhileIdle_PrintsImmediately(t *testing.T) {
 	envelopes := make(chan Envelope, 1)
 	h := newChatHarness(envelopes)
@@ -517,9 +505,8 @@ func TestChat_EnvelopeWhileIdle_PrintsImmediately(t *testing.T) {
 	}
 }
 
-// TestChat_ClosedEnvelopeChannel_EndsRunCleanly proves the subscription
-// dying (channel closed, e.g. the daemon connection dropped) ends the chat
-// session rather than leaving Run blocked forever.
+// A dying subscription (channel closed, e.g. the daemon connection dropped) ends
+// the chat session rather than leaving Run blocked forever.
 func TestChat_ClosedEnvelopeChannel_EndsRunCleanly(t *testing.T) {
 	envelopes := make(chan Envelope)
 	h := newChatHarness(envelopes)

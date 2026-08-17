@@ -1,20 +1,6 @@
 package frameworks_test
 
-// Tests for CP15 batch E (Elixir): phoenix resolver.
-//
-// NOTE ON LANGUAGE: Elixir is a supported language (types.LanguageElixir).
-// Route nodes and refs carry LanguageElixir. Languages() returns
-// [types.LanguageElixir]. getApplicableResolvers(LanguageElixir) includes
-// this resolver so Extract runs on indexed .ex router files.
-//
-// Coverage:
-//  1. Detect true on mix.exs with :phoenix dep + false otherwise.
-//  2. Extract: get/post/put/patch/delete → uppercase method + :action atom handler ref.
-//  3. Route nodes carry LanguageElixir.
-//  4. A `# get "/x"` commented-out route emits NOTHING (# line stripping).
-//  5. Resolve 0.8–0.9 + ClaimsReference.
-//  6. Representative realworld router.ex fixture: routes + refs carry LanguageElixir.
-//  7. getApplicableResolvers(LanguageElixir) includes PhoenixResolver.
+// Phoenix resolver tests.
 
 import (
 	"context"
@@ -389,7 +375,6 @@ func TestPhoenixLanguages_ElixirUngated(t *testing.T) {
 	}
 }
 
-// elixirNodeIDs is a test helper.
 func elixirNodeIDs(nodes []types.Node) []string {
 	ids := make([]string, len(nodes))
 	for i, n := range nodes {
@@ -398,7 +383,6 @@ func elixirNodeIDs(nodes []types.Node) []string {
 	return ids
 }
 
-// elixirNodeNames is a test helper that returns node Name fields.
 func elixirNodeNames(nodes []types.Node) []string {
 	names := make([]string, len(nodes))
 	for i, n := range nodes {
@@ -407,7 +391,6 @@ func elixirNodeNames(nodes []types.Node) []string {
 	return names
 }
 
-// elixirRefNames is a test helper that returns ref ReferenceName fields.
 func elixirRefNames(refs []types.UnresolvedReference) []string {
 	names := make([]string, len(refs))
 	for i, r := range refs {

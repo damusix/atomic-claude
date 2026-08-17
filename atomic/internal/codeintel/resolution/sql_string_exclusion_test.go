@@ -1,12 +1,9 @@
 package resolution_test
 
-// sql_string_exclusion_test.go — sql-string-match (C1) precondition for C2/C3:
-// the standard resolution pipeline must never feed a sql_string ref to
-// resolveOne/promoteEdgeKind. As of C2, pass A (a separate batch step) runs
-// after the standard loop and consumes/cleans up sql_string refs itself —
-// this test uses a reference name with no SQL-object candidate so pass A
-// cannot match it, isolating "never reaches promoteEdgeKind" from "pass A's
-// own match/no-match behavior" (covered by sql_string_match_test.go).
+// The standard resolution loop must never feed a sql_string ref to resolveOne.
+// The reference name here has no SQL-object candidate, so pass A cannot match
+// it either — isolating "never reached the standard loop" from pass A's own
+// behavior, which sql_string_match_test.go covers.
 
 import (
 	"context"
@@ -64,8 +61,8 @@ func TestSQLStringRef_ExcludedFromStandardResolution(t *testing.T) {
 	}
 	seedUnresolvedRef(t, d, sqlStringRef)
 
-	// A sql_fragment ref (C8) — CP5 excludes it from standard resolution and
-	// sweeps it via C5 cleanup, same as sql_string; CP6 wires actual matching.
+	// A sql_fragment ref (C8) — excludes it from standard resolution and
+	// sweeps it via C5 cleanup, same as sql_string; wires actual matching.
 	sqlFragmentRef := types.UnresolvedReference{
 		ID: "ref-sqlfragment-001", FromNodeID: callerID, ReferenceName: "no_such_column",
 		ReferenceKind: types.ReferenceKindSQLFragment, FilePath: "src/a.ts",

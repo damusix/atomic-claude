@@ -1,8 +1,6 @@
 package resolution_test
 
-// sql_string_match_test.go — sql-string-match Checkpoint 2: pass A
-// object-name matching (C2), the query-builder vocabulary confidence tier
-// (C4), and speculative-ref cleanup (C5).
+// Pass A: object-name matching, vocabulary confidence tiers, and cleanup.
 
 import (
 	"context"

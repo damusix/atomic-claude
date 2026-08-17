@@ -1,6 +1,5 @@
-// Package updatedoctor runs a scoped atomic doctor check after a successful
-// self-update. It lives above both the selfupdate and doctor packages so
-// neither imports the other.
+// Package updatedoctor runs a scoped doctor check after a successful
+// self-update. It sits above selfupdate and doctor so neither imports the other.
 package updatedoctor
 
 import (
@@ -10,13 +9,11 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// RunDoctorFn matches doctor.Run's signature. Injected for tests.
 type RunDoctorFn func(doctor.Opts) ([]doctor.Result, error)
 
-// Run executes doctor with the post-update skip-set (signals=3, binary=8),
-// recovers panics, and prints FAIL-only lines to w.
-// WARN and SKIP results are suppressed unconditionally.
-// Never returns an error — update success is always preserved.
+// Run prints FAIL lines only, suppressing WARN and SKIP, and never returns an
+// error or panics out: a doctor problem must not turn a successful update into
+// a failed one.
 func Run(runDoctor RunDoctorFn, w io.Writer) {
 	results, err := safeRunDoctor(runDoctor)
 	if err != nil {
@@ -31,7 +28,6 @@ func Run(runDoctor RunDoctorFn, w io.Writer) {
 	}
 }
 
-// safeRunDoctor calls run with the skip set and recovers any panics.
 func safeRunDoctor(run RunDoctorFn) (results []doctor.Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {

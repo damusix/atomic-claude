@@ -1,39 +1,14 @@
 package graph_test
 
-// Tests for the graph traversal + query manager (master CP17).
+// The shared fixture, built through db CRUD rather than the indexer:
 //
-// Fixture structure (built entirely via db CRUD — no indexer):
+//	nodeA --calls--> nodeB --calls--> nodeC
+//	nodeClass --implements--> nodeIface
+//	fileNodeX --imports--> fileNodeY --imports--> fileNodeX   (cycle)
+//	fileNodeA/B/C --contains--> their symbols
 //
-//   Nodes:
-//     nodeA  (function, unexported) in file_a.go  — the root caller
-//     nodeB  (function, unexported) in file_b.go  — mid-hop
-//     nodeC  (function, unexported) in file_c.go  — leaf callee
-//     nodeExported (function, exported) in file_a.go — exported; must NOT appear in dead code
-//     nodeUncalled (function, unexported) in file_a.go — no non-contains incoming; dead
-//     nodeIface    (interface) in iface.go
-//     nodeClass    (class)     in impl.go
-//     fileNodeA    (file) — container for nodeA/nodeExported/nodeUncalled
-//     fileNodeB    (file) — container for nodeB
-//     fileNodeC    (file) — container for nodeC
-//     fileNodeX    (file) — cycle participant 1 (imports fileNodeY)
-//     fileNodeY    (file) — cycle participant 2 (imports fileNodeX)
-//
-//   Edges:
-//     A --calls-->      B
-//     B --calls-->      C
-//     A --contains-->   nodeA      (fileNodeA → nodeA; the "contains" kind)
-//     fileNodeA --contains--> nodeA
-//     fileNodeA --contains--> nodeExported
-//     fileNodeA --contains--> nodeUncalled
-//     fileNodeB --contains--> nodeB
-//     fileNodeC --contains--> nodeC
-//     nodeClass --implements--> nodeIface   (EE4 heritage)
-//     fileNodeX --imports--> fileNodeY
-//     fileNodeY --imports--> fileNodeX
-//
-// Dead-code target: nodeUncalled — function, unexported, no non-contains incoming edges.
-// Not dead: nodeA (called by nothing but we don't assert it dead here — the test
-//   focuses on nodeUncalled explicitly), nodeExported (exported), nodeB/nodeC (called).
+// nodeExported is exported and nodeUncalled has no non-contains incoming edge,
+// so dead-code queries must return the second and never the first.
 
 import (
 	"context"
@@ -44,10 +19,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/graph"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 func openTestDB(t *testing.T) *db.DB {
 	t.Helper()
@@ -78,8 +49,6 @@ func makeEdge(source, target string, kind types.EdgeKind) types.Edge {
 	}
 }
 
-// buildFixture populates the database with the known-structure fixture and
-// returns a Manager. The fixture is described at the top of this file.
 func buildFixture(t *testing.T, d *db.DB) *graph.Manager {
 	t.Helper()
 	ctx := context.Background()
@@ -105,18 +74,14 @@ func buildFixture(t *testing.T, d *db.DB) *graph.Manager {
 	}
 
 	edges := []types.Edge{
-		// Call chain: A → B → C
 		makeEdge("nodeA", "nodeB", types.EdgeKindCalls),
 		makeEdge("nodeB", "nodeC", types.EdgeKindCalls),
-		// Container edges (file → symbol)
 		makeEdge("fileNodeA", "nodeA", types.EdgeKindContains),
 		makeEdge("fileNodeA", "nodeExported", types.EdgeKindContains),
 		makeEdge("fileNodeA", "nodeUncalled", types.EdgeKindContains),
 		makeEdge("fileNodeB", "nodeB", types.EdgeKindContains),
 		makeEdge("fileNodeC", "nodeC", types.EdgeKindContains),
-		// Heritage: MyClass implements Iface
 		makeEdge("nodeClass", "nodeIface", types.EdgeKindImplements),
-		// Import cycle: fileX ↔ fileY
 		makeEdge("fileNodeX", "fileNodeY", types.EdgeKindImports),
 		makeEdge("fileNodeY", "fileNodeX", types.EdgeKindImports),
 	}
@@ -129,7 +94,6 @@ func buildFixture(t *testing.T, d *db.DB) *graph.Manager {
 	return graph.NewManager(d)
 }
 
-// nodeIDs extracts just the IDs from a slice of nodes (for assertions).
 func nodeIDs(nodes []types.Node) map[string]bool {
 	m := make(map[string]bool, len(nodes))
 	for _, n := range nodes {
@@ -138,7 +102,6 @@ func nodeIDs(nodes []types.Node) map[string]bool {
 	return m
 }
 
-// subgraphNodeIDs extracts the node id set from a Subgraph.
 func subgraphNodeIDs(sg types.Subgraph) map[string]bool {
 	m := make(map[string]bool, len(sg.Nodes))
 	for id := range sg.Nodes {
@@ -147,11 +110,8 @@ func subgraphNodeIDs(sg types.Subgraph) map[string]bool {
 	return m
 }
 
-// assertEdgeEndpointsResolve fails the test if any edge in sg.Edges has a
-// Source or Target that does not resolve in sg.Nodes. This is the invariant
-// renderSubgraph (atomic/internal/serve/codeexplorer.go) depends on: an
-// unresolved endpoint falls back to rendering the raw node ID instead of its
-// name/kind/location.
+// assertEdgeEndpointsResolve checks the invariant serve's renderSubgraph relies
+// on: an endpoint missing from sg.Nodes renders as a raw node ID.
 func assertEdgeEndpointsResolve(t *testing.T, sg types.Subgraph) {
 	t.Helper()
 	for _, e := range sg.Edges {
@@ -164,16 +124,11 @@ func assertEdgeEndpointsResolve(t *testing.T, sg types.Subgraph) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GetCallees — follow calls edges outgoing
-// ---------------------------------------------------------------------------
-
 func TestGetCallees_Depth1(t *testing.T) {
 	d := openTestDB(t)
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// callees(A, depth=1) should return B only.
 	sg, err := m.GetCallees(ctx, "nodeA", 1)
 	if err != nil {
 		t.Fatalf("GetCallees: %v", err)
@@ -192,7 +147,6 @@ func TestGetCallees_Depth2(t *testing.T) {
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// callees(A, depth=2) should return B and C.
 	sg, err := m.GetCallees(ctx, "nodeA", 2)
 	if err != nil {
 		t.Fatalf("GetCallees: %v", err)
@@ -203,16 +157,11 @@ func TestGetCallees_Depth2(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GetCallers — follow calls edges incoming
-// ---------------------------------------------------------------------------
-
 func TestGetCallers_Depth1(t *testing.T) {
 	d := openTestDB(t)
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// callers(C, depth=1) should return B only.
 	sg, err := m.GetCallers(ctx, "nodeC", 1)
 	if err != nil {
 		t.Fatalf("GetCallers: %v", err)
@@ -231,7 +180,6 @@ func TestGetCallers_Depth2(t *testing.T) {
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// callers(C, depth=2) should return B and A.
 	sg, err := m.GetCallers(ctx, "nodeC", 2)
 	if err != nil {
 		t.Fatalf("GetCallers: %v", err)
@@ -242,18 +190,12 @@ func TestGetCallers_Depth2(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GetImpactRadius — incoming edges except contains
-// ---------------------------------------------------------------------------
-
 func TestGetImpactRadius_ExcludesContains(t *testing.T) {
 	d := openTestDB(t)
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// impact(B, depth=3): should include nodeA (calls B).
-	// Must NOT include fileNodeB even though fileNodeB --contains--> nodeB
-	// (contains edges are excluded from the radius).
+	// fileNodeB contains nodeB, but contains is excluded from the radius.
 	sg, err := m.GetImpactRadius(ctx, "nodeB", 3)
 	if err != nil {
 		t.Fatalf("GetImpactRadius: %v", err)
@@ -272,7 +214,6 @@ func TestGetImpactRadius_DefaultDepth(t *testing.T) {
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// Impact with depth=0 should use the default (3). Same outcome as explicit 3.
 	sg, err := m.GetImpactRadius(ctx, "nodeB", 0)
 	if err != nil {
 		t.Fatalf("GetImpactRadius: %v", err)
@@ -283,19 +224,14 @@ func TestGetImpactRadius_DefaultDepth(t *testing.T) {
 	}
 }
 
-// TestGetImpactRadius_EveryEdgeEndpointResolves is the regression test for
-// the modal-drilldown-fixes bug: renderSubgraph fell back to raw node IDs
-// (e.g. "function:b3ff...") because impactBFS never hydrated its own start
-// node into the returned Subgraph.Nodes — only *its* neighbors were. The
-// container path in GetImpactRadius runs one impactBFS per child, so every
-// child (already fetched via GetNodesByIds) was silently dropped.
+// Regression: impactBFS hydrates only its neighbors, so the container path —
+// one impactBFS per child — used to drop every child from Subgraph.Nodes.
 func TestGetImpactRadius_EveryEdgeEndpointResolves(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
 
-	// A container (class) with two method children. An external caller node
-	// calls method1 — this is the incoming non-contains edge that must
-	// resolve to a hydrated method1 node in the impact radius.
+	// The caller→method1 edge is the incoming non-contains edge whose endpoint
+	// must come back hydrated.
 	nodes := []types.Node{
 		makeNode("classContainer", "class", "MyContainer", "container.go", false),
 		makeNode("method1", "method", "Method1", "container.go", false),
@@ -334,16 +270,13 @@ func TestGetImpactRadius_EveryEdgeEndpointResolves(t *testing.T) {
 	assertEdgeEndpointsResolve(t, sg)
 }
 
-// TestGetImpactRadius_NonContainerStartNodeHydrated covers the non-container
-// path (and the childless-container fallthrough, F-45): the start node
-// itself must land in the returned Subgraph.Nodes since it is always an
-// endpoint of the first-level incoming edges in sg.Edges.
+// The non-container path and the childless-container fallthrough: the start node
+// is always an endpoint of the first-level edges, so it must be hydrated too.
 func TestGetImpactRadius_NonContainerStartNodeHydrated(t *testing.T) {
 	d := openTestDB(t)
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// impact(nodeB, 3): nodeB is a function (non-container). nodeA calls it.
 	sg, err := m.GetImpactRadius(ctx, "nodeB", 3)
 	if err != nil {
 		t.Fatalf("GetImpactRadius: %v", err)
@@ -355,16 +288,11 @@ func TestGetImpactRadius_NonContainerStartNodeHydrated(t *testing.T) {
 	assertEdgeEndpointsResolve(t, sg)
 }
 
-// ---------------------------------------------------------------------------
-// FindPath — BFS shortest path
-// ---------------------------------------------------------------------------
-
 func TestFindPath_ReachableAtoC(t *testing.T) {
 	d := openTestDB(t)
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// findPath(A, C) → A→B→C (2 hops via calls edges)
 	sg, err := m.FindPath(ctx, "nodeA", "nodeC", nil)
 	if err != nil {
 		t.Fatalf("FindPath: %v", err)
@@ -380,7 +308,6 @@ func TestFindPath_Unreachable(t *testing.T) {
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// findPath(C, A) → unreachable (edges are directed A→B→C, not reversed).
 	sg, err := m.FindPath(ctx, "nodeC", "nodeA", nil)
 	if err != nil {
 		t.Fatalf("FindPath: %v", err)
@@ -395,7 +322,6 @@ func TestFindPath_FilteredEdgeKinds(t *testing.T) {
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// findPath(A, C, edgeKinds=[imports]) — no imports edge between A and C.
 	sg, err := m.FindPath(ctx, "nodeA", "nodeC", []types.EdgeKind{types.EdgeKindImports})
 	if err != nil {
 		t.Fatalf("FindPath: %v", err)
@@ -405,16 +331,11 @@ func TestFindPath_FilteredEdgeKinds(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GetTypeHierarchy — extends/implements edges
-// ---------------------------------------------------------------------------
-
 func TestGetTypeHierarchy_Ancestors(t *testing.T) {
 	d := openTestDB(t)
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// ancestors of nodeClass via implements → should find nodeIface.
 	ancestors, err := m.GetTypeHierarchy(ctx, "nodeClass", "ancestors")
 	if err != nil {
 		t.Fatalf("GetTypeHierarchy: %v", err)
@@ -430,7 +351,6 @@ func TestGetTypeHierarchy_Descendants(t *testing.T) {
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// descendants of nodeIface → should find nodeClass.
 	descendants, err := m.GetTypeHierarchy(ctx, "nodeIface", "descendants")
 	if err != nil {
 		t.Fatalf("GetTypeHierarchy: %v", err)
@@ -440,10 +360,6 @@ func TestGetTypeHierarchy_Descendants(t *testing.T) {
 		t.Errorf("expected nodeClass as descendant of nodeIface, got %v", ids)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// FindDeadCode — unexported, no non-contains incoming
-// ---------------------------------------------------------------------------
 
 func TestFindDeadCode(t *testing.T) {
 	d := openTestDB(t)
@@ -456,25 +372,18 @@ func TestFindDeadCode(t *testing.T) {
 	}
 	deadIDs := nodeIDs(dead)
 
-	// nodeUncalled: unexported function, no non-contains incoming edge → DEAD.
 	if !deadIDs["nodeUncalled"] {
 		t.Errorf("nodeUncalled should be in dead code, got %v", deadIDs)
 	}
 
-	// nodeExported: exported → must NOT be in dead code.
 	if deadIDs["nodeExported"] {
 		t.Errorf("nodeExported (exported) must NOT be in dead code")
 	}
 
-	// nodeB, nodeC: called → must NOT be in dead code.
 	if deadIDs["nodeB"] || deadIDs["nodeC"] {
 		t.Errorf("nodeB/nodeC are called — must NOT be in dead code")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// FindCircularDependencies — DFS over file-level imports
-// ---------------------------------------------------------------------------
 
 func TestFindCircularDependencies(t *testing.T) {
 	d := openTestDB(t)
@@ -486,12 +395,10 @@ func TestFindCircularDependencies(t *testing.T) {
 		t.Fatalf("FindCircularDependencies: %v", err)
 	}
 
-	// The fixture has exactly one 2-file cycle: fileNodeX ↔ fileNodeY.
 	if len(cycles) == 0 {
 		t.Fatal("expected at least one cycle, got none")
 	}
 
-	// At least one cycle must contain both fileNodeX and fileNodeY.
 	found := false
 	for _, cycle := range cycles {
 		cycleSet := make(map[string]bool)
@@ -508,23 +415,12 @@ func TestFindCircularDependencies(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// BFS edge-priority ordering — contains(0) < calls(1) < other(2)
-// ---------------------------------------------------------------------------
-
-// TestBFSEdgePrioritySort verifies that the batched BFS correctly expands
-// contains edges before calls edges when a node has both outgoing kinds.
-// We add a new node that has both a contains edge and a calls edge outgoing,
-// then call GetCallees and confirm the BFS found the calls-edge target.
-// (The priority sort is an internal BFS concern; correctness shows through
-//
-//	the results being complete and correct, not N+1.)
+// The priority sort is internal, so it is observed indirectly: a hub with both a
+// contains and a calls edge must still yield a complete callee result.
 func TestBFSEdgePrioritySort(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
 
-	// Build a tiny graph: hub --contains--> child1, hub --calls--> child2.
-	// GetCallees(hub, 1) must return child2 (via calls).
 	nodes := []types.Node{
 		makeNode("hub", "class", "Hub", "hub.go", false),
 		makeNode("child1", "function", "Child1", "hub.go", false),
@@ -546,7 +442,6 @@ func TestBFSEdgePrioritySort(t *testing.T) {
 	}
 
 	m := graph.NewManager(d)
-	// GetCallees follows calls|references|imports — must find child2.
 	sg, err := m.GetCallees(ctx, "hub", 1)
 	if err != nil {
 		t.Fatalf("GetCallees: %v", err)
@@ -555,25 +450,17 @@ func TestBFSEdgePrioritySort(t *testing.T) {
 	if !ids["child2"] {
 		t.Errorf("expected child2 in callees(hub, 1), got %v", ids)
 	}
-	// child1 is connected only via contains; GetCallees doesn't follow contains.
 	if ids["child1"] {
 		t.Errorf("child1 (contains-only) should NOT appear in GetCallees result")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// F-45: GetImpactRadius childless container must fall through to impactBFS
-// ---------------------------------------------------------------------------
-
-// TestGetImpactRadius_ChildlessContainer ensures that a container node with no
-// contains-children but real incoming non-contains edges returns a non-empty
-// impact radius instead of an empty subgraph (the pre-fix regression).
+// A container with no children must still fall through to impactBFS rather than
+// returning early with an empty subgraph.
 func TestGetImpactRadius_ChildlessContainer(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
 
-	// childlessFile: a file node (container kind) with zero contains edges.
-	// caller: calls childlessFile via a "calls" edge so the impact radius is non-empty.
 	nodes := []types.Node{
 		makeNode("childlessFile", "file", "empty.go", "empty.go", false),
 		makeNode("callerOfFile", "function", "Caller", "caller.go", false),
@@ -583,7 +470,6 @@ func TestGetImpactRadius_ChildlessContainer(t *testing.T) {
 			t.Fatalf("upsert %s: %v", n.ID, err)
 		}
 	}
-	// callerOfFile → childlessFile via calls (not contains)
 	if _, err := d.InsertEdge(ctx, makeEdge("callerOfFile", "childlessFile", types.EdgeKindCalls)); err != nil {
 		t.Fatalf("insert edge: %v", err)
 	}
@@ -593,8 +479,6 @@ func TestGetImpactRadius_ChildlessContainer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetImpactRadius: %v", err)
 	}
-	// Pre-fix: returns empty because container branch returns early when childIDs is empty.
-	// Post-fix: falls through to impactBFS and finds callerOfFile.
 	if _, ok := sg.Nodes["callerOfFile"]; !ok {
 		t.Errorf("expected callerOfFile in impact(childlessFile): got nodes %v", func() []string {
 			ids := make([]string, 0, len(sg.Nodes))
@@ -606,60 +490,35 @@ func TestGetImpactRadius_ChildlessContainer(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// F-46: FindPath self-path must propagate GetNode error
-// ---------------------------------------------------------------------------
-
-// TestFindPath_SelfPath_ErrorPropagates ensures that when fromID==toID and
-// GetNode returns an error (node not found), the error is surfaced to the
-// caller rather than swallowed (the pre-fix regression returned nil error).
+// The fromID==toID shortcut must still surface a node-not-found error.
 func TestFindPath_SelfPath_ErrorPropagates(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
-	// Do NOT insert any node — GetNode("ghost") will return an error.
 
 	m := graph.NewManager(d)
-	// fromID == toID triggers the self-path branch.
 	_, err := m.FindPath(ctx, "ghost", "ghost", nil)
-	// Pre-fix: err is nil (error silently discarded).
-	// Post-fix: err is non-nil (node-not-found propagated).
 	if err == nil {
 		t.Error("FindPath(ghost, ghost): expected error for missing node, got nil")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// F-47: GetTypeHierarchy unknown direction must return error
-// ---------------------------------------------------------------------------
-
-// TestGetTypeHierarchy_UnknownDirection ensures that an unrecognised direction
-// string returns an error rather than silently using bfsIncoming.
+// An unrecognised direction must error rather than silently pick bfsIncoming.
 func TestGetTypeHierarchy_UnknownDirection(t *testing.T) {
 	d := openTestDB(t)
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// "bogus" is not "ancestors" or "descendants".
 	_, err := m.GetTypeHierarchy(ctx, "nodeClass", "bogus")
-	// Pre-fix: err is nil (falls through to bfsIncoming silently).
-	// Post-fix: err is non-nil.
 	if err == nil {
 		t.Error("GetTypeHierarchy with direction='bogus': expected error, got nil")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// F-48: FindCircularDependencies — deterministic cycle ordering
-// ---------------------------------------------------------------------------
-
-// TestFindCircularDependencies_Deterministic verifies that repeated calls
-// return cycles in identical sorted order. Uses a 3-file cycle so the
-// non-determinism from adjacency map traversal is exercised.
+// Three files, so adjacency-map iteration order actually varies between runs.
 func TestFindCircularDependencies_Deterministic(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
 
-	// 3-file cycle: fileP → fileQ → fileR → fileP
 	for _, id := range []string{"fileP", "fileQ", "fileR"} {
 		if err := d.UpsertNode(ctx, makeNode(id, "file", id+".go", id+".go", false)); err != nil {
 			t.Fatalf("upsert %s: %v", id, err)
@@ -701,7 +560,6 @@ func TestFindCircularDependencies_Deterministic(t *testing.T) {
 		}
 	}
 
-	// Also assert the returned slice is sorted (cycle[0][0] ≤ cycle[1][0] etc.).
 	for i := 1; i < len(cycles1); i++ {
 		if len(cycles1[i]) > 0 && len(cycles1[i-1]) > 0 {
 			if cycles1[i][0] < cycles1[i-1][0] {
@@ -711,18 +569,12 @@ func TestFindCircularDependencies_Deterministic(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// F-49: FindDeadCode — deterministic kind iteration order
-// ---------------------------------------------------------------------------
-
-// TestFindDeadCode_Deterministic verifies that repeated FindDeadCode calls
-// return node slices in identical sorted order across the 3 checked kinds
-// (function, method, class). Node IDs chosen so all three kinds contribute.
+// Node IDs are chosen so all three dead-code kinds contribute, exercising the
+// kind-iteration order FindDeadCode has to keep stable.
 func TestFindDeadCode_Deterministic(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
 
-	// One unexported dead node per kind (no incoming non-contains edge).
 	for _, n := range []types.Node{
 		makeNode("deadFn1", "function", "DeadFn1", "f.go", false),
 		makeNode("deadFn2", "function", "DeadFn2", "f.go", false),
@@ -756,7 +608,6 @@ func TestFindDeadCode_Deterministic(t *testing.T) {
 		}
 	}
 
-	// Also assert the slice is sorted by ID.
 	for i := 1; i < len(dead1); i++ {
 		if dead1[i].ID < dead1[i-1].ID {
 			t.Errorf("dead code not sorted: dead[%d].ID=%s < dead[%d].ID=%s", i, dead1[i].ID, i-1, dead1[i-1].ID)
@@ -764,16 +615,8 @@ func TestFindDeadCode_Deterministic(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Start-node hydration — GetCallers/GetCallees symmetric gap
-// ---------------------------------------------------------------------------
-
-// TestGetCallers_StartNodeHydrated: the first-level edge collected by
-// bfsIncoming has Target == startID, so startID must resolve in Subgraph.Nodes
-// for the invariant to hold (renderSubgraph's rootID substitution happens to
-// paper over this in the UI, but the Subgraph contract itself — consumed
-// directly by `atomic code` CLI/MCP callers too — should not have a hollow
-// endpoint).
+// First-level edges name startID, so it must resolve in Nodes. serve papers over
+// a hollow endpoint by substituting the root, but CLI and MCP callers do not.
 func TestGetCallers_StartNodeHydrated(t *testing.T) {
 	d := openTestDB(t)
 	m := buildFixture(t, d)
@@ -790,7 +633,6 @@ func TestGetCallers_StartNodeHydrated(t *testing.T) {
 	assertEdgeEndpointsResolve(t, sg)
 }
 
-// TestGetCallees_StartNodeHydrated is the symmetric case for outgoing edges.
 func TestGetCallees_StartNodeHydrated(t *testing.T) {
 	d := openTestDB(t)
 	m := buildFixture(t, d)
@@ -807,16 +649,11 @@ func TestGetCallees_StartNodeHydrated(t *testing.T) {
 	assertEdgeEndpointsResolve(t, sg)
 }
 
-// ---------------------------------------------------------------------------
-// SubgraphSortedNodes — deterministic ordering in result paths
-// ---------------------------------------------------------------------------
-
 func TestGetCallers_DeterministicOrder(t *testing.T) {
 	d := openTestDB(t)
 	m := buildFixture(t, d)
 	ctx := context.Background()
 
-	// Run twice; sorted output must be identical.
 	sg1, err := m.GetCallers(ctx, "nodeC", 2)
 	if err != nil {
 		t.Fatalf("first GetCallers: %v", err)

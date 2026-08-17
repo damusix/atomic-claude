@@ -1,6 +1,6 @@
 package wiki
 
-// bucket_cli_test.go — CP2 tests for `atomic wiki bucket` CLI verbs.
+// bucket_cli_test.go — tests for `atomic wiki bucket` CLI verbs.
 //
 // Uses the internal (package wiki) test package to access wikiAction and
 // the unexported bucket helpers directly.
@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 )
-
-// ---- helpers ----
 
 // setupBucketCLIRoot builds a minimal realm with a wiki/ directory and a
 // bucket folder at <root>/testbucket/.
@@ -111,10 +109,6 @@ func TestBucketAdd_HelpProbeLeavesAllFourMutationSitesUntouched(t *testing.T) {
 	}
 }
 
-// ---- <wiki-buckets> block splice tests ----
-
-// TestWriteWikiBucketsBlock_AppendsWhenAbsent verifies that when wiki/index.md
-// has no <wiki-buckets> block, one is appended preserving existing content.
 func TestWriteWikiBucketsBlock_AppendsWhenAbsent(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 
@@ -140,8 +134,6 @@ func TestWriteWikiBucketsBlock_AppendsWhenAbsent(t *testing.T) {
 	}
 }
 
-// TestWriteWikiBucketsBlock_IdempotentReSplice verifies that calling spliceBucketEntry
-// twice with the same name does not duplicate the entry.
 func TestWriteWikiBucketsBlock_IdempotentReSplice(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	indexPath := filepath.Join(wikiDir, "index.md")
@@ -162,8 +154,6 @@ func TestWriteWikiBucketsBlock_IdempotentReSplice(t *testing.T) {
 	}
 }
 
-// TestWriteWikiBucketsBlock_MultipleEntries verifies two distinct buckets both
-// appear after successive spliceBucketEntry calls.
 func TestWriteWikiBucketsBlock_MultipleEntries(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	indexPath := filepath.Join(wikiDir, "index.md")
@@ -186,8 +176,6 @@ func TestWriteWikiBucketsBlock_MultipleEntries(t *testing.T) {
 	}
 }
 
-// TestWriteWikiBucketsBlock_RemovesDeclinedAttr verifies that when the block
-// has a declined="true" attribute, spliceBucketEntry removes it.
 func TestWriteWikiBucketsBlock_RemovesDeclinedAttr(t *testing.T) {
 	_, _, wikiDir := setupBucketCLIRoot(t)
 	indexPath := filepath.Join(wikiDir, "index.md")
@@ -214,8 +202,6 @@ func TestWriteWikiBucketsBlock_RemovesDeclinedAttr(t *testing.T) {
 	}
 }
 
-// TestWriteWikiBucketsBlock_CreateIndexWhenAbsent verifies that spliceBucketEntry
-// creates wiki/index.md when absent (no prior file).
 func TestWriteWikiBucketsBlock_CreateIndexWhenAbsent(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	indexPath := filepath.Join(wikiDir, "index.md")
@@ -235,10 +221,6 @@ func TestWriteWikiBucketsBlock_CreateIndexWhenAbsent(t *testing.T) {
 	}
 }
 
-// ---- ## Capture surfaces tests ----
-
-// TestCaptureSurfacesSection_CreatesFileWhenAbsent verifies that
-// writeCaptureSurfacesSection creates realm CLAUDE.md when absent.
 func TestCaptureSurfacesSection_CreatesFileWhenAbsent(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(dir, "CLAUDE.md")
@@ -305,8 +287,6 @@ func TestCaptureSurfacesSection_AppendsToExistingFile(t *testing.T) {
 	}
 }
 
-// TestCaptureSurfacesSection_AppendsNewBulletWhenSectionExists verifies that
-// a second call appends a new bullet to an existing ## Capture surfaces section.
 func TestCaptureSurfacesSection_AppendsNewBulletWhenSectionExists(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(dir, "CLAUDE.md")
@@ -334,8 +314,6 @@ func TestCaptureSurfacesSection_AppendsNewBulletWhenSectionExists(t *testing.T) 
 	}
 }
 
-// TestCaptureSurfacesSection_WrittenOnceHeading verifies that the heading is
-// written exactly once even when called multiple times.
 func TestCaptureSurfacesSection_WrittenOnceHeading(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(dir, "CLAUDE.md")
@@ -353,10 +331,6 @@ func TestCaptureSurfacesSection_WrittenOnceHeading(t *testing.T) {
 	}
 }
 
-// ---- bucket index.md stub tests ----
-
-// TestBucketIndexStub_CreatesStub verifies that createBucketIndexStub writes
-// an index.md with a purpose line and ## Conventions placeholder.
 func TestBucketIndexStub_CreatesStub(t *testing.T) {
 	dir := t.TempDir()
 	bucketDir := filepath.Join(dir, "research")
@@ -453,8 +427,6 @@ func TestBucketIndexStub_ThenRebuildFillsRegion(t *testing.T) {
 	}
 }
 
-// TestBucketIndexStub_PreservesExisting verifies that createBucketIndexStub
-// does NOT overwrite an existing index.md.
 func TestBucketIndexStub_PreservesExisting(t *testing.T) {
 	dir := t.TempDir()
 	bucketDir := filepath.Join(dir, "research")
@@ -475,8 +447,6 @@ func TestBucketIndexStub_PreservesExisting(t *testing.T) {
 		t.Errorf("existing index.md was overwritten; got:\n%s", string(data))
 	}
 }
-
-// ---- wikiAction integration: bucket add ----
 
 // TestBucketAdd_RegistersAndSplices verifies that `atomic wiki bucket add <name>`
 // via wikiAction: registers the manifest dir, splices the block, writes the
@@ -517,8 +487,6 @@ func TestBucketAdd_RegistersAndSplices(t *testing.T) {
 	}
 }
 
-// TestBucketAdd_RefusesReservedNameWiki verifies that `bucket add wiki` exits
-// non-zero with a message.
 func TestBucketAdd_RefusesReservedNameWiki(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -531,8 +499,6 @@ func TestBucketAdd_RefusesReservedNameWiki(t *testing.T) {
 	}
 }
 
-// TestBucketAdd_RefusesDoubleRegister verifies that adding the same bucket
-// twice exits non-zero on the second call.
 func TestBucketAdd_RefusesDoubleRegister(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -549,8 +515,6 @@ func TestBucketAdd_RefusesDoubleRegister(t *testing.T) {
 	}
 }
 
-// TestBucketAdd_WritesCLAUDEMD verifies that bucket add writes the
-// ## Capture surfaces section to the realm CLAUDE.md.
 func TestBucketAdd_WritesCLAUDEMD(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -576,10 +540,6 @@ func TestBucketAdd_WritesCLAUDEMD(t *testing.T) {
 	}
 }
 
-// ---- wikiAction integration: bucket list ----
-
-// TestBucketList_NoBuckets verifies that `bucket list` exits 0 with no output
-// when no buckets are registered.
 func TestBucketList_NoBuckets(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -660,8 +620,6 @@ func TestBucketList_FreshNoBaselineAndNoContent(t *testing.T) {
 	}
 }
 
-// TestBucketList_FreshAfterPromote verifies that after a promote, list shows
-// "(fresh)" (bucket is in sync with baseline).
 func TestBucketList_FreshAfterPromote(t *testing.T) {
 	root, bucketDir, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -688,8 +646,6 @@ func TestBucketList_FreshAfterPromote(t *testing.T) {
 	}
 }
 
-// TestBucketList_PendingAfterChange verifies that after promoting and then
-// changing a file, list shows "(pending)".
 func TestBucketList_PendingAfterChange(t *testing.T) {
 	root, bucketDir, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -719,10 +675,6 @@ func TestBucketList_PendingAfterChange(t *testing.T) {
 	}
 }
 
-// ---- wikiAction integration: bucket diff ----
-
-// TestBucketDiff_ExitOneWhenPending verifies that `bucket diff` exits 1 and
-// prints change lines when the bucket has pending changes.
 func TestBucketDiff_ExitOneWhenPending(t *testing.T) {
 	root, bucketDir, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -744,8 +696,6 @@ func TestBucketDiff_ExitOneWhenPending(t *testing.T) {
 	}
 }
 
-// TestBucketDiff_ExitZeroWhenFresh verifies that `bucket diff` exits 0 and
-// prints nothing when the bucket is in sync with baseline.
 func TestBucketDiff_ExitZeroWhenFresh(t *testing.T) {
 	root, bucketDir, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -771,8 +721,6 @@ func TestBucketDiff_ExitZeroWhenFresh(t *testing.T) {
 	}
 }
 
-// TestBucketDiff_RefusesUnregistered verifies that `bucket diff` exits non-zero
-// for an unregistered bucket name.
 func TestBucketDiff_RefusesUnregistered(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -785,10 +733,6 @@ func TestBucketDiff_RefusesUnregistered(t *testing.T) {
 	}
 }
 
-// ---- wikiAction integration: bucket promote ----
-
-// TestBucketPromote_RotatesViaCliPath verifies `bucket promote` via the CLI
-// path: after promote, diff exits 0.
 func TestBucketPromote_RotatesViaCliPath(t *testing.T) {
 	root, bucketDir, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -811,8 +755,6 @@ func TestBucketPromote_RotatesViaCliPath(t *testing.T) {
 	}
 }
 
-// TestBucketPromote_RefusesUnregistered verifies that `bucket promote` exits
-// non-zero for an unregistered bucket.
 func TestBucketPromote_RefusesUnregistered(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -824,8 +766,6 @@ func TestBucketPromote_RefusesUnregistered(t *testing.T) {
 		t.Error("expected non-zero exit for unregistered bucket")
 	}
 }
-
-// ---- issue-2: bucket add fail-loud on CLAUDE.md write failure ----
 
 // TestBucketAdd_FailsWhenCLAUDEMDUnwritable verifies that `bucket add` exits
 // non-zero when writeCaptureSurfacesSection fails (CLAUDE.md directory is
@@ -848,8 +788,6 @@ func TestBucketAdd_FailsWhenCLAUDEMDUnwritable(t *testing.T) {
 		t.Error("expected non-zero exit when CLAUDE.md write fails")
 	}
 }
-
-// ---- issue-3: bucket list must not write current ----
 
 // TestBucketList_DoesNotWriteCurrent verifies that `bucket list` is a pure
 // read-only status verb: it must NOT create or modify
@@ -920,8 +858,6 @@ func TestBucketList_DoesNotCreateCurrentWhenAbsent(t *testing.T) {
 		t.Error("bucket list created wiki/.buckets/<name>/current — must not do so")
 	}
 }
-
-// ---- BUG 1: --root space-form must be honored by all bucket verbs ----
 
 // TestBucketAdd_SpaceFormRoot_FlagBeforeName verifies that
 // `atomic wiki bucket add --root <path> <name>` (space-separated, flag before
@@ -1009,8 +945,6 @@ func TestBucketAdd_SpaceFormRoot_NameBeforeFlag(t *testing.T) {
 	}
 }
 
-// TestBucketDiff_SpaceFormRoot verifies that `bucket diff --root <path> <name>`
-// uses <path> as realm root (both orderings).
 func TestBucketDiff_SpaceFormRoot(t *testing.T) {
 	realm := t.TempDir()
 	cwd := t.TempDir()
@@ -1065,8 +999,6 @@ func TestBucketVerb_RefusesUnknownArg(t *testing.T) {
 	}
 }
 
-// TestBucketAdd_ExtraPositionalRefused verifies that extra positional args
-// after the bucket name are refused (not silently dropped).
 func TestBucketAdd_ExtraPositionalRefused(t *testing.T) {
 	realm := t.TempDir()
 	cwd := t.TempDir()
@@ -1085,8 +1017,6 @@ func TestBucketAdd_ExtraPositionalRefused(t *testing.T) {
 		t.Error("expected non-zero exit for extra positional argument")
 	}
 }
-
-// ---- BUG 2: ## Capture surfaces heading detection must be line-anchored ----
 
 // TestBucketVerb_EmptyRootValueRefused verifies that --root= (equals form with
 // an empty value) is rejected with a usage error, matching the space-form

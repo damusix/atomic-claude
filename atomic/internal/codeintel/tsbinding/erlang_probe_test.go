@@ -7,7 +7,7 @@ import (
 	sitter "github.com/malivvan/tree-sitter"
 )
 
-// TestErlang_GrammarLoadsAndParsesNamedNodes is the CP1 gate for Erlang language support.
+// TestErlang_GrammarLoadsAndParsesNamedNodes is the gate for Erlang language support.
 //
 // WHY: Confirms tree_sitter_erlang is exported from lib/ts.wasm, the binding handle
 // loads without error, and a minimal Erlang source parses to a non-empty named-node

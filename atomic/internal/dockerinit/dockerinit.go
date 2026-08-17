@@ -1,6 +1,5 @@
-// Package dockerinit scaffolds the Docker eval environment for end users.
-// It renders four templates into a target directory and creates the bind-mount
-// placeholder directories expected by docker-compose.
+// Package dockerinit scaffolds the Docker eval environment: four rendered
+// templates plus the bind-mount placeholder directories docker-compose expects.
 package dockerinit
 
 import (
@@ -25,7 +24,6 @@ var entrypointTmpl string
 //go:embed templates/dockerignore.tmpl
 var dockerignoreTmpl string
 
-// ActionKind classifies what Init did (or would do) to a file.
 type ActionKind string
 
 const (
@@ -34,13 +32,11 @@ const (
 	ActionSkipped     ActionKind = "skipped" // pre-existing + no --force
 )
 
-// FileAction describes what Init did for one output file.
 type FileAction struct {
 	Path string // relative to TargetDir
 	Kind ActionKind
 }
 
-// Options controls Init behaviour.
 type Options struct {
 	TargetDir     string // absolute path; caller resolves ~
 	Force         bool   // overwrite existing files
@@ -68,12 +64,9 @@ var gitkeepPaths = []string{
 	"tmp/claude-home/.gitkeep",
 }
 
-// Init writes the templated files into opts.TargetDir.
-// It creates opts.TargetDir (and any parents) if it does not exist.
-// Pre-existing files are reported as ActionSkipped unless opts.Force is true.
-// Returns FileActions in deterministic (alphabetical) order.
-// Returns an error only on irrecoverable failure (cannot create dir, template
-// render failure, write failure).
+// Init writes the templated files into opts.TargetDir, creating it if needed.
+// A pre-existing file is ActionSkipped unless opts.Force. Actions come back in
+// alphabetical order; errors only on irrecoverable I/O or render failure.
 func Init(opts Options) ([]FileAction, error) {
 	if opts.HostUID == 0 {
 		opts.HostUID = 1000

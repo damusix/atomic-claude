@@ -1,57 +1,7 @@
-// Package frameworks — Rust framework resolvers (CP15 batch D).
+// Rust web-framework resolvers: actix-web, axum, and rocket.
 //
-// This file implements three FrameworkResolver + FrameworkExtractor pairs for
-// the three major Rust web frameworks: actix-web, axum, and rocket.
-//
-// # Language
-//
-// All three resolvers set Language = types.LanguageRust.
-//
-// # Comment stripping
-//
-// Rust comments use the same delimiters as JS/TS:
-//   - Single-line: // to end of line.
-//   - Block: /* ... */ (can span lines).
-//
-// stripJSComments (defined in frameworks.go) handles both — no Rust-specific
-// stripper needed. Comments are stripped before route regexes run, so
-// commented-out routes never emit route nodes.
-//
-// # Route node format (appendix H — via MakeRouteNode)
-//
-//	id:            route:{filePath}:{line}:{METHOD}:{path}
-//	qualifiedName: {filePath}::METHOD:{path}
-//	name:          "METHOD /path"
-//
-// # Attribute-macro pattern (actix-web, rocket)
-//
-// Both actix-web and rocket use Rust attribute macros above functions:
-//
-//	#[get("/path")]
-//	async fn handler_name() -> ... { ... }
-//
-// The route decorator is on its own line; the function definition follows on
-// the next non-blank, non-attribute line. The bounded-lookahead (modelled on
-// nestHandlerName in node.go) scans forward, skipping:
-//   - blank lines
-//   - lines starting with '#' (additional attribute lines like #[allow(...)])
-//
-// It stops and returns "" at any line starting with '}' or 'pub ' followed
-// by 'struct'/'enum'/'mod' (struct/module boundaries) to avoid misattribution.
-//
-// # Axum Router chain form
-//
-// axum uses a builder chain: Router::new().route("/p", get(handler)).
-// Multiple method handlers on the same path appear as a method chain:
-//
-//	.route("/p", get(h1).post(h2))
-//
-// Each method call in the chain produces one route node.
-//
-// # Detect
-//
-// Each resolver reads Cargo.toml in the project root and looks for the
-// framework's crate name as a substring match.
+// Rust shares JS comment syntax, so stripJSComments serves here too — run
+// before the route regexes, so a commented-out route emits no node.
 package frameworks
 
 import (
@@ -66,12 +16,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Shared Rust helpers
-// ---------------------------------------------------------------------------
-
-// cargoHasDep returns true if the project's Cargo.toml contains the given
-// crate name as a substring (e.g. "actix-web").
+// cargoHasDep substring-matches Cargo.toml rather than parsing it: a crate
+// name is distinctive enough that a false positive is not a real risk.
 func cargoHasDep(projectRoot, crateName string) bool {
 	data, err := os.ReadFile(filepath.Join(projectRoot, "Cargo.toml"))
 	if err != nil {
@@ -85,44 +31,36 @@ func lineOf(src string, offset int) int {
 	return strings.Count(src[:offset], "\n") + 1
 }
 
-// rustHandlerName performs a bounded lookahead from rest (text after a route
-// attribute macro) to find the function name immediately following. It scans
-// forward line-by-line, skipping:
-//   - blank lines
-//   - lines starting with '#' (stacked attribute macros)
-//
-// Returns "" if a class/struct boundary is reached (line starts with '}',
-// "pub struct", "pub enum", "pub mod") before a function definition.
+// rustHandlerName finds the function a route attribute macro decorates,
+// skipping blank lines and stacked attributes. It gives up at the first line
+// that is neither, rather than scan on and misattribute a distant function.
 func rustHandlerName(rest string) string {
 	for _, line := range strings.Split(rest, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
-			continue // blank line — keep scanning
+			continue
 		}
 		if strings.HasPrefix(trimmed, "#") {
-			continue // stacked attribute — keep scanning
+			continue
 		}
 		if strings.HasPrefix(trimmed, "}") {
-			return "" // module/impl boundary — stop
+			return ""
 		}
-		// Match: (pub )?(async )?fn name(
 		if m := rustFnDefRe.FindStringSubmatch(line); m != nil {
 			return m[1]
 		}
-		// Non-blank, non-attribute, non-fn line — stop
 		return ""
 	}
 	return ""
 }
 
-// rustFnDefRe matches a Rust function definition line and captures the fn name.
-// Handles: fn name(, async fn name(, pub fn name(, pub async fn name(
+// rustFnDefRe captures the name from any of `fn n(`, `async fn n(`, `pub fn
+// n(`, `pub async fn n(`.
 var rustFnDefRe = regexp.MustCompile(
 	`^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*[(<]`,
 )
 
-// rustResolve is the shared Resolve implementation for Rust framework resolvers.
-// Confidence 0.85 (midpoint of 0.8–0.9, appendix H).
+// rustResolve backs Resolve for all three Rust resolvers.
 func rustResolve(
 	claimed map[string]bool,
 	ctx context.Context,
@@ -134,8 +72,8 @@ func rustResolve(
 	return resolution.ResolvedRef{Confidence: 0.85}, nil
 }
 
-// emitRustRoute builds a route node + references ref and appends them to the
-// provided slices, recording handlerName in claimed.
+// emitRustRoute appends the route node and its handler ref, and records the
+// handler as claimed.
 func emitRustRoute(
 	filePath string,
 	line int,
@@ -164,103 +102,51 @@ func emitRustRoute(
 	}
 }
 
-// ---------------------------------------------------------------------------
-// actix-web resolver
-// ---------------------------------------------------------------------------
-
-// actixAttrRe matches actix-web HTTP attribute macros of the form:
-//
-//	#[get("/path")]
-//	#[post("/path")]
-//	#[put("/path")]    etc.
-//
-// Capture groups: 1=method (lowercase), 2=path.
+// actixAttrRe matches `#[get("/path")]`. Groups: method, path.
 var actixAttrRe = regexp.MustCompile(
 	`(?m)#\[(get|post|put|delete|patch|head|options)\s*\(\s*"([^"]+)"\s*(?:,[^)]*)??\)\]`,
 )
 
-// actixResourceRe matches the actix-web web::resource(...).route(web::METHOD().to(handler))
-// form by first finding the resource path and then extracting .route chains.
-//
-// Form: web::resource("/path").route(web::get().to(handler))
-//
-// We use two regexes:
-//  1. actixResourcePathRe — finds web::resource("/path") and captures the path + end offset.
-//  2. actixRouteMethodRe  — matches .route(web::METHOD().to(handler)) after the resource.
+// `web::resource("/p").route(web::get().to(h))` needs two regexes: the path
+// lives on the resource call, the method and handler on each chained .route.
+
 var actixResourcePathRe = regexp.MustCompile(
 	`(?m)web::resource\s*\(\s*"([^"]+)"\s*\)`,
 )
 
-// actixRouteMethodRe matches a .route(web::METHOD().to(handler)) form (resource chain).
-// Capture groups: 1=method (lowercase), 2=handler name.
+// actixRouteMethodRe groups: method, handler.
 var actixRouteMethodRe = regexp.MustCompile(
 	`\.route\s*\(\s*web::([a-z]+)\s*\(\s*\)\s*\.to\s*\(\s*([A-Za-z_][A-Za-z0-9_:]*)\s*\)`,
 )
 
-// actixDirectRouteRe matches the direct-route form used with App::new(), cfg, or
-// inside web::scope(...) chains:
-//
-//	App::new().route("/path", web::get().to(handler))
-//	cfg.route("/path", web::get().to(handler))
-//	web::scope("/users").route("", get().to(handler))   ← no web:: prefix
-//
-// The web:: prefix on the method is optional — actix-web allows importing the
-// method functions directly (use actix_web::web::{get, post, ...}) and calling
-// them as get(), post(), etc. without the web:: qualifier.
-//
-// Path is the FIRST argument (accepts "" for scope-relative routes); method +
-// handler are the second argument. (?s) allows the match to span newlines when
-// .route( arguments are split across lines.
-//
-// Capture groups: 1=path, 2=method (lowercase), 3=handler name (may be qualified).
+// actixDirectRouteRe matches `.route("/p", web::get().to(h))`. Groups: path,
+// method, handler. The web:: prefix is optional because the method functions
+// are commonly imported directly; the path may be "" inside a scope; (?s)
+// covers arguments split across lines.
 var actixDirectRouteRe = regexp.MustCompile(
 	`(?s)\.route\s*\(\s*"([^"]*)"\s*,\s*(?:web::)?(get|post|put|delete|patch|head|options)\s*\(\s*\)\s*\.to\s*\(\s*([A-Za-z_][A-Za-z0-9_:]*)\s*\)`,
 )
 
-// actixScopeRe matches a web::scope("PREFIX") declaration and captures the
-// prefix string. Used by actixExtractScopedRoutes to build the scope stack.
-//
-// Capture group 1 = scope path prefix (e.g. "/api", "/users").
+// actixScopeRe captures the prefix from `web::scope("/api")`.
 var actixScopeRe = regexp.MustCompile(
 	`web::scope\s*\(\s*"([^"]*)"\s*\)`,
 )
 
-// actixJoinPaths joins a scope prefix and a route-relative path cleanly:
-//
-//	("/users", "")        → "/users"
-//	("/users", "/login")  → "/users/login"
-//	("/api",   "/v1")     → "/api/v1"
-//
-// Double slashes are prevented by not appending when rel is empty.
 func actixJoinPaths(prefix, rel string) string {
 	if rel == "" {
 		return prefix
 	}
-	// rel always starts with "/" in actix-web .route() calls; just concatenate.
+	// rel always leads with "/" in actix .route() calls, so plain concatenation
+	// cannot produce a double slash.
 	return prefix + rel
 }
 
-// actixExtractScopedRoutes performs a scope-aware pass over stripped source,
-// tracking web::scope("PREFIX") context via paren depth. For each .route(...)
-// call found inside a scope chain, the accumulated scope prefix is prepended to
-// the route path. Non-scoped .route() calls (at depth 0) use their literal path.
+// actixExtractScopedRoutes prepends the enclosing web::scope prefix to each
+// route path, which requires tracking paren depth: a scope's reach ends where
+// its call closes, and only depth says where that is.
 //
-// Algorithm: walk the text byte by byte. On encountering web::scope("X"), push X
-// onto the scope stack at the current paren depth. Track open/close parens to
-// know when a scope's .service(...) ends and its prefix should be popped.
-// On encountering .route("path", METHOD().to(handler)), emit a route with the
-// accumulated scope prefix prepended to path.
-//
-// Heuristic limits:
-//   - Scope prefix is determined by the nearest preceding web::scope("...") in
-//     the same paren-nesting chain. Multiple independent scope chains in the
-//     same file are handled correctly because paren depth is tracked globally
-//     and each push/pop corresponds to one nesting level.
-//   - Scope forms without a string literal (e.g. web::scope(path_var)) are not
-//     captured and treated as unscoped — those rarely appear in practice.
-//   - .route() calls inside web::resource(...) are handled by Pass 2 (resource
-//     form) and are not re-emitted here (the resource path re is disjoint from
-//     the scope re on the same .route() structure).
+// A scope whose prefix is a variable rather than a literal is treated as
+// unscoped. Routes inside web::resource are left to the resource pass.
 func actixExtractScopedRoutes(
 	filePath, stripped string,
 	totalLines int,
@@ -268,10 +154,9 @@ func actixExtractScopedRoutes(
 	nodes *[]types.Node,
 	refs *[]types.UnresolvedReference,
 ) {
-	// scopeEntry records a scope prefix pushed at a given paren depth.
 	type scopeEntry struct {
 		prefix string
-		depth  int // paren depth at which this scope was entered
+		depth  int
 	}
 
 	var scopeStack []scopeEntry
@@ -280,7 +165,7 @@ func actixExtractScopedRoutes(
 	src := []byte(stripped)
 	n := len(src)
 
-	// currentPrefix returns the accumulated scope prefix from all stacked entries.
+	// Nested scopes concatenate, so the prefix is the whole stack.
 	currentPrefix := func() string {
 		if len(scopeStack) == 0 {
 			return ""
@@ -292,7 +177,6 @@ func actixExtractScopedRoutes(
 		return sb.String()
 	}
 
-	// countParens counts the net paren delta in a byte slice (open - close).
 	countParens := func(b []byte) int {
 		delta := 0
 		for _, c := range b {
@@ -306,7 +190,6 @@ func actixExtractScopedRoutes(
 	}
 
 	for pos < n {
-		// Pop scope entries whose depth exceeds current paren depth (scope closed).
 		for len(scopeStack) > 0 && scopeStack[len(scopeStack)-1].depth > parenDepth {
 			scopeStack = scopeStack[:len(scopeStack)-1]
 		}
@@ -322,7 +205,6 @@ func actixExtractScopedRoutes(
 			if parenDepth > 0 {
 				parenDepth--
 			}
-			// Pop scope entries that opened at depth strictly above current (now-decremented) depth.
 			for len(scopeStack) > 0 && scopeStack[len(scopeStack)-1].depth > parenDepth {
 				scopeStack = scopeStack[:len(scopeStack)-1]
 			}
@@ -330,26 +212,22 @@ func actixExtractScopedRoutes(
 			continue
 		}
 
-		// Try to match web::scope("PREFIX") at this position.
 		if loc := actixScopeRe.FindIndex(src[pos:]); loc != nil && loc[0] == 0 {
 			matchBytes := src[pos : pos+loc[1]]
 			m := actixScopeRe.FindSubmatch(matchBytes)
 			prefix := string(m[1])
-			// Count parens within the match to update parenDepth correctly
-			// (web::scope("...") contains exactly one '(' and one ')' → net 0).
+			// The match is consumed whole, so its own parens must be accounted
+			// for here or the depth counter drifts.
 			delta := countParens(matchBytes)
 			parenDepth += delta
 			if parenDepth < 0 {
 				parenDepth = 0
 			}
-			// The scope's body starts after this match; its depth is parenDepth
-			// at this point (after processing the parens in the match itself).
 			scopeStack = append(scopeStack, scopeEntry{prefix: prefix, depth: parenDepth})
 			pos += loc[1]
 			continue
 		}
 
-		// Try to match .route("path", METHOD().to(handler)) at this position.
 		if loc := actixDirectRouteRe.FindIndex(src[pos:]); loc != nil && loc[0] == 0 {
 			matchBytes := src[pos : pos+loc[1]]
 			m := actixDirectRouteRe.FindSubmatch(matchBytes)
@@ -366,7 +244,6 @@ func actixExtractScopedRoutes(
 			}
 
 			emitRustRoute(filePath, line, method, fullPath, handlerName, claimed, nodes, refs)
-			// Count parens in the match to keep depth in sync.
 			delta := countParens(matchBytes)
 			parenDepth += delta
 			if parenDepth < 0 {
@@ -380,21 +257,18 @@ func actixExtractScopedRoutes(
 	}
 }
 
-// ActixResolver implements FrameworkResolver + FrameworkExtractor for actix-web.
+// ActixResolver handles actix-web.
 type ActixResolver struct {
 	projectRoot string
 	claimed     map[string]bool
 }
 
-// NewActixResolver creates an ActixResolver.
 func NewActixResolver(projectRoot string) *ActixResolver {
 	return &ActixResolver{projectRoot: projectRoot, claimed: make(map[string]bool)}
 }
 
-// Name returns "actix".
 func (r *ActixResolver) Name() string { return "actix" }
 
-// Languages returns [LanguageRust].
 func (r *ActixResolver) Languages() []types.Language {
 	return []types.Language{types.LanguageRust}
 }
@@ -404,12 +278,8 @@ func (r *ActixResolver) Detect(_ context.Context) bool {
 	return cargoHasDep(r.projectRoot, "actix-web")
 }
 
-// Extract scans filePath/content for actix-web route registrations:
-//  1. Attribute macros: #[get("/p")] above async fn name
-//  2. Resource form: web::resource("/p").route(web::get().to(handler))
-//  3. Direct-route form: App::new().route("/p", web::get().to(handler))
-//
-// Comments are stripped first so commented routes emit nothing.
+// Extract covers actix-web's three registration forms: attribute macro,
+// web::resource chain, and direct .route call.
 func (r *ActixResolver) Extract(filePath, content string) ([]types.Node, []types.UnresolvedReference) {
 	stripped := stripJSComments(content)
 	totalLines := strings.Count(content, "\n") + 1
@@ -417,7 +287,6 @@ func (r *ActixResolver) Extract(filePath, content string) ([]types.Node, []types
 	var nodes []types.Node
 	var refs []types.UnresolvedReference
 
-	// 1. Attribute macro form: #[get("/path")] above fn
 	for _, loc := range actixAttrRe.FindAllStringSubmatchIndex(stripped, -1) {
 		if len(loc) < 6 {
 			continue
@@ -430,15 +299,11 @@ func (r *ActixResolver) Extract(filePath, content string) ([]types.Node, []types
 			line = totalLines
 		}
 
-		// Bounded lookahead: find fn name after the attribute
 		handlerName := rustHandlerName(stripped[loc[1]:])
 
 		emitRustRoute(filePath, line, method, path, handlerName, r.claimed, &nodes, &refs)
 	}
 
-	// 2. Resource form: web::resource("/p").route(web::get().to(handler))
-	// For each resource declaration, find all .route() chains that follow
-	// on the same or subsequent lines (up to the next statement).
 	for _, resourceLoc := range actixResourcePathRe.FindAllStringSubmatchIndex(stripped, -1) {
 		if len(resourceLoc) < 4 {
 			continue
@@ -449,8 +314,9 @@ func (r *ActixResolver) Extract(filePath, content string) ([]types.Node, []types
 			resourceLine = totalLines
 		}
 
-		// Scan forward from the end of the resource(...) call to find .route() chains.
-		// We look within a reasonable window (500 bytes) for the associated routes.
+		// A fixed window stands in for the chain's real extent: enough for a
+		// realistic .route chain, short enough not to swallow the next
+		// statement's routes.
 		end := resourceLoc[1]
 		window := 500
 		if end+window > len(stripped) {
@@ -469,77 +335,53 @@ func (r *ActixResolver) Extract(filePath, content string) ([]types.Node, []types
 		}
 	}
 
-	// 3. Direct-route and scope-prefixed form.
-	// actixExtractScopedRoutes walks the source tracking web::scope("PREFIX")
-	// context via paren depth and prepends the accumulated prefix to .route()
-	// paths. Non-scoped .route() calls use their literal path unchanged.
 	actixExtractScopedRoutes(filePath, stripped, totalLines, r.claimed, &nodes, &refs)
 
 	return nodes, refs
 }
 
-// rustLastSegment returns the final :: or . segment of a Rust qualified name.
-// "handlers::list_users" → "list_users"; "list_users" → "list_users".
+// rustLastSegment reduces "handlers::list_users" to "list_users", the form the
+// name matcher looks up.
 func rustLastSegment(s string) string {
 	s = strings.TrimSpace(s)
-	// Handle :: separator (Rust paths)
 	if idx := strings.LastIndex(s, "::"); idx >= 0 {
 		return s[idx+2:]
 	}
-	// Handle . separator
 	if idx := strings.LastIndex(s, "."); idx >= 0 {
 		return s[idx+1:]
 	}
 	return s
 }
 
-// ClaimsReference returns true if a handler with this name was seen in Extract.
 func (r *ActixResolver) ClaimsReference(name string) bool { return r.claimed[name] }
 
-// Resolve returns confidence 0.85 for claimed handlers.
 func (r *ActixResolver) Resolve(ctx context.Context, ref types.UnresolvedReference) (resolution.ResolvedRef, error) {
 	return rustResolve(r.claimed, ctx, ref)
 }
 
-// ---------------------------------------------------------------------------
-// axum resolver
-// ---------------------------------------------------------------------------
-
-// axumRouteFullRe matches axum .route("/path", CHAIN) where CHAIN is a
-// sequence of method(handler) calls optionally chained with dots.
-//
-//	.route("/users", get(list_users))
-//	.route("/orders", get(list_orders).post(create_order))
-//
-// Capture groups: 1=path, 2=full method chain.
-//
-// The chain capture group matches one or more method(handler) calls joined
-// by optional dots — it stops at the outer closing ')'.
+// axumRouteFullRe matches `.route("/p", get(h).post(h2))`. Groups: path, and
+// the whole method chain, which axumMethodCallRe then splits.
 var axumRouteFullRe = regexp.MustCompile(
 	`(?m)\.route\s*\(\s*"([^"]+)"\s*,\s*((?:(?:get|post|put|delete|patch|head|options)\s*\([A-Za-z_][A-Za-z0-9_:]*\)\.?)+)\s*\)`,
 )
 
-// axumMethodCallRe matches a single method call in an axum chain: get(handler)
-// Capture groups: 1=method, 2=handler identifier.
+// axumMethodCallRe groups: method, handler.
 var axumMethodCallRe = regexp.MustCompile(
 	`\b(get|post|put|delete|patch|head|options)\s*\(\s*([A-Za-z_][A-Za-z0-9_:]*)\s*\)`,
 )
 
-// AxumResolver implements FrameworkResolver + FrameworkExtractor for axum.
+// AxumResolver handles axum.
 type AxumResolver struct {
 	projectRoot string
 	claimed     map[string]bool
 }
 
-// NewAxumResolver creates an AxumResolver.
 func NewAxumResolver(projectRoot string) *AxumResolver {
 	return &AxumResolver{projectRoot: projectRoot, claimed: make(map[string]bool)}
 }
 
-// Name returns "axum".
 func (r *AxumResolver) Name() string { return "axum" }
 
-// Languages returns [LanguageRust].
 func (r *AxumResolver) Languages() []types.Language {
 	return []types.Language{types.LanguageRust}
 }
@@ -549,8 +391,7 @@ func (r *AxumResolver) Detect(_ context.Context) bool {
 	return cargoHasDep(r.projectRoot, "axum")
 }
 
-// Extract scans for axum Router::new().route("/path", get(handler)) chains.
-// Method chains on a single path (get(h).post(h2)) fan out into one node per method.
+// Extract fans a chained path out into one route node per method.
 func (r *AxumResolver) Extract(filePath, content string) ([]types.Node, []types.UnresolvedReference) {
 	stripped := stripJSComments(content)
 	totalLines := strings.Count(content, "\n") + 1
@@ -570,10 +411,9 @@ func (r *AxumResolver) Extract(filePath, content string) ([]types.Node, []types.
 			line = totalLines
 		}
 
-		// Fan out: one node per method in the chain
 		methodMatches := axumMethodCallRe.FindAllStringSubmatch(chain, -1)
 		if len(methodMatches) == 0 {
-			// No recognisable method — emit ANY with no handler
+			// The route exists even when its method is unrecognizable.
 			emitRustRoute(filePath, line, "ANY", path, "", r.claimed, &nodes, &refs)
 			continue
 		}
@@ -587,52 +427,31 @@ func (r *AxumResolver) Extract(filePath, content string) ([]types.Node, []types.
 	return nodes, refs
 }
 
-// ClaimsReference returns true if a handler with this name was seen in Extract.
 func (r *AxumResolver) ClaimsReference(name string) bool { return r.claimed[name] }
 
-// Resolve returns confidence 0.85 for claimed handlers.
 func (r *AxumResolver) Resolve(ctx context.Context, ref types.UnresolvedReference) (resolution.ResolvedRef, error) {
 	return rustResolve(r.claimed, ctx, ref)
 }
 
-// ---------------------------------------------------------------------------
-// rocket resolver
-// ---------------------------------------------------------------------------
-
-// rocketAttrRe matches rocket HTTP attribute macros:
-//
-//	#[get("/path")]
-//	#[post("/path", data = "<input>")]
-//	#[put("/path")]   etc.
-//
-// Capture groups: 1=method (lowercase), 2=path.
-// rocketAttrRe matches rocket HTTP attribute macros including the full )] close
-// so that the match end points AFTER the attribute line and rustHandlerName
-// receives the text starting on the NEXT line (the fn definition line).
-//
-//	#[get("/path")]
-//	#[post("/path", data = "<input>")]
-//
-// Capture groups: 1=method (lowercase), 2=path.
+// rocketAttrRe matches `#[get("/p")]` and `#[post("/p", data = "<in>")]`.
+// Groups: method, path. The match deliberately spans the closing `]` so
+// rustHandlerName starts scanning at the following line.
 var rocketAttrRe = regexp.MustCompile(
 	`(?m)#\[(get|post|put|delete|patch|head|options)\s*\(\s*"([^"]+)"[^\]]*\]`,
 )
 
-// RocketResolver implements FrameworkResolver + FrameworkExtractor for rocket.
+// RocketResolver handles rocket.
 type RocketResolver struct {
 	projectRoot string
 	claimed     map[string]bool
 }
 
-// NewRocketResolver creates a RocketResolver.
 func NewRocketResolver(projectRoot string) *RocketResolver {
 	return &RocketResolver{projectRoot: projectRoot, claimed: make(map[string]bool)}
 }
 
-// Name returns "rocket".
 func (r *RocketResolver) Name() string { return "rocket" }
 
-// Languages returns [LanguageRust].
 func (r *RocketResolver) Languages() []types.Language {
 	return []types.Language{types.LanguageRust}
 }
@@ -642,9 +461,7 @@ func (r *RocketResolver) Detect(_ context.Context) bool {
 	return cargoHasDep(r.projectRoot, "rocket")
 }
 
-// Extract scans for rocket attribute macros above fn definitions.
-// Uses bounded lookahead (rustHandlerName) to skip additional #[...] attribute
-// lines between the route macro and the fn — same pattern as nestHandlerName.
+// Extract reads rocket's attribute macros and the functions they decorate.
 func (r *RocketResolver) Extract(filePath, content string) ([]types.Node, []types.UnresolvedReference) {
 	stripped := stripJSComments(content)
 	totalLines := strings.Count(content, "\n") + 1
@@ -664,7 +481,6 @@ func (r *RocketResolver) Extract(filePath, content string) ([]types.Node, []type
 			line = totalLines
 		}
 
-		// Bounded lookahead: find fn name after the attribute
 		handlerName := rustHandlerName(stripped[loc[1]:])
 
 		emitRustRoute(filePath, line, method, path, handlerName, r.claimed, &nodes, &refs)
@@ -673,10 +489,8 @@ func (r *RocketResolver) Extract(filePath, content string) ([]types.Node, []type
 	return nodes, refs
 }
 
-// ClaimsReference returns true if a handler with this name was seen in Extract.
 func (r *RocketResolver) ClaimsReference(name string) bool { return r.claimed[name] }
 
-// Resolve returns confidence 0.85 for claimed handlers.
 func (r *RocketResolver) Resolve(ctx context.Context, ref types.UnresolvedReference) (resolution.ResolvedRef, error) {
 	return rustResolve(r.claimed, ctx, ref)
 }

@@ -1,17 +1,8 @@
-// Package standalone provides extractors for file formats that are not
-// handled by the generic tree-sitter grammar pipeline. Each extractor
-// implements the same extract(filePath, source) → (ExtractionResult, error)
-// pattern described in appendix E of the spec.
-//
-// Formats:
-//   - Vue SFC (.vue)     — component node + JS/TS script extraction; content pre-padded so sub-extractor line numbers and node IDs are file-absolute
-//   - Svelte (.svelte)   — component node + JS script extraction; content pre-padded so sub-extractor line numbers and node IDs are file-absolute
-//   - Liquid (.liquid)   — template node + render/include references
-//   - Delphi DFM (.dfm)  — form + nested object nodes
-//   - MyBatis XML (.xml) — mapper + statement nodes + namespace reference
-//
-// The Registry (For method) maps file extensions to the correct Extractor,
-// for use by the orchestrator (CP10).
+// Package standalone provides extractors for file formats the tree-sitter
+// pipeline does not handle: Vue SFC, Svelte, Liquid, Delphi DFM, MyBatis XML,
+// and SQL. Registry maps a file extension to its Extractor for the orchestrator.
+// Vue and Svelte pre-pad embedded script content with newlines so the
+// sub-extractor produces file-absolute line numbers and node IDs.
 package standalone
 
 import (
@@ -26,28 +17,22 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Extractor interface
-// ---------------------------------------------------------------------------
+// --- Extractor interface ---
 
 // Extractor is the common interface for all standalone format extractors.
-// It mirrors the extract() signature from appendix E.
 type Extractor interface {
 	Extract(filePath, source string) (types.ExtractionResult, error)
 }
 
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
+// --- Registry ---
 
 // Registry maps file extensions to Extractor instances.
 type Registry struct {
 	entries map[string]Extractor
 }
 
-// NewRegistry constructs a Registry wired with all 5 standalone extractors.
-// pool is required for Vue and Svelte (which run the JS/TS tree-sitter extractor
-// on embedded script blocks); the other formats are regex-based and ignore pool.
+// NewRegistry wires every standalone extractor. pool is used only by Vue and
+// Svelte, which run the JS/TS tree-sitter extractor on embedded script blocks.
 func NewRegistry(pool *extraction.Pool) *Registry {
 	entries := map[string]Extractor{
 		".vue":    NewVueExtractor(pool),
@@ -57,9 +42,7 @@ func NewRegistry(pool *extraction.Pool) *Registry {
 		".fmx":    NewDFMExtractor(),
 		".xml":    NewMyBatisExtractor(),
 	}
-	// SQL (dialect-agnostic regex extractor; pool not required).
-	// Extensions come from the canonical SQLExtensions slice so all consumers
-	// stay in sync with a single source of truth.
+	// Extensions come from SQLExtensions so every consumer stays in sync.
 	sqlExt := NewSQLExtractor()
 	for _, ext := range SQLExtensions {
 		entries[ext] = sqlExt
@@ -67,17 +50,13 @@ func NewRegistry(pool *extraction.Pool) *Registry {
 	return &Registry{entries: entries}
 }
 
-// For returns the Extractor for the given file extension (e.g. ".vue"), or nil
-// when the extension is not a registered standalone format.
+// For returns the Extractor for a file extension, or nil when unregistered.
 func (r *Registry) For(ext string) Extractor {
 	return r.entries[strings.ToLower(ext)]
 }
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
+// --- Shared helpers ---
 
-// componentNode builds a root component node at line 1 for the given filePath.
 func componentNode(filePath string) types.Node {
 	name := fileBaseName(filePath)
 	id := extraction.GenerateNodeID(filePath, string(types.NodeKindComponent), name, 1)
@@ -94,7 +73,6 @@ func componentNode(filePath string) types.Node {
 	}
 }
 
-// fileBaseName returns the file name without extension, used as component name.
 func fileBaseName(filePath string) string {
 	base := filepath.Base(filePath)
 	ext := filepath.Ext(base)
@@ -104,7 +82,6 @@ func fileBaseName(filePath string) string {
 	return base
 }
 
-// containsEdge builds a contains edge from source to target.
 func containsEdge(sourceID, targetID string) types.Edge {
 	return types.Edge{
 		Source: sourceID,
@@ -113,30 +90,21 @@ func containsEdge(sourceID, targetID string) types.Edge {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Vue SFC extractor
-// ---------------------------------------------------------------------------
+// --- Vue SFC extractor ---
 
-// scriptTagRE matches a <script ...> block (optionally with "setup" attribute).
-// Group 1 = full attribute string (may include "setup"), group 2 = script content.
-// It is intentionally simple: HTML comments inside attributes are not supported.
+// scriptTagRE matches a <script ...> block. Deliberately naive: HTML comments
+// inside attributes are not handled.
 var scriptTagRE = regexp.MustCompile(`(?si)<script([^>]*)>(.*?)</script>`)
 
-// templateTagRE matches PascalCase or kebab-case component tags inside <template>.
-// Group 1 = the tag name. Self-closing and opening tags are both matched.
+// templateTagRE matches PascalCase or kebab-case component tags, self-closing
+// or not.
 var templateTagRE = regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*|[a-z][a-z0-9]*(?:-[a-z0-9]+)+)[\s/>]`)
 
 // templateBlockRE matches the <template> block content.
 var templateBlockRE = regexp.MustCompile(`(?si)<template[^>]*>(.*?)</template>`)
 
-// handlerBindingRE matches Vue event binding attributes in both forms:
-//   - @event="handlerName"    (shorthand)
-//   - v-on:event="handlerName" (long form)
-//
-// Group 1 = handler method name. Matches single- and double-quoted values.
-// Only simple identifier handlers (method names) are captured; inline
-// expressions like @click="count++" are ignored because they contain
-// non-identifier characters.
+// handlerBindingRE matches @event="handler" and v-on:event="handler". Only bare
+// identifier handlers match; inline expressions like @click="count++" do not.
 var handlerBindingRE = regexp.MustCompile(`(?:@|v-on:)[a-zA-Z][a-zA-Z0-9\-]*(?:\.[a-zA-Z]+)*=["']([a-zA-Z_$][a-zA-Z0-9_$]*)["']`)
 
 // VueExtractor extracts from .vue Single-File Components.
@@ -145,9 +113,7 @@ type VueExtractor struct {
 	jsExt *extraction.TreeSitterExtractor
 }
 
-// NewVueExtractor returns a VueExtractor backed by the given pool.
-// Both TypeScript and JavaScript extractors are wired (script lang="" defaults
-// to JS; lang="ts" uses TS).
+// NewVueExtractor wires both sub-extractors; script lang defaults to JS.
 func NewVueExtractor(pool *extraction.Pool) *VueExtractor {
 	return &VueExtractor{
 		tsExt: extraction.NewTreeSitterExtractor(pool, extraction.LangTypeScript, languages.TypeScriptExtractor()),
@@ -167,28 +133,18 @@ func (e *VueExtractor) Extract(filePath, source string) (types.ExtractionResult,
 	// --- Script block ---
 	scriptMatches := scriptTagRE.FindAllStringSubmatchIndex(source, -1)
 	for _, m := range scriptMatches {
-		// m[0]:m[1] = full match; m[2]:m[3] = attrs; m[4]:m[5] = content
 		if len(m) < 6 {
 			continue
 		}
 		attrs := source[m[2]:m[3]]
 		content := source[m[4]:m[5]]
 
-		// Pad content with leading newlines so the sub-extractor computes
-		// file-absolute line numbers from the start. This ensures that
-		// GenerateNodeID hashes the file-absolute line — matching StartLine —
-		// rather than the script-relative line. The approach mirrors what
-		// ExtractEmbeddedSQL does (embedded_sql.go: "pad with leading newlines
-		// so line numbers are file-absolute"). No post-hoc line shift is applied
-		// to nodes, edges, or refs: the padding already encodes the offset.
-		//
-		// contentLineOffset = number of newlines in source before the first
-		// byte of script content. Prepending that many newlines makes
-		// script-relative line N become file-absolute line N+contentLineOffset.
+		// Pad with leading newlines so the sub-extractor computes file-absolute
+		// lines from the start: GenerateNodeID hashes the line, so nodes, edges,
+		// and refs get no post-hoc shift.
 		contentLineOffset := strings.Count(source[:m[4]], "\n")
 		paddedContent := strings.Repeat("\n", contentLineOffset) + content
 
-		// Run the appropriate extractor on the padded script content.
 		isTS := strings.Contains(attrs, `lang="ts"`) || strings.Contains(attrs, `lang='ts'`)
 		var scriptResult types.ExtractionResult
 		if isTS {
@@ -199,9 +155,7 @@ func (e *VueExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			scriptResult = e.jsExt.Extract(ctx, filePath, paddedContent, types.LanguageJavaScript)
 		}
 
-		// Strip the file: node that the tree-sitter extractor emits (we have
-		// our component node already). No line-offset loop needed: padding
-		// makes all positions file-absolute.
+		// The component node replaces the file: node the sub-extractor emits.
 		for _, n := range scriptResult.Nodes {
 			if n.Kind == types.NodeKindFile {
 				continue
@@ -209,9 +163,7 @@ func (e *VueExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			result.Nodes = append(result.Nodes, n)
 		}
 
-		// Append edges. No line-offset needed: positions are already file-absolute.
 		for _, edge := range scriptResult.Edges {
-			// Re-wire: if edge source is the file: node, replace with component ID.
 			src := edge.Source
 			if src == "file:"+filePath {
 				src = comp.ID
@@ -220,13 +172,9 @@ func (e *VueExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			result.Edges = append(result.Edges, edge)
 		}
 
-		// Append unresolved refs. No line-offset needed: positions are file-absolute.
-		// Re-wire the same file:→component substitution as edges above: a call at
-		// the top level of the script (e.g. `onMounted(...)` in <script setup>, not
-		// inside any named function) is attributed by the tree-sitter extractor to
-		// the enclosing scope — the file: node — which this loop strips from
-		// result.Nodes. Left un-rewired, the ref's owner is absent from the file's
-		// stored nodes and InsertUnresolvedRef's from_node_id FK fails.
+		// Top-level calls (onMounted in <script setup>) are attributed to the
+		// stripped file: node; left un-rewired their owner is absent from the
+		// file's stored nodes and the from_node_id FK fails on insert.
 		for _, ref := range scriptResult.UnresolvedReferences {
 			if ref.FromNodeID == "file:"+filePath {
 				ref.FromNodeID = comp.ID
@@ -237,27 +185,20 @@ func (e *VueExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		result.Errors = append(result.Errors, scriptResult.Errors...)
 	}
 
-	// Note: contains edges (component → script children) are already emitted via
-	// the re-wiring of the tree-sitter extractor's "file:→child" edges above.
-	// No additional contains edges needed here.
+	// Contains edges come from the re-wired file:→child edges above.
 
-	// --- Template block: PascalCase/kebab component tags → references ---
 	templateRefs := extractTemplateRefs(filePath, source, comp.ID, types.LanguageVue)
 	result.UnresolvedReferences = append(result.UnresolvedReferences, templateRefs...)
 
-	// --- Template block: @event="handler" / v-on:event="handler" → references ---
 	handlerRefs := extractHandlerRefs(filePath, source, comp.ID, types.LanguageVue)
 	result.UnresolvedReferences = append(result.UnresolvedReferences, handlerRefs...)
 
 	return result, nil
 }
 
-// extractHandlerRefs scans the template block for @event="handler" and
-// v-on:event="handler" bindings and emits an UnresolvedReference for each
-// distinct handler method name. The ref has ReferenceKind=references so the
-// standard resolution pipeline resolves it to the <script> method node, and
-// VueHandlerSynthesizer converts the resulting references edge into a calls
-// edge from the component to the handler method.
+// extractHandlerRefs emits one reference per distinct event-binding handler
+// name. Resolution points it at the <script> method node, and
+// VueHandlerSynthesizer then turns that references edge into a calls edge.
 func extractHandlerRefs(filePath, source, fromNodeID string, lang types.Language) []types.UnresolvedReference {
 	templateMatch := templateBlockRE.FindStringSubmatchIndex(source)
 	if templateMatch == nil {
@@ -312,7 +253,6 @@ func extractTemplateRefs(filePath, source, fromNodeID string, lang types.Languag
 		}
 		seen[tagName] = struct{}{}
 
-		// Skip built-in HTML elements.
 		if isHTMLElement(tagName) {
 			continue
 		}
@@ -333,8 +273,8 @@ func extractTemplateRefs(filePath, source, fromNodeID string, lang types.Languag
 	return refs
 }
 
-// isHTMLElement reports whether name is a standard HTML element name.
-// Only kebab names need checking since PascalCase never appears in HTML.
+// htmlElements holds the built-in tags to skip. Only kebab names need checking:
+// PascalCase never appears in HTML.
 var htmlElements = map[string]struct{}{
 	"div": {}, "span": {}, "p": {}, "a": {}, "ul": {}, "ol": {}, "li": {},
 	"h1": {}, "h2": {}, "h3": {}, "h4": {}, "h5": {}, "h6": {},
@@ -352,9 +292,7 @@ func isHTMLElement(name string) bool {
 	return ok
 }
 
-// ---------------------------------------------------------------------------
-// Svelte extractor
-// ---------------------------------------------------------------------------
+// --- Svelte extractor ---
 
 // capitalTagRE matches capitalized component tags (PascalCase) in Svelte markup.
 var capitalTagRE = regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*)[\s/>]`)
@@ -364,8 +302,8 @@ type SvelteExtractor struct {
 	jsExt *extraction.TreeSitterExtractor
 }
 
-// NewSvelteExtractor returns a SvelteExtractor backed by the given pool.
-// Svelte's <script> defaults to JavaScript (no lang= switching supported here).
+// NewSvelteExtractor wires the JS sub-extractor; lang= switching is not
+// supported.
 func NewSvelteExtractor(pool *extraction.Pool) *SvelteExtractor {
 	return &SvelteExtractor{
 		jsExt: extraction.NewTreeSitterExtractor(pool, extraction.LangJavaScript, languages.JavaScriptExtractor()),
@@ -388,17 +326,14 @@ func (e *SvelteExtractor) Extract(filePath, source string) (types.ExtractionResu
 			continue
 		}
 		content := source[m[4]:m[5]]
-		// Pad content with leading newlines so the sub-extractor computes
-		// file-absolute line numbers from the start (mirrors Vue and the
-		// embedded-SQL approach in embedded_sql.go). No post-hoc line shift
-		// is applied to nodes, edges, or refs.
+		// Pad so the sub-extractor computes file-absolute lines; no post-hoc
+		// shift is applied to nodes, edges, or refs.
 		contentLineOffset := strings.Count(source[:m[4]], "\n")
 		paddedContent := strings.Repeat("\n", contentLineOffset) + content
 
 		ctx := context.Background()
 		scriptResult := e.jsExt.Extract(ctx, filePath, paddedContent, types.LanguageJavaScript)
 
-		// No line-offset loop: padding makes all positions file-absolute.
 		for _, n := range scriptResult.Nodes {
 			if n.Kind == types.NodeKindFile {
 				continue
@@ -413,12 +348,8 @@ func (e *SvelteExtractor) Extract(filePath, source string) (types.ExtractionResu
 			edge.Source = src
 			result.Edges = append(result.Edges, edge)
 		}
-		// Re-wire the same file:→component substitution as edges above: a call at
-		// the top level of the script (not inside any named function) is
-		// attributed by the tree-sitter extractor to the enclosing scope — the
-		// file: node — which this loop strips from result.Nodes. Left un-rewired,
-		// the ref's owner is absent from the file's stored nodes and
-		// InsertUnresolvedRef's from_node_id FK fails.
+		// Same file:→component rewire as the edges above: an un-rewired owner is
+		// absent from the file's stored nodes and fails the from_node_id FK.
 		for _, ref := range scriptResult.UnresolvedReferences {
 			if ref.FromNodeID == "file:"+filePath {
 				ref.FromNodeID = comp.ID
@@ -428,10 +359,8 @@ func (e *SvelteExtractor) Extract(filePath, source string) (types.ExtractionResu
 		result.Errors = append(result.Errors, scriptResult.Errors...)
 	}
 
-	// contains edges are already emitted via re-wiring of "file:→child" edges.
+	// Contains edges come from the re-wired file:→child edges above.
 
-	// --- Capitalized component tags → references ---
-	// Scan outside <script> and <style> blocks.
 	markup := stripScriptAndStyle(source)
 	seen := map[string]struct{}{}
 	for _, m := range capitalTagRE.FindAllStringSubmatchIndex(markup, -1) {
@@ -456,19 +385,16 @@ func (e *SvelteExtractor) Extract(filePath, source string) (types.ExtractionResu
 	return result, nil
 }
 
-// stripScriptAndStyle removes <script>...</script> and <style>...</style>
-// blocks from source, replacing them with whitespace to preserve line numbers.
+// stripScriptAndStyle blanks script and style blocks, keeping their newlines so
+// line numbers stay stable.
 func stripScriptAndStyle(source string) string {
 	reBlock := regexp.MustCompile(`(?si)<(script|style)[^>]*>.*?</(script|style)>`)
 	return reBlock.ReplaceAllStringFunc(source, func(match string) string {
-		// Replace content with same number of newlines to keep line numbers stable.
 		return strings.Repeat("\n", strings.Count(match, "\n"))
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Liquid extractor
-// ---------------------------------------------------------------------------
+// --- Liquid extractor ---
 
 // liquidRenderRE matches {% render 'name' %} or {% render "name" %}.
 var liquidRenderRE = regexp.MustCompile(`{%-?\s*render\s+['"]([^'"]+)['"]`)
@@ -479,7 +405,6 @@ var liquidIncludeRE = regexp.MustCompile(`{%-?\s*include\s+['"]([^'"]+)['"]`)
 // LiquidExtractor extracts from .liquid Shopify/Liquid template files.
 type LiquidExtractor struct{}
 
-// NewLiquidExtractor returns a LiquidExtractor (no pool required).
 func NewLiquidExtractor() *LiquidExtractor {
 	return &LiquidExtractor{}
 }
@@ -523,31 +448,24 @@ func (e *LiquidExtractor) Extract(filePath, source string) (types.ExtractionResu
 	return result, nil
 }
 
-// ---------------------------------------------------------------------------
-// Delphi DFM extractor
-// ---------------------------------------------------------------------------
+// --- Delphi DFM extractor ---
 
 // dfmObjectRE matches "object Name: TType" lines.
-// Group 1 = object name, group 2 = type name.
 var dfmObjectRE = regexp.MustCompile(`(?im)^\s*object\s+(\w+)\s*:\s*(\w+)`)
 
 // DFMExtractor extracts from Delphi Form Definition (.dfm, .fmx) files.
 type DFMExtractor struct{}
 
-// NewDFMExtractor returns a DFMExtractor (no pool required).
 func NewDFMExtractor() *DFMExtractor {
 	return &DFMExtractor{}
 }
 
-// Extract implements Extractor for .dfm files.
-// It emits a component node for each "object Name: TType" block.
-// The first object encountered is treated as the root form.
+// Extract emits a component node per object block; the first is the root form.
 func (e *DFMExtractor) Extract(filePath, source string) (types.ExtractionResult, error) {
 	result := types.ExtractionResult{}
 
 	matches := dfmObjectRE.FindAllStringSubmatchIndex(source, -1)
 	if len(matches) == 0 {
-		// No objects found: emit a single placeholder component node.
 		comp := componentNode(filePath)
 		comp.Language = types.LanguagePascal
 		result.Nodes = append(result.Nodes, comp)
@@ -582,9 +500,7 @@ func (e *DFMExtractor) Extract(filePath, source string) (types.ExtractionResult,
 	return result, nil
 }
 
-// ---------------------------------------------------------------------------
-// MyBatis XML extractor
-// ---------------------------------------------------------------------------
+// --- MyBatis XML extractor ---
 
 // mybatisMapperRE matches <mapper namespace="..."> or <mapper namespace='...'>
 var mybatisMapperRE = regexp.MustCompile(`(?i)<mapper\s[^>]*namespace\s*=\s*['"]([^'"]+)['"]`)
@@ -595,15 +511,12 @@ var mybatisStatementRE = regexp.MustCompile(`(?i)<(select|insert|update|delete)\
 // MyBatisExtractor extracts from MyBatis XML mapper files.
 type MyBatisExtractor struct{}
 
-// NewMyBatisExtractor returns a MyBatisExtractor (no pool required).
 func NewMyBatisExtractor() *MyBatisExtractor {
 	return &MyBatisExtractor{}
 }
 
-// Extract implements Extractor for MyBatis XML files.
-// It emits a module node for the <mapper> element and function nodes for each
-// statement (select/insert/update/delete), plus a reference from the mapper to
-// its namespace Java class.
+// Extract emits a module node for <mapper>, a function node per statement, and
+// a reference from the mapper to its namespace Java class.
 func (e *MyBatisExtractor) Extract(filePath, source string) (types.ExtractionResult, error) {
 	result := types.ExtractionResult{}
 
@@ -633,7 +546,6 @@ func (e *MyBatisExtractor) Extract(filePath, source string) (types.ExtractionRes
 	}
 	result.Nodes = append(result.Nodes, mapperNode)
 
-	// Namespace → references the Java interface.
 	if namespace != "" {
 		result.UnresolvedReferences = append(result.UnresolvedReferences, types.UnresolvedReference{
 			FromNodeID:    mapperID,

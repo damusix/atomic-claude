@@ -1,6 +1,6 @@
-// Package reminder manages reminder files under .claude/.scratchpad/reminders/.
-// Each reminder is a frontmatter markdown file. The binary tracks no scheduling
-// state — a reminder either exists (pending) or it doesn't (done = deleted).
+// Package reminder manages frontmatter markdown reminders under
+// .claude/.scratchpad/reminders/. There is no scheduling state: a reminder is
+// pending while its file exists and done once deleted.
 package reminder
 
 import (
@@ -18,14 +18,12 @@ import (
 
 const slugMaxLen = 50
 
-// validTransports is the set of accepted transport kinds.
 var validTransports = map[string]bool{
 	"cron":    true,
 	"routine": true,
 	"none":    true,
 }
 
-// remindersDir returns the absolute path to the reminders directory.
 func remindersDir(repoRoot string) string {
 	return config.RemindersDir(repoRoot)
 }
@@ -38,8 +36,6 @@ type addOpts struct {
 	transport string
 }
 
-// WithDue sets the due field (RFC3339 / ISO-8601 timestamp).
-// Returns an error if the value is not a valid RFC3339 timestamp.
 func WithDue(iso string) Option {
 	return func(o *addOpts) error {
 		if _, err := time.Parse(time.RFC3339, iso); err != nil {
@@ -62,13 +58,11 @@ func WithTransport(kind string) Option {
 }
 
 // Add creates a new reminder file and returns the assigned id.
-// Returns an error if body is empty/whitespace-only, or if any option is invalid.
 func Add(repoRoot, body string, opts ...Option) (string, error) {
 	if strings.TrimSpace(body) == "" {
 		return "", fmt.Errorf("reminder: body must not be empty")
 	}
 
-	// Apply options.
 	o := &addOpts{}
 	for _, opt := range opts {
 		if err := opt(o); err != nil {
@@ -83,7 +77,6 @@ func Add(repoRoot, body string, opts ...Option) (string, error) {
 
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// First non-empty line of body for the slug.
 	firstLine := firstNonEmpty(body)
 	slug := ids.Slug(firstLine)
 	if len(slug) > slugMaxLen {
@@ -91,7 +84,7 @@ func Add(repoRoot, body string, opts ...Option) (string, error) {
 		slug = strings.TrimRight(slug, "-")
 	}
 
-	// Attempt up to 3 times to find a non-colliding path.
+	// The first attempt uses the bare slug; later ones disambiguate with the id.
 	for attempt := 0; attempt < 3; attempt++ {
 		id, err := ids.ShortID("r")
 		if err != nil {
@@ -102,17 +95,14 @@ func Add(repoRoot, body string, opts ...Option) (string, error) {
 		if attempt == 0 {
 			filename = today + "-" + slug + ".md"
 		} else {
-			// Append the id suffix on collision.
 			filename = today + "-" + slug + "-" + id + ".md"
 		}
 
 		path := filepath.Join(dir, filename)
 		if _, err := os.Stat(path); err == nil {
-			// File exists — retry with id suffix.
 			continue
 		}
 
-		// Build meta map and emit via orderedKVs to share canonical ordering logic.
 		meta := map[string]any{
 			"id":      id,
 			"created": today,
@@ -125,7 +115,6 @@ func Add(repoRoot, body string, opts ...Option) (string, error) {
 		}
 		kvs := orderedKVs(meta)
 
-		// Ensure body ends with a newline.
 		content := strings.TrimRight(body, "\n") + "\n"
 		doc, err := frontmatter.EmitOrdered(kvs, "\n"+content)
 		if err != nil {
@@ -142,8 +131,6 @@ func Add(repoRoot, body string, opts ...Option) (string, error) {
 }
 
 // SetDue rewrites the due: field of an existing reminder in place.
-// All other frontmatter fields and the body are left unchanged.
-// Returns an error if the id is not found or iso is malformed.
 func SetDue(repoRoot, id, iso string) error {
 	if _, err := time.Parse(time.RFC3339, iso); err != nil {
 		return fmt.Errorf("reminder: invalid due timestamp %q: must be RFC3339", iso)
@@ -154,8 +141,6 @@ func SetDue(repoRoot, id, iso string) error {
 		return err
 	}
 
-	// Rebuild kvs in spec order: id, created, due, transport.
-	// Preserve any fields present; set/update due.
 	meta["due"] = iso
 
 	kvs := orderedKVs(meta)
@@ -172,8 +157,7 @@ func SetDue(repoRoot, id, iso string) error {
 	return nil
 }
 
-// orderedKVs returns frontmatter key-value pairs in spec order:
-// id, created, due, transport. Unknown keys are appended sorted after.
+// orderedKVs emits id, created, due, transport first, then unknown keys sorted.
 func orderedKVs(meta map[string]any) []frontmatter.KV {
 	order := []string{"id", "created", "due", "transport"}
 	seen := map[string]bool{}
@@ -184,7 +168,6 @@ func orderedKVs(meta map[string]any) []frontmatter.KV {
 			seen[k] = true
 		}
 	}
-	// Append any remaining keys in sorted order.
 	var extra []string
 	for k := range meta {
 		if !seen[k] {
@@ -198,7 +181,6 @@ func orderedKVs(meta map[string]any) []frontmatter.KV {
 	return kvs
 }
 
-// Row is one entry in the reminder list.
 type Row struct {
 	ID        string
 	Created   string
@@ -208,7 +190,6 @@ type Row struct {
 }
 
 // List returns all reminders sorted by created ascending then id ascending.
-// Returns empty slice (not error) when the directory is absent or empty.
 func List(repoRoot string) ([]Row, error) {
 	dir := remindersDir(repoRoot)
 	entries, err := os.ReadDir(dir)
@@ -257,7 +238,6 @@ func List(repoRoot string) ([]Row, error) {
 }
 
 // Show returns the body (frontmatter stripped) of the reminder with the given id.
-// Returns an error if no matching reminder is found.
 func Show(repoRoot, id string) (string, error) {
 	_, _, body, err := findByID(repoRoot, id)
 	if err != nil {
@@ -267,7 +247,6 @@ func Show(repoRoot, id string) (string, error) {
 }
 
 // Rm deletes the reminder file with the given id.
-// Returns an error if no matching reminder is found.
 func Rm(repoRoot, id string) error {
 	path, _, _, err := findByID(repoRoot, id)
 	if err != nil {
@@ -279,8 +258,8 @@ func Rm(repoRoot, id string) error {
 	return nil
 }
 
-// findByID scans the reminders directory for a file whose frontmatter id
-// matches the given id. Returns the file path, parsed meta, and body on success.
+// findByID scans for the file whose frontmatter id matches; ids are not encoded
+// in the filename except on slug collision.
 func findByID(repoRoot, id string) (path string, meta map[string]any, body string, err error) {
 	dir := remindersDir(repoRoot)
 	entries, err := os.ReadDir(dir)
@@ -312,7 +291,6 @@ func findByID(repoRoot, id string) (path string, meta map[string]any, body strin
 	return "", nil, "", fmt.Errorf("reminder: no reminder with id %q", id)
 }
 
-// firstNonEmpty returns the first non-empty (after trimming) line of s.
 func firstNonEmpty(s string) string {
 	for _, line := range strings.Split(s, "\n") {
 		if t := strings.TrimSpace(line); t != "" {
@@ -322,7 +300,6 @@ func firstNonEmpty(s string) string {
 	return ""
 }
 
-// truncate shortens s to at most maxLen runes, appending "…" if truncated.
 func truncate(s string, maxLen int) string {
 	runes := []rune(s)
 	if len(runes) <= maxLen {

@@ -7,20 +7,18 @@ import (
 	"sync"
 )
 
-// harnessDirOnce resolves harnessDirCached exactly once per process, unless
-// harnessDirOverride is set (test seam — takes priority and never touches
-// os.UserHomeDir or the Once at all).
+// harnessDirOnce resolves harnessDirCached once per process, unless
+// harnessDirOverride is set — the test seam takes priority and touches neither
+// os.UserHomeDir nor the Once.
 var (
 	harnessDirOnce     sync.Once
 	harnessDirCached   string
 	harnessDirOverride *string
 )
 
-// harnessDir resolves the effective harness.dir value via the five-rung
-// ladder in resolveHarnessDir. Resolved once per process and cached —
-// repo-local path helpers call this on every invocation, so re-reading
-// config.toml (and re-checking env) each time would be wasteful. Env is
-// process-stable, so caching it alongside the config read is safe.
+// harnessDir resolves the effective harness.dir via resolveHarnessDir's ladder,
+// cached per process: repo-local path helpers call this on every invocation, and
+// env is process-stable, so re-reading config.toml each time would be waste.
 func harnessDir() string {
 	if harnessDirOverride != nil {
 		return *harnessDirOverride
@@ -36,20 +34,17 @@ func harnessDir() string {
 	return harnessDirCached
 }
 
-// resolveHarnessDir resolves the effective harness.dir value via a five-rung
-// ladder, most specific first:
-//  1. ATOMIC_HARNESS env (non-empty) — explicit harness name; a leading "."
-//     is tolerated and normalized. Invalid values (per validateHarnessDir)
-//     fall through to the next rung rather than erroring, matching the
-//     lenient load-path posture.
+// resolveHarnessDir walks a five-rung ladder, most specific first:
+//
+//  1. ATOMIC_HARNESS env — a leading "." is tolerated and normalized; an
+//     invalid value falls through rather than erroring.
 //  2. PI_CODING_AGENT == "true" → ".pi"
 //  3. CLAUDECODE == "1" → ".claude"
 //  4. the user config's harness.dir, if set
 //  5. the built-in default
 //
-// Rung 2 before rung 3 is deliberate: a pi agent launched from within Claude
-// Code exposes both fingerprints, and PI_CODING_AGENT is the more specific
-// signal for that nested case.
+// Rung 2 precedes rung 3 deliberately: a pi agent launched from within Claude
+// Code exposes both fingerprints, and PI_CODING_AGENT is the more specific one.
 func resolveHarnessDir(home string) string {
 	if raw := os.Getenv("ATOMIC_HARNESS"); raw != "" {
 		dir := "." + strings.TrimPrefix(raw, ".")
@@ -66,15 +61,12 @@ func resolveHarnessDir(home string) string {
 	return resolveHarnessDirFromHome(home)
 }
 
-// resolveHarnessDirFromHome loads home's user config and returns harness.dir
-// if set, else the built-in default. Lenient on any load error — a missing
-// or unparseable config.toml falls back to the default rather than failing
-// repo-local path resolution. Also re-validates a non-empty stored value with
-// the same rules Set enforces at write time: Load itself does not validate,
-// so a config.toml hand-edited (or corrupted) into an invalid shape like ".."
-// would otherwise reach filepath.Join unchecked in the repo-local helpers —
-// a path-escape risk. Takes home as a parameter (never calls os.UserHomeDir
-// itself) so it can be exercised directly against a temp home.
+// resolveHarnessDirFromHome returns home's configured harness.dir, else the
+// default. Lenient on any load error. It re-validates a stored value with the
+// rules Set enforces at write time, because Load itself does not validate — a
+// config.toml hand-edited into something like ".." would otherwise reach
+// filepath.Join unchecked in the repo-local helpers. home is a parameter so this
+// can be exercised against a temp home.
 func resolveHarnessDirFromHome(home string) string {
 	cfg, _, err := Load(TOMLPath(home))
 	if err != nil {
@@ -89,10 +81,9 @@ func resolveHarnessDirFromHome(home string) string {
 	return cfg.Harness.Dir
 }
 
-// SetHarnessDirForTest overrides the effective harness.dir for tests,
-// bypassing harnessDirOnce and os.UserHomeDir entirely so tests never touch
-// the real home. Returns a restore func that puts back the previous override
-// (nil if none was active) — callers should defer it immediately.
+// SetHarnessDirForTest overrides the effective harness.dir, bypassing the Once
+// and os.UserHomeDir so tests never touch the real home. Returns a restore func
+// (nil if no override was active) that the caller should defer immediately.
 func SetHarnessDirForTest(dir string) func() {
 	prev := harnessDirOverride
 	harnessDirOverride = &dir
@@ -130,7 +121,7 @@ func WorktreesDir(root string) string {
 }
 
 // RepoConfigPath returns <root>/<harness.dir>/atomic.toml — the repo-scoped
-// config file loaded by LoadRepoConfig.
+// config file LoadRepoConfig reads.
 func RepoConfigPath(root string) string {
 	return filepath.Join(root, harnessDir(), "atomic.toml")
 }

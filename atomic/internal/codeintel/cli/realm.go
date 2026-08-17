@@ -1,11 +1,6 @@
 package cli
 
-// realm.go — CP3: realm fan-out orchestrator for `atomic code` verbs.
-//
-// RunCodeWithRealm is the new entry point called by main.go:runCode.  It
-// resolves the scope via realm.Resolve BEFORE calling repoctx.Resolve (which
-// errors at a realm root that has no git repo).  Repo-scope and ScopeNoIndex
-// paths are forwarded to the existing RunCode unchanged, preserving SC 2.
+// Realm fan-out for `atomic code` verbs.
 
 import (
 	"bytes"
@@ -22,26 +17,18 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 )
 
-// RunCodeWithRealm is the scope-aware entry point for `atomic code` verbs.
-//
-//   - projectRoot is the cwd (resolved by main.go before the call — note: this
-//     may be a realm root, so we MUST NOT call repoctx.Resolve before branching).
-//   - claudeMDPath is the path to ~/.claude/CLAUDE.md used to find <wikis> realm registrations.
-//
-// Repo-scope (local index present) and ScopeNoIndex (not in a realm) forward to
-// RunCode unchanged so the single-repo path is byte-for-byte identical (SC 2).
+// RunCodeWithRealm resolves scope before touching repoctx: projectRoot may be a
+// realm root, where repoctx.Resolve errors for want of a git repo. claudeMDPath
+// supplies the <wikis> realm registrations.
 func RunCodeWithRealm(args []string, projectRoot, claudeMDPath string, stdout, stderr io.Writer, stdin io.Reader) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printCodeUsage(stderr)
 		return 0
 	}
 
-	// A --daemon invocation of the mcp verb is spawned by DefaultSpawn with
-	// explicit --source/--db flags (GitHub issue #193 — daemon mode folded into
-	// the mcp verb so the spawned argv always names a Cobra-registered command).
-	// Route it directly to RunCode before realm resolution, so the daemon never
-	// hits the realm-verb-reject gate regardless of the process cwd. This is
-	// what makes the daemon cwd-independent.
+	// A spawned daemon carries explicit --source/--db, so it must bypass realm
+	// resolution entirely — otherwise the realm-verb-reject gate would kill it
+	// based on whatever cwd it happened to inherit.
 	if args[0] == "mcp" && containsFlag(args[1:], "daemon") {
 		return RunCode(args, projectRoot, stdout, stderr, stdin)
 	}
@@ -54,32 +41,19 @@ func RunCodeWithRealm(args []string, projectRoot, claudeMDPath string, stdout, s
 
 	switch res.Scope {
 	case realm.ScopeRepo:
-		// A local index exists at projectRoot (the resolver verified
-		// <projectRoot>/.claude/.atomic-index/atomic.db). Query it directly — the
-		// indexed root IS projectRoot, so there is no need to consult git or the
-		// process cwd. main.go passes os.Getwd() as projectRoot, so this is
-		// byte-for-byte today's single-repo behavior (SC 2), and it does not depend
-		// on the process working directory (which made this path untestable before).
+		// The resolver already verified a local index here, so the indexed root
+		// is projectRoot — no need to consult git or the process cwd.
 		return RunCode(args, projectRoot, stdout, stderr, stdin)
 
 	case realm.ScopeNoIndex:
-		// No local index at projectRoot and not under a realm. Resolve the git root
-		// so a subdir invocation targets the whole repo.
-		//
-		// When main.go passes os.Getwd() as projectRoot (no --repo), repoctx.Resolve("")
-		// runs `git rev-parse` against the cwd — the same as before CP3 (SC 2).
-		// When --repo was given (projectRoot is an explicit path), try that path first
-		// so the command works even when the cwd is a non-git directory (e.g. a realm root).
+		// Resolve the git root so a subdir invocation still targets the whole
+		// repo. projectRoot first, so --repo works from a non-git cwd; then cwd,
+		// which covers a projectRoot whose toplevel sits above it.
 		root, err := repoctx.Resolve(projectRoot)
 		if err != nil {
-			// projectRoot itself is not a git repo (or path doesn't exist). Try cwd as
-			// a last resort — this covers the case where projectRoot is a git subdir
-			// whose --show-toplevel is above projectRoot.
 			root, err = repoctx.Resolve("")
 		}
 		if err != nil {
-			// Not inside a git repo (and not a realm) — surface the same error the
-			// user would have seen before CP3.
 			fmt.Fprintf(stderr, "atomic code: %v\n", err)
 			return 1
 		}
@@ -101,10 +75,8 @@ func RunCodeWithRealm(args []string, projectRoot, claudeMDPath string, stdout, s
 	}
 }
 
-// ─── ScopeRealmMember ────────────────────────────────────────────────────────
-
-// runRealmMember runs a verb against the single matched member's keyed db.
-// Output is not [key]-wrapped (single target — matches spec "returns only foo's results").
+// runRealmMember runs a verb against one member's keyed db. Output is not
+// [key]-wrapped: there is only one target.
 func runRealmMember(args []string, res realm.Resolution, stdout, stderr io.Writer, stdin io.Reader) int {
 	if len(res.Members) != 1 {
 		fmt.Fprintf(stderr, "atomic code: realm member: unexpected member count %d\n", len(res.Members))
@@ -116,15 +88,14 @@ func runRealmMember(args []string, res realm.Resolution, stdout, stderr io.Write
 
 	verb := args[0]
 
-	// index in realm-member scope must not write into the member repo (SC 3).
-	// Route through indexRealmAll which uses NewWithDBPath + no EnsureGitignore.
+	// Routed through indexRealmAll because index must not write into the member
+	// repo: no EnsureGitignore, db path supplied explicitly.
 	if verb == "index" {
 		return indexRealmAll(res.RealmRoot, []realm.MemberEntry{m}, args[1:], stdout, stderr)
 	}
 
-	// mcp in realm-member scope: start the proxy with explicit (memberAbs, dbPath)
-	// so the daemon serves the member's realm db without writing into the member
-	// source tree (SC 3).
+	// Explicit paths so the daemon serves the member's realm db without writing
+	// into the member source tree.
 	if verb == "mcp" {
 		ctx := context.Background()
 		return runMCP(ctx, memberAbs, dbPath, args[1:], stderr)
@@ -141,45 +112,33 @@ func runRealmMember(args []string, res realm.Resolution, stdout, stderr io.Write
 	return dispatchVerb(ctx, verb, args[1:], eng, memberAbs, stdout, stderr, stdin)
 }
 
-// ─── ScopeRealmAll ───────────────────────────────────────────────────────────
-
-// runRealmAll handles the realm-root cwd case: seed config if absent, then
-// fan out across non-excluded members.
+// runRealmAll seeds config if absent, then fans out across non-excluded members.
 func runRealmAll(args []string, cwd string, res realm.Resolution, claudeMDPath string, stdout, stderr io.Writer, stdin io.Reader) int {
 	verb := args[0]
 	restArgs := args[1:]
 
-	// Server verbs bind to a single tree and cannot fan out across members.
-	// sync and status are NOT in this set — they fan out per member like the
-	// query verbs (sync updates each member's realm db; status reports each).
+	// A server binds to one tree and so cannot fan out. sync and status can:
+	// each acts per member.
 	switch verb {
 	case "mcp":
-		// No single target — tell the user to use --repo to pick one.
 		fmt.Fprintf(stderr, "atomic code mcp: not available in realm scope; pass --repo <member> to serve a specific repo\n")
 		return 1
 	}
 
-	// Strip --only/--exclude from restArgs before passing them to verb runners.
 	only, excl, cleanArgs := extractRealmFlags(restArgs)
 
-	// Determine the target member set.
 	members, cfgRes, code := prepareMembers(verb, cwd, res, claudeMDPath, only, excl, stdout, stderr, stdin, cleanArgs)
 	if code >= 0 {
 		return code
 	}
 
-	// Verb is "index": fan out over the filtered member set (respects --only/--exclude),
-	// then write the <code-index> awareness block into the realm CLAUDE.md (SC 7).
 	if verb == "index" {
 		code := indexRealmAll(cfgRes.RealmRoot, members, cleanArgs, stdout, stderr)
-		// Write the <code-index> block even on partial failure — membership that was
-		// already indexed should still surface for Claude awareness.
-		// Pass the config-non-excluded set (cfgRes.Members), NOT the CLI-filtered
-		// members slice, so the block always reflects full realm membership regardless
-		// of --only/--exclude flags on this invocation (SC 7).
+		// Written even on partial failure, so already-indexed members still
+		// surface. Uses the full config membership rather than the CLI-filtered
+		// slice: the block describes the realm, not this one invocation.
 		if err := realm.WriteCodeIndexBlock(cfgRes.RealmRoot, cfgRes.Members); err != nil {
 			fmt.Fprintf(stderr, "atomic code index: write <code-index> block: %v\n", err)
-			// Non-fatal: the index itself succeeded; only awareness wiring failed.
 			if code == 0 {
 				code = 1
 			}
@@ -187,13 +146,11 @@ func runRealmAll(args []string, cwd string, res realm.Resolution, claudeMDPath s
 		return code
 	}
 
-	// Fan-out query verbs.
 	return fanOutQuery(verb, cleanArgs, members, cfgRes, stdout, stderr, stdin)
 }
 
-// prepareMembers resolves the member list for fan-out, seeding code.toml if
-// absent (for the index verb only).  Returns (members, resolution, earlyExit)
-// where earlyExit >= 0 means return that code immediately.
+// prepareMembers resolves the fan-out member list, seeding code.toml when the
+// verb is index. A returned exit code >= 0 means return it immediately.
 func prepareMembers(
 	verb, cwd string,
 	res realm.Resolution,
@@ -203,7 +160,6 @@ func prepareMembers(
 	stdin io.Reader,
 	cleanArgs []string,
 ) ([]realm.MemberEntry, realm.Resolution, int) {
-	// If code.toml is absent and this is the index verb, seed it first.
 	if res.Config == nil && verb == "index" {
 		wikiIndexPath := filepath.Join(res.RealmRoot, "wiki", "index.md")
 		cfg, err := realm.SeedConfig(res.RealmRoot, wikiIndexPath)
@@ -212,38 +168,31 @@ func prepareMembers(
 			return nil, res, 1
 		}
 		if cfg == nil {
-			// No wiki-scan block — cannot seed. Run index at cwd directly.
-			// Fall back to single-repo index at the realm root (unusual but safe).
+			// No <wiki-scan> block to seed from; a single-repo index at the
+			// realm root is unusual but harmless.
 			fmt.Fprintf(stderr, "atomic code index: no code.toml and no wiki/index.md with <wiki-scan> block; falling back to single-repo index at %s\n", cwd)
 			return nil, res, RunCode(append([]string{"index"}, cleanArgs...), cwd, stdout, stderr, stdin)
 		}
-		// Reload resolution with seeded config.
 		res.Config = cfg
 		res.Members = nonExcludedMembers(cfg.Members)
 	} else if res.Config == nil {
-		// Query verb with no config — no members to fan out.
 		fmt.Fprintf(stderr, "atomic code %s: no realm config at %s/.atomic/code.toml — run `atomic code index` first\n", verb, res.RealmRoot)
 		return nil, res, 1
 	}
 
-	// Apply --only/--exclude filters.
 	members := filterMembers(res.Members, only, excl)
-	return members, res, -1 // -1 = no early exit
+	return members, res, -1
 }
 
-// indexRealmAll indexes each member in the provided (already-filtered) list,
-// storing each db at <realm>/.atomic/<key>.db.  Partial failure: a member that
-// fails to index gets a warning line; the run continues.
-//
-// members is the --only/--exclude-filtered slice from prepareMembers so that
-// index respects the same filters as query verbs (SC 5).
+// indexRealmAll indexes each member into <realm>/.atomic/<key>.db. A member
+// that fails is warned about and skipped; the rest of the run continues.
 func indexRealmAll(realmRoot string, members []realm.MemberEntry, extraArgs []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	overallOK := true
 
 	for _, m := range members {
 		memberAbs := filepath.Join(realmRoot, m.Path)
-		// DB lives at <realm>/.atomic/<key>.db, never inside the member repo (SC 3).
+		// Never inside the member repo.
 		dbPath := filepath.Join(realmRoot, ".atomic", m.Key+".db")
 
 		eng, err := engine.NewWithDBPath(memberAbs, dbPath)
@@ -287,18 +236,12 @@ func indexRealmAll(realmRoot string, members []realm.MemberEntry, extraArgs []st
 	return 0
 }
 
-// fanOutQuery runs a non-index verb across the filtered member list — the
-// query verbs plus sync/status (sync mutates each member's realm db; both are
-// safe per-member). Un-indexed members are skipped with a clear message.
-// Human output: each member under a [key] header.
-// JSON output: {key: raw_json, ...} assembled from each member's captured output.
+// fanOutQuery runs a non-index verb per member, skipping un-indexed ones.
+// Human output puts each member under a [key] header; JSON output keys each
+// member's raw output by member key.
 func fanOutQuery(verb string, args []string, members []realm.MemberEntry, res realm.Resolution, stdout, stderr io.Writer, stdin io.Reader) int {
-	// Detect --json in args for output assembly.
 	asJSON := containsFlag(args, "json")
 
-	// Ensure flag args are placed before positional args so that the verb
-	// runners' flag.FlagSet (which stops at the first non-flag argument) can
-	// see all flags regardless of the order they were passed by the user.
 	args = hoistFlags(args)
 
 	ctx := context.Background()
@@ -313,10 +256,8 @@ func fanOutQuery(verb string, args []string, members []realm.MemberEntry, res re
 		memberAbs := filepath.Join(res.RealmRoot, m.Path)
 		dbPath := res.DBPath(m.Key)
 
-		// Two-phase check: os.Stat avoids creating the engine just to discover the
-		// db is absent (fast path); IsInitialized catches a db file that exists but
-		// has not been initialised (e.g. zero-byte or schema-empty from a prior
-		// failed run).  Both are legitimate "not indexed" signals.
+		// Stat first to skip building an engine for an absent db; IsInitialized
+		// below then catches a db file left zero-byte by a failed run.
 		if _, err := os.Stat(dbPath); err != nil {
 			fmt.Fprintf(stderr, "[%s] not indexed — run `atomic code index` first\n", m.Key)
 			continue
@@ -334,13 +275,11 @@ func fanOutQuery(verb string, args []string, members []realm.MemberEntry, res re
 			continue
 		}
 
-		// Capture member output into a buffer.
 		var memberBuf bytes.Buffer
 		memberStderr := &bytes.Buffer{}
 		exitCode := dispatchVerb(ctx, verb, args, eng, memberAbs, &memberBuf, memberStderr, strings.NewReader(""))
 		eng.Close()
 
-		// Surface member stderr.
 		if memberStderr.Len() > 0 {
 			fmt.Fprintf(stderr, "[%s] %s", m.Key, memberStderr.String())
 		}
@@ -350,14 +289,12 @@ func fanOutQuery(verb string, args []string, members []realm.MemberEntry, res re
 		}
 
 		if asJSON {
-			// Capture raw JSON from member; wrap as RawMessage in the keyed map.
 			raw := bytes.TrimSpace(memberBuf.Bytes())
 			if len(raw) == 0 {
 				raw = []byte("null")
 			}
 			jsonParts[m.Key] = json.RawMessage(raw)
 		} else {
-			// Human: prefix with [key] header.
 			fmt.Fprintf(stdout, "[%s]\n", m.Key)
 			if memberBuf.Len() > 0 {
 				stdout.Write(memberBuf.Bytes()) //nolint:errcheck
@@ -381,10 +318,8 @@ func fanOutQuery(verb string, args []string, members []realm.MemberEntry, res re
 	return overallCode
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-// dispatchVerb routes a single verb to the appropriate runner, given an already
-// constructed engine.  It does not call os.Exit.
+// dispatchVerb routes one verb to its runner against an already-built engine,
+// returning an exit code rather than calling os.Exit.
 func dispatchVerb(ctx context.Context, verb string, args []string, eng *engine.Engine, projectRoot string, stdout, stderr io.Writer, stdin io.Reader) int {
 	switch verb {
 	case "index":
@@ -416,12 +351,9 @@ func dispatchVerb(ctx context.Context, verb string, args []string, eng *engine.E
 	}
 }
 
-// extractRealmFlags scans args linearly to pull --only and --exclude values,
-// returning the values and the cleaned args (with those flags removed).
-//
-// We cannot use flag.FlagSet here because it stops parsing at the first
-// positional argument (e.g. a search query string), so flags appearing after
-// the query would be invisible.  Linear scanning handles any order.
+// extractRealmFlags scans linearly rather than using flag.FlagSet, which stops
+// at the first positional argument and so would miss a flag placed after a
+// search query.
 func extractRealmFlags(args []string) (only, excl []string, clean []string) {
 	var onlyParts, exclParts []string
 	i := 0
@@ -454,8 +386,7 @@ func extractRealmFlags(args []string) (only, excl []string, clean []string) {
 	return only, excl, clean
 }
 
-// filterMembers applies --only and --exclude to the member list.
-// --only takes precedence: if set, --exclude is ignored.
+// filterMembers gives --only precedence: when set, --exclude is ignored.
 func filterMembers(members []realm.MemberEntry, only, excl []string) []realm.MemberEntry {
 	if len(only) > 0 {
 		onlySet := make(map[string]bool, len(only))
@@ -486,8 +417,7 @@ func filterMembers(members []realm.MemberEntry, only, excl []string) []realm.Mem
 	return members
 }
 
-// nonExcludedMembers returns the members where Exclude == false.
-// Mirrors realm.nonExcluded but accessible here.
+// nonExcludedMembers mirrors realm.nonExcluded, which is unexported.
 func nonExcludedMembers(members []realm.MemberEntry) []realm.MemberEntry {
 	var out []realm.MemberEntry
 	for _, m := range members {
@@ -498,7 +428,6 @@ func nonExcludedMembers(members []realm.MemberEntry) []realm.MemberEntry {
 	return out
 }
 
-// containsFlag returns true when "--<flag>" appears in args (with or without value).
 func containsFlag(args []string, flag string) bool {
 	needle := "--" + flag
 	for _, a := range args {
@@ -509,10 +438,8 @@ func containsFlag(args []string, flag string) bool {
 	return false
 }
 
-// valueFlags is the set of flags that always consume the next token as their
-// value, regardless of whether that token starts with '-'.  This is required
-// so that `--depth -1` is parsed as (flag=depth, value=-1) rather than
-// leaving "-1" in the positional list.
+// valueFlags always consume the next token even when it starts with '-', so
+// `--depth -1` parses as a value rather than leaving "-1" positional.
 var valueFlags = map[string]bool{
 	"--depth":   true,
 	"--limit":   true,
@@ -522,13 +449,9 @@ var valueFlags = map[string]bool{
 	"-limit":    true,
 }
 
-// hoistFlags reorders args so that flag arguments (--foo, --foo=val, --foo val)
-// appear before positional arguments.  This lets verb runners' flag.FlagSet
-// (which stops at the first non-flag argument) see all flags regardless of
-// the original user-supplied order (e.g. "search Hello --json").
-//
-// Known value-taking flags (depth, limit, only, exclude) always consume the
-// next token, even when it starts with '-' (e.g. --depth -1).
+// hoistFlags moves flags ahead of positionals so a verb runner's flag.FlagSet,
+// which stops at the first non-flag argument, still sees flags the user typed
+// after the query.
 func hoistFlags(args []string) []string {
 	var flags, positional []string
 	i := 0
@@ -536,20 +459,16 @@ func hoistFlags(args []string) []string {
 		a := args[i]
 		if strings.HasPrefix(a, "-") {
 			if strings.Contains(a, "=") {
-				// --flag=val: self-contained.
 				flags = append(flags, a)
 				i++
 			} else if valueFlags[a] && i+1 < len(args) {
-				// Known value flag: always consume the next token as value,
-				// even if it looks like a flag (e.g. --depth -1).
 				flags = append(flags, a, args[i+1])
 				i += 2
 			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				// Unknown flag whose next token is not a flag: hoist as pair.
+				// An unknown flag followed by a non-flag: assume it takes a value.
 				flags = append(flags, a, args[i+1])
 				i += 2
 			} else {
-				// Boolean flag or last arg.
 				flags = append(flags, a)
 				i++
 			}
@@ -561,7 +480,6 @@ func hoistFlags(args []string) []string {
 	return append(flags, positional...)
 }
 
-// splitComma splits a comma-separated string into a trimmed slice.
 func splitComma(s string) []string {
 	parts := strings.Split(s, ",")
 	out := make([]string, 0, len(parts))

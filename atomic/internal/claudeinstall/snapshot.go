@@ -16,34 +16,30 @@ import (
 
 // PreInstallFile records one file's pre-install state in the snapshot manifest.
 type PreInstallFile struct {
-	// Path is the relative path within the target dir (e.g. "agents/atomic-builder.md").
+	// Path is relative to the target dir (e.g. "agents/atomic-builder.md").
 	Path string `json:"path"`
-	// SHA256 is the hex-encoded SHA256 of the file's contents before install.
-	// Empty when Existed is false.
+	// SHA256 of the contents before install; empty when Existed is false.
 	SHA256 string `json:"sha256"`
-	// Existed is true if the file was present on disk before install ran.
+	// Existed is whether the file was on disk before install ran.
 	Existed bool `json:"existed"`
 }
 
-// PreInstallManifest is written to <targetDir>/.atomic/pre-install/manifest.json
-// exactly once (write-once semantics). It records what was on disk before the
-// first atomic install so that `atomic claude uninstall` can restore the state.
+// PreInstallManifest records what was on disk before the first atomic install,
+// so `atomic claude uninstall` can restore that state. Written exactly once.
 type PreInstallManifest struct {
-	// Created is the UTC timestamp when the snapshot was taken.
+	// Created is when the snapshot was taken.
 	Created time.Time `json:"created"`
-	// AtomicVersion is the version string of the binary that created the snapshot.
+	// AtomicVersion is the binary that created the snapshot.
 	AtomicVersion string `json:"atomic_version"`
-	// Files contains one entry per artifact the install will touch, plus settings.json.
+	// Files holds one entry per artifact the install will touch, plus settings.json.
 	Files []PreInstallFile `json:"files"`
 }
 
-// writePreInstallSnapshot captures a snapshot of all files the manifest will
-// touch into <home>/.atomic/pre-install/. Called once, before Apply().
-// If pre-install/ already exists, this is a no-op (write-once semantics).
+// writePreInstallSnapshot copies every file the manifest will touch into
+// <home>/.atomic/pre-install/. Write-once: a no-op if the directory exists.
 func writePreInstallSnapshot(targetDir, home string, manifest []embedded.Artifact, clock Clock) error {
 	preInstallDir := config.PreInstallDir(home)
 
-	// Guard: if the directory already exists, skip. Write-once.
 	if _, err := os.Stat(preInstallDir); err == nil {
 		return nil
 	}
@@ -54,7 +50,6 @@ func writePreInstallSnapshot(targetDir, home string, manifest []embedded.Artifac
 
 	var files []PreInstallFile
 
-	// Snapshot every embedded artifact target.
 	for _, a := range manifest {
 		entry, err := snapshotFile(targetDir, preInstallDir, a.Target)
 		if err != nil {
@@ -63,7 +58,7 @@ func writePreInstallSnapshot(targetDir, home string, manifest []embedded.Artifac
 		files = append(files, entry)
 	}
 
-	// Also snapshot settings.json — not an embedded artifact but always relevant.
+	// settings.json is not an embedded artifact but install touches it too.
 	settingsEntry, err := snapshotFile(targetDir, preInstallDir, "settings.json")
 	if err != nil {
 		return err
@@ -89,9 +84,8 @@ func writePreInstallSnapshot(targetDir, home string, manifest []embedded.Artifac
 	return nil
 }
 
-// snapshotFile copies srcRel from targetDir into destDir (preserving subdirs)
-// and returns a PreInstallFile entry. If the file doesn't exist, the entry has
-// Existed=false and no copy is made.
+// snapshotFile copies relPath from targetDir into destDir, preserving subdirs.
+// A missing file yields Existed=false and no copy.
 func snapshotFile(targetDir, destDir, relPath string) (PreInstallFile, error) {
 	src := filepath.Join(targetDir, filepath.FromSlash(relPath))
 	data, err := os.ReadFile(src)

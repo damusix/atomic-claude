@@ -9,12 +9,12 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bundlemirror"
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 )
 
 // universalFlags is the set of flags always accepted by every command.
-// Normalised forms only (values already stripped by callers).
 var universalFlags = map[string]bool{
 	"--help":            true,
 	"-h":                true,
@@ -24,17 +24,12 @@ var universalFlags = map[string]bool{
 	"--no-update-check": true,
 }
 
-// ScanArtifactText is the pure scanning seam. It accepts the artifact path
-// (for Finding.Path) and the raw markdown bytes as a string, and returns all
-// A1 findings. No filesystem access — callers supply the content.
-//
-// Exported so the test package can call it without writing fixture files.
+// ScanArtifactText is the pure scanning seam: no filesystem access, callers
+// supply the content. Exported so tests can skip writing fixture files.
 func ScanArtifactText(path, src string) []Finding {
 	return scanArtifactBytes(path, []byte(src))
 }
 
-// scanArtifactBytes is the internal implementation shared by ScanArtifactText
-// and the file-based scanners.
 func scanArtifactBytes(path string, src []byte) []Finding {
 	topVerbs := cliusage.TopLevelVerbs()
 	spans := extractCodeSpans(src)
@@ -47,21 +42,17 @@ func scanArtifactBytes(path string, src []byte) []Finding {
 	return findings
 }
 
-// codeSpanEntry is a text+line pair extracted from inline code spans and fenced
-// code blocks.
 type codeSpanEntry struct {
 	text string
 	line int
 }
 
-// extractCodeSpans returns all inline code span texts (via mdparse.InlineRefs)
-// and fenced code block contents (via a line-prescan). Each entry carries the
-// 1-indexed line of the span or the first line of the block.
+// extractCodeSpans returns inline code spans plus fenced block contents, each
+// carrying its 1-indexed line.
 func extractCodeSpans(src []byte) []codeSpanEntry {
 	var out []codeSpanEntry
 
-	// Inline code spans — goldmark AST walk via InlineRefs (Kind=="code").
-	// InlineRefs skips fenced/indented code block subtrees.
+	// InlineRefs skips fenced and indented code block subtrees.
 	refs, _ := mdparse.InlineRefs(src)
 	for _, r := range refs {
 		if r.Kind == "code" {
@@ -69,15 +60,12 @@ func extractCodeSpans(src []byte) []codeSpanEntry {
 		}
 	}
 
-	// Fenced code blocks — line-prescan to extract their content.
 	out = append(out, extractFencedBlocks(src)...)
 	return out
 }
 
-// extractFencedBlocks returns one codeSpanEntry per line inside fenced code
-// blocks. Each line is emitted separately so that flag tokens on one line
-// (e.g. from a find command) cannot be attributed to an atomic citation on a
-// different line.
+// extractFencedBlocks emits one entry per content line, so a flag token on one
+// line is never attributed to a citation on another.
 func extractFencedBlocks(src []byte) []codeSpanEntry {
 	lines := strings.Split(string(src), "\n")
 	var out []codeSpanEntry
@@ -103,7 +91,6 @@ func extractFencedBlocks(src []byte) []codeSpanEntry {
 				fenceLen = 0
 				continue
 			}
-			// Emit each non-empty content line as its own span.
 			if strings.TrimSpace(raw) != "" {
 				out = append(out, codeSpanEntry{
 					text: raw,
@@ -112,12 +99,8 @@ func extractFencedBlocks(src []byte) []codeSpanEntry {
 			}
 		}
 	}
-	// Unclosed fence at EOF: content lines already emitted; inFence state dropped (no matching close).
 	return out
 }
-
-// fenceOpenByte and isFenceCloseByte are byte-slice versions of the mdparse
-// internal helpers (not exported from mdparse, so we replicate them minimally here).
 
 func fenceOpenByte(line []byte) (marker byte, length int) {
 	if len(line) == 0 {
@@ -149,17 +132,13 @@ func isFenceCloseByte(line []byte, marker byte, fenceLen int) bool {
 	return len(rest) == 0
 }
 
-// checkSpan checks a single code span text for A1 violations and returns any
-// findings. The span text has already been extracted from backticks or a fenced
-// block by the caller.
+// checkSpan reports A1 violations in one already-extracted code span.
 func checkSpan(path, text string, line int, topVerbs map[string]bool) []Finding {
-	// Tokenize the span: split on whitespace, keep only non-empty tokens.
 	tokens := tokenize(text)
 	if len(tokens) == 0 {
 		return nil
 	}
 
-	// Locate "atomic" in the token stream.
 	atomicIdx := -1
 	for i, t := range tokens {
 		if t == "atomic" {
@@ -176,25 +155,21 @@ func checkSpan(path, text string, line int, topVerbs map[string]bool) []Finding 
 		return nil
 	}
 
-	// Gate: first token after "atomic" must be a known top-level verb.
 	if !topVerbs[rest[0]] {
 		return nil
 	}
 
-	// Greedily resolve the longest known verb-path prefix.
 	cmd := longestMatch(rest)
 	if cmd == nil {
-		// Unresolved citation: no known path matches. Emit nothing (accepted false-negative).
+		// No known path matches — accepted false negative.
 		return nil
 	}
 
-	// Build flag set for this command — O(1) lookup.
 	known := make(map[string]bool, len(cmd.Flags))
 	for _, f := range cmd.Flags {
 		known[f] = true
 	}
 
-	// Remaining tokens after the matched path are positional args + flags.
 	matched := cmd.Path
 	flagTokens := rest[len(matched):]
 
@@ -226,13 +201,11 @@ func checkSpan(path, text string, line int, topVerbs map[string]bool) []Finding 
 	return findings
 }
 
-// longestMatch returns the Command whose Path is the longest prefix of tokens
-// that matches any table entry. Returns nil when no entry matches.
+// longestMatch returns the Command whose Path is the longest matching prefix
+// of tokens, or nil.
 func longestMatch(tokens []string) *cliusage.Command {
 	for length := len(tokens); length >= 1; length-- {
 		candidate := tokens[:length]
-		// Strip flag tokens: paths are bare word tokens (no leading -).
-		// Trim the candidate to the first flag token if any.
 		pathEnd := length
 		for i, t := range candidate {
 			if looksLikeFlag(t) {
@@ -244,15 +217,12 @@ func longestMatch(tokens []string) *cliusage.Command {
 			continue
 		}
 		if cmd := cliusage.LookupByPath(tokens[:pathEnd]); cmd != nil {
-			// Iterating longest-first: first match is always the longest path.
 			return cmd
 		}
 	}
 	return nil
 }
 
-// looksLikeFlag reports whether token starts with one or two dashes followed
-// by a letter, e.g. "--json" or "-h".
 func looksLikeFlag(token string) bool {
 	if len(token) < 2 || token[0] != '-' {
 		return false
@@ -267,8 +237,6 @@ func isAlpha(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
-// normalizeFlag strips a trailing =value from a flag token, e.g.
-// "--limit=10" → "--limit", "--json" → "--json".
 func normalizeFlag(token string) string {
 	if idx := strings.IndexByte(token, '='); idx >= 0 {
 		return token[:idx]
@@ -276,8 +244,6 @@ func normalizeFlag(token string) string {
 	return token
 }
 
-// tokenize splits text on whitespace and returns non-empty lowercase tokens.
-// Lowercasing is intentional: flag tokens like "--JSON" are treated as "--json".
 func tokenize(text string) []string {
 	raw := strings.Fields(text)
 	out := make([]string, 0, len(raw))
@@ -289,8 +255,6 @@ func tokenize(text string) []string {
 	return out
 }
 
-// formatFlagList formats a flag list as a comma-separated string, or "(none)"
-// when empty.
 func formatFlagList(flags []string) string {
 	if len(flags) == 0 {
 		return "(none)"
@@ -298,10 +262,8 @@ func formatFlagList(flags []string) string {
 	return strings.Join(flags, ", ")
 }
 
-// RunArtifactRules scans the artifact corpus rooted at repoRoot for A1
-// violations and returns all findings. When paths is non-empty, only those
-// files are scanned; otherwise the full corpus is enumerated via
-// bundlemirror.Enumerate.
+// RunArtifactRules scans for A1 violations. A non-empty paths limits the scan;
+// otherwise the whole artifact corpus is enumerated.
 func RunArtifactRules(repoRoot string, paths []string) ([]Finding, error) {
 	if len(paths) > 0 {
 		return runArtifactPaths(repoRoot, paths)
@@ -309,7 +271,6 @@ func RunArtifactRules(repoRoot string, paths []string) ([]Finding, error) {
 	return runArtifactCorpus(repoRoot)
 }
 
-// runArtifactCorpus scans all artifact files enumerated by bundlemirror.
 func runArtifactCorpus(repoRoot string) ([]Finding, error) {
 	artifacts, err := bundlemirror.Enumerate(repoRoot)
 	if err != nil {
@@ -318,9 +279,7 @@ func runArtifactCorpus(repoRoot string) ([]Finding, error) {
 
 	var all []Finding
 	for _, a := range artifacts {
-		// a.Target is the relative path inside the install layout (e.g.
-		// "agents/atomic-builder.md"). The source file is at repoRoot/a.Target.
-		srcPath := filepath.Join(repoRoot, a.Target)
+		srcPath := filepath.Join(bundlespec.SourceRoot(repoRoot), a.Target)
 		src, err := os.ReadFile(srcPath)
 		if err != nil {
 			return nil, fmt.Errorf("read artifact %s: %w", a.Target, err)
@@ -332,7 +291,6 @@ func runArtifactCorpus(repoRoot string) ([]Finding, error) {
 	return all, nil
 }
 
-// runArtifactPaths scans the explicitly provided paths.
 func runArtifactPaths(repoRoot string, paths []string) ([]Finding, error) {
 	var all []Finding
 	for _, p := range paths {
@@ -357,7 +315,6 @@ func runArtifactPaths(repoRoot string, paths []string) ([]Finding, error) {
 	return all, nil
 }
 
-// runArtifacts is the entry point for `atomic validate artifacts [paths...]`.
 func runArtifacts(paths []string, jsonOut, suggest bool, w io.Writer) int {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -386,8 +343,6 @@ func runArtifacts(paths []string, jsonOut, suggest bool, w io.Writer) int {
 	return exitCode(s)
 }
 
-// runArtifactsCollect runs the artifacts check and returns findings + summary
-// without printing. Used by runWholeRepo to aggregate before printing.
 func runArtifactsCollect(repoRoot string) ([]Finding, summary, int) {
 	findings, err := RunArtifactRules(repoRoot, nil)
 	if err != nil {
@@ -396,8 +351,6 @@ func runArtifactsCollect(repoRoot string) ([]Finding, summary, int) {
 	return findings, summarize(findings), 0
 }
 
-// runFlagSet is the flag.FlagSet parse helper shared by runArtifacts callers.
-// It mirrors the pattern used by runSpec / runConfig.
 func parseArtifactsFlags(args []string, w io.Writer) (paths []string, jsonOut, suggest bool, ok bool) {
 	fs := flag.NewFlagSet("validate artifacts", flag.ContinueOnError)
 	fs.SetOutput(w)

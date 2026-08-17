@@ -8,37 +8,24 @@ import (
 	"strings"
 )
 
-// wikisMarkerOpen is the literal open tag for the registry block.
 const wikisMarkerOpen = "<wikis>"
 
-// wikisMarkerClose is the literal close tag for the registry block.
 const wikisMarkerClose = "</wikis>"
 
-// atomicClose is the closing tag of the <atomic> block.
 const atomicClose = "</atomic>"
 
-// RegisterWiki writes the wiki's index.md absolute path into the <wikis> block
-// in the CLAUDE.md file at claudeMDPath.
+// RegisterWiki records indexPath in claudeMDPath's <wikis> block, creating the
+// file or the block as needed and deduping by normalized path. It never alters
+// the <atomic> block or anything else.
 //
-// Three insertion cases, all idempotent:
-//   - block present → add the entry iff absent; dedup by normalized path.
-//   - block absent → append a fresh <wikis> block after </atomic> (or at EOF).
-//   - file absent → create it containing just the block.
-//
-// Block detection is line-anchored: a line whose trimmed content is exactly
-// "<wikis>" opens the block; a line whose trimmed content is exactly "</wikis>"
-// closes it. Inline or backtick mentions of the literal text (e.g. inside a
-// sentence or as `<wikis>`) do NOT match.
-//
-// The <atomic> block and all other content are never altered.
+// Tags are matched only as whole lines, so a sentence or backtick span
+// mentioning "<wikis>" cannot be mistaken for the block.
 func RegisterWiki(claudeMDPath, indexPath string) error {
-	// Normalize the path for consistent dedup comparison.
 	normalized, err := normalizePath(indexPath)
 	if err != nil {
 		return fmt.Errorf("wiki registry: normalize path: %w", err)
 	}
 
-	// Read existing content (file may not exist).
 	data, err := os.ReadFile(claudeMDPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("wiki registry: read %s: %w", claudeMDPath, err)
@@ -46,7 +33,6 @@ func RegisterWiki(claudeMDPath, indexPath string) error {
 
 	var newContent string
 	if os.IsNotExist(err) || len(data) == 0 {
-		// File absent or empty — create with just the block.
 		newContent = buildWikisBlock([]string{normalized})
 	} else {
 		newContent = rewriteWikisBlock(string(data), normalized)
@@ -55,7 +41,7 @@ func RegisterWiki(claudeMDPath, indexPath string) error {
 	return writeFileAtomic(claudeMDPath, []byte(newContent))
 }
 
-// normalizePath returns filepath.Clean(filepath.Abs(p)). No symlink resolution.
+// normalizePath is Abs then Clean, deliberately without symlink resolution.
 func normalizePath(p string) (string, error) {
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -64,22 +50,17 @@ func normalizePath(p string) (string, error) {
 	return filepath.Clean(abs), nil
 }
 
-// findBareLineBlock scans lines for a block whose open/close tags occupy a
-// line by themselves (trimmed). Returns the byte offsets of the start of the
-// open-tag line and the end (exclusive) of the close-tag line within content,
-// plus the body text between the tags. Returns (-1, -1, "") if not found.
-//
-// "Bare line" means: strings.TrimSpace(line) == tag. A line like
-// "`<wikis>`" or "see <wikis> for details" does NOT match.
+// findBareLineBlock locates a block whose tags each occupy a whole line,
+// returning the open line's start offset, the close line's end offset, and the
+// body between them, or (-1, -1, "") when absent.
 func findBareLineBlock(content, openTag, closeTag string) (blockStart, blockEnd int, body string) {
 	lines := strings.Split(content, "\n")
 	openLine := -1
 	pos := 0
 	for i, line := range lines {
 		lineLen := len(line)
-		// Account for the \n that was consumed by Split (except for the last segment).
 		if i < len(lines)-1 {
-			lineLen++ // +1 for the \n
+			lineLen++ // the \n Split consumed
 		}
 		if openLine == -1 {
 			if strings.TrimSpace(line) == openTag {
@@ -89,8 +70,8 @@ func findBareLineBlock(content, openTag, closeTag string) (blockStart, blockEnd 
 		} else {
 			if strings.TrimSpace(line) == closeTag {
 				blockEnd = pos + lineLen
-				// body is everything between the open-tag line's \n and the close-tag line start.
-				// Rebuild from lines[openLine+1 .. i-1] to avoid index arithmetic bugs.
+				// Rebuilt from the line slice rather than sliced by offset, to
+				// keep the index arithmetic out of the body entirely.
 				bodyLines := lines[openLine+1 : i]
 				body = strings.Join(bodyLines, "\n")
 				if len(bodyLines) > 0 {
@@ -104,16 +85,15 @@ func findBareLineBlock(content, openTag, closeTag string) (blockStart, blockEnd 
 	return -1, -1, ""
 }
 
-// findBareAtomicClose returns the byte offset immediately after the bare-line
-// </atomic> tag (i.e. including its trailing newline if present). Returns -1
-// if no bare-line </atomic> exists.
+// findBareAtomicClose returns the offset just past the whole-line </atomic>
+// tag, trailing newline included, or -1.
 func findBareAtomicClose(content string) int {
 	lines := strings.Split(content, "\n")
 	pos := 0
 	for i, line := range lines {
 		lineLen := len(line)
 		if i < len(lines)-1 {
-			lineLen++ // +1 for \n
+			lineLen++
 		}
 		if strings.TrimSpace(line) == atomicClose {
 			return pos + lineLen
@@ -123,38 +103,28 @@ func findBareAtomicClose(content string) int {
 	return -1
 }
 
-// rewriteWikisBlock either inserts a new entry into an existing bare-line
-// <wikis> block or appends a new block after a bare-line </atomic> (or at
-// EOF). Inline/backtick mentions of "<wikis>" are ignored.
 func rewriteWikisBlock(content, normalized string) string {
 	blockStart, _, body := findBareLineBlock(content, wikisMarkerOpen, wikisMarkerClose)
 	if blockStart == -1 {
-		// No bare-line <wikis> block — insert one.
 		return insertWikisBlock(content, normalized)
 	}
 
-	// Block present — check whether normalized is already recorded.
+	// Dedup on the normalized path, not the literal text.
 	for _, line := range strings.Split(body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
-		// Entry format: "- <path>"
 		if strings.HasPrefix(trimmed, "- ") {
 			existing := strings.TrimPrefix(trimmed, "- ")
 			existingNorm, err := normalizePath(existing)
 			if err == nil && existingNorm == normalized {
-				// Already recorded — no change.
 				return content
 			}
 		}
 	}
 
-	// Add the new entry immediately after the open tag line.
-	// blockStart points to the start of the "<wikis>" line.
-	// We need to insert after the first \n following the open tag.
 	openTagEnd := blockStart + len(wikisMarkerOpen)
-	// Skip the \n that follows the open tag line.
 	if openTagEnd < len(content) && content[openTagEnd] == '\n' {
 		openTagEnd++
 	}
@@ -164,27 +134,24 @@ func rewriteWikisBlock(content, normalized string) string {
 	return before + entry + after
 }
 
-// insertWikisBlock builds a fresh <wikis> block and inserts it after the
-// bare-line </atomic> if present, or appends it at EOF.
+// insertWikisBlock places a fresh block just after </atomic>, so the registry
+// sits outside the managed block, or at EOF when there is none.
 func insertWikisBlock(content, normalized string) string {
 	block := "\n" + buildWikisBlock([]string{normalized})
 
 	insertAt := findBareAtomicClose(content)
 	if insertAt == -1 {
-		// No bare-line </atomic> — append at EOF.
 		if !strings.HasSuffix(content, "\n") {
 			content += "\n"
 		}
 		return content + block
 	}
 
-	// Insert immediately after the bare-line </atomic>.
 	before := content[:insertAt]
 	after := content[insertAt:]
 	return before + block + after
 }
 
-// buildWikisBlock renders a complete <wikis>…</wikis> block for the given paths.
 func buildWikisBlock(paths []string) string {
 	var sb strings.Builder
 	sb.WriteString(wikisMarkerOpen)
@@ -224,14 +191,8 @@ func writeFileAtomic(path string, data []byte) error {
 	return nil
 }
 
-// PrintHandoff writes the stdout handoff to w. This is the deterministic output
-// printed after a successful `atomic wiki scan`:
-//
-//	<N> repos · <M> indexed · <K> pending
-//	<status> <path> [→ signals path]
-//	...
-//	NEXT STEPS
-//	<pending repo list>
+// PrintHandoff writes the deterministic summary `atomic wiki scan` ends with:
+// counts, one line per member, then next steps for anything still pending.
 func PrintHandoff(w io.Writer, members []Member) {
 	total := len(members)
 	indexed := 0

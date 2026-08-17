@@ -10,7 +10,7 @@ import (
 // TestElixirProbe verifies that tree_sitter_elixir is exported from lib/ts.wasm
 // and can parse a minimal Elixir snippet into a non-empty named-node tree.
 //
-// This is the Checkpoint 1 parse probe — grammar-into-wasm only.
+// This is the parse probe — grammar-into-wasm only.
 func TestElixirProbe(t *testing.T) {
 	ctx := context.Background()
 

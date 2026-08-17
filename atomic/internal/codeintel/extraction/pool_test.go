@@ -11,11 +11,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction"
 )
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
-// goSource is a minimal Go source file used as parse input across tests.
 const goSource = `package main
 
 import "fmt"
@@ -25,22 +20,13 @@ func main() {
 }
 `
 
-// ---------------------------------------------------------------------------
-// TestPool_RaceClean: M goroutines concurrently borrow+parse — must be race-
-// clean and produce consistent parse trees. The test is also run with
-// "-race" by the CI gate ("go test -race ./internal/codeintel/...").
-//
-// WHY: sharing one tsInstance across goroutines is a proven data race (spike
-// A2). Each borrow must hand out an independent instance. A race detector hit
-// here means the pool is sharing state it must not share.
-// ---------------------------------------------------------------------------
-
+// Sharing one tsInstance across goroutines is a data race; every borrow must
+// hand out an independent instance. CI also runs this under -race.
 func TestPool_RaceClean(t *testing.T) {
 	ctx := context.Background()
 
 	pool, err := extraction.NewPool(ctx, extraction.PoolOptions{
-		// Small pool to force contention — goroutines must queue, not leak
-		// instances.
+		// Undersized on purpose: goroutines must queue, not leak instances.
 		Size: 2,
 	})
 	if err != nil {
@@ -51,7 +37,6 @@ func TestPool_RaceClean(t *testing.T) {
 	const goroutines = 8
 	const parsesPerGoroutine = 20
 
-	// We collect node counts; all parses of the same input must agree.
 	type result struct {
 		nodes int
 		err   error
@@ -81,7 +66,6 @@ func TestPool_RaceClean(t *testing.T) {
 	}
 	wg.Wait()
 
-	// All successful parses must agree on node count.
 	var reference int
 	for i, r := range results {
 		if r.err != nil {
@@ -97,23 +81,14 @@ func TestPool_RaceClean(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestPool_RecycleCadence: drive >recycleInterval parses through a single
-// pooled instance and assert the recycle counter increments at the right
-// cadence.
-//
-// WHY: wazero's grow-only linear memory is unbounded without recycling (spike
-// A3: unbounded growth vs ~1 GB flat with recycle@500). The counter is the
-// observable seam for deterministic testing — without it, we'd need RSS
-// sampling which is OS-dependent and slow.
-// ---------------------------------------------------------------------------
-
+// wazero's linear memory only grows, so instances must be recycled on a cadence.
+// The counter is the observable seam; the alternative is RSS sampling, which is
+// OS-dependent and slow.
 func TestPool_RecycleCadence(t *testing.T) {
 	ctx := context.Background()
 
 	pool, err := extraction.NewPool(ctx, extraction.PoolOptions{
-		// Pool of 1 so parses are serialized through the same slot; makes
-		// recycle counting deterministic (no concurrency randomizing order).
+		// Size 1 serializes parses through one slot, so the count is deterministic.
 		Size: 1,
 	})
 	if err != nil {
@@ -121,7 +96,6 @@ func TestPool_RecycleCadence(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// Parse > recycleInterval times; each parse borrows and returns the same slot.
 	target := extraction.RecycleInterval*2 + 50 // two full cycles + a bit
 	for i := 0; i < target; i++ {
 		inst, err := pool.Borrow(ctx)
@@ -135,7 +109,6 @@ func TestPool_RecycleCadence(t *testing.T) {
 		}
 	}
 
-	// Must have recycled at least twice (floor(target/recycleInterval) >= 2).
 	got := pool.RecycleCount()
 	want := target / extraction.RecycleInterval
 	if got < want {
@@ -144,18 +117,9 @@ func TestPool_RecycleCadence(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestPool_BindingInterface: Borrow returns an extraction.Instance (the
-// interface), NOT *sitter.TreeSitter. Extractors must be able to drive a
-// parse-and-walk cycle via the extraction package alone — no tsbinding import
-// needed.
-//
-// WHY: the brief requires the binding to sit behind one Go interface so an
-// A→C swap (wazero → cgo) is a build-tag flip. If Tree.RootNode leaks
-// sitter.Node, callers are coupled to the binding. WalkNamed is the public
-// traversal API; this test proves it works without importing sitter.
-// ---------------------------------------------------------------------------
-
+// The binding sits behind one Go interface so swapping wazero for cgo stays a
+// build-tag flip. A full parse-and-walk must therefore be drivable from the
+// extraction package alone — this file must never need to import sitter.
 func TestPool_BindingInterface(t *testing.T) {
 	ctx := context.Background()
 	pool, err := extraction.NewPool(ctx, extraction.PoolOptions{Size: 1})
@@ -170,11 +134,8 @@ func TestPool_BindingInterface(t *testing.T) {
 	}
 	defer pool.Return(inst)
 
-	// Compile-time: inst must implement extraction.Instance.
-	var _ extraction.Instance = inst // if this fails to compile the iface is broken
+	var _ extraction.Instance = inst // compile-time: a failure here means the iface broke
 
-	// Runtime: full parse-and-walk via the extraction package alone — no
-	// sitter import required by this test.
 	var kinds []string
 	walkErr := extraction.WalkNamed(ctx, inst, goSource, func(n extraction.NodeInfo) error {
 		kinds = append(kinds, n.Kind)
@@ -191,15 +152,8 @@ func TestPool_BindingInterface(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestWalkNamed_Order: walk a known snippet and assert named nodes are visited
-// in the expected DFS pre-order.
-//
-// WHY: correctness test for the low-round-trip named traversal. If the
-// NamedIterator is broken (wrong child-count function, wrong indexing), the
-// visitor sees wrong nodes and the extractor produces garbage symbols.
-// ---------------------------------------------------------------------------
-
+// A NamedIterator with the wrong child-count function or indexing hands the
+// visitor the wrong nodes, and the extractor emits garbage symbols.
 func TestWalkNamed_Order(t *testing.T) {
 	ctx := context.Background()
 
@@ -215,7 +169,6 @@ func TestWalkNamed_Order(t *testing.T) {
 	}
 	defer pool.Return(inst)
 
-	// Set language to Go so we know the grammar.
 	if err := inst.SetLanguage(ctx, extraction.LangGo); err != nil {
 		t.Fatalf("SetLanguage: %v", err)
 	}
@@ -230,12 +183,8 @@ func TestWalkNamed_Order(t *testing.T) {
 		t.Fatalf("WalkNamed: %v", err)
 	}
 
-	// For "package main\n" the Go grammar (tree-sitter-go) produces:
-	//   source_file
-	//     package_clause
-	//       package_identifier ("main")   ← Go grammar uses package_identifier,
-	//                                       not the generic identifier node type
-	// Named DFS pre-order: source_file, package_clause, package_identifier
+	// tree-sitter-go names the package name node package_identifier, not the
+	// generic identifier — the expectations below are grammar-specific.
 	if len(kinds) < 3 {
 		t.Fatalf("WalkNamed: got %d named nodes, want >= 3; kinds: %v", len(kinds), kinds)
 	}
@@ -245,21 +194,13 @@ func TestWalkNamed_Order(t *testing.T) {
 	if kinds[1] != "package_clause" {
 		t.Errorf("kinds[1]: got %q, want %q", kinds[1], "package_clause")
 	}
-	// kinds[2] is the package name — tree-sitter-go uses "package_identifier"
 	if kinds[2] != "package_identifier" {
 		t.Errorf("kinds[2]: got %q, want %q", kinds[2], "package_identifier")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestWalkNamed_ErrorStop: returning a non-nil error from the visit fn must
-// halt the walk immediately and propagate that error.
-//
-// WHY: extractors use WalkNamed with early-exit patterns (e.g. "stop after
-// finding the first symbol of kind X"). Without error propagation the walk
-// continues needlessly, and callers have no reliable way to signal stop.
-// ---------------------------------------------------------------------------
-
+// A visitor error is the only way an extractor can signal early exit ("stop at
+// the first symbol of kind X"), so it must halt the walk and propagate.
 func TestWalkNamed_ErrorStop(t *testing.T) {
 	ctx := context.Background()
 
@@ -278,7 +219,6 @@ func TestWalkNamed_ErrorStop(t *testing.T) {
 	sentinel := errors.New("stop-after-first")
 	var visited int
 
-	// goSource has many named nodes; we stop after the first one.
 	walkErr := extraction.WalkNamed(ctx, inst, goSource, func(_ extraction.NodeInfo) error {
 		visited++
 		if visited == 1 {
@@ -287,27 +227,17 @@ func TestWalkNamed_ErrorStop(t *testing.T) {
 		return nil
 	})
 
-	// WalkNamed must return the sentinel error.
 	if !errors.Is(walkErr, sentinel) {
 		t.Errorf("WalkNamed: got %v, want sentinel error %v", walkErr, sentinel)
 	}
-	// Walk must have stopped at the first node — visited must be exactly 1.
 	if visited != 1 {
 		t.Errorf("WalkNamed: visited %d nodes after error, want exactly 1 (walk must stop immediately)", visited)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestPool_CloseAll: Close must drain every available instance in the pool.
-// With current logic a buffered channel that drains fully is fine, but with
-// the for-len(ch) pattern we prove no early-exit occurs.
-//
-// WHY: the previous for-i-0-to-size loop with default:return would exit on
-// the first empty receive even if the channel had items queued (e.g. after
-// a borrowed instance returns between iterations). The for-len drain is
-// deterministic: it closes exactly len(ch) items, no early-exit.
-// ---------------------------------------------------------------------------
-
+// Close must drain every slot. A size-bounded loop with a default:return arm
+// exits on the first empty receive even while items are still queued, leaking
+// instances; the for-len(ch) drain closes exactly what is there.
 func TestPool_CloseAll(t *testing.T) {
 	ctx := context.Background()
 
@@ -317,37 +247,24 @@ func TestPool_CloseAll(t *testing.T) {
 		t.Fatalf("NewPool: %v", err)
 	}
 
-	// Borrow one instance (simulates a caller that borrowed it but returned
-	// it before Close; we return it here to make all available again).
 	inst, err := pool.Borrow(ctx)
 	if err != nil {
 		t.Fatalf("Borrow: %v", err)
 	}
 	pool.Return(inst) // back in pool, all size instances now available
 
-	// Close must not panic and must drain the pool.
-	// The main observable: pool.ChannelLen() == 0 after close.
 	pool.Close()
 
-	// After Close, the pool channel should be empty (all instances drained).
 	if n := pool.ChannelLen(); n != 0 {
 		t.Errorf("after Close, pool channel has %d items, want 0 (not all instances drained)", n)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestBorrow_ContextCancel: Borrow must return an error (not panic) when the
-// context is already cancelled and no instance is available.
-//
-// WHY: panicking on ctx cancel makes the pool impossible to use safely in
-// contexts with deadlines/cancellation. Returning an error lets callers
-// handle graceful shutdown.
-// ---------------------------------------------------------------------------
-
+// A blocked Borrow must surface ctx cancellation as an error, not a panic —
+// otherwise the pool cannot be used under a deadline or graceful shutdown.
 func TestBorrow_ContextCancel(t *testing.T) {
 	ctx := context.Background()
 
-	// Pool of 1 with the one instance already borrowed — Borrow will block.
 	pool, err := extraction.NewPool(ctx, extraction.PoolOptions{Size: 1})
 	if err != nil {
 		t.Fatalf("NewPool: %v", err)
@@ -361,13 +278,12 @@ func TestBorrow_ContextCancel(t *testing.T) {
 	}
 	defer pool.Return(held)
 
-	// Cancelled context: Borrow must return a wrapped error, not panic.
 	cancelled, cancel := context.WithCancel(context.Background())
-	cancel() // already cancelled
+	cancel()
 
 	inst, borrowErr := pool.Borrow(cancelled)
 	if borrowErr == nil {
-		pool.Return(inst) // clean up if it somehow succeeded
+		pool.Return(inst)
 		t.Fatal("Borrow with cancelled ctx: got nil error, want ctx error")
 	}
 	if !errors.Is(borrowErr, context.Canceled) {
@@ -375,15 +291,9 @@ func TestBorrow_ContextCancel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestPool_NoSharing: prove that two goroutines never hold the same instance
-// simultaneously. This is a structural proof via Instance.ID().
-//
-// WHY: if two goroutines can hold the same instance ID at the same moment,
-// the pool is broken regardless of what the race detector says about the
+// Structural proof via Instance.ID(): if two goroutines can hold one instance
+// at the same moment the pool is broken, whatever -race reports about the
 // current access pattern.
-// ---------------------------------------------------------------------------
-
 func TestPool_NoSharing(t *testing.T) {
 	ctx := context.Background()
 	pool, err := extraction.NewPool(ctx, extraction.PoolOptions{Size: 2})
@@ -395,8 +305,6 @@ func TestPool_NoSharing(t *testing.T) {
 	const goroutines = 10
 	const iters = 50
 
-	// Track which IDs are currently borrowed. A concurrent collision means
-	// the same instance was lent twice.
 	var mu sync.Mutex
 	inFlight := map[int]int{} // id → goroutine that holds it
 	var collisions int64
@@ -423,7 +331,6 @@ func TestPool_NoSharing(t *testing.T) {
 				inFlight[id] = gid
 				mu.Unlock()
 
-				// Simulate some work
 				_, _ = inst.ParseString(ctx, goSource)
 
 				mu.Lock()
@@ -441,15 +348,8 @@ func TestPool_NoSharing(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// BenchmarkPool_HeapBounded: sample Go-heap before and after many parses with
-// recycle enabled; assert heap does not grow unboundedly. Skipped under -short.
-//
-// WHY: soft RSS gate from the brief — shows recycle bounds heap vs unbounded.
-// Not a hard gate because RSS is OS-dependent, but heap via MemStats is
-// deterministic enough for a benchmark assertion.
-// ---------------------------------------------------------------------------
-
+// Soft memory gate: RSS is OS-dependent, but MemStats heap is deterministic
+// enough to show recycling bounds growth.
 func BenchmarkPool_HeapBounded(b *testing.B) {
 	if testing.Short() {
 		b.Skip("skipped under -short (heap sampling test)")
@@ -464,7 +364,6 @@ func BenchmarkPool_HeapBounded(b *testing.B) {
 
 	const total = 2000
 
-	// Baseline heap before any parses.
 	runtime.GC()
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
@@ -485,8 +384,7 @@ func BenchmarkPool_HeapBounded(b *testing.B) {
 	growthMB := float64(int64(after.HeapInuse)-int64(before.HeapInuse)) / 1e6
 	b.Logf("heap growth over %d parses with recycle@%d: %.1f MB", total, extraction.RecycleInterval, growthMB)
 
-	// With recycle, heap growth should stay well under 500 MB.
-	// Without recycle, wazero linear memory grows unboundedly (spike A3: >1 GB).
+	// Without recycling wazero's linear memory passed 1 GB here.
 	if growthMB > 500 {
 		b.Errorf("heap grew %.1f MB over %d parses — recycle may not be working", growthMB, total)
 	}

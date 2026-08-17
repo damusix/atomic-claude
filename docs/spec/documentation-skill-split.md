@@ -1,5 +1,7 @@
 # Documentation skill + command split
 
+> **Superseded in part, 2026-08-14.** Every reference below to a "terse technical prose" voice, a two-voice taxonomy, or `terse-technical` as a `voice` value is historical. There is now one file voice, `atomic-writing`, covering every file the repo ships. See `skills/atomic-writing/SKILL.md` and the change-log entry at the end of this file. The split this spec describes between the `atomic-documentation` skill and the `/documentation` command is unchanged and still current.
+
 ## Goal
 
 Split `/documentation` into two artifacts: a new `atomic-documentation` skill that owns *what* to document and *where* (rules: surface taxonomy, voice differences, human-facing vs LLM-facing distinction), and a thinned `/documentation` command that owns the *flow* (orchestration: scan diff, walk surfaces, invoke skill, apply edits). Auto-invoke the skill from ship verbs so doc-impact gets a just-in-time check during commit synthesis without forcing users to remember `/documentation`.
@@ -240,6 +242,14 @@ Rejected: `atomic-doc-impact`, `atomic-docs`, `atomic-doc-review`. The skill is 
 **What changed:** Four-voice taxonomy (atomic TUI / atomic-prose / spec-design / LLM-reference) collapsed to two voices: (1) how Claude talks (atomic TUI), (2) how files are written (narrative → `atomic-prose`; everything else → terse technical prose). Body sections updated: success criteria line 20, section header and table at "Four voices, four surfaces", CLAUDE.md edits paragraph, section-name update sentence, checkpoint rows 2 and 9.
 
 **Why:** The spec-design and LLM-reference voices were stylistically identical (both terse technical prose). Treating them as four distinct voices added friction without a meaningful routing difference. Two voices is the honest description.
+
+### 2026-08-14 — One file voice
+
+**What changed:** The remaining file-voice split is gone. `atomic-writing` now governs every file the repo ships, prompt artifacts included, with per-surface length budgets instead of a separate voice. The `voice` field in the skill's YAML handoff is always `atomic-writing`.
+
+**Why:** A spec an agent can walk but a person cannot review is a one-sided contract. The two voices differed in length and density, which the length budget expresses directly, not in voice.
+
+**Superseded:** every "terse technical prose" reference in the body above, the `## Two voices (skill-owned)` section, and `terse-technical` as a `voice` value.
 
 **Superseded:** Four-voice model with explicit "LLM-reference" as a fourth named voice distinct from "spec/design".
 

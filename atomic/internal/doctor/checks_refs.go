@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// candidateFiles is the search order for @-refs per the atomic-signals-inferrer agent.
-// Checked in order; first file containing the ref wins.
+// candidateFiles is the @-ref search order; the first file carrying the ref wins.
 var candidateFiles = []string{
 	"claude.local.md",
 	"CLAUDE.local.md",
@@ -18,12 +17,9 @@ var candidateFiles = []string{
 
 const signalsRef = "@docs/wiki/index.md"
 
-// checkRefs implements category 4: @-refs wired.
-//
-// Searches for the wiki router @-ref in candidate files starting from the
-// git repo toplevel (falls back to cwd if not in a repo). Only
-// docs/wiki/index.md needs to be @-ref'd — docs/wiki/scan.md is too large
-// for context and is read on demand by the inferrer. Severity: FAIL.
+// checkRefs implements category 4: @-refs wired. An unwired ref FAILs. Only
+// docs/wiki/index.md is checked — scan.md is too large for context and the
+// inferrer reads it on demand.
 func checkRefs(opts Opts) Result {
 	searchRoot := opts.RepoRoot
 	if searchRoot == "" {
@@ -37,7 +33,7 @@ func checkRefs(opts Opts) Result {
 }
 
 // RunCheckRefsWith runs the refs check against an explicit repo root.
-// Exported for testing; production callers use checkRefs.
+// Exported for testing.
 func RunCheckRefsWith(repoRoot string) Result {
 	for _, name := range candidateFiles {
 		path := filepath.Join(repoRoot, name)

@@ -8,13 +8,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// TestIsRepoDev_withMarkerFile: a dir tree containing
-// atomic/internal/bundlemirror/mirror.go relative to git toplevel is detected
-// as repo-dev.
 func TestIsRepoDev_withMarkerFile(t *testing.T) {
 	root := t.TempDir()
 
-	// Create the marker file the heuristic looks for.
 	markerDir := filepath.Join(root, "atomic", "internal", "bundlemirror")
 	if err := os.MkdirAll(markerDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -23,8 +19,7 @@ func TestIsRepoDev_withMarkerFile(t *testing.T) {
 		t.Fatalf("write marker: %v", err)
 	}
 
-	// Point cwd at the root (not a real git repo, but IsRepoDev falls back to
-	// using cwd itself when git toplevel is unavailable).
+	// Not a real git repo; IsRepoDev falls back to cwd when there is no toplevel.
 	got, err := doctor.IsRepoDev(root)
 	if err != nil {
 		t.Fatalf("IsRepoDev: %v", err)
@@ -34,7 +29,6 @@ func TestIsRepoDev_withMarkerFile(t *testing.T) {
 	}
 }
 
-// TestIsRepoDev_withoutMarkerFile: when marker is absent, returns false.
 func TestIsRepoDev_withoutMarkerFile(t *testing.T) {
 	root := t.TempDir()
 
@@ -47,11 +41,8 @@ func TestIsRepoDev_withoutMarkerFile(t *testing.T) {
 	}
 }
 
-// TestIsRepoDev_notInGitRepo: a cwd that is not a git repo is treated as not
-// repo-dev (no git toplevel means no atomic-claude repo structure).
 func TestIsRepoDev_notInGitRepo(t *testing.T) {
-	// Use the t.TempDir() which is guaranteed to be outside any git repo tracked
-	// by this test suite, and add no marker file.
+	// t.TempDir() is outside any git repo, and carries no marker.
 	root := t.TempDir()
 
 	got, err := doctor.IsRepoDev(root)

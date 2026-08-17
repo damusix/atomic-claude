@@ -1,14 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch D (Rust): actix-web, axum, rocket.
-//
-// Per-framework coverage:
-//   - Detect: Cargo.toml fixture → true; absent/other dep → false.
-//   - Extract: realistic source → route nodes (appendix-H format) + handler refs.
-//   - Bounded lookahead (actix, rocket): second #[...] attribute is skipped.
-//   - Axum method-chain fan-out: get(h).post(h2) → one node per method.
-//   - Commented routes emit nothing (stripJSComments reuse).
-//   - Resolve: confidence in [0.8, 0.9]; ClaimsReference correct.
+// actix-web, axum, and rocket resolver tests.
 
 import (
 	"context"
@@ -20,10 +12,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution/frameworks"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Shared helpers (rust + spring test files; same frameworks_test package)
-// ---------------------------------------------------------------------------
 
 // findRustRouteNode finds the first node with the given method and path.
 // Named differently from other per-file helpers to avoid redeclaration.
@@ -66,10 +54,6 @@ func assertRouteNodeFormat(t *testing.T, n types.Node, filePath, method, path st
 		t.Errorf("node.Language: want %v, got %v", lang, n.Language)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Actix-web
-// ---------------------------------------------------------------------------
 
 func TestActixDetect_WithCargoToml(t *testing.T) {
 	dir := t.TempDir()
@@ -285,10 +269,6 @@ async fn ping() -> &'static str { "pong" }
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Axum
-// ---------------------------------------------------------------------------
-
 func TestAxumDetect_WithCargoToml(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte(`[dependencies]
@@ -412,10 +392,6 @@ let app = Router::new().route("/health", get(health_check));
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Rocket
-// ---------------------------------------------------------------------------
-
 func TestRocketDetect_WithCargoToml(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte(`[dependencies]
@@ -537,14 +513,10 @@ fn ping() -> &'static str { "pong" }
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Actix-web — bare method form (no web:: prefix), real RealWorld app idiom
-// ---------------------------------------------------------------------------
-
 func TestActixExtract_BareMethodChainForm(t *testing.T) {
 	// Real rw-actix idiom: method functions imported directly (no web:: prefix),
 	// empty-string paths inside web::scope("/user"), and fully qualified handler paths.
-	// After F-79 fix: paths are prefixed with the enclosing scope.
+	// Paths are prefixed with the enclosing scope.
 	//
 	// .route("", get().to(get_current_user))   inside /user → GET /user
 	// .route("/login", web::post().to(login))  inside /user → POST /user/login
@@ -588,7 +560,7 @@ pub fn api(cfg: &mut web::ServiceConfig) {
 }
 
 // TestActixExtract_ScopePrefix verifies that routes inside web::scope(...)
-// carry the scope path as prefix. F-79: web::scope("/users").route("", ...) →
+// carry the scope path as prefix: web::scope("/users").route("", ...) →
 // GET /users; web::scope("/users").route("/login", ...) → POST /users/login.
 func TestActixExtract_ScopePrefix(t *testing.T) {
 	src := `
@@ -657,7 +629,6 @@ App::new()
 	}
 }
 
-// rustNodeNames is a test helper that returns node names for diagnostics.
 func rustNodeNames(nodes []types.Node) []string {
 	names := make([]string, len(nodes))
 	for i, n := range nodes {
@@ -669,7 +640,7 @@ func rustNodeNames(nodes []types.Node) []string {
 func TestActixExtract_BareMethodChainForm_QualifiedHandler(t *testing.T) {
 	// Real rw-actix uses fully qualified handler paths like
 	// app::features::user::controllers::me — rustLastSegment must reduce to "me".
-	// After F-79 fix: paths carry the enclosing web::scope("/user") prefix.
+	// Paths carry the enclosing web::scope("/user") prefix.
 	src := `
 use actix_web::web::{delete, get, post, put};
 

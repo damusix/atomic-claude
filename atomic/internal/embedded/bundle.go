@@ -1,10 +1,10 @@
 // Package embedded holds the artifact bundle embedded at build time.
 //
-// The bundle/ directory is populated by the mirror tool (cmd/bundle-mirror).
-// Run "make bundle" from the atomic/ directory to refresh.
-// The mirror tool is the source of truth; never edit bundle/ contents by hand.
+// bundle/ and manifest.go are generated, never edited by hand: context/ is the
+// source, and the mirror tool copies it here because go:embed cannot reference
+// a parent directory or follow a symlink. Refresh with "make bundle".
 //
-//go:generate go run ../../cmd/bundle-mirror -repo ../../../ -outdir .
+//go:generate go run ../tools/bundle-mirror -repo ../../../ -outdir .
 package embedded
 
 import "embed"

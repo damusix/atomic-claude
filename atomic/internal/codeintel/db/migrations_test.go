@@ -1,6 +1,6 @@
 package db_test
 
-// Migration machinery tests (CP4).
+// Migration machinery tests.
 //
 // These tests prove:
 //   - Fresh DB after Open has a schema_versions row for the baseline (v1).
@@ -120,7 +120,7 @@ func TestMigrateIdempotentNoOp(t *testing.T) {
 //   - schema_versions has a v99 row
 //
 // Then runs the same migration list again and asserts it is a no-op.
-// WHY: this is the durable CP4 contract — a pending migration applies exactly
+// WHY: this is the durable contract — a pending migration applies exactly
 // once and is recorded; the runner is idempotent above the recorded version.
 // v99 is used instead of v2 since the production migrations slice now contains
 // a real v2 (EE2 arguments column). Synthetic test migrations must use version

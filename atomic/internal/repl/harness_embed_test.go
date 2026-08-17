@@ -45,10 +45,9 @@ func TestHarnessScript_UnknownLangNamesValidOnes(t *testing.T) {
 	}
 }
 
-// TestHarnessFilename_NodeIsMJS locks the reason node_harness.js is written to
-// disk as .mjs: the materialized script sits under ~/.atomic/repl with no
-// package.json of its own, so a ".js" extension would inherit the "type" field
-// of whichever unrelated package.json Node finds by walking up.
+// The materialized script sits under ~/.atomic/repl with no package.json of its
+// own, so a ".js" extension would inherit the "type" field of whichever
+// unrelated package.json Node finds by walking up.
 func TestHarnessFilename_NodeIsMJS(t *testing.T) {
 	tests := []struct {
 		lang string
@@ -75,10 +74,9 @@ func TestHarnessFilename_NodeIsMJS(t *testing.T) {
 	}
 }
 
-// TestHarnessScripts_PinProtocolConstants is the drift guard between Go and the
-// two hand-written harnesses. Each script hardcodes the protocol version and
-// the output cap because it reads no Go and no config; nothing but this test
-// notices when one side moves.
+// The drift guard between Go and the two hand-written harnesses. Each script
+// hardcodes the protocol version and the output cap because it reads no Go and
+// no config; nothing but this notices when one side moves.
 func TestHarnessScripts_PinProtocolConstants(t *testing.T) {
 	tests := []struct {
 		lang       string
@@ -112,10 +110,9 @@ func TestHarnessScripts_PinProtocolConstants(t *testing.T) {
 	}
 }
 
-// TestHarnessScripts_DispatchEveryOp asserts each harness has a dispatch arm
-// for every op in AllOps, so adding an op to the Go list without teaching the
-// harnesses fails here rather than at runtime with "unknown op". The patterns
-// match the dispatch statement itself, not a mention in a comment.
+// Each harness must have a dispatch arm for every op in AllOps, so adding one to
+// the Go list without teaching the harnesses fails here rather than at runtime.
+// The patterns match the dispatch statement, not a mention in a comment.
 func TestHarnessScripts_DispatchEveryOp(t *testing.T) {
 	tests := []struct {
 		lang string

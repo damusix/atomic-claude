@@ -16,19 +16,9 @@ import (
 
 const delimiter = "---"
 
-// splitFrontmatter splits a markdown document into a raw YAML block and body.
-//
-// It is the shared delimiter-splitting logic used by both Parse and ParseOrdered
-// so that any edge-case fix applies to both callers simultaneously.
-//
-// Returns:
-//   - yamlBlock: the raw text between the opening and closing delimiters.
-//   - body: everything after the closing delimiter (with a single leading newline
-//     consumed when present).
-//   - err: non-nil when the opening "---\n" is present but no closing delimiter
-//     is found.
-//   - ok: false when the document has no leading "---\n" (no frontmatter);
-//     callers must return (nil, input, nil) in that case.
+// splitFrontmatter is shared by Parse and ParseOrdered so an edge-case fix
+// reaches both. ok is false when there is no leading "---\n" at all, and
+// callers must then return the input unchanged as body.
 func splitFrontmatter(input string) (yamlBlock, body string, ok bool, err error) {
 	const open = delimiter + "\n"
 	if !strings.HasPrefix(input, open) {
@@ -39,7 +29,7 @@ func splitFrontmatter(input string) (yamlBlock, body string, ok bool, err error)
 
 	var afterClose string
 	if strings.HasPrefix(rest, delimiter+"\n") {
-		// Empty frontmatter block: ---\n---\n
+		// Empty block: ---\n---\n
 		yamlBlock = ""
 		afterClose = rest[len(delimiter)+1:]
 	} else if strings.HasPrefix(rest, delimiter) && len(rest) == len(delimiter) {
@@ -47,7 +37,6 @@ func splitFrontmatter(input string) (yamlBlock, body string, ok bool, err error)
 		yamlBlock = ""
 		afterClose = ""
 	} else {
-		// Normal case: search for \n--- within rest.
 		idx := strings.Index(rest, "\n"+delimiter)
 		if idx < 0 {
 			return "", "", true, fmt.Errorf("frontmatter: missing closing delimiter '---'")
@@ -63,14 +52,9 @@ func splitFrontmatter(input string) (yamlBlock, body string, ok bool, err error)
 	return yamlBlock, afterClose, true, nil
 }
 
-// Parse splits a markdown document into its YAML frontmatter and body.
-//
-// Rules:
-//   - If the document does not start with "---\n", it has no frontmatter:
-//     meta is nil, body is the full input.
-//   - If a closing "---\n" (or "---" at EOF) is missing, an error is returned.
-//   - An empty YAML block ("---\n---\n") returns nil meta and the remainder as body.
-//   - Invalid YAML returns an error.
+// Parse splits a markdown document into its YAML frontmatter and body. An
+// absent or empty block yields nil meta; a missing closing delimiter or invalid
+// YAML is an error.
 func Parse(input string) (meta map[string]any, body string, err error) {
 	yamlBlock, afterClose, ok, splitErr := splitFrontmatter(input)
 	if !ok {
@@ -86,8 +70,8 @@ func Parse(input string) (meta map[string]any, body string, err error) {
 		return nil, body, nil
 	}
 
-	// Decode via yaml.Node to avoid implicit type coercion (e.g. date strings
-	// becoming time.Time). nodeToMap walks the mapping and returns raw scalars.
+	// yaml.Node rather than a map: decoding straight to any coerces date-shaped
+	// scalars to time.Time.
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(yamlBlock), &doc); err != nil {
 		return nil, "", fmt.Errorf("frontmatter: invalid YAML: %w", err)
@@ -106,10 +90,7 @@ func Parse(input string) (meta map[string]any, body string, err error) {
 	return m, body, nil
 }
 
-// nodeToMap converts a yaml.Node (document or mapping) into map[string]any
-// using the raw Value of scalar nodes to avoid implicit type coercion.
 func nodeToMap(n *yaml.Node) (map[string]any, error) {
-	// Unwrap document node.
 	if n.Kind == yaml.DocumentNode {
 		if len(n.Content) == 0 {
 			return nil, nil
@@ -131,8 +112,7 @@ func nodeToMap(n *yaml.Node) (map[string]any, error) {
 	return m, nil
 }
 
-// nodeToValue converts a scalar, sequence, or mapping node to a Go value.
-// Scalars are always returned as their raw string Value to avoid coercion.
+// nodeToValue returns scalars as their raw string Value to avoid coercion.
 func nodeToValue(n *yaml.Node) (any, error) {
 	switch n.Kind {
 	case yaml.ScalarNode:
@@ -160,16 +140,8 @@ type KV struct {
 	Value any
 }
 
-// ParseOrdered splits a markdown document into its YAML frontmatter and body,
-// returning the frontmatter key/value pairs in source order (not alphabetically
-// sorted as a map would be). This is the order-preserving sibling of Parse.
-//
-// Rules mirror Parse exactly:
-//   - No leading "---\n" → (nil, fullInput, nil).
-//   - Missing closing delimiter → error.
-//   - Empty block ("---\n---\n") → (nil, remainder, nil).
-//   - Invalid YAML → error.
-//   - Scalar date values are returned as raw strings (no time.Time coercion).
+// ParseOrdered is the order-preserving sibling of Parse: keys come back in
+// YAML source order rather than a map's arbitrary order. Rules match Parse.
 func ParseOrdered(input string) (kvs []KV, body string, err error) {
 	yamlBlock, afterClose, ok, splitErr := splitFrontmatter(input)
 	if !ok {
@@ -203,9 +175,6 @@ func ParseOrdered(input string) (kvs []KV, body string, err error) {
 	return ordered, body, nil
 }
 
-// nodeToOrdered converts a yaml.Node (document or mapping) into []KV
-// preserving the YAML source order of mapping keys. It reuses nodeToValue for
-// scalar/sequence/mapping values (same date-as-string guarantee as nodeToMap).
 func nodeToOrdered(n *yaml.Node) ([]KV, error) {
 	if n.Kind == yaml.DocumentNode {
 		if len(n.Content) == 0 {
@@ -228,12 +197,8 @@ func nodeToOrdered(n *yaml.Node) ([]KV, error) {
 	return kvs, nil
 }
 
-// Emit serializes meta and body back into a frontmatter markdown document.
-// If meta is nil or empty, only the body is returned (no frontmatter block).
-// The output round-trips with Parse when the input was produced by Parse.
-//
-// Key order is deterministic (sorted ascending) so that byte-identical input
-// maps always produce byte-identical output.
+// Emit round-trips with Parse. Keys are sorted ascending so equal input maps
+// always produce byte-identical output.
 func Emit(meta map[string]any, body string) (string, error) {
 	if len(meta) == 0 {
 		return body, nil
@@ -252,19 +217,13 @@ func Emit(meta map[string]any, body string) (string, error) {
 	return EmitOrdered(kvs, body)
 }
 
-// EmitOrdered serializes a caller-specified ordered list of key-value pairs and
-// body into a frontmatter markdown document. The key order in the output
-// exactly matches the order of kvs, enabling spec-compliant ordering
-// (e.g. generated_at before atomic_version).
-//
-// If kvs is empty, only the body is returned (no frontmatter block).
+// EmitOrdered emits keys in exactly the order of kvs. Empty kvs yields the
+// body with no frontmatter block.
 func EmitOrdered(kvs []KV, body string) (string, error) {
 	if len(kvs) == 0 {
 		return body, nil
 	}
 
-	// Build a yaml.MappingNode with keys in caller-specified order so that
-	// Marshal produces deterministic output that matches the spec examples.
 	mapping := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	for _, kv := range kvs {
 		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: kv.Key}
@@ -291,14 +250,11 @@ func EmitOrdered(kvs []KV, body string) (string, error) {
 	return sb.String(), nil
 }
 
-// anyToNode converts a Go value (as returned by Parse) to a yaml.Node.
 func anyToNode(v any) (*yaml.Node, error) {
 	switch val := v.(type) {
 	case string:
-		// No explicit tag: yaml.v3 emits plain scalars for normal strings.
-		// Setting TaggedStyle on the node (or using "!!str") forces yaml.v3 to
-		// add a style indicator (e.g. quoted output), which breaks human-readable
-		// date values like "2026-05-16". We let yaml.v3 pick the style.
+		// Deliberately untagged: a "!!str" tag makes yaml.v3 quote the scalar,
+		// which mangles readable dates like 2026-05-16.
 		return &yaml.Node{Kind: yaml.ScalarNode, Value: val}, nil
 	case map[string]any:
 		mapping := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}

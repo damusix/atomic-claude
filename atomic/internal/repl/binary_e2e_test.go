@@ -16,43 +16,37 @@ import (
 	"time"
 )
 
-// This file is the one test in the package that runs the shipped command
-// rather than the functions behind it. Everything else here calls into the
-// package in-process, which structurally cannot see argv assembly, exit-code
-// propagation through main, environment inheritance into a detached child, or
-// whether interpreter state actually survives the process that set it — the
-// feature's headline claim. Those are also exactly the seams that have hidden
-// real CLI bugs in this repo behind a green in-process suite before.
+// The one test in the package that runs the shipped command rather than the
+// functions behind it. Everything else calls in-process, which structurally
+// cannot see argv assembly, exit-code propagation through main, environment
+// inheritance into a detached child, or whether interpreter state survives the
+// process that set it — the feature's headline claim. Those are also the seams
+// that have hidden real CLI bugs in this repo behind a green in-process suite.
 
 const (
 	// e2eBuildTimeout bounds `go build`. Generous because a cold module cache
-	// links the whole binary (tree-sitter/wazero included); warm it is ~1s.
+	// links the whole binary; warm it is ~1s.
 	e2eBuildTimeout = 5 * time.Minute
-	// e2eRunTimeout bounds one atomic invocation. Every step here is a local
-	// unix round trip; anything near this bound is a wedge, not slowness.
+	// e2eRunTimeout bounds one atomic invocation. Every step is a local unix
+	// round trip; anything near this bound is a wedge, not slowness.
 	e2eRunTimeout = 60 * time.Second
-	// e2eSessionName is short on purpose: it lands inside a unix socket path
-	// under the sandbox HOME, and sun_path is 104 bytes on macOS.
+	// e2eSessionName is short on purpose: it lands inside a socket path under the
+	// sandbox HOME, and sun_path is 104 bytes on macOS.
 	e2eSessionName = "e2e"
 )
 
-// e2eRepoConfig is the sandbox repo's .claude/atomic.toml.
-//
-// scope = "repo" is what makes scope resolution deterministic without a git
-// repo: repoctx prefers the marker over `git rev-parse`, so the session keys
-// to this directory whether or not the temp dir happens to sit inside one.
-//
-// The idle window is a leak bound, not a behavior under test: a harness this
-// test fails to stop retires itself a minute later instead of outliving the
-// run.
+// e2eRepoConfig is the sandbox repo's .claude/atomic.toml. scope = "repo" makes
+// scope resolution deterministic without a git repo: repoctx prefers the marker
+// over `git rev-parse`. The idle window is a leak bound, not a behavior under
+// test — a harness this test fails to stop retires itself a minute later.
 const e2eRepoConfig = "scope = \"repo\"\n\n[repl]\nidle_timeout = \"60s\"\n"
 
 // e2eInvalidTimeoutConfig is the same marker with an unusable idle_timeout,
 // for the start-time warning.
 const e2eInvalidTimeoutConfig = "scope = \"repo\"\n\n[repl]\nidle_timeout = \"not-a-duration\"\n"
 
-// e2eEnv is one sandboxed invocation context: a built binary, a temp HOME
-// that holds every session file, and a temp repo that is the scope root.
+// e2eEnv is one sandboxed invocation context: a built binary, a temp HOME holding
+// every session file, and a temp repo that is the scope root.
 type e2eEnv struct {
 	bin  string
 	home string
@@ -60,20 +54,17 @@ type e2eEnv struct {
 	env  []string
 }
 
-// TestReplBinary_EndToEnd drives start → eval → eval → stop as four separate
-// OS processes, then reads the exit codes an agent is documented to route on
-// back out of the real binary.
+// Drives start → eval → eval → stop as four separate OS processes, then reads
+// the exit codes an agent routes on back out of the real binary.
 func TestReplBinary_EndToEnd(t *testing.T) {
 	requireE2ETools(t)
 
 	env := newE2EEnv(t, buildAtomicBinary(t), e2eRepoConfig)
 
-	// Registered before the spawn, not after: `start` returns only once the
-	// harness is live, so every line below this point — including the run
-	// helper's own timeout Fatalf — can abort with a detached interpreter
-	// already running. The guard reads the session's meta from disk at
-	// cleanup time, so it is correct whether the start succeeded, failed, or
-	// never happened.
+	// Registered before the spawn: `start` returns only once the harness is live,
+	// so every line below can abort with a detached interpreter already running.
+	// The guard reads meta from disk at cleanup time, so it is correct whether
+	// the start succeeded, failed, or never happened.
 	env.guardSession(t, e2eSessionName)
 
 	// --- start ---------------------------------------------------------
@@ -92,9 +83,8 @@ func TestReplBinary_EndToEnd(t *testing.T) {
 		t.Errorf("start root = %q, want the scope root %q", started.Root, env.repo)
 	}
 
-	// --- eval: define state --------------------------------------------
-	// The "--" is not needed for this code, but it is the documented way to
-	// pass a code positional, so the e2e uses the documented form.
+	// The "--" is not needed here, but it is the documented way to pass a code
+	// positional, so the e2e uses the documented form.
 	stdout, stderr, exit = env.run(t, "repl", "eval", "--name", e2eSessionName, "--json", "--", "e2e_probe = 6 * 7")
 	if exit != int(ExitOK) {
 		t.Fatalf("eval (define): exit = %d, want %d; stderr=%s", exit, ExitOK, stderr)
@@ -106,9 +96,8 @@ func TestReplBinary_EndToEnd(t *testing.T) {
 		t.Errorf("eval (define) = %+v, want ok with no value (a bare statement)", defined)
 	}
 
-	// --- eval: read it back from a different process --------------------
-	// The whole feature in one assertion: a separate `atomic` process, with
-	// no shared memory with the one above, sees the variable it set.
+	// The whole feature in one assertion: a separate process, sharing no memory
+	// with the one above, sees the variable it set.
 	stdout, stderr, exit = env.run(t, "repl", "eval", "--name", e2eSessionName, "--json", "e2e_probe + 1")
 	if exit != int(ExitOK) {
 		t.Fatalf("eval (read): exit = %d, want %d; stderr=%s", exit, ExitOK, stderr)
@@ -150,8 +139,8 @@ func TestReplBinary_EndToEnd(t *testing.T) {
 		}
 	}
 
-	// The session is still serving after the exception — an eval that threw
-	// is the code failing, not the session.
+	// Still serving after the exception — an eval that threw is the code failing,
+	// not the session.
 	if _, _, exit = env.run(t, "repl", "eval", "--name", e2eSessionName, "1 + 1"); exit != int(ExitOK) {
 		t.Errorf("eval after exception: exit = %d, want %d", exit, ExitOK)
 	}
@@ -171,10 +160,9 @@ func TestReplBinary_EndToEnd(t *testing.T) {
 	}
 }
 
-// TestReplBinary_InvalidIdleTimeoutWarnsOnStart covers the F-8 warning
-// through the shipped binary. --bin is deliberately unresolvable: the
-// diagnostic is about the config file, so it must reach stderr without a
-// harness ever being spawned (and without this test leaking one).
+// The start-time config warning through the shipped binary. --bin is deliberately
+// unresolvable: the diagnostic is about the config file, so it must reach stderr
+// without a harness ever being spawned, and without this test leaking one.
 func TestReplBinary_InvalidIdleTimeoutWarnsOnStart(t *testing.T) {
 	requireE2ETools(t)
 
@@ -193,9 +181,7 @@ func TestReplBinary_InvalidIdleTimeoutWarnsOnStart(t *testing.T) {
 	}
 }
 
-// requireE2ETools skips when the two external programs this file shells out
-// to are absent: the Go toolchain (to build the binary under test) and
-// python3 (the interpreter the session runs).
+// requireE2ETools skips when the Go toolchain or python3 is absent.
 func requireE2ETools(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("go"); err != nil {
@@ -226,14 +212,14 @@ func buildAtomicBinary(t *testing.T) string {
 	return out
 }
 
-// newE2EEnv builds a sandbox: a temp HOME (every session file the run creates
-// lands there, never in the developer's real ~/.atomic) and a temp repo
-// carrying repoConfig as its .claude/atomic.toml.
+// newE2EEnv builds a sandbox: a temp HOME, so every session file lands there
+// rather than in the developer's real ~/.atomic, and a temp repo carrying
+// repoConfig as its .claude/atomic.toml.
 func newE2EEnv(t *testing.T, bin, repoConfig string) *e2eEnv {
 	t.Helper()
 
-	// shortTempDir roots under /tmp rather than the go test temp dir: the
-	// session socket path is HOME-derived and sun_path is 104 bytes.
+	// shortTempDir roots under /tmp: the socket path is HOME-derived and sun_path
+	// is 104 bytes.
 	home := realPath(t, shortTempDir(t))
 	repo := realPath(t, shortTempDir(t))
 
@@ -250,26 +236,24 @@ func newE2EEnv(t *testing.T, bin, repoConfig string) *e2eEnv {
 		home: home,
 		repo: repo,
 		env: []string{
-			// The sandbox itself: os.UserHomeDir reads HOME, so every path
-			// under ~/.atomic/repl resolves inside the temp dir.
+			// The sandbox itself: os.UserHomeDir reads HOME, so every path under
+			// ~/.atomic/repl resolves inside the temp dir.
 			"HOME=" + home,
 			"PATH=" + os.Getenv("PATH"),
-			// os.Getwd prefers PWD when it names the same directory as ".",
-			// which keeps the scope root spelled exactly as asserted.
+			// os.Getwd prefers PWD when it names the same directory as ".", keeping
+			// the scope root spelled exactly as asserted.
 			"PWD=" + repo,
-			// This env is the child's whole environment, so harness.dir
-			// resolves with no CLAUDECODE/PI_CODING_AGENT fingerprint and no
-			// user config to read — it would land on the built-in default
-			// anyway. Pinning it states the fixture's dependency out loud:
-			// the config above is written to ".claude/atomic.toml", and this
-			// is what says the binary will look there.
+			// This env is the child's whole environment, so harness.dir would land
+			// on the built-in default anyway. Pinning it states the fixture's
+			// dependency out loud: the config above is written to
+			// ".claude/atomic.toml", and this is what says the binary looks there.
 			"ATOMIC_HARNESS=.claude",
 		},
 	}
 }
 
-// run executes one atomic invocation in the sandbox and returns its streams
-// and exit code. --no-update-check keeps the run off the network.
+// run executes one atomic invocation in the sandbox and returns its streams and
+// exit code. --no-update-check keeps the run off the network.
 func (e *e2eEnv) run(t *testing.T, args ...string) (stdout, stderr string, exit int) {
 	t.Helper()
 
@@ -298,17 +282,15 @@ func (e *e2eEnv) run(t *testing.T, args ...string) (stdout, stderr string, exit 
 	return outBuf.String(), errBuf.String(), exit
 }
 
-// guardSession registers the backstop for the one thing this test can leak: a
-// detached harness that outlives a failing assertion path, since any t.Fatalf
-// between start and stop skips the stop.
+// guardSession is the backstop for the one thing this test can leak: a detached
+// harness outliving a failing assertion path, since any t.Fatalf between start
+// and stop skips the stop.
 //
-// It takes only the session name and resolves the pid from meta on disk at
-// cleanup time — never from the response body — so it can be registered
-// before the spawn it guards and cannot itself be skipped by a failure while
-// parsing that body. An absent meta means there is nothing to kill: the
-// session was stopped (the harness removes its own files), or never started.
-// defaultPidMatch is the package's own recycled-pid guard, so the kill can
-// only ever land on the process this test started.
+// It takes only the session name and resolves the pid from meta at cleanup time,
+// never from a response body, so it can be registered before the spawn it guards
+// and cannot be skipped by a failure while parsing that body. An absent meta
+// means nothing to kill. defaultPidMatch is the package's own recycled-pid
+// guard, so the kill can only land on the process this test started.
 func (e *e2eEnv) guardSession(t *testing.T, name string) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -330,9 +312,8 @@ func (e *e2eEnv) guardSession(t *testing.T, name string) {
 	})
 }
 
-// realPath resolves symlinks so the sandbox paths the test asserts on are the
-// same spelling the binary resolves (/tmp is a symlink to /private/tmp on
-// macOS).
+// realPath resolves symlinks so asserted sandbox paths match the spelling the
+// binary resolves (/tmp is a symlink to /private/tmp on macOS).
 func realPath(t *testing.T, dir string) string {
 	t.Helper()
 	resolved, err := filepath.EvalSymlinks(dir)
@@ -342,9 +323,9 @@ func realPath(t *testing.T, dir string) string {
 	return resolved
 }
 
-// decodeStrict decodes body into v with unknown fields rejected, so a field
-// added to the wire shape without updating the documented one fails here
-// rather than reaching an agent that strict-parses it.
+// decodeStrict rejects unknown fields, so a field added to the wire shape without
+// updating the documented one fails here rather than reaching an agent that
+// strict-parses it.
 func decodeStrict(t *testing.T, label, body string, v any) {
 	t.Helper()
 	dec := json.NewDecoder(strings.NewReader(body))
@@ -354,10 +335,9 @@ func decodeStrict(t *testing.T, label, body string, v any) {
 	}
 }
 
-// assertJSONObjectKeys pins the exact key set of a JSON object. Strict
-// decoding catches an extra key; only this catches a missing one — and
-// "every field is always present" is the documented contract precisely so a
-// caller never has to tell absent from empty.
+// assertJSONObjectKeys pins the exact key set. Strict decoding catches an extra
+// key; only this catches a missing one — and "every field is always present" is
+// the contract precisely so a caller never tells absent from empty.
 func assertJSONObjectKeys(t *testing.T, label, body string, want ...string) {
 	t.Helper()
 	var obj map[string]json.RawMessage

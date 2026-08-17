@@ -12,6 +12,8 @@ export interface RailEdge {
   target: string;
   resolvedPath: string;
   broken: boolean;
+  /** Resolved to a directory with no index file — a listing page, not a file. */
+  dir: boolean;
   ambiguous: boolean;
   codeFile: boolean;
   external: boolean;

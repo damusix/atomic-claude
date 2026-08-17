@@ -11,12 +11,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
 
-// TestCheckInstall_pass: all embedded artifacts exist with matching SHAs →
-// Result severity must be PASS.
 func TestCheckInstall_pass(t *testing.T) {
 	target := t.TempDir()
 
-	// Write all embedded artifacts to the temp dir with correct content.
 	for _, a := range embedded.Manifest() {
 		installArtifact(t, target, a)
 	}
@@ -27,15 +24,13 @@ func TestCheckInstall_pass(t *testing.T) {
 	}
 }
 
-// TestCheckInstall_warn_drift: one artifact has wrong content → WARN (no
-// missing files, just SHA mismatch).
+// Nothing is missing here, so a content mismatch alone must stay at WARN.
 func TestCheckInstall_warn_drift(t *testing.T) {
 	target := t.TempDir()
 
 	manifest := embedded.Manifest()
 	for i, a := range manifest {
 		if i == 0 {
-			// Write wrong content for the first artifact.
 			writeFile(t, filepath.Join(target, filepath.FromSlash(a.Target)), []byte("drift"))
 		} else {
 			installArtifact(t, target, a)
@@ -51,12 +46,10 @@ func TestCheckInstall_warn_drift(t *testing.T) {
 	}
 }
 
-// TestCheckInstall_fail_missing: one artifact is absent → FAIL.
 func TestCheckInstall_fail_missing(t *testing.T) {
 	target := t.TempDir()
 
 	manifest := embedded.Manifest()
-	// Install all except the first.
 	for i, a := range manifest {
 		if i == 0 {
 			continue
@@ -70,7 +63,6 @@ func TestCheckInstall_fail_missing(t *testing.T) {
 	}
 }
 
-// TestCheckInstall_skip_missing_dir: ~/.claude/ itself doesn't exist → SKIP.
 func TestCheckInstall_skip_missing_dir(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "nonexistent")
 
@@ -80,19 +72,16 @@ func TestCheckInstall_skip_missing_dir(t *testing.T) {
 	}
 }
 
-// TestCheckInstall_atomic_subtree_not_flagged: files under <claudeHome>/.atomic/
-// are NOT in the embedded manifest and must not be flagged as missing or drifted.
-// The install check only compares manifest entries vs on-disk; files in .atomic/
-// that are not manifest entries should be invisible to the check.
+// The check compares manifest entries against disk, so atomic-owned state
+// under .atomic/ has to stay invisible to it.
 func TestCheckInstall_atomic_subtree_not_flagged(t *testing.T) {
 	target := t.TempDir()
 
-	// Write all embedded artifacts (clean install).
 	for _, a := range embedded.Manifest() {
 		installArtifact(t, target, a)
 	}
 
-	// Add .atomic/ files that claudeinstall creates but that are NOT in the manifest.
+	// Files claudeinstall creates that are not manifest entries.
 	atomicFiles := []string{
 		filepath.Join(target, ".atomic", "config.resolved.md"),
 		filepath.Join(target, ".atomic", "config.toml"),
@@ -146,8 +135,6 @@ func TestCheckInstall_findings_drift(t *testing.T) {
 	}
 }
 
-// TestCheckInstall_findings_missing: a missing artifact must appear in Findings
-// with prefix "missing: " and Remediation must be set.
 func TestCheckInstall_findings_missing(t *testing.T) {
 	target := t.TempDir()
 
@@ -182,8 +169,6 @@ func TestCheckInstall_findings_missing(t *testing.T) {
 	}
 }
 
-// TestCheckInstall_pass_no_findings: clean install must have empty Findings and
-// empty Remediation.
 func TestCheckInstall_pass_no_findings(t *testing.T) {
 	target := t.TempDir()
 	for _, a := range embedded.Manifest() {
@@ -202,18 +187,13 @@ func TestCheckInstall_pass_no_findings(t *testing.T) {
 	}
 }
 
-// TestCheckInstall_agentOverrideDrift_detectAndRepair: CP6 regression lock.
-// claudeinstall.Diff already compares an installed agent against
-// readPatchedEmbedded (bundle content patched with the configured model +
-// effort, CP2) — so the install-integrity check detects config <-> installed
-// drift with no dedicated agent-aware check. This proves that contract:
-// a config override added after a clean install shows up as WARN drift, and
-// the same Install call `atomic doctor --fix` runs repairs it back to PASS.
+// claudeinstall.Diff compares an installed agent against the bundle content
+// patched with its configured overrides, so config-to-disk drift is caught
+// and repaired without a dedicated agent-aware check. Locks that contract.
 func TestCheckInstall_agentOverrideDrift_detectAndRepair(t *testing.T) {
 	target := t.TempDir()
 	suppressClaudeinstallSeams(t)
 
-	// Clean install, no [claude.agents] overrides configured yet.
 	if _, err := claudeinstall.Install(target, target, false, claudeinstall.RealClock); err != nil {
 		t.Fatalf("initial Install: %v", err)
 	}
@@ -221,8 +201,7 @@ func TestCheckInstall_agentOverrideDrift_detectAndRepair(t *testing.T) {
 		t.Fatalf("severity after clean install = %q, want PASS; detail: %s", r.Severity, r.Detail)
 	}
 
-	// Configure an effort override for an already-installed agent. The
-	// on-disk file still carries the un-patched bundle frontmatter.
+	// The on-disk agent still carries un-patched bundle frontmatter.
 	writeAgentOverride(t, target, "atomic-implementer", config.AgentOverride{Effort: "high"})
 
 	r := doctor.RunCheckInstall(target, target)
@@ -241,7 +220,7 @@ func TestCheckInstall_agentOverrideDrift_detectAndRepair(t *testing.T) {
 		t.Errorf("Findings = %v; want entry %q", r.Findings, wantFinding)
 	}
 
-	// Repair: the same Install call `atomic doctor --fix` runs for this category.
+	// The same Install call `atomic doctor --fix` runs for this category.
 	if _, err := claudeinstall.Install(target, target, false, claudeinstall.RealClock); err != nil {
 		t.Fatalf("repair Install: %v", err)
 	}
@@ -252,9 +231,7 @@ func TestCheckInstall_agentOverrideDrift_detectAndRepair(t *testing.T) {
 
 // --- helpers ---
 
-// writeAgentOverride writes <home>/.atomic/config.toml with a single
-// [claude.agents.<agentName>] override entry. Uses config.WritePersist for
-// correctness, mirroring claudeinstall_test's writeOverrideConfig.
+// writeAgentOverride writes a config.toml carrying one agent override.
 func writeAgentOverride(t *testing.T, home, agentName string, ov config.AgentOverride) {
 	t.Helper()
 	cfg := config.Default()
@@ -264,9 +241,8 @@ func writeAgentOverride(t *testing.T, home, agentName string, ov config.AgentOve
 	}
 }
 
-// suppressClaudeinstallSeams replaces claudeinstall's TTY-gated seams with
-// no-ops so Install can run unattended in a non-interactive test binary,
-// restoring the production defaults on cleanup.
+// suppressClaudeinstallSeams no-ops the TTY-gated seams so Install can run
+// unattended in a test binary.
 func suppressClaudeinstallSeams(t *testing.T) {
 	t.Helper()
 	claudeinstall.ProfileRefresh = func(_, _ string, _ int) (bool, error) { return false, nil }

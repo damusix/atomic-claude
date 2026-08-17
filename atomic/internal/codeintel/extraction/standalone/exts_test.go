@@ -1,18 +1,8 @@
 package standalone_test
 
-// TestSQLExtensions_CanonicalSet verifies that:
-//   1. SQLExtensions contains exactly the four known SQL file extensions.
-//   2. IsSQLExt returns true for every canonical extension (case-insensitive).
-//   3. IsSQLExt returns false for non-SQL standalone extensions (.vue, .go).
-//   4. NewRegistry maps every canonical SQL extension to a non-nil extractor,
-//      ensuring orchestrator and registry are always in sync.
-//
-// WHY this test exists: .sql/.ddl/.pgsql/.mysql was duplicated across
-// standalone.go (NewRegistry), orchestrator.go (extToLanguage + standaloneExts),
-// and pipeline.go (isStandaloneSQLExt). A single typo or omission in any
-// consumer would cause silent parity drift (new SQL dialects routed by one
-// but not the others). This test is the canary — it fails the moment any
-// consumer diverges from the canonical set.
+// The SQL extension list is duplicated across NewRegistry, orchestrator, and
+// pipeline; drift between them routes a dialect through one but not the others.
+// This is the canary for that.
 
 import (
 	"sort"
@@ -22,8 +12,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction/standalone"
 )
 
-// wantSQLExts is the explicit enumeration used to drive all assertions below.
-// It must be updated whenever the SQL extension list changes.
 var wantSQLExts = []string{".sql", ".ddl", ".pgsql", ".mysql", ".sql.jinja"}
 
 func TestSQLExtensions_CanonicalSet(t *testing.T) {
@@ -92,7 +80,6 @@ func TestSQLExtensions_CanonicalSet(t *testing.T) {
 		}
 	})
 
-	// D1: compound extension (.sql.jinja) must be recognised.
 	t.Run("IsSQLExt true for .sql.jinja compound extension", func(t *testing.T) {
 		cases := []string{
 			"models/stg.sql.jinja",

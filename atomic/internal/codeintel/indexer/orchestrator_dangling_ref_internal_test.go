@@ -1,7 +1,7 @@
 package indexer
 
 // Internal regression test for the dangling-owner-ref guard in
-// storeExtractionResult (checkpoint 1, SC1).
+// storeExtractionResult.
 //
 // WHY internal (not indexer_test): storeExtractionResult is unexported. A
 // synthetic ExtractionResult targets the store contract directly — a file

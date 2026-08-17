@@ -1,19 +1,5 @@
 package serve_test
 
-// nodetype_test.go — CP2: hybrid node-type resolver tests.
-//
-// Spec (docs/spec/okf-alignment.md CP2):
-//  1. Frontmatter `type` (title-case mapped to short class):
-//     `Knowledge` → "knowledge", `Concern` → "concern", `Repo Summary` → "repo",
-//     `Bucket` → "bucket". Mapping is case-insensitive ("KNOWLEDGE" → "knowledge").
-//  2. Path-convention fallback (when frontmatter type is absent or unknown):
-//     path segment `repos/` → "repo", `concerns/` → "concern", `knowledge/` → "knowledge".
-//  3. Default: non-.md source-file node → "external"; everything else → "page".
-//
-// The shared resolver must be exercised through BOTH buildCytoElements (global
-// graph) and buildLocalSubgraph (rail mini-graph) — neither may emit the old
-// hardcoded "page" when a typed node is present in the graph.
-
 import (
 	"encoding/json"
 	"io"
@@ -23,15 +9,14 @@ import (
 	"time"
 )
 
-// TestNodeTypeResolverUnitCases exercises the resolver logic through the
-// /graph/data endpoint. Each sub-test builds a minimal realm, starts a server,
-// fetches /graph/data, and checks that the named node carries the expected type.
+// Node typing has two routes, frontmatter and path convention; these cases pin
+// both, plus the fallbacks when neither applies.
 func TestNodeTypeResolverUnitCases(t *testing.T) {
 	cases := []struct {
 		name       string
-		relpath    string            // relative path of the node under realm root
-		content    string            // file content (may include YAML frontmatter)
-		otherFiles map[string]string // additional files needed in the realm
+		relpath    string            // realm-root-relative
+		content    string            // may open with YAML frontmatter
+		otherFiles map[string]string // extra realm files, keyed by relpath
 		wantType   string
 	}{
 		{
@@ -93,14 +78,11 @@ func TestNodeTypeResolverUnitCases(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			// Write the target file.
 			writeFile(t, filepath.Join(root, filepath.FromSlash(tc.relpath)), tc.content)
-			// Write any additional files.
 			for rel, body := range tc.otherFiles {
 				writeFile(t, filepath.Join(root, filepath.FromSlash(rel)), body)
 			}
-			// Add an index.md so the realm is non-empty and the server has a
-			// landing page; it won't affect the tested node's type.
+			// The server needs a landing page; it cannot affect the tested type.
 			if tc.relpath != "index.md" {
 				writeFile(t, filepath.Join(root, "index.md"), "# Index\n")
 			}
@@ -121,7 +103,7 @@ func TestNodeTypeResolverUnitCases(t *testing.T) {
 				t.Fatalf("JSON unmarshal: %v\nbody: %s", err, body)
 			}
 
-			// Find the target node by ID (realm-root-relative path, forward slashes).
+			// Node IDs are realm-root-relative with forward slashes.
 			var found *struct {
 				Data struct {
 					ID    string `json:"id"`
@@ -146,16 +128,14 @@ func TestNodeTypeResolverUnitCases(t *testing.T) {
 	}
 }
 
-// TestNodeTypeResolvedInLocalSubgraph verifies that buildLocalSubgraph (the rail
-// mini-graph) also emits the resolved node type, not the old hardcoded "page".
-// It uses the /graph/data?node=<relpath>&depth=1 endpoint which exercises
-// buildLocalSubgraph.
+// The rail mini-graph runs through a different builder than the global graph, so
+// it needs its own proof that node types survive.
 func TestNodeTypeResolvedInLocalSubgraph(t *testing.T) {
 	root := t.TempDir()
-	// knowledge page with explicit frontmatter type.
+	// Typed by frontmatter.
 	writeFile(t, filepath.Join(root, "wiki", "knowledge", "auth.md"),
 		"---\ntype: Knowledge\n---\n# Auth\n\nSee [perf](../concerns/perf.md).\n")
-	// concern page, path-convention typed (no frontmatter type).
+	// Typed by path convention.
 	writeFile(t, filepath.Join(root, "wiki", "concerns", "perf.md"),
 		"# Perf\n")
 	writeFile(t, filepath.Join(root, "index.md"), "# Index\n")
@@ -164,8 +144,7 @@ func TestNodeTypeResolvedInLocalSubgraph(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	// Fetch the local subgraph centered on the knowledge page (depth=1 includes
-	// the concern it links to).
+	// depth=1 pulls in the concern the knowledge page links to.
 	resp, err := http.Get(baseURL + "/graph/data?node=wiki/knowledge/auth.md&depth=1")
 	if err != nil {
 		t.Fatalf("GET /graph/data?node=...: %v", err)
@@ -183,17 +162,15 @@ func TestNodeTypeResolvedInLocalSubgraph(t *testing.T) {
 		typeByID[n.Data.ID] = n.Data.Type
 	}
 
-	// The knowledge page must carry type "knowledge" (frontmatter).
 	if got := typeByID["wiki/knowledge/auth.md"]; got != "knowledge" {
 		t.Errorf("knowledge page: got type %q, want %q", got, "knowledge")
 	}
-	// The concern page must carry type "concern" (path convention).
 	if got := typeByID["wiki/concerns/perf.md"]; got != "concern" {
 		t.Errorf("concern page: got type %q, want %q", got, "concern")
 	}
 }
 
-// nodeIDs extracts just the IDs from a cytoscapeElements for error messages.
+// nodeIDs flattens node ids for error messages.
 func nodeIDs(elems cytoscapeElements) []string {
 	ids := make([]string, 0, len(elems.Nodes))
 	for _, n := range elems.Nodes {

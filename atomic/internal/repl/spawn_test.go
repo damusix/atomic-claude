@@ -13,10 +13,9 @@ import (
 	"time"
 )
 
-// stubSpawner stands in for a real interpreter: it records every call and, when
-// asked to, brings the session's socket up in-process. That is what lets the
-// concurrency test below assert "exactly one session" without a python3 or node
-// on the machine and without a process to leak.
+// stubSpawner records every call and, when asked, brings the session's socket up
+// in-process — which is what lets the concurrency test assert "exactly one
+// session" with no python3 or node on the machine and no process to leak.
 type stubSpawner struct {
 	mu     sync.Mutex
 	calls  []SpawnSpec
@@ -123,9 +122,9 @@ func TestEnsureStarted_ConcurrentStartsProduceExactlyOneSession(t *testing.T) {
 			t.Fatalf("racer %d: EnsureStarted: %v", i, err)
 		}
 	}
-	// The whole point of the flock: probe-and-spawn is one decision, so a
-	// loser blocks, wakes to a live session, and never spawns a second
-	// harness over the first one's socket.
+	// The whole point of the flock: probe-and-spawn is one decision, so a loser
+	// blocks, wakes to a live session, and never spawns a second harness over the
+	// first one's socket.
 	if got := spawner.count(); got != 1 {
 		t.Errorf("spawned %d harnesses, want exactly 1", got)
 	}
@@ -423,8 +422,8 @@ func TestMaterializeHarness_AlwaysRewritesFromTheEmbeddedBytes(t *testing.T) {
 				t.Errorf("materialized as %q, want %q", got, wantName)
 			}
 
-			// A stale or tampered copy is never trusted: every start rewrites
-			// the script from the bytes compiled into this binary.
+			// A stale or tampered copy is never trusted: every start rewrites the
+			// script from the bytes compiled into this binary.
 			if err := os.WriteFile(path, []byte("print('tampered')\n"), 0o700); err != nil {
 				t.Fatalf("tamper: %v", err)
 			}
@@ -502,10 +501,10 @@ func TestResolveInterpreter(t *testing.T) {
 	})
 }
 
-// TestDefaultSpawn_BringsUpARealHarness is the one test here that runs a real
-// interpreter through the real spawn path. The stubbed tests above prove the
-// decision logic; only this one proves the argv, the detachment, the working
-// directory, and the environment are what a harness can actually start from.
+// The one test here that runs a real interpreter through the real spawn path.
+// The stubbed tests prove the decision logic; only this proves the argv, the
+// detachment, the working directory, and the environment are what a harness can
+// actually start from.
 func TestDefaultSpawn_BringsUpARealHarness(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skipf("python3 not on PATH: %v", err)
@@ -585,9 +584,8 @@ func evalOnce(t *testing.T, meta Meta, code string) string {
 
 func quotePy(s string) string { return "'" + s + "'" }
 
-// stopHarnessOnCleanup ends a real harness: shutdown first, then SIGKILL if it
-// is still there — and only ever at a pid whose identity just verified, never
-// at a bare number read off disk.
+// stopHarnessOnCleanup ends a real harness: shutdown, then SIGKILL if it is still
+// there — and only at a pid whose identity just verified.
 func stopHarnessOnCleanup(t *testing.T, meta Meta) {
 	t.Helper()
 	t.Cleanup(func() {

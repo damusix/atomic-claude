@@ -12,10 +12,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// Run is the CLI entry point for `atomic followups <verb> [args]`.
-// repoRoot is the git repository root (caller resolves via repoctx).
-// clock is injected to allow testing with a fixed time; pass time.Now for production.
-// Returns an exit code: 0 success, 1 error, 2 usage error.
+// Run is the entry point for `atomic followups <verb>`. clock is injected for
+// tests; production passes time.Now. Exit codes: 0 ok, 1 error, 2 usage.
 func Run(args []string, repoRoot string, stdout, stderr io.Writer, clock func() time.Time) int {
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
@@ -120,8 +118,7 @@ func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today
 		return 2
 	}
 
-	// Validate --kind before required-flag checks so an invalid kind surfaces its
-	// own error rather than a misleading "missing --severity".
+	// --kind is validated first, or a bad kind surfaces as "missing --severity".
 	if kind != "" {
 		if _, err := parseKind(kind); err != nil {
 			fmt.Fprintf(stderr, "atomic followups add: %v\n", err)
@@ -129,7 +126,6 @@ func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today
 		}
 	}
 
-	// Validate required flags. --severity is required for findings, optional for plans.
 	var missing []string
 	if title == "" {
 		missing = append(missing, "--title")
@@ -137,7 +133,6 @@ func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today
 	if origin == "" {
 		missing = append(missing, "--origin")
 	}
-	// Severity is required unless kind is plan.
 	if severity == "" && kind != string(KindPlan) {
 		missing = append(missing, "--severity")
 	}
@@ -148,7 +143,6 @@ func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today
 		return 1
 	}
 
-	// Read body from stdin if requested.
 	if body == "-" {
 		raw, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -173,7 +167,6 @@ func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today
 		return 1
 	}
 
-	// Regenerate INDEX.md after add.
 	_ = runRender(dir, io.Discard, io.Discard, today)
 
 	fmt.Fprintln(stdout, path)

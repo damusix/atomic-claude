@@ -18,12 +18,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 )
 
-// ReplAction is the exported entry point for `atomic repl`, mirroring
-// internal/bus's BusAction and internal/wiki's WikiAction: home and cwd are
-// injected rather than resolved internally, so cmd/atomic/main.go's runRepl
-// owns the one os.UserHomeDir()/os.Getwd() call and every path in this
-// package stays testable against a temp home. stdin flows only to eval, the
-// one verb that ever reads it.
+// ReplAction is the exported entry point for `atomic repl`. home and cwd are
+// injected rather than resolved here, so cmd/atomic/main.go owns the one
+// os.UserHomeDir/os.Getwd call and every path stays testable against a temp
+// home. stdin flows only to eval, the one verb that reads it.
 func ReplAction(args []string, home, cwd, repoOverride string, stdin io.Reader, out io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: atomic repl <start|eval|list|status|reset|stop> [flags]")
@@ -39,9 +37,8 @@ func ReplAction(args []string, home, cwd, repoOverride string, stdin io.Reader, 
 	verb, rest := args[0], args[1:]
 	switch verb {
 	case "start":
-		// spawn is always nil here (DefaultSpawn): a real interpreter is
-		// what production start means. Tests exercise startAction directly
-		// with a stub SpawnFunc — see action_test.go.
+		// spawn nil means DefaultSpawn: a real interpreter is what production
+		// start means. Tests call startAction directly with a stub SpawnFunc.
 		return startAction(rest, home, scopeRoots, nil, out)
 	case "eval":
 		return evalAction(rest, home, scopeRoots, stdin, out)
@@ -59,18 +56,15 @@ func ReplAction(args []string, home, cwd, repoOverride string, stdin io.Reader, 
 	}
 }
 
-// resolveScopeRoots is the calling repo's own scope root, plus its enclosing
-// realm's when the repo is a realm member — the union eval/list/status/
-// reset/stop search, and (its first element) the root start keys a new
-// session to. Realm membership is decided by the scope-marker walk
-// (config.FindScopeRoot), never the <wikis> registry: that registry is a
-// per-user preference file, not a fact about this directory tree, and a
-// session's visibility must not depend on which user's machine it runs on.
+// resolveScopeRoots returns the calling repo's scope root plus its enclosing
+// realm's when the repo is a realm member — the union the read verbs search, and
+// (first element) the root start keys a new session to. Realm membership comes
+// from the scope-marker walk, never the <wikis> registry: that registry is a
+// per-user preference, not a fact about this directory tree, and visibility must
+// not depend on whose machine it runs on.
 //
-// Invoked directly at a realm root, repoctx finds no repo marker and no git
-// toplevel there and falls back to dir itself — so repoRoot and realmRoot
-// converge on the same path and the union collapses to one entry, matching
-// "the repo root, or the realm root itself when invoked directly at one."
+// Invoked at a realm root, repoctx finds no repo marker and falls back to dir
+// itself, so both roots converge and the union collapses to one entry.
 func resolveScopeRoots(dir, repoOverride string) ([]string, error) {
 	repoRoot, _, err := repoctx.ResolveFrom(dir, repoOverride)
 	if err != nil {
@@ -79,8 +73,8 @@ func resolveScopeRoots(dir, repoOverride string) ([]string, error) {
 
 	realmSearchDir := dir
 	if repoOverride != "" {
-		// An explicit --repo redirects everything downstream of it,
-		// including where the enclosing realm is searched for.
+		// An explicit --repo redirects everything downstream of it, including
+		// where the enclosing realm is searched for.
 		realmSearchDir = repoRoot
 	}
 
@@ -91,21 +85,14 @@ func resolveScopeRoots(dir, repoOverride string) ([]string, error) {
 	return roots, nil
 }
 
-// resolveIdleTimeout resolves the idle window a newly spawned session
-// receives: the repo config's [repl] idle_timeout (config.RepoConfigPath(scopeRoot),
-// harness-dir aware — e.g. .claude/atomic.toml) wins, then the user's [repl]
-// idle_timeout (~/.atomic/config.toml), else DefaultIdleTimeout. A missing or
-// unparseable config file, or a present but invalid duration (unparseable,
-// zero, negative), is skipped in favor of the next tier — this resolver
-// degrades quietly rather than blocking a session start over a bad config
-// value.
+// resolveIdleTimeout resolves a new session's idle window: repo config first,
+// then user config, else DefaultIdleTimeout. An unreadable file or an invalid
+// duration falls through to the next tier rather than blocking a start.
 //
-// Degrading is not the same as staying silent. A *present but invalid* value
-// yields a warning naming its file and the value, returned for the caller to
-// print at the point of use, the way internal/codeintel/engine surfaces an
-// unusable [code] ignore config: doctor also flags it, but nobody runs doctor
-// because a session reaped on a window they thought they had changed. An
-// absent value is not a mistake and warns about nothing.
+// Degrading is not the same as staying silent. A present but invalid value
+// yields a warning naming its file and value, returned for the caller to print:
+// doctor flags it too, but nobody runs doctor because a session was reaped on a
+// window they thought they had changed. An absent value warns about nothing.
 func resolveIdleTimeout(home, scopeRoot string) (time.Duration, []string) {
 	var warnings []string
 
@@ -134,9 +121,8 @@ func resolveIdleTimeout(home, scopeRoot string) (time.Duration, []string) {
 	return DefaultIdleTimeout, warnings
 }
 
-// langAliases maps every --lang spelling the CLI accepts to its canonical
-// form. py/js stay canonical (shown in --help); python/node/javascript are
-// accepted so an agent doesn't have to remember the short forms.
+// langAliases maps every accepted --lang spelling to its canonical form. py/js
+// stay canonical; the long forms exist so an agent need not recall the short.
 var langAliases = map[string]string{
 	LangPython:   LangPython,
 	"python":     LangPython,
@@ -145,8 +131,7 @@ var langAliases = map[string]string{
 	"javascript": LangNode,
 }
 
-// resolveLang canonicalizes a --lang value, or reports every accepted
-// spelling when it does not recognize one.
+// resolveLang canonicalizes a --lang value, or reports every accepted spelling.
 func resolveLang(raw string) (string, error) {
 	canon, ok := langAliases[raw]
 	if !ok {
@@ -155,8 +140,8 @@ func resolveLang(raw string) (string, error) {
 	return canon, nil
 }
 
-// exitCodeForErr is the one place a package error becomes a process exit
-// code, so every verb routes the same error the same way.
+// exitCodeForErr is the one place a package error becomes a process exit code,
+// so every verb routes the same error the same way.
 func exitCodeForErr(err error) ExitCode {
 	switch {
 	case errors.Is(err, ErrSessionNotFound):
@@ -175,12 +160,9 @@ func exitCodeForErr(err error) ExitCode {
 	return ExitUsage
 }
 
-// deadSessionError adds the `atomic repl start` remedy to a dead-session
-// error. ErrSessionDead surfaces from more than one call site — client.Dial,
-// used directly by status/reset/stop and via Eval by eval — so this wraps at
-// the point each verb turns the error into stderr text, the same "one place
-// builds the message" role notFoundError plays for ErrSessionNotFound. A
-// non-dead error passes through unchanged.
+// deadSessionError adds the `atomic repl start` remedy to a dead-session error.
+// ErrSessionDead surfaces from more than one call site, so this wraps where each
+// verb turns the error into stderr text. A non-dead error passes through.
 func deadSessionError(err error) error {
 	if !errors.Is(err, ErrSessionDead) {
 		return err
@@ -188,10 +170,9 @@ func deadSessionError(err error) error {
 	return fmt.Errorf("%w; run `atomic repl start` to replace it", err)
 }
 
-// sessionView is the wire and text shape shared by list and status: enough
-// to find a session and judge whether it can still be used. There is
-// deliberately no field for --env — see meta.go's Meta, which carries none
-// either, so there is nowhere for a secret to leak into this output.
+// sessionView is the shape list and status share: enough to find a session and
+// judge whether it can still be used. There is deliberately no --env field —
+// Meta carries none either — so there is nowhere for a secret to leak.
 type sessionView struct {
 	Name      string    `json:"name"`
 	Root      string    `json:"root"`
@@ -209,8 +190,8 @@ func metaToView(m Meta, alive bool) sessionView {
 	}
 }
 
-// startView is start's --json shape: a sessionView plus whether this call
-// found the session already running rather than spawning it.
+// startView is start's --json shape: a sessionView plus whether this call found
+// the session already running rather than spawning it.
 type startView struct {
 	sessionView
 	AlreadyRunning bool `json:"already_running"`
@@ -232,18 +213,16 @@ func livenessLabel(alive bool) string {
 	return "dead"
 }
 
-// notFoundError is the one place the not-found message is built, so a
-// reaped session and a name that was never started produce byte-identical
-// text — ErrSessionNotFound's doc explains why there is no marker to tell
-// them apart.
+// notFoundError is the one place the not-found message is built, so a reaped
+// session and a name never started produce byte-identical text — see
+// ErrSessionNotFound for why there is no marker telling them apart.
 func notFoundError(name string) error {
 	return fmt.Errorf("%w: %q; run `atomic repl start --name %s --lang <py|js>` to create it", ErrSessionNotFound, name, name)
 }
 
-// findSession resolves name against each of roots in turn — the calling
-// scope first, then its enclosing realm — and returns the first match. Two
-// scopes both holding a session by this name is not an expected shape (each
-// start keys to exactly one scope root); this simply prefers the nearer one.
+// findSession resolves name against each root in turn — the calling scope first,
+// then its enclosing realm — and returns the first match. Two scopes holding one
+// name is not an expected shape; this simply prefers the nearer.
 func findSession(home string, roots []string, name string) (Session, error) {
 	dirs := make([]string, len(roots))
 	for i, root := range roots {
@@ -252,9 +231,9 @@ func findSession(home string, roots []string, name string) (Session, error) {
 	return findSessionInDirs(dirs, name)
 }
 
-// findSessionInDirs is findSession's dir-addressed sibling, used by --all
-// (which enumerates raw scope-key directories it cannot turn back into scope
-// roots — ScopeKey is a one-way hash).
+// findSessionInDirs is findSession's dir-addressed sibling, used by --all, which
+// enumerates scope-key directories it cannot turn back into scope roots —
+// ScopeKey is a one-way hash.
 func findSessionInDirs(dirs []string, name string) (Session, error) {
 	for _, dir := range dirs {
 		metaPath := filepath.Join(dir, name+".meta.json")
@@ -271,12 +250,10 @@ func findSessionInDirs(dirs []string, name string) (Session, error) {
 	return Session{}, notFoundError(name)
 }
 
-// readCode implements eval's code-source precedence: the positional
-// argument — everything after a "--" separator, or the plain positional when
-// there is no "--" — wins; with none given, code is read from stdin, but
-// only when stdin is not a live terminal, so a bare `eval --name s` in an
-// interactive shell fails loud instead of blocking on input nothing will
-// ever supply. Neither present is the usage-error case (ok=false).
+// readCode implements eval's code-source precedence: the positional argument
+// wins; with none, code comes from stdin, but only when stdin is not a live
+// terminal, so a bare `eval --name s` in an interactive shell fails loud instead
+// of blocking on input nothing will supply. Neither present is ok=false.
 func readCode(positional []string, stdin io.Reader) (code string, ok bool) {
 	if len(positional) > 0 {
 		return strings.Join(positional, " "), true
@@ -292,12 +269,10 @@ func readCode(positional []string, stdin io.Reader) (code string, ok bool) {
 }
 
 // isTerminalReader reports whether r is a live terminal — a read that would
-// block rather than yield piped data. A nil reader (no stdin available at
-// all) answers true, the same as a real terminal: both mean "there is
-// nothing to read here," which is what lets a test exercise the
-// no-code-available path without a real pty. Anything that is not an
-// *os.File (a bytes/strings.Reader in tests standing in for a pipe, or a
-// non-file wrapper) answers false, matching a genuinely piped os.Stdin.
+// block rather than yield piped data. A nil reader answers true, like a real
+// terminal: both mean nothing is there to read, which lets a test exercise the
+// no-code path without a pty. Anything that is not an *os.File answers false,
+// matching a genuinely piped os.Stdin.
 func isTerminalReader(r io.Reader) bool {
 	if r == nil {
 		return true
@@ -309,12 +284,10 @@ func isTerminalReader(r io.Reader) bool {
 	return charmterm.IsTerminal(f.Fd())
 }
 
-// parseFlags parses args against fs and returns the positional arguments,
-// supporting flags and positionals in any order — mirrors
-// internal/bus/action.go's parseFlags (see its doc for the full rationale).
-// A bare "--" terminates flag scanning; every token after it, whatever its
-// shape, is positional — this is what lets `eval --name s -- '-1 + 2'`
-// disambiguate code that itself starts with a dash.
+// parseFlags parses args against fs and returns the positionals, allowing flags
+// and positionals in any order — mirrors internal/bus/action.go's parseFlags,
+// whose doc carries the full rationale. A bare "--" ends flag scanning, which is
+// what lets `eval --name s -- '-1 + 2'` disambiguate dash-leading code.
 func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
 	for i := 0; i < len(args); {
@@ -352,10 +325,9 @@ func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 	return positional, nil
 }
 
-// flagName reports whether arg has the shape "--name" or "--name=value" and,
-// if so, name with the leading "--" and any "=value" suffix stripped. Any
-// other shape — including a positional that happens to start with "-" — is
-// ok=false, so parseFlags never risks it on fs.Parse.
+// flagName reports whether arg is shaped "--name" or "--name=value" and returns
+// the bare name. Any other shape — including a positional starting with "-" —
+// is ok=false, so parseFlags never risks it on fs.Parse.
 func flagName(arg string) (name string, ok bool) {
 	if !strings.HasPrefix(arg, "--") || len(arg) <= 2 {
 		return "", false
@@ -370,16 +342,15 @@ func flagName(arg string) (name string, ok bool) {
 	return name, true
 }
 
-// isBoolFlag reports whether f takes no argument, so parseFlags never
-// swallows the next positional as a bool flag's value.
+// isBoolFlag reports whether f takes no argument, so parseFlags never swallows
+// the next positional as a bool flag's value.
 func isBoolFlag(f *flag.Flag) bool {
 	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return ok && bf.IsBoolFlag()
 }
 
-// startAction implements `atomic repl start`. spawn is nil in production
-// (EnsureStarted defaults to DefaultSpawn, a real interpreter); tests inject
-// a stub so this is exercised without one.
+// startAction implements `atomic repl start`. spawn is nil in production;
+// tests inject a stub so this runs without a real interpreter.
 func startAction(args []string, home string, scopeRoots []string, spawn SpawnFunc, out io.Writer) int {
 	const usage = "Usage: atomic repl start --name <s> --lang py|js [--env <file>] [--bin <path>] [--json]\n"
 
@@ -424,9 +395,9 @@ func startAction(args []string, home string, scopeRoots []string, spawn SpawnFun
 	}
 
 	scopeRoot := scopeRoots[0]
-	// Emitted before the spawn is even attempted: the value is wrong whether
-	// or not this start succeeds, and a start that fails for some other
-	// reason is exactly when a stale config line is worth seeing.
+	// Emitted before the spawn is attempted: the value is wrong either way, and a
+	// start that fails for some other reason is exactly when a stale config line
+	// is worth seeing.
 	idleTimeout, idleWarnings := resolveIdleTimeout(home, scopeRoot)
 	for _, w := range idleWarnings {
 		fmt.Fprintf(os.Stderr, "atomic repl start: %s\n", w)
@@ -522,10 +493,9 @@ func evalAction(args []string, home string, scopeRoots []string, stdin io.Reader
 	return int(ExitOK)
 }
 
-// printEvalHuman renders a Response for a human terminal: stdout/stderr as
-// produced, a "[truncated]" marker when either stream hit the cap, then the
-// final expression's value — or the exception's traceback on the stderr
-// stream when the eval failed.
+// printEvalHuman renders a Response for a terminal: stdout/stderr as produced, a
+// "[truncated]" marker when either stream hit the cap, then the final value — or
+// the traceback on stderr when the eval failed.
 func printEvalHuman(out io.Writer, resp Response) {
 	if resp.Stdout != "" {
 		fmt.Fprint(out, resp.Stdout)
@@ -545,10 +515,8 @@ func printEvalHuman(out io.Writer, resp Response) {
 	}
 }
 
-// listAction implements `atomic repl list`. It always exits 0 — see
-// ExitCode's doc on ExitOK and the exit-code table's "list is the one
-// exception" clause — a dead entry is reported inline, never as a command
-// failure.
+// listAction implements `atomic repl list`. It always exits 0: a dead entry is
+// reported inline, never as a command failure.
 func listAction(args []string, home string, scopeRoots []string, out io.Writer) int {
 	const usage = "Usage: atomic repl list [--all] [--json]\n"
 
@@ -594,9 +562,9 @@ func listAction(args []string, home string, scopeRoots []string, out io.Writer) 
 	return int(ExitOK)
 }
 
-// listSessions reads every session's meta under dirs and probes each one's
-// liveness directly — never failing the whole listing over one dead or
-// unreadable entry, which is what lets list stay a pure enumeration.
+// listSessions reads every session's meta under dirs and probes liveness
+// directly, never failing the whole listing over one bad entry — which is what
+// lets list stay a pure enumeration.
 func listSessions(dirs []string) ([]sessionView, error) {
 	var views []sessionView
 	for _, dir := range dirs {
@@ -608,8 +576,7 @@ func listSessions(dirs []string) ([]sessionView, error) {
 			metaPath := filepath.Join(dir, name+".meta.json")
 			meta, err := LoadMeta(metaPath)
 			if err != nil {
-				// Corrupt or mid-write meta: skip this one entry rather
-				// than fail the whole listing.
+				// Corrupt or mid-write meta: skip this entry, not the listing.
 				continue
 			}
 			sockPath := filepath.Join(dir, name+".sock")
@@ -619,9 +586,8 @@ func listSessions(dirs []string) ([]sessionView, error) {
 	return views, nil
 }
 
-// sessionNamesInDir returns every session name with a meta file in dir, in
-// stable sorted order. An absent dir means no session has ever started
-// there — an empty result, not an error.
+// sessionNamesInDir returns every session name with a meta file in dir, sorted.
+// An absent dir means no session ever started there — empty, not an error.
 func sessionNamesInDir(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -643,9 +609,9 @@ func sessionNamesInDir(dir string) ([]string, error) {
 	return names, nil
 }
 
-// statusAction implements `atomic repl status`. --all broadens the search
-// from the current repo/realm union to every scope on the machine, so a
-// session can be found without knowing which repo or realm produced it.
+// statusAction implements `atomic repl status`. --all broadens the search from
+// the current repo/realm union to every scope on the machine, so a session can
+// be found without knowing which repo or realm produced it.
 func statusAction(args []string, home string, scopeRoots []string, out io.Writer) int {
 	const usage = "Usage: atomic repl status --name <s> [--all] [--json]\n"
 
@@ -700,8 +666,8 @@ func statusAction(args []string, home string, scopeRoots []string, out io.Writer
 	return int(ExitOK)
 }
 
-// resetAction implements `atomic repl reset`: clears the interpreter
-// namespace without ending the harness process.
+// resetAction implements `atomic repl reset`: clears the interpreter namespace
+// without ending the harness process.
 func resetAction(args []string, home string, scopeRoots []string, out io.Writer) int {
 	const usage = "Usage: atomic repl reset --name <s> [--json]\n"
 
@@ -750,11 +716,9 @@ func resetAction(args []string, home string, scopeRoots []string, out io.Writer)
 	return int(ExitOK)
 }
 
-// stopAction implements `atomic repl stop`: ends the session. The harness
-// removes its own socket + meta on a clean shutdown ack (see
-// harness/python_harness.py's _remove_files); a session already dead when
-// this runs is reported dead like any other verb touching its socket (the
-// exit-code table's "list is the one exception" clause names list only).
+// stopAction implements `atomic repl stop`. The harness removes its own socket
+// and meta on a clean shutdown ack; a session already dead when this runs is
+// reported dead, like any other verb touching its socket.
 func stopAction(args []string, home string, scopeRoots []string, out io.Writer) int {
 	const usage = "Usage: atomic repl stop --name <s> [--json]\n"
 

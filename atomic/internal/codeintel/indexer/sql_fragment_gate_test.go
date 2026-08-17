@@ -1,6 +1,6 @@
 package indexer
 
-// sql_fragment_gate_test.go — CP5: C8 fragment gate + tokenizer unit tests.
+// sql_fragment_gate_test.go — C8 fragment gate + tokenizer unit tests.
 // White-box (package indexer) so matchesSQLFragmentGate/tokenizeSQLFragment
 // can be exercised directly without a full orchestrator index run.
 

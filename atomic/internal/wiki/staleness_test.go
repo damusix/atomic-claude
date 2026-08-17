@@ -56,8 +56,6 @@ func makeIndexWithGenerated(t *testing.T, wikiDir, generatedDate string) string 
 	return indexPath
 }
 
-// TestCheckStaleness_NudgeOnStaleGenerated verifies that a wiki whose generated
-// date is older than the threshold emits exactly one nudge line.
 func TestCheckStaleness_NudgeOnStaleGenerated(t *testing.T) {
 	tmp := t.TempDir()
 	claudeHome := filepath.Join(tmp, "claude")
@@ -87,8 +85,6 @@ func TestCheckStaleness_NudgeOnStaleGenerated(t *testing.T) {
 	}
 }
 
-// TestCheckStaleness_NudgeOnDirtyMarkerEvenIfFresh verifies that a wiki with a
-// .dirty marker emits a nudge even when the generated date is fresh.
 func TestCheckStaleness_NudgeOnDirtyMarkerEvenIfFresh(t *testing.T) {
 	tmp := t.TempDir()
 	claudeHome := filepath.Join(tmp, "claude")
@@ -123,8 +119,6 @@ func TestCheckStaleness_NudgeOnDirtyMarkerEvenIfFresh(t *testing.T) {
 	}
 }
 
-// TestCheckStaleness_SilentWhenFreshAndNoMarker verifies that a fresh wiki with
-// no .dirty marker emits no nudge.
 func TestCheckStaleness_SilentWhenFreshAndNoMarker(t *testing.T) {
 	tmp := t.TempDir()
 	claudeHome := filepath.Join(tmp, "claude")
@@ -278,12 +272,6 @@ func TestCheckStaleness_GarbledGeneratedDate(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
-// mark-dirty tests
-// --------------------------------------------------------------------------
-
-// TestMarkDirty_TouchesDirtyWhenCwdUnderRoot verifies that mark-dirty touches
-// <root>/wiki/.dirty when cwd is under a registered wiki root.
 func TestMarkDirty_TouchesDirtyWhenCwdUnderRoot(t *testing.T) {
 	tmp := t.TempDir()
 	claudeHome := filepath.Join(tmp, "claude")
@@ -319,8 +307,6 @@ func TestMarkDirty_TouchesDirtyWhenCwdUnderRoot(t *testing.T) {
 	}
 }
 
-// TestMarkDirty_NoopWhenCwdNotUnderAnyRoot verifies that mark-dirty is a no-op
-// when cwd is not under any registered wiki root.
 func TestMarkDirty_NoopWhenCwdNotUnderAnyRoot(t *testing.T) {
 	tmp := t.TempDir()
 	claudeHome := filepath.Join(tmp, "claude")
@@ -356,8 +342,6 @@ func TestMarkDirty_NoopWhenCwdNotUnderAnyRoot(t *testing.T) {
 	}
 }
 
-// TestMarkDirty_NormalizedPathMatching verifies that two spellings of the same
-// root (trailing slash, double separator) both match correctly.
 func TestMarkDirty_NormalizedPathMatching(t *testing.T) {
 	tmp := t.TempDir()
 	claudeHome := filepath.Join(tmp, "claude")
@@ -455,8 +439,6 @@ func TestMarkDirty_MissingWikisBlock(t *testing.T) {
 	}
 }
 
-// TestReadWikiIndexPaths_ReadsAllEntries verifies the reader returns all
-// registered paths.
 func TestReadWikiIndexPaths_ReadsAllEntries(t *testing.T) {
 	tmp := t.TempDir()
 	claudeMD := filepath.Join(tmp, "CLAUDE.md")

@@ -7,10 +7,9 @@ import (
 	"testing"
 )
 
-// TestExitCodes_PinnedValues is the spec's single place where all seven exit
-// codes' literal values are locked. Agents route on these numbers, so a
-// reordering that silently renumbers them is a breaking change to every caller
-// — this table is what makes that fail a test instead of shipping.
+// The single place all seven exit codes' literal values are locked. Agents route
+// on these numbers, so a reordering that silently renumbers them is a breaking
+// change to every caller.
 func TestExitCodes_PinnedValues(t *testing.T) {
 	tests := []struct {
 		name string
@@ -44,9 +43,8 @@ func TestExitCodes_PinnedValues(t *testing.T) {
 }
 
 func TestProtocolVersion_IsPinned(t *testing.T) {
-	// Bumping this is a real decision (it retires every running harness), not
-	// a drive-by edit — the assertion exists to force the decision to be made
-	// deliberately, alongside the two harness scripts' own constants.
+	// Bumping this retires every running harness, so the assertion exists to
+	// force the decision alongside the two harness scripts' own constants.
 	if ProtocolVersion != 1 {
 		t.Errorf("ProtocolVersion = %d, want 1", ProtocolVersion)
 	}
@@ -80,10 +78,9 @@ func TestAllOps_MatchesGoldenList(t *testing.T) {
 	}
 }
 
-// TestResponse_EveryFieldAlwaysMarshaled pins the wire contract from the Go
-// side: a zero Response still emits all seven keys, with value and error as
-// empty strings rather than null or absent. The harness side of the same
-// contract is asserted against live JSON in harness_contract_test.go.
+// The wire contract from the Go side: a zero Response still emits all seven keys,
+// with value and error as empty strings rather than null or absent. The harness
+// side is asserted against live JSON in harness_contract_test.go.
 func TestResponse_EveryFieldAlwaysMarshaled(t *testing.T) {
 	raw, err := json.Marshal(Response{})
 	if err != nil {

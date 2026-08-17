@@ -1,17 +1,6 @@
-// Package extraction — orchestrator (CP10).
-//
-// IndexAll turns a project directory into a populated DB:
-//
-//  1. Scan files: git ls-files fast path; WalkDir fallback when not a git repo.
-//  2. Map each file's extension to a types.Language via the ext→language table
-//     (appendix D). Skip files with no known extension.
-//  3. File-level-only languages (yaml, twig, properties): write a file record,
-//     no symbol extraction.
-//  4. Tree-sitter languages → languages.Registry.For; standalone formats →
-//     standalone.Registry.For. Both produce ExtractionResult.
-//  5. storeExtractionResult: content-hash dedup (skip unchanged files);
-//     DELETE file's nodes + cascade before re-insert (R-E invariant).
-//  6. Pool borrow/return wires per-instance recycle (spike A3).
+// The orchestrator turns a project directory into a populated DB: scan files,
+// route each extension to a tree-sitter or standalone extractor, and store the
+// result. See docs/spec/code-intel-engine.md.
 
 package indexer
 
@@ -41,15 +30,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// ---------------------------------------------------------------------------
-// Extension → language map (appendix D, COPY)
-// ---------------------------------------------------------------------------
-
-// extToLanguage maps lower-case file extensions (including the dot) to the
-// canonical types.Language value. Non-obvious entries documented inline.
-//
-// File-level-only languages (yaml, twig, properties) are included: the
-// orchestrator writes a file record for them but skips symbol extraction.
+// extToLanguage maps lower-case extensions (dot included) to types.Language.
+// An extension absent here is skipped entirely by the indexer.
 var extToLanguage = map[string]types.Language{
 	// TypeScript
 	".ts":  types.LanguageTypeScript,
@@ -74,7 +56,7 @@ var extToLanguage = map[string]types.Language{
 	".rs": types.LanguageRust,
 	// Java
 	".java": types.LanguageJava,
-	// C — .h defaults to c; promote to cpp/objc by content is a future heuristic
+	// C — .h defaults to C; promoting to cpp/objc by content is unimplemented.
 	".c": types.LanguageC,
 	".h": types.LanguageC,
 	// C++
@@ -141,17 +123,14 @@ var extToLanguage = map[string]types.Language{
 	".properties": types.LanguageProperties,
 }
 
-// fileLevelOnly is the set of languages that produce a file record but no
-// symbol extraction.
+// fileLevelOnly languages get a file record but no symbol extraction.
 var fileLevelOnly = map[types.Language]bool{
 	types.LanguageYAML:       true,
 	types.LanguageTwig:       true,
 	types.LanguageProperties: true,
 }
 
-// standaloneExts is the set of extensions routed to the standalone registry.
-// These extensions are a subset of extToLanguage but handled by regex-based
-// extractors rather than tree-sitter.
+// standaloneExts route to regex-based extractors instead of tree-sitter.
 // SQL extensions are populated in init() from standalone.SQLExtensions.
 var standaloneExts = map[string]bool{
 	".vue":    true,
@@ -163,24 +142,17 @@ var standaloneExts = map[string]bool{
 }
 
 func init() {
-	// Populate the SQL entries in extToLanguage and standaloneExts from the
-	// canonical list in the standalone package so the two maps never diverge
-	// from standalone.NewRegistry's SQL routing.
+	// Derived from the standalone package's canonical list so these maps cannot
+	// diverge from standalone.NewRegistry's SQL routing.
 	for _, ext := range standalone.SQLExtensions {
 		extToLanguage[ext] = types.LanguageSQL
 		standaloneExts[ext] = true
 	}
 }
 
-// compoundExt returns the effective file extension for routing purposes.
-// For paths ending in ".sql.jinja" (the dbt Jinja template compound extension)
-// it returns ".sql.jinja" so the file is keyed correctly in extToLanguage and
-// standaloneExts. For all other paths it delegates to filepath.Ext.
-//
-// WHY a separate helper: filepath.Ext("stg.sql.jinja") returns ".jinja", which
-// has no entry in extToLanguage — the file is silently skipped. compoundExt is
-// the single fix point for this two-level extension; callers must not add a
-// third call beyond the two sites in indexFiles and indexOneFile.
+// compoundExt is filepath.Ext plus the one two-level extension the router
+// needs: filepath.Ext("stg.sql.jinja") returns ".jinja", which no map keys, so
+// the dbt template would be silently skipped.
 func compoundExt(path string) string {
 	lower := strings.ToLower(path)
 	if strings.HasSuffix(lower, ".sql.jinja") {
@@ -189,42 +161,18 @@ func compoundExt(path string) string {
 	return filepath.Ext(path)
 }
 
-// ---------------------------------------------------------------------------
-// Extractor-version self-healing migration
-// ---------------------------------------------------------------------------
+// extractorVersion must be bumped by hand whenever a change under extraction/
+// would yield different nodes, edges, or refs for a file that is already
+// indexed. Without the bump the content-hash dedup skips that file forever and
+// the semantic drift never surfaces; a mismatch forces one full re-extraction.
+const extractorVersion = "5"
 
-// extractorVersion is bumped by hand whenever a change under extraction/
-// would produce different nodes/edges/refs for files that are already
-// indexed (unchanged on disk, so the content-hash dedup skip would otherwise
-// hide the semantic drift forever). IndexAll compares it against the
-// project_metadata value on every run; a mismatch forces one full
-// re-extraction pass so already-indexed files self-heal.
-//
-// Bump history:
-//
-//	2 — function-scoped local variables no longer minted as nodes; only
-//	    single-identifier variable names are minted anywhere (destructuring
-//	    patterns suppressed).
-const extractorVersion = "2"
-
-// extractorVersionMetadataKey is the project_metadata row extractorVersion
-// is compared against and stamped into. Reuses the existing table — no
-// schema change.
 const extractorVersionMetadataKey = "extractor_version"
 
-// checkExtractorVersion reads project_metadata's stamped extractor_version
-// and reports whether IndexAll must treat every file as changed this run
-// (forceFull) and whether the key needs (re)writing afterward (needStamp).
-//
-//   - Stored value matches extractorVersion → (false, false): incremental
-//     as before, nothing to do.
-//   - Key absent, but the index already has file rows → (true, true): this
-//     index predates the extractor_version mechanism entirely; migrate
-//     every already-indexed file once, then stamp.
-//   - Key absent, index has no file rows → (false, true): brand-new index;
-//     nothing to migrate (every file is new, not skipped), just stamp.
-//   - Stored value present but different from extractorVersion → (true,
-//     true): a real semantics bump; migrate, then re-stamp.
+// checkExtractorVersion reports whether this run must treat every file as
+// changed (forceFull) and whether the stamp needs rewriting (needStamp). An
+// absent key with file rows present is an index predating the mechanism, so it
+// migrates; an absent key on an empty index only stamps.
 func (o *Orchestrator) checkExtractorVersion(ctx context.Context) (forceFull, needStamp bool, err error) {
 	stored, ok, err := o.getMetadata(ctx, extractorVersionMetadataKey)
 	if err != nil {
@@ -244,18 +192,15 @@ func (o *Orchestrator) checkExtractorVersion(ctx context.Context) (forceFull, ne
 	return len(files) > 0, true, nil
 }
 
-// stampExtractorVersion writes the current extractorVersion into
-// project_metadata. Called only after a run completes successfully, so a
-// crash mid-migration leaves the mismatch in place and the next run retries
-// the full pass instead of recording a migration that never finished.
+// stampExtractorVersion runs only after a successful pass: a crash
+// mid-migration must leave the mismatch in place so the next run retries,
+// rather than recording a migration that never finished.
 func (o *Orchestrator) stampExtractorVersion(ctx context.Context) error {
 	return o.setMetadata(ctx, extractorVersionMetadataKey, extractorVersion)
 }
 
-// getMetadata reads one project_metadata row directly via the DB's exported
-// *sql.DB handle (db.go: "Callers may use it directly for queries") — there
-// is no dedicated project_metadata accessor beyond migrations.go's raw SQL
-// for schema_version, which this mirrors rather than duplicating.
+// getMetadata goes through the exported *sql.DB handle because the db package
+// has no project_metadata accessor; this mirrors migrations.go's raw SQL.
 func (o *Orchestrator) getMetadata(ctx context.Context, key string) (value string, ok bool, err error) {
 	err = o.db.DB().QueryRowContext(ctx,
 		`SELECT value FROM project_metadata WHERE key = ?`, key).Scan(&value)
@@ -268,8 +213,6 @@ func (o *Orchestrator) getMetadata(ctx context.Context, key string) (value strin
 	return value, true, nil
 }
 
-// setMetadata upserts one project_metadata row, mirroring migrations.go's
-// INSERT OR REPLACE pattern for schema_version.
 func (o *Orchestrator) setMetadata(ctx context.Context, key, value string) error {
 	if _, err := o.db.DB().ExecContext(ctx,
 		`INSERT OR REPLACE INTO project_metadata (key, value, updated_at)
@@ -279,53 +222,39 @@ func (o *Orchestrator) setMetadata(ctx context.Context, key, value string) error
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Orchestrator
-// ---------------------------------------------------------------------------
-
-// Orchestrator wires the file scanner, extension→language router, parser pool,
-// language/standalone registries, and the database into a single indexing pipeline.
+// Orchestrator wires the file scanner, extension router, parser pool,
+// extractor registries, and the database into one indexing pipeline.
 type Orchestrator struct {
 	db         *db.DB
 	pool       *extraction.Pool
 	langReg    *languages.Registry
 	standalone *standalone.Registry
-	// sqlExt is the SQLExtractor used by embeddedSQLPostPass for DDL and DML
-	// extraction from host-language string literals. It is stateless and safe
-	// for concurrent use across goroutines (no parser pool involved).
+	// sqlExt is stateless and safe for concurrent use — no parser pool involved.
 	sqlExt *standalone.SQLExtractor
-	// skippedFiles counts files that could not be read or stat'd during the most
-	// recent indexFiles run. A single unreadable file (a git-tracked-but-missing
-	// path: broken symlink, deleted-but-staged) is skipped, not fatal — but the
-	// count is surfaced so the skip is visible (fail loud, not silent).
+	// skippedFiles counts unreadable or un-stat-able files from the last run.
+	// Skipping one is not fatal, but the count is surfaced so it stays visible.
 	skippedFiles atomic.Int64
-	// ignore filters discovery output (the input to indexFiles and
-	// pruneDeleted) against repo-scoped glob patterns from .claude/atomic.toml.
-	// Nil disables filtering — the zero-value Orchestrator behaves exactly as
-	// it did before graphignore. Set via SetIgnoreMatcher.
+	// ignore filters discovery output against .claude/atomic.toml globs.
+	// Nil disables filtering.
 	ignore *config.IgnoreMatcher
 }
 
-// SkippedFiles returns the number of files skipped (unreadable / un-stat-able)
-// during the most recent IndexAll / Sync / IndexPaths run. Reset at the start of
-// each run. Used by the CLI to report skips instead of silently dropping files.
+// SkippedFiles returns how many files the most recent run could not read or
+// stat. Reset at the start of each run.
 func (o *Orchestrator) SkippedFiles() int {
 	return int(o.skippedFiles.Load())
 }
 
-// SetIgnoreMatcher configures the ignore matcher used to filter the file
-// lists IndexAll, Sync, IndexPaths, and ScanFiles produce. Pass nil to
-// disable filtering (the default for a freshly constructed Orchestrator).
+// SetIgnoreMatcher filters the file lists IndexAll, Sync, IndexPaths, and
+// ScanFiles produce. Nil, the default, disables filtering.
 func (o *Orchestrator) SetIgnoreMatcher(m *config.IgnoreMatcher) {
 	o.ignore = m
 }
 
-// filterIgnored drops any path in paths matched by o.ignore. This is the
-// single discovery-time filtering seam: IndexAll and Sync feed the SAME
-// filtered list to both indexFiles and pruneDeleted, so a file that becomes
-// newly ignored simply stops appearing in the list pruneDeleted compares
-// against the DB — it is reclaimed as an orphan on the next run with no
-// separate prune mechanism.
+// filterIgnored is the single discovery-time filtering seam. IndexAll and Sync
+// feed the same filtered list to indexFiles and pruneDeleted, so a newly
+// ignored file simply stops appearing and pruneDeleted reclaims it as an
+// orphan — no separate un-ignore mechanism is needed.
 func (o *Orchestrator) filterIgnored(projectRoot string, paths []string) []string {
 	if o.ignore == nil {
 		return paths
@@ -344,8 +273,8 @@ func (o *Orchestrator) filterIgnored(projectRoot string, paths []string) []strin
 	return filtered
 }
 
-// NewOrchestrator creates an Orchestrator. pool must be non-nil and already
-// initialised; its recycle cadence enforces bounded memory (spike A3).
+// NewOrchestrator requires a non-nil, initialised pool; its recycle cadence is
+// what bounds parser memory.
 func NewOrchestrator(database *db.DB, pool *extraction.Pool) *Orchestrator {
 	return &Orchestrator{
 		db:         database,
@@ -356,50 +285,28 @@ func NewOrchestrator(database *db.DB, pool *extraction.Pool) *Orchestrator {
 	}
 }
 
-// IndexAll scans projectRoot for source files and indexes them all into the DB.
-// Files are processed concurrently (bounded by the pool size). Errors from
-// individual files are recorded in the DB but do not abort the run.
-//
-// Runs the extractor_version migration check (see scanAndIndex) — the same
-// check Sync runs, per the spec's "Flow: self-healing migration", which
-// names both `atomic code index` and `atomic code sync`.
+// IndexAll indexes every source file under projectRoot, concurrently up to the
+// pool size. A per-file error is recorded in the DB and never aborts the run.
 func (o *Orchestrator) IndexAll(ctx context.Context, projectRoot string) error {
 	return o.scanAndIndex(ctx, projectRoot, "orchestrator: scan")
 }
 
-// IndexPaths indexes exactly the files in paths. Each path must be absolute.
-// Only paths with a known extension are processed; unknown-extension paths are
-// silently skipped (consistent with IndexAll behaviour). This is the real
-// selective-indexing path that Engine.IndexFiles delegates to (F-56 fix).
-// Paths matched by o.ignore are also skipped. IndexPaths does not prune (see
-// pruneDeleted's doc comment) — it is handed an explicit subset.
+// IndexPaths indexes exactly the given absolute paths, skipping unknown
+// extensions and ignored paths. It deliberately does not prune: it is handed a
+// subset, so pruning would delete every file outside it.
 func (o *Orchestrator) IndexPaths(ctx context.Context, projectRoot string, paths []string) error {
 	return o.indexFiles(ctx, projectRoot, o.filterIgnored(projectRoot, paths), false)
 }
 
-// Sync re-indexes files in projectRoot that have changed since the last index.
-// Files that have not changed are skipped (content-hash dedup). Changed files
-// have their old nodes deleted (cascade clears edges) before re-extraction
-// (R-E invariant). Files that have vanished from disk since the last run are
-// pruned from the index (pruneDeleted) so a delete or rename does not leave
-// stale symbols.
-//
-// Sync runs the same extractor_version migration check as IndexAll (see
-// scanAndIndex) — the spec's "Flow: self-healing migration" names both
-// `atomic code index` and `atomic code sync`, and warm repos only ever run
-// Sync in practice (ship verbs call sync; index is cold-start-only), so the
-// mechanism must not be inert for Sync. A stale stamped version escalates a
-// Sync run to a full re-extraction pass (hash dedup bypassed for every
-// file), then stamps; a matching version keeps Sync's normal incremental
-// behavior.
+// Sync re-indexes only files whose content hash changed, and prunes files that
+// vanished from disk. It runs the same extractor_version check as IndexAll:
+// warm repos only ever call Sync, so the migration must not be inert here.
 func (o *Orchestrator) Sync(ctx context.Context, projectRoot string) error {
 	return o.scanAndIndex(ctx, projectRoot, "orchestrator: sync scan")
 }
 
-// scanAndIndex is the shared body of IndexAll and Sync: check the
-// extractor_version migration, scan, index (forcing a full pass on a
-// mismatch), prune, and stamp. scanErrPrefix distinguishes the two callers'
-// scan-error wording.
+// scanAndIndex is the shared body of IndexAll and Sync: version check, scan,
+// index (full pass on a mismatch), prune, stamp.
 func (o *Orchestrator) scanAndIndex(ctx context.Context, projectRoot, scanErrPrefix string) error {
 	forceFull, needStamp, err := o.checkExtractorVersion(ctx)
 	if err != nil {
@@ -427,24 +334,14 @@ func (o *Orchestrator) scanAndIndex(ctx context.Context, projectRoot, scanErrPre
 	return nil
 }
 
-// pruneDeleted removes index rows for files that exist in the DB but no longer
-// exist on disk. scanFiles only returns paths that currently exist, so a
-// whole-file delete or rename leaves the file's nodes, edges, unresolved refs,
-// and file record stranded — queries would keep returning symbols and call
-// edges from code that is gone. This reconciles the DB's file set against the
-// on-disk set and reclaims the orphans.
+// pruneDeleted reclaims rows for files still in the DB but gone from disk;
+// without it a delete or rename leaves symbols and call edges that queries
+// keep returning. onDisk is the full scanned list, pre-extension-filter, so
+// any DB path missing from it is genuinely gone.
 //
-// onDisk is the full scanned path list (absolute, pre-extension-filter); any DB
-// file path absent from it is genuinely gone. filepath.Rel reproduces the same
-// relative key indexOneFile stored, so the comparison is exact. Each orphan is
-// pruned in one transaction — DeleteNodesByFile cascades the file's edges (and
-// any inbound edge whose target node lived in the deleted file) — so a crash
-// never leaves a half-pruned file.
-//
-// Scoped to whole-tree callers (IndexAll, Sync). IndexPaths must NOT prune: it
-// is handed an explicit subset and would wrongly delete every file outside it.
+// Each orphan is pruned in its own transaction, so a crash never leaves a
+// half-pruned file. Whole-tree callers only — IndexPaths must not prune.
 func (o *Orchestrator) pruneDeleted(ctx context.Context, projectRoot string, onDisk []string) error {
-	// O(1) membership set of relative paths that exist on disk.
 	present := make(map[string]bool, len(onDisk))
 	for _, p := range onDisk {
 		rel, err := filepath.Rel(projectRoot, p)
@@ -464,7 +361,6 @@ func (o *Orchestrator) pruneDeleted(ctx context.Context, projectRoot string, onD
 		if present[fr.Path] {
 			continue
 		}
-		// Orphan: indexed but gone from disk. Reclaim its rows atomically.
 		if err := o.db.WithTx(ctx, func(tx *db.Tx) error {
 			if err := tx.DeleteNodesByFile(ctx, fr.Path); err != nil {
 				return err
@@ -480,16 +376,12 @@ func (o *Orchestrator) pruneDeleted(ctx context.Context, projectRoot string, onD
 	return errors.Join(errs...)
 }
 
-// indexFiles processes a list of absolute file paths. It is the shared inner
-// loop for IndexAll, Sync, and IndexPaths. forceReindex, when true, bypasses
-// the content-hash dedup skip in indexOneFile for every file in this call —
-// used by IndexAll's extractor_version migration to force a full pass.
+// indexFiles is the shared inner loop for IndexAll, Sync, and IndexPaths.
+// forceReindex bypasses indexOneFile's content-hash dedup for every file in
+// this call, which is how the extractor_version migration forces a full pass.
 func (o *Orchestrator) indexFiles(ctx context.Context, projectRoot string, filePaths []string, forceReindex bool) error {
-	// Reset the per-run skip counter; indexOneFile increments it for files that
-	// cannot be read or stat'd (skipped, not fatal).
 	o.skippedFiles.Store(0)
 
-	// Filter to files with a known extension.
 	var toIndex []string
 	for _, p := range filePaths {
 		ext := strings.ToLower(compoundExt(p))
@@ -498,14 +390,11 @@ func (o *Orchestrator) indexFiles(ctx context.Context, projectRoot string, fileP
 		}
 	}
 
-	// Bounded concurrency: one goroutine per pool slot. We launch one worker
-	// per file but the pool's Borrow call serialises at most pool.Size()
-	// simultaneous parsers. File-level-only and standalone-ext files don't
-	// borrow from the pool; they only hold the mutex briefly for DB writes.
+	// One goroutine per file, but Borrow caps live parsers at pool.Size().
+	// File-level-only and standalone files never borrow at all.
 	var wg sync.WaitGroup
-	// errCh collects fatal per-file errors (not recorded in DB). In practice
-	// storeExtractionResult records per-file errors in the DB and never
-	// returns fatal errors from extraction — only DB write errors surface here.
+	// Only DB write errors reach errCh: extraction errors are recorded in the
+	// file row by storeExtractionResult and never returned.
 	errCh := make(chan error, len(toIndex))
 
 	for _, path := range toIndex {
@@ -521,7 +410,6 @@ func (o *Orchestrator) indexFiles(ctx context.Context, projectRoot string, fileP
 	wg.Wait()
 	close(errCh)
 
-	// Collect any non-nil errors.
 	var errs []error
 	for e := range errCh {
 		errs = append(errs, e)
@@ -529,11 +417,9 @@ func (o *Orchestrator) indexFiles(ctx context.Context, projectRoot string, fileP
 	return errors.Join(errs...)
 }
 
-// indexOneFile processes a single file: reads it, extracts, stores.
-// forceReindex bypasses the content-hash dedup skip below (extractor_version
-// migration in progress).
+// indexOneFile reads, extracts, and stores a single file. The relative path is
+// the canonical DB key.
 func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath string, forceReindex bool) error {
-	// Relative path used as the canonical DB key (matches reference impl).
 	relPath, err := filepath.Rel(projectRoot, filePath)
 	if err != nil {
 		relPath = filePath
@@ -541,10 +427,9 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 
 	src, err := os.ReadFile(filePath)
 	if err != nil {
-		// A git-tracked-but-missing file (broken symlink, deleted-but-staged) or
-		// a permission error on one file must not abort the whole index. Skip it,
-		// count it, and continue — the rest of the tree still indexes and the
-		// resolution phase still runs. (Matches the IndexAll docstring contract.)
+		// A broken symlink, deleted-but-staged path, or permission error on one
+		// file must not abort the index — the rest of the tree still needs to
+		// reach the resolution phase.
 		o.skippedFiles.Add(1)
 		return nil
 	}
@@ -552,8 +437,6 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 	contentHash := hashContent(src)
 	stat, err := os.Stat(filePath)
 	if err != nil {
-		// The file vanished between read and stat, or is otherwise un-stat-able.
-		// Same policy: skip and continue rather than fail the run.
 		o.skippedFiles.Add(1)
 		return nil
 	}
@@ -561,9 +444,6 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 	ext := strings.ToLower(compoundExt(relPath))
 	lang := extToLanguage[ext]
 
-	// Dedup: if the file record exists with the same content hash, skip —
-	// unless forceReindex is set (extractor_version migration in progress),
-	// in which case every file is treated as changed for this run.
 	if !forceReindex {
 		if existing, err := o.db.GetFile(ctx, relPath); err == nil {
 			if existing.ContentHash == contentHash {
@@ -572,7 +452,6 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 		}
 	}
 
-	// File-level-only: just write the file record, no symbol extraction.
 	if fileLevelOnly[lang] {
 		fr := types.FileRecord{
 			Path:        relPath,
@@ -586,14 +465,11 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 		return o.db.UpsertFile(ctx, fr)
 	}
 
-	// Extract symbols.
 	var result types.ExtractionResult
 
 	if standaloneExts[ext] {
-		// Standalone extractor (Vue, Svelte, Liquid, DFM, MyBatis XML).
 		ex := o.standalone.For(ext)
 		if ex == nil {
-			// No extractor for this standalone ext — write file record only.
 			fr := types.FileRecord{
 				Path:        relPath,
 				ContentHash: contentHash,
@@ -606,14 +482,13 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 		}
 		result, err = ex.Extract(relPath, string(src))
 		if err != nil {
-			// Best-effort: record the error in the file row, continue.
+			// Best-effort: record it in the file row and keep going.
 			result.Errors = append(result.Errors, err.Error())
 		}
 	} else {
-		// Tree-sitter extractor via the pool.
 		cfg, tsLang, ok := o.langReg.For(lang)
 		if !ok {
-			// Language registered in extToLanguage but no extractor config.
+			// Known extension, no extractor config — file record only.
 			fr := types.FileRecord{
 				Path:        relPath,
 				ContentHash: contentHash,
@@ -627,11 +502,8 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 		extractor := extraction.NewTreeSitterExtractor(o.pool, tsLang, cfg)
 		result = extractor.Extract(ctx, relPath, string(src), lang)
 
-		// Embedded SQL post-pass: harvest string literals from supported host
-		// languages (Go, Python; CP4 adds TypeScript) and merge any SQL
-		// nodes/edges/refs into the result before the single store call.
-		// embeddedSQLHostExts is a positive allowlist of registered host languages;
-		// this branch is only reached for non-standalone extensions (outer else).
+		// Harvest SQL out of host-language string literals and merge it in
+		// before the single store call.
 		if embeddedSQLHostExts[ext] {
 			embeddedSQLPostPass(ctx, relPath, string(src), &result, o.sqlExt, o.pool)
 		}
@@ -640,18 +512,13 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 	return o.storeExtractionResult(ctx, relPath, contentHash, lang, stat, result)
 }
 
-// storeExtractionResult persists one file's extraction results to the DB in a
-// single transaction.
+// storeExtractionResult persists one file's extraction in a single
+// transaction, so a crash or cancellation mid-store leaves no half-deleted
+// file and no nodes without a file row.
 //
-// Atomicity: the delete-nodes + insert-nodes + insert-edges + upsert-file
-// sequence runs inside one BEGIN/COMMIT block. A crash or context cancellation
-// mid-store rolls back the entire unit — no half-deleted file, no nodes without
-// a file row, and no TOCTOU double-insert window.
-//
-// Sync invariant (R-E): node-id embeds line; a moved symbol gets a new id.
-// An in-place REPLACE leaves the old-id node orphaned with dangling edges.
-// Deleting all of the file's nodes (cascade clears their edges) before
-// re-inserting guarantees no orphans regardless of what changed.
+// It deletes all the file's nodes before re-inserting because a node id embeds
+// its line: a moved symbol gets a new id, and an in-place REPLACE would strand
+// the old node with dangling edges.
 func (o *Orchestrator) storeExtractionResult(
 	ctx context.Context,
 	relPath, contentHash string,
@@ -662,7 +529,6 @@ func (o *Orchestrator) storeExtractionResult(
 	now := time.Now()
 	nowUnix := now.Unix()
 
-	// Encode per-file errors as JSON for the file record (outside tx; pure CPU).
 	var errJSON []byte
 	if len(result.Errors) > 0 {
 		errJSON, _ = json.Marshal(result.Errors)
@@ -680,48 +546,34 @@ func (o *Orchestrator) storeExtractionResult(
 	}
 
 	return o.db.WithTx(ctx, func(tx *db.Tx) error {
-		// DELETE all existing nodes for this file (cascade clears edges).
+		// Cascade clears this file's edges too.
 		if err := tx.DeleteNodesByFile(ctx, relPath); err != nil {
 			return fmt.Errorf("storeExtractionResult: delete nodes: %w", err)
 		}
 
-		// DELETE all existing unresolved_refs for this file so re-index replaces
-		// rather than duplicates them.
 		if err := tx.DeleteUnresolvedRefsByFile(ctx, relPath); err != nil {
 			return fmt.Errorf("storeExtractionResult: delete unresolved refs: %w", err)
 		}
 
-		// Insert nodes with updated_at stamped to now.
 		for _, n := range result.Nodes {
 			if err := tx.UpsertNodeAt(ctx, n, nowUnix); err != nil {
 				return fmt.Errorf("storeExtractionResult: upsert node %s: %w", n.ID, err)
 			}
 		}
 
-		// Insert edges.
 		for _, e := range result.Edges {
 			if _, err := tx.InsertEdge(ctx, e); err != nil {
 				return fmt.Errorf("storeExtractionResult: insert edge: %w", err)
 			}
 		}
 
-		// Insert unresolved references so CP13 can resolve them later.
-		// Set file_path and language on each ref so resolution can scope matches.
-		// Language preservation: embedded SQL refs already carry Language==SQL
-		// (set by ExtractEmbeddedSQL / scanBodyEdges). We must not overwrite that
-		// with the host-file language — the provenance seam in createEdges relies
-		// on Language==SQL to stamp Provenance:"embedded" on resolved edges.
-		// For all other refs (from normal host-language extraction), Language is
-		// empty at this point, so the assignment sets it correctly.
+		// Language is only assigned when empty: embedded SQL refs already carry
+		// Language==SQL, and createEdges keys Provenance:"embedded" off it.
 		//
-		// Owner guard: unresolved_refs.from_node_id has a FOREIGN KEY REFERENCES
-		// nodes(id). An extractor bug can emit a ref whose owner was never added
-		// to result.Nodes (e.g. attributed to a node the extractor stripped) —
-		// without this guard that single ref FK-fails the whole file's transaction,
-		// which bubbles up through indexFiles → IndexAll and skips the resolution
-		// phase entirely (contradicting IndexAll's documented per-file-error
-		// contract). Skip the ref instead: record the miss in this file's errors
-		// column (fail loud, not fatal) and keep storing the rest of the file.
+		// Owner guard: from_node_id has an FK to nodes(id), so one ref whose
+		// owner never made it into result.Nodes would fail the whole file's
+		// transaction and skip the resolution phase for the entire run. Record
+		// the miss in the file's errors column and store the rest instead.
 		localNodeIDs := make(map[string]bool, len(result.Nodes))
 		for _, n := range result.Nodes {
 			localNodeIDs[n.ID] = true
@@ -755,8 +607,7 @@ func (o *Orchestrator) storeExtractionResult(
 			}
 		}
 
-		// Upsert the file record last — it records node_count so it must come
-		// after nodes are inserted.
+		// Last, because it records node_count.
 		if err := tx.UpsertFile(ctx, fr); err != nil {
 			return fmt.Errorf("storeExtractionResult: upsert file: %w", err)
 		}
@@ -765,17 +616,10 @@ func (o *Orchestrator) storeExtractionResult(
 	})
 }
 
-// ---------------------------------------------------------------------------
-// File scanner
-// ---------------------------------------------------------------------------
-
-// ScanFiles returns the list of tracked files in dir, filtered through o's
-// ignore matcher (if any). Exported as a method — rather than a free
-// function — so the engine facade's ExtractFrameworkNodes sees the SAME
-// filtered file set IndexAll/Sync produce, via the same matcher, instead of
-// duplicating the git-ls-files / walkDir logic with a second, unfiltered scan
-// that would silently diverge (e.g. route/handler nodes appearing for a file
-// otherwise invisible to `atomic code files`).
+// ScanFiles returns dir's tracked files through o's ignore matcher. It is a
+// method, not a free function, so ExtractFrameworkNodes sees the same filtered
+// set IndexAll and Sync do — a second unfiltered scan would mint framework
+// nodes for files otherwise invisible to `atomic code files`.
 func (o *Orchestrator) ScanFiles(dir string) ([]string, error) {
 	files, err := scanFiles(dir)
 	if err != nil {
@@ -784,14 +628,8 @@ func (o *Orchestrator) ScanFiles(dir string) ([]string, error) {
 	return o.filterIgnored(dir, files), nil
 }
 
-// scanFiles returns the list of tracked files in dir.
-//
-// Fast path: if dir is inside a git repo, `git ls-files --cached --others
-// --exclude-standard` is used. This respects .gitignore automatically and
-// returns both tracked and untracked-but-not-ignored files.
-//
-// Fallback: filepath.WalkDir skipping .git and common ignored dirs when
-// the git command fails (not a git repo, git not installed, etc.).
+// scanFiles prefers git ls-files, which honors .gitignore for free, and falls
+// back to a WalkDir when git is unavailable or dir is not a repo.
 func scanFiles(dir string) ([]string, error) {
 	if paths, err := gitLsFiles(dir); err == nil {
 		return paths, nil
@@ -799,8 +637,8 @@ func scanFiles(dir string) ([]string, error) {
 	return walkDirFallback(dir)
 }
 
-// gitLsFiles runs `git ls-files --cached --others --exclude-standard` in dir
-// and returns the absolute paths of all returned files.
+// gitLsFiles returns absolute paths for dir's tracked and
+// untracked-but-not-ignored files.
 func gitLsFiles(dir string) ([]string, error) {
 	cmd := exec.Command("git", "ls-files", "--cached", "--others", "--exclude-standard")
 	cmd.Dir = dir
@@ -820,9 +658,9 @@ func gitLsFiles(dir string) ([]string, error) {
 	return paths, nil
 }
 
-// walkDirFallback walks dir recursively, skipping common ignored directories.
+// walkDirFallback walks dir recursively when git is unavailable. It knows
+// nothing of .gitignore, so it skips a fixed set of directories instead.
 func walkDirFallback(dir string) ([]string, error) {
-	// Directories to skip (not gitignored but commonly irrelevant).
 	skipDirs := map[string]bool{
 		".git":         true,
 		"node_modules": true,
@@ -848,8 +686,7 @@ func walkDirFallback(dir string) ([]string, error) {
 	return paths, err
 }
 
-// hashContent returns a hex-encoded SHA-256 of src. This is the content_hash
-// stored in the files table for dedup.
+// hashContent produces the files.content_hash value that drives dedup.
 func hashContent(src []byte) string {
 	sum := sha256.Sum256(src)
 	return hex.EncodeToString(sum[:])

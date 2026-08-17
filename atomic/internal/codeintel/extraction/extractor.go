@@ -1,28 +1,12 @@
-// Package extraction provides the generic TreeSitterExtractor that drives one
-// file through the tree-sitter grammar and produces an ExtractionResult.
+// Package extraction drives one file through its tree-sitter grammar and produces
+// an ExtractionResult.
 //
-// The extractor is configured by a LanguageExtractor, which maps grammar
-// node-type strings to semantic roles (function, class, import, call, …) and
-// supplies optional hook functions for language-specific details (visibility,
-// signature, export status, etc.).
-//
-// Contract (appendix E):
-//  1. Receive (filePath, source, language).
-//  2. Parse via a pooled parser instance.
-//  3. Create the file: node, push onto nodeStack.
-//  4. visitNode walks named children, checking type arrays in appendix-E order
-//     (function→class→module→method→interface→struct→enum→typeAlias→property→field→
-//     variable→import→call→instantiation), calls the matching extract*, sets
-//     skipChildren for matched nodes.
-//  5. createNode = generateNodeID + "::-joined qualified-name" + contains edge
-//     to parent.
-//  6. Functions push onto stack, extract type refs (references) + decorators
-//     (decorates) + visitFunctionBody → calls/instantiations emit
-//     UnresolvedReference (NOT edges).
-//  7. Classes extract inheritance (extends/implements).
-//  8. Calls emit UnresolvedReference — NOT edges. Resolution makes edges later.
-//  9. Return ExtractionResult{Nodes, Edges, UnresolvedReferences, Errors}.
-//     Best-effort: errors recorded, never abort.
+// A LanguageExtractor maps grammar node-type strings to semantic roles and
+// supplies nil-safe hooks for the language-specific details. Calls,
+// instantiations and heritage leave as UnresolvedReference, never as edges —
+// resolution turns them into edges once every file is indexed. Extraction is
+// best-effort: an error is recorded in result.Errors and the partial result is
+// still returned.
 package extraction
 
 import (
@@ -35,23 +19,14 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// LanguageExtractor — the per-language configuration object
-// ---------------------------------------------------------------------------
+// --- LanguageExtractor: the per-language configuration object ---
 
-// LanguageExtractor configures the generic extractor for one grammar.
-//
-// Type sets (maps for O(1) lookup) classify grammar node-type strings by
-// semantic role. The field names mirror the reference's TypeScript config
-// arrays. Hook functions are nil-safe; the extractor checks for nil before
-// calling.
-//
-// AST node-type strings must match what the grammar actually emits — CP0
-// verifies these per language. Use a real-parse probe (see
-// tmp/verify_go_grammar.go) before committing a new config.
+// LanguageExtractor configures the generic extractor for one grammar. The type
+// sets classify grammar node-type strings by semantic role; every hook is
+// nil-safe. Node-type strings must match what the grammar actually emits, so
+// probe a real parse before committing a new config.
 type LanguageExtractor struct {
-	// Type sets — all O(1) via map[string]struct{}.
-	// The extractor checks each node against these sets in appendix-E order.
+	// Checked against each node in the order declared here.
 	FunctionTypes      map[string]struct{}
 	ClassTypes         map[string]struct{}
 	ModuleTypes        map[string]struct{}
@@ -67,126 +42,72 @@ type LanguageExtractor struct {
 	CallTypes          map[string]struct{}
 	InstantiationTypes map[string]struct{}
 
-	// FunctionScopeTypes is an optional set of grammar node-type strings that
-	// open a new function scope without themselves being a FunctionTypes match
-	// (e.g. "arrow_function", "function_expression", "generator_function" in
-	// TS/JS — an arrow/function-expression callback passed as a call argument,
-	// not a named declaration). visitChildren increments visitor.scopeDepth
-	// while descending into a node of one of these kinds and decrements it on
-	// the way back out. A VariableTypes match only mints a node at scopeDepth
-	// == 0 — this is what suppresses function-body locals uniformly across
-	// scope-opening constructs the language's FunctionTypes config doesn't
-	// already cover via extractFunction's separate visitFunctionBody walk (which
-	// has no VariableTypes arm and so already suppresses locals inside named
-	// function bodies).
-	//
-	// Nil for languages that don't need this (Go, Python, …) — scopeDepth stays
-	// 0 always, so VariableTypes minting behavior is unchanged.
+	// FunctionScopeTypes open a function scope without being a FunctionTypes
+	// match (TS/JS arrow and function expressions). visitChildren tracks depth
+	// through them and VariableTypes mints only at depth 0, which is what
+	// suppresses locals inside callbacks; a named function body is already
+	// covered by visitFunctionBody having no VariableTypes arm. Nil elsewhere.
 	FunctionScopeTypes map[string]struct{}
 
-	// MacroDoBlockTypes is an optional set of grammar node-type strings that
-	// represent a do-block child inside a macro call (e.g. "do_block" in Elixir).
-	// When set and a StructTypes node resolves to NodeKind("") (the call-reference
-	// sentinel via ResolveKind), the extractor still emits the call reference but
-	// ALSO descends into any named children whose kind is in this set. This allows
-	// definitions nested inside macro do-blocks (e.g. `on_ee do def foo ... end`)
-	// to be discovered without treating the macro as a definition itself.
-	//
-	// Nil for all non-Elixir languages — no behavior change when unset.
+	// MacroDoBlockTypes are do-block children of a macro call (Elixir "do_block").
+	// When a StructTypes node resolves to the call-reference sentinel kind, the
+	// extractor emits that reference and still descends into these children, so a
+	// def nested in a macro block is found without the macro itself becoming a
+	// definition. Nil elsewhere.
 	MacroDoBlockTypes map[string]struct{}
 
-	// JSXElementTypes lists the grammar node-type strings that represent JSX
-	// element usages: typically "jsx_element" (paired <Foo>...</Foo>) and
-	// "jsx_self_closing_element" (<Foo/>). When visitNode or visitFunctionBody
-	// encounters a node of one of these types, it emits a "references"
-	// UnresolvedReference for PascalCase tag names only (lowercase host tags
-	// like <div> are skipped). Member tags (<Foo.Bar/>) use the last segment.
-	// Set on the TSX, JSX, and optionally TS/JS configs.
+	// JSXElementTypes are JSX element usages. Only a PascalCase tag emits a
+	// reference — a lowercase tag is a host element, not a component. A member tag
+	// (<Foo.Bar/>) uses its last segment.
 	JSXElementTypes map[string]struct{}
 
-	// FieldAssignmentTypes lists the grammar node-type strings that represent
-	// property/field assignments into an object receiver
-	// (e.g. "assignment_expression" in TS/JS/TSX). When visitFunctionBody
-	// encounters a node of one of these types it checks:
-	//   - left child (field "left") must be a member_expression (this.x, obj.x)
-	//   - right child (field "right") must be a callable kind:
-	//       identifier, arrow_function, function_expression
-	//
-	// When both conditions hold, a "references" UnresolvedReference is emitted:
-	//   ReferenceName = RHS identifier text (empty for inline arrow/function —
-	//                   anonymous callable)
-	//   Arguments[0]  = "field:<fieldName>" sentinel — the discriminator the
-	//                   callback synthesizer uses to distinguish field-assignment
-	//                   refs from plain JSX refs and call refs
-	//   FromNodeID    = enclosing method/function node
-	//
-	// Non-callable RHS values (number, string, template_string, …) are silently
-	// skipped — only callable assignments are useful to the synthesizer.
-	//
-	// Language-agnostic at the assignment_expression level: any grammar that
-	// uses "assignment_expression" with left/right fields works without
-	// language-specific hooks. Set on TS/JS/TSX configs at minimum.
+	// FieldAssignmentTypes are property assignments into an object receiver
+	// ("assignment_expression"). A reference is emitted only when the left side is
+	// a member expression and the right side is callable; an inline arrow gives an
+	// empty ReferenceName. Arguments[0] carries a "field:<name>" sentinel — the
+	// discriminator the callback synthesizer uses to tell these from JSX and call
+	// refs. Any grammar with left/right fields on that node type works.
 	FieldAssignmentTypes map[string]struct{}
 
-	// ExportStatementTypes is an optional set of grammar node-type strings that
-	// act as export wrappers (e.g. "export_statement" in TypeScript/JavaScript).
-	// When visitNode encounters a node of this type, it marks all direct semantic
-	// children as exported (IsExported=true) regardless of the IsExported hook.
-	// This is the AST-based replacement for text-prefix export detection — it
-	// correctly handles "export default function" where the text lookback would
-	// only see "default " rather than "export ".
+	// ExportStatementTypes are export wrappers ("export_statement"). Every direct
+	// semantic child is marked exported regardless of the IsExported hook: a text
+	// lookback on "export default function" only ever sees "default ".
 	ExportStatementTypes map[string]struct{}
 
-	// Field names used to locate child nodes in the grammar.
-	// Empty string means "not present in this grammar" (nil-safe).
+	// Grammar field names; empty means the grammar has no such field.
 	NameField   string // e.g. "name"
 	BodyField   string // e.g. "body"
 	ParamsField string // e.g. "parameters"
 	ReturnField string // e.g. "result" (Go), "return_type" (TS)
 
-	// Hook functions — all nil-safe; the extractor checks for nil before calling.
-
-	// ResolveBody maps the matched node to its actual body node (e.g.
-	// type_declaration → type_spec in Go). Returns the same node when no
-	// unwrapping is needed.
+	// ResolveBody unwraps a matched node to its real body node (Go's
+	// type_declaration → type_spec), returning it unchanged when there is nothing
+	// to unwrap.
 	ResolveBody func(ctx context.Context, node sitter.Node, source string) (sitter.Node, error)
 
-	// ResolveKind maps a grammar node matched by StructTypes to its actual
-	// semantic NodeKind. Used when one grammar node-type covers multiple semantic
-	// kinds (e.g. Go's type_declaration covers struct, interface, and type alias).
-	// If nil, nodes matched by StructTypes are always stored as NodeKindStruct.
-	// If set and returns NodeKindInterface, extractClass is called with
-	// NodeKindInterface; if it returns NodeKindTypeAlias, extractTypeAlias is
-	// called; for NodeKindStruct (or any other value), extractStruct is called.
+	// ResolveKind gives the real NodeKind for a StructTypes match, for grammars
+	// where one node type covers several kinds (Go's type_declaration is struct,
+	// interface and alias at once). Nil means always NodeKindStruct.
 	ResolveKind func(ctx context.Context, node sitter.Node, source string) types.NodeKind
 
-	// GetName returns the name string for a node, overriding the normal NameField
-	// fallback path in nameFromNode. It is called with the original (pre-ResolveBody)
-	// grammar node. Returns "" to fall through to the normal name extraction.
-	// Use this when the grammar requires looking at sibling children to determine
-	// the symbol name (e.g. Elixir, where def/defmodule macros encode the name
-	// in a different child than what ResolveBody navigates to for body traversal).
+	// GetName overrides the NameField lookup, taking the pre-ResolveBody node and
+	// returning "" to fall through. Needed where the name lives in a different
+	// child than the body ResolveBody walks to, as in Elixir's def macros.
 	GetName func(ctx context.Context, node sitter.Node, source string) string
 
-	// GetSignature returns the human-readable signature string for a node.
-	// Returns "" when not applicable.
+	// GetSignature returns a human-readable signature, or "" when not applicable.
 	GetSignature func(ctx context.Context, node sitter.Node, source string) string
 
-	// GetVisibility returns the visibility string ("public", "private", …).
-	// Returns "" when not applicable.
+	// GetVisibility returns "public", "private", …, or "" when not applicable.
 	GetVisibility func(ctx context.Context, node sitter.Node, source string) string
 
-	// IsExported reports whether the node is exported / public.
-	// Called with the raw sitter.Node and full source. For languages where
-	// export status is determined solely by the symbol name, prefer
-	// IsExportedByName — it is called after name extraction so the resolved
-	// name is guaranteed to be available and correct.
+	// IsExported reports whether the node is exported. Prefer IsExportedByName
+	// where export status is a pure name predicate — it runs after name
+	// extraction, so the resolved name is guaranteed correct.
 	IsExported func(ctx context.Context, node sitter.Node, source string) bool
 
-	// IsExportedByName reports whether a symbol with the given resolved name is
-	// exported. When set, it runs after IsExported and overwrites its result.
-	// Use this for languages where export status is a pure name predicate (e.g.
-	// Go: first rune uppercase → exported).
+	// IsExportedByName runs after IsExported and overwrites its result. For
+	// languages where the name decides, as in Go's leading uppercase.
 	IsExportedByName func(name string) bool
 
 	// IsAsync reports whether the node is asynchronous.
@@ -202,20 +123,10 @@ type LanguageExtractor struct {
 	// Returns ("", "") when it cannot extract a usable name.
 	ExtractImport func(ctx context.Context, node sitter.Node, source string) (name string, path string)
 
-	// ExtractHeritage extracts the base types (superclasses and implemented
-	// interfaces) from a class, struct, or interface node. It is called after
-	// the class/struct/interface node is created, with the raw AST node.
-	//
-	// Returns a slice of HeritageRef — one per base type. Each entry carries:
-	//   - Name: the simple/last-segment base type name (e.g. "Animal", "Speaker")
-	//   - Kind: EdgeKindExtends for superclasses, EdgeKindImplements for interfaces
-	//
-	// The extractor emits one UnresolvedReference per returned HeritageRef, from
-	// the class node just created. Resolution then turns these into extends/implements
-	// edges (with appendix-F extends→implements promotion when the target is an
-	// interface node).
-	//
-	// Nil-safe: when ExtractHeritage is nil, no heritage refs are emitted.
+	// ExtractHeritage returns the base types of a class, struct, or interface, one
+	// HeritageRef each. The extractor emits an UnresolvedReference per ref from
+	// the node just created; resolution promotes extends to implements when the
+	// target turns out to be an interface. Nil emits nothing.
 	ExtractHeritage func(ctx context.Context, node sitter.Node, source string) []HeritageRef
 }
 
@@ -227,8 +138,7 @@ type HeritageRef struct {
 	Kind types.EdgeKind
 }
 
-// TypeSet returns a map[string]struct{} containing the given strings.
-// Used by LanguageExtractor constructors to build O(1) type-lookup sets.
+// TypeSet builds an O(1) lookup set from the given node-type strings.
 func TypeSet(strs ...string) map[string]struct{} {
 	m := make(map[string]struct{}, len(strs))
 	for _, s := range strs {
@@ -237,12 +147,9 @@ func TypeSet(strs ...string) map[string]struct{} {
 	return m
 }
 
-// ---------------------------------------------------------------------------
-// TreeSitterExtractor
-// ---------------------------------------------------------------------------
+// --- TreeSitterExtractor ---
 
-// TreeSitterExtractor parses one file and extracts nodes/edges using a
-// LanguageExtractor config. It uses the pool to borrow an Instance per call.
+// TreeSitterExtractor parses one file, borrowing a parser instance per call.
 type TreeSitterExtractor struct {
 	pool *Pool
 	lang Lang
@@ -254,11 +161,8 @@ func NewTreeSitterExtractor(pool *Pool, lang Lang, cfg LanguageExtractor) *TreeS
 	return &TreeSitterExtractor{pool: pool, lang: lang, cfg: cfg}
 }
 
-// Extract parses filePath (source bytes in src, language ident in language) and
-// returns an ExtractionResult. Best-effort: if parsing or extraction fails, the
-// error is appended to result.Errors and the partial result (file node + any
-// already-extracted nodes) is returned — it never panics or discards partial
-// work.
+// Extract parses one file. Best-effort: a failure is appended to result.Errors
+// and the partial result is returned rather than discarded.
 func (e *TreeSitterExtractor) Extract(ctx context.Context, filePath, src string, language types.Language) types.ExtractionResult {
 	result, err := e.extract(ctx, filePath, src, language)
 	if err != nil {
@@ -267,10 +171,8 @@ func (e *TreeSitterExtractor) Extract(ctx context.Context, filePath, src string,
 	return result
 }
 
-// extract is the inner implementation that can return an error (which Extract
-// wraps into result.Errors).
+// extract is Extract's inner form, which may return an error.
 func (e *TreeSitterExtractor) extract(ctx context.Context, filePath, src string, language types.Language) (types.ExtractionResult, error) {
-	// Borrow a parser instance from the pool.
 	inst, err := e.pool.Borrow(ctx)
 	if err != nil {
 		return types.ExtractionResult{}, fmt.Errorf("borrow: %w", err)
@@ -299,7 +201,6 @@ func (e *TreeSitterExtractor) extract(ctx context.Context, filePath, src string,
 		lineOffsets: buildLineOffsets(src),
 	}
 
-	// Step 3: create the file: node and push onto nodeStack.
 	fileNodeID := "file:" + filePath
 	fileNode := types.Node{
 		ID:            fileNodeID,
@@ -314,7 +215,6 @@ func (e *TreeSitterExtractor) extract(ctx context.Context, filePath, src string,
 	v.result.Nodes = append(v.result.Nodes, fileNode)
 	v.nodeStack = append(v.nodeStack, stackEntry{id: fileNodeID, name: filePath})
 
-	// Walk named children of root.
 	if err := v.visitChildren(ctx, root); err != nil {
 		return v.result, fmt.Errorf("visitChildren: %w", err)
 	}
@@ -322,9 +222,7 @@ func (e *TreeSitterExtractor) extract(ctx context.Context, filePath, src string,
 	return v.result, nil
 }
 
-// ---------------------------------------------------------------------------
-// visitor — DFS state machine
-// ---------------------------------------------------------------------------
+// --- visitor: DFS state machine ---
 
 // stackEntry is one frame in the node stack (used to build qualified names).
 type stackEntry struct {
@@ -371,7 +269,6 @@ func (v *visitor) qualifiedName(name string) string {
 // pre-computed lineOffsets. Returns 1 when the offset is 0 or out of range.
 func (v *visitor) byteToLine(byteOffset uint64) int {
 	off := int(byteOffset)
-	// Binary search for the largest lineOffset <= off.
 	lo, hi := 0, len(v.lineOffsets)-1
 	for lo <= hi {
 		mid := (lo + hi) / 2
@@ -396,11 +293,9 @@ func buildLineOffsets(src string) []int {
 	return offsets
 }
 
-// visitChildren walks the direct named children of node, checking each against
-// the LanguageExtractor type sets in appendix-E order. A matched node is
-// processed and its subtree is not descended (skipChildren semantics).
-// Unmatched nodes at this level are descended recursively so nested symbols
-// (methods inside a struct body, etc.) are found.
+// visitChildren walks direct named children, checking each against the type sets
+// in declaration order. A matched node is not descended into; an unmatched one is,
+// so nested symbols such as methods in a struct body are still found.
 func (v *visitor) visitChildren(ctx context.Context, node sitter.Node) error {
 	cnt, err := node.NamedChildCount(ctx)
 	if err != nil {
@@ -418,7 +313,6 @@ func (v *visitor) visitChildren(ctx context.Context, node sitter.Node) error {
 
 		skip, err := v.visitNode(ctx, child, kind)
 		if err != nil {
-			// Best-effort: record and continue.
 			v.result.Errors = append(v.result.Errors, fmt.Sprintf("visitNode(%s): %v", kind, err))
 			continue
 		}
@@ -426,10 +320,8 @@ func (v *visitor) visitChildren(ctx context.Context, node sitter.Node) error {
 			continue
 		}
 
-		// FunctionScopeTypes: an unmatched node that opens a function scope
-		// (e.g. arrow_function passed as a call argument) increments scopeDepth
-		// for the duration of its subtree. This is the mechanism that suppresses
-		// VariableTypes matches found underneath it — see extractSimpleNode.
+		// A scope-opening node suppresses VariableTypes matches beneath it — see
+		// extractSimpleNode.
 		isScope := false
 		if v.cfg.FunctionScopeTypes != nil {
 			if _, ok := v.cfg.FunctionScopeTypes[kind]; ok {
@@ -439,7 +331,6 @@ func (v *visitor) visitChildren(ctx context.Context, node sitter.Node) error {
 		if isScope {
 			v.scopeDepth++
 		}
-		// Descend into unmatched nodes.
 		if err := v.visitChildren(ctx, child); err != nil {
 			v.result.Errors = append(v.result.Errors, fmt.Sprintf("visitChildren: %v", err))
 		}
@@ -450,16 +341,13 @@ func (v *visitor) visitChildren(ctx context.Context, node sitter.Node) error {
 	return nil
 }
 
-// visitNode processes one grammar node in appendix-E order.
-// Returns skipChildren=true when the node was handled (caller must not recurse).
+// visitNode handles one grammar node, returning true when the caller must not
+// recurse into it.
 func (v *visitor) visitNode(ctx context.Context, node sitter.Node, kind string) (skipChildren bool, err error) {
 	cfg := v.cfg
 
-	// ExportStatementTypes: an export wrapper (e.g. export_statement in TS/JS).
-	// When matched, mark all immediate semantic children as exported, then recurse
-	// into the node's children to extract them with that flag set.
-	// This is AST-based export detection — it correctly handles "export default"
-	// where text-prefix lookback only sees "default " (not "export ").
+	// An export wrapper marks its children exported: a text-prefix lookback on
+	// "export default" only ever sees "default ".
 	if cfg.ExportStatementTypes != nil {
 		if _, ok := cfg.ExportStatementTypes[kind]; ok {
 			prev := v.forceExported
@@ -470,8 +358,6 @@ func (v *visitor) visitNode(ctx context.Context, node sitter.Node, kind string) 
 		}
 	}
 
-	// Appendix-E order: function → class → method → interface → struct → enum →
-	// typeAlias → property → field → variable → import → call → instantiation.
 	if cfg.FunctionTypes != nil {
 		if _, ok := cfg.FunctionTypes[kind]; ok {
 			return true, v.extractFunction(ctx, node)
@@ -509,9 +395,7 @@ func (v *visitor) visitNode(ctx context.Context, node sitter.Node, kind string) 
 					return true, v.extractTypeAlias(ctx, node)
 				case types.NodeKindEnum:
 					return true, v.extractEnum(ctx, node)
-				// Extended dispatch paths for grammars (e.g. Elixir) where definitions
-				// and regular calls share a single node kind and are differentiated by
-				// child-node text inside ResolveKind.
+				// Grammars where definitions and plain calls share one node kind.
 				case types.NodeKindFunction:
 					return true, v.extractFunction(ctx, node)
 				case types.NodeKindModule:
@@ -519,17 +403,10 @@ func (v *visitor) visitNode(ctx context.Context, node sitter.Node, kind string) 
 				case types.NodeKindImport:
 					return true, v.extractImport(ctx, node)
 				case types.NodeKind(""):
-					// Empty sentinel: ResolveKind signals "emit as call reference,
-					// not a declaration". Used by Elixir to handle regular call nodes
-					// (e.g. User.new(params)) that happen to share the "call" node kind
-					// with definition macros (defmodule, def, …).
+					// ResolveKind asks for a call reference, not a declaration.
 					v.extractCall(ctx, node, false)
-					// If MacroDoBlockTypes is set (Elixir), descend into any do_block
-					// children of this call node. This handles macros like `on_ee do
-					// def foo ... end` where definitions are nested inside a non-
-					// definition macro's do-block. The call itself is still emitted as
-					// a call reference; only the do-block children are additionally
-					// walked for nested definitions.
+					// Descend into do-blocks so a def nested in a non-definition
+					// macro is still found; the call stays a call reference.
 					if cfg.MacroDoBlockTypes != nil {
 						childCnt, _ := node.NamedChildCount(ctx)
 						for ci := uint64(0); ci < childCnt; ci++ {
@@ -589,18 +466,15 @@ func (v *visitor) visitNode(ctx context.Context, node sitter.Node, kind string) 
 	if cfg.CallTypes != nil {
 		if _, ok := cfg.CallTypes[kind]; ok {
 			v.extractCall(ctx, node, false)
-			// Do NOT skip the subtree: a call's callee and argument list can hold
-			// further calls (method chains like a.b().c(), nested calls like
-			// f(g()), and callbacks). Descending visits each so the call graph is
-			// complete rather than only capturing the outermost call per statement.
+			// Do not skip: a callee or argument list can hold further calls
+			// (a.b().c(), f(g()), callbacks), and each belongs in the graph.
 			return false, nil
 		}
 	}
 	if cfg.InstantiationTypes != nil {
 		if _, ok := cfg.InstantiationTypes[kind]; ok {
 			v.extractCall(ctx, node, true)
-			// Descend for the same reason — constructor arguments may contain calls
-			// (new Foo(bar())).
+			// Constructor arguments may contain calls: new Foo(bar()).
 			return false, nil
 		}
 	}
@@ -615,12 +489,10 @@ func (v *visitor) visitNode(ctx context.Context, node sitter.Node, kind string) 
 	return false, nil
 }
 
-// ---------------------------------------------------------------------------
-// Extract helpers — one per semantic role
-// ---------------------------------------------------------------------------
+// --- Extract helpers, one per semantic role ---
 
-// createNode builds a Node and emits a contains edge to the current parent.
-// It does NOT push onto nodeStack; callers that push must do so explicitly.
+// createNode builds a Node and a contains edge to the current parent. It does not
+// push onto nodeStack — a caller that needs a frame pushes it.
 func (v *visitor) createNode(ctx context.Context, sitterNode sitter.Node, kind types.NodeKind, name string) (types.Node, error) {
 	startByte, err := sitterNode.StartByte(ctx)
 	if err != nil {
@@ -649,7 +521,6 @@ func (v *visitor) createNode(ctx context.Context, sitterNode sitter.Node, kind t
 		Docstring:     docstring,
 	}
 
-	// Apply hooks if set.
 	if v.cfg.GetSignature != nil {
 		n.Signature = v.cfg.GetSignature(ctx, sitterNode, v.src)
 	}
@@ -659,9 +530,7 @@ func (v *visitor) createNode(ctx context.Context, sitterNode sitter.Node, kind t
 	if v.cfg.IsExported != nil {
 		n.IsExported = v.cfg.IsExported(ctx, sitterNode, v.src)
 	}
-	// IsExportedByName overrides IsExported when set. Languages where export
-	// status is determined solely by the symbol name (e.g. Go's uppercase rule)
-	// set this hook instead of (or in addition to) IsExported.
+	// A name-based rule overrides IsExported.
 	if v.cfg.IsExportedByName != nil {
 		n.IsExported = v.cfg.IsExportedByName(name)
 	}
@@ -674,16 +543,13 @@ func (v *visitor) createNode(ctx context.Context, sitterNode sitter.Node, kind t
 	if v.cfg.IsConst != nil {
 		n.IsConst = v.cfg.IsConst(ctx, sitterNode, v.src)
 	}
-	// forceExported overrides hook results when the node is inside an export
-	// wrapper (e.g. export_statement). This is the AST-based path; it wins over
-	// both IsExported and IsExportedByName because the parent node is authoritative.
+	// An enclosing export wrapper is authoritative and beats both hooks.
 	if v.forceExported {
 		n.IsExported = true
 	}
 
 	v.result.Nodes = append(v.result.Nodes, n)
 
-	// Emit contains edge: parent → this node.
 	if parentID := v.parentID(); parentID != "" {
 		v.result.Edges = append(v.result.Edges, types.Edge{
 			Source: parentID,
@@ -736,7 +602,6 @@ func (v *visitor) nameFromNode(ctx context.Context, node sitter.Node) (string, e
 	return t, nil
 }
 
-// resolveBody calls cfg.ResolveBody if set, otherwise returns the same node.
 func (v *visitor) resolveBody(ctx context.Context, node sitter.Node) (sitter.Node, error) {
 	if v.cfg.ResolveBody != nil {
 		return v.cfg.ResolveBody(ctx, node, v.src)
@@ -756,7 +621,6 @@ func (v *visitor) extractFunction(ctx context.Context, node sitter.Node) error {
 		return err
 	}
 
-	// Determine NodeKind: method vs function.
 	nodeKind := types.NodeKindFunction
 	if v.cfg.MethodTypes != nil {
 		if _, ok := v.cfg.MethodTypes[kind]; ok {
@@ -764,9 +628,7 @@ func (v *visitor) extractFunction(ctx context.Context, node sitter.Node) error {
 		}
 	}
 
-	// GetName hook overrides nameFromNode when set. Called with the original
-	// unresolved node so the hook can navigate to the right child (e.g. Elixir
-	// def macros encode the function name in a different child than the body).
+	// The hook takes the unresolved node so it can navigate to its own child.
 	var name string
 	if v.cfg.GetName != nil {
 		name = v.cfg.GetName(ctx, node, v.src)
@@ -783,13 +645,12 @@ func (v *visitor) extractFunction(ctx context.Context, node sitter.Node) error {
 		return err
 	}
 
-	// Push function onto stack so nested symbols get qualified names.
+	// A frame here is what qualifies nested symbols' names.
 	v.nodeStack = append(v.nodeStack, stackEntry{id: n.ID, name: name})
 	defer func() {
 		v.nodeStack = v.nodeStack[:len(v.nodeStack)-1]
 	}()
 
-	// Walk the function body for calls and instantiations.
 	if v.cfg.BodyField != "" {
 		bodyNode, err := childByField(ctx, node, v.cfg.BodyField)
 		if err == nil && bodyNode != nil {
@@ -826,7 +687,6 @@ func (v *visitor) extractClass(ctx context.Context, node sitter.Node, kind types
 		return err
 	}
 
-	// Emit heritage (extends/implements) UnresolvedReferences from the class node.
 	if v.cfg.ExtractHeritage != nil {
 		sb, _ := node.StartByte(ctx)
 		startLine := v.byteToLine(sb)
@@ -846,13 +706,11 @@ func (v *visitor) extractClass(ctx context.Context, node sitter.Node, kind types
 		}
 	}
 
-	// Push class onto stack so member symbols get qualified names.
 	v.nodeStack = append(v.nodeStack, stackEntry{id: n.ID, name: name})
 	defer func() {
 		v.nodeStack = v.nodeStack[:len(v.nodeStack)-1]
 	}()
 
-	// Walk members.
 	return v.visitChildren(ctx, resolved)
 }
 
@@ -879,7 +737,6 @@ func (v *visitor) extractStruct(ctx context.Context, node sitter.Node) error {
 		return err
 	}
 
-	// Emit heritage UnresolvedReferences from the struct node (e.g. C++ struct bases).
 	if v.cfg.ExtractHeritage != nil {
 		sb, _ := node.StartByte(ctx)
 		startLine := v.byteToLine(sb)
@@ -916,7 +773,7 @@ func (v *visitor) extractEnum(ctx context.Context, node sitter.Node) error {
 
 	name, err := v.nameFromNode(ctx, resolved)
 	if err != nil || name == "" {
-		// Enum-like const blocks may not have a simple name; use a generated one.
+		// A const block has no name of its own.
 		sb, _ := node.StartByte(ctx)
 		name = fmt.Sprintf("const_block_L%d", v.byteToLine(sb))
 	}
@@ -931,7 +788,6 @@ func (v *visitor) extractEnum(ctx context.Context, node sitter.Node) error {
 		v.nodeStack = v.nodeStack[:len(v.nodeStack)-1]
 	}()
 
-	// Walk members (enum_member / const_spec children).
 	return v.visitChildren(ctx, resolved)
 }
 
@@ -951,26 +807,14 @@ func (v *visitor) extractTypeAlias(ctx context.Context, node sitter.Node) error 
 	return err
 }
 
-// extractSimpleNode handles property, field, and variable nodes.
-// It calls resolveBody so that ResolveBody hooks (e.g. the TS/JS
-// lexical_declaration → variable_declarator unwrap) are applied before name
-// extraction — the name field lives on the declarator, not the declaration.
+// extractSimpleNode handles property, field, and variable nodes. resolveBody runs
+// first so a TS/JS lexical_declaration is unwrapped to its declarator, where the
+// name field actually lives. visitFunctionBody then scans the initializer, so a
+// call embedded in one ("local x = require('y')") is still captured.
 //
-// F-15: after creating the node, visitFunctionBody scans the original node's
-// named children for any call/instantiation expressions (e.g. the require()
-// call in "local x = require('y')"). This captures top-level call sites that
-// are embedded in variable initializers — a gap when extractSimpleNode
-// returned skipChildren=true without scanning the RHS.
-// The parentID at this point is the enclosing scope (file node at top level),
-// so the call ref's FromNodeID is correctly attributed to the file.
-//
-// Scope suppression (kind == NodeKindVariable only): a match mints a node
-// only when scopeDepth == 0 (module/class/namespace scope, not inside a
-// FunctionScopeTypes construct — see LanguageExtractor.FunctionScopeTypes)
-// AND the resolved name is a single identifier, not a destructuring pattern's
-// rendered text ("{ a, b }", "[c, d]"). Either gate failing skips node
-// creation, but visitFunctionBody still runs — calls, JSX refs, and field
-// assignments inside the suppressed initializer are still harvested.
+// A variable mints a node only at scopeDepth 0 and only when its name is a single
+// identifier rather than a destructuring pattern's rendered text ("{ a, b }").
+// Either gate failing still runs visitFunctionBody.
 func (v *visitor) extractSimpleNode(ctx context.Context, node sitter.Node, kind types.NodeKind) error {
 	resolved, err := v.resolveBody(ctx, node)
 	if err != nil {
@@ -979,7 +823,6 @@ func (v *visitor) extractSimpleNode(ctx context.Context, node sitter.Node, kind 
 
 	name, err := v.nameFromNode(ctx, resolved)
 	if err != nil || name == "" {
-		// Fallback: try name from the original node.
 		name, _ = v.nameFromNode(ctx, node)
 	}
 	if name == "" {
@@ -999,27 +842,20 @@ func (v *visitor) extractSimpleNode(ctx context.Context, node sitter.Node, kind 
 		}
 	}
 
-	// Scan the node's children for embedded call/instantiation expressions.
-	// visitFunctionBody stops at nested function/method boundaries, so nested
-	// function literals in the initializer are handled as separate nodes.
-	// Runs regardless of mint: a suppressed local's initializer (a call, a JSX
-	// usage, a field assignment) is still real graph information.
+	// Runs regardless of mint: a suppressed local's initializer can still hold a
+	// call, a JSX usage or a field assignment. The walk stops at a nested function
+	// literal, which becomes its own node.
 	v.visitFunctionBody(ctx, node)
 	return nil
 }
 
-// isSingleIdentifierVariableName reports whether name looks like a plain
-// identifier rather than the rendered text of a destructuring pattern
-// ("{ a, b }", "[c, d]"). A destructuring pattern has no single stable
-// identity to attach a variable node to, so VariableTypes matches whose
-// resolved name fails this check never mint a node, independent of
-// scopeDepth.
+// isSingleIdentifierVariableName rejects the rendered text of a destructuring
+// pattern ("{ a, b }"), which has no single identity to hang a variable node on.
 func isSingleIdentifierVariableName(name string) bool {
 	return !strings.ContainsAny(name, "{[, \t\n\r")
 }
 
-// extractImport handles import nodes, emitting an import-kind node and calling
-// cfg.ExtractImport for the path.
+// extractImport emits an import node plus a reference to its path.
 func (v *visitor) extractImport(ctx context.Context, node sitter.Node) error {
 	name := ""
 	path := ""
@@ -1027,7 +863,6 @@ func (v *visitor) extractImport(ctx context.Context, node sitter.Node) error {
 		name, path = v.cfg.ExtractImport(ctx, node, v.src)
 	}
 	if name == "" {
-		// Fallback: use the raw text.
 		sb, _ := node.StartByte(ctx)
 		eb, _ := node.EndByte(ctx)
 		t := nodeText(sb, eb, v.src)
@@ -1042,8 +877,6 @@ func (v *visitor) extractImport(ctx context.Context, node sitter.Node) error {
 		return err
 	}
 
-	// Also emit an UnresolvedReference for the import path so the resolution
-	// layer can link it.
 	if path != "" {
 		sb, _ := node.StartByte(ctx)
 		importLine := v.byteToLine(sb)
@@ -1061,26 +894,16 @@ func (v *visitor) extractImport(ctx context.Context, node sitter.Node) error {
 	return nil
 }
 
-// extractCall records a call or instantiation as an UnresolvedReference.
-// It does NOT emit an Edge — resolution makes call edges.
-//
-// EE2: string-literal arguments are captured into Arguments (positional order).
-// Only nodes whose grammar kind is "string" (or "string_literal") are recorded;
-// their text content is extracted from a "string_fragment" named child when
-// present, otherwise from the node text with surrounding quotes stripped.
-// Non-string args (identifiers, expressions, template literals) are skipped.
-// This is language-agnostic at the call_expression level — the same walk works
-// for JS, TS, and any grammar that uses "string" / "string_fragment" node types.
+// extractCall records a call or instantiation as an UnresolvedReference, never an
+// edge — resolution is what makes call edges.
 func (v *visitor) extractCall(ctx context.Context, node sitter.Node, isInstantiation bool) {
-	// Determine the callee name. calleeName is the bare invoked segment (what
-	// resolution matches); calleeExpr is the full callee expression (what the
-	// callback synthesizers match on, e.g. "emitter.on").
+	// calleeName is the bare invoked segment resolution matches; calleeExpr is the
+	// full expression the callback synthesizers match on ("emitter.on").
 	calleeName, calleeExpr := v.calleeNameAndExpr(ctx, node)
 	if calleeName == "" {
 		return
 	}
-	// Only retain calleeExpr when it carries more than the bare name (a receiver);
-	// for a plain "foo()" call it equals calleeName, so store nothing (NULL).
+	// A plain "foo()" has no receiver worth keeping, so store NULL.
 	if calleeExpr == calleeName {
 		calleeExpr = ""
 	}
@@ -1107,31 +930,15 @@ func (v *visitor) extractCall(ctx context.Context, node sitter.Node, isInstantia
 	})
 }
 
-// extractCallArgs returns the arguments of a call_expression node in positional
-// order, capturing both string literals and identifiers.
+// extractCallArgs returns a call's arguments in positional order. A string
+// literal is recorded as bare content; a plain identifier takes an "arg:" prefix
+// so a synthesizer can tell the two apart. Compound arguments (member
+// expressions, arrows, nested calls) are skipped — they offer no stable name to
+// correlate on.
 //
-// EE2 — string-literal args: recorded as their content (e.g. "login") without
-// any prefix. Only "string" / "string_literal" grammar nodes are recorded;
-// their text is extracted from a "string_fragment" named child when present,
-// otherwise the node text is stripped of surrounding quotes.
-//
-// EE5 — identifier args: recorded with an "arg:" prefix (e.g. "arg:onLogin").
-// Only plain "identifier" grammar nodes are captured — not member_expression,
-// arrow_function, call_expression, or any other compound form. The prefix
-// makes identifier args distinguishable from string args so synthesizers that
-// read Arguments can gate on prefix (event-emitter reads plain strings;
-// closure-collection reads "arg:" entries).
-//
-// Non-colliding prefix table:
-//
-//	"arg:"   — EE5 identifier arg (this function)
-//	"field:" — EE3 field-assignment discriminator (extractFieldAssignment)
-//	"jsx:"   — EE1 JSX child-component discriminator (extractJSXRef)
-//
-// Returns nil when there are no capturable arguments, matching the nil
-// convention for JSON-in-TEXT columns (NULL in SQLite).
+// The prefixes must not collide: "arg:" here, "field:" in extractFieldAssignment,
+// "jsx:" in extractJSXRef. nil means no capturable arguments (NULL in SQLite).
 func (v *visitor) extractCallArgs(ctx context.Context, callNode sitter.Node) []string {
-	// The "arguments" field of call_expression holds the argument list node.
 	argsNode, err := childByField(ctx, callNode, "arguments")
 	if err != nil || argsNode == nil {
 		return nil
@@ -1159,11 +966,7 @@ func (v *visitor) extractCallArgs(ctx context.Context, callNode sitter.Node) []s
 
 		switch argKind {
 		case "string", "string_literal":
-			// EE2: string-literal argument → record content without prefix.
-			// Prefer text from a "string_fragment" named child (the content
-			// between the delimiters, without quotes). This is the pattern
-			// produced by JS/TS grammars for single/double-quoted strings:
-			//   string → string_fragment (content)
+			// A JS/TS grammar nests the unquoted content in a string_fragment child.
 			fragmentCnt, _ := arg.NamedChildCount(ctx)
 			if fragmentCnt > 0 {
 				frag, fragErr := arg.NamedChild(ctx, 0)
@@ -1187,11 +990,6 @@ func (v *visitor) extractCallArgs(ctx context.Context, callNode sitter.Node) []s
 			}
 
 		case "identifier":
-			// EE5: plain identifier argument (e.g. handler, onE, cb) → record
-			// with "arg:" prefix to distinguish from string-literal args.
-			// Compound forms (member_expression, call_expression, arrow_function,
-			// etc.) are intentionally skipped — they cannot be used for stable
-			// name-based correlation by synthesizers.
 			asb, _ := arg.StartByte(ctx)
 			aeb, _ := arg.EndByte(ctx)
 			name := nodeText(asb, aeb, v.src)
@@ -1199,9 +997,6 @@ func (v *visitor) extractCallArgs(ctx context.Context, callNode sitter.Node) []s
 				result = append(result, "arg:"+name)
 			}
 		}
-		// All other arg kinds (number, member_expression, arrow_function, etc.)
-		// are intentionally skipped — dynamic/compound values add noise and
-		// cannot be used for stable correlation.
 	}
 
 	if len(result) == 0 {
@@ -1210,11 +1005,9 @@ func (v *visitor) extractCallArgs(ctx context.Context, callNode sitter.Node) []s
 	return result
 }
 
-// calleeNameFromNode extracts the callee name from a call_expression node.
-// For "foo()" → "foo"; for "pkg.Bar()" → "pkg.Bar"; for "obj.method()" →
-// "obj.method". Returns "" when the name cannot be determined.
+// calleeNameAndExpr splits a call's callee into the bare invoked segment and the
+// full expression: "obj.method()" gives ("method", "obj.method").
 func (v *visitor) calleeNameAndExpr(ctx context.Context, node sitter.Node) (bare, expr string) {
-	// The "function" field of call_expression holds the callee.
 	fnNode, err := childByField(ctx, node, "function")
 	if err != nil || fnNode == nil {
 		// Fallback: try first named child.
@@ -1231,12 +1024,9 @@ func (v *visitor) calleeNameAndExpr(ctx context.Context, node sitter.Node) (bare
 	sb, _ := fnNode.StartByte(ctx)
 	eb, _ := fnNode.EndByte(ctx)
 	expr = nodeText(sb, eb, v.src)
-	// bare is the final invoked segment — the method/function actually called.
-	// When the callee is a member/selector access (obj.method, a.b.c.method,
-	// pkg.Func), the name matcher resolves the bare segment; the full "a.b.method"
-	// subtree text never matches a node and is permanently unresolvable. expr keeps
-	// the full callee for consumers that need the receiver (callback synthesizers).
-	// The JSX tag handler does the same last-segment reduction (see extractJSXRef).
+	// The name matcher resolves the final segment; the full "a.b.method" text never
+	// matches a node and would stay permanently unresolved. extractJSXRef does the
+	// same last-segment reduction.
 	bare = finalCalleeSegment(ctx, *fnNode, v.src)
 	if bare == "" {
 		bare = expr // plain identifier callee (e.g. "foo") — bare == full.
@@ -1244,21 +1034,15 @@ func (v *visitor) calleeNameAndExpr(ctx context.Context, node sitter.Node) (bare
 	return bare, expr
 }
 
-// memberAccessFields maps a callee grammar node kind to the field that holds the
-// final invoked segment (the property/method on the right of a member access).
-// Probed against the live grammars; extend per language as call resolution is
-// validated for it (see scripts/code-eval corpus). Keyed by node kind because
-// kinds are distinct enough across grammars that a kind→field map needs no
-// language discriminator.
+// Callee node kind → the field holding the final invoked segment. Probed against
+// the live grammars; kinds are distinct enough across them to need no language key.
 var memberAccessFields = map[string]string{
 	"member_expression":   "property", // JavaScript, TypeScript, JSX, TSX
 	"selector_expression": "field",    // Go
 }
 
-// finalCalleeSegment returns the text of the final invoked segment when the
-// callee node is a recognised member-access kind (e.g. "a.b.method" → "method"),
-// or "" when it is not — in which case the caller uses the full node text
-// (correct for a plain identifier callee like "foo").
+// finalCalleeSegment reduces a member-access callee to its last segment
+// ("a.b.method" → "method"), returning "" for a plain identifier callee.
 func finalCalleeSegment(ctx context.Context, callee sitter.Node, src string) string {
 	kind, err := callee.Kind(ctx)
 	if err != nil {
@@ -1280,14 +1064,8 @@ func finalCalleeSegment(ctx context.Context, callee sitter.Node, src string) str
 	return nodeText(sb, eb, src)
 }
 
-// extractJSXRef emits a "references" UnresolvedReference for a JSX element node
-// when the tag name is PascalCase. Lowercase names (host/DOM elements like <div>)
-// are silently skipped. Member tags (<Foo.Bar/>) use the last dot-separated segment.
-//
-// Tag name location (verified against real tsx grammar parse):
-//   - jsx_self_closing_element: first named child = identifier | member_expression
-//   - jsx_element: first named child = jsx_opening_element, whose first named
-//     child = identifier | member_expression
+// extractJSXRef emits a reference for a PascalCase JSX tag; a lowercase tag is a
+// host element and is skipped. A member tag (<Foo.Bar/>) uses its last segment.
 func (v *visitor) extractJSXRef(ctx context.Context, node sitter.Node, kind string) {
 	tagNode, err := v.jsxTagNode(ctx, node, kind)
 	if err != nil || tagNode == nil {
@@ -1322,19 +1100,15 @@ func (v *visitor) extractJSXRef(ctx context.Context, node sitter.Node, kind stri
 		return
 	}
 
-	// Skip lowercase host/DOM tags (e.g. div, span, p, a, button).
-	// PascalCase = first rune is uppercase.
+	// A lowercase tag is a host element; PascalCase marks a component.
 	if componentName == "" || !isUpperRune(componentName[0]) {
 		return
 	}
 
 	startLine := v.byteToLine(sb)
 	fromID := v.parentID()
-	// EE1 discriminator: Arguments[0] = "jsx:<TagName>" marks this as a JSX
-	// child-component reference. The resolution pipeline propagates this onto the
-	// static edge's Metadata so synthesis (jsx-render) can distinguish JSX-origin
-	// references edges from type-annotation references edges at synthesis time.
-	// This is the general origin-ref discriminator mechanism reused by batches 3–6.
+	// Arguments[0] "jsx:<Tag>" marks a JSX-origin reference; resolution carries it
+	// onto the edge Metadata so synthesis can tell it from a type-annotation ref.
 	v.result.UnresolvedReferences = append(v.result.UnresolvedReferences, types.UnresolvedReference{
 		ID:            GenerateRefID(fromID, componentName, string(types.EdgeKindReferences), startLine, 0),
 		FromNodeID:    fromID,
@@ -1347,12 +1121,9 @@ func (v *visitor) extractJSXRef(ctx context.Context, node sitter.Node, kind stri
 	})
 }
 
-// jsxTagNode returns the sitter.Node that holds the tag name text for a JSX
-// element node. Returns nil when the structure is unexpected.
-//
-//   - jsx_self_closing_element: first named child is the name node
-//   - jsx_element: first named child is jsx_opening_element, whose first named
-//     child is the name node
+// jsxTagNode returns the node holding a JSX tag's name, or nil when the shape is
+// unexpected: the first named child, except for jsx_element, where it is the first
+// named child of the jsx_opening_element.
 func (v *visitor) jsxTagNode(ctx context.Context, node sitter.Node, kind string) (*sitter.Node, error) {
 	cnt, err := node.NamedChildCount(ctx)
 	if err != nil || cnt == 0 {
@@ -1364,7 +1135,6 @@ func (v *visitor) jsxTagNode(ctx context.Context, node sitter.Node, kind string)
 	}
 
 	if kind == "jsx_element" {
-		// first child is jsx_opening_element; tag name is ITS first named child.
 		openKind, err := first.Kind(ctx)
 		if err != nil || openKind != "jsx_opening_element" {
 			return nil, nil
@@ -1380,40 +1150,23 @@ func (v *visitor) jsxTagNode(ctx context.Context, node sitter.Node, kind string)
 		return &inner, nil
 	}
 
-	// jsx_self_closing_element: first named child is the name node.
 	return &first, nil
 }
 
-// isUpperRune reports whether the first byte of name is an ASCII uppercase letter.
-// This is safe for PascalCase detection because HTML/SVG tag names never start
-// with ASCII uppercase; React component names always do.
+// isUpperRune is enough for PascalCase detection: an HTML or SVG tag never starts
+// with an ASCII uppercase letter, and a React component always does.
 func isUpperRune(b byte) bool {
 	return b >= 'A' && b <= 'Z'
 }
 
-// extractFieldAssignment emits a "references" UnresolvedReference for an
-// assignment_expression node whose LHS is a member_expression (property write)
-// and whose RHS is a callable (identifier, arrow_function, function_expression).
-// It returns true when a ref was emitted, false when nothing was emitted (e.g.
-// non-member-expression LHS or non-callable RHS).
+// extractFieldAssignment emits a reference for an assignment whose left side is a
+// member expression and whose right side is callable, reporting whether it did.
+// ReferenceName is the RHS identifier, empty for an anonymous arrow or function.
 //
-// EE3 convention: the emitted ref carries
-//   - ReferenceKind = EdgeKindReferences (same as JSX refs)
-//   - ReferenceName = the RHS identifier name, or "" for anonymous callables
-//     (arrow_function / function_expression without a name)
-//   - Arguments[0]  = "field:<propertyName>" — the single-element slice is the
-//     discriminator the callback synthesizer uses to distinguish this ref from
-//     EE1 JSX refs (no Arguments) and EE2 call refs (Arguments = event name).
-//     A synthesizer must check BOTH: ReferenceKind == EdgeKindReferences AND
-//     len(Arguments) > 0 && strings.HasPrefix(Arguments[0], "field:"). An EE2
-//     ref like emitter.on("field:x", cb) has EdgeKindCalls, not references, so
-//     the kind check is the outer gate; the "field:" prefix is the inner gate.
-//   - FromNodeID    = v.parentID() at call time (the enclosing method/function)
-//
-// Non-callable RHS values (number, string, template_string, …) are silently
-// skipped — they carry no information useful to the synthesizer.
+// Arguments[0] is a "field:<property>" sentinel. A synthesizer must check both
+// gates — ReferenceKind is references AND that prefix — since a call ref such as
+// emitter.on("field:x", cb) carries a similar string under EdgeKindCalls.
 func (v *visitor) extractFieldAssignment(ctx context.Context, node sitter.Node) bool {
-	// Resolve the "left" field — must be a member_expression.
 	leftNode, err := childByField(ctx, node, "left")
 	if err != nil || leftNode == nil {
 		return false
@@ -1423,7 +1176,6 @@ func (v *visitor) extractFieldAssignment(ctx context.Context, node sitter.Node) 
 		return false
 	}
 
-	// Extract the property name from the member_expression's "property" field.
 	propNode, err := childByField(ctx, *leftNode, "property")
 	if err != nil || propNode == nil {
 		// Fallback: last named child is the property identifier in most grammars.
@@ -1444,7 +1196,6 @@ func (v *visitor) extractFieldAssignment(ctx context.Context, node sitter.Node) 
 		return false
 	}
 
-	// Resolve the "right" field — must be a callable kind.
 	rightNode, err := childByField(ctx, node, "right")
 	if err != nil || rightNode == nil {
 		return false
@@ -1454,20 +1205,16 @@ func (v *visitor) extractFieldAssignment(ctx context.Context, node sitter.Node) 
 		return false
 	}
 
-	// Determine callable name and whether the RHS is a recognized callable.
 	var callableName string
 	switch rightKind {
 	case "identifier":
-		// Named callable: `this.onData = handleData` → callableName = "handleData".
 		rsb, _ := rightNode.StartByte(ctx)
 		reb, _ := rightNode.EndByte(ctx)
 		callableName = nodeText(rsb, reb, v.src)
 	case "arrow_function", "function_expression":
-		// Anonymous callable: `this.h = () => {}` or `this.h = function() {}`.
-		// callableName stays "".
+		// Anonymous callable — callableName stays "".
 	default:
-		// Non-callable RHS (number, string, template_string, binary_expression, …).
-		// Silently skip — no useful signal for the synthesizer.
+		// A non-callable RHS carries no signal for the synthesizer.
 		return false
 	}
 
@@ -1482,20 +1229,14 @@ func (v *visitor) extractFieldAssignment(ctx context.Context, node sitter.Node) 
 		Line:          startLine,
 		FilePath:      v.filePath,
 		Language:      v.language,
-		// Arguments[0] = "field:<fieldName>" is the EE3 discriminator sentinel.
-		// A callback synthesizer distinguishes EE3 refs from EE1 JSX refs (no
-		// Arguments) and EE2 call refs (Arguments = event-name strings) by
-		// checking ReferenceKind == EdgeKindReferences AND
-		// len(Arguments) > 0 && strings.HasPrefix(Arguments[0], "field:").
-		Arguments: []string{"field:" + fieldName},
+		Arguments:     []string{"field:" + fieldName},
 	})
 	return true
 }
 
-// visitFunctionBody scans a body node for call_expression and any other
-// configured call/instantiation types, emitting UnresolvedReferences.
-// This is a recursive walk that stops at nested function boundaries (those
-// are extracted as separate nodes).
+// visitFunctionBody walks a body for call, instantiation, JSX and
+// field-assignment nodes, stopping at a nested function, which is extracted as
+// its own node.
 func (v *visitor) visitFunctionBody(ctx context.Context, body sitter.Node) {
 	cnt, err := body.NamedChildCount(ctx)
 	if err != nil {
@@ -1511,7 +1252,6 @@ func (v *visitor) visitFunctionBody(ctx context.Context, body sitter.Node) {
 			continue
 		}
 
-		// Stop at nested function/method boundaries.
 		if v.cfg.FunctionTypes != nil {
 			if _, ok := v.cfg.FunctionTypes[kind]; ok {
 				continue // nested function — will be extracted separately
@@ -1523,34 +1263,23 @@ func (v *visitor) visitFunctionBody(ctx context.Context, body sitter.Node) {
 			}
 		}
 
-		// Check for calls.
 		if v.cfg.CallTypes != nil {
 			if _, ok := v.cfg.CallTypes[kind]; ok {
-				// When this node kind is ALSO in StructTypes and ResolveKind is set,
-				// check whether ResolveKind classifies it as a definition (non-empty
-				// non-"" kind) or as a call reference (empty ""). This is required for
-				// grammars like Elixir where definition macros and regular function calls
-				// share the same "call" node kind: defmodule/def/defp are definitions
-				// (ResolveKind returns a real NodeKind), while User.new() is a call
-				// (ResolveKind returns ""). Without this check, all "call" nodes in a
-				// function body would be treated as call references, incorrectly emitting
-				// def/defmodule nodes as EdgeKindCalls entries.
+				// Where one node kind is both a definition and a call (Elixir's "call"
+				// covers defmodule and def as well as User.new), ResolveKind decides;
+				// without the check a definition would be emitted as a calls edge.
 				if v.cfg.StructTypes != nil && v.cfg.ResolveKind != nil {
 					if _, inStruct := v.cfg.StructTypes[kind]; inStruct {
 						resolved := v.cfg.ResolveKind(ctx, child, v.src)
 						if resolved != types.NodeKind("") {
-							// It's a definition node — skip the extractCall path.
-							// visitChildren (called by the parent extractClass) handles
-							// it via the StructTypes/ResolveKind dispatch in visitNode.
+							// A definition: visitNode's StructTypes dispatch owns it.
 							continue
 						}
 					}
 				}
 				v.extractCall(ctx, child, false)
-				// Recurse: a call's callee and arguments can hold further calls
-				// (method chains a.b().c(), nested calls f(g())). Without this only
-				// the outermost call per statement is captured. Mirrors the JSX arm
-				// below.
+				// A callee or argument can hold further calls (a.b().c(), f(g())), so
+				// recurse rather than capture only the outermost call per statement.
 				v.visitFunctionBody(ctx, child)
 				continue
 			}
@@ -1563,7 +1292,6 @@ func (v *visitor) visitFunctionBody(ctx context.Context, body sitter.Node) {
 				continue
 			}
 		}
-		// Check for JSX element usages.
 		if v.cfg.JSXElementTypes != nil {
 			if _, ok := v.cfg.JSXElementTypes[kind]; ok {
 				v.extractJSXRef(ctx, child, kind)
@@ -1572,12 +1300,9 @@ func (v *visitor) visitFunctionBody(ctx context.Context, body sitter.Node) {
 				continue
 			}
 		}
-		// EE3: check for field-assignment expressions (e.g. this.onData = handler).
-		// Only skip recursion when a field-assignment ref was actually emitted
-		// (member_expression LHS + callable RHS). When extractFieldAssignment
-		// returns false it emitted nothing — fall through to the normal recursion
-		// so any call_expression nested in the assignment RHS (e.g. the `factory`
-		// call in `x = factory('evt')`) is still captured by the CallTypes arm.
+		// Only skip recursion when a ref was actually emitted; on false nothing was
+		// emitted, so fall through and let the CallTypes arm still catch a call
+		// nested in the RHS, as in `x = factory('evt')`.
 		if v.cfg.FieldAssignmentTypes != nil {
 			if _, ok := v.cfg.FieldAssignmentTypes[kind]; ok {
 				if v.extractFieldAssignment(ctx, child) {
@@ -1586,7 +1311,6 @@ func (v *visitor) visitFunctionBody(ctx context.Context, body sitter.Node) {
 			}
 		}
 
-		// Recurse into this child.
 		v.visitFunctionBody(ctx, child)
 	}
 }

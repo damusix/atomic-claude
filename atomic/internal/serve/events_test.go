@@ -1,15 +1,8 @@
 package serve_test
 
-// events_test.go — CP3 (live-reload): /events route wiring and shutdown,
-// exercised through the real production server (startTestServer /
-// serve.RunWithContext) rather than a bare handler, since these behaviors
-// depend on serve.go's route registration and the ctx-driven shutdown wiring
-// (BaseContext + the ticker's own lifecycle), not on NewEventsHandler alone.
-//
-// Per the checkpoint's grounding note, these use a real streaming client
-// reading a bounded-context request against a real listener — not the
-// search_stream_test.go ResponseRecorder pattern, which only works for
-// bounded (non-open-ended) streams.
+// These run against the real server, not a bare handler: route registration and
+// the ctx-driven shutdown wiring are what is under test, and an open-ended stream
+// needs a real listener rather than a ResponseRecorder.
 
 import (
 	"bufio"
@@ -22,10 +15,8 @@ import (
 	"time"
 )
 
-// TestEvents_RouteReachable_NoCollisionWithStatus verifies SC10: /events is a
-// distinct, reachable route that streams an immediate resync push (SC13),
-// and /status still resolves to the health dashboard rather than the SSE
-// stream.
+// /events and /status are neighbours in the route table; each must keep its own
+// content type.
 func TestEvents_RouteReachable_NoCollisionWithStatus(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "README.md"), "# Readme\n")
@@ -75,10 +66,7 @@ func TestEvents_RouteReachable_NoCollisionWithStatus(t *testing.T) {
 	}
 }
 
-// TestEvents_ShutdownWithLiveSubscriber_CompletesPromptly verifies SC15: the
-// /events handler returns promptly on server shutdown — Ctrl-C with an open
-// tab exits within the existing 5s graceful window — even with a subscriber
-// actively connected and reading.
+// Ctrl-C with a browser tab open must still exit inside the 5s graceful window.
 func TestEvents_ShutdownWithLiveSubscriber_CompletesPromptly(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "README.md"), "# Readme\n")
@@ -98,8 +86,7 @@ func TestEvents_ShutdownWithLiveSubscriber_CompletesPromptly(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	// Keep actively reading so the connection stays live (not idle) across
-	// shutdown, mirroring a real open browser tab.
+	// Keeps the connection live rather than idle, as an open browser tab would.
 	drained := make(chan struct{})
 	go func() {
 		defer close(drained)
@@ -112,7 +99,7 @@ func TestEvents_ShutdownWithLiveSubscriber_CompletesPromptly(t *testing.T) {
 	}()
 
 	start := time.Now()
-	shutdown() // cancels the server context; asserts (via startTestServer) it exits within 5s
+	shutdown() // cancels the server context and asserts exit within 5s
 	elapsed := time.Since(start)
 
 	if elapsed >= 4*time.Second {
@@ -126,8 +113,7 @@ func TestEvents_ShutdownWithLiveSubscriber_CompletesPromptly(t *testing.T) {
 	}
 }
 
-// readDataLine reads lines from br until it finds a non-blank "data: ..."
-// frame and returns its JSON payload, trimmed.
+// readDataLine returns the JSON payload of the next non-blank SSE data frame.
 func readDataLine(br *bufio.Reader) (string, error) {
 	for {
 		line, err := br.ReadString('\n')

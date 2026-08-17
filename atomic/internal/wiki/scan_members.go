@@ -6,14 +6,9 @@ import (
 	"strings"
 )
 
-// ReadScanMembers reads the <wiki-scan> block from the given wiki index.md
-// file and returns the members listed in it.  This is the exported reader used
-// by the code-intel realm seeder (CP3) to discover members and their statuses
-// without running a full Scan.
-//
-// An absent file or a missing <wiki-scan> block returns (nil, nil) — not an
-// error. The caller decides whether to seed from another source or error out.
-// A genuine read failure (permissions, etc.) returns a non-nil error.
+// ReadScanMembers lists a wiki's members without the filesystem walk a full
+// Scan performs. An absent file or block returns (nil, nil), leaving the caller
+// to decide whether that is fatal; only a real read failure errors.
 func ReadScanMembers(indexPath string) ([]Member, error) {
 	data, err := os.ReadFile(indexPath)
 	if err != nil {

@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// helper: run Run with captured stdout/stderr, returns (exitCode, stdout, stderr).
+// runConfig runs Run with captured streams, returning exit code, stdout, stderr.
 func runCLI(t *testing.T, home string, args ...string) (int, string, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
@@ -35,7 +35,7 @@ func TestRun_path(t *testing.T) {
 
 func TestRun_get_default(t *testing.T) {
 	home := t.TempDir()
-	// No config.toml present — should return built-in default.
+	// No config.toml present, so this must return the built-in default.
 	code, out, _ := runCLI(t, home, "get", "output.signals.max_depth")
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
@@ -89,13 +89,8 @@ func TestRun_set_valid(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
 	}
-	// TOML file must exist.
 	if _, err := os.Stat(TOMLPath(home)); err != nil {
 		t.Fatalf("config.toml not created: %v", err)
-	}
-	// Resolved file must exist.
-	if _, err := os.Stat(ResolvedPath(home)); err != nil {
-		t.Fatalf("config.resolved.md not created: %v", err)
 	}
 }
 
@@ -147,20 +142,6 @@ func TestRun_set_missing_args(t *testing.T) {
 	}
 }
 
-func TestRun_set_rerenders_resolved(t *testing.T) {
-	home := t.TempDir()
-	runCLI(t, home, "set", "output.signals.max_depth", "5")
-	data, err := os.ReadFile(ResolvedPath(home))
-	if err != nil {
-		t.Fatalf("read resolved: %v", err)
-	}
-	if !strings.Contains(string(data), "output.signals.max_depth` = `5") {
-		t.Fatalf("resolved.md should contain max_depth=5, got: %s", string(data))
-	}
-}
-
-// --- unset ---
-
 func TestRun_unset_reverts_to_default(t *testing.T) {
 	home := t.TempDir()
 	runCLI(t, home, "set", "output.signals.max_depth", "5")
@@ -174,19 +155,6 @@ func TestRun_unset_reverts_to_default(t *testing.T) {
 	}
 	if strings.TrimSpace(out) != "3" {
 		t.Fatalf("after unset, expected '3', got %q", strings.TrimSpace(out))
-	}
-}
-
-func TestRun_unset_rerenders_resolved(t *testing.T) {
-	home := t.TempDir()
-	runCLI(t, home, "set", "output.signals.max_depth", "5")
-	runCLI(t, home, "unset", "output.signals.max_depth")
-	data, err := os.ReadFile(ResolvedPath(home))
-	if err != nil {
-		t.Fatalf("read resolved: %v", err)
-	}
-	if !strings.Contains(string(data), "output.signals.max_depth` = `3") {
-		t.Fatalf("resolved.md should contain max_depth=3 after unset, got: %s", string(data))
 	}
 }
 
@@ -246,7 +214,6 @@ func TestRun_unset_missing_arg(t *testing.T) {
 
 func TestRun_list_human(t *testing.T) {
 	home := t.TempDir()
-	// Without any config, should still list defaults.
 	code, out, _ := runCLI(t, home, "list")
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
@@ -286,12 +253,10 @@ func TestRun_list_json(t *testing.T) {
 func TestRun_list_json_sorted_keys(t *testing.T) {
 	home := t.TempDir()
 	_, out, _ := runCLI(t, home, "list", "--json")
-	// Parse and re-encode to verify it's valid JSON with expected structure.
 	var m map[string]string
 	if err := json.Unmarshal([]byte(out), &m); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	// All known keys should be present.
 	for _, k := range knownKeys {
 		if _, ok := m[k]; !ok {
 			t.Errorf("list --json missing key %q", k)
@@ -299,7 +264,7 @@ func TestRun_list_json_sorted_keys(t *testing.T) {
 	}
 }
 
-// --- harness.dir (CP2: configurable-state-paths) ---
+// --- harness.dir ---
 
 func TestRun_harness_dir_set_get_unset(t *testing.T) {
 	home := t.TempDir()
@@ -373,7 +338,6 @@ func TestRun_unknown_verb(t *testing.T) {
 
 func TestRun_set_creates_parent_dirs(t *testing.T) {
 	home := t.TempDir()
-	// home/.atomic/ does not exist yet.
 	atomicDir := filepath.Join(home, ".atomic")
 	if _, err := os.Stat(atomicDir); !os.IsNotExist(err) {
 		t.Fatal("pre-condition: .atomic dir should not exist yet")

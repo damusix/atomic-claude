@@ -1,103 +1,84 @@
-// health.go — realm-health dashboard data for the /api/status JSON handler
-// (NewAPIStatusHandler below).
-//
-// The dashboard aggregates two existing engines — no new staleness computation:
-//
-//   - Wiki staleness: wiki.Stale (DRIFT/STALE/STALE-bucket lines) parsed into
-//     stale repo/concern/bucket sets.
-//   - Code-index health: doctor.RunCheckCodeIndexRealmWith (realm scope) or
-//     doctor.RunCheckCodeIndexWith (repo scope) — worst severity, named repos.
-//
-// Both engines are injectable via HealthOptions seams for test determinism.
-// The production defaults (non-nil, calling the real engines) are set by
-// NewHealthHandler when a seam is nil, so production is always wired.
+// Realm-health data behind /api/status. It computes no staleness of its own,
+// aggregating wiki.Stale and the doctor code-index check instead. Both are
+// injectable through HealthOptions seams for test determinism; a nil seam is
+// replaced with the production default, so production is always wired.
 package serve
 
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
-	"github.com/damusix/atomic-claude/atomic/internal/wiki"
+	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
+	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
 
-// WikiStaleResult is the structured output from the wiki staleness parse.
+// WikiStaleResult is the parsed wiki staleness output.
 type WikiStaleResult struct {
-	// StaleRepos lists member paths/names with STALE summary or DRIFT lines.
+	// StaleRepos lists members with a STALE summary or DRIFT line.
 	StaleRepos []string
-	// StaleConcerns lists concern files with STALE concern lines.
+	// StaleConcerns lists concern files flagged stale.
 	StaleConcerns []string
-	// StaleBuckets lists bucket names with STALE bucket lines.
+	// StaleBuckets lists buckets flagged stale.
 	StaleBuckets []string
-	// BucketDiffKeys lists bucket names with a non-empty diff (STALE bucket).
-	// Usually the same as StaleBuckets; kept separate for display granularity.
+	// BucketDiffKeys usually matches StaleBuckets, kept separate so the UI can
+	// distinguish the two.
 	BucketDiffKeys []string
 }
 
-// IndexHealthResult is the structured result from the code-index health check.
+// IndexHealthResult is the parsed code-index health check.
 type IndexHealthResult struct {
 	// Severity is "PASS", "WARN", or "FAIL".
 	Severity string
-	// Detail is the full detail line from the doctor check.
+	// Detail is the doctor check's own line, surfaced verbatim.
 	Detail string
 	// FreshCount is the number of fresh members.
 	FreshCount int
-	// StaleMembers names members whose index is stale (age ≥ staleDays).
+	// StaleMembers names members whose index is at least staleDays old.
 	StaleMembers []string
 	// NotIndexed names members with no index db.
 	NotIndexed []string
 }
 
-// WikiStalenessFn is the injectable seam for wiki staleness.
-// Returns a WikiStaleResult for the given realmRoot.
+// WikiStalenessFn is the wiki-staleness seam.
 type WikiStalenessFn func(realmRoot string) WikiStaleResult
 
-// IndexHealthFn is the injectable seam for code-index health.
-// Returns an IndexHealthResult for the given realmRoot.
+// IndexHealthFn is the code-index health seam.
 type IndexHealthFn func(realmRoot string) IndexHealthResult
 
-// HealthOptions configures the health dashboard handler.
+// HealthOptions configures the health handler.
 type HealthOptions struct {
 	// RealmRoot is the root directory being served.
 	RealmRoot string
 
-	// IsRealmScope is true when serving a realm (wiki present).
-	// false = repo/member scope: render code-index health only, no wiki staleness.
+	// IsRealmScope false reports code-index health only, no wiki staleness.
 	IsRealmScope bool
 
-	// WikiStalenessSeam is the injectable wiki staleness function.
-	// When nil, the production default (productionWikiStale) is used.
+	// WikiStalenessSeam nil takes productionWikiStale.
 	WikiStalenessSeam WikiStalenessFn
 
-	// IndexHealthSeam is the injectable code-index health function.
-	// When nil, the production default (productionIndexHealth) is used.
+	// IndexHealthSeam nil takes the scope-appropriate production default.
 	IndexHealthSeam IndexHealthFn
 }
 
 // staleDays is the code-index staleness threshold shared with the doctor check.
 const staleDays = 7
 
-// productionWikiStale is the production WikiStalenessFn.
-// It calls wiki.Stale and parses its output into a WikiStaleResult.
-// On hard error (StaleCodeError), it returns an empty result — graceful degradation.
+// productionWikiStale reshapes the cached wiki.Stale sets. A hard error yields
+// empty sets rather than failing the request.
 func productionWikiStale(realmRoot string) WikiStaleResult {
-	var buf strings.Builder
-	code, err := wiki.Stale(realmRoot, &buf)
-	if err != nil || code == wiki.StaleCodeError {
-		return WikiStaleResult{}
-	}
-
-	sets := parseStaleLines(buf.String())
+	// One walk shared with /api/nav: the two fire together on every page load,
+	// and the shell waits on both.
+	sets := navStalenessCache.get(realmRoot)
 
 	var result WikiStaleResult
 
-	// Deduplicate members: sets.Members is indexed by both base and raw path,
-	// so collect unique values by tracking seen keys.
+	// sets.Members is keyed by both base name and raw path, so dedupe.
 	seen := map[string]bool{}
 	for key := range sets.Members {
-		// sets.Members has both base and raw-path entries; prefer the base
-		// (shorter form) as the display name.  Only add each unique base once.
 		base := key
 		if !seen[base] {
 			seen[base] = true
@@ -117,33 +98,26 @@ func productionWikiStale(realmRoot string) WikiStaleResult {
 	return result
 }
 
-// productionIndexHealthRealm is the production IndexHealthFn for realm scope.
-// It calls doctor.RunCheckCodeIndexRealmWith and parses the result.
+// productionIndexHealthRealm is the realm-scope IndexHealthFn.
 func productionIndexHealthRealm(realmRoot string) IndexHealthResult {
 	r := doctor.RunCheckCodeIndexRealmWith(realmRoot, staleDays)
 	return parseIndexResult(r)
 }
 
-// productionIndexHealthRepo is the production IndexHealthFn for repo scope.
-// It calls doctor.RunCheckCodeIndexWith.
+// productionIndexHealthRepo is the repo-scope IndexHealthFn.
 func productionIndexHealthRepo(realmRoot string) IndexHealthResult {
 	r := doctor.RunCheckCodeIndexWith(realmRoot, staleDays)
 	return parseIndexResult(r)
 }
 
-// parseIndexResult converts a doctor.Result to an IndexHealthResult.
-// It parses the detail string for named members; detail is the ground truth
-// for human display, so we surface it directly.
-//
-// The doctor package (RunCheckCodeIndexRealmWith / RunCheckCodeIndexWith) returns
-// only doctor.Result{Severity, Detail string} — no structured fields for member
-// names or counts.  The secondary badge parsing below is deliberately coupled to
-// the Detail format produced by checks_code_index.go:
+// parseIndexResult converts a doctor.Result to an IndexHealthResult. doctor
+// returns only a severity and a prose Detail, so the member names below are
+// scraped from checks_code_index.go's exact wording:
 //
 //	"code index: N fresh; stale: a, b (run atomic code sync); not indexed: c"
 //
-// If the doctor Detail format ever changes, the badge parsing may silently return
-// empty slices (graceful degradation: Detail is still surfaced verbatim).
+// A format change silently yields empty slices; Detail is still surfaced
+// verbatim, so the page degrades rather than lies.
 func parseIndexResult(r doctor.Result) IndexHealthResult {
 	res := IndexHealthResult{
 		Severity: string(r.Severity),
@@ -154,16 +128,14 @@ func parseIndexResult(r doctor.Result) IndexHealthResult {
 		part = strings.TrimSpace(part)
 		switch {
 		case strings.HasPrefix(part, "code index:") || strings.HasPrefix(part, "code index: "):
-			// "code index: N fresh"
 			inner := strings.TrimPrefix(part, "code index:")
 			inner = strings.TrimSpace(inner)
 			var n int
 			fmt.Sscanf(inner, "%d fresh", &n)
 			res.FreshCount = n
 		case strings.HasPrefix(part, "stale:"):
-			// "stale: a, b (run atomic code sync)"
 			inner := strings.TrimPrefix(part, "stale:")
-			// Strip trailing parenthetical.
+			// Drop the trailing "(run atomic code sync)" hint.
 			if idx := strings.Index(inner, "("); idx != -1 {
 				inner = inner[:idx]
 			}
@@ -174,7 +146,6 @@ func parseIndexResult(r doctor.Result) IndexHealthResult {
 				}
 			}
 		case strings.HasPrefix(part, "not indexed:"):
-			// "not indexed: c"
 			inner := strings.TrimPrefix(part, "not indexed:")
 			for _, name := range strings.Split(inner, ",") {
 				name = strings.TrimSpace(name)
@@ -187,7 +158,6 @@ func parseIndexResult(r doctor.Result) IndexHealthResult {
 	return res
 }
 
-// healthData is the computed data for the health dashboard.
 type healthData struct {
 	IsRealmScope bool
 	StaleResult  WikiStaleResult
@@ -196,10 +166,8 @@ type healthData struct {
 	AllFreshWiki bool
 }
 
-// resolveHealthSeams returns opts with nil seams replaced by the production
-// defaults — required by spec so production is never left with an empty
-// nil-seam. Shared by the HTML /status dashboard and the JSON /api/status
-// endpoint.
+// resolveHealthSeams fills nil seams with the production defaults, so a caller
+// that supplies none still gets real data instead of a nil-seam panic.
 func resolveHealthSeams(opts HealthOptions) HealthOptions {
 	if opts.IndexHealthSeam == nil {
 		if opts.IsRealmScope {
@@ -214,17 +182,13 @@ func resolveHealthSeams(opts HealthOptions) HealthOptions {
 	return opts
 }
 
-// healthDataFor computes the healthData for opts. Seams must already be
-// resolved (see resolveHealthSeams) — shared by the HTML /status dashboard
-// and the JSON /api/status endpoint so both surface identical severity/detail.
+// healthDataFor computes the dashboard data. Seams must already be resolved.
 func healthDataFor(opts HealthOptions) healthData {
-	// Collect wiki staleness (only for realm scope).
 	var staleResult WikiStaleResult
 	if opts.IsRealmScope {
 		staleResult = opts.WikiStalenessSeam(opts.RealmRoot)
 	}
 
-	// Collect code-index health (always).
 	indexResult := opts.IndexHealthSeam(opts.RealmRoot)
 
 	allFreshWiki := len(staleResult.StaleRepos) == 0 &&
@@ -239,9 +203,7 @@ func healthDataFor(opts HealthOptions) healthData {
 	}
 }
 
-// ─── GET /api/status ─────────────────────────────────────────────────────────
-
-// apiWikiStatus is the /api/status "wiki" field — reshapes WikiStaleResult.
+// apiWikiStatus is the /api/status "wiki" field.
 type apiWikiStatus struct {
 	StaleRepos     []string `json:"staleRepos"`
 	StaleConcerns  []string `json:"staleConcerns"`
@@ -250,7 +212,7 @@ type apiWikiStatus struct {
 	AllFresh       bool     `json:"allFresh"`
 }
 
-// apiIndexStatus is the /api/status "index" field — reshapes IndexHealthResult.
+// apiIndexStatus is the /api/status "index" field.
 type apiIndexStatus struct {
 	Severity     string   `json:"severity"`
 	Detail       string   `json:"detail"`
@@ -259,15 +221,25 @@ type apiIndexStatus struct {
 	NotIndexed   []string `json:"notIndexed"`
 }
 
-// apiStatusResponse is the /api/status success payload — reshapes healthData.
+// apiStatusResponse is the /api/status payload.
 type apiStatusResponse struct {
-	IsRealmScope bool           `json:"isRealmScope"`
-	Wiki         apiWikiStatus  `json:"wiki"`
-	Index        apiIndexStatus `json:"index"`
+	// RunID identifies this process, so the browser does not trust a graph
+	// layout warmed by a previous run.
+	RunID string `json:"runId"`
+	// Build identity, so a bug report can name the binary.
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	// LatestVersion is whatever the background update check last recorded.
+	// Read, never triggered — serve does no network I/O on a page load.
+	LatestVersion   string         `json:"latestVersion"`
+	UpdateAvailable bool           `json:"updateAvailable"`
+	UptimeSeconds   int64          `json:"uptimeSeconds"`
+	IsRealmScope    bool           `json:"isRealmScope"`
+	Wiki            apiWikiStatus  `json:"wiki"`
+	Index           apiIndexStatus `json:"index"`
 }
 
-// nonNilStrings returns s, or a non-nil empty slice when s is nil, so these
-// array fields always encode as [] instead of null.
+// nonNilStrings keeps array fields encoding as [] rather than null.
 func nonNilStrings(s []string) []string {
 	if s == nil {
 		return []string{}
@@ -275,16 +247,37 @@ func nonNilStrings(s []string) []string {
 	return s
 }
 
-// NewAPIStatusHandler returns an http.Handler for GET /api/status. Reuses the
-// same wiki-staleness and code-index seams NewHealthHandler's HTML dashboard
-// uses, reshaped as JSON instead of a rendered fragment.
+// latestKnownVersion reads the newest release the background update check has
+// recorded. Deliberately not a check of its own — `atomic update --check` owns
+// the network call, and a browser must not be able to trigger one. Nothing
+// recorded means no "latest" row, not an error.
+func latestKnownVersion() (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	latest := selfupdate.LoadState(config.StatePath(home)).Update.LatestVersion
+	if latest == "" {
+		return "", false
+	}
+	return latest, selfupdate.IsNewer(version.Version, latest)
+}
+
+// NewAPIStatusHandler serves GET /api/status.
 func NewAPIStatusHandler(opts HealthOptions) http.Handler {
 	opts = resolveHealthSeams(opts)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data := healthDataFor(opts)
+		latest, updateAvailable := latestKnownVersion()
 		writeAPIJSON(w, apiStatusResponse{
-			IsRealmScope: data.IsRealmScope,
+			RunID:           runID,
+			Version:         version.Version,
+			Commit:          version.Commit,
+			LatestVersion:   latest,
+			UpdateAvailable: updateAvailable,
+			UptimeSeconds:   int64(Uptime().Seconds()),
+			IsRealmScope:    data.IsRealmScope,
 			Wiki: apiWikiStatus{
 				StaleRepos:     nonNilStrings(data.StaleResult.StaleRepos),
 				StaleConcerns:  nonNilStrings(data.StaleResult.StaleConcerns),

@@ -1,12 +1,7 @@
 package standalone_test
 
-// go_harvester_test.go — unit tests for HarvestGoStringLiterals' callee
-// capture (sql-string-match C1): the bare name of the nearest enclosing call
-// expression whose argument list contains the literal.
-//
-// WHY: the Go harvester is a hand-written scanner (no AST), so callee capture
-// is a heuristic paren-stack tracker — these tests pin its behavior directly,
-// independent of the postpass/resolution pipeline.
+// The Go harvester is a hand-written scanner, not an AST walk, so callee capture
+// is a heuristic paren-stack tracker — pinned here independent of the pipeline.
 
 import (
 	"testing"

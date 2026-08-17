@@ -1,15 +1,13 @@
-// api_bus.go — EXPERIMENT: /api/bus/* endpoints backing a web chat client
-// over the atomic bus daemon (internal/bus), so the serve UI can watch
-// rooms, open one, and speak into it as a human member.
+// /api/bus/*: a web chat client over the atomic bus daemon, so the UI can
+// watch rooms and speak into one as a human member.
 //
-// Read endpoints (status, rooms, who, log, tail) dial the daemon socket
-// directly and degrade to "not running" when no daemon is up — opening the
-// chat page never spawns one. The write paths that express operator intent
-// (join, send) go through bus.EnsureDaemon, so "open a channel" works from
-// cold exactly like `atomic bus join` does.
+// Read endpoints dial the daemon and degrade to "not running" when none is up
+// — opening the chat page never spawns one. Only the paths expressing operator
+// intent (join, send) go through bus.EnsureDaemon, so opening a channel works
+// from cold exactly as `atomic bus join` does.
 //
-// Not yet covered by docs/spec/atomic-serve.md, which declares serve
-// read-only; adopting this feature means amending that contract first.
+// These are serve's only write endpoints; see docs/spec/atomic-serve.md for
+// how they narrow its read-only contract.
 package serve
 
 import (
@@ -32,18 +30,15 @@ import (
 
 // BusAPIOptions configures NewAPIBusHandler.
 type BusAPIOptions struct {
-	// Home is the user home dir; the bus socket, state, and room logs live
-	// under <home>/.atomic.
+	// Home holds the bus socket, state, and room logs under <home>/.atomic.
 	Home string
-	// TargetDir is the directory being served — the position the web
-	// member's name is stacked from (bus.JoinIdentity), so the chat member
-	// is named like any CLI join running in that directory.
+	// TargetDir is the position the web member's name is stacked from, so the
+	// chat member is named like a CLI join in that directory.
 	TargetDir string
-	// DialTimeout bounds each daemon round trip. Zero → 2s.
+	// DialTimeout bounds each daemon round trip. Zero means 2s.
 	DialTimeout time.Duration
-	// EnsureDaemon is the seam for the two spawn-capable paths (join,
-	// send). nil → bus.EnsureDaemon. Tests substitute a Dial-only variant
-	// so a handler test can never fork a real daemon.
+	// EnsureDaemon is the seam for the spawn-capable paths; tests substitute a
+	// Dial-only variant so a handler test can never fork a real daemon.
 	EnsureDaemon func(home string) (*bus.Client, error)
 }
 
@@ -53,13 +48,9 @@ type busAPIHandler struct {
 	dialTimeout  time.Duration
 	ensureDaemon func(home string) (*bus.Client, error)
 
-	// session is this serve instance's one web-member identity. Derived
-	// from TargetDir rather than the pid so a restarted serve reclaims the
-	// same roster entry instead of minting gui-web-2, -3, … on every
-	// restart; two serve instances on different target dirs still get
-	// distinct identities. Per-instance rather than per-tab: the daemon
-	// treats one session value as one member, and every tab of this serve
-	// speaks as the same human operator.
+	// session is derived from TargetDir, not the pid, so a restarted serve
+	// reclaims its roster entry instead of minting -2, -3, … each time. It is
+	// per-instance, not per-tab: every tab speaks as the same operator.
 	session string
 
 	mu     sync.Mutex
@@ -85,15 +76,14 @@ func NewAPIBusHandler(opts BusAPIOptions) http.Handler {
 	return h
 }
 
-// webSessionID derives the stable per-target-dir session identity — see
-// the session field's doc for why it must survive a serve restart.
+// webSessionID derives the per-target-dir identity; see the session field for
+// why it must survive a restart.
 func webSessionID(targetDir string) string {
 	sum := sha256.Sum256([]byte(targetDir))
 	return "serve-web-" + hex.EncodeToString(sum[:4])
 }
 
-// isLoopbackPeer reports whether addr (an http.Request.RemoteAddr host:port)
-// is a loopback address. Unparseable or empty addr fails closed (false).
+// isLoopbackPeer fails closed on an unparseable address.
 func isLoopbackPeer(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -104,10 +94,10 @@ func isLoopbackPeer(addr string) bool {
 }
 
 func (h *busAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// send/say publish as the human operator and say bypasses room halts —
-	// a capability escalation over the rest of serve's read-only, LAN-safe
-	// browsing. Every route is gated on the TCP peer alone (never a
-	// proxy-forwarded header) so --host 0.0.0.0 never carries this reach.
+	// send and say publish as the human operator, and say bypasses room halts
+	// — an escalation over the rest of serve's LAN-safe browsing. The gate is
+	// the TCP peer alone, never a proxy-forwarded header, so --host 0.0.0.0
+	// cannot carry this reach.
 	if !isLoopbackPeer(r.RemoteAddr) {
 		writeAPIError(w, http.StatusForbidden, "bus chat is loopback-only; connect from the serving machine")
 		return
@@ -145,8 +135,8 @@ func (h *busAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// do runs one request against a live daemon, Dial-only — a daemon that is
-// not running is reported, never spawned.
+// do runs one request Dial-only: a daemon that is not running is reported,
+// never spawned.
 func (h *busAPIHandler) do(req bus.Request) (bus.Response, error) {
 	client, err := bus.Dial(h.home, h.dialTimeout)
 	if err != nil {
@@ -156,8 +146,7 @@ func (h *busAPIHandler) do(req bus.Request) (bus.Response, error) {
 	return client.Do(req)
 }
 
-// doEnsure runs one request, spawning the daemon first if none is live —
-// only the operator-intent paths (join, send) use it.
+// doEnsure spawns the daemon first if none is live; only join and send use it.
 func (h *busAPIHandler) doEnsure(req bus.Request) (bus.Response, error) {
 	client, err := h.ensureDaemon(h.home)
 	if err != nil {
@@ -167,8 +156,8 @@ func (h *busAPIHandler) doEnsure(req bus.Request) (bus.Response, error) {
 	return client.Do(req)
 }
 
-// writeBusError maps a bus failure onto an HTTP status. Dial failures are
-// 503 (daemon not running); daemon-assigned exit codes map by kind.
+// writeBusError maps a bus failure onto an HTTP status; a dial failure means
+// the daemon is not running.
 func writeBusError(w http.ResponseWriter, err error) {
 	var busErr *bus.Error
 	if !errors.As(err, &busErr) {
@@ -188,8 +177,6 @@ func writeBusError(w http.ResponseWriter, err error) {
 	}
 	writeAPIError(w, status, busErr.Msg)
 }
-
-// --- read endpoints ---
 
 type busStatusResponse struct {
 	Running bool   `json:"running"`
@@ -264,8 +251,7 @@ type busLogResponse struct {
 	Envelopes []bus.Envelope `json:"envelopes"`
 }
 
-// maxLogLineBytes bounds one room-log line: MaxTextBytes of body plus
-// generous headroom for the envelope's metadata fields.
+// maxLogLineBytes is a body plus headroom for the envelope's metadata.
 const maxLogLineBytes = bus.MaxTextBytes + 64*1024
 
 func (h *busAPIHandler) handleLog(w http.ResponseWriter, r *http.Request) {
@@ -287,9 +273,8 @@ func (h *busAPIHandler) handleLog(w http.ResponseWriter, r *http.Request) {
 	writeAPIJSON(w, busLogResponse{Envelopes: envs})
 }
 
-// readRoomLogTail returns the last n parseable envelopes of a room's log.
-// A missing log is an empty history, not an error; a malformed line is
-// skipped rather than failing the whole backfill.
+// readRoomLogTail returns a room's last n envelopes. A missing log is an empty
+// history, and one malformed line does not fail the whole backfill.
 func readRoomLogTail(home, room string, n int) ([]bus.Envelope, error) {
 	f, err := os.Open(bus.RoomLogPath(home, room))
 	if err != nil {
@@ -369,8 +354,6 @@ func (h *busAPIHandler) handleTail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// --- write endpoints ---
-
 type busJoinBody struct {
 	Room string `json:"room"`
 }
@@ -388,8 +371,7 @@ func (h *busAPIHandler) handleJoin(w http.ResponseWriter, r *http.Request) {
 	writeAPIJSON(w, map[string]string{"name": name})
 }
 
-// join joins (creating if absent) room as this serve process's human
-// member and caches the assigned name.
+// join joins room, creating it if absent, and caches the assigned name.
 func (h *busAPIHandler) join(room string) (string, error) {
 	name, repo, realm, err := bus.JoinIdentity(h.home, h.targetDir, "web")
 	if err != nil {
@@ -437,11 +419,9 @@ func (h *busAPIHandler) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Join-if-needed is the whole point of the send path: sending into a
-	// room this serve process never joined creates the membership (and the
-	// room) on the way. A cached membership can also be stale — the room
-	// may have been closed and its roster dropped — so one not-joined
-	// failure invalidates the cache and retries through a fresh join.
+	// Sending into an unjoined room creates the membership, and the room, on
+	// the way. A cached membership can also be stale — the room may have been
+	// closed — so a not-joined failure invalidates it and rejoins once.
 	h.mu.Lock()
 	name, alreadyJoined := h.joined[body.Room]
 	h.mu.Unlock()
@@ -544,8 +524,7 @@ func (h *busAPIHandler) handleLeave(w http.ResponseWriter, r *http.Request) {
 	writeAPIJSON(w, map[string]bool{"left": true})
 }
 
-// decodeBusBody decodes a JSON request body, bounding it well under the
-// bus's own MaxTextBytes so a request can never buffer unbounded input.
+// decodeBusBody bounds the body so a request can never buffer unbounded input.
 func decodeBusBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxLogLineBytes)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
@@ -555,12 +534,9 @@ func decodeBusBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-// requireRoom is the one gate every room-taking route passes through
-// before the room name reaches bus.RoomLogPath (or a daemon request that
-// eventually does) — room names are free text on the wire but get spliced
-// into a filesystem path, so anything path-shaped is rejected before it
-// can escape the rooms directory. Mirrors bus/action.go's readAction
-// guard.
+// requireRoom gates every room-taking route. Room names are free text on the
+// wire but get spliced into a filesystem path, so anything path-shaped is
+// rejected before it can escape the rooms directory. Mirrors bus/action.go.
 func requireRoom(w http.ResponseWriter, room string) bool {
 	if strings.TrimSpace(room) == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing room")

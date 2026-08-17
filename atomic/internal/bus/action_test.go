@@ -19,11 +19,9 @@ import (
 	"time"
 )
 
-// mustStartTestDaemon wraps client_test.go's startTestDaemon with the
-// EnsureDirs call every action_test.go test needs: unlike EnsureDaemon (which
-// calls EnsureDirs itself before spawning), these tests bind a real daemon
-// directly via startTestDaemon, so nothing else has created <home>/.atomic
-// yet — net.Listen fails with "no such file or directory" without it.
+// mustStartTestDaemon wraps startTestDaemon with the EnsureDirs call these tests
+// need: they bind a daemon directly rather than through EnsureDaemon, so nothing
+// has created <home>/.atomic yet and net.Listen would fail.
 func mustStartTestDaemon(t *testing.T, home string) {
 	t.Helper()
 	if err := EnsureDirs(home); err != nil {
@@ -52,11 +50,9 @@ func TestBusAction_UnknownVerb_ExitUsage(t *testing.T) {
 	}
 }
 
-// TestBusAction_Chat_MissingRoom_ExitUsage proves chat is wired into
-// BusAction's dispatch (checkpoint 6) rather than falling through to the
-// unknown-verb case — exercised here via a usage error, since a full chat
-// session needs a live daemon and a terminal, both covered by chat_test.go
-// and action_test.go's other daemon-backed tests instead.
+// Proves chat is wired into BusAction's dispatch rather than falling through to
+// the unknown-verb case. A usage error suffices — a full chat session needs a
+// live daemon and a terminal, both covered elsewhere.
 func TestBusAction_Chat_MissingRoom_ExitUsage(t *testing.T) {
 	var out bytes.Buffer
 	code := BusAction([]string{"chat"}, t.TempDir(), t.TempDir(), &out)
@@ -93,11 +89,9 @@ func TestJoinAction_Success_AssignsRequestedName(t *testing.T) {
 	}
 }
 
-// TestJoinAction_NameCollision_RetrySuffixReported proves the CLI reports
-// the daemon-assigned name (room.go's Hub.Join owns the numeric-suffix
-// retry itself) rather than the one requested. Both joins share one cwd —
-// a name collision requires two sessions to land on the exact same stacked
-// name, which only happens when they resolve the same position.
+// The CLI must report the daemon-assigned name, not the requested one. Both
+// joins share one cwd: a collision requires two sessions to resolve the same
+// position and so land on the same stacked name.
 func TestJoinAction_NameCollision_RetrySuffixReported(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -139,13 +133,9 @@ func TestJoinAction_NameTaken_ThirdAttemptExitsNameTaken(t *testing.T) {
 	}
 }
 
-// TestJoinAction_NoAsFlag_DefaultsToRepoRootBasename is the regression test
-// for the "the name is the position" entry (docs/spec/atomic-bus.md,
-// 2026-07-29): omitting --as still names the member, this time after
-// pos.name("") — which, with no realm and no role suffix, collapses to the
-// bare repo-root basename. cwd here is a plain t.TempDir() outside any git
-// repository or scope marker (where.Resolve's cwd fallback), proving the
-// name is still usable even outside a repo.
+// Omitting --as still names the member: with no realm and no role suffix the
+// stacked name collapses to the bare repo-root basename. cwd is a temp dir
+// outside any repo or scope marker, proving the name works there too.
 func TestJoinAction_NoAsFlag_DefaultsToRepoRootBasename(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -163,9 +153,8 @@ func TestJoinAction_NoAsFlag_DefaultsToRepoRootBasename(t *testing.T) {
 	}
 }
 
-// TestJoinAction_ExplicitAsFlag_OverridesDefault proves an explicit --as is
-// always appended as the role suffix on top of the derived position, rather
-// than being dropped or replacing it.
+// An explicit --as is appended as a role suffix on top of the derived position,
+// never dropped and never replacing it.
 func TestJoinAction_ExplicitAsFlag_OverridesDefault(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -203,8 +192,7 @@ func TestJoinAction_NoSessionNoOverride_ExitHard(t *testing.T) {
 	}
 }
 
-// TestJoinAction_DefaultKind_IsAgent locks in the pre-existing default:
-// joinAction with no --kind must still record Kind agent.
+// No --kind must still record Kind agent.
 func TestJoinAction_DefaultKind_IsAgent(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -226,11 +214,9 @@ func TestJoinAction_DefaultKind_IsAgent(t *testing.T) {
 	}
 }
 
-// TestJoinAction_KindHuman_RecordedAsHuman is the regression test for
-// finding 1: joinAction used to hardcode Kind: KindAgent on every OpJoin
-// request, so a person joining from a terminal was recorded as an agent and
-// every reaction-policy rule keyed on from_kind silently failed to fire for
-// them.
+// joinAction once hardcoded KindAgent on every OpJoin, so a person joining from
+// a terminal was recorded as an agent and every from_kind-keyed reaction-policy
+// rule silently failed to fire for them.
 func TestJoinAction_KindHuman_RecordedAsHuman(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -315,11 +301,9 @@ func TestLeaveAction_ExplicitRoomNotExists_ExitNoRoom(t *testing.T) {
 	}
 }
 
-// TestLeaveAction_SessionFlag_OverridesEnv is the regression test for
-// finding 5's leave case: --session was accepted by join and chat only, so
-// a scripted peer that joined with --session had no way to also leave under
-// that same identity — CLAUDE_CODE_SESSION_ID pointing somewhere else (or
-// nowhere) here proves --session, not the env var, resolves the session.
+// --session was once accepted by join and chat only, so a scripted peer that
+// joined with it had no way to leave under the same identity. The env var
+// pointing elsewhere proves --session, not the env, resolves the session.
 func TestLeaveAction_SessionFlag_OverridesEnv(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -337,14 +321,9 @@ func TestLeaveAction_SessionFlag_OverridesEnv(t *testing.T) {
 	}
 }
 
-// TestLeaveAction_RoomDropped_ClearsOrphanedHaltState is the action-layer
-// companion to room.go's Hub.Leave/dropIfEmpty and identity.go's
-// State.SetHalted: leaveAction's own inline composition — read OpLeave's
-// room_dropped payload, then delete the persisted halt entry for that room —
-// was previously verified only manually. Without it, a restarted daemon's
-// Rehydrate would resurrect a room nobody occupies, still halted for a
-// reason nobody can act on anymore (docs/spec/atomic-bus.md's 2026-07-30
-// "drop a room when its last member leaves" entry).
+// leaveAction reads OpLeave's room_dropped payload and deletes the persisted
+// halt entry. Without it a restarted daemon's Rehydrate resurrects a room nobody
+// occupies, still halted for a reason nobody can act on.
 func TestLeaveAction_RoomDropped_ClearsOrphanedHaltState(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -366,9 +345,8 @@ func TestLeaveAction_RoomDropped_ClearsOrphanedHaltState(t *testing.T) {
 		t.Fatal("halt state was not persisted before leave — test setup invalid")
 	}
 
-	// sess-1 is the room's only member: leaving it drops the room
-	// server-side (Hub.dropIfEmpty), which is what must trigger the
-	// orphaned halt-state cleanup below.
+	// sess-1 is the only member: leaving drops the room server-side, which is
+	// what must trigger the orphaned halt-state cleanup below.
 	var out bytes.Buffer
 	code := leaveAction([]string{"potato"}, home, &out)
 	if code != int(ExitOK) {
@@ -407,9 +385,8 @@ func TestSendAction_RoomDoesNotExist_ExitNoRoom(t *testing.T) {
 	}
 }
 
-// TestSendAction_SessionFlag_OverridesEnv is finding 5's send case: --session
-// must resolve the sending identity even when CLAUDE_CODE_SESSION_ID points
-// at a session that never joined — proving the flag, not the env var, wins.
+// --session must resolve the sending identity even when
+// CLAUDE_CODE_SESSION_ID names a session that never joined.
 func TestSendAction_SessionFlag_OverridesEnv(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -427,9 +404,8 @@ func TestSendAction_SessionFlag_OverridesEnv(t *testing.T) {
 	}
 }
 
-// TestSendAction_NotJoined_ExitNotJoined proves exit 3 through send
-// specifically: the room exists (someone else joined it) but the sending
-// session never did.
+// Exit 3 through send specifically: the room exists because someone else joined
+// it, but the sending session never did.
 func TestSendAction_NotJoined_ExitNotJoined(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -475,9 +451,8 @@ func TestSendAction_ToFlag_AddressesParsedCorrectly(t *testing.T) {
 	}
 }
 
-// TestSendAction_ToOmitted_FYIToWholeRoom proves the load-bearing
-// distinction the brief calls out: an omitted --to is an FYI to nobody in
-// particular, not an addressee list of one blank name.
+// An omitted --to is an FYI to nobody in particular, not an addressee list of
+// one blank name.
 func TestSendAction_ToOmitted_FYIToWholeRoom(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -504,9 +479,8 @@ func TestSendAction_ToOmitted_FYIToWholeRoom(t *testing.T) {
 	}
 }
 
-// TestSendAction_StdinDash_MultilinePayloadIntact proves "-" reads the full
-// stdin content, unmangled, end to end through the real dispatch path — not
-// merely readText in isolation.
+// "-" reads the full stdin content unmangled through the real dispatch path,
+// not merely readText in isolation.
 func TestSendAction_StdinDash_MultilinePayloadIntact(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -547,10 +521,8 @@ func TestSendAction_StdinDash_MultilinePayloadIntact(t *testing.T) {
 	}
 }
 
-// TestSendAction_DefaultOutput_IsShortConfirmation_NotBareID is the "also
-// worth fixing" regression: send used to print only the bare message id
-// ("1") to stdout — noise for a human, under-structured for an agent. The
-// default output must name what happened, not just echo an opaque token.
+// send once printed only the bare message id — noise for a human,
+// under-structured for an agent. Default output must name what happened.
 func TestSendAction_DefaultOutput_IsShortConfirmation_NotBareID(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -576,9 +548,8 @@ func TestSendAction_DefaultOutput_IsShortConfirmation_NotBareID(t *testing.T) {
 	}
 }
 
-// TestSendAction_JSONOutput_EmitsFullEnvelope proves --json's job: capture
-// the assigned id (for --reply-to) without a second round trip, via the
-// full published envelope rather than a bare id field.
+// --json must capture the assigned id for --reply-to without a second round
+// trip, so it emits the full envelope rather than a bare id field.
 func TestSendAction_JSONOutput_EmitsFullEnvelope(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -607,24 +578,16 @@ func TestSendAction_JSONOutput_EmitsFullEnvelope(t *testing.T) {
 
 // --- daemon-gone recovery: respawn only, roster restored by rehydration ---
 //
-// These reproduce the original finding literally — join a room, stop the
-// daemon (via `bus stop`), then run a follow-up command — but now exercise
-// the current fix: dialDaemonRecovered only respawns (recoveryEnsurer
-// points the package-level seam at an in-process daemon so recovery never
-// shells out to a real `atomic` binary), and the respawned daemon's own
-// Hub.Rehydrate at Serve startup is what restores the roster, not a
-// client-side rejoin.
+// Join a room, stop the daemon, run a follow-up command. dialDaemonRecovered
+// only respawns (recoveryEnsurer points the seam at an in-process daemon so
+// recovery never shells out to a real binary); the respawned daemon's own
+// Hub.Rehydrate is what restores the roster, not a client-side rejoin.
 
-// waitForDaemonGone polls until SocketPath(home) refuses connections,
-// bounded by wireTimeout. stopAction returns as soon as the daemon
-// acknowledges the shutdown request over the wire — daemon.go's handleConn
-// replies, then calls triggerShutdown, but the listener's actual Close()
-// runs asynchronously in Serve's own loop goroutine. Proceeding straight
-// into a respawn risks racing that still-in-flight teardown (the old,
-// background test daemon started by mustStartTestDaemon may still be
-// bound), so every test that stops a background test daemon and then
-// exercises recovery calls this first to make the respawn genuinely start
-// from "daemon gone", not "daemon mid-shutdown".
+// waitForDaemonGone polls until the socket refuses connections. stopAction
+// returns as soon as the daemon acknowledges the shutdown over the wire, but the
+// listener's Close runs asynchronously in Serve's loop goroutine — so a respawn
+// started immediately can race that teardown. Every recovery test that stops a
+// daemon first calls this, to start from "gone" rather than "mid-shutdown".
 func waitForDaemonGone(t *testing.T, home string) {
 	t.Helper()
 	deadline := time.Now().Add(wireTimeout)
@@ -641,8 +604,8 @@ func waitForDaemonGone(t *testing.T, home string) {
 	}
 }
 
-// swapRecoveryEnsurer overrides recoveryEnsurer for the duration of the
-// test, restoring the production default on cleanup.
+// swapRecoveryEnsurer overrides recoveryEnsurer for the test, restoring the
+// production default on cleanup.
 func swapRecoveryEnsurer(t *testing.T, spawn func(home string) error) {
 	t.Helper()
 	orig := recoveryEnsurer
@@ -657,10 +620,8 @@ func swapRecoveryEnsurer(t *testing.T, spawn func(home string) error) {
 	t.Cleanup(func() { recoveryEnsurer = orig })
 }
 
-// TestWhoAction_DaemonGoneAfterJoin_RecoversAndSucceeds reproduces the
-// finding's exact repro: join, then `atomic bus stop`, then `who` — must
-// succeed, not exit 6, and the roster must be restored under the original
-// name.
+// join, `bus stop`, then `who`: must succeed rather than exit 6, with the roster
+// restored under the original name.
 func TestWhoAction_DaemonGoneAfterJoin_RecoversAndSucceeds(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -691,9 +652,7 @@ func TestWhoAction_DaemonGoneAfterJoin_RecoversAndSucceeds(t *testing.T) {
 	}
 }
 
-// TestSendAction_DaemonGoneAfterJoin_RecoversAndRetries proves the same
-// invisibility for send specifically, since the original finding calls it
-// out by name.
+// The same invisibility for send specifically.
 func TestSendAction_DaemonGoneAfterJoin_RecoversAndRetries(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -721,14 +680,11 @@ func TestSendAction_DaemonGoneAfterJoin_RecoversAndRetries(t *testing.T) {
 	}
 }
 
-// TestSendAction_SecondSessionAfterFirstSessionAlreadyRecovered_NoSecondSpawn
-// is the two-session case a hands-on repro caught for the old per-session
-// re-registration design: only the session whose command happened to
-// notice the daemon was gone got rejoined, so a peer's very next send hit
-// ExitNotJoined. Rehydration fixes this at the source — the very first
-// respawn restores the *whole* persisted roster, so session B's own send
-// must succeed without triggering a recovery of its own: the daemon
-// already knows about B before B ever asks.
+// Under the old per-session re-registration, only the session whose command
+// noticed the daemon was gone got rejoined, so a peer's next send hit
+// ExitNotJoined. Rehydration fixes it at the source: the first respawn restores
+// the whole persisted roster, so session B's send succeeds without a recovery of
+// its own — the daemon knows B before B ever asks.
 func TestSendAction_SecondSessionAfterFirstSessionAlreadyRecovered_NoSecondSpawn(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -754,8 +710,8 @@ func TestSendAction_SecondSessionAfterFirstSessionAlreadyRecovered_NoSecondSpawn
 	var spawnCount int32
 	swapRecoveryEnsurer(t, countingSpawn(t, &spawnCount))
 
-	// Session A notices first and triggers the one respawn — the respawned
-	// daemon's Hub.Rehydrate restores both alice and bob in that single pass.
+	// Session A notices first and triggers the one respawn; Hub.Rehydrate
+	// restores both alice and bob in that single pass.
 	t.Setenv(sessionEnvVar, "sess-a")
 	var whoOut bytes.Buffer
 	if code := whoAction([]string{"potato", "--json"}, home, &whoOut); code != int(ExitOK) {
@@ -777,8 +733,7 @@ func TestSendAction_SecondSessionAfterFirstSessionAlreadyRecovered_NoSecondSpawn
 		t.Fatalf("members after one respawn = %+v, want both %q and %q (whole-roster rehydration)", members, wantAlice, wantBob)
 	}
 
-	// Session B's send must succeed with no additional spawn — the daemon
-	// is already up and already knows bob, so dialDaemon succeeds outright.
+	// No additional spawn: the daemon is up and already knows bob.
 	t.Setenv(sessionEnvVar, "sess-b")
 	var out bytes.Buffer
 	code := sendAction([]string{"potato", "hello from bob"}, home, &out)
@@ -790,11 +745,9 @@ func TestSendAction_SecondSessionAfterFirstSessionAlreadyRecovered_NoSecondSpawn
 	}
 }
 
-// TestDialDaemonRecovered_RecoveryFailsPersistently_NoLoop pins the "one
-// recovery attempt, then exit 6" discipline: dialDaemonRecovered must call
-// EnsureDaemon exactly once (not loop on its own), and a Spawn that never
-// actually brings up a working listener must still hit EnsureDaemon's own
-// maxSpawnAttempts bound, never more.
+// One recovery attempt, then exit 6: dialDaemonRecovered must call EnsureDaemon
+// exactly once rather than looping, and a Spawn that never brings up a listener
+// must still stop at EnsureDaemon's own maxSpawnAttempts.
 func TestDialDaemonRecovered_RecoveryFailsPersistently_NoLoop(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -829,14 +782,10 @@ func TestDialDaemonRecovered_RecoveryFailsPersistently_NoLoop(t *testing.T) {
 	}
 }
 
-// TestServeAction_Restart_RehydratesNamesIncludingSuffixed is the
-// action-layer companion to room_test.go's Hub.Rehydrate unit tests: two
-// sessions that originally collided on "backend" (the second became
-// "backend-2" via Join's numeric-suffix retry) must come back under those
-// exact names after a real respawn through serveAction — proving
-// rehydration, not a fresh Join, is what restores them (a fresh Join would
-// have no way to know "backend-2" was ever taken by anyone other than
-// itself).
+// Two sessions that collided on "backend" (the second became "backend-2") must
+// come back under those exact names after a real respawn — proving rehydration,
+// not a fresh Join, restores them: a fresh Join could not know "backend-2" was
+// ever taken by anyone but itself.
 func TestServeAction_Restart_RehydratesNamesIncludingSuffixed(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -859,7 +808,7 @@ func TestServeAction_Restart_RehydratesNamesIncludingSuffixed(t *testing.T) {
 	waitForDaemonGone(t, home)
 
 	// A real restart: a fresh Hub, loaded and rehydrated exactly as
-	// startTestDaemon (mirroring serveAction) does for every test daemon.
+	// startTestDaemon does for every test daemon.
 	mustStartTestDaemon(t, home)
 
 	var whoOut bytes.Buffer
@@ -882,11 +831,9 @@ func TestServeAction_Restart_RehydratesNamesIncludingSuffixed(t *testing.T) {
 
 // --- recv (always streams) ---
 
-// publishUntilDelivered repeatedly publishes text to room until a decoded
-// envelope arrives on delivered, bounded by deadline. A retry loop rather
-// than a fixed sleep: the only race here is "has the subscriber's
-// Hub.Subscribe call landed yet", which resolves in microseconds locally
-// but has no other signal this test can observe directly.
+// publishUntilDelivered republishes until a decoded envelope arrives, bounded by
+// deadline. A retry loop rather than a sleep: the only race is whether the
+// subscriber's Hub.Subscribe has landed, which this test cannot observe directly.
 func publishUntilDelivered(t *testing.T, addr, room, session, text string, delivered <-chan Envelope, deadline time.Duration) Envelope {
 	t.Helper()
 
@@ -906,14 +853,9 @@ func publishUntilDelivered(t *testing.T, addr, room, session, text string, deliv
 	}
 }
 
-// publishUntilDeliveredTolerant mirrors publishUntilDelivered, but tolerates
-// a transient dial error on each publish attempt instead of failing the
-// test on the first one — dialAndDo's own t.Fatalf-on-error assumes the
-// daemon is already up and stays up for the test's whole run, which does
-// not hold for a test that deliberately restarts the daemon mid-run: the
-// daemon can be briefly absent while recv's own reconnect is still working
-// (docs/spec/atomic-bus.md's 2026-07-30 "recv must survive a restart"
-// entry).
+// publishUntilDeliveredTolerant tolerates a transient dial error per attempt.
+// dialAndDo assumes the daemon stays up for the whole run, which does not hold
+// for a test that deliberately restarts it mid-run.
 func publishUntilDeliveredTolerant(t *testing.T, addr, room, session, text string, delivered <-chan Envelope, deadline time.Duration) Envelope {
 	t.Helper()
 
@@ -933,10 +875,9 @@ func publishUntilDeliveredTolerant(t *testing.T, addr, room, session, text strin
 	}
 }
 
-// decodeEnvelopesInto runs a background JSON-line decoder over pr, pushing
-// each decoded Envelope onto delivered (non-blocking: a full buffer just
-// drops further envelopes, since every caller here only cares about the
-// first one). Exits when pr is closed or a decode error occurs.
+// decodeEnvelopesInto decodes JSON lines from pr onto delivered, non-blocking
+// (every caller here cares only about the first envelope). Exits when pr closes
+// or a decode fails.
 func decodeEnvelopesInto(pr io.Reader, delivered chan<- Envelope) {
 	dec := json.NewDecoder(pr)
 	for {
@@ -967,10 +908,9 @@ func TestRecvAction_DeliversPublishedMessageUnderOneSecond(t *testing.T) {
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
-	// recvStream's session is deliberately "sess-receiver", distinct from
-	// the seed join's "sess-sender": recvStream now always subscribes with
-	// SkipSelf, so a same-session publish here would be suppressed and this
-	// test would never see the envelope it's asserting on.
+	// A distinct session from the seed join's: recvStream always subscribes with
+	// SkipSelf, so a same-session publish would be suppressed and this test would
+	// never see its envelope.
 	recvDone := make(chan int, 1)
 	go func() { recvDone <- recvStream(client, home, "potato", "sess-receiver", pw) }()
 
@@ -985,16 +925,10 @@ func TestRecvAction_DeliversPublishedMessageUnderOneSecond(t *testing.T) {
 		t.Fatalf("From = %q, want %q", env.From, "sender")
 	}
 
-	// Closing the client no longer unblocks recvStream for good — item 3's
-	// fix (docs/spec/atomic-bus.md's 2026-07-30 "recv must survive a
-	// restart" entry) makes a dropped connection reconnect rather than
-	// exit, and the real daemon started by mustStartTestDaemon is still
-	// live, so a bare client.Close() here would just be silently
-	// reconnected. SIGTERM is what actually stops recvStream now, exactly
-	// like TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine's own mechanism
-	// — safe to reuse here because Go tests in this package run
-	// sequentially, and each recvStream call registers and unregisters its
-	// own signal.NotifyContext.
+	// Closing the client no longer stops recvStream — a dropped connection now
+	// reconnects, and the test daemon is still live. SIGTERM is what stops it,
+	// safe here because tests in this package run sequentially and each
+	// recvStream registers and unregisters its own signal.NotifyContext.
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatalf("send SIGTERM to self: %v", err)
 	}
@@ -1008,14 +942,11 @@ func TestRecvAction_DeliversPublishedMessageUnderOneSecond(t *testing.T) {
 	}
 }
 
-// TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine sends a real SIGTERM to
-// this test process. This is safe only because publishUntilDelivered has
-// already proven, before the signal is sent, that recvStream reached its
-// signal.NotifyContext registration (the first statement in the function,
-// strictly before the Subscribe call that has to succeed for any envelope
-// to arrive at all) — so the default process-terminating disposition for
-// SIGTERM is already disabled for this process by the time the signal is
-// sent.
+// Sends a real SIGTERM to this test process. Safe only because
+// publishUntilDelivered has already proven recvStream reached its
+// signal.NotifyContext registration — the function's first statement, strictly
+// before the Subscribe any envelope depends on — so the default
+// process-terminating disposition is already disabled by then.
 func TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -1032,18 +963,17 @@ func TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine(t *testing.T) {
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
-	// recvStream's session is deliberately "sess-receiver", distinct from
-	// the seed join's "sess-sender": recvStream now always subscribes with
-	// SkipSelf, so a same-session publish here would be suppressed and this
-	// test would never see the envelope it's asserting on.
+	// A distinct session from the seed join's: recvStream always subscribes with
+	// SkipSelf, so a same-session publish would be suppressed and this test would
+	// never see its envelope.
 	recvDone := make(chan int, 1)
 	go func() { recvDone <- recvStream(client, home, "potato", "sess-receiver", pw) }()
 
 	delivered := make(chan Envelope, 1)
 	go decodeEnvelopesInto(pr, delivered)
 
-	// A successfully decoded envelope proves the write that carried it was
-	// never torn — a partial JSON line would fail to decode.
+	// A decoded envelope proves the write was never torn: a partial JSON line
+	// would fail to decode.
 	env := publishUntilDelivered(t, addr, "potato", "sess-sender", "multi\nline\npayload", delivered, wireTimeout)
 	if env.Text != "multi\nline\npayload" {
 		t.Fatalf("Text = %q, want the full untruncated payload", env.Text)
@@ -1063,9 +993,8 @@ func TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine(t *testing.T) {
 	}
 }
 
-// TestRecvAction_NoBacklogDeliveredForPriorTraffic is the action-layer
-// proof that recv never replays: a message published before recv is
-// invoked must never arrive, only one published after it subscribes.
+// recv never replays: a message published before recv is invoked must never
+// arrive, only one published after it subscribes.
 func TestRecvAction_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -1085,10 +1014,9 @@ func TestRecvAction_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
-	// recvStream's session is deliberately "sess-receiver", distinct from
-	// the seed join's "sess-sender": recvStream now always subscribes with
-	// SkipSelf, so a same-session publish here would be suppressed and this
-	// test would never see the envelope it's asserting on.
+	// A distinct session from the seed join's: recvStream always subscribes with
+	// SkipSelf, so a same-session publish would be suppressed and this test would
+	// never see its envelope.
 	recvDone := make(chan int, 1)
 	go func() { recvDone <- recvStream(client, home, "potato", "sess-receiver", pw) }()
 
@@ -1100,10 +1028,8 @@ func TestRecvAction_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 		t.Fatalf("first delivered Text = %q, want %q (no backlog should have preceded it)", env.Text, "after subscribing")
 	}
 
-	// SIGTERM, not client.Close() — see
-	// TestRecvAction_DeliversPublishedMessageUnderOneSecond's comment: a
-	// dropped connection now reconnects instead of exiting, and the real
-	// daemon is still up.
+	// SIGTERM, not client.Close(): a dropped connection reconnects now, and the
+	// real daemon is still up.
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatalf("send SIGTERM to self: %v", err)
 	}
@@ -1114,11 +1040,9 @@ func TestRecvAction_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 	}
 }
 
-// TestRecvAction_NoSessionNoOverride_ExitHard is finding 5's recv case: recv
-// now resolves a session (needed for SkipSelf's own-session comparison) and
-// must fail exactly like send/leave/join do when neither
-// CLAUDE_CODE_SESSION_ID nor --session is available, rather than silently
-// subscribing with no identity to compare against.
+// recv resolves a session for SkipSelf's own-session comparison, so it must fail
+// like send/leave/join when neither the env var nor --session is available,
+// rather than silently subscribing with no identity to compare against.
 func TestRecvAction_NoSessionNoOverride_ExitHard(t *testing.T) {
 	home := testBusHome(t)
 	t.Setenv(sessionEnvVar, "")
@@ -1130,11 +1054,9 @@ func TestRecvAction_NoSessionNoOverride_ExitHard(t *testing.T) {
 	}
 }
 
-// TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers is the
-// action-layer regression test for finding 2: recvStream always subscribes
-// with SkipSelf, so a message this same session publishes must never come
-// back on its own recv, while a different session's publish still arrives
-// normally.
+// recvStream always subscribes with SkipSelf, so a message this session
+// publishes must never come back on its own recv while another session's still
+// arrives normally.
 func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -1160,9 +1082,8 @@ func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
 	delivered := make(chan Envelope, 4)
 	go decodeEnvelopesInto(pr, delivered)
 
-	// Sent first, before any retry loop starts: if self-echo suppression
-	// were broken, this would already be the first thing publishUntilDelivered
-	// reads back below.
+	// Sent first: if self-echo suppression were broken, this would be the first
+	// thing read back below.
 	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-me", Text: "my own — must not arrive"}); !resp.OK {
 		t.Fatalf("self send: %s", resp.Error)
 	}
@@ -1171,8 +1092,8 @@ func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
 		t.Fatalf("first delivered Text = %q, want %q — the same-session send should have been skipped entirely, not merely arrived first", env.Text, "from someone else")
 	}
 
-	// SIGTERM, not client.Close() — see
-	// TestRecvAction_DeliversPublishedMessageUnderOneSecond's comment.
+	// SIGTERM, not client.Close(): a dropped connection reconnects now, and the
+	// real daemon is still up.
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatalf("send SIGTERM to self: %v", err)
 	}
@@ -1188,12 +1109,8 @@ func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
 
 // --- recv reconnect (item 3: recv must survive a daemon restart) ---
 
-// TestRecvDeliver_ChannelClosesWithoutClosingEnvelope_Reconnects is the unit
-// proof of recvDeliver's core decision: an ordinary dropped connection
-// (channel closes, no Closing envelope ever delivered) must report
-// reconnect=true — this is what makes a daemon restart survivable
-// (docs/spec/atomic-bus.md's 2026-07-30 "recv must survive a restart"
-// entry).
+// An ordinary dropped connection (channel closes, no Closing envelope) must
+// report reconnect=true — what makes a daemon restart survivable.
 func TestRecvDeliver_ChannelClosesWithoutClosingEnvelope_Reconnects(t *testing.T) {
 	ch := make(chan Envelope, 1)
 	ch <- Envelope{Text: "ordinary message"}
@@ -1209,12 +1126,9 @@ func TestRecvDeliver_ChannelClosesWithoutClosingEnvelope_Reconnects(t *testing.T
 	}
 }
 
-// TestRecvDeliver_ClosingEnvelope_EndsStreamWithoutReconnecting is the unit
-// proof of the other half: when the last envelope delivered before the
-// channel closes is Hub.Close's own closing envelope, recvDeliver must
-// report reconnect=false — otherwise recv would silently resubscribe to (and
-// recreate) a room the operator just closed instead of ending its stream as
-// docs/spec/atomic-bus.md's "close" entry requires.
+// The other half: a Closing envelope as the last delivered before the channel
+// closes must report reconnect=false, or recv would resubscribe to — and
+// recreate — a room the operator just closed.
 func TestRecvDeliver_ClosingEnvelope_EndsStreamWithoutReconnecting(t *testing.T) {
 	ch := make(chan Envelope, 1)
 	ch <- Envelope{Text: "room closed", Closing: true}
@@ -1233,10 +1147,8 @@ func TestRecvDeliver_ClosingEnvelope_EndsStreamWithoutReconnecting(t *testing.T)
 	}
 }
 
-// TestRecvDeliver_CtxCancelled_NeverReconnectsRegardlessOfLastEnvelope
-// proves a genuine stop (SIGTERM/SIGINT) always wins: even mid-stream, with
-// envelopes still arriving, ctx cancellation must never trigger a
-// reconnect attempt.
+// A genuine stop always wins: even mid-stream with envelopes still arriving,
+// ctx cancellation must never trigger a reconnect.
 func TestRecvDeliver_CtxCancelled_NeverReconnectsRegardlessOfLastEnvelope(t *testing.T) {
 	ch := make(chan Envelope)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1252,39 +1164,24 @@ func TestRecvDeliver_CtxCancelled_NeverReconnectsRegardlessOfLastEnvelope(t *tes
 	}
 }
 
-// TestRecvStream_DaemonRestart_ReconnectsAndKeepsDelivering is the
-// integration-level proof of item 3: recv survives an actual daemon
-// restart and keeps delivering afterward — the property a manual drive of
-// the built binary confirmed for real (`bus restart` mid-`recv`).
+// recv survives an actual daemon restart and keeps delivering.
 //
-// This test stops the daemon and then leaves bringing it back up entirely
-// to recv's own reconnect through the swapped recoveryEnsurer — it does
-// not also call stopAction/startAction or bind a listener itself. An
-// earlier version of this test tried to drive both halves explicitly and
-// hit two different races against recv's own autonomous reconnect: a
-// direct listener bind bypasses EnsureDaemon's flock, so recv's concurrent
-// EnsureDaemon call could unlinkStaleSocket a legitimate daemon the test
-// had just stood up out-of-band; and even routing the test's own "start"
-// through startAction (the same flock-protected path) still raced recv's
-// own reconnect for who observed the daemon "gone" first, since recv can
-// bring a replacement up before the test's own poll ever sees the gap.
-// Neither race is reachable in production, where there is exactly one
-// actor bringing the daemon back — recv doing that itself is the actual
-// scenario item 3 exists for. spawnOnce keeps the swapped Spawn safe to
-// call more than once (startTestDaemon binds a real listener per call and
-// is not otherwise idempotent) without ever binding a second daemon
-// instance. publishUntilDeliveredTolerant (not publishUntilDelivered) is
-// used for the post-restart send because the daemon is genuinely,
-// legitimately absent for a brief window here — unlike every other recv
-// test, whose daemon stays up for the test's entire run.
+// The test stops the daemon and leaves bringing it back entirely to recv's own
+// reconnect. Driving both halves explicitly raced recv's autonomous reconnect
+// two different ways: a direct listener bind bypasses EnsureDaemon's flock, so
+// recv's concurrent EnsureDaemon could unlink a legitimate daemon the test had
+// just stood up; and routing the start through startAction still raced who
+// observed the daemon gone first. Neither is reachable in production, where one
+// actor brings the daemon back — which is the scenario this covers. spawnOnce
+// keeps the swapped Spawn safe to call more than once without binding a second
+// daemon. publishUntilDeliveredTolerant is used because the daemon is genuinely
+// absent for a brief window here.
 func TestRecvStream_DaemonRestart_ReconnectsAndKeepsDelivering(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
 	addr := SocketPath(home)
-	// Seeded via joinAction, not a raw OpJoin wire call: only joinAction
-	// persists the membership to bus.json (daemon.go's handleJoin is
-	// in-memory only), and this test needs sess-sender to still be a member
-	// after the daemon genuinely restarts below — Hub.Rehydrate reads
+	// Seeded via joinAction: only it persists the membership to bus.json, and
+	// sess-sender must still be a member after the restart — Hub.Rehydrate reads
 	// bus.json, not the prior process's memory.
 	var discard bytes.Buffer
 	if code := joinAction([]string{"potato", "--as", "sender", "--session", "sess-sender"}, home, testCwd(t), &discard); code != int(ExitOK) {
@@ -1310,9 +1207,8 @@ func TestRecvStream_DaemonRestart_ReconnectsAndKeepsDelivering(t *testing.T) {
 		t.Fatalf("Text = %q, want %q", env.Text, "before restart")
 	}
 
-	// Swapped before stopAction, not after: recvStream's own goroutine
-	// reacts to the connection dying asynchronously and may reconnect the
-	// instant the daemon stops, before this test's own next line runs.
+	// Swapped before stopAction: recvStream's goroutine reacts to the connection
+	// dying asynchronously and may reconnect before the next line here runs.
 	var spawnOnce sync.Once
 	var spawnErr error
 	swapRecoveryEnsurer(t, func(home string) error {
@@ -1324,12 +1220,9 @@ func TestRecvStream_DaemonRestart_ReconnectsAndKeepsDelivering(t *testing.T) {
 		t.Fatalf("stop exit code = %d", code)
 	}
 
-	// No wait-for-gone, no explicit start: recv's own reconnect brings the
-	// daemon back autonomously. publishUntilDeliveredTolerant rides out
-	// the transient gap while that happens; a more generous deadline than
-	// wireTimeout gives EnsureDaemon's own dial-timeout-and-spawn-wait
-	// cycle (which this reconnect can genuinely traverse more than once)
-	// comfortable room without the test racing its own bound.
+	// recv's own reconnect brings the daemon back. The generous deadline gives
+	// EnsureDaemon's dial-timeout-and-spawn-wait cycle, which this reconnect can
+	// traverse more than once, room without racing the test's own bound.
 	env2 := publishUntilDeliveredTolerant(t, addr, "potato", "sess-sender", "after restart", delivered, 5*time.Second)
 	if env2.Text != "after restart" {
 		t.Fatalf("Text after restart = %q, want %q — recv did not survive the restart", env2.Text, "after restart")
@@ -1358,13 +1251,11 @@ func TestRecvStream_DaemonRestart_ReconnectsAndKeepsDelivering(t *testing.T) {
 	}
 }
 
-// TestRecvStream_DaemonGenuinelyUnreachable_ExitsNonZero is the other half
-// of item 3's contract: when reconnecting truly cannot succeed — no daemon
-// ever comes back, mirroring TestDialDaemonRecovered_RecoveryFailsPersistentlyNoLoop's
-// own "Spawn never opens the socket" fixture — recvStream must exit non-zero
-// instead of the old exit-0-on-a-quietly-dead-stream behavior, so a Monitor
-// surfaces the fault (docs/spec/atomic-bus.md: "a genuinely unreachable
-// daemon makes it exit non-zero").
+// TestRecvStream_DaemonGenuinelyUnreachable_ExitsNonZero is the other half of item 3's
+// contract: when reconnecting truly cannot succeed — no daemon ever comes back,
+// mirroring TestDialDaemonRecovered_RecoveryFailsPersistentlyNoLoop's own "Spawn never
+// opens the socket" fixture — recvStream must exit non-zero instead of the old
+// exit-0-on-a-quietly-dead-stream behavior, so a Monitor surfaces the fault.
 func TestRecvStream_DaemonGenuinelyUnreachable_ExitsNonZero(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -1429,7 +1320,7 @@ func TestRecvStream_DaemonGenuinelyUnreachable_ExitsNonZero(t *testing.T) {
 // reconnect after a close: Hub.Subscribe (which any reconnect attempt would
 // call) recreates a room via getOrCreateRoom, so a wrongly-reconnecting recv
 // would make "potato" reappear in `rooms` even though nothing is a member
-// of it — the exact resurrection docs/spec/atomic-bus.md's "close" entry
+// of it — the exact resurrection a close
 // exists to prevent.
 func TestRecvStream_RoomClosed_DoesNotResurrectTheRoomByReconnecting(t *testing.T) {
 	home := testBusHome(t)
@@ -1440,8 +1331,7 @@ func TestRecvStream_RoomClosed_DoesNotResurrectTheRoomByReconnecting(t *testing.
 	}
 	// recvStream always subscribes with SkipSelf, so a message this test
 	// wants delivered on recv must come from a different, also-joined
-	// session (docs/spec/atomic-bus.md: "a subscriber does not receive its
-	// own published messages").
+	// session.
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: KindAgent, Session: "sess-other"}); !resp.OK {
 		t.Fatalf("seed join sess-other: %s", resp.Error)
 	}
@@ -2002,10 +1892,8 @@ func TestStopAction_ShutsDownRunningDaemon(t *testing.T) {
 		t.Fatal("serveAction did not exit after stop")
 	}
 
-	// The socket file is unlinked on close (net.Listen's default
-	// SetUnlinkOnClose behavior — see daemon.go's Serve doc): a dial must
-	// now fail, proving the daemon actually stopped rather than merely
-	// acknowledging the shutdown request.
+	// The socket is unlinked on close, so a dial must now fail — proving the
+	// daemon actually stopped rather than merely acknowledging the request.
 	if _, err := net.DialTimeout("unix", SocketPath(home), 200*time.Millisecond); err == nil {
 		t.Fatal("expected the socket to be gone after stop, but a dial succeeded")
 	}
@@ -2023,8 +1911,7 @@ func TestStopAction_NoDaemon_ExitOK(t *testing.T) {
 	}
 }
 
-// TestStartAction_ColdStart_SpawnsAndReportsStarted is start's cold path:
-// nothing listening, one spawn, a "daemon started" confirmation.
+// start's cold path: nothing listening, one spawn, a "daemon started" line.
 func TestStartAction_ColdStart_SpawnsAndReportsStarted(t *testing.T) {
 	home := testBusHome(t)
 	if err := EnsureDirs(home); err != nil {
@@ -2050,9 +1937,8 @@ func TestStartAction_ColdStart_SpawnsAndReportsStarted(t *testing.T) {
 	}
 }
 
-// TestStartAction_Idempotent_SecondStartDoesNotSpawnASecondDaemon is the
-// explicit success criterion: a second start against an already-running,
-// version-compatible daemon reports that and does not spawn again.
+// A second start against a running, version-compatible daemon reports that and
+// does not spawn again.
 func TestStartAction_Idempotent_SecondStartDoesNotSpawnASecondDaemon(t *testing.T) {
 	home := testBusHome(t)
 	if err := EnsureDirs(home); err != nil {
@@ -2083,9 +1969,8 @@ func TestStartAction_Idempotent_SecondStartDoesNotSpawnASecondDaemon(t *testing.
 	}
 }
 
-// TestRestartAction_WorksWhenRunning_RosterSurvives proves restart against
-// a live daemon holding a joined session: exactly one spawn, and the
-// roster comes back via the respawned daemon's own rehydration.
+// restart against a live daemon holding a joined session: exactly one spawn, and
+// the roster comes back through the respawned daemon's own rehydration.
 func TestRestartAction_WorksWhenRunning_RosterSurvives(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -2116,9 +2001,8 @@ func TestRestartAction_WorksWhenRunning_RosterSurvives(t *testing.T) {
 	}
 }
 
-// TestRestartAction_WorksWhenNotRunning_DegeneratesToStart proves restart
-// with nothing listening: stopAction's own "no daemon" case is exit 0, so
-// restart falls straight through to a plain start.
+// With nothing listening, stopAction's "no daemon" case is exit 0, so restart
+// falls through to a plain start.
 func TestRestartAction_WorksWhenNotRunning_DegeneratesToStart(t *testing.T) {
 	home := testBusHome(t)
 	if err := EnsureDirs(home); err != nil {
@@ -2146,11 +2030,8 @@ func TestRestartAction_WorksWhenNotRunning_DegeneratesToStart(t *testing.T) {
 
 // --- serve: malformed persisted state must not block startup ---
 
-// TestServeAction_MalformedBusJSON_DegradesToEmptyRosterAndStillServes pins
-// the startup-degrade contract: a corrupt ~/.atomic/bus.json must not
-// prevent the daemon from coming up — it starts with an empty roster
-// instead of failing outright (docs/spec/atomic-bus.md's daemon-restart
-// criteria).
+// A corrupt ~/.atomic/bus.json must not prevent the daemon from coming up: it
+// starts with an empty roster instead of failing outright.
 func TestServeAction_MalformedBusJSON_DegradesToEmptyRosterAndStillServes(t *testing.T) {
 	home := testBusHome(t)
 	if err := EnsureDirs(home); err != nil {
@@ -2213,10 +2094,9 @@ func TestServeAction_MalformedBusJSON_DegradesToEmptyRosterAndStillServes(t *tes
 
 // --- send: unknown addressee warns but still delivers ---
 
-// captureStderr redirects os.Stderr for the duration of fn and returns
-// everything written to it. Bus verbs write warnings and errors directly to
-// os.Stderr (this file's convention throughout), so asserting on that
-// content needs a real fd swap, not merely passing a different io.Writer.
+// captureStderr redirects os.Stderr for fn and returns what was written. Bus
+// verbs write warnings straight to os.Stderr, so asserting on that needs a real
+// fd swap, not a different io.Writer.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	orig := os.Stderr
@@ -2237,10 +2117,8 @@ func captureStderr(t *testing.T, fn func()) string {
 	return string(b)
 }
 
-// TestSendAction_UnknownAddressee_WarnsOnStderrStillExitsOK is the manual
-// repro's exact shape: `send potato "ghost" --to nobody-here` must still
-// deliver and exit 0 (a named member may legitimately be about to join),
-// but the sender must not be told nothing.
+// An unknown addressee must still deliver and exit 0 — a named member may be
+// about to join — but the sender must not be told nothing.
 func TestSendAction_UnknownAddressee_WarnsOnStderrStillExitsOK(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -2362,11 +2240,9 @@ func TestParseFlags_PositionalBeforeFlags(t *testing.T) {
 	}
 }
 
-// newTestFlagSet builds a FlagSet with one flag of each shape parseFlags
-// has to distinguish: a string ("--text"/"--as"), a bool ("--json"), and
-// a second string ("--mode") so repeated/second-flag cases have something
-// to target. Output is silenced so a deliberately-triggered usage error
-// doesn't spam test output.
+// newTestFlagSet registers one flag of each shape parseFlags distinguishes: two
+// strings and a bool. Output is silenced so a deliberate usage error does not
+// spam test output.
 func newTestFlagSet() (*flag.FlagSet, *string, *string, *bool) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -2378,12 +2254,10 @@ func newTestFlagSet() (*flag.FlagSet, *string, *string, *bool) {
 	return fs, &text, &mode, &jsonOut
 }
 
-// TestParseFlags_PositionalBeginningWithDash pins the reviewer's repro:
-// parseFlags(fs, []string{"myroom", "-1"}) used to fail with "flag
-// provided but not defined: -1" because the re-delegating loop re-fired
-// stdlib's "starts with -, therefore an unknown flag" rejection on the
-// second token. A single-dash positional — a negative number, a diff
-// line, a stack-trace frame — must be accepted as text.
+// parseFlags(fs, []string{"myroom", "-1"}) once failed with "flag provided but
+// not defined: -1" because the re-delegating loop re-fired stdlib's "starts with
+// -, therefore unknown flag" rejection. A single-dash positional — a negative
+// number, a diff line, a stack frame — must be accepted as text.
 func TestParseFlags_PositionalBeginningWithDash(t *testing.T) {
 	fs, _, _, _ := newTestFlagSet()
 
@@ -2396,9 +2270,8 @@ func TestParseFlags_PositionalBeginningWithDash(t *testing.T) {
 	}
 }
 
-// TestParseFlags_DashAlone_StaysPositional proves "-" — the send verb's
-// literal stdin sentinel (readText) — is never mistaken for a flag: it is
-// too short to have the "--name" shape at all.
+// "-" is send's literal stdin sentinel and too short to have the "--name" shape,
+// so it is never mistaken for a flag.
 func TestParseFlags_DashAlone_StaysPositional(t *testing.T) {
 	fs, _, _, _ := newTestFlagSet()
 
@@ -2411,8 +2284,7 @@ func TestParseFlags_DashAlone_StaysPositional(t *testing.T) {
 	}
 }
 
-// TestParseFlags_LongFlagEqualsValue proves "--flag=value" is a
-// self-contained token: the value must not be looked for in the next
+// "--flag=value" is self-contained: the value must not be sought in the next
 // argv slot.
 func TestParseFlags_LongFlagEqualsValue(t *testing.T) {
 	fs, text, _, _ := newTestFlagSet()
@@ -2429,8 +2301,7 @@ func TestParseFlags_LongFlagEqualsValue(t *testing.T) {
 	}
 }
 
-// TestParseFlags_LongFlagSpaceValue proves "--flag value" (two argv
-// tokens) still works after the rewrite.
+// "--flag value" as two argv tokens still works.
 func TestParseFlags_LongFlagSpaceValue(t *testing.T) {
 	fs, text, _, _ := newTestFlagSet()
 
@@ -2446,10 +2317,8 @@ func TestParseFlags_LongFlagSpaceValue(t *testing.T) {
 	}
 }
 
-// TestParseFlags_FlagValueBeginningWithDash proves a flag's value token
-// is taken verbatim, even when it looks like a flag itself (e.g. a
-// negative number passed as --text -1) — the scanner never re-classifies
-// the token it already committed to consuming as a value.
+// A flag's value token is taken verbatim even when it looks like a flag itself:
+// the scanner never re-classifies a token it committed to consuming as a value.
 func TestParseFlags_FlagValueBeginningWithDash(t *testing.T) {
 	fs, text, _, _ := newTestFlagSet()
 
@@ -2465,9 +2334,8 @@ func TestParseFlags_FlagValueBeginningWithDash(t *testing.T) {
 	}
 }
 
-// TestParseFlags_DoubleDashTerminatesPositional proves a bare "--" ends
-// flag scanning: every token after it is positional, even one shaped
-// exactly like a registered flag.
+// A bare "--" ends flag scanning: every token after it is positional, even one
+// shaped exactly like a registered flag.
 func TestParseFlags_DoubleDashTerminatesPositional(t *testing.T) {
 	fs, text, _, _ := newTestFlagSet()
 
@@ -2489,10 +2357,8 @@ func TestParseFlags_DoubleDashTerminatesPositional(t *testing.T) {
 	}
 }
 
-// TestParseFlags_UnknownDoubleDashFlagRejected proves the fix does not
-// overcorrect into silently swallowing every unrecognized "--" token as a
-// positional — a token shaped like a flag that names nothing registered
-// on fs is still a hard usage error.
+// The fix must not overcorrect into swallowing every unrecognized "--" token as
+// a positional: one naming nothing registered is still a hard usage error.
 func TestParseFlags_UnknownDoubleDashFlagRejected(t *testing.T) {
 	fs, _, _, _ := newTestFlagSet()
 
@@ -2502,9 +2368,8 @@ func TestParseFlags_UnknownDoubleDashFlagRejected(t *testing.T) {
 	}
 }
 
-// TestParseFlags_RepeatedFlag_LastWins proves a flag passed twice does not
-// error or desync the scanner — later wins, matching flag.FlagSet's own
-// single-token Set semantics.
+// A flag passed twice must not error or desync the scanner — later wins,
+// matching flag.FlagSet's own single-token Set semantics.
 func TestParseFlags_RepeatedFlag_LastWins(t *testing.T) {
 	fs, text, _, _ := newTestFlagSet()
 
@@ -2520,8 +2385,8 @@ func TestParseFlags_RepeatedFlag_LastWins(t *testing.T) {
 	}
 }
 
-// TestParseFlags_MissingValueAtEnd proves a flag with no value token left
-// in argv is a clean usage error, not a panic or a swallowed flag name.
+// A flag with no value token left is a clean usage error, not a panic or a
+// swallowed flag name.
 func TestParseFlags_MissingValueAtEnd(t *testing.T) {
 	fs, _, _, _ := newTestFlagSet()
 
@@ -2531,8 +2396,7 @@ func TestParseFlags_MissingValueAtEnd(t *testing.T) {
 	}
 }
 
-// TestParseFlags_EmptyValue proves "--flag=" (an explicit empty value) is
-// accepted, not rejected or confused with a missing value.
+// "--flag=" is an explicit empty value, not a missing one.
 func TestParseFlags_EmptyValue(t *testing.T) {
 	fs, text, _, _ := newTestFlagSet()
 
@@ -2548,9 +2412,7 @@ func TestParseFlags_EmptyValue(t *testing.T) {
 	}
 }
 
-// TestParseFlags_BoolFlagDoesNotConsumeNextToken proves a bool flag like
-// --json never swallows the following positional as its value — isBoolFlag
-// has to correctly identify it as argument-free.
+// A bool flag must never swallow the following positional as its value.
 func TestParseFlags_BoolFlagDoesNotConsumeNextToken(t *testing.T) {
 	fs, _, _, jsonOut := newTestFlagSet()
 
@@ -2568,10 +2430,7 @@ func TestParseFlags_BoolFlagDoesNotConsumeNextToken(t *testing.T) {
 
 // --- halt / resume ---
 
-// TestHaltAction_BlocksAgentSend_SayStillSucceeds_ResumeRestores is the
-// action-layer marquee test for the whole checkpoint 5 halt/say asymmetry
-// (docs/spec/atomic-bus.md: "`halt` blocks an agent `send` with exit 7
-// while `say` still succeeds; `resume` restores").
+// The action-layer marquee test for the whole halt/say asymmetry.
 func TestHaltAction_BlocksAgentSend_SayStillSucceeds_ResumeRestores(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -2641,8 +2500,7 @@ func TestResumeAction_UnknownRoom_ExitNoRoom(t *testing.T) {
 
 // --- say ---
 
-// TestSayAction_PublishesAsHuman_NoRosterMemberAdded proves say's kind and
-// its "never occupies a name" contract at the action layer.
+// say's kind and its "never occupies a name" contract at the action layer.
 func TestSayAction_PublishesAsHuman_NoRosterMemberAdded(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -2774,9 +2632,8 @@ func TestResolveTailRooms_ExplicitRoom_NoPrefix(t *testing.T) {
 	}
 }
 
-// TestResolveTailRooms_NoExplicit_ExactlyOneRoom_DefaultsToAllRoomsPrefix
-// pins docs/spec/atomic-bus.md CP5, quoted verbatim: "[--all-rooms] is the
-// default when no room argument is given and exactly one room exists."
+// --all-rooms is the default when no room argument is given and exactly one room
+// exists.
 func TestResolveTailRooms_NoExplicit_ExactlyOneRoom_DefaultsToAllRoomsPrefix(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -2862,9 +2719,7 @@ func TestTailAction_TooManyPositionals_ExitUsage(t *testing.T) {
 
 // --- tail: tailStream (the subscription loop, factored like recvStream) ---
 
-// TestTailStream_SeesMessageAddressedToOtherMember_NotInWho is the
-// checkpoint's headline success criterion: tail sees mail addressed to
-// someone else, and never appears in who.
+// tail sees mail addressed to someone else, and never appears in who.
 func TestTailStream_SeesMessageAddressedToOtherMember_NotInWho(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -2916,8 +2771,7 @@ func TestTailStream_SeesMessageAddressedToOtherMember_NotInWho(t *testing.T) {
 	}
 }
 
-// TestTailStream_TwoConcurrentTails_BothReceiveEverything_NeitherOccupiesName
-// proves two operators can watch the same room simultaneously.
+// Two operators can watch the same room simultaneously.
 func TestTailStream_TwoConcurrentTails_BothReceiveEverything_NeitherOccupiesName(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -2991,7 +2845,6 @@ func TestTailStream_TwoConcurrentTails_BothReceiveEverything_NeitherOccupiesName
 	}
 }
 
-// TestTailStream_OnlyAddressedFilter_DropsFYIMessages proves
 // --only-addressed's filter.
 func TestTailStream_OnlyAddressedFilter_DropsFYIMessages(t *testing.T) {
 	home := testBusHome(t)
@@ -3016,10 +2869,9 @@ func TestTailStream_OnlyAddressedFilter_DropsFYIMessages(t *testing.T) {
 	delivered := make(chan Envelope, 1)
 	go decodeEnvelopesInto(pr, delivered)
 
-	// The FYI send below must never surface on delivered; a retried
-	// addressed send is the only thing the filter should let through —
-	// polled so a filtered FYI cannot be mistaken for "nothing published
-	// yet".
+	// The FYI send must never surface on delivered; a retried addressed send is
+	// the only thing the filter should let through — polled so a filtered FYI
+	// cannot be mistaken for "nothing published yet".
 	dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-be", Text: "fyi, ignore"})
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
@@ -3130,16 +2982,14 @@ func TestTailStream_PlainOutput_NoColour_NoANSIEscapes(t *testing.T) {
 		t.Fatalf("dialDaemon: %v", err)
 	}
 
-	// io.Pipe, not a bare bytes.Buffer shared across goroutines: a
-	// *bytes.Buffer is not safe for the concurrent write (tailStream's
-	// goroutine) + read (this goroutine) this test needs — io.Pipe
-	// synchronizes the handoff instead of racing on shared memory.
+	// io.Pipe, not a bytes.Buffer: a Buffer is not safe for the concurrent write
+	// (tailStream's goroutine) and read (this one) this test needs.
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
 	streamDone := make(chan int, 1)
-	// colour=false here matches what tailAction computes for any
-	// non-terminal destination (isTerminalWriter's own *os.File check).
+	// colour=false matches what tailAction computes for any non-terminal
+	// destination.
 	go func() {
 		streamDone <- tailStream(client, []string{"potato"}, false, "", false, false, false, home, 80, pw)
 	}()
@@ -3151,10 +3001,8 @@ func TestTailStream_PlainOutput_NoColour_NoANSIEscapes(t *testing.T) {
 		captured <- buf[:n]
 	}()
 
-	// Retried, not a single send: the subscription registers asynchronously
-	// (tailStream's own goroutine has to reach client.Subscribe before the
-	// daemon's fan-out will see it), and there is no backlog to fall back
-	// on if a send lands before that — see daemon.go's subscribe doc.
+	// Retried, not a single send: the subscription registers asynchronously and
+	// there is no backlog to fall back on if a send lands before it does.
 	var got []byte
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
@@ -3188,7 +3036,7 @@ loop:
 	}
 }
 
-// --- who: kind visible in table and --json (docs/spec/atomic-bus.md CP5) ---
+// --- who: kind visible in table and --json (docs/spec/atomic-bus.md) ---
 
 func TestWhoAction_TableOutput_ShowsKind(t *testing.T) {
 	home := testBusHome(t)
@@ -3229,10 +3077,8 @@ func TestWhoAction_JSONOutput_ShowsKind(t *testing.T) {
 	}
 }
 
-// --- who: repo/realm columns, no separate qualified display form
-// (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is
-// the role" entry — the name is already qualified, so who has no seventh
-// column repeating it) ---
+// --- who: repo/realm columns; the name is already the position, so there is no
+// seventh column repeating it ---
 
 func TestWhoAction_TableOutput_ShowsRepoAndRealm_NoQualifiedColumn(t *testing.T) {
 	home := testBusHome(t)
@@ -3304,18 +3150,14 @@ func TestTerminalWidth_NonFileWriter_ReturnsDefault(t *testing.T) {
 
 // --- chat: end-to-end wiring (join, live subscription, /quit's leave) ---
 //
-// chat_test.go's own tests drive Chat directly against spies and no daemon
-// at all — the right level for exercising the redraw/backlog logic without
-// paying for a socket round trip on every assertion. This one test instead
-// proves chatAction's wiring: join really happens (visible in a real who
-// round trip, kind human), and /quit really leaves (bus.json cleared),
-// exactly as joinAction/leaveAction's own tests prove for their verbs.
+// chat_test.go drives Chat directly against spies and no daemon — the right
+// level for the redraw/backlog logic. This one test proves chatAction's wiring:
+// join really happens (visible in a real who round trip, kind human), and /quit
+// really leaves (bus.json cleared).
 
-// waitForBufferContains polls buf until it contains want, bounded by
-// wireTimeout — chatAction's join confirmation and Chat's own redraw output
-// land on buf from a background goroutine, so this is the same
-// poll-until-condition pattern publishUntilDelivered/waitForDaemonGone use
-// above for the identical cross-goroutine reason.
+// waitForBufferContains polls buf until it contains want. chatAction's join
+// confirmation and Chat's redraw output land on buf from a background goroutine,
+// so this is the same poll-until-condition pattern used above.
 func waitForBufferContains(t *testing.T, buf *syncBuffer, want string) {
 	t.Helper()
 	deadline := time.Now().Add(wireTimeout)

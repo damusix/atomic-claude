@@ -18,8 +18,7 @@ var agentOrder = []string{
 	"atomic-wiki-inferrer",
 }
 
-// effortOptionLabels maps an effort option value to its label in the
-// interactive Select. Terse and factual — no per-agent editorializing.
+// effortOptionLabels maps an effort option value to its label in the Select.
 var effortOptionLabels = map[string]string{
 	"":       "(bundled default)",
 	"low":    "low",
@@ -29,15 +28,13 @@ var effortOptionLabels = map[string]string{
 	"max":    "max",
 }
 
-// applyAgentOverrides merges selections into cfg.Claude.Agents.
-// A selection with both Model and Effort empty removes the agent's entry
-// from [claude.agents] (no override). Effort is validated against the strict
-// enum; model is never a hard failure (lenient — see AgentWarnings for the
-// non-fatal malformed-model check). Pure function: no I/O, no TTY interaction.
+// applyAgentOverrides merges selections into cfg.Claude.Agents. A selection with
+// both fields empty removes the agent's entry. Effort is validated against the
+// strict enum; model is lenient and never a hard failure. Pure: no I/O, no TTY.
 func applyAgentOverrides(cfg *Config, selections map[string]AgentOverride) error {
 	for agentName, ov := range selections {
 		if ov.Model == "" && ov.Effort == "" {
-			// "leave unchanged / use bundled default" — remove any existing override.
+			// Leave unchanged: remove any existing override.
 			if cfg.Claude.Agents != nil {
 				delete(cfg.Claude.Agents, agentName)
 			}
@@ -51,25 +48,23 @@ func applyAgentOverrides(cfg *Config, selections map[string]AgentOverride) error
 		}
 		cfg.Claude.Agents[agentName] = ov
 	}
-	// Nil out empty map so TOML omits the [claude.agents] table when no overrides remain.
+	// Nil out the empty map so TOML omits [claude.agents] entirely.
 	if len(cfg.Claude.Agents) == 0 {
 		cfg.Claude.Agents = nil
 	}
 	return nil
 }
 
-// ErrNonInteractiveAgents is returned by AgentTierSelector when the terminal
-// is not interactive. Distinct from prompt.ErrNonInteractive so callers in
-// cli.go can avoid importing internal/prompt.
+// ErrNonInteractiveAgents is returned when the terminal is not interactive.
+// Distinct from prompt.ErrNonInteractive so cli.go need not import that package.
 var ErrNonInteractiveAgents = errors.New("atomic config agents: non-interactive terminal")
 
 // ErrAgentsAborted is returned when the user aborts the huh form (Ctrl+C).
 var ErrAgentsAborted = errors.New("atomic config agents: user aborted")
 
-// validateModelInput is the huh.Input validator for the model field. Empty
-// is always valid (no override); a non-empty value must satisfy
-// validModelFormat. Named and exported at package scope so it is
-// unit-testable without spawning a TTY.
+// validateModelInput is the model field's huh.Input validator. Empty is always
+// valid; a non-empty value must satisfy validModelFormat. At package scope so it
+// is unit-testable without spawning a TTY.
 func validateModelInput(s string) error {
 	if s == "" || validModelFormat(s) {
 		return nil
@@ -77,11 +72,9 @@ func validateModelInput(s string) error {
 	return fmt.Errorf("no spaces; use a tier (opus) or a model id (claude-opus-4-8)")
 }
 
-// defaultAgentTierSelector presents a huh-backed form — a free-text model
-// Input plus an effort Select per agent — and returns the chosen
-// AgentOverride per agent. Both fields empty means "use bundled default /
-// no override". Returns ErrNonInteractiveAgents when stdin or stdout is not
-// a TTY.
+// defaultAgentTierSelector presents a model Input plus an effort Select per agent
+// and returns the chosen AgentOverride. Both fields empty means no override.
+// Returns ErrNonInteractiveAgents when stdin or stdout is not a TTY.
 func defaultAgentTierSelector(cfg *Config) (map[string]AgentOverride, error) {
 	if !isAgentsTTY() {
 		return nil, ErrNonInteractiveAgents
@@ -134,19 +127,17 @@ func defaultAgentTierSelector(cfg *Config) (map[string]AgentOverride, error) {
 	return selections, nil
 }
 
-// isAgentsTTY reports whether both stdin and stdout are connected to a terminal.
-// Extracted as a variable for testing.
+// isAgentsTTY reports whether stdin and stdout are both terminals. A variable so
+// tests can override it.
 var isAgentsTTY = func() bool {
 	return charmterm.IsTerminal(os.Stdin.Fd()) &&
 		charmterm.IsTerminal(os.Stdout.Fd())
 }
 
-// DefaultAgentTierSelector is the production AgentTierSelector implementation.
-// Exported so tests can restore it after overriding AgentTierSelector.
+// DefaultAgentTierSelector is the production implementation, exported so tests
+// can restore it after overriding AgentTierSelector.
 var DefaultAgentTierSelector = defaultAgentTierSelector
 
-// AgentTierSelector is the injectable seam for the interactive agent override
-// selection. Production code uses defaultAgentTierSelector (huh-backed).
-// Tests override this to return crafted selections without spawning a TTY.
-// Signature: func(cfg *Config) (map[string]AgentOverride, error)
+// AgentTierSelector is the injectable seam for interactive override selection.
+// Tests override it to return crafted selections without spawning a TTY.
 var AgentTierSelector = defaultAgentTierSelector

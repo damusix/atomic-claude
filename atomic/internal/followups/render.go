@@ -7,27 +7,22 @@ import (
 	"time"
 )
 
-// Render produces the INDEX.md content from entries and a reference date (today).
-// Section order: 📋 plans → 🟡 risks → 🔵 nits → ❓ questions.
-// Age is always in days. Stale = today > review_by.
-// Plans are excluded from severity buckets.
+// Render builds INDEX.md against a reference date. Sections run plans, risks,
+// nits, questions; age is in days and stale means today > review_by.
 func Render(entries []Entry, today time.Time) string {
-	// Split by kind: plans go to their own section; findings go to severity buckets.
 	plans := filterByKind(entries, KindPlan)
 	findings := filterByKind(entries, KindFinding)
 
-	// Bucket findings by severity.
 	risks := filterBySeverity(findings, SeverityRisk)
 	nits := filterBySeverity(findings, SeverityNit)
 	questions := filterBySeverity(findings, SeverityQuestion)
 
-	// Sort each bucket by id for deterministic output.
+	// Sort by id so output is deterministic.
 	sortEntries(plans)
 	sortEntries(risks)
 	sortEntries(nits)
 	sortEntries(questions)
 
-	// Compute stale count across all finding entries only (plans are exempt).
 	staleCount := 0
 	for _, e := range findings {
 		if isStale(e, today) {
@@ -90,8 +85,7 @@ func filterBySeverity(entries []Entry, sev Severity) []Entry {
 func filterByKind(entries []Entry, knd Kind) []Entry {
 	var out []Entry
 	for _, e := range entries {
-		// Entries with an empty Kind are treated as KindFinding for back-compat
-		// (direct struct construction in tests, pre-existing entries via ParseEntry).
+		// An empty Kind means a finding, for entries predating the field.
 		effective := e.Kind
 		if effective == "" {
 			effective = KindFinding
@@ -125,9 +119,8 @@ func sortEntries(entries []Entry) {
 	})
 }
 
-// isStale returns true when today is strictly after review_by.
 func isStale(e Entry, today time.Time) bool {
-	// Plans are a backlog, not findings going cold — never stale.
+	// A plan is a backlog, not a finding going cold.
 	if e.Kind == KindPlan {
 		return false
 	}
@@ -138,15 +131,12 @@ func isStale(e Entry, today time.Time) bool {
 	if err != nil {
 		return false
 	}
-	// Normalize today to midnight for day-level comparison.
 	t := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
 	return t.After(rb)
 }
 
-// ageInDays computes the number of days between created and today.
-// Returns -1 if created is unparseable or is in the future (clock skew /
-// typo); callers should render that as `?d` rather than silently masking
-// the anomaly as `0d`.
+// ageInDays returns -1 for an unparseable or future created date, which callers
+// render as `?d` rather than masking the anomaly as `0d`.
 func ageInDays(created string, today time.Time) int {
 	c, err := time.Parse("2006-01-02", created)
 	if err != nil {
@@ -160,8 +150,7 @@ func ageInDays(created string, today time.Time) int {
 	return days
 }
 
-// formatAge renders an age-in-days value for the INDEX. Negative values
-// signal "unknown / future" and render as `?d` to surface the anomaly.
+// formatAge renders a negative age as `?d`.
 func formatAge(days int) string {
 	if days < 0 {
 		return "?d"

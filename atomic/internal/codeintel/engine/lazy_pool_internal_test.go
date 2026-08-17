@@ -1,19 +1,9 @@
 package engine
 
-// Internal test (package engine) for the lazy extraction-pool invariant.
-//
-// WHY this exists: the extraction pool spins up one wazero runtime per CPU and
-// compiles every tree-sitter WASM grammar. Measured cost on a real repo:
-// ~4.7 s of CPU and ~1.9 GB peak RSS — paid once per pool. Read-only queries
-// (search, callers, callees, impact, explore, context) are pure SQLite reads
-// and need no parser at all. Before the lazy fix, open() built the pool
-// unconditionally, so every single `atomic code search` invocation — and every
-// serve/MCP read — paid the full grammar-compile tax to return a DB row.
-//
-// The pool is observable only as a private field, so this must live in
-// package engine. It pins a resource-lifecycle guarantee, not an implementation
-// detail: the pool may not be allocated until a method that actually parses
-// source (IndexAll / IndexFiles / Sync) needs it.
+// Pins a resource-lifecycle guarantee: the extraction pool may not be allocated
+// until a method that actually parses source needs it. Booting it costs ~4.7 s
+// CPU and ~1.9 GB peak RSS, which no read-only query should ever pay. In package
+// engine because the pool is only observable as a private field.
 
 import (
 	"context"
@@ -40,7 +30,6 @@ func TestReadPathDoesNotBootExtractionPool(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Init opens (creates) the DB. It must NOT compile WASM grammars.
 	if err := eng.Init(ctx); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
@@ -48,7 +37,6 @@ func TestReadPathDoesNotBootExtractionPool(t *testing.T) {
 		t.Fatal("Init booted the extraction pool — opening the DB must stay parser-free")
 	}
 
-	// A read query must stay DB-only.
 	if _, err := eng.GetStats(ctx); err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
@@ -56,7 +44,6 @@ func TestReadPathDoesNotBootExtractionPool(t *testing.T) {
 		t.Fatal("a read query booted the extraction pool — reads must never touch tree-sitter")
 	}
 
-	// Indexing boots the pool + orchestrator on demand.
 	if err := eng.IndexAll(ctx); err != nil {
 		t.Fatalf("IndexAll: %v", err)
 	}
@@ -64,6 +51,5 @@ func TestReadPathDoesNotBootExtractionPool(t *testing.T) {
 		t.Fatal("IndexAll did not lazily boot the orchestrator/pool")
 	}
 
-	// SkippedFiles must be safe to read after an index.
 	_ = eng.SkippedFiles()
 }

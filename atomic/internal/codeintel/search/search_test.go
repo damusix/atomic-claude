@@ -1,15 +1,8 @@
 package search_test
 
-// Tests for the search package (master CP18, appendix J).
-//
-// Fixture nodes cover:
-//   - functions/methods/classes/a route/a test file
-//   - names that collide on prefix (Parser, parseQuery, parse_utils)
-//   - one node only findable by LIKE (no FTS token — name "xyz123abc" with
-//     query "xyz123" → LIKE finds it; FTS prefix-match won't for short tokens)
-//   - one node only findable by fuzzy (query "parseQeury" typo → fuzzy finds "parseQuery")
-//
-// TDD: all tests run against a known corpus via db.Open(t.TempDir()).
+// The shared fixture deliberately includes prefix-colliding names plus one node
+// each reachable only by LIKE and only by fuzzy, so every tier has a case that
+// isolates it.
 
 import (
 	"context"
@@ -23,10 +16,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Fixture helpers
-// ---------------------------------------------------------------------------
-
 func openTestDB(t *testing.T) *db.DB {
 	t.Helper()
 	database, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
@@ -37,17 +26,6 @@ func openTestDB(t *testing.T) *db.DB {
 	return database
 }
 
-// fixture inserts a standard corpus of nodes into the database:
-//
-//	fn_parse    – function "parseQuery"   in src/parser.go   (Go)
-//	fn_handle   – method  "handleRequest" in src/server.go   (Go)
-//	cls_parser  – class   "Parser"        in src/parser.ts   (TS)
-//	iface_repo  – interface "Repository"  in src/repo.ts     (TS)
-//	route_api   – route   "GET /api/items" in src/routes.ts  (TS)
-//	fn_util     – function "parse_utils"  in src/util.go     (Go)
-//	fn_test     – function "TestParseQuery" in src/parser_test.go (test file, Go)
-//	fn_likeonly – function "xyzSpecialName" in src/special.go (Go, LIKE-only)
-//	fn_fuzzy    – function "handleResponse" in src/resp.go    (Go, fuzzy-findable)
 func insertFixture(t *testing.T, database *db.DB) {
 	t.Helper()
 	ctx := context.Background()
@@ -113,13 +91,8 @@ func insertFixture(t *testing.T, database *db.DB) {
 			Language:      types.LanguageGo,
 			Docstring:     "TestParseQuery tests parseQuery function",
 		},
-		// LIKE-only: FTS won't find "xyzSpecial" for query "xyzSpec" because
-		// the name doesn't appear in the docstring/sig, so LIKE covers it.
-		// (FTS prefix-match does work; use a node with a name that has zero
-		// docstring/sig coverage to test the LIKE tier fires when FTS misses.)
-		// We make this findable ONLY by LIKE by using a name the FTS
-		// tokenizer would not produce a match for with a substring query.
-		// Strategy: name with a non-word prefix that FTS can't prefix-scan.
+		// Reachable only by LIKE: the name is shaped so the FTS tokenizer
+		// produces nothing a substring query can prefix-match.
 		{
 			ID:       "fn_likeonly",
 			Kind:     types.NodeKindFunction,
@@ -143,15 +116,10 @@ func insertFixture(t *testing.T, database *db.DB) {
 	}
 }
 
-// newSearcher creates a Searcher backed by the given db.
 func newSearcher(t *testing.T, database *db.DB) *search.Searcher {
 	t.Helper()
 	return search.New(database)
 }
-
-// ---------------------------------------------------------------------------
-// Query parser tests
-// ---------------------------------------------------------------------------
 
 func TestParseQuery_FieldKind(t *testing.T) {
 	got := search.ParseQuery("kind:function foo")
@@ -221,20 +189,14 @@ func TestParseQuery_CombinedFields(t *testing.T) {
 }
 
 func TestParseQuery_InvalidKindIgnored(t *testing.T) {
-	// Invalid kind value → Kind should remain empty (not panic, not corrupt)
 	got := search.ParseQuery("kind:notakind foo")
 	if got.Kind != "" {
 		t.Errorf("invalid kind: expected empty, got %q", got.Kind)
 	}
-	// The invalid token should be treated as FTS text
 	if !strings.Contains(got.FTSText, "foo") {
 		t.Errorf("FTSText should still contain 'foo', got %q", got.FTSText)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// KindBonus table-driven test
-// ---------------------------------------------------------------------------
 
 func TestKindBonus(t *testing.T) {
 	tests := []struct {
@@ -273,10 +235,6 @@ func TestKindBonus(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Tier 1 FTS: ranked results + field filters
-// ---------------------------------------------------------------------------
-
 func TestSearch_FTSTier_ReturnsResults(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
@@ -298,9 +256,7 @@ func TestSearch_FTSTier_ReturnsResults(t *testing.T) {
 }
 
 func TestSearch_FTSTier_RankOrder(t *testing.T) {
-	// After rescoring, the function node "parseQuery" (kindBonus=10) should
-	// outrank "TestParseQuery" (also kindBonus=10 but test-file downrank −15).
-	// This asserts rank order, not just non-empty.
+	// Both score kindBonus 10; the test file's downrank is what must separate them.
 	database := openTestDB(t)
 	insertFixture(t, database)
 	s := newSearcher(t, database)
@@ -313,7 +269,6 @@ func TestSearch_FTSTier_RankOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// fn_parse must rank above fn_test (test-file downrank -15)
 	fnParseIdx := -1
 	fnTestIdx := -1
 	for i, r := range results {
@@ -336,7 +291,6 @@ func TestSearch_FTSTier_RankOrder(t *testing.T) {
 }
 
 func TestSearch_FTSTier_ScoresDescending(t *testing.T) {
-	// Result scores must be in non-ascending order (best first).
 	database := openTestDB(t)
 	insertFixture(t, database)
 	s := newSearcher(t, database)
@@ -441,12 +395,7 @@ func TestSearch_FieldFilter_Name(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test-file downrank
-// ---------------------------------------------------------------------------
-
 func TestSearch_TestFileDownrank_NonTestQuery(t *testing.T) {
-	// Non-test query: test file node ranks below equivalent non-test node.
 	database := openTestDB(t)
 	insertFixture(t, database)
 	s := newSearcher(t, database)
@@ -479,7 +428,6 @@ func TestSearch_TestFileDownrank_NonTestQuery(t *testing.T) {
 }
 
 func TestSearch_TestFileDownrank_TestQuery(t *testing.T) {
-	// A query that contains "test" should NOT downrank test files.
 	database := openTestDB(t)
 	insertFixture(t, database)
 	s := newSearcher(t, database)
@@ -492,10 +440,7 @@ func TestSearch_TestFileDownrank_TestQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Find fn_test score; it must NOT have -15 applied.
-	// The test: if fn_test score is close to fn_parse score (not -15 offset),
-	// the downrank was correctly skipped. We verify by checking the scores
-	// are within a reasonable range (not separated by 15).
+	// Scores close together prove the downrank was skipped.
 	fnParseScore := 0.0
 	fnTestScore := 0.0
 	for _, r := range results {
@@ -511,29 +456,17 @@ func TestSearch_TestFileDownrank_TestQuery(t *testing.T) {
 	}
 	diff := fnParseScore - fnTestScore
 	if diff > 14 {
-		// The -15 penalty is not supposed to apply here since query has "test"
 		t.Errorf("test-file score should not be downranked when query has 'test': diff=%.2f (>14)", diff)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Tier 2 LIKE fallback
-// ---------------------------------------------------------------------------
-
 func TestSearch_LIKETier_FiresOnFTSMiss(t *testing.T) {
-	// "xyzSpec" won't match via FTS prefix (xyzSpecialName is in the DB but
-	// has no docstring/sig — FTS only stores the name token). Actually FTS
-	// WILL prefix-match "xyzSpec*" → "xyzSpecialName". We need a query that
-	// truly gets zero FTS hits to force the LIKE tier.
-	// Use a name fragment like "SpecialN" (middle of name) — FTS prefix can't
-	// match mid-word, but LIKE substring can.
 	database := openTestDB(t)
 	insertFixture(t, database)
 	s := newSearcher(t, database)
 
-	// "SpecialN" is a substring in the middle of "xyzSpecialName" — not a prefix.
-	// FTS5 only does prefix matching within tokens; it can't find "SpecialN"
-	// as a mid-token substring. LIKE can.
+	// A mid-token substring: FTS5 prefix-matches within tokens and cannot
+	// reach it, so only LIKE can.
 	results, tier, err := s.Search(context.Background(), types.SearchOptions{
 		Query: "SpecialN",
 		Limit: 10,
@@ -559,7 +492,6 @@ func TestSearch_LIKETier_FiresOnFTSMiss(t *testing.T) {
 }
 
 func TestSearch_LIKETier_Scoring(t *testing.T) {
-	// Insert isolated nodes for LIKE scoring: exact, prefix, contains, qualified.
 	database := openTestDB(t)
 	ctx := context.Background()
 	nodes := []types.Node{
@@ -579,8 +511,7 @@ func TestSearch_LIKETier_Scoring(t *testing.T) {
 	}
 	s := newSearcher(t, database)
 
-	// Use a query that FTS won't match (no docstring/sig) — "arBa" is a
-	// mid-token substring. This forces LIKE tier.
+	// A mid-token substring forces the LIKE tier.
 	results, tier, err := s.Search(context.Background(), types.SearchOptions{
 		Query: "fooBar",
 		Limit: 10,
@@ -589,8 +520,6 @@ func TestSearch_LIKETier_Scoring(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Regardless of tier, check that exact > prefix > contains.
-	// (May be FTS if the names happen to FTS-match; just skip tier assertion.)
 	_ = tier
 
 	scores := map[string]float64{}
@@ -610,14 +539,9 @@ func TestSearch_LIKETier_Scoring(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Tier 3 Fuzzy (Levenshtein) fallback
-// ---------------------------------------------------------------------------
-
 func TestSearch_FuzzyTier_FiresOnLIKEMiss(t *testing.T) {
-	// Insert only "handleReq". Query "handlReq" (1-char deletion) should NOT
-	// match via LIKE (it's not a substring of "handleReq" in the right direction),
-	// but fuzzy with dist=1 should find it.
+	// A one-character deletion is not a substring either way, so LIKE misses
+	// and only the fuzzy tier can match.
 	database := openTestDB(t)
 	ctx := context.Background()
 	if err := database.UpsertNode(ctx, types.Node{
@@ -631,7 +555,6 @@ func TestSearch_FuzzyTier_FiresOnLIKEMiss(t *testing.T) {
 	}
 	s := newSearcher(t, database)
 
-	// "handlReq" is 1 edit from "handleReq" (delete 'e'), len=8 > 4, maxDist=2
 	results, tier, err := s.Search(context.Background(), types.SearchOptions{
 		Query: "handlReq",
 		Limit: 10,
@@ -653,8 +576,6 @@ func TestSearch_FuzzyTier_FiresOnLIKEMiss(t *testing.T) {
 func TestSearch_FuzzyTier_MaxDistBoundary(t *testing.T) {
 	database := openTestDB(t)
 	ctx := context.Background()
-	// "abcd" — 4 chars → maxDist=1
-	// "abcdef" — 6 chars → maxDist=2
 	nodes := []types.Node{
 		{ID: "short_node", Kind: types.NodeKindFunction, Name: "abcd",
 			FilePath: "src/a.go", Language: types.LanguageGo},
@@ -668,7 +589,6 @@ func TestSearch_FuzzyTier_MaxDistBoundary(t *testing.T) {
 	}
 	s := newSearcher(t, database)
 
-	// Query "abce" (1 substitution from "abcd") → len=4, maxDist=1 → should find
 	res1, _, err := s.Search(context.Background(), types.SearchOptions{
 		Query: "abce",
 		Limit: 10,
@@ -686,8 +606,6 @@ func TestSearch_FuzzyTier_MaxDistBoundary(t *testing.T) {
 		t.Error("'abce' should find 'abcd' with maxDist=1")
 	}
 
-	// Query "abcg" (1 substitution from "abcd") — still within dist=1 for len=4
-	// Query "abc" (1 deletion from "abcd") — dist=1, should find
 	res2, _, err := s.Search(context.Background(), types.SearchOptions{
 		Query: "abc",
 		Limit: 10,
@@ -695,10 +613,8 @@ func TestSearch_FuzzyTier_MaxDistBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// "abc" is len=3, maxDist=1. "abcd" is dist=1 from "abc" (insertion). Should find.
 	_ = res2 // LIKE may find it; we just don't crash
 
-	// Query "abcxyz" (3 edits from "abcd") — len=6, maxDist=2 but still 3 edits → should NOT find short_node
 	res3, _, err := s.Search(context.Background(), types.SearchOptions{
 		Query: "abcxyz",
 		Limit: 10,
@@ -714,12 +630,10 @@ func TestSearch_FuzzyTier_MaxDistBoundary(t *testing.T) {
 }
 
 func TestSearch_FuzzyTier_BoundedNoPanic(t *testing.T) {
-	// Ensure fuzzy doesn't panic or hang on long non-matching queries.
 	database := openTestDB(t)
 	insertFixture(t, database)
 	s := newSearcher(t, database)
 
-	// 30-char query with no match → should return empty quickly
 	results, _, err := s.Search(context.Background(), types.SearchOptions{
 		Query: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzz1",
 		Limit: 10,
@@ -727,16 +641,10 @@ func TestSearch_FuzzyTier_BoundedNoPanic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// We just check it doesn't hang (the test runner timeout would catch that).
 	_ = results
 }
 
-// ---------------------------------------------------------------------------
-// Determinism: ties broken by node ID
-// ---------------------------------------------------------------------------
-
 func TestSearch_DeterministicTiebreaker(t *testing.T) {
-	// Two nodes with identical names → same FTS score → sorted by ID.
 	database := openTestDB(t)
 	ctx := context.Background()
 	nodes := []types.Node{
@@ -752,7 +660,6 @@ func TestSearch_DeterministicTiebreaker(t *testing.T) {
 	}
 	s := newSearcher(t, database)
 
-	// Run search twice; results must be in same order both times.
 	run := func() []string {
 		results, _, err := s.Search(context.Background(), types.SearchOptions{
 			Query: "duplicateName",
@@ -777,12 +684,8 @@ func TestSearch_DeterministicTiebreaker(t *testing.T) {
 		t.Errorf("non-deterministic: run1=%v run2=%v", run1, run2)
 	}
 
-	// When two nodes have the same final score, the one with smaller ID comes first.
-	// "aaa_node" < "zzz_node"
 	if len(run1) >= 2 {
-		// Both should appear; aaa_node should come first if same score.
 		if run1[0] != "aaa_node" {
-			// Only assert if scores are equal (within epsilon)
 			results, _, _ := s.Search(context.Background(), types.SearchOptions{
 				Query: "duplicateName",
 				Limit: 10,
@@ -797,12 +700,7 @@ func TestSearch_DeterministicTiebreaker(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ScorePathRelevance: deterministic, shorter/central paths score higher
-// ---------------------------------------------------------------------------
-
 func TestScorePathRelevance(t *testing.T) {
-	// A node in a shallow path should score higher than one deeply nested.
 	shallow := types.Node{FilePath: "src/parser.go"}
 	deep := types.Node{FilePath: "src/internal/util/parser/deep/nested/file.go"}
 
@@ -813,10 +711,6 @@ func TestScorePathRelevance(t *testing.T) {
 		t.Errorf("shallow path (%.4f) should score > deep path (%.4f)", scoreShallow, scoreDeep)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 func equalStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
@@ -864,7 +758,6 @@ func TestSearch_NameMatchBonus(t *testing.T) {
 	for i, r := range results {
 		ids[i] = r.Node.ID
 	}
-	// Sort by score descending to get the expected order
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
@@ -882,13 +775,6 @@ func TestSearch_NameMatchBonus(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TierFilter: metadata-only search path (F-71)
-// ---------------------------------------------------------------------------
-
-// TestSearch_FilterTier_KindRoute verifies that "kind:route" (pure field query,
-// no free-text term) returns route nodes via TierFilter.
-// Fails on pre-fix code (returns empty); passes after the metadata-only path is added.
 func TestSearch_FilterTier_KindRoute(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database) // includes route_api with Kind=NodeKindRoute
@@ -914,8 +800,6 @@ func TestSearch_FilterTier_KindRoute(t *testing.T) {
 	}
 }
 
-// TestSearch_FilterTier_KindFunctionLangGo verifies that combined pure-field
-// query "kind:function lang:go" returns only Go functions via TierFilter.
 func TestSearch_FilterTier_KindFunctionLangGo(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
@@ -944,12 +828,9 @@ func TestSearch_FilterTier_KindFunctionLangGo(t *testing.T) {
 	}
 }
 
-// TestSearch_FilterTier_LangPython verifies that "lang:python" (no kind) falls
-// back to GetAllNodes and returns only python nodes via TierFilter.
 func TestSearch_FilterTier_LangPython(t *testing.T) {
 	database := openTestDB(t)
 	ctx := context.Background()
-	// Insert a Python node not in the standard fixture.
 	if err := database.UpsertNode(ctx, types.Node{
 		ID:       "py_func",
 		Kind:     types.NodeKindFunction,
@@ -981,8 +862,6 @@ func TestSearch_FilterTier_LangPython(t *testing.T) {
 	}
 }
 
-// TestSearch_FilterTier_EmptyQueryNoFilters verifies that an empty query with
-// no filters still returns nil (unchanged behavior).
 func TestSearch_FilterTier_EmptyQueryNoFilters(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
@@ -1000,10 +879,6 @@ func TestSearch_FilterTier_EmptyQueryNoFilters(t *testing.T) {
 	}
 }
 
-// TestSearch_FilterTier_FreeTextStillUsesFTSOrLIKE verifies that a free-text
-// query does NOT go through TierFilter — it must report TierFTS, TierLIKE, or
-// TierFuzzy, never TierFilter. This is the regression guard that the metadata
-// path doesn't hijack text queries.
 func TestSearch_FilterTier_FreeTextStillUsesFTSOrLIKE(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)

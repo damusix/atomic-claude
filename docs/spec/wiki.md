@@ -117,6 +117,19 @@ New `atomic/internal/wiki/` package mirroring `internal/signals/` (Options + inj
 | 10 | **bundle + signals** | `atomic/internal/embedded/**`, `.claude/project/signals*` | `make -C atomic bundle && git diff --exit-code` clean; `/refresh-wiki` → `signals.md` lists a `wiki` domain |
 
 
+## Agent roles
+
+
+Three agent types run a refresh, and which type authors a page is a contract rather than a convenience, because the harness has no way to enforce it.
+
+| Agent | Role | Why this type |
+|-------|------|---------------|
+| `atomic-wiki-inferrer` | Orchestrates: scan, classify, dispatch, assemble the router, wire the `@`-ref. Authors no page. | Holds `Agent`. Its isolated context keeps `scan.md`, which runs to thousands of lines, out of the caller's. |
+| `atomic-wiki-writer` | Authors one page per dispatch, from the source paths it is given. | Declares `skills: [atomic-writing]`, so the reading order, the diagram rules, and the voice load as context. Holds no `Agent`, so it cannot fan out. |
+| `atomic-reviewer` | Gates each written page against the source and the page shape. | Already the repo's review gate; `skills:` carries `atomic-writing` for the shape checks. |
+
+**Every dispatch names its `subagent_type` explicitly.** Frontmatter grants tools, not agent types: an agent holding `Agent` can spawn any registered type, and an omitted `subagent_type` falls back to `general-purpose`, which declares no `skills:` frontmatter. That fallback fails open — it produces a page that looks finished and skipped the contract entirely. Naming the type is the only guard available.
+
 ## Deterministic CLI contract
 
 
@@ -163,6 +176,14 @@ New `atomic/internal/wiki/` package mirroring `internal/signals/` (Options + inj
 
 ## Change log
 
+
+### 2026-08-16 — Page authoring moves from `general-purpose` to `atomic-wiki-writer`
+
+**What changed:** A new `## Agent roles` section names the three agent types a refresh dispatches. Per-domain page authoring moves from `general-purpose` to the new `atomic-wiki-writer`, and `atomic-wiki-inferrer` is described as an orchestrator that authors nothing.
+
+**Why:** `general-purpose` declares no `skills:` frontmatter, so the page contract and the voice rules reached the agent that actually wrote pages only as a request inside the dispatch prompt ("invoke the `atomic-writing` skill"), while the orchestrator that never wrote a page held the skill in frontmatter. The wiring was inverted. Frontmatter cannot restrict which types an agent spawns, and an omitted `subagent_type` falls back to `general-purpose`, so naming the type explicitly on every dispatch is the only available guard.
+
+**Superseded:** the prior rationale in `skills/atomic-wiki/references/repo.md` Step 4, which chose `general-purpose` on the grounds that `atomic-implementer` is scoped to code. That reasoning was correct about `atomic-implementer` and wrong to conclude `general-purpose` was the remaining option; the gap it identified is what the new agent fills.
 
 ### 2026-06-12 — `/refresh-wiki` extended with bucket synthesis phase
 

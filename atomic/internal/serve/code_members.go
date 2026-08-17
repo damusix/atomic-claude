@@ -1,19 +1,8 @@
-// code_members.go — realm-aware code-member discovery for serve.
-//
-// serve's code-intel surfaces (federated search + the code modal's intel pane)
-// must find every queryable index in the served scope. There are two ways a
-// member ends up indexed:
-//
-//   - Realm federation: a <realmRoot>/.atomic/code.toml config + per-member dbs at
-//     <realmRoot>/.atomic/<key>.db (written by `atomic code index` from a realm
-//     root that carries a <code-index> block).
-//   - Self-index: a member indexed the natural way — `cd <member>; atomic code
-//     index` — which writes <member>/.claude/.atomic-index/atomic.db.
-//
-// A wiki realm with no <code-index> block has no federation config, so
-// realm.Resolve reports zero members even though members may be self-indexed.
-// discoverCodeMembers unions both sources so "I just ran atomic code index in a
-// member" works without any federation setup.
+// Code-member discovery. A member can be indexed two ways: by realm federation
+// (a code.toml plus per-member dbs under the realm root) or by self-indexing
+// (`atomic code index` inside the member). A realm with no federation config
+// resolves to zero members even when its members are self-indexed, so
+// discoverCodeMembers unions both sources.
 package serve
 
 import (
@@ -27,23 +16,19 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// memberResolver resolves the code members for a served scope and the local
-// single-repo db path. Embedded by every /code/* handler (codeExplorerHandler,
-// codeGraphHandler) so member resolution — federation ∪ self-index discovery,
-// the local-db fallback path — lives in exactly one place.
+// memberResolver is embedded by every code handler so member resolution lives
+// in exactly one place.
 type memberResolver struct {
-	// realmRoot is the root of the repository (or realm) being served.
+	// realmRoot is the root of the repository or realm being served.
 	realmRoot string
-	// claudeMDPath is used by realm.Resolve to discover federation members.
+	// claudeMDPath lets realm.Resolve discover federation members.
 	claudeMDPath string
-	// wikiIndexPath is the realm wiki/index.md, used to discover self-indexed
-	// members. Defaults to <realmRoot>/wiki/index.md when empty.
+	// wikiIndexPath locates self-indexed members; empty means
+	// <realmRoot>/wiki/index.md.
 	wikiIndexPath string
 }
 
-// members discovers the code members for the served scope (federation ∪
-// per-member self-indexes). Resolved per request — cheap (reads config + the
-// wiki scan).
+// members resolves per request — it only reads a config file and the wiki scan.
 func (m memberResolver) members() []codeMember {
 	res, err := realm.Resolve(m.realmRoot, m.claudeMDPath)
 	if err != nil {
@@ -56,32 +41,27 @@ func (m memberResolver) members() []codeMember {
 	return discoverCodeMembers(res, m.realmRoot, wikiIndexPath)
 }
 
-// localDBPath returns the canonical local db path for the realm root.
 func (m memberResolver) localDBPath() string {
 	return config.IndexDBPath(m.realmRoot)
 }
 
 // codeMember is one code-queryable repo within the served scope.
 type codeMember struct {
-	// Key is the group header shown in search results. For self-indexed members
-	// it equals Prefix; for federation members it is the config key.
+	// Key is the group header in search results: the config key for a
+	// federation member, the Prefix for a self-indexed one.
 	Key string
-	// Prefix is the realm-relative path under which this member's files are served
-	// (/file/<Prefix>/...). Empty for single-repo (ScopeRepo) scope, where files
-	// are served at the served root.
+	// Prefix is the realm-relative path this member's files are served under,
+	// empty in single-repo scope.
 	Prefix string
 	// Path is the absolute repo root.
 	Path string
-	// DBPath is the absolute path to the member's atomic.db. May point at a
-	// non-existent file for a federation member that was declared but never built
-	// (callers report "not indexed").
+	// DBPath may name a file that does not exist, for a federation member
+	// declared but never built; callers report that as "not indexed".
 	DBPath string
 }
 
-// discoverCodeMembers enumerates the code members serve can query for a realm
-// Resolution. realmRoot is the served root (or the realm root in realm scope);
-// wikiIndexPath is the realm's wiki/index.md (used to enumerate members for
-// self-index discovery; ignored when empty or unreadable).
+// discoverCodeMembers enumerates the members serve can query. An empty or
+// unreadable wikiIndexPath simply skips self-index discovery.
 func discoverCodeMembers(res realm.Resolution, realmRoot, wikiIndexPath string) []codeMember {
 	switch res.Scope {
 	case realm.ScopeRealmAll:
@@ -109,19 +89,17 @@ func discoverCodeMembers(res realm.Resolution, realmRoot, wikiIndexPath string) 
 		}}
 
 	default:
-		// ScopeRepo / ScopeNoIndex: a single local index at the served root. The
-		// member is always returned (db existence is the engine's call: an absent
-		// db surfaces as a "not indexed" note, and the injected engine seam stays
-		// usable in tests that never create a real db file).
+		// Single local index at the served root. The member is returned whether
+		// or not the db exists: absence surfaces downstream as "not indexed",
+		// and the engine seam stays usable in tests that create no db file.
 		db := config.IndexDBPath(realmRoot)
 		return []codeMember{{Key: "", Prefix: "", Path: realmRoot, DBPath: db}}
 	}
 }
 
-// realmCodeMembers unions federation members (declared in code.toml) with
-// self-indexed members discovered from the wiki scan. Federation members are
-// always listed (a declared-but-unbuilt member surfaces a "not indexed" note);
-// wiki members are added only when they actually carry a local index.
+// realmCodeMembers unions declared federation members with self-indexed ones
+// from the wiki scan. A declared member is always listed; a wiki member only
+// when it actually carries an index.
 func realmCodeMembers(res realm.Resolution, realmRoot, wikiIndexPath string) []codeMember {
 	var out []codeMember
 	seen := make(map[string]bool)
@@ -147,7 +125,7 @@ func realmCodeMembers(res realm.Resolution, realmRoot, wikiIndexPath string) []c
 				}
 				db := memberDB(realmRoot, m.Path, "")
 				if db == "" {
-					continue // unindexed non-federation member — omit (not noise)
+					continue // unindexed and undeclared: noise, not a member
 				}
 				out = append(out, codeMember{
 					Key:    prefix,
@@ -164,9 +142,8 @@ func realmCodeMembers(res realm.Resolution, realmRoot, wikiIndexPath string) []c
 	return out
 }
 
-// memberDB picks the db path for a member: the federation db when it exists, else
-// the member's own self-index when it exists, else fedDB verbatim (which may be
-// "" or a non-existent path — the caller reports "not indexed").
+// memberDB prefers the federation db, then the member's self-index, then fedDB
+// verbatim — which may be empty or nonexistent, and the caller reports that.
 func memberDB(realmRoot, memberRelPath, fedDB string) string {
 	if fedDB != "" && fileExists(fedDB) {
 		return fedDB
@@ -178,11 +155,9 @@ func memberDB(realmRoot, memberRelPath, fedDB string) string {
 	return fedDB
 }
 
-// memberForPath returns the member whose Prefix is the longest prefix of the
-// realm-relative path, together with the member-relative remainder used to query
-// that member's index. A member with an empty Prefix (single-repo scope) matches
-// any path with the path itself as the remainder, but loses to any real prefix
-// match. ok is false when no member owns the path.
+// memberForPath returns the longest-prefix member and the remainder used to
+// query its index. An empty-Prefix member matches anything but loses to any
+// real prefix match.
 func memberForPath(members []codeMember, relPath string) (codeMember, string, bool) {
 	relPath = filepath.ToSlash(strings.TrimPrefix(relPath, "/"))
 
@@ -213,10 +188,8 @@ func memberForPath(members []codeMember, relPath string) (codeMember, string, bo
 	return best, rem, true
 }
 
-// joinMemberPath prefixes a member-relative path (as stored in the member's
-// index) with the member's realm-relative Prefix, producing the realm-relative
-// path the /file/ and /page/ routes serve. An empty prefix (single-repo scope)
-// returns the path unchanged.
+// joinMemberPath turns a member-relative index path into the realm-relative
+// path the /file/ and /page/ routes serve.
 func joinMemberPath(prefix, rel string) string {
 	rel = filepath.ToSlash(rel)
 	if prefix == "" {
@@ -225,7 +198,7 @@ func joinMemberPath(prefix, rel string) string {
 	return prefix + "/" + rel
 }
 
-// fileExists reports whether path names an existing regular file.
+// fileExists reports whether path names an existing non-directory.
 func fileExists(path string) bool {
 	if path == "" {
 		return false

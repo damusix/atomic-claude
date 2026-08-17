@@ -13,16 +13,13 @@ import (
 	"time"
 )
 
-// wireTimeout bounds every wire-level assertion in this file — a bounded
-// select on a timeout channel, never an unbounded block, per the atomic-bus
-// brief's concurrency success criteria.
+// wireTimeout bounds every wire-level assertion here — a bounded select, never
+// an unbounded block.
 const wireTimeout = 2 * time.Second
 
-// testListener binds a unix socket for one test. It deliberately roots the
-// socket under /tmp rather than t.TempDir() (which honors $TMPDIR and can
-// produce a path exceeding the ~104-108 byte unix socket path limit on
-// macOS/Linux) — falling back to t.TempDir() if /tmp is unavailable, e.g.
-// a sandboxed CI environment.
+// testListener binds a unix socket for one test, rooted under /tmp rather than
+// t.TempDir(), which honors $TMPDIR and can exceed the ~104-byte unix socket
+// path limit. Falls back to t.TempDir() when /tmp is unavailable.
 func testListener(t *testing.T) net.Listener {
 	t.Helper()
 
@@ -41,9 +38,8 @@ func testListener(t *testing.T) net.Listener {
 	return ln
 }
 
-// startServe runs Serve in the background and guarantees it has exited —
-// no leaked daemon goroutine — before the test finishes: t.Cleanup
-// cancels ctx and then waits (bounded) for Serve to return.
+// startServe runs Serve in the background and guarantees it has exited before the
+// test finishes: cleanup cancels ctx and waits, bounded, for Serve to return.
 func startServe(t *testing.T, ln net.Listener, hub *Hub) {
 	t.Helper()
 
@@ -63,11 +59,9 @@ func startServe(t *testing.T, ln net.Listener, hub *Hub) {
 	})
 }
 
-// dialAndDoBounded is dialAndDo's actual logic, factored out so it can
-// return an error instead of failing a *testing.T — TestDialAndDo_Bounded
-// below exercises this exact code path directly, without a nested t.Run
-// subtest whose expected failure would otherwise fail the parent test (Go
-// always propagates a failed subtest's status to its parent).
+// dialAndDoBounded is dialAndDo's logic factored out so it can return an error
+// instead of failing a *testing.T — TestDialAndDo_Bounded exercises this path
+// directly, and a nested subtest's expected failure would fail its parent.
 func dialAndDoBounded(addr string, req Request, timeout time.Duration) (Response, error) {
 	conn, err := net.DialTimeout("unix", addr, timeout)
 	if err != nil {
@@ -79,10 +73,9 @@ func dialAndDoBounded(addr string, req Request, timeout time.Duration) (Response
 		return Response{}, fmt.Errorf("encode request: %w", err)
 	}
 
-	// Bounded like every subscription read in this file (readLineBounded):
-	// a dispatch regression that never replies must return an error here,
-	// not hang the caller. net.Conn (unlike bufio.Reader) supports a read
-	// deadline directly, so this needs no goroutine+select.
+	// Bounded like every subscription read here: a dispatch regression that never
+	// replies must return an error, not hang the caller. net.Conn supports a read
+	// deadline directly, so this needs no goroutine and select.
 	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		return Response{}, fmt.Errorf("set read deadline: %w", err)
 	}
@@ -103,13 +96,9 @@ func dialAndDo(t *testing.T, addr string, req Request) Response {
 	return resp
 }
 
-// TestDialAndDo_BoundedReadTimesOutRatherThanHanging proves the exact
-// code path every one-shot-op test in this file relies on (dialAndDo,
-// via dialAndDoBounded) cannot hang the suite: before the read-deadline
-// fix, a dispatch regression that accepted a connection and read the
-// request but never replied would block Decode forever. Run against a
-// bare listener that does exactly that, dialAndDoBounded must return an
-// error within roughly its deadline, not hang.
+// Before the read-deadline fix, a dispatch regression that accepted a connection
+// and read the request but never replied blocked Decode forever. Against a bare
+// listener doing exactly that, dialAndDoBounded must return an error.
 func TestDialAndDo_BoundedReadTimesOutRatherThanHanging(t *testing.T) {
 	dir, err := os.MkdirTemp("/tmp", "atomicbus")
 	if err != nil {
@@ -149,9 +138,8 @@ func TestDialAndDo_BoundedReadTimesOutRatherThanHanging(t *testing.T) {
 	}
 }
 
-// dialSubscribe dials, sends req, and reads the opening {"ok":true} frame,
-// returning the live connection and a buffered reader positioned right
-// after it, ready to read Envelope frames.
+// dialSubscribe dials, sends req, and reads the opening frame, returning the live
+// connection and a reader positioned to read Envelope frames.
 func dialSubscribe(t *testing.T, addr string, req Request) (net.Conn, *bufio.Reader) {
 	t.Helper()
 
@@ -184,12 +172,10 @@ type lineResult struct {
 	ok   bool
 }
 
-// readLineBounded reads one newline-delimited frame with a bounded wait,
-// so a missed frame fails the calling test with a clear message instead
-// of hanging the suite. The read runs in its own goroutine because
-// bufio.Reader has no read-deadline support of its own; the goroutine
-// unblocks naturally once the connection is closed (by the caller's
-// cleanup), so it never leaks past the test.
+// readLineBounded reads one frame with a bounded wait, so a missed frame fails
+// the test with a clear message instead of hanging the suite. The read runs in a
+// goroutine because bufio.Reader has no read deadline; it unblocks when the
+// caller's cleanup closes the connection, so it never leaks past the test.
 func readLineBounded(t *testing.T, r *bufio.Reader, timeout time.Duration) lineResult {
 	t.Helper()
 
@@ -305,20 +291,14 @@ func TestServe_JoinThenWho_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(roomsResp.Payload, &roomsPayload); err != nil {
 		t.Fatalf("unmarshal rooms payload: %v", err)
 	}
-	// A room with no members and no subscribers is dropped, not merely
-	// emptied (docs/spec/atomic-bus.md's 2026-07-30 "drop a room when its
-	// last member leaves" entry) — see room_test.go's
-	// TestHub_Leave_LastMemberDropsTheRoom for the Hub-level coverage this
-	// wire round trip confirms is actually connected.
+	// A room with no members and no subscribers is dropped, not merely emptied.
 	if len(roomsPayload.Rooms) != 0 {
 		t.Fatalf("rooms = %+v, want none (potato had its last member leave and should have been dropped)", roomsPayload.Rooms)
 	}
 }
 
-// TestServe_Close_DropsRoomAndDaemonSideRoomsNoLongerListsIt is the wire
-// dispatch's proof that OpClose actually reaches Hub.Close, not merely a
-// direct-Hub-call proof (room_test.go already covers Hub.Close's own
-// behavior in isolation).
+// The wire dispatch's proof that OpClose actually reaches Hub.Close, which a
+// direct-Hub-call test cannot show.
 func TestServe_Close_DropsRoomAndDaemonSideRoomsNoLongerListsIt(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -357,10 +337,7 @@ func TestServe_Close_DropsRoomAndDaemonSideRoomsNoLongerListsIt(t *testing.T) {
 	}
 }
 
-// TestServe_Who_ReportsHaltedStateAndReason is the wire dispatch's proof
-// that OpWho's payload actually carries the room's halt state alongside its
-// members (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be
-// visible" entry).
+// OpWho's payload actually carries the room's halt state alongside its members.
 func TestServe_Who_ReportsHaltedStateAndReason(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -387,16 +364,11 @@ func TestServe_Who_ReportsHaltedStateAndReason(t *testing.T) {
 	}
 }
 
-// TestServe_Close_SubscriberConnectionEndsCleanly_NoBusySpin is the
-// wire-level regression test for a bug this exact change introduced and a
-// manual drive of the built binary caught: Hub.Close closes every live
-// subscriber's channel (room.go), but this dispatch's own receive loop did
-// not check the channel's ok value — a closed channel's receive always
-// succeeds immediately with the zero value, so the loop spun forever
-// writing empty envelope frames to the connection instead of ending it.
-// This proves the connection actually terminates (read returns EOF) shortly
-// after the closing envelope, and that no zero-value frame is ever written
-// in between.
+// Hub.Close closes every live subscriber's channel, but this dispatch's receive
+// loop once did not check the ok value — a closed channel receives immediately,
+// so the loop spun forever writing empty frames instead of ending the
+// connection. Proves the connection terminates shortly after the closing
+// envelope with no zero-value frame in between.
 func TestServe_Close_SubscriberConnectionEndsCleanly_NoBusySpin(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -423,9 +395,8 @@ func TestServe_Close_SubscriberConnectionEndsCleanly_NoBusySpin(t *testing.T) {
 		t.Fatalf("closing envelope Text = %q, want %q", env.Text, "room closed")
 	}
 
-	// The connection must end (a clean read error, typically io.EOF) within
-	// a bounded window — not spin forever, and not deliver a second,
-	// zero-value frame first.
+	// The connection must end within a bounded window — not spin forever, and not
+	// deliver a second, zero-value frame first.
 	type readResult struct {
 		data []byte
 		err  error
@@ -445,16 +416,10 @@ func TestServe_Close_SubscriberConnectionEndsCleanly_NoBusySpin(t *testing.T) {
 	}
 }
 
-// TestServe_Send_FromRepoRealmStampedFromRoster_NotFromRequest is the
-// anti-spoof regression the atomic-bus brief requires for the
-// position-derived naming entry: sender identity (from/from_kind, and now
-// from_repo/from_realm) is assigned server-side from the roster, never read
-// from the request — the same invariant a prior finding proved by speaking
-// a raw OpSay claiming an existing agent's name (docs/spec/atomic-bus.md's
-// 2026-07-28 "sender identity is assigned server-side" entry). This joins
-// with a real position, then sends an OpSend request whose own Repo/Realm
-// fields claim something else entirely, and asserts the published
-// envelope's FromRepo/FromRealm reflect the roster, not the request.
+// Sender identity — from, from_kind, from_repo, from_realm — is assigned
+// server-side from the roster, never read from the request. This joins with a
+// real position, sends an OpSend whose own Repo/Realm claim something else, and
+// asserts the envelope reflects the roster.
 func TestServe_Send_FromRepoRealmStampedFromRoster_NotFromRequest(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -490,10 +455,8 @@ func TestServe_Send_FromRepoRealmStampedFromRoster_NotFromRequest(t *testing.T) 
 	}
 }
 
-// TestServe_DuplicateNameRejected drives the wire-level dispatch path for
-// the same atomic-claim guarantee room_test.go proves at the Hub level —
-// this catches a bug in handleJoin's request decoding/response encoding
-// that a pure Hub-level test could not see.
+// The wire path for the atomic-claim guarantee room_test.go proves at the Hub
+// level — this catches a handleJoin decode/encode bug a Hub-level test cannot.
 func TestServe_DuplicateNameRejected(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -528,12 +491,9 @@ func TestServe_DuplicateNameRejected(t *testing.T) {
 	}
 }
 
-// TestServe_ConcurrentJoin_WireLevel is the wire-dispatch counterpart to
-// room_test.go's Hub-level concurrent-join proof: N clients race to join
-// the same room/name over N separate connections, dispatched by N
-// goroutines inside handleConn. The distribution must be identical to the
-// Hub-level case — dispatch must not introduce its own race even though
-// Hub.Join itself is already proven atomic.
+// N clients race to join one room/name over N connections, dispatched by N
+// goroutines inside handleConn. The distribution must match the Hub-level case:
+// dispatch must not introduce a race of its own.
 func TestServe_ConcurrentJoin_WireLevel(t *testing.T) {
 	const n = 12
 	ln := testListener(t)
@@ -588,10 +548,7 @@ func TestServe_ConcurrentJoin_WireLevel(t *testing.T) {
 
 // --- send / recv (subscription) ---
 
-// TestServe_Recv_DeliversPublishedEnvelope is the "under one second"
-// success criterion end to end over the wire: subscribe with recv, publish
-// from a second connection, and read the delivered frame with a bounded
-// timeout.
+// The under-one-second criterion end to end over the wire.
 func TestServe_Recv_DeliversPublishedEnvelope(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -625,14 +582,9 @@ func TestServe_Recv_DeliversPublishedEnvelope(t *testing.T) {
 	}
 }
 
-// TestServe_Recv_NoBacklogDeliveredForPriorTraffic is the wire-level proof
-// of the bug this change fixes: a room with existing traffic must not
-// replay any of it to a newly subscribing recv — since("") used to return
-// the entire ring, so a recv on a busy room delivered up to 256 old
-// messages as Monitor notifications, each evaluated against the reaction
-// policy as if freshly arrived (docs/spec/atomic-bus.md's "replay removed
-// entirely" change-log entry). Only a message published after the
-// subscription opens may ever arrive.
+// A room with existing traffic must not replay it to a new recv. since("") used
+// to return the entire ring, so a recv on a busy room delivered up to 256 old
+// messages as Monitor notifications, each evaluated as if freshly arrived.
 func TestServe_Recv_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -663,10 +615,8 @@ func TestServe_Recv_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 	}
 }
 
-// TestServe_Tail_NeverJoinsAndSeesOthersMail proves the wire-level shape
-// of docs/design/atomic-bus.md decision #5: tail does not join (no
-// roster entry, confirmed via who) yet still receives traffic addressed
-// to other members.
+// tail does not join — no roster entry, confirmed via who — yet still receives
+// traffic addressed to other members.
 func TestServe_Tail_NeverJoinsAndSeesOthersMail(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -704,11 +654,8 @@ func TestServe_Tail_NeverJoinsAndSeesOthersMail(t *testing.T) {
 	}
 }
 
-// TestServe_Recv_SkipSelf_DoesNotReceiveOwnPublish_ButTailDoes is the
-// wire-dispatch counterpart to room_test.go's Hub-level self-echo proof: it
-// exercises daemon.go's handleConn threading req.Session/req.SkipSelf into
-// Hub.Subscribe, a bug a pure Hub-level test (calling h.Subscribe directly)
-// cannot see.
+// Exercises handleConn threading req.Session/req.SkipSelf into Hub.Subscribe, a
+// bug a Hub-level test calling h.Subscribe directly cannot see.
 func TestServe_Recv_SkipSelf_DoesNotReceiveOwnPublish_ButTailDoes(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -728,9 +675,8 @@ func TestServe_Recv_SkipSelf_DoesNotReceiveOwnPublish_ButTailDoes(t *testing.T) 
 		t.Fatalf("send: %s", resp.Error)
 	}
 
-	// tail must see it — proves the publish actually happened and tail's
-	// own subscription (session "", skipSelf false — daemon.go's OpTail
-	// dispatch hardcodes both) is unaffected by anyone else's SkipSelf.
+	// tail must see it: proves the publish happened, and that tail's own
+	// subscription is unaffected by anyone else's SkipSelf.
 	tailEnv, ok := readEnvelopeBounded(t, tailR)
 	if !ok {
 		t.Fatal("tail did not receive the published envelope")
@@ -739,26 +685,19 @@ func TestServe_Recv_SkipSelf_DoesNotReceiveOwnPublish_ButTailDoes(t *testing.T) 
 		t.Fatalf("tail Text = %q, want %q", tailEnv.Text, "self-published")
 	}
 
-	// recv (same session as the sender, SkipSelf set) must not see it: the
-	// read must time out, not decode anything.
+	// recv, same session as the sender with SkipSelf set, must not see it: the
+	// read times out rather than decoding anything.
 	if res := readLineBounded(t, recvR, 300*time.Millisecond); res.ok {
 		t.Fatalf("recv received its own publish (%q); expected it to be suppressed", res.data)
 	}
 }
 
-// TestServe_Recv_UnownedSessionClaim_DoesNotFakeFutureMemberLiveness is the
-// regression test for the OpRecv session-trust finding: before this fix,
-// daemon.go's OpRecv dispatch handed req.Session to Hub.Subscribe verbatim,
-// with nothing checking that the connection sending it actually owned it. A
-// subscription opened under a session that names nobody yet just sits in
-// r.subs; it cannot be told apart from a legitimate one once the real
-// member joins under that same session and hasLiveSubscription starts
-// matching it, permanently defeating that member's staleness check
-// regardless of its own LastSeen. This is the ordering that actually shows
-// the difference — claiming a session that already belongs to a room member
-// is unaffected by this fix (SessionIsMember honors it, same as before);
-// claiming one before the room has ever heard of it is exactly what gets
-// downgraded to anonymous.
+// The OpRecv dispatch once handed req.Session to Hub.Subscribe verbatim with
+// nothing checking the connection owned it. A subscription opened under a session
+// naming nobody yet sits in r.subs and cannot be told from a legitimate one once
+// the real member joins under that session, permanently defeating its staleness
+// check. Claiming a session that already belongs to a member is unaffected;
+// claiming one the room has never heard of is what gets downgraded to anonymous.
 func TestServe_Recv_UnownedSessionClaim_DoesNotFakeFutureMemberLiveness(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -767,15 +706,13 @@ func TestServe_Recv_UnownedSessionClaim_DoesNotFakeFutureMemberLiveness(t *testi
 	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
-	// A subscription claims "sess-victim" before anyone by that session has
-	// joined "potato" at all — an unowned claim, whether malicious or a
-	// stray script bug. The connection is left open for the rest of the
-	// test, never unsubscribed.
+	// An unowned claim — malicious or a stray script bug — before anyone by that
+	// session has joined. The connection stays open, never unsubscribed.
 	subConn, _ := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato", Session: "sess-victim"})
 	defer subConn.Close()
 
-	// "victim" now joins for real, legitimately claiming the same session
-	// string the stray subscription above already claimed.
+	// "victim" joins for real, claiming the same session string the stray
+	// subscription already claimed.
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "victim", Kind: "agent", Session: "sess-victim"}); !resp.OK {
 		t.Fatalf("join: %s", resp.Error)
 	}
@@ -797,9 +734,8 @@ func TestServe_Recv_UnownedSessionClaim_DoesNotFakeFutureMemberLiveness(t *testi
 	}
 }
 
-// TestServe_Prune_RemovesStaleMember_ReportsRemovedInPayload is the
-// wire-dispatch counterpart to room_test.go's Hub.Prune proof: OpPrune must
-// decode, dispatch, and encode correctly, not merely exist as a Hub method.
+// OpPrune must decode, dispatch, and encode correctly, not merely exist as a Hub
+// method.
 func TestServe_Prune_RemovesStaleMember_ReportsRemovedInPayload(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -839,9 +775,7 @@ func TestServe_Prune_RemovesStaleMember_ReportsRemovedInPayload(t *testing.T) {
 	}
 }
 
-// TestServe_Resume_EmptyText_PublishesDefaultBody_OverTheWire is the
-// wire-level regression test for finding 4: resumeAction never sent a Text
-// field at all, so req.Text was always "" on the daemon side.
+// resumeAction never sent a Text field, so req.Text was always "" daemon-side.
 func TestServe_Resume_EmptyText_PublishesDefaultBody_OverTheWire(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -917,9 +851,8 @@ func TestServe_Halt_BlocksAgentSend_HumanSendStillSucceeds_ResumeRestores(t *tes
 
 // --- say over the wire ---
 
-// TestServe_Say_PublishesAsHumanWithoutJoining proves say's daemon-side
-// contract directly: no join precedes it, yet the published envelope's
-// FromKind is human and `who` gains no roster member for it.
+// No join precedes it, yet the envelope's FromKind is human and `who` gains no
+// roster member.
 func TestServe_Say_PublishesAsHumanWithoutJoining(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -956,9 +889,7 @@ func TestServe_Say_PublishesAsHumanWithoutJoining(t *testing.T) {
 	}
 }
 
-// TestServe_Say_BypassesHalt is the wire-level half of the say/halt
-// asymmetry: OpSay must succeed into a halted room exactly like a joined
-// human's OpSend already does (TestServe_Halt_...ResumeRestores above),
+// OpSay must succeed into a halted room exactly like a joined human's OpSend,
 // but without ever joining.
 func TestServe_Say_BypassesHalt(t *testing.T) {
 	ln := testListener(t)
@@ -1028,11 +959,9 @@ func TestServe_ShutdownOp_ReturnsOKAndStopsTheDaemon(t *testing.T) {
 	}
 }
 
-// TestServe_NoTimerStopsTheDaemon proves the daemon has no idle-shutdown
-// timer: with no subscriptions, no connections, and no activity at all, it
-// must still be running well past what used to be the default idle window
-// (docs/spec/atomic-bus.md: "no timer ever stops the daemon on its own").
-// Only OpShutdown (proven above) or ctx cancellation ever ends Serve.
+// The daemon has no idle-shutdown timer: with no subscriptions, connections, or
+// activity it must still run well past the old default idle window. Only
+// OpShutdown or ctx cancellation ends Serve.
 func TestServe_NoTimerStopsTheDaemon(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -1059,18 +988,11 @@ func TestServe_NoTimerStopsTheDaemon(t *testing.T) {
 	}
 }
 
-// TestServe_Say_IgnoresClientSuppliedIdentity is the wire-level regression test
-// for the impersonation hole a reviewer proved by speaking the socket directly.
-//
-// The daemon used to forward req.Name and req.Kind to the publish path, so a
-// raw OpSay claiming an existing agent's name with kind "agent" published under
-// that identity — and, because the operator path does not consult the halt
-// flag, did so into a halted room. Pinning the identity in the CLI wrapper was
-// no defense: the socket is the trust boundary, and any local process can
-// speak it.
-//
-// This asserts the daemon overrides a hostile claim rather than merely that the
-// honest client works.
+// The daemon used to forward req.Name and req.Kind to the publish path, so a raw
+// OpSay claiming an agent's name published under that identity — and, since the
+// operator path skips the halt check, into a halted room. Pinning identity in the
+// CLI wrapper was no defense: the socket is the trust boundary. This asserts the
+// daemon overrides a hostile claim, not merely that the honest client works.
 func TestServe_Say_IgnoresClientSuppliedIdentity(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())

@@ -1,14 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch E (PHP): laravel and symfony resolvers.
-//
-// Per-framework coverage:
-//  1. Detect true on a realistic composer.json fixture + false for unrelated project.
-//  2. Extract emits ≥1 route node (exact appendix-H id/qn/name via MakeRouteNode) + handler ref.
-//  3. Comment stripping: PHP uses stripJSComments — // and /* */ are stripped but # is NOT.
-//     Symfony's #[Route(...)] attribute must survive; a //comment-prefixed line must be stripped.
-//  4. Laravel fan-out: Route::match(['get','post'], ...) emits two route nodes.
-//  5. Laravel @-style handler and array handler both emit correct action last-segment.
+// Laravel and Symfony resolver tests.
 
 import (
 	"context"
@@ -21,10 +13,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution/frameworks"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Laravel tests
-// ---------------------------------------------------------------------------
 
 func TestLaravelDetect_ComposerJSON(t *testing.T) {
 	dir := t.TempDir()
@@ -210,10 +198,6 @@ Route::get('/ping', [PingController::class, 'ping']);
 		t.Error("ClaimsReference should return true after Extract sees handler 'ping'")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Symfony tests
-// ---------------------------------------------------------------------------
 
 func TestSymfonyDetect_ComposerJSON(t *testing.T) {
 	dir := t.TempDir()
@@ -408,7 +392,6 @@ func TestSymfonyResolve(t *testing.T) {
 	}
 }
 
-// nodesIDs is a test helper shared across PHP tests.
 func nodesIDs(nodes []types.Node) []string {
 	ids := make([]string, len(nodes))
 	for i, n := range nodes {

@@ -1,40 +1,12 @@
 package db
 
-// FTS5 search execution layer (appendix J).
+// FTS5 execution only: the field-prefix parser, the FTS→LIKE→fuzzy fallback,
+// and the scoring helpers all live a layer up.
 //
-// SearchNodes executes a BM25-ranked FTS5 query over nodes_fts joined to nodes.
-// It does NOT implement the full search query parser (kind:/lang:/path:/name:
-// field prefixes, 3-tier FTS→LIKE→fuzzy fallback, or scoring helpers like
-// kindBonus) — those belong to CP18. This is the db-level FTS execution only.
-//
-// # BM25 weights (appendix J, verbatim)
-//
-// Column order in nodes_fts: id(0), name(20), qualified_name(5), docstring(1), signature(2).
-// Weights are passed in column order: bm25(nodes_fts, 0, 20, 5, 1, 2).
-// BM25 scores are negative (more negative = less relevant). ORDER BY score ASC
-// returns the best (least-negative) match first.
-//
-// # Tiebreaker (appendix J)
-//
-// "Add ORDER BY score, nodes.id" — the secondary sort on nodes.id ensures that
-// rows with equal BM25 scores are returned in a deterministic order regardless
-// of insertion order or rowid assignment. Without this, tied rows fall back to
-// rowid which may differ between Go and TypeScript indexers.
-//
-// # FTS escaping and :: handling
-//
-// SQLite FTS5 special characters (", *, ^, (, ), {, }, :, -, NOT, AND, OR)
-// must be escaped before use in MATCH expressions to avoid syntax errors.
-// The :: sequence is treated as whitespace (split into separate terms) per
-// appendix J: "Escape FTS special chars; treat :: as whitespace."
-//
-// Escaping strategy: replace :: with space, then tokenize on whitespace, then
-// wrap each token as a double-quoted FTS5 phrase with trailing * for prefix
-// matching. A double-quote inside the token is escaped as two double-quotes.
-// Multiple tokens are joined with OR.
-//
-// Example: "Parser::parse" → "Parser"* OR "parse"*
-// Example: `fn AND "method"` → `"fn"* OR "AND"* OR "method"*` (no syntax error)
+// The bm25 weights follow nodes_fts column order: id(0), name(20),
+// qualified_name(5), docstring(1), signature(2). Scores are negative, so ASC
+// puts the best match first, and nodes.id breaks ties — without it equal scores
+// fall back to rowid, which differs between indexer implementations.
 
 import (
 	"context"
@@ -44,16 +16,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// SearchNodes executes an FTS5 BM25-ranked search over nodes_fts joined to
-// nodes. The query string is escaped and normalized before being passed to
-// SQLite MATCH.
-//
-// limit controls the maximum number of results. 0 means no limit (all matches
-// are returned). The caller's layer (CP18) is responsible for applying a
-// default limit via SearchOptions.
-//
-// Returns []types.SearchResult ordered by bm25 score ascending (best first),
-// with nodes.id as a secondary tiebreaker for stable ordering of equal scores.
+// SearchNodes returns results best-first. A limit of 0 means no limit;
+// applying a sensible default is the caller's job.
 func (d *DB) SearchNodes(ctx context.Context, query string, limit int) ([]types.SearchResult, error) {
 	ftsQuery := buildFTSQuery(query)
 	if ftsQuery == "" {
@@ -132,41 +96,31 @@ func (d *DB) SearchNodes(ctx context.Context, query string, limit int) ([]types.
 	return results, nil
 }
 
-// buildFTSQuery converts a raw search string to a safe FTS5 MATCH expression.
+// buildFTSQuery makes a raw search string safe for MATCH. Quoting every token
+// as a phrase neutralises FTS5's operators and special characters wholesale, so
+// `fn AND "method"` is a search for three words rather than a syntax error.
+// "::" is treated as whitespace, splitting "Parser::parse" into two terms.
 //
-// Rules (appendix J):
-//  1. Replace "::" with a single space (treat as whitespace).
-//  2. Split on whitespace to get tokens.
-//  3. Drop empty tokens.
-//  4. Wrap each token as a double-quoted FTS5 phrase with trailing "*":
-//     any literal double-quote inside the token is doubled ("").
-//  5. Join tokens with " OR ".
-//
-// Returns "" if no non-empty tokens remain (caller should skip the query).
+// Returns "" when nothing is left to search for.
 func buildFTSQuery(raw string) string {
-	// Step 1: treat :: as whitespace.
 	s := strings.ReplaceAll(raw, "::", " ")
 
-	// Step 2-3: tokenize.
 	parts := strings.Fields(s)
 	if len(parts) == 0 {
 		return ""
 	}
 
-	// Step 4: escape and wrap each token.
 	terms := make([]string, 0, len(parts))
 	for _, p := range parts {
 		if p == "" {
 			continue
 		}
-		// Escape literal double-quotes inside the token.
 		escaped := strings.ReplaceAll(p, `"`, `""`)
-		terms = append(terms, `"`+escaped+`"*`)
+		terms = append(terms, `"`+escaped+`"*`) // trailing * for prefix matching
 	}
 	if len(terms) == 0 {
 		return ""
 	}
 
-	// Step 5: join with OR.
 	return strings.Join(terms, " OR ")
 }

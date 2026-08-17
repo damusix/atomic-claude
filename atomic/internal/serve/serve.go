@@ -1,15 +1,14 @@
-// Package serve implements the `atomic serve` HTTP server — a read-only,
-// localhost-only presentation layer over wiki + code-intel data.
-//
-// The server is a JSON API (/api/*) plus a handful of carried, unreshaped
-// endpoints (/graph/data, /code/graph/data, /code/graph/members, /events,
-// /healthz) backing the embedded React SPA (frontend_dist.go). Every other
-// GET falls through to the SPA shell (index.html); React Router resolves the
-// requested path client-side.
+// Package serve implements `atomic serve`: a read-only, localhost-only
+// presentation layer over wiki and code-intel data. It exposes a JSON API
+// (/api/*) plus /graph/data, /code/graph/*, /events, and /healthz, backing the
+// embedded React SPA. Every other GET falls through to index.html and is
+// resolved client-side.
 package serve
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -32,11 +31,11 @@ import (
 type DisplayScope int
 
 const (
-	// DisplayScopeRepo: a single repo (with or without a code index).
+	// DisplayScopeRepo is a single repo, with or without a code index.
 	DisplayScopeRepo DisplayScope = iota
-	// DisplayScopeRealm: cwd is the root of a registered wiki realm.
+	// DisplayScopeRealm is the root of a registered wiki realm.
 	DisplayScopeRealm
-	// DisplayScopeMember: cwd is inside exactly one realm member.
+	// DisplayScopeMember is inside exactly one realm member.
 	DisplayScopeMember
 )
 
@@ -53,9 +52,9 @@ func (d DisplayScope) String() string {
 	}
 }
 
-// ResolveDisplayScope maps realm.Resolve output to a DisplayScope.
-// ScopeNoIndex → DisplayScopeRepo: a bare repo with no index is still
-// servable (docs-only); the server must not require a code index to start.
+// ResolveDisplayScope maps realm.Resolve output to a DisplayScope. An
+// unindexed repo still resolves — the server must not require a code index
+// to start, since a docs-only repo is servable.
 func ResolveDisplayScope(cwd, claudeMDPath string) (DisplayScope, error) {
 	res, err := realm.Resolve(cwd, claudeMDPath)
 	if err != nil {
@@ -67,40 +66,32 @@ func ResolveDisplayScope(cwd, claudeMDPath string) (DisplayScope, error) {
 	case realm.ScopeRealmMember:
 		return DisplayScopeMember, nil
 	default:
-		// ScopeRepo (local index) and ScopeNoIndex (bare repo) both map to
-		// DisplayScopeRepo — docs + code when indexed, docs-only otherwise.
 		return DisplayScopeRepo, nil
 	}
 }
 
-// Options holds all configuration for the server.  Exported so tests can
-// construct it directly without going through flag parsing.
+// Options configures the server. Exported so tests can bypass flag parsing.
 type Options struct {
-	// Port is the TCP port to bind. 0 = OS-assigned.
+	// Port 0 means OS-assigned.
 	Port int
-	// Host is the bind address. Empty defaults to 127.0.0.1 (loopback only).
-	// Set to "0.0.0.0" to expose the (read-only) viewer on all interfaces / the LAN.
+	// Host defaults to loopback; "0.0.0.0" exposes the viewer on the LAN.
 	Host string
 	// Open triggers a best-effort browser launch after startup.
 	Open bool
-	// TargetDir is the directory being served (positional arg, default cwd).
+	// TargetDir defaults to cwd.
 	TargetDir string
-	// ClaudeMDPath is the CLAUDE.md path used for realm resolution.
+	// ClaudeMDPath drives realm resolution.
 	ClaudeMDPath string
-	// Home is the user home dir, used by the /api/bus/* chat endpoints to
-	// reach the bus daemon's state under <home>/.atomic. Empty → resolved
-	// via os.UserHomeDir at startup.
+	// Home locates the bus daemon state for /api/bus/*.
 	Home string
 	// Stdout / Stderr receive log output.
 	Stdout io.Writer
 	Stderr io.Writer
-	// BrowserOpener is the seam for --open. nil → default OS command.
-	// Tests inject a stub to verify error-non-fatality without spawning a browser.
+	// BrowserOpener is the --open seam; nil uses the OS command.
 	BrowserOpener func(url string) error
 }
 
-// Run is the os.Exit-aware entry point called by main.go.
-// It wires signal.NotifyContext for SIGINT/SIGTERM, then delegates to RunWithContext.
+// Run parses args, traps SIGINT/SIGTERM, and returns a process exit code.
 func Run(args []string, stdout, stderr io.Writer) int {
 	opts, err := parseFlags(args, stdout, stderr)
 	if err != nil {
@@ -115,9 +106,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return RunWithContext(ctx, opts)
 }
 
-// RunWithContext starts the HTTP server and blocks until ctx is cancelled or
-// the server fails.  Returns 0 on clean shutdown, 1 on error.
-// This function is the testable entry point — tests inject a context and Options.
+// RunWithContext starts the server and blocks until ctx is cancelled or the
+// server fails. Returns 0 on clean shutdown, 1 on error.
 func RunWithContext(ctx context.Context, opts Options) int {
 	if opts.Stdout == nil {
 		opts.Stdout = os.Stdout
@@ -126,18 +116,16 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		opts.Stderr = os.Stderr
 	}
 
-	// Resolve display scope.
 	scope, err := ResolveDisplayScope(opts.TargetDir, opts.ClaudeMDPath)
 	if err != nil {
 		fmt.Fprintf(opts.Stderr, "atomic serve: scope resolve: %v\n", err)
 		return 1
 	}
-	_ = scope // scope badge is now surfaced via /api/status, not a server-rendered shell
+	_ = scope // the scope badge is served from /api/status
 
-	// Resolve realm root for the nav tree.  We call realm.Resolve a second time
-	// here to get the full Resolution (which carries RealmRoot).  The double-call
-	// is cheap — it only reads config files.  A future refactor may unify these.
-	realmRes, _ := realm.Resolve(opts.TargetDir, opts.ClaudeMDPath) // error already surfaced above
+	// Second call for the full Resolution, which carries RealmRoot. Cheap —
+	// it only reads config files. The error was already surfaced above.
+	realmRes, _ := realm.Resolve(opts.TargetDir, opts.ClaudeMDPath)
 	isRealmScope := scope == DisplayScopeRealm || scope == DisplayScopeMember
 	navRoot := opts.TargetDir
 	wikiIndexPath := ""
@@ -145,16 +133,11 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		navRoot = realmRes.RealmRoot
 		wikiIndexPath = filepath.Join(realmRes.RealmRoot, "wiki", "index.md")
 	}
-	// store is the single shared realm-snapshot store (CP2 live-reload): nav,
-	// page, rail, and graph-data all read through it instead of each
-	// tracking its own copy, so the ticker (CP3), lazy per-request
-	// validation, and NewSnapshotStore's synchronous warm all observe — and
-	// refresh — the same realm state (SC7).
+	// One shared snapshot store: nav, page, rail, and graph-data must observe
+	// and refresh the same realm state, or live-reload shows them disagreeing.
 	store := NewSnapshotStore(navRoot)
 
-	// eventsRegistry tracks connected /events (SSE) subscribers. The ticker
-	// started below reads its count to decide whether to do any work at all
-	// (SC12); NewEventsHandler registers/unregisters through it per connection.
+	// The ticker reads this count to skip all work when nobody is listening.
 	eventsRegistry := newSubscriberRegistry()
 
 	navOpts := NavOptions{
@@ -166,19 +149,14 @@ func RunWithContext(ctx context.Context, opts Options) int {
 
 	mux := http.NewServeMux()
 
-	// /healthz — liveness probe.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
 
-	// /api/* — JSON endpoints for the React frontend. Every handler reuses the
-	// same view-model builders the pre-cutover htmx fragments used, so link
-	// resolution stays single-sourced.
-	// Landing relpath: realm scope resolves to the realm index, repo scope to
-	// README.md — the /api/page/ handler serves it for an empty relpath so the
-	// SPA's "/" route never has to guess the scope.
+	// /api/page/ serves this for an empty relpath, so the SPA's "/" route never
+	// has to guess the scope.
 	landingRel := "README.md"
 	if isRealmScope && wikiIndexPath != "" {
 		if rel, relErr := filepath.Rel(opts.TargetDir, wikiIndexPath); relErr == nil {
@@ -189,6 +167,12 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	mux.Handle("/api/file/", NewAPIFileHandler(opts.TargetDir))
 	mux.Handle("/api/rail/", NewAPIRailHandler(navRoot, store))
 	mux.Handle("/api/nav", NewAPINavHandler(navOpts))
+	// The staleness walk takes seconds on a real realm and /api/nav is the
+	// shell's first request, so warm it here. If it has not finished by the
+	// time the request lands, the request computes it itself.
+	if isRealmScope && navOpts.StalenessFn == nil {
+		go navStalenessCache.get(navOpts.RealmRoot)
+	}
 	mux.Handle("/api/search/md", NewAPIMdSearchHandler(MdSearchOptions{NavRoot: navRoot}))
 	mux.Handle("/api/code/search", NewAPICodeSearchHandler(CodeSearchOptions{
 		RealmRoot:    opts.TargetDir,
@@ -203,13 +187,13 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	healthOpts := HealthOptions{
 		RealmRoot:    navRoot,
 		IsRealmScope: isRealmScope,
-		// Seams are nil → production defaults wired inside NewAPIStatusHandler.
+		// Nil seams take NewAPIStatusHandler's production defaults.
 	}
 	mux.Handle("/api/status", NewAPIStatusHandler(healthOpts))
 	mux.Handle("/api/external", NewAPIExternalHandler(navRoot, GitOrMtimeDateFn, store))
 
-	// /api/bus/* — EXPERIMENT: web chat over the atomic bus daemon (see
-	// api_bus.go's package comment for the read-only-contract caveat).
+	// Web chat over the atomic bus daemon. See api_bus.go for why this narrows
+	// the read-only contract.
 	busHome := opts.Home
 	if busHome == "" {
 		busHome, _ = os.UserHomeDir()
@@ -218,21 +202,24 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		mux.Handle("/api/bus/", NewAPIBusHandler(BusAPIOptions{Home: busHome, TargetDir: opts.TargetDir}))
 	}
 
-	// /events — live-reload SSE stream: register, resync push, stream
-	// until the request context ends. Carried path (unchanged by the cutover).
 	mux.Handle("/events", NewEventsHandler(store, eventsRegistry))
 
-	// /graph/data — Cytoscape elements JSON for the docs graph view. Shares the
-	// store above so /graph/data does not rebuild per-request and stays live.
+	// Sharing the store keeps the docs graph off a per-request rebuild.
 	mux.Handle("/graph/data", NewGraphDataHandlerWithGraph(navRoot, store))
 
-	// /api/code/* — JSON siblings of the (now-removed) /code/* explorer routes.
 	apiExplorerHandler := NewCodeExplorerAPIHandler(CodeExplorerOptions{
 		RealmRoot:     opts.TargetDir,
 		ClaudeMDPath:  opts.ClaudeMDPath,
 		WikiIndexPath: wikiIndexPath,
-		// EngineProvider nil → DefaultEngineProvider.
+		// Nil EngineProvider takes DefaultEngineProvider.
 	})
+	// Loopback-only write surface; see NewAPIReindexHandler for why it exists.
+	mux.Handle("/api/code/index", NewAPIReindexHandler(CodeExplorerOptions{
+		RealmRoot:     opts.TargetDir,
+		ClaudeMDPath:  opts.ClaudeMDPath,
+		WikiIndexPath: wikiIndexPath,
+	}))
+
 	for _, route := range []string{
 		"/api/code/node",
 		"/api/code/callers",
@@ -240,32 +227,25 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		"/api/code/impact",
 		"/api/code/files",
 		"/api/code/schema",
+		"/api/code/capabilities",
 		"/api/code/file",
 	} {
 		mux.Handle(route, apiExplorerHandler)
 	}
 
-	// /code/graph/data — full-repo code graph export for the code graph view.
 	mux.Handle("/code/graph/data", NewCodeGraphHandler(CodeGraphOptions{
 		RealmRoot:     opts.TargetDir,
 		ClaudeMDPath:  opts.ClaudeMDPath,
 		WikiIndexPath: wikiIndexPath,
-		// EngineProvider nil → DefaultEngineProvider.
+		// Nil EngineProvider takes DefaultEngineProvider.
 	}))
 
-	// /code/graph/members — realm member list + indexed state for the code
-	// view's member picker.
 	mux.Handle("/code/graph/members", NewCodeGraphMembersHandler(CodeGraphOptions{
 		RealmRoot:     opts.TargetDir,
 		ClaudeMDPath:  opts.ClaudeMDPath,
 		WikiIndexPath: wikiIndexPath,
 	}))
 
-	// Everything else — the SPA shell. React Router resolves /page/<relpath>,
-	// /graph, /search, /status, /external, and any deep link client-side.
-	// Static assets carried into frontend/dist (app.css, graph-core.js,
-	// system-graph.js, code-graph.js, vendor/*, logo.png, the bundled
-	// assets/*) are served as-is; any other path falls back to index.html.
 	distFS, err := fs.Sub(embeddedFrontend, "frontend/dist")
 	if err != nil {
 		fmt.Fprintf(opts.Stderr, "atomic serve: frontend dist sub-fs: %v\n", err)
@@ -273,8 +253,6 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	}
 	mux.Handle("/", newSPAHandler(distFS))
 
-	// Bind listener. Default to loopback; an explicit Host (e.g. 0.0.0.0) opts into
-	// exposing the read-only viewer on other interfaces / the LAN.
 	bindHost := opts.Host
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
@@ -286,9 +264,8 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		return 1
 	}
 
-	// Resolve actual address (important when Port == 0). A wildcard bind isn't a
-	// usable URL, so the primary line shows loopback (works locally + for --open);
-	// reachable LAN addresses are listed below it for other devices.
+	// A wildcard bind is not a usable URL, so print loopback first and list the
+	// reachable LAN addresses under it.
 	actualAddr := ln.Addr().(*net.TCPAddr)
 	wildcard := bindHost == "0.0.0.0" || bindHost == "::"
 	displayHost := bindHost
@@ -303,42 +280,35 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		}
 	}
 
-	// Best-effort browser open.
 	if opts.Open {
 		opener := opts.BrowserOpener
 		if opener == nil {
 			opener = defaultBrowserOpen
 		}
 		if openErr := opener(url); openErr != nil {
-			// Non-fatal: log to stderr and continue.
+			// Non-fatal — the URL is already on stdout.
 			fmt.Fprintf(opts.Stderr, "atomic serve: open browser: %v\n", openErr)
 		}
 	}
 
 	srv := &http.Server{
 		Handler: mux,
-		// BaseContext ties every request's context to the same ctx that
-		// drives graceful shutdown below. srv.Shutdown does not itself cancel
-		// in-flight request contexts — without this, an open /events
-		// connection's ctx.Done() would never fire, and Shutdown would block
-		// on it for the full 5s grace window instead of returning promptly.
+		// Shutdown does not cancel in-flight request contexts. Without this,
+		// an open /events connection never sees ctx.Done() and Shutdown blocks
+		// for the full grace window.
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
-	// The live-reload ticker is bound to the same ctx: it must stop
-	// exactly when the server starts shutting down, never before or after.
+	// Same ctx as the server: the ticker must stop exactly when shutdown starts.
 	startTicker(ctx, store, eventsRegistry, store.tickInterval)
 
-	// Serve in a background goroutine.
 	serveErr := make(chan error, 1)
 	go func() {
 		serveErr <- srv.Serve(ln)
 	}()
 
-	// Wait for context cancellation (SIGINT/SIGTERM in production, cancel() in tests).
 	select {
 	case <-ctx.Done():
-		// Graceful shutdown.
 		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutCancel()
 		if err := srv.Shutdown(shutCtx); err != nil {
@@ -347,7 +317,6 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		}
 		return 0
 	case err := <-serveErr:
-		// http.ErrServerClosed is normal — Shutdown was called concurrently.
 		if err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(opts.Stderr, "atomic serve: %v\n", err)
 			return 1
@@ -356,13 +325,13 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	}
 }
 
-// newSPAHandler serves static files from root when the request path matches
-// one on disk (app.css, graph-core.js, the bundled assets/* directory, ...),
-// and falls back to index.html — the React shell — for everything else
-// (deep links like /page/<relpath>, /graph, /search: React Router resolves
-// them client-side). Path-traversal is guarded by http.FileServer/http.FS.
+// newSPAHandler serves an embedded file when the request path names one, and
+// index.html otherwise so deep links resolve client-side. Path traversal is
+// guarded by http.FileServer.
 func newSPAHandler(root fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(root))
+	etags := buildAssetETags(root)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if p == "" {
@@ -370,18 +339,48 @@ func newSPAHandler(root fs.FS) http.Handler {
 		}
 		if f, err := root.Open(p); err == nil {
 			_ = f.Close()
+			// Bundle filenames carry no content hash and go:embed zeroes
+			// modtimes, so without an explicit validator the browser caches
+			// heuristically and an upgrade pairs a new main.js with a stale
+			// main.css — which looks like a broken app, not a stale cache.
+			if tag, ok := etags[p]; ok {
+				w.Header().Set("ETag", tag)
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
-		// No file on disk at this path: fall back to the SPA shell.
+		if tag, ok := etags["index.html"]; ok {
+			w.Header().Set("ETag", tag)
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = "/"
 		fileServer.ServeHTTP(w, r2)
 	})
 }
 
-// lanIPv4s returns the non-loopback IPv4 addresses of the host's interfaces, so a
-// wildcard (0.0.0.0) bind can print URLs reachable from other devices on the LAN.
+// buildAssetETags hashes every embedded file once at startup. The set cannot
+// change while the process runs, so this is never per-request work.
+func buildAssetETags(root fs.FS) map[string]string {
+	tags := map[string]string{}
+	_ = fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		b, readErr := fs.ReadFile(root, p)
+		if readErr != nil {
+			return nil
+		}
+		sum := sha256.Sum256(b)
+		tags[p] = `"` + hex.EncodeToString(sum[:16]) + `"`
+		return nil
+	})
+	return tags
+}
+
+// lanIPv4s returns the host's non-loopback IPv4 addresses, so a wildcard bind
+// can print URLs reachable from other devices.
 func lanIPv4s() []string {
 	var out []string
 	addrs, err := net.InterfaceAddrs()
@@ -400,21 +399,19 @@ func lanIPv4s() []string {
 	return out
 }
 
-// defaultBrowserOpen opens url in the system browser. Best-effort only.
+// defaultBrowserOpen opens url in the system browser, best-effort.
 func defaultBrowserOpen(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
 		cmd = exec.Command("open", url)
 	default:
-		// Linux and everything else: try xdg-open.
 		cmd = exec.Command("xdg-open", url)
 	}
 	return cmd.Start()
 }
 
-// parseFlags parses the args slice for the serve verb and returns Options.
-// stdout/stderr are used only for the flag.FlagSet usage output.
+// parseFlags builds Options from the serve verb's args.
 func parseFlags(args []string, stdout, stderr io.Writer) (Options, error) {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -430,7 +427,6 @@ func parseFlags(args []string, stdout, stderr io.Writer) (Options, error) {
 		return Options{}, err
 	}
 
-	// Optional positional arg: target directory.
 	targetDir := ""
 	if fs.NArg() > 0 {
 		targetDir = fs.Arg(0)
@@ -443,9 +439,8 @@ func parseFlags(args []string, stdout, stderr io.Writer) (Options, error) {
 			return Options{}, err
 		}
 	}
-	// Normalize to an absolute path so downstream handlers (page, rail, file,
-	// link graph) can resolve request paths against the root regardless of how
-	// the user invoked "atomic serve" (e.g. "atomic serve ." or a relative path).
+	// Absolute, so every downstream handler resolves request paths against the
+	// root no matter how the user spelled the argument.
 	var absErr error
 	targetDir, absErr = filepath.Abs(targetDir)
 	if absErr != nil {
@@ -453,7 +448,7 @@ func parseFlags(args []string, stdout, stderr io.Writer) (Options, error) {
 		return Options{}, absErr
 	}
 
-	// claudeMDPath mirrors main.go:runCode derivation.
+	// ClaudeMDPath below mirrors main.go's runCode derivation.
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(stderr, "atomic serve: get home: %v\n", err)

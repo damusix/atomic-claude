@@ -1,10 +1,5 @@
-// api_handlers.go — CP2: additive /api/* content endpoints (page, file, rail,
-// nav) for the React frontend, alongside the existing htmx routes.
-//
-// Every handler reuses the same view-model builders as its htmx sibling
-// (context_handler.go, render.go, rail_handler.go, nav.go) so link resolution
-// and rendering stay single-sourced — see the API contracts table in
-// docs/spec/serve-react-frontend.md.
+// The /api/* content endpoints — page, file, rail, nav, search — that the
+// frontend reads. Contracts are specified in docs/spec/serve-react-frontend.md.
 package serve
 
 import (
@@ -19,11 +14,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// writeAPIJSON writes v as the JSON response body with status 200 and
-// Content-Type: application/json. Go's encoding/json default HTML-escaping
-// stays enabled (no SetEscapeHTML(false)) per the API contracts conventions —
-// distinct from writeGraphError/codegraph.go's carried-JS endpoints, which
-// disable it.
+// writeAPIJSON writes v as a 200 JSON body. HTML-escaping stays on here,
+// unlike the graph endpoints in codegraph.go, which disable it.
 func writeAPIJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	b, err := json.Marshal(v)
@@ -40,26 +32,21 @@ type apiErrorEnvelope struct {
 	Error string `json:"error"`
 }
 
-// writeAPIError writes the {"error": "<message>"} envelope with the given
-// non-200 status.
+// writeAPIError writes the error envelope with a non-200 status.
 func writeAPIError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	b, err := json.Marshal(apiErrorEnvelope{Error: msg})
 	if err != nil {
-		// Marshaling a plain string field cannot fail; this is unreachable in
-		// practice but keeps the write from silently dropping on the floor.
+		// Unreachable — marshaling one string field cannot fail — but the
+		// client still gets a body rather than nothing.
 		_, _ = w.Write([]byte(`{"error":"internal error"}`))
 		return
 	}
 	_, _ = w.Write(b)
 }
 
-// ─── GET /api/page/<relpath> ────────────────────────────────────────────────
-
-// apiPageResponse is the /api/page success payload for a file (not a
-// directory). Reshapes pageWithGraphData (context_handler.go) — Breadcrumb
-// moves from an HTML string to structured segments.
+// apiPageResponse is the /api/page payload for a file.
 type apiPageResponse struct {
 	HTML       string          `json:"html"`
 	Title      string          `json:"title"`
@@ -68,25 +55,19 @@ type apiPageResponse struct {
 	Breadcrumb []breadcrumbSeg `json:"breadcrumb"`
 }
 
-// apiPageDirResponse is the /api/page success payload for a directory URL
-// with no index file.
+// apiPageDirResponse is the /api/page payload for a directory with no index.
 type apiPageDirResponse struct {
 	Dir     bool       `json:"dir"`
 	RelPath string     `json:"relpath"`
 	Entries []dirEntry `json:"entries"`
 }
 
-// NewAPIPageHandler returns an http.Handler for GET /api/page/<relpath>.
-// It reuses the exact resolution and render path NewPageHandlerWithGraph
-// uses for htmx requests (index-file resolution, RenderMarkdownWithGraph,
-// directory listing) so /api/page and /page render identical link
-// resolution.
+// NewAPIPageHandler serves GET /api/page/<relpath>.
 func NewAPIPageHandler(root string, g graphProvider, landing string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		relPath := strings.TrimPrefix(r.URL.Path, "/api/page/")
-		// Empty relpath is the SPA's "/" landing request — the server owns
-		// scope resolution (realm → wiki/index.md, repo → README.md), the
-		// client can't know it.
+		// An empty relpath is the SPA's "/" request: the server owns scope
+		// resolution, the client cannot know it.
 		if relPath == "" || relPath == "/" {
 			relPath = landing
 		}
@@ -166,17 +147,14 @@ func NewAPIPageHandler(root string, g graphProvider, landing string) http.Handle
 	})
 }
 
-// ─── GET /api/file/<relpath> ────────────────────────────────────────────────
-
-// apiFileResponse is the /api/file success payload — chroma line-table HTML
-// (render.go:chromaHighlightLines), the same markup /file/<relpath> serves.
+// apiFileResponse carries the chroma line-table HTML for a source file.
 type apiFileResponse struct {
 	HTML  string `json:"html"`
 	Title string `json:"title"`
 	Path  string `json:"path"`
 }
 
-// NewAPIFileHandler returns an http.Handler for GET /api/file/<relpath>.
+// NewAPIFileHandler serves GET /api/file/<relpath>.
 func NewAPIFileHandler(root string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		relPath := strings.TrimPrefix(r.URL.Path, "/api/file/")
@@ -208,16 +186,12 @@ func NewAPIFileHandler(root string) http.Handler {
 	})
 }
 
-// ─── GET /api/rail/<relpath> ────────────────────────────────────────────────
-
-// apiRailBacklink is one inbound backlink entry.
 type apiRailBacklink struct {
 	Path string `json:"path"`
 }
 
-// apiRailResponse is the /api/rail success payload — reshapes railTmplData
-// (rail_handler.go) as flat JSON: Properties (nil when the page has no
-// frontmatter), Outbound edges, Backlinks, and the rail mini-graph data URL.
+// apiRailResponse is the /api/rail payload. Properties is nil for a page with
+// no frontmatter.
 type apiRailResponse struct {
 	RelPath      string            `json:"relpath"`
 	Orphan       bool              `json:"orphan"`
@@ -227,10 +201,7 @@ type apiRailResponse struct {
 	GraphDataURL string            `json:"graphDataURL"`
 }
 
-// NewAPIRailHandler returns an http.Handler for GET /api/rail/<relpath>.
-// Reuses the same graph-membership check, railProperties parser, and Edge
-// data NewRailHandler's htmx fragment uses, so /api/rail and /rail resolve
-// links identically.
+// NewAPIRailHandler serves GET /api/rail/<relpath>.
 func NewAPIRailHandler(root string, g graphProvider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		relPath := strings.TrimPrefix(r.URL.Path, "/api/rail/")
@@ -263,9 +234,8 @@ func NewAPIRailHandler(root string, g graphProvider) http.Handler {
 			apiBacklinks[i] = apiRailBacklink{Path: b}
 		}
 
-		// Outbound returns nil for a page with no links, which encoding/json
-		// marshals as JSON null — normalize to [] so the client never
-		// null-checks array fields.
+		// A nil slice marshals as null; normalize so the client never has to
+		// null-check an array field.
 		outbound := graph.Outbound(rel)
 		if outbound == nil {
 			outbound = []Edge{}
@@ -281,17 +251,19 @@ func NewAPIRailHandler(root string, g graphProvider) http.Handler {
 	})
 }
 
-// ─── GET /api/nav ───────────────────────────────────────────────────────────
-
-// apiNavResponse is the /api/nav success payload.
+// apiNavResponse is the /api/nav payload.
 type apiNavResponse struct {
-	Scope  string         `json:"scope"`
+	Scope string `json:"scope"`
+	// Name is the scope root's directory name, so the header labels what is
+	// actually being served rather than a hardcoded product name.
+	Name string `json:"name"`
+	// Branch is recomputed per request, so a checkout shows up on the next
+	// live-reload refetch rather than the next server restart.
+	Branch string         `json:"branch"`
 	Groups []navGroupJSON `json:"groups"`
 }
 
-// NewAPINavHandler returns an http.Handler for GET /api/nav. Reuses the same
-// staleness computation and folder-tree walk NewNavHandler's htmx fragment
-// uses, reshaped as structured groups/navNode data instead of an HTML tree.
+// NewAPINavHandler serves GET /api/nav.
 func NewAPINavHandler(opts NavOptions) http.Handler {
 	store := opts.Store
 	if store == nil && !opts.IsRealmScope {
@@ -310,25 +282,35 @@ func NewAPINavHandler(opts NavOptions) http.Handler {
 		}
 
 		if opts.IsRealmScope {
-			writeAPIJSON(w, apiNavResponse{Scope: "realm", Groups: buildRealmNavGroupsJSON(opts)})
+			identity := resolveScopeIdentity(opts.RealmRoot)
+			writeAPIJSON(w, apiNavResponse{
+				Scope:  "realm",
+				Name:   identity.Name,
+				Branch: identity.Branch,
+				Groups: buildRealmNavGroupsJSON(opts),
+			})
 			return
 		}
 
 		snap, _ := store.ensureFresh()
-		writeAPIJSON(w, apiNavResponse{Scope: "repo", Groups: buildRepoNavGroupsJSON(snap.navPaths)})
+		identity := resolveScopeIdentity(opts.RealmRoot)
+		writeAPIJSON(w, apiNavResponse{
+			Scope:  "repo",
+			Name:   identity.Name,
+			Branch: identity.Branch,
+			Groups: buildRepoNavGroupsJSON(snap.navPaths),
+		})
 	})
 }
 
-// ─── GET /api/search/md ─────────────────────────────────────────────────────
-
-// apiMdSearchResult is one matching line — reshapes mdMatch (search_md.go).
+// apiMdSearchResult is one matching line.
 type apiMdSearchResult struct {
 	RelPath string `json:"relpath"`
 	Line    int    `json:"line"`
 	Snippet string `json:"snippet"`
 }
 
-// apiMdSearchResponse is the /api/search/md success payload.
+// apiMdSearchResponse is the /api/search/md payload.
 type apiMdSearchResponse struct {
 	Query     string              `json:"query"`
 	Truncated bool                `json:"truncated"`
@@ -336,9 +318,7 @@ type apiMdSearchResponse struct {
 	Results   []apiMdSearchResult `json:"results"`
 }
 
-// NewAPIMdSearchHandler returns an http.Handler for GET /api/search/md?q=...
-// Reuses the same mdSearchHandler.search walk NewMdSearchHandler's htmx
-// fragment uses, reshaped as JSON instead of an HTML list.
+// NewAPIMdSearchHandler serves GET /api/search/md?q=…
 func NewAPIMdSearchHandler(opts MdSearchOptions) http.Handler {
 	h := &mdSearchHandler{navRoot: opts.NavRoot}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -353,8 +333,8 @@ func NewAPIMdSearchHandler(opts MdSearchOptions) http.Handler {
 	})
 }
 
-// apiMdSearchResponseFrom reshapes mdMatch results into the wire response —
-// shared by the synchronous handler and the SSE stream's "md" event.
+// apiMdSearchResponseFrom is shared by the synchronous handler and the SSE
+// stream's "md" event.
 func apiMdSearchResponseFrom(query string, matches []mdMatch, truncated bool) apiMdSearchResponse {
 	results := make([]apiMdSearchResult, len(matches))
 	for i, m := range matches {
@@ -363,10 +343,7 @@ func apiMdSearchResponseFrom(query string, matches []mdMatch, truncated bool) ap
 	return apiMdSearchResponse{Query: query, Truncated: truncated, Cap: mdSearchResultCap, Results: results}
 }
 
-// ─── GET /api/code/search ────────────────────────────────────────────────────
-
-// apiNodeRef is the reshaped subset of types.Node the frontend needs per
-// result — id, name, kind, filePath, startLine (per the API contracts table).
+// apiNodeRef is the subset of types.Node a search result carries.
 type apiNodeRef struct {
 	ID        string         `json:"id"`
 	Name      string         `json:"name"`
@@ -375,14 +352,12 @@ type apiNodeRef struct {
 	StartLine int            `json:"startLine"`
 }
 
-// apiNodeRefFrom reshapes a types.Node into the wire nodeRef shape.
 func apiNodeRefFrom(n types.Node) apiNodeRef {
 	return apiNodeRef{ID: n.ID, Name: n.Name, Kind: n.Kind, FilePath: n.FilePath, StartLine: n.StartLine}
 }
 
-// apiCodeSearchMember is one member's result group — reshapes memberResult
-// (codesearch.go). Un-indexed members carry indexed:false and empty results
-// (a data field, not an error — per the API contracts conventions).
+// apiCodeSearchMember is one member's result group. An unindexed member is
+// reported as data — indexed:false with no results — not as an error.
 type apiCodeSearchMember struct {
 	Key     string       `json:"key"`
 	Prefix  string       `json:"prefix"`
@@ -390,13 +365,13 @@ type apiCodeSearchMember struct {
 	Results []apiNodeRef `json:"results"`
 }
 
-// apiCodeSearchResponse is the /api/code/search success payload.
+// apiCodeSearchResponse is the /api/code/search payload.
 type apiCodeSearchResponse struct {
 	Members []apiCodeSearchMember `json:"members"`
 }
 
-// apiCodeSearchMemberFrom reshapes a memberResult into the wire shape —
-// shared by the synchronous handler and the SSE stream's "code" event.
+// apiCodeSearchMemberFrom is shared by the synchronous handler and the SSE
+// stream's "code" event.
 func apiCodeSearchMemberFrom(g memberResult) apiCodeSearchMember {
 	results := make([]apiNodeRef, len(g.Results))
 	for i, r := range g.Results {
@@ -410,10 +385,7 @@ func apiCodeSearchMemberFrom(g memberResult) apiCodeSearchMember {
 	}
 }
 
-// NewAPICodeSearchHandler returns an http.Handler for GET
-// /api/code/search?q=&only=&exclude=. Reuses the same codeSearchGroups fan-out
-// (concurrency/bounding unchanged) NewCodeSearchHandler's htmx fragment uses,
-// reshaped as JSON member groups instead of an HTML list.
+// NewAPICodeSearchHandler serves GET /api/code/search?q=&only=&exclude=.
 func NewAPICodeSearchHandler(opts CodeSearchOptions) http.Handler {
 	fn := opts.SearchFn
 	if fn == nil {
@@ -443,30 +415,20 @@ func NewAPICodeSearchHandler(opts CodeSearchOptions) http.Handler {
 	})
 }
 
-// ─── GET /api/search/stream ──────────────────────────────────────────────────
-
-// apiSearchStreamCodeEvent is the payload for each "code" SSE event — one per
-// realm member. Results is always populated from the member's search hits
-// (empty slice for a not-indexed or no-hit member).
+// apiSearchStreamCodeEvent is one "code" SSE event, emitted per realm member.
 type apiSearchStreamCodeEvent struct {
 	Member  apiSearchStreamMemberInfo `json:"member"`
 	Results []apiNodeRef              `json:"results"`
 }
 
-// apiSearchStreamMemberInfo is the member identity carried inside each "code"
-// SSE event.
 type apiSearchStreamMemberInfo struct {
 	Key     string `json:"key"`
 	Prefix  string `json:"prefix"`
 	Indexed bool   `json:"indexed"`
 }
 
-// NewAPISearchStreamHandler returns an http.Handler for GET
-// /api/search/stream?q=&src=. Emits named JSON SSE events: "md" (the
-// /api/search/md payload), one "code" event per realm member as its
-// concurrent search completes, then a terminal "end" ({}). Reuses the same
-// mdSearchHandler.search and codeSearchGroups fan-out the JSON/htmx siblings
-// use — concurrency/bounding behavior is unchanged.
+// NewAPISearchStreamHandler serves GET /api/search/stream?q=&src=, emitting an
+// "md" event, one "code" event per member as its search completes, then "end".
 func NewAPISearchStreamHandler(opts SearchStreamOptions) http.Handler {
 	fn := opts.SearchFn
 	if fn == nil {
@@ -507,10 +469,8 @@ func NewAPISearchStreamHandler(opts SearchStreamOptions) http.Handler {
 	})
 }
 
-// streamAPICodeResults resolves the realm and emits one JSON "code" SSE
-// event per member as its concurrent search completes. A realm with no code
-// members resolved emits no "code" events — the client's "end" event closes
-// the stream and the search UI shows no results.
+// streamAPICodeResults emits one "code" event per member. A realm with no code
+// members emits none, and the terminal "end" closes the stream.
 func streamAPICodeResults(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -531,10 +491,8 @@ func streamAPICodeResults(
 	})
 }
 
-// writeSSEJSON marshals v to JSON and writes it as one Server-Sent Event
-// (event: <event>\ndata: <json>\n\n). Reuses the same wire framing writeSSE
-// uses (search_stream.go); JSON never contains embedded newlines so the
-// multi-line data: split writeSSE performs is a no-op here.
+// writeSSEJSON writes v as one Server-Sent Event. Marshaled JSON has no
+// embedded newlines, so writeSSE's multi-line data: split is a no-op here.
 func writeSSEJSON(w http.ResponseWriter, flusher http.Flusher, event string, v any) {
 	b, err := json.Marshal(v)
 	if err != nil {

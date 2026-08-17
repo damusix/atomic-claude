@@ -1,8 +1,6 @@
 package resolution_test
 
-// sql_string_match_fragment_test.go — sql-string-match Checkpoint 6: C8
-// fragment-tier resolution (one-notch demotion at every computed tier) and
-// the C3 anchored-column vocabulary upgrade.
+// Fragment-tier resolution: one-notch demotion at every computed tier.
 
 import (
 	"context"
@@ -200,7 +198,7 @@ func TestSQLStringMatch_NonFragmentAnchoredColumnWithVocab_UpgradedToMedium(t *t
 		ReferenceKind: types.ReferenceKindSQLString, FilePath: "src/a.ts",
 		Language: types.LanguageTypeScript, Line: 3, CalleeExpr: "selectFrom",
 	})
-	// C3: bare column with a vocab-listed callee (declaration-DSL position)
+	// Bare column with a vocabulary-listed callee.
 	// upgrades low -> medium; no demotion applies since this is sql_string.
 	seedUnresolvedRef(t, d, types.UnresolvedReference{
 		ID: "ref-col", FromNodeID: ownerID, ReferenceName: "status",

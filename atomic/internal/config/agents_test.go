@@ -9,8 +9,6 @@ import (
 
 // --- validateModelInput (huh.Input validator, pure function) ---
 
-// TestValidateModelInput: empty passes (no override); well-formed model
-// strings pass; strings with internal whitespace fail with a guidance error.
 func TestValidateModelInput(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -37,8 +35,7 @@ func TestValidateModelInput(t *testing.T) {
 
 // --- effort option list (interactive Select) ---
 
-// TestEffortOptionValues_order: the ordered option list is exactly
-// "" (bundled default) followed by the five-level enum, in enum order.
+// The ordered option list is exactly "" followed by the five-level enum.
 func TestEffortOptionValues_order(t *testing.T) {
 	want := []string{"", "low", "medium", "high", "xhigh", "max"}
 	if len(effortOptionValues) != len(want) {
@@ -53,7 +50,6 @@ func TestEffortOptionValues_order(t *testing.T) {
 
 // --- applyAgentOverrides (pure function) ---
 
-// TestApplyAgentOverrides_validSelections: valid model selections are written to cfg.Claude.Agents.
 func TestApplyAgentOverrides_validSelections(t *testing.T) {
 	cfg := Default()
 	selections := map[string]AgentOverride{
@@ -77,8 +73,8 @@ func TestApplyAgentOverrides_validSelections(t *testing.T) {
 	}
 }
 
-// TestApplyAgentOverrides_invalidModelNeverFails: model validation is lenient —
-// applyAgentOverrides never hard-fails on an arbitrary model string.
+// Model validation is lenient: applyAgentOverrides never hard-fails on an
+// arbitrary model string.
 func TestApplyAgentOverrides_invalidModelNeverFails(t *testing.T) {
 	cfg := Default()
 	err := applyAgentOverrides(cfg, map[string]AgentOverride{
@@ -92,8 +88,6 @@ func TestApplyAgentOverrides_invalidModelNeverFails(t *testing.T) {
 	}
 }
 
-// TestApplyAgentOverrides_invalidEffort: an invalid effort value returns an error
-// (delegates to the validEfforts allowlist).
 func TestApplyAgentOverrides_invalidEffort(t *testing.T) {
 	cfg := Default()
 	err := applyAgentOverrides(cfg, map[string]AgentOverride{
@@ -110,15 +104,12 @@ func TestApplyAgentOverrides_invalidEffort(t *testing.T) {
 	}
 }
 
-// TestApplyAgentOverrides_emptySelectionRemovesEntry: selecting {} (bundled default)
-// removes the agent's entry from cfg.Claude.Agents.
 func TestApplyAgentOverrides_emptySelectionRemovesEntry(t *testing.T) {
 	cfg := Default()
 	cfg.Claude.Agents = map[string]AgentOverride{
 		"atomic-implementer": {Model: "sonnet"},
 		"atomic-reviewer":    {Model: "haiku"},
 	}
-	// Decline override for atomic-implementer.
 	if err := applyAgentOverrides(cfg, map[string]AgentOverride{
 		"atomic-implementer": {}, // remove override
 	}); err != nil {
@@ -127,14 +118,14 @@ func TestApplyAgentOverrides_emptySelectionRemovesEntry(t *testing.T) {
 	if _, ok := cfg.Claude.Agents["atomic-implementer"]; ok {
 		t.Error("atomic-implementer should be absent from cfg.Claude.Agents after empty selection")
 	}
-	// atomic-reviewer was not in selections → should remain untouched.
+	// atomic-reviewer was not in selections, so it must remain untouched.
 	if cfg.Claude.Agents["atomic-reviewer"].Model != "haiku" {
 		t.Errorf("atomic-reviewer should still be %q, got %q", "haiku", cfg.Claude.Agents["atomic-reviewer"].Model)
 	}
 }
 
-// TestApplyAgentOverrides_allEmptyNilsMap: when all agents select {} (bundled default)
-// and cfg.Claude.Agents was nil/empty, the map remains nil (no empty [claude.agents] TOML section).
+// An all-empty selection over an already-empty map leaves it nil, so TOML emits
+// no [claude.agents] section at all.
 func TestApplyAgentOverrides_allEmptyNilsMap(t *testing.T) {
 	cfg := Default()
 	selections := map[string]AgentOverride{
@@ -152,8 +143,6 @@ func TestApplyAgentOverrides_allEmptyNilsMap(t *testing.T) {
 	}
 }
 
-// TestApplyAgentOverrides_clearAllExistingOverrides: selecting {} for every agent
-// when overrides exist should result in nil Agents map.
 func TestApplyAgentOverrides_clearAllExistingOverrides(t *testing.T) {
 	cfg := Default()
 	cfg.Claude.Agents = map[string]AgentOverride{
@@ -172,8 +161,7 @@ func TestApplyAgentOverrides_clearAllExistingOverrides(t *testing.T) {
 	}
 }
 
-// TestApplyAgentOverrides_fableIsValid: an arbitrary forward-reserved model
-// name like "fable" is accepted (no allowlist).
+// An arbitrary forward-reserved model name is accepted — there is no allowlist.
 func TestApplyAgentOverrides_fableIsValid(t *testing.T) {
 	cfg := Default()
 	if err := applyAgentOverrides(cfg, map[string]AgentOverride{
@@ -186,7 +174,6 @@ func TestApplyAgentOverrides_fableIsValid(t *testing.T) {
 	}
 }
 
-// TestApplyAgentOverrides_roundTrip: apply → WritePersist → Load → Validate is clean.
 func TestApplyAgentOverrides_roundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -221,15 +208,13 @@ func TestApplyAgentOverrides_roundTrip(t *testing.T) {
 	if loaded.Claude.Agents["atomic-investigator"].Model != "haiku" {
 		t.Errorf("atomic-investigator = %q, want %q", loaded.Claude.Agents["atomic-investigator"].Model, "haiku")
 	}
-	// atomic-reviewer was {} → should be absent from [claude.agents].
+	// atomic-reviewer was {}, so it must be absent.
 	if _, ok := loaded.Claude.Agents["atomic-reviewer"]; ok {
 		t.Error("atomic-reviewer should be absent (empty selection = no override)")
 	}
 }
 
-// TestApplyAgentOverrides_modelAndEffortRoundTrip: a selection carrying both
-// fields (as the reworked model-Input + effort-Select form now returns)
-// writes both into cfg.Claude.Agents.
+// A selection carrying both fields writes both into cfg.Claude.Agents.
 func TestApplyAgentOverrides_modelAndEffortRoundTrip(t *testing.T) {
 	cfg := Default()
 	if err := applyAgentOverrides(cfg, map[string]AgentOverride{
@@ -246,7 +231,7 @@ func TestApplyAgentOverrides_modelAndEffortRoundTrip(t *testing.T) {
 
 // --- AgentTierSelector seam: CLI-level tests ---
 
-// withAgentTierSelectorStub replaces the AgentTierSelector seam for the duration of f.
+// withAgentTierSelectorStub replaces the AgentTierSelector seam for f.
 func withAgentTierSelectorStub(sel func(*Config) (map[string]AgentOverride, error), f func()) {
 	orig := AgentTierSelector
 	AgentTierSelector = sel
@@ -254,8 +239,6 @@ func withAgentTierSelectorStub(sel func(*Config) (map[string]AgentOverride, erro
 	f()
 }
 
-// TestRunAgents_writesSelections: agents verb with a stubbed selector writes models,
-// creates config.toml, and returns exit 0.
 func TestRunAgents_writesSelections(t *testing.T) {
 	home := t.TempDir()
 
@@ -274,7 +257,6 @@ func TestRunAgents_writesSelections(t *testing.T) {
 		}
 	})
 
-	// Verify persisted values.
 	cfg, _, err := Load(TOMLPath(home))
 	if err != nil {
 		t.Fatalf("Load after agents: %v", err)
@@ -285,13 +267,12 @@ func TestRunAgents_writesSelections(t *testing.T) {
 	if cfg.Claude.Agents["atomic-strategist"].Model != "opus" {
 		t.Errorf("atomic-strategist = %q, want opus", cfg.Claude.Agents["atomic-strategist"].Model)
 	}
-	// atomic-reviewer was {} → should be absent.
+	// atomic-reviewer was {}, so it must be absent.
 	if _, ok := cfg.Claude.Agents["atomic-reviewer"]; ok {
 		t.Error("atomic-reviewer should be absent (empty selection = no override)")
 	}
 }
 
-// TestRunAgents_nonInteractive: ErrNonInteractiveAgents exits 1 with guidance.
 func TestRunAgents_nonInteractive(t *testing.T) {
 	home := t.TempDir()
 
@@ -308,7 +289,6 @@ func TestRunAgents_nonInteractive(t *testing.T) {
 	})
 }
 
-// TestRunAgents_aborted: ErrAgentsAborted exits 1 with "aborted" message.
 func TestRunAgents_aborted(t *testing.T) {
 	home := t.TempDir()
 
@@ -325,8 +305,8 @@ func TestRunAgents_aborted(t *testing.T) {
 	})
 }
 
-// TestRunAgents_invalidEffortFromSelector: when the selector somehow returns an
-// invalid effort, applyAgentOverrides catches it and agents exits 1.
+// A selector that somehow returns an invalid effort is caught by
+// applyAgentOverrides, and the verb exits 1.
 func TestRunAgents_invalidEffortFromSelector(t *testing.T) {
 	home := t.TempDir()
 
@@ -343,7 +323,6 @@ func TestRunAgents_invalidEffortFromSelector(t *testing.T) {
 	})
 }
 
-// TestRunAgents_allDefault: all empty selections produce nil Agents (no [claude.agents] section).
 func TestRunAgents_allDefault(t *testing.T) {
 	home := t.TempDir()
 
@@ -371,12 +350,11 @@ func TestRunAgents_allDefault(t *testing.T) {
 	}
 }
 
-// TestRunAgents_selectorReceivesExistingConfig: AgentTierSelector receives the
-// current cfg so it can pre-populate selections from existing overrides.
+// The selector receives the current cfg so it can pre-populate from existing
+// overrides.
 func TestRunAgents_selectorReceivesExistingConfig(t *testing.T) {
 	home := t.TempDir()
 
-	// Pre-write a config with an existing override.
 	existing := Default()
 	existing.Claude.Agents = map[string]AgentOverride{"atomic-implementer": {Model: "haiku"}}
 	if err := WritePersist(TOMLPath(home), existing); err != nil {
@@ -396,12 +374,10 @@ func TestRunAgents_selectorReceivesExistingConfig(t *testing.T) {
 	}
 }
 
-// TestRunAgents_preservesOtherConfigSections: agents verb does not clobber
-// existing [output] or [update] settings.
+// The agents verb must not clobber existing [output] or [update] settings.
 func TestRunAgents_preservesOtherConfigSections(t *testing.T) {
 	home := t.TempDir()
 
-	// Pre-write config with non-default values.
 	existing := Default()
 	existing.Output.Signals.MaxDepth = 7
 	if err := WritePersist(TOMLPath(home), existing); err != nil {
@@ -428,8 +404,7 @@ func TestRunAgents_preservesOtherConfigSections(t *testing.T) {
 	}
 }
 
-// withApplyAgentsHookStub swaps ApplyAgentsHook for the duration of f, restoring
-// the original (nil in production) afterward.
+// withApplyAgentsHookStub swaps ApplyAgentsHook for f, restoring the original.
 func withApplyAgentsHookStub(hook func(home string) ([]string, int, error), f func()) {
 	orig := ApplyAgentsHook
 	ApplyAgentsHook = hook
@@ -437,9 +412,8 @@ func withApplyAgentsHookStub(hook func(home string) ([]string, int, error), f fu
 	f()
 }
 
-// TestRunAgents_appliesViaHook: after a successful save, the agents verb
-// calls ApplyAgentsHook with the resolved home and reports the applied
-// agents + a restart note on stdout.
+// After a successful save the verb calls ApplyAgentsHook with the resolved home
+// and reports the applied agents plus a restart note.
 func TestRunAgents_appliesViaHook(t *testing.T) {
 	home := t.TempDir()
 
@@ -468,8 +442,8 @@ func TestRunAgents_appliesViaHook(t *testing.T) {
 	}
 }
 
-// TestRunAgents_hookErrorNonFatal: a hook error is reported on stderr but the
-// verb still exits 0 — the config write itself succeeded.
+// A hook error is reported on stderr but the verb still exits 0 — the config
+// write itself succeeded.
 func TestRunAgents_hookErrorNonFatal(t *testing.T) {
 	home := t.TempDir()
 
@@ -493,8 +467,6 @@ func TestRunAgents_hookErrorNonFatal(t *testing.T) {
 	})
 }
 
-// TestRunAgents_hookNoInstalledAgents: installed == 0 reports the
-// will-apply-on-next-install message.
 func TestRunAgents_hookNoInstalledAgents(t *testing.T) {
 	home := t.TempDir()
 
@@ -515,7 +487,6 @@ func TestRunAgents_hookNoInstalledAgents(t *testing.T) {
 	})
 }
 
-// TestRunAgents_hookAlreadyUpToDate: installed > 0, no changes.
 func TestRunAgents_hookAlreadyUpToDate(t *testing.T) {
 	home := t.TempDir()
 
@@ -536,17 +507,12 @@ func TestRunAgents_hookAlreadyUpToDate(t *testing.T) {
 	})
 }
 
-// TestDefaultAgentTierSelector_nonInteractive: the default selector returns
-// ErrNonInteractiveAgents when not attached to a TTY (CI / test environment).
-// This test verifies the no-panic contract: it must not hang or crash.
+// The default selector must return ErrNonInteractiveAgents without hanging or
+// crashing when not attached to a TTY.
 func TestDefaultAgentTierSelector_nonInteractive(t *testing.T) {
-	// In test environments stdin/stdout are not TTYs, so defaultAgentTierSelector
-	// should return ErrNonInteractiveAgents immediately without hanging.
 	cfg := Default()
 	_, err := defaultAgentTierSelector(cfg)
 	if !errors.Is(err, ErrNonInteractiveAgents) {
-		// In a CI environment this is the expected path.
-		// If somehow a TTY is present (rare in CI), this test is a no-op.
 		t.Logf("defaultAgentTierSelector returned %v (not ErrNonInteractiveAgents — may be running on a TTY)", err)
 	}
 }

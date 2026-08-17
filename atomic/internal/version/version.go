@@ -1,14 +1,7 @@
-// Package version exposes the binary version and commit SHA.
-// Both default to "dev" / "unknown" and are overridden at build time via
-// -ldflags:
-//
-//	go build -ldflags "-X github.com/damusix/atomic-claude/atomic/internal/version.Version=v0.1.0 \
-//	                   -X github.com/damusix/atomic-claude/atomic/internal/version.Commit=abc1234" \
-//	    ./cmd/atomic
+// Package version exposes the binary version and commit SHA, both stamped at
+// build time via -ldflags -X and defaulting to "dev" / "unknown".
 package version
 
-// Version is the semver string for this build. Override with -ldflags.
 var Version = "dev"
 
-// Commit is the git commit SHA for this build. Override with -ldflags.
 var Commit = "unknown"

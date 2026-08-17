@@ -1,13 +1,8 @@
 package serve_test
 
-// api_code_realm_test.go — the realm self-index path, over the JSON /api
-// surface. A wiki realm with NO <code-index> federation, where a member was
-// indexed the natural way (cd member; atomic code index →
-// <member>/.claude/.atomic-index/atomic.db). serve must (1) find that member
-// in code search and (2) open the member's own db for the code modal's intel
-// pane, querying it with the MEMBER-relative path. Ported from the deleted
-// htmx-era code_realm_intel_test.go (CP12 cutover) — same scenarios, JSON
-// assertions instead of fragment-HTML ones.
+// A realm with no <code-index> federation, where a member was indexed the natural
+// way. Search must find that member, and the code modal must open the member's
+// own db and query it with the member-relative path.
 
 import (
 	"context"
@@ -89,12 +84,12 @@ func TestAPICodeFile_RealmSelfIndex_OpensMemberDBWithRelativePath(t *testing.T) 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d; body: %s", rr.Code, rr.Body.String())
 	}
-	// Opened the member's own self-index, not the (absent) realm-root db.
+	// The realm-root db does not exist; only the member's self-index does.
 	wantDB := filepath.Join(realmRoot, "monorepo", ".claude", ".atomic-index", "atomic.db")
 	if openedDB != wantDB {
 		t.Errorf("opened db %q, want member self-index %q", openedDB, wantDB)
 	}
-	// Queried with the MEMBER-relative path (prefix stripped).
+	// The member prefix must be stripped before the member's index sees it.
 	if rec.gotFilePath != "Apps/workers/src/rebuild-meili.ts" {
 		t.Errorf("queried %q, want member-relative path", rec.gotFilePath)
 	}
@@ -111,8 +106,7 @@ func TestAPICodeFile_RealmSelfIndex_OpensMemberDBWithRelativePath(t *testing.T) 
 	if len(got.Nodes) != 1 || got.Nodes[0].Name != "makeHandler" {
 		t.Errorf("expected the symbol in nodes; got %+v", got.Nodes)
 	}
-	// member carried so the frontend's drill-downs (node/callers/callees)
-	// open the same member db — the JSON analog of the htmx member= chips.
+	// Carried so the frontend's drill-downs open the same member db.
 	if got.Member != "monorepo" {
 		t.Errorf("member: got %q, want %q", got.Member, "monorepo")
 	}
@@ -121,8 +115,7 @@ func TestAPICodeFile_RealmSelfIndex_OpensMemberDBWithRelativePath(t *testing.T) 
 func TestAPICodeSearch_RealmSelfIndex_FindsMemberWithPrefix(t *testing.T) {
 	realmRoot, claudeMDPath := buildSelfIndexedRealm(t, "monorepo")
 
-	// The fake returns a hit only when handed the member's own db path —
-	// proving discovery routed the search to the self-index, not a federation db.
+	// Hits only on the member's own db path, so a federation db would find nothing.
 	wantDB := filepath.Join(realmRoot, "monorepo", ".claude", ".atomic-index", "atomic.db")
 	searchFn := func(_ context.Context, _ /*memberPath*/, dbPath, _ string) ([]types.SearchResult, error) {
 		if dbPath != wantDB {
@@ -177,8 +170,7 @@ func TestAPICodeSearch_RealmSelfIndex_FindsMemberWithPrefix(t *testing.T) {
 	if hit == nil {
 		t.Fatalf("expected the self-indexed member's result; body: %s", rr.Body.String())
 	}
-	// Grouped under the member (the frontend prefixes filePath with it to
-	// build /file/monorepo/... links — the JSON analog of the htmx href).
+	// The frontend prefixes filePath with this to build /file/ links.
 	if hitPrefix != "monorepo" {
 		t.Errorf("hit grouped under %q, want %q", hitPrefix, "monorepo")
 	}
@@ -187,9 +179,7 @@ func TestAPICodeSearch_RealmSelfIndex_FindsMemberWithPrefix(t *testing.T) {
 	}
 }
 
-// TestAPICodeSchema_NotIndexed_Degraded verifies the not-indexed state is a
-// 200 response with a data-carried "degraded" reason — not an error envelope
-// (same soft-state convention as /api/code/file).
+// Not-indexed is soft state here too: 200 with a reason, not an error envelope.
 func TestAPICodeSchema_NotIndexed_Degraded(t *testing.T) {
 	h := serve.NewCodeExplorerAPIHandler(serve.CodeExplorerOptions{
 		RealmRoot: t.TempDir(), // no index anywhere
@@ -216,3 +206,5 @@ func TestAPICodeSchema_NotIndexed_Degraded(t *testing.T) {
 		t.Errorf("expected no tables, got %+v", got.Tables)
 	}
 }
+
+func (r *realmRecordingEngine) IndexAll(context.Context) error { return nil }

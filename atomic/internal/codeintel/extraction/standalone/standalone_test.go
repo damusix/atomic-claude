@@ -1,15 +1,8 @@
 package standalone_test
 
-// Tests for the 5 standalone extractors: Vue, Svelte, Liquid, DFM, MyBatis.
-//
-// THE load-bearing test (appendix E contract): the Vue extractor runs the
-// JS/TS TreeSitterExtractor on the embedded <script> block, then offsets all
-// returned node/edge/ref line numbers by the block's start line so positions
-// map back to the .vue file.  A symbol's StartLine in the result must equal
-// its actual line in the .vue file, NOT its line within the <script> block.
-//
-// For the other formats: assert the root/component/mapper node + at least one
-// child or reference. Node-count must be stable across two calls.
+// The Vue and Svelte extractors run the JS/TS TreeSitterExtractor over the embedded
+// <script> block, so every node/edge/ref position has to map back to the outer file
+// rather than to its offset within the block.
 
 import (
 	"context"
@@ -20,10 +13,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction/standalone"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 func newPool(t *testing.T) *extraction.Pool {
 	t.Helper()
@@ -64,31 +53,8 @@ func countRefs(refs []types.UnresolvedReference, kind types.EdgeKind) int {
 	return n
 }
 
-// ---------------------------------------------------------------------------
-// Vue — the load-bearing offset test
-// ---------------------------------------------------------------------------
-
-// vueFixture is a .vue SFC where the <script> block starts at line 5.
-// The function greetUser is at line 8 in the file (line 4 within the script).
-// The template references a kebab-case <user-card> component.
-//
-// Layout (1-indexed):
-//
-//	 1: <template>
-//	 2:   <div>
-//	 3:     <user-card :user="user" />
-//	 4:   </div>
-//	 5: </template>
-//	 6: (blank)
-//	 7: <script>
-//	 8: export function greetUser(name) {
-//	 9:   return 'Hello ' + name;
-//	10: }
-//	11: </script>
-//	12: (blank)
-//	13: <style scoped>
-//	14: .card { color: red; }
-//	15: </style>
+// <script> opens at line 7, so greetUser sits at file line 8, script-relative 2.
+// The template tag is kebab-case on purpose.
 const vueFixture = `<template>
   <div>
     <user-card :user="user" />
@@ -108,14 +74,7 @@ export function greetUser(name) {
 
 const vueFixturePath = "src/components/Greeting.vue"
 
-// TestVue_OffsetCorrect is the KEY test (appendix E).
-// It verifies that:
-//  1. A component node is emitted at line 1.
-//  2. The greetUser function appears with StartLine == 8 (its actual position
-//     in the .vue file), NOT line 2 (its position within the <script> block).
-//     This proves the line-offset logic is working.
-//  3. A contains edge exists from the component node to greetUser.
-//  4. A references UnresolvedReference exists for the <user-card> template tag.
+// greetUser landing at file line 8 rather than script-relative 2 is the offset proof.
 func TestVue_OffsetCorrect(t *testing.T) {
 	pool := newPool(t)
 	ext := standalone.NewVueExtractor(pool)
@@ -128,10 +87,8 @@ func TestVue_OffsetCorrect(t *testing.T) {
 		t.Logf("extraction errors (non-fatal): %v", result.Errors)
 	}
 
-	// 1. Component node at line 1.
 	comp := findNode(result.Nodes, types.NodeKindComponent, "Greeting")
 	if comp == nil {
-		// Try by file path basename.
 		comp = findNode(result.Nodes, types.NodeKindComponent, "")
 		if comp == nil {
 			t.Fatalf("no component node found; nodes: %v", result.Nodes)
@@ -144,10 +101,6 @@ func TestVue_OffsetCorrect(t *testing.T) {
 		t.Errorf("component IsExported = false, want true")
 	}
 
-	// 2. THE LOAD-BEARING TEST: greetUser must be at line 8 in the .vue file.
-	//    The script block starts at line 8 of the file (the line with
-	//    "export function greetUser"). If offset is missing, greetUser will
-	//    appear at line 2 (script-relative). Correct offset = file line 8.
 	greet := findNode(result.Nodes, types.NodeKindFunction, "greetUser")
 	if greet == nil {
 		t.Fatalf("greetUser function not found; nodes: %v", result.Nodes)
@@ -158,7 +111,6 @@ func TestVue_OffsetCorrect(t *testing.T) {
 			greet.StartLine, wantLine)
 	}
 
-	// 3. contains edge: component → greetUser.
 	containsCount := 0
 	for _, e := range result.Edges {
 		if e.Kind == types.EdgeKindContains && e.Source == comp.ID && e.Target == greet.ID {
@@ -169,7 +121,6 @@ func TestVue_OffsetCorrect(t *testing.T) {
 		t.Errorf("no contains edge from component to greetUser")
 	}
 
-	// 4. references ref for <user-card> template tag.
 	refCount := countRefs(result.UnresolvedReferences, types.EdgeKindReferences)
 	if refCount == 0 {
 		t.Errorf("no references UnresolvedReferences for template component tags")
@@ -187,8 +138,6 @@ func TestVue_OffsetCorrect(t *testing.T) {
 	}
 }
 
-// TestVue_NodeCountStable verifies that extracting the same fixture twice
-// produces the same node count (idempotence).
 func TestVue_NodeCountStable(t *testing.T) {
 	pool := newPool(t)
 	ext := standalone.NewVueExtractor(pool)
@@ -206,7 +155,6 @@ func TestVue_NodeCountStable(t *testing.T) {
 	}
 }
 
-// TestVue_ScriptSetup verifies that <script setup> blocks are also handled.
 const vueScriptSetupFixture = `<template>
   <MyButton />
 </template>
@@ -226,7 +174,6 @@ func TestVue_ScriptSetup(t *testing.T) {
 		t.Fatalf("Extract: %v", err)
 	}
 
-	// Component node must exist.
 	hasComp := false
 	for _, n := range result.Nodes {
 		if n.Kind == types.NodeKindComponent {
@@ -238,7 +185,6 @@ func TestVue_ScriptSetup(t *testing.T) {
 		t.Errorf("no component node found")
 	}
 
-	// <MyButton /> → references ref.
 	foundMyButton := false
 	for _, r := range result.UnresolvedReferences {
 		if r.ReferenceKind == types.EdgeKindReferences &&
@@ -250,26 +196,17 @@ func TestVue_ScriptSetup(t *testing.T) {
 		t.Errorf("no references ref for MyButton")
 	}
 
-	// Kept-case (code-intel-local-variable-suppression spec): a top-level
-	// <script setup> const is module-scope (scopeDepth 0 in the sub-extractor),
-	// not inside a FunctionScopeTypes construct, so it must still mint a
-	// variable node — regression-proof: require presence, fail if absent,
-	// rather than silently no-op'ing over an empty match set.
+	// A top-level <script setup> const is module-scope (scopeDepth 0), outside any
+	// FunctionScopeTypes construct, so local-variable suppression must keep it.
 	count := findNode(result.Nodes, types.NodeKindVariable, "count")
 	if count == nil {
 		t.Fatalf("count variable node not found (want: top-level <script setup> const is kept under scope suppression); nodes: %v", result.Nodes)
 	}
-	// The import (ref from 'vue') should be offset to line 6 (script starts at line 6).
-	// count is at line 7 in the file; script content starts at line 6, so
-	// script-relative line 2 → file line 7.
+	// Script content starts at file line 6, so nothing from it may report lower.
 	if count.StartLine < 6 {
 		t.Errorf("count variable StartLine = %d; expected >= 6 (file-relative)", count.StartLine)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Svelte
-// ---------------------------------------------------------------------------
 
 const svelteFixture = `<script>
   export let name = 'World';
@@ -285,10 +222,6 @@ const svelteFixture = `<script>
 
 const svelteFixturePath = "src/Hello.svelte"
 
-// TestSvelte_RootNodeAndChildren verifies that:
-//  1. A component node is emitted.
-//  2. At least one child node from the <script> block is present.
-//  3. A references ref for the <Counter> template tag exists.
 func TestSvelte_RootNodeAndChildren(t *testing.T) {
 	pool := newPool(t)
 	ext := standalone.NewSvelteExtractor(pool)
@@ -309,7 +242,6 @@ func TestSvelte_RootNodeAndChildren(t *testing.T) {
 		t.Errorf("no component node found; nodes: %v", result.Nodes)
 	}
 
-	// At least one non-component child node (script content).
 	childCount := 0
 	for _, n := range result.Nodes {
 		if n.Kind != types.NodeKindComponent {
@@ -320,15 +252,12 @@ func TestSvelte_RootNodeAndChildren(t *testing.T) {
 		t.Errorf("no child nodes from script block")
 	}
 
-	// Kept-case (code-intel-local-variable-suppression spec, Svelte sibling of
-	// TestVue_ScriptSetup's Vue assertion): "export let name = 'World';" is
-	// module-scope (scopeDepth 0), not inside a FunctionScopeTypes construct,
-	// so it must still mint a variable node.
+	// Svelte sibling of the Vue case above: `export let` is module-scope, so
+	// local-variable suppression must keep it.
 	if n := findNode(result.Nodes, types.NodeKindVariable, "name"); n == nil {
 		t.Errorf("name variable node not found (want: top-level <script> let is kept under scope suppression); nodes: %v", result.Nodes)
 	}
 
-	// <Counter /> → references ref.
 	foundCounter := false
 	for _, r := range result.UnresolvedReferences {
 		if r.ReferenceKind == types.EdgeKindReferences &&
@@ -341,7 +270,6 @@ func TestSvelte_RootNodeAndChildren(t *testing.T) {
 	}
 }
 
-// TestSvelte_NodeCountStable verifies idempotence.
 func TestSvelte_NodeCountStable(t *testing.T) {
 	pool := newPool(t)
 	ext := standalone.NewSvelteExtractor(pool)
@@ -353,25 +281,9 @@ func TestSvelte_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Node-ID file-absolute line correctness (regression for followup-hardening-f-4)
-// ---------------------------------------------------------------------------
-
-// TestVue_NodeIDUsesFileAbsoluteLine asserts that the node ID for a symbol
-// inside a <script> block hashes the FILE-ABSOLUTE line number, not the
-// script-relative line number. Before the fix, GenerateNodeID was called with
-// the script-relative line; StartLine was corrected post-hoc via +contentLineOffset
-// but the node ID remained wrong. The fix pads content with leading newlines so
-// the sub-extractor sees file-absolute lines from the start, making the node ID
-// and StartLine consistent.
-//
-// vueFixture layout (1-indexed):
-//
-//	7: <script>
-//	8: export function greetUser(name) {   ← file-absolute line 8
-//
-// Before fix: node ID hashes line 2 (script-relative), StartLine = 8.
-// After fix:  node ID hashes line 8, StartLine = 8 — consistent.
+// The node ID hashes the line, so hashing a script-relative line while correcting
+// StartLine post-hoc leaves the two inconsistent. Padding the content with leading
+// newlines gives the sub-extractor file-absolute lines from the start.
 func TestVue_NodeIDUsesFileAbsoluteLine(t *testing.T) {
 	pool := newPool(t)
 	ext := standalone.NewVueExtractor(pool)
@@ -386,13 +298,11 @@ func TestVue_NodeIDUsesFileAbsoluteLine(t *testing.T) {
 		t.Fatalf("greetUser function not found; nodes: %v", result.Nodes)
 	}
 
-	// StartLine must be file-absolute.
 	const wantLine = 8
 	if greet.StartLine != wantLine {
 		t.Errorf("greetUser StartLine = %d, want %d", greet.StartLine, wantLine)
 	}
 
-	// Node ID must hash the file-absolute line.
 	wantID := extraction.GenerateNodeID(vueFixturePath, string(types.NodeKindFunction), "greetUser", wantLine)
 	if greet.ID != wantID {
 		t.Errorf("greetUser node ID = %q\n\twant (file-absolute line %d) = %q\n\t(node ID embeds script-relative line — followup-hardening-f-4)",
@@ -400,19 +310,8 @@ func TestVue_NodeIDUsesFileAbsoluteLine(t *testing.T) {
 	}
 }
 
-// svelteOffsetFixture has a <style> block before <script> so contentLineOffset > 0.
-//
-// Layout (1-indexed):
-//
-//	1: <style>
-//	2:   /* styles */
-//	3: </style>
-//	4: (blank)
-//	5: <script>
-//	6:   function greetSvelte(user) {   ← file-absolute line 6
-//	7:     return 'Hello ' + user;
-//	8:   }
-//	9: </script>
+// A <style> block ahead of <script> forces contentLineOffset > 0; greetSvelte then
+// sits at file line 6, script-relative 2.
 const svelteOffsetFixture = `<style>
   /* styles */
 </style>
@@ -426,11 +325,7 @@ const svelteOffsetFixture = `<style>
 
 const svelteOffsetFixturePath = "src/Greeter.svelte"
 
-// TestSvelte_NodeIDUsesFileAbsoluteLine mirrors TestVue_NodeIDUsesFileAbsoluteLine
-// for Svelte. greetSvelte is at script-relative line 2 but file-absolute line 6.
-//
-// Before fix: node ID hashes line 2, StartLine = 6.
-// After fix:  node ID hashes line 6, StartLine = 6 — consistent.
+// Svelte sibling of TestVue_NodeIDUsesFileAbsoluteLine.
 func TestSvelte_NodeIDUsesFileAbsoluteLine(t *testing.T) {
 	pool := newPool(t)
 	ext := standalone.NewSvelteExtractor(pool)
@@ -457,10 +352,6 @@ func TestSvelte_NodeIDUsesFileAbsoluteLine(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Liquid
-// ---------------------------------------------------------------------------
-
 const liquidFixture = `{% render 'header', title: page.title %}
 <div class="content">
   {% include 'product-card' %}
@@ -471,9 +362,6 @@ const liquidFixture = `{% render 'header', title: page.title %}
 
 const liquidFixturePath = "templates/product.liquid"
 
-// TestLiquid_RootNodeAndRefs verifies that:
-//  1. A component/template node is emitted.
-//  2. References exist for the rendered/included templates.
 func TestLiquid_RootNodeAndRefs(t *testing.T) {
 	ext := standalone.NewLiquidExtractor()
 
@@ -493,14 +381,13 @@ func TestLiquid_RootNodeAndRefs(t *testing.T) {
 		t.Errorf("no component node; nodes: %v", result.Nodes)
 	}
 
-	// Should have references for 'header', 'product-card', 'footer'.
+	// Both {% render %} and {% include %} are reference-producing forms.
 	refCount := countRefs(result.UnresolvedReferences, types.EdgeKindReferences)
 	if refCount < 2 {
 		t.Errorf("want >= 2 references refs, got %d; refs: %v", refCount, result.UnresolvedReferences)
 	}
 }
 
-// TestLiquid_NodeCountStable verifies idempotence.
 func TestLiquid_NodeCountStable(t *testing.T) {
 	ext := standalone.NewLiquidExtractor()
 	r1, _ := ext.Extract(liquidFixturePath, liquidFixture)
@@ -509,10 +396,6 @@ func TestLiquid_NodeCountStable(t *testing.T) {
 		t.Errorf("node count changed: %d → %d", len(r1.Nodes), len(r2.Nodes))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Delphi DFM
-// ---------------------------------------------------------------------------
 
 const dfmFixture = `object LoginForm: TLoginForm
   Left = 0
@@ -534,9 +417,6 @@ end
 
 const dfmFixturePath = "forms/LoginForm.dfm"
 
-// TestDFM_RootFormAndChildren verifies that:
-//  1. A component node for the root form is emitted.
-//  2. At least one child object (UsernameEdit or LoginButton) is emitted.
 func TestDFM_RootFormAndChildren(t *testing.T) {
 	ext := standalone.NewDFMExtractor()
 
@@ -545,13 +425,11 @@ func TestDFM_RootFormAndChildren(t *testing.T) {
 		t.Fatalf("Extract: %v", err)
 	}
 
-	// Root form component.
 	form := findNode(result.Nodes, types.NodeKindComponent, "LoginForm")
 	if form == nil {
 		t.Fatalf("no LoginForm component; nodes: %v", result.Nodes)
 	}
 
-	// Child objects.
 	hasChild := false
 	for _, n := range result.Nodes {
 		if n.Kind == types.NodeKindComponent && strings.Contains(n.Name, "Edit") ||
@@ -564,14 +442,12 @@ func TestDFM_RootFormAndChildren(t *testing.T) {
 		t.Errorf("no child component nodes (TEdit/TButton); nodes: %v", result.Nodes)
 	}
 
-	// contains edges from form to children.
 	containsCount := countEdges(result.Edges, types.EdgeKindContains)
 	if containsCount == 0 {
 		t.Errorf("no contains edges")
 	}
 }
 
-// TestDFM_NodeCountStable verifies idempotence.
 func TestDFM_NodeCountStable(t *testing.T) {
 	ext := standalone.NewDFMExtractor()
 	r1, _ := ext.Extract(dfmFixturePath, dfmFixture)
@@ -580,10 +456,6 @@ func TestDFM_NodeCountStable(t *testing.T) {
 		t.Errorf("node count changed: %d → %d", len(r1.Nodes), len(r2.Nodes))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// MyBatis XML
-// ---------------------------------------------------------------------------
 
 const mybatisFixture = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
@@ -606,10 +478,6 @@ const mybatisFixture = `<?xml version="1.0" encoding="UTF-8"?>
 
 const mybatisFixturePath = "src/main/resources/mappers/UserMapper.xml"
 
-// TestMyBatis_MapperAndStatements verifies that:
-//  1. A mapper/module node is emitted for the <mapper> element.
-//  2. Nodes exist for each statement (select, insert, update, delete).
-//  3. References exist for the namespace.
 func TestMyBatis_MapperAndStatements(t *testing.T) {
 	ext := standalone.NewMyBatisExtractor()
 
@@ -618,7 +486,6 @@ func TestMyBatis_MapperAndStatements(t *testing.T) {
 		t.Fatalf("Extract: %v", err)
 	}
 
-	// Mapper root node.
 	hasMapper := false
 	for _, n := range result.Nodes {
 		if n.Kind == types.NodeKindModule || n.Kind == types.NodeKindComponent {
@@ -630,7 +497,7 @@ func TestMyBatis_MapperAndStatements(t *testing.T) {
 		t.Errorf("no mapper root node; nodes: %v", result.Nodes)
 	}
 
-	// Statement nodes (select, insert, update, delete → function/method kind).
+	// Statements land as function or method nodes, one per <select>/<insert>/etc.
 	statementCount := 0
 	for _, n := range result.Nodes {
 		if n.Kind == types.NodeKindFunction || n.Kind == types.NodeKindMethod {
@@ -642,14 +509,12 @@ func TestMyBatis_MapperAndStatements(t *testing.T) {
 			statementCount, result.Nodes)
 	}
 
-	// contains edges.
 	containsCount := countEdges(result.Edges, types.EdgeKindContains)
 	if containsCount == 0 {
 		t.Errorf("no contains edges")
 	}
 }
 
-// TestMyBatis_NodeCountStable verifies idempotence.
 func TestMyBatis_NodeCountStable(t *testing.T) {
 	ext := standalone.NewMyBatisExtractor()
 	r1, _ := ext.Extract(mybatisFixturePath, mybatisFixture)
@@ -659,29 +524,6 @@ func TestMyBatis_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Vue — handler binding capture (@event + v-on:event)
-// ---------------------------------------------------------------------------
-
-// vueHandlerFixture is a .vue SFC with @click and v-on:submit bindings.
-// The handlers are defined in the <script> block.
-//
-// Layout (1-indexed):
-//
-//	 1: <template>
-//	 2:   <form v-on:submit="onSubmit">
-//	 3:     <button @click="handleClick">Click</button>
-//	 4:   </form>
-//	 5: </template>
-//	 6:
-//	 7: <script>
-//	 8: export default {
-//	 9:   methods: {
-//	10:     handleClick() { console.log('clicked'); },
-//	11:     onSubmit(e) { e.preventDefault(); },
-//	12:   },
-//	13: };
-//	14: </script>
 const vueHandlerFixture = `<template>
   <form v-on:submit="onSubmit">
     <button @click="handleClick">Click</button>
@@ -700,14 +542,8 @@ export default {
 
 const vueHandlerFixturePath = "src/components/MyForm.vue"
 
-// TestVue_HandlerBindingCapture verifies that @event="handler" and
-// v-on:event="handler" bindings in the template produce UnresolvedReferences
-// for the handler names. Both the @ shorthand and v-on: long form must be
-// captured. The refs must be emitted from the component node (not a script
-// method) so the synthesizer can resolve them to the <script> method nodes.
-//
-// Pre-fix this test fails (no handler refs produced). Post-fix both
-// handleClick (@click) and onSubmit (v-on:submit) appear in UnresolvedReferences.
+// Both the @ shorthand and the v-on: long form must be captured, and the refs must
+// come from the component node so the synthesizer can resolve them to script methods.
 func TestVue_HandlerBindingCapture(t *testing.T) {
 	pool := newPool(t)
 	ext := standalone.NewVueExtractor(pool)
@@ -717,10 +553,8 @@ func TestVue_HandlerBindingCapture(t *testing.T) {
 		t.Fatalf("Extract: %v", err)
 	}
 
-	// Find the component node — all handler refs must originate from it.
 	comp := findNode(result.Nodes, types.NodeKindComponent, "MyForm")
 	if comp == nil {
-		// fall back to any component node
 		for i := range result.Nodes {
 			if result.Nodes[i].Kind == types.NodeKindComponent {
 				comp = &result.Nodes[i]
@@ -732,7 +566,6 @@ func TestVue_HandlerBindingCapture(t *testing.T) {
 		t.Fatalf("no component node found; nodes: %v", result.Nodes)
 	}
 
-	// Find handler refs by name in UnresolvedReferences.
 	handlerRefs := map[string]bool{}
 	for _, r := range result.UnresolvedReferences {
 		if r.ReferenceKind == types.EdgeKindReferences && r.FromNodeID == comp.ID {
@@ -740,18 +573,15 @@ func TestVue_HandlerBindingCapture(t *testing.T) {
 		}
 	}
 
-	// @click="handleClick" must produce a ref.
 	if !handlerRefs["handleClick"] {
 		t.Errorf("handleClick not found in handler refs; all refs: %v", result.UnresolvedReferences)
 	}
-	// v-on:submit="onSubmit" must produce a ref.
 	if !handlerRefs["onSubmit"] {
 		t.Errorf("onSubmit not found in handler refs; all refs: %v", result.UnresolvedReferences)
 	}
 }
 
-// TestVue_HandlerBindingLineNumbers verifies that handler binding refs have
-// correct file-relative line numbers (not zero, not template-relative).
+// Handler-binding refs carry file-relative lines, never zero or template-relative.
 func TestVue_HandlerBindingLineNumbers(t *testing.T) {
 	pool := newPool(t)
 	ext := standalone.NewVueExtractor(pool)
@@ -761,7 +591,6 @@ func TestVue_HandlerBindingLineNumbers(t *testing.T) {
 		t.Fatalf("Extract: %v", err)
 	}
 
-	// handleClick is on line 3 in the fixture; onSubmit is on line 2.
 	for _, r := range result.UnresolvedReferences {
 		if r.ReferenceKind != types.EdgeKindReferences {
 			continue
@@ -779,21 +608,10 @@ func TestVue_HandlerBindingLineNumbers(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Vue — dangling-owner-ref regression (checkpoint 1, SC1)
-// ---------------------------------------------------------------------------
-
-// vueTopLevelCallFixture reproduces the construct found in this repo's
-// .vitepress/theme/AtomCore.vue and SessionPlayer.vue: a <script setup> block
-// with a call at the top level of the script (not inside any named function),
-// e.g. `onMounted(() => { ... })`. The tree-sitter extractor attributes such a
-// call's owner to its enclosing scope, which at script top level is the file:
-// node (extractor.go: "The parentID at this point is the enclosing scope (file
-// node at top level)"). The Vue extractor strips file: nodes from the result
-// (they're replaced by the component node) but, pre-fix, only rewired edges
-// whose source was the file: node — not refs. A ref with FromNodeID == the
-// stripped file: node has no owner in result.Nodes, which FK-fails the
-// unresolved_refs insert (from_node_id REFERENCES nodes(id)).
+// A call at the top level of <script setup> gets the enclosing scope as its owner,
+// which there is the file: node. The Vue extractor drops file: nodes in favor of the
+// component node, so a ref still pointing at one has no owner in result.Nodes and
+// FK-fails the unresolved_refs insert (from_node_id REFERENCES nodes(id)).
 const vueTopLevelCallFixture = `<script setup lang="ts">
 import { onMounted } from 'vue'
 
@@ -810,10 +628,7 @@ onMounted(() => {
 
 const vueTopLevelCallFixturePath = "src/AtomCore.vue"
 
-// TestVue_TopLevelScriptSetupCallOwnerIsComponent verifies that a call at the
-// top level of <script setup> (owner = file: node in the sub-extractor's
-// result) is rewired to the component node — the same rewrite already applied
-// to edges — so every ref's FromNodeID names a node present in result.Nodes.
+// Refs need the same file:-node-to-component rewrite that edges already get.
 func TestVue_TopLevelScriptSetupCallOwnerIsComponent(t *testing.T) {
 	pool := newPool(t)
 	ext := standalone.NewVueExtractor(pool)
@@ -860,13 +675,7 @@ func TestVue_TopLevelScriptSetupCallOwnerIsComponent(t *testing.T) {
 	}
 }
 
-// svelteTopLevelCallFixture mirrors vueTopLevelCallFixture's construct: a
-// <script> block with a call at the top level of the script (not inside any
-// named function). The tree-sitter extractor attributes such a call's owner
-// to its enclosing scope, which at script top level is the file: node. The
-// Svelte extractor strips file: nodes from the result (replaced by the
-// component node) but, pre-fix, only rewired edges whose source was the
-// file: node — not refs — the same gap fixed for Vue.
+// Svelte sibling of vueTopLevelCallFixture — same file:-node owner gap.
 const svelteTopLevelCallFixture = `<script>
 import { onMount } from 'svelte'
 
@@ -883,10 +692,6 @@ onMount(() => {
 
 const svelteTopLevelCallFixturePath = "src/AtomWidget.svelte"
 
-// TestSvelte_TopLevelScriptCallOwnerIsComponent verifies that a call at the
-// top level of <script> (owner = file: node in the sub-extractor's result) is
-// rewired to the component node — the same rewrite applied to edges — so
-// every ref's FromNodeID names a node present in result.Nodes.
 func TestSvelte_TopLevelScriptCallOwnerIsComponent(t *testing.T) {
 	pool := newPool(t)
 	ext := standalone.NewSvelteExtractor(pool)
@@ -933,12 +738,6 @@ func TestSvelte_TopLevelScriptCallOwnerIsComponent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// For() routing
-// ---------------------------------------------------------------------------
-
-// TestFor_RoutesToCorrectExtractor verifies that For() returns non-nil
-// extractors for the known extensions and nil for unknown ones.
 func TestFor_RoutesToCorrectExtractor(t *testing.T) {
 	pool := newPool(t)
 	reg := standalone.NewRegistry(pool)

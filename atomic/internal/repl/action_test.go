@@ -16,13 +16,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// startStubSessionAt seeds a session at exactly the socket/meta paths
-// action.go's own path resolution computes for (home, scopeRoot, name): a
-// listening unix socket speaking the wire protocol via handler, plus a
-// matching meta file — so the action-layer verbs are exercised through the
-// same path derivation production uses, without a real interpreter.
-// Mirrors client_test.go's startStubHarness, but bound at a caller-chosen
-// deterministic path instead of an arbitrary temp dir.
+// startStubSessionAt seeds a session at exactly the socket/meta paths action.go's
+// own resolution computes, so the verbs are exercised through production's path
+// derivation without a real interpreter. Mirrors client_test.go's
+// startStubHarness, but at a caller-chosen deterministic path.
 func startStubSessionAt(t *testing.T, home, scopeRoot, name string, meta Meta, handler func(Request) (Response, bool)) Session {
 	t.Helper()
 
@@ -61,8 +58,8 @@ func startStubSessionAt(t *testing.T, home, scopeRoot, name string, meta Meta, h
 				}
 				resp, reply := handler(req)
 				if !reply {
-					// Holds the connection open with nothing coming, the
-					// shape of a harness wedged inside an eval.
+					// Holds the connection open with nothing coming: the shape of a
+					// harness wedged inside an eval.
 					<-make(chan struct{})
 				}
 				frame, err := json.Marshal(resp)
@@ -83,9 +80,8 @@ func startStubSessionAt(t *testing.T, home, scopeRoot, name string, meta Meta, h
 	return Session{SocketPath: sockPath, MetaPath: metaPath, Meta: meta}
 }
 
-// seedDeadSession writes a meta file plus a plain (non-listening) regular
-// file at the session's socket path — file existence without anything bound
-// behind it, exactly TestIsLive's "stale socket" fixture, which is what a
+// seedDeadSession writes a meta file plus a plain non-listening file at the
+// socket path — file existence with nothing bound behind it, exactly what a
 // harness that crashed without cleaning up leaves on disk.
 func seedDeadSession(t *testing.T, home, scopeRoot, name string, meta Meta) Session {
 	t.Helper()
@@ -114,10 +110,9 @@ func seedDeadSession(t *testing.T, home, scopeRoot, name string, meta Meta) Sess
 	return Session{SocketPath: sockPath, MetaPath: metaPath, Meta: meta}
 }
 
-// captureStderr redirects os.Stderr for the duration of fn and returns
-// everything written to it — every action here writes errors directly to
-// os.Stderr (this package's convention, mirroring internal/bus), so asserting
-// on that content needs a real fd swap, not merely an injected io.Writer.
+// captureStderr redirects os.Stderr for fn and returns what was written. Every
+// action here writes errors straight to os.Stderr, so asserting on that needs a
+// real fd swap, not an injected io.Writer.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	orig := os.Stderr
@@ -374,8 +369,8 @@ func TestEvalAction_EvalExceptionExitsThree(t *testing.T) {
 func TestEvalAction_TimeoutExitsFourAndRemovesSessionFiles(t *testing.T) {
 	home := shortTempDir(t)
 	root := "/repo"
-	// PID left at zero (unrecorded): escalate() returns immediately with no
-	// signal or grace wait, keeping this test off the wall clock.
+	// PID left at zero: escalate returns immediately with no signal or grace
+	// wait, keeping this test off the wall clock.
 	sess := startStubSessionAt(t, home, root, "s", Meta{Lang: LangPython, StartedAt: time.Now()}, func(Request) (Response, bool) {
 		return Response{}, false // never replies — a runaway eval
 	})
@@ -412,10 +407,8 @@ func TestEvalAction_DeadSessionExitsFive(t *testing.T) {
 	}
 }
 
-// TestDeadSessionRemedy_NamesReplStart locks the CP3-review finding: every
-// verb that surfaces ExitDead (eval, status, reset, stop) must name `atomic
-// repl start` as the fix, not just report the session dead and leave the
-// next step implicit — see deadSessionError's doc.
+// Every verb that surfaces ExitDead must name `atomic repl start` as the fix,
+// not report the session dead and leave the next step implicit.
 func TestDeadSessionRemedy_NamesReplStart(t *testing.T) {
 	home := shortTempDir(t)
 	root := "/repo"
@@ -745,8 +738,7 @@ func TestResetAndStopAction_SessionNotFoundExitsTwo(t *testing.T) {
 
 // --- scope resolution / realm visibility -------------------------------
 
-// mustMarkScope writes a scope marker via config.EnsureScopeMarker and fails
-// the test on error — reusing the production primitive rather than
+// mustMarkScope writes a scope marker via the production primitive rather than
 // hand-writing atomic.toml, so this test tracks the real marker format.
 func mustMarkScope(t *testing.T, root, scope string) {
 	t.Helper()
@@ -825,8 +817,8 @@ func TestReplAction_RealmSessionVisibleFromMemberButSiblingSessionIsNot(t *testi
 		t.Errorf("eval local-a from member-b: exit = %d, want %d (not found — a sibling's local session is invisible)", code, ExitNotFound)
 	}
 
-	// list mirrors eval's visibility: from member-a both names appear; from
-	// member-b only the realm-shared one does.
+	// list mirrors eval's visibility: from member-a both names appear, from
+	// member-b only the realm-shared one.
 	out.Reset()
 	if code := ReplAction([]string{"list"}, home, memberA, "", nil, &out); code != int(ExitOK) {
 		t.Errorf("list from member-a: exit = %d, want 0", code)
@@ -847,7 +839,7 @@ func TestReplAction_RealmSessionVisibleFromMemberButSiblingSessionIsNot(t *testi
 	}
 }
 
-// --- resolveIdleTimeout (CP4: [repl] idle_timeout config) --------------
+// --- resolveIdleTimeout ([repl] idle_timeout config) --------------
 
 // writeRepoReplConfig writes content to <scopeRoot>/.claude/atomic.toml.
 func writeRepoReplConfig(t *testing.T, scopeRoot, content string) {
@@ -873,9 +865,7 @@ func writeUserReplConfig(t *testing.T, home, content string) {
 	}
 }
 
-// TestResolveIdleTimeout_BothAbsentDefaultsToOneHour: neither the repo nor
-// the user config carries [repl] idle_timeout — resolveIdleTimeout falls
-// back to DefaultIdleTimeout (1h).
+// Neither config carries [repl] idle_timeout — falls back to DefaultIdleTimeout.
 func TestResolveIdleTimeout_BothAbsentDefaultsToOneHour(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -888,8 +878,7 @@ func TestResolveIdleTimeout_BothAbsentDefaultsToOneHour(t *testing.T) {
 	}
 }
 
-// TestResolveIdleTimeout_UserAppliesWhenRepoAbsent: the user-level
-// idle_timeout applies when the repo config has none.
+// The user-level idle_timeout applies when the repo config has none.
 func TestResolveIdleTimeout_UserAppliesWhenRepoAbsent(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -904,8 +893,7 @@ func TestResolveIdleTimeout_UserAppliesWhenRepoAbsent(t *testing.T) {
 	}
 }
 
-// TestResolveIdleTimeout_RepoWinsOverUser: a repo-level idle_timeout takes
-// precedence over a user-level one.
+// A repo-level idle_timeout takes precedence over a user-level one.
 func TestResolveIdleTimeout_RepoWinsOverUser(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -921,9 +909,8 @@ func TestResolveIdleTimeout_RepoWinsOverUser(t *testing.T) {
 	}
 }
 
-// TestResolveIdleTimeout_InvalidRepoFallsThroughToUser: a malformed repo
-// idle_timeout is skipped in favor of a valid user-level one, rather than
-// blocking session start — doctor is what surfaces the malformed value.
+// A malformed repo idle_timeout is skipped in favor of a valid user-level one
+// rather than blocking session start — doctor is what surfaces the bad value.
 func TestResolveIdleTimeout_InvalidRepoFallsThroughToUser(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -939,8 +926,7 @@ func TestResolveIdleTimeout_InvalidRepoFallsThroughToUser(t *testing.T) {
 	}
 }
 
-// TestResolveIdleTimeout_InvalidBothFallsThroughToDefault: malformed or
-// non-positive values at both scopes fall through to DefaultIdleTimeout.
+// Malformed or non-positive values at both scopes fall through to the default.
 func TestResolveIdleTimeout_InvalidBothFallsThroughToDefault(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -955,13 +941,11 @@ func TestResolveIdleTimeout_InvalidBothFallsThroughToDefault(t *testing.T) {
 	}
 }
 
-// --- F-8: invalid idle_timeout is surfaced at start time ----------------
+// --- invalid idle_timeout is surfaced at start time ---
 
-// TestStartAction_InvalidIdleTimeoutWarnsNamingFileAndValue: resolveIdleTimeout
-// degrades quietly past a bad value, which without this warning leaves a
-// mistyped idle_timeout in effect indefinitely with nothing but `atomic
-// doctor` to reveal it. Same posture as the graphignore config in
-// codeintel/engine: the run proceeds, but the use site says so out loud.
+// resolveIdleTimeout degrades quietly past a bad value, which without this
+// warning leaves a mistyped idle_timeout in effect indefinitely with nothing but
+// `atomic doctor` to reveal it. The run proceeds; the use site says so out loud.
 func TestStartAction_InvalidIdleTimeoutWarnsNamingFileAndValue(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -992,9 +976,8 @@ func TestStartAction_InvalidIdleTimeoutWarnsNamingFileAndValue(t *testing.T) {
 	}
 }
 
-// TestStartAction_InvalidIdleTimeoutWarnsOncePerScope: repo and user configs
-// each carrying a bad value produce one line each — an agent reading stderr
-// has to be able to tell which file to go fix.
+// Repo and user configs each carrying a bad value produce one line each — an
+// agent reading stderr has to be able to tell which file to fix.
 func TestStartAction_InvalidIdleTimeoutWarnsOncePerScope(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -1024,8 +1007,8 @@ func TestStartAction_InvalidIdleTimeoutWarnsOncePerScope(t *testing.T) {
 	}
 }
 
-// TestStartAction_ValidIdleTimeoutIsSilent: the warning is a diagnostic, not
-// a running commentary — a well-formed config says nothing.
+// The warning is a diagnostic, not a running commentary: a well-formed config
+// says nothing.
 func TestStartAction_ValidIdleTimeoutIsSilent(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -1047,10 +1030,9 @@ func TestStartAction_ValidIdleTimeoutIsSilent(t *testing.T) {
 	}
 }
 
-// TestEvalAction_InvalidIdleTimeoutIsSilent: the window is resolved once, when
-// a session is spawned. Repeating the warning on every eval would put it in
-// front of the code's own output on every call, which is where an agent reads
-// results — start is the one place it is actionable.
+// The window is resolved once, when a session is spawned. Repeating the warning
+// on every eval would put it in front of the code's own output, which is where
+// an agent reads results — start is the one place it is actionable.
 func TestEvalAction_InvalidIdleTimeoutIsSilent(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -1075,14 +1057,11 @@ func TestEvalAction_InvalidIdleTimeoutIsSilent(t *testing.T) {
 	}
 }
 
-// TestDefaultIdleTimeout_MatchesConfigDisplayDefault pins the one duplicated
-// fact between this package and internal/config: repl owns the concrete
-// fallback (DefaultIdleTimeout), config owns the string shown for an unset
-// repl.idle_timeout by `atomic config list` / config.resolved.md. config
-// cannot import repl (repl imports config; that would cycle), so the two are
-// kept in sync by hand — and nothing else fails when they drift. This test
-// is that failure: an agent told "1h" while sessions actually reap at some
-// other window has been lied to by the surface it was pointed at.
+// The one duplicated fact between this package and internal/config: repl owns the
+// concrete fallback, config owns the string `atomic config list` shows for an
+// unset repl.idle_timeout. config cannot import repl (that would cycle), so the
+// two are kept in sync by hand and nothing else fails when they drift. An agent
+// told "1h" while sessions reap on some other window has been lied to.
 func TestDefaultIdleTimeout_MatchesConfigDisplayDefault(t *testing.T) {
 	display, ok := config.Resolved(config.Default())["repl.idle_timeout"]
 	if !ok {

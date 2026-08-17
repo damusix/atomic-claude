@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-// TestPythonHarness drives the embedded Python harness through the shared
-// cross-language conformance suite in harness_contract_test.go, spawning
-// python3 directly rather than through any Go spawn path — this checkpoint
-// tests the script, not the plumbing that will later start it.
+// Drives the embedded Python harness through the shared conformance suite,
+// spawning python3 directly rather than through any Go spawn path: this tests
+// the script, not the plumbing that starts it.
 func TestPythonHarness(t *testing.T) {
 	runHarnessConformance(t, harnessCase{
 		lang: LangPython,
@@ -33,7 +32,7 @@ func TestPythonHarness(t *testing.T) {
 		bigOutput:   "print('x' * 100000)",
 		smallOutput: "print('short')",
 		// A str can hold a lone surrogate (surrogateescape decoding produces
-		// them); UTF-8 cannot encode one, so the harness must replace it
+		// them) and UTF-8 cannot encode one, so the harness must replace it
 		// rather than emit a frame Go will reject.
 		surrogate: "import sys\nsys.stdout.write('a\\udcffb')\nNone",
 		bigValue:  "'x' * 100000",
@@ -48,9 +47,8 @@ func TestPythonHarness(t *testing.T) {
 	})
 }
 
-// TestPythonHarness_SyntaxErrorReportsTheOffendingLine covers the one failure
-// mode with no user frame to unwind: the code never ran, so the traceback comes
-// from the parse itself and must still show what and where.
+// The one failure mode with no user frame to unwind: the code never ran, so the
+// traceback comes from the parse itself and must still show what and where.
 func TestPythonHarness_SyntaxErrorReportsTheOffendingLine(t *testing.T) {
 	h := startHarness(t, pythonCase(), conformanceIdleTimeout)
 	resp := h.eval(t, "value = 1\nvalue = (\n")

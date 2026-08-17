@@ -1,29 +1,10 @@
 package languages_test
 
-// EE5 extractor tests — identifier call-argument capture.
+// Identifier call-argument capture, which is what lets closure-collection know
+// the identity of a handler passed to something like .append(handler).
 //
-// EE5 extends EE2: a call_expression ref also records its identifier arguments
-// (not just string literals) as "arg:<ident>" prefixed entries in Arguments.
-//
-// Representation contract (additive — does not replace EE2 string args):
-//
-//	String literal arg "login"     → Arguments entry: "login"   (no prefix — unchanged EE2)
-//	Identifier arg     onE          → Arguments entry: "arg:onE" (EE5 prefix)
-//
-// The "arg:" prefix is the discriminator: synthesizers can tell apart
-// string-keyed event names (EE2) from identifier-handler names (EE5).
-//
-// These tests prove:
-//  1. `emitter.on('e', onE)` → Arguments contains "e" AND "arg:onE".
-//  2. `arr.append(handler)` → Arguments contains "arg:handler".
-//  3. `foo(x, y)` (two ident args, no string) → Arguments = ["arg:x", "arg:y"].
-//  4. `emitter.emit('login')` (string-only) → Arguments = ["login"] (EE2 unchanged).
-//  5. `doSomething()` (no args) → Arguments nil (unchanged).
-//  6. Node count stable across two extractions (regression guard).
-//  7. EE3 "field:" discriminator and EE1 "jsx:" discriminator are intact (no collision).
-//
-// WHY: EE5 enables closure-collection (Swift/Kotlin .append(handler)) to know the
-// identity of the appended handler, allowing forEach→append correlation by receiver.
+// A string literal is recorded bare and an identifier under an "arg:" prefix, so
+// a synthesizer can tell a string-keyed event name from a handler name.
 
 import (
 	"context"
@@ -35,10 +16,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// TestEE5_MixedStringAndIdentArgs proves that a call with both a string-literal
-// and an identifier arg captures both: string unchanged, ident as "arg:<name>".
-// This is the canonical EE5 use case: emitter.on('e', onE).
+// The canonical case: emitter.on('e', onE) records both argument forms.
 func TestEE5_MixedStringAndIdentArgs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -60,7 +40,6 @@ func TestEE5_MixedStringAndIdentArgs(t *testing.T) {
 		t.Fatalf("no calls/on UnresolvedReference found; refs: %v", result.UnresolvedReferences)
 	}
 
-	// Must have both the string arg and the identifier arg.
 	hasString := false
 	hasIdent := false
 	for _, a := range found.Arguments {
@@ -79,9 +58,9 @@ func TestEE5_MixedStringAndIdentArgs(t *testing.T) {
 	}
 }
 
-// TestEE5_IdentArgOnlyCall proves that arr.append(handler) — identifier-only arg —
-// records "arg:handler" in Arguments. This is the Swift/Kotlin closure-collection case.
+// The Swift and Kotlin closure-collection shape.
 func TestEE5_IdentArgOnlyCall(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -114,8 +93,8 @@ func TestEE5_IdentArgOnlyCall(t *testing.T) {
 	}
 }
 
-// TestEE5_TwoIdentArgs proves that foo(x, y) (two ident args, no string) captures both.
 func TestEE5_TwoIdentArgs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -134,8 +113,8 @@ func TestEE5_TwoIdentArgs(t *testing.T) {
 		}
 	}
 	if found == nil {
-		// foo call may not be inside a function body scope depending on grammar walk;
-		// skip rather than fail so the test is not fragile on scope edge cases.
+		// Skip rather than fail: whether this call is inside a walked body
+		// scope is a grammar detail this test is not pinning.
 		t.Skip("foo call not found in refs — scope walk may differ; EE5 core covered by other tests")
 		return
 	}
@@ -155,9 +134,9 @@ func TestEE5_TwoIdentArgs(t *testing.T) {
 	}
 }
 
-// TestEE5_StringOnlyCallUnchanged proves that EE2 string-only calls are not altered.
-// emitter.emit('login') → Arguments = ["login"] (no "arg:" entries).
+// A string-only call keeps its bare entry and gains no prefixed one.
 func TestEE5_StringOnlyCallUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -191,8 +170,8 @@ func TestEE5_StringOnlyCallUnchanged(t *testing.T) {
 	}
 }
 
-// TestEE5_ArglessCallUnchanged proves that no-arg calls still yield nil Arguments.
 func TestEE5_ArglessCallUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -212,8 +191,8 @@ func TestEE5_ArglessCallUnchanged(t *testing.T) {
 	t.Log("doSomething() call not found — skip")
 }
 
-// TestEE5_TypeScriptMixedArgs proves that TS also captures ident args.
 func TestEE5_TypeScriptMixedArgs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangTypeScript, languages.TypeScriptExtractor())
 
@@ -252,8 +231,9 @@ func TestEE5_TypeScriptMixedArgs(t *testing.T) {
 	}
 }
 
-// TestEE5_NodeCountStable proves the EE5 change does not alter node count (regression guard).
+// Re-extracting a fixture must yield the same counts.
 func TestEE5_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -265,10 +245,9 @@ func TestEE5_NodeCountStable(t *testing.T) {
 	}
 }
 
-// TestEE5_PrefixNonCollision proves that "arg:" prefix does not collide with
-// the EE3 "field:" and EE1 "jsx:" discriminators.
+// The three Arguments discriminators share one slice, so none may prefix another.
 func TestEE5_PrefixNonCollision(t *testing.T) {
-	// The three EE prefixes must be distinct:
+	t.Parallel()
 	prefixes := []string{"arg:", "field:", "jsx:"}
 	seen := map[string]bool{}
 	for _, p := range prefixes {
@@ -277,7 +256,6 @@ func TestEE5_PrefixNonCollision(t *testing.T) {
 		}
 		seen[p] = true
 	}
-	// Also verify none is a prefix of another.
 	for i, a := range prefixes {
 		for j, b := range prefixes {
 			if i != j && strings.HasPrefix(a, b) {

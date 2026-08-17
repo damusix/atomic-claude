@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// TestLoadRepoConfig_Parse: a well-formed [code] ignore array loads correctly.
 func TestLoadRepoConfig_Parse(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -35,8 +34,8 @@ func TestLoadRepoConfig_Parse(t *testing.T) {
 	}
 }
 
-// TestLoadRepoConfig_MissingFile: an absent config file must produce
-// discovery output identical to today — empty RepoConfig, no warnings, no error.
+// An absent config file must produce discovery output identical to today: empty
+// RepoConfig, no warnings, no error.
 func TestLoadRepoConfig_MissingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -53,8 +52,8 @@ func TestLoadRepoConfig_MissingFile(t *testing.T) {
 	}
 }
 
-// TestLoadRepoConfig_UnknownTopLevelKeyWarns: an unrecognized top-level
-// table produces a warning but does not fail the load or drop known data.
+// An unrecognized top-level table warns without failing the load or dropping
+// known data.
 func TestLoadRepoConfig_UnknownTopLevelKeyWarns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -78,8 +77,7 @@ func TestLoadRepoConfig_UnknownTopLevelKeyWarns(t *testing.T) {
 	}
 }
 
-// TestLoadRepoConfig_UnknownLeafKeyWarns: an unrecognized key nested inside
-// a known section ([code]) also warns, dotted-path included.
+// An unrecognized key inside a known section also warns, dotted path included.
 func TestLoadRepoConfig_UnknownLeafKeyWarns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -97,8 +95,7 @@ func TestLoadRepoConfig_UnknownLeafKeyWarns(t *testing.T) {
 	}
 }
 
-// TestLoadRepoConfig_MalformedTOML: unparseable TOML returns an error the
-// caller can degrade on (indexing proceeds unfiltered) — never a panic.
+// Unparseable TOML returns an error the caller can degrade on — never a panic.
 func TestLoadRepoConfig_MalformedTOML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -113,8 +110,7 @@ func TestLoadRepoConfig_MalformedTOML(t *testing.T) {
 	}
 }
 
-// TestLoadRepoConfig_WrongTypedIgnore: a non-array ignore value is treated
-// as malformed (decode error), never a panic.
+// A non-array ignore value is a decode error, never a panic.
 func TestLoadRepoConfig_WrongTypedIgnore(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -129,8 +125,7 @@ func TestLoadRepoConfig_WrongTypedIgnore(t *testing.T) {
 	}
 }
 
-// TestIgnoreMatcher: table-driven coverage of the matcher semantics in
-// docs/spec/graphignore.md SC3.
+// Table-driven coverage of the matcher semantics in docs/spec/graphignore.md.
 func TestIgnoreMatcher(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -157,9 +152,8 @@ func TestIgnoreMatcher(t *testing.T) {
 	}
 }
 
-// TestNewIgnoreMatcher_InvalidPatternWarns: an invalid glob pattern is
-// surfaced as a Warning the caller can report, and the remaining valid
-// patterns still match — one bad pattern does not disable the rest.
+// An invalid glob is surfaced as a Warning and the remaining valid patterns
+// still match — one bad pattern does not disable the rest.
 func TestNewIgnoreMatcher_InvalidPatternWarns(t *testing.T) {
 	m, warns := NewIgnoreMatcher([]string{"vendor[/**", "*.min.js"})
 	if len(warns) != 1 {
@@ -173,8 +167,8 @@ func TestNewIgnoreMatcher_InvalidPatternWarns(t *testing.T) {
 	}
 }
 
-// TestIgnoreMatcher_NilSafe: a nil matcher matches nothing rather than
-// panicking — callers may pass a nil matcher when config load fails.
+// A nil matcher matches nothing rather than panicking — callers may pass one
+// when config load fails.
 func TestIgnoreMatcher_NilSafe(t *testing.T) {
 	var m *IgnoreMatcher
 	if m.Match("anything.go") {
@@ -182,9 +176,7 @@ func TestIgnoreMatcher_NilSafe(t *testing.T) {
 	}
 }
 
-// TestRepoConfigPath: joins projectRoot with the harness dir and the fixed
-// repo-relative suffix. Uses the test seam so it never touches the real home
-// (RepoConfigPath is harness-dir-aware as of CP2; see harness.go).
+// Uses the harness-dir test seam so it never touches the real home.
 func TestRepoConfigPath(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -196,10 +188,8 @@ func TestRepoConfigPath(t *testing.T) {
 	}
 }
 
-// --- [repl] idle_timeout (CP4: atomic-repl) ---
+// --- [repl] idle_timeout ---
 
-// TestLoadRepoConfig_ReplIdleTimeout_Parse: a well-formed [repl] idle_timeout
-// loads correctly and produces no warnings.
 func TestLoadRepoConfig_ReplIdleTimeout_Parse(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -220,8 +210,8 @@ func TestLoadRepoConfig_ReplIdleTimeout_Parse(t *testing.T) {
 	}
 }
 
-// TestLoadRepoConfig_ReplUnknownLeafWarns: an unrecognized key nested inside
-// [repl] warns with the dotted path, mirroring code.bogus_leaf's coverage.
+// An unrecognized key inside [repl] warns with the dotted path, mirroring
+// code.bogus_leaf's coverage.
 func TestLoadRepoConfig_ReplUnknownLeafWarns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -239,9 +229,8 @@ func TestLoadRepoConfig_ReplUnknownLeafWarns(t *testing.T) {
 	}
 }
 
-// TestLoadRepoConfig_ReplAbsent: no [repl] table at all leaves
-// Repl.IdleTimeout empty with no warnings — the same "absence is normal"
-// contract as every other optional section in this schema.
+// No [repl] table leaves IdleTimeout empty with no warnings — the same
+// absence-is-normal contract as every other optional section.
 func TestLoadRepoConfig_ReplAbsent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -262,9 +251,8 @@ func TestLoadRepoConfig_ReplAbsent(t *testing.T) {
 	}
 }
 
-// TestValidateIdleTimeout: table-driven coverage of the shared duration
-// validator used by config.Validate, the repo-config doctor check, and
-// internal/repl's resolveIdleTimeout.
+// Table-driven coverage of the shared validator used by config.Validate, the
+// repo-config doctor check, and repl's resolveIdleTimeout.
 func TestValidateIdleTimeout(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -301,9 +289,8 @@ func TestValidateIdleTimeout(t *testing.T) {
 	}
 }
 
-// TestIgnoreMatcher_PatternCount: counts only successfully compiled
-// patterns — an invalid pattern is dropped by NewIgnoreMatcher and must not
-// be counted as active. A nil matcher (config load failed) counts 0.
+// Only successfully compiled patterns count: an invalid one is dropped by
+// NewIgnoreMatcher and must not be counted active. A nil matcher counts 0.
 func TestIgnoreMatcher_PatternCount(t *testing.T) {
 	m, _ := NewIgnoreMatcher([]string{"vendor/**", "*.min.js", "vendor[/**"})
 	if got := m.PatternCount(); got != 2 {

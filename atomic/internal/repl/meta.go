@@ -8,14 +8,13 @@ import (
 	"time"
 )
 
-// Meta is what the CLI records about a running session, so a later invocation
-// — a separate process with none of the first one's memory — can find, report
-// on, and signal it.
+// Meta is what the CLI records about a running session, so a later invocation —
+// a separate process with none of the first one's memory — can find, report on,
+// and signal it.
 //
-// There is deliberately no field for the environment a session was started
-// with: `list` and `status` render this struct, and an --env value must never
-// appear in their output. Nowhere to put one is a stronger guarantee than
-// remembering to filter.
+// There is deliberately no field for the environment a session started with:
+// `list` and `status` render this struct, and nowhere to put an --env value is a
+// stronger guarantee than remembering to filter one out.
 type Meta struct {
 	Name string `json:"name"`
 	Lang string `json:"lang"`
@@ -24,10 +23,9 @@ type Meta struct {
 
 	Socket string `json:"socket"`
 
-	// StartedAt is what makes PID safe to signal. A pid on its own is a
-	// recycled-pid hazard: by the time an eval times out, the number may
-	// belong to something else entirely, so the escalation cross-checks this
-	// against the live process before sending anything.
+	// StartedAt is what makes PID safe to signal. A pid alone is a recycled-pid
+	// hazard: by the time an eval times out the number may belong to something
+	// else, so the escalation cross-checks this against the live process first.
 	StartedAt time.Time `json:"started_at"`
 
 	// Root is the scope root the session keys to — its harness's working
@@ -37,8 +35,8 @@ type Meta struct {
 }
 
 // LoadMeta reads a session's meta file. An absent file wraps os.ErrNotExist so
-// callers can tell "no session by that name" (which is a routine answer) from a
-// read failure (which is not).
+// callers can tell "no session by that name", a routine answer, from a read
+// failure, which is not.
 func LoadMeta(path string) (Meta, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -52,9 +50,8 @@ func LoadMeta(path string) (Meta, error) {
 }
 
 // Save writes the meta file at 0600 through a temp file in the same directory,
-// so a reader never observes a half-written record and a re-`start` never
-// leaves the previous pid behind. The parent directory is created 0700 —
-// the file names a pid the CLI will signal.
+// so a reader never sees a half-written record and a re-`start` never leaves the
+// previous pid behind. The parent is 0700 — the file names a pid the CLI signals.
 func (m Meta) Save(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {

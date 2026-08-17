@@ -1,17 +1,9 @@
 package standalone
 
-// SQL standalone extractor (CP2 — definition nodes).
-//
-// Produces node kinds: table, view, column, function, procedure, trigger,
-// index, sequence, namespace, enum, enum_member, type_alias, module.
-// Contains edges: table→column, table→index, enum→enum_member.
-//
-// Comment stripping is applied before any matching to prevent false positives
-// from CREATE statements inside -- or /* */ comments. String-literal stripping
-// is best-effort (single-quoted contents replaced with blanks).
-//
-// Dialect coverage: Postgres (ANSI / "quotes"), MySQL (backticks),
-// T-SQL ([brackets], GO terminators, CREATE OR ALTER, CREATE TYPE … FROM).
+// Regex-based SQL extractor — no grammar, so comments and single-quoted strings
+// are blanked before matching or a CREATE inside one mints a node.
+// Dialects: Postgres (ANSI "quotes"), MySQL (backticks), T-SQL ([brackets], GO
+// terminators, CREATE OR ALTER).
 
 import (
 	"encoding/json"
@@ -24,22 +16,12 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Identifier helpers
-// ---------------------------------------------------------------------------
+// --- Identifier helpers ---
 
-// sqlIdentRE matches a single SQL identifier in any quoting style:
-//   - bare:     word
-//   - ANSI:     "word"
-//   - MySQL:    `word`
-//   - T-SQL:    [word]
-//
-// Group 1 captures the bare (unquoted) content.
+// One SQL identifier in any quoting style: bare, "ANSI", `MySQL`, [T-SQL].
 const sqlIdentPat = `(?:"([^"]+)"|` + "`([^`]+)`" + `|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_$]*))`
 
-// sqlQNameRE matches an optionally schema-qualified (up to 3 parts) identifier.
-// Each component uses sqlIdentPat. The full match is used to find the position;
-// the caller uses extractQName to parse it.
+// Optionally schema-qualified identifier, up to 3 parts.
 var sqlQNameRE = regexp.MustCompile(
 	sqlIdentPat + `(?:\.` + sqlIdentPat + `(?:\.` + sqlIdentPat + `)?)?`,
 )
@@ -60,8 +42,7 @@ func normIdent(s string) string {
 	return s
 }
 
-// parseQName parses a possibly-schema-qualified SQL name (dot-separated) and
-// returns (schemaOrEmpty, name). Handles all quoting styles.
+// parseQName splits a dot-separated SQL name into (schemaOrEmpty, name).
 func parseQName(raw string) (schema, name string) {
 	parts := splitQName(raw)
 	switch len(parts) {
@@ -70,7 +51,6 @@ func parseQName(raw string) (schema, name string) {
 	case 1:
 		return "", normIdent(parts[0])
 	default:
-		// Take last component as name, join rest as schema.
 		name = normIdent(parts[len(parts)-1])
 		schemaParts := make([]string, len(parts)-1)
 		for i, p := range parts[:len(parts)-1] {
@@ -81,8 +61,7 @@ func parseQName(raw string) (schema, name string) {
 	}
 }
 
-// splitQName splits a possibly-quoted, dot-delimited SQL name into its parts.
-// Dots inside quote characters are not treated as separators.
+// splitQName splits on dots, ignoring dots inside quote characters.
 func splitQName(raw string) []string {
 	var parts []string
 	var cur strings.Builder
@@ -126,27 +105,18 @@ func qualifiedName(schema, name string) string {
 	return name
 }
 
-// ---------------------------------------------------------------------------
-// Comment / string stripping
-// ---------------------------------------------------------------------------
+// --- Comment / string stripping ---
 
-// stripLineCommentsRE matches -- to end of line.
-// We replace the content (after --) with spaces, preserving the newline.
 var stripLineCommentsRE = regexp.MustCompile(`--[^\n]*`)
 
-// stripBlockCommentsRE matches /* ... */ block comments (non-greedy, dotall).
 var stripBlockCommentsRE = regexp.MustCompile(`(?s)/\*.*?\*/`)
 
-// stripSingleQuotedRE matches single-quoted string literals (best-effort;
-// handles escaped single quotes as ” but not backslash-escape style).
+// Handles the doubled single-quote escape, not backslash escapes.
 var stripSingleQuotedRE = regexp.MustCompile(`'(?:[^']|'')*'`)
 
-// stripComments removes -- line comments and /* */ block comments from source,
-// preserving line counts by replacing stripped content with blank chars.
-// The returned string has identical byte length to source (same number of
-// newlines), so strings.Count(stripped[:offset], "\n")+1 still works.
+// stripComments blanks -- and /* */ comments in place: the result keeps source's
+// byte length and newlines, so match offsets still map to line numbers.
 func stripComments(source string) string {
-	// Replace block comments: keep newlines, replace other chars with space.
 	result := stripBlockCommentsRE.ReplaceAllStringFunc(source, func(m string) string {
 		var sb strings.Builder
 		sb.Grow(len(m))
@@ -159,15 +129,13 @@ func stripComments(source string) string {
 		}
 		return sb.String()
 	})
-	// Replace line comments: keep the newline at end of line.
 	result = stripLineCommentsRE.ReplaceAllStringFunc(result, func(m string) string {
 		return strings.Repeat(" ", len(m))
 	})
 	return result
 }
 
-// blankPreserveNewlines replaces all non-newline characters in s with spaces,
-// preserving newlines so that line-number offsets remain stable.
+// blankPreserveNewlines keeps newlines so line-number offsets stay stable.
 func blankPreserveNewlines(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -181,20 +149,14 @@ func blankPreserveNewlines(s string) string {
 	return b.String()
 }
 
-// padTo pads s to exactly n bytes by appending spaces when s is shorter.
-// If s is longer than n (placeholder exceeded the original span), the original
-// span is blanked via blankPreserveNewlines using the original match text — this
-// is safe because the harvest already captured the lineage edge; blanking the
-// span is lossless and avoids silently truncating real SQL tokens.
-// The blank argument is the original matched string used for the safe fallback.
+// padTo forces s to exactly n bytes so a substitution keeps source offsets intact.
+// An over-long s blanks the span rather than truncating: the harvest already
+// captured the edge, so blanking is lossless where a cut SQL token would not be.
 func padTo(s string, n int) string {
 	if len(s) == n {
 		return s
 	}
 	if len(s) > n {
-		// Placeholder is longer than the original Jinja span (shouldn't happen in
-		// practice with __dbt_ref_/src_ prefixes, but defend against it). Blank the
-		// span so no SQL token is corrupted; harvest already owns the edge.
 		var b strings.Builder
 		b.Grow(n)
 		for i := 0; i < n; i++ {
@@ -202,7 +164,6 @@ func padTo(s string, n int) string {
 		}
 		return b.String()
 	}
-	// Pad with spaces to reach n bytes.
 	var b strings.Builder
 	b.Grow(n)
 	b.WriteString(s)
@@ -212,9 +173,8 @@ func padTo(s string, n int) string {
 	return b.String()
 }
 
-// stripStrings replaces single-quoted string literals with same-length blank
-// sequences (preserving newlines). Best-effort: protects against DDL comments
-// embedded in default values.
+// stripStrings blanks single-quoted literals so DDL text inside a default value
+// cannot match as SQL.
 func stripStrings(source string) string {
 	return stripSingleQuotedRE.ReplaceAllStringFunc(source, func(m string) string {
 		var sb strings.Builder
@@ -230,286 +190,184 @@ func stripStrings(source string) string {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Regex patterns for CREATE statements
-// ---------------------------------------------------------------------------
+// --- Regex patterns for CREATE statements ---
 
-// sqlModifiersRE matches the optional modifier words between CREATE and the
-// object kind keyword. Anchored to consume (but not capture) them.
-// Pattern: optional IF NOT EXISTS / OR REPLACE / OR ALTER
+// Optional CREATE modifiers: OR REPLACE / OR ALTER / IF NOT EXISTS.
 const modPat = `(?:(?:OR\s+(?:REPLACE|ALTER)|IF\s+NOT\s+EXISTS)\s+)*`
 
-// tableClassPat matches optional Snowflake/SQL-standard class modifiers that
-// may appear between OR REPLACE and TABLE. OR REPLACE is consumed by modPat.
-// Valid forms:
-//   - TRANSIENT | VOLATILE | TEMPORARY | TEMP  — stand alone
-//   - LOCAL TEMPORARY | LOCAL TEMP             — LOCAL only as prefix
-//   - GLOBAL TEMPORARY | GLOBAL TEMP           — GLOBAL only as prefix
-//
-// Bare LOCAL TABLE / GLOBAL TABLE are invalid in all supported dialects and
-// must NOT match — so LOCAL/GLOBAL are non-optional only when followed by
-// TEMP/TEMPORARY. The alternation is: one optional modifier token which is
-// either a standalone word or a LOCAL/GLOBAL-prefixed TEMP compound.
+// Class modifiers between CREATE and TABLE. LOCAL/GLOBAL are legal only as a
+// TEMP/TEMPORARY prefix — bare LOCAL TABLE is invalid and must not match.
 const tableClassPat = `(?:(?:TRANSIENT|VOLATILE|(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP))\s+)?`
 
-// viewSecurityPat matches optional Snowflake security/recursive modifiers that
-// may appear between OR REPLACE and VIEW (e.g. SECURE, RECURSIVE, and the
-// optional TEMP/TEMPORARY qualifier on a view). Multiple modifiers are valid.
+// Snowflake modifiers between CREATE and VIEW; multiple may stack.
 const viewSecurityPat = `(?:(?:SECURE|RECURSIVE|TEMPORARY|TEMP)\s+)*`
 
-// tableRE matches CREATE [FOREIGN|EXTERNAL] [class-modifiers] TABLE [IF NOT EXISTS] <name>
-// A1: tableClassPat inserted after the FOREIGN|EXTERNAL group to absorb
-// Snowflake TRANSIENT/TEMPORARY/TEMP/VOLATILE/LOCAL/GLOBAL before TABLE.
+// CREATE [FOREIGN|EXTERNAL] [class] TABLE [IF NOT EXISTS] <name>
 var tableRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(FOREIGN|EXTERNAL)\s+)?` + tableClassPat + `TABLE\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// viewRE matches CREATE [OR REPLACE] [security-modifiers] [MATERIALIZED] VIEW <name>
-// A1: viewSecurityPat inserted after modPat to absorb Snowflake SECURE/RECURSIVE
-// before MATERIALIZED/VIEW.
+// CREATE [OR REPLACE] [SECURE|RECURSIVE] [MATERIALIZED] VIEW <name>
 var viewRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + viewSecurityPat + `(MATERIALIZED\s+)?VIEW\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// functionRE matches CREATE [OR REPLACE|OR ALTER] FUNCTION <name>
+// CREATE [OR REPLACE|OR ALTER] FUNCTION <name>
 var functionRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `FUNCTION\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// procedureRE matches CREATE [OR REPLACE|OR ALTER] PROCEDURE <name>
+// CREATE [OR REPLACE|OR ALTER] PROC[EDURE] <name>
 var procedureRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `PROC(?:EDURE)?\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// triggerRE matches CREATE [OR REPLACE] TRIGGER <name>
+// CREATE [OR REPLACE] TRIGGER <name>
 var triggerRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `TRIGGER\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// indexRE matches CREATE [UNIQUE] INDEX <name> ON <table>
+// CREATE [UNIQUE] INDEX <name> ON <table>
 var indexRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+(?:UNIQUE\s+)?INDEX\s+` + modPat + `(` + sqlQNameRaw + `)\s+ON\s+(` + sqlQNameRaw + `)`)
 
-// sequenceRE matches CREATE SEQUENCE <name>
+// CREATE SEQUENCE <name>
 var sequenceRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SEQUENCE\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// stageRE matches CREATE [OR REPLACE] [TEMPORARY|TEMP] STAGE [IF NOT EXISTS] <name>
-// A5: Snowflake external/internal stage definition.
-// The optional TEMPORARY/TEMP modifier sits between OR REPLACE (consumed by modPat)
-// and STAGE; trailing \s+ is embedded inside the alternation to avoid leaving
-// unconsumed whitespace before STAGE.
+// CREATE [OR REPLACE] [TEMPORARY] STAGE [IF NOT EXISTS] <name> — Snowflake.
 var stageRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(?:TEMPORARY|TEMP)\s+)?STAGE\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// fileFormatRE matches CREATE [OR REPLACE] [TEMPORARY|TEMP] FILE FORMAT [IF NOT EXISTS] <name>
-// F1: Snowflake named file format definition. Group 1 = format name (possibly schema-qualified).
+// CREATE [OR REPLACE] [TEMPORARY] FILE FORMAT [IF NOT EXISTS] <name> — Snowflake.
 var fileFormatRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(?:TEMPORARY|TEMP)\s+)?FILE\s+FORMAT\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// streamRE matches CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON <object-kind> <source>
-// A4: Snowflake change-data-capture stream definition.
-// Group 1 = stream name, Group 2 = source object name.
-// Object kinds (alternation, longest-first for regex correctness):
-//
-//	EXTERNAL TABLE | DYNAMIC TABLE | EVENT TABLE | TABLE | VIEW | STAGE
-//
-// The multi-word forms must precede their single-word constituent (TABLE) so
-// the alternation matches the full phrase before falling back to the bare TABLE.
+// CREATE [OR REPLACE] STREAM <name> ON <kind> <source> — Snowflake CDC.
+// Multi-word kinds precede bare TABLE so the alternation takes the full phrase.
 var streamRE = regexp.MustCompile(
 	`(?im)^[ \t]*CREATE\s+` + modPat + `STREAM\s+` + modPat + `(` + sqlQNameRaw + `)` +
 		`\s+ON\s+(?:EXTERNAL\s+TABLE|DYNAMIC\s+TABLE|EVENT\s+TABLE|TABLE|VIEW|STAGE)\s+(` + sqlQNameRaw + `)`,
 )
 
-// taskRE matches CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name>
-// A3: Snowflake scheduled task definition.
-// Group 1 = task name.
+// CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name> — Snowflake.
 var taskRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `TASK\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// taskAfterRE matches the AFTER <t1>[, <t2> ...] predecessor clause in a CREATE TASK statement.
-// A3: AFTER is in sqlKeywordsForRef so it must NOT go through scanBodyEdges.
-// This regex is applied to the per-task statement text (not the full source) to
-// extract the comma-separated predecessor list. Group 1 = full comma list.
+// AFTER <t1>[, <t2>…] task predecessors. AFTER is in sqlKeywordsForRef, so
+// scanBodyEdges drops it — the list needs its own pass over the task statement.
 var taskAfterRE = regexp.MustCompile(`(?i)\bAFTER\s+((?:` + sqlQNameRaw + `)(?:\s*,\s*(?:` + sqlQNameRaw + `))*)`)
 
-// taskPredecessorSplitRE splits the AFTER predecessor comma list into individual names.
 var taskPredecessorSplitRE = regexp.MustCompile(`\s*,\s*`)
 
-// schemaRE matches CREATE SCHEMA <name>
+// CREATE SCHEMA <name>
 var schemaRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SCHEMA\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// databaseRE matches CREATE DATABASE <name>
+// CREATE DATABASE <name>
 var databaseRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `DATABASE\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// domainRE matches CREATE DOMAIN <name>
-var domainRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `DOMAIN\s+` + modPat + `(` + sqlQNameRaw + `)`)
+// CREATE DOMAIN <name>, optionally inside a DO $$ BEGIN wrapper: Postgres has
+// no IF NOT EXISTS for DOMAIN, so every idempotent script wraps it.
+var domainRE = regexp.MustCompile(`(?im)^[ \t]*(?:DO\s+\$[^$]*\$\s*BEGIN\s+)?CREATE\s+` + modPat + `DOMAIN\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// synonymRE matches CREATE SYNONYM <name> FOR <target>
-// Group 1 = synonym name, Group 2 = target name
+// CREATE SYNONYM <name> FOR <target>
 var synonymRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SYNONYM\s+` + modPat + `(` + sqlQNameRaw + `)\s+FOR\s+(` + sqlQNameRaw + `)`)
 
-// policyRE matches CREATE POLICY <name> ON <table>
-// Group 1 = policy name, Group 2 = table name
+// CREATE POLICY <name> ON <table>
 var policyRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `POLICY\s+(` + sqlIdentOnlyRaw + `)\s+ON\s+(` + sqlQNameRaw + `)`)
 
-// triggerOnRE matches the ON <table> clause in a CREATE TRIGGER statement.
-// Used to extract the trigger target table after the trigger node is found.
-// Group 1 = table name.
+// ON <table> in a CREATE TRIGGER, matched after the trigger node is found.
 var triggerOnRE = regexp.MustCompile(`(?i)\bON\s+(` + sqlQNameRaw + `)`)
 
-// triggerExecFnRE matches EXECUTE [PROCEDURE|FUNCTION] <fn> in a trigger body.
-// Group 1 = function name.
+// EXECUTE [PROCEDURE|FUNCTION] <fn> in a trigger body.
 var triggerExecFnRE = regexp.MustCompile(`(?i)\bEXECUTE\s+(?:PROCEDURE|FUNCTION)\s+(` + sqlQNameRaw + `)`)
 
-// viewBodyFROMRE matches FROM <table> or JOIN <table> in a view or routine body
-// (after stripping comments/strings). Shared between view-body and routine-body scans.
-// Group 1 = table name.
+// FROM/JOIN <table>; shared by the view-body and routine-body scans.
 var viewBodyFROMRE = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+(` + sqlQNameRaw + `)`)
 
-// bodyInsertIntoRE matches INSERT INTO <name> in a routine body.
 var bodyInsertIntoRE = regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+(` + sqlQNameRaw + `)`)
 
-// bodyUpdateRE matches UPDATE <name> in a routine body (before SET).
 var bodyUpdateRE = regexp.MustCompile(`(?i)\bUPDATE\s+(` + sqlQNameRaw + `)\s+SET\b`)
 
-// bodyDeleteFromRE matches DELETE FROM <name> in a routine body.
 var bodyDeleteFromRE = regexp.MustCompile(`(?i)\bDELETE\s+FROM\s+(` + sqlQNameRaw + `)`)
 
-// bodyMergeIntoRE matches MERGE INTO <name> in a routine body.
 var bodyMergeIntoRE = regexp.MustCompile(`(?i)\bMERGE\s+INTO\s+(` + sqlQNameRaw + `)`)
 
-// bodyExecCallRE matches EXEC[UTE] <name> or CALL <name>( in a routine body.
-// Group 1 = routine name.
+// EXEC[UTE] <name> or CALL <name>( in a routine body.
 var bodyExecCallRE = regexp.MustCompile(`(?i)\b(?:EXEC(?:UTE)?\s+|CALL\s+)(` + sqlQNameRaw + `)\s*[\s(]`)
 
-// bodyApplyRE matches CROSS APPLY or OUTER APPLY <tvf>( in a routine/view body.
-// The trailing \s*\( restricts to table-valued-function invocations — a
-// correlated derived-table apply (CROSS APPLY (SELECT ...)) cannot match because
-// sqlQNameRaw requires an identifier, not '('. Group 1 = TVF name.
+// CROSS/OUTER APPLY <tvf>( — the trailing paren restricts this to table-valued
+// function calls; APPLY (SELECT …) cannot match since sqlQNameRaw needs an ident.
 var bodyApplyRE = regexp.MustCompile(`(?i)\b(?:CROSS|OUTER)\s+APPLY\s+(` + sqlQNameRaw + `)\s*\(`)
 
-// bodyFlattenRE matches FLATTEN ( [INPUT =>] <expr> ) inside a body scan.
-// F3: used in scanBodyEdges to emit a references edge to <expr> ONLY when
-// <expr> is a single unqualified identifier (no dot). Dotted expressions are
-// column aliases (e.g. t.payload) — syntactically identical to schema.table
-// — and are skipped to avoid noisy false edges.
-//
-// Pattern deliberately does NOT anchor on LATERAL or TABLE so that both:
-//
-//	LATERAL FLATTEN(INPUT => tbl)
-//	TABLE(FLATTEN(INPUT => tbl))
-//
-// are captured with one regex applied to the body text.
-//
-// Group 1 = the raw expression token (may include a dot for dotted forms).
+// FLATTEN([INPUT =>] <expr>). Unanchored so both LATERAL FLATTEN(…) and
+// TABLE(FLATTEN(…)) match. A dotted <expr> is a column alias, indistinguishable
+// from schema.table, so scanBodyEdges skips it rather than emit a false edge.
 var bodyFlattenRE = regexp.MustCompile(`(?i)\bFLATTEN\s*\(\s*(?:INPUT\s*=>\s*)?(` + sqlQNameRaw + `)\s*\)`)
 
-// ---------------------------------------------------------------------------
-// CP4: Column-level lineage — alias→table map + qualified column refs
+// --- Column-level lineage: alias→table map + qualified column refs ---
 //
-// Gap 4a: qualified "alias.col" references in a routine/view body resolve to
-// the specific column node (e.g. "dbo.acct.id") by building an alias→table
-// map from FROM/JOIN clauses and then scanning the body for single-dot refs.
-//
-// Two components:
-//
-//  1. bodyFromAliasRE — captures FROM/JOIN <table> [AS] <alias> so we can
-//     build the alias→table map. Group 1 = table name (sqlQNameRaw), group 2 =
-//     optional bare alias (sqlIdentOnlyRaw). If no alias is present, group 2
-//     will be empty ("") and the table maps to itself.
-//
-//  2. bodyQualColRefRE — captures single-dot references "prefix.col" in the
-//     body. We look up prefix in the alias→table map and emit a references
-//     edge with ReferenceName = "<table-as-written>.<col>". Unqualified bare
-//     identifiers are skipped (ambiguous). Two-dot or more refs already resolve
-//     through the existing isQualifiedDot → byQualifiedName path without changes.
-//     Group 1 = prefix (alias or table name), group 2 = column name.
-// ---------------------------------------------------------------------------
+// FROM/JOIN clauses build an alias→table map; single-dot "alias.col" refs then
+// resolve to a specific column node. Bare identifiers stay ambiguous and are
+// skipped; refs with two or more dots already resolve via byQualifiedName.
 
-// bodyFromAliasRE matches FROM/JOIN <table> [AS] <alias> in a stripped body.
-// Group 1 = table name (schema-qualified or bare), group 2 = optional alias.
-// Optional "AS" is consumed without capture. The alias group is non-capturing-
-// optional — if the word after the table is a SQL keyword (ON/WHERE/SET/…) it
-// will be captured in group 2 but is filtered out by cp4AliasBoundaryKeywords
-// in buildAliasMap before it enters the map.
+// FROM/JOIN <table> [AS] <alias>. A clause keyword (ON/WHERE/…) after the table
+// also lands in the alias group; buildAliasMap drops it via aliasBoundaryKeywords.
 var bodyFromAliasRE = regexp.MustCompile(
 	`(?i)\b(?:FROM|JOIN)\s+(` + sqlQNameRaw + `)` +
 		`(?:\s+(?:AS\s+)?(` + sqlIdentOnlyRaw + `))?`)
 
-// bodyQualColRefRE matches single-dot column references "prefix.column" in a
-// body. The prefix is a bare identifier (no dots itself — dotted schema prefixes
-// like dbo.acct.col have 2+ dots and are handled elsewhere). The column name is
-// also a bare identifier.
-// Group 1 = prefix (alias or table), group 2 = column name.
-// Non-SQL single-dot "obj.method" forms are structurally identical — the caller
-// gate (only invoked inside SQL extraction paths) ensures we only emit SQL refs.
+// Single-dot "prefix.column"; dotted schema prefixes carry 2+ dots and are handled
+// elsewhere. Non-SQL "obj.method" is structurally identical, so only the SQL
+// extraction paths may call this.
 var bodyQualColRefRE = regexp.MustCompile(
 	`\b([A-Za-z_][A-Za-z0-9_$]*)\.([A-Za-z_][A-Za-z0-9_$]*)`)
 
-// cp4AliasBoundaryKeywords is the CP4-local set of tokens that can immediately
-// follow a table name in a FROM/JOIN clause but are NOT valid aliases. These are
-// distinct from sqlKeywords (which guards column-name extraction) so we don't
-// accidentally pollute the shared set. Covers every token the regex can capture
-// spuriously: clause starters (WHERE, GROUP, ORDER, HAVING, UNION, SET, OPTION),
-// join type words (JOIN, INNER, LEFT, RIGHT, OUTER, CROSS, FULL), join clause
-// (ON), T-SQL batch terminator (GO), and pivot operators (PIVOT, UNPIVOT).
-var cp4AliasBoundaryKeywords = map[string]bool{
+// Tokens that can follow a table name in FROM/JOIN but are not aliases. Kept
+// separate from sqlKeywords so the shared column-name set stays unpolluted.
+var aliasBoundaryKeywords = map[string]bool{
 	"WHERE": true, "GROUP": true, "ORDER": true, "HAVING": true,
 	"UNION": true, "INTERSECT": true, "EXCEPT": true,
 	"JOIN": true, "INNER": true, "LEFT": true, "RIGHT": true,
 	"OUTER": true, "CROSS": true, "FULL": true,
 	"ON": true, "SET": true, "OPTION": true, "GO": true,
 	"PIVOT": true, "UNPIVOT": true,
-	// Also cover tokens already in sqlKeywords for completeness / defense.
+	// Duplicated from sqlKeywords so this set stands alone.
 	"SELECT": true, "FROM": true, "INTO": true, "AS": true,
 	"INSERT": true, "UPDATE": true, "DELETE": true, "MERGE": true,
 }
 
-// buildAliasMap scans body (stripped SQL) and returns a lowercase-alias → table-as-written map.
-// CTE names in cteShadow are excluded (they are computed relations, not base tables).
-// Tables with no alias map their own lower-case name to themselves (as-written).
+// buildAliasMap returns lowercase-alias → table-as-written. CTE names are excluded
+// (computed relations, not base tables); an unaliased table maps to itself.
 func buildAliasMap(body string, cteShadow map[string]bool) map[string]string {
-	aliasMap := map[string]string{} // lower-case alias/table-name → table-as-written
+	aliasMap := map[string]string{}
 	for _, m := range bodyFromAliasRE.FindAllStringSubmatch(body, -1) {
-		rawTable := m[1] // table as-written (may be schema-qualified)
+		rawTable := m[1]
 		rawAlias := ""
 		if len(m) > 2 {
 			rawAlias = strings.TrimSpace(m[2])
 		}
-		// Reject if the table name itself is a CTE shadow.
 		_, tableName := parseQName(rawTable)
 		if tableName == "" || cteShadow[strings.ToLower(tableName)] {
 			continue
 		}
-		if rawAlias != "" && !cp4AliasBoundaryKeywords[strings.ToUpper(rawAlias)] {
-			// Explicit alias: map alias → table-as-written.
+		if rawAlias != "" && !aliasBoundaryKeywords[strings.ToUpper(rawAlias)] {
 			aliasMap[strings.ToLower(rawAlias)] = rawTable
 		} else {
-			// No alias (or alias word is a clause boundary keyword — captured
-			// spuriously by the optional group): the table maps its own bare
-			// lower-case name to itself so unaliased "tbl.col" refs still resolve.
+			// Unaliased: map the bare table name so "tbl.col" still resolves.
 			aliasMap[strings.ToLower(tableName)] = rawTable
 		}
 	}
 	return aliasMap
 }
 
-// emitQualifiedColumnRefs scans body for single-dot "prefix.col" references,
-// resolves prefix via aliasMap, and calls addRef for each column ref found.
-// cteShadow prevents CTE aliases from producing column edges. dedup tracks
-// refs already emitted (same as the parent seen map, using "table.col" as key).
-// bodyBaseOffset is the byte offset of body in strippedFull (for line numbers).
+// emitQualifiedColumnRefs resolves single-dot "prefix.col" refs through aliasMap
+// and calls addColRef per column. CTE aliases produce no column edges.
 func emitQualifiedColumnRefs(
 	body string,
 	aliasMap map[string]string,
 	cteShadow map[string]bool,
 	addColRef func(name string, matchOff int),
 ) {
-	// seen dedups within this column-ref scan pass. The caller's addRef map
-	// (in scanBodyEdges) is not passed in, so this local guard is required —
-	// do not remove it thinking the outer dedup covers column refs.
+	// Local dedup: scanBodyEdges' seen map is not passed in, so this is not redundant.
 	seen := map[string]bool{}
 	for _, m := range bodyQualColRefRE.FindAllStringSubmatchIndex(body, -1) {
 		prefix := body[m[2]:m[3]]
 		col := body[m[4]:m[5]]
 		lowerPrefix := strings.ToLower(prefix)
-		// Skip if prefix is a CTE name.
 		if cteShadow[lowerPrefix] {
 			continue
 		}
-		// Resolve alias → table-as-written. Skip if not in scope.
 		tableAsWritten, ok := aliasMap[lowerPrefix]
 		if !ok {
 			continue
 		}
-		// Emit ref name = "<table-as-written>.<col>".
-		// This matches the column node's QualifiedName: "<tableQName>.<col>".
+		// Must match the column node's QualifiedName: "<tableQName>.<col>".
 		refName := tableAsWritten + "." + col
 		if seen[strings.ToLower(refName)] {
 			continue
@@ -519,212 +377,140 @@ func emitQualifiedColumnRefs(
 	}
 }
 
-// ---------------------------------------------------------------------------
-// CP1: T-SQL temp-table and table-variable regexes
+// --- T-SQL temp tables and table variables ---
 //
-// sqlQNameRaw starts with [A-Za-z_] so #/## and @ tokens never match it.
-// These dedicated regexes handle the T-SQL temp-table / table-variable namespace.
-//
-// sqlTempTokenRaw matches: ##g (global temp), #t (local temp), @x (table variable).
-// It is intentionally broader than sqlQNameRaw — the declaration-gating guard in
-// scanBodyEdges (bodyTempCreateRE / bodyTempSelectIntoRE / bodyDeclareTableVarRE)
-// ensures only declared names emit edges.
-// ---------------------------------------------------------------------------
-
-// sqlTempTokenRaw matches a single T-SQL temp-table or table-variable token.
+// sqlQNameRaw starts with [A-Za-z_], so ##global, #local and @tablevar need their
+// own pattern. It is deliberately broad; scanBodyEdges emits edges only for names
+// it has seen declared.
 const sqlTempTokenRaw = `##[A-Za-z0-9_$#]+|#[A-Za-z0-9_$#]+|@[A-Za-z0-9_$]+`
 
-// bodyTempCreateRE matches CREATE TABLE #x / ##x in a routine body.
-// Group 1 = the temp token (e.g. "#staging", "##g").
+// CREATE TABLE #x / ##x in a routine body.
 var bodyTempCreateRE = regexp.MustCompile(`(?i)\bCREATE\s+TABLE\s+(` + sqlTempTokenRaw + `)`)
 
-// bodyTempSelectIntoRE matches SELECT … INTO #x / ##x in a routine body.
-// Uses a lazy-char-class bridge [^;]* so it never crosses a statement boundary (';').
-// Group 1 = the temp token.
+// SELECT … INTO #x; the [^;]* bridge stops the match at a statement boundary.
 var bodyTempSelectIntoRE = regexp.MustCompile(`(?i)\bSELECT\b[^;]*?\bINTO\s+(` + sqlTempTokenRaw + `)`)
 
-// bodyDeclareTableVarRE matches DECLARE @x TABLE( in a routine body.
-// Group 1 = the @x token.
-// Scalar declarations (DECLARE @x INT) do NOT match because they lack the TABLE keyword.
+// DECLARE @x TABLE( — a scalar DECLARE @x INT lacks TABLE and cannot match.
 var bodyDeclareTableVarRE = regexp.MustCompile(`(?i)\bDECLARE\s+(@[A-Za-z0-9_$]+)\s+TABLE\s*\(`)
 
-// bodyTempFROMRE matches FROM/JOIN <temp-token> in a routine body.
-// Group 1 = the temp token.
 var bodyTempFROMRE = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+(` + sqlTempTokenRaw + `)`)
 
-// bodyTempInsertRE matches INSERT INTO <temp-token>.
-// Group 1 = the temp token.
 var bodyTempInsertRE = regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+(` + sqlTempTokenRaw + `)`)
 
-// bodyTempUpdateRE matches UPDATE <temp-token> SET.
-// Group 1 = the temp token.
 var bodyTempUpdateRE = regexp.MustCompile(`(?i)\bUPDATE\s+(` + sqlTempTokenRaw + `)\s+SET\b`)
 
-// bodyTempDeleteRE matches DELETE FROM <temp-token>.
-// Group 1 = the temp token.
 var bodyTempDeleteRE = regexp.MustCompile(`(?i)\bDELETE\s+FROM\s+(` + sqlTempTokenRaw + `)`)
 
-// bodyTempMergeRE matches MERGE INTO <temp-token>.
-// Group 1 = the temp token.
 var bodyTempMergeRE = regexp.MustCompile(`(?i)\bMERGE\s+INTO\s+(` + sqlTempTokenRaw + `)`)
 
-// ---------------------------------------------------------------------------
-// CP2: OUTPUT … INTO <target> lineage
-//
-// T-SQL OUTPUT clause routes the change-capture rows (inserted.*, deleted.*,
-// $action) into a secondary target table or table variable.  This is a write
-// to <target> that must be attributed to the owning routine.
-//
-// Regex design (SC6 false-positive mitigation):
-//   Group 1 = gap text between OUTPUT and INTO (used by Go code guard below).
-//   Group 2 = target name — either a temp token (#x / @x / ##x) or a real
-//             qualified name (sqlQNameRaw).
-//
-// The regex uses [^;]*? (lazy, semicolon-barrier) for the gap so it never
-// crosses a statement boundary. A Go code guard further rejects any gap that
-// contains a DML statement keyword (INSERT, UPDATE, DELETE, MERGE, SELECT,
-// FROM, WHERE, VALUES, EXEC, EXECUTE) — these indicate two separate statements
-// rather than one OUTPUT … INTO clause, making the check deterministic and
-// false-positive-free even in the absence of semicolons.
-// ---------------------------------------------------------------------------
-
-// bodyOutputIntoRE matches OUTPUT <gap> INTO <target> inside a DML statement.
-//
-//	Group 1 = gap text (validated by outputIntoKeywordGuard).
-//	Group 2 = target — temp token or qualified name.
+// OUTPUT <gap> INTO <target>: T-SQL routes change-capture rows into a second
+// target, a write owned by the enclosing routine. The gap is a lazy
+// semicolon-barrier, and outputIntoBoundaryRE rejects a gap holding a DML keyword
+// — that means two statements, not one clause, even where semicolons are absent.
 var bodyOutputIntoRE = regexp.MustCompile(
 	`(?i)\bOUTPUT\b([^;]*?)\bINTO\s+(` + sqlTempTokenRaw + `|` + sqlQNameRaw + `)`,
 )
 
-// outputIntoBoundaryRE matches a DML-keyword boundary token inside an
-// OUTPUT…INTO gap.  If the gap contains any of these tokens the candidate
-// match spans two statements and must be rejected (SC6 code guard).
 var outputIntoBoundaryRE = regexp.MustCompile(
 	`(?i)\b(FROM|WHERE|VALUES|SELECT|INSERT|UPDATE|DELETE|MERGE|EXEC|EXECUTE)\b`,
 )
 
-// bodyCopyIntoRE matches COPY INTO <target> FROM <source> in a routine/task body.
-// A2: both directions are captured; the leading '@' on the target decides direction.
-//   - Group 1 = target token (may start with '@' for stage-as-target direction).
-//   - Group 2 = source token (may start with '@' for stage-as-source direction).
-//
-// stageTokenPat extends sqlQNameRaw to also match Snowflake internal-stage sigil
-// forms: @~/path (user stage) and @%name (table stage). The '@' is included in
-// the match so callers can detect stage tokens; parseStageToken then strips the
-// sigil and returns empty for @~ / @% forms (no references edge emitted).
+// Snowflake stage tokens, including the internal-stage sigils @~/path (user) and
+// @%name (table). The '@' stays in the match so callers can tell a stage from a
+// table; parseStageToken strips it and returns empty for the @~ / @% forms.
 const stageTokenPat = `@(?:[~%][A-Za-z0-9_$./]*|` + sqlQNameRaw + `(?:/[^\s]*)?)`
 
+// COPY INTO <target> FROM <source>; a leading '@' decides which side is the stage.
 var bodyCopyIntoRE = regexp.MustCompile(`(?i)\bCOPY\s+INTO\s+(` + stageTokenPat + `|` + sqlQNameRaw + `)\s+FROM\s+(` + stageTokenPat + `|` + sqlQNameRaw + `)`)
 
-// cloneRE matches the CLONE <src> clause appended to CREATE TABLE/VIEW statements.
-// A6: used after a successful table/view match to detect if it is a clone and
-// emit the lineage references edge. Group 1 = source object name.
-// IMPORTANT: callers must scan only the preamble text BEFORE the first '(' so
-// that a column literally named CLONE (e.g. CREATE TABLE t (CLONE INT)) does
-// not produce a spurious edge. A real CLONE statement has no column-list body.
+// CLONE <src> appended to CREATE TABLE/VIEW. Callers must scan only the preamble
+// before the first '(' — a column named CLONE would otherwise mint a false edge.
 var cloneRE = regexp.MustCompile(`(?i)\bCLONE\s+(` + sqlQNameRaw + `)`)
 
-// cteNameRE matches the name of each CTE in WITH <name> AS (…) or , <name> AS (…).
-// Used to collect CTE-local names so they are excluded from edge emission.
+// CTE names in WITH <name> AS (…), collected so they are excluded from edges.
 var cteNameRE = regexp.MustCompile(`(?i)(?:\bWITH\b|,)\s+(` + sqlIdentOnlyRaw + `)\s+AS\s*\(`)
 
-// usingWithCheckRE matches the USING (...) and WITH CHECK (...) expressions
-// in a policy statement. Group 1 = the expression content inside the parens.
-// Used for F-7: scope fn-call capture to only these expression blocks.
+// USING (…) / WITH CHECK (…) in a policy; scopes fn-call capture to those blocks.
 var usingWithCheckRE = regexp.MustCompile(`(?i)\b(?:USING|WITH\s+CHECK)\s*\(([^)]*)\)`)
 
-// inlineRefRE matches an inline REFERENCES <table> FK in a column definition.
-// Group 1 = target table name.
+// Inline REFERENCES <table> FK in a column definition.
 var inlineRefRE = regexp.MustCompile(`(?i)\bREFERENCES\s+(` + sqlQNameRaw + `)`)
 
-// tableLevelFKColRE matches a table-level FOREIGN KEY (...) REFERENCES tgt (...)?
-// clause, capturing the local column list, the target table/qname, and the
-// optional target column list. Iteration 2: drives column-level FK reference
-// edges (in addition to the table→table edge already emitted via inlineRefRE).
-// Group 1 = local column list, group 2 = target qname, group 3 = target column list.
+// Table-level FOREIGN KEY (…) REFERENCES tgt (…): local columns, target qname,
+// optional target columns. Drives column-level FK edges on top of the table→table
+// edge inlineRefRE already emits.
 var tableLevelFKColRE = regexp.MustCompile(`(?i)FOREIGN\s+KEY\s*\(([^)]*)\)\s+REFERENCES\s+(` + sqlQNameRaw + `)(?:\s*\(([^)]*)\))?`)
 
-// inlineColFKColListRE matches an inline column FK's REFERENCES clause with an
-// optional target column list, e.g. `col TYPE REFERENCES tgt (x)`. Applied per
-// column-definition line (mirrors extractColumns' line walk) so the REFERENCES
-// clause can be attributed to the column being defined on that line.
-// Group 1 = target qname, group 2 = target column list.
+// Inline column FK: `col TYPE REFERENCES tgt (x)`. Applied per column-definition
+// line, mirroring extractColumns, so the clause attributes to that column.
 var inlineColFKColListRE = regexp.MustCompile(`(?i)\bREFERENCES\s+(` + sqlQNameRaw + `)(?:\s*\(([^)]*)\))?`)
 
-// alterTablePat is the common prefix for ALTER TABLE patterns.
-// It handles the optional Postgres-specific ONLY keyword that appears between
-// TABLE and the table name: ALTER TABLE ONLY orders ADD ...
-//
-// NOTE: the (?:ONLY\s+)? prefix consumes the keyword "ONLY" when present.
-// A table literally named "only" (unquoted) would be mis-consumed, but Postgres
-// forbids unquoted reserved words as identifiers in this position — valid DDL
-// never uses bare "only" as a table name here. Quoted forms ("only", [only])
-// are matched by sqlQNameRaw's quoted branches and are unaffected.
+// Common ALTER TABLE prefix, absorbing Postgres' optional ONLY keyword. A table
+// bare-named "only" would be mis-consumed, but Postgres forbids the unquoted
+// reserved word here; quoted forms go through sqlQNameRaw and are unaffected.
 const alterTablePat = `(?:ONLY\s+)?` + modPat
 
-// alterFKRefRE matches ALTER TABLE … FOREIGN KEY … REFERENCES <table> to extract the FK target.
-// Group 1 = table name in ADD FOREIGN KEY clause, Group 2 = target table name.
+// ALTER TABLE <t> ADD [CONSTRAINT c] FOREIGN KEY (…) REFERENCES <target>
 var alterFKRefRE = regexp.MustCompile(`(?im)^[ \t]*ALTER\s+TABLE\s+` + alterTablePat + `(` + sqlQNameRaw + `)\s+ADD\s+(?:CONSTRAINT\s+` + sqlIdentOnlyRaw + `\s+)?FOREIGN\s+KEY\s*\([^)]*\)\s+REFERENCES\s+(` + sqlQNameRaw + `)`)
 
-// fnCallInExprRE matches function calls fn(...) in an expression (for policy USING / WITH CHECK).
-// Group 1 = function name (bare identifier before the opening paren).
+// Function calls fn(…) inside a policy USING / WITH CHECK expression.
 var fnCallInExprRE = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_$]*)\s*\(`)
 
-// typeRE matches CREATE TYPE <name> (followed by AS ENUM / AS TABLE / FROM / or nothing for composite)
-// Group 1 = name, Group 2 = "ENUM", Group 3 = "TABLE", Group 4 = "FROM <base>"
+// CREATE TYPE <name> AS ENUM|TABLE, or CREATE TYPE <name> FROM <base>.
 var typeRE = regexp.MustCompile(
 	`(?im)^[ \t]*CREATE\s+` + modPat + `TYPE\s+` + modPat + `(` + sqlQNameRaw + `)` +
 		`\s+(?:AS\s+(ENUM|TABLE)|FROM\s+(` + sqlQNameRaw + `))`,
 )
 
-// typeCompositeRE matches CREATE TYPE <name> with no trailing AS/FROM on same line
-// (used as a fallback for composite types that don't match typeRE).
+// Composite CREATE TYPE <name> with no trailing AS/FROM — fallback for typeRE.
 var typeCompositeRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `TYPE\s+` + modPat + `(` + sqlQNameRaw + `)\s*$`)
 
-// alterAddColumnRE matches ALTER TABLE <table> ADD [COLUMN] <col>
-var alterAddColumnRE = regexp.MustCompile(`(?im)^[ \t]*ALTER\s+TABLE\s+` + alterTablePat + `(` + sqlQNameRaw + `)\s+ADD\s+(?:COLUMN\s+)?(` + sqlIdentOnlyRaw + `)`)
+// ALTER TABLE <t> ADD [COLUMN] [IF NOT EXISTS] <col>. Without the IF NOT EXISTS
+// branch, an idempotent migration mints a column literally named "IF".
+var alterAddColumnRE = regexp.MustCompile(`(?im)^[ \t]*ALTER\s+TABLE\s+` + alterTablePat + `(` + sqlQNameRaw + `)\s+ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(` + sqlIdentOnlyRaw + `)`)
 
-// alterAddConstraintRE matches ALTER TABLE <table> ADD CONSTRAINT <name> <type> ...
-// Group 1 = table name, Group 2 = constraint name, Group 3 = constraint type keyword
+// Tokens that follow a bare ADD without naming a column. RE2 has no lookahead,
+// so they are rejected after the match rather than excluded in the pattern —
+// otherwise `ADD CONSTRAINT ck_foo CHECK (…)` mints a column named "CONSTRAINT".
+var alterAddNonColumnKeywords = map[string]bool{
+	"constraint": true,
+	"primary":    true,
+	"foreign":    true,
+	"unique":     true,
+	"check":      true,
+	"exclude":    true,
+	"if":         true,
+}
+
+// ALTER TABLE <t> ADD CONSTRAINT <name> <type> …
 var alterAddConstraintRE = regexp.MustCompile(`(?im)^[ \t]*ALTER\s+TABLE\s+` + alterTablePat + `(` + sqlQNameRaw + `)\s+ADD\s+CONSTRAINT\s+(` + sqlIdentOnlyRaw + `)\s+(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK)`)
 
-// alterAddAnonConstraintRE matches ALTER TABLE <table> ADD PRIMARY KEY|FOREIGN KEY|UNIQUE|CHECK (no CONSTRAINT keyword)
-// Group 1 = table name, Group 2 = constraint type keyword
+// ALTER TABLE <t> ADD PRIMARY KEY|FOREIGN KEY|UNIQUE|CHECK, unnamed constraint.
 var alterAddAnonConstraintRE = regexp.MustCompile(`(?im)^[ \t]*ALTER\s+TABLE\s+` + alterTablePat + `(` + sqlQNameRaw + `)\s+ADD\s+(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK)\b`)
 
-// sqlQNameRaw is the raw pattern for a qualified SQL name (no capturing groups
-// within — used inside other regexes where subgroup numbering matters).
-// We use a non-capturing variant that still handles all quoting styles.
-//
-// The bare-name alternative ([A-Za-z_][A-Za-z0-9_$.]*) includes '.' so that
-// a bare schema.name like "public.orders" is matched as one token. The
-// trailing quoted-component groups ((?:\.("..."))*) are therefore only
-// reached for mixed forms such as schema."quoted_name" — they are dead for
-// fully-bare or fully-quoted names. parseQName re-splits the matched token on
-// dots, so callers always receive the correct (schema, name) pair regardless.
+// Qualified SQL name with no capture groups, so it nests inside regexes where
+// subgroup numbering matters. The bare alternative includes '.', so a bare
+// schema.name matches as one token and the trailing quoted-component branches are
+// reached only for mixed forms like schema."quoted"; parseQName re-splits anyway.
 const sqlQNameRaw = `(?:"[^"]+"|` + "`[^`]+`" + `|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$.]*)` +
 	`(?:\.(?:"[^"]+"|` + "`[^`]+`" + `|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$.]*))*`
 
 // sqlIdentOnlyRaw is just a single unqualified identifier (no dots).
 const sqlIdentOnlyRaw = `(?:"[^"]+"|` + "`[^`]+`" + `|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)`
 
-// ---------------------------------------------------------------------------
-// Enum label extraction
-// ---------------------------------------------------------------------------
+// --- Enum label extraction ---
 
-// enumValuesRE extracts the parenthesised label list from CREATE TYPE … AS ENUM (…).
+// The parenthesised label list of CREATE TYPE … AS ENUM (…).
 var enumValuesRE = regexp.MustCompile(`(?si)AS\s+ENUM\s*\(([^)]*)\)`)
 
-// singleQuotedLabelRE matches a single-quoted enum label.
 var singleQuotedLabelRE = regexp.MustCompile(`'([^']*)'`)
 
-// ---------------------------------------------------------------------------
-// Column extraction inside CREATE TABLE body
-// ---------------------------------------------------------------------------
+// --- Column extraction inside CREATE TABLE body ---
 
-// constraintKeywords is the set of column-level keywords that signal a
-// table-level constraint line rather than a column definition.
-// Lines starting with these words (after whitespace) are skipped.
+// Keywords starting a table-level constraint line rather than a column. A
+// constraint routinely wraps across lines, so every token a continuation line can
+// start with belongs here too — otherwise `REFERENCES sales_order (…)` parses as
+// a column named REFERENCES of type sales_order.
 var constraintKeywords = map[string]bool{
 	"CONSTRAINT": true,
 	"PRIMARY":    true,
@@ -733,44 +519,34 @@ var constraintKeywords = map[string]bool{
 	"CHECK":      true,
 	"INDEX":      true,
 	"KEY":        true,
+	"REFERENCES": true,
+	"ON":         true,
+	"EXCLUDE":    true,
+	"DEFERRABLE": true,
+	"INITIALLY":  true,
+	"MATCH":      true,
+	"LIKE":       true,
+	"INHERITS":   true,
+	"PARTITION":  true,
+	"WITH":       true,
+	"USING":      true,
+	"NOT":        true,
 }
 
-// generatedMarkers are patterns that indicate a computed/generated column.
+// Marks a computed/generated column.
 var generatedMarkerRE = regexp.MustCompile(`(?i)\bGENERATED\b|\bAS\s*\(`)
 
-// ---------------------------------------------------------------------------
-// B — dbt Jinja pre-pass regex patterns
-// ---------------------------------------------------------------------------
+// --- dbt Jinja pre-pass ---
 
-// dbtJinjaGateRE detects the presence of Jinja in raw source (B1 gate).
 // Any of {{ / {% / {# triggers the dbt pre-pass.
 var dbtJinjaGateRE = regexp.MustCompile(`\{\{|\{%|\{#`)
 
-// dbtJinjaCommentRE matches Jinja block comments {# ... #} (DOTALL).
-// Used to remove comments before B2/B3 harvest so refs inside them are skipped.
+// Jinja {# … #} comments, stripped before harvest so refs inside them are skipped.
 var dbtJinjaCommentRE = regexp.MustCompile(`(?s)\{#.*?#\}`)
 
-// dbtRefRE matches any valid dbt ref() call form, including cross-project versioned refs.
-// Tolerates whitespace-control markers ({{-, -}}) and surrounding spaces.
-//
-// Supported grammar (dbt 1.5+):
-//   - ref('model')                       → group 1 = model
-//   - ref('model', v=2)                  → group 1 = model, group 3 = "2"
-//   - ref('pkg', 'model')                → group 1 = pkg, group 2 = model
-//   - ref('pkg', 'model', v=3)           → group 1 = pkg, group 2 = model, group 3 = "3"
-//   - ref('pkg', 'model', version=3)     → same
-//
-// Capture groups:
-//   - Group 1 = first string literal.
-//   - Group 2 = second string literal (present only when 2 positional args).
-//   - Group 3 = version integer N (present only when v=N or version=N is given).
-//
-// Groups 1 and 2 are unchanged from v1 so all callers that index them by position
-// are unaffected. Group 3 is a NEW trailing group (E4).
-//
-// Model name = group 2 if present, else group 1.
-// When group 3 is present, the reference target is "<model>_v<N>" (dbt's default
-// compiled identifier for versioned models).
+// Every dbt ref() form, including cross-project and versioned refs. The model is
+// group 2 when two positional args are given, else group 1; a version in group 3
+// targets "<model>_v<N>", dbt's compiled identifier for a versioned model.
 var dbtRefRE = regexp.MustCompile(
 	`\{\{[-\s]*\bref\s*\(\s*` +
 		`'([^']+)'` + // group 1: first literal
@@ -779,17 +555,13 @@ var dbtRefRE = regexp.MustCompile(
 		`\s*\)\s*-?\}\}`,
 )
 
-// dbtSourceRE matches {{ source('schema', 'table') }}.
-// Always 2 positional string literals; produces a references edge to 'schema.table'.
-// Group 1 = schema name, Group 2 = table name.
+// {{ source('schema', 'table') }} → a references edge to schema.table.
 var dbtSourceRE = regexp.MustCompile(
 	`\{\{[-\s]*\bsource\s*\(\s*'([^']+)'\s*,\s*'([^']+)'\s*\)\s*-?\}\}`,
 )
 
-// dbtRefSubstRE matches {{ ref(...) }} for B5 placeholder substitution.
-// Mirrors dbtRefRE's grammar exactly: first literal in group 1, optional second
-// literal in group 2, version integer in group 3 (E4). Used to compute the
-// placeholder name (__dbt_ref_<model> or __dbt_ref_<model>_v<N> for versioned refs).
+// {{ ref(…) }} for placeholder substitution; mirrors dbtRefRE's grammar exactly.
+// The placeholder is __dbt_ref_<model>, or __dbt_ref_<model>_v<N> when versioned.
 var dbtRefSubstRE = regexp.MustCompile(
 	`\{\{[-\s]*\bref\s*\(\s*` +
 		`'([^']+)'` + // group 1: first literal
@@ -798,49 +570,36 @@ var dbtRefSubstRE = regexp.MustCompile(
 		`\s*\)\s*-?\}\}`,
 )
 
-// dbtSourceSubstRE matches {{ source('a','b') }} for B5 placeholder substitution.
+// {{ source('a','b') }} for placeholder substitution.
 var dbtSourceSubstRE = regexp.MustCompile(
 	`\{\{[-\s]*\bsource\s*\(\s*'([^']+)'\s*,\s*'([^']+)'\s*\)\s*-?\}\}`,
 )
 
-// dbtAnyExprRE matches remaining {{ ... }} or {% ... %} blocks (DOTALL).
-// Used in B5 to blank remaining Jinja expressions length-preservingly after
-// ref/source substitution.
+// Jinja blocks left after ref/source substitution, blanked length-preservingly.
 var dbtAnyExprRE = regexp.MustCompile(`(?s)\{\{.*?\}\}|\{%.*?%\}`)
 
-// dbtConfigAliasRE matches {{ config(... alias='name' ...) }} or alias="name".
-// E5: captures the alias value so the model node's Metadata can be annotated.
-// Group 1 = alias value (single- or double-quoted). The overall config() call
-// may contain other kwargs in any order; this regex tolerates them via [^)]*
-// on each side of the alias kwarg.
+// {{ config(… alias='name' …) }} — the alias annotates the model node's Metadata.
+// [^)]* on both sides tolerates other kwargs in any order.
 var dbtConfigAliasRE = regexp.MustCompile(
 	`\{\{[-\s]*\bconfig\s*\([^)]*\balias\s*=\s*['"]([^'"]+)['"][^)]*\)\s*-?\}\}`,
 )
 
-// ---------------------------------------------------------------------------
-// E — dbt macros and project awareness (E1 / E2 / E3)
-// ---------------------------------------------------------------------------
+// --- dbt macros and project awareness ---
 
-// dbtMacroDefRE matches {% macro <name>(<args>) %} … {% endmacro %} blocks.
-// Tolerates whitespace-control markers ({%- / -%}) and arbitrary spacing.
-// Group 1 = macro name. Used in E2 (node harvesting) and E3 (span computation).
+// {% macro <name>(<args>) %} … {% endmacro %} blocks.
 var dbtMacroDefRE = regexp.MustCompile(
 	`(?s)\{%-?\s*macro\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*-?%\}.*?\{%-?\s*endmacro\s*-?%\}`,
 )
 
-// dbtMacroCallRE matches {{ <name>(...) }} invocations. Tolerates whitespace-
-// control markers. Group 1 = the raw callee token (may be "pkg.fn" or bare "fn").
-// Guards are applied by the caller (denylist + package-qualified skip).
+// {{ <name>(…) }} invocations; the callee may be "pkg.fn" or bare "fn". The
+// caller applies the denylist and the package-qualified skip.
 var dbtMacroCallRE = regexp.MustCompile(
 	`\{\{[-\s]*([A-Za-z_][A-Za-z0-9_.]*)\s*\(`,
 )
 
-// dbtMacroCallDenylist is the set of bare names that are NOT user-defined macro
-// calls. Includes dbt built-ins, Jinja2 built-ins (zip, range), and pseudo-
-// variables. Package-qualified calls (a.b) are rejected by a separate path-check.
-//
-// zip and range are Jinja2 built-ins — not dbt macros — but they look identical
-// syntactically, so they belong here to suppress false call edges.
+// Bare names that are not user-defined macro calls: dbt built-ins and pseudo-
+// variables, plus Jinja2 built-ins that are syntactically indistinguishable.
+// Package-qualified calls (a.b) are rejected by a separate path check.
 var dbtMacroCallDenylist = map[string]bool{
 	"ref": true, "source": true, "config": true, "var": true,
 	"env_var": true, "is_incremental": true, "should_full_refresh": true,
@@ -853,32 +612,21 @@ var dbtMacroCallDenylist = map[string]bool{
 	"zip": true, "range": true, // Jinja2 built-ins, not dbt macros
 }
 
-// dbtFileRole classifies a dbt project file by its path segment to determine
-// whether it should produce a model node, only macro nodes, or neither.
-//
-//   - path contains /macros/  → "macro"  (harvest macro defs, no model node)
-//   - path contains /analyses/, /tests/, /seeds/, or /snapshots/ → "other"
-//     (no model node; macro defs are still harvested if present)
-//   - otherwise (incl. /models/ and unrecognised locations) → "model"
-//     (create the model node exactly as v1; preserves v1 behaviour by default)
+// dbtFileRole classifies a dbt project file by path segment: "/macros/" yields
+// macro defs and no model node, "/analyses|tests|seeds|snapshots/" neither, and
+// anything else — including unrecognised locations — a model node.
 func dbtFileRole(filePath string) string {
-	// Use forward slashes for cross-platform path checks; filepath.ToSlash is
-	// not needed on macOS/Linux (the only supported targets), but the separator
-	// comparison uses '/' explicitly to avoid matching a bare segment name
-	// (e.g. "macros_extra" must not match "/macros/").
+	// Slash-delimited so "macros_extra" cannot match "/macros/".
 	p := strings.ToLower(filePath)
 	for _, c := range []byte(p) {
 		if c == '\\' {
-			// Normalise backslashes to forward slashes (Windows paths in tests).
+			// Test fixtures carry Windows paths.
 			p = strings.ReplaceAll(p, "\\", "/")
 			break
 		}
 	}
-	// Check for the segment with a leading slash (middle of path) OR as a
-	// leading segment (path starts with the segment, no leading slash).
+	// seg arrives slash-wrapped; match mid-path or as the leading segment.
 	hasSeg := func(seg string) bool {
-		// seg must be like "/macros/" already (with slashes on both sides).
-		// Match anywhere mid-path, or at the very start of the path.
 		return strings.Contains(p, seg) || strings.HasPrefix(p, seg[1:])
 	}
 	if hasSeg("/macros/") {
@@ -899,8 +647,8 @@ type macroSpan struct {
 	id    string // node ID of the owning macro node
 }
 
-// inMacroSpan returns the macroSpan whose [start, end) contains offset, or nil.
-// dbt does not support nested macros, so simple linear search is correct.
+// inMacroSpan returns the span containing offset, or nil. dbt has no nested
+// macros, so a linear scan is exact.
 func inMacroSpan(spans []macroSpan, offset int) *macroSpan {
 	for i := range spans {
 		if offset >= spans[i].start && offset < spans[i].end {
@@ -910,15 +658,12 @@ func inMacroSpan(spans []macroSpan, offset int) *macroSpan {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// SQLExtractor
-// ---------------------------------------------------------------------------
+// --- SQLExtractor ---
 
-// SQLExtractor extracts SQL definition nodes (CP2: definitions only).
-// No body-level references, no constraints as nodes — those are later CPs.
+// SQLExtractor extracts SQL definitions and their lineage edges by regex.
 type SQLExtractor struct{}
 
-// NewSQLExtractor returns a SQLExtractor. No pool required.
+// NewSQLExtractor returns a SQLExtractor. No parser pool required.
 func NewSQLExtractor() *SQLExtractor {
 	return &SQLExtractor{}
 }
@@ -927,36 +672,22 @@ func NewSQLExtractor() *SQLExtractor {
 func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult, error) {
 	var result types.ExtractionResult
 
-	// ---------------------------------------------------------------------------
-	// Part B — dbt Jinja pre-pass (operates on raw source, before stripStrings).
-	// Ordering is contract: stripStrings blanks quoted arguments inside
-	// {{ ref('x') }}, so the ref/source harvest MUST read the raw source string.
-	// ---------------------------------------------------------------------------
-
-	// B1 gate: only activate when the source contains Jinja markers.
+	// The dbt Jinja pre-pass must run on raw source: stripStrings blanks the
+	// quoted arguments inside {{ ref('x') }}, destroying the harvest.
 	var dbtModelID string // non-empty when the pre-pass fired AND a model node was created
 	if dbtJinjaGateRE.MatchString(source) {
-		// E1: classify the file role by path segments.
-		// role == "model"  → create model node (v1 behaviour, the default).
-		// role == "macro"  → harvest macro defs only; no model node.
-		// role == "other"  → no model node; macro defs still harvested.
 		role := dbtFileRole(filePath)
 
-		// Remove {# … #} comments before harvest so refs inside them are skipped.
-		// Built here (before span extraction) so that macro spans and all harvest
-		// loops use offsets into the same string — rawForHarvest. If spans were
-		// computed on `source` instead, a unicode Jinja comment before a macro block
-		// would compress the byte offsets in rawForHarvest (blankPreserveNewlines
-		// replaces multi-byte runes with single-byte spaces), causing refs inside the
-		// macro body to be mis-attributed to the model node (span misalignment).
+		// Strip {# … #} before harvest, and take every span and offset from this
+		// same string: blankPreserveNewlines collapses multi-byte runes to one
+		// space, so offsets taken from `source` would mis-attribute refs inside a
+		// macro body to the model node.
 		rawForHarvest := dbtJinjaCommentRE.ReplaceAllStringFunc(source, func(m string) string {
 			return blankPreserveNewlines(m)
 		})
 
-		// E2: harvest {% macro name(args) %} … {% endmacro %} definitions.
-		// Emitted regardless of role; computed on rawForHarvest so that all offsets
-		// (spans and harvest loops) are in the same coordinate space.
-		// We also compute the byte spans (E3) for ref/call ownership.
+		// Macro defs are harvested whatever the role; their spans drive ref/call
+		// ownership.
 		var spans []macroSpan // byte spans of all macro blocks (for E3)
 
 		for _, m := range dbtMacroDefRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
@@ -978,9 +709,9 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			spans = append(spans, macroSpan{start: m[0], end: m[1], id: macroID})
 		}
 
-		// B4 (role == model only): one model node per file, named by the basename
-		// without extension. For .sql.jinja files the compound suffix must be stripped
-		// in full so {{ ref('stg') }} resolves to this node — not to a phantom 'stg.sql'.
+		// One model node per file, named for the basename. The .sql.jinja compound
+		// suffix must come off in full or {{ ref('stg') }} resolves to a phantom
+		// 'stg.sql'.
 		if role == "model" {
 			base := filepath.Base(filePath)
 			var modelName string
@@ -1004,10 +735,8 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				EndLine:       modelLine,
 				IsExported:    true,
 			}
-			// E5: capture config(alias=...) and annotate the model node's Metadata.
-			// First match wins (deterministic when multiple config() blocks exist).
-			// Use json.Marshal so the alias value is properly escaped — the regex
-			// [^'"]+ excludes quotes but allows backslash, control chars, etc.
+			// First config(alias=…) wins. json.Marshal escapes the value: the regex
+			// excludes quotes but still admits backslashes and control chars.
 			if am := dbtConfigAliasRE.FindStringSubmatch(rawForHarvest); am != nil {
 				if b, err := json.Marshal(map[string]string{"alias": am[1]}); err == nil {
 					modelNode.Metadata = b
@@ -1017,10 +746,8 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			dbtModelID = modelID
 		}
 
-		// ownerForOffset returns the node ID that owns the ref/call at the given
-		// byte offset. E3: if the offset falls inside a macro span, the macro node
-		// owns it; otherwise the model node owns it (empty string when there is no
-		// model node, i.e. role != model).
+		// A ref inside a macro span belongs to that macro; otherwise to the model
+		// node, which is empty when the file's role produced none.
 		ownerForOffset := func(offset int) string {
 			if sp := inMacroSpan(spans, offset); sp != nil {
 				return sp.id
@@ -1028,23 +755,17 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			return dbtModelID // empty string when role != model
 		}
 
-		// B2: harvest ref() edges from the comment-stripped raw source.
-		// E3: ownership is determined by ownerForOffset.
-		// E1: refs whose owner is empty (outside macro spans in a non-model file)
-		// are dropped — there is no node to attach them to.
-		// E4: when group 3 (version N) is captured, the target is "<model>_v<N>".
+		// ref() edges; an ownerless ref has no node to attach to and is dropped.
 		seenRef := map[string]bool{}
 		for _, m := range dbtRefRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
 			first := rawForHarvest[m[2]:m[3]]
 			var modelRef string
 			if m[4] >= 0 {
-				// Two positional literals: (package, model) — model is the SECOND.
+				// Two literals means (package, model).
 				modelRef = rawForHarvest[m[4]:m[5]]
 			} else {
-				// Single literal: that literal is the model name.
 				modelRef = first
 			}
-			// E4: apply version suffix when group 3 is present.
 			if m[6] >= 0 {
 				modelRef = modelRef + "_v" + rawForHarvest[m[6]:m[7]]
 			}
@@ -1060,8 +781,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				sqlRef(filePath, owner, modelRef, types.EdgeKindReferences, 1))
 		}
 
-		// B3: harvest source() edges.
-		// E3: ownership follows ownerForOffset.
+		// source() edges.
 		seenSrc := map[string]bool{}
 		for _, m := range dbtSourceRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
 			schema := rawForHarvest[m[2]:m[3]]
@@ -1079,21 +799,15 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				sqlRef(filePath, owner, synthetic, types.EdgeKindReferences, 1))
 		}
 
-		// E2: harvest macro call edges {{ name(...) }} from the comment-stripped raw
-		// source. Guards:
-		//   (a) bare-name denylist — dbt built-ins, Jinja2 built-ins, pseudo-variables.
-		//   (b) package-qualified skip — any "a.b(" token (contains a dot) is external.
-		// E3: ownership is determined by ownerForOffset.
-		// Dedup key is "owner:callee" so each distinct owner gets its own calls edge
-		// for the same callee (e.g. both a model and a macro may call my_helper()).
+		// Macro call edges. A dotted callee names another package and a denylisted
+		// bare name is a built-in; both are skipped. Dedup is per owner:callee, since
+		// a model and a macro may each call the same helper.
 		seenCall := map[string]bool{}
 		for _, m := range dbtMacroCallRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
 			callee := rawForHarvest[m[2]:m[3]]
-			// (b) package-qualified: any dot means external package — skip.
 			if strings.Contains(callee, ".") {
 				continue
 			}
-			// (a) denylist check on the bare name.
 			if dbtMacroCallDenylist[callee] {
 				continue
 			}
@@ -1110,57 +824,44 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				sqlRef(filePath, owner, callee, types.EdgeKindCalls, 1))
 		}
 
-		// B5: build the placeholder-substituted residual for the normal pipeline.
-		// Only run when there IS a model node — for macro/other files the residual
-		// scan would have no owning node and is mostly Jinja anyway (near-empty SQL).
+		// Feed a placeholder-substituted residual to the normal pipeline. Skipped
+		// without a model node: nothing would own the edges, and such files are
+		// mostly Jinja anyway.
 		if dbtModelID != "" {
-			// Step 1: replace {{ ref('x') }} → __dbt_ref_<model>
-			// E4: versioned refs produce __dbt_ref_<model>_v<N> so the placeholder
-			// name agrees with the harvest edge target. The B5 drop-guard uses a
-			// HasPrefix("__dbt_ref_") check, which catches both bare and versioned
-			// forms without a separate rule.
-			// dbtRefSubstRE is guaranteed to match (ReplaceAllStringFunc only calls the
-			// func for successful matches), so FindStringSubmatch cannot return nil here.
-			// Start from rawForHarvest (not source) so that {# … #} comment text is
-			// already blanked — otherwise comment prose containing "from"/"join" words
-			// leaks into scanBodyEdges and produces false references edges (B5 bug).
+			// {{ ref('x') }} → __dbt_ref_<model>. Starts from rawForHarvest, not
+			// source: a {# … #} comment holding the words "from"/"join" would
+			// otherwise leak into scanBodyEdges as false edges. ReplaceAllStringFunc
+			// only fires on a match, so FindStringSubmatch below cannot be nil.
 			residual := dbtRefSubstRE.ReplaceAllStringFunc(rawForHarvest, func(m string) string {
 				sub := dbtRefSubstRE.FindStringSubmatch(m)
 				modelRef := sub[1]
 				if sub[2] != "" {
-					// Two positional literals: model name is the second.
 					modelRef = sub[2]
 				}
-				// E4: append _v<N> when version was captured (group 3).
 				if sub[3] != "" {
 					modelRef = modelRef + "_v" + sub[3]
 				}
 				return padTo("__dbt_ref_"+modelRef, len(m))
 			})
 
-			// Step 2: replace {{ source('a','b') }} → __dbt_src_a__b
+			// {{ source('a','b') }} → __dbt_src_a__b
 			residual = dbtSourceSubstRE.ReplaceAllStringFunc(residual, func(m string) string {
 				sub := dbtSourceSubstRE.FindStringSubmatch(m)
 				return padTo("__dbt_src_"+sub[1]+"__"+sub[2], len(m))
 			})
 
-			// Step 3: blank remaining {{ … }} / {% … %} length-preservingly.
+			// Blank the remaining Jinja length-preservingly.
 			residual = dbtAnyExprRE.ReplaceAllStringFunc(residual, func(m string) string {
 				return blankPreserveNewlines(m)
 			})
 
-			// B5 residual: run scanBodyEdges on the residual with the model node as
-			// the owning fromNodeID. This captures real table names (FROM/JOIN real_tbl).
-			// The residual goes through the normal stripComments/stripStrings below so
-			// the model-node body scan receives a properly cleaned version.
+			// Scan the residual so real FROM/JOIN table names attach to the model node.
 			residualStripped := stripStrings(stripComments(residual))
 			ctes := extractCTENames(residualStripped)
-			// dbt model bodies do not contain T-SQL temp tables; pass "" routineName.
+			// dbt bodies hold no T-SQL temp tables, hence the empty routine name.
 			_, bodyEdges := scanBodyEdges(filePath, dbtModelID, residualStripped, 0, residualStripped, ctes, "", nil)
 
-			// Drop any residual reference whose name starts with __dbt_ref_ or __dbt_src_
-			// — those are the placeholder identifiers we injected; the harvest already owns
-			// the real edges.
+			// Drop our own placeholders — the harvest already owns those edges.
 			for _, ref := range bodyEdges {
 				if strings.HasPrefix(ref.ReferenceName, "__dbt_ref_") || strings.HasPrefix(ref.ReferenceName, "__dbt_src_") {
 					continue
@@ -1168,8 +869,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				result.UnresolvedReferences = append(result.UnresolvedReferences, ref)
 			}
 
-			// Replace source with the residual so the normal definition scan below can
-			// process embedded CREATEs inside the model without being confused by Jinja.
+			// The definition scan below reads the residual, not the Jinja source.
 			source = residual
 		}
 	}
@@ -1179,9 +879,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 	stripped := stripComments(source)
 	strippedNoStr := stripStrings(stripped)
 
-	// nodeAt creates a Node at the given byte offset in the *original* stripped
-	// source (line numbers derive from stripped which has the same newline
-	// positions as source).
+	// Offsets are into stripped, which shares source's newline positions.
 	nodeAt := func(kind types.NodeKind, schema, name, qname string, byteOffset int) types.Node {
 		line := strings.Count(stripped[:byteOffset], "\n") + 1
 		id := extraction.GenerateNodeID(filePath, string(kind), qname, line)
@@ -1215,26 +913,21 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		tableID := node.ID
 		result.Nodes = append(result.Nodes, node)
 
-		// Compute the table body paren-block once and pass it to all three consumers.
-		// Using stripped (comment-only blanked) for structure; strippedNoStr for FK scan
-		// so string-literal REFERENCES values cannot produce false FK edges.
+		// stripped keeps structure; the FK scan uses strippedNoStr so a REFERENCES
+		// inside a string literal cannot mint an edge.
 		tableBody, tableBodyOff := findParenBlock(stripped, m[1])
 		tableBodyNoStr, _ := findParenBlock(strippedNoStr, m[1])
 
-		// Extract columns from the table body (the ( ... ) block following this match).
 		colNodes, colEdges := extractColumns(filePath, source, stripped, tableID, name, qname, tableBody, tableBodyOff)
 		result.Nodes = append(result.Nodes, colNodes...)
 		result.Edges = append(result.Edges, colEdges...)
 
-		// CP3: Extract constraint nodes from the same table body.
 		anonCtrs := map[string]int{}
 		conNodes, conEdges := extractConstraints(filePath, stripped, tableBody, tableBodyOff, tableID, name, anonCtrs)
 		result.Nodes = append(result.Nodes, conNodes...)
 		result.Edges = append(result.Edges, conEdges...)
 
-		// CP4: FK → references. Scan the CREATE TABLE body for REFERENCES <target>.
-		// Covers both inline column FKs (col TYPE REFERENCES t) and table-level
-		// FOREIGN KEY (...) REFERENCES t.
+		// FK → references, covering both inline column FKs and table-level FOREIGN KEY.
 		if tableBodyNoStr != "" {
 			seenFKTargets := map[string]bool{}
 			for _, rm := range inlineRefRE.FindAllStringSubmatchIndex(tableBodyNoStr, -1) {
@@ -1244,16 +937,15 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 					continue
 				}
 				seenFKTargets[strings.ToLower(tgtName)] = true
-				// Use approximate line from the table match start.
+				// Approximate: the line of the CREATE TABLE match.
 				line := strings.Count(stripped[:m[1]], "\n") + 1
 				result.UnresolvedReferences = append(result.UnresolvedReferences,
 					sqlRef(filePath, tableID, tgtName, types.EdgeKindReferences, line))
 			}
 
-			// Iteration 2: FK column-level references. Emits refs from the local
-			// column node (not the table node) to the target column, or to the
-			// bare target table when no target column list is given. Additive to
-			// the table→table edge above — never dedups against it.
+			// Column-level FK refs, from the local column node to the target column
+			// (or to the bare table when no column list is given). Additive to the
+			// table→table edge above — never deduped against it.
 			if len(colNodes) > 0 {
 				colIDByLowerName := make(map[string]string, len(colNodes))
 				for _, cn := range colNodes {
@@ -1264,10 +956,8 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			}
 		}
 
-		// A6: CLONE <src> — emit a references edge from the new table to its source.
-		// Scan only the preamble text BEFORE the first '(' to avoid false-positive
-		// matches on a column literally named CLONE inside a CREATE TABLE body.
-		// A real CLONE statement has no column list, so CLONE always precedes any '('.
+		// CLONE <src>. Scan only the preamble before the first '(': a real CLONE has
+		// no column list, so a column named CLONE cannot be mistaken for one.
 		stmtText := extractStmtText(strippedNoStr, m[1])
 		preamble := stmtText
 		if parenIdx := strings.IndexByte(stmtText, '('); parenIdx >= 0 {
@@ -1285,13 +975,11 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 	}
 
-	// Build a map of (kind, lower-name) → nodeID once so that the ALTER TABLE
-	// and index lookup loops below run in O(1) per lookup instead of O(n).
-	// All CREATE TABLE nodes have been appended before this point; no new table
-	// nodes are added by the ALTER loops themselves.
+	// Every CREATE TABLE node exists by now and the ALTER loops add none, so the
+	// lookup map can be built once.
 	tableNodeIDMap := buildTableNodeIDMap(result.Nodes)
 
-	// CP4: ALTER TABLE … FOREIGN KEY … REFERENCES <target> → references.
+	// ALTER TABLE … FOREIGN KEY … REFERENCES <target> → references.
 	for _, m := range alterFKRefRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
 		rawSrcTable := strippedNoStr[m[2]:m[3]]
 		rawTgtTable := strippedNoStr[m[4]:m[5]]
@@ -1315,7 +1003,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		rawCol := strippedNoStr[m[4]:m[5]]
 		_, tableName := parseQName(rawTable)
 		colName := normIdent(rawCol)
-		if tableName == "" || colName == "" {
+		if tableName == "" || colName == "" || alterAddNonColumnKeywords[strings.ToLower(colName)] {
 			continue
 		}
 		line := strings.Count(stripped[:m[0]], "\n") + 1
@@ -1364,7 +1052,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			StartLine:     line,
 			EndLine:       line,
 			IsExported:    true,
-			Metadata:      buildConstraintMeta(ctype, ""),
+			Metadata:      buildConstraintMeta(ctype, "", localConstraintColumns(statementAt(strippedNoStr, m[0]), ctype)),
 		}
 		result.Nodes = append(result.Nodes, node)
 		if tableNodeID != "" {
@@ -1372,12 +1060,10 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 	}
 
-	// -- ALTER TABLE ADD <anonymous constraint> (no CONSTRAINT keyword) --
-	// alterAddAnonConstraintRE requires ADD to be followed directly by the type
-	// keyword (PRIMARY KEY / FOREIGN KEY / UNIQUE / CHECK) with no CONSTRAINT
-	// token in between, so it structurally cannot match a named-constraint line
-	// (ALTER TABLE t ADD CONSTRAINT foo …). No runtime guard is needed.
-	// Count anonymous constraints per table to build stable synthesized names.
+	// -- ALTER TABLE ADD <anonymous constraint> --
+	// The regex puts the type keyword directly after ADD, so a named-constraint
+	// line structurally cannot match and needs no runtime guard. Counting per table
+	// gives the synthesized names a stable suffix.
 	anonAltCtrs := map[string]map[string]int{}
 	for _, m := range alterAddAnonConstraintRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
 		rawTable := strippedNoStr[m[2]:m[3]]
@@ -1407,7 +1093,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			StartLine:     line,
 			EndLine:       line,
 			IsExported:    true,
-			Metadata:      buildConstraintMeta(ctype, ""),
+			Metadata:      buildConstraintMeta(ctype, "", localConstraintColumns(statementAt(strippedNoStr, m[0]), ctype)),
 		}
 		result.Nodes = append(result.Nodes, node)
 		if tableNodeID != "" {
@@ -1431,9 +1117,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 		result.Nodes = append(result.Nodes, node)
 
-		// CP4: view → source table references (FROM/JOIN in view body after AS).
-		// Find the text after the AS keyword that terminates the CREATE VIEW header.
-		// We scan from the end of the view RE match to a reasonable body window.
+		// view → source tables: FROM/JOIN in the body after AS.
 		viewBodyStart := m[1]
 		viewBody := extractViewBody(strippedNoStr, viewBodyStart)
 		seen := map[string]bool{}
@@ -1453,8 +1137,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				sqlRef(filePath, node.ID, tgtName, types.EdgeKindReferences, line))
 		}
 
-		// F3: FLATTEN([INPUT =>] <expr>) argument reference in view body.
-		// Emit a references edge only for single unqualified identifiers.
+		// FLATTEN(<expr>) in a view body; only unqualified identifiers become edges.
 		for _, bm := range bodyFlattenRE.FindAllStringSubmatchIndex(viewBody, -1) {
 			rawExpr := viewBody[bm[2]:bm[3]]
 			if strings.ContainsRune(rawExpr, '.') {
@@ -1471,9 +1154,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				sqlRef(filePath, node.ID, tgtName, types.EdgeKindReferences, line))
 		}
 
-		// CP4: emit qualified column references "alias.col" from view body.
-		// Build alias→table map from FROM/JOIN clauses, then scan for prefix.col
-		// patterns. CTE names are excluded (they are computed, not base tables).
+		// Qualified "alias.col" refs from the view body; CTE names are excluded.
 		viewCTEs := extractCTENames(viewBody)
 		viewAliasMap := buildAliasMap(viewBody, viewCTEs)
 		emitQualifiedColumnRefs(viewBody, viewAliasMap, viewCTEs, func(refName string, matchOff int) {
@@ -1486,9 +1167,8 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				sqlRef(filePath, node.ID, refName, types.EdgeKindReferences, line))
 		})
 
-		// A6: CLONE <src> — emit a references edge from the new view to its source.
-		// Scan only the preamble text BEFORE the first '(' (same guard as table path).
-		// A cloned view has no AS SELECT body, so CLONE is the only lineage signal.
+		// CLONE <src>, same preamble guard as the table path. A cloned view has no
+		// AS SELECT body, so CLONE is its only lineage signal.
 		viewStmtText := extractStmtText(strippedNoStr, m[1])
 		viewPreamble := viewStmtText
 		if parenIdx := strings.IndexByte(viewStmtText, '('); parenIdx >= 0 {
@@ -1506,10 +1186,8 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 	}
 
-	// CP1: globalTempNodes is shared across all function/procedure scans in this
-	// file so that ##global temp tables declared in one routine are visible when
-	// another routine references them, and are deduped to a single node.
-	// Populated by scanBodyEdges; collected into result.Nodes after all scans.
+	// Shared across every routine scan so a ##global temp declared in one routine
+	// is visible to another and lands as a single node.
 	globalTempNodes := map[string]*types.Node{}
 
 	// -- Functions --
@@ -1523,8 +1201,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		fnNode := nodeAt(types.NodeKindFunction, schema, name, qname, m[0])
 		result.Nodes = append(result.Nodes, fnNode)
 
-		// CP5: scan function body for reads (references), writes, and calls.
-		// CP1: pass routine name + shared globalTempNodes map for temp-table scoping.
+		// The routine name scopes the temp tables found in its body.
 		body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
 		if body != "" {
 			ctes := extractCTENames(body)
@@ -1545,8 +1222,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		procNode := nodeAt(types.NodeKindProcedure, schema, name, qname, m[0])
 		result.Nodes = append(result.Nodes, procNode)
 
-		// CP5: scan procedure body for reads (references), writes, and calls.
-		// CP1: pass routine name + shared globalTempNodes map for temp-table scoping.
+		// The routine name scopes the temp tables found in its body.
 		body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
 		if body != "" {
 			ctes := extractCTENames(body)
@@ -1556,8 +1232,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 	}
 
-	// CP1: collect file-scoped global temp nodes (##x) after all routine scans.
-	// Each entry was created once (deduped) in globalTempNodes during the scans above.
+	// File-scoped ##global temp nodes, already deduped by the scans above.
 	for _, n := range globalTempNodes {
 		result.Nodes = append(result.Nodes, *n)
 	}
@@ -1573,8 +1248,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		trgNode := nodeAt(types.NodeKindTrigger, schema, name, qname, m[0])
 		result.Nodes = append(result.Nodes, trgNode)
 
-		// CP4: trigger → ON table (references) + EXECUTE FUNCTION/PROCEDURE fn (calls).
-		// Scan from the end of the trigger name match to end-of-statement.
+		// Scan from the end of the trigger name to the statement boundary.
 		stmtText := extractStmtText(strippedNoStr, m[1])
 
 		// ON <table>
@@ -1645,7 +1319,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindSequence, schema, name, qname, m[0]))
 	}
 
-	// -- Stages (A5) --
+	// -- Stages --
 	for _, m := range stageRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
 		rawName := strippedNoStr[m[2]:m[3]]
 		schema, name := parseQName(rawName)
@@ -1656,9 +1330,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindStage, schema, name, qname, m[0]))
 	}
 
-	// -- File Formats (F1) --
-	// CREATE [OR REPLACE] [TEMPORARY|TEMP] FILE FORMAT [IF NOT EXISTS] <name>
-	// Produces a file_format node; no outbound edges.
+	// -- File formats --
 	for _, m := range fileFormatRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
 		rawName := strippedNoStr[m[2]:m[3]]
 		schema, name := parseQName(rawName)
@@ -1669,9 +1341,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindFileFormat, schema, name, qname, m[0]))
 	}
 
-	// -- Streams (A4) --
-	// Emit one stream node + one references edge per CREATE STREAM ... ON <kind> <source>.
-	// Group 1 = stream name, Group 2 = source object name.
+	// -- Streams --
 	for _, m := range streamRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
 		rawName := strippedNoStr[m[2]:m[3]]
 		rawSrc := strippedNoStr[m[4]:m[5]]
@@ -1691,12 +1361,9 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 	}
 
-	// -- Tasks (A3) --
-	// Emit one task node per CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name>.
-	// Two edge sources:
-	//   1. AFTER <t1>[, <t2>...] → dedicated taskAfterRE (AFTER is in sqlKeywordsForRef
-	//      so it must NOT go through scanBodyEdges which would silently drop it).
-	//   2. AS <sql> / AS CALL <proc>(...) task body → scanBodyEdges for FROM/JOIN/INSERT/CALL/COPY.
+	// -- Tasks --
+	// Two edge sources: the AFTER predecessor list, which needs its own regex
+	// because scanBodyEdges denylists the AFTER keyword, and the AS <sql> body.
 	for _, m := range taskRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
 		rawName := strippedNoStr[m[2]:m[3]]
 		schema, name := parseQName(rawName)
@@ -1707,11 +1374,9 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		taskNode := nodeAt(types.NodeKindTask, schema, name, qname, m[0])
 		result.Nodes = append(result.Nodes, taskNode)
 
-		// Extract the full CREATE TASK statement text (from end of name match to
-		// the next statement boundary) to scan for AFTER and body.
 		stmtText := extractStmtText(strippedNoStr, m[1])
 
-		// 1. AFTER predecessor edges (dedicated regex — AFTER is keyword-denylisted).
+		// AFTER predecessor edges.
 		if am := taskAfterRE.FindStringSubmatchIndex(stmtText); am != nil {
 			rawList := stmtText[am[2]:am[3]]
 			predecessors := taskPredecessorSplitRE.Split(rawList, -1)
@@ -1731,11 +1396,11 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			}
 		}
 
-		// 2. Task body edges (AS <sql>) → reuse scanBodyEdges.
+		// Task body (AS <sql>).
 		body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
 		if body != "" {
 			ctes := extractCTENames(body)
-			// Tasks do not contain T-SQL temp declarations; pass "" routineName.
+			// Tasks hold no T-SQL temp declarations, hence the empty routine name.
 			_, bodyEdgeRefs := scanBodyEdges(filePath, taskNode.ID, body, bodyOff, stripped, ctes, "", nil)
 			result.UnresolvedReferences = append(result.UnresolvedReferences, bodyEdgeRefs...)
 		}
@@ -1762,7 +1427,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 	}
 
 	// -- Types (ENUM, TABLE type, FROM alias, composite) --
-	// Process typeRE first (AS ENUM / AS TABLE / FROM).
+	// typeRE first; the composite fallback below dedups against seenTypeNames.
 	seenTypeNames := map[string]bool{}
 	for _, m := range typeRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
 		rawName := strippedNoStr[m[2]:m[3]]
@@ -1773,8 +1438,6 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 		seenTypeNames[strings.ToLower(qname)] = true
 
-		// m[4]:m[5] = group 2 = "ENUM" or "TABLE" (from AS clause)
-		// m[6]:m[7] = group 3 = FROM base type name
 		isEnum := m[4] >= 0 && strings.EqualFold(strippedNoStr[m[4]:m[5]], "ENUM")
 		isTable := m[4] >= 0 && strings.EqualFold(strippedNoStr[m[4]:m[5]], "TABLE")
 		isFrom := m[6] >= 0
@@ -1782,8 +1445,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		if isEnum {
 			enumNode := nodeAt(types.NodeKindEnum, schema, name, qname, m[0])
 			result.Nodes = append(result.Nodes, enumNode)
-			// Extract enum member labels from the original (un-stripped) source.
-			// We use the position of this match to find the ENUM(...) body nearby.
+			// Labels come from the un-stripped source — stripStrings blanks them.
 			afterMatch := source[m[0]:]
 			if em := enumValuesRE.FindStringSubmatchIndex(afterMatch); em != nil {
 				labelBlock := afterMatch[em[2]:em[3]]
@@ -1860,8 +1522,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		node.Metadata = meta
 		result.Nodes = append(result.Nodes, node)
 
-		// CP4: synonym → target references.
-		// Group 3 (index 4:5 after two-group name) = FOR <target>
+		// synonym → target references.
 		if m[4] >= 0 && m[5] >= 0 {
 			rawTgt := strippedNoStr[m[4]:m[5]]
 			_, tgtName := parseQName(rawTgt)
@@ -1904,10 +1565,8 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				sqlRef(filePath, policyID, tableName, types.EdgeKindReferences, tblLine))
 		}
 
-		// calls → functions found ONLY in USING (...) and WITH CHECK (...) expressions.
-		// F-7: scope to these expression blocks only, not the full statement text.
-		// Scanning the whole statement grabs SQL builtins in non-expression positions
-		// (e.g. AS PERMISSIVE, TO public) and produces noise that never resolves.
+		// Function calls only from USING / WITH CHECK blocks: scanning the whole
+		// statement picks up AS PERMISSIVE, TO public and other never-resolving noise.
 		stmtText := extractStmtText(strippedNoStr, m[1])
 		seenFn := map[string]bool{}
 		for _, um := range usingWithCheckRE.FindAllStringSubmatchIndex(stmtText, -1) {
@@ -1927,18 +1586,11 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 	}
 
-	// F4: standalone top-level COPY INTO — lazy script owner.
-	//
-	// A COPY INTO that is NOT inside any routine/function/procedure/task body
-	// and NOT in a dbt model file is owned by a lazily-created script node named
-	// by the file basename. The script node is created only when at least one such
-	// top-level COPY exists.
-	//
-	// dbt model files already own their top-level statements via the model node
-	// (B5 residual scan), so we skip them entirely.
+	// A COPY INTO outside every routine body needs an owner: a script node named
+	// for the file, created lazily on the first such statement. dbt model files are
+	// skipped — their model node already owns top-level statements.
 	if dbtModelID == "" {
-		// Step 1: collect body spans [start, end) for all routines and tasks so
-		// we can exclude COPY INTO matches that fall inside them.
+		// Body spans of every routine and task, to exclude COPYs already owned.
 		type bodySpan struct{ start, end int }
 		var bodySpans []bodySpan
 		for _, re := range []*regexp.Regexp{functionRE, procedureRE, taskRE} {
@@ -1959,23 +1611,17 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			return false
 		}
 
-		// Step 2: scan for top-level COPY INTO matches (outside all body spans).
-		// scriptID is set on the first top-level COPY found (lazy creation).
-		// We capture the ID as a string rather than a pointer into result.Nodes —
-		// any subsequent append to result.Nodes would reallocate the backing array
-		// and make a slice-element pointer stale.
+		// Hold the ID as a string, not a pointer into result.Nodes: a later append
+		// reallocates the backing array and would leave the pointer stale.
 		scriptID := ""
 		for _, m := range bodyCopyIntoRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
 			if inBodySpan(m[0]) {
 				continue // already owned by the enclosing routine/task (v1)
 			}
 
-			// Lazily create the script node on the first top-level COPY found.
 			if scriptID == "" {
 				base := filepath.Base(filePath)
-				// Strip single extension (e.g. "load_facts.sql" → "load_facts").
-				// For .sql.jinja the dbt pre-pass already ran so dbtModelID != "" —
-				// we never reach here for those files.
+				// A .sql.jinja file never reaches here — the dbt pre-pass owns it.
 				scriptName := strings.TrimSuffix(base, filepath.Ext(base))
 				scriptLine := 1
 				scriptID = extraction.GenerateNodeID(filePath, string(types.NodeKindScript), scriptName, scriptLine)
@@ -1992,7 +1638,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				})
 			}
 
-			// Emit COPY lineage edges owned by the script node — reuse v1 direction logic.
+			// COPY lineage edges owned by the script node.
 			rawTarget := strippedNoStr[m[2]:m[3]]
 			rawSource := strippedNoStr[m[4]:m[5]]
 			line := strings.Count(stripped[:m[0]], "\n") + 1
@@ -2028,23 +1674,12 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 	return result, nil
 }
 
-// ---------------------------------------------------------------------------
-// Column extraction helper
-// ---------------------------------------------------------------------------
+// --- Column extraction helper ---
 
-// extractColumns scans the CREATE TABLE body and emits column nodes + contains
-// edges. Constraint lines are skipped.
-//
-// body and bodyOff are the pre-computed paren-block content and start offset
-// within stripped (callers compute these once via findParenBlock to avoid
-// redundant walks over the same character range).
-//
-// Two-source-pass design: the column list structure (names, constraint skips)
-// is parsed from the pre-computed body (derived from `stripped`, comments
-// blanked out) to avoid false matches inside string-literal default values.
-// The GENERATED/computed-column check then re-reads the corresponding line
-// from the original `source` so that keywords which were stripped earlier are
-// visible for metadata detection.
+// extractColumns emits column nodes and contains edges from a CREATE TABLE body,
+// skipping constraint lines. Structure is parsed from the comment-blanked body so
+// a string-literal default cannot look like a column; the GENERATED check re-reads
+// the same line from the original source, where those keywords survive.
 func extractColumns(
 	filePath, source, stripped string,
 	tableID, tableName, tableQName string,
@@ -2055,7 +1690,6 @@ func extractColumns(
 		return
 	}
 
-	// Split body into lines; process each as a potential column definition.
 	lines := strings.Split(body, "\n")
 	lineOffset := strings.Count(stripped[:bodyOff], "\n")
 
@@ -2064,24 +1698,20 @@ func extractColumns(
 		if trimmed == "" {
 			continue
 		}
-		// Remove trailing comma.
 		trimmed = strings.TrimRight(trimmed, ", \t")
 		if trimmed == "" {
 			continue
 		}
 
-		// Check if this line starts with a constraint keyword — skip it.
 		firstWord := strings.ToUpper(strings.Fields(trimmed)[0])
 		if constraintKeywords[firstWord] {
 			continue
 		}
 
-		// Extract the column name: the first identifier on the line.
 		colName := extractFirstIdent(trimmed)
 		if colName == "" {
 			continue
 		}
-		// Skip if it looks like SQL keywords rather than a column name.
 		if isSQLKeyword(colName) {
 			continue
 		}
@@ -2090,16 +1720,10 @@ func extractColumns(
 		colQName := fmt.Sprintf("%s.%s", tableQName, colName)
 		colID := extraction.GenerateNodeID(filePath, string(types.NodeKindColumn), colQName, lineNum)
 
-		// Extract the declared type token: first identifier after the column name.
-		// Skip the column name token (including any surrounding quotes) to reach the
-		// type portion of the line, then take the first identifier from it.
-		// Parameterised forms like NUMBER(38,0) and structured forms like OBJECT(a INT)
-		// yield the base keyword (NUMBER, OBJECT) — extractFirstIdent stops at '('.
-		//
-		// Two-guard filter: reject tokens that are (a) DML/DDL verbs via isSQLKeyword,
-		// or (b) column-attribute keywords that are not type names. The attribute denylist
-		// handles patterns like `col DEFAULT 0`, `col REFERENCES t(id)`, `col NOT NULL`
-		// where the second token is a constraint/modifier, not a declared type.
+		// Declared type: the identifier after the column name. extractFirstIdent
+		// stops at '(', so NUMBER(38,0) yields NUMBER. The two guards drop the
+		// `col DEFAULT 0` and `col NOT NULL` shapes, where the second token is a
+		// modifier rather than a type.
 		colTypeToken := ""
 		nameLen := extractFirstIdentLen(trimmed)
 		if nameLen > 0 && nameLen < len(trimmed) {
@@ -2111,9 +1735,7 @@ func extractColumns(
 			}
 		}
 
-		// Build Metadata: always includes "type" when we found one.
-		// Detect GENERATED / computed column using the original (non-stripped) source
-		// line so keywords inside string-literal defaults remain visible.
+		// The original line, so a GENERATED marker inside a stripped span is seen.
 		origLine := getSourceLine(source, lineOffset+i)
 		isGenerated := generatedMarkerRE.MatchString(origLine)
 
@@ -2148,13 +1770,10 @@ func extractColumns(
 	return
 }
 
-// ---------------------------------------------------------------------------
-// FK column-level reference extraction (iteration 2)
-// ---------------------------------------------------------------------------
+// --- FK column-level reference extraction ---
 
-// splitIdentList splits a comma-separated column-name list (as captured from
-// inside a FOREIGN KEY (...) / REFERENCES (...) clause) into normalized
-// identifiers. Empty/whitespace-only input returns nil.
+// splitIdentList normalizes a comma-separated column list from a FOREIGN KEY or
+// REFERENCES clause.
 func splitIdentList(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -2171,13 +1790,10 @@ func splitIdentList(raw string) []string {
 	return out
 }
 
-// columnFKRefs pairs local and target column lists positionally, emitting a
-// references edge from each local column's node to "tgt.col" (the qualified
-// single-dot form that SQL-scoped resolution already routes to byQualifiedName).
-// Mismatched list lengths pair up to the shorter list; excess entries are
-// silently ignored (malformed DDL must not error the file). When tgtCols is
-// empty (no target column list — implicit PK reference), every local column
-// instead gets a column→table ref against the bare tgtName.
+// columnFKRefs pairs local and target columns positionally, emitting an edge from
+// each local column node to "tgt.col". Mismatched lists pair to the shorter one —
+// malformed DDL must not error the file. With no target list the reference is to
+// the bare table, the implicit-PK form.
 func columnFKRefs(
 	filePath, tgtName string,
 	localCols, tgtCols []string,
@@ -2210,22 +1826,11 @@ func columnFKRefs(
 	return
 }
 
-// extractColumnFKRefs scans a CREATE TABLE body for FK column-level references,
-// emitting an UnresolvedReference (kind references) from each local column
-// node — not the table node — to the matching target column, or to the bare
-// target table when the FK clause names no target column list. Two source
-// forms are covered:
-//   - table-level: FOREIGN KEY (a[, b]) REFERENCES tgt (x[, y])
-//   - inline:      col TYPE REFERENCES tgt (x)
-//
-// The existing table→table CP4 edge (emitted by the caller via inlineRefRE) is
-// untouched — this only adds column-level edges alongside it.
-//
-// bodyNoStr is the comment+string-blanked table body (matches CP4's FK-scan
-// convention, so a string-literal REFERENCES cannot produce a false edge);
-// bodyOff is its byte offset within stripped, used to compute line numbers.
-// colIDByLowerName maps each lower-cased column name (as extracted by
-// extractColumns) to that column's node ID.
+// extractColumnFKRefs emits references from each local column node — not the
+// table node — for both the table-level FOREIGN KEY (…) REFERENCES form and the
+// inline `col TYPE REFERENCES tgt (x)` form. Additive to the caller's table→table
+// edge. bodyNoStr must be the string-blanked body so a REFERENCES inside a literal
+// cannot produce an edge.
 func extractColumnFKRefs(
 	filePath, stripped, bodyNoStr string, bodyOff int,
 	colIDByLowerName map[string]string,
@@ -2235,7 +1840,7 @@ func extractColumnFKRefs(
 		return
 	}
 
-	// Table-level: FOREIGN KEY (a[, b]) REFERENCES tgt (x[, y])?
+	// Table-level: FOREIGN KEY (a[, b]) REFERENCES tgt (x[, y])
 	for _, m := range tableLevelFKColRE.FindAllStringSubmatchIndex(bodyNoStr, -1) {
 		localCols := splitIdentList(bodyNoStr[m[2]:m[3]])
 		rawTgt := bodyNoStr[m[4]:m[5]]
@@ -2251,9 +1856,8 @@ func extractColumnFKRefs(
 		refs = append(refs, columnFKRefs(filePath, tgtName, localCols, tgtCols, colIDByLowerName, line)...)
 	}
 
-	// Inline: col TYPE ... REFERENCES tgt (x)? — walk lines the same way
-	// extractColumns does so the REFERENCES clause is attributed to the column
-	// defined on that line, not any earlier/later column.
+	// Inline: walk lines as extractColumns does, so a REFERENCES attributes to the
+	// column defined on that line and not a neighbour.
 	lines := strings.Split(bodyNoStr, "\n")
 	lineOffset := strings.Count(stripped[:bodyOff], "\n")
 	for i, line := range lines {
@@ -2299,11 +1903,9 @@ func extractColumnFKRefs(
 	return
 }
 
-// ---------------------------------------------------------------------------
-// Constraint extraction helpers
-// ---------------------------------------------------------------------------
+// --- Constraint extraction helpers ---
 
-// normalizeConstraintType maps the SQL keyword(s) to a canonical constraint_type string.
+// normalizeConstraintType maps SQL keywords to a canonical constraint_type.
 func normalizeConstraintType(raw string) string {
 	up := strings.ToUpper(strings.TrimSpace(raw))
 	switch {
@@ -2320,19 +1922,14 @@ func normalizeConstraintType(raw string) string {
 	}
 }
 
-// namedConstraintLineRE matches a CONSTRAINT <name> <type> line inside a CREATE TABLE body.
-// Group 1 = constraint name, Group 2 = constraint type keyword(s).
+// A CONSTRAINT <name> <type> line inside a CREATE TABLE body.
 var namedConstraintLineRE = regexp.MustCompile(`(?i)^\s*CONSTRAINT\s+(` + sqlIdentOnlyRaw + `)\s+(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK)\b`)
 
-// anonConstraintLineRE matches an anonymous table-level constraint line: PRIMARY KEY / UNIQUE / CHECK / FOREIGN KEY.
-// Group 1 = constraint type keyword(s).
+// An anonymous table-level constraint line, with no CONSTRAINT <name> prefix.
 var anonConstraintLineRE = regexp.MustCompile(`(?i)^\s*(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK)\b`)
 
-// extractConstraints scans the CREATE TABLE body for named and anonymous
-// table-level constraints and emits constraint nodes + contains edges.
-// body and bodyOff are the pre-computed paren-block content and start offset
-// within stripped (callers compute these once via findParenBlock shared with
-// extractColumns). stripped is needed to compute the line-number base.
+// extractConstraints emits constraint nodes and contains edges for the named and
+// anonymous table-level constraints in a CREATE TABLE body.
 func extractConstraints(
 	filePath, stripped string,
 	body string, bodyOff int,
@@ -2347,12 +1944,32 @@ func extractConstraints(
 	lines := strings.Split(body, "\n")
 	lineOffset := strings.Count(stripped[:bodyOff], "\n")
 
+	// Marks continuation lines already folded into an earlier constraint: a
+	// FOREIGN KEY line under its own CONSTRAINT name would otherwise be read again
+	// as anonymous, renaming a descriptive key to `<table>_fk_1`.
+	consumed := make([]bool, len(lines))
+
 	for i, line := range lines {
+		if consumed[i] {
+			continue
+		}
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
 		trimmed = strings.TrimRight(trimmed, ", \t")
+
+		// A constraint may wrap, with the name on one line and the key clause on
+		// the next, so match the whole constraint rather than the CONSTRAINT line.
+		full, last := constraintSpan(lines, i)
+		if last > i {
+			if nm := namedConstraintLineRE.FindStringSubmatch(full); nm != nil {
+				for k := i; k <= last; k++ {
+					consumed[k] = true
+				}
+				trimmed = strings.TrimSpace(full)
+			}
+		}
 
 		// Named constraint: CONSTRAINT <name> <type> ...
 		if nm := namedConstraintLineRE.FindStringSubmatch(trimmed); nm != nil {
@@ -2361,7 +1978,7 @@ func extractConstraints(
 			lineNum := lineOffset + i + 1
 			qname := tableName + "." + name
 			id := extraction.GenerateNodeID(filePath, string(types.NodeKindConstraint), qname, lineNum)
-			meta := buildConstraintMeta(ctype, "")
+			meta := buildConstraintMeta(ctype, "", localConstraintColumns(constraintText(lines, i), ctype))
 			node := types.Node{
 				ID:            id,
 				Kind:          types.NodeKindConstraint,
@@ -2387,7 +2004,7 @@ func extractConstraints(
 			lineNum := lineOffset + i + 1
 			qname := tableName + "." + name
 			id := extraction.GenerateNodeID(filePath, string(types.NodeKindConstraint), qname, lineNum)
-			meta := buildConstraintMeta(ctype, "")
+			meta := buildConstraintMeta(ctype, "", localConstraintColumns(constraintText(lines, i), ctype))
 			node := types.Node{
 				ID:            id,
 				Kind:          types.NodeKindConstraint,
@@ -2407,7 +2024,7 @@ func extractConstraints(
 	return
 }
 
-// anonSuffix returns the short suffix used in synthesized anonymous constraint names.
+// anonSuffix is the short tag used in a synthesized anonymous constraint name.
 func anonSuffix(ctype string) string {
 	switch ctype {
 	case "primary_key":
@@ -2423,22 +2040,113 @@ func anonSuffix(ctype string) string {
 	}
 }
 
-// buildConstraintMeta constructs the Metadata JSON for a constraint node.
-// references is the FK target table name (empty if not FK or CP4 not yet active).
-func buildConstraintMeta(ctype, references string) json.RawMessage {
-	m := map[string]string{"constraint_type": ctype}
+// buildConstraintMeta builds a constraint node's Metadata. references is the FK
+// target table, empty for a non-FK; columns are in declaration order.
+func buildConstraintMeta(ctype, references string, columns []string) json.RawMessage {
+	m := map[string]any{"constraint_type": ctype}
 	if references != "" {
 		m["references"] = references
+	}
+	if len(columns) > 0 {
+		m["columns"] = columns
 	}
 	b, _ := json.Marshal(m)
 	return b
 }
 
-// findParenBlock finds the matching parenthesised block starting at or after
-// startOffset in source. Returns the content between ( and ) (exclusive) and
-// the byte offset of the opening '('.
+// constraintText follows continuation lines from lines[i] until the parentheses
+// balance. A constraint routinely splits across name / FOREIGN KEY / REFERENCES
+// lines, so the keyword's own line often holds no column list at all.
+func constraintText(lines []string, i int) string {
+	text, _ := constraintSpan(lines, i)
+	return text
+}
+
+// constraintSpan is constraintText plus the index of the last line it folded
+// in, so the caller can skip those lines rather than re-reading them.
+func constraintSpan(lines []string, i int) (string, int) {
+	var b strings.Builder
+	depth := 0
+	opened := false
+	last := i
+	for ; i < len(lines); i++ {
+		b.WriteByte(' ')
+		b.WriteString(lines[i])
+		last = i
+		for _, ch := range lines[i] {
+			switch ch {
+			case '(':
+				depth++
+				opened = true
+			case ')':
+				depth--
+			}
+		}
+		// Stop at the first balanced group: for a foreign key that is the local
+		// column list, while any REFERENCES that follows names the target's.
+		if opened && depth <= 0 {
+			break
+		}
+	}
+	return b.String(), last
+}
+
+// statementAt returns the statement beginning at offset — up to the next
+// semicolon, so a column list split across lines is still in scope while the
+// statement after it is not.
+func statementAt(source string, at int) string {
+	if at < 0 || at >= len(source) {
+		return ""
+	}
+	rest := source[at:]
+	if end := strings.IndexByte(rest, ';'); end >= 0 {
+		return rest[:end]
+	}
+	return rest
+}
+
+// constraintTypeKeyword is the word whose following parenthesis holds the
+// constrained column list.
+var constraintTypeKeyword = map[string]string{
+	"primary_key": "PRIMARY",
+	"unique":      "UNIQUE",
+	"foreign_key": "FOREIGN",
+}
+
+// localConstraintColumns reads a constraint's columns from its declaration rather
+// than inferring them from its name. CHECK and EXCLUDE are excluded: their
+// parentheses hold an expression, not a column list.
+func localConstraintColumns(text, ctype string) []string {
+	keyword, ok := constraintTypeKeyword[ctype]
+	if !ok {
+		return nil
+	}
+	at := strings.Index(strings.ToUpper(text), keyword)
+	if at < 0 {
+		return nil
+	}
+	inner, _ := findParenBlock(text, at)
+	if inner == "" {
+		return nil
+	}
+
+	var cols []string
+	for _, part := range strings.Split(inner, ",") {
+		// Index specifications carry a direction or opclass after the name.
+		field := strings.TrimSpace(part)
+		if space := strings.IndexAny(field, " \t"); space > 0 {
+			field = field[:space]
+		}
+		if c := normIdent(field); c != "" {
+			cols = append(cols, c)
+		}
+	}
+	return cols
+}
+
+// findParenBlock returns the content of the first balanced paren block at or
+// after startOffset, plus the offset just past its opening '('.
 func findParenBlock(source string, startOffset int) (string, int) {
-	// Find first '(' at or after startOffset.
 	idx := strings.IndexByte(source[startOffset:], '(')
 	if idx < 0 {
 		return "", 0
@@ -2459,10 +2167,8 @@ func findParenBlock(source string, startOffset int) (string, int) {
 	return "", 0
 }
 
-// extractFirstIdentLen returns the byte length of the first SQL identifier
-// token in line (including surrounding quote characters if any). Returns 0
-// when line is empty or starts with a non-identifier character.
-// Used to advance past the column name to reach the type token.
+// extractFirstIdentLen is the byte length of the leading identifier, quotes
+// included, so a caller can step past the column name to the type token.
 func extractFirstIdentLen(line string) int {
 	line = strings.TrimSpace(line)
 	if len(line) == 0 {
@@ -2501,8 +2207,7 @@ func extractFirstIdentLen(line string) int {
 	}
 }
 
-// extractFirstIdent extracts the first SQL identifier from a line.
-// Handles quoted, backtick, and bracket identifiers.
+// extractFirstIdent returns the leading identifier, unwrapping any quoting style.
 func extractFirstIdent(line string) string {
 	line = strings.TrimSpace(line)
 	if len(line) == 0 {
@@ -2528,7 +2233,6 @@ func extractFirstIdent(line string) string {
 		}
 		return line[1 : end+1]
 	default:
-		// Bare identifier: stop at whitespace or non-ident characters.
 		end := 0
 		for end < len(line) {
 			c := line[end]
@@ -2542,8 +2246,7 @@ func extractFirstIdent(line string) string {
 	}
 }
 
-// getSourceLine returns the (i+1)'th line (0-indexed) of source. Used to
-// check for GENERATED markers in the original (non-stripped) source.
+// getSourceLine returns the 0-indexed line lineIdx of source.
 func getSourceLine(source string, lineIdx int) string {
 	lines := strings.SplitN(source, "\n", lineIdx+2)
 	if lineIdx < len(lines) {
@@ -2552,24 +2255,15 @@ func getSourceLine(source string, lineIdx int) string {
 	return ""
 }
 
-// colAttributeKeywords is the denylist of tokens that look like column-type
-// identifiers but are actually constraint or column-attribute keywords. When
-// the second token on a column definition line matches one of these, no "type"
-// key is emitted in Metadata. This handles patterns like:
-//   - col DEFAULT 0          → second token = DEFAULT (not a type)
-//   - col REFERENCES t(id)   → second token = REFERENCES (not a type)
-//   - col NOT NULL           → second token = NOT (not a type)
-//   - col COLLATE utf8       → second token = COLLATE (not a type)
-//
-// The list is intentionally a denylist (not an allowlist of all known types) so
-// that user-defined types and domain names still pass through unblocked.
+// Tokens in the type position that are attributes, not types (`col DEFAULT 0`).
+// A denylist rather than a type allowlist, so user-defined types pass through.
 var colAttributeKeywords = map[string]bool{
 	"DEFAULT": true, "REFERENCES": true, "COLLATE": true, "COMMENT": true,
 	"ENCODING": true, "CONSTRAINT": true, "PRIMARY": true, "UNIQUE": true,
 	"CHECK": true, "GENERATED": true, "NOT": true, "NULL": true, "AS": true,
 }
 
-// sqlKeywords is a set of SQL reserved words that cannot be column names.
+// Reserved words that cannot be column names.
 var sqlKeywords = map[string]bool{
 	"SELECT": true, "FROM": true, "WHERE": true, "INSERT": true, "UPDATE": true,
 	"DELETE": true, "CREATE": true, "ALTER": true, "DROP": true, "TABLE": true,
@@ -2583,9 +2277,7 @@ func isSQLKeyword(s string) bool {
 	return sqlKeywords[strings.ToUpper(s)]
 }
 
-// buildTableNodeIDMap builds a lower-name → nodeID map for all table nodes in
-// the given slice. Used by ALTER TABLE and index loops for O(1) lookups instead
-// of O(n) linear scans per lookup.
+// buildTableNodeIDMap indexes table nodes by lower-cased name.
 func buildTableNodeIDMap(nodes []types.Node) map[string]string {
 	m := make(map[string]string, len(nodes))
 	for _, n := range nodes {
@@ -2596,12 +2288,9 @@ func buildTableNodeIDMap(nodes []types.Node) map[string]string {
 	return m
 }
 
-// ---------------------------------------------------------------------------
-// Unresolved reference helper
-// ---------------------------------------------------------------------------
+// --- Unresolved reference helper ---
 
-// sqlRef builds a types.UnresolvedReference for a SQL source node referencing
-// a named target. kind is EdgeKindReferences or EdgeKindCalls.
+// sqlRef builds an UnresolvedReference from a SQL node to a named target.
 func sqlRef(filePath, fromNodeID, targetName string, kind types.EdgeKind, line int) types.UnresolvedReference {
 	return types.UnresolvedReference{
 		ID:            extraction.GenerateRefID(fromNodeID, targetName, string(kind), line, 0),
@@ -2614,10 +2303,8 @@ func sqlRef(filePath, fromNodeID, targetName string, kind types.EdgeKind, line i
 	}
 }
 
-// sqlKeywordsForRef is the set of SQL keywords that must not be emitted as
-// reference targets (prevents false edges to imaginary nodes).
-// F-6: LATERAL, UNNEST, ROWS added so JOIN LATERAL / UNNEST() are not captured
-// as table names.
+// Keywords that must never be emitted as reference targets, or they mint edges
+// to nodes that cannot exist.
 var sqlKeywordsForRef = map[string]bool{
 	"SELECT": true, "FROM": true, "WHERE": true, "ON": true, "SET": true,
 	"BEGIN": true, "END": true, "NOT": true, "NULL": true, "AND": true, "OR": true,
@@ -2630,7 +2317,7 @@ var sqlKeywordsForRef = map[string]bool{
 	"RETURNS": true, "RETURN": true, "DECLARE": true, "IF": true, "ELSE": true,
 	"THEN": true, "LOOP": true, "WHILE": true, "DO": true, "CASE": true,
 	"LANGUAGE": true, "NEW": true, "OLD": true, "FOUND": true,
-	// F-6: table-function and clause modifiers that appear after FROM/JOIN.
+	// Table-function and clause modifiers that appear right after FROM/JOIN.
 	"LATERAL": true, "UNNEST": true, "ROWS": true,
 }
 
@@ -2638,30 +2325,22 @@ func isSQLRefKeyword(s string) bool {
 	return sqlKeywordsForRef[strings.ToUpper(s)]
 }
 
-// ---------------------------------------------------------------------------
-// Statement-body extraction helpers
-// ---------------------------------------------------------------------------
+// --- Statement-body extraction helpers ---
 
-// extractViewBody returns the text of a view's SELECT body.
-// startOffset is the byte offset just past the end of the view RE match (m[1]).
-// We scan forward to find "AS" (or "AS SELECT") and return from there to the
-// next statement boundary (semicolon or next top-level CREATE keyword).
-// Returns a substring of source (zero-copy where possible).
+// extractViewBody returns a view's SELECT body: from the AS that follows
+// startOffset to the next statement boundary.
 func extractViewBody(source string, startOffset int) string {
 	tail := source[startOffset:]
-	// Find AS keyword that precedes the view body.
 	loc := bodyAsRE.FindStringIndex(tail)
 	if loc == nil {
 		return ""
 	}
 	body := tail[loc[1]:]
-	// Trim to end-of-statement: next semicolon OR next top-level CREATE.
 	return trimToStatementEnd(body)
 }
 
-// extractStmtText returns the remaining text of the current statement starting
-// at startOffset (typically m[1] — just past the object name match).
-// Extends to the next statement boundary: semicolon or top-level CREATE.
+// extractStmtText returns the rest of the statement at startOffset, ending at a
+// semicolon or the next top-level CREATE.
 func extractStmtText(source string, startOffset int) string {
 	if startOffset >= len(source) {
 		return ""
@@ -2669,12 +2348,10 @@ func extractStmtText(source string, startOffset int) string {
 	return trimToStatementEnd(source[startOffset:])
 }
 
-// nextStmtRE matches a semicolon or a top-level CREATE statement start.
+// A statement boundary: semicolon or a top-level CREATE.
 var nextStmtRE = regexp.MustCompile(`(?im)(?:;|^[ \t]*CREATE\b)`)
 
-// trimToStatementEnd trims text to end at the first statement boundary
-// (semicolon or next top-level CREATE keyword at line start).
-// If no boundary is found, returns the full text.
+// trimToStatementEnd cuts text at the first statement boundary, if there is one.
 func trimToStatementEnd(text string) string {
 	loc := nextStmtRE.FindStringIndex(text)
 	if loc == nil {
@@ -2683,47 +2360,32 @@ func trimToStatementEnd(text string) string {
 	return text[:loc[0]]
 }
 
-// ---------------------------------------------------------------------------
-// CP5: Routine body extraction helpers
-// ---------------------------------------------------------------------------
+// --- Routine body extraction helpers ---
 
-// routineDollarRE matches the opening dollar-quote tag ($$  or  $tag$) in a
-// PG function/procedure body. Group 1 = the full tag including dollar signs.
+// The opening dollar-quote tag ($$ or $tag$) of a PG routine body.
 var routineDollarRE = regexp.MustCompile(`(\$[A-Za-z0-9_]*\$)`)
 
-// routineBeginRE matches the BEGIN keyword that starts a T-SQL or PG block.
+// The BEGIN that starts a T-SQL or PG block.
 var routineBeginRE = regexp.MustCompile(`(?i)\bBEGIN\b`)
 
-// routineTokenRE matches BEGIN or END keywords for depth-tracking inside blocks.
+// BEGIN/END pairs, for depth tracking inside a block.
 var routineTokenRE = regexp.MustCompile(`(?i)\bBEGIN\b|\bEND\b`)
 
-// bodyAsRE matches the AS keyword used in view and routine body-extraction paths.
+// The AS keyword, shared by the view and routine body-extraction paths.
 var bodyAsRE = regexp.MustCompile(`(?i)\bAS\b`)
 
-// extractRoutineBody returns the body text of a function or procedure and the
-// byte offset of the body's start within source.
-// startOffset is the byte offset just past the end of the CREATE FUNCTION/PROCEDURE
-// name match (m[1]).
-//
-// Returning the offset directly avoids the fragile strings.Index re-search that
-// callers would otherwise need to compute the body's position in source.
-//
-// Strategy:
-//  1. Dollar-quoted body (PG): $tag$...$tag$ — extract the content between
-//     the outermost dollar-quote delimiters.
-//  2. BEGIN...END block (T-SQL / PG without dollar quotes): find BEGIN, track
-//     depth until matching END, return that range.
-//  3. Fallback: single AS clause up to statement end (simple inline body).
+// extractRoutineBody returns a routine's body and its byte offset in source;
+// returning the offset spares callers a fragile strings.Index re-search. Three
+// shapes are tried in order: a PG dollar-quoted $tag$…$tag$ body, a depth-tracked
+// BEGIN…END block, then a bare AS clause up to the statement end.
 func extractRoutineBody(source string, startOffset int) (string, int) {
 	if startOffset >= len(source) {
 		return "", 0
 	}
 	tail := source[startOffset:]
 
-	// Try dollar-quoted body first: $$...$$  or  $tag$...$tag$
 	if dm := routineDollarRE.FindStringIndex(tail); dm != nil {
 		tag := tail[dm[0]:dm[1]]
-		// Find the closing tag.
 		closeIdx := strings.Index(tail[dm[1]:], tag)
 		if closeIdx >= 0 {
 			bodyOff := startOffset + dm[1]
@@ -2731,7 +2393,6 @@ func extractRoutineBody(source string, startOffset int) (string, int) {
 		}
 	}
 
-	// Try BEGIN...END depth tracking.
 	if loc := routineBeginRE.FindStringIndex(tail); loc != nil {
 		body := tail[loc[0]:]
 		bodyOff := startOffset + loc[0]
@@ -2750,7 +2411,6 @@ func extractRoutineBody(source string, startOffset int) (string, int) {
 		return body, bodyOff // unclosed — return what we have
 	}
 
-	// Fallback: after AS keyword, to statement end.
 	if loc := bodyAsRE.FindStringIndex(tail); loc != nil {
 		bodyOff := startOffset + loc[1]
 		return trimToStatementEnd(tail[loc[1]:]), bodyOff
@@ -2758,10 +2418,8 @@ func extractRoutineBody(source string, startOffset int) (string, int) {
 	return "", 0
 }
 
-// extractCTENames returns the set of CTE names bound by WITH <name> AS (...)
-// in a body text. Names are lower-cased for case-insensitive comparison.
-// WHY: CTE names are statement-local — a FROM/INSERT ref to a CTE name must
-// not produce an edge to a non-existent table.
+// extractCTENames collects lower-cased WITH <name> bindings. CTE names are
+// statement-local, so a ref to one must not become an edge to a missing table.
 func extractCTENames(body string) map[string]bool {
 	ctes := map[string]bool{}
 	for _, m := range cteNameRE.FindAllStringSubmatch(body, -1) {
@@ -2772,25 +2430,12 @@ func extractCTENames(body string) map[string]bool {
 	return ctes
 }
 
-// scanBodyEdges scans a stripped routine/view body for FROM/JOIN (references),
-// INSERT INTO / UPDATE / DELETE FROM / MERGE INTO (writes), and EXEC/CALL
-// (calls) targets. Emits UnresolvedReferences for each non-keyword, non-CTE
-// target. fromNodeID is the routine/view node that owns the body.
-// bodyBaseOffset is the byte offset in the original stripped source where
-// body begins (used for accurate line-number calculation).
+// scanBodyEdges emits references, writes and calls edges from a stripped routine
+// or view body, skipping keywords and CTE names. bodyBaseOffset locates body
+// within strippedFull so line numbers stay accurate.
 //
-// CP1 — T-SQL temp tables and table variables:
-//   - routineName is the bare routine name (e.g. "usp_Foo") used to synthesise
-//     per-routine node names for local #tmp / @tvar tokens. Pass "" for contexts
-//     that do not have T-SQL temp declarations (dbt models, view bodies, tasks).
-//   - globalTempNodes is a shared map[token→*Node] across all routines in a file.
-//     Local (#single-hash) temps use a routine-scoped synthetic name; global
-//     (##double-hash) temps use a file-scoped entry in this map so that two procs
-//     referencing ##g in one file resolve to the same node. Pass nil for callers
-//     that never encounter global temps (safe: nil map reads return zero-value).
-//
-// Returns (tempNodes, refs): tempNodes are new table nodes for declared
-// temps/table-vars; refs are the unresolved edge references.
+// routineName scopes T-SQL #tmp / @tvar names and is "" where no temp can be
+// declared; globalTempNodes is the file-wide ##temp map, nil when unused.
 func scanBodyEdges(
 	filePath string,
 	fromNodeID string,
@@ -2825,25 +2470,15 @@ func scanBodyEdges(
 		refs = append(refs, sqlRef(filePath, fromNodeID, name, kind, line))
 	}
 
-	// resolveTempFn is set by the CP1 block below and reused by CP2 (OUTPUT INTO).
-	// It maps a raw temp token (#x / ##x / @x) to its synthetic name, or returns
-	// ("", false) if the token is undeclared in this routine.  Default no-op so
-	// CP2 silently skips temps when there is no routine context (routineName == "").
+	// Maps a temp token to its synthetic name, or false when undeclared here. Set
+	// by the pre-scan below; the no-op default makes OUTPUT INTO skip temps.
 	resolveTempFn := func(_ string) (string, bool) { return "", false }
 
-	// -- CP1: T-SQL temp table and table-variable declaration pre-scan ----------
+	// -- T-SQL temp / table-variable declaration pre-scan --
 	//
-	// Only emit edges for tokens that are DECLARED in this routine body.
-	// localDecls maps (lower-case token) → synthetic-name; globalDecls maps
-	// token → true.  An undeclared @scalar or stray #tmp from another proc is
-	// silently skipped.
-	//
-	// Scoping rules (from spec):
-	//   #x / @x  → routine-local: synthetic name = routineName + token (no dots)
-	//   ##x       → file-local (global temp): bare token, deduped in globalTempNodes
-	//
-	// Declaration triggers: CREATE TABLE #x, SELECT…INTO #x, DECLARE @x TABLE(…).
-	// SELECT…INTO both declares AND is a write to #x.
+	// Only declared tokens emit edges, so a stray #tmp from another proc is
+	// skipped. #x and @x are routine-local, named routineName+token; ##x is
+	// file-local and deduped through globalTempNodes.
 	type tempDecl struct {
 		token     string // as written, e.g. "#staging", "##g", "@results"
 		synthetic string // resolved Name for UnresolvedReference
@@ -2870,7 +2505,7 @@ func scanBodyEdges(
 			}
 		}
 
-		// 2. SELECT … INTO #x / ##x  (declares AND writes)
+		// 2. SELECT … INTO #x / ##x — declares and writes in one statement.
 		for _, m := range bodyTempSelectIntoRE.FindAllStringSubmatchIndex(body, -1) {
 			tok := body[m[2]:m[3]]
 			lower := strings.ToLower(tok)
@@ -2887,7 +2522,7 @@ func scanBodyEdges(
 			}
 		}
 
-		// 3. DECLARE @x TABLE(…)  — table variable (scalars do NOT match this regex)
+		// 3. DECLARE @x TABLE(…) — a scalar DECLARE cannot match.
 		for _, m := range bodyDeclareTableVarRE.FindAllStringSubmatchIndex(body, -1) {
 			tok := body[m[2]:m[3]] // @x
 			lower := strings.ToLower(tok)
@@ -2898,31 +2533,24 @@ func scanBodyEdges(
 			}
 		}
 
-		// Build local declaration map (lower → tempDecl) for O(1) lookup.
 		localMap := make(map[string]tempDecl, len(localDecls))
 		for _, d := range localDecls {
 			localMap[strings.ToLower(d.token)] = d
-			// Create the node now and collect for return.
 			node := makeTempNode(filePath, d.token, d.synthetic, "local", 0, strippedFull)
 			tempNodes = append(tempNodes, node)
 		}
 
-		// -- CP1 temp-token scans (write + reference edges) ----------------------
+		// -- temp-token scans --
 
-		// Helper: resolve a raw temp token to its synthetic or bare name.
-		// Returns ("", false) if the token is not declared in this routine.
-		// Assigned to resolveTempFn so CP2 (OUTPUT INTO) can reuse it after
-		// the CP1 block closes.
+		// Assigned to resolveTempFn so the OUTPUT INTO scan can reuse it below.
 		resolveTemp := func(tok string) (string, bool) {
 			lower := strings.ToLower(tok)
 			if strings.HasPrefix(tok, "##") {
-				// Global temp — file-level; valid if globalTempNodes has it.
 				if globalTempNodes != nil && globalTempNodes[lower] != nil {
 					return tok, true
 				}
 				return "", false
 			}
-			// Local: only declared locals emit edges.
 			if d, ok := localMap[lower]; ok {
 				return d.synthetic, true
 			}
@@ -2930,7 +2558,7 @@ func scanBodyEdges(
 		}
 		resolveTempFn = resolveTemp
 
-		// INSERT INTO <temp> → writes (also covers SELECT INTO declaration-write below)
+		// INSERT INTO <temp> → writes.
 		for _, m := range bodyTempInsertRE.FindAllStringSubmatchIndex(body, -1) {
 			tok := body[m[2]:m[3]]
 			if syn, ok := resolveTemp(tok); ok {
@@ -2938,7 +2566,7 @@ func scanBodyEdges(
 			}
 		}
 
-		// SELECT … INTO <temp> → writes (declaration + write in one shot)
+		// SELECT … INTO <temp> → writes.
 		for _, m := range bodyTempSelectIntoRE.FindAllStringSubmatchIndex(body, -1) {
 			tok := body[m[2]:m[3]]
 			if syn, ok := resolveTemp(tok); ok {
@@ -2978,11 +2606,7 @@ func scanBodyEdges(
 			}
 		}
 
-		// Collect global temp nodes that were first seen in this call.
-		// (Nodes that already existed in globalTempNodes before this call
-		// are not re-added; callers collect the full map after all scans.)
 	}
-	// -- end CP1 -----------------------------------------------------------------
 
 	// FROM / JOIN → references
 	for _, m := range viewBodyFROMRE.FindAllStringSubmatchIndex(body, -1) {
@@ -3038,15 +2662,9 @@ func scanBodyEdges(
 		}
 	}
 
-	// F3: FLATTEN([INPUT =>] <expr>) argument reference.
-	// Emit a references edge only when <expr> is a single unqualified identifier
-	// (no dot). Dotted expressions (alias.column / schema.table) are indistinguishable
-	// from column references and are skipped to avoid noisy false edges.
-	// Never reference FLATTEN/LATERAL/TABLE/INPUT — these are filtered by isSQLRefKeyword
-	// or the unqualified-only guard above.
+	// FLATTEN(<expr>): a dotted expr is a column reference, not a relation.
 	for _, m := range bodyFlattenRE.FindAllStringSubmatchIndex(body, -1) {
 		rawExpr := body[m[2]:m[3]]
-		// Skip dotted forms — treat as column expression, not a relation.
 		if strings.ContainsRune(rawExpr, '.') {
 			continue
 		}
@@ -3056,10 +2674,7 @@ func scanBodyEdges(
 		}
 	}
 
-	// A2: COPY INTO <target> FROM <source> — body-owned edge.
-	// Direction: if target starts with '@', the stage is the write target.
-	// Otherwise the table/view is the write target and the stage (source) is referenced.
-	// Stage tokens: strip leading '@' and any '/path' suffix (keep bare name).
+	// COPY INTO <target> FROM <source>: a leading '@' makes the stage the target.
 	for _, m := range bodyCopyIntoRE.FindAllStringSubmatchIndex(body, -1) {
 		rawTarget := body[m[2]:m[3]]
 		rawSource := body[m[4]:m[5]]
@@ -3096,23 +2711,13 @@ func scanBodyEdges(
 		}
 	}
 
-	// CP2: OUTPUT … INTO <target> → writes
-	//
-	// T-SQL's OUTPUT clause can route the change-capture rows into a secondary
-	// table or table variable: INSERT/UPDATE/DELETE/MERGE … OUTPUT list INTO <target>.
-	// The gap between OUTPUT and INTO is validated by outputIntoBoundaryRE (SC6 guard)
-	// to reject cross-statement matches where the lazy [^;]*? skipped a DML keyword.
-	//
-	// Target routing:
-	//   - temp token (#x / ##x / @x): resolved through resolveTempFn (CP1 reuse).
-	//     Undeclared tokens produce no edge (silently dropped).
-	//   - real table: parsed via parseQName, same as bodyInsertIntoRE.
+	// OUTPUT … INTO <target> → writes. outputIntoBoundaryRE rejects a gap holding a
+	// DML keyword, where the lazy match has run across two statements. A temp target
+	// resolves through resolveTempFn and is dropped when undeclared.
 	for _, m := range bodyOutputIntoRE.FindAllStringSubmatchIndex(body, -1) {
 		gap := body[m[2]:m[3]]       // group 1: gap text between OUTPUT and INTO
 		rawTarget := body[m[4]:m[5]] // group 2: target name (temp or real table)
 
-		// SC6 code guard: gap must not contain a DML-boundary keyword.
-		// Such a keyword means this is two adjacent statements, not one clause.
 		if outputIntoBoundaryRE.MatchString(gap) {
 			continue
 		}
@@ -3130,10 +2735,7 @@ func scanBodyEdges(
 		}
 	}
 
-	// CP4: emit qualified column references "alias.col" from the routine body.
-	// Build alias→table map from FROM/JOIN clauses (honoring CTE shadow), then
-	// scan for single-dot prefix.col patterns. Table-level FROM/JOIN edges already
-	// emitted above coexist with these column-level edges.
+	// Qualified "alias.col" refs; these coexist with the table-level edges above.
 	bodyAliasMap := buildAliasMap(body, cteShadow)
 	emitQualifiedColumnRefs(body, bodyAliasMap, cteShadow, func(refName string, matchOff int) {
 		addRef(refName, types.EdgeKindReferences, matchOff)
@@ -3142,10 +2744,8 @@ func scanBodyEdges(
 	return tempNodes, refs
 }
 
-// makeTempNode constructs a synthetic table node for a T-SQL temp table or
-// table variable.  syntheticName is the node's Name field (used for resolution);
-// token is the written form stored in Metadata for display.
-// tempScope is "local" (proc-scoped #x / @x) or "global" (##x).
+// makeTempNode builds a synthetic table node for a T-SQL temp or table variable.
+// syntheticName drives resolution; token keeps the written form for display.
 func makeTempNode(filePath, token, syntheticName, tempScope string, byteOff int, strippedFull string) types.Node {
 	line := 1
 	if byteOff > 0 && byteOff <= len(strippedFull) {
@@ -3167,18 +2767,13 @@ func makeTempNode(filePath, token, syntheticName, tempScope string, byteOff int,
 	}
 }
 
-// parseStageToken extracts the bare stage name from a Snowflake named-stage token.
-// Returns empty string for internal-stage sigils (@~ user stage, @%tbl table stage)
-// — only NAMED external/internal named stages emit a reference edge.
-// Strips the leading '@' and any '/path' suffix (e.g. '@load_stage/path' → 'load_stage').
+// parseStageToken strips '@' and any '/path' from a Snowflake stage token. The
+// @~ user stage and @%tbl table stage name no object, so they return "".
 func parseStageToken(raw string) string {
 	s := strings.TrimPrefix(raw, "@")
-	// @~ is the user (home) stage — no named target, skip.
-	// @%tbl is a table stage — not a named object, skip.
 	if strings.HasPrefix(s, "~") || strings.HasPrefix(s, "%") {
 		return ""
 	}
-	// Strip path suffix (anything after the first '/')
 	if idx := strings.IndexByte(s, '/'); idx >= 0 {
 		s = s[:idx]
 	}

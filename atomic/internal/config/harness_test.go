@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// TestResolveHarnessDirFromHome_Default: no config.toml present in home →
-// falls back to the built-in default. Hermetic — never touches os.UserHomeDir.
+// No config.toml in home falls back to the built-in default. Hermetic — never
+// touches os.UserHomeDir.
 func TestResolveHarnessDirFromHome_Default(t *testing.T) {
 	home := t.TempDir()
 	got := resolveHarnessDirFromHome(home)
@@ -17,9 +17,8 @@ func TestResolveHarnessDirFromHome_Default(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDirFromHome_RealConfigFile: a real config.toml with
-// harness.dir = ".pi" written to a temp home resolves to ".pi" — exercises
-// the actual Load path, not just the seam.
+// A real config.toml in a temp home resolves through the actual Load path, not
+// just the seam.
 func TestResolveHarnessDirFromHome_RealConfigFile(t *testing.T) {
 	home := t.TempDir()
 	cfg := Default()
@@ -36,9 +35,8 @@ func TestResolveHarnessDirFromHome_RealConfigFile(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDirFromHome_MalformedConfig: unparseable config.toml
-// falls back to the default rather than propagating an error — the resolver
-// is lenient on any load error.
+// Unparseable config.toml falls back to the default rather than propagating an
+// error — the resolver is lenient on any load error.
 func TestResolveHarnessDirFromHome_MalformedConfig(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
@@ -54,12 +52,9 @@ func TestResolveHarnessDirFromHome_MalformedConfig(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDirFromHome_InvalidStoredValueFallsBack: a config.toml
-// carrying a harness.dir value that would fail validateHarnessDir (written
-// directly to disk, bypassing Set's validation) must fall back to the
-// built-in default rather than passing an unvalidated value through to
-// filepath.Join in the repo-local helpers — a path-escape risk for values
-// like "..".
+// A harness.dir written straight to disk, bypassing Set's validation, must fall
+// back to the default rather than reach filepath.Join unvalidated in the
+// repo-local helpers — a path-escape risk for values like "..".
 func TestResolveHarnessDirFromHome_InvalidStoredValueFallsBack(t *testing.T) {
 	cases := []string{"..", ".", "foo/bar"}
 	for _, invalid := range cases {
@@ -92,8 +87,7 @@ func TestResolveHarnessDir_AtomicHarnessEnv(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDir_AtomicHarnessEnv_LeadingDotTolerated: a leading dot
-// in the env value is normalized rather than double-dotted.
+// A leading dot in the env value is normalized rather than double-dotted.
 func TestResolveHarnessDir_AtomicHarnessEnv_LeadingDotTolerated(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ATOMIC_HARNESS", ".pi")
@@ -103,14 +97,10 @@ func TestResolveHarnessDir_AtomicHarnessEnv_LeadingDotTolerated(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDir_AtomicHarnessEnv_InvalidFallsThrough: an invalid
-// ATOMIC_HARNESS value falls through to the next rung rather than erroring.
-// Both fingerprint envs are cleared so the fallthrough can't be masked by
-// ambient PI_CODING_AGENT/CLAUDECODE (this suite may itself run under a
-// harness), and the landing rung is made observable by writing a config with
-// harness.dir = ".pi" — a value no fingerprint rung can produce — so the
-// assertion actually proves fallthrough past ATOMIC_HARNESS to config,
-// not a coincidental match with a fingerprint-derived default.
+// An invalid ATOMIC_HARNESS falls through to the next rung rather than erroring.
+// Both fingerprint envs are cleared so ambient ones cannot mask the fallthrough
+// (this suite may itself run under a harness), and the landing rung is made
+// observable with a config value no fingerprint rung can produce.
 func TestResolveHarnessDir_AtomicHarnessEnv_InvalidFallsThrough(t *testing.T) {
 	cases := []string{"foo/bar", "..", "."}
 	for _, invalid := range cases {
@@ -134,7 +124,6 @@ func TestResolveHarnessDir_AtomicHarnessEnv_InvalidFallsThrough(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDir_PiFingerprint: PI_CODING_AGENT=true resolves to .pi.
 func TestResolveHarnessDir_PiFingerprint(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PI_CODING_AGENT", "true")
@@ -144,7 +133,6 @@ func TestResolveHarnessDir_PiFingerprint(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDir_ClaudeFingerprint: CLAUDECODE=1 resolves to .claude.
 func TestResolveHarnessDir_ClaudeFingerprint(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CLAUDECODE", "1")
@@ -154,8 +142,6 @@ func TestResolveHarnessDir_ClaudeFingerprint(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDir_AtomicHarnessBeatsFingerprints: explicit
-// ATOMIC_HARNESS wins over both fingerprint envs.
 func TestResolveHarnessDir_AtomicHarnessBeatsFingerprints(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ATOMIC_HARNESS", "custom")
@@ -167,8 +153,8 @@ func TestResolveHarnessDir_AtomicHarnessBeatsFingerprints(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDir_PiBeatsClaudecodeWhenBothSet: nested-harness case —
-// pi launched from within Claude Code exposes both fingerprints; PI wins.
+// The nested-harness case: pi launched from within Claude Code exposes both
+// fingerprints, and PI wins.
 func TestResolveHarnessDir_PiBeatsClaudecodeWhenBothSet(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PI_CODING_AGENT", "true")
@@ -179,8 +165,6 @@ func TestResolveHarnessDir_PiBeatsClaudecodeWhenBothSet(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDir_FingerprintBeatsConfig: a fingerprint env wins over
-// a config file that says otherwise.
 func TestResolveHarnessDir_FingerprintBeatsConfig(t *testing.T) {
 	home := t.TempDir()
 	cfg := Default()
@@ -197,11 +181,9 @@ func TestResolveHarnessDir_FingerprintBeatsConfig(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDir_ConfigWinsOverDefaultWhenNoEnv: with no env present,
-// config still wins over the built-in default (existing behavior preserved).
 func TestResolveHarnessDir_ConfigWinsOverDefaultWhenNoEnv(t *testing.T) {
-	// Clear ambient env — this suite may itself run under a harness
-	// (e.g. CLAUDECODE=1) whose fingerprint would otherwise leak in.
+	// Clear ambient env: this suite may itself run under a harness whose
+	// fingerprint would otherwise leak in.
 	t.Setenv("ATOMIC_HARNESS", "")
 	t.Setenv("PI_CODING_AGENT", "")
 	t.Setenv("CLAUDECODE", "")
@@ -219,8 +201,8 @@ func TestResolveHarnessDir_ConfigWinsOverDefaultWhenNoEnv(t *testing.T) {
 	}
 }
 
-// TestSetHarnessDirForTest_Override: the seam makes harnessDir() return the
-// overridden value without touching the real home or the process cache.
+// The seam makes harnessDir() return the override without touching the real
+// home or the process cache.
 func TestSetHarnessDirForTest_Override(t *testing.T) {
 	restore := SetHarnessDirForTest(".pi")
 	defer restore()
@@ -230,8 +212,7 @@ func TestSetHarnessDirForTest_Override(t *testing.T) {
 	}
 }
 
-// TestSetHarnessDirForTest_Restore: the restore func returned by a nested
-// SetHarnessDirForTest call puts back the previous override.
+// A nested call's restore func puts back the previous override.
 func TestSetHarnessDirForTest_Restore(t *testing.T) {
 	restoreOuter := SetHarnessDirForTest(".pi")
 	defer restoreOuter()
@@ -247,8 +228,7 @@ func TestSetHarnessDirForTest_Restore(t *testing.T) {
 	}
 }
 
-// TestRepoLocalHelpers_UnderNonDefaultHarnessDir: every repo-local path
-// helper joins root + the overridden harness.dir + its fixed suffix.
+// Every repo-local helper joins root + the overridden harness.dir + its suffix.
 func TestRepoLocalHelpers_UnderNonDefaultHarnessDir(t *testing.T) {
 	restore := SetHarnessDirForTest(".pi")
 	defer restore()
@@ -277,9 +257,8 @@ func TestRepoLocalHelpers_UnderNonDefaultHarnessDir(t *testing.T) {
 	}
 }
 
-// TestRepoLocalHelpers_DefaultHarnessDir: with the seam explicitly set to the
-// built-in default, every helper resolves exactly under ".claude" — matches
-// today's layout byte-for-byte.
+// With the seam pinned to the built-in default, every helper resolves under
+// ".claude" — today's layout, byte for byte.
 func TestRepoLocalHelpers_DefaultHarnessDir(t *testing.T) {
 	restore := SetHarnessDirForTest(harnessDirDefault)
 	defer restore()

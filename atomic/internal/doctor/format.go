@@ -9,24 +9,12 @@ import (
 // indentPrefix is prepended to secondary lines (remediation, findings, fix summary).
 const indentPrefix = "   "
 
-// nameWidth is the fixed column width for the check name field.
-// Spec example longest name is "followups" (9 chars); 25 gives comfortable padding.
+// nameWidth is the check-name column width; the longest name is 9 chars.
 const nameWidth = 25
 
-// FormatHuman returns the human-readable output string per the spec:
-//
-//	atomic doctor — integrity check  (project: <name>)
-//
-//	[1] PASS  install                  <detail>
-//	...
-//
-//	N PASS, N WARN, N FAIL, N SKIP. exit N.
-//
-//	To repair: atomic doctor --fix   (only when WARN or FAIL present)
-//
-// Rich fields on Result are rendered after each result line:
-//   - Remediation is printed on Warn/Fail regardless of opts.Verbose.
-//   - Findings are printed only when opts.Verbose is true.
+// FormatHuman renders the result table plus a summary line, adding a repair
+// hint when any WARN or FAIL is present. Remediation prints on every non-PASS
+// result; Findings print only under opts.Verbose.
 func FormatHuman(results []Result, opts Opts, project string) string {
 	var b strings.Builder
 
@@ -35,11 +23,9 @@ func FormatHuman(results []Result, opts Opts, project string) string {
 
 	for _, r := range results {
 		b.WriteString(FormatResultLine(r))
-		// Remediation: always shown on non-PASS when set.
 		if r.Severity != PASS && r.Severity != SKIP && r.Remediation != "" {
 			fmt.Fprintf(&b, "%s↳ fix: %s\n", indentPrefix, r.Remediation)
 		}
-		// Findings: verbose-gated.
 		if opts.Verbose {
 			for _, f := range r.Findings {
 				fmt.Fprintf(&b, "%s• %s\n", indentPrefix, f)
@@ -61,10 +47,8 @@ func FormatHuman(results []Result, opts Opts, project string) string {
 	return b.String()
 }
 
-// FormatResultLine returns one formatted result line (with trailing newline)
-// using the canonical column layout: [index] severity  name  detail.
-// Used by both FormatHuman and the post-update doctor adapter (updatedoctor)
-// so the format stays in one place.
+// FormatResultLine returns one result line, newline included. Shared with the
+// post-update doctor adapter so the column layout lives in one place.
 func FormatResultLine(r Result) string {
 	return fmt.Sprintf("[%d] %-4s  %-*s  %s\n",
 		r.Index,
@@ -75,14 +59,7 @@ func FormatResultLine(r Result) string {
 	)
 }
 
-// FormatJSON returns the machine-readable JSON output bytes per the spec schema:
-//
-//	{
-//	  "schema_version": 1,
-//	  "project": "...",
-//	  "results": [...],
-//	  "summary": {"pass": N, "warn": N, "fail": N, "skip": N, "exit": N}
-//	}
+// FormatJSON returns the machine-readable output for a completed doctor run.
 func FormatJSON(results []Result, project string, exitCode int) ([]byte, error) {
 	type resultJSON struct {
 		Index    int    `json:"index"`
@@ -132,10 +109,8 @@ func FormatJSON(results []Result, project string, exitCode int) ([]byte, error) 
 	return json.MarshalIndent(out, "", "  ")
 }
 
-// FormatJSONMissingHome returns the short-circuit JSON payload for the case
-// where ~/.claude/ does not exist.
-//
-//	{"schema_version": 1, "installed": false, "message": "...", "summary": {"exit": 0}}
+// FormatJSONMissingHome returns the short-circuit payload for a machine with
+// no ~/.claude/ — not installed, exit 0.
 func FormatJSONMissingHome(message string) ([]byte, error) {
 	type summaryJSON struct {
 		Exit int `json:"exit"`
@@ -155,8 +130,7 @@ func FormatJSONMissingHome(message string) ([]byte, error) {
 	return json.MarshalIndent(out, "", "  ")
 }
 
-// countSeverities tallies PASS/WARN/FAIL/SKIP counts.
-// SKIP is counted in its own bucket; excluded from PASS/WARN/FAIL totals.
+// countSeverities tallies each severity into its own bucket.
 func countSeverities(results []Result) (pass, warn, fail, skip int) {
 	for _, r := range results {
 		switch r.Severity {

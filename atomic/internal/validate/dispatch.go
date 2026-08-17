@@ -8,23 +8,15 @@ import (
 	"strings"
 )
 
-// isPathArg reports whether arg looks like a file path rather than a bare
-// subcommand verb. A path arg contains a path separator or has a file
-// extension (contains a dot after the last slash). Pure verbs ("spec",
-// "config", "bundle") contain neither.
+// isPathArg reports whether arg looks like a path rather than a bare verb: it
+// carries a separator or an extension, which no verb does.
 func isPathArg(arg string) bool {
 	return strings.ContainsAny(arg, "/\\") || strings.Contains(filepath.Base(arg), ".")
 }
 
-// runPathDispatch handles `atomic validate <path> [<path>...]` — paths but no
-// subcommand. Finds repo root, then delegates to dispatchPaths for per-path
-// routing and output.
-//
-// Header: emits "atomic validate spec — path-aware routing" so the spec
-// subcommand label appears in output, matching the spec contract that "header
-// line per subcommand still appears so user can tell which validator emitted
-// which findings." Using "spec" because all routable paths dispatch to the
-// spec validator in v1.
+// runPathDispatch handles `atomic validate <path>...` with no subcommand. The
+// header still names a subcommand so the user can tell which validator spoke;
+// it says "spec" because every routable path dispatches there.
 func runPathDispatch(paths []string, jsonOut, suggest bool, w io.Writer) int {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -46,35 +38,21 @@ func runPathDispatch(paths []string, jsonOut, suggest bool, w io.Writer) int {
 	if jsonOut {
 		printJSON(w, findings, s)
 	} else {
-		// Use "spec" label so the subcommand is identifiable in output.
 		printHeader(w, "spec", "path-aware routing")
 		printHuman(w, findings, s, suggest)
 	}
 	return exitCode(s)
 }
 
-// dispatchPaths implements path-aware routing for `atomic validate <paths...>`.
-//
-// Routing table (CP-8):
-//   - docs/spec/*.md  → spec validator (RunSpecRules on each file)
-//   - all other paths → WARN finding: "no validator applicable; supported: docs/spec/*.md"
-//
-// Config and bundle validators are whole-repo (not per-file), so they are not
-// routable from individual paths in v1. They remain accessible via
-// `atomic validate config` / `atomic validate bundle` explicitly.
-//
-// Returns the combined findings and a max exit code (0 or 1). Returns 2 on
-// internal error (file unreadable, parse crash).
+// dispatchPaths routes docs/spec/*.md to the spec validator and WARNs on
+// anything else. The config and bundle validators are whole-repo, never
+// per-file, so a path cannot reach them — only their explicit subcommands can.
 func dispatchPaths(paths []string, repoRoot string, w io.Writer) ([]Finding, int) {
 	var all []Finding
 
 	for _, p := range paths {
-		// Normalize: strip repoRoot prefix for display; use clean slashes for
-		// matching so the routing table works on both Unix and Windows.
-		//
-		// For absolute paths, call Rel directly — Join(repoRoot, absPath) on
-		// Unix produces a double-rooted path (repoRoot + absPath concatenated),
-		// so Rel's result would be wrong.
+		// Absolute paths go straight to Rel: Join(repoRoot, absPath) would
+		// concatenate into a double-rooted path and skew the result.
 		rel := p
 		if filepath.IsAbs(p) {
 			if r, err := filepath.Rel(repoRoot, p); err == nil {
@@ -86,7 +64,6 @@ func dispatchPaths(paths []string, repoRoot string, w io.Writer) ([]Finding, int
 		cleanRel := filepath.ToSlash(rel)
 
 		if isSpecPath(cleanRel) {
-			// Route to spec validator.
 			abs := p
 			if !filepath.IsAbs(p) {
 				abs = filepath.Join(repoRoot, p)
@@ -103,7 +80,6 @@ func dispatchPaths(paths []string, repoRoot string, w io.Writer) ([]Finding, int
 			}
 			all = append(all, findings...)
 		} else {
-			// Unknown path: emit WARN.
 			all = append(all, Finding{
 				Severity: "WARN",
 				Rule:     "dispatch",
@@ -118,22 +94,14 @@ func dispatchPaths(paths []string, repoRoot string, w io.Writer) ([]Finding, int
 	return all, 0
 }
 
-// isSpecPath reports whether the slash-normalized relative path falls under
-// docs/spec/ and ends with .md.
+// isSpecPath reports whether rel is a docs/spec/*.md path.
 func isSpecPath(slashRel string) bool {
 	return strings.HasPrefix(slashRel, "docs/spec/") && strings.HasSuffix(slashRel, ".md")
 }
 
-// runWholeRepo runs spec + config + bundle in sequence, emitting one header
-// per subcommand. Findings from all three validators are aggregated for the
-// summary, but each validator's header+findings block is printed separately
-// so the user can see which validator produced which findings.
-//
-// JSON mode suppresses headers and emits a single envelope over all findings.
-//
-// Sequential ordering is intentional for v1: spec first (fastest, most likely
-// to fail on modified files), then config, then bundle. Parallelization is a
-// v1.1 consideration.
+// runWholeRepo runs every validator in sequence, printing a header+findings
+// block each so the user can attribute findings, then one aggregate summary.
+// Spec runs first: it is the fastest and the likeliest to fail.
 func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -146,7 +114,6 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 		return 2
 	}
 
-	// --- Spec ---
 	specPaths, err := filepath.Glob(filepath.Join(root, "docs", "spec", "*.md"))
 	if err != nil {
 		fmt.Fprintf(w, "atomic validate: spec glob error: %v\n", err)
@@ -170,7 +137,6 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	sortFindings(specFindings)
 	specSummary := summarize(specFindings)
 
-	// --- Config ---
 	configFindings, err := RunConfigRules(root)
 	if err != nil {
 		fmt.Fprintf(w, "atomic validate: config error: %v\n", err)
@@ -178,11 +144,8 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	}
 	configSummary := summarize(configFindings)
 
-	// --- Bundle (repo-dev only) ---
-	// Bundle parity compares the working tree against the embedded source
-	// snapshot, which only exists in the atomic-claude repo. Outside it, skip
-	// silently — a user's own project has no bundle to validate, and surfacing
-	// it would crash (issue #35) or confuse.
+	// Skipped silently outside the atomic-claude repo: a user's own project has
+	// no embedded source snapshot to compare against.
 	var bundleFindings []Finding
 	var bundleSummary summary
 	includeBundle := repoDev(root)
@@ -195,14 +158,12 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 		}
 	}
 
-	// --- Artifacts ---
 	artifactsFindings, artifactsSummary, artifactsErr := runArtifactsCollect(root)
 	if artifactsErr != 0 {
 		fmt.Fprintf(w, "atomic validate: artifacts check failed: internal error (exit %d)\n", artifactsErr)
 		return 2
 	}
 
-	// --- Aggregate ---
 	var allFindings []Finding
 	allFindings = append(allFindings, specFindings...)
 	allFindings = append(allFindings, configFindings...)
@@ -216,12 +177,10 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	}
 
 	if jsonOut {
-		// Single JSON envelope over all findings, no headers.
 		printJSON(w, allFindings, aggSummary)
 		return exitCode(aggSummary)
 	}
 
-	// Human mode: one header+block per subcommand, then aggregate summary.
 	printHeader(w, "spec", "structural integrity")
 	printHuman(w, specFindings, specSummary, suggest)
 

@@ -18,14 +18,10 @@ import (
 	charmterm "github.com/charmbracelet/x/term"
 )
 
-// BusAction is the exported entry point for `atomic bus`, mirroring
-// internal/wiki's WikiAction (internal/wiki/action.go:17): home is injected
-// rather than resolved via os.UserHomeDir() internally, so
-// cmd/atomic/main.go's runBus owns the one os.UserHomeDir() call and every
-// path in this package stays testable against a temp dir. cwd flows to
-// join and chat, the two verbs that resolve a client's filesystem position
-// (position.go's resolvePosition) — docs/spec/atomic-bus.md's 2026-07-29
-// "position-derived member naming" entry.
+// BusAction is the exported entry point for `atomic bus`. home and cwd are
+// injected rather than resolved here, so cmd/atomic/main.go's runBus owns the
+// one os.UserHomeDir call and every path in this package stays testable
+// against a temp dir.
 func BusAction(args []string, home, cwd string, out io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|read|halt|resume|prune|close|chat> [flags]")
@@ -78,27 +74,18 @@ func BusAction(args []string, home, cwd string, out io.Writer) int {
 	}
 }
 
-// parseFlags parses args against fs and returns the positional arguments,
-// supporting flags and positionals in any order. Every verb in this package
-// documents its positional argument(s) before its flags (e.g. "join <room>
-// --as <name>"), but flag.FlagSet.Parse stops at the first non-flag token
-// and leaves everything from there on — including any later flags — in
-// Args(), so a single fs.Parse(args) call would silently leave --as
-// unparsed.
+// parseFlags parses args against fs and returns the positionals, allowing
+// flags and positionals in any order. flag.FlagSet.Parse stops at the first
+// non-flag token and leaves the rest — including later flags — in Args(), so a
+// single fs.Parse(args) would silently leave --as unparsed.
 //
-// This scans args itself, one token at a time, and classifies a token as a
-// flag only when it has the shape "--name" or "--name=value" AND name is
-// registered on fs (flag.FlagSet.Lookup) — every flag this package defines
-// is long-form ("--as", "--mode", "--json", ...), so that is the complete
-// flag grammar here. Anything else — a bare positional, a single-dash
-// token, the literal "-" stdin sentinel, or a positional that happens to
-// start with "-" (a diff line, a negative number, a quoted flag) — is
-// never handed to fs.Parse and so can never trip its "flag provided but
-// not defined" rejection. A bare "--" terminates flag scanning; every
-// remaining token, however it's shaped, is positional. A "--name" that
-// matches no registered flag is still a hard usage error (delegated to
-// fs.Parse for its standard message) — only the positional case is
-// rescued, not unknown flags.
+// A token counts as a flag only when shaped "--name" or "--name=value" AND
+// registered on fs; every flag in this package is long-form, so that is the
+// whole grammar here. Anything else — a single-dash token, the "-" stdin
+// sentinel, a positional that happens to start with "-" — never reaches
+// fs.Parse and so cannot trip its "flag provided but not defined" rejection.
+// A bare "--" ends flag scanning. An unregistered "--name" is still a hard
+// error, delegated to fs.Parse for its standard message.
 func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
 	for i := 0; i < len(args); {
@@ -116,13 +103,12 @@ func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 		}
 		f := fs.Lookup(name)
 		if f == nil {
-			// Delegate to fs.Parse for the standard "flag provided but not
-			// defined" error and exit behavior.
+			// fs.Parse gives the standard "flag provided but not defined" error.
 			return nil, fs.Parse([]string{arg})
 		}
 		if strings.Contains(arg, "=") || isBoolFlag(f) {
-			// "--name=value" is self-contained; a bool flag takes no
-			// separate value token (mirrors flag.FlagSet's own grammar).
+			// "--name=value" is self-contained; a bool flag takes no separate
+			// value token (mirrors flag.FlagSet's own grammar).
 			if err := fs.Parse([]string{arg}); err != nil {
 				return nil, err
 			}
@@ -130,12 +116,10 @@ func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 			continue
 		}
 		if i+1 >= len(args) {
-			// No value token left: let fs.Parse produce "flag needs an
-			// argument".
+			// No value token left: fs.Parse produces "flag needs an argument".
 			return nil, fs.Parse([]string{arg})
 		}
-		// The next token is this flag's value verbatim, whatever it looks
-		// like — including one that itself starts with "-".
+		// The next token is this flag's value verbatim, even if it starts with "-".
 		if err := fs.Parse([]string{arg, args[i+1]}); err != nil {
 			return nil, err
 		}
@@ -144,11 +128,9 @@ func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 	return positional, nil
 }
 
-// flagName reports whether arg has the shape "--name" or "--name=value" —
-// the only flag shape this package registers — and if so, name with the
-// leading "--" and any "=value" suffix stripped. Any other shape (a bare
-// "-", a single-dash token, "--" alone) returns ok=false so the caller
-// treats arg as positional instead of risking it on fs.Parse.
+// flagName reports whether arg is shaped "--name" or "--name=value" — the only
+// flag shape this package registers — and returns the bare name. Any other
+// shape returns ok=false so the caller treats arg as positional.
 func flagName(arg string) (name string, ok bool) {
 	if !strings.HasPrefix(arg, "--") || len(arg) <= 2 {
 		return "", false
@@ -163,20 +145,17 @@ func flagName(arg string) (name string, ok bool) {
 	return name, true
 }
 
-// isBoolFlag reports whether f takes no argument, using the same
-// interface flag.FlagSet checks internally — a bool flag's Value
-// implements IsBoolFlag() bool. Without this, "--json" or "--all-rooms"
-// would swallow the next positional as their value.
+// isBoolFlag reports whether f takes no argument, via the same IsBoolFlag()
+// interface flag.FlagSet checks internally. Without it, "--json" would swallow
+// the next positional as its value.
 func isBoolFlag(f *flag.Flag) bool {
 	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return ok && bf.IsBoolFlag()
 }
 
-// exitFromErr maps err to the process exit code the CLI should terminate
-// with: a *bus.Error's own Code when err carries one (the daemon assigned
-// it, or a client-side check like SessionID/ResolveRoom did — see
-// protocol.go's Response.Code doc), else ExitHard. Every action below routes
-// through this instead of re-deriving a code from error text.
+// exitFromErr maps err to a process exit code: a *bus.Error's own Code when it
+// carries one, else ExitHard. Every action routes through this rather than
+// re-deriving a code from error text.
 func exitFromErr(err error) int {
 	var busErr *Error
 	if errors.As(err, &busErr) {
@@ -185,13 +164,11 @@ func exitFromErr(err error) int {
 	return int(ExitHard)
 }
 
-// dialDaemon connects to the daemon without spawning it. Every verb except
-// join assumes join already spawned one — spawning here too would mean a
-// stray `atomic bus who` on a cold machine silently brings up a daemon just
-// to answer a query. A dial failure means no daemon is listening, which
-// exit code 6 (ExitUnreachable) says plainly; Dial's own error is a plain
-// wrapped error, not a *bus.Error, so it is remapped here rather than
-// falling through exitFromErr's generic ExitHard default.
+// dialDaemon connects without spawning. Every verb except join assumes join
+// already spawned a daemon — spawning here would mean a stray `atomic bus who`
+// on a cold machine brings one up just to answer a query. Dial's failure is a
+// plain error, not a *bus.Error, so it is remapped to ExitUnreachable rather
+// than falling through exitFromErr's ExitHard default.
 func dialDaemon(home string) (*Client, error) {
 	client, err := Dial(home, defaultDialTimeout)
 	if err != nil {
@@ -200,28 +177,17 @@ func dialDaemon(home string) (*Client, error) {
 	return client, nil
 }
 
-// recoveryEnsurer is a package-level testable seam
-// (.claude/skills/atomic-cli-contrib/SKILL.md §2): production callers get
-// DefaultEnsurer(); tests substitute an Ensurer whose Spawn starts an
-// in-process daemon (client_test.go's own pattern for EnsureDaemon) instead
-// of depending on a real `atomic` binary on PATH.
+// recoveryEnsurer is a testable seam: tests substitute an Ensurer whose Spawn
+// starts an in-process daemon instead of depending on a real `atomic` binary.
 var recoveryEnsurer = DefaultEnsurer
 
-// dialDaemonRecovered dials the daemon, and — only when it is unreachable —
-// respawns it via EnsureDaemon and retries exactly once
-// (docs/spec/atomic-bus.md: "a client that finds the daemon gone respawns
-// it and retries once before surfacing exit 6"). A stop or a crash both
-// tear the daemon process down along with its in-memory roster, but
-// bus.json already holds every session's membership, and the respawned
-// daemon's own Hub.Rehydrate call at Serve startup (see serveAction)
-// restores that whole roster before it accepts a single connection — so
-// recovery here is nothing more than getting a live daemon back; there is
-// no client-side rejoin left to do (see docs/spec/atomic-bus.md's "the
-// daemon rehydrates the roster" change-log entry, which replaced the
-// per-session re-registration this used to do). EnsureDaemon owns its own
-// bounded spawn-and-retry loop, so a daemon that still won't come back
-// surfaces that terminal error directly — never a second recovery attempt
-// on top of it.
+// dialDaemonRecovered dials and, only when the daemon is unreachable, respawns
+// it and retries exactly once. Recovery is nothing more than getting a live
+// daemon back: bus.json already holds every membership, and the respawned
+// daemon's Hub.Rehydrate restores the whole roster before it accepts a
+// connection, so there is no client-side rejoin left to do. EnsureDaemon owns
+// its own bounded spawn-and-retry, so a daemon that still won't come back
+// surfaces that terminal error rather than a second recovery attempt.
 func dialDaemonRecovered(home string) (*Client, error) {
 	client, err := dialDaemon(home)
 	if err == nil {
@@ -234,15 +200,11 @@ func dialDaemonRecovered(home string) (*Client, error) {
 	return recoveryEnsurer().EnsureDaemon(home)
 }
 
-// doWithRecovery performs req against a daemon guaranteed live by
-// dialDaemonRecovered above. Used only by send and leave, the two ops that
-// require this session to already be a member of req.Room. An ExitNotJoined
-// response is passed through untouched, never treated as a recovery
-// symptom: a restarted daemon already knows every persisted member the
-// instant it starts serving (Hub.Rehydrate), so ExitNotJoined here means
-// exactly what it says — this session genuinely never joined, or
-// explicitly left, the room — and masking that would be worse than
-// surfacing it plainly.
+// doWithRecovery performs req against a daemon guaranteed live. Used only by
+// send and leave, the two ops that require existing membership. ExitNotJoined
+// is passed through untouched, never treated as a recovery symptom: a
+// restarted daemon knows every persisted member the instant it serves, so
+// ExitNotJoined means exactly what it says.
 func doWithRecovery(home string, req Request) (Response, error) {
 	client, err := dialDaemonRecovered(home)
 	if err != nil {
@@ -252,14 +214,10 @@ func doWithRecovery(home string, req Request) (Response, error) {
 	return client.Do(req)
 }
 
-// touchLastSeen best-effort persists that session was active in room at
-// now — the disk-side half of Hub.Publish's own in-memory LastSeen refresh
-// on a successful send (docs/spec/atomic-bus.md's 2026-07-30 "last_seen
-// must persist, not be restamped" entry). Called after send/say-family ops
-// that already succeeded against the daemon; a persistence failure here is
-// not surfaced as a command failure — the message was already delivered,
-// and losing this write only means the next restart's staleness read is a
-// beat behind, not that anything the caller asked for failed.
+// touchLastSeen best-effort persists that session was active in room — the
+// disk-side half of Hub.Publish's in-memory LastSeen refresh. A failure here
+// is not a command failure: the message was already delivered, and losing this
+// write only leaves the next restart's staleness read a beat behind.
 func touchLastSeen(home, session, room string, now time.Time) {
 	st, err := Load(home)
 	if err != nil {
@@ -271,25 +229,17 @@ func touchLastSeen(home, session, room string, now time.Time) {
 	_ = st.Save(home)
 }
 
-// joinAction implements `atomic bus join <room> [--as <role>] [--mode
-// participate|observe] [--kind agent|human] [--session <id>]`. The
-// numeric-suffix retry on a name collision is Hub.Join's job (room.go) —
-// this only reports the assigned name, which may differ from the one
-// requested. --kind defaults to agent; a person joining from a terminal
-// passes --kind human so from_kind-keyed reaction-policy rules fire for
-// them (docs/spec/atomic-bus.md: "join --kind agent|human ... lets a person
-// joining from a terminal be recorded as human"). chat still hardcodes
-// KindHuman on its own OpJoin call below — it has no reason to ever join as
-// an agent.
+// joinAction implements `atomic bus join`. The numeric-suffix retry on a name
+// collision is Hub.Join's job; this only reports the assigned name, which may
+// differ from the one requested. --kind defaults to agent, so a person joining
+// from a terminal passes --kind human and from_kind-keyed reaction-policy rules
+// fire for them.
 //
-// A member's name is always its resolved position stacked with an optional
-// role suffix (docs/spec/atomic-bus.md's 2026-07-29 "the name is the
-// position; --as is the role" entry): position.name(as) computes
-// "<realm>-<repo>-<as>" via stackedName's collapse rule, so --as never has
-// to be supplied to get a usable, deterministic name — omitting it yields
-// "<realm>-<repo>" (or just "<repo>" with no realm), never a required flag.
-// Position is resolved unconditionally since Member.Repo/Realm are recorded
-// on every join regardless of what --as supplies.
+// A member's name is its resolved position stacked with an optional role suffix
+// — the name is the position, --as is only the role — so omitting --as still
+// yields a usable deterministic name rather than making it a required flag.
+// Position is resolved regardless, since Member.Repo/Realm are recorded on
+// every join.
 func joinAction(args []string, home, cwd string, out io.Writer) int {
 	const usage = "Usage: atomic bus join <room> [--as <role>] [--mode participate|observe] [--kind agent|human] [--session <id>]\n"
 
@@ -332,10 +282,9 @@ func joinAction(args []string, home, cwd string, out io.Writer) int {
 	}
 	name := pos.name(as)
 
-	// Through the recoveryEnsurer seam, not the package-level EnsureDaemon:
-	// the bare call bypasses the injection point, so tests exercising join
-	// reach the real spawnServe. Under `go test` that re-execs the test
-	// binary, which re-runs the suite, which calls join again — a fork bomb.
+	// Through the recoveryEnsurer seam, never the package-level EnsureDaemon:
+	// the bare call bypasses the injection point, so a test exercising join
+	// reaches the real spawnServe, which re-execs the test binary — a fork bomb.
 	client, err := recoveryEnsurer().EnsureDaemon(home)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
@@ -376,10 +325,9 @@ func joinAction(args []string, home, cwd string, out io.Writer) int {
 	return int(ExitOK)
 }
 
-// leaveAction implements `atomic bus leave [<room>] [--session <id>]`. A
-// missing room defaults to the session's last-joined room via
-// State.ResolveRoom; leaving clears local state for that room only, per the
-// brief.
+// leaveAction implements `atomic bus leave [<room>]`. A missing room defaults
+// to the session's last-joined room; leaving clears local state for that room
+// only.
 func leaveAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus leave [<room>] [--session <id>]\n"
 
@@ -426,12 +374,9 @@ func leaveAction(args []string, home string, out io.Writer) int {
 
 	st.Leave(sessionID, room)
 
-	// If this leave emptied the room and the daemon dropped it
-	// (Hub.dropIfEmpty), clear any orphaned persisted halt state for it too
-	// — otherwise a later restart's Rehydrate would resurrect a room
-	// nobody occupies from a stale bus.json entry, halted for a reason
-	// nobody can act on anymore (docs/spec/atomic-bus.md's 2026-07-30 "drop
-	// a room when its last member leaves" entry).
+	// If this leave emptied the room and the daemon dropped it, clear any
+	// orphaned persisted halt state too — otherwise a later Rehydrate would
+	// resurrect an unoccupied room, halted for a reason nobody can act on.
 	var leavePayload struct {
 		RoomDropped bool `json:"room_dropped,omitempty"`
 	}
@@ -448,8 +393,7 @@ func leaveAction(args []string, home string, out io.Writer) int {
 	return int(ExitOK)
 }
 
-// sendAction implements `atomic bus send <room> <text> [--to
-// <name>,...] [--reply-to <msg-id>] [--session <id>]`.
+// sendAction implements `atomic bus send <room> <text>`.
 func sendAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus send <room> <text> [--to <name>,...] [--reply-to <msg-id>] [--session <id>] [--json]\n"
 
@@ -498,10 +442,8 @@ func sendAction(args []string, home string, out io.Writer) int {
 		return int(ExitHard)
 	}
 
-	// The message is still delivered and this still exits 0 — a named
-	// addressee may legitimately be about to join (docs/spec/atomic-bus.md:
-	// "send --to <name> warns on stderr when no such member is in the
-	// room") — but the sender must not be told nothing.
+	// Still delivered, and this still exits 0 — a named addressee may be about
+	// to join — but the sender must not be told nothing.
 	if len(payload.UnknownTo) > 0 {
 		fmt.Fprintf(os.Stderr, "atomic bus send: warning: not currently in room %s: %s\n", room, strings.Join(payload.UnknownTo, ", "))
 	}
@@ -511,17 +453,14 @@ func sendAction(args []string, home string, out io.Writer) int {
 	if jsonOut {
 		return emitJSON(out, payload.Envelope)
 	}
-	// A bare id ("1") on success is noise for a human and under-structured
-	// for an agent capturing it — --json above is the structured path; this
-	// is a short confirmation naming the id for reference, not the id alone.
+	// A bare id is noise for a human and under-structured for an agent capturing
+	// it; --json is the structured path.
 	fmt.Fprintf(out, "sent to %s (id %s)\n", room, payload.Envelope.ID)
 	return int(ExitOK)
 }
 
-// readText returns text verbatim, or the full content of stdin — read
-// whole, never line-scanned — when text is "-". This is the path an agent
-// uses to send a multi-line payload (e.g. a stack trace) without it passing
-// through shell quoting.
+// readText returns text verbatim, or all of stdin when text is "-" — the path
+// for a multi-line payload that must not pass through shell quoting.
 func readText(text string, stdin io.Reader) (string, error) {
 	if text != "-" {
 		return text, nil
@@ -533,11 +472,8 @@ func readText(text string, stdin io.Reader) (string, error) {
 	return string(b), nil
 }
 
-// parseTo splits a comma-separated --to value into addressee names. An
-// empty string (the flag omitted) yields nil, not [""] — nil is what marks
-// an envelope as an FYI to the whole room rather than addressed to one
-// blank name (see protocol.go's Envelope.To doc: omitted --to means FYI,
-// addressed to nobody).
+// parseTo splits a comma-separated --to value. An empty string yields nil, not
+// [""], because nil is what marks an envelope as an FYI to the whole room.
 func parseTo(to string) []string {
 	if to == "" {
 		return nil
@@ -553,24 +489,15 @@ func parseTo(to string) []string {
 	return out
 }
 
-// recvAction implements `atomic bus recv <room> [--session <id>] [--json]`.
-// recv always streams: one JSON envelope per line, flushed per line,
-// exiting 0 on SIGTERM — there is no one-shot mode and no --follow flag to
-// forget (a `recv` that returned and exited would leave a Monitor silently
-// hearing nothing; see docs/spec/atomic-bus.md's "replay removed entirely"
-// change-log entry). --json is accepted for consistency with every other
-// read verb but is a no-op: the stream is already one JSON envelope per
-// line.
+// recvAction implements `atomic bus recv <room>`. recv always streams: one JSON
+// envelope per line, exiting 0 on SIGTERM. There is no one-shot mode and no
+// --follow flag to forget — a recv that returned would leave a Monitor silently
+// hearing nothing. --json is accepted for consistency but is a no-op.
 //
-// recv now resolves its own session identity (previously it needed none) so
-// the daemon can suppress this subscriber's own publishes (SkipSelf on the
-// subscribe request) — self-echo would otherwise cost this agent one wasted
-// prompt per message it sends (docs/spec/atomic-bus.md: "a subscriber does
-// not receive its own published messages"). A recv with no resolvable
-// session (no CLAUDE_CODE_SESSION_ID, no --session) fails exactly like
-// send/leave/join do, rather than silently degrading self-echo suppression
-// — every real recv already runs inside a live Claude Code session, so this
-// is not a new practical restriction.
+// recv resolves its own session identity so the daemon can suppress this
+// subscriber's own publishes (SkipSelf); self-echo would otherwise cost the
+// agent a wasted prompt per message it sends. No resolvable session fails
+// exactly like send/leave/join rather than silently degrading that suppression.
 func recvAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus recv <room> [--session <id>] [--json]\n"
 
@@ -604,34 +531,21 @@ func recvAction(args []string, home string, out io.Writer) int {
 	return recvStream(client, home, room, sessionID, out)
 }
 
-// recvStream is the Monitor path: one JSON envelope per line, flushed per
-// line — json.Encoder.Encode issues exactly one Write per call, and out is
-// the raw stdout stream with nothing buffering in front of it, so every
-// line reaches the reader the instant it's written. Termination is checked
-// only at loop-iteration boundaries (the select below), never mid-write, so
-// a SIGTERM/SIGINT arriving while a line is being written cannot truncate
-// it — the current write always completes before the next select decides
-// whether to exit. A buffered or dropped line here is the entire recv
-// feature failing silently (docs/spec/atomic-bus.md). No backlog is
-// replayed: this subscribes and delivers only what is published after —
-// see daemon.go's subscribe doc. SkipSelf is always set: this session's own
-// sends are exactly what a recv subscriber should never see back
-// (self-echo — docs/spec/atomic-bus.md).
+// recvStream is the Monitor path: one JSON envelope per line, flushed per line
+// — json.Encoder.Encode issues exactly one Write per call and nothing buffers
+// in front of out. Termination is checked only at loop boundaries, never
+// mid-write, so a signal cannot truncate a line. A buffered or dropped line
+// here is the entire recv feature failing silently. No backlog is replayed.
+// SkipSelf is always set: this session's own sends are exactly what a recv
+// subscriber must not see back.
 //
-// The subscription loop reconnects, rather than exiting, whenever the
-// channel closes for any reason other than ctx being cancelled or the room
-// having been explicitly closed (Envelope.Closing — see recvDeliver) — a
-// daemon restart looks identical, at this layer, to any other dropped
-// connection, and both used to make recv exit 0 while the Monitor reported
-// a clean end and the roster kept listing this member as live: a deaf
-// session peers keep addressing (docs/spec/atomic-bus.md's 2026-07-30 "recv
-// must survive a restart — the worst one" entry). Reconnecting goes through
-// the same dialDaemonRecovered → recoveryEnsurer → EnsureDaemon path send
-// already uses (respawn and retry once); if that genuinely fails, this
-// returns a non-zero exit code so a Monitor surfaces the fault instead of a
-// silent 0. Reconnecting never replays a backlog — a fresh Subscribe on the
-// new connection delivers only what's published after it, exactly like the
-// first one did.
+// The loop reconnects rather than exiting whenever the channel closes for any
+// reason other than ctx cancellation or an explicit room close
+// (Envelope.Closing). A daemon restart is indistinguishable at this layer from
+// any dropped connection, and both used to make recv exit 0 while the Monitor
+// reported a clean end and the roster kept listing this member as live — a
+// deaf session peers keep addressing. A genuine reconnect failure returns
+// non-zero so the Monitor surfaces the fault instead of a silent 0.
 func recvStream(client *Client, home, room, sessionID string, out io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -652,13 +566,10 @@ func recvStream(client *Client, home, room, sessionID string, out io.Writer) int
 			return code
 		}
 
-		// A stop signal arriving while a just-ended subscription is about
-		// to reconnect must win immediately, not after one more full
-		// dial-and-subscribe attempt (which can itself take real wall
-		// time, spanning EnsureDaemon's own dial timeouts and spawn
-		// waits). recvDeliver's own select already covers ctx firing while
-		// a subscription is live; this covers it firing in the gap right
-		// after one ends.
+		// A stop signal arriving in the gap before a reconnect must win
+		// immediately, not after a full dial-and-subscribe attempt (which spans
+		// EnsureDaemon's own timeouts). recvDeliver's select covers ctx firing
+		// while a subscription is live; this covers the gap after one ends.
 		select {
 		case <-ctx.Done():
 			return int(ExitOK)
@@ -674,29 +585,23 @@ func recvStream(client *Client, home, room, sessionID string, out io.Writer) int
 	}
 }
 
-// reconnectAttempts bounds dialAndSubscribeRecv's own retry — mirrors
-// EnsureDaemon's maxSpawnAttempts convention (retry once, then fail
-// clearly rather than loop forever).
+// reconnectAttempts bounds dialAndSubscribeRecv's retry — retry once, then
+// fail clearly rather than loop forever.
 const reconnectAttempts = 2
 
-// reconnectRetryDelay is the pause between dialAndSubscribeRecv's attempts —
-// long enough for the previous daemon's in-flight shutdown to genuinely
-// finish, short enough not to matter to a listener waiting on the result.
+// reconnectRetryDelay is the pause between dialAndSubscribeRecv's attempts:
+// long enough for the previous daemon's shutdown to genuinely finish, short
+// enough not to matter to a waiting listener.
 const reconnectRetryDelay = 50 * time.Millisecond
 
-// dialAndSubscribeRecv dials via dialDaemonRecovered and subscribes,
-// retrying the whole pair once more on any failure. This is not about
-// spawning a fresh daemon a second time — dialDaemonRecovered's own
-// EnsureDaemon already retries a stale-socket dial internally — it is
-// about a race dialDaemon's own plain, unverified connect cannot see: a
-// reconnect can land in the exact window where the previous daemon has
-// already accepted this new connection but is mid-shutdown, so it closes
-// the connection without ever answering the subscribe handshake. From the
-// client side that surfaces as an EOF or timeout on the subscribe response,
-// indistinguishable from a genuinely dead daemon on the first attempt —
-// which is why the whole pair, not just Subscribe, is retried: a stale
-// dial can hand back a connection to the same dying process twice in a
-// row.
+// dialAndSubscribeRecv dials and subscribes, retrying the whole pair once. Not
+// about spawning a fresh daemon twice — dialDaemonRecovered already retries a
+// stale-socket dial — but about a race a plain connect cannot see: a reconnect
+// can land in the window where the previous daemon has accepted the connection
+// but is mid-shutdown, so it closes without answering the subscribe handshake.
+// That is indistinguishable from a dead daemon, and a stale dial can hand back
+// the same dying process twice, which is why the pair and not just Subscribe
+// is retried.
 func dialAndSubscribeRecv(home, room, sessionID string) (*Client, <-chan Envelope, error) {
 	var lastErr error
 	for attempt := 0; attempt < reconnectAttempts; attempt++ {
@@ -719,17 +624,11 @@ func dialAndSubscribeRecv(home, room, sessionID string) (*Client, <-chan Envelop
 	return nil, nil, lastErr
 }
 
-// recvDeliver runs one subscription's delivery loop until it ends, and
-// reports whether recvStream should reconnect. reconnect is true exactly
-// when ch closed without ctx being cancelled first AND the last envelope
-// delivered was not Hub.Close's closing envelope — a genuine stop
-// (SIGTERM/SIGINT, or the room having been explicitly closed) always takes
-// priority and never triggers a reconnect attempt. Without the Closing
-// check, a close would be indistinguishable from a daemon restart at this
-// layer, and recv would silently reconnect to (and recreate) a room the
-// operator just closed instead of ending its stream as
-// docs/spec/atomic-bus.md's "close" entry requires: "Subscribers' streams
-// end after they receive that envelope".
+// recvDeliver runs one subscription's delivery loop and reports whether
+// recvStream should reconnect: true exactly when ch closed without ctx being
+// cancelled first and the last envelope was not Hub.Close's closing envelope.
+// Without the Closing check a close is indistinguishable from a daemon restart
+// here, and recv would reconnect to — and recreate — the room just closed.
 func recvDeliver(ctx context.Context, ch <-chan Envelope, enc *json.Encoder) (reconnect bool, code int) {
 	closing := false
 	for {
@@ -749,10 +648,9 @@ func recvDeliver(ctx context.Context, ch <-chan Envelope, enc *json.Encoder) (re
 	}
 }
 
-// whoAction implements `atomic bus who [<room>] [--json]`. A room named
-// explicitly needs no session identity at all — only the fallback to the
-// session's last-joined room does — so an operator can inspect any room by
-// name outside a live Claude Code session.
+// whoAction implements `atomic bus who [<room>]`. An explicitly named room
+// needs no session identity, so an operator can inspect any room from outside a
+// live Claude Code session.
 func whoAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus who [<room>] [--json]\n"
 
@@ -809,8 +707,7 @@ func whoAction(args []string, home string, out io.Writer) int {
 	return int(ExitOK)
 }
 
-// haltReasonNote renders " (why)" for a non-empty halt reason, else "" —
-// shared by whoAction's plain-text preamble line.
+// haltReasonNote renders " (why)" for a non-empty halt reason, else "".
 func haltReasonNote(reason string) string {
 	if reason == "" {
 		return ""
@@ -818,9 +715,8 @@ func haltReasonNote(reason string) string {
 	return fmt.Sprintf(" (%s)", reason)
 }
 
-// livenessLabel renders Member.Stale for plain-text output — shared by
-// whoAction and render.go's MemberTable so `who` and chat's `/who` agree on
-// the same two words.
+// livenessLabel renders Member.Stale for plain text — shared with render.go's
+// MemberTable so `who` and chat's `/who` agree on the same two words.
 func livenessLabel(stale bool) string {
 	if stale {
 		return "stale"
@@ -828,11 +724,9 @@ func livenessLabel(stale bool) string {
 	return "live"
 }
 
-// resolveOptionalRoom returns explicit verbatim, or — only when explicit is
-// empty — resolves the current session's last-joined room via
-// State.ResolveRoom. Session identity is only needed in that fallback
-// branch, so a caller that names a room outright never has to be inside a
-// live Claude Code session.
+// resolveOptionalRoom returns explicit verbatim, or falls back to the session's
+// last-joined room. Session identity is needed only in that fallback, so naming
+// a room outright works outside a live Claude Code session.
 func resolveOptionalRoom(home, explicit string) (string, error) {
 	if explicit != "" {
 		return explicit, nil
@@ -893,12 +787,9 @@ func roomsAction(args []string, home string, out io.Writer) int {
 	return int(ExitOK)
 }
 
-// haltedSuffix renders a trailing " [HALTED: <reason>]" marker for
-// plain-text output when halted, else "" — shared by roomsAction and
-// statusAction so an operator who halts a room and walks away can tell it
-// is still halted from either verb's table output
-// (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be visible"
-// entry).
+// haltedSuffix renders a trailing " [HALTED: <reason>]" marker, else "" —
+// shared by rooms and status so an operator who halted a room and walked away
+// can tell from either.
 func haltedSuffix(halted bool, reason string) string {
 	if !halted {
 		return ""
@@ -919,11 +810,8 @@ type busStatus struct {
 	Rooms   []joinedRoomStatus `json:"rooms"`
 }
 
-// joinedRoomStatus is one entry of busStatus.Rooms: the room and the name
-// this session holds in it (a join may have been renamed by the
-// numeric-suffix retry), plus that room's current halt state — one of the
-// three surfaces docs/spec/atomic-bus.md's 2026-07-30 "halt must persist
-// and be visible" entry names.
+// joinedRoomStatus is one entry of busStatus.Rooms: the room, the name this
+// session holds in it (a join may have been renamed), and its halt state.
 type joinedRoomStatus struct {
 	Room       string `json:"room"`
 	Name       string `json:"name"`
@@ -931,11 +819,9 @@ type joinedRoomStatus struct {
 	HaltReason string `json:"halt_reason,omitempty"`
 }
 
-// statusAction implements `atomic bus status [--session <id>] [--json]`:
-// this session's joined rooms (from local state) plus the daemon's own
-// reachability and identity. Unlike join, status never spawns a daemon —
-// an unreachable daemon is exactly what status is for reporting, not a
-// condition to fix.
+// statusAction implements `atomic bus status`: this session's joined rooms plus
+// the daemon's own reachability and identity. Unlike join it never spawns — an
+// unreachable daemon is what status is for reporting, not a condition to fix.
 func statusAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus status [--session <id>] [--json]\n"
 
@@ -1005,14 +891,11 @@ func statusAction(args []string, home string, out io.Writer) int {
 	return int(ExitOK)
 }
 
-// annotateHalted fills in Halted/HaltReason on each of rooms by fetching the
-// daemon's own `rooms` list and matching by name. A second round trip
-// rather than folding into the ping call above: Client.Do consumes its
-// connection (see client.go's Do doc), and Response.Payload for OpPing
-// carries no per-room data of its own. Best-effort: any failure here leaves
-// rooms exactly as passed in (Halted stays false) rather than failing
-// status entirely — status's primary job is reporting reachability, not
-// halt state.
+// annotateHalted fills in Halted/HaltReason by fetching the daemon's `rooms`
+// list and matching by name. A second round trip because Client.Do consumes its
+// connection and OpPing's payload carries no per-room data. Best-effort: any
+// failure leaves rooms exactly as passed in, since status's primary job is
+// reporting reachability, not halt state.
 func annotateHalted(home string, rooms []joinedRoomStatus) []joinedRoomStatus {
 	client, err := dialDaemon(home)
 	if err != nil {
@@ -1058,10 +941,8 @@ func joinedRooms(st *State, session string) []joinedRoomStatus {
 	return out
 }
 
-// emitJSON writes v as a single JSON value followed by a newline. Every
-// --json read verb that answers with a snapshot (who, rooms, status) uses
-// this; recv always streams JSONL instead, one envelope per line — see
-// recvStream.
+// emitJSON writes v as a single JSON value plus a newline — the snapshot verbs
+// (who, rooms, status). recv streams JSONL instead; see recvStream.
 func emitJSON(out io.Writer, v any) int {
 	if err := json.NewEncoder(out).Encode(v); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus: encode JSON: %v\n", err)
@@ -1070,15 +951,9 @@ func emitJSON(out io.Writer, v any) int {
 	return int(ExitOK)
 }
 
-// serveAction implements `atomic bus serve`: runs the daemon in the
-// foreground — this is exactly what EnsureDaemon spawns (client.go's
-// spawnServe) — binding the real socket, owning the socket file and this
-// invocation's share of the spawn-lock protocol (Serve itself only owns
-// what happens once it has a live listener; see daemon.go's Serve doc).
-// There is no --idle-shutdown-minutes flag and no --stop flag: no timer
-// ever retires the daemon on its own, and stopping one is `atomic bus
-// stop`'s job (docs/spec/atomic-bus.md: "atomic bus start | stop | restart
-// control the daemon explicitly").
+// serveAction implements `atomic bus serve`: runs the daemon in the foreground,
+// which is exactly what EnsureDaemon spawns. No idle-shutdown timer and no
+// --stop flag — start, stop, and restart control the daemon explicitly.
 func serveAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus serve\n"
 
@@ -1107,23 +982,18 @@ func serveAction(args []string, home string, out io.Writer) int {
 	defer stop()
 
 	hub := NewHub(home)
-	// A restarted daemon must come back with the whole persisted roster,
-	// not rebuild it one session at a time as each happens to run a
-	// command (docs/spec/atomic-bus.md: "a restarted daemon rehydrates the
-	// whole roster"). This runs before ln.Accept ever sees a connection —
-	// Serve itself does not start its accept loop until it's called below.
-	// A missing bus.json is not an error (Load's own contract); a
-	// malformed one degrades to an empty roster with a warning rather than
-	// stopping the daemon from coming up at all.
+	// A restarted daemon must come back with the whole persisted roster, not
+	// rebuild it one session at a time as each runs a command. This runs before
+	// Serve's accept loop starts. A missing bus.json is not an error; a malformed
+	// one degrades to an empty roster rather than blocking startup.
 	if st, err := Load(home); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus serve: warning: could not load %s, starting with an empty roster: %v\n", StatePath(home), err)
 	} else {
 		hub.Rehydrate(st)
 	}
 
-	// nil == ok: Serve returns nil on a wire shutdown (`bus stop`), and
-	// context.Canceled on our own signal-driven ctx — both are a clean
-	// stop, not a failure to report.
+	// Serve returns nil on a wire shutdown and context.Canceled on our own
+	// signal-driven ctx — both are a clean stop, not a failure to report.
 	if err := Serve(ctx, ln, hub, nil); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "atomic bus serve: %v\n", err)
 		return int(ExitHard)
@@ -1132,11 +1002,8 @@ func serveAction(args []string, home string, out io.Writer) int {
 }
 
 // startAction implements `atomic bus start`: spawns the daemon if none is
-// listening. Idempotent — a daemon already live and version-matched is
-// reported as such and left alone, rather than spawned again — and goes
-// through the same recoveryEnsurer seam every other verb's recovery path
-// uses (see joinAction's comment), so there is exactly one spawn
-// implementation, not two.
+// listening. Idempotent, and goes through the same recoveryEnsurer seam every
+// other recovery path uses, so there is exactly one spawn implementation.
 func startAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus start\n"
 
@@ -1168,11 +1035,9 @@ func startAction(args []string, home string, out io.Writer) int {
 }
 
 // probeRunning reports whether a live, version-matched daemon is already
-// listening — used only to choose start's message. EnsureDaemon's own
-// flock (client.go) is what actually makes concurrent start calls
-// idempotent, not this probe: two racing starts can both observe "not
-// running" here and both print "daemon started", but only one of them
-// spawns — the lock, not the message, is the correctness guarantee.
+// listening — used only to choose start's message. EnsureDaemon's flock is what
+// makes concurrent starts idempotent, not this probe: two racing starts can
+// both print "daemon started" while only one of them spawns.
 func probeRunning(home string) bool {
 	client, err := dialDaemon(home)
 	if err != nil {
@@ -1182,11 +1047,9 @@ func probeRunning(home string) bool {
 	return checkVersion(client) == nil
 }
 
-// stopAction implements `atomic bus stop`: sends the wire shutdown op to a
-// running daemon. No daemon running is treated as already-stopped (exit 0,
-// not an error): stop's job is to reach the goal state "no daemon", which a
-// missing daemon has already reached — this is also the documented remedy
-// the version-skew error message points users at (via restartAction), so
+// stopAction implements `atomic bus stop`. No daemon running is treated as
+// already-stopped (exit 0): stop's job is the goal state "no daemon", which a
+// missing daemon has reached — and the version-skew error points users here, so
 // it must succeed even when there is nothing to stop.
 func stopAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus stop\n"
@@ -1216,18 +1079,14 @@ func stopAction(args []string, home string, out io.Writer) int {
 	return int(ExitOK)
 }
 
-// restartWaitTimeout bounds restartAction's wait for stop's socket teardown
-// to complete before start tries to dial or bind it again. Serve's actual
-// listener Close() (and the unlink it performs) runs asynchronously in its
-// own run-loop goroutine, after the shutdown op's reply is already sent
-// (daemon.go's Serve doc) — so a start immediately following stop can race
-// a socket file that hasn't been removed yet.
+// restartWaitTimeout bounds restartAction's wait for stop's socket teardown.
+// Serve's listener Close and its unlink run asynchronously after the shutdown
+// op's reply is sent, so a start immediately after stop can race the socket
+// file.
 const restartWaitTimeout = 2 * time.Second
 
-// restartAction implements `atomic bus restart`: stop then start. Works
-// whether or not a daemon is currently running — stopAction's own
-// "no daemon" case is exit 0, so restart degenerates cleanly to a plain
-// start — and is what the version-skew error tells a user to run.
+// restartAction implements `atomic bus restart`: stop then start. Works whether
+// or not a daemon is running, since stopAction's "no daemon" case is exit 0.
 func restartAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus restart\n"
 
@@ -1249,11 +1108,9 @@ func restartAction(args []string, home string, out io.Writer) int {
 	return startAction(nil, home, out)
 }
 
-// waitForSocketGone polls SocketPath(home) until it refuses connections or
-// timeout elapses. Best-effort: even a timeout here still lets
-// startAction's own EnsureDaemon proceed — its stale-socket recovery
-// (client.go: unlinkStaleSocket, one respawn retry) reaches a live daemon
-// regardless — this just avoids relying on that retry for the common case.
+// waitForSocketGone polls the socket until it refuses connections or timeout
+// elapses. Best-effort: a timeout still lets EnsureDaemon's own stale-socket
+// recovery reach a live daemon; this only avoids relying on that retry.
 func waitForSocketGone(home string, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -1268,10 +1125,9 @@ func waitForSocketGone(home string, timeout time.Duration) {
 
 // --- halt / resume ---
 
-// haltAction implements `atomic bus halt <room> [--text <reason>]`. Halt is
-// enforced server-side (room.go's Hub.Publish) — this only sends the wire
-// op; needs no session identity, since an operator can halt a room whether
-// or not they are currently in it (room.go's Hub.Halt doc).
+// haltAction implements `atomic bus halt <room>`. Halt is enforced server-side
+// (Hub.Publish); this only sends the wire op, and needs no session identity
+// since an operator can halt a room they are not in.
 func haltAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus halt <room> [--text <reason>]\n"
 
@@ -1302,11 +1158,8 @@ func haltAction(args []string, home string, out io.Writer) int {
 	}
 
 	if err := persistHalted(home, room, true, text); err != nil {
-		// The halt itself already succeeded against the daemon — the room
-		// is halted right now. Only durability across a future restart is
-		// at risk, so this is a warning, not a command failure
-		// (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be
-		// visible" entry).
+		// The halt already succeeded against the daemon; only durability
+		// across a restart is at risk, so this is a warning, not a failure.
 		fmt.Fprintf(os.Stderr, "atomic bus halt: warning: halt succeeded but was not persisted (a daemon restart would lose it): %v\n", err)
 	}
 
@@ -1314,9 +1167,8 @@ func haltAction(args []string, home string, out io.Writer) int {
 	return int(ExitOK)
 }
 
-// persistHalted records room's halt flag and reason in bus.json — the
-// durable half of Hub.Halt/Hub.Resume, which only ever mutate the daemon's
-// in-memory Room.
+// persistHalted records room's halt flag and reason in bus.json — the durable
+// half of Hub.Halt/Hub.Resume, which only mutate the daemon's in-memory Room.
 func persistHalted(home, room string, halted bool, text string) error {
 	st, err := Load(home)
 	if err != nil {
@@ -1363,14 +1215,10 @@ func resumeAction(args []string, home string, out io.Writer) int {
 
 // --- prune ---
 
-// pruneAction implements `atomic bus prune [<room>] [--json]`. Removes only
-// members Hub.Prune finds currently stale — never a live one, and never on
-// its own: this is the one explicit reap the package performs, run only
-// when an operator asks for it (docs/spec/atomic-bus.md: "nothing reaps a
-// member silently ... a quiet session is not a dead one, and evicting a
-// live member would break addressing with no diagnostic"). A missing room
-// defaults to the session's last-joined room via State.ResolveRoom, same as
-// who.
+// pruneAction implements `atomic bus prune [<room>]`. Removes only members
+// Hub.Prune finds stale, and only when an operator asks: a quiet session is not
+// a dead one, and evicting a live member breaks addressing with no diagnostic.
+// A missing room defaults to the session's last-joined room, same as who.
 func pruneAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus prune [<room>] [--json]\n"
 
@@ -1430,14 +1278,10 @@ func pruneAction(args []string, home string, out io.Writer) int {
 
 // --- close ---
 
-// closeAction implements `atomic bus close <room>`: an operator-level
-// teardown, like halt/say/tail — no session identity required
-// (docs/spec/atomic-bus.md: "close ... Operator-level, like halt/say/tail —
-// no session identity required"). Publishes the closing envelope, evicts
-// every member, and drops the room server-side (Hub.Close), then clears its
-// persisted memberships and any halt state from bus.json so a restart does
-// not rebuild it — the local half Hub.Close itself cannot do, since bus.json
-// is this package's client-side persistence file, not the daemon's.
+// closeAction implements `atomic bus close <room>`: operator-level teardown, no
+// session identity required. Drops the room server-side (Hub.Close), then
+// clears its memberships and halt state from bus.json so a restart does not
+// rebuild it — the local half Hub.Close cannot do, bus.json being client-side.
 func closeAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus close <room>\n"
 
@@ -1481,11 +1325,9 @@ func closeAction(args []string, home string, out io.Writer) int {
 
 // --- say ---
 
-// sayAction implements `atomic bus say <room> <text> [--to <name>,...]`.
-// Publishes via OpSay (Hub.PublishAsOperator), which needs no prior join and always
-// passes, even into a halted room — the asymmetry that makes halt useful
-// for an operator (docs/spec/atomic-bus.md: "say is a human send and
-// always passes, even into a halted room").
+// sayAction implements `atomic bus say <room> <text>`. Publishes via
+// Hub.PublishAsOperator, which needs no prior join and passes even into a
+// halted room — the asymmetry that makes halt useful for an operator.
 func sayAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus say <room> <text> [--to <name>,...]\n"
 
@@ -1516,9 +1358,9 @@ func sayAction(args []string, home string, out io.Writer) int {
 	}
 	defer client.Close()
 
-	// No Name or Kind: the daemon pins the operator identity itself and ignores
-	// both fields on OpSay. Sending them would imply the client gets a say in
-	// who it publishes as, which is exactly the trust the daemon must not extend.
+	// No Name or Kind: the daemon pins the operator identity and ignores both on
+	// OpSay. Sending them would imply the client gets a say in who it publishes
+	// as, which is exactly the trust the daemon must not extend.
 	resp, err := client.Do(Request{Op: OpSay, Room: room, To: parseTo(to), Text: text})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus say: %v\n", err)
@@ -1534,9 +1376,7 @@ func sayAction(args []string, home string, out io.Writer) int {
 		return int(ExitHard)
 	}
 
-	// Mirrors sendAction's own warning-not-withholding contract
-	// (docs/spec/atomic-bus.md: "send --to <name> warns on stderr when no
-	// such member is in the room").
+	// Mirrors sendAction's warn-but-still-send contract.
 	if len(payload.UnknownTo) > 0 {
 		fmt.Fprintf(os.Stderr, "atomic bus say: warning: not currently in room %s: %s\n", room, strings.Join(payload.UnknownTo, ", "))
 	}
@@ -1547,11 +1387,9 @@ func sayAction(args []string, home string, out io.Writer) int {
 
 // --- tail ---
 
-// isTerminalWriter reports whether out is a live terminal — TailLine's
-// colour switch (docs/spec/atomic-bus.md CP5: "detect no-tty and drop
-// colour"). Anything that isn't a *os.File (a bytes.Buffer in tests, or a
-// pipe wrapped by something other than os.File) is treated as non-tty,
-// which is also the correct answer for a redirected or piped os.Stdout.
+// isTerminalWriter reports whether out is a live terminal — TailLine's colour
+// switch. Anything that is not an *os.File counts as non-tty, which is also the
+// right answer for a redirected or piped os.Stdout.
 func isTerminalWriter(out io.Writer) bool {
 	f, ok := out.(*os.File)
 	if !ok {
@@ -1574,16 +1412,11 @@ func terminalWidth(out io.Writer) int {
 	return w
 }
 
-// resolveTailRooms decides which rooms tail subscribes to, and whether
-// each rendered line needs a room prefix. An explicit room subscribes to
-// exactly that room, unprefixed. Otherwise every room the daemon currently
-// knows about is queried via `rooms`: docs/spec/atomic-bus.md CP5, quoted
-// verbatim, "[--all-rooms] ... is the default when no room argument is
-// given and exactly one room exists" — so a bare `tail` with exactly one
-// known room, or --all-rooms given explicitly, subscribes to every room
-// found (with a room prefix). Any other room count with neither an
-// explicit room nor --all-rooms is ambiguous and is refused rather than
-// silently guessed.
+// resolveTailRooms decides which rooms tail subscribes to and whether each line
+// needs a room prefix. An explicit room subscribes to exactly that, unprefixed.
+// Otherwise every known room is queried: a bare `tail` with exactly one room,
+// or --all-rooms, subscribes to all of them, prefixed. Any other room count
+// with neither is ambiguous and refused rather than silently guessed.
 func resolveTailRooms(home, explicit string, allRoomsFlag bool) (rooms []string, roomPrefix bool, err error) {
 	if explicit != "" {
 		return []string{explicit}, false, nil
@@ -1616,13 +1449,10 @@ func resolveTailRooms(home, explicit string, allRoomsFlag bool) (rooms []string,
 	return names, true, nil
 }
 
-// tailAction implements `atomic bus tail [<room>] [--all-rooms] [--json]
-// [--only-addressed] [--from <name>]`. tail never joins (resolveTailRooms
-// and daemon.go's OpTail dispatch both operate purely through
-// Hub.Subscribe) — it does not occupy a name and does not appear in `who`,
-// so any number of operators can watch the same room at once. Like recv,
-// tail delivers only what is published after it subscribes; there is no
-// --since.
+// tailAction implements `atomic bus tail [<room>]`. tail never joins — it does
+// not occupy a name and does not appear in `who`, so any number of operators
+// can watch one room at once. Like recv it delivers only what is published
+// after it subscribes; there is no --since.
 func tailAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus tail [<room>] [--all-rooms] [--json] [--only-addressed] [--from <name>]\n"
 
@@ -1668,14 +1498,11 @@ func tailAction(args []string, home string, out io.Writer) int {
 	return tailStream(client, rooms, onlyAddressed, from, jsonOut, colour, roomPrefix, home, width, out)
 }
 
-// tailStream is tailAction's subscription loop, factored out so tests can
-// drive it against an already-connected *Client — mirrors recvStream's own
-// factoring above, for the identical reason: closing the client is the
-// only clean way to end a subscription loop deterministically in a test.
-// Filtering (--only-addressed, --from) happens here, client-side: the
-// daemon's OpTail dispatch (daemon.go) delivers every envelope on the
-// subscribed rooms unfiltered by design, so two operators tailing the same
-// room with different filters never affect each other.
+// tailStream is tailAction's subscription loop, factored out so tests can drive
+// it against an already-connected *Client — closing the client is the only way
+// to end a subscription loop deterministically. Filtering happens client-side:
+// the daemon delivers every envelope unfiltered, so two operators tailing the
+// same room with different filters never affect each other.
 func tailStream(client *Client, rooms []string, onlyAddressed bool, from string, jsonOut, colour, roomPrefix bool, home string, width int, out io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -1715,12 +1542,10 @@ func tailStream(client *Client, rooms []string, onlyAddressed bool, from string,
 	}
 }
 
-// readAction implements `atomic bus read <room> <msg-id> [--json]`: fetch
-// one full envelope from the room's durable log. A pure log read — no
-// daemon round trip, works with the daemon down. This is the recovery
-// verb for consumers whose notification layer truncated a message (e.g.
-// Claude Code's Monitor cap on recv output; see skills/atomic-bus): the
-// log line always carries the complete text.
+// readAction implements `atomic bus read <room> <msg-id>`: fetch one full
+// envelope from the durable log. A pure log read — no daemon round trip, works
+// with the daemon down. The recovery verb for a consumer whose notification
+// layer truncated a message; the log line always carries the complete text.
 func readAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus read <room> <msg-id> [--json]\n"
 
@@ -1737,9 +1562,8 @@ func readAction(args []string, home string, out io.Writer) int {
 		return int(ExitUsage)
 	}
 	room, id := positional[0], positional[1]
-	// Room names are free text on the wire, but this verb splices one into
-	// a filesystem path — reject anything path-shaped before it can escape
-	// the rooms directory.
+	// Room names are free text on the wire, but this verb splices one into a
+	// filesystem path — reject anything path-shaped.
 	if room == "" || strings.ContainsAny(room, `/\`) || strings.Contains(room, "..") {
 		fmt.Fprintf(os.Stderr, "atomic bus read: invalid room name %q\n", room)
 		return int(ExitUsage)
@@ -1766,9 +1590,8 @@ func readAction(args []string, home string, out io.Writer) int {
 		}
 		return int(ExitOK)
 	}
-	// Full fidelity is the whole point of this verb, and TailLine's
-	// collapse elides anything past ~15 lines by design — so render
-	// directly: a one-line header, then the complete text verbatim.
+	// Full fidelity is this verb's whole point, and TailLine's collapse elides
+	// anything past ~15 lines by design.
 	addressee := "(fyi)"
 	if len(env.To) > 0 {
 		addressee = "to " + strings.Join(env.To, ", ")
@@ -1783,17 +1606,12 @@ func readAction(args []string, home string, out io.Writer) int {
 
 // --- chat ---
 
-// chatAction implements `atomic bus chat <room> [--as <name>] [--session
-// <id>]`: an interactive client that joins room as a kind: "human" member
-// (docs/spec/atomic-bus.md checkpoint 6) and then hands off to Chat's core
-// loop (chat.go) against a real raw-mode stdin and the daemon's live
-// subscription stream. --as defaults to $USER (unchanged by the
-// position-derived naming entry, which only retargets join's own default —
-// chat's default identity is the operator's own username, not the repo it
-// happens to be run from); identity is resolved exactly like join
-// (SessionID, --session override) — chat calls Hub.Join too, and
-// docs/design/atomic-bus.md's Identity section makes no exception for it.
-// Position (repo/realm) is still resolved and recorded, same as join.
+// chatAction implements `atomic bus chat <room>`: an interactive client that
+// joins room as a KindHuman member and hands off to Chat's loop (chat.go)
+// against a raw-mode stdin and the daemon's live subscription. --as defaults to
+// $USER — chat's identity is the operator's own username, not the repo it is
+// run from — while position (repo/realm) is still resolved and recorded, same
+// as join.
 func chatAction(args []string, home, cwd string, out io.Writer) int {
 	const usage = "Usage: atomic bus chat <room> [--as <name>] [--session <id>]\n"
 
@@ -1832,9 +1650,8 @@ func chatAction(args []string, home, cwd string, out io.Writer) int {
 		return int(ExitHard)
 	}
 
-	// Through the recoveryEnsurer seam, not the package-level EnsureDaemon —
-	// see joinAction's identical comment; the two call sites share the same
-	// fork-bomb hazard under `go test`.
+	// Through the recoveryEnsurer seam — see joinAction's identical comment;
+	// both call sites share the same fork-bomb hazard under `go test`.
 	joinClient, err := recoveryEnsurer().EnsureDaemon(home)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
@@ -1876,14 +1693,10 @@ func chatAction(args []string, home, cwd string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
 		return exitFromErr(err)
 	}
-	// Session is set but SkipSelf is not: chat must keep seeing its own
-	// lines — chat renders the operator's own line from this same
-	// subscription's echo, so a self-skip would make chat go silent on the
-	// operator's own input (docs/spec/atomic-bus.md: "tail and chat still
-	// see the complete transcript including their own lines"). Setting
-	// Session anyway is what lets Hub.Who attribute this subscription to
-	// name's own liveness (hasLiveSubscription) — the same session
-	// association item 2's self-echo fix introduced.
+	// Session set but SkipSelf not: chat renders the operator's own line from
+	// this subscription's echo, so a self-skip would make chat go silent on its
+	// own input. Setting Session anyway is what lets Hub.Who attribute this
+	// subscription to name's own liveness (hasLiveSubscription).
 	envelopes, err := subClient.Subscribe(Request{Op: OpRecv, Room: room, Session: sessionID})
 	if err != nil {
 		subClient.Close()
@@ -1919,13 +1732,11 @@ func chatAction(args []string, home, cwd string, out io.Writer) int {
 	return int(ExitOK)
 }
 
-// makeStdinRaw puts a live terminal stdin into raw mode so Chat can decode
-// and echo one keystroke at a time itself (see chat.go's Run doc) instead
-// of the tty line-discipline buffering a whole line before this process
-// ever sees it. Returns nil, doing nothing, when stdin is not a terminal
-// (piped input, a non-interactive CI shell) — chat still works there, just
-// without raw single-keystroke echo. The returned func restores the
-// original terminal state; the caller must defer it.
+// makeStdinRaw puts a live terminal stdin into raw mode so Chat can decode and
+// echo one keystroke at a time itself instead of the tty line discipline
+// buffering a whole line first. Returns nil when stdin is not a terminal —
+// chat still works there, without single-keystroke echo. The returned func
+// restores the original terminal state; the caller must defer it.
 func makeStdinRaw() func() {
 	fd := os.Stdin.Fd()
 	if !charmterm.IsTerminal(fd) {
@@ -1938,20 +1749,17 @@ func makeStdinRaw() func() {
 	return func() { _ = charmterm.Restore(fd, oldState) }
 }
 
-// chatSendFunc, chatWhoFunc, chatRoomsFunc, chatHaltFunc, chatResumeFunc,
-// and chatLeaveFunc are chatAction's wiring of Chat's collaborator fields
-// to the daemon — each its own named closure so chatAction's own body
-// stays a flat sequence of setup steps rather than a wall of inline
-// func literals.
+// chatSendFunc and its siblings wire Chat's collaborator fields to the daemon,
+// each a named closure so chatAction's body stays a flat sequence of setup
+// steps rather than a wall of inline func literals.
 func chatSendFunc(home, room, sessionID string) func(text string, to []string) error {
 	return func(text string, to []string) error {
 		_, err := doWithRecovery(home, Request{Op: OpSend, Room: room, Session: sessionID, To: to, Text: text})
 		if err != nil {
 			return err
 		}
-		// Same disk-side LastSeen refresh sendAction gives every send —
-		// chat sends through this closure, not sendAction, so it needs its
-		// own call (see touchLastSeen's doc).
+		// chat sends through this closure, not sendAction, so it needs its own
+		// LastSeen refresh (see touchLastSeen).
 		touchLastSeen(home, sessionID, room, time.Now())
 		return nil
 	}

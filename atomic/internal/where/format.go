@@ -8,8 +8,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// FormatHuman renders a Report as the plain-text default output. This is a
-// descriptive report, not a health check — no PASS/WARN/FAIL severity.
+// FormatHuman renders a Report as plain text. Descriptive, not a health check:
+// no PASS/WARN/FAIL severity.
 func FormatHuman(r Report) string {
 	var sb strings.Builder
 
@@ -41,8 +41,7 @@ func FormatHuman(r Report) string {
 	}
 	sb.WriteString("\n")
 
-	// A realm resolved through the <wikis> registry (not a marker) is the
-	// feature's only backfill affordance — name the way to declare it.
+	// Registry resolution is the only case with something to backfill.
 	if r.RealmScope.Position != RealmNone && r.RealmScope.Source == config.ScopeSourceRegistry {
 		sb.WriteString("hint: declare this realm's identity in .claude/atomic.toml with `atomic wiki init --scope realm`\n")
 	}
@@ -50,7 +49,6 @@ func FormatHuman(r Report) string {
 	return sb.String()
 }
 
-// jsonReport is the JSON serialization shape for Report.
 type jsonReport struct {
 	RepoRoot   jsonRepoRoot   `json:"repo_root"`
 	RepoScope  jsonRepoScope  `json:"repo_scope"`
@@ -80,9 +78,8 @@ type jsonCodeIndex struct {
 	Members   int    `json:"members,omitempty"`
 }
 
-// FormatJSON renders a Report as indented JSON. The human-only backfill hint
-// (see FormatHuman) is not carried — JSON is machine-consumed and the source
-// field already lets a caller derive it.
+// FormatJSON renders a Report as indented JSON. FormatHuman's backfill hint is
+// omitted; the source field lets a caller derive it.
 func FormatJSON(r Report) (string, error) {
 	out := jsonReport{
 		RepoRoot: jsonRepoRoot{

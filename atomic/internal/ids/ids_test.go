@@ -73,7 +73,6 @@ func TestShortID_InvalidPrefix(t *testing.T) {
 }
 
 func TestShortID_PrefixFormat(t *testing.T) {
-	// prefix "r" must produce "r-XXXX"
 	re := regexp.MustCompile(`^r-[0-9a-f]{4}$`)
 	id, err := ids.ShortID("r")
 	if err != nil {
@@ -83,7 +82,6 @@ func TestShortID_PrefixFormat(t *testing.T) {
 		t.Errorf("ShortID(\"r\") = %q, want r-[0-9a-f]{4}", id)
 	}
 
-	// prefix "abc123" must produce "abc123-XXXX"
 	re2 := regexp.MustCompile(`^abc123-[0-9a-f]{4}$`)
 	id2, err := ids.ShortID("abc123")
 	if err != nil {

@@ -8,11 +8,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// TestResolvePosition_OutsideRepo_UsableDefault proves the "outside any
-// repo" success criterion: where.Resolve's own repo-root fallback (no
-// marker, no .git) is cwd itself — so repo is never left empty just because
-// cwd sits outside version control, and a name built from it alone is still
-// usable.
+// where.Resolve's repo-root fallback is cwd itself, so repo is never empty just
+// because cwd sits outside version control, and a name built from it alone is
+// still usable.
 func TestResolvePosition_OutsideRepo_UsableDefault(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()
@@ -30,10 +28,8 @@ func TestResolvePosition_OutsideRepo_UsableDefault(t *testing.T) {
 	}
 }
 
-// TestResolvePosition_RepoMarker_UsesMarkerRootBasename proves a
-// scope="repo" marker (.claude/atomic.toml) is honored by where.Resolve —
-// cwd under (not at) the marker root still resolves to the marker root's
-// own basename, not cwd's.
+// A scope="repo" marker is honored: cwd under, not at, the marker root still
+// resolves to the marker root's basename, not cwd's.
 func TestResolvePosition_RepoMarker_UsesMarkerRootBasename(t *testing.T) {
 	home := t.TempDir()
 	root := t.TempDir()
@@ -55,9 +51,8 @@ func TestResolvePosition_RepoMarker_UsesMarkerRootBasename(t *testing.T) {
 	}
 }
 
-// TestResolvePosition_RealmMarker_CwdAtRealmRoot proves a scope="realm"
-// marker resolves realm to the realm root's own basename when cwd is that
-// root.
+// A scope="realm" marker resolves realm to the realm root's own basename when
+// cwd is that root.
 func TestResolvePosition_RealmMarker_CwdAtRealmRoot(t *testing.T) {
 	home := t.TempDir()
 	realmRoot := t.TempDir()
@@ -75,13 +70,9 @@ func TestResolvePosition_RealmMarker_CwdAtRealmRoot(t *testing.T) {
 	}
 }
 
-// TestResolvePosition_RealmMarker_OrphanedSubdirStillGetsRealm proves realm
-// is populated for any non-None RealmScope.Position, not only RealmRoot —
-// a subdirectory of a registered realm that is not itself a registered
-// member (no wiki/index.md <wiki-scan> entry) is "orphaned", not "none",
-// and the spec's own wording ("realm root basename when the session is
-// inside one") covers that case too: cwd is genuinely inside the realm's
-// directory tree.
+// realm is populated for any non-None RealmScope.Position, not only RealmRoot: a
+// subdirectory of a registered realm that is not itself a registered member is
+// "orphaned", not "none", and cwd is genuinely inside the realm's tree.
 func TestResolvePosition_RealmMarker_OrphanedSubdirStillGetsRealm(t *testing.T) {
 	home := t.TempDir()
 	realmRoot := t.TempDir()
@@ -103,10 +94,8 @@ func TestResolvePosition_RealmMarker_OrphanedSubdirStillGetsRealm(t *testing.T) 
 	}
 }
 
-// TestPosition_Name_DelegatesToStackedName proves position.name is a thin
-// wrapper over stackedName(p.realm, p.repo, as) — the collapse matrix itself
-// is covered exhaustively by TestStackedName_CollapsesDuplicateAdjacentSegments;
-// this only pins the wiring.
+// position.name is a thin wrapper over stackedName; the collapse matrix itself is
+// covered by TestStackedName_CollapsesDuplicateAdjacentSegments.
 func TestPosition_Name_DelegatesToStackedName(t *testing.T) {
 	p := position{realm: "myrealm", repo: "atomic-claude"}
 	got := p.name("backend")
@@ -116,13 +105,10 @@ func TestPosition_Name_DelegatesToStackedName(t *testing.T) {
 	}
 }
 
-// TestStackedName_CollapsesDuplicateAdjacentSegments covers the full
-// collapse matrix directly against stackedName: every segment present,
-// each segment missing in turn, a segment equal to the one before it (in
-// every position that can produce that), and every-segment-empty. Half of
-// this matrix (name-equals-repo, realm-equals-repo) is the common case once
-// --as often echoes the repo it's role-suffixing, and is exactly the case a
-// thinner test (only empty-segment coverage) would miss.
+// The full collapse matrix: every segment present, each missing in turn, a
+// segment equal to the one before it in every position that can produce that,
+// and all empty. The duplicate-segment half is the common case once --as echoes
+// the repo it is suffixing, and is what empty-segment-only coverage would miss.
 func TestStackedName_CollapsesDuplicateAdjacentSegments(t *testing.T) {
 	cases := []struct {
 		name            string

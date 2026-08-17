@@ -1,7 +1,8 @@
-/* pages/Page — the injected markdown body (.page-body) inherits its
-   typography from public/app.css's #main-pane/.md-content rules (carried).
-   This file covers only the pieces this rebuild introduces: the loading
-   skeleton, the directory listing, and the not-found view. */
+/* pages/Page — the injected markdown body carries `md-content`, so the whole
+   editorial typography set in public/app.css (serif heading scale, prose
+   rhythm, links, blockquotes, lists) applies as authored. This file covers
+   only what that set does not: the loading skeleton, the directory listing,
+   the not-found view, the column geometry, and table presentation. */
 
 .page-skeleton {
   display: flex;
@@ -36,16 +37,86 @@
   }
 }
 
-.page-breadcrumb {
-  margin-bottom: 0.75rem;
-  color: var(--ink-faint, #8a8072);
-  font-size: 0.85em;
-}
+/* ============================================================
+   DIRECTORY LISTING
+   ============================================================ */
 
 .page-dir-listing ul {
   list-style: none;
   margin: 0;
   padding: 0;
+  max-width: 860px;
+}
+
+.dir-entry + .dir-entry {
+  border-top: 1px solid var(--hairline);
+}
+
+.dir-entry-link,
+.dir-entry-link:link,
+.dir-entry-link:visited {
+  display: flex;
+  gap: 11px;
+  padding: 11px 10px;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: 0;
+  transition: background 0.12s;
+}
+
+.dir-entry-link:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.dir-entry-icon {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--ink-ghost);
+}
+
+.dir-entry-text {
+  min-width: 0;
+}
+
+.dir-entry-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dir-entry-title {
+  color: var(--amber);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* The addressable name, beside the human one — a listing that shows only the
+   title cannot tell you what to link to. */
+.dir-entry-name {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.dir-entry-badge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dir-entry-summary {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 
 .page-not-found code {
@@ -54,10 +125,106 @@
   border-radius: 3px;
 }
 
-/* Markdown tables scroll horizontally inside the content column instead of
-   overflowing into the rail. */
-.page-body table {
-  display: block;
+/* ============================================================
+   COLUMN GEOMETRY
+   ============================================================ */
+
+/* The frame is wide so tables, code, and diagrams have room. Running prose
+   is capped separately below — a 1200px paragraph is ~150 characters a line,
+   roughly twice what a reader tracks without losing their place. */
+.page-content-inner {
+  max-width: var(--page-measure, 1200px);
+}
+
+/* A route that sets --page-measure: none opts out of the measure entirely —
+   max-width takes the keyword directly, so no calc or fallback is involved. */
+
+/* The carried .md-content caps the whole container at 70ch, which caps tables
+   and code blocks along with the prose. Releasing the container and capping
+   the text elements individually is what lets a wide table use the frame while
+   a paragraph keeps its measure. */
+.page-body.md-content {
+  max-width: none;
+}
+
+/* No per-element measure cap: the frame width is the measure. Typographic
+   convention would hold running prose to ~75 characters, but these are dense
+   reference documents read at a screen rather than essays read at length,
+   and the wasted right-hand column cost more than the long line does. */
+
+/* Long inline code (paths, flags) is the main cause of horizontal overflow in
+   these docs — let it wrap at path separators rather than push the column. */
+.page-body :not(pre) > code {
+  overflow-wrap: anywhere;
+}
+
+/* Anchor targets land clear of the top edge. Aligning a heading flush with
+   the scrollport puts it hard against the header's border and clips the h2
+   marker, which app.css positions above the text baseline at top:-22px/9px —
+   so the section you jumped to opens looking cut off. */
+.page-body :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 28px;
+}
+
+/* ============================================================
+   TABLES
+   ============================================================ */
+
+/* Scrolls inside its own box instead of competing with the column for width.
+   The border makes the box read as one object, so a mid-table scroll looks
+   deliberate rather than like the layout broke. */
+.table-scroll {
   max-width: 100%;
+  margin: 20px 0 24px;
   overflow-x: auto;
+  border: 1px solid var(--hairline-2);
+  border-radius: 9px;
+  background: var(--paper-raised);
+}
+
+.table-scroll table {
+  width: 100%;
+  /* Cells size to their content and the container scrolls, rather than
+     columns crushing to fit — the failure mode that makes a wide table
+     unreadable rather than merely wide. */
+  min-width: max-content;
+  margin: 0;
+  border-collapse: collapse;
+}
+
+.table-scroll th {
+  position: sticky;
+  top: 0;
+  background: var(--paper-sunk);
+  border-bottom: 1px solid var(--hairline-2);
+  white-space: nowrap;
+}
+
+.table-scroll td {
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: top;
+}
+
+/* Zebra banding, barely there: enough to track a row across a wide table,
+   not enough to read as a second border system. */
+.table-scroll tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--ink) 2.5%, transparent);
+}
+
+.table-scroll tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Table cells are dense and often full of identifiers — a slightly smaller,
+   tighter line than body prose keeps rows scannable. */
+.table-scroll th,
+.table-scroll td {
+  padding: 9px 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.table-scroll td code {
+  font-size: 12px;
+  white-space: nowrap;
 }

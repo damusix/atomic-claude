@@ -7,19 +7,18 @@ import (
 	"strings"
 )
 
-// ParseEnvFile reads a KEY=VALUE file into entries shaped for exec.Cmd.Env,
-// in file order — so a repeated key resolves the way the process environment
-// already resolves one, last wins.
+// ParseEnvFile reads a KEY=VALUE file into entries shaped for exec.Cmd.Env, in
+// file order, so a repeated key resolves the way the process environment already
+// does: last wins.
 //
-// The grammar is deliberately the small one: blank lines and lines whose first
-// non-blank character is '#' are skipped; the first '=' splits; surrounding
-// whitespace is trimmed; a fully single- or double-quoted value is unquoted
-// once. There is no variable expansion and no inline-comment stripping — a
-// value is the literal rest of the line, because guessing where a value ends is
-// how a secret ends up truncated at the '#' inside it.
+// The grammar is deliberately small: blank and '#'-leading lines are skipped,
+// the first '=' splits, surrounding whitespace is trimmed, and a fully quoted
+// value is unquoted once. No variable expansion and no inline-comment stripping
+// — a value is the literal rest of the line, because guessing where a value ends
+// is how a secret gets truncated at the '#' inside it.
 //
 // A line that is neither blank, a comment, nor an assignment is an error naming
-// its number. Skipping it would hand back a session silently missing a variable
+// its number: skipping it would hand back a session silently missing a variable
 // the eval'd code needs.
 func ParseEnvFile(path string) ([]string, error) {
 	file, err := os.Open(path)
@@ -56,8 +55,7 @@ func ParseEnvFile(path string) ([]string, error) {
 }
 
 // unquote strips one matching pair of surrounding quotes. An unmatched quote is
-// left in place: it is more likely part of the value than a typo worth guessing
-// at.
+// left in place: more likely part of the value than a typo worth guessing at.
 func unquote(value string) string {
 	if len(value) < 2 {
 		return value

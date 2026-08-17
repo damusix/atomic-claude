@@ -6,8 +6,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// TestExitCodeTable covers the spec table:
-// 0 = all PASS, 0 = mix PASS/WARN, 0 = all SKIP, 1 = any FAIL.
 func TestExitCodeTable(t *testing.T) {
 	cases := []struct {
 		name     string

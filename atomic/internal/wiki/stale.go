@@ -1,22 +1,12 @@
 package wiki
 
-// stale.go — CP4 read-only freshness comparator for `atomic wiki stale`.
+// Read-only freshness comparator for `atomic wiki stale`. It re-walks the root
+// and compares against the recorded <wiki-scan> block, reporting membership
+// drift and per-artifact content drift.
 //
-// Stale re-walks the root (reusing discoverMembers + classifyMembers), parses
-// the recorded <wiki-scan> block from wiki/index.md, then reports:
-//
-//   - Membership drift: added (in tree, not in block), removed (in block, not
-//     in tree), status flip (recorded status ≠ current status).
-//
-//   - Per-artifact content drift:
-//     • repos/<repo>.md: reads reflects_rev, compares to current git HEAD of
-//       that repo. Missing/unparseable → stale. No HEAD → stale (not error).
-//     • concerns/<concern>.md: reads reflects: list; for each <id>@<fp> entry
-//       recomputes the current fingerprint (HEAD SHA for summarized, signals.md
-//       sha256 for indexed) and compares. Garbled entry → stale.
-//
-// Output: one line per finding, literal prefixes as required by the spec.
-// Exit codes (returned by Stale): 0 fresh, 1 stale, 2 hard error.
+// Everything unverifiable is fail-safe: a missing, unreadable, or garbled
+// fingerprint reports stale rather than fresh, because a page whose baseline
+// cannot be read cannot be proven current.
 
 import (
 	"fmt"
@@ -36,24 +26,14 @@ const (
 	StaleCodeError = 2
 )
 
-// Stale is the entry point for `atomic wiki stale`.
-// It writes DRIFT/STALE data lines to out and returns an exit code plus any
-// hard error. Hard errors (wiki/ absent, unreadable index, git missing, etc.)
-// are returned as a non-nil error so the caller can route them to stderr
-// separately from the structured data stream. Only DRIFT/STALE lines are
-// written to out — diagnostic error text is never mixed into the data stream.
-// It is read-only — it never modifies any file.
-//
-// Return values:
-//
-//	(0, nil)   — fresh; no DRIFT/STALE lines emitted
-//	(1, nil)   — stale; one or more DRIFT/STALE lines emitted
-//	(2, error) — hard error; no DRIFT/STALE lines emitted; caller prints error
+// Stale writes DRIFT/STALE lines to out and returns 0 fresh / 1 stale /
+// 2 hard error. Only data lines reach out; a hard error comes back as an error
+// value so the caller can route diagnostics to stderr without polluting the
+// stream. It modifies nothing.
 func Stale(root string, out io.Writer) (int, error) {
 	wikiDir := filepath.Join(root, "wiki")
 	indexPath := filepath.Join(wikiDir, "index.md")
 
-	// Hard-error guard: wiki/ or index.md absent means we can't operate.
 	if _, err := os.Lstat(wikiDir); err != nil {
 		return StaleCodeError, fmt.Errorf("wiki/ not found at %s", wikiDir)
 	}
@@ -66,27 +46,22 @@ func Stale(root string, out io.Writer) (int, error) {
 		return StaleCodeError, fmt.Errorf("read index.md: %w", err)
 	}
 
-	// Parse the <wiki-scan> block.
 	block := extractBlockContent(string(data))
 	if block == "" {
 		return StaleCodeError, fmt.Errorf("no <wiki-scan> block in %s", indexPath)
 	}
 
-	// Build a map of recorded members from the block.
 	recorded := parseBlockMembers(block)
 
-	// Re-walk the root to get current membership.
 	current, err := discoverMembers(root, wikiDir)
 	if err != nil {
 		return StaleCodeError, fmt.Errorf("discover members: %w", err)
 	}
 
-	// Classify current members (read-only; Scan writes — we only read here).
-	// Use an empty prior map because we want the live classification, not a
-	// preservation of prior summarized state — the block already records that.
+	// Nil prior map: we want live classification, not preserved summarized
+	// state — the block already records what was claimed.
 	classified := classifyMembers(root, wikiDir, current, nil)
 
-	// Build current set indexed by path.
 	currentByPath := map[string]Member{}
 	for _, m := range classified {
 		currentByPath[m.Path] = m
@@ -95,9 +70,7 @@ func Stale(root string, out io.Writer) (int, error) {
 	var lines []string
 	stale := false
 
-	// --- 1. Membership / status drift ---
-
-	// Removed: in block but not in current tree.
+	// Membership and status drift.
 	for path := range recorded {
 		if _, ok := currentByPath[path]; !ok {
 			lines = append(lines, fmt.Sprintf("DRIFT removed %s", path))
@@ -105,7 +78,6 @@ func Stale(root string, out io.Writer) (int, error) {
 		}
 	}
 
-	// Added + status drift: in current tree.
 	for _, m := range classified {
 		rec, inBlock := recorded[m.Path]
 		if !inBlock {
@@ -113,33 +85,27 @@ func Stale(root string, out io.Writer) (int, error) {
 			stale = true
 			continue
 		}
-		// Status drift: only compare when neither is summarized (summarized is
-		// an extra state written by /refresh-wiki, not by scan).
 		if rec.status != m.Status {
 			lines = append(lines, fmt.Sprintf("DRIFT status %s %s→%s", m.Path, rec.status, m.Status))
 			stale = true
 		}
 	}
 
-	// --- 2. Per-artifact content drift ---
-
-	// 2a. Summary files (repos/<name>.md).
+	// Summary drift: each repos/*.md against its repo's git HEAD.
 	reposDir := filepath.Join(wikiDir, "repos")
 	repoFiles, _ := filepath.Glob(filepath.Join(reposDir, "*.md"))
-	// Also check sub-dirs (domain-split repos use repos/<repo>/<domain>.md).
+	// Domain-split repos live at repos/<repo>/<domain>.md.
 	subRepoFiles, _ := filepath.Glob(filepath.Join(reposDir, "*", "*.md"))
 	repoFiles = append(repoFiles, subRepoFiles...)
 
 	for _, fp := range repoFiles {
-		// wikiRel is relative to root (e.g. "wiki/repos/repoA.md").
 		wikiRel, err := filepath.Rel(root, fp)
 		if err != nil {
 			wikiRel = fp
 		}
 		wikiPath := wikiRel
 
-		// summaryRel is relative to wikiDir (e.g. "repos/repoA.md" or
-		// "repos/beta/design.md") — the form Member.SummaryPath is recorded in.
+		// Relative to wikiDir — the form Member.SummaryPath is recorded in.
 		summaryRel, err := filepath.Rel(wikiDir, fp)
 		if err != nil {
 			lines = append(lines, fmt.Sprintf("STALE summary %s", wikiPath))
@@ -149,7 +115,6 @@ func Stale(root string, out io.Writer) (int, error) {
 
 		memberPath, resolved := resolveSummaryMember(summaryRel, classified)
 		if !resolved {
-			// Orphaned or ambiguous summary → stale (fail-safe).
 			lines = append(lines, fmt.Sprintf("STALE summary %s", wikiPath))
 			stale = true
 			continue
@@ -158,7 +123,6 @@ func Stale(root string, out io.Writer) (int, error) {
 
 		doc, readErr := os.ReadFile(fp)
 		if readErr != nil {
-			// Unreadable → stale (fail-safe).
 			lines = append(lines, fmt.Sprintf("STALE summary %s", wikiPath))
 			stale = true
 			continue
@@ -166,7 +130,6 @@ func Stale(root string, out io.Writer) (int, error) {
 
 		meta, _, parseErr := frontmatter.Parse(string(doc))
 		if parseErr != nil || meta == nil {
-			// No frontmatter / parse error → stale (fail-safe).
 			lines = append(lines, fmt.Sprintf("STALE summary %s", wikiPath))
 			stale = true
 			continue
@@ -174,7 +137,6 @@ func Stale(root string, out io.Writer) (int, error) {
 
 		reflectsRev, ok := meta["reflects_rev"]
 		if !ok {
-			// Missing reflects_rev → stale.
 			lines = append(lines, fmt.Sprintf("STALE summary %s", wikiPath))
 			stale = true
 			continue
@@ -187,10 +149,9 @@ func Stale(root string, out io.Writer) (int, error) {
 			continue
 		}
 
-		// Compare to current HEAD. No HEAD → stale (not error).
+		// A repo with no HEAD is stale, never a hard error.
 		currentSHA, gitErr := gitRevParseHead(repoDir)
 		if gitErr != nil {
-			// No HEAD or git error → always-needs-summary.
 			lines = append(lines, fmt.Sprintf("STALE summary %s", wikiPath))
 			stale = true
 			continue
@@ -202,12 +163,11 @@ func Stale(root string, out io.Writer) (int, error) {
 		}
 	}
 
-	// 2b. Concern files (concerns/<name>.md).
+	// Concern drift: each reflects: entry against its source's live fingerprint.
 	concernsDir := filepath.Join(wikiDir, "concerns")
 	concernFiles, _ := filepath.Glob(filepath.Join(concernsDir, "*.md"))
 
 	for _, fp := range concernFiles {
-		// wikiRel is relative to root (e.g. "wiki/concerns/foo.md").
 		wikiRel, err := filepath.Rel(root, fp)
 		if err != nil {
 			wikiRel = fp
@@ -223,9 +183,6 @@ func Stale(root string, out io.Writer) (int, error) {
 
 		meta, _, parseErr := frontmatter.Parse(string(doc))
 		if parseErr != nil || meta == nil {
-			// No frontmatter or unparseable frontmatter → stale (fail-safe).
-			// A concern with no recorded fingerprint baseline can't be proven
-			// fresh — re-author it.
 			lines = append(lines, fmt.Sprintf("STALE concern %s", wikiPath))
 			stale = true
 			continue
@@ -233,8 +190,6 @@ func Stale(root string, out io.Writer) (int, error) {
 
 		rawReflects, ok := meta["reflects"]
 		if !ok {
-			// No reflects: key → stale (fail-safe). Same rationale: no baseline
-			// means freshness can't be verified.
 			lines = append(lines, fmt.Sprintf("STALE concern %s", wikiPath))
 			stale = true
 			continue
@@ -242,7 +197,6 @@ func Stale(root string, out io.Writer) (int, error) {
 
 		entries, ok := rawReflects.([]any)
 		if !ok {
-			// Garbled → stale.
 			lines = append(lines, fmt.Sprintf("STALE concern %s", wikiPath))
 			stale = true
 			continue
@@ -251,16 +205,14 @@ func Stale(root string, out io.Writer) (int, error) {
 		for _, entry := range entries {
 			entryStr, ok := entry.(string)
 			if !ok {
-				// Garbled entry → stale.
 				lines = append(lines, fmt.Sprintf("STALE concern %s", wikiPath))
 				stale = true
 				break
 			}
 
-			// Format: "<id>@<fingerprint>"
+			// Entries are "<id>@<fingerprint>".
 			at := strings.LastIndex(entryStr, "@")
 			if at == -1 || at == 0 || at == len(entryStr)-1 {
-				// Malformed entry → stale.
 				lines = append(lines, fmt.Sprintf("STALE concern %s", wikiPath))
 				stale = true
 				break
@@ -269,16 +221,13 @@ func Stale(root string, out io.Writer) (int, error) {
 			id := entryStr[:at]
 			recordedFP := entryStr[at+1:]
 
-			// Resolve current fingerprint.
-			// Knowledge-page ids ("knowledge/<topic>.md") are relative to wikiDir;
-			// repo ids are relative to the realm root.
+			// Knowledge-page ids resolve against wikiDir; repo ids against root.
 			resolveRoot := root
 			if strings.HasPrefix(id, "knowledge/") && strings.HasSuffix(id, ".md") {
 				resolveRoot = wikiDir
 			}
 			currentFP, ok := resolveFingerprint(resolveRoot, id)
 			if !ok {
-				// Can't resolve → stale (fail-safe).
 				lines = append(lines, fmt.Sprintf("STALE concern %s (%s)", wikiPath, id))
 				stale = true
 				break
@@ -292,20 +241,8 @@ func Stale(root string, out io.Writer) (int, error) {
 		}
 	}
 
-	// --- 3. Bucket staleness ---
-	//
-	// Read the <wiki-buckets> block from wiki/index.md (already loaded in data).
-	// For each registered bucket, run bucketDiffReadOnly. If the diff is non-empty,
-	// emit a "STALE bucket <name>" line. This is entirely read-only — no current
-	// manifest file is written.
-	//
-	// A realm with no <wiki-buckets> block, or a declined="true" empty block,
-	// produces zero bucket lines (parseBucketEntries returns nil in both cases).
-	//
-	// Walk/I/O errors (e.g. unreadable bucket dir) are escalated to exit 2
-	// consistent with the stale exit-code contract: exit 2 = hard error. A walk
-	// error means freshness cannot be determined, so emitting a fake STALE line
-	// would misrepresent the cause.
+	// Bucket drift. A walk error escalates to exit 2 instead of a STALE line:
+	// freshness is undetermined, and a STALE line would misstate the cause.
 	bucketEntries := parseBucketEntries(string(data))
 	var bucketLines []string
 	for _, be := range bucketEntries {
@@ -319,9 +256,8 @@ func Stale(root string, out io.Writer) (int, error) {
 		}
 	}
 
-	// Emit sections 1-2 (DRIFT/STALE repo/concern/summary) sorted first, then
-	// bucket lines sorted among themselves.  Spec requires bucket lines to appear
-	// after all repo/concern/summary lines so the sections remain distinct.
+	// Bucket lines sort among themselves and always follow the rest, so the
+	// two sections stay distinct in the output stream.
 	sort.Strings(lines)
 	sort.Strings(bucketLines)
 	for _, l := range lines {
@@ -337,16 +273,10 @@ func Stale(root string, out io.Writer) (int, error) {
 	return StaleCodeFresh, nil
 }
 
-// resolveSummaryMember resolves a summary file to the Member that owns it.
-// summaryRel is the summary's path relative to wikiDir (e.g. "repos/alpha.md"
-// or "repos/beta/design.md") — the same form Member.SummaryPath is recorded
-// in. Returns the owning Member.Path and true, or ("", false) when the
-// summary cannot be resolved. See docs/spec/wiki-stale-summary-resolution.md
-// "Approach" for the rationale behind each step.
+// resolveSummaryMember maps a wikiDir-relative summary path to its owning
+// Member.Path. See docs/spec/wiki-stale-summary-resolution.md.
 func resolveSummaryMember(summaryRel string, classified []Member) (string, bool) {
-	// Step 1: claimed match — a member whose SummaryPath equals summaryRel
-	// (flat form) or is the directory prefix of summaryRel (split form).
-	// This is authoritative: it matches what scan wrote.
+	// A claimed SummaryPath is authoritative: it is what scan wrote.
 	for _, m := range classified {
 		if m.SummaryPath == "" {
 			continue
@@ -359,11 +289,9 @@ func resolveSummaryMember(summaryRel string, classified []Member) (string, bool)
 		}
 	}
 
-	// Step 2: base-name fallback — the exact inverse of discoverSummary's
-	// naming convention. classifyMembers rule 2 (indexed) outranks rule 3
-	// (summarized), so a graduated member carries an empty SummaryPath even
-	// when a leftover summary file is still on disk; without this fallback
-	// such a summary resolves to nothing and reports a false STALE.
+	// Fall back to discoverSummary's naming convention, inverted: a graduated
+	// member carries an empty SummaryPath even with a leftover summary on
+	// disk, and without this that summary would report a false STALE.
 	stem := summaryStem(summaryRel)
 	if stem == "" {
 		return "", false
@@ -379,14 +307,12 @@ func resolveSummaryMember(summaryRel string, classified []Member) (string, bool)
 		return match, true
 	}
 
-	// Step 3: unresolved — no claim and zero or ambiguous base-name matches.
-	// Fail-safe: report stale rather than guess.
+	// Zero or ambiguous matches: report stale rather than guess.
 	return "", false
 }
 
-// summaryStem extracts the repo base name a summary file was named for —
-// the inverse of discoverSummary: "repos/<name>.md" and
-// "repos/<name>/<domain>.md" both yield "<name>".
+// summaryStem recovers the repo base name from a summary path: both
+// "repos/<name>.md" and "repos/<name>/<domain>.md" yield "<name>".
 func summaryStem(summaryRel string) string {
 	rel := strings.TrimPrefix(summaryRel, "repos/")
 	if rel == summaryRel {
@@ -398,9 +324,7 @@ func summaryStem(summaryRel string) string {
 	return strings.TrimSuffix(rel, ".md")
 }
 
-// parseBlockMembers parses the content inside a <wiki-scan> block and returns
-// a map of relative repo path → priorEntry.
-// This is the block-READER counterpart to the block WRITER in wiki.go.
+// parseBlockMembers is the read counterpart to wiki.go's block writer.
 func parseBlockMembers(blockContent string) map[string]priorEntry {
 	entries := map[string]priorEntry{}
 	for _, line := range strings.Split(blockContent, "\n") {

@@ -169,6 +169,7 @@ export default defineConfig({
                     { text: 'Serve', link: '/reference/serve' },
                     { text: 'Inter-session Bus', link: '/reference/bus' },
                     { text: 'REPL', link: '/reference/repl' },
+                    { text: 'Repo config (atomic.toml)', link: '/reference/atomic-toml' },
                     { text: 'Conventions', link: '/reference/conventions' },
                 ],
             },

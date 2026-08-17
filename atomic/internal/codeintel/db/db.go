@@ -1,24 +1,9 @@
 // Package db opens and initialises the code-intelligence SQLite database.
 //
-// # Single-connection mandate
-//
-// Go's database/sql pools connections, which breaks two invariants:
-//   - PRAGMA foreign_keys=ON is per-connection; a pooled connection that skips
-//     the pragma silently drops ON DELETE CASCADE.
-//   - PRAGMA busy_timeout must be the first pragma applied (appendix O).
-//
-// To enforce a single physical connection:
-//   - SetMaxOpenConns(1) — at most one connection is ever opened.
-//   - SetMaxIdleConns(1) — the one connection is kept alive (not recycled).
-//
-// All seven pragmas from appendix O are applied in exact order immediately
-// after the connection opens, before any schema DDL.
-//
-// # Schema
-//
-// schema.sql is embedded via go:embed and executed idempotently (all
-// statements use IF NOT EXISTS). The DB struct exposes the underlying
-// *sql.DB for callers that need to execute queries directly.
+// It pins database/sql to exactly one physical connection. Pooling would break
+// two invariants: PRAGMA foreign_keys is per-connection, so a pooled
+// connection that skipped it would silently drop ON DELETE CASCADE, and
+// busy_timeout must be the first pragma applied.
 package db
 
 import (
@@ -41,26 +26,21 @@ type DB struct {
 	db *sql.DB
 }
 
-// Open opens (or creates) the SQLite database at path, applies the
-// appendix-O pragma sequence in exact order on the single connection, runs
-// the embedded schema idempotently, and writes the schema_version row.
-//
-// The caller must call Close when done.
+// Open creates or opens the database at path, applies the pragma sequence,
+// runs the schema, and migrates. The caller must Close it.
 func Open(path string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("codeintel/db: create parent dir: %w", err)
 	}
 
-	// Use the bare file: URI so we control every pragma ourselves in order.
-	// Appendix O is explicit: busy_timeout FIRST, then the rest. Mixing some
-	// into the DSN and some into exec would make the order ambiguous.
+	// A bare file: URI, so every pragma is applied by applyPragmas in a known
+	// order. Splitting them between the DSN and exec would make it ambiguous.
 	sqldb, err := sql.Open("sqlite", "file:"+path+"?_txlock=immediate")
 	if err != nil {
 		return nil, fmt.Errorf("codeintel/db: open: %w", err)
 	}
 
-	// Enforce one physical connection — the FK pragma is per-connection; with
-	// more than one connection any extra conn silently skips it.
+	// One physical connection, kept alive: see the package doc.
 	sqldb.SetMaxOpenConns(1)
 	sqldb.SetMaxIdleConns(1)
 
@@ -72,20 +52,18 @@ func Open(path string) (*DB, error) {
 	return d, nil
 }
 
-// DB returns the underlying *sql.DB. Callers may use it directly for queries
-// but must not change the connection-pool settings.
+// DB exposes the handle for direct queries. Callers must not touch the
+// connection-pool settings.
 func (d *DB) DB() *sql.DB {
 	return d.db
 }
 
-// Close closes the underlying database connection.
 func (d *DB) Close() error {
 	return d.db.Close()
 }
 
-// Optimize runs PRAGMA optimize and PRAGMA wal_checkpoint(PASSIVE). Call this
-// after bulk write operations (e.g. after a full index run) to flush FTS5
-// internal state and reclaim WAL space.
+// Optimize flushes FTS5 internal state and reclaims WAL space. Call it after
+// bulk writes, such as a full index run.
 func (d *DB) Optimize(ctx context.Context) error {
 	if _, err := d.db.ExecContext(ctx, "PRAGMA optimize"); err != nil {
 		return fmt.Errorf("codeintel/db: PRAGMA optimize: %w", err)
@@ -96,14 +74,8 @@ func (d *DB) Optimize(ctx context.Context) error {
 	return nil
 }
 
-// init applies the pragma sequence, runs the schema, and runs migrations.
-// Called once during Open.
-//
-// Order is load-bearing:
-//  1. applyPragmas — busy_timeout first; FK on; WAL; etc.
-//  2. runSchema    — idempotent CREATE IF NOT EXISTS for all tables/indexes.
-//  3. Migrate      — creates schema_versions, seeds baseline, applies any
-//     pending migrations, and syncs project_metadata.schema_version.
+// init runs once during Open. The order is load-bearing: pragmas must precede
+// any DDL, and the schema must exist before migrations run against it.
 func (d *DB) init(ctx context.Context) error {
 	if err := d.applyPragmas(ctx); err != nil {
 		return err
@@ -117,17 +89,9 @@ func (d *DB) init(ctx context.Context) error {
 	return nil
 }
 
-// applyPragmas executes the appendix-O pragma sequence in exact order on the
-// single connection. The order is load-bearing:
-//  1. busy_timeout — must be first so all subsequent pragmas (and schema DDL)
-//     wait on lock contention instead of failing immediately.
-//  2. foreign_keys — enables ON DELETE CASCADE; per-connection, so it must be
-//     applied before any DML.
-//  3. journal_mode=WAL — switches to write-ahead logging.
-//  4. synchronous=NORMAL — trades some durability for write throughput.
-//  5. cache_size=-64000 — 64 MB page cache (negative = kibibytes).
-//  6. temp_store=MEMORY — temp tables in RAM.
-//  7. mmap_size=268435456 — 256 MB memory-mapped I/O.
+// applyPragmas runs the sequence in order. busy_timeout must come first so
+// everything after it waits on lock contention instead of failing outright,
+// and foreign_keys must land before any DML for CASCADE to hold.
 func (d *DB) applyPragmas(ctx context.Context) error {
 	pragmas := []string{
 		"PRAGMA busy_timeout=5000",
@@ -146,8 +110,7 @@ func (d *DB) applyPragmas(ctx context.Context) error {
 	return nil
 }
 
-// runSchema executes the embedded schema.sql. All statements use IF NOT EXISTS
-// so this is idempotent — safe to call on an existing database.
+// runSchema is idempotent: every statement in schema.sql uses IF NOT EXISTS.
 func (d *DB) runSchema(ctx context.Context) error {
 	if _, err := d.db.ExecContext(ctx, schemaSQL); err != nil {
 		return fmt.Errorf("codeintel/db: run schema: %w", err)

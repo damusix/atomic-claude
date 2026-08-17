@@ -71,7 +71,7 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 6 | `followups`      | If `.claude/project/followups.md` exists, every `### F-<id>` entry has an `Origin:` line and a severity bucket. | WARN |
 | 7 | `memory`         | `~/.claude/projects/<project>/memory/MEMORY.md` link targets all resolve (file exists in same dir). | WARN |
 | 8 | `binary`         | `atomic update --check` succeeds without performing update. | WARN |
-| 9 | `config`         | `~/.atomic/config.toml` parses + validates; `~/.atomic/config.resolved.md` matches render of TOML (byte-stable). Parse error → FAIL; invalid enum value → FAIL; unknown keys → WARN; drifted/missing resolved.md → WARN. | WARN by default; FAIL for parse error or invalid value |
+| 9 | `config`         | `~/.atomic/config.toml` parses + validates. Parse error → FAIL; invalid enum value → FAIL; unknown keys → WARN. Not auto-fixable — both remedies (edit the file, `atomic config unset <key>`) are the user's. | WARN by default; FAIL for parse error or invalid value |
 | 10 | `profile`       | `~/.atomic/profile.md` exists; `@~/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (same search order as `refs`: `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` / `claude.md`); `<deterministic lastcheck=YYYY-MM-DD>` attribute is present and within the last 30 days. Missing file → WARN; missing @-ref → WARN; missing or stale lastcheck → WARN; a candidate file still carrying the legacy `@~/.claude/.atomic/profile.md` ref → WARN naming `atomic claude install`. | WARN |
 | 11 | `code-index`    | `<projectRoot>/.claude/.atomic-index/atomic.db` freshness check. **Absence is normal — the index is opt-in — and reports PASS (informational).** DB present + mtime older than `--stale-days` (default 7) → WARN with `run 'atomic code sync'`. DB present + fresh → PASS with age detail. **Never FAIL.** | WARN |
 | 12 | `migrate`       | Combines two conditions into one Result (combined-detail style, as `config` does): (a) version drift — `[install].version` in `~/.atomic/config.toml` older than the running binary → WARN naming the pending migration, `Remediation: atomic migrate`; (b) legacy state dir — `~/.claude/.atomic` still a real directory (not the compat symlink left by a completed migration) → WARN naming the path and that migration runs automatically on any `atomic` verb invocation. Severity is the worst of the two; detail concatenates whichever condition(s) fired. Neither firing → PASS. | WARN |
@@ -212,6 +212,11 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 | 2 | Doctor itself errored (cannot read state, conflicting flags, missing required dependency). |
 
 
+Under `--fix` the code reflects the state *after* repairs. Repairs mutate what the checks examined, so the pre-repair verdict is stale by the time the process exits, and a caller gating CI on `--fix` must be able to tell "found problems and fixed them" from "still broken". Every check re-runs once the repair pass completes and the second verdict is what the process exits with.
+
+Two guards bound the cost and the honesty of that second pass: it is skipped entirely when no repair was applied, and a re-check that itself errors keeps the pre-repair verdict rather than reporting a healthy state nobody managed to observe. The printed report is always the pre-repair one, so under `--fix` the report and the exit code may legitimately disagree.
+
+
 ## Checkpoints
 
 
@@ -276,6 +281,15 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 **What changed:** New check category 9 (`config`) verifies `~/.claude/.atomic/config.toml` parses + validates and that `~/.claude/.atomic/config.resolved.md` matches the TOML render. `--fix` re-renders the resolved view on drift (WARN). Parse errors and invalid enum values are reported as non-fixable FAIL.
 
 **Why:** Spec `docs/spec/atomic-state-and-config.md` introduces user-persistent config storage delivered to every session via an `@-ref` from `CLAUDE.md` to `~/.claude/.atomic/config.resolved.md`. The new check ensures coherence between the TOML source and the rendered view, and catches values that would otherwise be silently injected into Claude sessions.
+
+
+### 2026-08-14 — Category 9 drops the drift half
+
+**What changed:** Category 9 validates `config.toml` only: parse errors and invalid values FAIL, unknown keys WARN. The `config.resolved.md` comparison is gone with the file itself, and so is the category's `--fix` repair — neither remaining condition can be auto-fixed, since editing the TOML or running `atomic config unset <key>` is the user's call.
+
+**Why:** `docs/spec/atomic-state-and-config.md` removes the rendered view. A drift check against a file that no longer exists has nothing to compare.
+
+**Superseded:** the 2026-05-20 entry above describes the drift comparison and the `--fix` re-render as current behavior; both are removed.
 
 
 ## Implementation log
@@ -411,3 +425,11 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Why:** Checkpoint 4 of `docs/spec/atomic-repl.md` — the idle window resolves repo-first with a user-level fallback, and both scopes needed their invalid-value case surfaced to a human rather than silently degrading to `internal/repl`'s own `DefaultIdleTimeout` fallback.
 
 **Superseded:** Prior body described scope-marker and ignore-pattern/`[code]` validation only, with no mention of `[repl] idle_timeout`.
+
+### 2026-08-15 — `--fix` exits on the post-repair state
+
+**What changed:** Under `--fix`, every check re-runs after the repair pass and the second verdict becomes the process exit code. The re-check is skipped when no repair was applied, and one that errors keeps the pre-repair verdict. The printed report stays pre-repair, so report and exit code may legitimately disagree under `--fix`.
+
+**Why:** The pre-repair code collapsed "found problems and fixed them" and "still broken" to the same value 1, so a CI job gating on `atomic doctor --fix` could not distinguish them and always needed a second invocation to confirm green.
+
+**Superseded:** The exit code was computed once, before repairs ran, and a `--fix` run that successfully repaired every FAIL still exited 1.

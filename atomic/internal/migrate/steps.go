@@ -9,7 +9,6 @@ import (
 )
 
 func init() {
-	// Register repo-scope migrations in ascending TargetVersion order.
 	Registry = append(Registry, Migration{
 		TargetVersion: "1.0.0",
 		Scope:         "repo",
@@ -17,34 +16,22 @@ func init() {
 	})
 }
 
-// relocateSignalsToWiki is the first repo-scope migration step (v1.0.0).
-// It moves the signals files from .claude/project/ to docs/wiki/ and rewires
-// the @-ref in CLAUDE.md / claude.local.md / CLAUDE.local.md.
-//
-// Guards (checked in order):
-//  1. docs/wiki/index.md exists AND contains <wiki-type> → fully migrated, return nil.
-//  2. docs/wiki/index.md does not exist AND .claude/project/signals.md does not exist
-//     → no old layout present, return nil.
-//
-// Partial-failure recovery: when docs/wiki/index.md exists without <wiki-type>,
-// the migration is incomplete. The step resumes and finishes it; all moves and
-// content writes are idempotent.
-//
-// The <wiki-type> sentinel is written last so it only appears on full success.
+// relocateSignalsToWiki moves signals from .claude/project/ to docs/wiki/ and
+// rewires the @-ref. Every move and write is idempotent, and the <wiki-type>
+// sentinel is written last, so a crashed run resumes and finishes cleanly.
 func relocateSignalsToWiki(ctx *Context) error {
 	root := ctx.Root
 
 	newIndex := filepath.Join(root, "docs", "wiki", "index.md")
 	oldIndex := filepath.Join(root, ".claude", "project", "signals.md")
 
-	// Guard 1: fully migrated — sentinel <wiki-type> present → no-op.
 	if data, err := os.ReadFile(newIndex); err == nil {
 		if strings.Contains(string(data), "<wiki-type>") {
 			return nil
 		}
 	}
 
-	// Guard 2: no new index AND no old layout → not an atomic repo, no-op.
+	// Neither layout present: not an atomic repo.
 	if !fileExists(newIndex) {
 		if _, err := os.Stat(oldIndex); os.IsNotExist(err) {
 			return nil
@@ -53,18 +40,15 @@ func relocateSignalsToWiki(ctx *Context) error {
 		}
 	}
 
-	// Ensure target directory exists.
 	wikiDir := filepath.Join(root, "docs", "wiki")
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		return fmt.Errorf("migrate signals→wiki: mkdir docs/wiki: %w", err)
 	}
 
-	// Move signals.md → docs/wiki/index.md (idempotent: skips when already moved).
 	if err := moveFile(oldIndex, newIndex); err != nil {
 		return fmt.Errorf("migrate signals→wiki: move signals.md: %w", err)
 	}
 
-	// Move domain files: .claude/project/signals/*.md → docs/wiki/*.md (idempotent).
 	domainDir := filepath.Join(root, ".claude", "project", "signals")
 	if info, err := os.Stat(domainDir); err == nil && info.IsDir() {
 		entries, err := os.ReadDir(domainDir)
@@ -83,7 +67,6 @@ func relocateSignalsToWiki(ctx *Context) error {
 		}
 	}
 
-	// Move deterministic-signals.md → docs/wiki/scan.md when present (idempotent).
 	detSig := filepath.Join(root, ".claude", "project", "deterministic-signals.md")
 	if _, err := os.Stat(detSig); err == nil {
 		scanDst := filepath.Join(wikiDir, "scan.md")
@@ -92,21 +75,14 @@ func relocateSignalsToWiki(ctx *Context) error {
 		}
 	}
 
-	// Prepend type: Domain frontmatter to domain files, excluding index.md and
-	// scan.md. Idempotent: skips files that already have a frontmatter fence.
 	if err := addDomainFrontmatter(wikiDir, newIndex); err != nil {
 		return fmt.Errorf("migrate signals→wiki: add domain frontmatter: %w", err)
 	}
 
-	// Rewire @.claude/project/signals.md → @docs/wiki/index.md in root config
-	// files. Idempotent: skips files where the old ref is already absent.
 	if err := rewireAtRef(root); err != nil {
 		return fmt.Errorf("migrate signals→wiki: rewire @-ref: %w", err)
 	}
 
-	// Write the sentinel LAST: only after all other steps succeed.
-	// Guard 1 uses <wiki-type> to confirm a complete migration; writing it last
-	// ensures a crash before this point leaves the migration resumable.
 	if err := prependWikiIndexHeader(newIndex); err != nil {
 		return fmt.Errorf("migrate signals→wiki: prepend header to index.md: %w", err)
 	}
@@ -114,18 +90,13 @@ func relocateSignalsToWiki(ctx *Context) error {
 	return nil
 }
 
-// fileExists reports whether path exists (any type).
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
 
-// moveFile moves src to dst, creating parent directories as needed.
-// Idempotency contract:
-//   - dst exists AND src exists  → error (refuse to clobber an unrelated file)
-//   - dst exists AND src absent  → nil (move already completed on a prior run)
-//   - src exists AND dst absent  → rename (normal move)
-//   - src absent AND dst absent  → nil (nothing to do)
+// moveFile is a replayable rename: a missing src is a no-op (the move already
+// happened), but src and dst both existing is an error rather than a clobber.
 func moveFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
@@ -139,15 +110,13 @@ func moveFile(src, dst string) error {
 		return fmt.Errorf("moveFile: %s already exists and %s also exists; refusing to overwrite", dst, src)
 	}
 	if !srcExists {
-		// dst exists (move already done) or neither exists (nothing to do).
 		return nil
 	}
-	// src exists, dst absent: normal rename.
 	return os.Rename(src, dst)
 }
 
-// writeFileAtomic writes data to path via write-to-temp + rename, so concurrent
-// readers always see a complete file rather than a partial write.
+// writeFileAtomic writes via temp + rename so a concurrent reader never sees a
+// partial file.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".migrate-*.tmp")
@@ -176,24 +145,13 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// prependWikiIndexHeader prepends OKF frontmatter and machine control blocks
-// to index.md. Skips silently when <wiki-type> is already present (idempotent).
-//
-// Written header:
-//
-//	---
-//	type: Index
-//	---
-//
-//	<wiki-type>repo</wiki-type>
-//	<scan-sha></scan-sha>
-//	<wiki-schema>1</wiki-schema>
+// prependWikiIndexHeader adds OKF frontmatter and the machine control blocks,
+// skipping when <wiki-type> is already present.
 func prependWikiIndexHeader(indexPath string) error {
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
 		return err
 	}
-	// Already has a wiki-type block: skip to stay idempotent.
 	if strings.Contains(string(data), "<wiki-type>") {
 		return nil
 	}
@@ -204,9 +162,8 @@ func prependWikiIndexHeader(indexPath string) error {
 	return writeFileAtomic(indexPath, append([]byte(header), data...), 0o644)
 }
 
-// addDomainFrontmatter prepends `type: Domain` OKF frontmatter to every .md
-// file in wikiDir, excluding indexPath and scan.md (raw machine output).
-// Skips files that already start with a YAML frontmatter fence (---).
+// addDomainFrontmatter stamps `type: Domain` on every .md in wikiDir except
+// indexPath and scan.md, which is raw machine output.
 func addDomainFrontmatter(wikiDir, indexPath string) error {
 	entries, err := os.ReadDir(wikiDir)
 	if err != nil {
@@ -217,7 +174,6 @@ func addDomainFrontmatter(wikiDir, indexPath string) error {
 			continue
 		}
 		p := filepath.Join(wikiDir, e.Name())
-		// Exclude index.md and scan.md.
 		if p == indexPath || e.Name() == "scan.md" {
 			continue
 		}
@@ -225,7 +181,6 @@ func addDomainFrontmatter(wikiDir, indexPath string) error {
 		if err != nil {
 			return err
 		}
-		// Skip if already has frontmatter.
 		if strings.HasPrefix(strings.TrimSpace(string(data)), "---") {
 			continue
 		}
@@ -237,13 +192,10 @@ func addDomainFrontmatter(wikiDir, indexPath string) error {
 	return nil
 }
 
-// oldRefRe matches @.claude/project/signals.md lines in config files.
 var oldRefRe = regexp.MustCompile(`(?m)^@\.claude/project/signals\.md`)
 
-// rewireAtRef replaces `@.claude/project/signals.md` with
-// `@docs/wiki/index.md` in the root config files:
-// CLAUDE.md, claude.local.md, and CLAUDE.local.md.
-// Missing files are silently skipped.
+// rewireAtRef repoints the signals @-ref in the root config files, skipping
+// any that are missing.
 func rewireAtRef(root string) error {
 	candidates := []string{
 		filepath.Join(root, "CLAUDE.md"),

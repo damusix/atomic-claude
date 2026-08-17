@@ -1,23 +1,9 @@
 package synthesis_test
 
-// closure_collection_test.go — TDD tests for ClosureCollectionSynthesizer (EE5 activated).
+// ClosureCollectionSynthesizer tests.
 //
-// # What this synthesizer does
-//
-// After EE5, `handlers.append(handler)` emits a calls-kind unresolved ref with
-// Arguments containing "arg:handler". This lets the synthesizer:
-//  1. Find all .append(handler) refs and extract (receiver="handlers", handlerName="handler").
-//  2. Resolve handlerName to a node in the DB via GetNodesByName.
-//  3. Find all .forEach refs with the same receiver on the same enclosing function scope.
-//  4. Emit a calls+heuristic edge: forEach-enclosing-fn → handler-node.
-//
-// Cap: CC_FANOUT_CAP = 8 (per receiver channel).
-//
-// # Gap documented
-//
-// Anonymous closures passed to .append (e.g. Swift trailing { ... } or Kotlin { x -> ... })
-// produce no "arg:" identifier → no edge. This is honest: the handler identity
-// is not available in the graph. Only named-identifier handler args produce edges.
+// An anonymous closure passed to .append yields no identifier, so no edge:
+// only named handler arguments can be correlated.
 
 import (
 	"context"
@@ -29,8 +15,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// seedRefCC seeds an unresolved ref for closure-collection tests. Same as
-// seedRefWithArgs but named for clarity.
 func seedRefCC(t *testing.T, d *db.DB, id, fromID, name string, args []string) {
 	t.Helper()
 	if err := d.InsertUnresolvedRef(context.Background(), types.UnresolvedReference{
@@ -45,10 +29,6 @@ func seedRefCC(t *testing.T, d *db.DB, id, fromID, name string, args []string) {
 		t.Fatalf("InsertUnresolvedRef %s: %v", id, err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TestClosureCollectionSynthesizer_BasicCorrelation
-// ---------------------------------------------------------------------------
 
 // TestClosureCollectionSynthesizer_BasicCorrelation is the canonical EE5 use case:
 // handlers.append(onLogin) + handlers.forEach { $0() } → one calls edge from

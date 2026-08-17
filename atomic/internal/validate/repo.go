@@ -9,9 +9,6 @@ import (
 // directory). Returns the directory containing .git or an empty string if not
 // found. The .git-as-file case handles git worktrees where .git is a regular
 // file containing "gitdir: ..." rather than a directory.
-//
-// This is a minimal implementation for CP-3. A richer version (tolerating
-// additional VCS markers, configurable stop path) ships in CP-6.
 func findRepoRoot(startDir string) string {
 	dir := startDir
 	for {
@@ -20,7 +17,6 @@ func findRepoRoot(startDir string) string {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached filesystem root without finding .git.
 			return ""
 		}
 		dir = parent

@@ -11,9 +11,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/followups"
 )
 
-// makeFollowupsFolder creates the .claude/project/followups/ directory tree
-// and populates it with the given entry files. entries is a map of
-// filename → raw content (full frontmatter+body document).
+// makeFollowupsFolder populates the followups tree from a map of filename to
+// raw document content.
 func makeFollowupsFolder(t *testing.T, root string, entries map[string]string) {
 	t.Helper()
 	dir := filepath.Join(root, ".claude", "project", "followups")
@@ -50,8 +49,7 @@ func staleEntry(id, title string) string {
 	return "---\nid: " + id + "\ntitle: \"" + title + "\"\ncreated: 2026-01-01\norigin: test\nseverity: risk\nreview_by: 2026-01-02\nstatus: open\n---\n\nBody.\n"
 }
 
-// TestCheckFollowupsSkip_FolderAbsent verifies SKIP when the folder does not exist.
-// This proves the "no followups at all" state is benign and does not WARN.
+// "No followups at all" is a benign state, not something to WARN about.
 func TestCheckFollowupsSkip_FolderAbsent(t *testing.T) {
 	root := t.TempDir()
 	r := doctor.RunCheckFollowupsWith(root)
@@ -60,14 +58,13 @@ func TestCheckFollowupsSkip_FolderAbsent(t *testing.T) {
 	}
 }
 
-// TestCheckFollowupsWarn_StaleEntry verifies WARN when at least one entry is
-// past its review_by date. The check must mention stale count, not auto-close.
+// A past review_by is reported, never auto-closed.
 func TestCheckFollowupsWarn_StaleEntry(t *testing.T) {
 	root := t.TempDir()
 	makeFollowupsFolder(t, root, map[string]string{
 		"stale-F-1.md": staleEntry("stale-F-1", "A stale entry"),
 	})
-	// Write a matching INDEX so INDEX drift does not also trigger.
+	// Matching INDEX, so index drift does not fire alongside staleness.
 	dir := filepath.Join(root, ".claude", "project", "followups")
 	entries, _, _ := followups.LoadEntriesWithErrors(dir)
 	idx := followups.Render(entries, time.Now())
@@ -77,7 +74,6 @@ func TestCheckFollowupsWarn_StaleEntry(t *testing.T) {
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %v, want WARN (detail: %s)", r.Severity, r.Detail)
 	}
-	// Detail must mention stale.
 	found := false
 	for i := 0; i+4 < len(r.Detail); i++ {
 		if r.Detail[i:i+5] == "stale" {
@@ -90,15 +86,12 @@ func TestCheckFollowupsWarn_StaleEntry(t *testing.T) {
 	}
 }
 
-// TestCheckFollowupsWarn_IndexDrift verifies WARN when the on-disk INDEX.md
-// does not byte-match the re-rendered INDEX in memory. This catches the case
-// where someone hand-edited an entry without regenerating the index.
+// Catches an entry hand-edited without regenerating the index.
 func TestCheckFollowupsWarn_IndexDrift(t *testing.T) {
 	root := t.TempDir()
 	makeFollowupsFolder(t, root, map[string]string{
 		"fresh-F-1.md": freshEntry("fresh-F-1", "A fresh entry"),
 	})
-	// Write a stale/wrong INDEX.
 	writeIndex(t, root, "# stale index content\n")
 
 	r := doctor.RunCheckFollowupsWith(root)
@@ -107,37 +100,30 @@ func TestCheckFollowupsWarn_IndexDrift(t *testing.T) {
 	}
 }
 
-// TestCheckFollowupsWarn_InvalidFrontmatter verifies WARN when at least one
-// entry file has invalid or missing frontmatter. The failing filename must
-// appear in the detail.
 func TestCheckFollowupsWarn_InvalidFrontmatter(t *testing.T) {
 	root := t.TempDir()
 	makeFollowupsFolder(t, root, map[string]string{
 		"broken-F-1.md": "no frontmatter here\n",
 	})
-	// Write a valid INDEX so only the parse error fires.
-	// LoadEntriesWithErrors returns 0 valid entries here; render an empty index.
+	// The broken file yields zero valid entries, so an empty render is the
+	// in-sync INDEX and only the parse error fires.
 	writeIndex(t, root, followups.Render(nil, time.Now()))
 
 	r := doctor.RunCheckFollowupsWith(root)
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %v, want WARN (detail: %s)", r.Severity, r.Detail)
 	}
-	// Detail must name the failing file.
 	if r.Detail == "" {
 		t.Error("Detail is empty; want filename mention")
 	}
 }
 
-// TestCheckFollowupsPass_FreshAndInSync verifies PASS when the folder exists,
-// all entries are fresh, and INDEX.md byte-matches the re-rendered content.
 func TestCheckFollowupsPass_FreshAndInSync(t *testing.T) {
 	root := t.TempDir()
 	makeFollowupsFolder(t, root, map[string]string{
 		"fresh-F-1.md": freshEntry("fresh-F-1", "A fresh entry"),
 		"fresh-F-2.md": freshEntry("fresh-F-2", "Another fresh entry"),
 	})
-	// Render and write a matching INDEX.
 	dir := filepath.Join(root, ".claude", "project", "followups")
 	entries, _, _ := followups.LoadEntriesWithErrors(dir)
 	today := time.Now()
@@ -150,9 +136,7 @@ func TestCheckFollowupsPass_FreshAndInSync(t *testing.T) {
 	}
 }
 
-// TestCheckFollowups_UnderNonDefaultHarnessDir verifies the check reads
-// through config.FollowupsDir — under a ".pi" harness dir, followups live at
-// .pi/project/followups, not the default .claude/project/followups.
+// Under a ".pi" harness dir, followups live at .pi/project/followups.
 func TestCheckFollowups_UnderNonDefaultHarnessDir(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".pi")
 	defer restore()
@@ -176,15 +160,13 @@ func TestCheckFollowups_UnderNonDefaultHarnessDir(t *testing.T) {
 		t.Errorf("severity = %v, want PASS under .pi harness (detail: %s)", r.Severity, r.Detail)
 	}
 
-	// The default .claude/project/followups folder was never created — a
-	// check that still hardcoded ".claude" would report SKIP here instead.
+	// No .claude tree exists, so a check that still hardcoded ".claude" would
+	// have reported SKIP above.
 	if _, err := os.Stat(filepath.Join(root, ".claude")); !os.IsNotExist(err) {
 		t.Fatalf("test setup error: .claude should not exist, stat err=%v", err)
 	}
 }
 
-// TestCheckFollowupsPass_EmptyFolder verifies PASS when the folder exists but
-// has no entry files and the INDEX matches an empty render.
 func TestCheckFollowupsPass_EmptyFolder(t *testing.T) {
 	root := t.TempDir()
 	makeFollowupsFolder(t, root, nil)

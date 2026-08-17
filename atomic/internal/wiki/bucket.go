@@ -1,25 +1,12 @@
 package wiki
 
-// bucket.go — CP1 bucket manifest core.
+// A bucket is a named, content-tracked folder under a wiki. Its manifest
+// directory wiki/.buckets/<name>/ holds three SHA-256 walks:
 //
-// A bucket is a named, content-tracked folder under a wiki.  The manifest
-// directory wiki/.buckets/<name>/ holds three files that record the history of
-// what the folder contained:
-//
-//   current   — written by every BucketDiff and PromoteBucket call; the
-//               SHA-256 walk of the folder at the time of that call.
-//               Debugging artifact only — never read back as state.
-//   baseline  — written by PromoteBucket; the snapshot that Diff compares
-//               against.  On the first promote: fresh walk → baseline.
-//   previous  — written by PromoteBucket on the second and subsequent
-//               promotes: the old baseline slides into previous.
-//
-// Exported API (for CP2 CLI wiring):
-//
-//   WalkBucket(dir string) ([]string, error)
-//   RegisterBucket(wikiDir, name string) error
-//   BucketDiff(wikiDir, name, dir string) (BucketDiffResult, error)
-//   PromoteBucket(wikiDir, name, dir string) error
+//	current   — the walk at the last diff or promote. A debugging artifact
+//	            only: nothing ever reads it back as state.
+//	baseline  — what diffs compare against, written by promote.
+//	previous  — the baseline promote displaced, from the second promote on.
 
 import (
 	"crypto/sha256"
@@ -32,31 +19,22 @@ import (
 	"strings"
 )
 
-// osJunk is the set of file base names that are always excluded from a bucket
-// walk regardless of directory position.
+// osJunk base names are excluded from a bucket walk at any depth.
 var osJunk = map[string]bool{
 	".DS_Store": true,
 	"Thumbs.db": true,
 }
 
-// BucketDiffResult holds the three disjoint change sets returned by BucketDiff.
-// Each slice contains paths relative to the bucket root, sorted.
+// BucketDiffResult holds three disjoint sets of sorted bucket-relative paths.
 type BucketDiffResult struct {
 	Added   []string // present in current, absent in baseline
 	Changed []string // present in both but hash differs
 	Removed []string // present in baseline, absent in current
 }
 
-// WalkBucket computes a sorted content fingerprint for dir.
-//
-// Each returned entry is formatted as "<relpath>\t<sha256hex>" where relpath
-// uses forward slashes and is relative to dir.
-//
-// Exclusions:
-//   - The bucket-root index.md (relpath == "index.md").
-//   - Files whose base name is in osJunk (.DS_Store, Thumbs.db).
-//   - Entire subtrees whose directory base name is in skipDirs (the same set
-//     used by the wiki discovery walk).
+// WalkBucket fingerprints dir as sorted "<relpath>\t<sha256hex>" lines, with
+// forward-slash paths. It skips the bucket-root index.md (which the tool
+// generates), osJunk base names, and skipDirs subtrees.
 func WalkBucket(dir string) ([]string, error) {
 	var entries []string
 
@@ -69,7 +47,6 @@ func WalkBucket(dir string) ([]string, error) {
 		if relErr != nil {
 			return relErr
 		}
-		// Normalise to forward slashes for stable cross-platform entries.
 		rel = filepath.ToSlash(rel)
 
 		if d.IsDir() {
@@ -83,7 +60,6 @@ func WalkBucket(dir string) ([]string, error) {
 			return nil
 		}
 
-		// File exclusions.
 		base := d.Name()
 		if osJunk[base] {
 			return nil
@@ -108,7 +84,6 @@ func WalkBucket(dir string) ([]string, error) {
 	return entries, nil
 }
 
-// sha256File returns the lowercase hex SHA-256 of the file at path.
 func sha256File(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -123,17 +98,13 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// manifestDir returns the path to wiki/.buckets/<name>/.
 func manifestDir(wikiDir, name string) string {
 	return filepath.Join(wikiDir, ".buckets", name)
 }
 
-// validateBucketName rejects names that are not safe single path segments.
-// A bucket name becomes a directory component in three places (the
-// realm-root folder, the wiki/.buckets manifest dir, and the <bucket> index
-// entry), so this is the register-time backstop behind the CLI arg
-// scanner's own dash-token rejection (issue #164) — it also covers callers
-// that reach RegisterBucket programmatically, bypassing the CLI entirely.
+// validateBucketName requires a safe single path segment: the name becomes a
+// directory component in three places. It backs up the CLI scanner's own
+// dash-token rejection and covers programmatic callers that bypass the CLI.
 func validateBucketName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("bucket: name must not be empty")
@@ -153,11 +124,8 @@ func validateBucketName(name string) error {
 	return nil
 }
 
-// RegisterBucket creates the manifest directory wiki/.buckets/<name>/ and
-// validates the registration constraints:
-//
-//   - name must be a safe single path segment (see validateBucketName).
-//   - Re-registering an already-registered bucket is refused.
+// RegisterBucket creates the manifest directory, refusing an unsafe name or a
+// double-register. Callers rely on it to gate their own mutations.
 func RegisterBucket(wikiDir, name string) error {
 	if err := validateBucketName(name); err != nil {
 		return err
@@ -166,7 +134,6 @@ func RegisterBucket(wikiDir, name string) error {
 	mdir := manifestDir(wikiDir, name)
 
 	if _, err := os.Lstat(mdir); err == nil {
-		// Manifest dir already exists → double-register.
 		return fmt.Errorf("bucket: %q is already registered (manifest dir %s exists)", name, mdir)
 	}
 
@@ -176,33 +143,25 @@ func RegisterBucket(wikiDir, name string) error {
 	return nil
 }
 
-// BucketDiff walks dir, writes the result as wiki/.buckets/<name>/current, and
-// returns the three-way diff against the current baseline.
-//
-// If no baseline exists (first call after RegisterBucket), all walked files are
-// reported as Added.
-//
-// The bucket must already be registered (manifest dir must exist); if it is
-// not, BucketDiff returns an error.
+// BucketDiff diffs dir against the baseline and records the walk as `current`.
+// With no baseline yet, every walked file reports as Added. The bucket must
+// already be registered.
 func BucketDiff(wikiDir, name, dir string) (BucketDiffResult, error) {
 	mdir := manifestDir(wikiDir, name)
 	if _, err := os.Lstat(mdir); err != nil {
 		return BucketDiffResult{}, fmt.Errorf("bucket: %q is not registered (manifest dir absent)", name)
 	}
 
-	// Walk the bucket folder.
 	current, err := WalkBucket(dir)
 	if err != nil {
 		return BucketDiffResult{}, err
 	}
 
-	// Write current manifest.
 	currentPath := filepath.Join(mdir, "current")
 	if err := os.WriteFile(currentPath, []byte(strings.Join(current, "\n")+"\n"), 0o644); err != nil {
 		return BucketDiffResult{}, fmt.Errorf("bucket: write current: %w", err)
 	}
 
-	// Read baseline (may not exist on first run).
 	baseline, err := readManifest(filepath.Join(mdir, "baseline"))
 	if err != nil {
 		return BucketDiffResult{}, err
@@ -211,20 +170,12 @@ func BucketDiff(wikiDir, name, dir string) (BucketDiffResult, error) {
 	return computeDiff(baseline, current), nil
 }
 
-// BucketDiffReadOnly computes the diff between the live directory state and the
-// stored baseline WITHOUT writing any manifest file.  Exported for consumers
-// such as atomic serve that need read-only bucket status (e.g. nav tree badges).
-// Identical semantics to BucketDiff except wiki/.buckets/<name>/current is
-// never created or modified.
+// BucketDiffReadOnly is BucketDiff without the `current` write, for status
+// consumers such as atomic serve's nav-tree badges.
 func BucketDiffReadOnly(wikiDir, name, dir string) (BucketDiffResult, error) {
 	return bucketDiffReadOnly(wikiDir, name, dir)
 }
 
-// bucketDiffReadOnly computes the diff between the live directory state and the
-// stored baseline WITHOUT writing the current manifest file.  It is the
-// read-only counterpart of BucketDiff: identical semantics except the
-// wiki/.buckets/<name>/current file is never created or modified.
-// Used by list, which is a status verb and must have no side effects.
 func bucketDiffReadOnly(wikiDir, name, dir string) (BucketDiffResult, error) {
 	mdir := manifestDir(wikiDir, name)
 	if _, err := os.Lstat(mdir); err != nil {
@@ -244,22 +195,15 @@ func bucketDiffReadOnly(wikiDir, name, dir string) (BucketDiffResult, error) {
 	return computeDiff(baseline, current), nil
 }
 
-// PromoteBucket recomputes the manifest walk for dir live, writes it to
-// wiki/.buckets/<name>/current, then rotates the manifests:
-//
-//   - First promote: fresh walk → baseline; previous is NOT written.
-//   - Subsequent promotes: baseline → previous, fresh walk → baseline.
-//
-// The bucket must be registered; if it is not, PromoteBucket returns an error.
-// Unlike BucketDiff, PromoteBucket never reads a previously written current
-// file — it always recomputes from the live directory state.
+// PromoteBucket rotates baseline into previous and a fresh walk into baseline;
+// the first promote writes no previous. It always re-walks the live directory
+// rather than trusting the stored `current`.
 func PromoteBucket(wikiDir, name, dir string) error {
 	mdir := manifestDir(wikiDir, name)
 	if _, err := os.Lstat(mdir); err != nil {
 		return fmt.Errorf("bucket: %q is not registered", name)
 	}
 
-	// Recompute the walk live — never read the previously written current.
 	fresh, err := WalkBucket(dir)
 	if err != nil {
 		return err
@@ -271,19 +215,16 @@ func PromoteBucket(wikiDir, name, dir string) error {
 
 	freshData := []byte(strings.Join(fresh, "\n") + "\n")
 
-	// Write fresh manifest to current (debugging artifact).
 	if err := os.WriteFile(currentPath, freshData, 0o644); err != nil {
 		return fmt.Errorf("bucket: promote: write current: %w", err)
 	}
 
-	// If baseline already exists, slide it into previous.
 	if existingBaseline, err := os.ReadFile(baselinePath); err == nil {
 		if err := os.WriteFile(previousPath, existingBaseline, 0o644); err != nil {
 			return fmt.Errorf("bucket: promote: write previous: %w", err)
 		}
 	}
 
-	// Promote fresh manifest → baseline.
 	if err := os.WriteFile(baselinePath, freshData, 0o644); err != nil {
 		return fmt.Errorf("bucket: promote: write baseline: %w", err)
 	}
@@ -291,9 +232,8 @@ func PromoteBucket(wikiDir, name, dir string) error {
 	return nil
 }
 
-// readManifest reads a manifest file and returns its lines (one per entry).
-// Returns nil (not an error) when the file does not exist — treated as empty
-// baseline.
+// readManifest returns nil, not an error, for a missing file: an absent
+// baseline is an empty one.
 func readManifest(path string) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -310,10 +250,8 @@ func readManifest(path string) ([]string, error) {
 	return strings.Split(raw, "\n"), nil
 }
 
-// computeDiff compares baseline entries against current entries and returns the
-// three-way diff.  Both slices must be sorted "<relpath>\t<sha256hex>" lines.
+// computeDiff takes WalkBucket-shaped lines on both sides.
 func computeDiff(baseline, current []string) BucketDiffResult {
-	// Build hash maps for O(1) lookup.
 	baseMap := parseManifest(baseline)
 	currMap := parseManifest(current)
 
@@ -343,7 +281,7 @@ func computeDiff(baseline, current []string) BucketDiffResult {
 	}
 }
 
-// parseManifest converts sorted "<relpath>\t<sha256hex>" lines into a map.
+// parseManifest indexes manifest lines by path, dropping malformed ones.
 func parseManifest(lines []string) map[string]string {
 	m := make(map[string]string, len(lines))
 	for _, line := range lines {

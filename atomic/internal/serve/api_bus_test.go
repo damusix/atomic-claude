@@ -16,9 +16,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/bus"
 )
 
-// busTestHome creates a short-pathed home dir — the daemon socket lives at
-// <home>/.atomic/bus.sock, and t.TempDir() can exceed the ~104-byte unix
-// socket path limit on macOS (same rationale as bus's own testListener).
+// The socket at <home>/.atomic/bus.sock must fit the ~104-byte unix path limit,
+// which t.TempDir() can blow past on macOS.
 func busTestHome(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "atomicbusweb")
@@ -30,8 +29,7 @@ func busTestHome(t *testing.T) string {
 	return dir
 }
 
-// startBusDaemon runs an in-process bus daemon on home's socket and
-// guarantees it exits before the test finishes.
+// startBusDaemon serves on home's socket and reaps the daemon at test end.
 func startBusDaemon(t *testing.T, home string) {
 	t.Helper()
 	if err := bus.EnsureDirs(home); err != nil {
@@ -57,8 +55,7 @@ func startBusDaemon(t *testing.T, home string) {
 	})
 }
 
-// newBusTestHandler builds the handler under test with the spawn seam
-// replaced by a Dial-only variant, so no test can ever fork a real daemon.
+// The spawn seam is Dial-only here, so no test can fork a real daemon.
 func newBusTestHandler(home, targetDir string) http.Handler {
 	return NewAPIBusHandler(BusAPIOptions{
 		Home:      home,
@@ -92,11 +89,8 @@ func decodeBusResponse[T any](t *testing.T, resp *http.Response) T {
 	return v
 }
 
-// TestAPIBus_LoopbackGate drives the handler's ServeHTTP directly with
-// crafted RemoteAddr values (not real TCP connections) so a non-loopback
-// peer can be asserted without binding a LAN-reachable listener. Covers a
-// read route and a write route — the gate must run before either dispatches
-// to the daemon.
+// RemoteAddr is crafted rather than dialed, so a non-loopback peer can be
+// asserted without binding a LAN-reachable listener.
 func TestAPIBus_LoopbackGate(t *testing.T) {
 	home := busTestHome(t)
 	handler := newBusTestHandler(home, t.TempDir())
@@ -129,13 +123,9 @@ func TestAPIBus_LoopbackGate(t *testing.T) {
 	}
 }
 
-// TestAPIBus_RoomGuard_RejectsTraversal drives every room-taking route
-// with a path-shaped room name — "../escape" would clean through
-// filepath.Join in bus.RoomLogPath and escape the rooms directory if left
-// unvalidated. No daemon runs for this test: a route that reaches past the
-// guard would either 503 (Dial-only routes) or attempt a real join/send
-// against a daemon that isn't there — never the 400 asserted here — so a
-// non-400 result proves the guard was skipped, not just misrouted.
+// "../escape" cleans through filepath.Join in bus.RoomLogPath and leaves the
+// rooms directory if unvalidated. No daemon runs here, so anything reaching past
+// the guard would 503 or fail daemon-side — never the 400 asserted.
 func TestAPIBus_RoomGuard_RejectsTraversal(t *testing.T) {
 	home := busTestHome(t)
 	handler := newBusTestHandler(home, t.TempDir())
@@ -169,10 +159,8 @@ func TestAPIBus_RoomGuard_RejectsTraversal(t *testing.T) {
 	}
 }
 
-// TestAPIBus_Join_TraversalRoom_NeverTouchesDaemon locks finding #2: join's
-// room validation must reject before doEnsure ever dials/spawns a daemon —
-// no daemon is started in this test, so a 400 here proves the guard runs
-// first rather than merely happening to also fail once daemon-side.
+// Room validation must reject before doEnsure dials or spawns. No daemon runs,
+// so a 400 proves the guard ran first rather than the dial merely failing.
 func TestAPIBus_Join_TraversalRoom_NeverTouchesDaemon(t *testing.T) {
 	home := busTestHome(t)
 	srv := httptest.NewServer(newBusTestHandler(home, t.TempDir()))
@@ -246,24 +234,19 @@ func TestAPIBus_LogBackfill_TailsLastN(t *testing.T) {
 	}
 }
 
-// TestAPIBus_JoinSendTailWho_EndToEnd drives the full chat flow against an
-// in-process daemon: join creates the room, who lists the human member,
-// tail streams a subsequently sent message, and halt does not block the
-// human member's send (halt binds agents only).
 func TestAPIBus_JoinSendTailWho_EndToEnd(t *testing.T) {
 	home := busTestHome(t)
 	startBusDaemon(t, home)
 	srv := httptest.NewServer(newBusTestHandler(home, t.TempDir()))
 	defer srv.Close()
 
-	// Join — creates the room ("open a channel if need be").
+	// Join creates the room.
 	resp := postBusJSON(t, srv.URL+"/api/bus/join", map[string]string{"room": "exp"})
 	joined := decodeBusResponse[map[string]string](t, resp)
 	if joined["name"] == "" {
 		t.Fatal("join returned empty name")
 	}
 
-	// Who — the web member is on the roster as a human.
 	resp, err := http.Get(srv.URL + "/api/bus/who?room=exp")
 	if err != nil {
 		t.Fatalf("GET who: %v", err)
@@ -273,8 +256,8 @@ func TestAPIBus_JoinSendTailWho_EndToEnd(t *testing.T) {
 		t.Fatalf("who = %+v, want one human member", who.Members)
 	}
 
-	// Tail — subscribe first (headers arriving means the daemon-side
-	// subscription is live), then send, then read the streamed envelope.
+	// Subscribe first: arriving headers mean the daemon-side subscription is live,
+	// so the send below cannot race ahead of it.
 	tailResp, err := http.Get(srv.URL + "/api/bus/tail?room=exp")
 	if err != nil {
 		t.Fatalf("GET tail: %v", err)
@@ -325,8 +308,7 @@ func TestAPIBus_JoinSendTailWho_EndToEnd(t *testing.T) {
 	resp = postBusJSON(t, srv.URL+"/api/bus/resume", map[string]string{"room": "exp"})
 	resp.Body.Close()
 
-	// Send without a prior join into a fresh room — the join-if-needed
-	// path creates room + membership on the way.
+	// No prior join: the join-if-needed path creates room and membership.
 	resp = postBusJSON(t, srv.URL+"/api/bus/send", map[string]any{"room": "fresh", "text": "auto-join"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("auto-join send = %d, want 200", resp.StatusCode)
@@ -336,8 +318,7 @@ func TestAPIBus_JoinSendTailWho_EndToEnd(t *testing.T) {
 		t.Error("auto-join send returned empty member name")
 	}
 
-	// Sessions — the web member is listed; no transcript file exists yet,
-	// then one appears under <home>/.claude/projects and is found.
+	// Transcript discovery is re-run after the .jsonl appears, not cached.
 	resp, err = http.Get(srv.URL + "/api/bus/sessions?room=exp")
 	if err != nil {
 		t.Fatalf("GET sessions: %v", err)
@@ -357,8 +338,7 @@ func TestAPIBus_JoinSendTailWho_EndToEnd(t *testing.T) {
 	}
 }
 
-// writeFakeTranscript writes a minimal Claude Code session .jsonl for
-// session under home's projects dir.
+// writeFakeTranscript plants a minimal Claude Code session .jsonl under home.
 func writeFakeTranscript(t *testing.T, home, session string) string {
 	t.Helper()
 	dir := home + "/.claude/projects/-tmp-demo"
@@ -403,8 +383,7 @@ func TestAPIBus_Transcript_RendersMarkdown(t *testing.T) {
 			t.Errorf("rendered HTML missing %q", want)
 		}
 	}
-	// Entries render newest-first: the tool-output entry (chronologically
-	// last) precedes the assistant turn, which precedes the opening user ask.
+	// Newest-first, so the chronological order below is reversed.
 	toolIdx := strings.Index(tr.HTML, "tool output")
 	assistantIdx := strings.Index(tr.HTML, "totals.ts:88")
 	userIdx := strings.Index(tr.HTML, "fix the cart rounding bug")
@@ -412,8 +391,7 @@ func TestAPIBus_Transcript_RendersMarkdown(t *testing.T) {
 		t.Errorf("entries not newest-first: tool@%d assistant@%d user@%d", toolIdx, assistantIdx, userIdx)
 	}
 
-	// Offset pages backward from the tail: with 3 entries and n=1,
-	// offset=1 lands on the middle entry (the assistant turn).
+	// Offset pages backward from the tail, so offset=1 is the middle entry.
 	resp, err = http.Get(srv.URL + "/api/bus/transcript?session=sess-x&n=1&offset=1")
 	if err != nil {
 		t.Fatalf("GET transcript offset: %v", err)

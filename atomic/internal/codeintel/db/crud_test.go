@@ -1,16 +1,8 @@
 package db_test
 
-// Tests for the CRUD query layer: node/edge/file round-trips, cascade delete
-// via the CRUD API, chunked GetNodesByIds (>500 boundary), and FTS rank parity.
-//
-// FTS rank parity approach: load the spike's reference corpus from
-// tmp/code-intel-engine-go/.../spikes/sqlite-parity/corpus.json into a test DB,
-// run every query from queries.json through SearchNodes, and assert the ranked ID
-// order matches out-node.json (the golden produced by node:sqlite v24.13.0 with
-// SQLite 3.50.4). The modernc.org/sqlite driver ships SQLite 3.53.1 and the spike
-// (out-modernc.json) confirmed parity for all 12 query labels.
-//
-// SQLite version pinned in TestSQLiteVersion (modernc.org/sqlite v1.51.0 → SQLite 3.53.1).
+// Tests for the CRUD query layer, including FTS rank parity against a golden
+// ranking produced by a different SQLite build: the driver ships its own
+// SQLite, so ranking can drift without any change here.
 
 import (
 	"context"
@@ -23,14 +15,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// SQLite version pin
-// ---------------------------------------------------------------------------
-
-// TestSQLiteVersion records the modernc SQLite version used by this build.
-// modernc.org/sqlite v1.51.0 embeds SQLite 3.53.1.
-// If this test starts failing, the version has changed and the FTS parity
-// assertion below must be re-validated.
+// TestSQLiteVersion pins the embedded SQLite version. When it fails, the
+// version moved and the FTS parity assertion below needs re-validating.
 func TestSQLiteVersion(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -48,12 +34,6 @@ func TestSQLiteVersion(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Node CRUD round-trip (int-bool + json.RawMessage)
-// ---------------------------------------------------------------------------
-
-// TestNodeCRUDRoundTrip inserts a Node with non-nil Decorators/Metadata and
-// is_exported=true, retrieves it, and asserts all fields are equal.
 // This proves: int→bool scan, bool→int write, json.RawMessage round-trip.
 func TestNodeCRUDRoundTrip(t *testing.T) {
 	d, cleanup := tempDB(t)
@@ -167,8 +147,6 @@ func TestNodeCRUDNullJSON(t *testing.T) {
 	}
 }
 
-// TestNodeUpsert verifies INSERT OR REPLACE semantics: upserting with the same
-// ID replaces the row, and the updated field is visible on Get.
 func TestNodeUpsert(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -269,10 +247,6 @@ func TestGetNodesByKind(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Edge CRUD round-trip
-// ---------------------------------------------------------------------------
-
 // TestEdgeCRUDRoundTrip inserts an Edge with non-nil Metadata, retrieves by
 // source, and asserts all fields equal.
 func TestEdgeCRUDRoundTrip(t *testing.T) {
@@ -329,10 +303,6 @@ func TestEdgeCRUDRoundTrip(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FileRecord CRUD round-trip
-// ---------------------------------------------------------------------------
-
 // TestFileRecordCRUDRoundTrip inserts a FileRecord with non-nil Errors,
 // retrieves it, and asserts all fields equal.
 func TestFileRecordCRUDRoundTrip(t *testing.T) {
@@ -376,8 +346,6 @@ func TestFileRecordCRUDRoundTrip(t *testing.T) {
 	assertRawMsg(t, "Errors", got.Errors, original.Errors)
 }
 
-// TestFileUpsert verifies INSERT OR REPLACE: second upsert with same path
-// updates the row.
 func TestFileUpsert(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -403,10 +371,6 @@ func TestFileUpsert(t *testing.T) {
 		t.Errorf("ContentHash after upsert: got %q want %q", got.ContentHash, "hash2")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Cascade delete via CRUD API
-// ---------------------------------------------------------------------------
 
 // TestCascadeViaAPI inserts a node and an edge via the CRUD API, deletes the
 // node, and asserts the edge is gone. Exercises ON DELETE CASCADE through the
@@ -440,10 +404,6 @@ func TestCascadeViaAPI(t *testing.T) {
 		t.Errorf("cascade delete via API failed: %d edges remain", len(edges))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// GetNodesByIds — 500-param chunking
-// ---------------------------------------------------------------------------
 
 // TestGetNodesByIdsChunking inserts 600 nodes and retrieves them all via
 // GetNodesByIds. This crosses the SQLITE_PARAM_CHUNK_SIZE=500 boundary and
@@ -503,10 +463,6 @@ func TestGetNodesByIdsEmpty(t *testing.T) {
 		t.Errorf("expected empty slice, got %d nodes", len(got))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// FTS SearchNodes — rank parity with reference golden
-// ---------------------------------------------------------------------------
 
 // corpusNode is the minimal shape we read from corpus.json.
 type corpusNode struct {
@@ -781,8 +737,6 @@ func TestFTSSpecialCharEscape(t *testing.T) {
 	}
 }
 
-// TestFTSColonColonToSpace verifies that :: in a query is treated as whitespace,
-// turning "Parser::parse" into a two-term OR query that matches relevant nodes.
 func TestFTSColonColonToSpace(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -818,10 +772,6 @@ func TestFTSColonColonToSpace(t *testing.T) {
 		t.Error("function:coloncolon not in results for Parser::parse query")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 func assertRawMsg(t *testing.T, field string, got, want json.RawMessage) {
 	t.Helper()
@@ -891,10 +841,6 @@ func itoa(n int) string {
 	return string(buf[pos:])
 }
 
-// ---------------------------------------------------------------------------
-// GetEdgesByProvenance — F-33 regression guard
-// ---------------------------------------------------------------------------
-
 // TestGetEdgesByProvenance proves that GetEdgesByProvenance filters by the
 // provenance column and does not leak edges with a different provenance.
 // Seeds one "heuristic" edge and one static (empty-provenance) edge; asserts
@@ -945,8 +891,6 @@ func TestGetEdgesByProvenance(t *testing.T) {
 	}
 }
 
-// TestGetEdgesByProvenanceEmpty proves that GetEdgesByProvenance returns an
-// empty slice (not an error) when no edges match the given provenance.
 func TestGetEdgesByProvenanceEmpty(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -960,10 +904,6 @@ func TestGetEdgesByProvenanceEmpty(t *testing.T) {
 		t.Errorf("expected 0 edges, got %d", len(got))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// GetAllEdges — F-44 mybatis regression guard
-// ---------------------------------------------------------------------------
 
 // TestGetAllEdges proves that GetAllEdges returns every edge in the DB,
 // regardless of kind or provenance. Seeds two edges of different kinds and

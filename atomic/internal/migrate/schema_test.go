@@ -8,7 +8,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/migrate"
 )
 
-// setupWikiIndex creates docs/wiki/index.md in root with the given content.
 func setupWikiIndex(t *testing.T, root, content string) {
 	t.Helper()
 	dir := filepath.Join(root, "docs", "wiki")
@@ -20,7 +19,6 @@ func setupWikiIndex(t *testing.T, root, content string) {
 	}
 }
 
-// TestReadWikiSchemaAbsent returns 0 when docs/wiki/index.md does not exist.
 func TestReadWikiSchemaAbsent(t *testing.T) {
 	root := t.TempDir()
 	if got := migrate.ReadWikiSchema(root); got != 0 {
@@ -28,7 +26,6 @@ func TestReadWikiSchemaAbsent(t *testing.T) {
 	}
 }
 
-// TestReadWikiSchemaNoBlock returns 0 when the file exists but has no block.
 func TestReadWikiSchemaNoBlock(t *testing.T) {
 	root := t.TempDir()
 	setupWikiIndex(t, root, "# project signals\n\nsome content\n")
@@ -37,7 +34,6 @@ func TestReadWikiSchemaNoBlock(t *testing.T) {
 	}
 }
 
-// TestReadWikiSchemaPresent parses the N from the block.
 func TestReadWikiSchemaPresent(t *testing.T) {
 	root := t.TempDir()
 	setupWikiIndex(t, root, "---\ntype: Index\n---\n\n<wiki-schema>3</wiki-schema>\n")
@@ -46,7 +42,6 @@ func TestReadWikiSchemaPresent(t *testing.T) {
 	}
 }
 
-// TestWriteWikiSchemaRoundTrip: write then read returns the same value.
 func TestWriteWikiSchemaRoundTrip(t *testing.T) {
 	root := t.TempDir()
 	setupWikiIndex(t, root, "# index\n")
@@ -59,7 +54,6 @@ func TestWriteWikiSchemaRoundTrip(t *testing.T) {
 	}
 }
 
-// TestWriteWikiSchemaReplacesExisting: updating an existing block in-place.
 func TestWriteWikiSchemaReplacesExisting(t *testing.T) {
 	root := t.TempDir()
 	setupWikiIndex(t, root, "<wiki-schema>1</wiki-schema>\n# rest of file\n")
@@ -70,14 +64,12 @@ func TestWriteWikiSchemaReplacesExisting(t *testing.T) {
 	if got := migrate.ReadWikiSchema(root); got != 5 {
 		t.Errorf("replace: got %d, want 5", got)
 	}
-	// Ensure other content survived.
 	data, _ := os.ReadFile(filepath.Join(root, "docs", "wiki", "index.md"))
 	if string(data) != "<wiki-schema>5</wiki-schema>\n# rest of file\n" {
 		t.Errorf("unexpected file content after replace:\n%s", data)
 	}
 }
 
-// TestWriteWikiSchemaMissingFileNoError: no file → no error (graceful no-op).
 func TestWriteWikiSchemaMissingFileNoError(t *testing.T) {
 	root := t.TempDir()
 	if err := migrate.WriteWikiSchema(root, 1); err != nil {

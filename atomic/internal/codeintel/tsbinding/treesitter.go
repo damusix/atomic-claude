@@ -76,8 +76,14 @@ type TreeSitter struct {
 	languageErlang     api.Function
 }
 
+// sharedCache lets every runtime reuse one compilation of tsWasm. wazero's
+// default config keeps compiled results in-memory per Runtime and shares
+// nothing, so without this each New recompiles the whole ~37MB module —
+// around half a second a call, paid once per parser pool.
+var sharedCache = wazero.NewCompilationCache()
+
 func New(ctx context.Context) (TreeSitter, error) {
-	r := wazero.NewRuntime(ctx)
+	r := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCompilationCache(sharedCache))
 
 	wasi_snapshot_preview1.MustInstantiate(ctx, r)
 

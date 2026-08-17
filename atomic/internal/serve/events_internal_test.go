@@ -1,18 +1,7 @@
 package serve
 
-// events_internal_test.go — CP3 (live-reload): subscriberRegistry, changeEvent,
-// NewEventsHandler, and startTicker.
-//
-// Why internal: subscriberRegistry, changeEvent, and startTicker are
-// unexported (NewEventsHandler is the only exported seam), so these tests
-// live in package serve rather than serve_test. writeSnapFile and the
-// defaultTickInterval/defaultQuietWindow constants come from
-// snapshot_internal_test.go / snapshot.go in this same package.
-//
-// Per the checkpoint's grounding note, the streaming tests use
-// httptest.NewServer with a real client reading a bounded-context request —
-// not the search_stream_test.go ResponseRecorder pattern, which only works
-// for bounded (non-open-ended) streams.
+// The streaming tests drive a real httptest.NewServer with a bounded-context
+// client: a ResponseRecorder only works against a stream that ends on its own.
 
 import (
 	"bufio"
@@ -26,8 +15,7 @@ import (
 	"time"
 )
 
-// readOneEvent reads one SSE "data: <json>" frame from br, skipping the
-// blank lines the wire format uses as event separators, and decodes it.
+// readOneEvent decodes one SSE data frame, skipping the blank separator lines.
 func readOneEvent(br *bufio.Reader) (changeEvent, error) {
 	for {
 		line, err := br.ReadString('\n')
@@ -47,9 +35,7 @@ func readOneEvent(br *bufio.Reader) (changeEvent, error) {
 	}
 }
 
-// TestNewChangeEvent_OmitsChangedOverCap verifies SC16: the changed field is
-// present up to changedCap entries and omitted entirely (not truncated) once
-// the diff exceeds it.
+// Over the cap the field is dropped whole, never truncated to a partial list.
 func TestNewChangeEvent_OmitsChangedOverCap(t *testing.T) {
 	atCap := make([]string, changedCap)
 	for i := range atCap {
@@ -82,9 +68,7 @@ func TestNewChangeEvent_OmitsChangedOverCap(t *testing.T) {
 	}
 }
 
-// TestSubscriberRegistry_CountTracksSubscribeUnsubscribe verifies count() —
-// the ticker's zero-subscriber gate (SC12) — reflects subscribe/unsubscribe
-// edges precisely.
+// count() is the ticker's zero-subscriber gate, so both edges must be exact.
 func TestSubscriberRegistry_CountTracksSubscribeUnsubscribe(t *testing.T) {
 	registry := newSubscriberRegistry()
 	if got := registry.count(); got != 0 {
@@ -108,9 +92,8 @@ func TestSubscriberRegistry_CountTracksSubscribeUnsubscribe(t *testing.T) {
 	}
 }
 
-// TestSubscriberRegistry_BroadcastCoalescesForSlowSubscriber verifies SC14: a
-// subscriber that never drains its slot never blocks broadcast, and its slot
-// ends up holding only the latest event rather than queueing every one.
+// A subscriber that never drains must not block broadcast, and its slot keeps
+// only the latest event rather than queueing every one.
 func TestSubscriberRegistry_BroadcastCoalescesForSlowSubscriber(t *testing.T) {
 	registry := newSubscriberRegistry()
 
@@ -153,9 +136,8 @@ func TestSubscriberRegistry_BroadcastCoalescesForSlowSubscriber(t *testing.T) {
 	}
 }
 
-// TestNewEventsHandler_ResyncPushOnSubscribe verifies SC13: a new
-// subscription receives an immediate fp check-and-push, not a wait for the
-// next tick (no ticker is even started in this test).
+// A new subscription is pushed the current fp immediately; no ticker is started
+// here, so a tick cannot be what delivers it.
 func TestNewEventsHandler_ResyncPushOnSubscribe(t *testing.T) {
 	root := t.TempDir()
 	writeSnapFile(t, root, "a.md", "# A\n")
@@ -187,18 +169,15 @@ func TestNewEventsHandler_ResyncPushOnSubscribe(t *testing.T) {
 	}
 }
 
-// TestStartTicker_ZeroSubscribers_NoRebuild verifies SC12: with zero
-// subscribers, the ticker performs no work at all — not even the cheap
-// fingerprint walk that would notice a pending on-disk change — proven by
-// planting a change and confirming no rebuild ever happens before a
-// subscriber attaches, and one does happen shortly after.
+// With no subscribers the ticker does no work at all, not even the cheap
+// fingerprint walk.
 func TestStartTicker_ZeroSubscribers_NoRebuild(t *testing.T) {
 	root := t.TempDir()
 	writeSnapFile(t, root, "a.md", "# A\n")
 
 	interval := 20 * time.Millisecond
 	store := newSnapshotStore(root, interval, defaultQuietWindow)
-	store.ensureFresh() // warm, matching NewSnapshotStore's synchronous warm
+	store.ensureFresh() // warm, as NewSnapshotStore does
 
 	registry := newSubscriberRegistry()
 
@@ -206,7 +185,7 @@ func TestStartTicker_ZeroSubscribers_NoRebuild(t *testing.T) {
 	defer cancel()
 	startTicker(ctx, store, registry, interval)
 
-	// Plant a change while zero subscribers are attached.
+	// Planted while nobody is subscribed.
 	writeSnapFile(t, root, "b.md", "# B\n")
 
 	baseline := store.rebuildCalls.Load()
@@ -215,8 +194,8 @@ func TestStartTicker_ZeroSubscribers_NoRebuild(t *testing.T) {
 		t.Errorf("ticker rebuilt with 0 subscribers: rebuildCalls %d -> %d", baseline, got)
 	}
 
-	// Attaching a subscriber must let the very next tick pick up the pending
-	// change — proving the gate, not some other stall, explains the above.
+	// The same change lands once someone subscribes, proving the gate — not some
+	// other stall — explains the silence above.
 	_, unsubscribe := registry.subscribe()
 	defer unsubscribe()
 
@@ -226,9 +205,7 @@ func TestStartTicker_ZeroSubscribers_NoRebuild(t *testing.T) {
 	}
 }
 
-// TestStartTicker_NoRebuildWhenFingerprintUnchanged verifies the tick flow's
-// no-op path: with a subscriber attached but nothing changed on disk, the
-// ticker's repeated ensureFresh calls never trigger a rebuild.
+// Subscribed but unchanged on disk: repeated ensureFresh must stay a no-op.
 func TestStartTicker_NoRebuildWhenFingerprintUnchanged(t *testing.T) {
 	root := t.TempDir()
 	writeSnapFile(t, root, "a.md", "# A\n")
@@ -252,17 +229,15 @@ func TestStartTicker_NoRebuildWhenFingerprintUnchanged(t *testing.T) {
 	}
 }
 
-// TestStartTicker_BroadcastsChangeToSubscriberAfterTick verifies the full
-// Tick flow end to end: a subscribed client, after an on-disk change, sees a
-// tick-triggered event (distinct from its initial resync push) carrying the
-// changed relpath.
+// The second event a client reads is tick-triggered, not the resync push, and
+// carries the changed relpath.
 func TestStartTicker_BroadcastsChangeToSubscriberAfterTick(t *testing.T) {
 	root := t.TempDir()
 	writeSnapFile(t, root, "a.md", "# A\n")
 
 	interval := 20 * time.Millisecond
 	store := newSnapshotStore(root, interval, defaultQuietWindow)
-	store.ensureFresh() // warm, matching NewSnapshotStore's synchronous warm
+	store.ensureFresh() // warm, as NewSnapshotStore does
 
 	registry := newSubscriberRegistry()
 	srv := httptest.NewServer(NewEventsHandler(store, registry))

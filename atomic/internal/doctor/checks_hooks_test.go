@@ -11,8 +11,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 )
 
-// RunCheckHooksWith runs the hooks check against a synthetic scopeRoot.
-// Exported seam for testing; mirrors the pattern used in checks_install_test.go.
 func RunCheckHooksWith(scopeRoot string) doctor.Result {
 	return doctor.RunCheckHooksWith(scopeRoot)
 }
@@ -36,7 +34,6 @@ func TestCheckHooks_Installed_Pass(t *testing.T) {
 
 func TestCheckHooks_SettingsMissing_Warn(t *testing.T) {
 	scopeRoot := t.TempDir()
-	// No settings.json, no script.
 	r := RunCheckHooksWith(scopeRoot)
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
@@ -48,7 +45,6 @@ func TestCheckHooks_SettingsMissing_Warn(t *testing.T) {
 
 func TestCheckHooks_HookAbsent_Warn(t *testing.T) {
 	scopeRoot := t.TempDir()
-	// Write a settings.json with no hooks entry.
 	settingsDir := filepath.Join(scopeRoot, ".claude")
 	if err := os.MkdirAll(settingsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -86,9 +82,8 @@ func TestCheckHooks_MalformedSettings_Warn(t *testing.T) {
 	}
 }
 
-// TestCheckHooks_LegacyRegistration_Warn covers a pre-inline install: the hook
-// is registered via the old wrapper-script path. The check warns and points the
-// user at the migration command.
+// A pre-inline install registers the hook through a wrapper script, which
+// still runs, so only this WARN points the user at the migration command.
 func TestCheckHooks_LegacyRegistration_Warn(t *testing.T) {
 	scopeRoot := t.TempDir()
 	settingsDir := filepath.Join(scopeRoot, ".claude")
@@ -110,7 +105,6 @@ func TestCheckHooks_LegacyRegistration_Warn(t *testing.T) {
 	}
 }
 
-// TestCheckHooks_PassDetailMentionsInstalled verifies the PASS detail string.
 func TestCheckHooks_PassDetailMentionsInstalled(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
@@ -127,7 +121,6 @@ func TestCheckHooks_PassDetailMentionsInstalled(t *testing.T) {
 	}
 }
 
-// TestCheckHooks_SettingsUnreadable_Warn verifies that unreadable settings.json → WARN (not panic or FAIL).
 func TestCheckHooks_SettingsUnreadable_Warn(t *testing.T) {
 	scopeRoot := t.TempDir()
 	settingsDir := filepath.Join(scopeRoot, ".claude")
@@ -135,7 +128,7 @@ func TestCheckHooks_SettingsUnreadable_Warn(t *testing.T) {
 		t.Fatal(err)
 	}
 	settingsPath := filepath.Join(settingsDir, "settings.json")
-	// Write valid JSON first, then chmod to unreadable.
+	// Valid JSON, written unreadable: the failure must be permissions, not syntax.
 	content, _ := json.Marshal(map[string]any{"theme": "dark"})
 	if err := os.WriteFile(settingsPath, content, 0o000); err != nil {
 		t.Fatal(err)
@@ -143,7 +136,7 @@ func TestCheckHooks_SettingsUnreadable_Warn(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(settingsPath, 0o644) })
 
 	r := RunCheckHooksWith(scopeRoot)
-	// Any non-PASS is acceptable; WARN is expected per spec. SKIP is not acceptable.
+	// WARN is expected; SKIP would hide the problem.
 	if r.Severity == doctor.PASS || r.Severity == doctor.SKIP {
 		t.Errorf("severity = %q for unreadable settings, want WARN or FAIL", r.Severity)
 	}

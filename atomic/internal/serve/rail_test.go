@@ -1,21 +1,5 @@
 package serve_test
 
-// rail_test.go — right-rail data tests against the /api/rail JSON handler.
-//
-// Contract:
-//
-//  1. GET /api/rail/<relpath> returns 200 with "out" edges and "in" backlinks
-//     reflecting the page's graph position.
-//
-//  2. GET /api/rail/<traversal> → 404 (path-traversal guard).
-//
-//  3. GET /api/rail/<unknown-page> → 404 (page not in graph).
-//
-//  4. An orphan page reports orphan:true (no inbound links).
-//
-//  5. Frontmatter Properties (source order, scalar vs. JSON-encoded list
-//     values, URL detection) round-trip through the "properties" field.
-
 import (
 	"encoding/json"
 	"io"
@@ -29,12 +13,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// buildRailRealm creates a small realm for rail compositing tests.
-//
-//	hub.md  → [spoke](spoke.md) + [[leaf]]    (two outbound links)
-//	spoke.md → [[hub]]                         (backlink to hub.md)
-//	leaf.md  → no outbound links               (backlink from hub.md)
-//	orphan.md → no inbound or outbound links   (pure orphan)
+// buildRailRealm gives the rail one page of each shape: two outbound links
+// (hub), a reciprocal backlink (spoke), inbound only (leaf), neither (orphan).
 func buildRailRealm(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -45,7 +25,6 @@ func buildRailRealm(t *testing.T) string {
 	return root
 }
 
-// apiRailResponseFor fires GET /api/rail/<relpath> and decodes the response.
 func apiRailResponseFor(t *testing.T, baseURL, relpath string) (int, struct {
 	RelPath    string     `json:"relpath"`
 	Orphan     bool       `json:"orphan"`
@@ -84,8 +63,6 @@ func apiRailResponseFor(t *testing.T, baseURL, relpath string) (int, struct {
 	return resp.StatusCode, got
 }
 
-// TestRailHandlerReturnsOutAndInFragments verifies that GET /api/rail/hub.md
-// returns outbound edges to spoke.md and leaf.md, and a backlink from spoke.md.
 func TestRailHandlerReturnsOutAndInFragments(t *testing.T) {
 	root := buildRailRealm(t)
 
@@ -125,16 +102,9 @@ func TestRailHandlerReturnsOutAndInFragments(t *testing.T) {
 	}
 }
 
-// TestRailHandlerTraversalReturns404 verifies that a path-traversal attempt on
-// /api/rail/ is rejected with 404 instead of reading arbitrary files.
-//
-// Exercised directly against the handler (httptest.NewRequest), not through a
-// live server: a real net/http.ServeMux 301-redirects a request whose raw path
-// contains ".." to the pre-cleaned path before any handler runs, and a payload
-// deep enough to escape the realm root also cleans away the "/api/rail/" prefix
-// itself — landing on the SPA fallback (200), not the handler under test. The
-// traversal guard is enforced inside the handler (safeResolve), which is what
-// this test targets.
+// Driven against the handler rather than a live server: ServeMux 301-redirects a
+// ".." path before any handler runs, and a deep enough payload cleans away the
+// "/api/rail/" prefix too, landing on the SPA fallback instead of the guard.
 func TestRailHandlerTraversalReturns404(t *testing.T) {
 	root := buildRailRealm(t)
 	g := serve.BuildLinkGraph(root)
@@ -149,8 +119,6 @@ func TestRailHandlerTraversalReturns404(t *testing.T) {
 	}
 }
 
-// TestRailHandlerUnknownPageReturns404 verifies that /api/rail/<page> for a
-// page not in the graph returns 404 — so the UI can show a "not found" state.
 func TestRailHandlerUnknownPageReturns404(t *testing.T) {
 	root := buildRailRealm(t)
 
@@ -164,8 +132,6 @@ func TestRailHandlerUnknownPageReturns404(t *testing.T) {
 	}
 }
 
-// TestRailHandlerOrphanPage verifies that /api/rail/<orphan> reports orphan:true
-// — the page has no inbound links.
 func TestRailHandlerOrphanPage(t *testing.T) {
 	root := buildRailRealm(t)
 
@@ -182,24 +148,17 @@ func TestRailHandlerOrphanPage(t *testing.T) {
 	}
 }
 
-// ── FE-SC2 frontmatter Properties slot tests ─────────────────────────────────
-
-// buildFrontmatterRealm creates a small realm where one page has frontmatter
-// (with scalar and list keys) and another page has none.
+// buildFrontmatterRealm pairs a page carrying scalar and list frontmatter keys
+// with one carrying none.
 func buildFrontmatterRealm(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	// page-with-fm.md has frontmatter: repo (scalar), sources (list), generated (scalar).
 	writeFile(t, filepath.Join(root, "page-with-fm.md"),
 		"---\nrepo: nes\nsources:\n  - a\n  - b\ngenerated: 2026-06-17\n---\n\n# Page\n\nbody\n")
 	writeFile(t, filepath.Join(root, "page-no-fm.md"), "# Plain\n\nNo frontmatter.\n")
 	return root
 }
 
-// TestRailHandlerPropsFragment_WithFrontmatter verifies that GET
-// /api/rail/<page> for a page that HAS frontmatter returns "properties"
-// populated with the frontmatter keys in source order (repo before sources
-// before generated). A list-valued key is JSON-encoded (IsJSON:true).
 func TestRailHandlerPropsFragment_WithFrontmatter(t *testing.T) {
 	root := buildFrontmatterRealm(t)
 
@@ -212,7 +171,6 @@ func TestRailHandlerPropsFragment_WithFrontmatter(t *testing.T) {
 		t.Fatalf("expected 3 properties, got %d: %+v", len(props), props)
 	}
 
-	// Keys must appear in source order: repo, sources, generated.
 	wantKeys := []string{"repo", "sources", "generated"}
 	for i, want := range wantKeys {
 		if props[i].Key != want {
@@ -220,12 +178,11 @@ func TestRailHandlerPropsFragment_WithFrontmatter(t *testing.T) {
 		}
 	}
 
-	// Scalar value.
 	if props[0].Value != "nes" {
 		t.Errorf("repo value: got %q, want %q", props[0].Value, "nes")
 	}
 
-	// List value: JSON-encoded, not a comma-joined string.
+	// JSON-encoded, not comma-joined.
 	if !props[1].IsJSON {
 		t.Errorf("sources (list) property must have isJSON:true; got %+v", props[1])
 	}
@@ -234,9 +191,6 @@ func TestRailHandlerPropsFragment_WithFrontmatter(t *testing.T) {
 	}
 }
 
-// TestRailHandlerPropsFragment_NoFrontmatter verifies that GET
-// /api/rail/<page> for a page with NO frontmatter returns an empty (nil)
-// "properties" list.
 func TestRailHandlerPropsFragment_NoFrontmatter(t *testing.T) {
 	root := buildFrontmatterRealm(t)
 
@@ -250,10 +204,8 @@ func TestRailHandlerPropsFragment_NoFrontmatter(t *testing.T) {
 	}
 }
 
-// ── Deliverable B: URL-valued frontmatter properties render as clickable links ──
-
-// buildURLPropRealm creates a realm where one page has a `resource` URL property,
-// another has a non-URL scalar property, and a third has a URL in a non-resource key.
+// buildURLPropRealm covers URL detection: a `resource` URL, plain scalars, a URL
+// under a non-resource key, and a value carrying markup.
 func buildURLPropRealm(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -268,7 +220,7 @@ func buildURLPropRealm(t *testing.T) string {
 	return root
 }
 
-// railProp mirrors the /api/rail "properties" field's propKV shape.
+// railProp mirrors the server-side propKV wire shape.
 type railProp struct {
 	Key    string `json:"key"`
 	Value  string `json:"value"`
@@ -276,7 +228,6 @@ type railProp struct {
 	IsJSON bool   `json:"isJSON"`
 }
 
-// railPropsFor fires /api/rail/<relpath> and returns its "properties" field.
 func railPropsFor(t *testing.T, baseURL, relpath string) []railProp {
 	t.Helper()
 	resp, err := http.Get(baseURL + "/api/rail/" + relpath)
@@ -296,9 +247,6 @@ func railPropsFor(t *testing.T, baseURL, relpath string) []railProp {
 	return got.Properties
 }
 
-// TestRailPropsURLRenderedAsAnchor verifies that a `resource` frontmatter value
-// that is an http(s) URL is marked isURL:true in the /api/rail "properties"
-// field, while a non-URL scalar (title) is not.
 func TestRailPropsURLRenderedAsAnchor(t *testing.T) {
 	root := buildURLPropRealm(t)
 
@@ -331,8 +279,6 @@ func TestRailPropsURLRenderedAsAnchor(t *testing.T) {
 	}
 }
 
-// TestRailPropsNonURLStaysPlainText verifies that a page with only non-URL
-// scalar properties in frontmatter has isURL:false for every property.
 func TestRailPropsNonURLStaysPlainText(t *testing.T) {
 	root := buildURLPropRealm(t)
 
@@ -351,8 +297,7 @@ func TestRailPropsNonURLStaysPlainText(t *testing.T) {
 	}
 }
 
-// TestRailPropsOtherURLKeyRenderedAsAnchor verifies that any property value
-// (not just `resource`) that is an http(s) URL is marked isURL:true.
+// Detection keys off the value, not the property name.
 func TestRailPropsOtherURLKeyRenderedAsAnchor(t *testing.T) {
 	root := buildURLPropRealm(t)
 
@@ -379,10 +324,8 @@ func TestRailPropsOtherURLKeyRenderedAsAnchor(t *testing.T) {
 	}
 }
 
-// TestRailPropsURLHTMLEscaped verifies that frontmatter values round-trip
-// through the /api/rail JSON response unmangled (the client is responsible
-// for HTML-escaping on render; encoding/json's own escaping already prevents
-// a raw <script> tag from appearing verbatim in the wire payload).
+// The client escapes on render; the wire contract is that values round-trip
+// unmangled and no raw <script> ever reaches the payload.
 func TestRailPropsURLHTMLEscaped(t *testing.T) {
 	root := buildURLPropRealm(t)
 
@@ -400,9 +343,7 @@ func TestRailPropsURLHTMLEscaped(t *testing.T) {
 	}
 	rawBody, _ := io.ReadAll(resp.Body)
 
-	// encoding/json's default HTML-escaping (SetEscapeHTML stays enabled per
-	// api_handlers.go's writeAPIJSON) means the raw wire bytes never contain
-	// an unescaped "<script>" sequence.
+	// writeAPIJSON leaves SetEscapeHTML on, so the raw bytes cannot carry it.
 	if strings.Contains(string(rawBody), "<script>alert") {
 		t.Errorf("raw <script> must not appear unescaped in the JSON wire payload; body: %s", rawBody)
 	}

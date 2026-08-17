@@ -15,17 +15,14 @@ import (
 )
 
 // ApplyAgentsHook re-patches already-installed agent files with the current
-// [claude.agents] overrides after `atomic config agents` saves. nil in production
-// until cmd/atomic wires it to claudeinstall.ReapplyAgents at startup — this
-// seam exists because internal/config must not import internal/claudeinstall
-// (claudeinstall already imports config, which would be a cycle). changed is
-// the list of agent basenames rewritten; installed is how many configured
-// agents were already present on disk.
+// [claude.agents] overrides after `atomic config agents` saves. The seam exists
+// because config must not import claudeinstall, which already imports config;
+// cmd/atomic wires it at startup. changed lists the agent basenames rewritten,
+// installed counts how many configured agents were present on disk.
 var ApplyAgentsHook func(home string) (changed []string, installed int, err error)
 
-// Run is the CLI entry point for `atomic config <verb> [args]`.
-// home is the user's home directory (caller resolves it; Run does not call os.UserHomeDir).
-// Returns an exit code: 0 success, 1 error, 2 usage error.
+// Run is the CLI entry point for `atomic config <verb> [args]`. home is resolved
+// by the caller. Exit codes: 0 success, 1 error, 2 usage.
 func Run(args []string, home string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		printConfigUsage(stderr)
@@ -78,10 +75,6 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "atomic config set: %v\n", err)
 			return 1
 		}
-		if err := writeResolved(home, cfg); err != nil {
-			fmt.Fprintf(stderr, "atomic config set: %v\n", err)
-			return 1
-		}
 		return 0
 
 	case "unset":
@@ -100,10 +93,6 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		if err := WritePersist(TOMLPath(home), cfg); err != nil {
-			fmt.Fprintf(stderr, "atomic config unset: %v\n", err)
-			return 1
-		}
-		if err := writeResolved(home, cfg); err != nil {
 			fmt.Fprintf(stderr, "atomic config unset: %v\n", err)
 			return 1
 		}
@@ -216,10 +205,6 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "atomic config agents: write config: %v\n", err)
 			return 1
 		}
-		if err := writeResolved(home, cfg); err != nil {
-			fmt.Fprintf(stderr, "atomic config agents: write resolved: %v\n", err)
-			return 1
-		}
 		if ApplyAgentsHook == nil {
 			fmt.Fprintln(stdout, "Agent tier overrides saved.")
 			return 0
@@ -246,21 +231,11 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 	}
 }
 
-// writeResolved renders cfg to the config.resolved.md file under home.
-// Creates parent directories if needed.
-func writeResolved(home string, cfg *Config) error {
-	path := ResolvedPath(home)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
-	}
-	return os.WriteFile(path, []byte(Render(cfg)), 0o644)
-}
-
 func printConfigUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: atomic config <get|set|unset|list|path|agents|resolve> [args]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  get <key>           Print resolved value for key")
-	fmt.Fprintln(w, "  set <key> <value>   Set key to value; writes config.toml and re-renders config.resolved.md")
+	fmt.Fprintln(w, "  set <key> <value>   Set key to value; writes config.toml")
 	fmt.Fprintln(w, "  unset <key>         Remove key from config (reverts to built-in default)")
 	fmt.Fprintln(w, "  list [--json]       Print all resolved key=value pairs")
 	fmt.Fprintln(w, "  path                Print path to config.toml")

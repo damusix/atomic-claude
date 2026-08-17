@@ -1,8 +1,6 @@
 package doctor
 
-// Tests for stdinPrompter that require access to unexported fields.
-// Kept separate from fix_test.go (package doctor_test) so the confirmFn
-// field can be injected directly without exporting it.
+// In-package so confirmFn can be injected without exporting it.
 
 import (
 	"bufio"
@@ -13,8 +11,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/prompt"
 )
 
-// newTestPrompter builds a stdinPrompter with an injected confirmFn and an
-// optional piped reader for the raw fallback path.
+// newTestPrompter injects confirmFn plus a reader for the raw fallback path.
 func newTestPrompter(raw string, fn func(string, string, bool) (bool, error)) *stdinPrompter {
 	return &stdinPrompter{
 		scanner:   bufio.NewScanner(strings.NewReader(raw)),
@@ -23,13 +20,8 @@ func newTestPrompter(raw string, fn func(string, string, bool) (bool, error)) *s
 	}
 }
 
-// TestStdinPrompter_ErrAborted_returnsDecisionAbort verifies the
-// ErrAborted → DecisionAbort mapping in stdinPrompter.Confirm.
-//
-// WHY this test is non-vacuous: if the `errors.Is(err, prompt.ErrAborted)`
-// branch (lines 47-49 of stdin_prompter.go) is deleted, the prompter falls
-// through to the raw line-based path, reads from the empty scanner, and
-// returns DecisionNo — not DecisionAbort. This assertion catches that deletion.
+// Non-vacuous because the scanner is empty: drop the ErrAborted branch and
+// the raw fallback returns DecisionNo instead.
 func TestStdinPrompter_ErrAborted_returnsDecisionAbort(t *testing.T) {
 	p := newTestPrompter("", func(_, _ string, _ bool) (bool, error) {
 		return false, prompt.ErrAborted
@@ -40,12 +32,8 @@ func TestStdinPrompter_ErrAborted_returnsDecisionAbort(t *testing.T) {
 	}
 }
 
-// TestStdinPrompter_ErrNonInteractive_fallsBackToRawInput verifies that when
-// confirmFn returns ErrNonInteractive, the prompter uses the raw line reader.
-//
-// WHY: ensures the fallback path is intact and that ErrNonInteractive is not
-// mis-routed as DecisionAbort or an error. If the fallback branch were removed,
-// this would return DecisionNo (EOF) rather than DecisionYes.
+// The DecisionYes here can only come from the raw reader, so removing the
+// fallback branch turns this into DecisionNo at EOF.
 func TestStdinPrompter_ErrNonInteractive_fallsBackToRawInput(t *testing.T) {
 	p := newTestPrompter("y\n", func(_, _ string, _ bool) (bool, error) {
 		return false, prompt.ErrNonInteractive
@@ -56,8 +44,6 @@ func TestStdinPrompter_ErrNonInteractive_fallsBackToRawInput(t *testing.T) {
 	}
 }
 
-// TestStdinPrompter_ConfirmSuccess_returnsDecisionYes verifies the happy path:
-// confirmFn returns (true, nil) → DecisionYes.
 func TestStdinPrompter_ConfirmSuccess_returnsDecisionYes(t *testing.T) {
 	p := newTestPrompter("", func(_, _ string, _ bool) (bool, error) {
 		return true, nil
@@ -68,8 +54,6 @@ func TestStdinPrompter_ConfirmSuccess_returnsDecisionYes(t *testing.T) {
 	}
 }
 
-// TestStdinPrompter_ConfirmFalse_returnsDecisionNo verifies confirmFn
-// succeeding with false yields DecisionNo.
 func TestStdinPrompter_ConfirmFalse_returnsDecisionNo(t *testing.T) {
 	p := newTestPrompter("", func(_, _ string, _ bool) (bool, error) {
 		return false, nil

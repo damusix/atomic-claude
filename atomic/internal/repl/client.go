@@ -16,14 +16,12 @@ import (
 
 var (
 	// ErrSessionNotFound is no socket at the path — never started, or reaped.
-	// The two are deliberately the same answer: the remedy is `start` either
-	// way, and a marker distinguishing them would only invite an agent to
-	// branch on history it cannot act on.
+	// Deliberately one answer for both: the remedy is `start` either way, and a
+	// marker separating them would invite branching on unactionable history.
 	ErrSessionNotFound = errors.New("repl: session not found")
 
-	// ErrSessionDead is a socket that exists but refuses: the harness crashed,
-	// was killed, or the file survived a reboot. Reported rather than silently
-	// restarted — a restart would hide that the session's state is gone.
+	// ErrSessionDead is a socket that exists but refuses. Reported rather than
+	// silently restarted — a restart would hide that the session's state is gone.
 	ErrSessionDead = errors.New("repl: session dead")
 
 	// ErrEvalTimeout is the eval deadline elapsing. It always means the
@@ -32,9 +30,8 @@ var (
 )
 
 // ProtocolMismatchError is a response from a harness speaking a version this
-// binary does not. It is its own type because the fix is specific and nothing
-// else will do: the running harness predates an `atomic update` and has to be
-// replaced.
+// binary does not. Its own type because the fix is specific and nothing else
+// will do: the harness predates an `atomic update` and has to be replaced.
 type ProtocolMismatchError struct {
 	Harness int
 	Client  int
@@ -54,14 +51,12 @@ const (
 	DefaultEvalGrace = 2 * time.Second
 	// defaultGracePoll is how often that wait re-checks the process.
 	defaultGracePoll = 25 * time.Millisecond
-	// defaultDialTimeout bounds the connect itself. A unix connect either
-	// succeeds immediately or fails; this only guards a pathological peer.
+	// defaultDialTimeout bounds the connect. A unix connect either succeeds
+	// immediately or fails; this only guards a pathological peer.
 	defaultDialTimeout = 5 * time.Second
-	// pidStartTolerance is the slack allowed between a session's recorded
-	// start and the start time the OS reports for its pid. It absorbs the
-	// one-second granularity of elapsed-time reporting and the gap between
-	// recording the timestamp and the child actually running — while staying
-	// far tighter than any realistic pid-reuse interval.
+	// pidStartTolerance is the slack between a session's recorded start and the
+	// start time the OS reports for its pid: enough to absorb elapsed-time's
+	// one-second granularity, far tighter than any realistic pid-reuse interval.
 	pidStartTolerance = 5 * time.Second
 )
 
@@ -69,10 +64,10 @@ const (
 // without a test ever signaling a real process.
 type SignalFunc func(pid int, sig os.Signal) error
 
-// PidMatchFunc reports whether pid currently names a live process that started
-// at startedAt — the recycled-pid guard. It doubles as the liveness probe
-// during the grace period, so the escalation can never escalate at a process
-// whose identity it did not just re-verify.
+// PidMatchFunc reports whether pid names a live process that started at
+// startedAt — the recycled-pid guard. It doubles as the liveness probe during
+// the grace period, so the escalation never escalates at a process whose
+// identity it did not just re-verify.
 type PidMatchFunc func(pid int, startedAt time.Time) bool
 
 // Session is one session's on-disk identity plus the meta the escalation needs.
@@ -82,9 +77,8 @@ type Session struct {
 	Meta       Meta
 }
 
-// Client is one connection to a session's harness. A harness answers one
-// request per connection and then closes, so a Client is good for exactly one
-// Do.
+// Client is one connection to a session's harness. A harness answers one request
+// per connection and then closes, so a Client is good for exactly one Do.
 type Client struct {
 	conn    net.Conn
 	reader  *bufio.Reader
@@ -92,8 +86,8 @@ type Client struct {
 }
 
 // Dial connects to a session's socket, classifying the two failures that mean
-// different things to a caller: an absent socket is a session that is not
-// there, a refused one is a session that died without cleaning up.
+// different things: an absent socket is a session that is not there, a refused
+// one is a session that died without cleaning up.
 func Dial(socketPath string, timeout time.Duration) (*Client, error) {
 	if timeout <= 0 {
 		timeout = defaultDialTimeout
@@ -111,10 +105,9 @@ func Dial(socketPath string, timeout time.Duration) (*Client, error) {
 // Close releases the connection.
 func (c *Client) Close() error { return c.conn.Close() }
 
-// Do performs one newline-delimited-JSON round trip.
-//
-// A response carrying a version this binary does not speak is refused rather
-// than decoded: the fields it does parse may not mean what they appear to.
+// Do performs one newline-delimited-JSON round trip. A response carrying a
+// version this binary does not speak is refused rather than decoded: the fields
+// it does parse may not mean what they appear to.
 func (c *Client) Do(req Request) (Response, error) {
 	if c.timeout > 0 {
 		if err := c.conn.SetDeadline(time.Now().Add(c.timeout)); err != nil {
@@ -146,7 +139,7 @@ func (c *Client) Do(req Request) (Response, error) {
 
 // EvalOptions bounds one eval and shapes what happens when that bound is hit.
 // Every zero field takes a documented default; Signal and PidMatch are seams so
-// the escalation is exercised without a real process or a real wait.
+// the escalation runs without a real process or a real wait.
 type EvalOptions struct {
 	Timeout   time.Duration
 	Grace     time.Duration
@@ -158,14 +151,12 @@ type EvalOptions struct {
 
 // Eval runs code against sess and returns the harness's response.
 //
-// A response carrying an eval failure (ok=false with a traceback) is returned
-// as a Response with a nil error: the command worked, the code did not, and
-// collapsing the two would cost the caller the distinction its exit codes are
-// built on.
+// An eval failure (ok=false with a traceback) comes back as a Response with a
+// nil error: the command worked, the code did not, and collapsing the two would
+// cost the caller the distinction its exit codes are built on.
 //
-// When the deadline elapses the session is ended, not merely abandoned — see
-// escalate. The caller gets ErrEvalTimeout and can rely on the session being
-// gone.
+// When the deadline elapses the session is ended, not merely abandoned (see
+// escalate), so a caller receiving ErrEvalTimeout can rely on it being gone.
 func Eval(sess Session, code string, opts EvalOptions) (Response, error) {
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -189,32 +180,29 @@ func Eval(sess Session, code string, opts EvalOptions) (Response, error) {
 	return Response{}, opts.escalate(sess)
 }
 
-// escalate ends a session that blew its deadline, and always reports
+// escalate ends a session that blew its deadline, always reporting
 // ErrEvalTimeout.
 //
-// The two harnesses answer SIGINT differently and the flow accounts for both:
-// Node installs no SIGINT handler, so the signal's default disposition kills it
-// outright even mid-eval, while Python's harness catches the KeyboardInterrupt
-// inside the eval and keeps serving. Waiting for a graceful answer would
-// therefore leave a Python session alive holding whatever the runaway eval did
-// to its namespace, and a Node session dead with its files still on disk — two
-// different outcomes for one command. So the escalation converges them: SIGINT,
-// a grace period, SIGKILL if anything is still there, and the socket and meta
-// removed either way. Afterwards the name reads as not-found, exactly like one
-// that was never started.
+// The two harnesses answer SIGINT differently: Node installs no handler, so the
+// default disposition kills it outright even mid-eval, while Python catches the
+// KeyboardInterrupt inside the eval and keeps serving. Waiting for a graceful
+// answer would therefore leave Python alive holding whatever the runaway eval
+// did to its namespace and Node dead with its files still on disk — two
+// outcomes for one command. So the escalation converges them: SIGINT, a grace
+// period, SIGKILL if anything remains, and the files removed either way.
 //
 // Nothing is signaled unless the pid's identity verifies first. A pid read from
-// a file is a number, not a process — by the time an eval times out it may name
-// anything on the machine, and a SIGKILL at the wrong one is unrecoverable.
+// a file is a number, not a process, and a SIGKILL at the wrong one is
+// unrecoverable.
 func (o EvalOptions) escalate(sess Session) error {
-	// Removal runs whatever the signaling path decides, including the paths
-	// that decline to signal at all.
+	// Removal runs whatever the signaling path decides, including declining to
+	// signal at all.
 	defer removeSessionFiles(sess)
 
 	pid := sess.Meta.PID
 	if pid <= 0 {
-		// No pid to verify. Signaling 0 would reach this process's whole
-		// group, and a negative pid a whole other one.
+		// No pid to verify. Signaling 0 would reach this process's whole group,
+		// and a negative pid a whole other one.
 		return ErrEvalTimeout
 	}
 
@@ -228,8 +216,8 @@ func (o EvalOptions) escalate(sess Session) error {
 	}
 
 	if !pidMatch(pid, sess.Meta.StartedAt) {
-		// Already gone, or the number belongs to something else now. Either
-		// way this session is over and nothing may be signaled.
+		// Already gone, or the number belongs to something else now. Either way
+		// this session is over and nothing may be signaled.
 		return ErrEvalTimeout
 	}
 
@@ -258,9 +246,8 @@ func (o EvalOptions) escalate(sess Session) error {
 	return ErrEvalTimeout
 }
 
-// removeSessionFiles clears the socket and meta so later verbs report the
-// session as not found. Absent files are the expected case when the harness
-// cleaned up after itself first.
+// removeSessionFiles clears the socket and meta so later verbs report not found.
+// Absent files are expected when the harness cleaned up after itself first.
 func removeSessionFiles(sess Session) {
 	for _, path := range []string{sess.SocketPath, sess.MetaPath} {
 		if path == "" {
@@ -275,23 +262,20 @@ func defaultSignal(pid int, sig os.Signal) error {
 	if err != nil {
 		return err
 	}
-	// By pid, not through terminal job control: the harness is detached
-	// (Setsid), so it has no controlling terminal to interrupt.
+	// By pid, not terminal job control: the harness is detached (Setsid), so it
+	// has no controlling terminal to interrupt.
 	return proc.Signal(sig)
 }
 
 // defaultPidMatch reports whether pid is a live process that started when this
 // session's meta says it did.
 //
-// Elapsed time via ps, rather than a start timestamp, is what is portable
-// across macOS and Linux: the `etime` column is POSIX and locale-independent,
-// while the absolute `lstart` column is neither. A pid that no longer exists
-// makes ps exit non-zero, which is the answer this needs anyway.
-//
-// A zombie is reported as not matching. ps still lists an exited-but-unreaped
-// process, with its elapsed time intact, so etime alone would call a corpse
-// live — and callers use this as their liveness probe, not only as the
-// identity check.
+// Elapsed time via ps rather than a start timestamp is what is portable across
+// macOS and Linux: `etime` is POSIX and locale-independent, `lstart` is neither.
+// A pid that no longer exists makes ps exit non-zero, which is the answer this
+// needs anyway. A zombie reports as not matching: ps still lists an unreaped
+// process with its elapsed time intact, so etime alone would call a corpse live
+// — and callers use this as their liveness probe, not only as an identity check.
 func defaultPidMatch(pid int, startedAt time.Time) bool {
 	if pid <= 0 || startedAt.IsZero() {
 		return false
@@ -319,8 +303,8 @@ func defaultPidMatch(pid int, startedAt time.Time) bool {
 	return skew <= pidStartTolerance
 }
 
-// parseETime parses the POSIX elapsed-time format ps prints:
-// [[dd-]hh:]mm:ss, with a bare ss for a process younger than a minute.
+// parseETime parses the POSIX elapsed-time format ps prints: [[dd-]hh:]mm:ss,
+// with a bare ss for a process younger than a minute.
 func parseETime(field string) (time.Duration, error) {
 	field = strings.TrimSpace(field)
 	if field == "" {

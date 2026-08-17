@@ -7,16 +7,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 )
 
-// checkInstall implements category 1: install integrity.
-//
-// Resolves ~/.claude/ via claudeinstall.ResolveTarget, then calls
-// claudeinstall.Diff to compare each embedded artifact against the on-disk
-// state. Maps results to doctor severity:
-//   - All DiffMatch  → PASS
-//   - Any DiffAbsent → FAIL
-//   - Any DiffDiffer → WARN
-//
-// If the target directory does not exist → SKIP.
+// checkInstall implements category 1: install integrity, diffing every
+// embedded artifact against ~/.claude. A missing artifact FAILs, a drifted one
+// WARNs, and an absent target directory SKIPs.
 func checkInstall(opts Opts) Result {
 	target, err := claudeinstall.ResolveTarget("~/.claude")
 	if err != nil {
@@ -30,8 +23,7 @@ func checkInstall(opts Opts) Result {
 }
 
 // RunCheckInstall runs the install check against an explicit target directory
-// and home dir. Exported for testing; production callers use checkInstall
-// which resolves both via claudeinstall.ResolveTarget / os.UserHomeDir.
+// and home dir. Exported for testing.
 func RunCheckInstall(target, home string) Result {
 	if _, err := os.Stat(target); os.IsNotExist(err) {
 		return Result{Severity: SKIP, Detail: "atomic-claude not installed"}

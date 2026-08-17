@@ -1,25 +1,9 @@
 package languages_test
 
-// EE4 extractor tests — inheritance (heritage) capture.
-//
-// What these tests prove:
-//  1. TS: `class Dog extends Animal implements Speaker {}` → extends ref Dog→Animal
-//     AND implements ref Dog→Speaker after full extraction (before resolution).
-//  2. TS: multiple implements → multiple refs (one per interface).
-//  3. C++: `class Circle : public Shape {}` → extends ref Circle→Shape.
-//  4. C++: multiple bases → multiple extends refs.
-//  5. Java: `class C extends B implements I {}` → extends C→B + implements C→I.
-//  6. Java: multiple implements → multiple refs.
-//  7. TS interface methods: `interface I { m(): void }` → method node `m` exists.
-//  8. No double-count: class methods still extracted exactly once.
-//  9. Node count stable across two extractions.
-// 10. Extends→implements promotion fires when a TS class "extends" an interface (resolution
-//     layer — tested via pipeline seeding, not extractor alone).
-//
-// WHY: EE4 is foundational — interface-impl + cpp-override synthesizers (CP16)
-// and the query layer's GetTypeHierarchy all depend on extends/implements edges
-// that were NEVER created before this checkpoint. Without EE4 the graph contains
-// zero inheritance information.
+// Inheritance capture, across the three languages that declare it differently.
+// The interface-impl and override synthesizers and the type-hierarchy query all
+// read extends and implements edges, so without these refs the graph carries no
+// inheritance at all.
 
 import (
 	"context"
@@ -31,11 +15,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
-
-// ee4TSFixture: TypeScript class with single-extend + multiple-implements.
+// Single extend plus multiple implements.
 const ee4TSFixture = `
 class Animal {
   name: string = "";
@@ -52,7 +32,6 @@ class Dog extends Animal implements Speaker, Runner {
 }
 `
 
-// ee4TSInterfaceFixture: TypeScript interface with method signatures.
 const ee4TSInterfaceFixture = `
 interface IBase {
   m(): void;
@@ -63,7 +42,7 @@ interface IBase {
 const ee4TSFixturePath = "src/ee4.ts"
 const ee4TSInterfaceFixturePath = "src/ee4iface.ts"
 
-// ee4CppFixture: C++ class with multiple public/private bases.
+// Mixes public and private bases; both are still bases.
 const ee4CppFixture = `
 class Shape {
 public:
@@ -82,7 +61,6 @@ public:
 
 const ee4CppFixturePath = "src/ee4.cpp"
 
-// ee4JavaFixture: Java class with extends + implements.
 const ee4JavaFixture = `
 public interface Speakable {
   void speak();
@@ -100,10 +78,6 @@ public class Dog extends Animal implements Speakable, Runnable {
 `
 
 const ee4JavaFixturePath = "src/ee4.java"
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 func heritageRefs(refs []types.UnresolvedReference) []types.UnresolvedReference {
 	var out []types.UnresolvedReference
@@ -125,7 +99,7 @@ func heritageRefNames(refs []types.UnresolvedReference, kind types.EdgeKind) []s
 	return out
 }
 
-// heritageRefDesc returns a debug string for a list of heritage refs.
+// heritageRefDesc formats heritage refs for a failure message.
 func heritageRefDesc(refs []types.UnresolvedReference) string {
 	var sb strings.Builder
 	for _, r := range refs {
@@ -173,15 +147,10 @@ func javaExtractor(t *testing.T) *extraction.TreeSitterExtractor {
 	return newExtractor(t, extLang, cfg)
 }
 
-// ---------------------------------------------------------------------------
-// TypeScript EE4 tests
-// ---------------------------------------------------------------------------
-
-// TestEE4_TS_ExtendsRefEmitted proves that `class Dog extends Animal …` emits
-// an UnresolvedReference with ReferenceKind=extends and ReferenceName="Animal".
-// WHY: The extends ref is how the resolution layer creates the extends edge
-// Dog→Animal. Without it, GetTypeHierarchy returns no ancestors.
+// This ref is what the resolution layer turns into the extends edge; without it
+// a type-hierarchy query finds no ancestors.
 func TestEE4_TS_ExtendsRefEmitted(t *testing.T) {
+	t.Parallel()
 	e := tsExtractor(t)
 	result := e.Extract(context.Background(), ee4TSFixturePath, ee4TSFixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -201,11 +170,9 @@ func TestEE4_TS_ExtendsRefEmitted(t *testing.T) {
 	}
 }
 
-// TestEE4_TS_ImplementsRefsEmitted proves that `class Dog … implements Speaker, Runner`
-// emits two implements refs: one to "Speaker" and one to "Runner".
-// WHY: Each implemented interface needs its own implements edge — a synthesizer
-// checking "does Dog implement Speaker?" needs that edge to exist.
+// Each interface needs its own edge, since a synthesizer asks about one at a time.
 func TestEE4_TS_ImplementsRefsEmitted(t *testing.T) {
+	t.Parallel()
 	e := tsExtractor(t)
 	result := e.Extract(context.Background(), ee4TSFixturePath, ee4TSFixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -225,11 +192,10 @@ func TestEE4_TS_ImplementsRefsEmitted(t *testing.T) {
 	}
 }
 
-// TestEE4_TS_HeritageRefFromClassNode proves that heritage refs are emitted FROM
-// the class node (not the file node).
-// WHY: The extends/implements edge must have the class as source — anchoring at
-// the file node would be semantically wrong and useless for type-hierarchy queries.
+// The edge's source has to be the class; anchored at the file it would be both
+// wrong and useless to a hierarchy query.
 func TestEE4_TS_HeritageRefFromClassNode(t *testing.T) {
+	t.Parallel()
 	e := tsExtractor(t)
 	result := e.Extract(context.Background(), ee4TSFixturePath, ee4TSFixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -249,12 +215,10 @@ func TestEE4_TS_HeritageRefFromClassNode(t *testing.T) {
 	}
 }
 
-// TestEE4_TS_InterfaceMethodNode proves that `interface I { m(): void }` produces
-// a method node for `m`.
-// WHY: interface-impl synthesis (CP16) needs to match concrete method Dog.speak()
-// against interface method Speaker.speak() — if Speaker.speak() has no node, the
-// synthesizer has nothing to link against.
+// Interface-impl synthesis matches a concrete method against the interface
+// method it implements, so the interface side needs a node of its own.
 func TestEE4_TS_InterfaceMethodNode(t *testing.T) {
+	t.Parallel()
 	e := tsExtractor(t)
 	result := e.Extract(context.Background(), ee4TSInterfaceFixturePath, ee4TSInterfaceFixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -267,9 +231,8 @@ func TestEE4_TS_InterfaceMethodNode(t *testing.T) {
 	}
 }
 
-// TestEE4_TS_InterfaceMethodNode_MultipleSignatures proves that multiple
-// method_signature nodes in an interface all become method nodes.
 func TestEE4_TS_InterfaceMethodNode_MultipleSignatures(t *testing.T) {
+	t.Parallel()
 	e := tsExtractor(t)
 	result := e.Extract(context.Background(), ee4TSInterfaceFixturePath, ee4TSInterfaceFixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -286,23 +249,18 @@ func TestEE4_TS_InterfaceMethodNode_MultipleSignatures(t *testing.T) {
 	}
 }
 
-// TestEE4_TS_ClassMethodNotDoubleExtracted proves class method_definition nodes
-// are extracted exactly once. The fixture has "speak" as a method_signature in
-// the Speaker interface AND as a method_definition in the Dog class — these must
-// produce two separate method nodes (one per parent), not three or more.
-// WHY: adding method_signature to MethodTypes must not cause method_definition
-// to also fire for the same node — both grammar types exist in the grammar
-// but a class body only contains method_definition, not method_signature.
+// The fixture declares "speak" twice, once per parent, so the count pins that
+// listing both method node types did not make either fire twice.
 func TestEE4_TS_ClassMethodNotDoubleExtracted(t *testing.T) {
+	t.Parallel()
 	e := tsExtractor(t)
 	result := e.Extract(context.Background(), ee4TSFixturePath, ee4TSFixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// Count method nodes named "speak" — must be exactly 2:
-	// one from Speaker interface (method_signature) and one from Dog class (method_definition).
-	// If it were 3+, method_definition fired twice; if 0, method_signature broke extraction.
+	// One from the interface, one from the class. More means a node type fired
+	// twice; none means one stopped firing at all.
 	count := 0
 	for _, n := range result.Nodes {
 		if n.Kind == types.NodeKindMethod && n.Name == "speak" {
@@ -315,8 +273,9 @@ func TestEE4_TS_ClassMethodNotDoubleExtracted(t *testing.T) {
 	}
 }
 
-// TestEE4_TS_NodeCountStable proves extraction is deterministic after EE4.
+// Re-extracting a fixture must yield the same counts.
 func TestEE4_TS_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	e := tsExtractor(t)
 	ctx := context.Background()
 	r1 := e.Extract(ctx, ee4TSFixturePath, ee4TSFixture, types.LanguageTypeScript)
@@ -330,14 +289,9 @@ func TestEE4_TS_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TSX EE4 tests — verify heritage also works on TSX (mirrors TS config).
-// ---------------------------------------------------------------------------
-
-// TestEE4_TSX_ExtendsRefEmitted proves TSX files also emit extends refs.
-// WHY: TSXExtractor mirrors TypeScriptExtractor config — it must inherit
-// the heritage mechanism since .tsx files contain class declarations too.
+// TSX reuses the TypeScript config, and .tsx files declare classes too.
 func TestEE4_TSX_ExtendsRefEmitted(t *testing.T) {
+	t.Parallel()
 	e := tsxExtractor(t)
 	result := e.Extract(context.Background(), "src/ee4.tsx", ee4TSFixture, types.LanguageTSX)
 	if len(result.Errors) > 0 {
@@ -357,16 +311,10 @@ func TestEE4_TSX_ExtendsRefEmitted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// C++ EE4 tests
-// ---------------------------------------------------------------------------
-
-// TestEE4_Cpp_ExtendsRefEmitted proves `class Circle : public Shape {}` emits
-// an extends ref to "Shape".
-// WHY: C++ has no "implements" keyword — all bases are listed in the same
-// base_class_clause. The resolution layer handles extends→implements promotion
-// if Shape turns out to be an abstract class / pure virtual interface.
+// C++ has no implements keyword, so every base arrives as an extends and the
+// resolution layer promotes the ones that turn out to be interfaces.
 func TestEE4_Cpp_ExtendsRefEmitted(t *testing.T) {
+	t.Parallel()
 	e := cppExtractor(t)
 	result := e.Extract(context.Background(), ee4CppFixturePath, ee4CppFixture, types.LanguageCpp)
 	if len(result.Errors) > 0 {
@@ -379,7 +327,6 @@ func TestEE4_Cpp_ExtendsRefEmitted(t *testing.T) {
 		nameSet[n] = true
 	}
 
-	// Circle : public Shape, public Drawable → two extends refs.
 	for _, want := range []string{"Shape", "Drawable"} {
 		if !nameSet[want] {
 			t.Errorf("C++: no extends ref to %q; extends refs: %v", want, extendsNames)
@@ -387,9 +334,9 @@ func TestEE4_Cpp_ExtendsRefEmitted(t *testing.T) {
 	}
 }
 
-// TestEE4_Cpp_StructExtendsRefEmitted proves struct bases also emit extends refs.
-// WHY: C++ struct and class have the same base_class_clause grammar — both must work.
+// A C++ struct declares bases with the same clause a class does.
 func TestEE4_Cpp_StructExtendsRefEmitted(t *testing.T) {
+	t.Parallel()
 	e := cppExtractor(t)
 	cppStructFixture := `
 class Shape { public: virtual double area() const { return 0; } };
@@ -414,8 +361,9 @@ struct ColoredShape : public Shape {
 	}
 }
 
-// TestEE4_Cpp_NodeCountStable proves extraction is deterministic after EE4.
+// Re-extracting a fixture must yield the same counts.
 func TestEE4_Cpp_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	e := cppExtractor(t)
 	ctx := context.Background()
 	r1 := e.Extract(ctx, ee4CppFixturePath, ee4CppFixture, types.LanguageCpp)
@@ -429,13 +377,8 @@ func TestEE4_Cpp_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Java EE4 tests
-// ---------------------------------------------------------------------------
-
-// TestEE4_Java_ExtendsRefEmitted proves `class Dog extends Animal …` emits an
-// extends ref to "Animal".
 func TestEE4_Java_ExtendsRefEmitted(t *testing.T) {
+	t.Parallel()
 	e := javaExtractor(t)
 	result := e.Extract(context.Background(), ee4JavaFixturePath, ee4JavaFixture, types.LanguageJava)
 	if len(result.Errors) > 0 {
@@ -454,9 +397,8 @@ func TestEE4_Java_ExtendsRefEmitted(t *testing.T) {
 	}
 }
 
-// TestEE4_Java_ImplementsRefsEmitted proves Java `implements Speakable, Runnable`
-// emits two implements refs.
 func TestEE4_Java_ImplementsRefsEmitted(t *testing.T) {
+	t.Parallel()
 	e := javaExtractor(t)
 	result := e.Extract(context.Background(), ee4JavaFixturePath, ee4JavaFixture, types.LanguageJava)
 	if len(result.Errors) > 0 {
@@ -476,8 +418,9 @@ func TestEE4_Java_ImplementsRefsEmitted(t *testing.T) {
 	}
 }
 
-// TestEE4_Java_NodeCountStable proves extraction is deterministic after EE4.
+// Re-extracting a fixture must yield the same counts.
 func TestEE4_Java_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	e := javaExtractor(t)
 	ctx := context.Background()
 	r1 := e.Extract(ctx, ee4JavaFixturePath, ee4JavaFixture, types.LanguageJava)
@@ -491,6 +434,5 @@ func TestEE4_Java_NodeCountStable(t *testing.T) {
 	}
 }
 
-// Resolution promotion (extends→implements when target is interface) is proven
-// end-to-end in resolution/synthesis/ee4_e2e_test.go (TestEE4_E2E_TS_ImplementsEdge)
-// and via seeded-data in resolution/pipeline_test.go (TestExtendsEdgePromotedToImplements).
+// The extends-to-implements promotion belongs to the resolution layer and is
+// covered by its own tests, not here.

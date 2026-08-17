@@ -1,7 +1,7 @@
 package extraction_test
 
-// python_callee_test.go — unit tests for HarvestPythonLiterals' callee
-// capture (sql-string-match C1).
+// CalleeExpr feeds the query-builder vocabulary that promotes a SQL string
+// match from medium to high confidence. See docs/spec/sql-string-match.md.
 
 import "testing"
 

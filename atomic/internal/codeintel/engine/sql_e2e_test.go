@@ -1,8 +1,6 @@
 package engine_test
 
-// End-to-end test: index a multi-dialect SQL file and verify SQL nodes land in DB.
-// This is the CP2 + CP3 verification gate — it proves the full pipeline:
-//   extractor → orchestrator → DB → query.
+// End-to-end SQL tests, exercising extractor → orchestrator → DB → query.
 
 import (
 	"context"
@@ -15,17 +13,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// CP4 e2e fixture: cross-object reference edges
-// ---------------------------------------------------------------------------
-
-// sqlCP4Fixture defines a schema exercising every CP4 edge class:
-//   - FK inline REFERENCES (orders → customers)
-//   - view FROM (active_orders → orders)
-//   - trigger ON table (trg_orders → orders) + EXECUTE FUNCTION (trg_orders → audit_fn)
-//   - synonym → target (orders_alias → orders)
-//   - policy ON table (row_policy → orders) + fn call in USING (row_policy → current_user_fn)
-const sqlCP4Fixture = `
+// sqlEdgeClassFixture exercises one instance of every SQL edge class: inline FK,
+// view FROM, trigger ON plus EXECUTE FUNCTION, synonym target, and policy ON
+// plus a function call in USING.
+const sqlEdgeClassFixture = `
 CREATE TABLE customers (
     customer_id SERIAL PRIMARY KEY,
     email       VARCHAR(255)
@@ -57,12 +48,11 @@ CREATE POLICY row_policy ON orders
 USING (current_user_fn() = customer_id);
 `
 
-// TestSQLEdgesEndToEnd is the CP4 gate: it indexes sqlCP4Fixture, resolves
-// all references, then asserts each expected edge is present in the DB.
+// TestSQLEdgesEndToEnd asserts every edge class survives index and resolve.
 func TestSQLEdgesEndToEnd(t *testing.T) {
 	root := t.TempDir()
-	sqlPath := filepath.Join(root, "cp4.sql")
-	if err := os.WriteFile(sqlPath, []byte(sqlCP4Fixture), 0o644); err != nil {
+	sqlPath := filepath.Join(root, "schema4.sql")
+	if err := os.WriteFile(sqlPath, []byte(sqlEdgeClassFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	idxDir := filepath.Join(root, ".claude", ".atomic-index")
@@ -87,7 +77,6 @@ func TestSQLEdgesEndToEnd(t *testing.T) {
 		t.Fatalf("ResolveReferences: %v", err)
 	}
 
-	// Helper: find a node by kind+name (case-insensitive).
 	findNode := func(kind types.NodeKind, name string) (types.Node, bool) {
 		nodes, err := eng.GetNodesByKind(ctx, kind)
 		if err != nil {
@@ -101,8 +90,7 @@ func TestSQLEdgesEndToEnd(t *testing.T) {
 		return types.Node{}, false
 	}
 
-	// Helper: assert that a specific edge (kind) from fromNode to a node
-	// with targetName exists among outgoing edges.
+	// Targets are matched by name, so each candidate edge needs a node lookup.
 	assertEdge := func(fromNode types.Node, edgeKind types.EdgeKind, targetName string) {
 		t.Helper()
 		edges, err := eng.GetOutgoingEdges(ctx, fromNode.ID)
@@ -110,14 +98,10 @@ func TestSQLEdgesEndToEnd(t *testing.T) {
 			t.Errorf("GetOutgoingEdges(%s): %v", fromNode.ID, err)
 			return
 		}
-		// We need to find the target node to get its ID.
-		// Look through edge targets for one whose To node matches targetName.
-		// GetOutgoingEdges returns []types.Edge{From, To, Kind}.
 		for _, e := range edges {
 			if e.Kind != edgeKind {
 				continue
 			}
-			// Resolve target node by ID to check its name.
 			tgt, err := eng.GetNode(ctx, e.Target)
 			if err != nil {
 				continue
@@ -130,7 +114,6 @@ func TestSQLEdgesEndToEnd(t *testing.T) {
 			fromNode.Name, edgeKind, targetName, fromNode.ID, summarizeEdges(edges))
 	}
 
-	// Verify source nodes exist.
 	ordersNode, ok := findNode(types.NodeKindTable, "orders")
 	if !ok {
 		t.Fatal("table 'orders' not found in DB")
@@ -143,8 +126,8 @@ func TestSQLEdgesEndToEnd(t *testing.T) {
 	if !ok {
 		t.Fatal("trigger 'trg_orders' not found in DB")
 	}
-	// Synonyms are stored as NodeKindTypeAlias per the spec mapping:
-	// CREATE SYNONYM → type_alias node with {"synonym":true} metadata.
+	// CREATE SYNONYM has no node kind of its own: it becomes a type_alias
+	// carrying {"synonym":true} metadata.
 	synNode, ok := findNode(types.NodeKindTypeAlias, "orders_alias")
 	if !ok {
 		t.Fatal("synonym 'orders_alias' not found in DB")
@@ -154,30 +137,21 @@ func TestSQLEdgesEndToEnd(t *testing.T) {
 		t.Fatal("policy 'row_policy' not found in DB")
 	}
 
-	// Assert CP4 edges.
-	// FK: orders -[references]-> customers (inline REFERENCES in CREATE TABLE)
 	assertEdge(ordersNode, types.EdgeKindReferences, "customers")
 
-	// View: active_orders -[references]-> orders (FROM in view body)
 	assertEdge(viewNode, types.EdgeKindReferences, "orders")
 
-	// Trigger: trg_orders -[references]-> orders (ON clause)
 	assertEdge(triggerNode, types.EdgeKindReferences, "orders")
 
-	// Trigger: trg_orders -[calls]-> audit_fn (EXECUTE FUNCTION)
 	assertEdge(triggerNode, types.EdgeKindCalls, "audit_fn")
 
-	// Synonym: orders_alias -[references]-> orders (FOR target)
 	assertEdge(synNode, types.EdgeKindReferences, "orders")
 
-	// Policy: row_policy -[references]-> orders (ON table)
 	assertEdge(policyNode, types.EdgeKindReferences, "orders")
 
-	// Policy: row_policy -[calls]-> current_user_fn (USING expression)
 	assertEdge(policyNode, types.EdgeKindCalls, "current_user_fn")
 }
 
-// summarizeEdges returns a compact description of edges for test error output.
 func summarizeEdges(edges []types.Edge) []string {
 	out := make([]string, len(edges))
 	for i, e := range edges {
@@ -186,25 +160,10 @@ func summarizeEdges(edges []types.Edge) []string {
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// CP5 e2e fixture: writes-vs-reads distinction
-// ---------------------------------------------------------------------------
-
-// sqlCP5Fixture defines a procedure that:
-//   - INSERTs into archive_orders (writes)
-//   - UPDATEs orders (writes)
-//   - SELECTs FROM customers (references / read)
-//   - EXECs another procedure audit_proc (calls)
-//
-// After resolve, the engine must show:
-//   - proc_archive -[writes]-> archive_orders
-//   - proc_archive -[writes]-> orders
-//   - proc_archive -[references]-> customers
-//   - proc_archive -[calls]-> audit_proc
-//
-// And GetIncomingEdges on archive_orders must include the writes edge,
-// distinguishable from any references edge.
-const sqlCP5Fixture = `
+// sqlWritesVsReadsFixture is one procedure that INSERTs, UPDATEs, SELECTs, and
+// EXECs, so the four operations must resolve to writes, writes, references, and
+// calls respectively rather than collapsing into one kind.
+const sqlWritesVsReadsFixture = `
 CREATE TABLE orders (
     order_id    SERIAL PRIMARY KEY,
     status      TEXT,
@@ -241,13 +200,12 @@ END;
 $$;
 `
 
-// TestSQLWritesVsReadsEndToEnd is the CP5 gate: it indexes sqlCP5Fixture,
-// resolves all references, then asserts writes and references are DISTINCT
-// resolved edges and GetIncomingEdges on a written table surfaces the writer.
+// TestSQLWritesVsReadsEndToEnd asserts writes and references stay distinct, and
+// that a written table's incoming edges surface its writer.
 func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 	root := t.TempDir()
-	sqlPath := filepath.Join(root, "cp5.sql")
-	if err := os.WriteFile(sqlPath, []byte(sqlCP5Fixture), 0o644); err != nil {
+	sqlPath := filepath.Join(root, "schema5.sql")
+	if err := os.WriteFile(sqlPath, []byte(sqlWritesVsReadsFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	idxDir := filepath.Join(root, ".claude", ".atomic-index")
@@ -285,7 +243,6 @@ func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 		return types.Node{}, false
 	}
 
-	// assertEdge checks that an edge of edgeKind from fromNode to targetName exists.
 	assertEdge := func(fromNode types.Node, edgeKind types.EdgeKind, targetName string) {
 		t.Helper()
 		edges, err := eng.GetOutgoingEdges(ctx, fromNode.ID)
@@ -309,7 +266,6 @@ func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 			fromNode.Name, edgeKind, targetName, summarizeEdges(edges))
 	}
 
-	// assertNoEdge checks that no edge of edgeKind to targetName exists from fromNode.
 	assertNoEdge := func(fromNode types.Node, edgeKind types.EdgeKind, targetName string) {
 		t.Helper()
 		edges, err := eng.GetOutgoingEdges(ctx, fromNode.ID)
@@ -332,7 +288,6 @@ func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 		}
 	}
 
-	// Locate nodes.
 	procNode, ok := findNode(types.NodeKindProcedure, "proc_archive")
 	if !ok {
 		t.Fatal("procedure 'proc_archive' not found")
@@ -342,20 +297,15 @@ func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 		t.Fatal("table 'archive_orders' not found")
 	}
 
-	// proc_archive -[writes]-> archive_orders (INSERT INTO)
 	assertEdge(procNode, types.EdgeKindWrites, "archive_orders")
-	// proc_archive -[writes]-> orders (UPDATE)
 	assertEdge(procNode, types.EdgeKindWrites, "orders")
-	// proc_archive -[references]-> customers (SELECT FROM / read)
 	assertEdge(procNode, types.EdgeKindReferences, "customers")
-	// proc_archive -[calls]-> audit_proc (CALL)
 	assertEdge(procNode, types.EdgeKindCalls, "audit_proc")
 
 	// Distinction: customers is a read target, NOT a write target.
 	assertNoEdge(procNode, types.EdgeKindWrites, "customers")
 
-	// Incoming edges on archive_orders must include the writes edge from proc_archive.
-	// This is the "code impact <table>" query: who writes this table?
+	// This is what backs the "who writes this table?" impact query.
 	incomingEdges, err := eng.GetIncomingEdges(ctx, archiveNode.ID)
 	if err != nil {
 		t.Fatalf("GetIncomingEdges(archive_orders): %v", err)
@@ -379,21 +329,10 @@ func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// CP6 regression: ALTER TABLE ONLY … FOREIGN KEY … REFERENCES schema.target
-// ---------------------------------------------------------------------------
-
-// sqlCP6Fixture exercises the real-repo FK shape that CP4's inline fixture did
-// NOT cover: schema-qualified ALTER TABLE ONLY … ADD CONSTRAINT … FOREIGN KEY
-// … REFERENCES schema.target.  This is the exact pattern emitted by pg_dump
-// for every Northwind / Chinook / pagila FK.
-//
-// Root cause (fixed by CP6 r1): the original alterFKRefRE used modPat which
-// did NOT include (?:ONLY\s+)?. pg_dump emits "ALTER TABLE ONLY <table>",
-// causing the capture group for the table name to capture the literal "ONLY",
-// making findNodeID return "" and silently dropping the FK reference.
-// Fix: alterTablePat = (?:ONLY\s+)? + modPat; alterFKRefRE uses alterTablePat.
-const sqlCP6Fixture = `
+// sqlPgDumpFKFixture covers the schema-qualified ALTER TABLE ONLY … FOREIGN KEY
+// form pg_dump emits for every FK. Without ONLY in the table pattern, the table
+// name capture swallows the literal "ONLY" and the FK is silently dropped.
+const sqlPgDumpFKFixture = `
 CREATE TABLE public.orders (
     order_id smallint NOT NULL
 );
@@ -413,16 +352,12 @@ ALTER TABLE ONLY public.orders
     ADD CONSTRAINT fk_orders_employees FOREIGN KEY (employee_id) REFERENCES public.employees;
 `
 
-// TestSQLCP6AlterTableFKResolution is the CP6 regression gate.
-// It verifies that schema-qualified ALTER TABLE ONLY … FOREIGN KEY … REFERENCES
-// schema.target produces resolved "references" edges between the tables.
-//
-// Fails on base SHA (34f3a9b) where alterFKRefRE used modPat (no ONLY support).
-// Passes after alterTablePat = (?:ONLY\s+)? + modPat.
+// TestSQLCP6AlterTableFKResolution asserts the pg_dump FK form still resolves to
+// references edges between the two tables.
 func TestSQLCP6AlterTableFKResolution(t *testing.T) {
 	root := t.TempDir()
 	sqlPath := filepath.Join(root, "schema.sql")
-	if err := os.WriteFile(sqlPath, []byte(sqlCP6Fixture), 0o644); err != nil {
+	if err := os.WriteFile(sqlPath, []byte(sqlPgDumpFKFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	idxDir := filepath.Join(root, ".claude", ".atomic-index")
@@ -488,15 +423,13 @@ func TestSQLCP6AlterTableFKResolution(t *testing.T) {
 		t.Fatal("table 'orders' not found in DB")
 	}
 
-	// FK via schema-qualified ALTER TABLE ONLY … REFERENCES public.customers
 	assertEdge(ordersNode, types.EdgeKindReferences, "customers")
 
-	// FK via schema-qualified ALTER TABLE ONLY … REFERENCES public.employees
 	assertEdge(ordersNode, types.EdgeKindReferences, "employees")
 }
 
 const sqlE2EFixture = `
--- Multi-dialect SQL fixture for CP2 end-to-end test
+-- Multi-dialect SQL fixture for end-to-end test
 CREATE SCHEMA corp;
 
 CREATE TABLE corp.customers (
@@ -550,13 +483,11 @@ CREATE DATABASE SalesDB;
 `
 
 func TestSQLEndToEnd(t *testing.T) {
-	// Set up an isolated project root with the SQL fixture.
 	root := t.TempDir()
 	sqlPath := filepath.Join(root, "schema.sql")
 	if err := os.WriteFile(sqlPath, []byte(sqlE2EFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	// engine.New looks for .claude/.atomic-index/ under root.
 	idxDir := filepath.Join(root, ".claude", ".atomic-index")
 	if err := os.MkdirAll(idxDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -576,7 +507,6 @@ func TestSQLEndToEnd(t *testing.T) {
 		t.Fatalf("IndexAll: %v", err)
 	}
 
-	// Verify core SQL node kinds are present.
 	checks := []struct {
 		kind     types.NodeKind
 		namePart string
@@ -601,7 +531,7 @@ func TestSQLEndToEnd(t *testing.T) {
 		{types.NodeKindTypeAlias, "PriceType"}, // CREATE TYPE … FROM
 		{types.NodeKindTypeAlias, "Prod"},      // SYNONYM
 		{types.NodeKindModule, "SalesDB"},
-		// CP3: constraint node — named CONSTRAINT in the Products T-SQL table body.
+		// constraint node — named CONSTRAINT in the Products T-SQL table body.
 		{types.NodeKindConstraint, "PK_Products"},
 	}
 
@@ -615,7 +545,6 @@ func TestSQLEndToEnd(t *testing.T) {
 		for _, n := range nodes {
 			if strings.Contains(n.Name, c.namePart) {
 				found = true
-				// All SQL nodes must have Language=sql and IsExported=true.
 				if n.Language != types.LanguageSQL {
 					t.Errorf("node %s/%s has language %s, want sql", c.kind, n.Name, n.Language)
 				}

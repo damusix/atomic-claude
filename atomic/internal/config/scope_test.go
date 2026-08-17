@@ -9,8 +9,6 @@ import (
 
 // --- RepoConfig.Scope / checkUnknownRepoKeys ---
 
-// TestLoadRepoConfig_ScopeParses: a top-level scope key parses onto
-// RepoConfig.Scope with no warning.
 func TestLoadRepoConfig_ScopeParses(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -31,8 +29,6 @@ func TestLoadRepoConfig_ScopeParses(t *testing.T) {
 	}
 }
 
-// TestLoadRepoConfig_ScopeAlongsideCode: scope coexists with the [code]
-// table with no warning and both values parse.
 func TestLoadRepoConfig_ScopeAlongsideCode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -78,10 +74,9 @@ func TestValidScope(t *testing.T) {
 
 // --- FindScopeRoot ---
 
-// TestFindScopeRoot_NestingByKind: the design doc's nesting case — a
-// scope="repo" marker sits between cwd and a scope="realm" root above it.
-// The by-kind walk must resolve both kinds correctly from the same cwd,
-// continuing past the marker of the other kind.
+// The nesting case: a scope="repo" marker between cwd and a scope="realm" root
+// above it. The by-kind walk must resolve both from the same cwd, continuing
+// past the marker of the other kind.
 func TestFindScopeRoot_NestingByKind(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -107,9 +102,8 @@ func TestFindScopeRoot_NestingByKind(t *testing.T) {
 	}
 }
 
-// TestFindScopeRoot_InvalidValueIgnored: a scope value that is neither
-// "repo" nor "realm" never acts as a marker of either kind — the walk
-// continues past it to a valid marker higher up.
+// A scope value that is neither kind never acts as a marker — the walk continues
+// to a valid marker higher up.
 func TestFindScopeRoot_InvalidValueIgnored(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -134,9 +128,7 @@ func TestFindScopeRoot_InvalidValueIgnored(t *testing.T) {
 	}
 }
 
-// TestFindScopeRoot_MalformedFileIgnored: unparseable TOML at an
-// intermediate level is skipped, not treated as a hard failure — the walk
-// continues to a valid marker higher up.
+// Unparseable TOML at an intermediate level is skipped, not a hard failure.
 func TestFindScopeRoot_MalformedFileIgnored(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -157,8 +149,6 @@ func TestFindScopeRoot_MalformedFileIgnored(t *testing.T) {
 	}
 }
 
-// TestFindScopeRoot_NoMarker: no marker anywhere up to the filesystem root
-// returns found=false with no error and no panic.
 func TestFindScopeRoot_NoMarker(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -169,10 +159,8 @@ func TestFindScopeRoot_NoMarker(t *testing.T) {
 	}
 }
 
-// TestFindScopeRoot_RelativeStartDir is a regression test: filepath.Dir on a
-// relative path short-circuits at "." (its own parent) instead of walking
-// upward, so a relative startDir used to never reach a marker at a real
-// ancestor. FindScopeRoot now absolutizes startDir before walking.
+// filepath.Dir on a relative path short-circuits at "." instead of walking up,
+// so a relative startDir used to never reach a marker at a real ancestor.
 func TestFindScopeRoot_RelativeStartDir(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -194,10 +182,8 @@ func TestFindScopeRoot_RelativeStartDir(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(origWd) })
 
-	// filepath.Abs on a relative path resolves via os.Getwd(), which
-	// canonicalizes symlinks (e.g. macOS's /var -> /private/var) — resolve
-	// the expected root the same way so the comparison isn't a false
-	// negative on such platforms.
+	// filepath.Abs resolves via os.Getwd, which canonicalizes symlinks — resolve
+	// the expected root the same way so this is not a false negative there.
 	wantRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		t.Fatal(err)
@@ -209,8 +195,8 @@ func TestFindScopeRoot_RelativeStartDir(t *testing.T) {
 	}
 }
 
-// writeAtomicToml writes content to <root>/.claude/atomic.toml (harness dir
-// fixed to ".claude" by the caller via SetHarnessDirForTest).
+// writeAtomicToml writes content to <root>/.claude/atomic.toml; the caller pins
+// the harness dir via SetHarnessDirForTest.
 func writeAtomicToml(t *testing.T, root, content string) {
 	t.Helper()
 	path := RepoConfigPath(root)
@@ -224,8 +210,6 @@ func writeAtomicToml(t *testing.T, root, content string) {
 
 // --- EnsureScopeMarker ---
 
-// TestEnsureScopeMarker_CreatesWhenAbsent: no repo config exists — it is
-// created with just the scope line.
 func TestEnsureScopeMarker_CreatesWhenAbsent(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -249,11 +233,9 @@ func TestEnsureScopeMarker_CreatesWhenAbsent(t *testing.T) {
 	}
 }
 
-// TestEnsureScopeMarker_InsertsAboveFirstTable is the highest-risk case in
-// this slice: scope is a top-level key, so on a file that already has a
-// [code] table (this repo's own .claude/atomic.toml shape), the key must
-// land above the table header. Appending at EOF would land it inside
-// [code] and parse as code.scope instead of the top-level key.
+// scope is a top-level key, so on a file that already has a [code] table it must
+// land above the header: appending at EOF would put it inside [code] and parse
+// as code.scope.
 func TestEnsureScopeMarker_InsertsAboveFirstTable(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -279,8 +261,7 @@ func TestEnsureScopeMarker_InsertsAboveFirstTable(t *testing.T) {
 		t.Errorf("content:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 
-	// The decisive assertion: it must parse as the top-level key, not
-	// code.scope.
+	// The decisive assertion: top-level key, not code.scope.
 	cfg, warns, err := LoadRepoConfig(RepoConfigPath(root))
 	if err != nil {
 		t.Fatalf("LoadRepoConfig: %v", err)
@@ -296,9 +277,8 @@ func TestEnsureScopeMarker_InsertsAboveFirstTable(t *testing.T) {
 	}
 }
 
-// TestEnsureScopeMarker_NoTableHeader_AppendsAtEOF: an existing file with
-// no table header (e.g. only comments) has the line appended, with a
-// separating newline inserted if the file lacked a trailing one.
+// A file with no table header has the line appended, with a separating newline
+// when the file lacked a trailing one.
 func TestEnsureScopeMarker_NoTableHeader_AppendsAtEOF(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -325,8 +305,7 @@ func TestEnsureScopeMarker_NoTableHeader_AppendsAtEOF(t *testing.T) {
 	}
 }
 
-// TestEnsureScopeMarker_OKWhenAlreadyPresent: the file already declares
-// this exact scope — nothing is written, byte-for-byte.
+// Already declaring this exact scope writes nothing, byte-for-byte.
 func TestEnsureScopeMarker_OKWhenAlreadyPresent(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -352,8 +331,7 @@ func TestEnsureScopeMarker_OKWhenAlreadyPresent(t *testing.T) {
 	}
 }
 
-// TestEnsureScopeMarker_ConflictLeavesFileUntouched: the file declares a
-// different scope — the outcome reports conflict and not one byte changes.
+// A different declared scope reports conflict and changes not one byte.
 func TestEnsureScopeMarker_ConflictLeavesFileUntouched(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -379,8 +357,6 @@ func TestEnsureScopeMarker_ConflictLeavesFileUntouched(t *testing.T) {
 	}
 }
 
-// TestEnsureScopeMarker_Idempotent: created then re-run reports ok and
-// writes nothing further.
 func TestEnsureScopeMarker_Idempotent(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -411,8 +387,7 @@ func TestEnsureScopeMarker_Idempotent(t *testing.T) {
 	}
 }
 
-// TestEnsureScopeMarker_MalformedFileErrors: a malformed existing file is
-// never blindly written into — the caller gets an error instead.
+// A malformed existing file is never blindly written into.
 func TestEnsureScopeMarker_MalformedFileErrors(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -434,12 +409,10 @@ func TestEnsureScopeMarker_MalformedFileErrors(t *testing.T) {
 	}
 }
 
-// TestEnsureScopeMarker_MultilineArrayOfArrays_NotMistakenForHeader:
-// reviewer-reported bug — an interior line of a multi-line array-of-arrays
-// (e.g. "  [1, 2],") also starts with "[" once trimmed. The old table-header
-// detector fired on it and spliced the scope line mid-array, producing
-// unparseable TOML. A line only counts as a table header at bracket depth
-// zero.
+// An interior line of a multi-line array-of-arrays also starts with "[" once
+// trimmed. The old detector fired on it and spliced the scope line mid-array,
+// producing unparseable TOML. A line counts as a table header only at bracket
+// depth zero.
 func TestEnsureScopeMarker_MultilineArrayOfArrays_NotMistakenForHeader(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -456,9 +429,8 @@ func TestEnsureScopeMarker_MultilineArrayOfArrays_NotMistakenForHeader(t *testin
 		t.Errorf("outcome = %q, want %q", outcome, ScopeMarkerAdded)
 	}
 
-	// "matrix" is not a schema key, so LoadRepoConfig reports it as an
-	// unrelated unknown-key warning — this test only cares that the file
-	// still parses and scope landed at top level, not about that warning.
+	// "matrix" is not a schema key, so its unknown-key warning is expected and
+	// beside the point here.
 	cfg, _, err := LoadRepoConfig(RepoConfigPath(root))
 	if err != nil {
 		t.Fatalf("LoadRepoConfig after insert: %v (file did not round-trip)", err)
@@ -477,10 +449,8 @@ func TestEnsureScopeMarker_MultilineArrayOfArrays_NotMistakenForHeader(t *testin
 	}
 }
 
-// TestEnsureScopeMarker_PreservesCRLFLineEnding: the inserted line matches
-// the file's dominant existing line ending instead of always using LF, so a
-// CRLF-authored file doesn't get one LF line spliced into an otherwise-CRLF
-// file.
+// The inserted line matches the file's dominant line ending, so a CRLF-authored
+// file does not get one LF line spliced in.
 func TestEnsureScopeMarker_PreservesCRLFLineEnding(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -515,7 +485,6 @@ func TestEnsureScopeMarker_PreservesCRLFLineEnding(t *testing.T) {
 	}
 }
 
-// TestScopeSource_String locks in the lowercase output tokens.
 func TestScopeSource_String(t *testing.T) {
 	cases := map[ScopeSource]string{
 		ScopeSourceNone:     "none",
@@ -531,8 +500,8 @@ func TestScopeSource_String(t *testing.T) {
 	}
 }
 
-// TestCheckUnknownRepoKeys_ScopeIsKnownLeaf: scope at the top level must not
-// warn as unknown, and every other key's unknown-key behavior is unchanged.
+// A top-level scope key must not warn as unknown, and every other key's
+// unknown-key behavior is unchanged.
 func TestCheckUnknownRepoKeys_ScopeIsKnownLeaf(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")

@@ -9,7 +9,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// TestCheckMigrateDrift_olderInstall: binary newer than install version → WARN nudging migrate.
 func TestCheckMigrateDrift_olderInstall(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[install]\nversion = \"0.1.0\"\n")
@@ -26,7 +25,6 @@ func TestCheckMigrateDrift_olderInstall(t *testing.T) {
 	}
 }
 
-// TestCheckMigrateDrift_equalVersions: binary == install version → PASS.
 func TestCheckMigrateDrift_equalVersions(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[install]\nversion = \"1.0.0\"\n")
@@ -37,7 +35,7 @@ func TestCheckMigrateDrift_equalVersions(t *testing.T) {
 	}
 }
 
-// TestCheckMigrateDrift_newerInstall: install version > binary → PASS (no nudge when install is ahead).
+// An install ahead of the binary is not drift to nudge about.
 func TestCheckMigrateDrift_newerInstall(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[install]\nversion = \"2.0.0\"\n")
@@ -48,7 +46,7 @@ func TestCheckMigrateDrift_newerInstall(t *testing.T) {
 	}
 }
 
-// TestCheckMigrateDrift_noInstallTable: config.toml present but no [install] section → PASS (pre-framework).
+// A missing [install] section means a pre-framework install, not drift.
 func TestCheckMigrateDrift_noInstallTable(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[output.signals]\nmax_depth = 3\n")
@@ -59,7 +57,7 @@ func TestCheckMigrateDrift_noInstallTable(t *testing.T) {
 	}
 }
 
-// TestCheckMigrateDrift_noConfigTOML: no config.toml → PASS (not installed via atomic).
+// No config.toml means the user never installed via atomic.
 func TestCheckMigrateDrift_noConfigTOML(t *testing.T) {
 	root := t.TempDir()
 	// Deliberately do NOT write config.toml.
@@ -70,10 +68,9 @@ func TestCheckMigrateDrift_noConfigTOML(t *testing.T) {
 	}
 }
 
-// TestCheckMigrateDrift_devBinary: binary version "dev" floors to 0.0.0 → no nudge.
+// "dev" floors to 0.0.0, so a local build never nudges.
 func TestCheckMigrateDrift_devBinary(t *testing.T) {
 	root := t.TempDir()
-	// Any valid semver install version is >= "dev" (0.0.0).
 	writeTOML(t, root, "[install]\nversion = \"0.0.1\"\n")
 
 	r := doctor.RunCheckMigrateDriftWith(root, "dev")
@@ -82,7 +79,6 @@ func TestCheckMigrateDrift_devBinary(t *testing.T) {
 	}
 }
 
-// TestCheckMigrateDrift_devBinaryAny: "dev" against higher version also no nudge.
 func TestCheckMigrateDrift_devBinaryAny(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[install]\nversion = \"5.3.0\"\n")
@@ -93,8 +89,7 @@ func TestCheckMigrateDrift_devBinaryAny(t *testing.T) {
 	}
 }
 
-// TestCheckMigrateDrift_legacyStateDir_absent: no ~/.claude/.atomic at all
-// (fresh machine, or migration never had anything to move) → PASS.
+// A fresh machine has nothing to migrate.
 func TestCheckMigrateDrift_legacyStateDir_absent(t *testing.T) {
 	home := t.TempDir()
 	// Deliberately no config.toml and no ~/.claude/.atomic.
@@ -105,8 +100,7 @@ func TestCheckMigrateDrift_legacyStateDir_absent(t *testing.T) {
 	}
 }
 
-// TestCheckMigrateDrift_legacyStateDir_symlink: ~/.claude/.atomic is the
-// compat symlink left by a completed migration → PASS.
+// The compat symlink is what a completed migration leaves behind.
 func TestCheckMigrateDrift_legacyStateDir_symlink(t *testing.T) {
 	home := t.TempDir()
 	newDir := filepath.Join(home, ".atomic")
@@ -127,8 +121,7 @@ func TestCheckMigrateDrift_legacyStateDir_symlink(t *testing.T) {
 	}
 }
 
-// TestCheckMigrateDrift_legacyStateDir_realDir: ~/.claude/.atomic is still a
-// real directory — migration to ~/.atomic hasn't completed on this machine → WARN.
+// A surviving real directory means the migration never completed here.
 func TestCheckMigrateDrift_legacyStateDir_realDir(t *testing.T) {
 	home := t.TempDir()
 	legacyDir := filepath.Join(home, ".claude", ".atomic")
@@ -148,10 +141,8 @@ func TestCheckMigrateDrift_legacyStateDir_realDir(t *testing.T) {
 	}
 }
 
-// TestCheckMigrateDrift_versionDriftAndLegacyDir_combinedWARN: both
-// conditions present at once → single combined-detail WARN Result (mirrors
-// checks_config.go's combined-WARN style), severity is the worst of the two,
-// and the version-drift Remediation survives the merge.
+// Both legs at once must merge into one Result without losing the
+// version-drift Remediation.
 func TestCheckMigrateDrift_versionDriftAndLegacyDir_combinedWARN(t *testing.T) {
 	home := t.TempDir()
 	writeTOML(t, home, "[install]\nversion = \"0.1.0\"\n")

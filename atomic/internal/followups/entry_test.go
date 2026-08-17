@@ -178,7 +178,7 @@ body
 }
 
 func TestParseEntry_BlockScalarOrigin(t *testing.T) {
-	// Block scalar origin (with | style) must round-trip without trailing newline noise
+	// A | block scalar must round-trip without trailing-newline noise.
 	content := `---
 id: my-feature-F-1
 title: "some title"
@@ -197,7 +197,6 @@ body text here
 	if err != nil {
 		t.Fatalf("ParseEntry: %v", err)
 	}
-	// Origin should contain the multi-line content (trimmed)
 	if !strings.Contains(e.Origin, "docs/spec/my-feature.md") {
 		t.Errorf("origin missing expected text: %q", e.Origin)
 	}
@@ -236,8 +235,6 @@ func TestLoadEntries_MissingDir(t *testing.T) {
 		t.Error("expected nil entries on error")
 	}
 }
-
-// Fix 1: ISO date validation in ParseEntry
 
 func TestParseEntry_InvalidCreatedDate(t *testing.T) {
 	base := func(created string) string {
@@ -279,8 +276,6 @@ body
 		t.Error("expected error for review_by=bogus, got nil")
 	}
 }
-
-// Fix 2: Missing required-field tests for created, origin, review_by
 
 func TestParseEntry_MissingCreated(t *testing.T) {
 	content := `---
@@ -333,12 +328,9 @@ body
 	}
 }
 
-// Fix 3: LoadEntriesWithErrors
-
 func TestLoadEntriesWithErrors_PartialResult(t *testing.T) {
 	dir := t.TempDir()
 
-	// Write 2 valid entry files
 	valid1 := `---
 id: test-F-1
 title: "test one"
@@ -424,10 +416,8 @@ func TestLoadEntriesWithErrors_MissingDir(t *testing.T) {
 	}
 }
 
-// Kind field tests
-
 func TestParseEntry_MissingKindDefaultsFinding(t *testing.T) {
-	// Existing entries with no kind field must parse as KindFinding.
+	// An entry predating the kind field parses as a finding.
 	content := `---
 id: test-F-1
 title: "test"
@@ -471,7 +461,6 @@ body
 }
 
 func TestParseEntry_KindPlan_SeverityOptional(t *testing.T) {
-	// Plans must parse without a severity field.
 	content := `---
 id: plan-p-1
 title: "a plan"

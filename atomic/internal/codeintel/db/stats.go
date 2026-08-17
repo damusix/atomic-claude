@@ -8,28 +8,22 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// GetStats returns aggregate counts for the current state of the index.
-// It performs four COUNT queries and one MAX(indexed_at) query — all cheap
-// scans. The NodesByKind map is populated from a GROUP BY query.
+// GetStats aggregates the index in five cheap scans.
 func (d *DB) GetStats(ctx context.Context) (types.GraphStats, error) {
 	var s types.GraphStats
 
-	// Node count.
 	if err := d.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM nodes`).Scan(&s.NodeCount); err != nil {
 		return s, fmt.Errorf("codeintel/db: GetStats nodeCount: %w", err)
 	}
 
-	// Edge count.
 	if err := d.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM edges`).Scan(&s.EdgeCount); err != nil {
 		return s, fmt.Errorf("codeintel/db: GetStats edgeCount: %w", err)
 	}
 
-	// File count.
 	if err := d.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM files`).Scan(&s.FileCount); err != nil {
 		return s, fmt.Errorf("codeintel/db: GetStats fileCount: %w", err)
 	}
 
-	// Nodes by kind.
 	rows, err := d.db.QueryContext(ctx, `SELECT kind, COUNT(*) FROM nodes GROUP BY kind`)
 	if err != nil {
 		return s, fmt.Errorf("codeintel/db: GetStats nodesByKind: %w", err)
@@ -49,7 +43,6 @@ func (d *DB) GetStats(ctx context.Context) (types.GraphStats, error) {
 		return s, fmt.Errorf("codeintel/db: GetStats nodesByKind rows: %w", err)
 	}
 
-	// Last indexed at (MAX of all file indexed_at timestamps).
 	var lastIndexedAt sql.NullString
 	if err := d.db.QueryRowContext(ctx, `SELECT MAX(indexed_at) FROM files`).Scan(&lastIndexedAt); err != nil {
 		return s, fmt.Errorf("codeintel/db: GetStats lastIndexedAt: %w", err)
@@ -61,7 +54,7 @@ func (d *DB) GetStats(ctx context.Context) (types.GraphStats, error) {
 	return s, nil
 }
 
-// GetAllFiles returns all file records from the files table.
+// GetAllFiles returns every file record, path-sorted.
 func (d *DB) GetAllFiles(ctx context.Context) ([]types.FileRecord, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT path, content_hash, language, size, modified_at, indexed_at, node_count, errors
@@ -83,10 +76,8 @@ func (d *DB) GetAllFiles(ctx context.Context) ([]types.FileRecord, error) {
 	return files, rows.Err()
 }
 
-// Clear removes all data from nodes, edges, files, and unresolved_refs tables.
-// The schema and project_metadata rows are preserved. Use after Uninitialize
-// is inappropriate — use db.Close + os.RemoveAll for that case. Clear is for
-// a "wipe and re-index" reset without re-creating the DB.
+// Clear empties the data tables for a wipe-and-re-index, keeping the schema
+// and project_metadata. To discard the database entirely, Close and remove it.
 func (d *DB) Clear(ctx context.Context) error {
 	return d.WithTx(ctx, func(tx *Tx) error {
 		for _, table := range []string{"edges", "unresolved_refs", "nodes", "files"} {

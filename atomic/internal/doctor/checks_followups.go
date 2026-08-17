@@ -25,14 +25,8 @@ func checkFollowups(opts Opts) Result {
 }
 
 // RunCheckFollowupsWith runs the followups check against an explicit root.
-// Exported for testing; production callers use checkFollowups.
-//
-// Decision table:
-//   - folder absent → SKIP
-//   - folder present, invalid/missing frontmatter in any entry → WARN
-//   - folder present, one or more entries past review_by → WARN
-//   - folder present, INDEX.md missing or byte-differs from re-render → WARN
-//   - folder present, all entries fresh, INDEX in sync → PASS
+// Exported for testing. An absent folder SKIPs; bad frontmatter, an entry past
+// its review_by, or an INDEX.md that differs from a fresh render each WARN.
 func RunCheckFollowupsWith(root string) Result {
 	folderPath := config.FollowupsDir(root)
 
@@ -40,7 +34,6 @@ func RunCheckFollowupsWith(root string) Result {
 		return Result{Severity: SKIP, Detail: "no followups folder"}
 	}
 
-	// Folder exists — load entries.
 	entries, parseErrs, err := followups.LoadEntriesWithErrors(folderPath)
 	if err != nil {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("could not read followups folder: %v", err)}
@@ -48,13 +41,12 @@ func RunCheckFollowupsWith(root string) Result {
 
 	var issues []string
 
-	// WARN: invalid/missing frontmatter.
 	if len(parseErrs) > 0 {
 		filenames := make([]string, 0, len(parseErrs))
 		for name := range parseErrs {
 			filenames = append(filenames, name)
 		}
-		// Sort for deterministic output.
+		// Map iteration order is random; the detail string must be stable.
 		sortStrings(filenames)
 		listed := filenames
 		suffix := ""
@@ -65,7 +57,6 @@ func RunCheckFollowupsWith(root string) Result {
 		issues = append(issues, fmt.Sprintf("invalid frontmatter in: %s%s", strings.Join(listed, ", "), suffix))
 	}
 
-	// WARN: stale entries.
 	today := time.Now()
 	stale := staleEntries(entries, today)
 	if len(stale) > 0 {
@@ -79,7 +70,6 @@ func RunCheckFollowupsWith(root string) Result {
 			len(stale), pluralSuffix(len(stale)), strings.Join(listed, ", "), suffix))
 	}
 
-	// WARN: INDEX.md missing or out of sync (byte-compare).
 	indexPath := filepath.Join(folderPath, "INDEX.md")
 	expected := followups.Render(entries, today)
 	actual, err := os.ReadFile(indexPath)
@@ -103,7 +93,6 @@ func RunCheckFollowupsWith(root string) Result {
 	}
 }
 
-// dirExists returns true when path is a directory that can be stat'd.
 func dirExists(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.IsDir()
@@ -129,7 +118,7 @@ func staleEntries(entries []followups.Entry, today time.Time) []string {
 	return out
 }
 
-// pluralSuffix returns "y" when n==1 and "ies" otherwise (for "entry"/"entries").
+// pluralSuffix completes "entr" as "entry" or "entries".
 func pluralSuffix(n int) string {
 	if n == 1 {
 		return "y"
@@ -137,7 +126,7 @@ func pluralSuffix(n int) string {
 	return "ies"
 }
 
-// sortStrings sorts a string slice in place (insertion sort — n is always small).
+// sortStrings sorts in place; insertion sort because n is always small.
 func sortStrings(s []string) {
 	for i := 1; i < len(s); i++ {
 		for j := i; j > 0 && s[j] < s[j-1]; j-- {

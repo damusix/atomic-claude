@@ -1,34 +1,12 @@
-// Package graph implements the traversal engine and query manager over the
-// resolved code-intelligence graph (master CP17).
+// Package graph traverses the resolved code-intelligence graph.
 //
-// The package builds on the db query layer:
-//   - db.GetEdgesBySource / db.GetEdgesByTarget for edge lookup
-//   - db.GetNodesByIds for batched neighbor hydration (never N+1)
+// Two invariants hold across every traversal here:
 //
-// # BFS batching contract (appendix I)
+// Each frontier level hydrates its neighbors with a single db.GetNodesByIds
+// call, so a walk costs O(depth) database round-trips rather than O(nodes).
 //
-// Each frontier level is processed in one pass:
-//  1. Collect all neighbor node-ids from the edge rows returned for the
-//     current frontier.
-//  2. Call db.GetNodesByIds once per frontier level (already 500-chunked
-//     inside the db layer).
-//  3. Expand the next frontier from the newly hydrated nodes.
-//
-// This guarantees O(depth) round-trips to the database, not O(nodes).
-//
-// # Edge priority sort
-//
-// Edges at each frontier are sorted by kind priority before expansion:
-//
-//	contains(0) < calls(1) < everything-else(2)
-//
-// This ordering ensures container-first descent (a file/class is expanded
-// before its callers) and is load-bearing for deterministic BFS expansion.
-//
-// # Determinism
-//
-// Subgraph.Nodes is a map. Any code that serialises or renders a Subgraph
-// must use types.SubgraphSortedNodes — never range over the map directly.
+// Subgraph.Nodes is a map, so anything that serialises or renders a Subgraph
+// must go through types.SubgraphSortedNodes rather than ranging it directly.
 package graph
 
 import (
@@ -40,8 +18,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// edgePriority returns the expansion priority for a given edge kind.
-// Lower is higher priority: contains(0) < calls(1) < everything-else(2).
+// edgePriority orders frontier expansion contains < calls < everything else, so
+// a container is descended into before its callers. Load-bearing: without it,
+// BFS expansion order is not deterministic.
 func edgePriority(k types.EdgeKind) int {
 	switch k {
 	case types.EdgeKindContains:
@@ -53,30 +32,25 @@ func edgePriority(k types.EdgeKind) int {
 	}
 }
 
-// sortEdgesByPriority sorts edges in-place: contains < calls < other.
 func sortEdgesByPriority(edges []types.Edge) {
 	sort.SliceStable(edges, func(i, j int) bool {
 		return edgePriority(edges[i].Kind) < edgePriority(edges[j].Kind)
 	})
 }
 
-// callerCalleeKinds are the edge kinds followed for GetCallers/GetCallees.
 var callerCalleeKinds = map[types.EdgeKind]bool{
 	types.EdgeKindCalls:      true,
 	types.EdgeKindReferences: true,
 	types.EdgeKindImports:    true,
 }
 
-// heritageKinds are the edge kinds followed for GetTypeHierarchy.
 var heritageKinds = map[types.EdgeKind]bool{
 	types.EdgeKindExtends:    true,
 	types.EdgeKindImplements: true,
 }
 
-// containerKinds are node kinds considered containers for GetImpactRadius.
-// Container nodes first descend into children via outgoing contains edges
-// before expanding impact, to avoid climbing to the parent then re-expanding
-// siblings.
+// containerKinds get impact expanded from their children rather than themselves,
+// which stops the walk climbing to the parent and re-expanding every sibling.
 var containerKinds = map[types.NodeKind]bool{
 	types.NodeKindFile:      true,
 	types.NodeKindModule:    true,
@@ -88,15 +62,13 @@ var containerKinds = map[types.NodeKind]bool{
 	types.NodeKindProtocol:  true,
 }
 
-// deadCodeKinds are the node kinds checked by FindDeadCode.
 var deadCodeKinds = map[types.NodeKind]bool{
 	types.NodeKindFunction: true,
 	types.NodeKindMethod:   true,
 	types.NodeKindClass:    true,
 }
 
-// Manager holds the db handle and exposes the graph query operations.
-// It is the primary entry point for CP19 (context builder) and the CP20+
+// Manager exposes the graph query operations to the context builder and the
 // engine facade.
 type Manager struct {
 	db *db.DB
@@ -107,15 +79,9 @@ func NewManager(d *db.DB) *Manager {
 	return &Manager{db: d}
 }
 
-// ---------------------------------------------------------------------------
-// GetCallees
-// ---------------------------------------------------------------------------
-
-// GetCallees returns all nodes reachable from startID via outgoing
-// calls|references|imports edges, up to maxDepth hops, plus the start node
-// itself — every returned edge's Source or Target is startID at the first
-// hop, so the start node must resolve in Subgraph.Nodes too.
-// maxDepth=0 applies the default depth of 1.
+// GetCallees returns nodes reachable from startID via outgoing
+// calls|references|imports edges within maxDepth hops (0 means 1). The start
+// node is included: first-hop edges name it, so it must resolve in Nodes.
 func (m *Manager) GetCallees(ctx context.Context, startID string, maxDepth int) (types.Subgraph, error) {
 	if maxDepth <= 0 {
 		maxDepth = 1
@@ -132,15 +98,7 @@ func (m *Manager) GetCallees(ctx context.Context, startID string, maxDepth int) 
 	return sg, nil
 }
 
-// ---------------------------------------------------------------------------
-// GetCallers
-// ---------------------------------------------------------------------------
-
-// GetCallers returns all nodes that reach startID via incoming
-// calls|references|imports edges, up to maxDepth hops, plus the start node
-// itself — every returned edge's Source or Target is startID at the first
-// hop, so the start node must resolve in Subgraph.Nodes too.
-// maxDepth=0 applies the default depth of 1.
+// GetCallers is GetCallees over incoming edges.
 func (m *Manager) GetCallers(ctx context.Context, startID string, maxDepth int) (types.Subgraph, error) {
 	if maxDepth <= 0 {
 		maxDepth = 1
@@ -157,17 +115,8 @@ func (m *Manager) GetCallers(ctx context.Context, startID string, maxDepth int) 
 	return sg, nil
 }
 
-// ---------------------------------------------------------------------------
-// GetImpactRadius
-// ---------------------------------------------------------------------------
-
-// GetImpactRadius returns all nodes that transitively depend on startID via
-// any incoming edge kind EXCEPT contains. The impact radius is computed
-// recursively: container nodes first descend into their children via outgoing
-// contains edges before expanding impact, which avoids climbing to the parent
-// and re-expanding siblings.
-//
-// maxDepth=0 applies the default depth of 3.
+// GetImpactRadius returns nodes that transitively depend on startID via any
+// incoming edge kind except contains, within maxDepth hops (0 means 3).
 func (m *Manager) GetImpactRadius(ctx context.Context, startID string, maxDepth int) (types.Subgraph, error) {
 	if maxDepth <= 0 {
 		maxDepth = 3
@@ -178,13 +127,10 @@ func (m *Manager) GetImpactRadius(ctx context.Context, startID string, maxDepth 
 		Nodes: make(map[string]types.Node),
 	}
 
-	// Seed the start node.
 	startNode, err := m.db.GetNode(ctx, startID)
 	if err != nil {
 		return sg, err
 	}
-	// For container kinds: first descend into children via contains outgoing,
-	// then expand their impact. This avoids the parent→sibling bleed.
 	if containerKinds[startNode.Kind] {
 		childEdges, err := m.db.GetEdgesBySource(ctx, startID)
 		if err != nil {
@@ -206,9 +152,7 @@ func (m *Manager) GetImpactRadius(ctx context.Context, startID string, maxDepth 
 				if visited[cn.ID] {
 					continue
 				}
-				// cn is itself the start of its own impactBFS sub-traversal, so it
-				// is a first-level edge endpoint (see impactBFS) — hydrate it here
-				// since impactBFS only ever hydrates its neighbors, not itself.
+				// impactBFS hydrates only its neighbors, never its own start node.
 				sg.Nodes[cn.ID] = cn
 				childSG, err := m.impactBFS(ctx, cn.ID, maxDepth, visited)
 				if err != nil {
@@ -221,22 +165,20 @@ func (m *Manager) GetImpactRadius(ctx context.Context, startID string, maxDepth 
 			}
 			return sg, nil
 		}
-		// F-45: childless container — fall through to impactBFS on the start node
-		// itself so real incoming non-contains edges are not silently ignored.
+		// A childless container falls through, so its own incoming edges are not
+		// silently ignored.
 	}
 
 	childSG, err := m.impactBFS(ctx, startID, maxDepth, visited)
 	if err != nil {
 		return sg, err
 	}
-	// startNode is itself a first-level edge endpoint (see impactBFS) —
-	// impactBFS only hydrates its neighbors, never its own start node.
 	childSG.Nodes[startID] = startNode
 	return childSG, nil
 }
 
-// impactBFS performs a BFS over incoming edges except contains.
-// It accumulates results into the returned Subgraph and marks visited IDs.
+// impactBFS walks incoming edges except contains, hydrating neighbors only —
+// the caller is responsible for putting startID into the returned Nodes map.
 func (m *Manager) impactBFS(ctx context.Context, startID string, maxDepth int, visited map[string]bool) (types.Subgraph, error) {
 	sg := types.Subgraph{
 		Nodes: make(map[string]types.Node),
@@ -249,7 +191,6 @@ func (m *Manager) impactBFS(ctx context.Context, startID string, maxDepth int, v
 	visited[startID] = true
 
 	for depth := 0; depth < maxDepth && len(frontier) > 0; depth++ {
-		// Collect all incoming edges for the current frontier.
 		var allEdges []types.Edge
 		for _, id := range frontier {
 			edges, err := m.db.GetEdgesByTarget(ctx, id)
@@ -258,7 +199,7 @@ func (m *Manager) impactBFS(ctx context.Context, startID string, maxDepth int, v
 			}
 			sortEdgesByPriority(edges)
 			for _, e := range edges {
-				// Exclude contains — it's the container relationship, not dependency.
+				// contains is containment, not dependency.
 				if e.Kind != types.EdgeKindContains {
 					allEdges = append(allEdges, e)
 					sg.Edges = append(sg.Edges, e)
@@ -266,7 +207,6 @@ func (m *Manager) impactBFS(ctx context.Context, startID string, maxDepth int, v
 			}
 		}
 
-		// Batch-fetch all new neighbor nodes in one call.
 		neighborIDs := make([]string, 0, len(allEdges))
 		seen := make(map[string]bool)
 		for _, e := range allEdges {
@@ -299,19 +239,14 @@ func (m *Manager) impactBFS(ctx context.Context, startID string, maxDepth int, v
 	return sg, nil
 }
 
-// ---------------------------------------------------------------------------
-// FindPath
-// ---------------------------------------------------------------------------
-
-// FindPath returns the shortest path between fromID and toID via BFS over
-// outgoing edges. edgeKinds restricts which edge kinds are followed; nil means
-// all kinds. Returns an empty Subgraph when no path exists.
+// FindPath returns the shortest outgoing path from fromID to toID, or an empty
+// Subgraph if none exists. A nil edgeKinds follows every kind.
 func (m *Manager) FindPath(ctx context.Context, fromID, toID string, edgeKinds []types.EdgeKind) (types.Subgraph, error) {
 	sg := types.Subgraph{
 		Nodes: make(map[string]types.Node),
 	}
 	if fromID == toID {
-		// Trivially reachable — but propagate any GetNode error (F-46).
+		// Trivially reachable, but a nonexistent node must still error.
 		n, err := m.db.GetNode(ctx, fromID)
 		if err != nil {
 			return sg, err
@@ -326,14 +261,12 @@ func (m *Manager) FindPath(ctx context.Context, fromID, toID string, edgeKinds [
 		kindFilter[k] = true
 	}
 
-	// parent maps each visited node id to the id of the predecessor on the
-	// shortest-path tree.
+	// parent maps a visited node to its predecessor on the shortest-path tree.
 	parent := map[string]string{fromID: ""}
 	frontier := []string{fromID}
 	found := false
 
 	for len(frontier) > 0 && !found {
-		// Collect all outgoing edges for the frontier.
 		var allEdges []types.Edge
 		for _, id := range frontier {
 			edges, err := m.db.GetEdgesBySource(ctx, id)
@@ -351,7 +284,6 @@ func (m *Manager) FindPath(ctx context.Context, fromID, toID string, edgeKinds [
 			}
 		}
 
-		// Batch-fetch neighbors.
 		neighborIDs := make([]string, 0, len(allEdges))
 		edgeByTarget := make(map[string]types.Edge)
 		for _, e := range allEdges {
@@ -377,8 +309,8 @@ func (m *Manager) FindPath(ctx context.Context, fromID, toID string, edgeKinds [
 			parent[n.ID] = e.Source
 			nextFrontier = append(nextFrontier, n.ID)
 			if n.ID == toID {
+				// No break: the rest of the batch must still register parents.
 				found = true
-				// Don't break — let the batch finish so we register the parent.
 			}
 		}
 		frontier = nextFrontier
@@ -388,19 +320,17 @@ func (m *Manager) FindPath(ctx context.Context, fromID, toID string, edgeKinds [
 		return sg, nil
 	}
 
-	// Reconstruct path from toID back to fromID.
+	// Walk parents back from toID, then reverse into fromID → toID order.
 	path := []string{}
 	cur := toID
 	for cur != "" {
 		path = append(path, cur)
 		cur = parent[cur]
 	}
-	// Reverse to get fromID → toID order.
 	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 		path[i], path[j] = path[j], path[i]
 	}
 
-	// Hydrate path nodes.
 	pathNodes, err := m.db.GetNodesByIds(ctx, path)
 	if err != nil {
 		return sg, err
@@ -412,17 +342,8 @@ func (m *Manager) FindPath(ctx context.Context, fromID, toID string, edgeKinds [
 	return sg, nil
 }
 
-// ---------------------------------------------------------------------------
-// GetTypeHierarchy
-// ---------------------------------------------------------------------------
-
-// GetTypeHierarchy returns all ancestors or descendants of startID via
-// extends|implements edges. direction must be "ancestors" or "descendants".
-//
-//   - "ancestors": follow outgoing extends/implements edges (what startID
-//     extends/implements).
-//   - "descendants": follow incoming extends/implements edges (what extends/
-//     implements startID).
+// GetTypeHierarchy walks extends|implements edges outgoing for "ancestors" or
+// incoming for "descendants"; any other direction is an error.
 func (m *Manager) GetTypeHierarchy(ctx context.Context, startID string, direction string) ([]types.Node, error) {
 	if direction == "ancestors" {
 		sg, err := m.bfsOutgoing(ctx, startID, 0, heritageKinds)
@@ -438,20 +359,15 @@ func (m *Manager) GetTypeHierarchy(ctx context.Context, startID string, directio
 		}
 		return types.SubgraphSortedNodes(sg), nil
 	}
-	// F-47: unknown direction — return explicit error rather than silently guessing.
 	return nil, fmt.Errorf("graph: GetTypeHierarchy: unknown direction %q (want \"ancestors\" or \"descendants\")", direction)
 }
 
-// ---------------------------------------------------------------------------
-// FindDeadCode
-// ---------------------------------------------------------------------------
-
-// FindDeadCode returns nodes of kind function|method|class that have no
-// non-contains incoming edges and IsExported=false.
+// FindDeadCode returns unexported function|method|class nodes whose only
+// incoming edges are contains.
 func (m *Manager) FindDeadCode(ctx context.Context) ([]types.Node, error) {
 	var dead []types.Node
 
-	// F-49: iterate kinds in sorted order so DB-call sequence is reproducible.
+	// Sorted so the DB-call sequence is reproducible.
 	sortedKinds := make([]types.NodeKind, 0, len(deadCodeKinds))
 	for kind := range deadCodeKinds {
 		sortedKinds = append(sortedKinds, kind)
@@ -467,7 +383,6 @@ func (m *Manager) FindDeadCode(ctx context.Context) ([]types.Node, error) {
 			if n.IsExported {
 				continue
 			}
-			// Check for any non-contains incoming edge.
 			incoming, err := m.db.GetEdgesByTarget(ctx, n.ID)
 			if err != nil {
 				return nil, err
@@ -485,28 +400,20 @@ func (m *Manager) FindDeadCode(ctx context.Context) ([]types.Node, error) {
 		}
 	}
 
-	// Sort for determinism.
 	sort.Slice(dead, func(i, j int) bool {
 		return dead[i].ID < dead[j].ID
 	})
 	return dead, nil
 }
 
-// ---------------------------------------------------------------------------
-// FindCircularDependencies
-// ---------------------------------------------------------------------------
-
-// FindCircularDependencies finds cycles in file-level imports edges using DFS
-// with a recursion stack. Returns a slice of cycles, where each cycle is an
-// ordered list of node IDs forming the cycle.
+// FindCircularDependencies returns each import cycle among file nodes as an
+// ordered list of node IDs, found by DFS over a recursion stack.
 func (m *Manager) FindCircularDependencies(ctx context.Context) ([][]string, error) {
-	// Gather all file nodes.
 	fileNodes, err := m.db.GetNodesByKind(ctx, types.NodeKindFile)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build adjacency list: fileID → []fileID (via imports edges only).
 	adj := make(map[string][]string, len(fileNodes))
 	for _, fn := range fileNodes {
 		edges, err := m.db.GetEdgesBySource(ctx, fn.ID)
@@ -522,7 +429,7 @@ func (m *Manager) FindCircularDependencies(ctx context.Context) ([][]string, err
 			adj[fn.ID] = nil
 		}
 	}
-	// F-48: sort each neighbor list so DFS visits neighbors in deterministic order.
+	// Sorted so DFS visits neighbors deterministically.
 	for id := range adj {
 		sort.Strings(adj[id])
 	}
@@ -544,7 +451,6 @@ func (m *Manager) FindCircularDependencies(ctx context.Context) ([][]string, err
 			if !visited[neighbor] {
 				dfs(neighbor)
 			} else if onStack[neighbor] {
-				// Found a cycle: extract it from the path.
 				start := stackPos[neighbor]
 				cycle := make([]string, len(path)-start)
 				copy(cycle, path[start:])
@@ -557,7 +463,7 @@ func (m *Manager) FindCircularDependencies(ctx context.Context) ([][]string, err
 		delete(stackPos, id)
 	}
 
-	// Sort file node IDs for deterministic DFS order.
+	// Sorted so DFS roots are visited deterministically.
 	fileIDs := make([]string, 0, len(fileNodes))
 	for _, fn := range fileNodes {
 		fileIDs = append(fileIDs, fn.ID)
@@ -570,7 +476,6 @@ func (m *Manager) FindCircularDependencies(ctx context.Context) ([][]string, err
 		}
 	}
 
-	// F-48: sort the returned cycles slice for reproducible output.
 	sort.Slice(cycles, func(i, j int) bool {
 		ci, cj := cycles[i], cycles[j]
 		for k := 0; k < len(ci) && k < len(cj); k++ {
@@ -584,13 +489,8 @@ func (m *Manager) FindCircularDependencies(ctx context.Context) ([][]string, err
 	return cycles, nil
 }
 
-// ---------------------------------------------------------------------------
-// Internal BFS helpers
-// ---------------------------------------------------------------------------
-
-// bfsOutgoing performs a BFS following outgoing edges of the allowed kinds
-// from startID, up to maxDepth hops. maxDepth=0 means unlimited.
-// Returns a Subgraph of all visited nodes (excluding the start node itself).
+// bfsOutgoing walks outgoing edges of the allowed kinds from startID, maxDepth=0
+// meaning unlimited. The start node is excluded from the returned Nodes.
 func (m *Manager) bfsOutgoing(ctx context.Context, startID string, maxDepth int, allowedKinds map[types.EdgeKind]bool) (types.Subgraph, error) {
 	sg := types.Subgraph{
 		Nodes: make(map[string]types.Node),
@@ -616,7 +516,6 @@ func (m *Manager) bfsOutgoing(ctx context.Context, startID string, maxDepth int,
 			}
 		}
 
-		// Batch-hydrate all neighbor nodes in one call per frontier level.
 		neighborIDs := make([]string, 0, len(allEdges))
 		seen := make(map[string]bool)
 		for _, e := range allEdges {
@@ -649,9 +548,7 @@ func (m *Manager) bfsOutgoing(ctx context.Context, startID string, maxDepth int,
 	return sg, nil
 }
 
-// bfsIncoming performs a BFS following incoming edges of the allowed kinds
-// into startID, up to maxDepth hops. maxDepth=0 means unlimited.
-// Returns a Subgraph of all visited nodes (excluding the start node itself).
+// bfsIncoming is bfsOutgoing over incoming edges.
 func (m *Manager) bfsIncoming(ctx context.Context, startID string, maxDepth int, allowedKinds map[types.EdgeKind]bool) (types.Subgraph, error) {
 	sg := types.Subgraph{
 		Nodes: make(map[string]types.Node),
@@ -677,7 +574,6 @@ func (m *Manager) bfsIncoming(ctx context.Context, startID string, maxDepth int,
 			}
 		}
 
-		// Batch-hydrate all neighbor nodes in one call per frontier level.
 		neighborIDs := make([]string, 0, len(allEdges))
 		seen := make(map[string]bool)
 		for _, e := range allEdges {

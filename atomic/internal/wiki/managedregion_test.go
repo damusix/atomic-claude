@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// --- renderManagedRegion ---
-
 // TestRenderManagedRegion_Shape verifies the wrapper shape: open tag, blank
 // line, content, blank line, close tag. The blank lines are load-bearing
 // (CommonMark HTML-block rule) and must never be omitted by a call site.
@@ -17,8 +15,6 @@ func TestRenderManagedRegion_Shape(t *testing.T) {
 		t.Errorf("renderManagedRegion shape mismatch\ngot:  %q\nwant: %q", got, want)
 	}
 }
-
-// --- spliceManagedRegion: absent region ---
 
 // TestSpliceManagedRegion_AbsentAppendsAtEOF verifies that when the tag is
 // absent from an empty document, the rendered region is appended with a
@@ -49,8 +45,6 @@ func TestSpliceManagedRegion_AbsentAppendsAfterPriorContent(t *testing.T) {
 	}
 }
 
-// TestSpliceManagedRegion_AbsentNoDoubleBlankLine verifies that prior content
-// already ending in a blank line does not get a second one inserted.
 func TestSpliceManagedRegion_AbsentNoDoubleBlankLine(t *testing.T) {
 	prior := "# Realm\n\nSome prose.\n\n"
 	got, err := spliceManagedRegion(prior, managedRegion{tag: "docs", content: "entry"})
@@ -62,8 +56,6 @@ func TestSpliceManagedRegion_AbsentNoDoubleBlankLine(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
-
-// --- spliceManagedRegion: well-formed region ---
 
 // TestSpliceManagedRegion_WellFormedReplacesBody verifies that an existing
 // well-formed region has its body replaced wholesale, with content outside
@@ -121,8 +113,6 @@ func TestSpliceManagedRegion_PreservesOutsideContentByteForByte(t *testing.T) {
 	}
 }
 
-// --- spliceManagedRegion: unpaired tags ---
-
 // TestSpliceManagedRegion_UnpairedOpenReturnsError verifies an open tag with
 // no matching close returns errUnpairedRegion and leaves the document unchanged
 // — never truncated to EOF.
@@ -137,8 +127,6 @@ func TestSpliceManagedRegion_UnpairedOpenReturnsError(t *testing.T) {
 	}
 }
 
-// TestSpliceManagedRegion_UnpairedCloseReturnsError verifies a close tag with
-// no matching open returns errUnpairedRegion and leaves the document unchanged.
 func TestSpliceManagedRegion_UnpairedCloseReturnsError(t *testing.T) {
 	original := "# Realm\n\nsome stray content\n\n</docs>\n\nafter text\n"
 	got, err := spliceManagedRegion(original, managedRegion{tag: "docs", content: "new"})
@@ -165,10 +153,6 @@ func TestSpliceManagedRegion_ReversedOrderReturnsError(t *testing.T) {
 	}
 }
 
-// --- spliceManagedRegion: idempotency ---
-
-// TestSpliceManagedRegion_Idempotent verifies that splicing the same content
-// into a well-formed region twice produces a byte-identical document.
 func TestSpliceManagedRegion_Idempotent(t *testing.T) {
 	original := "# Realm\n\n<docs>\n\nold entry\n\n</docs>\n\nAfter.\n"
 	region := managedRegion{tag: "docs", content: "stable entry"}
@@ -186,10 +170,6 @@ func TestSpliceManagedRegion_Idempotent(t *testing.T) {
 	}
 }
 
-// --- findRegion ---
-
-// TestFindRegion_Absent verifies findRegion reports regionAbsent when neither
-// tag appears in the document.
 func TestFindRegion_Absent(t *testing.T) {
 	state, _ := findRegion("# Realm\n\nno tags here\n", "docs")
 	if state != regionAbsent {
@@ -197,8 +177,6 @@ func TestFindRegion_Absent(t *testing.T) {
 	}
 }
 
-// TestFindRegion_WellFormed verifies findRegion locates a matched open/close
-// pair and reports regionWellFormed.
 func TestFindRegion_WellFormed(t *testing.T) {
 	state, bounds := findRegion("<docs>\n\nbody\n\n</docs>\n", "docs")
 	if state != regionWellFormed {
@@ -209,8 +187,6 @@ func TestFindRegion_WellFormed(t *testing.T) {
 	}
 }
 
-// TestFindRegion_UnpairedOpenOnly verifies findRegion reports regionUnpaired
-// when only the open tag is present.
 func TestFindRegion_UnpairedOpenOnly(t *testing.T) {
 	state, _ := findRegion("<docs>\n\nbody with no close\n", "docs")
 	if state != regionUnpaired {
@@ -218,8 +194,6 @@ func TestFindRegion_UnpairedOpenOnly(t *testing.T) {
 	}
 }
 
-// TestFindRegion_UnpairedCloseOnly verifies findRegion reports regionUnpaired
-// when only the close tag is present.
 func TestFindRegion_UnpairedCloseOnly(t *testing.T) {
 	state, _ := findRegion("body with no open\n\n</docs>\n", "docs")
 	if state != regionUnpaired {
@@ -237,7 +211,6 @@ func TestFindRegion_ReversedOrderUnpaired(t *testing.T) {
 	}
 }
 
-// --- spliceRegionAt: boundary matrix ---
 //
 // spliceRegionAt is the single tested home for interior-region boundary
 // whitespace: LEAD (bytes before the open tag), TRAIL (bytes after the close

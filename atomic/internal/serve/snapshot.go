@@ -1,30 +1,16 @@
-// snapshot.go — CP1 (live-reload): the realm snapshot store.
+// The realm snapshot store behind live-reload: one realm-wide snapshot
+// (fingerprint, nav paths, link graph) published through a single atomic
+// pointer, so nav, page, rail, and graph all read the same state.
 //
-// Today, three independent walks compute overlapping state: nav.go walks the
-// docs tree on every /nav request, serve.go builds the link graph once at
-// startup and never again, and graphcache.go walks the filesystem for a
-// fingerprint on every /graph/data request. Because they run independently, a
-// file added after startup shows up in some views and not others, and none of
-// them notice a change without a full server restart.
+// Two walk tiers keep that cheap. fingerprint() is stat-only and runs on every
+// ensureFresh; rebuild() reads and parses every page and runs only when the
+// fingerprint moved.
 //
-// snapshotStore replaces all three with one realm-wide snapshot — fingerprint,
-// nav paths, and link graph — behind a single atomic pointer, refreshed by one
-// rebuild funnel that any caller (a ticker, a lazy per-request check, the
-// startup warm) can trigger through the same accessor: ensureFresh.
-//
-// Two walk tiers exist:
-//   - fingerprint(): a cheap, stat-only, quiet-window-filtered manifest walk.
-//     Run on every ensureFresh call to detect drift without touching file
-//     content.
-//   - rebuild(): the expensive walk (BuildLinkGraph reads and parses every
-//     page), run only when fingerprint() reports the realm has changed.
-//
-// Concurrent callers that all observe staleness do not each perform a
-// rebuild. Only one wins a non-blocking CAS gate; the rest return the current
-// (possibly one-tick-stale) snapshot immediately rather than waiting — the
-// dedup key is that gate, not the computed fingerprint value, because two
-// walkers racing a changing filesystem can legitimately compute different
-// fingerprints for the same moment.
+// Concurrent stale observers do not each rebuild: one wins a non-blocking CAS
+// gate and the rest return the current snapshot rather than wait. The gate is
+// the dedup key, not the fingerprint value, because two walkers racing a
+// changing filesystem can legitimately compute different fingerprints for the
+// same moment.
 package serve
 
 import (
@@ -39,30 +25,22 @@ import (
 )
 
 const (
-	// defaultTickInterval is the ticker cadence a store uses when a caller
-	// does not need a different cadence (production default; CP3 wires the
-	// live ticker at this interval).
 	defaultTickInterval = 10 * time.Second
 
-	// defaultQuietWindow is how recently a file may have been modified before
-	// its size/mtime resets are trusted enough to enter the fingerprint
-	// manifest — a file mid-write should not flip the fingerprint out from
-	// under a reader.
+	// defaultQuietWindow keeps a file out of the manifest until its mtime has
+	// settled, so a file mid-write cannot flip the fingerprint under a reader.
 	defaultQuietWindow = 2 * time.Second
 )
 
-// fileManifestEntry is one file's (size, mtime) pair as observed by a
-// fingerprint walk. Comparable, so two entries can be diffed with !=.
+// fileManifestEntry is comparable, so two entries diff with !=.
 type fileManifestEntry struct {
 	size        int64
 	modUnixNano int64
 }
 
-// realmSnapshot is one immutable view of realm state: the filesystem
-// fingerprint, the navigable markdown paths, and the resolved link graph.
-// Published as a single atomic pointer swap so a reader that grabs the
-// pointer once observes internally consistent state — a torn read (new fp,
-// stale graph) is impossible because there is only ever one field to read.
+// realmSnapshot is one immutable view of realm state. Publishing it as a
+// single pointer swap makes a torn read (new fingerprint, stale graph)
+// impossible — there is only ever one field to read.
 type realmSnapshot struct {
 	fp       string
 	navPaths []string
@@ -70,9 +48,8 @@ type realmSnapshot struct {
 	manifest map[string]fileManifestEntry
 }
 
-// snapshotStore owns the current realmSnapshot behind a single atomic
-// pointer, the quiet-window fingerprint walk, and the rebuild funnel that
-// collapses concurrent triggers into one rebuild.
+// snapshotStore owns the published snapshot, the fingerprint walk, and the
+// funnel collapsing concurrent triggers into one rebuild.
 type snapshotStore struct {
 	root         string
 	tickInterval time.Duration
@@ -80,74 +57,50 @@ type snapshotStore struct {
 
 	ptr atomic.Pointer[realmSnapshot]
 
-	// rebuilding gates the funnel: only the goroutine that wins this
-	// CompareAndSwap performs a rebuild. Losers return the current
-	// (possibly stale) snapshot immediately — a later ensureFresh call
-	// (next tick, next request) retries. This is the generation-keyed
-	// dedup: the gate, not the fingerprint value, decides "already in
-	// flight" (SC7).
+	// rebuilding gates the funnel: the CAS winner rebuilds, losers return the
+	// current snapshot and let a later ensureFresh retry.
 	rebuilding atomic.Bool
 
-	// rebuildCalls counts completed rebuild() calls. Test instrumentation
-	// only — proves concurrent ensureFresh callers collapse to one rebuild.
+	// rebuildCalls is test instrumentation proving concurrent callers collapse
+	// to one rebuild.
 	rebuildCalls atomic.Int64
 }
 
-// newSnapshotStore constructs a store rooted at root with the given tick
-// interval and quiet window. The store starts with an empty snapshot; the
-// first ensureFresh call performs the initial rebuild.
+// newSnapshotStore returns a store with an empty snapshot; the first
+// ensureFresh performs the initial rebuild.
 func newSnapshotStore(root string, tickInterval, quietWindow time.Duration) *snapshotStore {
 	s := &snapshotStore{root: root, tickInterval: tickInterval, quietWindow: quietWindow}
 	s.ptr.Store(&realmSnapshot{})
 	return s
 }
 
-// NewSnapshotStore constructs the shared realm-snapshot store, at production
-// defaults, that backs the nav/page/rail/graph-data handlers (CP2).
-// RunWithContext constructs exactly one and injects it into every handler
-// constructor so a single walk — and a single rebuild funnel — is shared
-// across all of them, instead of each handler tracking its own copy (SC1,
-// SC7). Exported so tests exercising the handlers' post-startup live-reload
-// behavior through the public API can construct one the same way.
-//
-// The store is warmed synchronously before this returns (unlike the
-// unexported newSnapshotStore, which starts empty): a caller of an exported
-// constructor must never observe a nil graph, including a handler's
-// background cache-warm goroutine racing the caller's own first request.
+// NewSnapshotStore returns the shared store at production defaults, warmed
+// synchronously: a caller of an exported constructor must never observe a nil
+// graph, including a background warm racing its own first request.
 func NewSnapshotStore(root string) *snapshotStore {
 	s := newSnapshotStore(root, defaultTickInterval, defaultQuietWindow)
 	s.ensureFresh()
 	return s
 }
 
-// graphProvider is the seam the page, rail, and graph-data handlers read the
-// current link graph through. *Graph satisfies it as a static, single-shot
-// value (pre-CP2 callers, tests that build one graph and never expect it to
-// change); *snapshotStore satisfies it by calling ensureFresh on every read —
-// the same accessor the ticker and startup warm use (SC7) — so a file added,
-// edited, or deleted after construction is reflected on the next call without
-// the caller reconstructing the handler.
+// graphProvider is how the page, rail, and graph handlers reach the current
+// link graph. A bare *Graph is a fixed snapshot, for tests; a *snapshotStore
+// revalidates on every read, so a file changed after construction is picked up
+// without rebuilding the handler.
 type graphProvider interface {
 	currentGraph() *Graph
 }
 
-// currentGraph makes *Graph a graphProvider: a bare graph is one immutable
-// snapshot, so it simply returns itself.
 func (g *Graph) currentGraph() *Graph { return g }
 
-// currentGraph makes *snapshotStore a graphProvider: every call revalidates
-// the realm fingerprint (and rebuilds when stale) before returning the graph.
 func (s *snapshotStore) currentGraph() *Graph {
 	snap, _ := s.ensureFresh()
 	return snap.graph
 }
 
-// seed publishes an initial snapshot built from an already-constructed graph
-// (e.g. one built once at server startup) instead of performing a rebuild
-// walk. The snapshot's fingerprint reflects the current on-disk state, so a
-// later ensureFresh call correctly detects whether anything has changed since
-// g was built. Callers that already hold a graph use this to hand ongoing
-// revalidation over to the store without discarding what they built.
+// seed publishes an already-built graph instead of rebuilding, so a caller
+// holding one can hand revalidation to the store without discarding it. The
+// fingerprint is taken now, so a later ensureFresh still detects drift.
 func (s *snapshotStore) seed(g *Graph) {
 	entries, fp := s.fingerprint()
 	s.ptr.Store(&realmSnapshot{
@@ -158,18 +111,14 @@ func (s *snapshotStore) seed(g *Graph) {
 	})
 }
 
-// current returns the currently published snapshot. Never nil after
-// construction.
+// current returns the published snapshot, never nil after construction.
 func (s *snapshotStore) current() *realmSnapshot {
 	return s.ptr.Load()
 }
 
-// ensureFresh computes the quiet-window fingerprint and, when it differs from
-// the published snapshot's fp, triggers a rebuild. It is the single accessor
-// shared by the ticker, lazy per-request validation, and the startup warm
-// (SC: "ticker, lazy request-path validation, and startup warm all call the
-// same snapshot accessor"). Returns the (possibly just-published) snapshot
-// and the changed-relpath manifest diff (nil when no rebuild occurred).
+// ensureFresh fingerprints the realm and rebuilds when it has drifted. It is
+// the one accessor the ticker, per-request validation, and the startup warm
+// all share. The returned diff is nil when no rebuild occurred.
 func (s *snapshotStore) ensureFresh() (*realmSnapshot, []string) {
 	entries, fp := s.fingerprint()
 	cur := s.current()
@@ -177,9 +126,7 @@ func (s *snapshotStore) ensureFresh() (*realmSnapshot, []string) {
 		return cur, nil
 	}
 	if !s.rebuilding.CompareAndSwap(false, true) {
-		// A rebuild for this staleness signal is already in flight — skip
-		// rather than block. The caller observes the current snapshot; a
-		// later call catches the change once the in-flight rebuild lands.
+		// Already in flight — skip rather than block; a later call sees it.
 		return cur, nil
 	}
 	defer s.rebuilding.Store(false)
@@ -187,16 +134,11 @@ func (s *snapshotStore) ensureFresh() (*realmSnapshot, []string) {
 	return s.rebuild(entries, fp)
 }
 
-// rebuild walks nav paths and the link graph (BuildLinkGraph — content
-// reads), diffs the new manifest against the prior snapshot's, and publishes
-// the result via one atomic pointer swap. entries/fp are the fingerprint
-// already computed by the caller so this does not re-walk to get them.
+// rebuild rebuilds the graph and publishes it in one pointer swap. entries and
+// fp come from the caller's fingerprint walk, so this does not re-walk.
 //
-// A file that vanishes between the fingerprint walk and BuildLinkGraph's
-// content read is skipped for this rebuild without error (BuildLinkGraph
-// already continues past a read failure); it disappears from navPaths/graph
-// for this pass and, if truly gone, stays gone on the next fingerprint walk —
-// if it reappears, the next rebuild picks it up (SC5).
+// A file that vanishes between the fingerprint and the content read is simply
+// absent from this pass; the next rebuild picks it up if it reappears.
 func (s *snapshotStore) rebuild(entries map[string]fileManifestEntry, fp string) (*realmSnapshot, []string) {
 	s.rebuildCalls.Add(1)
 
@@ -211,12 +153,9 @@ func (s *snapshotStore) rebuild(entries map[string]fileManifestEntry, fp string)
 	return next, changed
 }
 
-// fingerprint performs the quiet-window-filtered, stat-only manifest walk:
-// every non-hidden file under root (same shouldSkipDir/hiddenFile filters as
-// BuildLinkGraph, so the fingerprint tracks exactly what the graph depends
-// on), excluding any file whose mtime falls within the quiet window of now.
-// No file content is read — cheap enough to run on every ensureFresh call,
-// including a zero-subscriber tick (SC4).
+// fingerprint stats every non-hidden file under root, skipping any modified
+// inside the quiet window. It uses the same filters as BuildLinkGraph, so the
+// fingerprint tracks exactly what the graph depends on, and reads no content.
 func (s *snapshotStore) fingerprint() (map[string]fileManifestEntry, string) {
 	now := time.Now()
 	entries := make(map[string]fileManifestEntry)
@@ -239,8 +178,7 @@ func (s *snapshotStore) fingerprint() (map[string]fileManifestEntry, string) {
 		}
 		info, infoErr := d.Info()
 		if infoErr != nil {
-			// Vanished between directory listing and stat — skip for this
-			// walk without error; a later walk reflects whatever is there.
+			// Vanished between listing and stat; a later walk will see it.
 			return nil
 		}
 		if now.Sub(info.ModTime()) < s.quietWindow {
@@ -272,10 +210,8 @@ func (s *snapshotStore) fingerprint() (map[string]fileManifestEntry, string) {
 	return entries, hex.EncodeToString(h.Sum(nil))
 }
 
-// diffManifest returns the sorted set of relpaths added, edited (size or
-// mtime differs), or removed between prev and next. Either map may be nil
-// (the store's first rebuild has no prior manifest) — every entry in next is
-// then reported as changed.
+// diffManifest returns the sorted relpaths added, edited, or removed. A nil
+// prev — the first rebuild — reports every entry in next as changed.
 func diffManifest(prev, next map[string]fileManifestEntry) []string {
 	var changed []string
 	for path, n := range next {

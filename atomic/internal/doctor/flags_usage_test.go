@@ -10,7 +10,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// TestParseFlagsHelpReturnsErrHelp verifies that -h returns flag.ErrHelp.
 func TestParseFlagsHelpReturnsErrHelp(t *testing.T) {
 	_, err := doctor.ParseFlags([]string{"-h"})
 	if !errors.Is(err, flag.ErrHelp) {
@@ -18,8 +17,6 @@ func TestParseFlagsHelpReturnsErrHelp(t *testing.T) {
 	}
 }
 
-// TestParseFlagsUsageContainsDoubleDash verifies the custom usage output uses
-// double-dash forms (--verbose, --fix) and not bare single-dash tokens.
 func TestParseFlagsUsageContainsDoubleDash(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = doctor.ParseFlagsWithOutput([]string{"-h"}, &buf)
@@ -44,8 +41,7 @@ func TestParseFlagsUsageContainsDoubleDash(t *testing.T) {
 		t.Errorf("usage output must contain '--stale-days':\n%s", usage)
 	}
 
-	// Must NOT contain bare single-dash forms of the flags.
-	// We check for " -verbose" and " -fix" (space-prefixed to avoid matching "--verbose").
+	// Space-prefixed so " -verbose" does not also match " --verbose".
 	if strings.Contains(usage, " -verbose") && !strings.Contains(usage, " --verbose") {
 		t.Errorf("usage output must not use bare single-dash '-verbose':\n%s", usage)
 	}

@@ -1,14 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch B: Go web frameworks (gin, echo, fiber, gorilla, chi).
-//
-// Per-framework coverage:
-//   1. Detect true on a realistic go.mod fixture + false on unrelated dir.
-//   2. Extract emits ≥1 route node (exact appendix-H id/qn/name via MakeRouteNode) + handler ref.
-//   3. Commented Go route (using // stripper) emits nothing.
-//   4. Resolve returns confidence 0.8–0.9 + non-empty TargetNodeID (or empty when db=nil is acceptable,
-//      but confidence contract must be provable).
-//   5. ClaimsReference true for recorded handlers, false for unseen.
+// Gin, Echo, Fiber, Gorilla Mux, and Chi resolver tests.
 
 import (
 	"context"
@@ -20,10 +12,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution/frameworks"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Gin tests
-// ---------------------------------------------------------------------------
 
 func TestGinDetect_GoMod(t *testing.T) {
 	dir := t.TempDir()
@@ -83,7 +71,7 @@ func main() {
 		t.Fatalf("Gin.Extract: want ≥3 route nodes, got %d: %v", len(nodes), nodeNames(nodes))
 	}
 
-	// Verify GET /users node format (appendix H)
+	// Verify GET /users node format
 	getNode := findNodeByName(nodes, "GET /users")
 	if getNode == nil {
 		t.Fatalf("Gin.Extract: missing 'GET /users'; got: %v", nodeNames(nodes))
@@ -231,10 +219,6 @@ func setup(r *gin.Engine) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Echo tests
-// ---------------------------------------------------------------------------
-
 func TestEchoDetect_GoMod(t *testing.T) {
 	dir := t.TempDir()
 	gomod := `module example.com/myapp
@@ -348,10 +332,6 @@ func setup(e *echo.Echo) {
 		t.Errorf("Echo.Resolve: confidence want 0.8–0.9, got %v", result.Confidence)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Fiber tests
-// ---------------------------------------------------------------------------
 
 func TestFiberDetect_GoMod(t *testing.T) {
 	dir := t.TempDir()
@@ -468,10 +448,6 @@ func setup(app *fiber.App) {
 		t.Errorf("Fiber.Resolve: confidence want 0.8–0.9, got %v", result.Confidence)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Gorilla tests
-// ---------------------------------------------------------------------------
 
 func TestGorillaDetect_GoMod(t *testing.T) {
 	dir := t.TempDir()
@@ -631,10 +607,6 @@ func setup(r *mux.Router) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Chi tests
-// ---------------------------------------------------------------------------
-
 func TestChiDetect_GoMod(t *testing.T) {
 	dir := t.TempDir()
 	gomod := `module example.com/myapp
@@ -775,10 +747,6 @@ func setup(r chi.Router) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registry: Go frameworks appear in GetApplicableFrameworks
-// ---------------------------------------------------------------------------
-
 func TestRegistry_GoFrameworksRegistered(t *testing.T) {
 	dir := t.TempDir()
 	reg := frameworks.NewRegistry(dir, nil)
@@ -795,10 +763,6 @@ func TestRegistry_GoFrameworksRegistered(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// F-26: Gorilla multi-line .Methods() chain (carry-along fix)
-// ---------------------------------------------------------------------------
 
 func TestGorillaExtract_MultiLineMethods(t *testing.T) {
 	// Idiomatic multi-line chaining: r.HandleFunc("/p", h).\n\t.Methods("GET")

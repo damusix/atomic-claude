@@ -5,7 +5,7 @@ package indexer_test
 //
 // WHY: mirrors embedded_sql_string_ref_test.go's pattern — verifies the
 // postpass emit decision point directly against a real DB, independent of
-// resolution (CP6 wires sql_fragment matching itself).
+// resolution (wires sql_fragment matching itself).
 
 import (
 	"context"

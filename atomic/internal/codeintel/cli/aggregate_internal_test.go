@@ -1,14 +1,8 @@
 package cli
 
-// Internal tests for aggregateSymbolGraph — the fix for callers/callees/impact
-// dropping results when a symbol name maps to more than one definition.
-//
-// WHY this exists: `callers $proc` returned nothing on a real repo even though
-// 37 caller edges existed, because the query used only nodes[0] — and the first
-// `$proc` node (an accessor with zero callers) shadowed the second `$proc`
-// definition that owned all the callers. A symbol name routinely maps to several
-// nodes (overloads, interface + impl, two classes with a same-named method), so
-// the query must aggregate across every match, not just the first.
+// A symbol name routinely maps to several nodes — overloads, interface plus
+// impl, two classes with a same-named method — so a nodes[0]-only query
+// silently drops every caller that lives on a sibling definition.
 
 import (
 	"errors"
@@ -17,9 +11,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// TestAggregateSymbolGraph_MergesCallersOnNonFirstMatch is the direct regression
-// gate: the callers live ONLY on the second matching node. The old nodes[0]-only
-// query dropped them; aggregateSymbolGraph must union all matches.
+// The callers live only on the second matching node.
 func TestAggregateSymbolGraph_MergesCallersOnNonFirstMatch(t *testing.T) {
 	nodes := []types.Node{{ID: "proc-1"}, {ID: "proc-2"}}
 	perNode := map[string]types.Subgraph{
@@ -61,8 +53,7 @@ func TestAggregateSymbolGraph_MergesCallersOnNonFirstMatch(t *testing.T) {
 	}
 }
 
-// TestAggregateSymbolGraph_DedupsSharedEdges proves an edge reachable from more
-// than one root is emitted once (no double-counting when matches overlap).
+// An edge reachable from two roots must not be double-counted.
 func TestAggregateSymbolGraph_DedupsSharedEdges(t *testing.T) {
 	nodes := []types.Node{{ID: "a"}, {ID: "b"}}
 	shared := types.Edge{Source: "x", Target: "y", Kind: types.EdgeKindCalls, Line: 3}
@@ -82,8 +73,7 @@ func TestAggregateSymbolGraph_DedupsSharedEdges(t *testing.T) {
 	}
 }
 
-// TestAggregateSymbolGraph_PropagatesError proves an error from any per-node
-// query is surfaced, not swallowed (a partial graph would be misleading).
+// A swallowed error would return a silently partial graph.
 func TestAggregateSymbolGraph_PropagatesError(t *testing.T) {
 	nodes := []types.Node{{ID: "a"}, {ID: "b"}}
 	_, err := aggregateSymbolGraph(nodes, func(id string) (types.Subgraph, error) {

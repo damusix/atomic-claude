@@ -1,10 +1,5 @@
 package serve_test
 
-// codeexplorer_fakes_test.go — shared CodeEngine test doubles for the
-// /api/code/* JSON handler tests (api_code_test.go). Extracted from the
-// pre-cutover codeexplorer_test.go (HTML /code/* handler tests, deleted at
-// cutover) since api_code_test.go depends on these seams.
-
 import (
 	"context"
 	"fmt"
@@ -13,10 +8,11 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// ─── Fake CodeEngine ─────────────────────────────────────────────────────────
-
-// fakeCodeEngine is a stub CodeEngine for tests.
 type fakeCodeEngine struct {
+	// Reindex plumbing; see IndexAll.
+	IndexAllCalls int
+	IndexAllErr   error
+
 	node          types.Node
 	nodesByName   []types.Node
 	callers       types.Subgraph
@@ -31,7 +27,7 @@ type fakeCodeEngine struct {
 	callersErr    error
 	calleesErr    error
 	impactErr     error
-	subgraphDepth int // last depth passed to callers/callees/impact
+	subgraphDepth int // last depth callers/callees/impact were given
 }
 
 func (f *fakeCodeEngine) SearchNodes(_ context.Context, _ types.SearchOptions) ([]types.SearchResult, error) {
@@ -75,14 +71,20 @@ func (f *fakeCodeEngine) GetAllEdges(_ context.Context) ([]types.Edge, error) {
 }
 func (f *fakeCodeEngine) Close() {}
 
-// fakeProviderFor wraps a fake engine as an EngineProvider.
+// Records the call so reindex tests can assert the endpoint reached the engine;
+// a real rebuild has no business running in a unit test.
+func (f *fakeCodeEngine) IndexAll(context.Context) error {
+	f.IndexAllCalls++
+	return f.IndexAllErr
+}
+
 func fakeProviderFor(eng serve.CodeEngine) serve.EngineProvider {
 	return func(_ context.Context, _, _ string) (serve.CodeEngine, error) {
 		return eng, nil
 	}
 }
 
-// richFakeCodeEngine supports schema testing with outgoing edges per node.
+// richFakeCodeEngine adds per-node outgoing edges, which schema tests need.
 type richFakeCodeEngine struct {
 	tableNodes     []types.Node
 	viewNodes      []types.Node
@@ -135,3 +137,5 @@ func (r *richFakeCodeEngine) GetOutgoingEdges(_ context.Context, nodeID string) 
 func (r *richFakeCodeEngine) GetAllNodes(_ context.Context) ([]types.Node, error) { return nil, nil }
 func (r *richFakeCodeEngine) GetAllEdges(_ context.Context) ([]types.Edge, error) { return nil, nil }
 func (r *richFakeCodeEngine) Close()                                              {}
+
+func (r *richFakeCodeEngine) IndexAll(context.Context) error { return nil }

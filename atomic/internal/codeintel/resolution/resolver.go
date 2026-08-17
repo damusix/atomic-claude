@@ -1,38 +1,11 @@
-// Package resolution implements the import resolver (CP11) for the
-// code-intelligence engine.
+// Package resolution turns unresolved references into graph edges: imports to
+// their target files, names to their declarations, and — via the synthesis
+// subpackage — dynamic dispatch the source never states outright.
 //
-// # Scope (CP11 only)
+// This file resolves imports only, and only classifies them; the caller owns
+// edge creation and persistence.
 //
-// This package resolves import-kind UnresolvedReferences into target node IDs.
-// Edge creation and persistence are CP13's responsibility — this package only
-// returns a ResolvedImport describing what the target is.
-//
-// # Resolution strategy
-//
-//  1. External classification: if the specifier is a known external prefix
-//     (no leading "./", "../", nor an alias prefix) → ResolvedKindExternal.
-//  2. Alias expansion: if the specifier matches an alias in the AliasMap
-//     (from tsconfig.json / jsconfig.json) → expand to a real path, then
-//     probe the DB as if it were a relative import.
-//  3. Relative resolution: join importer dir + specifier, then probe the DB
-//     with per-language extension candidates.
-//  4. Re-export chain: if the direct target is a file node that has exports
-//     edges to other files, follow up to REEXPORT_MAX_DEPTH hops (cycle-safe).
-//  5. If no DB node is found → ResolvedKindUnresolved.
-//
-// # Per-language extension candidates
-//
-//	TypeScript / TSX: .ts, .tsx, .d.ts, index.ts, index.tsx, index.d.ts
-//	JavaScript / JSX: .js, .jsx, index.js, index.jsx
-//	Python:           .py, /__init__.py (package)
-//	Go:               (directory package; probe the dir itself as a file node)
-//	Rust:             .rs, /mod.rs
-//	Java / Kotlin / Scala: FQN → directory path heuristic
-//	Others:           .ts, .js, .py, .go, .rs (broad fallback)
-//
-// # Re-export depth cap
-//
-//	REEXPORT_MAX_DEPTH = 8  (appendix F, named constant)
+// Contract: docs/spec/code-intel-resolution.md.
 package resolution
 
 import (
@@ -45,21 +18,21 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// REEXPORT_MAX_DEPTH is the maximum number of export-chain hops the resolver
-// will follow before giving up (appendix F).
+// REEXPORT_MAX_DEPTH bounds export-chain following. Barrel files can chain
+// arbitrarily deep, and cycle detection alone would not bound the work.
 const REEXPORT_MAX_DEPTH = 8
 
 // ResolvedKind classifies the outcome of resolving one import reference.
 type ResolvedKind int
 
 const (
-	// ResolvedKindInternal means a matching node was found in the DB.
+	// ResolvedKindInternal — a matching node exists in the DB.
 	ResolvedKindInternal ResolvedKind = iota
-	// ResolvedKindExternal means the specifier refers to a node_modules package
-	// or stdlib module — no DB node expected or fabricated.
+	// ResolvedKindExternal — a package or stdlib module; no DB node is expected
+	// or fabricated.
 	ResolvedKindExternal
-	// ResolvedKindUnresolved means the specifier looks internal/aliased but no
-	// matching node exists in the current index.
+	// ResolvedKindUnresolved — looks internal, but nothing matches in the
+	// current index. May resolve once more files are indexed.
 	ResolvedKindUnresolved
 )
 
@@ -76,20 +49,15 @@ func (k ResolvedKind) String() string {
 
 // ResolvedImport is the result of resolving one import reference.
 type ResolvedImport struct {
-	// Kind classifies the resolution outcome.
 	Kind ResolvedKind
-	// TargetNodeID is the file: node id of the resolved target, or "" when Kind
-	// is External or Unresolved.
+	// TargetNodeID is the resolved file: node id, "" unless Kind is Internal.
 	TargetNodeID string
-	// Confidence is 0.0–1.0; set to 1.0 for exact DB hits.
+	// Confidence is 0.0–1.0; 1.0 for exact DB hits.
 	Confidence float64
-	// PackageName is the normalized package identity for an External import
-	// (docs/design/code-intel-package-nodes.md) — set only when Kind ==
-	// ResolvedKindExternal and the specifier's ecosystem yields one. v1 covers
-	// JS-family languages only (the npm identity rule); every other language
-	// leaves this "". Also "" for a URL-scheme specifier, which has no
-	// derivable package. Checkpoint 2's mint loop reads this to converge every
-	// importer of one package onto a single package: node.
+	// PackageName is the shared identity every importer of one package
+	// converges on, which is what lets the pipeline mint a single package
+	// node. Set only for External JS-family imports; a URL-scheme specifier
+	// yields no package and leaves this "".
 	PackageName string
 }
 
@@ -97,27 +65,24 @@ type ResolvedImport struct {
 // Construct with NewResolver or NewResolverWithProject.
 type Resolver struct {
 	db          *db.DB
-	projectRoot string // optional; used for alias loading
+	projectRoot string
 	aliasMap    *AliasMap
 	aliasOnce   sync.Once
 }
 
-// NewResolver constructs a Resolver without a project root. Path-alias
-// resolution (tsconfig paths) is disabled.
+// NewResolver builds a Resolver with tsconfig path-alias resolution disabled.
 func NewResolver(d *db.DB) *Resolver {
 	return &Resolver{db: d}
 }
 
-// NewResolverWithProject constructs a Resolver that will load tsconfig/jsconfig
-// from projectRoot for path-alias resolution.
+// NewResolverWithProject builds a Resolver that loads tsconfig/jsconfig path
+// aliases from projectRoot.
 func NewResolverWithProject(d *db.DB, projectRoot string) *Resolver {
 	return &Resolver{db: d, projectRoot: projectRoot}
 }
 
-// aliases returns the lazily-loaded AliasMap (or an empty one if projectRoot
-// is not set or loading fails). Thread-safe: the sync.Once ensures the load
-// runs exactly once even when multiple goroutines call ResolveImport on the
-// same Resolver concurrently.
+// aliases lazily loads the AliasMap, falling back to an empty one. The Once
+// guards concurrent ResolveImport calls on the same Resolver.
 func (r *Resolver) aliases(_ context.Context) *AliasMap {
 	r.aliasOnce.Do(func() {
 		if r.projectRoot == "" {
@@ -134,32 +99,24 @@ func (r *Resolver) aliases(_ context.Context) *AliasMap {
 	return r.aliasMap
 }
 
-// ResolveImport resolves a single import-kind UnresolvedReference.
-// importerPath is the file_path of the importing file (used for relative
-// path join and language detection).
+// ResolveImport resolves one import-kind reference. importerPath anchors
+// relative specifiers.
 func (r *Resolver) ResolveImport(ctx context.Context, ref types.UnresolvedReference, importerPath string) (ResolvedImport, error) {
 	specifier := ref.ReferenceName
 	lang := ref.Language
 
-	// Strip a trailing "?query" and/or "#fragment" — a browser-ESM idiom for
-	// cache-busting local imports (e.g. "./editor.js?v=2026.07.23.1"). Must
-	// happen before alias expansion / external classification / relative
-	// resolution so all three see the clean path. Scoped to the JS-family
-	// languages: other languages' specifiers may legitimately contain "?" or
-	// "#" as part of the module name and must be left untouched.
+	// Before every later step, so all of them see a clean path.
 	if isJSFamily(lang) {
 		specifier = stripQueryAndFragment(specifier)
 	}
 
-	// Step 1 — alias expansion (tsconfig paths) for non-relative specifiers.
-	// This MUST happen before external classification because an alias like
-	// "@app/*" would otherwise be misclassified as an npm scoped package.
+	// Alias expansion must precede external classification, or an alias like
+	// "@app/*" is misread as an npm scoped package.
 	if !isRelative(specifier) {
 		am := r.aliases(ctx)
 		if am != nil {
 			expanded := am.Resolve(specifier)
 			if expanded != "" {
-				// Alias matched — treat as internal.
 				nodeID, err := r.probeExtensions(ctx, expanded, lang)
 				if err != nil {
 					return ResolvedImport{Kind: ResolvedKindUnresolved}, err
@@ -167,13 +124,13 @@ func (r *Resolver) ResolveImport(ctx context.Context, ref types.UnresolvedRefere
 				if nodeID != "" {
 					return ResolvedImport{Kind: ResolvedKindInternal, TargetNodeID: nodeID, Confidence: 1.0}, nil
 				}
-				// Alias matched but file not in DB yet → unresolved.
+				// An alias match is internal by definition — never fall
+				// through to external classification.
 				return ResolvedImport{Kind: ResolvedKindUnresolved}, nil
 			}
 		}
 	}
 
-	// Step 2 — external classification (no alias matched above).
 	if isExternal(specifier, lang) {
 		result := ResolvedImport{Kind: ResolvedKindExternal}
 		if isJSFamily(lang) {
@@ -182,14 +139,11 @@ func (r *Resolver) ResolveImport(ctx context.Context, ref types.UnresolvedRefere
 		return result, nil
 	}
 
-	// Step 3 — relative resolution.
 	importerDir := filepath.Dir(importerPath)
 	base := filepath.Join(importerDir, specifier)
-	// Normalize slashes (filepath.Join uses OS sep; keep forward slashes for
-	// consistency with how file paths are stored in the DB).
+	// Join uses the OS separator; the DB stores forward slashes.
 	base = filepath.ToSlash(base)
 
-	// Probe with language-specific extension candidates.
 	nodeID, err := r.probeExtensions(ctx, base, lang)
 	if err != nil {
 		return ResolvedImport{Kind: ResolvedKindUnresolved}, err
@@ -198,18 +152,12 @@ func (r *Resolver) ResolveImport(ctx context.Context, ref types.UnresolvedRefere
 		return ResolvedImport{Kind: ResolvedKindUnresolved}, nil
 	}
 
-	// Step 4 — re-export chain (cycle-safe, depth-bounded).
 	finalNodeID := r.followReExports(ctx, nodeID, nil, 0)
 
 	return ResolvedImport{Kind: ResolvedKindInternal, TargetNodeID: finalNodeID, Confidence: 1.0}, nil
 }
 
-// ---------------------------------------------------------------------------
-// Extension candidate probing
-// ---------------------------------------------------------------------------
-
-// probeExtensions tries the per-language extension candidate list against the
-// DB and returns the first file: node id found, or "" if none match.
+// probeExtensions returns the first candidate path present in the DB, or "".
 func (r *Resolver) probeExtensions(ctx context.Context, base string, lang types.Language) (string, error) {
 	candidates := extensionCandidates(base, lang)
 	for _, path := range candidates {
@@ -218,8 +166,7 @@ func (r *Resolver) probeExtensions(ctx context.Context, base string, lang types.
 		if err == nil && n.ID == fileNodeID {
 			return fileNodeID, nil
 		}
-		// Also probe via GetFileByPath (some indexers may record only file
-		// records without file: nodes; this is belt-and-suspenders).
+		// Some indexers record a file row without a file: node.
 		f, err2 := r.db.GetFileByPath(ctx, path)
 		if err2 == nil && f != nil {
 			return fileNodeID, nil
@@ -228,10 +175,9 @@ func (r *Resolver) probeExtensions(ctx context.Context, base string, lang types.
 	return "", nil
 }
 
-// extensionCandidates returns the ordered list of concrete file paths to probe
-// for the given base path (no extension) and language.
+// extensionCandidates expands an extensionless base path into the concrete
+// paths to probe, in the language's own resolution order.
 func extensionCandidates(base string, lang types.Language) []string {
-	// If base already has a recognized extension, return it as-is first.
 	knownExts := map[string]bool{
 		".ts": true, ".tsx": true, ".d.ts": true,
 		".js": true, ".jsx": true,
@@ -270,10 +216,9 @@ func extensionCandidates(base string, lang types.Language) []string {
 			base + "/__init__.py",
 		}
 	case types.LanguageGo:
-		// Go imports refer to package directories; try the dir itself and
-		// conventional file names.
+		// A Go import names a package directory, not a file.
 		return []string{
-			base, // directory as a "file" node
+			base,
 			base + ".go",
 		}
 	case types.LanguageRust:
@@ -311,7 +256,6 @@ func extensionCandidates(base string, lang types.Language) []string {
 			base + ".swift",
 		}
 	default:
-		// Broad fallback: try the most common types.
 		return []string{
 			base + ".ts",
 			base + ".js",
@@ -322,13 +266,9 @@ func extensionCandidates(base string, lang types.Language) []string {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Re-export chain follower
-// ---------------------------------------------------------------------------
-
-// followReExports follows exports edges from startNodeID up to REEXPORT_MAX_DEPTH
-// hops. visited tracks already-seen node IDs to break cycles.  Returns the
-// deepest reachable node (may be startNodeID itself if no exports edges exist).
+// followReExports walks exports edges to the deepest reachable node, so an
+// import of a barrel file lands on the real definition. Returns startNodeID
+// unchanged when it exports nothing, a cycle closes, or the depth cap hits.
 func (r *Resolver) followReExports(ctx context.Context, startNodeID string, visited map[string]bool, depth int) string {
 	if depth >= REEXPORT_MAX_DEPTH {
 		return startNodeID
@@ -337,7 +277,6 @@ func (r *Resolver) followReExports(ctx context.Context, startNodeID string, visi
 		visited = make(map[string]bool)
 	}
 	if visited[startNodeID] {
-		// Cycle detected — stop here.
 		return startNodeID
 	}
 	visited[startNodeID] = true
@@ -352,7 +291,6 @@ func (r *Resolver) followReExports(ctx context.Context, startNodeID string, visi
 			continue
 		}
 		if e.Target == startNodeID {
-			// Self-loop — skip.
 			continue
 		}
 		return r.followReExports(ctx, e.Target, visited, depth+1)
@@ -360,17 +298,12 @@ func (r *Resolver) followReExports(ctx context.Context, startNodeID string, visi
 	return startNodeID
 }
 
-// ---------------------------------------------------------------------------
-// External classification helpers
-// ---------------------------------------------------------------------------
-
-// isRelative returns true if the specifier starts with "./" or "../".
 func isRelative(specifier string) bool {
 	return strings.HasPrefix(specifier, "./") || strings.HasPrefix(specifier, "../")
 }
 
-// isJSFamily returns true for the languages that use browser-ESM cache-busted
-// import specifiers (a trailing "?query" and/or "#fragment").
+// isJSFamily gates the JS-only specifier rules: query/fragment stripping,
+// npm package identity, and Node resolution semantics.
 func isJSFamily(lang types.Language) bool {
 	switch lang {
 	case types.LanguageJavaScript, types.LanguageJSX,
@@ -380,13 +313,9 @@ func isJSFamily(lang types.Language) bool {
 	return false
 }
 
-// stripQueryAndFragment removes a trailing "?query" and/or "#fragment" suffix
-// from an import specifier. Whichever of "?" or "#" appears first wins (a
-// fragment always terminates a query string per URL syntax), so the earliest
-// occurrence of either is the cut point — but only when that occurrence is
-// not the first character. A specifier starting with "#" is a Node.js ESM
-// package.json "imports"-field subpath specifier (e.g. "#internal/config"),
-// not a fragment suffix, and must be left intact.
+// stripQueryAndFragment drops the browser-ESM cache-busting suffix from
+// "./editor.js?v=2". Position 0 is exempt: a leading "#" is a package.json
+// "imports"-field subpath ("#internal/config"), not a fragment.
 func stripQueryAndFragment(specifier string) string {
 	if i := strings.IndexAny(specifier, "?#"); i > 0 {
 		return specifier[:i]
@@ -394,24 +323,13 @@ func stripQueryAndFragment(specifier string) string {
 	return specifier
 }
 
-// npmPackageName normalizes a JS-family external import specifier to its npm
-// package identity (docs/design/code-intel-package-nodes.md, "Recommendation"
-// section). Called only after isExternal has already classified the
-// specifier, so a relative/absolute/alias-matched specifier never reaches
-// this function.
-//
-// Rules, in order:
-//   - "<scheme>://" anywhere → "" — a URL-scheme specifier (CDN/remote ESM
-//     import) has no npm package identity; no node is minted for it.
-//   - "node:" prefix → the specifier verbatim (e.g. "node:fs/promises" stays
-//     whole) — each builtin module is its own unit; no canonicalizing a bare
-//     "fs" onto "node:fs" (would need a Node-version-dependent allowlist).
-//   - "@" prefix (scoped package) → the first two slash-segments (e.g.
-//     "@scope/pkg/deep/path.js" → "@scope/pkg"). A scope with no package
-//     segment ("@scope/", "@scope") has no complete identity — the scope
-//     alone is returned, not a trailing-slash string.
-//   - otherwise → the first slash-segment (e.g. "pkg/sub" → "pkg"; a bare
-//     specifier with no "/" is returned unchanged).
+// npmPackageName reduces an external specifier to the package identity that
+// subpath imports share, so "@scope/pkg/deep.js" and "@scope/pkg" converge.
+// Only reached after isExternal, so relative and aliased specifiers cannot
+// arrive here. Two deliberate non-reductions: a URL-scheme specifier yields ""
+// (a CDN import has no package), and a "node:" specifier is kept whole rather
+// than canonicalized against bare "fs", which would need a Node-version
+// allowlist to do correctly.
 func npmPackageName(specifier string) string {
 	if strings.Contains(specifier, "://") {
 		return ""
@@ -432,80 +350,51 @@ func npmPackageName(specifier string) string {
 	return specifier
 }
 
-// isExternal returns true when the specifier should be classified as an
-// external/stdlib import for the given language — no DB node is expected.
-//
-// Classification rules:
-//   - Any specifier that is not relative ("./", "../") AND not aliased is a
-//     candidate. We check for explicit external signals here:
-//   - "<scheme>://" URL prefix → remote ESM import (CDN/URL specifier).
-//   - "node:" protocol prefix → Node.js built-in.
-//   - JS-family (JS/JSX/TS/TSX): any specifier not starting with ".", "/",
-//     or "#" — covers scoped packages (@org/pkg), bare packages, and
-//     package subpaths (@org/pkg/sub, date-fns/format) uniformly.
-//   - Per-language built-in skip sets (Go stdlib, Java stdlib, Python stdlib).
-//
-// Note: alias specifiers are handled before isExternal is called, so we only
-// reach here for non-relative, non-aliased specifiers — they are external.
+// isExternal reports a specifier for which no DB node is expected. Aliases are
+// expanded by ResolveImport first, so nothing alias-matched arrives here.
 func isExternal(specifier string, lang types.Language) bool {
-	// Already relative — not external.
 	if isRelative(specifier) {
 		return false
 	}
 
-	// URL-scheme specifier (e.g. "https://cdn.jsdelivr.net/npm/zod/+esm") —
-	// a browser/Deno ESM import naming a remote module directly. "://" never
-	// appears in an internal relative/repo path or a bare package name for
-	// any indexed language, so this check is language-agnostic and safe
-	// ahead of the per-language branches below.
+	// "://" appears in no repo path or package name in any indexed language,
+	// so this is safe ahead of the per-language branches.
 	if strings.Contains(specifier, "://") {
 		return true
 	}
 
-	// node: protocol → Node.js built-in.
 	if strings.HasPrefix(specifier, "node:") {
 		return true
 	}
 
-	// Scoped npm package (@org/pkg) or bare npm package (no leading ".").
 	if strings.HasPrefix(specifier, "@") {
 		return true
 	}
 
-	// Language-specific known-stdlib prefixes.
 	switch lang {
 	case types.LanguageTypeScript, types.LanguageJavaScript,
 		types.LanguageTSX, types.LanguageJSX:
-		// Node resolution semantics: any specifier that does not start with
-		// ".", "/", or "#" is external — covers scoped packages (@org/pkg),
-		// bare packages (react), package subpaths (@org/pkg/sub,
-		// date-fns/format), and bare Node builtins (fs, path) in one rule.
-		// "#"-prefixed Node subpath-imports (package.json "imports" field)
-		// and relative/absolute paths are excluded. tsconfig aliases are
-		// expanded before isExternal is consulted (ResolveImport Step 1), so
-		// an alias-matched specifier never reaches this check.
+		// Node resolution semantics in one rule: scoped packages, bare
+		// packages, subpaths, and builtins are all external; "#" subpath
+		// imports and paths are not.
 		if !strings.HasPrefix(specifier, ".") && !strings.HasPrefix(specifier, "/") && !strings.HasPrefix(specifier, "#") {
 			return true
 		}
 
 	case types.LanguagePython:
-		// Python relative imports are handled by isRelative; absolute imports
-		// without "." are stdlib/site-packages.
+		// Relative imports are dotted; isRelative has already run.
 		if !strings.Contains(specifier, ".") {
 			return true
 		}
 
 	case types.LanguageGo:
-		// Go import paths are always absolute; relative ones use "./" or "../".
-		// Standard library paths do not contain a "." in the first segment.
+		// A dot in the first segment means a module host — stdlib has none.
 		parts := strings.SplitN(specifier, "/", 2)
 		if !strings.Contains(parts[0], ".") {
-			return true // stdlib (e.g. "fmt", "os", "encoding/json")
+			return true
 		}
 
 	case types.LanguageJava, types.LanguageKotlin, types.LanguageScala:
-		// Java/Kotlin FQN imports starting with "java.", "javax.", "android."
-		// are stdlib/SDK.
 		for _, prefix := range []string{"java.", "javax.", "android.", "kotlin.", "scala.", "org.junit.", "org.springframework."} {
 			if strings.HasPrefix(specifier, prefix) {
 				return true
@@ -513,7 +402,7 @@ func isExternal(specifier string, lang types.Language) bool {
 		}
 
 	case types.LanguageRust:
-		// Rust crate names (no "::" path) are external.
+		// A bare crate name; anything with "::" is a path within one.
 		if !strings.Contains(specifier, "::") && !strings.Contains(specifier, "/") {
 			return true
 		}

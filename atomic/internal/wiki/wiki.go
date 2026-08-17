@@ -1,9 +1,6 @@
 // Package wiki implements the deterministic core of the atomic wiki feature:
 // repo discovery, classification, scaffold creation, and idempotent
 // <wiki-scan> block writes.
-//
-// CP1 scope: pure package logic + tests. No CLI wiring, no <wikis> registry,
-// no stale/stamp/mark-dirty/CheckStaleness. Those arrive in later checkpoints.
 package wiki
 
 import (
@@ -18,8 +15,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
-// skipDirs is the set of directory base-names that the discovery walk skips.
-// Mirrors the skip set from internal/signals/tree.go plus .worktrees.
+// skipDirs mirrors the skip set in internal/signals/tree.go, plus .worktrees.
 var skipDirs = map[string]bool{
 	"node_modules": true,
 	"dist":         true,
@@ -31,24 +27,19 @@ var skipDirs = map[string]bool{
 	".git":         true,
 }
 
-// scanMarkerOpen is the literal prefix of the managed block open tag.
 const scanMarkerOpen = "<wiki-scan"
 
-// scanMarkerClose is the literal close tag of the managed block.
 const scanMarkerClose = "</wiki-scan>"
 
-// membersMarkerStart / membersMarkerEnd are the legacy HTML-comment
-// boundaries of the ## Members section, superseded by the `wiki-member-list`
-// XML region (managedregion.go). Retained ONLY so migrateLegacyMemberMarkers
-// can detect and excise a pre-migration section — no new write ever emits
-// these markers again.
+// Legacy HTML-comment boundaries of the ## Members section, superseded by the
+// `wiki-member-list` XML region. Retained only so migrateLegacyMemberMarkers
+// can detect a pre-migration section; no write emits them again.
 const membersMarkerStart = "<!-- wiki-members:start -->"
 const membersMarkerEnd = "<!-- wiki-members:end -->"
 
 // Options configures a Scan run.
 type Options struct {
-	// Clock returns the current time. If nil, time.Now().UTC() is used.
-	// Inject a fixed clock in tests to get deterministic generated dates.
+	// Clock returns the current time; nil means time.Now().UTC().
 	Clock func() time.Time
 }
 
@@ -65,62 +56,51 @@ type Member struct {
 	Path string
 	// Status is one of "indexed", "pending", or "summarized".
 	Status string
-	// SignalsPath is the absolute path to the indexed-member router file when
-	// Status == "indexed". Preferred location is docs/wiki/index.md (new layout);
-	// falls back to .claude/project/signals.md (legacy layout). Set by classifyMembers.
+	// SignalsPath is the absolute router path when Status == "indexed":
+	// docs/wiki/index.md, or the legacy .claude/project/signals.md.
 	SignalsPath string
-	// SummaryPath is the value of the summary attribute when Status == "summarized".
+	// SummaryPath is the wiki-relative summary path when Status == "summarized".
 	SummaryPath string
 }
 
-// Scan runs the full CP1 wiki operation: discover repos under root, scaffold
-// wiki/, and write (or update) wiki/index.md with an idempotent <wiki-scan> block.
-// It returns the classified members so callers can use them directly without a
-// second filesystem walk.
+// Scan discovers repos under root, scaffolds wiki/, and writes wiki/index.md
+// with an idempotent <wiki-scan> block, returning the classified members so
+// callers need no second filesystem walk.
 //
-// Collision refusal: if wiki/ already exists but index.md is absent or lacks a
-// <wiki-scan> marker, Scan returns an error naming the path.
+// Refuses when wiki/ exists but index.md is absent or lacks a <wiki-scan> marker.
 func Scan(root string, opts Options) ([]Member, error) {
 	wikiDir := filepath.Join(root, "wiki")
 
-	// --- Collision check ---
 	if err := checkCollision(wikiDir); err != nil {
 		return nil, err
 	}
 
-	// --- Parse existing entries from index.md (for summarized-preservation) ---
 	prior, err := parsePriorEntries(filepath.Join(wikiDir, "index.md"))
 	if err != nil {
 		return nil, fmt.Errorf("wiki scan: parse prior entries: %w", err)
 	}
 
-	// --- Discover members ---
 	rawMembers, err := discoverMembers(root, wikiDir)
 	if err != nil {
 		return nil, fmt.Errorf("wiki scan: discover: %w", err)
 	}
 
-	// --- Classify members ---
 	classified := classifyMembers(root, wikiDir, rawMembers, prior)
 
-	// --- Scaffold ---
 	if err := scaffold(wikiDir, root); err != nil {
 		return nil, fmt.Errorf("wiki scan: scaffold: %w", err)
 	}
 
-	// --- Write <wiki-scan> block ---
 	indexPath := filepath.Join(wikiDir, "index.md")
 	if err := writeWikiScanBlock(indexPath, root, classified, opts); err != nil {
 		return nil, fmt.Errorf("wiki scan: write block: %w", err)
 	}
 
-	// --- Write ## Members section ---
 	if err := writeMembersSection(indexPath, classified); err != nil {
 		return nil, fmt.Errorf("wiki scan: write members section: %w", err)
 	}
 
-	// --- Rebuild bucket indexes (non-fatal) ---
-	// A broken bucket region never blocks membership — collect and warn.
+	// Non-fatal: a broken bucket region must not block membership.
 	if err := RebuildAllBucketIndexes(root, wikiDir); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki scan: bucket index rebuild: %v\n", err)
 	}
@@ -128,12 +108,10 @@ func Scan(root string, opts Options) ([]Member, error) {
 	return classified, nil
 }
 
-// checkCollision verifies that an existing wiki/ dir is owned by this tool.
-// If wiki/ exists but index.md is absent or lacks a <wiki-scan> marker,
-// returns an error naming the path.
+// checkCollision refuses an existing wiki/ dir that this tool does not own,
+// i.e. whose index.md is absent or carries no <wiki-scan> marker.
 func checkCollision(wikiDir string) error {
 	if _, err := os.Lstat(wikiDir); os.IsNotExist(err) {
-		// wiki/ doesn't exist yet — no collision, scaffold will create it.
 		return nil
 	}
 
@@ -153,15 +131,14 @@ func checkCollision(wikiDir string) error {
 	return nil
 }
 
-// priorEntry holds the parsed status from a previous scan block entry.
+// priorEntry is one <repo> entry parsed from a previous scan block.
 type priorEntry struct {
 	status      string
 	summaryAttr string // e.g. "repos/repoA.md"
 }
 
-// parsePriorEntries reads wiki/index.md (if present) and extracts the prior
-// status for each repo path from the <wiki-scan> block. Used for
-// summarized-preservation.
+// parsePriorEntries extracts each repo's prior status from index.md's
+// <wiki-scan> block, feeding summarized-preservation in classifyMembers.
 func parsePriorEntries(indexPath string) (map[string]priorEntry, error) {
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
@@ -194,14 +171,13 @@ func parsePriorEntries(indexPath string) (map[string]priorEntry, error) {
 	return entries, nil
 }
 
-// extractBlockContent returns the content between <wiki-scan ...> and </wiki-scan>.
-// Returns empty string if the block is not present.
+// extractBlockContent returns the content between <wiki-scan ...> and
+// </wiki-scan>, or "" when the block is absent or malformed.
 func extractBlockContent(content string) string {
 	openIdx := strings.Index(content, scanMarkerOpen)
 	if openIdx == -1 {
 		return ""
 	}
-	// Find the end of the open tag.
 	closeTagIdx := strings.Index(content[openIdx:], ">")
 	if closeTagIdx == -1 {
 		return ""
@@ -215,8 +191,7 @@ func extractBlockContent(content string) string {
 	return content[afterOpen : afterOpen+closeIdx]
 }
 
-// attrValue extracts the value of an XML attribute from a self-closing tag line.
-// e.g. attrValue(`<repo path="foo" status="indexed"/>`, "path") → "foo"
+// attrValue reads an attribute off a tag line: `<repo path="foo"/>`, "path" → "foo".
 func attrValue(line, attr string) string {
 	needle := attr + `="`
 	idx := strings.Index(line, needle)
@@ -231,9 +206,8 @@ func attrValue(line, attr string) string {
 	return line[start : start+end]
 }
 
-// discoverMembers recursively walks root's children to find git repos.
-// The root itself is never returned as a member.
-// Returns relative paths sorted stably.
+// discoverMembers walks root's children for git repos, returning sorted
+// relative paths. Root itself is never a member.
 func discoverMembers(root, wikiDir string) ([]string, error) {
 	var members []string
 
@@ -250,7 +224,6 @@ func discoverMembers(root, wikiDir string) ([]string, error) {
 		if skipDirs[base] {
 			continue
 		}
-		// Skip the wiki output dir itself.
 		absDir := filepath.Join(root, base)
 		if absDir == wikiDir {
 			continue
@@ -267,10 +240,9 @@ func discoverMembers(root, wikiDir string) ([]string, error) {
 	return members, nil
 }
 
-// walkForRepos checks if dir is a git repo member. If it is, returns just that
-// path (relative to root) and stops recursing. If not, recurses into children.
+// walkForRepos returns dir as the sole member when it is a git repo, without
+// recursing into it; otherwise it recurses into dir's children.
 func walkForRepos(root, dir, wikiDir string) ([]string, error) {
-	// Is dir itself a git repo?
 	if isGitMember(dir) {
 		rel, err := filepath.Rel(root, dir)
 		if err != nil {
@@ -279,10 +251,9 @@ func walkForRepos(root, dir, wikiDir string) ([]string, error) {
 		return []string{rel}, nil
 	}
 
-	// Not a member — descend into children.
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		// Unreadable directories are silently skipped.
+		// An unreadable directory is skipped, never fatal to the walk.
 		return nil, nil
 	}
 
@@ -308,39 +279,31 @@ func walkForRepos(root, dir, wikiDir string) ([]string, error) {
 	return found, nil
 }
 
-// isGitMember reports whether dir has a .git entry (file or directory).
-// This mirrors the pattern from internal/validate/repo.go (worktree-aware).
+// isGitMember reports whether dir has a .git entry, file or directory — the
+// file form is a worktree, which counts.
 func isGitMember(dir string) bool {
 	_, err := os.Lstat(filepath.Join(dir, ".git"))
 	return err == nil
 }
 
-// fileExists reports whether the named file exists and is accessible.
 func fileExists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
 }
 
-// classifyMembers derives the status for each member.
-//
-// Classification rules:
-//  1. If prior status was "summarized" AND the summary file still exists → keep "summarized".
-//  2. If docs/wiki/index.md exists (new layout) → "indexed" with SignalsPath pointing there.
-//     Else if .claude/project/signals.md exists (legacy layout) → "indexed" with SignalsPath
-//     pointing there. Either layout counts; new layout takes precedence. A leftover summary
-//     does not demote a graduated repo.
-//  3. If a summary exists on disk under wiki/repos/ (repos/<name>.md or
-//     repos/<name>/ with at least one .md) → "summarized". This makes the
-//     status reachable on first derivation — /refresh-wiki writes summaries
-//     after the initial scan, so the re-scan must discover them.
-//  4. Otherwise → "pending".
+// classifyMembers derives each member's status, first rule wins:
+//  1. prior "summarized" whose summary file still exists → keep "summarized".
+//  2. docs/wiki/index.md, else legacy .claude/project/signals.md → "indexed".
+//     A leftover summary must not demote a repo that has graduated.
+//  3. a summary already on disk under wiki/repos/ → "summarized". Needed
+//     because /refresh-wiki writes summaries after the scan that ordered them.
+//  4. otherwise → "pending".
 func classifyMembers(root, wikiDir string, members []string, prior map[string]priorEntry) []Member {
 	result := make([]Member, 0, len(members))
 
 	for _, rel := range members {
 		absRepo := filepath.Join(root, rel)
 
-		// Check summarized-preservation.
 		if pe, ok := prior[rel]; ok && pe.status == "summarized" && pe.summaryAttr != "" {
 			summaryAbs := filepath.Join(wikiDir, pe.summaryAttr)
 			if _, err := os.Lstat(summaryAbs); err == nil {
@@ -354,9 +317,6 @@ func classifyMembers(root, wikiDir string, members []string, prior map[string]pr
 			// Summary file gone — fall through to re-derive.
 		}
 
-		// Derive from index presence — migration-aware dual-layout detection.
-		// New layout (docs/wiki/index.md) takes precedence; legacy (.claude/project/signals.md)
-		// is accepted for un-migrated repos so existing users don't regress.
 		if indexAbs := filepath.Join(absRepo, "docs", "wiki", "index.md"); fileExists(indexAbs) {
 			result = append(result, Member{
 				Path:        rel,
@@ -374,7 +334,6 @@ func classifyMembers(root, wikiDir string, members []string, prior map[string]pr
 			continue
 		}
 
-		// Derive from a summary on disk.
 		if summaryRel := discoverSummary(wikiDir, rel); summaryRel != "" {
 			result = append(result, Member{
 				Path:        rel,
@@ -393,12 +352,10 @@ func classifyMembers(root, wikiDir string, members []string, prior map[string]pr
 	return result
 }
 
-// discoverSummary checks the wiki/repos/ directory for a summary belonging to
-// member rel. Summary files are named by the member's base name (the same
-// convention memberLinkTarget and /refresh-wiki use): repos/<name>.md for a
-// single-file summary, or repos/<name>/ containing at least one .md for a
-// domain-split summary. Returns the wiki-relative summary path, or "" when no
-// summary exists.
+// discoverSummary returns the wiki-relative summary path for member rel, or ""
+// when none exists. Summaries are keyed by the member's base name, the same
+// convention memberLinkTarget and /refresh-wiki use: repos/<name>.md, or
+// repos/<name>/ holding at least one .md for a domain-split summary.
 func discoverSummary(wikiDir, rel string) string {
 	name := filepath.Base(rel)
 
@@ -420,29 +377,22 @@ func discoverSummary(wikiDir, rel string) string {
 	return ""
 }
 
-// scaffold creates the wiki directory structure:
-//   - wiki/index.md (only created if absent — writeWikiScanBlock handles content)
-//   - wiki/README.md
-//   - wiki/repos/
-//   - wiki/concerns/
-//   - wiki/.gitignore (ignoring .dirty)
-//   - wiki/CLAUDE.md (realm self-reference, "@index.md" only — via InitRealmScope)
-//   - runs git init in wiki/ if not already a git repo
+// scaffold creates wiki/ with repos/, concerns/, .gitignore, README.md and
+// CLAUDE.md, then git-inits it. Nothing existing is overwritten; index.md
+// content is writeWikiScanBlock's job.
 func scaffold(wikiDir, root string) error {
-	// Create all subdirs.
 	for _, sub := range []string{wikiDir, filepath.Join(wikiDir, "repos"), filepath.Join(wikiDir, "concerns")} {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", sub, err)
 		}
 	}
 
-	// wiki/CLAUDE.md — realm self-reference so cd'ing directly into the wiki
-	// repo auto-loads index.md at session start. No-op if already present.
+	// Realm self-reference, so cd'ing straight into the wiki repo auto-loads
+	// index.md at session start.
 	if _, err := InitRealmScope(root); err != nil {
 		return fmt.Errorf("init realm CLAUDE.md: %w", err)
 	}
 
-	// .gitignore — ignores the .dirty marker.
 	gitignorePath := filepath.Join(wikiDir, ".gitignore")
 	if _, err := os.Lstat(gitignorePath); os.IsNotExist(err) {
 		if err := os.WriteFile(gitignorePath, []byte(".dirty\n"), 0o644); err != nil {
@@ -450,7 +400,6 @@ func scaffold(wikiDir, root string) error {
 		}
 	}
 
-	// README.md — boilerplate.
 	readmePath := filepath.Join(wikiDir, "README.md")
 	if _, err := os.Lstat(readmePath); os.IsNotExist(err) {
 		readme := buildREADME(root)
@@ -459,7 +408,6 @@ func scaffold(wikiDir, root string) error {
 		}
 	}
 
-	// git init — skip if already a git repo.
 	if !isGitMember(wikiDir) {
 		var stderr strings.Builder
 		cmd := exec.Command("git", "init", wikiDir)
@@ -473,7 +421,6 @@ func scaffold(wikiDir, root string) error {
 	return nil
 }
 
-// buildREADME produces the README.md content for a wiki directory.
 func buildREADME(root string) string {
 	var sb strings.Builder
 	sb.WriteString("# Project wiki\n\n")
@@ -489,15 +436,13 @@ func buildREADME(root string) string {
 	return sb.String()
 }
 
-// writeWikiScanBlock writes the <wiki-scan> block into wiki/index.md.
-// If index.md does not exist, creates it with a minimal narrative stub.
-// If it exists and already has a block, replaces the block in-place.
-// Content outside the block is preserved byte-for-byte.
+// writeWikiScanBlock splices the <wiki-scan> block into index.md, creating the
+// file with a stub narrative when absent. Content outside the block survives
+// byte-for-byte.
 func writeWikiScanBlock(indexPath, root string, members []Member, opts Options) error {
 	date := opts.clock().Format("2006-01-02")
 	block := buildScanBlock(root, date, members)
 
-	// Read existing content.
 	existing, err := os.ReadFile(indexPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read index.md: %w", err)
@@ -505,7 +450,6 @@ func writeWikiScanBlock(indexPath, root string, members []Member, opts Options) 
 
 	var newContent string
 	if os.IsNotExist(err) || len(existing) == 0 {
-		// Create fresh with block + stub narrative.
 		newContent = block + "\n" + defaultNarrative()
 	} else {
 		newContent = rewriteScanBlock(string(existing), block)
@@ -514,7 +458,6 @@ func writeWikiScanBlock(indexPath, root string, members []Member, opts Options) 
 	return os.WriteFile(indexPath, []byte(newContent), 0o644)
 }
 
-// buildScanBlock produces the full <wiki-scan ...> … </wiki-scan> block string.
 func buildScanBlock(root, date string, members []Member) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "<wiki-scan root=%q generated=%q>\n", root, date)
@@ -526,7 +469,6 @@ func buildScanBlock(root, date string, members []Member) string {
 	return sb.String()
 }
 
-// repoTag produces a single self-closing <repo .../> tag for a member.
 func repoTag(m Member) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, `<repo path=%q status=%q`, m.Path, m.Status)
@@ -540,31 +482,19 @@ func repoTag(m Member) string {
 	return sb.String()
 }
 
-// defaultNarrative is the stub below the block when creating a fresh index.md.
+// defaultNarrative is the stub written under the block in a fresh index.md.
 func defaultNarrative() string {
 	return "\n## Realm overview\n\n<!-- Add narrative context about this realm here. -->\n"
 }
 
-// writeMembersSection writes (or replaces) the managed ## Members section in
-// indexPath as a `wiki-member-list` region through the shared managed-region
-// primitive (managedregion.go) — no comment markers are emitted. Before
-// splicing, migrateLegacyMemberMarkers relocates any legacy
-// `<!-- wiki-members:start/end -->` region (heading included) onto a
-// well-formed, empty `<wiki-member-list>` region occupying the same
-// position, so the fresh XML region fills in cleanly with no duplicate
-// "## Members" heading.
+// writeMembersSection splices the managed `wiki-member-list` region into
+// indexPath, first relocating any legacy comment-delimited Members section.
+// A stray unpaired legacy marker skips the write for this scan (non-fatal):
+// appending a fresh region beside it would leave an orphan comment and a
+// duplicate member listing for a human to untangle.
 //
-// A stray unpaired legacy marker is left byte-for-byte untouched and the
-// write is skipped this scan (non-fatal): a fresh region must never be
-// appended alongside an unresolved legacy marker, which would produce an
-// orphan comment plus a duplicate member listing. A human resolves it by
-// hand.
-//
-// Link targets are relative to the directory containing indexPath (wiki/).
-//   - indexed (new layout)  → [<repo>](../<repo>/docs/wiki/index.md)
-//   - indexed (legacy layout) → [<repo>](../<repo>/.claude/project/signals.md)
-//   - summarized → [<repo>](repos/<repo>.md)
-//   - pending  → [<repo>](../<repo>/)
+// Link targets are relative to indexPath's directory: indexed → the member's
+// index or signals file, summarized → repos/<repo>.md, pending → ../<repo>/.
 func writeMembersSection(indexPath string, members []Member) error {
 	indexDir := filepath.Dir(indexPath)
 
@@ -590,33 +520,18 @@ func writeMembersSection(indexPath string, members []Member) error {
 }
 
 // migrateLegacyMemberMarkers relocates the legacy comment-delimited Members
-// region — the "## Members" heading through the `<!-- wiki-members:end -->`
-// marker — onto a well-formed, EMPTY `<wiki-member-list>` region occupying
-// the same position. It does no `\n` accounting of its own: locating the
-// span (detect → guard → compute bounds) is all this function does: every
-// boundary byte is normalized by spliceRegionAt (managedregion.go), the
-// single tested home for interior-region boundary whitespace.
+// region — heading through end marker — onto an empty, well-formed
+// `wiki-member-list` region at the same position. Relocating rather than
+// excising is what lets the caller's immediately following splice fill the
+// body in place, so narrative before and after keeps its order. Boundary
+// whitespace is left entirely to spliceRegionAt.
 //
-// Migration only relocates delimiters; it never excises the span outright.
-// This matters because writeMembersSection immediately calls
-// spliceManagedRegion afterward: with the region now PRESENT (well-formed),
-// that call replaces its body in place, so the position — and therefore the
-// relative order of any narrative before/after the legacy block — is
-// preserved.
+// Returns skip=true, content untouched, when a legacy marker is unpaired or
+// reversed — a half-migrated document is worse than a deferred one. An
+// already well-formed region means migration ran; this is one-shot.
 //
-// Returns (content, true) when the caller must skip the members write this
-// scan: a stray unpaired legacy marker was found (start without end, end
-// without start, or reversed order) and content is returned byte-for-byte
-// untouched — never a half-migrated document. Returns (newContent, false)
-// otherwise: newContent is unchanged when there is nothing to migrate (no
-// legacy markers present, or a well-formed `wiki-member-list` region already
-// exists — migration is one-shot), or the migrated document.
-//
-// Detection of both the heading and the comment markers is line-anchored
-// (mirrors managedregion.go's findLineAnchored discipline) to avoid a false
-// match inside prose or a code fence.
+// Detection is line-anchored so prose or a code fence cannot false-match.
 func migrateLegacyMemberMarkers(content string) (string, bool) {
-	// P3 guard: a present well-formed region means migration already ran.
 	if state, _ := findRegion(content, "wiki-member-list"); state == regionWellFormed {
 		return content, false
 	}
@@ -633,12 +548,9 @@ func migrateLegacyMemberMarkers(content string) (string, bool) {
 
 	spanEnd := endIdx + len(membersMarkerEnd)
 
-	// Extend the span backward to include an adjacent "## Members" heading
-	// — the new region supplies its own heading — but ONLY when nothing but
-	// whitespace separates the heading from the start marker. A user who
-	// typed prose between the heading and the markers keeps both in place;
-	// never delete user prose, even at the cost of a transient duplicate
-	// "## Members" heading (the region carries its own).
+	// Absorb an adjacent "## Members" heading — the region carries its own —
+	// but only across pure whitespace. Prose the user typed between heading
+	// and marker is never deleted, even at the cost of a duplicate heading.
 	spanStart := startIdx
 	if headingIdx := lastLineAnchored(content[:startIdx], "## Members"); headingIdx != -1 {
 		gap := content[headingIdx+len("## Members") : startIdx]
@@ -650,10 +562,8 @@ func migrateLegacyMemberMarkers(content string) (string, bool) {
 	return spliceRegionAt(content, spanStart, spanEnd, managedRegion{tag: "wiki-member-list"}), false
 }
 
-// lastLineAnchored returns the byte offset of the last (rightmost)
-// line-anchored, whole-line occurrence of line in s, or -1 if absent. Same
-// whole-line matching rules as findLineAnchored (managedregion.go), but scans
-// for the rightmost match instead of the leftmost.
+// lastLineAnchored is findLineAnchored (managedregion.go) returning the
+// rightmost whole-line match instead of the leftmost, or -1.
 func lastLineAnchored(s, line string) int {
 	if strings.HasSuffix(s, "\n"+line) {
 		return len(s) - len(line)
@@ -667,24 +577,22 @@ func lastLineAnchored(s, line string) int {
 	return -1
 }
 
-// deriveSummaryFilePath returns the absolute path to the primary summary file
-// for a member, given the wiki index directory and the member's metadata.
-// Returns "" when no summary file can be determined.
+// deriveSummaryFilePath resolves a member's primary summary file, or "" when
+// there is none. Indexed members have no summary page: they link to signals.md,
+// which carries no consumer-friendly description.
 func deriveSummaryFilePath(indexDir string, m Member) string {
 	switch m.Status {
 	case "summarized":
 		if m.SummaryPath == "" {
 			return ""
 		}
-		// SummaryPath is relative to the wiki dir (e.g. "repos/repoA.md" or
-		// "repos/repoA/"). For a dir form we read the index.md inside it.
 		abs := filepath.Join(indexDir, m.SummaryPath)
 		info, err := os.Lstat(abs)
 		if err != nil {
 			return ""
 		}
 		if info.IsDir() {
-			// Domain-split: use index.md if present, else first .md file.
+			// Domain-split summary: index.md, else the first .md.
 			candidate := filepath.Join(abs, "index.md")
 			if _, err := os.Lstat(candidate); err == nil {
 				return candidate
@@ -702,33 +610,17 @@ func deriveSummaryFilePath(indexDir string, m Member) string {
 		}
 		return abs
 	case "indexed":
-		// No dedicated summary page — indexed repos link to signals.md which
-		// has no consumer-friendly description. Return "".
 		return ""
 	default:
 		return ""
 	}
 }
 
-// DeriveMemberDescription reads a summary file and extracts a short one-line
-// description suitable for use in an OKF §6 Members listing entry.
-//
-// Resolution order:
-//  1. frontmatter "description:" key — returned verbatim (trimmed).
-//  2. First non-structural prose line from the body — used as the description.
-//     Skipped: blank lines, headings (#), blockquotes (>), HTML/tag lines (<),
-//     table rows (|), and list items (-, *, +, N.). For each candidate line,
-//     inline markdown links [text](url) are reduced to their visible text,
-//     backtick inline-code and emphasis markers are stripped, and whitespace
-//     collapsed. The normalized line is rejected if it still contains a " | "
-//     nav separator OR has fewer than 15 letter characters. A line containing
-//     a single inline link (e.g. "Alpha depends on [Beta](x) for retries.")
-//     survives after normalization because the remaining text is clean prose.
-//  3. Empty string — emitted when neither source yields text (link-only is
-//     valid per OKF §6 SHOULD semantics).
-//
-// The result is always a single line (no embedded newlines) and is truncated
-// to at most 120 characters. Missing or unreadable files return "".
+// DeriveMemberDescription reads a summary file and returns a one-line
+// description for an OKF §6 Members listing: the frontmatter "description"
+// key, else the first prose line of the body, else "" (link-only is valid per
+// §6 SHOULD semantics). Always single-line, truncated to 120 characters;
+// unreadable files return "".
 func DeriveMemberDescription(summaryFilePath string) string {
 	data, err := os.ReadFile(summaryFilePath)
 	if err != nil {
@@ -739,10 +631,9 @@ func DeriveMemberDescription(summaryFilePath string) string {
 	return deriveDescriptionFrom(meta, body)
 }
 
-// deriveDescriptionFrom applies DeriveMemberDescription's resolution ladder
-// (frontmatter "description:" -> first prose line -> "") to already-parsed
-// frontmatter metadata and body, so a caller that already read+parsed the
-// file (e.g. bucketindex.go's readTopicMeta) doesn't have to re-read it.
+// deriveDescriptionFrom applies DeriveMemberDescription's ladder to
+// already-parsed frontmatter and body, sparing callers that have read the file
+// (bucketindex.go's readTopicMeta) a second read.
 func deriveDescriptionFrom(meta map[string]any, body string) string {
 	if meta != nil {
 		if v, ok := meta["description"]; ok {
@@ -753,28 +644,22 @@ func deriveDescriptionFrom(meta map[string]any, body string) string {
 		}
 	}
 
-	// Fall back to first prose line in the body.
 	for _, raw := range strings.Split(body, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
 		}
-		// Skip structural / non-prose lines.
 		if strings.HasPrefix(line, "#") ||
 			strings.HasPrefix(line, ">") ||
 			strings.HasPrefix(line, "<") ||
 			strings.HasPrefix(line, "|") {
 			continue
 		}
-		// Skip list items: -, *, + or N. (ordered list).
 		if isListItem(line) {
 			continue
 		}
-		// Normalize: strip markdown links to their visible text, strip
-		// backtick inline-code spans and emphasis markers, collapse whitespace.
 		normalized := normalizeLine(line)
-		// Reject nav/structural lines: those with a " | " separator or with
-		// too few actual letter characters to form a sentence.
+		// Reject nav rows and fragments too short to be a sentence.
 		if strings.Contains(normalized, " | ") {
 			continue
 		}
@@ -786,19 +671,16 @@ func deriveDescriptionFrom(meta map[string]any, body string) string {
 	return ""
 }
 
-// isListItem reports whether line is a markdown list item: unordered (-, *, +)
-// or ordered (one-or-more digits followed by ". ").
+// isListItem reports whether line is a markdown list item, ordered or not.
 func isListItem(line string) bool {
 	if len(line) == 0 {
 		return false
 	}
 	switch line[0] {
 	case '-', '*', '+':
-		// Must be followed by a space (or be a lone marker) to be a list item,
-		// not an em-dash or horizontal rule.
+		// A space must follow, else this is an em-dash or a horizontal rule.
 		return len(line) == 1 || line[1] == ' '
 	}
-	// Ordered list: digits followed by ". "
 	i := 0
 	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
 		i++
@@ -806,27 +688,20 @@ func isListItem(line string) bool {
 	return i > 0 && i < len(line) && line[i] == '.' && (i+1 == len(line) || line[i+1] == ' ')
 }
 
-// normalizeLine reduces a markdown inline line to plain text suitable for
-// prose detection:
-//   - [visible text](url) → visible text
-//   - `code` → code  (backtick inline-code span stripped)
-//   - *em*, **strong**, _em_, __strong__ → inner text
-//   - Collapses internal whitespace runs to a single space, trims edges.
+// normalizeLine reduces markdown inline syntax to plain text for prose
+// detection: links to their visible text, inline code and emphasis unwrapped,
+// whitespace runs collapsed.
 func normalizeLine(line string) string {
-	// Strip markdown links: [text](url) → text.
-	// We scan character-by-character to handle multiple links per line.
 	var sb strings.Builder
 	i := 0
 	for i < len(line) {
 		if line[i] == '[' {
-			// Look for ](…) following this bracket.
 			closeText := strings.Index(line[i+1:], "]")
 			if closeText >= 0 {
 				afterClose := i + 1 + closeText + 1 // index of ']'+1
 				if afterClose < len(line) && line[afterClose] == '(' {
 					closeURL := strings.Index(line[afterClose+1:], ")")
 					if closeURL >= 0 {
-						// Emit visible text only.
 						sb.WriteString(line[i+1 : i+1+closeText])
 						i = afterClose + 1 + closeURL + 1
 						continue
@@ -839,26 +714,18 @@ func normalizeLine(line string) string {
 	}
 	out := sb.String()
 
-	// Strip backtick inline-code spans: `…` → inner text.
 	out = stripDelimited(out, '`', '`')
-	// Strip emphasis: **…** / __…__ → inner text.
 	out = strings.ReplaceAll(out, "**", "")
 	out = strings.ReplaceAll(out, "__", "")
-	// Strip single * and _ used for emphasis only when they appear paired —
-	// a simple approach: remove lone * and _ characters flanked by word chars.
-	// Rather than complex regex, just remove remaining * and _ after double
-	// forms are gone.
+	// Whatever * and _ survive the paired forms are single-char emphasis.
 	out = strings.ReplaceAll(out, "*", "")
 	out = strings.ReplaceAll(out, "_", "")
 
-	// Collapse whitespace.
 	fields := strings.Fields(out)
 	return strings.Join(fields, " ")
 }
 
-// stripDelimited removes all occurrences of text delimited by open/close byte
-// (same byte for both, e.g. backtick), replacing the delimited span with the
-// inner content.
+// stripDelimited unwraps every open…close span, keeping the inner content.
 func stripDelimited(s string, open, close byte) string {
 	var sb strings.Builder
 	i := 0
@@ -866,7 +733,6 @@ func stripDelimited(s string, open, close byte) string {
 		if s[i] == open {
 			j := strings.IndexByte(s[i+1:], close)
 			if j >= 0 {
-				// Emit inner content without the delimiters.
 				sb.WriteString(s[i+1 : i+1+j])
 				i = i + 1 + j + 1
 				continue
@@ -878,7 +744,6 @@ func stripDelimited(s string, open, close byte) string {
 	return sb.String()
 }
 
-// letterCount counts the number of Unicode letters in s.
 func letterCount(s string) int {
 	n := 0
 	for _, r := range s {
@@ -889,8 +754,7 @@ func letterCount(s string) int {
 	return n
 }
 
-// truncate returns s truncated to at most n UTF-8 characters. If s is longer,
-// it returns the first n runes (no ellipsis — the caller adds context).
+// truncate returns at most the first n runes of s, with no ellipsis.
 func truncate(s string, n int) string {
 	runes := []rune(s)
 	if len(runes) <= n {
@@ -899,11 +763,9 @@ func truncate(s string, n int) string {
 	return string(runes[:n])
 }
 
-// buildMembersSection produces the content for inside the `wiki-member-list`
-// region: a "## Members" heading plus one OKF §6 listing line per member —
-// "- [Title](url) - description" when a description is derivable, or
-// "- [Title](url)" when no description can be found (link-only is valid per
-// §6 SHOULD semantics).
+// buildMembersSection renders the `wiki-member-list` region body: a "## Members"
+// heading plus one OKF §6 line per member, description omitted when none is
+// derivable.
 func buildMembersSection(indexDir string, members []Member) string {
 	var sb strings.Builder
 	sb.WriteString("## Members")
@@ -932,42 +794,35 @@ func buildMembersSection(indexDir string, members []Member) string {
 	return sb.String()
 }
 
-// memberLinkTarget computes the markdown link target for a member, relative to
-// the index.md directory.
+// memberLinkTarget computes a member's markdown link target, relative to the
+// index.md directory.
 func memberLinkTarget(indexDir string, m Member) string {
 	switch m.Status {
 	case "indexed":
-		// Link to m.SignalsPath — either docs/wiki/index.md (new layout) or
-		// .claude/project/signals.md (legacy layout), whichever classifyMembers found.
 		if m.SignalsPath != "" {
 			rel, err := filepath.Rel(indexDir, m.SignalsPath)
 			if err == nil {
 				return rel
 			}
 		}
-		// Fallback: prefer new layout path when path is known.
 		return "../" + m.Path + "/docs/wiki/index.md"
 	case "summarized":
-		// Link to the summary (already relative to wiki/): repos/<repo>.md or
-		// repos/<repo>/ for a domain-split summary.
+		// SummaryPath is already relative to wiki/.
 		if m.SummaryPath != "" {
 			return m.SummaryPath
 		}
 		return "repos/" + filepath.Base(m.Path) + ".md"
 	default: // "pending"
-		// Link to the repo directory.
 		return "../" + m.Path + "/"
 	}
 }
 
-// rewriteScanBlock replaces the <wiki-scan> block in content with newBlock.
-// Content outside the block is preserved byte-for-byte.
-// This mirrors the splice pattern from internal/profile/render.go
-// (RewriteEnvironmentSection / findHeadingIndex / findNextH2After).
+// rewriteScanBlock replaces the <wiki-scan> block in content, preserving
+// everything outside it byte-for-byte. An absent or malformed open tag appends;
+// a missing close tag truncates from the open tag to EOF.
 func rewriteScanBlock(content, newBlock string) string {
 	openIdx := strings.Index(content, scanMarkerOpen)
 	if openIdx == -1 {
-		// No existing block — append.
 		result := content
 		if !strings.HasSuffix(result, "\n") {
 			result += "\n"
@@ -975,18 +830,14 @@ func rewriteScanBlock(content, newBlock string) string {
 		return result + "\n" + newBlock
 	}
 
-	// Find end of open tag.
 	closeTagIdx := strings.Index(content[openIdx:], ">")
 	if closeTagIdx == -1 {
-		// Malformed open tag — append.
 		return content + "\n" + newBlock
 	}
 	afterOpenTag := openIdx + closeTagIdx + 1
 
-	// Find the close tag.
 	closeIdx := strings.Index(content[afterOpenTag:], scanMarkerClose)
 	if closeIdx == -1 {
-		// No close tag — replace from open tag to EOF.
 		before := content[:openIdx]
 		return before + newBlock
 	}

@@ -1,13 +1,8 @@
-// stale.go — shared wiki.Stale output parser.
+// The single parser for wiki.Stale's output, which both the nav and status
+// paths delegate to. Its line grammar:
 //
-// parseStaleLines is the single parser for the text emitted by wiki.Stale.
-// Both computeStaleness (nav.go) and productionWikiStale (health.go) delegate
-// here; they map the raw sets into their own return types.
-//
-// Line grammar (from atomic/internal/wiki/stale.go):
-//
-//	DRIFT <verb> <path>          — membership drift (added/removed/status)
-//	STALE <kind> <path> [(fp)]   — artifact content drift; kind = repo | concern | summary
+//	DRIFT <verb> <path>          — membership drift
+//	STALE <kind> <path> [(fp)]   — content drift; kind = repo | concern | summary
 //	STALE bucket <name>          — bucket has a non-empty diff
 package serve
 
@@ -18,23 +13,19 @@ import (
 
 // staleSets is the raw output of parseStaleLines.
 type staleSets struct {
-	// Members holds repo/summary/drift paths that are stale.
-	// Keyed by both filepath.Base(path) and the raw path so callers can look
-	// up by either form.
+	// Members is keyed by both base name and raw path, so a caller can look up
+	// by either form.
 	Members map[string]bool
 
-	// Buckets holds bucket names that have a non-empty diff ("STALE bucket <name>").
 	Buckets map[string]bool
 
-	// Concerns holds concern base-names that are stale ("STALE concern <path>").
-	// Kept separate from Members — a stale concern does NOT mean a repo member
-	// is stale, and nav should not show a member-stale badge for a stale concern.
+	// Concerns stays separate from Members: a stale concern does not make its
+	// member stale, and nav must not badge it as if it did.
 	Concerns map[string]bool
 }
 
-// parseStaleLines parses the text output of wiki.Stale into raw sets.
-// Unknown or malformed lines are silently skipped (consistent with the
-// graceful-degradation policy: staleness checks must never crash callers).
+// parseStaleLines silently skips malformed lines — a staleness check must
+// never crash its caller.
 func parseStaleLines(output string) staleSets {
 	sets := staleSets{
 		Members:  map[string]bool{},
@@ -55,13 +46,11 @@ func parseStaleLines(output string) staleSets {
 
 		switch {
 		case prefix == "STALE" && kind == "bucket":
-			// "STALE bucket <name>"
 			sets.Buckets[parts[2]] = true
 
 		case prefix == "STALE" && kind == "concern":
-			// "STALE concern wiki/concerns/foo.md [(fingerprint)]"
 			rawPath := parts[len(parts)-1]
-			// Strip parenthetical suffix e.g. "(alpha@abc123)".
+			// Drop a trailing fingerprint like "(alpha@abc123)".
 			if idx := strings.Index(rawPath, "("); idx != -1 {
 				rawPath = strings.TrimSpace(rawPath[:idx])
 			}
@@ -69,15 +58,13 @@ func parseStaleLines(output string) staleSets {
 			sets.Concerns[base] = true
 
 		case prefix == "STALE" || prefix == "DRIFT":
-			// STALE repo/summary or DRIFT added/removed/status — repo member paths.
 			rawPath := parts[len(parts)-1]
 			if idx := strings.Index(rawPath, "("); idx != -1 {
 				rawPath = strings.TrimSpace(rawPath[:idx])
 			}
 			base := filepath.Base(rawPath)
 			sets.Members[base] = true
-			// Also index by the raw path so nav's lookup works whether it keys
-			// by name or by relative path.
+			// Both forms, so nav resolves whether it keys by name or by path.
 			sets.Members[rawPath] = true
 		}
 	}

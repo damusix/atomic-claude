@@ -11,8 +11,6 @@ import (
 // fixedNow is the deterministic clock value used across scaffold tests.
 var fixedNow = time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 
-// --- validateSlug ---
-
 func TestValidateSlug_AcceptsKebabCase(t *testing.T) {
 	for _, s := range []string{"seo", "vector-store-bench", "a1-b2", "123"} {
 		if err := validateSlug(s); err != nil {
@@ -31,8 +29,6 @@ func TestValidateSlug_RejectsNonConforming(t *testing.T) {
 		}
 	}
 }
-
-// --- ScaffoldBucketDoc ---
 
 func TestScaffoldBucketDoc_WritesFrontmatterAndStampsCreated(t *testing.T) {
 	bucketDir := t.TempDir()
@@ -166,8 +162,6 @@ func TestScaffoldBucketDoc_PreExistingDocStillAbortsEvenWithRouter(t *testing.T)
 	}
 }
 
-// --- ScaffoldBucketSkill ---
-
 func TestScaffoldBucketSkill_WritesPrefilledSkillWhenAbsent(t *testing.T) {
 	realmRoot := t.TempDir()
 	bucketDir := filepath.Join(realmRoot, "research")
@@ -230,8 +224,6 @@ func TestScaffoldBucketSkill_NoOpWhenPresent(t *testing.T) {
 		t.Errorf("existing SKILL.md was overwritten; got:\n%s", string(data))
 	}
 }
-
-// --- bucketPurposeLine ---
 
 func TestBucketPurposeLine_ReadsDescription(t *testing.T) {
 	bucketDir := t.TempDir()

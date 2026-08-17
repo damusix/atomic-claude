@@ -14,13 +14,10 @@ func TestMatchesAgent(t *testing.T) {
 		{"atomic-builder.md", true},
 		{"atomic-reviewer.md", true},
 		{"atomic-signals-inferrer.md", true},
-		// no atomic- prefix
 		{"builder.md", false},
 		{"README.md", false},
-		// wrong extension
 		{"atomic-builder.txt", false},
 		{"atomic-builder", false},
-		// directory name (no extension)
 		{"atomic-builder/", false},
 	}
 	for _, tc := range cases {
@@ -39,13 +36,10 @@ func TestMatchesSkillDir(t *testing.T) {
 		{"atomic-git-discipline", true},
 		{"atomic-tdd", true},
 		{"atomic-writing", true},
-		// no prefix
 		{"commit", false},
 		{"_templates", false},
-		// partial prefix
 		{"atomiccommit", false},
-		// file name (not a directory) — predicate matches by name only;
-		// caller is responsible for gating on IsDir() separately.
+		// Name-only predicate: gating on IsDir() is the caller's job.
 		{"atomic-foo.md", true},
 	}
 	for _, tc := range cases {
@@ -63,12 +57,9 @@ func TestMatchesOutputStyle(t *testing.T) {
 	}{
 		{"atomic.md", true},
 		{"atomic-verbose.md", true},
-		// no prefix
 		{"verbose.md", false},
 		{"README.md", false},
-		// wrong extension
 		{"atomic.txt", false},
-		// atomic prefix present, no .md suffix
 		{"atomic", false},
 	}
 	for _, tc := range cases {
@@ -87,7 +78,6 @@ func TestMatchesCommand(t *testing.T) {
 		{"commit-only.md", true},
 		{"atomic-plan.md", true},
 		{"README.md", true}, // no allowlist — any .md file matches
-		// wrong extension
 		{"commit-only.txt", false},
 		{"commit-only", false},
 	}
@@ -107,7 +97,6 @@ func TestMatchesRule(t *testing.T) {
 		{"rules/python/style.md", true},
 		{"rules/typescript/style.md", true},
 		{"rules/go/naming.md", true},
-		// wrong extension
 		{"rules/python/style.txt", false},
 		{"rules/python/style", false},
 	}
@@ -125,11 +114,9 @@ func TestIsClaudeMd(t *testing.T) {
 		want bool
 	}{
 		{"CLAUDE.md", true},
-		// wrong case
 		{"claude.md", false},
 		{"Claude.md", false},
 		{"CLAUDE.MD", false},
-		// with path components (predicate accepts bare name)
 		{"path/CLAUDE.md", false},
 	}
 	for _, tc := range cases {

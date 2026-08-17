@@ -1,39 +1,9 @@
-// Package search implements the 3-tier FTS→LIKE→fuzzy node search for the
-// code-intelligence engine (master CP18, appendix J).
+// Package search ranks code-graph nodes through three tiers, each firing only
+// when the one before it returned nothing: FTS5, case-insensitive LIKE, then
+// bounded Damerau-Levenshtein fuzzy matching.
 //
-// # Entry point
-//
-// New(db) returns a Searcher. Call Search(ctx, SearchOptions) to execute the
-// full pipeline: query parsing → FTS (tier 1) → LIKE fallback (tier 2) →
-// Levenshtein fuzzy fallback (tier 3) → field filters → rescore → stable sort.
-//
-// # Tier ordering
-//
-// Tier 1 (FTS5): calls db.SearchNodes with the FTS text, over-fetches 5×, then
-// rescores with kindBonus + scorePathRelevance + nameMatchBonus + test-file
-// downrank. Applies field filters. If results remain → return TierFTS.
-//
-// Tier 2 (LIKE): fires when tier 1 returns 0 results. Case-insensitive LIKE on
-// node name using the query term. Scores by CASE ladder: exact=1.0, prefix=0.9,
-// contains=0.8, qualified=0.7. Applies field filters. If results remain →
-// return TierLIKE.
-//
-// Tier 3 (Fuzzy): fires when tier 2 returns 0 results. Bounded
-// Damerau-Levenshtein over all node names: maxDist = 1 if len(query)≤4 else 2.
-// Early-exit per candidate when distance exceeds maxDist (avoids O(n·m) cliff).
-//
-// # Scoring
-//
-// Final score = bm25_base + kindBonus + scorePathRelevance + nameMatchBonus.
-//   - bm25_base = −bm25RawScore (bm25 is negative; negate so higher=better).
-//   - test-file downrank: −15 applied unless the raw query text contains "test".
-//   - Stable sort: descending score; ties broken ascending by node ID.
-//
-// # Determinism
-//
-// Ties in final score are broken by node ID (ascending string comparison).
-// This matches the db-level tiebreaker (ORDER BY score, n.id) so callers see
-// consistent ordering.
+// Score ties break ascending by node ID, matching the db-level ORDER BY score,
+// n.id so callers see one consistent ordering.
 package search
 
 import (
@@ -43,10 +13,6 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Tier constants
-// ---------------------------------------------------------------------------
 
 // Tier identifies which search tier produced the results.
 type Tier int
@@ -73,37 +39,23 @@ func (t Tier) String() string {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// DB interface (seam for testing)
-// ---------------------------------------------------------------------------
-
-// dbQuerier is the subset of db.DB methods the search layer uses.
+// dbQuerier is the subset of db.DB the search layer uses, kept narrow as a test seam.
 type dbQuerier interface {
 	SearchNodes(ctx context.Context, query string, limit int) ([]types.SearchResult, error)
 	GetAllNodes(ctx context.Context) ([]types.Node, error)
 	GetNodesByKind(ctx context.Context, kind types.NodeKind) ([]types.Node, error)
 }
 
-// ---------------------------------------------------------------------------
-// ParsedQuery
-// ---------------------------------------------------------------------------
-
-// ParsedQuery holds the result of parsing a raw query string into structured
-// fields plus an FTS text remainder.
+// ParsedQuery is a raw query split into field filters plus the FTS remainder.
 type ParsedQuery struct {
-	// Kind is set when the raw query contained "kind:<value>".
-	Kind types.NodeKind
-	// Language is set when the raw query contained "lang:<value>" or "language:<value>".
+	Kind     types.NodeKind
 	Language types.Language
-	// FilePath is set when the raw query contained "path:<value>".
 	FilePath string
-	// Name is set when the raw query contained "name:<value>".
-	Name string
-	// FTSText is the remainder after stripping all field: tokens.
+	Name     string
+	// FTSText is what is left after stripping all field: tokens.
 	FTSText string
 }
 
-// validKinds is a set for O(1) validation of NodeKind values from the query.
 var validKinds = func() map[types.NodeKind]bool {
 	m := make(map[types.NodeKind]bool, len(types.AllNodeKinds))
 	for _, k := range types.AllNodeKinds {
@@ -112,7 +64,6 @@ var validKinds = func() map[types.NodeKind]bool {
 	return m
 }()
 
-// validLanguages is a set for O(1) validation of Language values from the query.
 var validLanguages = func() map[types.Language]bool {
 	m := make(map[types.Language]bool, len(types.AllLanguages))
 	for _, l := range types.AllLanguages {
@@ -121,16 +72,9 @@ var validLanguages = func() map[types.Language]bool {
 	return m
 }()
 
-// ParseQuery parses a raw query string into structured fields plus FTS text.
-//
-// Field prefixes (case-sensitive):
-//   - "kind:<NodeKind>"    → Kind (validated against AllNodeKinds; invalid → ignored, token → FTS)
-//   - "lang:<Language>"   → Language
-//   - "language:<Language>" → Language
-//   - "path:<substr>"     → FilePath
-//   - "name:<substr>"     → Name
-//
-// All other tokens go to FTSText (joined with spaces).
+// ParseQuery splits a raw query on the kind:/lang:/language:/path:/name:
+// prefixes. Anything else — including a kind: or lang: value that does not
+// validate — falls through to FTSText, so a typo still returns results.
 func ParseQuery(raw string) ParsedQuery {
 	var pq ParsedQuery
 	var ftsParts []string
@@ -145,7 +89,6 @@ func ParseQuery(raw string) ParsedQuery {
 			if validKinds[k] {
 				pq.Kind = k
 			} else {
-				// Invalid kind — treat as FTS text so the user still gets results.
 				ftsParts = append(ftsParts, tok)
 			}
 		case strings.HasPrefix(lower, "lang:"):
@@ -177,12 +120,7 @@ func ParseQuery(raw string) ParsedQuery {
 	return pq
 }
 
-// ---------------------------------------------------------------------------
-// Scoring helpers
-// ---------------------------------------------------------------------------
-
-// KindBonus returns the appendix-J kind bonus for a NodeKind.
-// Not-listed kinds return 0.
+// KindBonus ranks node kinds against each other; unlisted kinds score 0.
 func KindBonus(k types.NodeKind) float64 {
 	switch k {
 	case types.NodeKindFunction, types.NodeKindMethod:
@@ -191,7 +129,6 @@ func KindBonus(k types.NodeKind) float64 {
 		return 9
 	case types.NodeKindClass, types.NodeKindComponent,
 		types.NodeKindTable, types.NodeKindView, types.NodeKindProcedure, types.NodeKindPolicy:
-		// SQL top-level objects tier-equivalent to class/component.
 		return 8
 	case types.NodeKindTypeAlias, types.NodeKindStruct:
 		return 6
@@ -202,23 +139,18 @@ func KindBonus(k types.NodeKind) float64 {
 	case types.NodeKindProperty, types.NodeKindField, types.NodeKindConstant:
 		return 3
 	case types.NodeKindColumn, types.NodeKindConstraint, types.NodeKindIndex, types.NodeKindSequence, types.NodeKindTrigger:
-		// SQL member/metadata objects: tier-equivalent to field/property.
 		return 2
 	case types.NodeKindVariable:
 		return 2
 	case types.NodeKindImport, types.NodeKindExport:
 		return 1
-	default: // file, parameter, enum_member, and anything unlisted → 0
+	default:
 		return 0
 	}
 }
 
-// ScorePathRelevance returns a path-centrality bonus for a node. Shorter paths
-// and paths with fewer directory components score higher. The result is
-// deterministic: same path always returns the same value.
-//
-// Implementation: base 5.0 minus a penalty proportional to the number of path
-// separators (directory depth). Clamped to ≥0.
+// ScorePathRelevance favours shallower paths, on the assumption that a symbol
+// near the repo root is more central than one buried in a subtree.
 func ScorePathRelevance(n types.Node) float64 {
 	if n.FilePath == "" {
 		return 0
@@ -231,8 +163,6 @@ func ScorePathRelevance(n types.Node) float64 {
 	return score
 }
 
-// nameMatchBonus returns a bonus when the node name matches the query text.
-// Exact match → 5.0; prefix → 3.0; contains → 1.0.
 func nameMatchBonus(n types.Node, queryText string) float64 {
 	if queryText == "" {
 		return 0
@@ -251,46 +181,33 @@ func nameMatchBonus(n types.Node, queryText string) float64 {
 	}
 }
 
-// isTestFile returns true when the node's file path looks like a test file:
-// the path contains a "test" or "spec" or "__tests__" directory segment, or
-// the filename ends with "_test." (Go convention).
 func isTestFile(filePath string) bool {
 	lower := strings.ToLower(filePath)
-	// Check path segments
 	for _, seg := range strings.Split(lower, "/") {
 		if seg == "test" || seg == "spec" || seg == "__tests__" {
 			return true
 		}
 	}
-	// Check filename suffix: *_test.go, *_test.ts, etc.
-	// Find the last component.
 	lastSlash := strings.LastIndex(lower, "/")
 	filename := lower
 	if lastSlash >= 0 {
 		filename = lower[lastSlash+1:]
 	}
-	// Go: file ends with _test.<ext>
 	if idx := strings.LastIndex(filename, "_test."); idx >= 0 {
 		return true
 	}
-	// Also handle test/ files that end in .test.ts, .spec.ts etc.
 	if strings.Contains(filename, ".test.") || strings.Contains(filename, ".spec.") {
 		return true
 	}
 	return false
 }
 
-// ---------------------------------------------------------------------------
-// Field filter
-// ---------------------------------------------------------------------------
-
-// applyFilters returns results that pass the field filters in pq.
-// All filters are AND-combined.
+// applyFilters AND-combines every field filter set in pq.
 func applyFilters(results []types.SearchResult, pq ParsedQuery) []types.SearchResult {
 	if pq.Kind == "" && pq.Language == "" && pq.FilePath == "" && pq.Name == "" {
 		return results
 	}
-	out := results[:0:0] // zero-length, shares no backing array
+	out := results[:0:0] // zero cap, so appends never alias the caller's array
 	for _, r := range results {
 		if pq.Kind != "" && r.Node.Kind != pq.Kind {
 			continue
@@ -309,12 +226,8 @@ func applyFilters(results []types.SearchResult, pq ParsedQuery) []types.SearchRe
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Stable sort
-// ---------------------------------------------------------------------------
-
-// sortResults sorts results descending by Score, with ties broken ascending by
-// Node.ID (deterministic tiebreaker matching the db-level ORDER BY score, n.id).
+// sortResults orders by descending score, breaking ties on node ID to match the
+// db-level ORDER BY.
 func sortResults(results []types.SearchResult) {
 	sort.SliceStable(results, func(i, j int) bool {
 		if results[i].Score != results[j].Score {
@@ -324,16 +237,10 @@ func sortResults(results []types.SearchResult) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Metadata scoring (no bm25 base — used by TierFilter)
-// ---------------------------------------------------------------------------
-
-// scoreMetadata computes a score for a node when there is no free-text term:
-// kindBonus + pathRelevance + exportedBonus.
-// If a name filter is provided the name-match bonus is included.
+// scoreMetadata scores a node for TierFilter, where there is no free-text term
+// and therefore no bm25 base.
 func scoreMetadata(n types.Node, nameFilter string) float64 {
 	score := KindBonus(n.Kind) + ScorePathRelevance(n)
-	// Small bonus for exported symbols (same weight as nameMatchBonus partial).
 	if n.IsExported {
 		score += 1.0
 	}
@@ -342,10 +249,6 @@ func scoreMetadata(n types.Node, nameFilter string) float64 {
 	}
 	return score
 }
-
-// ---------------------------------------------------------------------------
-// Searcher
-// ---------------------------------------------------------------------------
 
 // Searcher wraps a db handle and exposes the 3-tier search pipeline.
 type Searcher struct {
@@ -357,23 +260,18 @@ func New(db dbQuerier) *Searcher {
 	return &Searcher{db: db}
 }
 
-// Search executes the full 3-tier search pipeline per appendix J.
-//
-// Returns the ranked results, the tier that produced them (TierFTS, TierLIKE,
-// or TierFuzzy), and any error.
-//
-// If opts.Query is empty and no field filters are set, returns nil, TierFTS, nil.
+// Search runs the tiers in order and returns the ranked results alongside the
+// tier that produced them. A blank query with no field filters yields nil.
 func (s *Searcher) Search(ctx context.Context, opts types.SearchOptions) ([]types.SearchResult, Tier, error) {
 	limit := opts.Limit
 	if limit <= 0 {
-		limit = 20 // sensible default
+		limit = 20
 	}
 
 	pq := ParseQuery(opts.Query)
 
-	// Merge opts-level filters with parsed-query filters. ParseQuery has priority
-	// for Kind/Language/FilePath/Name; explicit SearchOptions fields may not
-	// duplicate (they're the public API for programmatic callers without raw query).
+	// Filters parsed out of the raw query win; the SearchOptions fields exist
+	// for programmatic callers that pass no raw query at all.
 	if opts.Kind != "" && pq.Kind == "" {
 		pq.Kind = opts.Kind
 	}
@@ -384,15 +282,10 @@ func (s *Searcher) Search(ctx context.Context, opts types.SearchOptions) ([]type
 		pq.FilePath = opts.FilePath
 	}
 
-	// Determine if this is a test query (affects downrank decision).
+	// Suppresses the test-file downrank: someone searching for "test" wants them.
 	isTestQuery := strings.Contains(strings.ToLower(opts.Query), "test")
 
-	// -----------------------------------------------------------------------
-	// Metadata-only path (TierFilter): fires when there is no free-text term
-	// but at least one field filter is set (kind/lang/path/name). Fetches
-	// candidates by the most selective available filter, applies the remaining
-	// filters in memory, and scores without bm25.
-	// -----------------------------------------------------------------------
+	// Metadata-only path: field filters but no free-text term to rank against.
 	hasFilter := pq.Kind != "" || pq.Language != "" || pq.FilePath != "" || pq.Name != ""
 	if pq.FTSText == "" && hasFilter {
 		filterResults, err := s.searchFilter(ctx, pq, isTestQuery)
@@ -406,16 +299,14 @@ func (s *Searcher) Search(ctx context.Context, opts types.SearchOptions) ([]type
 			}
 			return filterResults, TierFilter, nil
 		}
-		// No matching nodes — return empty (not nil) so callers can distinguish
-		// "found nothing" from "invalid query"; nil is reserved for blank queries.
+		// Empty, not nil: nil is reserved for a blank query, so callers can tell
+		// "found nothing" apart from "nothing was asked".
 		return []types.SearchResult{}, TierFilter, nil
 	}
 
-	// -----------------------------------------------------------------------
-	// Tier 1: FTS5
-	// -----------------------------------------------------------------------
 	if pq.FTSText != "" {
-		ftsLimit := limit * 5 // over-fetch 5×
+		// Over-fetch, because rescoring reorders and filters can drop rows.
+		ftsLimit := limit * 5
 		raw, err := s.db.SearchNodes(ctx, pq.FTSText, ftsLimit)
 		if err != nil {
 			return nil, TierFTS, err
@@ -432,14 +323,10 @@ func (s *Searcher) Search(ctx context.Context, opts types.SearchOptions) ([]type
 		}
 	}
 
-	// -----------------------------------------------------------------------
-	// Tier 2: LIKE fallback
-	// -----------------------------------------------------------------------
 	likeQuery := pq.FTSText
 	if likeQuery == "" {
 		likeQuery = opts.Query
 	}
-	// Strip any remaining field tokens to get a bare term for LIKE.
 	likeQuery = strings.TrimSpace(likeQuery)
 
 	if likeQuery != "" {
@@ -456,9 +343,6 @@ func (s *Searcher) Search(ctx context.Context, opts types.SearchOptions) ([]type
 		}
 	}
 
-	// -----------------------------------------------------------------------
-	// Tier 3: Fuzzy (bounded Damerau-Levenshtein)
-	// -----------------------------------------------------------------------
 	fuzzyQuery := likeQuery
 	if fuzzyQuery != "" {
 		fuzzyResults, err := s.searchFuzzy(ctx, fuzzyQuery, pq, isTestQuery)
@@ -477,14 +361,10 @@ func (s *Searcher) Search(ctx context.Context, opts types.SearchOptions) ([]type
 	return nil, TierFuzzy, nil
 }
 
-// rescore takes raw FTS results and computes the final score per appendix J:
-// finalScore = bm25_base + kindBonus + scorePathRelevance + nameMatchBonus
-// where bm25_base = -bm25RawScore (bm25 is negative; negate so higher=better).
-// Test-file downrank of −15 is applied unless isTestQuery.
 func rescore(results []types.SearchResult, queryText string, isTestQuery bool) []types.SearchResult {
 	out := make([]types.SearchResult, len(results))
 	for i, r := range results {
-		base := -r.Score // negate: bm25 is negative, best is least-negative
+		base := -r.Score // bm25 is negative and best is least-negative
 		score := base +
 			KindBonus(r.Node.Kind) +
 			ScorePathRelevance(r.Node) +
@@ -499,13 +379,7 @@ func rescore(results []types.SearchResult, queryText string, isTestQuery bool) [
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Tier 2: LIKE
-// ---------------------------------------------------------------------------
-
-// searchLIKE fetches all nodes via GetAllNodes and applies case-insensitive
-// substring matching on the name, scoring by the CASE ladder:
-// exact=1.0 / prefix=0.9 / contains=0.8 / qualified-name match=0.7.
+// searchLIKE scans every node for a case-insensitive substring match on name.
 func (s *Searcher) searchLIKE(ctx context.Context, query string, pq ParsedQuery, isTestQuery bool) ([]types.SearchResult, error) {
 	all, err := s.db.GetAllNodes(ctx)
 	if err != nil {
@@ -529,9 +403,7 @@ func (s *Searcher) searchLIKE(ctx context.Context, query string, pq ParsedQuery,
 	return applyFilters(results, pq), nil
 }
 
-// likeScore returns the raw LIKE score for a node (before bonuses), or 0 if
-// no match. Score ladder per appendix J:
-// exact match 1.0 / prefix 0.9 / contains 0.8 / qualified-name match 0.7.
+// likeScore returns the match score before bonuses, or 0 for no match.
 func likeScore(n types.Node, lowerQuery string) float64 {
 	nodeLower := strings.ToLower(n.Name)
 	switch {
@@ -548,17 +420,9 @@ func likeScore(n types.Node, lowerQuery string) float64 {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Tier 3: Fuzzy (bounded Damerau-Levenshtein)
-// ---------------------------------------------------------------------------
-
-// searchFuzzy compares query against all node names using bounded
-// Damerau-Levenshtein distance.
-//
-// maxDist: 1 if len(query)≤4, else 2 (appendix J).
-// Candidates with distance > maxDist are excluded.
-// The score for a fuzzy hit is: (maxDist+1-dist)/float64(maxDist+1) to give
-// a score in (0, 1] — closer matches score higher.
+// searchFuzzy compares the query against every node name by bounded
+// Damerau-Levenshtein distance. Short queries get a tighter bound, since one
+// edit on a 4-character name is already a different word.
 func (s *Searcher) searchFuzzy(ctx context.Context, query string, pq ParsedQuery, isTestQuery bool) ([]types.SearchResult, error) {
 	all, err := s.db.GetAllNodes(ctx)
 	if err != nil {
@@ -576,7 +440,7 @@ func (s *Searcher) searchFuzzy(ctx context.Context, query string, pq ParsedQuery
 		if dist < 0 || dist > maxDist {
 			continue
 		}
-		// Score in (0,1]: dist=0 → 1.0, dist=1 → 0.5 (maxDist=1) or 0.67 (maxDist=2)
+		// Normalised into (0,1] so closer matches rank higher.
 		base := float64(maxDist+1-dist) / float64(maxDist+1)
 		score := base + KindBonus(n.Kind) + ScorePathRelevance(n)
 		if !isTestQuery && isTestFile(n.FilePath) {
@@ -588,17 +452,13 @@ func (s *Searcher) searchFuzzy(ctx context.Context, query string, pq ParsedQuery
 	return applyFilters(results, pq), nil
 }
 
-// boundedDL computes the Damerau-Levenshtein distance between a and b, with
-// an early-exit bound: returns -1 if the distance exceeds maxDist without
-// finishing the full DP table. This prevents the O(n·m) cost cliff (F-20).
-//
-// Implements the standard DP recurrence with transpositions. The "bounded"
-// variant skips candidates where even the length difference exceeds maxDist.
+// boundedDL is Damerau-Levenshtein distance that returns -1 as soon as the
+// distance is known to exceed maxDist, rather than filling the whole DP table.
+// Bailing early is what keeps a full-corpus scan off the O(n·m) cliff.
 func boundedDL(a, b string, maxDist int) int {
 	la, lb := len(a), len(b)
 
-	// Quick length check: if lengths differ by more than maxDist, distance
-	// is at least |la-lb| > maxDist.
+	// A length gap alone already puts the distance out of bounds.
 	diff := la - lb
 	if diff < 0 {
 		diff = -diff
@@ -607,7 +467,6 @@ func boundedDL(a, b string, maxDist int) int {
 		return -1
 	}
 
-	// Trivial cases.
 	if la == 0 {
 		return lb
 	}
@@ -615,15 +474,11 @@ func boundedDL(a, b string, maxDist int) int {
 		return la
 	}
 
-	// Use lower-case comparison for robustness.
 	aLow := strings.ToLower(a)
 	bLow := strings.ToLower(b)
 
-	// Standard Levenshtein DP with transpositions (Damerau).
-	// Keep two rows to reduce allocations.
-	// prev2: row i-2 (for transposition check)
-	// prev:  row i-1
-	// curr:  row i
+	// Three rolling rows instead of a full table; prev2 is only needed because
+	// the transposition check reaches back two rows.
 	prev2 := make([]int, lb+1)
 	prev := make([]int, lb+1)
 	curr := make([]int, lb+1)
@@ -634,7 +489,7 @@ func boundedDL(a, b string, maxDist int) int {
 
 	for i := 1; i <= la; i++ {
 		curr[0] = i
-		rowMin := curr[0] // track minimum value in this row for early exit
+		rowMin := curr[0]
 		for j := 1; j <= lb; j++ {
 			cost := 1
 			if aLow[i-1] == bLow[j-1] {
@@ -645,10 +500,8 @@ func boundedDL(a, b string, maxDist int) int {
 				prev[j]+1,      // delete
 				prev[j-1]+cost, // replace
 			)
-			// Transposition check (Damerau extension).
-			// A transposition always costs 1 — independent of whether the
-			// chars at position (i,j) match (which is what `cost` captures).
-			// Using +cost was wrong: when cost==0 the swap would be free.
+			// A transposition costs 1 flat, never +cost: cost==0 would make
+			// the swap free.
 			if i > 1 && j > 1 && aLow[i-1] == bLow[j-2] && aLow[i-2] == bLow[j-1] {
 				if t := prev2[j-2] + 1; t < curr[j] {
 					curr[j] = t
@@ -658,53 +511,38 @@ func boundedDL(a, b string, maxDist int) int {
 				rowMin = curr[j]
 			}
 		}
-		// Early exit: if the minimum value in this row already exceeds maxDist,
-		// no subsequent row can produce a smaller total distance.
+		// Row minima never decrease, so this row already settles the bound.
 		if rowMin > maxDist {
 			return -1
 		}
-		// Rotate rows.
 		prev2, prev, curr = prev, curr, prev2
 	}
 
 	return prev[lb]
 }
 
-// ---------------------------------------------------------------------------
-// Tier TierFilter: metadata-only listing
-// ---------------------------------------------------------------------------
-
-// searchFilter fetches candidate nodes by the most selective available filter,
-// then applies the remaining filters in memory and scores without bm25.
-//
-// Selectivity order: kind → (name/lang/path fallback to GetAllNodes).
-// GetNodesByKind pre-filters the most common selective case; GetAllNodes covers
-// lang:/path:/name: queries (applyFilters does the in-memory filtering for those).
-// applyFilters enforces all remaining constraints after the initial fetch.
+// searchFilter narrows by kind at the db when it can — the only filter with a
+// targeted query — and falls back to a full scan filtered in memory.
 func (s *Searcher) searchFilter(ctx context.Context, pq ParsedQuery, isTestQuery bool) ([]types.SearchResult, error) {
 	var nodes []types.Node
 	var err error
 
 	switch {
 	case pq.Kind != "":
-		// kind: is the most selective filter supported by a targeted DB query.
 		nodes, err = s.db.GetNodesByKind(ctx, pq.Kind)
 	default:
-		// name:/lang:/path: only — full table scan, filter in memory via applyFilters.
 		nodes, err = s.db.GetAllNodes(ctx)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	// Wrap as SearchResult (score 0) then apply all remaining filters in memory.
 	raw := make([]types.SearchResult, len(nodes))
 	for i, n := range nodes {
 		raw[i] = types.SearchResult{Node: n}
 	}
 	filtered := applyFilters(raw, pq)
 
-	// Score without bm25.
 	out := make([]types.SearchResult, 0, len(filtered))
 	for _, r := range filtered {
 		score := scoreMetadata(r.Node, pq.Name)

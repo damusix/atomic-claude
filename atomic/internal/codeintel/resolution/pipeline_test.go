@@ -1,23 +1,6 @@
 package resolution_test
 
-// CP13 resolver pipeline tests.
-//
-// Why this file is the spec gate:
-//   - calls ref to a function → calls edge (proves resolveOne + createEdges).
-//   - calls ref to a class → PROMOTED to instantiates (proves kind promotion).
-//   - extends ref to an interface → PROMOTED to implements (proves kind promotion).
-//   - import ref → imports edge via ResolveImport (proves CP11 wiring).
-//   - batch loop terminates when all remaining refs are unresolvable (proves the
-//     "break when a batch yields nothing" guard — no infinite loop).
-//   - resolved refs are DELETED from unresolved_refs; unresolvable remain.
-//   - built-in skip: a console.log ref (JavaScript built-in) is skipped — no
-//     edge inserted, no panic, ref removed from the pending set.
-//
-// Built-in skip policy: a built-in/stdlib reference is silently dropped from
-// unresolved_refs after the skip (it will never resolve to an internal node).
-//
-// All tests seed a temp DB under tmp/ (via openTestDB from resolver_test.go;
-// both files are in package resolution_test so they share helpers).
+// Resolver pipeline tests. Helpers come from resolver_test.go, same package.
 
 import (
 	"context"
@@ -33,11 +16,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Extra helpers for pipeline tests
-// ---------------------------------------------------------------------------
-
-// seedNode inserts a symbol node at a specific location.
 func seedNode(t *testing.T, d *db.DB, id, filePath string, kind types.NodeKind, lang types.Language, isExported bool) {
 	t.Helper()
 	ctx := context.Background()
@@ -55,7 +33,6 @@ func seedNode(t *testing.T, d *db.DB, id, filePath string, kind types.NodeKind, 
 	}
 }
 
-// seedUnresolvedRef inserts one row into unresolved_refs.
 func seedUnresolvedRef(t *testing.T, d *db.DB, r types.UnresolvedReference) {
 	t.Helper()
 	ctx := context.Background()
@@ -64,7 +41,6 @@ func seedUnresolvedRef(t *testing.T, d *db.DB, r types.UnresolvedReference) {
 	}
 }
 
-// countUnresolvedRefs returns the current count in unresolved_refs.
 func countUnresolvedRefs(t *testing.T, d *db.DB) int {
 	t.Helper()
 	refs, err := d.GetUnresolvedRefs(context.Background(), 0, 0)
@@ -74,7 +50,6 @@ func countUnresolvedRefs(t *testing.T, d *db.DB) int {
 	return len(refs)
 }
 
-// edgesWithKind returns edges from the DB with the given kind.
 func edgesWithKind(t *testing.T, d *db.DB, source string, kind types.EdgeKind) []types.Edge {
 	t.Helper()
 	edges, err := d.GetEdgesBySource(context.Background(), source)
@@ -90,11 +65,10 @@ func edgesWithKind(t *testing.T, d *db.DB, source string, kind types.EdgeKind) [
 	return filtered
 }
 
-// openPipelineTestDB opens a temp DB. Uses the system tmp dir (project tmp/ is
-// too deeply nested and causes path issues on some macOS setups).
+// openPipelineTestDB uses the system tmp dir; the project tmp/ is nested
+// deeply enough to hit path-length problems on some macOS setups.
 func openPipelineTestDB(t *testing.T) *db.DB {
 	t.Helper()
-	// Use os.MkdirTemp under project tmp/ per BRIEF instruction.
 	dir := filepath.Join(projectTmpDir(), "pipeline-"+t.Name())
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -108,45 +82,30 @@ func openPipelineTestDB(t *testing.T) *db.DB {
 	return d
 }
 
-// projectTmpDir returns the path to the project tmp/ directory.
-// It is resolved relative to this test file's location at build time.
 func projectTmpDir() string {
-	// Resolution: go up from atomic/internal/codeintel/resolution to atomic/
-	// then two more levels to the worktree root, then tmp/.
-	// Worktree root = atomic/../../..  relative to this test file's package dir.
-	// We use os.Getwd() which gives the package dir when `go test` runs.
-	// Fallback to os.TempDir() if the expected path does not exist.
-	// This is intentionally defensive — tests must not fail because tmp/ is absent.
+	// Derived from the package dir, with a TempDir fallback: a missing tmp/
+	// must not fail the suite.
 	wd, err := os.Getwd()
 	if err != nil {
 		return os.TempDir()
 	}
-	// wd is .../atomic/internal/codeintel/resolution
-	// go up 4 levels → worktree root
-	candidate := filepath.Join(wd, "..", "..", "..", "..", "tmp", "code-intel-cp13")
+	candidate := filepath.Join(wd, "..", "..", "..", "..", "tmp", "code-intel")
 	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 		return candidate
 	}
 	return os.TempDir()
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-// TestCallsEdgeToFunction proves that a "calls" unresolved_ref targeting a
-// function node produces a "calls" edge (no promotion).
+// A call to a function stays a call — promotion applies only to types.
 func TestCallsEdgeToFunction(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
 
-	// Seed: caller function and callee function in the same TS file.
 	callerID := "function:src/a.ts:caller:1"
 	calleeID := "function:src/a.ts:callee:10"
 	seedNode(t, d, callerID, "src/a.ts", types.NodeKindFunction, types.LanguageTypeScript, true)
 	seedNode(t, d, calleeID, "src/a.ts", types.NodeKindFunction, types.LanguageTypeScript, true)
 
-	// Override node names to be matchable by the name matcher.
 	if err := d.UpsertNode(ctx, types.Node{
 		ID:         calleeID,
 		Kind:       types.NodeKindFunction,
@@ -191,24 +150,20 @@ func TestCallsEdgeToFunction(t *testing.T) {
 		t.Fatal("expected at least one resolution, got 0")
 	}
 
-	// Edge must be "calls" (not promoted — callee is a function).
 	edges := edgesWithKind(t, d, callerID, types.EdgeKindCalls)
 	if len(edges) == 0 {
 		t.Errorf("expected a calls edge from %s, got none", callerID)
 	}
-	// No instantiates edge should exist.
 	if inst := edgesWithKind(t, d, callerID, types.EdgeKindInstantiates); len(inst) > 0 {
 		t.Errorf("unexpected instantiates edge for function target")
 	}
 
-	// Resolved ref must be deleted.
 	if remaining := countUnresolvedRefs(t, d); remaining != 0 {
 		t.Errorf("expected 0 unresolved refs after resolution, got %d", remaining)
 	}
 }
 
-// TestCallsEdgePromotedToInstantiates proves that a "calls" ref targeting a
-// class node is PROMOTED to an "instantiates" edge.
+// A call to a class is really an instantiation.
 func TestCallsEdgePromotedToInstantiates(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -255,19 +210,16 @@ func TestCallsEdgePromotedToInstantiates(t *testing.T) {
 		t.Fatalf("ResolveAndPersistBatched: %v", err)
 	}
 
-	// Must be promoted to instantiates.
 	edges := edgesWithKind(t, d, callerID, types.EdgeKindInstantiates)
 	if len(edges) == 0 {
 		t.Errorf("expected instantiates edge for class target, got none (calls→class must be promoted)")
 	}
-	// No raw calls edge should survive.
 	if raw := edgesWithKind(t, d, callerID, types.EdgeKindCalls); len(raw) > 0 {
 		t.Errorf("unexpected calls edge — should have been promoted to instantiates")
 	}
 }
 
-// TestExtendsEdgePromotedToImplements proves that an "extends" ref targeting
-// an interface node is PROMOTED to an "implements" edge.
+// An extends of an interface is really an implements.
 func TestExtendsEdgePromotedToImplements(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -314,7 +266,6 @@ func TestExtendsEdgePromotedToImplements(t *testing.T) {
 		t.Fatalf("ResolveAndPersistBatched: %v", err)
 	}
 
-	// Must be promoted to implements.
 	edges := edgesWithKind(t, d, classID, types.EdgeKindImplements)
 	if len(edges) == 0 {
 		t.Errorf("expected implements edge for interface target, got none (extends→interface must be promoted)")
@@ -324,13 +275,10 @@ func TestExtendsEdgePromotedToImplements(t *testing.T) {
 	}
 }
 
-// TestImportRefProducesImportsEdge proves that an import-kind unresolved_ref
-// is turned into an "imports" edge using the CP11 import resolver.
 func TestImportRefProducesImportsEdge(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
 
-	// Seed importer file node.
 	importerPath := "src/main.ts"
 	importerNodeID := "file:" + importerPath
 	if err := d.UpsertNode(ctx, types.Node{
@@ -343,7 +291,6 @@ func TestImportRefProducesImportsEdge(t *testing.T) {
 		t.Fatalf("UpsertNode importer: %v", err)
 	}
 
-	// Seed target file node.
 	targetPath := "src/util.ts"
 	targetNodeID := "file:" + targetPath
 	if err := d.UpsertNode(ctx, types.Node{
@@ -363,7 +310,6 @@ func TestImportRefProducesImportsEdge(t *testing.T) {
 		t.Fatalf("UpsertFile target: %v", err)
 	}
 
-	// Import ref: from main.ts importing "./util" (relative → resolves to src/util.ts).
 	ref := types.UnresolvedReference{
 		ID:            "ref-import-001",
 		FromNodeID:    importerNodeID,
@@ -379,7 +325,6 @@ func TestImportRefProducesImportsEdge(t *testing.T) {
 		t.Fatalf("ResolveAndPersistBatched: %v", err)
 	}
 
-	// An imports edge must exist from importerNodeID to targetNodeID.
 	edges := edgesWithKind(t, d, importerNodeID, types.EdgeKindImports)
 	if len(edges) == 0 {
 		t.Errorf("expected imports edge from %s, got none", importerNodeID)
@@ -388,24 +333,13 @@ func TestImportRefProducesImportsEdge(t *testing.T) {
 	}
 }
 
-// TestUnresolvableImportRefProducesNoSelfLoopEdge proves that an import-kind
-// ref whose specifier cannot resolve to any file produces NO edge — even when
-// an import node in the DB bears the exact specifier as its own name.
-//
-// WHY this is the regression gate: import nodes are named the raw specifier
-// string, and an unresolvable import ref's ReferenceName is that same
-// specifier. If resolveOne falls through past Step 5 (ResolveImport) to Step 6
-// generic name matching, exact-name matching resolves the ref straight back to
-// the import node that owns it — a self-loop edge (source == target).
-// Verified in the wild: 46 of 46 "imports" edges in a diagnosed repo's DB were
-// exact self-loops. Import-kind refs must resolve only via Steps 3–5; if none
-// produce a candidate, the ref is skipped with no edge, never routed to
-// Step 6.
+// An import node is named its own specifier, and so is the ref, so generic
+// name matching resolves the ref straight back to the node that owns it. Left
+// unguarded this produced a graph where every imports edge was a self-loop.
 func TestUnresolvableImportRefProducesNoSelfLoopEdge(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
 
-	// The owning file, so the import node has a valid FilePath.
 	importerPath := "src/app.ts"
 	if err := d.UpsertNode(ctx, types.Node{
 		ID:       "file:" + importerPath,
@@ -417,9 +351,8 @@ func TestUnresolvableImportRefProducesNoSelfLoopEdge(t *testing.T) {
 		t.Fatalf("UpsertNode importer file: %v", err)
 	}
 
-	// The import node itself — named exactly the unresolvable specifier, and
-	// also the ref's own FromNodeID (mirrors extraction: the unresolved ref
-	// is attributed to the import node it lives under).
+	// Named exactly the unresolvable specifier, and also the ref's own owner —
+	// which is what makes the self-loop possible.
 	specifier := "./missing-module"
 	importNodeID := "import:" + importerPath + ":1"
 	if err := d.UpsertNode(ctx, types.Node{
@@ -458,14 +391,11 @@ func TestUnresolvableImportRefProducesNoSelfLoopEdge(t *testing.T) {
 	}
 }
 
-// TestBatchLoopTerminatesOnUnresolvableRefs proves that a set containing ONLY
-// unresolvable refs does not cause an infinite loop. The loop must break after
-// finding a batch that resolves nothing.
+// A table of nothing but unresolvable refs must still terminate.
 func TestBatchLoopTerminatesOnUnresolvableRefs(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
 
-	// Seed a caller node but NO callee — refs will be unresolvable.
 	callerID := "function:src/d.ts:orphan:1"
 	if err := d.UpsertNode(ctx, types.Node{
 		ID:        callerID,
@@ -479,7 +409,6 @@ func TestBatchLoopTerminatesOnUnresolvableRefs(t *testing.T) {
 		t.Fatalf("UpsertNode: %v", err)
 	}
 
-	// Add 3 unresolvable refs (targets don't exist in the DB).
 	for i := 0; i < 3; i++ {
 		ref := types.UnresolvedReference{
 			ID:            fmt.Sprintf("ref-unresolvable-%03d", i),
@@ -498,7 +427,6 @@ func TestBatchLoopTerminatesOnUnresolvableRefs(t *testing.T) {
 		t.Fatalf("expected 3 unresolved refs, got %d", initial)
 	}
 
-	// Must return without hanging. 5-second timeout proves the loop terminates.
 	done := make(chan error, 1)
 	go func() {
 		_, _, err := resolution.NewPipeline(d).ResolveAndPersistBatched(ctx, 5000, nil)
@@ -514,31 +442,18 @@ func TestBatchLoopTerminatesOnUnresolvableRefs(t *testing.T) {
 		t.Fatal("ResolveAndPersistBatched did not terminate — infinite loop detected")
 	}
 
-	// Unresolvable refs stay in the table (they were not resolved, just skipped
-	// by the batch-terminates logic). Document: unresolvable refs persist; only
-	// successfully resolved refs are deleted.
+	// Unresolvable refs persist; only resolved ones are deleted.
 	remaining := countUnresolvedRefs(t, d)
 	if remaining != 3 {
 		t.Errorf("expected 3 unresolvable refs to remain, got %d", remaining)
 	}
 }
 
-// TestResolvableRefBehindUnresolvableWall proves the batch loop does NOT abandon
-// a resolvable reference just because lower-id references ahead of it are
-// permanently unresolvable.
-//
-// Why this is the regression gate: the loop reads GetUnresolvedRefs(batch, 0)
-// every iteration and relied on deletion to advance the window. Unresolvable
-// non-builtin refs are intentionally NOT deleted (they might resolve after more
-// files are indexed), so they form a permanent "wall" at the front of the
-// id-ordered scan. The old `len(resolvedIDs)==0 → break` then terminated
-// resolution the moment a batch was all-wall, abandoning every resolvable ref
-// behind it. In a real repo the wall is every os.*/fmt.* style external call, so
-// the bulk of the call graph (callers/callees/impact) silently never resolved.
-//
-// Setup: a 2-ref unresolvable wall with LOW ids + one resolvable ref with a HIGH
-// id, batch size 2. The first batch reads exactly the wall (resolves nothing);
-// the resolvable ref must still be reached and turned into a calls edge.
+// Unresolvable refs are never deleted, so they pile up as a permanent wall at
+// the front of the id-ordered scan. An offset-0 re-read plus a stop-when-
+// nothing-resolved guard abandoned everything behind that wall — in a real
+// repo, most of the call graph. The wall here is given the low ids and the
+// resolvable ref a high one, so a batch of 2 reads only the wall first.
 func TestResolvableRefBehindUnresolvableWall(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -559,7 +474,6 @@ func TestResolvableRefBehindUnresolvableWall(t *testing.T) {
 		t.Fatalf("UpsertNode callee: %v", err)
 	}
 
-	// Wall: 2 unresolvable, non-builtin call refs with the LOWEST ids (sort first).
 	for i, name := range []string{"NoSuchSymbolA", "NoSuchSymbolB"} {
 		seedUnresolvedRef(t, d, types.UnresolvedReference{
 			ID:            fmt.Sprintf("ref-wall-%d", i),
@@ -571,8 +485,6 @@ func TestResolvableRefBehindUnresolvableWall(t *testing.T) {
 			Line:          i + 2,
 		})
 	}
-	// Resolvable ref with a HIGH id — sorts AFTER the wall, so a batch of 2 reads
-	// only the wall first.
 	seedUnresolvedRef(t, d, types.UnresolvedReference{
 		ID:            "ref-zzz-real",
 		FromNodeID:    callerID,
@@ -587,21 +499,16 @@ func TestResolvableRefBehindUnresolvableWall(t *testing.T) {
 		t.Fatalf("ResolveAndPersistBatched: %v", err)
 	}
 
-	// The resolvable ref MUST have become a calls edge, despite sitting behind
-	// the unresolvable wall.
 	if edges := edgesWithKind(t, d, callerID, types.EdgeKindCalls); len(edges) == 0 {
 		t.Errorf("resolvable ref behind unresolvable wall was abandoned: expected a calls edge from %s, got none", callerID)
 	}
 
-	// The wall stays (still unresolvable); only the resolved ref is deleted.
 	if remaining := countUnresolvedRefs(t, d); remaining != 2 {
 		t.Errorf("expected 2 unresolvable wall refs to remain, got %d", remaining)
 	}
 }
 
-// TestBuiltinSkip proves that a built-in/stdlib reference (e.g. "console" in
-// JavaScript) is skipped — no edge is inserted, and the ref is removed from
-// unresolved_refs (built-in skip policy: drop silently, do not retain).
+// A built-in can never resolve, so its ref is dropped rather than retained.
 func TestBuiltinSkip(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -619,7 +526,6 @@ func TestBuiltinSkip(t *testing.T) {
 		t.Fatalf("UpsertNode: %v", err)
 	}
 
-	// "console" is a JS built-in — should be skipped immediately.
 	ref := types.UnresolvedReference{
 		ID:            "ref-console-001",
 		FromNodeID:    callerID,
@@ -636,7 +542,6 @@ func TestBuiltinSkip(t *testing.T) {
 		t.Fatalf("ResolveAndPersistBatched: %v", err)
 	}
 
-	// No edges should be created for the built-in.
 	edges, err := d.GetEdgesBySource(ctx, callerID)
 	if err != nil {
 		t.Fatalf("GetEdgesBySource: %v", err)
@@ -645,25 +550,14 @@ func TestBuiltinSkip(t *testing.T) {
 		t.Errorf("built-in ref should not produce any edge, got %d", len(edges))
 	}
 
-	// Built-in skip policy: the ref is removed from unresolved_refs (it will
-	// never resolve to an internal node, so retaining it would pollute subsequent
-	// batch runs indefinitely).
 	if remaining := countUnresolvedRefs(t, d); remaining != 0 {
 		t.Errorf("built-in ref should be removed from unresolved_refs, got %d remaining", remaining)
 	}
 }
 
-// TestAtomicInsertDelete proves that edge inserts and resolved-ref deletes for a
-// batch are performed inside a single transaction. After ResolveAndPersistBatched
-// succeeds:
-//   - the edge exists in the edges table (insert committed)
-//   - the resolved ref is gone from unresolved_refs (delete committed)
-//
-// This is the spec gate for the atomicity requirement: both writes must
-// succeed-or-fail together. The test cannot directly inject a crash mid-tx, but
-// it confirms both outcomes are observed in the happy path and that no separate
-// out-of-tx delete call remains (structural coverage; the implementation must
-// not have a delete path outside WithTx).
+// Edge insert and ref delete must commit together. A crash cannot be injected
+// mid-transaction here, so this asserts both outcomes in the happy path — the
+// proxy for there being no delete path outside WithTx.
 func TestAtomicInsertDelete(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -710,7 +604,6 @@ func TestAtomicInsertDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveAndPersistBatched: %v", err)
 	}
-	// Edge inserted.
 	if n == 0 {
 		t.Fatal("expected 1 edge inserted, got 0")
 	}
@@ -718,20 +611,15 @@ func TestAtomicInsertDelete(t *testing.T) {
 	if len(edges) == 0 {
 		t.Fatal("expected calls edge in DB after batch — insert must have committed")
 	}
-	// Resolved ref deleted in the same transaction.
 	if remaining := countUnresolvedRefs(t, d); remaining != 0 {
 		t.Errorf("expected 0 unresolved refs — delete must be atomic with insert, got %d", remaining)
 	}
 }
 
-// TestResolvedRefsDeletedUnresolvedRemain proves that after one batch run:
-//   - resolved refs are deleted from unresolved_refs
-//   - unresolvable refs (no matching node) are retained
 func TestResolvedRefsDeletedUnresolvedRemain(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
 
-	// Seed caller.
 	callerID := "function:src/f.ts:caller:1"
 	if err := d.UpsertNode(ctx, types.Node{
 		ID:        callerID,
@@ -745,7 +633,6 @@ func TestResolvedRefsDeletedUnresolvedRemain(t *testing.T) {
 		t.Fatalf("UpsertNode caller: %v", err)
 	}
 
-	// Seed resolvable callee.
 	calleeID := "function:src/f.ts:knownFn:20"
 	if err := d.UpsertNode(ctx, types.Node{
 		ID:         calleeID,
@@ -760,7 +647,6 @@ func TestResolvedRefsDeletedUnresolvedRemain(t *testing.T) {
 		t.Fatalf("UpsertNode knownFn: %v", err)
 	}
 
-	// Resolvable ref.
 	seedUnresolvedRef(t, d, types.UnresolvedReference{
 		ID:            "ref-resolvable-001",
 		FromNodeID:    callerID,
@@ -770,7 +656,6 @@ func TestResolvedRefsDeletedUnresolvedRemain(t *testing.T) {
 		Language:      types.LanguageTypeScript,
 		Line:          5,
 	})
-	// Unresolvable ref.
 	seedUnresolvedRef(t, d, types.UnresolvedReference{
 		ID:            "ref-unresolvable-999",
 		FromNodeID:    callerID,
@@ -795,7 +680,6 @@ func TestResolvedRefsDeletedUnresolvedRemain(t *testing.T) {
 		t.Errorf("expected 1 unresolvable ref to remain, got %d", remaining)
 	}
 
-	// The remaining one should be the ghost.
 	refs, err := d.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -805,17 +689,9 @@ func TestResolvedRefsDeletedUnresolvedRemain(t *testing.T) {
 	}
 }
 
-// TestOverFuzzyCapNameDoesNotTriggerFuzzy proves that a ref name longer than
-// fuzzyNameLenCap (40 chars) does NOT trigger the fuzzy variant-generation path.
-//
-// Why this matters: byFuzzy generates O(n*26^maxDist) edit-distance variants.
-// For n>40 that set is large enough to stall a batch. The pipeline must call
-// MatchReferenceNoFuzzy instead of MatchReference for over-cap names.
-//
-// Test approach: seed a node whose name ONLY matches via fuzzy (slight typo),
-// NOT via exact/qualified. Provide an over-cap ref name (41+ chars). The batch
-// must complete without hanging AND must NOT produce an edge (because fuzzy is
-// skipped and exact/qualified don't match). The ref remains in unresolved_refs.
+// Past the length cap the pipeline must skip fuzzy entirely, since the variant
+// set stalls a batch. The seeded node is reachable only by fuzzy, so no edge
+// appearing is what proves fuzzy did not run.
 func TestOverFuzzyCapNameDoesNotTriggerFuzzy(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -833,8 +709,6 @@ func TestOverFuzzyCapNameDoesNotTriggerFuzzy(t *testing.T) {
 		t.Fatalf("UpsertNode caller: %v", err)
 	}
 
-	// Seed a node named "shortName". The ref name below differs by one char
-	// (typo) and is over the 40-char cap — fuzzy would find it, exact won't.
 	calleeID := "function:src/g.ts:shortName:10"
 	if err := d.UpsertNode(ctx, types.Node{
 		ID:         calleeID,
@@ -849,10 +723,6 @@ func TestOverFuzzyCapNameDoesNotTriggerFuzzy(t *testing.T) {
 		t.Fatalf("UpsertNode callee: %v", err)
 	}
 
-	// Over-cap name (41 chars): a long symbol name with a one-char typo at the end.
-	// Exact match: "ASymbolNameThatIsLongerThanFortyCharactersX" (41 chars, not in DB).
-	// The node above has name "shortName" — completely different, only matchable
-	// via fuzzy if the name were short enough.
 	overCapName := "ASymbolNameThatIsLongerThanFortyCharactersX" // len=43
 	if len(overCapName) <= 40 {
 		t.Fatalf("test invariant broken: name must be >40 chars, got %d", len(overCapName))
@@ -869,7 +739,6 @@ func TestOverFuzzyCapNameDoesNotTriggerFuzzy(t *testing.T) {
 	}
 	seedUnresolvedRef(t, d, ref)
 
-	// Must complete quickly (no fuzzy blowup).
 	done := make(chan error, 1)
 	go func() {
 		_, _, err := resolution.NewPipeline(d).ResolveAndPersistBatched(ctx, 5000, nil)
@@ -884,7 +753,6 @@ func TestOverFuzzyCapNameDoesNotTriggerFuzzy(t *testing.T) {
 		t.Fatal("ResolveAndPersistBatched did not terminate — possible fuzzy blowup on over-cap name")
 	}
 
-	// No edge should be produced — the over-cap name has no exact/qualified match.
 	edges, err := d.GetEdgesBySource(ctx, callerID)
 	if err != nil {
 		t.Fatalf("GetEdgesBySource: %v", err)
@@ -893,29 +761,19 @@ func TestOverFuzzyCapNameDoesNotTriggerFuzzy(t *testing.T) {
 		t.Errorf("over-cap name should not produce an edge (fuzzy skipped, no exact match), got %d edges", len(edges))
 	}
 
-	// The unresolved ref remains (no exact match, fuzzy skipped — unresolvable for now).
 	if remaining := countUnresolvedRefs(t, d); remaining != 1 {
 		t.Errorf("expected 1 unresolved ref to remain (over-cap, no match), got %d", remaining)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// CP2 (docs/spec/code-intel-package-nodes.md): package-node mint loop, sweep
-// ---------------------------------------------------------------------------
-
-// packageNodeID mirrors extraction.GenerateNodeID's package-kind formula
-// ("package:npm/" + name) without importing the extraction package into the
-// test — kept in sync by TestPackageMint_TwoImportersConvergeOnSharedNode's
-// own DB-lookup assertions, which would fail if the formula ever drifted.
+// packageNodeID duplicates extraction.GenerateNodeID's formula rather than
+// import the package. Drift would fail the DB-lookup assertions below.
 func packageNodeID(name string) string {
 	return "package:npm/" + name
 }
 
-// TestPackageMint_TwoImportersConvergeOnSharedNode proves the CORE mint
-// behavior: two files importing the same npm package — one via a deep
-// specifier, one bare — both produce an "imports" edge to the SAME
-// package:npm/@scope/pkg node, and that node has the shape mandated by the
-// spec (bare normalized name, no file/line, language unknown, not exported).
+// A deep specifier and a bare one name the same package, so both importers
+// must converge on one node.
 func TestPackageMint_TwoImportersConvergeOnSharedNode(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -996,27 +854,16 @@ func TestPackageMint_TwoImportersConvergeOnSharedNode(t *testing.T) {
 		t.Errorf("package node IsExported = true, want false")
 	}
 
-	// Ref deletion (existing path) — both resolved refs must be gone.
 	if remaining := countUnresolvedRefs(t, d); remaining != 0 {
 		t.Errorf("expected 0 unresolved refs after mint, got %d", remaining)
 	}
 }
 
-// TestPackageMint_KnownPackageUpdatedAtStable proves idempotence: a package
-// already present in the DB at the start of a resolve run (warmed once from
-// GetNodesByKind, not the in-run mint set) is never re-upserted, even when a
-// new importer's edge targets it.
-//
-// WHY edge survival is the assertion, not just updated_at: UpsertNodeAt is
-// "INSERT OR REPLACE" — on a primary-key conflict SQLite deletes the
-// existing row and inserts the new one. With foreign_keys=ON (db.go), that
-// delete step cascades away every edge referencing the old row (edges.target
-// ON DELETE CASCADE, appendix A). So a re-upsert bug on an already-minted
-// package is not mere FTS5 churn — it silently deletes every importer's
-// edge into that package. The first importer's edge surviving run 2 is a
-// deterministic proxy for "the known-package guard held"; a wall-clock
-// updated_at comparison would not reliably catch the bug (two in-process
-// calls this close together can land in the same Unix second either way).
+// A package already in the DB must never be re-upserted. Edge survival is the
+// assertion rather than updated_at: UpsertNodeAt is INSERT OR REPLACE, so a
+// re-upsert deletes the row and cascades away every edge pointing at it —
+// silently unlinking every importer. Two calls this close together can also
+// land in the same Unix second, which makes updated_at an unreliable witness.
 func TestPackageMint_KnownPackageUpdatedAtStable(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -1052,8 +899,6 @@ func TestPackageMint_KnownPackageUpdatedAtStable(t *testing.T) {
 		t.Fatalf("expected 1 imports edge from importerA after run 1, got %d", len(edges))
 	}
 
-	// Second importer, second resolve run — the package is now "known" only
-	// via the DB warm-scan (GetNodesByKind), not any in-run state.
 	importerB := "src/b.ts"
 	importerBNodeID := "file:" + importerB
 	if err := d.UpsertNode(ctx, types.Node{
@@ -1083,9 +928,6 @@ func TestPackageMint_KnownPackageUpdatedAtStable(t *testing.T) {
 		t.Errorf("package node updated_at changed across a known-package run: before=%q after=%q", before.UpdatedAt, after.UpdatedAt)
 	}
 
-	// Both runs' edges must be present — a re-upsert on the known package
-	// would have cascade-deleted importerA's edge (see WHY above); its
-	// survival proves the known-package guard held.
 	edgesA := edgesWithKind(t, d, importerANodeID, types.EdgeKindImports)
 	edgesB := edgesWithKind(t, d, importerBNodeID, types.EdgeKindImports)
 	if len(edgesA) != 1 || len(edgesB) != 1 {
@@ -1093,10 +935,7 @@ func TestPackageMint_KnownPackageUpdatedAtStable(t *testing.T) {
 	}
 }
 
-// TestPackageMint_OrphanSweep proves the deletion round-trip: once a
-// package's last importer is removed (its file's nodes deleted, cascading
-// its edges), the next resolve run sweeps the now-orphaned package node —
-// even though that run has no new refs to process at all.
+// The sweep must run even when the invocation resolves nothing at all.
 func TestPackageMint_OrphanSweep(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -1128,8 +967,6 @@ func TestPackageMint_OrphanSweep(t *testing.T) {
 		t.Fatalf("package node missing after mint run: %v", err)
 	}
 
-	// Remove the last importer — cascades away its imports edge (FK CASCADE
-	// on edges.source), leaving the package node with zero inbound edges.
 	if err := d.DeleteNodesByFile(ctx, importerA); err != nil {
 		t.Fatalf("DeleteNodesByFile: %v", err)
 	}
@@ -1143,13 +980,9 @@ func TestPackageMint_OrphanSweep(t *testing.T) {
 	}
 }
 
-// TestPackageMint_UnindexedAliasTargetMintsNothing is the regression pin: a
-// tsconfig-aliased specifier whose expanded target file is NOT in the DB
-// resolves ResolvedKindUnresolved (no PackageName — alias resolution never
-// classifies External), so it must mint no package node at all. Guards
-// against the mint loop firing on the deterministic node-id path (which does
-// not require an existing DB row) for anything other than a genuine
-// External-with-PackageName verdict.
+// Package node ids are computed, not looked up, so nothing stops the mint loop
+// from firing on a non-External verdict. An alias whose target is unindexed is
+// the case that would expose it.
 func TestPackageMint_UnindexedAliasTargetMintsNothing(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -1190,24 +1023,20 @@ func TestPackageMint_UnindexedAliasTargetMintsNothing(t *testing.T) {
 		t.Errorf("expected no package nodes minted for an unindexed alias target, got %d: %+v", len(packages), packages)
 	}
 
-	// The ref stays unresolved (alias matched, target file not indexed).
 	if remaining := countUnresolvedRefs(t, d); remaining != 1 {
 		t.Errorf("expected the alias-miss ref to remain unresolved, got %d remaining", remaining)
 	}
 }
 
-// TestCP4_QualifiedColumnRefResolvesEndToEnd proves a SQL qualified column ref
-// resolves through the FULL pipeline (including the known-names pre-filter), not
-// just the name matcher. The column ref name "dbo.Account.account_id" is not a
-// bare node name, so without the SQL-scoped simple-name fall-through in the
-// pre-filter it is dropped before reaching byQualifiedName. Two tables own an
-// "account_id" column; the ref must resolve to the RIGHT one (prefer-exact).
-func TestCP4_QualifiedColumnRefResolvesEndToEnd(t *testing.T) {
+// The pre-filter, not just the matcher: a qualified column name is not a bare
+// node name, so without the SQL simple-name fall-through the ref is dropped
+// before byQualifiedName ever sees it. Two tables own an "account_id" column,
+// so resolving to the right one is the second half of the assertion.
+func TestQualifiedColumnRefResolvesEndToEnd(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
 
 	sqlFile := "db/schema.sql"
-	// Two distinct "account_id" columns in different tables.
 	acctColID := "column:db/schema.sql:dbo.Account.account_id:3"
 	ordColID := "column:db/schema.sql:dbo.Orders.account_id:9"
 	if err := d.UpsertNode(ctx, types.Node{
@@ -1224,7 +1053,6 @@ func TestCP4_QualifiedColumnRefResolvesEndToEnd(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertNode orders col: %v", err)
 	}
-	// The referring view.
 	viewID := "view:db/schema.sql:AccountOwners:20"
 	if err := d.UpsertNode(ctx, types.Node{
 		ID: viewID, Kind: types.NodeKindView, Name: "AccountOwners",
@@ -1235,7 +1063,7 @@ func TestCP4_QualifiedColumnRefResolvesEndToEnd(t *testing.T) {
 	}
 
 	seedUnresolvedRef(t, d, types.UnresolvedReference{
-		ID:            "ref-cp4-col-001",
+		ID:            "ref-col-001",
 		FromNodeID:    viewID,
 		ReferenceName: "dbo.Account.account_id",
 		ReferenceKind: types.EdgeKindReferences,
@@ -1249,7 +1077,7 @@ func TestCP4_QualifiedColumnRefResolvesEndToEnd(t *testing.T) {
 		t.Fatalf("ResolveAndPersistBatched: %v", err)
 	}
 	if resolved == 0 {
-		t.Fatal("CP4: qualified column ref did not resolve — pre-filter dropped it before byQualifiedName")
+		t.Fatal("qualified column ref did not resolve — pre-filter dropped it before byQualifiedName")
 	}
 
 	edges := edgesWithKind(t, d, viewID, types.EdgeKindReferences)
@@ -1257,7 +1085,7 @@ func TestCP4_QualifiedColumnRefResolvesEndToEnd(t *testing.T) {
 		t.Fatalf("expected exactly 1 references edge from the view, got %d", len(edges))
 	}
 	if edges[0].Target != acctColID {
-		t.Errorf("CP4: column ref resolved to %q, want dbo.Account.account_id (%q) — prefer-exact must pick the right table's column, not dbo.Orders.account_id",
+		t.Errorf("column ref resolved to %q, want dbo.Account.account_id (%q) — prefer-exact must pick the right table's column, not dbo.Orders.account_id",
 			edges[0].Target, acctColID)
 	}
 }

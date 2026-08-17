@@ -1,23 +1,5 @@
 package serve_test
 
-// codegraph_test.go — code-graph spec CP2 TDD: GET /code/graph/data.
-//
-// TDD: written before the implementation.
-//
-// Covers:
-//  1. Response shape: fake engine's nodes/edges → flat JSON with fingerprint +
-//     nodes (id/label/kind/file/line/language) + edges (source/target/kind).
-//  2. ?member= resolves via the same seam as the sibling /code/* routes and
-//     opens that member's own db.
-//  3. Unknown member → non-200 JSON error body.
-//  4. Missing/unopenable index → non-200 JSON error body.
-//  5. Parallel-edge dedup: duplicate (source, target, kind) rows (one per
-//     call site) collapse to a single edge; an edge differing only in kind
-//     survives.
-//  6. Fingerprint stability: identical index state (across two handler calls)
-//     → identical fingerprint; a count-preserving rename (same node/edge
-//     counts, different ids) → different fingerprint.
-
 import (
 	"context"
 	"encoding/json"
@@ -31,9 +13,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// codeGraphResp mirrors the /code/graph/data success JSON shape for decoding
-// in tests. Named distinctly from provenance_test.go's graphDataResponse
-// (same package) to avoid a symbol clash.
+// Named apart from provenance_test.go's graphDataResponse, which shares this
+// package.
 type codeGraphResp struct {
 	Fingerprint string `json:"fingerprint"`
 	Nodes       []struct {
@@ -51,12 +32,9 @@ type codeGraphResp struct {
 	} `json:"edges"`
 }
 
-// codeGraphErr mirrors the /code/graph/data error JSON shape.
 type codeGraphErr struct {
 	Error string `json:"error"`
 }
-
-// ─── 1. Response shape ────────────────────────────────────────────────────────
 
 func TestCodeGraph_ResponseShape(t *testing.T) {
 	fake := &fakeCodeEngine{
@@ -111,8 +89,6 @@ func TestCodeGraph_ResponseShape(t *testing.T) {
 		t.Errorf("unexpected edge shape: %+v", e)
 	}
 }
-
-// ─── 2. Member param resolution ────────────────────────────────────────────────
 
 func TestCodeGraph_MemberParam_OpensMemberDB(t *testing.T) {
 	realmRoot, claudeMDPath := buildSelfIndexedRealm(t, "monorepo")
@@ -182,8 +158,6 @@ func TestCodeGraph_NoMemberParam_SingleRepoScope(t *testing.T) {
 	}
 }
 
-// ─── 3. Unknown member ──────────────────────────────────────────────────────────
-
 func TestCodeGraph_UnknownMember_NonOK_JSONError(t *testing.T) {
 	realmRoot, claudeMDPath := buildSelfIndexedRealm(t, "monorepo")
 
@@ -212,8 +186,6 @@ func TestCodeGraph_UnknownMember_NonOK_JSONError(t *testing.T) {
 	}
 }
 
-// ─── 4. Missing / unopenable index ─────────────────────────────────────────────
-
 func TestCodeGraph_MissingIndex_NonOK_JSONError(t *testing.T) {
 	h := serve.NewCodeGraphHandler(serve.CodeGraphOptions{
 		RealmRoot: t.TempDir(),
@@ -238,14 +210,9 @@ func TestCodeGraph_MissingIndex_NonOK_JSONError(t *testing.T) {
 	}
 }
 
-// ─── 5. Parallel-edge dedup ─────────────────────────────────────────────────────
-
-// TestCodeGraph_DedupsParallelEdges reproduces the per-callsite fan-out bug:
-// the edges table stores one `calls` edge per call site (line/col
-// granularity), so a helper called 178 times from the same caller yields 178
-// identical (source, target, kind) rows. The client draws one stacked link
-// per row. The endpoint must collapse duplicate (source, target, kind)
-// triples to one edge each; an edge differing only in kind must survive.
+// The edges table is call-site granular, so a helper called 178 times yields 178
+// identical (source, target, kind) rows and the client stacks 178 links. Kind is
+// part of the key, so a differing-kind edge must survive the collapse.
 func TestCodeGraph_DedupsParallelEdges(t *testing.T) {
 	fake := &fakeCodeEngine{
 		allNodes: []types.Node{
@@ -298,8 +265,6 @@ func TestCodeGraph_DedupsParallelEdges(t *testing.T) {
 	}
 }
 
-// ─── 6. Fingerprint stability ───────────────────────────────────────────────────
-
 func TestCodeGraph_Fingerprint_StableAcrossIdenticalIndex(t *testing.T) {
 	fake := &fakeCodeEngine{
 		allNodes: []types.Node{
@@ -336,13 +301,9 @@ func TestCodeGraph_Fingerprint_StableAcrossIdenticalIndex(t *testing.T) {
 	}
 }
 
-// TestCodeGraph_Fingerprint_ChangesOnCountPreservingRename reproduces the bug a
-// counts+timestamp fingerprint recipe cannot see: a same-second re-index that
-// renames a symbol deletes the old node id and inserts a new one in its place
-// (edges re-resolve to the new id) — node count and edge count are UNCHANGED,
-// only identity changed. The fingerprint must still change, or a client-side
-// layout cache keyed by fingerprint would replay a stale layout over ids that
-// no longer exist.
+// A same-second re-index that renames a symbol keeps both counts identical and
+// changes only ids, which a counts+timestamp fingerprint cannot see. The client
+// layout cache is keyed by fingerprint, so it would replay over dead ids.
 func TestCodeGraph_Fingerprint_ChangesOnCountPreservingRename(t *testing.T) {
 	fake := &fakeCodeEngine{
 		allNodes: []types.Node{
@@ -366,8 +327,7 @@ func TestCodeGraph_Fingerprint_ChangesOnCountPreservingRename(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	// Rename "fn-a" → "fn-a-renamed" in place: same node count, same edge
-	// count, same line, only the id (and the edge it participates in) changed.
+	// Counts and lines stay identical; only ids move.
 	fake.allNodes = []types.Node{
 		{ID: "fn-a-renamed", Name: "helperRenamed", Kind: types.NodeKindFunction, StartLine: 10},
 		{ID: "fn-b", Name: "other", Kind: types.NodeKindFunction, StartLine: 20},

@@ -1,14 +1,6 @@
 package resolution_test
 
-// Tests for the ResolveProfile returned from ResolveAndPersistBatched.
-//
-// Contract verified:
-//   - ResolveProfile.NodeCount >= 0 (set from warmCaches knownNames count).
-//   - ResolveProfile.RefCount >= 0 (set from the batch loop ref count).
-//   - WarmDur, MatchDur, SynthDur are all non-negative durations.
-//   - On a fixture with resolvable refs, RefCount > 0 (batch loop ran).
-//   - On an empty DB, all durations and counts are zero.
-//   - PhaseEmitFunc callback records phases in order: warm → match → synth.
+// ResolveProfile and PhaseEmitFunc tests.
 
 import (
 	"context"

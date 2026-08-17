@@ -1,16 +1,6 @@
 package languages_test
 
-// Tests for EE1: TSX/JSX registration + JSX child references.
-//
-// Success criteria (from BRIEF / spec):
-//  1. LanguageTSX registered: .tsx extracts symbols (function/class/interface),
-//     not just a file record.
-//  2. LanguageJSX registered: .jsx extracts symbols using the tsx grammar.
-//  3. TSX/JSX components emit "references" UnresolvedReferences for PascalCase
-//     JSX element tags from the enclosing component node; lowercase host tags
-//     (div, span, …) emit NONE; member tags (<Foo.Bar/>) use the last segment.
-//  4. No regression: TS/JS also emit JSX refs when JSXElementTypes is populated.
-//  5. Node count stable across two extractions.
+// TSX and JSX registration, and the component references a JSX tag produces.
 
 import (
 	"context"
@@ -22,16 +12,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// TSX fixtures
-// ---------------------------------------------------------------------------
-
-// tsxFixture is a .tsx file with a function component that renders children.
-// Verified node types from tmp/probe-jsx-nodes:
-//   - jsx_element: first named child is jsx_opening_element, whose first named
-//     child is identifier (PascalCase tag name) or member_expression (Foo.Bar).
-//   - jsx_self_closing_element: first named child is identifier or member_expression.
-//   - Host tags (<div>, <span>) are lowercase identifiers — must be skipped.
+// Covers every tag shape at once: component, host, and member.
 const tsxFixture = `import React from "react";
 import { Panel } from "./Panel";
 
@@ -56,7 +37,7 @@ export class AppClass {
 
 const tsxFixturePath = "src/App.tsx"
 
-// jsxFixture is a .jsx file with similar JSX content — uses the tsx grammar.
+// The same content in a .jsx file, which also parses with the tsx grammar.
 const jsxFixture = `import React from "react";
 
 export function JsxApp() {
@@ -71,14 +52,10 @@ export function JsxApp() {
 
 const jsxFixturePath = "src/App.jsx"
 
-// ---------------------------------------------------------------------------
-// TSX: registration
-// ---------------------------------------------------------------------------
-
-// TestTSX_Registered verifies LanguageTSX is in the registry with LangTSX.
-// WHY: Without registration, the orchestrator silently falls through to file-record-only
-// extraction for .tsx files — symbols are never indexed.
+// Without a registry entry the orchestrator records the file and indexes no
+// symbol in it, silently.
 func TestTSX_Registered(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	cfg, lang, ok := reg.For(types.LanguageTSX)
 	if !ok {
@@ -92,11 +69,9 @@ func TestTSX_Registered(t *testing.T) {
 	}
 }
 
-// TestJSX_Registered verifies LanguageJSX is in the registry with LangTSX.
-// WHY: .jsx files must use the tsx grammar (the js grammar doesn't parse JSX
-// reliably without mode flags); without registration they fall through to
-// file-record-only.
+// .jsx must map to the tsx grammar; the JS one needs mode flags to parse JSX.
 func TestJSX_Registered(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	cfg, lang, ok := reg.For(types.LanguageJSX)
 	if !ok {
@@ -110,14 +85,10 @@ func TestJSX_Registered(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TSX: symbol extraction (not just file record)
-// ---------------------------------------------------------------------------
-
-// TestTSX_FunctionExtracted asserts .tsx function components are extracted.
-// WHY: If only a file record is produced, no function node exists → the
-// jsx-render synthesizer has no "from" node to attach the render edge to.
+// The render synthesizer anchors its edge at the component, so a file record
+// alone leaves it nothing to attach to.
 func TestTSX_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -132,14 +103,13 @@ func TestTSX_FunctionExtracted(t *testing.T) {
 	if fn == nil {
 		t.Fatalf("AppComponent function not found; nodes: %s", nodeKindList(result.Nodes))
 	}
-	// Must have more than just the file node.
 	if len(result.Nodes) < 2 {
 		t.Fatalf("expected >1 node (file + symbols); got %d", len(result.Nodes))
 	}
 }
 
-// TestTSX_ClassExtracted asserts class components are extracted.
 func TestTSX_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -156,8 +126,8 @@ func TestTSX_ClassExtracted(t *testing.T) {
 	}
 }
 
-// TestTSX_InterfaceExtracted asserts interfaces are extracted.
 func TestTSX_InterfaceExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -171,15 +141,10 @@ func TestTSX_InterfaceExtracted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// JSX child references: PascalCase → emit ref, lowercase → skip
-// ---------------------------------------------------------------------------
-
-// TestTSX_JSXChildRefs_PascalCaseEmitted asserts PascalCase JSX tags emit
-// "references" UnresolvedReferences from the enclosing component node.
-// WHY: The jsx-render synthesizer needs these refs to build render edges;
-// without them it cannot link AppComponent → ChildWidget / Panel.
+// These refs are what the render synthesizer turns into component-to-component
+// edges.
 func TestTSX_JSXChildRefs_PascalCaseEmitted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -201,11 +166,10 @@ func TestTSX_JSXChildRefs_PascalCaseEmitted(t *testing.T) {
 	}
 }
 
-// TestTSX_JSXChildRefs_HostTagsSkipped asserts lowercase host tags (<div>, <span>)
-// do NOT emit refs.
-// WHY: Host elements are DOM primitives, not component usages — emitting refs for
-// them would flood the graph with meaningless edges and pollute resolution.
+// A lowercase tag is a DOM primitive, not a component use; emitting refs for
+// them would bury the real edges.
 func TestTSX_JSXChildRefs_HostTagsSkipped(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -224,11 +188,10 @@ func TestTSX_JSXChildRefs_HostTagsSkipped(t *testing.T) {
 	}
 }
 
-// TestTSX_JSXChildRefs_MemberTagLastSegment asserts <Foo.Bar/> emits a ref
-// named "Bar" (last segment of the member expression), not "Foo.Bar".
-// WHY: Resolution matches refs against component *names* (not qualified paths);
-// "Bar" is what the registry has, not "Foo.Bar".
+// Resolution matches on the component's own name, so a member tag has to be
+// reduced to its last segment.
 func TestTSX_JSXChildRefs_MemberTagLastSegment(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -247,11 +210,10 @@ func TestTSX_JSXChildRefs_MemberTagLastSegment(t *testing.T) {
 	}
 }
 
-// TestTSX_JSXChildRefs_FromEnclosingFunction asserts JSX refs are attributed
-// to the enclosing function/component node, not the file node.
-// WHY: The jsx-render synthesizer uses FromNodeID to anchor the render edge at
-// the component level; file-level attribution would make it unusable.
+// The render edge is anchored at the component, so file-level attribution would
+// make it unusable.
 func TestTSX_JSXChildRefs_FromEnclosingFunction(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -260,13 +222,11 @@ func TestTSX_JSXChildRefs_FromEnclosingFunction(t *testing.T) {
 	result := e.Extract(context.Background(), tsxFixturePath, tsxFixture, types.LanguageTSX)
 
 	refs := refsOfKind(result.UnresolvedReferences, types.EdgeKindReferences)
-	// Find the AppComponent function node.
 	appFn := findNode(result.Nodes, types.NodeKindFunction, "AppComponent")
 	if appFn == nil {
 		t.Fatal("AppComponent function not found")
 	}
 
-	// At least one JSX ref should have FromNodeID == appFn.ID.
 	foundMatch := false
 	for _, ref := range refs {
 		if ref.FromNodeID == appFn.ID {
@@ -279,13 +239,8 @@ func TestTSX_JSXChildRefs_FromEnclosingFunction(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// JSX: .jsx file extraction
-// ---------------------------------------------------------------------------
-
-// TestJSX_FunctionExtracted asserts .jsx files extract function components.
-// WHY: JSX grammar must work for .jsx files too — uses the same tsx grammar.
 func TestJSX_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJSX)
 	if !ok {
 		t.Fatal("LanguageJSX not registered")
@@ -302,8 +257,8 @@ func TestJSX_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestJSX_JSXChildRefs asserts .jsx files also emit PascalCase JSX refs.
 func TestJSX_JSXChildRefs(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJSX)
 	if !ok {
 		t.Fatal("LanguageJSX not registered")
@@ -320,19 +275,14 @@ func TestJSX_JSXChildRefs(t *testing.T) {
 			t.Errorf("expected 'references' ref %q; refs: %v", name, refNameList(refs))
 		}
 	}
-	// <span> must NOT be emitted.
 	if refNames["span"] {
 		t.Errorf("host tag 'span' should NOT emit a ref")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Regression: node count stability
-// ---------------------------------------------------------------------------
-
-// TestTSX_NodeCountStable asserts extraction is deterministic.
-// WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
+// Non-determinism means double extraction, corrupt indexes, and unstable IDs.
 func TestTSX_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -349,10 +299,6 @@ func TestTSX_NodeCountStable(t *testing.T) {
 			len(r1.UnresolvedReferences), len(r2.UnresolvedReferences))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
 
 func refsOfKind(refs []types.UnresolvedReference, kind types.EdgeKind) []types.UnresolvedReference {
 	out := make([]types.UnresolvedReference, 0)
@@ -380,7 +326,6 @@ func refNameList(refs []types.UnresolvedReference) []string {
 	return names
 }
 
-// findRefByName returns the first UnresolvedReference with the given name and kind.
 func findRefByName(refs []types.UnresolvedReference, kind types.EdgeKind, name string) *types.UnresolvedReference {
 	for i := range refs {
 		if refs[i].ReferenceKind == kind && strings.Contains(refs[i].ReferenceName, name) {

@@ -1,5 +1,5 @@
-// Package bundlemirror implements the artifact mirror logic used by cmd/bundle-mirror.
-// Separated so it can be tested without the main() entrypoint.
+// Package bundlemirror implements the artifact mirror logic behind
+// internal/tools/bundle-mirror, split out so it is testable without main().
 package bundlemirror
 
 import (
@@ -7,16 +7,17 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
-	"github.com/damusix/atomic-claude/atomic/internal/embedded"
+	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"text/template"
 )
 
-// Artifact describes one file in the embedded manifest.
-// Kept for backward compatibility with cmd/bundle-mirror; consumers outside
-// this package should prefer embedded.Artifact.
+// Artifact duplicates embedded.Artifact deliberately: internal/embedded carries
+// the go:embed for bundle/, so importing it would make this generator
+// unbuildable until the directory it exists to create already exists.
 type Artifact struct {
 	Kind   string
 	Source string // path inside embedded FS, e.g. "bundle/agents/atomic-builder.md"
@@ -24,38 +25,41 @@ type Artifact struct {
 	SHA256 string
 }
 
-// enumeratedArtifact is the internal type returned by enumerate. It carries the
-// embedded.Artifact fields alongside SrcPath (the absolute filesystem source
-// path) and Data (the file bytes already read during enumeration) so that Run
-// can write the artifact without a second os.ReadFile call.
+// enumeratedArtifact retains Data from the enumeration read so Run can write
+// the file without a second os.ReadFile.
 type enumeratedArtifact struct {
-	embedded.Artifact
+	Artifact
 	SrcPath string // absolute path of the source file on disk
 	Data    []byte // file bytes read during enumeration; reused by Run to avoid a second read
 }
 
-// Enumerate walks repoRoot per the bundle inclusion rules and returns the
-// artifact list without writing anything to disk. Callers outside this package
-// (e.g. manifestcheck) should use this instead of Run when no disk write is
-// needed.
-func Enumerate(repoRoot string) ([]embedded.Artifact, error) {
+// Enumerate is Run without the disk write — what manifestcheck uses.
+func Enumerate(repoRoot string) ([]Artifact, error) {
 	items, err := enumerate(repoRoot)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]embedded.Artifact, len(items))
+	out := make([]Artifact, len(items))
 	for i, it := range items {
 		out[i] = it.Artifact
 	}
 	return out, nil
 }
 
-// enumerate is the internal no-write walker shared by Enumerate and Run.
+// enumerate resolves every path under repoRoot/context/ and makes every Target
+// relative to it, so the install tree is independent of the repo layout.
 func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	var artifacts []enumeratedArtifact
 
-	// agents/atomic-*.md
-	agentsDir := filepath.Join(repoRoot, "agents")
+	contextRoot := bundlespec.SourceRoot(repoRoot)
+
+	// One pool for the whole walk; every templated artifact clones from it.
+	partials, err := templaterender.LoadPartials(filepath.Join(contextRoot, templaterender.PartialsDir))
+	if err != nil {
+		return nil, err
+	}
+
+	agentsDir := filepath.Join(contextRoot, "agents")
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read agents dir: %w", err)
@@ -66,15 +70,14 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		}
 		src := filepath.Join(agentsDir, e.Name())
 		target := "agents/" + e.Name()
-		a, err := readArtifact(src, target, "agent")
+		a, err := readArtifact(partials, src, target, "agent")
 		if err != nil {
 			return nil, err
 		}
 		artifacts = append(artifacts, a)
 	}
 
-	// skills/atomic-*/** — full directory tree per matching skill.
-	skillsDir := filepath.Join(repoRoot, "skills")
+	skillsDir := filepath.Join(contextRoot, "skills")
 	skillEntries, err := os.ReadDir(skillsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read skills dir: %w", err)
@@ -94,12 +97,12 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 			if d.IsDir() {
 				return nil
 			}
-			rel, err := filepath.Rel(repoRoot, path)
+			rel, err := filepath.Rel(contextRoot, path)
 			if err != nil {
 				return err
 			}
 			target := filepath.ToSlash(rel)
-			a, err := readArtifact(path, target, "skill")
+			a, err := readArtifact(partials, path, target, "skill")
 			if err != nil {
 				return err
 			}
@@ -111,8 +114,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		}
 	}
 
-	// output-styles/atomic*.md
-	outputStylesDir := filepath.Join(repoRoot, "output-styles")
+	outputStylesDir := filepath.Join(contextRoot, "output-styles")
 	osEntries, err := os.ReadDir(outputStylesDir)
 	if err != nil {
 		return nil, fmt.Errorf("read output-styles dir: %w", err)
@@ -123,15 +125,14 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		}
 		src := filepath.Join(outputStylesDir, e.Name())
 		target := "output-styles/" + e.Name()
-		a, err := readArtifact(src, target, "output-style")
+		a, err := readArtifact(partials, src, target, "output-style")
 		if err != nil {
 			return nil, err
 		}
 		artifacts = append(artifacts, a)
 	}
 
-	// commands/**/*.md — all markdown files, including subdirectories.
-	commandsDir := filepath.Join(repoRoot, "commands")
+	commandsDir := filepath.Join(contextRoot, "commands")
 	err = filepath.WalkDir(commandsDir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
@@ -139,12 +140,12 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		if d.IsDir() || !bundlespec.MatchesCommand(d.Name()) {
 			return nil
 		}
-		rel, err := filepath.Rel(repoRoot, path)
+		rel, err := filepath.Rel(contextRoot, path)
 		if err != nil {
 			return err
 		}
 		target := filepath.ToSlash(rel)
-		a, err := readArtifact(path, target, "command")
+		a, err := readArtifact(partials, path, target, "command")
 		if err != nil {
 			return err
 		}
@@ -155,8 +156,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		return nil, fmt.Errorf("walk commands: %w", err)
 	}
 
-	// rules/**/*.md
-	rulesDir := filepath.Join(repoRoot, "rules")
+	rulesDir := filepath.Join(contextRoot, "rules")
 	err = filepath.WalkDir(rulesDir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
@@ -164,12 +164,12 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		if d.IsDir() || !bundlespec.MatchesRule(path) {
 			return nil
 		}
-		rel, err := filepath.Rel(repoRoot, path)
+		rel, err := filepath.Rel(contextRoot, path)
 		if err != nil {
 			return err
 		}
 		target := filepath.ToSlash(rel)
-		a, err := readArtifact(path, target, "rule")
+		a, err := readArtifact(partials, path, target, "rule")
 		if err != nil {
 			return err
 		}
@@ -180,15 +180,13 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		return nil, fmt.Errorf("walk rules: %w", err)
 	}
 
-	// CLAUDE.md
-	claudeMdSrc := filepath.Join(repoRoot, "CLAUDE.md")
-	a, err := readArtifact(claudeMdSrc, "CLAUDE.md", "claude-md")
+	claudeMdSrc := filepath.Join(contextRoot, "CLAUDE.md")
+	a, err := readArtifact(partials, claudeMdSrc, "CLAUDE.md", "claude-md")
 	if err != nil {
 		return nil, err
 	}
 	artifacts = append(artifacts, a)
 
-	// Stable sort: kind asc, then target asc.
 	sort.Slice(artifacts, func(i, j int) bool {
 		if artifacts[i].Kind != artifacts[j].Kind {
 			return artifacts[i].Kind < artifacts[j].Kind
@@ -199,16 +197,26 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	return artifacts, nil
 }
 
-// readArtifact reads src once, computes its SHA256, and returns an enumeratedArtifact
-// without writing anything to disk. The bytes are retained in Data so Run can
-// write them without a second os.ReadFile.
-func readArtifact(src, target, kind string) (enumeratedArtifact, error) {
+// expandedKinds may compose a shared partial. Everything else is copied
+// byte-for-byte: running a skill or rule through the engine would read a
+// literal {{ in its prose as a directive.
+var expandedKinds = map[string]bool{"command": true, "agent": true}
+
+// readArtifact hashes the expanded bytes, not the source, because that is what
+// installs — a parity check has to agree with the file the user ends up with.
+func readArtifact(partials *template.Template, src, target, kind string) (enumeratedArtifact, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return enumeratedArtifact{}, fmt.Errorf("read %s: %w", src, err)
 	}
+	if expandedKinds[kind] {
+		data, err = templaterender.Expand(partials, filepath.Base(src), data)
+		if err != nil {
+			return enumeratedArtifact{}, err
+		}
+	}
 	return enumeratedArtifact{
-		Artifact: embedded.Artifact{
+		Artifact: Artifact{
 			Kind:   kind,
 			Source: "bundle/" + target,
 			Target: target,
@@ -219,8 +227,7 @@ func readArtifact(src, target, kind string) (enumeratedArtifact, error) {
 	}, nil
 }
 
-// Run walks repoRoot per the inclusion rules, copies matching files into
-// outDir/bundle/<target-path>, and returns the artifact list.
+// Run mirrors every matching artifact into outDir/bundle/<target>.
 func Run(repoRoot, outDir string) ([]Artifact, error) {
 	bundleDir := filepath.Join(outDir, "bundle")
 	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
@@ -244,8 +251,6 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 	return artifacts, nil
 }
 
-// mirrorFile writes data into bundleDir/<target> and returns an Artifact.
-// data is already read by readArtifact; no second os.ReadFile occurs here.
 func mirrorFile(data []byte, target, kind, bundleDir string) (Artifact, error) {
 	dst := filepath.Join(bundleDir, filepath.FromSlash(target))
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -264,7 +269,7 @@ func mirrorFile(data []byte, target, kind, bundleDir string) (Artifact, error) {
 	}, nil
 }
 
-// SHA256Hex returns the hex-encoded SHA256 of data. Exported for tests.
+// SHA256Hex is the manifest's checksum form.
 func SHA256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])

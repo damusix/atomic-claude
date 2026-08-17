@@ -1,17 +1,9 @@
-// events.go — CP3 (live-reload): the /events SSE endpoint and the
-// subscriber-gated server ticker.
+// Live-reload's push side: /events streams {fp, changed} over EventSource,
+// fed by one ticker goroutine bound to the server's context. The snapshot
+// store validates lazily, which alone would leave an open tab stale.
 //
-// Today, a change on disk is only reflected the next time a handler happens
-// to be requested — the snapshot store (snapshot.go) validates lazily, but
-// nothing pushes that fact to an open browser tab. This file adds the push
-// side: /events streams {fp, changed} over a plain EventSource, fed by a
-// single ticker goroutine started once at server startup and stopped by the
-// server context.
-//
-// The ticker is subscriber-gated: with zero open /events connections it does
-// not even perform the cheap stat-only fingerprint walk (SC12), so an idle
-// `atomic serve` with no browser tab open costs nothing beyond the ticker's
-// own timer wakeups.
+// The ticker is subscriber-gated, so an idle server with no tab open does not
+// even run the stat-only fingerprint walk.
 package serve
 
 import (
@@ -24,32 +16,24 @@ import (
 )
 
 const (
-	// changedCap bounds the manifest diff carried in a changeEvent. Above the
-	// cap the field is omitted entirely rather than truncated, and clients
-	// treat an omitted field as "everything may have changed" (SC16) — past
-	// this size the enumeration itself stops being useful.
+	// changedCap is where enumerating the diff stops being useful. Past it the
+	// field is omitted rather than truncated, which the client reads as
+	// "refetch everything".
 	changedCap = 100
 
-	// sseWriteDeadline bounds each write to a subscriber's connection so a
-	// stalled TCP peer cannot hang that subscriber's goroutine forever. It is
-	// independent of shutdown responsiveness — that is the request context's
-	// job (serve.go wires the server's BaseContext to the same context that
-	// drives srv.Shutdown) — this deadline is purely about a dead peer that
-	// never disconnects.
+	// sseWriteDeadline stops a dead peer that never disconnects from hanging
+	// its subscriber goroutine. Shutdown responsiveness is the request
+	// context's job, not this deadline's.
 	sseWriteDeadline = 5 * time.Second
 )
 
-// changeEvent is the /events wire payload: the realm fingerprint and the
-// manifest diff since the subscriber's last-seen state. Changed is nil (not
-// present in the JSON, via omitempty) once it exceeds changedCap — the client
-// treats a missing Changed the same as an oversized one: refetch everything.
+// changeEvent is the /events payload. An absent Changed means the diff
+// exceeded changedCap.
 type changeEvent struct {
 	FP      string   `json:"fp"`
 	Changed []string `json:"changed,omitempty"`
 }
 
-// newChangeEvent builds the wire payload for a fingerprint and its manifest
-// diff, applying changedCap.
 func newChangeEvent(fp string, changed []string) changeEvent {
 	if len(changed) > changedCap {
 		return changeEvent{FP: fp}
@@ -57,18 +41,15 @@ func newChangeEvent(fp string, changed []string) changeEvent {
 	return changeEvent{FP: fp, Changed: changed}
 }
 
-// subscriber is one connected /events client's coalescing slot: a buffered-1
-// channel that push overwrites rather than blocks on when the subscriber
-// hasn't drained the previous event.
+// subscriber is one client's coalescing slot: a buffered-1 channel that push
+// overwrites rather than blocks on.
 type subscriber struct {
 	ch chan changeEvent
 }
 
-// push delivers ev to the subscriber's slot without ever blocking: a full
-// slot (the subscriber hasn't read its previous event yet) is drained and
-// replaced, so the subscriber always sees the latest state once it catches
-// up, and this call — and therefore broadcast's caller, the ticker — never
-// stalls on a slow or dead subscriber (SC14).
+// push never blocks. A full slot is drained and replaced, so the subscriber
+// sees the latest state once it catches up and the ticker never stalls on a
+// slow or dead client.
 func (s *subscriber) push(ev changeEvent) {
 	select {
 	case s.ch <- ev:
@@ -85,22 +66,18 @@ func (s *subscriber) push(ev changeEvent) {
 	}
 }
 
-// subscriberRegistry tracks every connected /events client. The ticker reads
-// count() to decide whether to do any work at all (SC12); NewEventsHandler
-// registers and unregisters through subscribe's returned unsubscribe func.
+// subscriberRegistry tracks every connected /events client.
 type subscriberRegistry struct {
 	mu   sync.Mutex
 	subs map[*subscriber]struct{}
 }
 
-// newSubscriberRegistry constructs an empty registry.
 func newSubscriberRegistry() *subscriberRegistry {
 	return &subscriberRegistry{subs: make(map[*subscriber]struct{})}
 }
 
-// subscribe registers a new subscriber and returns its slot plus an
-// unsubscribe func the caller must invoke exactly once when the connection
-// ends.
+// subscribe returns a slot and an unsubscribe func the caller must invoke
+// exactly once when the connection ends.
 func (r *subscriberRegistry) subscribe() (*subscriber, func()) {
 	s := &subscriber{ch: make(chan changeEvent, 1)}
 	r.mu.Lock()
@@ -113,7 +90,7 @@ func (r *subscriberRegistry) subscribe() (*subscriber, func()) {
 	}
 }
 
-// broadcast pushes ev to every subscriber's slot, coalescing to the latest.
+// broadcast pushes ev to every subscriber, coalescing to the latest.
 func (r *subscriberRegistry) broadcast(ev changeEvent) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -122,18 +99,16 @@ func (r *subscriberRegistry) broadcast(ev changeEvent) {
 	}
 }
 
-// count returns the current subscriber count — the ticker's gate (SC12).
+// count is the ticker's gate.
 func (r *subscriberRegistry) count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.subs)
 }
 
-// NewEventsHandler returns the GET /events SSE handler (Subscribe flow):
-// register a subscriber, immediately push a resync event reflecting current
-// on-disk state regardless of the tick cycle, then stream subsequent
-// broadcast events from the subscriber's slot until the request context ends
-// (client disconnect or server shutdown).
+// NewEventsHandler serves GET /events. It pushes a resync event reflecting
+// current on-disk state immediately, off the tick cycle, then streams
+// broadcasts until the request context ends.
 func NewEventsHandler(store *snapshotStore, registry *subscriberRegistry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
@@ -170,18 +145,15 @@ func NewEventsHandler(store *snapshotStore, registry *subscriberRegistry) http.H
 	})
 }
 
-// writeChangeEvent JSON-encodes ev as one SSE message event (the client's
-// plain EventSource.onmessage — no custom event name), applying a bounded
-// write deadline so a stalled peer cannot hang this goroutine indefinitely.
-// Returns false when the caller should stop streaming.
+// writeChangeEvent writes ev as one unnamed SSE message. It returns false
+// when the caller should stop streaming.
 func writeChangeEvent(w http.ResponseWriter, flusher http.Flusher, ev changeEvent) bool {
 	payload, err := json.Marshal(ev)
 	if err != nil {
 		return false
 	}
-	// Best-effort: not every ResponseWriter supports a write deadline (e.g. a
-	// unit test's httptest.ResponseRecorder); proceed without one rather than
-	// fail the write over it.
+	// Best-effort: an httptest recorder supports no write deadline, and that
+	// is no reason to fail the write.
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(sseWriteDeadline))
 	if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 		return false
@@ -190,14 +162,10 @@ func writeChangeEvent(w http.ResponseWriter, flusher http.Flusher, ev changeEven
 	return true
 }
 
-// startTicker starts the single ticker goroutine for the server's lifetime
-// (SC11): gated on subscriber count so a zero-subscriber tick performs no
-// walk at all (SC12), it otherwise calls store.ensureFresh() and — only when
-// that call actually rebuilt (changed != nil; a nil result means either the
-// fingerprint was unchanged or a rebuild was already in flight) — broadcasts
-// {fp, changed} to every subscriber. The goroutine exits when ctx is
-// cancelled; callers must pass the same context that drives the server's
-// graceful shutdown so the ticker never outlives it.
+// startTicker runs the server's single live-reload ticker. A zero-subscriber
+// tick does no walk; a nil changed means the fingerprint held or a rebuild was
+// already in flight, so there is nothing to announce. Pass the context that
+// drives graceful shutdown — the goroutine must not outlive the server.
 func startTicker(ctx context.Context, store *snapshotStore, registry *subscriberRegistry, interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)

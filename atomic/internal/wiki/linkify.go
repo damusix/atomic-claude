@@ -1,14 +1,8 @@
 package wiki
 
-// linkify.go — implements `atomic wiki linkify --root=<path>`.
-//
-// For each wiki artifact under <root>/wiki/:
-//   - repos/<repo>(/<domain>).md → read `repo:` from YAML frontmatter; base = <root>/<repo>
-//   - concerns/*.md and index.md → base = <root> (realm root)
-//
-// Files with a missing or unresolvable `repo:` frontmatter key are skipped
-// (not crashed). The function is idempotent: re-running on already-linkified
-// content is a no-op.
+// `atomic wiki linkify` resolves each artifact's links against a base
+// directory: its own repo for a repos/ summary, the realm root for everything
+// else. Idempotent — re-running on linkified content changes nothing.
 
 import (
 	"fmt"
@@ -20,24 +14,21 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
 )
 
-// LinkifyWiki linkifies all wiki artifacts under <root>/wiki/ in-place.
-// root is the realm root (the directory containing the wiki/ subdirectory).
+// LinkifyWiki rewrites every artifact under <root>/wiki/ in place. root is the
+// realm root, the directory holding wiki/.
 func LinkifyWiki(root string) error {
 	wikiDir := filepath.Join(root, "wiki")
 
-	// Index file: base = realm root.
 	indexPath := filepath.Join(wikiDir, "index.md")
 	if err := linkifyWikiFile(indexPath, root); err != nil {
 		return fmt.Errorf("wiki linkify index: %w", err)
 	}
 
-	// concerns/: base = realm root.
 	concernsDir := filepath.Join(wikiDir, "concerns")
 	if err := linkifyDir(concernsDir, root, false); err != nil {
 		return fmt.Errorf("wiki linkify concerns: %w", err)
 	}
 
-	// repos/: each file has a `repo:` frontmatter key; base = <root>/<repo>.
 	reposDir := filepath.Join(wikiDir, "repos")
 	if err := linkifyReposDir(reposDir, root); err != nil {
 		return fmt.Errorf("wiki linkify repos: %w", err)
@@ -46,9 +37,8 @@ func LinkifyWiki(root string) error {
 	return nil
 }
 
-// linkifyReposDir processes files under wiki/repos/. For each *.md file it
-// reads the `repo:` frontmatter key to determine the base directory.
-// Files without a `repo:` key are skipped silently.
+// linkifyReposDir bases each summary on its own `repo:` frontmatter key,
+// skipping files that lack one.
 func linkifyReposDir(reposDir, root string) error {
 	entries, err := os.ReadDir(reposDir)
 	if err != nil {
@@ -60,8 +50,7 @@ func linkifyReposDir(reposDir, root string) error {
 
 	for _, e := range entries {
 		if e.IsDir() {
-			// Domain sub-directory: recurse, but we need the repo from the dir name.
-			// Each sub-file has its own frontmatter.
+			// A domain-split summary; each file inside carries its own `repo:`.
 			subDir := filepath.Join(reposDir, e.Name())
 			if err := linkifyReposDir(subDir, root); err != nil {
 				return err
@@ -74,7 +63,6 @@ func linkifyReposDir(reposDir, root string) error {
 		path := filepath.Join(reposDir, e.Name())
 		base, err := repoBaseFromFile(path, root)
 		if err != nil || base == "" {
-			// No repo: key or unresolvable — skip.
 			continue
 		}
 		if err := linkifyWikiFile(path, base); err != nil {
@@ -84,9 +72,8 @@ func linkifyReposDir(reposDir, root string) error {
 	return nil
 }
 
-// repoBaseFromFile reads the `repo:` frontmatter value from path and returns
-// the absolute path to that repo directory (joined with root). Returns ("", nil)
-// when the key is absent.
+// repoBaseFromFile resolves the file's `repo:` key to a directory under root,
+// returning ("", nil) when the key is absent or names a directory that is gone.
 func repoBaseFromFile(path, root string) (string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -106,14 +93,11 @@ func repoBaseFromFile(path, root string) (string, error) {
 	}
 	base := filepath.Join(root, repoStr)
 	if _, err := os.Stat(base); err != nil {
-		// Repo directory doesn't exist — skip.
 		return "", nil
 	}
 	return base, nil
 }
 
-// linkifyDir linkifies all *.md files in dir with base as the base directory.
-// If recurse is true, it also descends into subdirectories.
 func linkifyDir(dir, base string, recurse bool) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -142,8 +126,7 @@ func linkifyDir(dir, base string, recurse bool) error {
 	return nil
 }
 
-// linkifyWikiFile reads path, linkifies it with base, and writes back only if
-// the content changed (idempotent).
+// linkifyWikiFile writes back only on a real change, so mtimes stay put.
 func linkifyWikiFile(path, base string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {

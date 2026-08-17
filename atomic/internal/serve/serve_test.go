@@ -15,10 +15,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// syncBuffer is a goroutine-safe text buffer. startTestServer runs the server in
-// a goroutine that writes its startup URL to opts.Stdout while the test goroutine
-// polls String() for that line — a concurrent write+read that a plain
-// strings.Builder does not allow. The mutex makes the harness race-free under -race.
+// The server goroutine writes its startup URL while the test goroutine polls for
+// it — a concurrent write+read a plain strings.Builder trips over under -race.
 type syncBuffer struct {
 	mu  sync.Mutex
 	buf strings.Builder
@@ -36,7 +34,6 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// writeFile writes content to path, creating parent dirs as needed.
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -47,7 +44,6 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// buildClaudeMD writes a CLAUDE.md with a <wikis> block.
 func buildClaudeMD(t *testing.T, claudeMDPath string, wikiIndexPaths []string) {
 	t.Helper()
 	block := "<wikis>\n"
@@ -58,7 +54,6 @@ func buildClaudeMD(t *testing.T, claudeMDPath string, wikiIndexPaths []string) {
 	writeFile(t, claudeMDPath, "# CLAUDE.md\n\n"+block)
 }
 
-// buildCodeTOML writes a code.toml with the given members.
 func buildCodeTOML(t *testing.T, realmRoot string, members []struct{ key, path string }) {
 	t.Helper()
 	var sb strings.Builder
@@ -68,7 +63,6 @@ func buildCodeTOML(t *testing.T, realmRoot string, members []struct{ key, path s
 	writeFile(t, filepath.Join(realmRoot, ".atomic", "code.toml"), sb.String())
 }
 
-// waitReady polls the URL until it responds or the deadline passes.
 func waitReady(t *testing.T, url string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -83,13 +77,8 @@ func waitReady(t *testing.T, url string, timeout time.Duration) {
 	t.Fatalf("server at %s did not become ready within %v", url, timeout)
 }
 
-// startTestServer starts a server on port 0 with the given options, waits
-// until it prints its startup URL, and returns the base URL and a shutdown
-// function. The caller must invoke shutdown() to cancel the context; the
-// goroutine is reaped before shutdown() returns.
-//
-// opts.Port must be 0 (OS-assigned). opts.Stdout must be nil — this helper
-// owns stdout so it can parse the URL line.
+// Callers must leave opts.Port at 0 and opts.Stdout nil: this helper owns stdout
+// so it can parse the startup URL line. shutdown() reaps the goroutine.
 func startTestServer(t *testing.T, opts serve.Options) (baseURL string, shutdown func()) {
 	t.Helper()
 	if opts.Port != 0 {
@@ -106,7 +95,6 @@ func startTestServer(t *testing.T, opts serve.Options) (baseURL string, shutdown
 		done <- serve.RunWithContext(ctx, opts)
 	}()
 
-	// Wait until stdout contains the URL line.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		for _, line := range strings.Split(stdout.String(), "\n") {
@@ -137,8 +125,6 @@ func startTestServer(t *testing.T, opts serve.Options) (baseURL string, shutdown
 	return baseURL, shutdown
 }
 
-// TestHealthzReturns200 verifies the /healthz route returns 200 "ok".
-// This proves the server binds, accepts connections, and routes correctly.
 func TestHealthzReturns200(t *testing.T) {
 	dir := t.TempDir()
 
@@ -168,8 +154,6 @@ func TestHealthzReturns200(t *testing.T) {
 	}
 }
 
-// TestPortZeroPicksFreePort verifies that --port 0 makes the server bind to an
-// OS-assigned port and prints the actual chosen URL on stdout.
 func TestPortZeroPicksFreePort(t *testing.T) {
 	dir := t.TempDir()
 
@@ -182,12 +166,10 @@ func TestPortZeroPicksFreePort(t *testing.T) {
 	})
 	defer shutdown()
 
-	// URL must not be port 0 (OS replaced it with the actual port).
 	if strings.HasSuffix(baseURL, ":0") {
 		t.Errorf("server printed port 0 URL: %q", baseURL)
 	}
 
-	// Verify the server is actually listening on that URL.
 	resp, err := http.Get(baseURL + "/healthz")
 	if err != nil {
 		t.Fatalf("GET /healthz at %s: %v", baseURL, err)
@@ -198,14 +180,6 @@ func TestPortZeroPicksFreePort(t *testing.T) {
 	}
 }
 
-// TestRootRouteRendersShell verifies the / route returns HTML containing
-// the Obsidian shell structure: top bar (breadcrumb + search + md|code toggle),
-// left nav, middle content with [page|system] toggle, and right rail with 3 slots.
-// The dead context-pane must be gone; #main-pane must NOT hx-get /health.
-// TestRootRouteServesSPAShell verifies that GET / serves the embedded React
-// shell's index.html (200, text/html) — the server no longer computes scope
-// or a landing URL server-side; React Router and the /api/* fetches resolve
-// the initial screen client-side.
 func TestRootRouteServesSPAShell(t *testing.T) {
 	dir := t.TempDir()
 
@@ -240,12 +214,8 @@ func TestRootRouteServesSPAShell(t *testing.T) {
 	}
 }
 
-// TestUnmatchedNonAPIGETServesSPAShell verifies the cutover contract: every
-// non-API, non-static, non-carried-JS-endpoint GET falls through to the SPA
-// shell — including deep links like /page/<relpath> and legacy routes like
-// /health — instead of 404. This is a documented accepted regression: React
-// Router resolves the deep link client-side; there is no server-side 404 for
-// these paths (only /api/* enforces its own 404s).
+// Deep links resolve client-side, so an unmatched non-API GET must reach the SPA
+// shell rather than 404. Only /api/* enforces its own 404s.
 func TestUnmatchedNonAPIGETServesSPAShell(t *testing.T) {
 	dir := t.TempDir()
 
@@ -279,9 +249,8 @@ func TestUnmatchedNonAPIGETServesSPAShell(t *testing.T) {
 	}
 }
 
-// TestScopeMappingTable exercises resolveDisplayScope against the four
-// realm resolver scopes. It uses a real temp-dir setup injectable into the
-// resolver — no hardcoded $HOME.
+// Every case builds a real temp-dir layout injected into the resolver, so none
+// of this reads the ambient $HOME.
 func TestScopeMappingTable(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -292,7 +261,6 @@ func TestScopeMappingTable(t *testing.T) {
 			name: "bare repo no index → Repo",
 			setup: func(t *testing.T) (string, string) {
 				dir := t.TempDir()
-				// No .claude/.atomic-index/atomic.db, no <wikis> block.
 				claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
 				writeFile(t, claudeMD, "# CLAUDE.md\n")
 				return dir, claudeMD
@@ -303,7 +271,7 @@ func TestScopeMappingTable(t *testing.T) {
 			name: "local index present → Repo",
 			setup: func(t *testing.T) (string, string) {
 				dir := t.TempDir()
-				// Write a stub db so Resolve sees it.
+				// Resolve only stats the path, so the contents are irrelevant.
 				dbPath := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
 				writeFile(t, dbPath, "stub")
 				claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
@@ -363,18 +331,16 @@ func TestScopeMappingTable(t *testing.T) {
 	}
 }
 
-// TestOpenFlagNonFatalOnError verifies that a failing browser opener does not
-// cause Run to return a non-zero exit code.
 func TestOpenFlagNonFatalOnError(t *testing.T) {
 	dir := t.TempDir()
 
 	var stderr strings.Builder
 	baseURL, shutdown := startTestServer(t, serve.Options{
-		Open:         true, // opener will be injected as a stub that errors
+		Open:         true,
 		TargetDir:    dir,
 		ClaudeMDPath: filepath.Join(t.TempDir(), "CLAUDE.md"),
 		Stderr:       &stderr,
-		// BrowserOpener is the swappable seam: always returns an error.
+		// Swappable seam: always errors.
 		BrowserOpener: func(url string) error {
 			return fmt.Errorf("fake: open failed")
 		},
@@ -382,7 +348,7 @@ func TestOpenFlagNonFatalOnError(t *testing.T) {
 
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	// Server is up → opener error was non-fatal.
+	// Still serving → the opener error was non-fatal.
 	resp, err := http.Get(baseURL + "/healthz")
 	if err != nil {
 		t.Fatalf("GET /healthz: %v", err)
@@ -395,9 +361,8 @@ func TestOpenFlagNonFatalOnError(t *testing.T) {
 	shutdown()
 }
 
-// TestGracefulShutdownOnContextCancel verifies the server shuts down cleanly
-// when the context is cancelled. We test via context cancellation, which is
-// exactly what signal.NotifyContext bridges SIGINT to in production.
+// Context cancellation is what signal.NotifyContext bridges SIGINT to in
+// production, so cancelling stands in for the real shutdown path.
 func TestGracefulShutdownOnContextCancel(t *testing.T) {
 	dir := t.TempDir()
 
@@ -411,22 +376,16 @@ func TestGracefulShutdownOnContextCancel(t *testing.T) {
 
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	// shutdown() cancels the context and waits for the goroutine to exit,
-	// asserting it does so within 5s.
 	shutdown()
 
-	// Confirm the server is no longer accepting connections.
 	_, err := http.Get(baseURL + "/healthz")
 	if err == nil {
 		t.Error("expected connection refused after shutdown, got nil error")
 	}
 }
 
-// TestStaticAssetsServedFromMemory verifies /static/vendor/htmx.min.js is
-// served from embedded memory (Content-Type application/javascript, non-empty).
-// TestCarriedAssetsServedFromEmbeddedDist verifies that the carried assets
-// copied into frontend/dist at build time (app.css, graph-core.js) are served
-// as real static files — not swallowed by the SPA index.html fallback.
+// Assets copied into frontend/dist at build time must be served as real static
+// files, not swallowed by the SPA index.html fallback.
 func TestCarriedAssetsServedFromEmbeddedDist(t *testing.T) {
 	dir := t.TempDir()
 
@@ -460,18 +419,9 @@ func TestCarriedAssetsServedFromEmbeddedDist(t *testing.T) {
 	}
 }
 
-// TestOpenFlagCalledWithURLOnSuccess verifies that when Open is true and the
-// server starts successfully, the BrowserOpener seam receives the correct
-// http://127.0.0.1:<actualPort> URL — confirming the right URL is passed, not
-// a placeholder or port-0 value.
 func TestOpenFlagCalledWithURLOnSuccess(t *testing.T) {
 	dir := t.TempDir()
 
-	// openerURL captures the URL the opener receives.
-	// RunWithContext calls the opener synchronously before starting srv.Serve,
-	// so it fires before startTestServer even finishes parsing stdout — but
-	// startTestServer waits for the URL line, which is printed before the opener
-	// is called, so by the time startTestServer returns, the opener has already fired.
 	openerCh := make(chan string, 1)
 
 	var stderr strings.Builder
@@ -484,16 +434,15 @@ func TestOpenFlagCalledWithURLOnSuccess(t *testing.T) {
 			select {
 			case openerCh <- url:
 			default:
-				// opener called more than once — shouldn't happen
+				// Called twice: drop it rather than block.
 			}
 			return nil
 		},
 	})
 	defer shutdown()
 
-	// The opener is called synchronously in RunWithContext before Serve starts.
-	// startTestServer already waited for the URL line, which is printed before
-	// the opener fires — so the channel should be ready or arrive immediately.
+	// RunWithContext calls the opener synchronously before Serve, and the URL line
+	// is printed first, so the channel is already loaded by the time we get here.
 	var openerURL string
 	select {
 	case openerURL = <-openerCh:
