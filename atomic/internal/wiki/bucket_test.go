@@ -205,7 +205,7 @@ func TestRegisterBucket_DoubleRegisterRefused(t *testing.T) {
 }
 
 // TestRegisterBucket_UnsafeNamesRejected covers the RegisterBucket-level
-// backstop behind the CLI arg scanner (issue #164): a caller that reaches
+// backstop behind the CLI arg scanner: a caller that reaches
 // RegisterBucket programmatically, bypassing the CLI parser entirely, must
 // still be refused an unsafe name before any filesystem write.
 func TestRegisterBucket_UnsafeNamesRejected(t *testing.T) {

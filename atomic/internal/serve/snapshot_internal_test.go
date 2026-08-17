@@ -1,6 +1,6 @@
 package serve
 
-// Tests for snapshotStore — the CP1 realm snapshot core.
+// Tests for snapshotStore — the realm snapshot core.
 //
 // Why internal: snapshotStore, realmSnapshot, and their methods are
 // unexported (an implementation detail behind the graphDataCache/handler

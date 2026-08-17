@@ -1,6 +1,6 @@
 package frameworks_test
 
-// Failing tests first (TDD) for res-CP4 / master CP14:
+// Failing tests first (TDD) for res-/ master
 //
 //   1. Route-node id/qn/name format (exact appendix-H strings)
 //   2. Express.Detect on a package.json fixture

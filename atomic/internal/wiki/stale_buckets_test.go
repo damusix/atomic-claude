@@ -1,6 +1,6 @@
 package wiki_test
 
-// stale_buckets_test.go — CP3: tests for the `atomic wiki stale` bucket extension.
+// stale_buckets_test.go — tests for the `atomic wiki stale` bucket extension.
 //
 // Success criteria from the spec (checkpoint 3):
 //   - Fresh bucket (empty diff) → no STALE bucket line emitted, exit 0.

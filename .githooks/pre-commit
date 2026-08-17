@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
 # Pre-commit hook:
-#   Stage 1 — render templates when a staged change touches templates/.
-#              Re-stages commands/ and agents/ outputs so they ride along with
-#              this commit. The bundle stage below then picks up the re-staged
-#              rendered outputs.
-#   Stage 2 — regenerate the embedded bundle when a staged change touches a
-#              source artifact (agents/, commands/, skills/, output-styles/,
-#              rules/, CLAUDE.md). Without this, CI fails the "Verify bundle
-#              is committed" step.
-#   Stage 3 — regenerate followups INDEX.md when a staged change touches
+#   Stage 1 — regenerate followups INDEX.md when a staged change touches
 #              .claude/project/followups/ entry files (excluding INDEX.md).
 #              Degrades to WARN if atomic binary is absent.
-#   Stage 4 — rebuild internal/serve/frontend/dist when a staged change
+#   Stage 2 — rebuild internal/serve/frontend/dist when a staged change
 #              touches the frontend workspace (excluding dist/ itself).
 #              Degrades to WARN if bun is absent.
+#
+# There is no render or bundle stage. Artifacts under context/ are committed in
+# source form and expanded straight into atomic/internal/embedded/, which is
+# gitignored and rebuilt by `make -C atomic bundle` (a prerequisite of
+# build/test/vet), by `go generate ./...` in CI, and by goreleaser's before-hook.
 # Installed by `make hooks` (sets core.hooksPath=.githooks).
 set -euo pipefail
 
@@ -23,52 +20,7 @@ mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
 
 repo_root=$(git rev-parse --show-toplevel)
 
-# --- Stage 1: render templates ---
-needs_render=0
-for f in "${staged[@]}"; do
-    case "$f" in
-        templates/*)
-            needs_render=1
-            break
-            ;;
-    esac
-done
-
-if [ "$needs_render" -eq 1 ]; then
-    echo "pre-commit: templates changed — running make render"
-    make -C "$repo_root" render >/dev/null
-    # Re-stage rendered outputs so they ride along with this commit.
-    git add "$repo_root/commands" "$repo_root/agents"
-    echo "pre-commit: rendered outputs re-staged"
-fi
-
-# --- Stage 2: regenerate bundle ---
-# After the render stage may have re-staged commands/, refresh the staged list
-# so the bundle stage sees the updated set.
-mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
-
-needs_regen=0
-for f in "${staged[@]}"; do
-    case "$f" in
-        agents/*|commands/*|skills/*|output-styles/*|rules/*|CLAUDE.md)
-            needs_regen=1
-            break
-            ;;
-    esac
-done
-
-if [ "$needs_regen" -eq 1 ]; then
-    echo "pre-commit: source artifact changed — regenerating embedded bundle"
-    make -C "$repo_root/atomic" bundle >/dev/null
-    # Re-stage the bundle outputs so they ride along with this commit.
-    git add "$repo_root/atomic/internal/embedded/bundle" "$repo_root/atomic/internal/embedded/manifest.go"
-fi
-
-# Surface drift the developer should know about.
-if ! git diff --cached --quiet -- atomic/internal/embedded; then
-    echo "pre-commit: bundle outputs re-staged"
-fi
-
+# --- Stage 1: regenerate follow-ups index ---
 # Regenerate follow-ups INDEX.md when any entry file (other than INDEX.md
 # itself) is staged. Skips silently if the atomic binary is not on PATH —
 # fresh clones and pre-install states should commit without failing.
@@ -93,7 +45,7 @@ if [ "$followups_touched" -eq 1 ]; then
     fi
 fi
 
-# --- Stage 4: rebuild frontend dist ---
+# --- Stage 2: rebuild frontend dist ---
 frontend_touched=0
 for f in "${staged[@]}"; do
     case "$f" in

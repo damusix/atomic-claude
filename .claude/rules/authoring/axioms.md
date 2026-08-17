@@ -1,13 +1,6 @@
 ---
 paths:
-  - "agents/**"
-  - "templates/agents/**"
-  - "skills/**"
-  - "commands/**"
-  - "templates/commands/**"
-  - "templates/shared/**"
-  - "output-styles/**"
-  - "rules/**"
+  - "context/**"
 ---
 
 # Atomic axioms

@@ -1,4 +1,4 @@
-// codegraph.go — code-graph spec CP2: full-repo code graph export.
+// codegraph.go — code-graph spec full-repo code graph export.
 //
 // Route: GET /code/graph/data[?member=<prefix>]
 //

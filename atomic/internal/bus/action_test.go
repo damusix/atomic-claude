@@ -140,12 +140,11 @@ func TestJoinAction_NameTaken_ThirdAttemptExitsNameTaken(t *testing.T) {
 }
 
 // TestJoinAction_NoAsFlag_DefaultsToRepoRootBasename is the regression test
-// for the "the name is the position" entry (docs/spec/atomic-bus.md,
-// 2026-07-29): omitting --as still names the member, this time after
-// pos.name("") — which, with no realm and no role suffix, collapses to the
-// bare repo-root basename. cwd here is a plain t.TempDir() outside any git
-// repository or scope marker (where.Resolve's cwd fallback), proving the
-// name is still usable even outside a repo.
+// for the "the name is the position" entry: omitting --as still names the
+// member, this time after pos.name("") — which, with no realm and no role
+// suffix, collapses to the bare repo-root basename. cwd here is a plain
+// t.TempDir() outside any git repository or scope marker (where.Resolve's
+// cwd fallback), proving the name is still usable even outside a repo.
 func TestJoinAction_NoAsFlag_DefaultsToRepoRootBasename(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -343,8 +342,7 @@ func TestLeaveAction_SessionFlag_OverridesEnv(t *testing.T) {
 // room_dropped payload, then delete the persisted halt entry for that room —
 // was previously verified only manually. Without it, a restarted daemon's
 // Rehydrate would resurrect a room nobody occupies, still halted for a
-// reason nobody can act on anymore (docs/spec/atomic-bus.md's 2026-07-30
-// "drop a room when its last member leaves" entry).
+// reason nobody can act on anymore.
 func TestLeaveAction_RoomDropped_ClearsOrphanedHaltState(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -907,13 +905,11 @@ func publishUntilDelivered(t *testing.T, addr, room, session, text string, deliv
 }
 
 // publishUntilDeliveredTolerant mirrors publishUntilDelivered, but tolerates
-// a transient dial error on each publish attempt instead of failing the
-// test on the first one — dialAndDo's own t.Fatalf-on-error assumes the
-// daemon is already up and stays up for the test's whole run, which does
-// not hold for a test that deliberately restarts the daemon mid-run: the
-// daemon can be briefly absent while recv's own reconnect is still working
-// (docs/spec/atomic-bus.md's 2026-07-30 "recv must survive a restart"
-// entry).
+// a transient dial error on each publish attempt instead of failing the test
+// on the first one — dialAndDo's own t.Fatalf-on-error assumes the daemon is
+// already up and stays up for the test's whole run, which does not hold for
+// a test that deliberately restarts the daemon mid-run: the daemon can be
+// briefly absent while recv's own reconnect is still working.
 func publishUntilDeliveredTolerant(t *testing.T, addr, room, session, text string, delivered <-chan Envelope, deadline time.Duration) Envelope {
 	t.Helper()
 
@@ -986,13 +982,12 @@ func TestRecvAction_DeliversPublishedMessageUnderOneSecond(t *testing.T) {
 	}
 
 	// Closing the client no longer unblocks recvStream for good — item 3's
-	// fix (docs/spec/atomic-bus.md's 2026-07-30 "recv must survive a
-	// restart" entry) makes a dropped connection reconnect rather than
-	// exit, and the real daemon started by mustStartTestDaemon is still
-	// live, so a bare client.Close() here would just be silently
-	// reconnected. SIGTERM is what actually stops recvStream now, exactly
-	// like TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine's own mechanism
-	// — safe to reuse here because Go tests in this package run
+	// fix makes a dropped connection reconnect rather than exit, and the
+	// real daemon started by mustStartTestDaemon is still live, so a bare
+	// client.Close() here would just be silently reconnected. SIGTERM is
+	// what actually stops recvStream now, exactly like
+	// TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine's own mechanism —
+	// safe to reuse here because Go tests in this package run
 	// sequentially, and each recvStream call registers and unregisters its
 	// own signal.NotifyContext.
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
@@ -1191,9 +1186,7 @@ func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
 // TestRecvDeliver_ChannelClosesWithoutClosingEnvelope_Reconnects is the unit
 // proof of recvDeliver's core decision: an ordinary dropped connection
 // (channel closes, no Closing envelope ever delivered) must report
-// reconnect=true — this is what makes a daemon restart survivable
-// (docs/spec/atomic-bus.md's 2026-07-30 "recv must survive a restart"
-// entry).
+// reconnect=true — this is what makes a daemon restart survivable.
 func TestRecvDeliver_ChannelClosesWithoutClosingEnvelope_Reconnects(t *testing.T) {
 	ch := make(chan Envelope, 1)
 	ch <- Envelope{Text: "ordinary message"}
@@ -1358,13 +1351,11 @@ func TestRecvStream_DaemonRestart_ReconnectsAndKeepsDelivering(t *testing.T) {
 	}
 }
 
-// TestRecvStream_DaemonGenuinelyUnreachable_ExitsNonZero is the other half
-// of item 3's contract: when reconnecting truly cannot succeed — no daemon
-// ever comes back, mirroring TestDialDaemonRecovered_RecoveryFailsPersistentlyNoLoop's
-// own "Spawn never opens the socket" fixture — recvStream must exit non-zero
-// instead of the old exit-0-on-a-quietly-dead-stream behavior, so a Monitor
-// surfaces the fault (docs/spec/atomic-bus.md: "a genuinely unreachable
-// daemon makes it exit non-zero").
+// TestRecvStream_DaemonGenuinelyUnreachable_ExitsNonZero is the other half of item 3's
+// contract: when reconnecting truly cannot succeed — no daemon ever comes back,
+// mirroring TestDialDaemonRecovered_RecoveryFailsPersistentlyNoLoop's own "Spawn never
+// opens the socket" fixture — recvStream must exit non-zero instead of the old
+// exit-0-on-a-quietly-dead-stream behavior, so a Monitor surfaces the fault.
 func TestRecvStream_DaemonGenuinelyUnreachable_ExitsNonZero(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -1440,8 +1431,7 @@ func TestRecvStream_RoomClosed_DoesNotResurrectTheRoomByReconnecting(t *testing.
 	}
 	// recvStream always subscribes with SkipSelf, so a message this test
 	// wants delivered on recv must come from a different, also-joined
-	// session (docs/spec/atomic-bus.md: "a subscriber does not receive its
-	// own published messages").
+	// session.
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: KindAgent, Session: "sess-other"}); !resp.OK {
 		t.Fatalf("seed join sess-other: %s", resp.Error)
 	}
@@ -2569,9 +2559,8 @@ func TestParseFlags_BoolFlagDoesNotConsumeNextToken(t *testing.T) {
 // --- halt / resume ---
 
 // TestHaltAction_BlocksAgentSend_SayStillSucceeds_ResumeRestores is the
-// action-layer marquee test for the whole checkpoint 5 halt/say asymmetry
-// (docs/spec/atomic-bus.md: "`halt` blocks an agent `send` with exit 7
-// while `say` still succeeds; `resume` restores").
+// action-layer marquee test for the whole checkpoint 5 halt/say
+// asymmetry.
 func TestHaltAction_BlocksAgentSend_SayStillSucceeds_ResumeRestores(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -2775,7 +2764,7 @@ func TestResolveTailRooms_ExplicitRoom_NoPrefix(t *testing.T) {
 }
 
 // TestResolveTailRooms_NoExplicit_ExactlyOneRoom_DefaultsToAllRoomsPrefix
-// pins docs/spec/atomic-bus.md CP5, quoted verbatim: "[--all-rooms] is the
+// pins docs/spec/atomic-bus.md, quoted verbatim: "[--all-rooms] is the
 // default when no room argument is given and exactly one room exists."
 func TestResolveTailRooms_NoExplicit_ExactlyOneRoom_DefaultsToAllRoomsPrefix(t *testing.T) {
 	home := testBusHome(t)
@@ -3188,7 +3177,7 @@ loop:
 	}
 }
 
-// --- who: kind visible in table and --json (docs/spec/atomic-bus.md CP5) ---
+// --- who: kind visible in table and --json (docs/spec/atomic-bus.md) ---
 
 func TestWhoAction_TableOutput_ShowsKind(t *testing.T) {
 	home := testBusHome(t)

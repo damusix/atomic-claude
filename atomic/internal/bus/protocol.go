@@ -11,20 +11,17 @@ import (
 )
 
 // ProtocolVersion gates the client/daemon handshake. A client whose version
-// differs from the running daemon's refuses to proceed (see docs/design/
-// atomic-bus.md, "Resolved open decisions" #2) rather than risk talking a
-// wire format the other side doesn't understand.
+// differs from the running daemon's refuses to proceed rather than risk
+// talking a wire format the other side doesn't understand.
 //
-// Bumped to 2 for the 2026-07-30 "restart is a routine operation" change
-// (docs/spec/atomic-bus.md): OpClose was added to the op list. Six prior
-// wire-shape-changing commits landed against version 1 without ever bumping
-// it — TestProtocolWireShape_GoldenFieldsAndOps (protocol_test.go) is what
-// makes that mistake fail a test instead of silently shipping again.
+// Bump this whenever the wire shape changes. Six such commits once landed
+// against version 1 without a bump; TestProtocolWireShape_GoldenFieldsAndOps
+// is what makes that fail a test instead of shipping silently.
 const ProtocolVersion = 2
 
 // Op names, the contract for what a Request.Op may be. Every op and its
-// request/reply shape is documented in docs/design/atomic-bus.md's wire
-// protocol table. AllOps is the same list as a slice — keep both in sync;
+// request/reply shape is documented in docs/design/atomic-bus.md.
+// AllOps is the same list as a slice — keep both in sync;
 // TestProtocolWireShape_GoldenFieldsAndOps pins AllOps against a golden
 // list, so adding an op here without adding it there fails that test.
 const (
@@ -83,9 +80,8 @@ type Request struct {
 
 	// SkipSelf opts an OpRecv subscription out of receiving envelopes
 	// published by this same Session — the per-subscription flag `recv`
-	// sets and `tail`/`chat` do not (docs/spec/atomic-bus.md: "a subscriber
-	// does not receive its own published messages... tail and chat still
-	// see the complete transcript including their own lines"). Meaningless
+	// sets and `tail`/`chat` do not, since those want the whole transcript
+	// including their own lines. Meaningless
 	// without Session also being set (there is nothing to compare
 	// against), and ignored entirely for OpTail, which never carries an
 	// identity to skip.
@@ -93,8 +89,7 @@ type Request struct {
 
 	// Filters narrows a tail subscription (e.g. "only_addressed", "from").
 	// Kept as a generic map rather than a named type so the render/action
-	// checkpoint that consumes it (docs/spec/atomic-bus.md checkpoint 5)
-	// can add filter keys without another protocol.go amendment.
+	// consumer can add filter keys without another protocol.go amendment.
 	Filters map[string]string `json:"filters,omitempty"`
 }
 
@@ -150,9 +145,8 @@ type Envelope struct {
 	FromKind string `json:"from_kind"`
 
 	// FromRepo and FromRealm are the sender's position at join time
-	// (docs/spec/atomic-bus.md's 2026-07-29 "position-derived member
-	// naming" entry) — stamped server-side from the roster entry Hub.Join
-	// recorded, the same way From/FromKind are, and never read from a
+	// stamped server-side from the roster entry Hub.Join recorded, the same
+	// way From/FromKind are, and never read from a
 	// send/say request. Omitted when empty: a name can be released on
 	// leave and reclaimed by an unrelated session, so these keep a room
 	// log's history unambiguous about which position actually sent a
@@ -190,9 +184,7 @@ type Envelope struct {
 	// dropping a room — the signal recv's reconnect loop (action.go's
 	// recvDeliver) uses to end its stream cleanly instead of reconnecting
 	// to a room the operator explicitly closed, which would otherwise be
-	// indistinguishable from an ordinary dropped connection
-	// (docs/spec/atomic-bus.md's 2026-07-30 "close" entry: "Subscribers'
-	// streams end after they receive that envelope"). Never set on any
+	// indistinguishable from an ordinary dropped connection. Never set on any
 	// other envelope, including Halt/Resume's control envelopes, which
 	// also publish From: systemName — Closing, not the sender identity, is
 	// what disambiguates "stop" from "reconnect".
@@ -258,9 +250,7 @@ type Member struct {
 	Joined  time.Time `json:"joined"`
 
 	// LastSeen is refreshed on any operation this Session performs against
-	// the room (Join, Publish) — the "recent activity" half of staleness
-	// (docs/spec/atomic-bus.md: "Member carries last_seen, refreshed on any
-	// operation from that session and on an open subscription").
+	// the room (Join, Publish) — the "recent activity" half of staleness.
 	LastSeen time.Time `json:"last_seen"`
 
 	// Stale is computed only by Hub.Who (Room.isStale) — never stored, never
@@ -273,8 +263,7 @@ type Member struct {
 	Stale bool `json:"stale"`
 
 	// Repo and Realm are the joining client's own position, resolved once
-	// at join and never revised afterward (docs/spec/atomic-bus.md's
-	// 2026-07-29 "position-derived member naming" entry). Repo is the
+	// at join and never revised afterward. Repo is the
 	// repo-root basename; Realm is the realm-root basename, empty when the
 	// session was not inside a registered realm at join time — empty is
 	// valid and common, never fabricated.
@@ -283,10 +272,7 @@ type Member struct {
 }
 
 // RoomInfo is one room's summary, as reported by `rooms`: its name, how many
-// members currently hold it (docs/spec/atomic-bus.md: "rooms reports a
-// member count per room, in both table and --json form"), and its halt
-// state (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be
-// visible" entry — "rooms" is one of the three surfaces named there).
+// members currently hold it, and its halt state.
 type RoomInfo struct {
 	Name       string `json:"name"`
 	Members    int    `json:"members"`

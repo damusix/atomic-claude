@@ -2,7 +2,7 @@
 // repo discovery, classification, scaffold creation, and idempotent
 // <wiki-scan> block writes.
 //
-// CP1 scope: pure package logic + tests. No CLI wiring, no <wikis> registry,
+// Scope: pure package logic + tests. No CLI wiring, no <wikis> registry,
 // no stale/stamp/mark-dirty/CheckStaleness. Those arrive in later checkpoints.
 package wiki
 
@@ -73,7 +73,7 @@ type Member struct {
 	SummaryPath string
 }
 
-// Scan runs the full CP1 wiki operation: discover repos under root, scaffold
+// Scan runs the full wiki operation: discover repos under root, scaffold
 // wiki/, and write (or update) wiki/index.md with an idempotent <wiki-scan> block.
 // It returns the classified members so callers can use them directly without a
 // second filesystem walk.

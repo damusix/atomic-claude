@@ -1,6 +1,6 @@
 package standalone
 
-// SQL standalone extractor (CP2 — definition nodes).
+// SQL standalone extractor (definition nodes).
 //
 // Produces node kinds: table, view, column, function, procedure, trigger,
 // index, sequence, namespace, enum, enum_member, type_alias, module.
@@ -396,7 +396,7 @@ var bodyApplyRE = regexp.MustCompile(`(?i)\b(?:CROSS|OUTER)\s+APPLY\s+(` + sqlQN
 var bodyFlattenRE = regexp.MustCompile(`(?i)\bFLATTEN\s*\(\s*(?:INPUT\s*=>\s*)?(` + sqlQNameRaw + `)\s*\)`)
 
 // ---------------------------------------------------------------------------
-// CP4: Column-level lineage — alias→table map + qualified column refs
+// Column-level lineage — alias→table map + qualified column refs
 //
 // Gap 4a: qualified "alias.col" references in a routine/view body resolve to
 // the specific column node (e.g. "dbo.acct.id") by building an alias→table
@@ -437,7 +437,7 @@ var bodyFromAliasRE = regexp.MustCompile(
 var bodyQualColRefRE = regexp.MustCompile(
 	`\b([A-Za-z_][A-Za-z0-9_$]*)\.([A-Za-z_][A-Za-z0-9_$]*)`)
 
-// cp4AliasBoundaryKeywords is the CP4-local set of tokens that can immediately
+// cp4AliasBoundaryKeywords is the local set of tokens that can immediately
 // follow a table name in a FROM/JOIN clause but are NOT valid aliases. These are
 // distinct from sqlKeywords (which guards column-name extraction) so we don't
 // accidentally pollute the shared set. Covers every token the regex can capture
@@ -525,7 +525,7 @@ func emitQualifiedColumnRefs(
 }
 
 // ---------------------------------------------------------------------------
-// CP1: T-SQL temp-table and table-variable regexes
+// T-SQL temp-table and table-variable regexes
 //
 // sqlQNameRaw starts with [A-Za-z_] so #/## and @ tokens never match it.
 // These dedicated regexes handle the T-SQL temp-table / table-variable namespace.
@@ -574,7 +574,7 @@ var bodyTempDeleteRE = regexp.MustCompile(`(?i)\bDELETE\s+FROM\s+(` + sqlTempTok
 var bodyTempMergeRE = regexp.MustCompile(`(?i)\bMERGE\s+INTO\s+(` + sqlTempTokenRaw + `)`)
 
 // ---------------------------------------------------------------------------
-// CP2: OUTPUT … INTO <target> lineage
+// OUTPUT … INTO <target> lineage
 //
 // T-SQL OUTPUT clause routes the change-capture rows (inserted.*, deleted.*,
 // $action) into a secondary target table or table variable.  This is a write
@@ -958,7 +958,7 @@ func inMacroSpan(spans []macroSpan, offset int) *macroSpan {
 // SQLExtractor
 // ---------------------------------------------------------------------------
 
-// SQLExtractor extracts SQL definition nodes (CP2: definitions only).
+// SQLExtractor extracts SQL definition nodes (definitions only).
 // No body-level references, no constraints as nodes — those are later CPs.
 type SQLExtractor struct{}
 
@@ -1270,13 +1270,13 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		result.Nodes = append(result.Nodes, colNodes...)
 		result.Edges = append(result.Edges, colEdges...)
 
-		// CP3: Extract constraint nodes from the same table body.
+		// Extract constraint nodes from the same table body.
 		anonCtrs := map[string]int{}
 		conNodes, conEdges := extractConstraints(filePath, stripped, tableBody, tableBodyOff, tableID, name, anonCtrs)
 		result.Nodes = append(result.Nodes, conNodes...)
 		result.Edges = append(result.Edges, conEdges...)
 
-		// CP4: FK → references. Scan the CREATE TABLE body for REFERENCES <target>.
+		// FK → references. Scan the CREATE TABLE body for REFERENCES <target>.
 		// Covers both inline column FKs (col TYPE REFERENCES t) and table-level
 		// FOREIGN KEY (...) REFERENCES t.
 		if tableBodyNoStr != "" {
@@ -1335,7 +1335,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 	// nodes are added by the ALTER loops themselves.
 	tableNodeIDMap := buildTableNodeIDMap(result.Nodes)
 
-	// CP4: ALTER TABLE … FOREIGN KEY … REFERENCES <target> → references.
+	// ALTER TABLE … FOREIGN KEY … REFERENCES <target> → references.
 	for _, m := range alterFKRefRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
 		rawSrcTable := strippedNoStr[m[2]:m[3]]
 		rawTgtTable := strippedNoStr[m[4]:m[5]]
@@ -1475,7 +1475,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 		result.Nodes = append(result.Nodes, node)
 
-		// CP4: view → source table references (FROM/JOIN in view body after AS).
+		// view → source table references (FROM/JOIN in view body after AS).
 		// Find the text after the AS keyword that terminates the CREATE VIEW header.
 		// We scan from the end of the view RE match to a reasonable body window.
 		viewBodyStart := m[1]
@@ -1515,7 +1515,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				sqlRef(filePath, node.ID, tgtName, types.EdgeKindReferences, line))
 		}
 
-		// CP4: emit qualified column references "alias.col" from view body.
+		// emit qualified column references "alias.col" from view body.
 		// Build alias→table map from FROM/JOIN clauses, then scan for prefix.col
 		// patterns. CTE names are excluded (they are computed, not base tables).
 		viewCTEs := extractCTENames(viewBody)
@@ -1550,7 +1550,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 	}
 
-	// CP1: globalTempNodes is shared across all function/procedure scans in this
+	// globalTempNodes is shared across all function/procedure scans in this
 	// file so that ##global temp tables declared in one routine are visible when
 	// another routine references them, and are deduped to a single node.
 	// Populated by scanBodyEdges; collected into result.Nodes after all scans.
@@ -1567,8 +1567,8 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		fnNode := nodeAt(types.NodeKindFunction, schema, name, qname, m[0])
 		result.Nodes = append(result.Nodes, fnNode)
 
-		// CP5: scan function body for reads (references), writes, and calls.
-		// CP1: pass routine name + shared globalTempNodes map for temp-table scoping.
+		// scan function body for reads (references), writes, and calls.
+		// pass routine name + shared globalTempNodes map for temp-table scoping.
 		body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
 		if body != "" {
 			ctes := extractCTENames(body)
@@ -1589,8 +1589,8 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		procNode := nodeAt(types.NodeKindProcedure, schema, name, qname, m[0])
 		result.Nodes = append(result.Nodes, procNode)
 
-		// CP5: scan procedure body for reads (references), writes, and calls.
-		// CP1: pass routine name + shared globalTempNodes map for temp-table scoping.
+		// scan procedure body for reads (references), writes, and calls.
+		// pass routine name + shared globalTempNodes map for temp-table scoping.
 		body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
 		if body != "" {
 			ctes := extractCTENames(body)
@@ -1600,7 +1600,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 	}
 
-	// CP1: collect file-scoped global temp nodes (##x) after all routine scans.
+	// collect file-scoped global temp nodes (##x) after all routine scans.
 	// Each entry was created once (deduped) in globalTempNodes during the scans above.
 	for _, n := range globalTempNodes {
 		result.Nodes = append(result.Nodes, *n)
@@ -1617,7 +1617,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		trgNode := nodeAt(types.NodeKindTrigger, schema, name, qname, m[0])
 		result.Nodes = append(result.Nodes, trgNode)
 
-		// CP4: trigger → ON table (references) + EXECUTE FUNCTION/PROCEDURE fn (calls).
+		// trigger → ON table (references) + EXECUTE FUNCTION/PROCEDURE fn (calls).
 		// Scan from the end of the trigger name match to end-of-statement.
 		stmtText := extractStmtText(strippedNoStr, m[1])
 
@@ -1904,7 +1904,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		node.Metadata = meta
 		result.Nodes = append(result.Nodes, node)
 
-		// CP4: synonym → target references.
+		// synonym → target references.
 		// Group 3 (index 4:5 after two-group name) = FOR <target>
 		if m[4] >= 0 && m[5] >= 0 {
 			rawTgt := strippedNoStr[m[4]:m[5]]
@@ -2262,10 +2262,10 @@ func columnFKRefs(
 //   - table-level: FOREIGN KEY (a[, b]) REFERENCES tgt (x[, y])
 //   - inline:      col TYPE REFERENCES tgt (x)
 //
-// The existing table→table CP4 edge (emitted by the caller via inlineRefRE) is
+// The existing table→table edge (emitted by the caller via inlineRefRE) is
 // untouched — this only adds column-level edges alongside it.
 //
-// bodyNoStr is the comment+string-blanked table body (matches CP4's FK-scan
+// bodyNoStr is the comment+string-blanked table body (matches the FK-scan
 // convention, so a string-literal REFERENCES cannot produce a false edge);
 // bodyOff is its byte offset within stripped, used to compute line numbers.
 // colIDByLowerName maps each lower-cased column name (as extracted by
@@ -2490,7 +2490,7 @@ func anonSuffix(ctype string) string {
 }
 
 // buildConstraintMeta constructs the Metadata JSON for a constraint node.
-// references is the FK target table name (empty if not FK or CP4 not yet active).
+// references is the FK target table name, empty when this is not an FK.
 // columns are the constrained column names, in declaration order.
 func buildConstraintMeta(ctype, references string, columns []string) json.RawMessage {
 	m := map[string]any{"constraint_type": ctype}
@@ -2851,7 +2851,7 @@ func trimToStatementEnd(text string) string {
 }
 
 // ---------------------------------------------------------------------------
-// CP5: Routine body extraction helpers
+// Routine body extraction helpers
 // ---------------------------------------------------------------------------
 
 // routineDollarRE matches the opening dollar-quote tag ($$  or  $tag$) in a
@@ -2946,7 +2946,7 @@ func extractCTENames(body string) map[string]bool {
 // bodyBaseOffset is the byte offset in the original stripped source where
 // body begins (used for accurate line-number calculation).
 //
-// CP1 — T-SQL temp tables and table variables:
+// T-SQL temp tables and table variables:
 //   - routineName is the bare routine name (e.g. "usp_Foo") used to synthesise
 //     per-routine node names for local #tmp / @tvar tokens. Pass "" for contexts
 //     that do not have T-SQL temp declarations (dbt models, view bodies, tasks).
@@ -2992,13 +2992,14 @@ func scanBodyEdges(
 		refs = append(refs, sqlRef(filePath, fromNodeID, name, kind, line))
 	}
 
-	// resolveTempFn is set by the CP1 block below and reused by CP2 (OUTPUT INTO).
+	// resolveTempFn is set by the temp-table pre-scan below and reused by the
+	// OUTPUT INTO scan.
 	// It maps a raw temp token (#x / ##x / @x) to its synthetic name, or returns
 	// ("", false) if the token is undeclared in this routine.  Default no-op so
-	// CP2 silently skips temps when there is no routine context (routineName == "").
+	// The OUTPUT INTO scan silently skips temps with no routine context.
 	resolveTempFn := func(_ string) (string, bool) { return "", false }
 
-	// -- CP1: T-SQL temp table and table-variable declaration pre-scan ----------
+	// -- T-SQL temp table and table-variable declaration pre-scan --------------
 	//
 	// Only emit edges for tokens that are DECLARED in this routine body.
 	// localDecls maps (lower-case token) → synthetic-name; globalDecls maps
@@ -3074,12 +3075,12 @@ func scanBodyEdges(
 			tempNodes = append(tempNodes, node)
 		}
 
-		// -- CP1 temp-token scans (write + reference edges) ----------------------
+		// -- temp-token scans (write + reference edges) -------------------------
 
 		// Helper: resolve a raw temp token to its synthetic or bare name.
 		// Returns ("", false) if the token is not declared in this routine.
-		// Assigned to resolveTempFn so CP2 (OUTPUT INTO) can reuse it after
-		// the CP1 block closes.
+		// Assigned to resolveTempFn so the OUTPUT INTO scan can reuse it
+		// once this block closes.
 		resolveTemp := func(tok string) (string, bool) {
 			lower := strings.ToLower(tok)
 			if strings.HasPrefix(tok, "##") {
@@ -3149,7 +3150,7 @@ func scanBodyEdges(
 		// (Nodes that already existed in globalTempNodes before this call
 		// are not re-added; callers collect the full map after all scans.)
 	}
-	// -- end CP1 -----------------------------------------------------------------
+	// -- end temp-table pre-scan -------------------------------------------------
 
 	// FROM / JOIN → references
 	for _, m := range viewBodyFROMRE.FindAllStringSubmatchIndex(body, -1) {
@@ -3263,7 +3264,7 @@ func scanBodyEdges(
 		}
 	}
 
-	// CP2: OUTPUT … INTO <target> → writes
+	// OUTPUT … INTO <target> → writes
 	//
 	// T-SQL's OUTPUT clause can route the change-capture rows into a secondary
 	// table or table variable: INSERT/UPDATE/DELETE/MERGE … OUTPUT list INTO <target>.
@@ -3271,7 +3272,7 @@ func scanBodyEdges(
 	// to reject cross-statement matches where the lazy [^;]*? skipped a DML keyword.
 	//
 	// Target routing:
-	//   - temp token (#x / ##x / @x): resolved through resolveTempFn (CP1 reuse).
+	//   - temp token (#x / ##x / @x): resolved through resolveTempFn.
 	//     Undeclared tokens produce no edge (silently dropped).
 	//   - real table: parsed via parseQName, same as bodyInsertIntoRE.
 	for _, m := range bodyOutputIntoRE.FindAllStringSubmatchIndex(body, -1) {
@@ -3297,7 +3298,7 @@ func scanBodyEdges(
 		}
 	}
 
-	// CP4: emit qualified column references "alias.col" from the routine body.
+	// emit qualified column references "alias.col" from the routine body.
 	// Build alias→table map from FROM/JOIN clauses (honoring CTE shadow), then
 	// scan for single-dot prefix.col patterns. Table-level FROM/JOIN edges already
 	// emitted above coexist with these column-level edges.

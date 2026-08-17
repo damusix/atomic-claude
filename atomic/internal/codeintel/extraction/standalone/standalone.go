@@ -11,7 +11,7 @@
 //   - MyBatis XML (.xml) — mapper + statement nodes + namespace reference
 //
 // The Registry (For method) maps file extensions to the correct Extractor,
-// for use by the orchestrator (CP10).
+// for use by the orchestrator.
 package standalone
 
 import (

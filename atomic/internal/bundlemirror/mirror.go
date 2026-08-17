@@ -1,4 +1,4 @@
-// Package bundlemirror implements the artifact mirror logic used by cmd/bundle-mirror.
+// Package bundlemirror implements the artifact mirror logic used by internal/tools/bundle-mirror.
 // Separated so it can be tested without the main() entrypoint.
 package bundlemirror
 
@@ -7,16 +7,21 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
-	"github.com/damusix/atomic-claude/atomic/internal/embedded"
+	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"text/template"
 )
 
 // Artifact describes one file in the embedded manifest.
-// Kept for backward compatibility with cmd/bundle-mirror; consumers outside
-// this package should prefer embedded.Artifact.
+//
+// This package deliberately declares its own type rather than reusing
+// embedded.Artifact: internal/embedded carries the go:embed directive for
+// bundle/, so importing it here would make the mirror unbuildable until the
+// very directory the mirror exists to create is already present. Keeping the
+// generator free of that import is what lets a fresh clone bootstrap.
 type Artifact struct {
 	Kind   string
 	Source string // path inside embedded FS, e.g. "bundle/agents/atomic-builder.md"
@@ -25,11 +30,11 @@ type Artifact struct {
 }
 
 // enumeratedArtifact is the internal type returned by enumerate. It carries the
-// embedded.Artifact fields alongside SrcPath (the absolute filesystem source
-// path) and Data (the file bytes already read during enumeration) so that Run
-// can write the artifact without a second os.ReadFile call.
+// Artifact fields alongside SrcPath (the absolute filesystem source path) and
+// Data (the file bytes already read during enumeration) so that Run can write
+// the artifact without a second os.ReadFile call.
 type enumeratedArtifact struct {
-	embedded.Artifact
+	Artifact
 	SrcPath string // absolute path of the source file on disk
 	Data    []byte // file bytes read during enumeration; reused by Run to avoid a second read
 }
@@ -38,12 +43,12 @@ type enumeratedArtifact struct {
 // artifact list without writing anything to disk. Callers outside this package
 // (e.g. manifestcheck) should use this instead of Run when no disk write is
 // needed.
-func Enumerate(repoRoot string) ([]embedded.Artifact, error) {
+func Enumerate(repoRoot string) ([]Artifact, error) {
 	items, err := enumerate(repoRoot)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]embedded.Artifact, len(items))
+	out := make([]Artifact, len(items))
 	for i, it := range items {
 		out[i] = it.Artifact
 	}
@@ -51,11 +56,23 @@ func Enumerate(repoRoot string) ([]embedded.Artifact, error) {
 }
 
 // enumerate is the internal no-write walker shared by Enumerate and Run.
+//
+// Every path is resolved under repoRoot/context/, and every Target is relative
+// to that context root — so the bundle layout, and therefore the install tree
+// under ~/.claude/, is unaffected by where the sources live in the repo.
 func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	var artifacts []enumeratedArtifact
 
+	contextRoot := bundlespec.SourceRoot(repoRoot)
+
+	// One pool for the whole walk; every templated artifact clones from it.
+	partials, err := templaterender.LoadPartials(filepath.Join(contextRoot, templaterender.PartialsDir))
+	if err != nil {
+		return nil, err
+	}
+
 	// agents/atomic-*.md
-	agentsDir := filepath.Join(repoRoot, "agents")
+	agentsDir := filepath.Join(contextRoot, "agents")
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read agents dir: %w", err)
@@ -66,7 +83,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		}
 		src := filepath.Join(agentsDir, e.Name())
 		target := "agents/" + e.Name()
-		a, err := readArtifact(src, target, "agent")
+		a, err := readArtifact(partials, src, target, "agent")
 		if err != nil {
 			return nil, err
 		}
@@ -74,7 +91,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 
 	// skills/atomic-*/** — full directory tree per matching skill.
-	skillsDir := filepath.Join(repoRoot, "skills")
+	skillsDir := filepath.Join(contextRoot, "skills")
 	skillEntries, err := os.ReadDir(skillsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read skills dir: %w", err)
@@ -94,12 +111,12 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 			if d.IsDir() {
 				return nil
 			}
-			rel, err := filepath.Rel(repoRoot, path)
+			rel, err := filepath.Rel(contextRoot, path)
 			if err != nil {
 				return err
 			}
 			target := filepath.ToSlash(rel)
-			a, err := readArtifact(path, target, "skill")
+			a, err := readArtifact(partials, path, target, "skill")
 			if err != nil {
 				return err
 			}
@@ -112,7 +129,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 
 	// output-styles/atomic*.md
-	outputStylesDir := filepath.Join(repoRoot, "output-styles")
+	outputStylesDir := filepath.Join(contextRoot, "output-styles")
 	osEntries, err := os.ReadDir(outputStylesDir)
 	if err != nil {
 		return nil, fmt.Errorf("read output-styles dir: %w", err)
@@ -123,7 +140,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		}
 		src := filepath.Join(outputStylesDir, e.Name())
 		target := "output-styles/" + e.Name()
-		a, err := readArtifact(src, target, "output-style")
+		a, err := readArtifact(partials, src, target, "output-style")
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +148,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 
 	// commands/**/*.md — all markdown files, including subdirectories.
-	commandsDir := filepath.Join(repoRoot, "commands")
+	commandsDir := filepath.Join(contextRoot, "commands")
 	err = filepath.WalkDir(commandsDir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
@@ -139,12 +156,12 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		if d.IsDir() || !bundlespec.MatchesCommand(d.Name()) {
 			return nil
 		}
-		rel, err := filepath.Rel(repoRoot, path)
+		rel, err := filepath.Rel(contextRoot, path)
 		if err != nil {
 			return err
 		}
 		target := filepath.ToSlash(rel)
-		a, err := readArtifact(path, target, "command")
+		a, err := readArtifact(partials, path, target, "command")
 		if err != nil {
 			return err
 		}
@@ -156,7 +173,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 
 	// rules/**/*.md
-	rulesDir := filepath.Join(repoRoot, "rules")
+	rulesDir := filepath.Join(contextRoot, "rules")
 	err = filepath.WalkDir(rulesDir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
@@ -164,12 +181,12 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		if d.IsDir() || !bundlespec.MatchesRule(path) {
 			return nil
 		}
-		rel, err := filepath.Rel(repoRoot, path)
+		rel, err := filepath.Rel(contextRoot, path)
 		if err != nil {
 			return err
 		}
 		target := filepath.ToSlash(rel)
-		a, err := readArtifact(path, target, "rule")
+		a, err := readArtifact(partials, path, target, "rule")
 		if err != nil {
 			return err
 		}
@@ -181,8 +198,8 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 
 	// CLAUDE.md
-	claudeMdSrc := filepath.Join(repoRoot, "CLAUDE.md")
-	a, err := readArtifact(claudeMdSrc, "CLAUDE.md", "claude-md")
+	claudeMdSrc := filepath.Join(contextRoot, "CLAUDE.md")
+	a, err := readArtifact(partials, claudeMdSrc, "CLAUDE.md", "claude-md")
 	if err != nil {
 		return nil, err
 	}
@@ -199,16 +216,33 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	return artifacts, nil
 }
 
-// readArtifact reads src once, computes its SHA256, and returns an enumeratedArtifact
-// without writing anything to disk. The bytes are retained in Data so Run can
-// write them without a second os.ReadFile.
-func readArtifact(src, target, kind string) (enumeratedArtifact, error) {
+// expandedKinds are the artifact kinds whose sources may compose a shared
+// partial. Everything else is copied through byte-for-byte: a skill or rule has
+// never been templated, and running one through the engine would treat a
+// literal {{ in its prose as a directive.
+var expandedKinds = map[string]bool{"command": true, "agent": true}
+
+// readArtifact reads src once, expands it if its kind is templated, computes
+// the SHA256 of the result, and returns an enumeratedArtifact without writing
+// anything to disk. The bytes are retained in Data so Run can write them
+// without a second os.ReadFile.
+//
+// The SHA is taken over the expanded bytes because that is what installs; a
+// parity check comparing sources to the manifest has to agree with the file a
+// user ends up with.
+func readArtifact(partials *template.Template, src, target, kind string) (enumeratedArtifact, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return enumeratedArtifact{}, fmt.Errorf("read %s: %w", src, err)
 	}
+	if expandedKinds[kind] {
+		data, err = templaterender.Expand(partials, filepath.Base(src), data)
+		if err != nil {
+			return enumeratedArtifact{}, err
+		}
+	}
 	return enumeratedArtifact{
-		Artifact: embedded.Artifact{
+		Artifact: Artifact{
 			Kind:   kind,
 			Source: "bundle/" + target,
 			Target: target,

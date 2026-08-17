@@ -1,4 +1,4 @@
-// graph.go — link graph model for CP4.
+// graph.go — link graph model.
 //
 // BuildLinkGraph walks all *.md files under the realm root, calls
 // mdlink.ExtractLinks on each, resolves wikilinks using the

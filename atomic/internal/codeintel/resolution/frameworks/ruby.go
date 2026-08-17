@@ -1,4 +1,4 @@
-// Package frameworks — Ruby framework resolver (CP15 batch E, R2 DSL expansion).
+// Package frameworks — Ruby framework resolver (batch E, R2 DSL expansion).
 //
 // This file implements one FrameworkResolver + FrameworkExtractor pair for
 // Ruby on Rails.

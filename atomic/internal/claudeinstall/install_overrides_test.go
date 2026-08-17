@@ -1,6 +1,6 @@
 package claudeinstall_test
 
-// Tests for CP4: install-time agent model-tier frontmatter patching.
+// Tests for install-time agent model-tier frontmatter patching.
 // Each test is independent (uses t.TempDir) and suppresses TTY-gated seams.
 
 import (
@@ -40,7 +40,8 @@ func suppressPrune(t *testing.T) {
 func suppressProfileRefresh(t *testing.T) {
 	t.Helper()
 	claudeinstall.ProfileRefresh = func(_, _ string, _ int) (bool, error) { return false, nil }
-	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+	prevProfileRefresh := claudeinstall.ProfileRefresh
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = prevProfileRefresh })
 }
 
 // TestAgentModelOverride_FreshInstall: install with [claude.agents] override → installed
@@ -273,7 +274,7 @@ func TestAgentModelOverride_NonAgentUnchanged(t *testing.T) {
 // TestAgentModelOverride_DiffMatchesAfterInstall: after installing with an
 // [claude.agents] tier override, Diff must report DiffMatch for the overridden agent —
 // it has to compare against the patched embedded content, not the raw bundle
-// bytes, or a correct install falsely shows as drifted (issue #129).
+// bytes, or a correct install falsely shows as drifted.
 func TestAgentModelOverride_DiffMatchesAfterInstall(t *testing.T) {
 	target := t.TempDir()
 	suppressProfileRefresh(t)

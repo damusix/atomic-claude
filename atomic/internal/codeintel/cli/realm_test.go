@@ -1,6 +1,6 @@
 package cli_test
 
-// realm_test.go — CP3 tests for realm fan-out in `atomic code` verbs.
+// realm_test.go — tests for realm fan-out in `atomic code` verbs.
 //
 // Tests cover:
 //   1. ScopeRepo: RunCode with a local index falls through unchanged (SC 2)

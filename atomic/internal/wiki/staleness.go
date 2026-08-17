@@ -1,6 +1,6 @@
 package wiki
 
-// staleness.go — CP5: CheckStaleness + MarkDirty + ReadWikiIndexPaths.
+// staleness.go — CheckStaleness + MarkDirty + ReadWikiIndexPaths.
 //
 // CheckStaleness reads the <wikis> block from <claudeHome>/CLAUDE.md, and for
 // each registered wiki index reads the <wiki-scan> generated date and stats the

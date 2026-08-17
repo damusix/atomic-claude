@@ -1,10 +1,10 @@
-// Package resolution implements the import resolver (CP11) for the
+// Package resolution implements the import resolver for the
 // code-intelligence engine.
 //
-// # Scope (CP11 only)
+// # Scope (only)
 //
 // This package resolves import-kind UnresolvedReferences into target node IDs.
-// Edge creation and persistence are CP13's responsibility — this package only
+// Edge creation and persistence are responsibility — this package only
 // returns a ResolvedImport describing what the target is.
 //
 // # Resolution strategy

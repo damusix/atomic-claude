@@ -1,6 +1,6 @@
 package codectx_test
 
-// Tests for the codectx package (master CP19).
+// Tests for the codectx package (master).
 //
 // Fixture structure (built via db CRUD):
 //

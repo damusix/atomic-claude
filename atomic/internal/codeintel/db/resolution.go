@@ -1,7 +1,7 @@
 package db
 
 // resolution.go adds the CRUD methods required by the resolution package
-// (CP11–CP16). These are kept in a separate file from crud.go to avoid
+// (–). These are kept in a separate file from crud.go to avoid
 // growing that file indefinitely as more engine layers come online.
 
 import (
@@ -41,7 +41,7 @@ func (d *DB) InsertUnresolvedRef(ctx context.Context, r types.UnresolvedReferenc
 
 // GetUnresolvedRefs returns up to limit unresolved_refs rows starting at
 // offset. Passing limit=0 returns all rows.  The re-read-at-offset-0 loop
-// in resolveAndPersistBatched (CP13) always passes offset=0 after deleting
+// in resolveAndPersistBatched always passes offset=0 after deleting
 // a batch — this signature supports that pattern.
 func (d *DB) GetUnresolvedRefs(ctx context.Context, limit, offset int) ([]types.UnresolvedReference, error) {
 	var q string
@@ -64,7 +64,7 @@ func (d *DB) GetUnresolvedRefs(ctx context.Context, limit, offset int) ([]types.
 // GetUnresolvedRefsAfter returns up to limit unresolved_refs rows whose id sorts
 // strictly after afterID, in id order. Passing afterID="" starts from the
 // beginning. This is the keyset-pagination primitive used by
-// ResolveAndPersistBatched (CP13): it advances by the last id seen rather than a
+// ResolveAndPersistBatched: it advances by the last id seen rather than a
 // numeric offset, so refs left behind unresolved (intentionally not deleted)
 // never stall the scan and every ref is visited exactly once.
 func (d *DB) GetUnresolvedRefsAfter(ctx context.Context, afterID string, limit int) ([]types.UnresolvedReference, error) {
@@ -107,7 +107,7 @@ func (d *DB) DeleteUnresolvedRef(ctx context.Context, id string) error {
 
 // DeleteUnresolvedRefsByIDs deletes the unresolved_refs with the given ids.
 // The IN (...) clause is chunked to SQLITE_PARAM_CHUNK_SIZE (appendix O).
-// This is the bulk-delete primitive used by resolveAndPersistBatched (CP13)
+// This is the bulk-delete primitive used by resolveAndPersistBatched
 // after a batch resolves: delete the ids that resolved, re-read from offset 0.
 func (d *DB) DeleteUnresolvedRefsByIDs(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
@@ -179,7 +179,7 @@ func collectUnresolvedRefs(rows *sql.Rows) ([]types.UnresolvedReference, error) 
 }
 
 // ---------------------------------------------------------------------------
-// GetNodesByName — name-based lookup (used by CP11 re-export chain + CP12)
+// GetNodesByName — name-based lookup (used by re-export chain +)
 // ---------------------------------------------------------------------------
 
 // GetNodesByName returns all nodes whose name (case-insensitive) matches the
@@ -244,7 +244,7 @@ func (d *DB) GetFileByPath(ctx context.Context, path string) (*types.FileRecord,
 }
 
 // ---------------------------------------------------------------------------
-// Tx extensions for resolution (CP13)
+// Tx extensions for resolution
 // ---------------------------------------------------------------------------
 
 // InsertUnresolvedRef inserts one unresolved_ref row within a transaction.

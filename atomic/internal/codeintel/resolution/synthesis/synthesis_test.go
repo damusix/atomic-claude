@@ -1,6 +1,6 @@
 package synthesis_test
 
-// CP16 synthesis infrastructure + batch-1 synthesizer tests.
+// synthesis infrastructure + batch-1 synthesizer tests.
 //
 // # Why these tests are the spec gate
 //

@@ -1,8 +1,8 @@
 package serve_test
 
-// livereload_handler_test.go — CP2 (live-reload): handler migration tests.
+// livereload_handler_test.go — live-reload: handler migration tests.
 //
-// CP1 built the shared snapshotStore; CP2 wires nav, page, rail, and
+// built the shared snapshotStore; wires nav, page, rail, and
 // graph-data to read through it (retiring the startup-frozen BuildLinkGraph
 // singleton and the per-request nav walk). These tests exercise that wiring
 // through real HTTP round-trips against the full production server

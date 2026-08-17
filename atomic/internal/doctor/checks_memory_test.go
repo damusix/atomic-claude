@@ -40,7 +40,7 @@ func TestProjectMemoryDirDerivation(t *testing.T) {
 		// Matches Claude Code's real dir name for ~/.claude (-Users-alonso--claude).
 		{"/Users/alonso/.claude", "-Users-alonso--claude"},
 		{"/Users/alonso/projects/pi-os/.worktrees/x", "-Users-alonso-projects-pi-os--worktrees-x"},
-		// Windows path (issue #43): drive colon and backslashes slugify too, with
+		// Windows path: drive colon and backslashes slugify too, with
 		// no stray leading "-". C:\...\vibe-core → C--Users-...-vibe-core.
 		{`C:\Users\master-user\Documents\Projects\vibe0\vibe-core`, "C--Users-master-user-Documents-Projects-vibe0-vibe-core"},
 	}

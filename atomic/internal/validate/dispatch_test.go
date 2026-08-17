@@ -30,13 +30,14 @@ func buildMinimalRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 
+	// Artifact dirs live under context/; docs/ does not ship and stays at root.
 	dirs := []string{
 		"docs/spec",
-		"agents",
-		"commands",
-		"skills",
-		"output-styles",
-		"rules",
+		"context/agents",
+		"context/commands",
+		"context/skills",
+		"context/output-styles",
+		"context/rules",
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
@@ -71,7 +72,7 @@ func buildMinimalRepo(t *testing.T) string {
 
 Minimal config for test.
 `
-	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte(claudeMD), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "context", "CLAUDE.md"), []byte(claudeMD), 0o644); err != nil {
 		t.Fatalf("write CLAUDE.md: %v", err)
 	}
 

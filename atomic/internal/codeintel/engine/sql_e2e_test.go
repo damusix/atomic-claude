@@ -1,7 +1,7 @@
 package engine_test
 
 // End-to-end test: index a multi-dialect SQL file and verify SQL nodes land in DB.
-// This is the CP2 + CP3 verification gate — it proves the full pipeline:
+// This is the verification gate — it proves the full pipeline:
 //   extractor → orchestrator → DB → query.
 
 import (
@@ -16,10 +16,10 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// CP4 e2e fixture: cross-object reference edges
+// e2e fixture: cross-object reference edges
 // ---------------------------------------------------------------------------
 
-// sqlCP4Fixture defines a schema exercising every CP4 edge class:
+// sqlCP4Fixture defines a schema exercising every edge class:
 //   - FK inline REFERENCES (orders → customers)
 //   - view FROM (active_orders → orders)
 //   - trigger ON table (trg_orders → orders) + EXECUTE FUNCTION (trg_orders → audit_fn)
@@ -57,7 +57,7 @@ CREATE POLICY row_policy ON orders
 USING (current_user_fn() = customer_id);
 `
 
-// TestSQLEdgesEndToEnd is the CP4 gate: it indexes sqlCP4Fixture, resolves
+// TestSQLEdgesEndToEnd is the gate: it indexes sqlCP4Fixture, resolves
 // all references, then asserts each expected edge is present in the DB.
 func TestSQLEdgesEndToEnd(t *testing.T) {
 	root := t.TempDir()
@@ -154,7 +154,7 @@ func TestSQLEdgesEndToEnd(t *testing.T) {
 		t.Fatal("policy 'row_policy' not found in DB")
 	}
 
-	// Assert CP4 edges.
+	// Assert edges.
 	// FK: orders -[references]-> customers (inline REFERENCES in CREATE TABLE)
 	assertEdge(ordersNode, types.EdgeKindReferences, "customers")
 
@@ -187,7 +187,7 @@ func summarizeEdges(edges []types.Edge) []string {
 }
 
 // ---------------------------------------------------------------------------
-// CP5 e2e fixture: writes-vs-reads distinction
+// e2e fixture: writes-vs-reads distinction
 // ---------------------------------------------------------------------------
 
 // sqlCP5Fixture defines a procedure that:
@@ -241,7 +241,7 @@ END;
 $$;
 `
 
-// TestSQLWritesVsReadsEndToEnd is the CP5 gate: it indexes sqlCP5Fixture,
+// TestSQLWritesVsReadsEndToEnd is the gate: it indexes sqlCP5Fixture,
 // resolves all references, then asserts writes and references are DISTINCT
 // resolved edges and GetIncomingEdges on a written table surfaces the writer.
 func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
@@ -380,15 +380,15 @@ func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CP6 regression: ALTER TABLE ONLY … FOREIGN KEY … REFERENCES schema.target
+// regression: ALTER TABLE ONLY … FOREIGN KEY … REFERENCES schema.target
 // ---------------------------------------------------------------------------
 
-// sqlCP6Fixture exercises the real-repo FK shape that CP4's inline fixture did
+// sqlCP6Fixture exercises the real-repo FK shape that inline fixture did
 // NOT cover: schema-qualified ALTER TABLE ONLY … ADD CONSTRAINT … FOREIGN KEY
 // … REFERENCES schema.target.  This is the exact pattern emitted by pg_dump
 // for every Northwind / Chinook / pagila FK.
 //
-// Root cause (fixed by CP6 r1): the original alterFKRefRE used modPat which
+// Root cause (fixed by r1): the original alterFKRefRE used modPat which
 // did NOT include (?:ONLY\s+)?. pg_dump emits "ALTER TABLE ONLY <table>",
 // causing the capture group for the table name to capture the literal "ONLY",
 // making findNodeID return "" and silently dropping the FK reference.
@@ -413,7 +413,7 @@ ALTER TABLE ONLY public.orders
     ADD CONSTRAINT fk_orders_employees FOREIGN KEY (employee_id) REFERENCES public.employees;
 `
 
-// TestSQLCP6AlterTableFKResolution is the CP6 regression gate.
+// TestSQLCP6AlterTableFKResolution is the regression gate.
 // It verifies that schema-qualified ALTER TABLE ONLY … FOREIGN KEY … REFERENCES
 // schema.target produces resolved "references" edges between the tables.
 //
@@ -601,7 +601,7 @@ func TestSQLEndToEnd(t *testing.T) {
 		{types.NodeKindTypeAlias, "PriceType"}, // CREATE TYPE … FROM
 		{types.NodeKindTypeAlias, "Prod"},      // SYNONYM
 		{types.NodeKindModule, "SalesDB"},
-		// CP3: constraint node — named CONSTRAINT in the Products T-SQL table body.
+		// constraint node — named CONSTRAINT in the Products T-SQL table body.
 		{types.NodeKindConstraint, "PK_Products"},
 	}
 

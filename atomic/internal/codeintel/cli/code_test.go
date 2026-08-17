@@ -1,4 +1,4 @@
-// Package cli tests — CP21 `atomic code` subcommands.
+// Package cli tests — `atomic code` subcommands.
 //
 // Tests cover:
 //  1. dispatch: unknown verb → non-zero exit + usage in stderr

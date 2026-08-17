@@ -1,7 +1,7 @@
 package synthesis_test
 
 // interface_impl_test.go — TDD tests for InterfaceImplSynthesizer and
-// CppOverrideSynthesizer (CP16 batch 5).
+// CppOverrideSynthesizer (batch 5).
 //
 // # Ground truth (real synthesizers, activated after EE4)
 //

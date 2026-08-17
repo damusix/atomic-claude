@@ -1,0 +1,273 @@
+---
+description: Orchestrate implement→review subagent loop until task complete. Reads the approved spec, writes a thin brief to .claude/.scratchpad/, dispatches fresh-context subagents, loops until reviewer signs off, commits per green iteration, then updates repo docs.
+---
+
+You are the **orchestrator**. The user has given you a task. You will NOT implement it yourself. You drive a loop of fresh-context subagents until the task is done, then update documentation.
+
+<workflow>
+
+## Phase 0 — Understand
+
+1. Read the user's task. If anything is genuinely ambiguous and would block work, ask consolidated questions. Otherwise proceed.
+2. **Dispatch `atomic-investigator` first** to locate the relevant surface area — files, call sites, existing tests, conventions. Haiku-backed and read-only, so it's cheap. Pass a focused brief (e.g. `Map src/auth/. Find: token generation, validation, refresh. Report file:line table.`). When a code-intel index is warm, tell the investigator to lead with `atomic code explore "<surface-area query>"` (one shot returns the relevant symbols, files, and relationships) before targeted verbs or `sg`/`grep` — it carries the `agent-code-intel` partial, but the brief should name the area to explore. Use its `file:line — what` table as your scoping evidence — do NOT duplicate the search yourself in the main context. The investigator's job is to spend Haiku tokens so Sonnet builder/reviewer dispatches start with a precise target.
+3. Read only the files the investigator flagged that you need to make scoping decisions (spec gate, agent choice, iteration breakdown). Do NOT start implementing.
+
+Skip the investigator only when the task names exact files and there's nothing to locate (e.g. "fix the typo in README.md line 42"). When in doubt, dispatch it — its cost is trivial compared to a misaimed builder.
+
+## Spec gate
+
+Derive the topic slug from the task: short kebab-case (e.g. `oauth-refresh`, `user-search-perf`).
+
+Check for `docs/spec/<topic>.md`:
+
+- **Spec exists** → use it as the canonical brief source. Skip to the Worktree gate.
+- **No spec, task is <30 min of obvious work** → proceed inline. State the assumption: `no spec; proceeding inline because task is small/obvious.` Skip to the Worktree gate.
+- **No spec, task is non-trivial** → refuse. Tell user: `Run /atomic-plan first. I need an approved spec at docs/spec/<topic>.md before launching the implementation loop.` Stop.
+
+Bar for "non-trivial": touches ≥3 files, introduces new architectural patterns, or has any ambiguity about success criteria. When in doubt, require the spec.
+
+**Currency gate — the spec body must reflect the current decision before any dispatch.** Subagents read the spec body verbatim as ground truth (the `BRIEF.md` points them straight at it), so stale content makes them build the wrong thing. If a decision in this conversation has superseded any part of the spec — a cut feature, a changed checkpoint, a dropped success criterion — **update the spec body first** (rewrite the affected sections, log the change per the `CLAUDE.md` spec rule), then build the brief from the corrected spec. Never paper over a superseded spec section with brief wording; fix the source. Test before dispatching: could a fresh subagent reading only the spec body build something a later decision already cut? If yes, fix the spec, not the brief.
+
+## Worktree gate
+
+{{ template "worktree-setup" . }}
+
+For tasks classified as obviously small in the Spec gate, skip the worktree question entirely.
+
+## Code-intel index lifecycle
+
+Before writing the brief, ensure the code-intel index is fresh so subagents can query the dependency graph during this task.
+
+Check whether the index DB exists:
+
+```bash
+test -f .claude/.atomic-index/atomic.db
+```
+
+- **Warm (DB exists):** run `atomic code sync` to bring the index up to date with the current working tree. Skip silently if `atomic` is absent or errors.
+- **Cold (no DB):** run `atomic code index` directly — do **not** prompt. Indexing is cheap, idempotent, and harmless, so assume the user wants it. Print a one-line "Building code index (first run may take seconds to a few minutes)…" notice first, then run. If `atomic` is absent or indexing errors, proceed without the index — subagents degrade to sg/grep automatically.
+
+The index lifecycle is orchestrator-owned. Subagents never trigger indexing. A missing index never blocks the loop.
+
+## Phase 1 — Write brief to `$SCRATCH`
+
+Pick the working dir: `.claude/.scratchpad/<YYYY-MM-DD>-<topic>/`. Use today's date.
+
+```bash
+command -v atomic >/dev/null 2>&1 && atomic repo init >/dev/null
+SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-<topic>"
+mkdir -p "$SCRATCH"
+```
+
+Run `atomic repo init` first if the `atomic` binary is present — it guarantees the `.claude/` layout and ignore rules (scratchpad + project dirs, nested `.claude/.gitignore`); skip silently otherwise.
+
+Write two files inside `$SCRATCH`:
+
+### `$SCRATCH/BRIEF.md`
+
+Thin orchestrator-curated brief. Seed from the embedded template — `atomic template brief > "$SCRATCH/BRIEF.md"` — then fill every `<angle-bracket>` placeholder and delete the guidance comment.
+
+Refreshed each iteration — overwrite, don't append.
+
+### `$SCRATCH/STATE.md`
+
+Append-only iteration log. Seed from `atomic template state`. Before writing the first entry, capture `git rev-parse HEAD` and record it as the loop base SHA — the from-sha for the range-scoped signals refresh at finalize. Append one `## Iteration N` entry per cycle; never rewrite prior entries.
+
+### `$SCRATCH/FOLLOWUPS.md`
+
+Ledger of non-blocking reviewer findings (🟡 risk / 🔵 nit / ❓ question) — anything that didn't block the iteration's PASS but is worth a deliberate decision before final ship. Append after every reviewer pass that returns findings; do NOT discard them just because the verdict was PASS.
+
+Initialize on first iteration from `atomic template followups`.
+
+Numbering is sequential across all severities (F-1, F-2, F-3...). When a follow-up gets closed in a later iteration, mark `*(closed iter N — <commit-sha>)*` next to its title and keep the entry for traceability — don't delete it.
+
+That's it. No GOAL.md, no CONTEXT.md, no PLAN.md — the spec at `docs/spec/<topic>.md` IS those. The scratchpad is a thin handoff plus a deliberate-decision ledger, not a duplicate.
+
+## Phase 2 — Implement → Review → Commit loop
+
+Repeat until reviewer signs off or a stop condition fires. Two stop conditions:
+
+- **Stuck-fix escalation** (Step C): after 2 consecutive `CHANGES_REQUESTED` rounds on the same blocking signal → surface `/pressure-test` and `atomic-strategist` RCA options; wait for user choice before looping.
+- **6-iteration soft-stop**: at 6 iterations regardless of signal state → ask user before continuing.
+
+### Step A — Dispatch implementer (fresh context)
+
+Pick the agent based on iteration scope:
+
+- **`atomic-implementer (mode: surgical)`** when scope touches ≤2 files and is mechanically obvious (typo, single-fn rewrite, rename, single-callsite fix).
+- **`atomic-implementer (mode: feature)`** for feature checkpoints — one cohesive slice, however many files.
+- **`general-purpose`** as fallback if neither fits.
+
+Build the implementer prompt by running `atomic prompt implementer` and substituting:
+
+| Placeholder | Value |
+|-------------|-------|
+| `{SCRATCH_PATH}` | absolute path to `$SCRATCH` |
+| `{SPEC_PATH}` | absolute path to `docs/spec/<topic>.md` (or `"no spec — inline brief in BRIEF.md"`) |
+| `{ITERATION_SCOPE}` | this iteration's scope from BRIEF |
+| `{REVIEWER_FEEDBACK}` | findings from STATE.md (or `"N/A — first iteration"`) |
+| `{BASE_SHA}` | current HEAD SHA before this iteration |
+
+Dispatch via `Agent` tool with `subagent_type: "atomic-implementer"` and include `mode: feature` or `mode: surgical` in the prompt.
+
+### Step B — Dispatch reviewer (fresh context)
+
+Use `subagent_type: "atomic-reviewer"`.
+
+Build the reviewer prompt by running `atomic prompt reviewer` and substituting:
+
+| Placeholder | Value |
+|-------------|-------|
+| `{SCRATCH_PATH}` | absolute path to `$SCRATCH` |
+| `{SPEC_PATH}` | absolute path to `docs/spec/<topic>.md` |
+| `{BASE_SHA}` | HEAD before this iteration |
+| `{HEAD_SHA}` | current HEAD after implementer's work |
+
+### Step C — Orchestrator triages
+
+- Parse reviewer's verdict line: `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
+- Update `STATE.md` with iteration number, implementer summary, reviewer findings, next-iteration focus.
+- **Harvest non-blocking findings** (🟡 / 🔵 / ❓ that the reviewer let through to PASS, or anything in CHANGES_REQUESTED's set that the next iteration is NOT going to address) into `FOLLOWUPS.md` as new `F-N` entries. Cite `path:line`, severity emoji, problem, suggested fix, origin iteration. Don't drop them; they exist for a reason and the user reviews the ledger before ship.
+- If implementer reported `BLOCKED` or `NEEDS_CONTEXT` → stop loop and surface to user.
+- If `PASS` → continue to Step D.
+- If `CHANGES_REQUESTED` → run the stuck-fix check below before looping.
+
+**Stuck-fix escalation (loop default — fires automatically when the condition is met).**
+
+After each `CHANGES_REQUESTED`, compare the current iteration's blocking signal (the primary 🔴 finding or the dominant failing criterion) against the prior iteration's blocking signal recorded in `STATE.md`. A signal is "unchanged" when the same criterion, test, or finding category appears in both `STATE.md` entries — it does not need to be a verbatim string match. What matters is the underlying root cause, not the surface wording: if the same root failure persists across rounds even when the reviewer leads with a different 🔴 or phrases it differently, treat the signal as unchanged. If two consecutive `CHANGES_REQUESTED` rounds carry the same unchanged blocking signal on the same checkpoint:
+
+1. **Surface the escalation block** to the user before looping again. Print exactly this block (substituting the topic slug):
+
+    ```
+    STUCK: 2 rounds on the same failing signal without progress.
+
+    Before another wrap-and-retry iteration, consider escalating to root-cause analysis:
+
+    Option A — pressure-test the spec:
+      /pressure-test @docs/spec/<topic>.md
+
+    Option B — dispatch atomic-strategist (high effort, read-only) for cross-cutting RCA:
+      "Dispatch atomic-strategist: review STATE.md and the last two reviewer verdicts.
+       Identify why the same signal keeps failing and whether the spec or approach needs revision."
+
+    Option C — continue the loop anyway:
+      Type "continue" to run another iteration without escalating.
+
+    These are offers, not gates.
+    ```
+
+2. **Wait for user input** via `AskUserQuestion` with three choices: `continue loop`, `run /pressure-test`, `dispatch atomic-strategist`.
+3. **Never auto-dispatch** `atomic-strategist` or auto-invoke `/pressure-test` — both are user-driven (axiom 3: expensive; the user opts in). The orchestrator surfaces the block and waits.
+4. After user chooses, record the choice in `STATE.md` under the current iteration's `Decisions:` line.
+5. If the user chooses `continue loop` → loop back to Step A as normal.
+6. If the user chooses `dispatch atomic-strategist` → dispatch `atomic-strategist` (read-only) with a prompt summarizing the task context, the repeated signal, and the last two iteration findings from `STATE.md`. Incorporate any strategic recommendation into the next `BRIEF.md` before looping. The strategist dispatch does NOT consume a loop iteration — it is a diagnosis step.
+
+This check is **reset** when the blocking signal changes (a different finding category blocks, or the checkpoint advances). It fires again only if the new signal stalls for two rounds.
+
+**6-iteration soft-stop.** When the iteration count reaches 6 (regardless of stuck status), pause and ask the user before continuing — use the same `AskUserQuestion` mechanic. The stuck escalation and the 6-iteration soft-stop are complementary: stuck fires early on repeated signals; the soft-stop is the outer bound. If the stuck escalation has already fired and the user chose to continue, that counts toward the 6-iteration total.
+
+After the stuck check (or if the signal changed and no escalation fires), loop back to Step A with the blocking findings (🔴, plus any 🟡 the orchestrator chooses to address now) as the implementer's focus. Anything not addressed next iteration stays in `FOLLOWUPS.md`.
+
+### Step D — Commit the green iteration
+
+After each PASS, commit before the next iteration:
+
+1. Invoke `atomic-git-discipline` skill for message format.
+2. Stage only the files the implementer touched (explicit paths from the implementer's `## Did` section). No `-A`.
+3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
+4. Record the commit SHA in STATE.md under the iteration's `Commit:` line.
+5. If the code-intel index exists (`.claude/.atomic-index/atomic.db`), run `atomic code sync` so the next iteration's reviewer queries the just-committed working-tree state. Skip silently if absent or errors — a failed sync never blocks the next iteration.
+
+Skip Step D only if the iteration produced zero behavior change (pure investigation, no diff). State that explicitly in STATE.md.
+
+This makes each iteration bisectable. The next iteration's reviewer diffs against the prior commit, not the merge base — cleaner reviews, easier rollback if something goes wrong later.
+
+## Phase 3 — Finalize
+
+Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
+
+1. Run the full test/typecheck/lint/build suite yourself (orchestrator) to confirm green. Do NOT trust subagent claims at the finish line — invoke the `atomic-verify` skill here, which is exactly this gate. When the change touched `docs/spec/**`, `docs/design/**`, or bundled artifacts, also run `atomic validate spec` and `atomic validate config` as part of this verification (skip silently if `atomic` is not on PATH).
+2. **Surface `FOLLOWUPS.md` to the user.** Read it, list every open `F-N` entry, and ask the user what to do with each. Four dispositions:
+
+    - **`fix-now`** — run another iteration to address it.
+    - **`defer`** — promote to a project-level entry under `.claude/project/followups/<id>.md` (committed, durable, auto-loaded into future sessions via the regenerated `INDEX.md`). The entry survives scratchpad deletion. Optionally chain to `/remind-me <duration> <text>` so the user gets surfaced via `/follow-up` later.
+    - **`issue`** — file as a tracked GitHub issue via `/report-issue`.
+    - **`drop`** — discard. State the reason in the implementation log so the audit trail explains why it wasn't worth keeping.
+
+    Don't auto-decide; this is the deliberate-decision gate the ledger exists for.
+
+    **`defer` mechanics.** When promoting an F-N entry to project-level via `atomic followups add`:
+
+    1. Compute args from the FOLLOWUPS.md entry:
+       - `--id` = `<topic-slug>-F-<N>` (topic-slug from the spec/design file path; N from existing count in `.claude/project/followups/`)
+       - `--title` = short one-line description from the F-N header
+       - `--severity` = `risk` | `nit` | `question` (map from 🟡/🔵/❓)
+       - `--origin` = `"docs/spec/<topic>.md, iter <N> reviewer (CP-<X>)"`
+       - `--file` = `<path:line>` from the entry (optional)
+    2. Pipe the entry body to `atomic followups add` via stdin:
+
+        ```bash
+        printf '%s' "<entry body text>" | atomic followups add \
+            --id "<topic-slug>-F-<N>" \
+            --title "<short title>" \
+            --severity <risk|nit|question> \
+            --origin "<origin>" \
+            --file "<path:line>" \
+            --body -
+        ```
+
+       `atomic followups add` validates the id, writes `.claude/project/followups/<id>.md` with correct frontmatter, and regenerates `INDEX.md`. No LLM-authored frontmatter — the command owns that surface.
+    3. On exit 1 from `atomic followups add` (e.g. duplicate id): surface the error to the user and prompt for a different id suffix. Retry once. If still failing, fall back to asking the user to run `atomic followups add` manually with a chosen id.
+    4. Stage and commit:
+
+        ```bash
+        git add .claude/project/followups/<id>.md .claude/project/followups/INDEX.md
+        git commit -m "docs(followups): defer <id>"
+        ```
+3. **Write an implementation log to the spec.** Append (or create) an `## Implementation log` section at the END of `docs/spec/<topic>.md`, using `atomic template implementation-log` as the structural contract — copy the emitted section skeleton, fill every `<angle-bracket>` placeholder, delete the guidance comment. This is the durable record someone reads in 6 months when they ask "what did we ship?", "where did this come from?", or "what's still open?".
+
+    Pull commit SHAs from `STATE.md`. Pull out-of-scope and unforeseens from `STATE.md` decision lines and from any iteration where the implementer's report flagged scope drift or surprise. Pull deferred items from `FOLLOWUPS.md`'s Queued section and the user's disposition answers from step 2. Keep entries tight — one line each. The log is a navigation aid, not a narrative.
+
+    If the spec is dead (e.g. user decided not to ship the feature), still write the log with the status as `abandoned — <date>` and one line on why.
+
+4. Update repo documentation by invoking `/documentation` — it handles `README.md`, `CLAUDE.md`, `docs/spec/`, `docs/design/`.
+5. **Audit the finished work.** Dispatch `atomic-auditor` once, after docs are written and before the signals refresh. It is read-only and runs in a fresh context, so pass it everything: `spec: docs/spec/<topic>.md`, `range: <loop-base>..HEAD`, `state: $SCRATCH/STATE.md`, and the `## Documentation surfaces` table if the project has one.
+
+    It gates what per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, commit types that misstate user-visible impact, and documentation that is current but says nothing.
+
+    `VERDICT: PASS` → continue. `VERDICT: CHANGES_REQUESTED` → run **one** more implementer/reviewer iteration against its findings, then continue regardless of what a second audit would say. **Dispatch the auditor exactly once per task.** Re-auditing after the fix turns finalize into an unbounded loop, which is fatal under `/autopilot`.
+
+6. **Refresh signals for the loop's range.** This runs once at finalize over the whole task range, not per-iteration. Range: from the `Loop base SHA` recorded in `STATE.md` to the current HEAD (after docs commits).
+
+   1. If `command -v atomic` returns nothing → skip.
+   2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report the error and skip.
+   3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort after the wiki inferrer returns.
+   4. Stage `docs/wiki/*.md` (router, domain files, and `scan.md`). Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
+
+7. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage AND the implementation log is written. Other dated dirs from prior runs are not your concern.
+8. Report to the user: what shipped, which iterations + commit SHAs (including the signals refresh commit, if one was made), what was verified, what FOLLOWUPS were dispositioned, what's left (if anything). Mirror what you just wrote to the spec — they should match.
+
+    **Documentation advisory.** If `## Documentation surfaces` exists in CLAUDE instructions and the implemented changes touch files matching any surface's "Covers" column, append to the next-steps suggestions:
+
+    ```
+    /documentation — N doc surfaces may be stale
+    ```
+
+    One line, advisory only. Not a gate — the user decides whether to address docs now or later.
+
+Do NOT push, merge, or open a PR. The user picks how to ship (`/commit pr`, `/commit merge`, `/commit squash merge`, etc.) when ready.
+
+</workflow>
+
+<constraints>
+
+## Rules
+
+- Parent orchestrator does NOT write implementation code. Only goal docs, state updates, commits per PASS, final docs, final verification.
+- Every subagent invocation is fresh context. The scratchpad brief is the only handoff. If the brief is bad, the loop is bad — invest in it.
+- Reviewer and implementer are separate agents. Never the same one. Never combine roles.
+- If the same blocking signal repeats across two consecutive `CHANGES_REQUESTED` rounds, the stuck-fix escalation in Step C fires automatically — surface `/pressure-test` and `atomic-strategist` RCA options to the user. Do not silently loop again without surfacing this.
+- Subagent output is the tool result. Summarize it to the user in 1-3 lines per iteration; don't dump full transcripts.
+- Subagent prompts and document skeletons both come from the binary (`atomic prompt implementer|reviewer`; `atomic template brief|state|followups|implementation-log`). If either verb fails, the loop can't start — surface that error rather than inlining prompts or improvising document structure.
+
+</constraints>

@@ -1,4 +1,4 @@
-// Package frameworks — Elixir framework resolver (CP15 batch E).
+// Package frameworks — Elixir framework resolver (batch E).
 //
 // This file implements one FrameworkResolver + FrameworkExtractor pair for
 // the Phoenix web framework (Elixir).

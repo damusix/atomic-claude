@@ -1,6 +1,6 @@
-// Package-level daemon lifecycle (master CP23).
+// Package-level daemon lifecycle (master).
 //
-// The daemon binds a per-project unix-domain socket, runs the CP22 go-sdk
+// The daemon binds a per-project unix-domain socket, runs the go-sdk
 // server over each accepted connection, and manages a connection registry
 // with clock-injectable reaper and auto-shutdown.
 //

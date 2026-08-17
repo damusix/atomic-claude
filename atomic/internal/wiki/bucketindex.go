@@ -1,6 +1,6 @@
 package wiki
 
-// bucketindex.go — CP2 per-bucket topic index: the `<bucket-docs>` region
+// bucketindex.go — per-bucket topic index: the `<bucket-docs>` region
 // inside `<bucket>/index.md`.
 //
 // This walk is a DIFFERENT granularity than bucket.go's WalkBucket manifest

@@ -70,7 +70,7 @@ Guaranteed fallback: this repo's `atomic/` Go tree — an adversarial FP corpus
 Outputs to `tmp/code-eval/out/embedded-sql/<corpus>/`.
 
 Requires `bin/atomic` and `bin/embedded-sql-admission` (built automatically if absent).
-`bin/embedded-sql-admission` is built from `atomic/cmd/embedded-sql-admission/`.
+`bin/embedded-sql-admission` is built from `atomic/internal/tools/embedded-sql-admission/`.
 
 **Non-Go harvester limitation:** the admission tool's non-Go literal scanner
 (`roughHarvestDoubleQuoted`) only extracts double-quoted single-line strings.

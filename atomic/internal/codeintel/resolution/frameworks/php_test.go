@@ -1,6 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch E (PHP): laravel and symfony resolvers.
+// Failing-first TDD tests for batch E (PHP): laravel and symfony resolvers.
 //
 // Per-framework coverage:
 //  1. Detect true on a realistic composer.json fixture + false for unrelated project.

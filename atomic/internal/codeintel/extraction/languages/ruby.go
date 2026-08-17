@@ -20,7 +20,7 @@ package languages
 // `private` / `protected` keywords appear as separate sibling call nodes, not
 // as modifiers on the method node). We default IsExported=true for all Ruby
 // symbols. Private/protected tracking would require parent-walk context
-// accumulation (out of scope for CP8 batch C).
+// accumulation (out of scope for batch C).
 //
 // Module handling: Ruby `module` nodes are placed in ModuleTypes so they are
 // extracted as NodeKindModule via the engine's ModuleTypes arm.

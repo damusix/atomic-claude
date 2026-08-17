@@ -1,4 +1,4 @@
-// Package cli implements the `atomic code` subcommand handlers (CP21).
+// Package cli implements the `atomic code` subcommand handlers.
 //
 // Each verb handler is extracted as a standalone function taking an engine,
 // parsed args, and an io.Writer so they can be tested without os.Exit.
@@ -44,7 +44,7 @@ func RunCode(args []string, projectRoot string, stdout, stderr io.Writer, stdin 
 	rest := args[1:]
 	ctx := context.Background()
 
-	// `atomic code mcp` is the proxy path (CP23): connect-or-start the daemon,
+	// `atomic code mcp` is the proxy path: connect-or-start the daemon,
 	// then pipe stdin↔socket. Does not need the pre-created engine.
 	// dbPath for standalone repo: <projectRoot>/.claude/.atomic-index/atomic.db.
 	if verb == "mcp" {
@@ -1003,7 +1003,7 @@ func EnsureGitignore(projectRoot string) error {
 // mcp
 // ---------------------------------------------------------------------------
 
-// runMCP is `atomic code mcp` (CP23, GitHub issue #193).
+// runMCP is `atomic code mcp` (, GitHub issue #193).
 //
 // Without --daemon it is the proxy path: connect-or-start the singleton
 // daemon (flock-guarded auto-start) and then bidirectionally pipe
@@ -1016,7 +1016,7 @@ func EnsureGitignore(projectRoot string) error {
 // already-registered mcp verb — instead of a separate internal verb — means
 // the spawned argv always names a real Cobra command; the old unregistered
 // internal verb used to make Cobra reject the spawn's own flags with
-// "unknown flag" before the daemon handler ever ran (GitHub issue #193).
+// "unknown flag" before the daemon handler ever ran.
 //
 // projectRoot/dbPath are the proxy-mode source+db, resolved by main.go
 // (realm-aware) before calling here; they are ignored when --daemon is set,

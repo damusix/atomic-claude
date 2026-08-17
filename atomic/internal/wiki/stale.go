@@ -1,6 +1,6 @@
 package wiki
 
-// stale.go — CP4 read-only freshness comparator for `atomic wiki stale`.
+// stale.go — read-only freshness comparator for `atomic wiki stale`.
 //
 // Stale re-walks the root (reusing discoverMembers + classifyMembers), parses
 // the recorded <wiki-scan> block from wiki/index.md, then reports:

@@ -1,9 +1,9 @@
-// Package codectx implements the context builder and formatter (master CP19).
+// Package codectx implements the context builder and formatter (master).
 //
 // The context builder turns a natural-language query into an agent-ready
 // snapshot of the relevant portion of the code graph. It composes:
-//   - search.Searcher (CP18) for multi-channel seed gathering
-//   - graph.Manager (CP17) for BFS neighbor expansion
+//   - search.Searcher for multi-channel seed gathering
+//   - graph.Manager for BFS neighbor expansion
 //
 // # Reproducibility contract
 //
@@ -148,7 +148,7 @@ type JSONOutput struct {
 // Builder
 // ---------------------------------------------------------------------------
 
-// Builder is the entry point for CP19: context gathering and formatting.
+// Builder is the entry point for context gathering and formatting.
 // Create with New(db).
 type Builder struct {
 	mgr      *graph.Manager
@@ -156,7 +156,7 @@ type Builder struct {
 }
 
 // New creates a Builder backed by the given database. Both graph.Manager
-// (CP17) and search.Searcher (CP18) are constructed from it.
+// and search.Searcher are constructed from it.
 func New(d *db.DB) *Builder {
 	return &Builder{
 		mgr:      graph.NewManager(d),

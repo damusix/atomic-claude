@@ -5,5 +5,5 @@ package claudeinstall
 var InstallWithOutput = installWithOutput
 
 // PatchAgentContent exposes patchAgentContent for unit testing of the
-// model-tier frontmatter patching logic (CP4 — install-time agent overrides).
+// model-tier frontmatter patching logic (install-time agent overrides).
 var PatchAgentContent = patchAgentContent

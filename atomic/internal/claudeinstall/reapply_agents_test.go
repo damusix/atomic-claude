@@ -1,6 +1,6 @@
 package claudeinstall_test
 
-// Tests for CP5: ReapplyAgents — re-patching already-installed agent files
+// Tests for ReapplyAgents — re-patching already-installed agent files
 // after a config-only change, without a full `atomic claude install` run.
 
 import (

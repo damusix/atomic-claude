@@ -188,7 +188,7 @@ func TestCLIAdd_InvalidKind(t *testing.T) {
 	}
 }
 
-// CP2 F-2: --kind foo without --severity must show invalid-kind error, not missing-severity.
+// --kind foo without --severity must show invalid-kind error, not missing-severity.
 func TestCLIAdd_InvalidKindWithoutSeverity(t *testing.T) {
 	root, _, _ := cliTestRepo(t)
 	var out strings.Builder

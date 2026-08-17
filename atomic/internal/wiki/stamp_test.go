@@ -1,6 +1,6 @@
 package wiki_test
 
-// CP3: tests for atomic wiki stamp.
+// tests for atomic wiki stamp.
 // Covers:
 //   - Summary mode: reflects_rev written from git HEAD; rest of file preserved.
 //   - Concern mode: reflects: list carries HEAD-sha (summarized) and signals.md

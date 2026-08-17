@@ -1,4 +1,4 @@
-// Package synthesis implements the CP16 callback synthesizer infrastructure.
+// Package synthesis implements the callback synthesizer infrastructure.
 //
 // # Architecture
 //
@@ -55,7 +55,7 @@ const MAX_CALLBACKS_PER_CHANNEL = 40
 const EVENT_FANOUT_CAP = 6
 
 // CC_FANOUT_CAP is the per-channel cap for the closure-collection synthesizer
-// (reserved for a later CP16 batch; centralized here per spec).
+// (reserved for a later batch; centralized here per spec).
 const CC_FANOUT_CAP = 8
 
 // ---------------------------------------------------------------------------
@@ -517,7 +517,7 @@ func hasJSXDiscriminator(meta json.RawMessage) bool {
 //
 // # Signal
 //
-// The standalone Vue SFC extractor (CP9, extraction/standalone) emits a
+// The standalone Vue SFC extractor (, extraction/standalone) emits a
 // component node for each .vue file (Language=vue, Kind=component) and uses
 // extractTemplateRefs to emit UnresolvedReference values (Kind=references) for
 // each PascalCase or kebab-case component tag found in the <template> block.
@@ -676,7 +676,7 @@ func isEEDispatch(callee string) bool {
 // ---------------------------------------------------------------------------
 
 // RNEventChannelSynthesizer implements the rn-event-channel synthesizer
-// (appendix G, CP16 batch 3).
+// (appendix G, batch 3).
 //
 // # Signal (EE2)
 //
@@ -817,7 +817,7 @@ func synthesizeEventEdges(
 // ---------------------------------------------------------------------------
 
 // CallbackSynthesizer implements the callback (field-backed observer)
-// synthesizer (appendix G, CP16 batch 4).
+// synthesizer (appendix G, batch 4).
 //
 // # Signal (EE3)
 //
@@ -959,7 +959,7 @@ func (c *CallbackSynthesizer) Synthesize(ctx context.Context, d *db.DB) ([]types
 // ---------------------------------------------------------------------------
 
 // ClosureCollectionSynthesizer implements the closure-collection synthesizer
-// (appendix G, CP16 batch 4). Activated by EE5 which captures identifier
+// (appendix G, batch 4). Activated by EE5 which captures identifier
 // arguments (e.g. handler in .append(handler)) with the "arg:" prefix.
 //
 // # Signal (EE5)
@@ -1119,7 +1119,7 @@ func (c *ClosureCollectionSynthesizer) Synthesize(ctx context.Context, d *db.DB)
 // ---------------------------------------------------------------------------
 
 // FlutterBuildSynthesizer implements the flutter-build (Dart setState→build)
-// synthesizer (appendix G, CP16 batch 4).
+// synthesizer (appendix G, batch 4).
 //
 // # Gap
 //
@@ -1149,13 +1149,13 @@ func (f *FlutterBuildSynthesizer) Synthesize(_ context.Context, _ *db.DB) ([]typ
 // ---------------------------------------------------------------------------
 
 // InterfaceImplSynthesizer implements the interface-impl synthesizer
-// (appendix G, CP16 batch 5).
+// (appendix G, batch 5).
 //
 // # Signal (EE4)
 //
 // EE4 wired heritage extraction for TypeScript, C++, and Java. TypeScript
 // extractClass() now walks class_heritage and implements_clause, emitting
-// EdgeKindImplements UnresolvedReferences for each implemented interface. CP13
+// EdgeKindImplements UnresolvedReferences for each implemented interface.
 // resolution creates the EdgeKindImplements edges. Interface method declarations
 // (method_signature) are in MethodTypes — so interface method nodes exist.
 //
@@ -1313,12 +1313,12 @@ func (s *InterfaceImplSynthesizer) Synthesize(ctx context.Context, d *db.DB) ([]
 // ---------------------------------------------------------------------------
 
 // CppOverrideSynthesizer implements the cpp-override (C++ vtable override)
-// synthesizer (appendix G, CP16 batch 5).
+// synthesizer (appendix G, batch 5).
 //
 // # Signal (EE4)
 //
 // EE4 wired C++ heritage extraction: CppExtractor() now walks base_class_clause
-// and emits EdgeKindExtends UnresolvedReferences for each base class. CP13
+// and emits EdgeKindExtends UnresolvedReferences for each base class.
 // resolution creates EdgeKindExtends edges D→B.
 //
 // # How this synthesizer works
@@ -1447,17 +1447,17 @@ func (s *CppOverrideSynthesizer) Synthesize(ctx context.Context, d *db.DB) ([]ty
 }
 
 // ---------------------------------------------------------------------------
-// gin-middleware-chain synthesizer (CP16 batch 6 — real)
+// gin-middleware-chain synthesizer (batch 6 — real)
 // ---------------------------------------------------------------------------
 
 // GinMiddlewareChainSynthesizer implements the gin-middleware-chain synthesizer
-// (appendix G, CP16 batch 6).
+// (appendix G, batch 6).
 //
-// # Signal (EE5 + CP15 route nodes)
+// # Signal (EE5 + route nodes)
 //
 // EE5 captures `r.Use(authMiddleware)` as a calls-kind UnresolvedReference with
 // ReferenceName ending in ".Use" and Arguments containing "arg:authMiddleware".
-// CP15 Gin resolver emits NodeKindRoute nodes (Language=go) for each route
+// Gin resolver emits NodeKindRoute nodes (Language=go) for each route
 // registration (r.GET, r.POST, etc.) in the same file.
 //
 // # Correlation
@@ -1610,11 +1610,11 @@ func (g *GinMiddlewareChainSynthesizer) Synthesize(ctx context.Context, d *db.DB
 }
 
 // ---------------------------------------------------------------------------
-// go-grpc-stub-impl synthesizer (CP16 batch 6 — documented stub)
+// go-grpc-stub-impl synthesizer (batch 6 — documented stub)
 // ---------------------------------------------------------------------------
 
 // GoGRPCStubImplSynthesizer implements the go-grpc-stub-impl synthesizer
-// (appendix G, CP16 batch 6).
+// (appendix G, batch 6).
 //
 // # Gap (documented)
 //
@@ -1646,15 +1646,15 @@ func (g *GoGRPCStubImplSynthesizer) Synthesize(_ context.Context, _ *db.DB) ([]t
 }
 
 // ---------------------------------------------------------------------------
-// mybatis-java-xml synthesizer (CP16 batch 6 — real)
+// mybatis-java-xml synthesizer (batch 6 — real)
 // ---------------------------------------------------------------------------
 
 // MyBatisJavaXMLSynthesizer implements the mybatis-java-xml synthesizer
-// (appendix G, CP16 batch 6).
+// (appendix G, batch 6).
 //
-// # Signal (CP9 MyBatis XML extractor + Java extractor)
+// # Signal (MyBatis XML extractor + Java extractor)
 //
-// CP9 emits:
+// emits:
 //   - A module node per XML mapper: kind=module, language=xml.
 //   - A function node per SQL statement: kind=function, language=xml,
 //     name=stmtId, qualifiedName="namespace.stmtId".
@@ -1794,11 +1794,11 @@ func (m *MyBatisJavaXMLSynthesizer) Synthesize(ctx context.Context, d *db.DB) ([
 }
 
 // ---------------------------------------------------------------------------
-// fabric-native-impl synthesizer (CP16 batch 6 — documented stub)
+// fabric-native-impl synthesizer (batch 6 — documented stub)
 // ---------------------------------------------------------------------------
 
 // FabricNativeImplSynthesizer implements the fabric-native-impl synthesizer
-// (appendix G, CP16 batch 6).
+// (appendix G, batch 6).
 //
 // # Gap (documented)
 //

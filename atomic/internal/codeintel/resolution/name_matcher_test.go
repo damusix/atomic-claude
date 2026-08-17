@@ -1,6 +1,6 @@
 package resolution_test
 
-// CP12 name matcher tests.
+// name matcher tests.
 //
 // Why this file is the spec gate:
 //   - Weight consts are asserted literally (calibration gate — prevents silent
@@ -570,7 +570,7 @@ func TestNameMatcher_QualifiedName(t *testing.T) {
 func TestNameMatcher_GetAllCandidates(t *testing.T) {
 	// WHY: appendix F says "expose a way to get all candidates". MatchReference
 	// returns the best; NameMatcher must also offer GetAllCandidates for the
-	// node tool (MCP CP22) to surface overloads.
+	// node tool (MCP) to surface overloads.
 	d, _ := openTestDB(t)
 	ctx := context.Background()
 
@@ -988,7 +988,7 @@ func TestNameMatcher_InMemoryFuzzy_ResolvesTypo(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CP4 resolver tweaks: single-dot SQL → qualified routing; exact-QName preference
+// resolver tweaks: single-dot SQL → qualified routing; exact-QName preference
 // ---------------------------------------------------------------------------
 
 // seedColumn inserts a column node with Name=col (bare) and QualifiedName=tableQName.col.

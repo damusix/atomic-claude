@@ -1,6 +1,6 @@
 package indexer
 
-// python_harvester.go — CP3: Python string-literal harvester.
+// python_harvester.go — Python string-literal harvester.
 //
 // harvestPythonStringLiterals adapts extraction.HarvestPythonLiterals to the
 // literalHarvester function signature used by embeddedSQLPostPass. It:

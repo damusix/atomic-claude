@@ -6,7 +6,7 @@ import (
 )
 
 // Registry maps types.Language values to (LanguageExtractor, extraction.Lang) pairs.
-// It is the single resolution point the orchestrator (CP10) will use to obtain the
+// It is the single resolution point the orchestrator will use to obtain the
 // correct config for a given file language.
 type Registry struct {
 	entries map[types.Language]registryEntry

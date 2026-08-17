@@ -1,4 +1,4 @@
-// Package validation is the CP24 validation harness for the code-intelligence
+// Package validation is the validation harness for the code-intelligence
 // engine. It contains:
 //
 //  1. An auditable coverage map: each of the 11 umbrella success criteria maps
@@ -13,7 +13,7 @@
 //     synthesizers; asserts the EXACT set/count of synthesized edges (no
 //     over-production), each carrying provenance='heuristic' + synthesizedBy.
 //
-// This is the final checkpoint (master CP24) — the engine is feature-complete
+// This is the final checkpoint (master) — the engine is feature-complete
 // after this checkpoint passes.
 package validation_test
 
@@ -35,7 +35,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// CP24 — Coverage map
+// Coverage map
 //
 // Every umbrella success criterion (docs/spec/code-intel-engine.md:85-113) is
 // mapped to the covering automated test(s). This map is the auditable artifact
@@ -106,21 +106,21 @@ func TestCoverageMap(t *testing.T) {
 				"extraction/languages.TestJavaScript_NodeCountStable",
 				"extraction/languages.TestPython_NodeCountStable",
 				"extraction/languages.TestRust_NodeCountStable",
-				// CP8a
+				//
 				"extraction/languages.TestJava_NodeCountStable",
 				"extraction/languages.TestC_NodeCountStable",
 				"extraction/languages.TestCpp_NodeCountStable",
 				"extraction/languages.TestCSharp_NodeCountStable",
-				// CP8b
+				//
 				"extraction/languages.TestSwift_NodeCountStable",
 				"extraction/languages.TestKotlin_NodeCountStable",
 				"extraction/languages.TestScala_NodeCountStable",
-				// CP8c
+				//
 				"extraction/languages.TestRuby_NodeCountStable",
 				"extraction/languages.TestPHP_NodeCountStable",
 				"extraction/languages.TestLua_NodeCountStable",
 				"extraction/languages.TestLuau_NodeCountStable",
-				// CP8d
+				//
 				"extraction/languages.TestDart_NodeCountStable",
 				"extraction/languages.TestObjC_NodeCountStable",
 				"extraction/languages.TestPascal_NodeCountStable",
@@ -228,7 +228,7 @@ func TestCoverageMap(t *testing.T) {
 	}
 
 	// Validation: every criterion must have either coveringTests or ciOnly=true.
-	// An entry with neither is a CP24 failure.
+	// An entry with neither is a failure.
 	allMapped := true
 	for _, e := range coverageMap {
 		if !e.ciOnly && len(e.coveringTests) == 0 {
@@ -254,7 +254,7 @@ func TestCoverageMap(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CP24 — Schema-drift test (criterion 2)
+// Schema-drift test (criterion 2)
 //
 // Opens a fresh migrated DB, dumps sqlite_master, normalizes (strips
 // IF NOT EXISTS, collapses whitespace, sorts by object name), and compares
@@ -406,7 +406,7 @@ type heuristicEdge struct {
 }
 
 // ---------------------------------------------------------------------------
-// CP24 — Synthesized-edge precision spot-check (criterion 6)
+// Synthesized-edge precision spot-check (criterion 6)
 //
 // A fixture exercises multiple synthesizers (react-render + jsx-render). The
 // test asserts:

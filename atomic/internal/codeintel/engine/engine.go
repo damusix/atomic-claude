@@ -1,5 +1,5 @@
-// Package engine is the facade layer (master CP20) that both the
-// `atomic code` CLI (CP21) and the MCP server (CP22) compile against.
+// Package engine is the facade layer (master) that both the
+// `atomic code` CLI and the MCP server compile against.
 //
 // # Data directory
 //
@@ -55,8 +55,8 @@ var ErrNotInitialized = errors.New("codeintel/engine: not initialized; call Init
 // ContextOptions configures FindRelevantContext.
 type ContextOptions = codectx.Options
 
-// Engine is the shared facade used by both the CLI adapter (CP21) and the
-// MCP server adapter (CP22). It wraps the db, pool, orchestrator, pipeline,
+// Engine is the shared facade used by both the CLI adapter and the
+// MCP server adapter. It wraps the db, pool, orchestrator, pipeline,
 // graph manager, searcher, and context builder into one cohesive API.
 //
 // The zero-value Engine is not usable. Use New or NewWithDBPath.
@@ -95,7 +95,7 @@ func New(projectRoot string) (*Engine, error) {
 
 // NewWithDBPath creates an Engine that scans projectRoot but stores its SQLite
 // index at the caller-supplied absolute dbPath. This is the internal seam for
-// realm federation (CP3): callers can direct the index to
+// realm federation: callers can direct the index to
 // <realm>/.atomic/<key>.db while the source tree being scanned stays at
 // projectRoot. No user-facing flag exposes this — it is callable from Go only.
 //
@@ -456,7 +456,7 @@ func (e *Engine) GetDetectedFrameworks(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-// IsIndexing returns false in v1. A future daemon (CP23) will set this when
+// IsIndexing returns false in v1. A future daemon will set this when
 // a background index run is in progress.
 func (e *Engine) IsIndexing() bool {
 	return false
@@ -470,7 +470,7 @@ func (e *Engine) ExtractFromSource(ctx context.Context, filename, source string)
 		return types.ExtractionResult{}, err
 	}
 	// Use IndexAll on a temp fixture — this is a convenience method; the full
-	// implementation that avoids disk I/O can be added at CP21. For now,
+	// implementation that avoids disk I/O can be added at. For now,
 	// write to a temp file, index it, and return the nodes/edges from the DB.
 	// Actually, return an informative not-implemented error for now; the
 	// brief only requires the method to exist on the facade.

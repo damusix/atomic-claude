@@ -50,7 +50,7 @@ as its dispatch trigger — this wires the caller that was missing.
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
 | 1 | Stuck-fix escalator: add a "Stuck-fix escalation" trigger to `/subagent-implementation` Step C (track failing signal across iterations; after 2 same-signal `CHANGES_REQUESTED` rounds → surface copyable `/pressure-test` + `atomic-strategist` RCA offer, never auto-dispatch). Reconcile with the existing 6-iter soft-stop + repeat-finding prose. Extend `/subagent-diagnose` same-failure bail to surface the same RCA options. — atomic-builder, ~2 files | `templates/commands/subagent-implementation.md`, `templates/commands/subagent-diagnose.md` | The trigger, threshold, surfaced-not-auto-invoked rule, and both runnable options are present; no contradiction with existing cap/repeat-finding text; diagnose bail offers RCA |
-| 2 | Suppression-pattern awareness: add a suppression finding rule to `atomic-reviewer` (flag error-catching-without-investigation; 🟡 default, 🔴 on repeat) and to the shared `reviewer-prompt` template so dispatched reviewers apply it — atomic-builder, ~2 files | `templates/agents/atomic-reviewer.md`, `commands/_templates/reviewer-prompt.md` (or its template source) | Reviewer + reviewer-prompt both describe the suppression check with severity rule; consistent with existing severity tiers |
+| 2 | Suppression-pattern awareness: add a suppression finding rule to `atomic-reviewer` (flag error-catching-without-investigation; 🟡 default, 🔴 on repeat) and to the shared reviewer prompt so dispatched reviewers apply it — atomic-builder, ~2 files | `templates/agents/atomic-reviewer.md`, `atomic/internal/coldprompt/briefs/reviewer.md` (served via `atomic prompt reviewer`) | Reviewer + reviewer prompt both describe the suppression check with severity rule; consistent with existing severity tiers |
 | 3 | Regenerate render + bundle; wire discovery if the loop contract changed (CLAUDE.md note / `/atomic-help` if needed); verify — atomic-surgeon | `commands/`, `agents/`, `atomic/internal/embedded/**`, `CLAUDE.md`/`templates/commands/atomic-help.md` if needed | `make render`+`make bundle` parity clean; `/atomic-help` MISSING-scan zero; `go test ./...` + `atomic doctor` no new WARN/FAIL |
 
 ## Risks
@@ -81,4 +81,8 @@ Built in a worktree (`stuck-fix-escalation`) across 2 checkpoints of
 
 ## Change log
 
-<!-- Empty. First entry on the first amendment after this spec ships. -->
+### 2026-08-10 — Correct CP2's stale reviewer-prompt path
+
+**What changed:** CP2's Files/areas cell named `commands/_templates/reviewer-prompt.md`, deleted by the prompt-templates-to-binary migration. Corrected to the current source, `atomic/internal/coldprompt/briefs/reviewer.md`, served via `atomic prompt reviewer`.
+
+**Why:** prompt templates migrated out of `commands/_templates/` into the `atomic` binary; the deleted path would mislead a fresh-context subagent building from this spec.

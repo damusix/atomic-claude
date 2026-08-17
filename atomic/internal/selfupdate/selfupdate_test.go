@@ -748,7 +748,7 @@ func TestStage_DownloadsAndRecordsChecksumVerifiedArchive(t *testing.T) {
 		t.Errorf("staged file missing on disk: %v", err)
 	}
 	// The recorded SHA256 must be independently re-verifiable straight off
-	// disk — this is what CP5's swap-time re-check relies on.
+	// disk — this is what swap-time re-check relies on.
 	data, err := os.ReadFile(got.Path)
 	if err != nil {
 		t.Fatalf("read staged file: %v", err)
@@ -821,7 +821,7 @@ func TestStage_NeverTouchesCurrentBinary(t *testing.T) {
 	}
 }
 
-// ---------- AcquireLock / ReleaseLock (CP4 primitive; CP5 extends) ----------
+// ---------- AcquireLock / ReleaseLock ----------
 
 func TestAcquireLock_FreeLockAcquires(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -894,7 +894,7 @@ func TestReleaseLock_OwnerMismatchLeavesLockFieldsUntouched(t *testing.T) {
 	}
 }
 
-// ---------- AcquireOrTakeoverLock (CP5: foreground apply lock policy) ----------
+// ---------- AcquireOrTakeoverLock (foreground apply lock policy) ----------
 
 func TestAcquireOrTakeoverLock_FreeLockAcquires(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -966,7 +966,7 @@ func TestAcquireOrTakeoverLock_ForceBypassesFreshLock(t *testing.T) {
 	}
 }
 
-// ---------- ApplyStaged (CP5: swap-from-staged sibling of Apply) ----------
+// ---------- ApplyStaged (swap-from-staged sibling of Apply) ----------
 
 // buildStagedArchive builds a genuine, extractable gzip-compressed tar
 // archive named assetName, containing a single "atomic" file with content,

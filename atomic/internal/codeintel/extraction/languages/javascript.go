@@ -43,7 +43,7 @@ package languages
 // lexical_declaration (unmatched) → variable_declarator (unmatched) → sees the
 // arrow_function as a child. Arrow functions are NOT added to FunctionTypes here
 // because nameFromNode can't reliably extract a name from them (the name lives in
-// the parent variable_declarator). Deferred to CP8 (lexical_declaration → arrow
+// the parent variable_declarator). Deferred to (lexical_declaration → arrow
 // function with name from declarator).
 //
 // FunctionScopeTypes probe (verified via a real-parse probe against the wazero

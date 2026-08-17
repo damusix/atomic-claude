@@ -1,6 +1,6 @@
 package wiki
 
-// action_test.go — CP1 tests for the shared argument scanner hardening
+// action_test.go — tests for the shared argument scanner hardening
 // (resolveWikiRoot / parseBucketDocArgs) behind `atomic wiki bucket`, plus
 // wikiStampAction's flag/positional argument order handling.
 //
@@ -11,7 +11,7 @@ package wiki
 // collapse to delegate at resolveWikiRoot still honors --router in any
 // position; wikiStampAction accepts flags before, after, or interspersed
 // with the positional <file> argument, and honors "--" as a global
-// terminator ending flag parsing (issue #158).
+// terminator ending flag parsing.
 
 import (
 	"bytes"
@@ -137,7 +137,7 @@ func TestParseBucketDocArgs_RouterAnyPosition(t *testing.T) {
 }
 
 // TestParseBucketDocArgs_RouterConsumedBeforeRootValue pins a deliberate
-// behavior delta flagged in CP1 review: parseBucketDocArgs strips every
+// behavior delta flagged in review: parseBucketDocArgs strips every
 // literal "--router" token before delegating to resolveWikiRoot, so
 // `--root --router` reaches resolveWikiRoot as bare "--root" and errors
 // "flag --root requires a value" rather than silently taking "--router" as
@@ -267,7 +267,7 @@ func TestBucketVerbs_UnrecognizedSingleDashTokenExits2(t *testing.T) {
 	}
 }
 
-// ---- wikiStampAction: flag/positional argument order (issue #158) ----
+// ---- wikiStampAction: flag/positional argument order ----
 //
 // Stdlib flag.FlagSet stops parsing at the first non-flag argument, so the
 // documented `atomic wiki stamp <file> --repo <path>` form (flags after the

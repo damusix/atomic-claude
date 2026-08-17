@@ -1,4 +1,4 @@
-// Package frameworks — Java Spring framework resolver (CP15 batch D).
+// Package frameworks — Java Spring framework resolver (batch D).
 //
 // This file implements one FrameworkResolver + FrameworkExtractor pair for
 // Spring MVC / Spring Boot.

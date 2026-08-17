@@ -122,7 +122,7 @@ func TestCheckRefs_PassDetailMentionsFilename(t *testing.T) {
 }
 
 // TestCheckRefs_NewWikiRef_Pass verifies PASS when the new wiki router ref
-// @docs/wiki/index.md is wired (CP2 new layout).
+// @docs/wiki/index.md is wired (new layout).
 func TestCheckRefs_NewWikiRef_Pass(t *testing.T) {
 	root := t.TempDir()
 	writeRefsFile(t, filepath.Join(root, "claude.local.md"), "@docs/wiki/index.md\n")
@@ -134,7 +134,7 @@ func TestCheckRefs_NewWikiRef_Pass(t *testing.T) {
 }
 
 // TestCheckRefs_OldSignalsRef_Fail verifies FAIL when only the old
-// @.claude/project/signals.md ref is present — not accepted after CP2.
+// @.claude/project/signals.md ref is present — not accepted.
 func TestCheckRefs_OldSignalsRef_Fail(t *testing.T) {
 	root := t.TempDir()
 	writeRefsFile(t, filepath.Join(root, "claude.local.md"), "@.claude/project/signals.md\n")

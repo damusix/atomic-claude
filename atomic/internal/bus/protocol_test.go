@@ -264,29 +264,24 @@ func TestBusError_ImplementsError(t *testing.T) {
 // TestProtocolWireShape_GoldenFieldsAndOps pins the exact JSON field names on
 // Request, Response, Envelope, and Member, plus the exact Op set — the wire
 // shape ProtocolVersion gates — and, separately, ties that shape to
-// ProtocolVersion itself via protocolShapeHashes.
-//
-// The field/op assertions below derive the observed field set reflectively
-// from each struct's json tags (wireShapeFields), never from a marshalled
-// instance: marshalling silently drops a zero-value omitempty field from the
-// output, so a version of this test that populated a struct literal and
-// inspected the marshalled keys could add a new omitempty field, leave it
-// unset in the literal, and pass unmodified — exactly the drift this test
-// exists to catch. Reflection sees the tag regardless of whether any value
-// was ever assigned.
-//
-// The hash check below is what correlates a shape change with a version
-// bump: six prior wire-shape-changing commits landed against a version that
-// never moved off 1, because nothing tied "the golden lists changed" to
-// "ProtocolVersion must also change" (docs/spec/atomic-bus.md's 2026-07-30
-// "ProtocolVersion must bump when the wire changes" entry). Updating the
-// golden field/op lists above to match a new shape, while leaving
-// ProtocolVersion untouched, still fails here: protocolShapeHashes[2] is
-// frozen to the hash of the shape at version 2, so a real shape change makes
-// wireShapeHash() diverge from it regardless of whether the golden lists
-// above were kept in sync. The only way back to green is either revert the
-// shape, or bump ProtocolVersion and add a new protocolShapeHashes entry for
-// it — see protocol.go's ProtocolVersion doc.
+// ProtocolVersion itself via protocolShapeHashes. The field/op assertions
+// below derive the observed field set reflectively from each struct's json
+// tags (wireShapeFields), never from a marshalled instance: marshalling
+// silently drops a zero-value omitempty field from the output, so a version
+// of this test that populated a struct literal and inspected the marshalled
+// keys could add a new omitempty field, leave it unset in the literal, and
+// pass unmodified — exactly the drift this test exists to catch. Reflection
+// sees the tag regardless of whether any value was ever assigned. The hash
+// check below is what correlates a shape change with a version bump: six
+// prior wire-shape-changing commits landed against a version that never moved
+// off 1, because nothing tied "the golden lists changed" to "ProtocolVersion
+// must also change". Updating the golden field/op lists above to match a new
+// shape, while leaving ProtocolVersion untouched, still fails here:
+// protocolShapeHashes[2] is frozen to the hash of the shape at version 2, so
+// a real shape change makes wireShapeHash() diverge from it regardless of
+// whether the golden lists above were kept in sync. The only way back to
+// green is either revert the shape, or bump ProtocolVersion and add a new
+// protocolShapeHashes entry for it — see protocol.go's ProtocolVersion doc.
 func TestProtocolWireShape_GoldenFieldsAndOps(t *testing.T) {
 	assertGoldenFields(t, "Request", reflect.TypeOf(Request{}), []string{
 		"op", "room", "rooms", "name", "mode", "kind", "session", "to",

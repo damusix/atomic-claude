@@ -1,6 +1,6 @@
 package wiki
 
-// bucket_registry.go — CP2 registry primitives for `atomic wiki bucket`.
+// bucket_registry.go — registry primitives for `atomic wiki bucket`.
 //
 // Two concerns:
 //
@@ -136,7 +136,7 @@ func readBucketEntries(indexPath string) ([]bucketEntry, error) {
 }
 
 // BucketEntry holds a parsed <bucket> tag from the <wiki-buckets> block.
-// Exported for consumers such as atomic serve (CP3 nav tree).
+// Exported for consumers such as atomic serve (nav tree).
 type BucketEntry struct {
 	Name string
 	Path string

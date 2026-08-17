@@ -1,6 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch D (Java): Spring MVC/Boot.
+// Failing-first TDD tests for batch D (Java): Spring MVC/Boot.
 //
 // Coverage:
 //   - Detect: pom.xml / build.gradle / import-based detection.

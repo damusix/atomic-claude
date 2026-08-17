@@ -1,4 +1,4 @@
-.PHONY: help docker-build docker-up docker-shell hooks hooks-uninstall render bundle frontend link dev-setup triage-scan
+.PHONY: help docker-build docker-up docker-shell hooks hooks-uninstall bundle frontend triage-scan
 
 .DEFAULT_GOAL := help
 
@@ -9,26 +9,17 @@ help: ## Show this help
 
 hooks: ## Install repo git hooks (sets core.hooksPath to .githooks)
 	git config core.hooksPath .githooks
-	@echo "git hooks installed (.githooks/). pre-commit will regen the embedded bundle when source artifacts change."
+	@echo "git hooks installed (.githooks/)."
 
 hooks-uninstall: ## Restore default git hooks path
 	git config --unset core.hooksPath
 	@echo "git hooks restored to default (.git/hooks/)."
 
-render: ## Render templates/ into commands/ (delegates to atomic/)
-	$(MAKE) -C atomic render
-
-bundle: ## Regenerate the embedded artifact bundle (delegates to atomic/)
+bundle: ## Regenerate the embedded artifact bundle, a gitignored build artifact (delegates to atomic/)
 	$(MAKE) -C atomic bundle
 
 frontend: ## Build the serve React frontend into its embedded dist/ (delegates to atomic/)
 	$(MAKE) -C atomic frontend
-
-link: ## Symlink root artifacts into .claude/ for dogfooding
-	./scripts/link-local.sh
-
-dev-setup: hooks link ## One-shot contributor setup: install git hooks + symlink .claude/
-	@echo "dev-setup complete. edit root artifacts; .claude/ mirrors them via symlink."
 
 docker-build: ## Build the eval image
 	docker compose build

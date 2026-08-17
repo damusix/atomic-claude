@@ -11,7 +11,7 @@
 //	CodeEngine interface covers the engine methods serve uses.
 //	EngineProvider func(ctx, projectRoot, dbPath) (CodeEngine, error) opens an
 //	engine per request; the production default wraps *engine.Engine.
-//	Tests inject a fakeCodeEngine. The db path is resolved the same way CP7
+//	Tests inject a fakeCodeEngine. The db path is resolved the same way
 //	does for repo scope: <realmRoot>/.claude/.atomic-index/atomic.db.
 package serve
 
@@ -341,7 +341,7 @@ func appendIfNew(nodes []types.Node, n types.Node) []types.Node {
 }
 
 // ---------------------------------------------------------------------------
-// /api/code/* — CP4: JSON siblings of the /code/* explorer routes.
+// /api/code/* — JSON siblings of the /code/* explorer routes.
 // ---------------------------------------------------------------------------
 
 // apiCodeNode is the full node shape for code-intel API responses (the API

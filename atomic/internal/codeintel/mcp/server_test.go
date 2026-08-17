@@ -1,4 +1,4 @@
-// Tests for the atomic code MCP server (master CP22).
+// Tests for the atomic code MCP server (master).
 //
 // Tests use mcp.NewInMemoryTransports() to drive initialize + tools/call
 // in-process, grounding the implementation against a real engine+fixture.

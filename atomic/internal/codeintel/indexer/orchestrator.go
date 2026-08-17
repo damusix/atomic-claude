@@ -1,4 +1,4 @@
-// Package extraction — orchestrator (CP10).
+// Package extraction — orchestrator.
 //
 // IndexAll turns a project directory into a populated DB:
 //
@@ -636,7 +636,7 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 		result = extractor.Extract(ctx, relPath, string(src), lang)
 
 		// Embedded SQL post-pass: harvest string literals from supported host
-		// languages (Go, Python; CP4 adds TypeScript) and merge any SQL
+		// languages (Go, Python; adds TypeScript) and merge any SQL
 		// nodes/edges/refs into the result before the single store call.
 		// embeddedSQLHostExts is a positive allowlist of registered host languages;
 		// this branch is only reached for non-standalone extensions (outer else).
@@ -713,7 +713,7 @@ func (o *Orchestrator) storeExtractionResult(
 			}
 		}
 
-		// Insert unresolved references so CP13 can resolve them later.
+		// Insert unresolved references so can resolve them later.
 		// Set file_path and language on each ref so resolution can scope matches.
 		// Language preservation: embedded SQL refs already carry Language==SQL
 		// (set by ExtractEmbeddedSQL / scanBodyEdges). We must not overwrite that

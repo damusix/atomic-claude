@@ -306,10 +306,9 @@ func TestServe_JoinThenWho_RoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal rooms payload: %v", err)
 	}
 	// A room with no members and no subscribers is dropped, not merely
-	// emptied (docs/spec/atomic-bus.md's 2026-07-30 "drop a room when its
-	// last member leaves" entry) — see room_test.go's
-	// TestHub_Leave_LastMemberDropsTheRoom for the Hub-level coverage this
-	// wire round trip confirms is actually connected.
+	// emptied — see room_test.go's TestHub_Leave_LastMemberDropsTheRoom
+	// for the Hub-level coverage this wire round trip confirms is actually
+	// connected.
 	if len(roomsPayload.Rooms) != 0 {
 		t.Fatalf("rooms = %+v, want none (potato had its last member leave and should have been dropped)", roomsPayload.Rooms)
 	}
@@ -359,8 +358,7 @@ func TestServe_Close_DropsRoomAndDaemonSideRoomsNoLongerListsIt(t *testing.T) {
 
 // TestServe_Who_ReportsHaltedStateAndReason is the wire dispatch's proof
 // that OpWho's payload actually carries the room's halt state alongside its
-// members (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be
-// visible" entry).
+// members.
 func TestServe_Who_ReportsHaltedStateAndReason(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -445,16 +443,15 @@ func TestServe_Close_SubscriberConnectionEndsCleanly_NoBusySpin(t *testing.T) {
 	}
 }
 
-// TestServe_Send_FromRepoRealmStampedFromRoster_NotFromRequest is the
-// anti-spoof regression the atomic-bus brief requires for the
-// position-derived naming entry: sender identity (from/from_kind, and now
+// TestServe_Send_FromRepoRealmStampedFromRoster_NotFromRequest is the anti-
+// spoof regression the atomic-bus brief requires for the position-derived
+// naming entry: sender identity (from/from_kind, and now
 // from_repo/from_realm) is assigned server-side from the roster, never read
 // from the request — the same invariant a prior finding proved by speaking
-// a raw OpSay claiming an existing agent's name (docs/spec/atomic-bus.md's
-// 2026-07-28 "sender identity is assigned server-side" entry). This joins
-// with a real position, then sends an OpSend request whose own Repo/Realm
-// fields claim something else entirely, and asserts the published
-// envelope's FromRepo/FromRealm reflect the roster, not the request.
+// a raw OpSay claiming an existing agent's name. This joins with a real
+// position, then sends an OpSend request whose own Repo/Realm fields claim
+// something else entirely, and asserts the published envelope's
+// FromRepo/FromRealm reflect the roster, not the request.
 func TestServe_Send_FromRepoRealmStampedFromRoster_NotFromRequest(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
@@ -630,8 +627,7 @@ func TestServe_Recv_DeliversPublishedEnvelope(t *testing.T) {
 // replay any of it to a newly subscribing recv — since("") used to return
 // the entire ring, so a recv on a busy room delivered up to 256 old
 // messages as Monitor notifications, each evaluated against the reaction
-// policy as if freshly arrived (docs/spec/atomic-bus.md's "replay removed
-// entirely" change-log entry). Only a message published after the
+// policy as if freshly arrived. Only a message published after the
 // subscription opens may ever arrive.
 func TestServe_Recv_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 	ln := testListener(t)
@@ -1030,8 +1026,7 @@ func TestServe_ShutdownOp_ReturnsOKAndStopsTheDaemon(t *testing.T) {
 
 // TestServe_NoTimerStopsTheDaemon proves the daemon has no idle-shutdown
 // timer: with no subscriptions, no connections, and no activity at all, it
-// must still be running well past what used to be the default idle window
-// (docs/spec/atomic-bus.md: "no timer ever stops the daemon on its own").
+// must still be running well past what used to be the default idle window.
 // Only OpShutdown (proven above) or ctx cancellation ever ends Serve.
 func TestServe_NoTimerStopsTheDaemon(t *testing.T) {
 	ln := testListener(t)

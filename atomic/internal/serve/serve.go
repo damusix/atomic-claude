@@ -147,9 +147,9 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		navRoot = realmRes.RealmRoot
 		wikiIndexPath = filepath.Join(realmRes.RealmRoot, "wiki", "index.md")
 	}
-	// store is the single shared realm-snapshot store (CP2 live-reload): nav,
+	// store is the single shared realm-snapshot store (live-reload): nav,
 	// page, rail, and graph-data all read through it instead of each
-	// tracking its own copy, so the ticker (CP3), lazy per-request
+	// tracking its own copy, so the ticker, lazy per-request
 	// validation, and NewSnapshotStore's synchronous warm all observe — and
 	// refresh — the same realm state (SC7).
 	store := NewSnapshotStore(navRoot)

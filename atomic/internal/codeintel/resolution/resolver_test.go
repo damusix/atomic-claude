@@ -1,6 +1,6 @@
 package resolution_test
 
-// CP11 import resolver tests.
+// import resolver tests.
 //
 // Why this file is the spec gate:
 //   - Relative import  → resolves to the target file node (proves extension

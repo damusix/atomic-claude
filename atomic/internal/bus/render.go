@@ -20,7 +20,7 @@ const arrowSep = " → "
 
 // unaddressedMarker is what TailLine shows as the addressee for an FYI
 // envelope (empty To) — a fixed, literal placeholder, not a room-name
-// substitution: docs/spec/atomic-bus.md CP5 specifies "(room)" verbatim as
+// substitution: docs/spec/atomic-bus.md specifies "(room)" verbatim as
 // the addressee for an unaddressed message.
 const unaddressedMarker = "(room)"
 
@@ -39,7 +39,7 @@ const minWrapColumns = 20
 // wrapping or an embedded newline in a multi-line payload) indented to
 // align under the text column, and long payloads collapsed to a marker
 // naming the room log where the full text is always recoverable
-// (docs/spec/atomic-bus.md CP5). colour disables every ANSI sequence when
+// (docs/spec/atomic-bus.md). colour disables every ANSI sequence when
 // false — "detect no-tty and drop colour": piped or redirected output must
 // be clean text. roomPrefix prepends "[<room>] " for --all-rooms's
 // interleaved view. width <= 0 falls back to defaultLineWidth.
@@ -110,8 +110,7 @@ func colourFor(name string) (open, close string) {
 }
 
 // collapseLineThreshold is the payload line count above which TailLine
-// collapses text to a marker (docs/spec/atomic-bus.md CP5: "over ~15
-// lines").
+// collapses text to a marker.
 const collapseLineThreshold = 15
 
 // collapseShowLines is how many leading lines collapse keeps visible
@@ -213,12 +212,10 @@ func wrapOneLine(line string, avail int) []string {
 // MemberTable writes members as an aligned table (name, kind, mode,
 // live/stale, repo, realm) via text/tabwriter — one row per member, in the
 // order given (Hub.Who already sorts). There is no separate qualified-name
-// column: a member's Name is already its stacked position
-// (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is
-// the role" entry), so a second column repeating it would only duplicate
-// the first. livenessLabel (action.go) is the shared source of the
-// liveness column, so `who` and chat's `/who` never drift apart on how they
-// describe the same Member.
+// column: a member's Name is already its stacked position, so a second
+// column repeating it would only duplicate the first. livenessLabel
+// (action.go) is the shared source of the liveness column, so `who` and
+// chat's `/who` never drift apart on how they describe the same Member.
 func MemberTable(w io.Writer, members []Member) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	for _, m := range members {

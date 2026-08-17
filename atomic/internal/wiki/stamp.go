@@ -1,6 +1,6 @@
 package wiki
 
-// stamp.go — CP3/CP4 fingerprint-stamp helpers.
+// stamp.go — fingerprint-stamp helpers.
 //
 // StampSummary writes/updates reflects_rev in a summary file's YAML frontmatter
 // from git rev-parse HEAD of the repo at repoPath.

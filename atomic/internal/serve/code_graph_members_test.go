@@ -1,6 +1,6 @@
 package serve_test
 
-// code_graph_members_test.go — code-graph spec CP6 TDD: GET /code/graph/members.
+// code_graph_members_test.go — code-graph spec TDD: GET /code/graph/members.
 //
 // TDD: written before the implementation.
 //

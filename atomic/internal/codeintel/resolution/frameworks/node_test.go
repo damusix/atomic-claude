@@ -1,6 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch C: Node/JS-TS web frameworks.
+// Failing-first TDD tests for batch C: Node/JS-TS web frameworks.
 //
 // Frameworks: nestjs, koa, hapi, fastify, sails, adonisjs.
 //

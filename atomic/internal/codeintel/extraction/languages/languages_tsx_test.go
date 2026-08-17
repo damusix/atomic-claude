@@ -79,6 +79,7 @@ const jsxFixturePath = "src/App.jsx"
 // WHY: Without registration, the orchestrator silently falls through to file-record-only
 // extraction for .tsx files — symbols are never indexed.
 func TestTSX_Registered(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	cfg, lang, ok := reg.For(types.LanguageTSX)
 	if !ok {
@@ -97,6 +98,7 @@ func TestTSX_Registered(t *testing.T) {
 // reliably without mode flags); without registration they fall through to
 // file-record-only.
 func TestJSX_Registered(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	cfg, lang, ok := reg.For(types.LanguageJSX)
 	if !ok {
@@ -118,6 +120,7 @@ func TestJSX_Registered(t *testing.T) {
 // WHY: If only a file record is produced, no function node exists → the
 // jsx-render synthesizer has no "from" node to attach the render edge to.
 func TestTSX_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -140,6 +143,7 @@ func TestTSX_FunctionExtracted(t *testing.T) {
 
 // TestTSX_ClassExtracted asserts class components are extracted.
 func TestTSX_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -158,6 +162,7 @@ func TestTSX_ClassExtracted(t *testing.T) {
 
 // TestTSX_InterfaceExtracted asserts interfaces are extracted.
 func TestTSX_InterfaceExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -180,6 +185,7 @@ func TestTSX_InterfaceExtracted(t *testing.T) {
 // WHY: The jsx-render synthesizer needs these refs to build render edges;
 // without them it cannot link AppComponent → ChildWidget / Panel.
 func TestTSX_JSXChildRefs_PascalCaseEmitted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -206,6 +212,7 @@ func TestTSX_JSXChildRefs_PascalCaseEmitted(t *testing.T) {
 // WHY: Host elements are DOM primitives, not component usages — emitting refs for
 // them would flood the graph with meaningless edges and pollute resolution.
 func TestTSX_JSXChildRefs_HostTagsSkipped(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -229,6 +236,7 @@ func TestTSX_JSXChildRefs_HostTagsSkipped(t *testing.T) {
 // WHY: Resolution matches refs against component *names* (not qualified paths);
 // "Bar" is what the registry has, not "Foo.Bar".
 func TestTSX_JSXChildRefs_MemberTagLastSegment(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -252,6 +260,7 @@ func TestTSX_JSXChildRefs_MemberTagLastSegment(t *testing.T) {
 // WHY: The jsx-render synthesizer uses FromNodeID to anchor the render edge at
 // the component level; file-level attribution would make it unusable.
 func TestTSX_JSXChildRefs_FromEnclosingFunction(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")
@@ -286,6 +295,7 @@ func TestTSX_JSXChildRefs_FromEnclosingFunction(t *testing.T) {
 // TestJSX_FunctionExtracted asserts .jsx files extract function components.
 // WHY: JSX grammar must work for .jsx files too — uses the same tsx grammar.
 func TestJSX_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJSX)
 	if !ok {
 		t.Fatal("LanguageJSX not registered")
@@ -304,6 +314,7 @@ func TestJSX_FunctionExtracted(t *testing.T) {
 
 // TestJSX_JSXChildRefs asserts .jsx files also emit PascalCase JSX refs.
 func TestJSX_JSXChildRefs(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJSX)
 	if !ok {
 		t.Fatal("LanguageJSX not registered")
@@ -333,6 +344,7 @@ func TestJSX_JSXChildRefs(t *testing.T) {
 // TestTSX_NodeCountStable asserts extraction is deterministic.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestTSX_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")

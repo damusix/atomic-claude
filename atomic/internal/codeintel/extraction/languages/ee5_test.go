@@ -39,6 +39,7 @@ import (
 // and an identifier arg captures both: string unchanged, ident as "arg:<name>".
 // This is the canonical EE5 use case: emitter.on('e', onE).
 func TestEE5_MixedStringAndIdentArgs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -82,6 +83,7 @@ func TestEE5_MixedStringAndIdentArgs(t *testing.T) {
 // TestEE5_IdentArgOnlyCall proves that arr.append(handler) — identifier-only arg —
 // records "arg:handler" in Arguments. This is the Swift/Kotlin closure-collection case.
 func TestEE5_IdentArgOnlyCall(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -116,6 +118,7 @@ func TestEE5_IdentArgOnlyCall(t *testing.T) {
 
 // TestEE5_TwoIdentArgs proves that foo(x, y) (two ident args, no string) captures both.
 func TestEE5_TwoIdentArgs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -158,6 +161,7 @@ func TestEE5_TwoIdentArgs(t *testing.T) {
 // TestEE5_StringOnlyCallUnchanged proves that EE2 string-only calls are not altered.
 // emitter.emit('login') → Arguments = ["login"] (no "arg:" entries).
 func TestEE5_StringOnlyCallUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -193,6 +197,7 @@ func TestEE5_StringOnlyCallUnchanged(t *testing.T) {
 
 // TestEE5_ArglessCallUnchanged proves that no-arg calls still yield nil Arguments.
 func TestEE5_ArglessCallUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -214,6 +219,7 @@ func TestEE5_ArglessCallUnchanged(t *testing.T) {
 
 // TestEE5_TypeScriptMixedArgs proves that TS also captures ident args.
 func TestEE5_TypeScriptMixedArgs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangTypeScript, languages.TypeScriptExtractor())
 
@@ -254,6 +260,7 @@ func TestEE5_TypeScriptMixedArgs(t *testing.T) {
 
 // TestEE5_NodeCountStable proves the EE5 change does not alter node count (regression guard).
 func TestEE5_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -268,6 +275,7 @@ func TestEE5_NodeCountStable(t *testing.T) {
 // TestEE5_PrefixNonCollision proves that "arg:" prefix does not collide with
 // the EE3 "field:" and EE1 "jsx:" discriminators.
 func TestEE5_PrefixNonCollision(t *testing.T) {
+	t.Parallel()
 	// The three EE prefixes must be distinct:
 	prefixes := []string{"arg:", "field:", "jsx:"}
 	seen := map[string]bool{}

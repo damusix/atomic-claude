@@ -1,4 +1,4 @@
-// Tests for the CP23 daemon lifecycle (master CP23).
+// Tests for the daemon lifecycle (master).
 //
 // Design contract: docs/spec/code-intel-surfaces.md §MCP server lifecycle.
 //

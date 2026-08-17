@@ -1,4 +1,4 @@
-// Proxy implements the client-side `atomic code mcp` path (master CP23).
+// Proxy implements the client-side `atomic code mcp` path (master).
 //
 // RunProxy is the new implementation of `atomic code mcp`: it connect-or-starts
 // the singleton daemon (flock-guarded) and then bidirectionally pipes

@@ -1,4 +1,4 @@
-// Package frameworks — Node/JS-TS framework resolvers (CP15 batch C).
+// Package frameworks — Node/JS-TS framework resolvers (batch C).
 //
 // This file implements six FrameworkResolver + FrameworkExtractor pairs:
 // NestJS, Koa, Hapi, Fastify, Sails, AdonisJS.

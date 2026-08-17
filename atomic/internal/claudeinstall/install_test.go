@@ -490,7 +490,8 @@ func TestInstall_ProfileStubIdempotent(t *testing.T) {
 	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
 		return false, nil
 	}
-	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+	prevProfileRefresh := claudeinstall.ProfileRefresh
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = prevProfileRefresh })
 
 	// Pre-create profile.md with custom user content.
 	atomicDir := filepath.Join(target, ".atomic")
@@ -542,7 +543,8 @@ func TestInstall_SuppressesNudgeWhenAlreadyExists(t *testing.T) {
 	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
 		return false, nil
 	}
-	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+	prevProfileRefresh := claudeinstall.ProfileRefresh
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = prevProfileRefresh })
 
 	// Pre-create profile.md so ensureProfileStub is a no-op.
 	atomicDir := filepath.Join(target, ".atomic")
@@ -583,7 +585,8 @@ func TestInstall_ProfileRefreshCalledAfterStub(t *testing.T) {
 		gotDays = days
 		return false, nil
 	}
-	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+	prevProfileRefresh := claudeinstall.ProfileRefresh
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = prevProfileRefresh })
 
 	var buf bytes.Buffer
 	if _, err := claudeinstall.InstallWithOutput(target, target, false, clock, &buf); err != nil {
@@ -611,7 +614,8 @@ func TestInstall_ProfileRefreshError_BestEffort(t *testing.T) {
 	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
 		return false, fmt.Errorf("simulated detection failure")
 	}
-	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+	prevProfileRefresh := claudeinstall.ProfileRefresh
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = prevProfileRefresh })
 
 	var buf bytes.Buffer
 	_, err := claudeinstall.InstallWithOutput(target, target, false, fixedClock, &buf)
@@ -635,7 +639,8 @@ func TestInstall_ProfileRefreshPanic_BestEffort(t *testing.T) {
 	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
 		panic("simulated detection panic")
 	}
-	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+	prevProfileRefresh := claudeinstall.ProfileRefresh
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = prevProfileRefresh })
 
 	var buf bytes.Buffer
 	_, err := claudeinstall.InstallWithOutput(target, target, false, fixedClock, &buf)

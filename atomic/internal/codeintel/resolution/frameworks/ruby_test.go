@@ -1,6 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch E (Ruby): rails resolver.
+// Failing-first TDD tests for batch E (Ruby): rails resolver.
 //
 // Coverage:
 //  1. Detect true on Gemfile with 'rails' gem + false for non-rails project.

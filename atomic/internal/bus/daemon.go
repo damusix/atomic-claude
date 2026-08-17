@@ -26,20 +26,17 @@ type daemon struct {
 
 // Serve accepts connections on ln and dispatches each one's op against hub
 // until ctx is cancelled or a client sends "shutdown" — no timer ever
-// retires the daemon on its own (docs/spec/atomic-bus.md: "atomic bus
-// start | stop | restart control the daemon explicitly"). now is
-// injectable for ping's reported start time; pass nil for real time.
-//
-// ln is a parameter rather than something Serve calls net.Listen for
-// itself, so tests can drive the daemon over a listener bound to a
-// t.TempDir() socket path without spawning a process. The production `bus
-// serve` CLI verb is the thin wrapper: it creates the real
-// net.Listen("unix", sockPath) listener, passes it here, and is
-// responsible for the socket file and the spawn-lock's lifecycle around
-// this call — Serve only owns what happens once it has a live listener.
-// Closing ln unlinks the socket automatically for a *net.UnixListener
-// created via net.Listen (Go's default SetUnlinkOnClose behavior), so
-// Serve does not need to unlink it separately.
+// retires the daemon on its own. now is injectable for ping's reported
+// start time; pass nil for real time. ln is a parameter rather than
+// something Serve calls net.Listen for itself, so tests can drive the
+// daemon over a listener bound to a t.TempDir() socket path without
+// spawning a process. The production `bus serve` CLI verb is the thin
+// wrapper: it creates the real net.Listen("unix", sockPath) listener,
+// passes it here, and is responsible for the socket file and the spawn-
+// lock's lifecycle around this call — Serve only owns what happens once it
+// has a live listener. Closing ln unlinks the socket automatically for a
+// *net.UnixListener created via net.Listen (Go's default SetUnlinkOnClose
+// behavior), so Serve does not need to unlink it separately.
 func Serve(ctx context.Context, ln net.Listener, hub *Hub, now func() time.Time) error {
 	if now == nil {
 		now = time.Now
@@ -136,9 +133,9 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 		// let a session that names nobody in this room — or nobody yet —
 		// keep sitting in r.subs, ready to attach itself to whichever member
 		// later joins under that name and permanently defeat that member's
-		// staleness check (docs/spec/atomic-bus.md's 2026-07-29 entry). A
-		// claim that matches nobody currently in the room is downgraded to
-		// "" — anonymous, exactly like tail's own subscriptions.
+		// staleness check. A claim that matches nobody currently in the room
+		// is downgraded to "" — anonymous, exactly like tail's own
+		// subscriptions.
 		session := req.Session
 		if session != "" && !d.hub.SessionIsMember(req.Room, session) {
 			session = ""
@@ -161,13 +158,11 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 // subscribe implements the shared shape of the subscription ops (recv,
 // tail): reply {"ok":true}, then keep the connection open writing one
 // Envelope frame per line — flushed immediately via a direct net.Conn.Write,
-// never buffered — until the client disconnects or the daemon shuts down.
-// A subscriber sees only what is published after this call registers with
-// the hub; there is no backlog (docs/spec/atomic-bus.md's "Non-goals:
-// Replay of any kind" — replaying a joining agent's backlog hands it stale
-// instructions to act on). This is also why the wire protocol is
-// line-delimited rather than request-scoped (docs/design/atomic-bus.md,
-// "Wire protocol"): a subscription's response is unbounded.
+// never buffered — until the client disconnects or the daemon shuts down. A
+// subscriber sees only what is published after this call registers with the
+// hub; there is no backlog. This is also why the wire protocol is line-
+// delimited rather than request-scoped: a subscription's response is
+// unbounded.
 func (d *daemon) subscribe(ctx context.Context, conn net.Conn, enc *json.Encoder, rooms []string, session string, skipSelf bool) {
 	ch := make(chan Envelope, subscriberBuffer)
 	unsubs := make([]func(), 0, len(rooms))
@@ -278,8 +273,7 @@ func (d *daemon) handleJoin(req Request) Response {
 // handleLeave's payload reports whether Leave dropped the room entirely
 // (its last member, and no live subscriber — see Hub.Leave/dropIfEmpty) so
 // leaveAction can also clear any orphaned persisted halt state for a room
-// that no longer exists (docs/spec/atomic-bus.md's 2026-07-30 "drop a room
-// when its last member leaves" entry).
+// that no longer exists.
 func (d *daemon) handleLeave(req Request) Response {
 	dropped, err := d.hub.Leave(req.Room, req.Session)
 	if err != nil {
@@ -307,13 +301,12 @@ func (d *daemon) handleClose(req Request) Response {
 // path derives its short confirmation from the same payload. UnknownTo
 // names any env.To entry that is not currently a room member (Hub.
 // UnknownAddressees) — Publish above still delivers unconditionally; this
-// is only the signal the client uses to warn the sender on stderr
-// (docs/spec/atomic-bus.md: "send --to <name> warns on stderr when no such
-// member is in the room"). Checked against env.To, not req.To: Hub.Publish
-// resolves a suffix/substring --to entry to its full member name before
-// returning env (room.go's resolveAddressees), so checking the caller's
-// original, shorter req.To here would wrongly warn about an addressee that
-// was in fact resolved and delivered.
+// is only the signal the client uses to warn the sender on stderr. Checked
+// against env.To, not req.To: Hub.Publish resolves a suffix/substring --to
+// entry to its full member name before returning env (room.go's
+// resolveAddressees), so checking the caller's original, shorter req.To
+// here would wrongly warn about an addressee that was in fact resolved and
+// delivered.
 func (d *daemon) handleSend(req Request) Response {
 	env, err := d.hub.Publish(req.Room, req.Session, req.To, req.ReplyTo, req.Text)
 	if err != nil {
@@ -326,18 +319,15 @@ func (d *daemon) handleSend(req Request) Response {
 	return Response{OK: true, Payload: payload}
 }
 
-// handleSay is `say`'s daemon-side handler: publishes as the human operator
-// via Hub.PublishAsOperator, which — unlike handleSend's Hub.Publish — needs no
-// prior roster membership. UnknownTo mirrors handleSend's own
-// warning-not-withholding contract (docs/spec/atomic-bus.md: "send --to <name>
-// warns on stderr when no such member is in the room"), checked against the
-// same resolved env.To for the same reason handleSend's own comment gives.
-//
-// req.Name and req.Kind are deliberately ignored. Pinning the sender in the CLI
-// wrapper is not enough: the socket is the trust boundary, and any local
-// process can speak the protocol directly. An earlier version forwarded both
-// fields, which let a raw OpSay claim an existing agent's name with kind
-// "agent" and publish into a halted room.
+// handleSay is `say`'s daemon-side handler: publishes as the human operator via
+// Hub.PublishAsOperator, which — unlike handleSend's Hub.Publish — needs no
+// prior roster membership. UnknownTo mirrors handleSend's own warning-not-
+// withholding contract, checked against the same resolved env.To for the same
+// reason handleSend's own comment gives. req.Name and req.Kind are deliberately
+// ignored. Pinning the sender in the CLI wrapper is not enough: the socket is
+// the trust boundary, and any local process can speak the protocol directly. An
+// earlier version forwarded both fields, which let a raw OpSay claim an
+// existing agent's name with kind "agent" and publish into a halted room.
 func (d *daemon) handleSay(req Request) Response {
 	env, err := d.hub.PublishAsOperator(req.Room, req.To, req.ReplyTo, req.Text)
 	if err != nil {
@@ -353,12 +343,11 @@ func (d *daemon) handleSay(req Request) Response {
 // whoJSON is the shape both handleWho's wire payload and whoAction's --json
 // CLI output use: the room's own halt state alongside its member list, so
 // an agent or script reading `who --json` learns "halted and why" the same
-// way `rooms`/`status` do, without a second round trip
-// (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be visible"
-// entry). Halted/HaltReason are room-level, not per-member — carried once
-// here rather than denormalized onto every Member row, which would silently
-// hide the flag for a halted room with zero current members (a `tail` or
-// `recv` can hold that room open with no member rows to read it from — see
+// way `rooms`/`status` do, without a second round trip. Halted/HaltReason
+// are room-level, not per-member — carried once here rather than
+// denormalized onto every Member row, which would silently hide the flag
+// for a halted room with zero current members (a `tail` or `recv` can hold
+// that room open with no member rows to read it from — see
 // Hub.dropIfEmpty's own subscriber guard).
 type whoJSON struct {
 	Halted     bool     `json:"halted"`

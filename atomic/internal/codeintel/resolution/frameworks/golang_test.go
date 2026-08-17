@@ -1,6 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch B: Go web frameworks (gin, echo, fiber, gorilla, chi).
+// Failing-first TDD tests for batch B: Go web frameworks (gin, echo, fiber, gorilla, chi).
 //
 // Per-framework coverage:
 //   1. Detect true on a realistic go.mod fixture + false on unrelated dir.

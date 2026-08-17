@@ -1,6 +1,6 @@
 // Package frameworks implements the FrameworkResolver registry and the Express
-// resolver (CP14 template), plus all CP15 batches A–E (Python, Go, Node/JS-TS,
-// Rust/Java, and PHP/Ruby/Elixir resolvers). CP15 is complete — all 23
+// resolver (template), plus all batches A–E (Python, Go, Node/JS-TS,
+// Rust/Java, and PHP/Ruby/Elixir resolvers). is complete — all 23
 // framework resolvers are registered.
 //
 // # File input type
@@ -31,7 +31,7 @@
 //
 // MakeRouteNode is exported so tests can assert the exact format independently.
 //
-// # CP15 complete — all 23 resolvers registered
+// # complete — all 23 resolvers registered
 //
 // allResolvers() holds all framework resolvers in language-cluster order.
 // Batch A (django, flask, fastapi), B (gin, echo, fiber, gorilla, chi),
@@ -141,7 +141,7 @@ type Registry struct {
 // NewRegistry creates a Registry pre-seeded with all 23 framework resolvers.
 // Pass db=nil when no DB access is needed (e.g. in Detect-only flows).
 //
-// CP15 is complete: all batches A–E are registered (batch E = laravel, symfony,
+// is complete: all batches A–E are registered (batch E = laravel, symfony,
 // rails, phoenix).
 func NewRegistry(projectRoot string, d *db.DB) *Registry {
 	r := &Registry{
@@ -154,43 +154,43 @@ func NewRegistry(projectRoot string, d *db.DB) *Registry {
 
 // allResolvers returns the full ordered registry of all 23 framework resolvers.
 //
-// Express is first (CP14 template). CP15 batch A adds the three Python
+// Express is first (template). batch A adds the three Python
 // frameworks; batch B adds the five Go frameworks; batch C adds the six
 // Node/JS-TS frameworks; batch D adds the Rust and Java frameworks; batch E
-// adds the Ruby, PHP, and Elixir (Phoenix) frameworks. CP15 complete.
+// adds the Ruby, PHP, and Elixir (Phoenix) frameworks.
 // Insertion order = resolution priority within a language.
 func (r *Registry) allResolvers() []resolution.FrameworkResolver {
 	return []resolution.FrameworkResolver{
 		NewExpressResolverWithDB(r.projectRoot, r.db),
-		// CP15 batch A — Python cluster
+		// batch A — Python cluster
 		NewDjangoResolver(r.projectRoot),
 		NewFlaskResolver(r.projectRoot),
 		NewFastAPIResolver(r.projectRoot),
-		// CP15 batch B — Go cluster
+		// batch B — Go cluster
 		NewGinResolver(r.projectRoot),
 		NewEchoResolver(r.projectRoot),
 		NewFiberResolver(r.projectRoot),
 		NewGorillaResolver(r.projectRoot),
 		NewChiResolver(r.projectRoot),
-		// CP15 batch C — Node/JS-TS cluster
+		// batch C — Node/JS-TS cluster
 		NewNestJSResolver(r.projectRoot),
 		NewKoaResolver(r.projectRoot),
 		NewHapiResolver(r.projectRoot),
 		NewFastifyResolver(r.projectRoot),
 		NewSailsResolver(r.projectRoot),
 		NewAdonisResolver(r.projectRoot),
-		// CP15 batch D — Rust cluster
+		// batch D — Rust cluster
 		NewActixResolver(r.projectRoot),
 		NewAxumResolver(r.projectRoot),
 		NewRocketResolver(r.projectRoot),
-		// CP15 batch D — Java/Kotlin cluster
+		// batch D — Java/Kotlin cluster
 		NewSpringResolver(r.projectRoot),
-		// CP15 batch E — Ruby cluster
+		// batch E — Ruby cluster
 		NewRailsResolver(r.projectRoot),
-		// CP15 batch E — PHP cluster
+		// batch E — PHP cluster
 		NewLaravelResolver(r.projectRoot),
 		NewSymfonyResolver(r.projectRoot),
-		// CP15 batch E — Elixir cluster (uses LanguageUnknown; Elixir absent from appendix C)
+		// batch E — Elixir cluster (uses LanguageUnknown; Elixir absent from appendix C)
 		NewPhoenixResolver(r.projectRoot),
 	}
 }
@@ -246,7 +246,7 @@ func (r *Registry) FrameworkRegistry() resolution.FrameworkRegistry {
 // extractor already processed. The framework layer adds route nodes on top.
 //
 // This method is the "ExtractFrameworkNodes" seam (brief §5). The engine
-// facade (CP20) will call it as part of the index pipeline.
+// facade will call it as part of the index pipeline.
 func (r *Registry) ExtractAndPersist(ctx context.Context, files []FileInput) error {
 	if r.db == nil {
 		return nil // no-op in DB-less mode

@@ -1,12 +1,12 @@
 package resolution_test
 
-// CP13 resolver pipeline tests.
+// resolver pipeline tests.
 //
 // Why this file is the spec gate:
 //   - calls ref to a function → calls edge (proves resolveOne + createEdges).
 //   - calls ref to a class → PROMOTED to instantiates (proves kind promotion).
 //   - extends ref to an interface → PROMOTED to implements (proves kind promotion).
-//   - import ref → imports edge via ResolveImport (proves CP11 wiring).
+//   - import ref → imports edge via ResolveImport (proves wiring).
 //   - batch loop terminates when all remaining refs are unresolvable (proves the
 //     "break when a batch yields nothing" guard — no infinite loop).
 //   - resolved refs are DELETED from unresolved_refs; unresolvable remain.
@@ -325,7 +325,7 @@ func TestExtendsEdgePromotedToImplements(t *testing.T) {
 }
 
 // TestImportRefProducesImportsEdge proves that an import-kind unresolved_ref
-// is turned into an "imports" edge using the CP11 import resolver.
+// is turned into an "imports" edge using the import resolver.
 func TestImportRefProducesImportsEdge(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
@@ -900,7 +900,7 @@ func TestOverFuzzyCapNameDoesNotTriggerFuzzy(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CP2 (docs/spec/code-intel-package-nodes.md): package-node mint loop, sweep
+// (docs/spec/code-intel-package-nodes.md): package-node mint loop, sweep
 // ---------------------------------------------------------------------------
 
 // packageNodeID mirrors extraction.GenerateNodeID's package-kind formula

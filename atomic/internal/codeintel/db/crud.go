@@ -60,7 +60,7 @@ func (d *DB) UpsertNode(ctx context.Context, n types.Node) error {
 }
 
 // UpsertNodeAt inserts or replaces a node row with an explicit updatedAt Unix
-// timestamp (seconds since epoch). The orchestrator (CP10) passes
+// timestamp (seconds since epoch). The orchestrator passes
 // time.Now().Unix() so the re-index time is recorded per node.
 func (d *DB) UpsertNodeAt(ctx context.Context, n types.Node, updatedAt int64) error {
 	_, err := d.db.ExecContext(ctx, `
@@ -182,7 +182,7 @@ func getNodesByIdsChunk(ctx context.Context, db *sql.DB, ids []string) ([]types.
 }
 
 // GetAllNodes returns all nodes in the database. Used by the resolution pipeline
-// (CP13) warmCaches to build the known-names cache. On large repos this is a
+// warmCaches to build the known-names cache. On large repos this is a
 // full table scan; it runs once per resolveAndPersistBatched invocation.
 func (d *DB) GetAllNodes(ctx context.Context) ([]types.Node, error) {
 	rows, err := d.db.QueryContext(ctx, `

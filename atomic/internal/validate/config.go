@@ -13,6 +13,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
+	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
 )
 
 // builtinSubagents is the set of subagent names built into Claude Code that do
@@ -41,7 +42,7 @@ var reSubagentType = regexp.MustCompile(`subagent_type:\s*["']([a-zA-Z][a-zA-Z0-
 // Claude Code (e.g. @.claude/project/signals.md). It is deliberately loose on
 // the right of the @; the email guard in runC5 (isEmailLocalChar) rejects any
 // match whose @ is preceded by an email local-part character, so `bob@host.com`
-// in prose is not mistaken for a file include (issue #159).
+// in prose is not mistaken for a file include.
 var reAtRef = regexp.MustCompile(`@([./a-zA-Z0-9_-]+\.[a-zA-Z]{2,4})`)
 
 // isEmailLocalChar reports whether b can appear in an email address local part
@@ -103,7 +104,7 @@ func RunConfigRules(repoRoot string) ([]Finding, error) {
 // prose (outside fenced code blocks) resolves to agents/<name>.md or is a
 // known built-in.
 func runC3(repoRoot string) ([]Finding, error) {
-	commandsDir := filepath.Join(repoRoot, "commands")
+	commandsDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "commands")
 	entries, err := os.ReadDir(commandsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -112,10 +113,20 @@ func runC3(repoRoot string) ([]Finding, error) {
 		return nil, fmt.Errorf("C3: read commands dir: %w", err)
 	}
 
+	// Commands are checked in expanded form: a dispatch can live inside a shared
+	// partial, and scanning the unexpanded source would silently stop covering
+	// it. This is the same expansion bundlemirror performs on the way into the
+	// bundle, so C3 sees exactly what installs.
+	partials, err := templaterender.LoadPartials(
+		filepath.Join(bundlespec.SourceRoot(repoRoot), templaterender.PartialsDir))
+	if err != nil {
+		return nil, fmt.Errorf("C3: load partials: %w", err)
+	}
+
 	var findings []Finding
 	for _, e := range entries {
 		if e.IsDir() {
-			continue // skip _templates/ and other subdirs
+			continue // skip subdirectories — non-recursive, top-level commands/*.md only
 		}
 		if !strings.HasSuffix(e.Name(), ".md") {
 			continue
@@ -124,6 +135,10 @@ func runC3(repoRoot string) ([]Finding, error) {
 		src, err := os.ReadFile(cmdPath)
 		if err != nil {
 			return nil, fmt.Errorf("C3: read %s: %w", cmdPath, err)
+		}
+		src, err = templaterender.Expand(partials, e.Name(), src)
+		if err != nil {
+			return nil, fmt.Errorf("C3: expand %s: %w", cmdPath, err)
 		}
 
 		// Extract prose-only text segments (skips fenced/indented code blocks).
@@ -137,7 +152,7 @@ func runC3(repoRoot string) ([]Finding, error) {
 				if builtinSubagents[name] {
 					continue
 				}
-				agentPath := filepath.Join(repoRoot, "agents", name+".md")
+				agentPath := filepath.Join(bundlespec.SourceRoot(repoRoot), "agents", name+".md")
 				if _, err := os.Stat(agentPath); os.IsNotExist(err) {
 					line := seg.Line + strings.Count(seg.Text[:loc[0]], "\n")
 					findings = append(findings, Finding{
@@ -160,7 +175,7 @@ func runC3(repoRoot string) ([]Finding, error) {
 // spans resembling @-refs (e.g. npm package paths like @fortawesome/...).
 func runC5(repoRoot string) ([]Finding, error) {
 	candidates := []string{
-		filepath.Join(repoRoot, "CLAUDE.md"),
+		filepath.Join(bundlespec.SourceRoot(repoRoot), "CLAUDE.md"),
 	}
 
 	var findings []Finding
@@ -178,7 +193,7 @@ func runC5(repoRoot string) ([]Finding, error) {
 			matches := reAtRef.FindAllStringSubmatchIndex(seg.Text, -1)
 			for _, loc := range matches {
 				// Skip email addresses: an @ preceded by a local-part char
-				// (bob@host.com) is not a file include (issue #159).
+				// (bob@host.com) is not a file include.
 				if loc[0] > 0 && isEmailLocalChar(seg.Text[loc[0]-1]) {
 					continue
 				}
@@ -203,7 +218,7 @@ func runC5(repoRoot string) ([]Finding, error) {
 
 // runC7 checks for duplicate name: values across agents/*.md frontmatter.
 func runC7(repoRoot string) ([]Finding, error) {
-	agentsDir := filepath.Join(repoRoot, "agents")
+	agentsDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "agents")
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -263,7 +278,7 @@ func runC9(repoRoot string) ([]Finding, error) {
 	var findings []Finding
 
 	// agents/*.md — must match bundlespec.MatchesAgent (atomic- prefix + .md)
-	agentsDir := filepath.Join(repoRoot, "agents")
+	agentsDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "agents")
 	if entries, err := os.ReadDir(agentsDir); err == nil {
 		for _, e := range entries {
 			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
@@ -282,7 +297,7 @@ func runC9(repoRoot string) ([]Finding, error) {
 	}
 
 	// skills/ — directories must have atomic- prefix (bundlespec.MatchesSkillDir)
-	skillsDir := filepath.Join(repoRoot, "skills")
+	skillsDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "skills")
 	if entries, err := os.ReadDir(skillsDir); err == nil {
 		for _, e := range entries {
 			if !e.IsDir() {
@@ -301,7 +316,7 @@ func runC9(repoRoot string) ([]Finding, error) {
 	}
 
 	// output-styles/*.md — must match bundlespec.MatchesOutputStyle (atomic prefix + .md)
-	stylesDir := filepath.Join(repoRoot, "output-styles")
+	stylesDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "output-styles")
 	if entries, err := os.ReadDir(stylesDir); err == nil {
 		for _, e := range entries {
 			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {

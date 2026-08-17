@@ -1,6 +1,6 @@
 package signals_test
 
-// CP3: tests for signals scan --out redirect.
+// tests for signals scan --out redirect.
 // These verify:
 //   1. With OutDir set, substrate writes to OutDir; scanned repo is never written.
 //   2. Without OutDir, behavior is identical to before (default path).

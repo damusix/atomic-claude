@@ -62,7 +62,7 @@ type NavOptions struct {
 	// stub to avoid disk/git I/O.
 	StalenessFn StalenessFn
 
-	// Store is the shared snapshot store (CP2 live-reload) backing the
+	// Store is the shared snapshot store (live-reload) backing the
 	// repo-scope nav tree's file list, shared with the page/rail/graph-data
 	// handlers so a single walk serves all of them. Realm-scope nav does not
 	// read Store — members/concerns/knowledge/buckets are read from the wiki
@@ -75,7 +75,7 @@ type NavOptions struct {
 	Store *snapshotStore
 }
 
-// sseLiveParam is the query parameter CP4's client-side EventSource-triggered
+// sseLiveParam is the query parameter client-side EventSource-triggered
 // nav refetch sets on GET /nav (e.g. "/nav?live=1") so the handler can skip
 // computeStaleness — a git-subprocess-backed check — on every live-reload
 // refresh. An ordinary navigation request (no param) still runs it.
@@ -281,7 +281,7 @@ func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
 	groups = append(groups, navGroupJSON{Name: "Knowledge", Items: knowledgeItems})
 
 	// Group 5: Buckets — each bucket is a folder node whose children are its
-	// servable markdown files (recursive folder tree, same shape CP2's
+	// servable markdown files (recursive folder tree, same shape's
 	// generic folderTreeToJSON produces for the repo-scope docs tree).
 	buckets, _ := wiki.ReadBucketEntries(opts.WikiIndexPath)
 	bucketItems := make([]navNodeJSON, 0, len(buckets))
@@ -316,7 +316,7 @@ func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
 }
 
 // buildRepoNavGroupsJSON mirrors renderRepoNav's docs file tree as structured
-// data. navPaths is the snapshot's root-relative .md file list (CP2 live-reload).
+// data. navPaths is the snapshot's root-relative .md file list (live-reload).
 func buildRepoNavGroupsJSON(navPaths []string) []navGroupJSON {
 	var topMDs []string
 	var docsFiles []string

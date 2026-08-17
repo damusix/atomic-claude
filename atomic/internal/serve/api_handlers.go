@@ -1,4 +1,4 @@
-// api_handlers.go — CP2: additive /api/* content endpoints (page, file, rail,
+// api_handlers.go — additive /api/* content endpoints (page, file, rail,
 // nav) for the React frontend, alongside the existing htmx routes.
 //
 // Every handler reuses the same view-model builders as its htmx sibling

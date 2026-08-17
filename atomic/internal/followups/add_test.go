@@ -274,7 +274,7 @@ func TestAdd_DefaultKindIsFinding(t *testing.T) {
 	}
 }
 
-// CP2 F-1: missing severity error must not double-wrap.
+// missing severity error must not double-wrap.
 func TestAdd_MissingSeverityErrorSingleWrapped(t *testing.T) {
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "followups")

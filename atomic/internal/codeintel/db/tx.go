@@ -1,6 +1,6 @@
 package db
 
-// Transaction seam for atomic store operations (CP10).
+// Transaction seam for atomic store operations.
 //
 // WithTx begins a transaction, calls fn, and commits on success or rolls back
 // on any error (including panics via defer). The Tx type exposes only the CRUD

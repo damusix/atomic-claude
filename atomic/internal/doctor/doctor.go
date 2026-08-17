@@ -177,6 +177,6 @@ func indexSet(indices []int) map[int]bool {
 // checkBinary    → checks_binary.go       (CP-3)
 // checkConfig    → checks_config.go       (CP-7)
 // checkProfile   → checks_profile.go      (CP-5)
-// checkCodeIndex    → checks_code_index.go   (CP7 code-intel-integration)
+// checkCodeIndex    → checks_code_index.go   (code-intel-integration)
 // checkMigrateDrift → checks_migrate.go      (C5 atomic-migrate-framework)
-// checkRepoConfig   → checks_repo_config.go  (CP3 graphignore)
+// checkRepoConfig   → checks_repo_config.go  (graphignore)

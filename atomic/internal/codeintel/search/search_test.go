@@ -1,6 +1,6 @@
 package search_test
 
-// Tests for the search package (master CP18, appendix J).
+// Tests for the search package (master, appendix J).
 //
 // Fixture nodes cover:
 //   - functions/methods/classes/a route/a test file

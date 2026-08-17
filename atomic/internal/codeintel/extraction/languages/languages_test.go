@@ -78,9 +78,10 @@ func nodeKindList(nodes []types.Node) string {
 
 // TestRegistry_For_KnownLanguages verifies that For() resolves all 5 registered
 // languages to non-zero configs.
-// WHY: The registry is the single resolution point for CP10; if any language is
+// WHY: The registry is the single resolution point for; if any language is
 // missing, the orchestrator will silently skip files of that language.
 func TestRegistry_For_KnownLanguages(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	tests := []struct {
 		lang     types.Language
@@ -111,6 +112,7 @@ func TestRegistry_For_KnownLanguages(t *testing.T) {
 // TestRegistry_For_Unknown verifies that an unregistered language returns ok=false.
 // WHY: Callers must be able to skip unsupported languages without panicking.
 func TestRegistry_For_Unknown(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	_, _, ok := reg.For(types.LanguageSvelte)
 	if ok {
@@ -165,6 +167,7 @@ const tsFixturePath = "src/emitter.ts"
 // TestTypeScript_FunctionExtracted asserts functions are extracted as NodeKindFunction.
 // WHY: Functions are the primary call targets; if missing, call-edge resolution fails.
 func TestTypeScript_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -184,6 +187,7 @@ func TestTypeScript_FunctionExtracted(t *testing.T) {
 // TestTypeScript_ClassExtracted asserts classes are extracted as NodeKindClass.
 // WHY: Classes are the structural containers; missing them breaks the member graph.
 func TestTypeScript_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -203,6 +207,7 @@ func TestTypeScript_ClassExtracted(t *testing.T) {
 // TestTypeScript_InterfaceExtracted asserts TS interfaces emit NodeKindInterface.
 // WHY: Interfaces are the type-contract nodes; wrong kind breaks resolution edge promotion.
 func TestTypeScript_InterfaceExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -222,6 +227,7 @@ func TestTypeScript_InterfaceExtracted(t *testing.T) {
 // TestTypeScript_ImportsExtracted asserts import statements emit UnresolvedReferences.
 // WHY: Imports are the starting point for the resolution layer's import resolver.
 func TestTypeScript_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -238,6 +244,7 @@ func TestTypeScript_ImportsExtracted(t *testing.T) {
 // TestTypeScript_CallEmitsUnresolvedReference asserts call expressions emit calls refs.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that.
 func TestTypeScript_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -254,6 +261,7 @@ func TestTypeScript_CallEmitsUnresolvedReference(t *testing.T) {
 // TestTypeScript_IsExported_ExportedSymbolsDetected asserts exported symbols have IsExported=true.
 // WHY: IsExported drives +10 scoring bonus in resolution; missing it degrades cross-file resolution.
 func TestTypeScript_IsExported_ExportedSymbolsDetected(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -284,6 +292,7 @@ func TestTypeScript_IsExported_ExportedSymbolsDetected(t *testing.T) {
 // TestTypeScript_NodeCountStable asserts node count is deterministic.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestTypeScript_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -303,6 +312,7 @@ func TestTypeScript_NodeCountStable(t *testing.T) {
 // losing the package identity — three "@noormdev/sdk" imports used to
 // render as three indistinguishable "sdk" nodes.
 func TestTypeScript_PackageImportKeepsFullSpecifierName(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -328,6 +338,7 @@ func TestTypeScript_PackageImportKeepsFullSpecifierName(t *testing.T) {
 // resolve to a real file node via the imports edge, so the short label
 // stays less noisy.
 func TestTypeScript_RelativeImportUsesBasenameName(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -379,6 +390,7 @@ const helper = (x) => x * 2;
 const jsFixturePath = "src/emitter.js"
 
 func TestJavaScript_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
 	if !ok {
 		t.Fatal("JavaScript not registered")
@@ -396,6 +408,7 @@ func TestJavaScript_FunctionExtracted(t *testing.T) {
 }
 
 func TestJavaScript_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
 	if !ok {
 		t.Fatal("JavaScript not registered")
@@ -413,6 +426,7 @@ func TestJavaScript_ClassExtracted(t *testing.T) {
 }
 
 func TestJavaScript_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
 	if !ok {
 		t.Fatal("JavaScript not registered")
@@ -427,6 +441,7 @@ func TestJavaScript_ImportsExtracted(t *testing.T) {
 }
 
 func TestJavaScript_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
 	if !ok {
 		t.Fatal("JavaScript not registered")
@@ -441,6 +456,7 @@ func TestJavaScript_CallEmitsUnresolvedReference(t *testing.T) {
 }
 
 func TestJavaScript_IsExported_ExportedSymbolsDetected(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
 	if !ok {
 		t.Fatal("JavaScript not registered")
@@ -468,6 +484,7 @@ func TestJavaScript_IsExported_ExportedSymbolsDetected(t *testing.T) {
 }
 
 func TestJavaScript_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
 	if !ok {
 		t.Fatal("JavaScript not registered")
@@ -484,6 +501,7 @@ func TestJavaScript_NodeCountStable(t *testing.T) {
 // TestJavaScript_PackageImportKeepsFullSpecifierName is the JavaScript
 // counterpart of TestTypeScript_PackageImportKeepsFullSpecifierName.
 func TestJavaScript_PackageImportKeepsFullSpecifierName(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
 	if !ok {
 		t.Fatal("JavaScript not registered")
@@ -507,6 +525,7 @@ func TestJavaScript_PackageImportKeepsFullSpecifierName(t *testing.T) {
 // TestJavaScript_RelativeImportUsesBasenameName is the JavaScript
 // counterpart of TestTypeScript_RelativeImportUsesBasenameName.
 func TestJavaScript_RelativeImportUsesBasenameName(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
 	if !ok {
 		t.Fatal("JavaScript not registered")
@@ -567,6 +586,7 @@ PUBLIC_CONST = 42
 const pyFixturePath = "src/canvas.py"
 
 func TestPython_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePython)
 	if !ok {
 		t.Fatal("Python not registered")
@@ -584,6 +604,7 @@ func TestPython_FunctionExtracted(t *testing.T) {
 }
 
 func TestPython_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePython)
 	if !ok {
 		t.Fatal("Python not registered")
@@ -601,6 +622,7 @@ func TestPython_ClassExtracted(t *testing.T) {
 }
 
 func TestPython_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePython)
 	if !ok {
 		t.Fatal("Python not registered")
@@ -615,6 +637,7 @@ func TestPython_ImportsExtracted(t *testing.T) {
 }
 
 func TestPython_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePython)
 	if !ok {
 		t.Fatal("Python not registered")
@@ -632,6 +655,7 @@ func TestPython_CallEmitsUnresolvedReference(t *testing.T) {
 // public names (no leading _) are exported; _private names are not.
 // WHY: Python has no export keyword — the convention must be correctly implemented.
 func TestPython_IsExported_UnderscoreConvention(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePython)
 	if !ok {
 		t.Fatal("Python not registered")
@@ -660,6 +684,7 @@ func TestPython_IsExported_UnderscoreConvention(t *testing.T) {
 }
 
 func TestPython_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePython)
 	if !ok {
 		t.Fatal("Python not registered")
@@ -738,6 +763,7 @@ fn helper(x: i32) -> i32 {
 const rustFixturePath = "src/shapes.rs"
 
 func TestRust_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
 	if !ok {
 		t.Fatal("Rust not registered")
@@ -755,6 +781,7 @@ func TestRust_FunctionExtracted(t *testing.T) {
 }
 
 func TestRust_StructExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
 	if !ok {
 		t.Fatal("Rust not registered")
@@ -775,6 +802,7 @@ func TestRust_StructExtracted(t *testing.T) {
 // WHY: Rust traits are the semantic equivalent of interfaces; wrong kind breaks
 // resolution's edge promotion (calls→instantiates, extends→implements).
 func TestRust_TraitExtractedAsInterface(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
 	if !ok {
 		t.Fatal("Rust not registered")
@@ -799,6 +827,7 @@ func TestRust_TraitExtractedAsInterface(t *testing.T) {
 // WHY: Macros are the primary "call-like" operation in Rust; if they don't emit
 // call references, the call graph is silently incomplete for Rust codebases.
 func TestRust_MacroInvocationEmitsCall(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
 	if !ok {
 		t.Fatal("Rust not registered")
@@ -834,6 +863,7 @@ func TestRust_MacroInvocationEmitsCall(t *testing.T) {
 }
 
 func TestRust_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
 	if !ok {
 		t.Fatal("Rust not registered")
@@ -851,6 +881,7 @@ func TestRust_ImportsExtracted(t *testing.T) {
 // WHY: Rust's visibility is explicit; pub = exported. Wrong IsExported means the
 // +10 resolution scoring bonus applies to private items.
 func TestRust_IsExported_PubKeyword(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
 	if !ok {
 		t.Fatal("Rust not registered")
@@ -880,6 +911,7 @@ func TestRust_IsExported_PubKeyword(t *testing.T) {
 }
 
 func TestRust_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
 	if !ok {
 		t.Fatal("Rust not registered")
@@ -898,6 +930,7 @@ func TestRust_NodeCountStable(t *testing.T) {
 // fell through to extractStruct for any ResolveKind value other than Interface/TypeAlias.
 // This means pub enum Direction would be stored as a struct, breaking semantic graph correctness.
 func TestRust_EnumExtractedAsEnum(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
 	if !ok {
 		t.Fatal("Rust not registered")
@@ -951,6 +984,7 @@ const tsExportDefaultFixturePath = "src/exports.ts"
 // WHY: The 8-byte text lookback sees "default " (not "export ") for export default declarations,
 // so a text-scan approach misses them. AST-based detection via export_statement parent must catch all forms.
 func TestTypeScript_ExportDefault_IsExported(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -1017,6 +1051,7 @@ const jsExportDefaultFixturePath = "src/exports.js"
 // link references to X. Without VariableTypes wired, the lexical_declaration is
 // descended into but never emitted as a node, breaking the semantic graph.
 func TestTypeScript_VariableExtracted(t *testing.T) {
+	t.Parallel()
 	const src = `export const X = 1;
 const y = 2;
 let z = "hello";
@@ -1061,6 +1096,7 @@ let z = "hello";
 // extracted as NodeKindVariable with the correct name and IsExported status.
 // WHY: Same reason as TS — export const X must produce a variable node for the graph.
 func TestJavaScript_VariableExtracted(t *testing.T) {
+	t.Parallel()
 	const src = `export const X = 1;
 const y = 2;
 let z = "hello";
@@ -1100,6 +1136,7 @@ let z = "hello";
 // TestJavaScript_ExportDefault_IsExported asserts that export default function → IsExported=true.
 // WHY: Same as TS — the 8-byte lookback sees "default ", not "export ", for export default.
 func TestJavaScript_ExportDefault_IsExported(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
 	if !ok {
 		t.Fatal("JavaScript not registered")
@@ -1142,6 +1179,7 @@ func TestJavaScript_ExportDefault_IsExported(t *testing.T) {
 // widened its net to cover it, namespace-scoped state would silently vanish
 // from the graph.
 func TestTypeScript_NamespaceConstKept(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -1167,6 +1205,7 @@ func TestTypeScript_NamespaceConstKept(t *testing.T) {
 // extractSimpleNode in either version, so this pins a behavior that must
 // never regress, not a case the checkpoint's suppression logic newly affects.
 func TestTypeScript_ForOfBindingNeverMinted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
 	if !ok {
 		t.Fatal("TypeScript not registered")
@@ -1195,6 +1234,7 @@ func TestTypeScript_ForOfBindingNeverMinted(t *testing.T) {
 // harvested — "walk continues either way" applies to JSXElementTypes too, not
 // only calls.
 func TestTSX_InheritsFunctionScopeTypes(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("TSX not registered")
@@ -1241,6 +1281,7 @@ items.forEach((item) => {
 // TestExtractor_FunctionScopeSuppression_TS in extractor_test.go: module-scope
 // const kept, arrow-callback const dropped, initializer call still harvested.
 func TestJavaScript_FunctionScopeSuppression(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
 	if !ok {
 		t.Fatal("JavaScript not registered")
@@ -1288,6 +1329,7 @@ items.forEach((item) => {
 // cannot affect it. Counts verified identical against pre-fix extractor.go
 // (stash-and-rerun) before this test was written.
 func TestPython_ByteIdenticalAfterScopeSuppression(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePython)
 	if !ok {
 		t.Fatal("Python not registered")

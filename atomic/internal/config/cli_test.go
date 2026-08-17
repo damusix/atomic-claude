@@ -268,7 +268,7 @@ func TestRun_list_json_sorted_keys(t *testing.T) {
 	}
 }
 
-// --- harness.dir (CP2: configurable-state-paths) ---
+// --- harness.dir (configurable-state-paths) ---
 
 func TestRun_harness_dir_set_get_unset(t *testing.T) {
 	home := t.TempDir()

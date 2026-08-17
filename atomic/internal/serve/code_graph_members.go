@@ -1,4 +1,4 @@
-// code_graph_members.go — code-graph spec CP6: member discovery for the code
+// code_graph_members.go — code-graph spec member discovery for the code
 // view's realm member picker (SC7).
 //
 // Route: GET /code/graph/members

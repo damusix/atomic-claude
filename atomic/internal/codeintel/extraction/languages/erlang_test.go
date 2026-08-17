@@ -105,6 +105,7 @@ func extractErlang(t *testing.T) types.ExtractionResult {
 // TestErlang_ModuleExtracted asserts that -module(mymod). emits a NodeKindModule.
 // WHY: The module is the top-level namespace; resolution depends on it.
 func TestErlang_ModuleExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	mod := findNode(result.Nodes, types.NodeKindModule, "mymod")
 	if mod == nil {
@@ -122,6 +123,7 @@ func TestErlang_ModuleExtracted(t *testing.T) {
 // TestErlang_ExportedFunctionExtracted asserts add/2 is extracted and marked exported.
 // WHY: add/2 is in -export([add/2, sqrt_sum/2]); IsExported must reflect that.
 func TestErlang_ExportedFunctionExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 
 	add := findNode(result.Nodes, types.NodeKindFunction, "add")
@@ -140,6 +142,7 @@ func TestErlang_ExportedFunctionExtracted(t *testing.T) {
 // TestErlang_UnexportedFunctionExtracted asserts loop/1 is extracted but NOT exported.
 // WHY: loop/1 is not in -export([...]); IsExported must be false.
 func TestErlang_UnexportedFunctionExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 
 	loop := findNode(result.Nodes, types.NodeKindFunction, "loop")
@@ -159,6 +162,7 @@ func TestErlang_UnexportedFunctionExtracted(t *testing.T) {
 // the extractor must produce at least one function node for the shared name,
 // and the Signature must carry the arity identity contract ("multi/1").
 func TestErlang_MultiClauseFunctionExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	multi := findNode(result.Nodes, types.NodeKindFunction, "multi")
 	if multi == nil {
@@ -177,6 +181,7 @@ func TestErlang_MultiClauseFunctionExtracted(t *testing.T) {
 // TestErlang_SqrtSumExportedWithArity asserts sqrt_sum/2 is exported with correct arity.
 // WHY: sqrt_sum/2 is in -export([...]); IsExported must be true; Signature must be "sqrt_sum/2".
 func TestErlang_SqrtSumExportedWithArity(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	fn := findNode(result.Nodes, types.NodeKindFunction, "sqrt_sum")
 	if fn == nil {
@@ -198,6 +203,7 @@ func TestErlang_SqrtSumExportedWithArity(t *testing.T) {
 // WHY: Records are the primary data structure in Erlang; callers index them for
 // field resolution. Missing record nodes break struct-field resolution.
 func TestErlang_RecordExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	rec := findNode(result.Nodes, types.NodeKindStruct, "state")
 	if rec == nil {
@@ -215,6 +221,7 @@ func TestErlang_RecordExtracted(t *testing.T) {
 // TestErlang_MacroExtracted asserts -define(MAX_RETRIES, 3) → NodeKindVariable.
 // WHY: Macro constants are indexed as named bindings for reference tracking.
 func TestErlang_MacroExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	macro := findNode(result.Nodes, types.NodeKindVariable, "MAX_RETRIES")
 	if macro == nil {
@@ -230,6 +237,7 @@ func TestErlang_MacroExtracted(t *testing.T) {
 // WHY: Behaviour declarations are module-level dependencies; the resolution layer
 // uses import edges to discover which OTP behaviours a module implements.
 func TestErlang_BehaviourImportEmitted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	importCount := countUnresolved(result.UnresolvedReferences, types.EdgeKindImports)
 	if importCount == 0 {
@@ -255,6 +263,7 @@ func TestErlang_BehaviourImportEmitted(t *testing.T) {
 // TestErlang_LocalCallExtracted asserts a local call (add/loop) emits EdgeKindCalls.
 // WHY: Call edges drive the call-graph; without them, callers/callees queries are empty.
 func TestErlang_LocalCallExtracted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 	callCount := countUnresolved(result.UnresolvedReferences, types.EdgeKindCalls)
 	if callCount == 0 {
@@ -271,6 +280,7 @@ func TestErlang_LocalCallExtracted(t *testing.T) {
 // WHY: Non-deterministic output (e.g. from map iteration or state leakage) would
 // silently corrupt the index on re-indexing.
 func TestErlang_ExtractionStable(t *testing.T) {
+	t.Parallel()
 	e := newErlangExtractor(t)
 	ctx := context.Background()
 	r1 := e.Extract(ctx, erlangFixturePath, erlangFixture, types.LanguageErlang)
@@ -310,6 +320,7 @@ bar(X, Y) -> X + Y.
 // functions would appear in the symbol graph as exported, silently hiding the
 // public surface from callers queries.
 func TestErlang_ExportAll_FunctionsAreExported(t *testing.T) {
+	t.Parallel()
 	e := newErlangExtractor(t)
 	result := e.Extract(context.Background(), "src/mymod_all.erl", erlangExportAllFixture, types.LanguageErlang)
 	if len(result.Errors) > 0 {
@@ -343,6 +354,7 @@ func TestErlang_ExportAll_FunctionsAreExported(t *testing.T) {
 // does not walk into record_decl children and match record_field nodes, field
 // resolution callers will silently get no field symbols.
 func TestErlang_RecordFieldsEmitted(t *testing.T) {
+	t.Parallel()
 	result := extractErlang(t)
 
 	nameField := findNode(result.Nodes, types.NodeKindField, "name")
@@ -384,6 +396,7 @@ table() ->
 // matched the "fun bar/0" expression and produced a false positive. The fix parses
 // -export([…]) attributes into a set and checks set membership instead.
 func TestErlang_FunRefDoesNotFalsePositiveExport(t *testing.T) {
+	t.Parallel()
 	e := newErlangExtractor(t)
 	result := e.Extract(context.Background(), "src/mymod_fp.erl", erlangFalsePositiveFixture, types.LanguageErlang)
 	if len(result.Errors) > 0 {
@@ -432,6 +445,7 @@ foo(X) -> X.
 // WHY: The previous erlangHasExportAll used strings.Contains(source, "export_all")
 // which would have matched the comment. The fix anchors to the -compile(...) form.
 func TestErlang_ExportAllInCommentDoesNotExport(t *testing.T) {
+	t.Parallel()
 	e := newErlangExtractor(t)
 	result := e.Extract(context.Background(), "src/mymod_ea_comment.erl", erlangExportAllCommentFixture, types.LanguageErlang)
 	if len(result.Errors) > 0 {
@@ -460,6 +474,7 @@ qux() -> ok.
 // WHY: OTP modules commonly bundle compile options in a list; the export_all
 // option must be recognized in that list form, not only as a bare atom.
 func TestErlang_ExportAllListForm(t *testing.T) {
+	t.Parallel()
 	e := newErlangExtractor(t)
 	result := e.Extract(context.Background(), "src/mymod_ea_list.erl", erlangExportAllListFixture, types.LanguageErlang)
 	if len(result.Errors) > 0 {
@@ -491,6 +506,7 @@ func TestErlang_ExportAllListForm(t *testing.T) {
 // WHY: A missing registry entry means .erl/.hrl files are silently skipped by the
 // orchestrator during indexing.
 func TestErlang_RegistryEntry(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	cfg, lang, ok := reg.For(types.LanguageErlang)
 	if !ok {

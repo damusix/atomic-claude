@@ -1,6 +1,6 @@
 package serve_test
 
-// api_status_external_test.go — CP4: /api/status and /api/external JSON
+// api_status_external_test.go — /api/status and /api/external JSON
 // shape tests. TDD: written to assert the shapes pinned in the spec's
 // ## API contracts table before/alongside implementation.
 

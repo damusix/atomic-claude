@@ -117,7 +117,7 @@ func wikiStampAction(args []string) int {
 
 	// Stdlib flag.FlagSet stops parsing at the first non-flag argument, so a
 	// single fs.Parse(args) never consumes flags placed after the positional
-	// <file> argument (issue #158). Re-parse iteratively, peeling off one
+	// <file> argument. Re-parse iteratively, peeling off one
 	// positional token at a time, so flags may appear in any position —
 	// before, after, or interspersed with <file>.
 	//
@@ -918,7 +918,7 @@ func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
 }
 
 // wikiScanAction implements `atomic wiki scan [--root=<path>]`.
-// It resolves the root, runs Scan (CP1), registers the wiki in CLAUDE.md,
+// It resolves the root, runs Scan, registers the wiki in CLAUDE.md,
 // and prints the deterministic stdout handoff.
 func wikiScanAction(args []string, claudeHome, cwd string, out io.Writer) int {
 	fs := flag.NewFlagSet("wiki-scan", flag.ContinueOnError)
@@ -945,7 +945,7 @@ func wikiScanAction(args []string, claudeHome, cwd string, out io.Writer) int {
 		Clock: func() time.Time { return time.Now().UTC() },
 	}
 
-	// Run CP1 Scan: discover repos, scaffold wiki/, write <wiki-scan> block.
+	// Run Scan: discover repos, scaffold wiki/, write <wiki-scan> block.
 	// Scan returns the classified members directly — no second filesystem walk needed.
 	members, err := Scan(absRoot, opts)
 	if err != nil {

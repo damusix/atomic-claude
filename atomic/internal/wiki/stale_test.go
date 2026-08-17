@@ -1,6 +1,6 @@
 package wiki_test
 
-// CP4: tests for atomic wiki stale comparator.
+// tests for atomic wiki stale comparator.
 //
 // Covers every success criterion from the brief:
 //   - all fresh → exit 0, no DRIFT/STALE lines

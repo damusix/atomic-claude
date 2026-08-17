@@ -9,7 +9,7 @@ package db
 // inside Migrate so the migration infra is self-contained.
 //
 // The production migrations slice holds an ordered list of migrations above the
-// baseline.  Version 1 is the baseline (the CP3 schema built by runSchema); it
+// baseline.  Version 1 is the baseline (the schema built by runSchema); it
 // is recorded as already-applied on a fresh DB — no DDL is re-run.  Future
 // schema changes land here as additional entries.
 //

@@ -23,7 +23,7 @@ package extraction
 //
 // Return type note: this package cannot import extraction/standalone (cycle:
 // standalone/sql.go imports extraction). EmbeddedSpan mirrors
-// standalone.StringLiteralSpan field-for-field; the indexer (CP2) converts.
+// standalone.StringLiteralSpan field-for-field; the indexer converts.
 
 import (
 	"context"
@@ -34,7 +34,7 @@ import (
 )
 
 // EmbeddedSpan holds one harvested string literal span. It mirrors
-// standalone.StringLiteralSpan field-for-field; the indexer (CP2) converts
+// standalone.StringLiteralSpan field-for-field; the indexer converts
 // between them. A separate type is required because extraction/standalone
 // imports extraction (for GenerateNodeID), so extraction cannot import
 // standalone without a cycle.

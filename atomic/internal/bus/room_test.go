@@ -57,9 +57,9 @@ func TestHub_Join_FirstClaimGetsExactName(t *testing.T) {
 }
 
 // TestHub_Join_StoresRepoAndRealmOnMember is the position-derived naming
-// entry's core Hub-level assertion (docs/spec/atomic-bus.md, 2026-07-29):
-// Join stores whatever repo/realm the caller reports directly on the
-// roster — Member is the record of a resolved position, not merely a name.
+// entry's core Hub-level assertion: Join stores whatever repo/realm the
+// caller reports directly on the roster — Member is the record of a
+// resolved position, not merely a name.
 func TestHub_Join_StoresRepoAndRealmOnMember(t *testing.T) {
 	h := NewHub(t.TempDir())
 
@@ -458,9 +458,7 @@ func TestHub_Rehydrate_DefaultsEmptyModeAndKindForPreExistingEntries(t *testing.
 }
 
 // TestHub_Rehydrate_RestoresRepoAndRealm proves repo/realm survive a
-// daemon restart via bus.json rehydration, exactly like mode/kind
-// (docs/spec/atomic-bus.md: "mode, kind, repo, and realm all survive a
-// daemon restart via bus.json rehydration").
+// daemon restart via bus.json rehydration, exactly like mode/kind.
 func TestHub_Rehydrate_RestoresRepoAndRealm(t *testing.T) {
 	h := NewHub(t.TempDir())
 	st := &State{Sessions: map[string]*sessionState{
@@ -907,9 +905,7 @@ func TestHub_Rooms_ListsEveryKnownRoomSorted(t *testing.T) {
 // surviving case of the old "rooms persist after everyone leaves" contract:
 // dropIfEmpty only drops a room with *neither* members *nor* subscribers, so
 // a room a tail is still watching keeps appearing in Rooms() with an honest
-// Members == 0 even though its last member has left
-// (docs/spec/atomic-bus.md's 2026-07-30 "drop a room when its last member
-// leaves — but not while a tail or recv is attached" clause).
+// Members == 0 even though its last member has left.
 func TestHub_Rooms_EmptyRoomWithLiveSubscriberStillListedWithZeroMembers(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -1232,8 +1228,7 @@ func TestHub_Subscribe_ReceivesEnvelopePublishedAfterSubscribing(t *testing.T) {
 // TestHub_Subscribe_PriorTrafficNotDelivered_OnlyFuturePublishesArrive is
 // the Hub-level proof of the bug this change fixes: a room with existing
 // traffic must not replay any of it to a newly subscribing recv — a
-// subscriber sees only what is published after it subscribes
-// (docs/spec/atomic-bus.md: "Non-goals: Replay of any kind"). The prior
+// subscriber sees only what is published after it subscribes. The prior
 // ring-backed Since("") returned the entire ring, so a recv on a busy room
 // delivered old messages as Monitor notifications, each acted on as if
 // freshly arrived.
@@ -1699,7 +1694,7 @@ func TestRoomLogPath_MatchesHubHome(t *testing.T) {
 
 // --- PublishAsOperator: say's path, publishing without a roster entry ---
 //
-// docs/spec/atomic-bus.md CP5: "say — one-shot send without joining."
+// docs/spec/atomic-bus.md "say — one-shot send without joining."
 //
 // The sender identity is not a parameter. An earlier signature took name and
 // kind from the caller and was reachable from the wire via OpSay, which let a
@@ -1842,8 +1837,7 @@ func TestHub_Subscribe_SkipSelf_DoesNotReceiveOwnPublish(t *testing.T) {
 
 // TestHub_Subscribe_SkipSelfFalse_StillReceivesOwnPublish is tail/chat's
 // contract: a subscription that does not opt out must keep seeing its own
-// session's publishes (docs/spec/atomic-bus.md: "tail and chat still see
-// the complete transcript including their own lines").
+// session's publishes.
 func TestHub_Subscribe_SkipSelfFalse_StillReceivesOwnPublish(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -2032,9 +2026,8 @@ func TestHub_Who_MemberStale_AfterThresholdWithNoActivityAndNoSubscription(t *te
 
 // TestHub_Who_LiveSubscription_NeverStale_RegardlessOfThreshold proves the
 // override: a member holding an open recv/chat subscription is not stale no
-// matter how long it has been since its last send — the subscription
-// itself is ongoing proof of life (docs/spec/atomic-bus.md: "refreshed ...
-// on an open subscription").
+// matter how long it has been since its last send — the subscription itself
+// is ongoing proof of life.
 func TestHub_Who_LiveSubscription_NeverStale_RegardlessOfThreshold(t *testing.T) {
 	h := NewHub(t.TempDir())
 	clock := newTestClock(time.Now())
@@ -2083,14 +2076,13 @@ func TestHub_Who_Publish_RefreshesLastSeen(t *testing.T) {
 	}
 }
 
-// TestHub_Rehydrate_MemberNotImmediatelyStale proves a restarted daemon
-// does not report a genuinely recent member as stale the instant it comes
-// back up — Rehydrate restores the persisted LastSeen (here, freshly
-// stamped by State.Join moments earlier) rather than discarding it
-// (docs/spec/atomic-bus.md: "a member who has been idle across the restart
-// is still ... addressable"). TestHub_Rehydrate_RestoresLastSeenNotRestamped
-// below covers the complementary case — a member persisted as genuinely
-// stale must read as stale immediately after rehydration, not fresh.
+// TestHub_Rehydrate_MemberNotImmediatelyStale proves a restarted daemon does
+// not report a genuinely recent member as stale the instant it comes back up
+// — Rehydrate restores the persisted LastSeen (here, freshly stamped by
+// State.Join moments earlier) rather than discarding it.
+// TestHub_Rehydrate_RestoresLastSeenNotRestamped below covers the
+// complementary case — a member persisted as genuinely stale must read as
+// stale immediately after rehydration, not fresh.
 func TestHub_Rehydrate_MemberNotImmediatelyStale(t *testing.T) {
 	home := t.TempDir()
 	h1 := NewHub(home)
@@ -2127,8 +2119,7 @@ func TestHub_Rehydrate_MemberNotImmediatelyStale(t *testing.T) {
 // genuinely stale (LastSeen hours in the past) must read as stale
 // immediately after Rehydrate, not fresh — the old behavior stamped
 // LastSeen at rehydrate time unconditionally, resurrecting every idle
-// member as freshly live and putting it permanently out of Prune's reach
-// (docs/spec/atomic-bus.md's 2026-07-30 entry).
+// member as freshly live and putting it permanently out of Prune's reach.
 func TestHub_Rehydrate_RestoresLastSeenNotRestamped(t *testing.T) {
 	longAgo := time.Now().Add(-3 * time.Hour)
 	st := &State{Sessions: map[string]*sessionState{
@@ -2179,10 +2170,9 @@ func TestHub_Rehydrate_ZeroLastSeenFallsBackToJoined(t *testing.T) {
 	}
 }
 
-// TestHub_Rehydrate_RestoresHaltedFlagAndReason proves halt state comes
-// back after a restart even for a room with no current members — a member
-// row is not available to derive the halt flag from (docs/spec/atomic-bus.md's
-// 2026-07-30 "halt must persist and be visible" entry).
+// TestHub_Rehydrate_RestoresHaltedFlagAndReason proves halt state comes back
+// after a restart even for a room with no current members — a member row is
+// not available to derive the halt flag from.
 func TestHub_Rehydrate_RestoresHaltedFlagAndReason(t *testing.T) {
 	st := &State{Rooms: map[string]*roomState{
 		"potato": {Halted: true, HaltText: "investigating a bad deploy"},
@@ -2341,7 +2331,7 @@ func TestHub_Close_TerminatesLiveSubscribersStream(t *testing.T) {
 
 // TestHub_Close_DoesNotDeleteTheRoomLog proves the room log on disk survives
 // Close — it is the durable record, and a roster operation must not delete
-// it (docs/spec/atomic-bus.md: "the room log stays on disk").
+// it.
 func TestHub_Close_DoesNotDeleteTheRoomLog(t *testing.T) {
 	home := t.TempDir()
 	h := NewHub(home)
@@ -2400,7 +2390,7 @@ func TestHub_Prune_RemovesOnlyStaleMembers(t *testing.T) {
 
 // TestHub_Prune_NoStaleMembers_RemovesNothing proves prune never touches a
 // live roster — nothing here is auto-reaped, only what isStale already
-// flags (docs/spec/atomic-bus.md: "nothing reaps a member silently").
+// flags.
 func TestHub_Prune_NoStaleMembers_RemovesNothing(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {

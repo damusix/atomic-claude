@@ -1,6 +1,6 @@
 package resolution
 
-// name_matcher.go — CP12 name matcher.
+// name_matcher.go — name matcher.
 //
 // Implements matchReference dispatch (appendix F sub-order) and findBestMatch
 // scoring with CALIBRATED weights (appendix F — do not change without A/B).
@@ -175,7 +175,7 @@ func (nm *NameMatcher) matchReference(ctx context.Context, ref types.UnresolvedR
 				Strategy:   StrategyMethodCall,
 			}, nil
 		}
-		// CP4 tweak 1: SQL single-dot fall-through to qualifiedName.
+		// tweak 1: SQL single-dot fall-through to qualifiedName.
 		// byMethodCall only returns method/function kinds, so SQL column refs
 		// (table.col) always produce zero candidates above. For SQL references,
 		// fall through to byQualifiedName so "acct.id" can resolve to the column
@@ -235,7 +235,7 @@ func (nm *NameMatcher) matchReference(ctx context.Context, ref types.UnresolvedR
 }
 
 // GetAllCandidates returns all scored candidates for ref, sorted descending by
-// score. Used by the node tool (MCP CP22) to surface overloads.
+// score. Used by the node tool (MCP) to surface overloads.
 func (nm *NameMatcher) GetAllCandidates(ctx context.Context, ref types.UnresolvedReference) ([]Candidate, error) {
 	name := ref.ReferenceName
 	seen := map[string]bool{}
@@ -278,7 +278,7 @@ func (nm *NameMatcher) GetAllCandidates(ctx context.Context, ref types.Unresolve
 			return nil, err
 		}
 		addCandidates(nodes)
-		// CP4 tweak 1: SQL single-dot fall-through (mirrors matchReference logic).
+		// tweak 1: SQL single-dot fall-through (mirrors matchReference logic).
 		// For SQL column refs (table.col), byMethodCall returns nothing (columns are
 		// not method/function kind). Query byQualifiedName so column candidates appear
 		// in the overload list. Gate is strictly on LanguageSQL (SC9).
@@ -367,7 +367,7 @@ func (nm *NameMatcher) byQualifiedName(ctx context.Context, name string, ref typ
 		}
 	}
 
-	// CP4 tweak 2: prefer exact full-QName candidates over suffix matches.
+	// tweak 2: prefer exact full-QName candidates over suffix matches.
 	// An exact match (e.g. QualifiedName "acct.id" == ref "acct.id") is
 	// unambiguous; the loose suffix set (".id" matching every table's id column)
 	// is a fallback used only when no exact candidate exists. This eliminates

@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for the Elixir language extractor config (CP2: engine wiring + extractor).
+// Tests for the Elixir language extractor config (engine wiring + extractor).
 //
 // Each test:
 //  1. Extracts a real fixture through the pool (proves grammar ABI + wiring ok).
@@ -69,6 +69,7 @@ const elixirFixturePath = "lib/my_app/user_controller.ex"
 // WHY: Module nodes are the structural containers for Elixir code; missing
 // them breaks the entire module-level graph.
 func TestElixir_ModuleExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
 	if !ok {
 		t.Fatal("Elixir not registered")
@@ -89,6 +90,7 @@ func TestElixir_ModuleExtracted(t *testing.T) {
 // WHY: Public functions are the primary call targets in Elixir; wrong kind or
 // wrong export flag breaks call-graph resolution and Phoenix route wiring.
 func TestElixir_PublicFunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
 	if !ok {
 		t.Fatal("Elixir not registered")
@@ -112,6 +114,7 @@ func TestElixir_PublicFunctionExtracted(t *testing.T) {
 // WHY: Private functions must be distinguished from public ones; a Phoenix route
 // resolver must not expose defp functions as routable actions.
 func TestElixir_PrivateFunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
 	if !ok {
 		t.Fatal("Elixir not registered")
@@ -135,6 +138,7 @@ func TestElixir_PrivateFunctionExtracted(t *testing.T) {
 // WHY: Elixir structs are the primary data types; their extraction enables
 // type-reference resolution and data-flow analysis.
 func TestElixir_StructExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
 	if !ok {
 		t.Fatal("Elixir not registered")
@@ -161,6 +165,7 @@ func TestElixir_StructExtracted(t *testing.T) {
 // WHY: Import nodes enable dependency tracking between Elixir modules; without
 // them the graph has no edges between the user controller and MyApp.User.
 func TestElixir_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
 	if !ok {
 		t.Fatal("Elixir not registered")
@@ -183,6 +188,7 @@ func TestElixir_ImportsExtracted(t *testing.T) {
 // step. A direct edge at extraction time bypasses resolution and produces an
 // incorrect, unresolvable graph entry.
 func TestElixir_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
 	if !ok {
 		t.Fatal("Elixir not registered")
@@ -205,6 +211,7 @@ func TestElixir_CallEmitsUnresolvedReference(t *testing.T) {
 // WHY: Non-deterministic extraction (e.g. from pointer aliasing or global state)
 // causes flaky test failures and unreliable incremental indexing.
 func TestElixir_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
 	if !ok {
 		t.Fatal("Elixir not registered")
@@ -227,6 +234,7 @@ func TestElixir_NodeCountStable(t *testing.T) {
 // regresses to 0 nodes (e.g. grammar not loaded, wiring broken), this test
 // fails immediately.
 func TestElixir_NonZeroExtraction(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
 	if !ok {
 		t.Fatal("Elixir not registered")
@@ -273,6 +281,7 @@ end
 // guard-clause arguments[0] is a binary_operator, not a call — the old code fell
 // through to returning the macro keyword string.
 func TestElixir_GuardClause_RealNameExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
 	if !ok {
 		t.Fatal("Elixir not registered")
@@ -332,6 +341,7 @@ end
 // stats_controller were missing from the index because they live inside
 // `on_ee do...end` blocks that the extractor was skipping entirely.
 func TestElixir_MacroDoBlock_DefsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
 	if !ok {
 		t.Fatal("Elixir not registered")

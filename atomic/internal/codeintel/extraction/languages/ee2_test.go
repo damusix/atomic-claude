@@ -34,6 +34,7 @@ const ee2JSFuncWrapper = `function handler() {
 // WHY: this is the core EE2 contract — the synthesizer reads Arguments[0] to
 // correlate .on('login', fn) with .emit('login').
 func TestEE2_StringArgCaptured(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -71,6 +72,7 @@ func TestEE2_StringArgCaptured(t *testing.T) {
 // WHY: EE5 extends this case to capture identifier args as "arg:<name>";
 // the invariant is that no empty-string entries appear in Arguments.
 func TestEE2_NoStringArgs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -104,6 +106,7 @@ func TestEE2_NoStringArgs(t *testing.T) {
 // TestEE2_ArglessCallProducesNilArguments proves that a call with no arguments
 // produces nil Arguments.
 func TestEE2_ArglessCallProducesNilArguments(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -128,6 +131,7 @@ func TestEE2_ArglessCallProducesNilArguments(t *testing.T) {
 // TestEE2_TypeScriptStringArgCaptured proves that TypeScript extractions also
 // capture string-literal arguments (same grammar family).
 func TestEE2_TypeScriptStringArgCaptured(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangTypeScript, languages.TypeScriptExtractor())
 
@@ -158,10 +162,11 @@ func TestEE2_TypeScriptStringArgCaptured(t *testing.T) {
 }
 
 // TestEE2_NodeCountStable proves that the EE2 change does not alter node count
-// across two extractions of the same fixture (regression guard from CP6/CP10).
+// across two extractions of the same fixture (regression guard from/).
 // WHY: node-count stability is a core invariant — extra UnresolvedReference rows
 // must not be confused with node explosion.
 func TestEE2_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 

@@ -590,10 +590,10 @@ func ShouldNotify(current, latest string, lastNotified, now time.Time) bool {
 }
 
 // AcquireLock attempts to acquire the update lock on s — the simple
-// acquire-when-free primitive used by background staging (CP4), setting
+// acquire-when-free primitive used by background staging, setting
 // Updating=true and UpdateStartedAt=now. Returns the updated state and
 // whether the lock was acquired — false, with s returned unmodified, when
-// s.Update.Updating is already true. The foreground apply path (CP5) uses
+// s.Update.Updating is already true. The foreground apply path uses
 // AcquireOrTakeoverLock instead, which adds stale-lock takeover, refusal
 // messaging naming the lock's age, and --force.
 func AcquireLock(s State, now time.Time) (State, bool) {

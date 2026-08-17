@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for Ruby, PHP, Lua, Luau language extractor configs (CP8 batch C).
+// Tests for Ruby, PHP, Lua, Luau language extractor configs (batch C).
 //
 // Each language has:
 //  1. A real fixture parsed through the pool (grammar ABI proof).
@@ -105,6 +105,7 @@ const rubyFixturePath = "src/canvas.rb"
 // TestRuby_FunctionExtracted verifies method → NodeKindFunction or NodeKindMethod.
 // WHY: Ruby methods are the primary callable units; wrong kind breaks call-graph resolution.
 func TestRuby_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRuby)
 	if !ok {
 		t.Fatal("Ruby not registered")
@@ -127,6 +128,7 @@ func TestRuby_FunctionExtracted(t *testing.T) {
 // TestRuby_ClassExtracted verifies class → NodeKindClass.
 // WHY: Classes are structural containers; missing them breaks the member graph.
 func TestRuby_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRuby)
 	if !ok {
 		t.Fatal("Ruby not registered")
@@ -149,6 +151,7 @@ func TestRuby_ClassExtracted(t *testing.T) {
 // include/extend resolution can distinguish modules from class hierarchies.
 // Accepting NodeKindClass here would mask a wrong-kind regression.
 func TestRuby_ModuleExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRuby)
 	if !ok {
 		t.Fatal("Ruby not registered")
@@ -174,8 +177,9 @@ func TestRuby_ModuleExtracted(t *testing.T) {
 // EdgeKindCalls for require just like any other call. The resolution layer
 // is responsible for recognising require/require_relative callee names and
 // promoting those edges to imports. Testing EdgeKindImports here would
-// require modifying the extractor framework (out of scope for CP8 batch C).
+// require modifying the extractor framework (out of scope for batch C).
 func TestRuby_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRuby)
 	if !ok {
 		t.Fatal("Ruby not registered")
@@ -200,6 +204,7 @@ func TestRuby_ImportsExtracted(t *testing.T) {
 // TestRuby_CallEmitsUnresolvedReference verifies call expressions emit EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestRuby_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRuby)
 	if !ok {
 		t.Fatal("Ruby not registered")
@@ -216,6 +221,7 @@ func TestRuby_CallEmitsUnresolvedReference(t *testing.T) {
 // TestRuby_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestRuby_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRuby)
 	if !ok {
 		t.Fatal("Ruby not registered")
@@ -336,6 +342,7 @@ const phpFixturePath = "src/Canvas.php"
 // TestPHP_FunctionExtracted verifies function_definition/method_declaration → NodeKindFunction/Method.
 // WHY: PHP functions are the primary callable units; wrong kind breaks call-graph.
 func TestPHP_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePHP)
 	if !ok {
 		t.Fatal("PHP not registered")
@@ -358,6 +365,7 @@ func TestPHP_FunctionExtracted(t *testing.T) {
 // TestPHP_MethodExtracted verifies method_declaration → NodeKindMethod or NodeKindFunction.
 // WHY: PHP class methods are distinct from top-level functions; both must be indexed.
 func TestPHP_MethodExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePHP)
 	if !ok {
 		t.Fatal("PHP not registered")
@@ -380,6 +388,7 @@ func TestPHP_MethodExtracted(t *testing.T) {
 // TestPHP_ClassExtracted verifies class_declaration → NodeKindClass.
 // WHY: Classes are structural containers; missing them breaks the member graph.
 func TestPHP_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePHP)
 	if !ok {
 		t.Fatal("PHP not registered")
@@ -399,6 +408,7 @@ func TestPHP_ClassExtracted(t *testing.T) {
 // TestPHP_InterfaceExtracted verifies interface_declaration → NodeKindInterface.
 // WHY: PHP interfaces are type contracts; wrong kind breaks implements edge promotion.
 func TestPHP_InterfaceExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePHP)
 	if !ok {
 		t.Fatal("PHP not registered")
@@ -418,6 +428,7 @@ func TestPHP_InterfaceExtracted(t *testing.T) {
 // TestPHP_ImportsExtracted verifies namespace_use_declaration emits UnresolvedReference.
 // WHY: PHP use statements are the import mechanism for the resolution layer.
 func TestPHP_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePHP)
 	if !ok {
 		t.Fatal("PHP not registered")
@@ -434,6 +445,7 @@ func TestPHP_ImportsExtracted(t *testing.T) {
 // TestPHP_CallEmitsUnresolvedReference verifies function_call_expression/member_call_expression → EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestPHP_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePHP)
 	if !ok {
 		t.Fatal("PHP not registered")
@@ -451,6 +463,7 @@ func TestPHP_CallEmitsUnresolvedReference(t *testing.T) {
 // WHY: PHP visibility modifiers drive cross-class resolution scoring; wrong IsExported
 // causes private methods to be promoted incorrectly in the call graph.
 func TestPHP_IsExported_VisibilityModifier(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePHP)
 	if !ok {
 		t.Fatal("PHP not registered")
@@ -485,6 +498,7 @@ func TestPHP_IsExported_VisibilityModifier(t *testing.T) {
 // TestPHP_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestPHP_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePHP)
 	if !ok {
 		t.Fatal("PHP not registered")
@@ -569,6 +583,7 @@ const luaFixturePath = "src/canvas.lua"
 // TestLua_FunctionExtracted verifies function_statement → NodeKindFunction.
 // WHY: Lua functions are the primary callable units; wrong kind breaks call-graph resolution.
 func TestLua_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLua)
 	if !ok {
 		t.Fatal("Lua not registered")
@@ -589,6 +604,7 @@ func TestLua_FunctionExtracted(t *testing.T) {
 // WHY: Lua variables (local X = ...) are module-level symbols that the resolution
 // layer needs to link references against.
 func TestLua_VariableExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLua)
 	if !ok {
 		t.Fatal("Lua not registered")
@@ -617,6 +633,7 @@ func TestLua_VariableExtracted(t *testing.T) {
 // Top-level require() extraction (F-15) is covered separately by
 // TestLua_TopLevelRequireExtracted.
 func TestLua_CallsInsideFunctionsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLua)
 	if !ok {
 		t.Fatal("Lua not registered")
@@ -633,6 +650,7 @@ func TestLua_CallsInsideFunctionsExtracted(t *testing.T) {
 // TestLua_CallEmitsUnresolvedReference verifies function_call → EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestLua_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLua)
 	if !ok {
 		t.Fatal("Lua not registered")
@@ -655,6 +673,7 @@ func TestLua_CallEmitsUnresolvedReference(t *testing.T) {
 // extractSimpleNode calls visitFunctionBody on the node to pick up any call expressions
 // in the RHS. This is the primary module-dependency-edge gap for Lua/Luau files.
 func TestLua_TopLevelRequireExtracted(t *testing.T) {
+	t.Parallel()
 	const src = `local x = require("mymod")
 local y = require("othermod")
 `
@@ -688,6 +707,7 @@ local y = require("othermod")
 // unique IDs for each distinct call site, and there must be no ref with the same
 // ID appearing twice.
 func TestLua_TopLevelRequireNoDuplicates(t *testing.T) {
+	t.Parallel()
 	const src = `local x = require("mymod")
 
 local function foo()
@@ -731,6 +751,7 @@ end
 // TestLua_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestLua_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLua)
 	if !ok {
 		t.Fatal("Lua not registered")
@@ -813,6 +834,7 @@ const luauFixturePath = "src/canvas.luau"
 // TestLuau_FunctionExtracted verifies function_declaration → NodeKindFunction.
 // WHY: Luau functions are the primary callable units; wrong kind breaks call-graph.
 func TestLuau_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLuau)
 	if !ok {
 		t.Fatal("Luau not registered")
@@ -832,6 +854,7 @@ func TestLuau_FunctionExtracted(t *testing.T) {
 // TestLuau_VariableExtracted verifies variable_declaration → NodeKindVariable.
 // WHY: Luau typed local variables are module-level symbols the resolution layer needs.
 func TestLuau_VariableExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLuau)
 	if !ok {
 		t.Fatal("Luau not registered")
@@ -855,6 +878,7 @@ func TestLuau_VariableExtracted(t *testing.T) {
 // WHY: Luau adds a type system on top of Lua. Type aliases must be indexed as
 // NodeKindTypeAlias so the type graph can reference them correctly.
 func TestLuau_TypeAliasExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLuau)
 	if !ok {
 		t.Fatal("Luau not registered")
@@ -878,6 +902,7 @@ func TestLuau_TypeAliasExtracted(t *testing.T) {
 // Top-level require() extraction (F-15) is now handled by extractSimpleNode calling
 // visitFunctionBody on variable_declaration nodes.
 func TestLuau_CallsInsideFunctionsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLuau)
 	if !ok {
 		t.Fatal("Luau not registered")
@@ -894,6 +919,7 @@ func TestLuau_CallsInsideFunctionsExtracted(t *testing.T) {
 // TestLuau_CallEmitsUnresolvedReference verifies function_call → EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestLuau_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLuau)
 	if !ok {
 		t.Fatal("Luau not registered")
@@ -910,6 +936,7 @@ func TestLuau_CallEmitsUnresolvedReference(t *testing.T) {
 // TestLuau_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestLuau_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageLuau)
 	if !ok {
 		t.Fatal("Luau not registered")
@@ -928,9 +955,10 @@ func TestLuau_NodeCountStable(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestRegistry_For_CP8C_Languages verifies all 4 new languages are registered.
-// WHY: The registry is the single resolution point for CP10; missing entries
+// WHY: The registry is the single resolution point for; missing entries
 // cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8C_Languages(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	tests := []struct {
 		lang     types.Language

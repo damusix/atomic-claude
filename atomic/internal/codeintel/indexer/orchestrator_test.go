@@ -1,6 +1,6 @@
 package indexer_test
 
-// Orchestrator + sync invariant tests (CP10).
+// Orchestrator + sync invariant tests.
 //
 // Tests run under the repo tmp/ dir so fixture repos don't pollute the source
 // tree. Each test creates its own temp dir under os.TempDir() (with
@@ -485,7 +485,7 @@ func Hello() {}
 }
 
 // ---------------------------------------------------------------------------
-// TestExtractorVersion* — extractor_version self-healing migration (CP2)
+// TestExtractorVersion* — extractor_version self-healing migration
 // ---------------------------------------------------------------------------
 //
 // project_metadata.extractor_version is a hand-bumped marker that changes
@@ -784,9 +784,9 @@ func TestSyncExtractorVersionMatchKeepsIncremental(t *testing.T) {
 
 // TestUnresolvedRefsPersistence verifies that storeExtractionResult persists
 // ALL distinct result.UnresolvedReferences into the unresolved_refs table (inside
-// the same transaction as nodes/edges). WHY: the resolution pipeline (CP13) reads
+// the same transaction as nodes/edges). WHY: the resolution pipeline reads
 // from unresolved_refs; if the indexer silently drops refs (e.g. due to empty-id
-// PK collision), CP13 has incomplete data to resolve.
+// PK collision), has incomplete data to resolve.
 //
 // Three invariants proven here:
 //  1. After first index, every distinct ref site persists — count == N (not 1).
@@ -1051,13 +1051,13 @@ func assertNoDanglingEdges(t *testing.T, ctx context.Context, database *db.DB, n
 }
 
 // ---------------------------------------------------------------------------
-// TestEmbeddedSQLInGoFile — CP2 end-to-end
+// TestEmbeddedSQLInGoFile — end-to-end
 // ---------------------------------------------------------------------------
 
 // TestEmbeddedSQLInGoFile verifies that embedded SQL in Go string literals
 // produces the expected nodes and edges in the DB.
 //
-// WHY: CP2 success criteria require that:
+// WHY: success criteria require that:
 //   - A .go file with CREATE TABLE in a raw/interpreted string literal produces
 //     ≥1 table node attributed to that file with file-absolute StartLine.
 //   - Embedded DML in a .go literal produces ≥1 unresolved ref owned by the
@@ -1188,7 +1188,7 @@ func CreateUsersTable(db interface{}) {
 	}
 
 	// --- Criterion 3: embedded-provenance edges via GetEdgesByProvenance ---
-	// The DDL contains edges (table→column) are stamped with Provenance:"embedded" by CP1.
+	// The DDL contains edges (table→column) stamped with Provenance:"embedded".
 	// After indexing, GetEdgesByProvenance("embedded") must return ≥1 edge.
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
@@ -1251,11 +1251,11 @@ func generateHelloNodeIDAtLine(t *testing.T, filePath string, line int) string {
 }
 
 // ---------------------------------------------------------------------------
-// TestEmbeddedSQLInPythonFile — CP3 end-to-end
+// TestEmbeddedSQLInPythonFile — end-to-end
 // ---------------------------------------------------------------------------
 
 // TestEmbeddedSQLInPythonFile verifies that embedded SQL in Python string literals
-// is extracted correctly per the CP3 spec:
+// is extracted correctly per the spec:
 //
 //   - Regular-string DDL → ≥1 table node attributed to the file.
 //   - Triple-quoted DDL → ≥1 table node.
@@ -1429,11 +1429,11 @@ def do_query(conn):
 }
 
 // ---------------------------------------------------------------------------
-// TestEmbeddedSQLInTypeScriptFile — CP4 end-to-end
+// TestEmbeddedSQLInTypeScriptFile — end-to-end
 // ---------------------------------------------------------------------------
 
 // TestEmbeddedSQLInTypeScriptFile verifies that embedded SQL in TypeScript string
-// literals and template literals is extracted correctly per the CP4 spec:
+// literals and template literals is extracted correctly per the spec:
 //
 //   - Plain-string DDL → ≥1 table node attributed to the file (file-absolute lines).
 //   - Template-literal DDL → ≥1 table node.
@@ -1588,7 +1588,7 @@ export function queryUsers(db: any, id: number) {
 }
 
 // ---------------------------------------------------------------------------
-// TestEmbeddedSQLInTSXFile — CP4 end-to-end (TSX grammar path)
+// TestEmbeddedSQLInTSXFile — end-to-end (TSX grammar path)
 // ---------------------------------------------------------------------------
 
 // TestEmbeddedSQLInTSXFile verifies that the TSX grammar path works for embedded

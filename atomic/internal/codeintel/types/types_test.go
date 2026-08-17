@@ -89,7 +89,7 @@ func TestNodeKindCount(t *testing.T) {
 }
 
 // TestEdgeKindCount asserts exactly 13 EdgeKind entries per appendix C.
-// CP5 added EdgeKindWrites for routine→table mutation targets.
+// added EdgeKindWrites for routine→table mutation targets.
 func TestEdgeKindCount(t *testing.T) {
 	want := []types.EdgeKind{
 		types.EdgeKindContains,

@@ -1,6 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch A: Python frameworks (Django, Flask, FastAPI).
+// Failing-first TDD tests for batch A: Python frameworks (Django, Flask, FastAPI).
 //
 // Per-framework coverage:
 //   1. Detect true on a realistic fixture (dep file / import line) + false on unrelated dir.

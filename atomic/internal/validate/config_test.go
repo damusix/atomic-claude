@@ -152,7 +152,7 @@ func TestRunConfigRules_C5_IgnoresLocalOverlay(t *testing.T) {
 // prose (e.g. bob@example.com) are NOT parsed as @-refs, so they produce zero
 // C5 findings. WHY: an @-ref is @-prefixed at a word boundary; an email's @ is
 // preceded by its local part. Treating the domain half as a file include
-// produced false FAILs on ordinary prose (issue #159). The same fixture carries
+// produced false FAILs on ordinary prose. The same fixture carries
 // a genuine @.claude/project/signals.md ref that must still resolve, proving the
 // email guard does not over-suppress real refs.
 func TestRunConfigRules_C5_EmailNotRef(t *testing.T) {

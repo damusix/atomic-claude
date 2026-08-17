@@ -1,6 +1,6 @@
 package resolution
 
-// path_aliases.go — tsconfig/jsconfig JSONC alias loader (CP11).
+// path_aliases.go — tsconfig/jsconfig JSONC alias loader.
 //
 // Loads compilerOptions.baseUrl + compilerOptions.paths from the first
 // tsconfig.json or jsconfig.json found in the project root. The file is

@@ -1,7 +1,7 @@
 package wiki
 
-// bucketdoc.go — CP4 scaffold placement: the two `atomic wiki bucket`
-// authoring verbs (doc, skill) that CP5's CLI actions call into.
+// bucketdoc.go — scaffold placement: the two `atomic wiki bucket`
+// authoring verbs (doc, skill) that CLI actions call into.
 //
 // Both verbs are pure filesystem scaffolds: validate, refuse a collision,
 // render an embedded template, write via writeFileAtomic. Registration

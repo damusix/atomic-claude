@@ -1,6 +1,6 @@
 package serve_test
 
-// codegraph_test.go — code-graph spec CP2 TDD: GET /code/graph/data.
+// codegraph_test.go — code-graph spec TDD: GET /code/graph/data.
 //
 // TDD: written before the implementation.
 //

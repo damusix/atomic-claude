@@ -344,7 +344,7 @@ func TestRunResolvePiAgentsRejectsUnsafeRepoPath(t *testing.T) {
 }
 
 // TestRunResolvePiAgentsStaleSingularKeyResolvesEmpty: the pre-rename
-// `[pi.agent.<name>]` key no longer resolves — CP7 renamed the parsed table
+// `[pi.agent.<name>]` key no longer resolves — renamed the parsed table
 // to `[pi.agents.<name>]`. A stale singular block is silently ignored (valid
 // envelope, no overrides), not an error.
 func TestRunResolvePiAgentsStaleSingularKeyResolvesEmpty(t *testing.T) {

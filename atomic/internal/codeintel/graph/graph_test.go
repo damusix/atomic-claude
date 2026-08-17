@@ -1,6 +1,6 @@
 package graph_test
 
-// Tests for the graph traversal + query manager (master CP17).
+// Tests for the graph traversal + query manager (master).
 //
 // Fixture structure (built entirely via db CRUD — no indexer):
 //

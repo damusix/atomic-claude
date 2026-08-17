@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for Java, C, C++, C# language extractor configs (CP8 batch A).
+// Tests for Java, C, C++, C# language extractor configs (batch A).
 //
 // Each language has:
 //   1. A real fixture parsed through the pool (grammar ABI proof).
@@ -110,6 +110,7 @@ const javaFixturePath = "src/Canvas.java"
 // WHY: Java methods are the primary call targets; wrong kind breaks call-graph
 // edge promotion during resolution.
 func TestJava_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
 	if !ok {
 		t.Fatal("Java not registered")
@@ -129,6 +130,7 @@ func TestJava_FunctionExtracted(t *testing.T) {
 // TestJava_ClassExtracted verifies class_declaration → NodeKindClass.
 // WHY: Classes are the structural containers; missing them breaks the member graph.
 func TestJava_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
 	if !ok {
 		t.Fatal("Java not registered")
@@ -148,6 +150,7 @@ func TestJava_ClassExtracted(t *testing.T) {
 // TestJava_InterfaceExtracted verifies interface_declaration → NodeKindInterface.
 // WHY: Interfaces are the type-contract nodes; wrong kind breaks implements edge promotion.
 func TestJava_InterfaceExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
 	if !ok {
 		t.Fatal("Java not registered")
@@ -167,6 +170,7 @@ func TestJava_InterfaceExtracted(t *testing.T) {
 // TestJava_EnumExtracted verifies enum_declaration → NodeKindEnum.
 // WHY: Enums are typed constant sets; extracting as struct would break query correctness.
 func TestJava_EnumExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
 	if !ok {
 		t.Fatal("Java not registered")
@@ -186,6 +190,7 @@ func TestJava_EnumExtracted(t *testing.T) {
 // TestJava_ImportsExtracted verifies import_declaration emits UnresolvedReference.
 // WHY: Imports are the starting point for the resolution layer's import resolver.
 func TestJava_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
 	if !ok {
 		t.Fatal("Java not registered")
@@ -202,6 +207,7 @@ func TestJava_ImportsExtracted(t *testing.T) {
 // TestJava_CallEmitsUnresolvedReference verifies method_invocation → EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestJava_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
 	if !ok {
 		t.Fatal("Java not registered")
@@ -219,6 +225,7 @@ func TestJava_CallEmitsUnresolvedReference(t *testing.T) {
 // WHY: Java's access control is explicit; public = exported. Wrong IsExported means
 // the +10 resolution scoring bonus applies to package-private symbols.
 func TestJava_IsExported_PublicModifier(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
 	if !ok {
 		t.Fatal("Java not registered")
@@ -251,6 +258,7 @@ func TestJava_IsExported_PublicModifier(t *testing.T) {
 // TestJava_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestJava_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
 	if !ok {
 		t.Fatal("Java not registered")
@@ -338,6 +346,7 @@ const cFixturePath = "src/shapes.c"
 // TestC_FunctionExtracted verifies function_definition → NodeKindFunction.
 // WHY: C functions are the primary callable units; wrong kind breaks call-graph.
 func TestC_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
 	if !ok {
 		t.Fatal("C not registered")
@@ -357,6 +366,7 @@ func TestC_FunctionExtracted(t *testing.T) {
 // TestC_StructExtracted verifies typedef struct → NodeKindStruct.
 // WHY: Struct types are the primary data containers in C; missing them breaks member resolution.
 func TestC_StructExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
 	if !ok {
 		t.Fatal("C not registered")
@@ -376,6 +386,7 @@ func TestC_StructExtracted(t *testing.T) {
 // TestC_EnumExtracted verifies typedef enum → NodeKindEnum.
 // WHY: C enums model typed constants; storing as struct breaks semantic correctness.
 func TestC_EnumExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
 	if !ok {
 		t.Fatal("C not registered")
@@ -395,6 +406,7 @@ func TestC_EnumExtracted(t *testing.T) {
 // TestC_ImportsExtracted verifies preproc_include emits UnresolvedReference.
 // WHY: #include is the C import mechanism; the resolution layer uses it to resolve headers.
 func TestC_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
 	if !ok {
 		t.Fatal("C not registered")
@@ -411,6 +423,7 @@ func TestC_ImportsExtracted(t *testing.T) {
 // TestC_CallEmitsUnresolvedReference verifies call_expression → EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestC_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
 	if !ok {
 		t.Fatal("C not registered")
@@ -427,6 +440,7 @@ func TestC_CallEmitsUnresolvedReference(t *testing.T) {
 // TestC_IsExported_StaticRule verifies static functions are NOT exported; non-static are.
 // WHY: C uses static for translation-unit-private; wrong IsExported corrupts link-resolution.
 func TestC_IsExported_StaticRule(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
 	if !ok {
 		t.Fatal("C not registered")
@@ -456,6 +470,7 @@ func TestC_IsExported_StaticRule(t *testing.T) {
 
 // TestC_NodeCountStable verifies deterministic extraction.
 func TestC_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
 	if !ok {
 		t.Fatal("C not registered")
@@ -565,6 +580,7 @@ const cppFixturePath = "src/shapes.cpp"
 // TestCpp_FunctionExtracted verifies function_definition → NodeKindFunction.
 // WHY: C++ functions are the primary callable units; wrong kind breaks call-graph.
 func TestCpp_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
 	if !ok {
 		t.Fatal("C++ not registered")
@@ -585,6 +601,7 @@ func TestCpp_FunctionExtracted(t *testing.T) {
 // TestCpp_ClassExtracted verifies class_specifier → NodeKindClass.
 // WHY: C++ classes are structural containers; missing them breaks member resolution.
 func TestCpp_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
 	if !ok {
 		t.Fatal("C++ not registered")
@@ -604,6 +621,7 @@ func TestCpp_ClassExtracted(t *testing.T) {
 // TestCpp_StructExtracted verifies struct_specifier → NodeKindStruct (via ResolveKind).
 // WHY: C++ structs are structurally distinct from classes; wrong kind breaks field resolution.
 func TestCpp_StructExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
 	if !ok {
 		t.Fatal("C++ not registered")
@@ -623,6 +641,7 @@ func TestCpp_StructExtracted(t *testing.T) {
 // TestCpp_EnumExtracted verifies enum_specifier → NodeKindEnum (via ResolveKind).
 // WHY: C++ enums (including scoped enum class) must produce NodeKindEnum, not NodeKindStruct.
 func TestCpp_EnumExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
 	if !ok {
 		t.Fatal("C++ not registered")
@@ -642,6 +661,7 @@ func TestCpp_EnumExtracted(t *testing.T) {
 // TestCpp_ImportsExtracted verifies preproc_include emits UnresolvedReference.
 // WHY: #include is C++'s import mechanism; the resolution layer uses these paths.
 func TestCpp_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
 	if !ok {
 		t.Fatal("C++ not registered")
@@ -658,6 +678,7 @@ func TestCpp_ImportsExtracted(t *testing.T) {
 // TestCpp_CallEmitsUnresolvedReference verifies call_expression → EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestCpp_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
 	if !ok {
 		t.Fatal("C++ not registered")
@@ -673,6 +694,7 @@ func TestCpp_CallEmitsUnresolvedReference(t *testing.T) {
 
 // TestCpp_NodeCountStable verifies deterministic extraction.
 func TestCpp_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
 	if !ok {
 		t.Fatal("C++ not registered")
@@ -789,6 +811,7 @@ const csharpFixturePath = "src/Canvas.cs"
 // TestCSharp_FunctionExtracted verifies method_declaration → NodeKindMethod.
 // WHY: C# methods are the primary callable units; wrong kind breaks call-graph.
 func TestCSharp_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
 	if !ok {
 		t.Fatal("C# not registered")
@@ -808,6 +831,7 @@ func TestCSharp_FunctionExtracted(t *testing.T) {
 // TestCSharp_ClassExtracted verifies class_declaration → NodeKindClass.
 // WHY: Classes are structural containers; missing them breaks the member graph.
 func TestCSharp_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
 	if !ok {
 		t.Fatal("C# not registered")
@@ -827,6 +851,7 @@ func TestCSharp_ClassExtracted(t *testing.T) {
 // TestCSharp_InterfaceExtracted verifies interface_declaration → NodeKindInterface.
 // WHY: Interfaces are the type-contract nodes; wrong kind breaks implements edge promotion.
 func TestCSharp_InterfaceExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
 	if !ok {
 		t.Fatal("C# not registered")
@@ -846,6 +871,7 @@ func TestCSharp_InterfaceExtracted(t *testing.T) {
 // TestCSharp_EnumExtracted verifies enum_declaration → NodeKindEnum.
 // WHY: C# enums are typed constant sets; storing as struct breaks semantic correctness.
 func TestCSharp_EnumExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
 	if !ok {
 		t.Fatal("C# not registered")
@@ -865,6 +891,7 @@ func TestCSharp_EnumExtracted(t *testing.T) {
 // TestCSharp_ImportsExtracted verifies using_directive emits UnresolvedReference.
 // WHY: using directives are C#'s import mechanism; the resolution layer uses these.
 func TestCSharp_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
 	if !ok {
 		t.Fatal("C# not registered")
@@ -881,6 +908,7 @@ func TestCSharp_ImportsExtracted(t *testing.T) {
 // TestCSharp_CallEmitsUnresolvedReference verifies invocation_expression → EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestCSharp_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
 	if !ok {
 		t.Fatal("C# not registered")
@@ -897,6 +925,7 @@ func TestCSharp_CallEmitsUnresolvedReference(t *testing.T) {
 // TestCSharp_IsExported_PublicModifier verifies public=exported, non-public=not exported.
 // WHY: C# access control is explicit; public = exported. Wrong IsExported corrupts scoring.
 func TestCSharp_IsExported_PublicModifier(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
 	if !ok {
 		t.Fatal("C# not registered")
@@ -928,6 +957,7 @@ func TestCSharp_IsExported_PublicModifier(t *testing.T) {
 
 // TestCSharp_NodeCountStable verifies deterministic extraction.
 func TestCSharp_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
 	if !ok {
 		t.Fatal("C# not registered")
@@ -972,6 +1002,7 @@ const javaFieldVisibilityPath = "src/Box.java"
 // inside a class is IsExported=false, not implicitly public.
 // This test must FAIL before the F-13 fix and PASS after.
 func TestJava_BareClassField_NotExported(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
 	if !ok {
 		t.Fatal("Java not registered")
@@ -996,6 +1027,7 @@ func TestJava_BareClassField_NotExported(t *testing.T) {
 // no modifiers and no body is still IsExported=true (the legitimate case).
 // This test must PASS before and after the F-13 fix — regression guard.
 func TestJava_InterfaceMethod_ImplicitlyPublic(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
 	if !ok {
 		t.Fatal("Java not registered")
@@ -1037,6 +1069,7 @@ const csharpFieldVisibilityPath = "src/Box.cs"
 // inside a class is IsExported=false.
 // This test must FAIL before the F-13 fix and PASS after.
 func TestCSharp_BareClassField_NotExported(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
 	if !ok {
 		t.Fatal("C# not registered")
@@ -1060,6 +1093,7 @@ func TestCSharp_BareClassField_NotExported(t *testing.T) {
 // no modifiers and no body is IsExported=true (the legitimate case).
 // Regression guard — must pass before and after F-13 fix.
 func TestCSharp_InterfaceMethod_ImplicitlyPublic(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
 	if !ok {
 		t.Fatal("C# not registered")
@@ -1084,9 +1118,10 @@ func TestCSharp_InterfaceMethod_ImplicitlyPublic(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestRegistry_For_CP8A_Languages verifies all 4 new languages are registered.
-// WHY: The registry is the single resolution point for CP10; missing entries
+// WHY: The registry is the single resolution point for; missing entries
 // cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8A_Languages(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	tests := []struct {
 		lang     types.Language

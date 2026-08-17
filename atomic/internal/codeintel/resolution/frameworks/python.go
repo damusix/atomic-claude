@@ -1,4 +1,4 @@
-// Package frameworks — Python framework resolvers (CP15 batch A).
+// Package frameworks — Python framework resolvers (batch A).
 //
 // This file implements three FrameworkResolver + FrameworkExtractor pairs for
 // the three major Python web frameworks: Flask, FastAPI, and Django.

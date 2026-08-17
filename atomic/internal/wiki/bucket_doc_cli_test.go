@@ -1,6 +1,6 @@
 package wiki
 
-// bucket_doc_cli_test.go — CP5 tests for the `atomic wiki bucket doc|skill|index`
+// bucket_doc_cli_test.go — tests for the `atomic wiki bucket doc|skill|index`
 // CLI verbs (action.go's wikiBucketDocAction / wikiBucketSkillAction /
 // wikiBucketIndexAction). Exercises the CLI dispatch layer only — the
 // underlying scaffold/index logic (ScaffoldBucketDoc, ScaffoldBucketSkill,

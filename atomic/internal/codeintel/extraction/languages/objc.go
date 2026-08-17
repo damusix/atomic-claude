@@ -177,7 +177,7 @@ func objcResolveBody(ctx context.Context, node sitter.Node, _ string) (sitter.No
 //
 // ObjC has no method-level access modifier. Symbols are public by default.
 // @private and @protected are ivar section markers within class bodies —
-// not per-method modifiers — and are out of scope for CP8.
+// not per-method modifiers — and are out of scope here.
 func objcIsExportedByName(_ string) bool {
 	return true
 }
