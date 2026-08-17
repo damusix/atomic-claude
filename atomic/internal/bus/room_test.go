@@ -171,7 +171,7 @@ func TestHub_Join_RejoiningReleasesPriorName(t *testing.T) {
 }
 
 // TestHub_Join_FailedRejoinLeavesRosterAndPublishIntact reproduces the
-// checkpoint 2 review's headline bug: Join used to delete a session's
+// review's headline bug: Join used to delete a session's
 // prior roster entry before confirming the new name was claimable, so a
 // Join that failed with ExitNameTaken left bySession pointing at a name no
 // longer in members — Who() undercounted, and the next Publish from that
@@ -375,7 +375,7 @@ func TestHub_Join_OverLongNameRejected(t *testing.T) {
 
 // --- Rehydrate: restoring the roster from bus.json at daemon startup ---
 //
-// docs/spec/atomic-bus.md: "a restarted daemon rehydrates the whole roster
+// a restarted daemon rehydrates the whole roster
 // ... not one session at a time" and "mode and kind survive a daemon
 // restart".
 
@@ -560,7 +560,7 @@ func TestHub_UnknownAddressees_UnknownRoomReturnsEveryNameUnknown(t *testing.T) 
 }
 
 // --- --to resolution: exact match, then unique suffix/substring
-// (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is
+// (the name is the position; --as is
 // the role" entry) ---
 
 func TestRoom_ResolveOneAddressee_ExactMatchWinsOverSuffixCollision(t *testing.T) {
@@ -788,7 +788,7 @@ func TestHub_Leave_SessionNotMemberReturnsExitNotJoined(t *testing.T) {
 }
 
 // TestHub_Leave_LastMemberDropsTheRoom is the auto-drop half of
-// docs/spec/atomic-bus.md's 2026-07-30 "drop a room when its last member
+// a room is dropped when its last member
 // leaves" entry: a room created by a typo (or simply finished with) does
 // not linger forever with zero members.
 func TestHub_Leave_LastMemberDropsTheRoom(t *testing.T) {
@@ -1429,7 +1429,7 @@ func TestHub_Resume_RestoresAgentPublish(t *testing.T) {
 }
 
 // TestHub_Halt_AppendFailureDoesNotFlipHaltedFlag reproduces the
-// checkpoint 2 review finding that setHalted flipped r.halted before the
+// review finding that setHalted flipped r.halted before the
 // durable append: on an Append failure the operator's error implied the
 // halt might not have taken effect, while the room was in fact halted
 // with no control envelope ever logged or broadcast to prove it. Forces
@@ -1694,7 +1694,7 @@ func TestRoomLogPath_MatchesHubHome(t *testing.T) {
 
 // --- PublishAsOperator: say's path, publishing without a roster entry ---
 //
-// docs/spec/atomic-bus.md "say — one-shot send without joining."
+// say is a one-shot send that never joins.
 //
 // The sender identity is not a parameter. An earlier signature took name and
 // kind from the caller and was reachable from the wire via OpSay, which let a

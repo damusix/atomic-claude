@@ -3,7 +3,7 @@ package wiki_test
 // stamp_knowledge_test.go — tests for knowledge page stamping and
 // knowledge-citation fingerprint resolution.
 //
-// Success criteria (spec checkpoint 4):
+// Success criteria:
 //   - StampKnowledge writes sources: YAML list with correct entries.
 //   - Re-stamp is idempotent (second call overwrites, no duplication).
 //   - Non-conforming topic name (not kebab-case [a-z0-9-]+.md) → notice printed

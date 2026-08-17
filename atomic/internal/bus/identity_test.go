@@ -112,9 +112,8 @@ func TestState_SaveLoadRoundTrip_RealFileOnDisk(t *testing.T) {
 // TestState_Join_PersistsRepoAndRealmAcrossSaveLoad proves repo/realm
 // survive the Save/Load round trip a session's own process restart
 // (a fresh `atomic bus` invocation) depends on — the local half of
-// docs/spec/atomic-bus.md's "mode, kind, repo, and realm all survive a
-// daemon restart" criterion; TestHub_Rehydrate_RestoresRepoAndRealm covers
-// the daemon-side half.
+// mode, kind, repo, and realm all survive a daemon restart;
+// TestHub_Rehydrate_RestoresRepoAndRealm covers the daemon-side half.
 func TestState_Join_PersistsRepoAndRealmAcrossSaveLoad(t *testing.T) {
 	home := t.TempDir()
 
@@ -214,8 +213,8 @@ func TestState_ResolveRoom(t *testing.T) {
 		}
 	})
 
-	// docs/spec/atomic-bus.md success criteria: "ResolveRoom ... a
-	// not-joined error (exit code 3) when the session has joined nothing."
+	// ResolveRoom must return a not-joined error (exit 3) when the session
+	// has joined nothing.
 	t.Run("not-joined session errors with ExitNotJoined", func(t *testing.T) {
 		_, err := st.ResolveRoom("sess-never-joined", "")
 		if err == nil {

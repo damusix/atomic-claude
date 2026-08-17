@@ -1,6 +1,6 @@
 package resolution_test
 
-// sql_string_match_fragment_test.go — sql-string-match Checkpoint 6: C8
+// sql_string_match_fragment_test.go — C8
 // fragment-tier resolution (one-notch demotion at every computed tier) and
 // the C3 anchored-column vocabulary upgrade.
 

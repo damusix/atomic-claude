@@ -2,7 +2,7 @@
 // binary rather than calling into the package in-process. Everything else in
 // this package structurally cannot see argv assembly through the real Cobra
 // tree, exit-code propagation through main, or whether a spawned subprocess
-// actually binds its socket — exactly the seam GitHub issue #193 hid behind:
+// actually binds its socket — exactly the seam the daemon bug hid behind:
 // a green in-process suite while every real `atomic code mcp` auto-start
 // failed with "daemon did not start within 10s".
 //

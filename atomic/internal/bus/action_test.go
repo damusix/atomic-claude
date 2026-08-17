@@ -53,7 +53,7 @@ func TestBusAction_UnknownVerb_ExitUsage(t *testing.T) {
 }
 
 // TestBusAction_Chat_MissingRoom_ExitUsage proves chat is wired into
-// BusAction's dispatch (checkpoint 6) rather than falling through to the
+// BusAction's dispatch rather than falling through to the
 // unknown-verb case — exercised here via a usage error, since a full chat
 // session needs a live daemon and a terminal, both covered by chat_test.go
 // and action_test.go's other daemon-backed tests instead.
@@ -1207,7 +1207,7 @@ func TestRecvDeliver_ChannelClosesWithoutClosingEnvelope_Reconnects(t *testing.T
 // channel closes is Hub.Close's own closing envelope, recvDeliver must
 // report reconnect=false — otherwise recv would silently resubscribe to (and
 // recreate) a room the operator just closed instead of ending its stream as
-// docs/spec/atomic-bus.md's "close" entry requires.
+// a close requires.
 func TestRecvDeliver_ClosingEnvelope_EndsStreamWithoutReconnecting(t *testing.T) {
 	ch := make(chan Envelope, 1)
 	ch <- Envelope{Text: "room closed", Closing: true}
@@ -1420,7 +1420,7 @@ func TestRecvStream_DaemonGenuinelyUnreachable_ExitsNonZero(t *testing.T) {
 // reconnect after a close: Hub.Subscribe (which any reconnect attempt would
 // call) recreates a room via getOrCreateRoom, so a wrongly-reconnecting recv
 // would make "potato" reappear in `rooms` even though nothing is a member
-// of it — the exact resurrection docs/spec/atomic-bus.md's "close" entry
+// of it — the exact resurrection a close
 // exists to prevent.
 func TestRecvStream_RoomClosed_DoesNotResurrectTheRoomByReconnecting(t *testing.T) {
 	home := testBusHome(t)
@@ -2559,7 +2559,7 @@ func TestParseFlags_BoolFlagDoesNotConsumeNextToken(t *testing.T) {
 // --- halt / resume ---
 
 // TestHaltAction_BlocksAgentSend_SayStillSucceeds_ResumeRestores is the
-// action-layer marquee test for the whole checkpoint 5 halt/say
+// action-layer marquee test for the whole halt/say
 // asymmetry.
 func TestHaltAction_BlocksAgentSend_SayStillSucceeds_ResumeRestores(t *testing.T) {
 	home := testBusHome(t)
@@ -2764,7 +2764,7 @@ func TestResolveTailRooms_ExplicitRoom_NoPrefix(t *testing.T) {
 }
 
 // TestResolveTailRooms_NoExplicit_ExactlyOneRoom_DefaultsToAllRoomsPrefix
-// pins docs/spec/atomic-bus.md, quoted verbatim: "[--all-rooms] is the
+// pins the contract: [--all-rooms] is the
 // default when no room argument is given and exactly one room exists."
 func TestResolveTailRooms_NoExplicit_ExactlyOneRoom_DefaultsToAllRoomsPrefix(t *testing.T) {
 	home := testBusHome(t)
@@ -3219,7 +3219,7 @@ func TestWhoAction_JSONOutput_ShowsKind(t *testing.T) {
 }
 
 // --- who: repo/realm columns, no separate qualified display form
-// (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is
+// (the name is the position; --as is
 // the role" entry — the name is already qualified, so who has no seventh
 // column repeating it) ---
 

@@ -11,14 +11,14 @@ import (
 
 // sessionEnvVar is the environment variable a live Claude Code session sets
 // to a UUID identifying that session (verified present in a live session;
-// see docs/design/atomic-bus.md, "Identity").
+// see docs/design/atomic-bus.md).
 const sessionEnvVar = "CLAUDE_CODE_SESSION_ID"
 
 // SessionID identifies the current agent for bus purposes. Identity is
 // keyed by session id, never cwd or pid: two Claude Code sessions can run
 // in the same working directory and are still two distinct agents (hard
 // constraint 2 of the atomic-bus brief). override, when non-empty, is the
-// --session flag documented in docs/design/atomic-bus.md's "Resolved open
+// --session flag documented in docs/design/atomic-bus.md's resolved-open-
 // decisions" #5 — for scripted use and tests outside a live session.
 func SessionID(override string) (string, error) {
 	if override != "" {

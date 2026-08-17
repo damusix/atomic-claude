@@ -159,8 +159,7 @@ func TestEnvelope_JSONFieldNamesMatchWireContract(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	// docs/design/atomic-bus.md: "Envelope — id, room, from, from_kind, to,
-	// reply_to, ts, text, truncated, log".
+	// The wire shape is fixed; adding a field means bumping ProtocolVersion.
 	for _, key := range []string{"id", "room", "from", "from_kind", "to", "reply_to", "ts", "text", "truncated", "log"} {
 		if _, ok := m[key]; !ok {
 			t.Errorf("missing wire field %q in %s", key, b)
@@ -180,7 +179,7 @@ func TestMember_JSONFieldNamesMatchWireContract(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	// docs/design/atomic-bus.md: "Member — name, kind, mode, session, joined".
+	// Member's wire shape, fixed for the same reason.
 	for _, key := range []string{"name", "kind", "mode", "session", "joined"} {
 		if _, ok := m[key]; !ok {
 			t.Errorf("missing wire field %q in %s", key, b)
@@ -227,9 +226,8 @@ func TestResponse_CodeSurvivesRoundTrip(t *testing.T) {
 }
 
 // TestExitCodes_StableValues pins the numeric exit codes named across
-// docs/spec/atomic-bus.md's success criteria and docs/design/atomic-bus.md's
-// flows. protocol.go is not revisited by later checkpoints (see the spec's
-// Checkpoints table), so client.go and daemon.go will hardcode expectations
+// the contract in docs/design/atomic-bus.md. protocol.go is not revisited
+// once it lands, so client.go and daemon.go hardcode expectations
 // against these numbers — a silent reorder of the iota block would be a
 // wire-compatibility break the compiler cannot catch.
 func TestExitCodes_StableValues(t *testing.T) {

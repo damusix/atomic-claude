@@ -1,4 +1,4 @@
-// Tests for the cwd-independent daemon fix (checkpoint 1).
+// Tests for the cwd-independent daemon fix.
 //
 // Problem reproduced: when the proxy spawns the daemon with only a projectRoot
 // arg, and the process cwd is a non-git/realm-root directory, the daemon's

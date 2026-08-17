@@ -2,7 +2,7 @@ package wiki_test
 
 // stale_buckets_test.go — tests for the `atomic wiki stale` bucket extension.
 //
-// Success criteria from the spec (checkpoint 3):
+// Success criteria from the spec:
 //   - Fresh bucket (empty diff) → no STALE bucket line emitted, exit 0.
 //   - Pending bucket (non-empty diff) → `STALE bucket <name>` line + exit 1.
 //   - Hard error (missing wiki dir) → exit 2 (existing behaviour, verified here

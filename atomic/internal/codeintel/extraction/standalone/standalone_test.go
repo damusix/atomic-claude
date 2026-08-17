@@ -780,7 +780,7 @@ func TestVue_HandlerBindingLineNumbers(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Vue — dangling-owner-ref regression (checkpoint 1, SC1)
+// Vue — dangling-owner-ref regression
 // ---------------------------------------------------------------------------
 
 // vueTopLevelCallFixture reproduces the construct found in this repo's

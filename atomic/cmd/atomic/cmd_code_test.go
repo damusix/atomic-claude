@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// TestCodeMCPDaemonArgv_MatchesCobraTree is the GitHub issue #193 regression
+// TestCodeMCPDaemonArgv_MatchesCobraTree is the regression
 // test: DefaultSpawn's argv (codemcp.DaemonArgv) must always name a
 // Cobra-registered command, or the spawned daemon subprocess dies on
 // "unknown flag" before its handler ever runs — the only symptom being

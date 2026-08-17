@@ -1763,14 +1763,14 @@ func readAction(args []string, home string, out io.Writer) int {
 
 // chatAction implements `atomic bus chat <room> [--as <name>] [--session
 // <id>]`: an interactive client that joins room as a kind: "human" member
-// (docs/spec/atomic-bus.md checkpoint 6) and then hands off to Chat's core
+// and then hands off to Chat's core
 // loop (chat.go) against a real raw-mode stdin and the daemon's live
 // subscription stream. --as defaults to $USER (unchanged by the
 // position-derived naming entry, which only retargets join's own default —
 // chat's default identity is the operator's own username, not the repo it
 // happens to be run from); identity is resolved exactly like join
 // (SessionID, --session override) — chat calls Hub.Join too, and
-// docs/design/atomic-bus.md's Identity section makes no exception for it.
+// identity resolution makes no exception for it.
 // Position (repo/realm) is still resolved and recorded, same as join.
 func chatAction(args []string, home, cwd string, out io.Writer) int {
 	const usage = "Usage: atomic bus chat <room> [--as <name>] [--session <id>]\n"

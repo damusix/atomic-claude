@@ -88,7 +88,7 @@ type ResolvedImport struct {
 	// ResolvedKindExternal and the specifier's ecosystem yields one. v1 covers
 	// JS-family languages only (the npm identity rule); every other language
 	// leaves this "". Also "" for a URL-scheme specifier, which has no
-	// derivable package. Checkpoint 2's mint loop reads this to converge every
+	// derivable package. 's mint loop reads this to converge every
 	// importer of one package onto a single package: node.
 	PackageName string
 }
@@ -395,7 +395,7 @@ func stripQueryAndFragment(specifier string) string {
 }
 
 // npmPackageName normalizes a JS-family external import specifier to its npm
-// package identity (docs/design/code-intel-package-nodes.md, "Recommendation"
+// package identity (docs/design/code-intel-package-nodes.md
 // section). Called only after isExternal has already classified the
 // specifier, so a relative/absolute/alias-matched specifier never reaches
 // this function.

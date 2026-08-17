@@ -38,7 +38,7 @@ func TestTailLine_AddressedMessage_ShowsSenderArrowAddressee(t *testing.T) {
 
 // TestTailLine_UnaddressedMessage_ShowsRoomMarker proves an FYI message
 // (empty To) renders the literal "(room)" placeholder as its addressee —
-// docs/spec/atomic-bus.md, verbatim: "with `(room)` as the addressee
+// `(room)` is the addressee
 // for an unaddressed FYI message."
 func TestTailLine_UnaddressedMessage_ShowsRoomMarker(t *testing.T) {
 	env := testEnvelope()

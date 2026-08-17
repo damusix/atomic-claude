@@ -46,7 +46,7 @@ type SpawnFunc func(sourceRoot, dbPath string, opts WatchOptions) error
 
 // DaemonArgv builds the argv DefaultSpawn execs to start the daemon: the
 // already-registered `code mcp` verb with --daemon plus the explicit
-// source+db paths (GitHub issue #193 — folding daemon mode into `mcp` instead
+// source+db paths (folding daemon mode into `mcp` instead
 // of a separate internal verb keeps the spawned command permanently
 // Cobra-registered, so it can never again drift out of the command tree).
 // Exported so tests can drive the exact argv DefaultSpawn produces.

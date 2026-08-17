@@ -18,7 +18,7 @@ import (
 //     running binary, so versioned migration steps (`atomic migrate`) may be
 //     pending.
 //  2. legacy state dir — ~/.claude/.atomic is still a real directory, meaning
-//     issue #150's user-state relocation to ~/.atomic has not completed on
+//     the user-state relocation to ~/.atomic has not completed on
 //     this machine (config.MigrateUserState runs automatically before every
 //     verb dispatch — a persistent real dir here means a prior run hit a
 //     migration failure, or ~/.atomic already existed independently).

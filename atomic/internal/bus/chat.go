@@ -13,7 +13,7 @@ import (
 // only ever rewrites its own single pinned input line this way; the
 // scrolling transcript above it is ordinary sequential output, which the
 // terminal's own scrollback already handles, so there is no multi-line
-// cursor tracking to get wrong (docs/spec/atomic-bus.md checkpoint 6's risk
+// cursor tracking to get wrong (docs/spec/atomic-bus.md the risk
 // row: line-oriented redraw, not a full-screen widget tree).
 const ansiClearLine = "\r\x1b[2K"
 
@@ -219,7 +219,7 @@ func (c *Chat) submitLine() bool {
 }
 
 // onInput dispatches one submitted, non-blank line per
-// docs/spec/atomic-bus.md checkpoint 6's in-chat syntax table: a bare line
+// docs/spec/atomic-bus.md the in-chat syntax table: a bare line
 // sends to the room, "@name text" addresses one member, "/who" and
 // "/rooms" print inline, "/halt" and "/resume" toggle the room, and
 // "/quit" ends the session (signalled via the bool return).

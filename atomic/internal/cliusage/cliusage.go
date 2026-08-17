@@ -719,7 +719,7 @@ func walkLeaves(cmd *cobra.Command, prefix []string, out *[]Command) {
 }
 
 // LookupByPath returns the Command whose Path matches path exactly, or nil
-// if no command with that path exists. Used by Checkpoint 2 validate rule.
+// if no command with that path exists. Used by validate rule.
 func LookupByPath(path []string) *Command {
 	key := strings.Join(path, "\x00")
 	for i := range commands {

@@ -168,7 +168,7 @@ func TestDispatch_WholeRepo_RepoDev_IncludesBundle(t *testing.T) {
 
 // TestDispatch_Bundle_NotRepoDev_Skips proves explicit `atomic validate bundle`
 // outside the atomic-claude repo exits 0 with a clean SKIP, not a crash (exit 2).
-// Regression for issue #35.
+// Regression: it used to crash with exit 2 instead of skipping.
 func TestDispatch_Bundle_NotRepoDev_Skips(t *testing.T) {
 	root := buildMinimalRepo(t)
 	code, out := runFromDir(t, root, []string{"bundle"})

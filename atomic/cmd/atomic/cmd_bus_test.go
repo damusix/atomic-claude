@@ -28,7 +28,7 @@ func testBusDispatchHome(t *testing.T) string {
 }
 
 // TestRunBus_DispatchUsesRealHomeFromEnv is the mandatory dispatch-layer
-// real-filesystem test the checkpoint 4 brief requires: checkpoint 1's own
+// real-filesystem test the brief requires: the earlier
 // disk test (internal/bus/identity_test.go) injects home directly into
 // State.Load/Save, so it can never observe the os.UserHomeDir()-to-home
 // hand-off inside runBus — that hand-off is only reachable, and only

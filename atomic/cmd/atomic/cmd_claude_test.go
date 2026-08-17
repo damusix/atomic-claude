@@ -165,7 +165,7 @@ func TestRunClaudeUninstall_NeedsMerge(t *testing.T) {
 }
 
 // TestRunProfile_UsesHomeNotClaudeHome is the regression guard for the
-// runProfile chain bug (docs/spec/configurable-state-paths.md issue #150):
+// runProfile chain bug:
 // runProfile must pass home directly to profileAction, not <home>/.claude —
 // config.ProfilePath resolves <home>/.atomic/profile.md, so an extra ".claude"
 // join wrote to the wrong path. profileAction's own tests above inject a

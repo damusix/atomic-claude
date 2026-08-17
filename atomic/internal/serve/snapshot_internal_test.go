@@ -210,7 +210,7 @@ func TestEnsureFresh_ConcurrentCallersCollapseToOneRebuild(t *testing.T) {
 }
 
 // TestDiffManifest_AddedEditedRemoved verifies the manifest diff used to
-// compute the changed-relpath set consumed by checkpoint 3's event payload.
+// compute the changed-relpath set consumed by the event payload.
 func TestDiffManifest_AddedEditedRemoved(t *testing.T) {
 	prev := map[string]fileManifestEntry{
 		"unchanged.md": {size: 10, modUnixNano: 100},

@@ -20,8 +20,8 @@ const arrowSep = " → "
 
 // unaddressedMarker is what TailLine shows as the addressee for an FYI
 // envelope (empty To) — a fixed, literal placeholder, not a room-name
-// substitution: docs/spec/atomic-bus.md specifies "(room)" verbatim as
-// the addressee for an unaddressed message.
+// substitution: "(room)" is the literal addressee shown for an
+// unaddressed message.
 const unaddressedMarker = "(room)"
 
 // defaultLineWidth is wrapHanging's wrap point when the caller has no

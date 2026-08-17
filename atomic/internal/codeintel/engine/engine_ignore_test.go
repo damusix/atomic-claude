@@ -1,4 +1,4 @@
-// Package engine tests — graphignore config wiring (checkpoint 2).
+// Package engine tests — graphignore config wiring.
 //
 // ensureIndexer loads .claude/atomic.toml once per indexer boot and wires the
 // resulting matcher onto the orchestrator. These tests exercise that wiring
@@ -18,7 +18,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 )
 
-// TestIndexAll_AbsentIgnoreConfig_OutputUnchanged is the checkpoint 2
+// TestIndexAll_AbsentIgnoreConfig_OutputUnchanged is the
 // "absent config" success criterion: with no .claude/atomic.toml present,
 // discovery output is identical to pre-graphignore behavior — every file is
 // indexed and no warnings are recorded.

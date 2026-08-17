@@ -517,7 +517,7 @@ func hasJSXDiscriminator(meta json.RawMessage) bool {
 //
 // # Signal
 //
-// The standalone Vue SFC extractor (, extraction/standalone) emits a
+// The standalone Vue SFC extractor (extraction/standalone) emits a
 // component node for each .vue file (Language=vue, Kind=component) and uses
 // extractTemplateRefs to emit UnresolvedReference values (Kind=references) for
 // each PascalCase or kebab-case component tag found in the <template> block.

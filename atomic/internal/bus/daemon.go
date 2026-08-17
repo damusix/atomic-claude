@@ -146,7 +146,7 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 		// Request.Filters doc) is an action-layer concern (render/action);
 		// this dispatch delivers every envelope on the subscribed rooms
 		// unfiltered. tail never joins and holds no session of its own
-		// (docs/design/atomic-bus.md's decision #5), so it always
+		// so it always
 		// subscribes with session "" and skipSelf false — it has nothing to
 		// self-skip, and must keep seeing its own says/sends regardless.
 		d.subscribe(ctx, conn, enc, req.Rooms, "", false)
@@ -295,7 +295,7 @@ func (d *daemon) handleClose(req Request) Response {
 }
 
 // handleSend's payload carries the full published Envelope, not merely its
-// id — see docs/spec/atomic-bus.md's "send prints a bare message id, under-
+// id — send prints a bare message id, under-
 // structured for an agent" fix: --json needs the whole envelope (to capture
 // the id for --reply-to without a second round trip), and the plain-text
 // path derives its short confirmation from the same payload. UnknownTo

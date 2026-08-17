@@ -37,7 +37,7 @@ func RunCodeWithRealm(args []string, projectRoot, claudeMDPath string, stdout, s
 	}
 
 	// A --daemon invocation of the mcp verb is spawned by DefaultSpawn with
-	// explicit --source/--db flags (GitHub issue #193 — daemon mode folded into
+	// explicit --source/--db flags (daemon mode folded into
 	// the mcp verb so the spawned argv always names a Cobra-registered command).
 	// Route it directly to RunCode before realm resolution, so the daemon never
 	// hits the realm-verb-reject gate regardless of the process cwd. This is

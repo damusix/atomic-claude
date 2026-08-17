@@ -876,7 +876,7 @@ func TestResolver_RelativeAbsoluteHashStayNonExternal(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestResolver_ExternalImport_PackageName(t *testing.T) {
-	// WHY: PackageName is the seam checkpoint 2's mint loop reads to derive
+	// WHY: PackageName is the seam the mint loop reads to derive
 	// the shared package-node identity. It must be populated for a
 	// JS-family external specifier and empty for relative/alias/internal
 	// specifiers and for non-JS-family externals (no npm identity rule

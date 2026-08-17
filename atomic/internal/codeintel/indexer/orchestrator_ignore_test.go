@@ -1,6 +1,6 @@
 package indexer_test
 
-// Graphignore: discovery-time filtering tests (checkpoint 2).
+// Graphignore: discovery-time filtering tests.
 //
 // Filtering happens at the single discovery seam feeding indexFiles and
 // pruneDeleted (IndexAll/Sync/IndexPaths input) — never as a query-time

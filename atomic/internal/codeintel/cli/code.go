@@ -1003,7 +1003,7 @@ func EnsureGitignore(projectRoot string) error {
 // mcp
 // ---------------------------------------------------------------------------
 
-// runMCP is `atomic code mcp` (, GitHub issue #193).
+// runMCP is `atomic code mcp`.
 //
 // Without --daemon it is the proxy path: connect-or-start the singleton
 // daemon (flock-guarded auto-start) and then bidirectionally pipe

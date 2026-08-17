@@ -1,4 +1,4 @@
-// Package cli tests — graphignore CLI wiring (checkpoint 2).
+// Package cli tests — graphignore CLI wiring.
 //
 // Covers the two CLI-visible success criteria that don't fit engine/indexer
 // package tests: `atomic code index` prints exactly one repo-config warning

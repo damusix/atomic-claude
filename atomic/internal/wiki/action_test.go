@@ -5,7 +5,7 @@ package wiki
 // wikiStampAction's flag/positional argument order handling.
 //
 // Covers: -h/-help/--help yield errUsageRequested and print usage without
-// mutating state (issue #164 — `bucket add -h` used to silently create a
+// mutating state (`bucket add -h` used to silently create a
 // bucket named "-h"); an unrecognized single-dash token is rejected with
 // the same parity as an unrecognized double-dash token; parseBucketDocArgs'
 // collapse to delegate at resolveWikiRoot still honors --router in any
@@ -199,7 +199,7 @@ func TestBucketVerbs_HelpFlagPrintsUsageAndExitsZero(t *testing.T) {
 	}
 }
 
-// TestBucketAdd_HelpProbeCreatesNothing reproduces issue #164 directly:
+// TestBucketAdd_HelpProbeCreatesNothing reproduces that directly:
 // `atomic wiki bucket add -h` must not create a bucket named "-h" (or
 // anything else).
 func TestBucketAdd_HelpProbeCreatesNothing(t *testing.T) {
@@ -406,7 +406,7 @@ func TestWikiStampAction_MissingModeFlagsStillErrors(t *testing.T) {
 }
 
 // TestWikiStampAction_TerminatorEndsFlagParsing pins POSIX "--" terminator
-// semantics (issue #158 follow-up): the re-parse loop must honor the first
+// semantics: the re-parse loop must honor the first
 // bare "--" globally, not just within the single fs.Parse call that consumes
 // it. Everything after "--" is positional, verbatim, never re-parsed as a
 // flag — so `wiki stamp -- <file> --repo <repo>` must NOT stamp.

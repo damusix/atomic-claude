@@ -1,7 +1,7 @@
 // Tests proving 2+ MCP daemons for different repos run simultaneously without
 // socket/lock collision.
 //
-// Spec criterion (Checkpoint 3 Part A):
+// Spec criterion:
 //   - Two daemons for distinct repos bind distinct sockets (each under its own
 //     db dir).
 //   - Both answer an MCP initialize (tools/list returns tools).

@@ -68,7 +68,7 @@ func Dial(home string, timeout time.Duration) (*Client, error) {
 }
 
 // Do sends req and returns the daemon's Response. When the daemon replies
-// {"ok":false}, Do also returns a non-nil error — checkpoint 1's *Error,
+// {"ok":false}, Do also returns a non-nil error — the *Error,
 // carrying the same Code the daemon assigned (protocol.go's Response.Code
 // doc: the daemon owns exit-code assignment). The client never re-derives
 // an exit code from Error's message text. Do consumes c: the daemon closes
@@ -164,7 +164,7 @@ func (c *Client) Close() error {
 	return err
 }
 
-// responseError converts a failed Response into checkpoint 1's *Error
+// responseError converts a failed Response into the *Error
 // type, so a failure resolved on the daemon and one resolved locally on
 // the client (e.g. State.ResolveRoom's not-joined case) present the same
 // shape to every call site.
@@ -194,7 +194,7 @@ const (
 // in-process daemon goroutine instead of depending on a built `atomic`
 // binary. DefaultEnsurer wires the production default; production wiring
 // of the CLI dispatch itself (calling EnsureDaemon from `atomic bus join`
-// etc.) is checkpoint 4's job.
+// etc.) is the job.
 type Ensurer struct {
 	// Spawn starts the daemon and returns once the process has been
 	// launched — it does not need to wait for the socket to come up;
@@ -314,7 +314,7 @@ func (e Ensurer) connectAndVerify(home string) (*Client, error) {
 }
 
 // checkVersion pings client and refuses on a ProtocolVersion mismatch —
-// see docs/design/atomic-bus.md's "Resolved open decisions" #2: refuse
+// refuse
 // rather than drain-and-restart, because another session may be holding a
 // live `recv` subscription that one client's upgrade must not
 // silently kill. Health is judged strictly by this round trip: a

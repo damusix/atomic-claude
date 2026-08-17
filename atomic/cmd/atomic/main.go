@@ -64,7 +64,7 @@ func main() {
 	// rather than the static hardcoded table.
 	cliusage.SetRoot(rootCmd)
 
-	// Migrate legacy per-user state (~/.claude/.atomic -> ~/.atomic, issue #150)
+	// Migrate legacy per-user state (~/.claude/.atomic -> ~/.atomic)
 	// once, before any verb runs. Best-effort: failure warns and never blocks
 	// the invoked verb — the migration itself is not what the user asked for.
 	home, homeErr := os.UserHomeDir()
