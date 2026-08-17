@@ -11,10 +11,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// makeIndexDB creates the minimal directory structure and a zero-byte DB file
-// at the canonical path (<root>/.claude/.atomic-index/atomic.db) with the
-// given mtime. It does NOT open SQLite — the doctor check only stat-inspects
-// the file, never reads it.
+// makeIndexDB writes a zero-byte file at the canonical db path with the given
+// mtime. Not real SQLite — the check only stats it.
 func makeIndexDB(t *testing.T, root string, mtime time.Time) {
 	t.Helper()
 	dir := filepath.Join(root, ".claude", ".atomic-index")
@@ -30,14 +28,10 @@ func makeIndexDB(t *testing.T, root string, mtime time.Time) {
 	}
 }
 
-// TestCheckCodeIndexAbsent is the key spec assertion: absence of the DB must
-// produce PASS (informational), never WARN.
-//
-// The index is opt-in; millions of repos that never run `atomic code index`
-// must not see a persistent WARN on every `atomic doctor` run.
+// The index is opt-in: a repo that never runs `atomic code index` must not see
+// a WARN on every doctor run.
 func TestCheckCodeIndexAbsent(t *testing.T) {
 	root := t.TempDir()
-	// No index directory, no DB file.
 	r := doctor.RunCheckCodeIndexWith(root, 7)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %v, want PASS when index absent (must never be WARN)", r.Severity)
@@ -47,11 +41,8 @@ func TestCheckCodeIndexAbsent(t *testing.T) {
 	}
 }
 
-// TestCheckCodeIndexFresh verifies PASS when the DB exists and is within the
-// staleness threshold.
 func TestCheckCodeIndexFresh(t *testing.T) {
 	root := t.TempDir()
-	// mtime = 2 days ago, threshold = 7
 	mtime := time.Now().Add(-2 * 24 * time.Hour)
 	makeIndexDB(t, root, mtime)
 
@@ -61,11 +52,8 @@ func TestCheckCodeIndexFresh(t *testing.T) {
 	}
 }
 
-// TestCheckCodeIndexStale verifies WARN when the DB exists but is older than
-// the staleness threshold.
 func TestCheckCodeIndexStale(t *testing.T) {
 	root := t.TempDir()
-	// mtime = 10 days ago, threshold = 7
 	mtime := time.Now().Add(-10 * 24 * time.Hour)
 	makeIndexDB(t, root, mtime)
 
@@ -78,9 +66,7 @@ func TestCheckCodeIndexStale(t *testing.T) {
 	}
 }
 
-// TestCheckCodeIndexNeverFail asserts the check never produces FAIL regardless
-// of how broken the environment is. The code index is opt-in and optional; it
-// must never be a hard installation requirement.
+// No environment state may turn the opt-in index into a hard requirement.
 func TestCheckCodeIndexNeverFail(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -118,8 +104,6 @@ func TestCheckCodeIndexNeverFail(t *testing.T) {
 	}
 }
 
-// TestCheckCodeIndexStaleDaysRespected verifies the threshold is honoured.
-// A 3-day-old DB is PASS at threshold=7 but WARN at threshold=2.
 func TestCheckCodeIndexStaleDaysRespected(t *testing.T) {
 	root := t.TempDir()
 	mtime := time.Now().Add(-3 * 24 * time.Hour)
@@ -138,15 +122,11 @@ func TestCheckCodeIndexStaleDaysRespected(t *testing.T) {
 
 // ---- realm-aware tests ----
 
-// makeRealmLayout creates a minimal realm at realmRoot:
-//   - <realmRoot>/.atomic/code.toml with the given members
-//   - <realmRoot>/wiki/index.md (placeholder; just needs to exist for path derivation)
-//
-// Returns the path to a CLAUDE.md that registers the wiki index.
+// makeRealmLayout writes a minimal realm at realmRoot and returns the path to
+// a CLAUDE.md whose <wikis> block registers its wiki index.
 func makeRealmLayout(t *testing.T, realmRoot string, members []realmMember) string {
 	t.Helper()
 
-	// Write .atomic/code.toml.
 	atomicDir := filepath.Join(realmRoot, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
 		t.Fatalf("makeRealmLayout mkdir .atomic: %v", err)
@@ -163,7 +143,7 @@ func makeRealmLayout(t *testing.T, realmRoot string, members []realmMember) stri
 		t.Fatalf("makeRealmLayout write code.toml: %v", err)
 	}
 
-	// Write wiki/index.md so the realm root can be derived.
+	// The realm root is derived from this file's path.
 	wikiDir := filepath.Join(realmRoot, "wiki")
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatalf("makeRealmLayout mkdir wiki: %v", err)
@@ -173,7 +153,6 @@ func makeRealmLayout(t *testing.T, realmRoot string, members []realmMember) stri
 		t.Fatalf("makeRealmLayout write wiki/index.md: %v", err)
 	}
 
-	// Write a CLAUDE.md that registers the wiki index.
 	tmp := t.TempDir()
 	claudeMD := filepath.Join(tmp, "CLAUDE.md")
 	block := fmt.Sprintf("<wikis>\n- %s\n</wikis>\n", wikiIndex)
@@ -184,7 +163,7 @@ func makeRealmLayout(t *testing.T, realmRoot string, members []realmMember) stri
 	return claudeMD
 }
 
-// makeRealmDB creates a member db at <realmRoot>/.atomic/<key>.db with the given mtime.
+// makeRealmDB writes a member db at <realmRoot>/.atomic/<key>.db.
 func makeRealmDB(t *testing.T, realmRoot, key string, mtime time.Time) {
 	t.Helper()
 	atomicDir := filepath.Join(realmRoot, ".atomic")
@@ -206,8 +185,6 @@ type realmMember struct {
 	Exclude bool
 }
 
-// TestRunCheckCodeIndexRealmWith_AllFresh verifies PASS with "N fresh" detail
-// when all member dbs are within the staleness threshold.
 func TestRunCheckCodeIndexRealmWith_AllFresh(t *testing.T) {
 	realmRoot := t.TempDir()
 	members := []realmMember{
@@ -216,7 +193,6 @@ func TestRunCheckCodeIndexRealmWith_AllFresh(t *testing.T) {
 	}
 	_ = makeRealmLayout(t, realmRoot, members)
 
-	// Both dbs fresh (1 day old, threshold 7).
 	mtime := time.Now().Add(-1 * 24 * time.Hour)
 	makeRealmDB(t, realmRoot, "alpha", mtime)
 	makeRealmDB(t, realmRoot, "beta", mtime)
@@ -230,7 +206,6 @@ func TestRunCheckCodeIndexRealmWith_AllFresh(t *testing.T) {
 	}
 }
 
-// TestRunCheckCodeIndexRealmWith_StaleMember verifies WARN and names the stale member.
 func TestRunCheckCodeIndexRealmWith_StaleMember(t *testing.T) {
 	realmRoot := t.TempDir()
 	members := []realmMember{
@@ -251,7 +226,6 @@ func TestRunCheckCodeIndexRealmWith_StaleMember(t *testing.T) {
 	if !strings.Contains(r.Detail, "beta") {
 		t.Errorf("detail = %q, want mention of 'beta'", r.Detail)
 	}
-	// alpha is fresh — should not appear in actionable list.
 	if strings.Contains(r.Detail, "stale: alpha") {
 		t.Errorf("detail = %q, should not mention 'alpha' as stale", r.Detail)
 	}
@@ -260,7 +234,6 @@ func TestRunCheckCodeIndexRealmWith_StaleMember(t *testing.T) {
 	}
 }
 
-// TestRunCheckCodeIndexRealmWith_NotIndexedMember verifies WARN and names the absent member.
 func TestRunCheckCodeIndexRealmWith_NotIndexedMember(t *testing.T) {
 	realmRoot := t.TempDir()
 	members := []realmMember{
@@ -269,7 +242,7 @@ func TestRunCheckCodeIndexRealmWith_NotIndexedMember(t *testing.T) {
 	}
 	_ = makeRealmLayout(t, realmRoot, members)
 
-	// alpha fresh, baz not indexed (no db file).
+	// baz deliberately gets no db file.
 	fresh := time.Now().Add(-1 * 24 * time.Hour)
 	makeRealmDB(t, realmRoot, "alpha", fresh)
 
@@ -285,8 +258,6 @@ func TestRunCheckCodeIndexRealmWith_NotIndexedMember(t *testing.T) {
 	}
 }
 
-// TestRunCheckCodeIndexRealmWith_Mixed verifies the mixed case: fresh + stale + not-indexed.
-// Worst severity = WARN; detail counts fresh, names stale + not-indexed.
 func TestRunCheckCodeIndexRealmWith_Mixed(t *testing.T) {
 	realmRoot := t.TempDir()
 	members := []realmMember{
@@ -317,14 +288,11 @@ func TestRunCheckCodeIndexRealmWith_Mixed(t *testing.T) {
 	if !strings.Contains(r.Detail, "gamma") {
 		t.Errorf("detail = %q, want 'gamma' (not indexed)", r.Detail)
 	}
-	// alpha and delta are fresh — must not appear as actionable.
 	if strings.Contains(r.Detail, "stale: alpha") || strings.Contains(r.Detail, "stale: delta") {
 		t.Errorf("detail = %q, fresh members must not appear as stale", r.Detail)
 	}
 }
 
-// TestRunCheckCodeIndexRealmWith_ExcludedMembersSkipped verifies that excluded members
-// are not counted or listed.
 func TestRunCheckCodeIndexRealmWith_ExcludedMembersSkipped(t *testing.T) {
 	realmRoot := t.TempDir()
 	members := []realmMember{
@@ -335,7 +303,7 @@ func TestRunCheckCodeIndexRealmWith_ExcludedMembersSkipped(t *testing.T) {
 
 	fresh := time.Now().Add(-1 * 24 * time.Hour)
 	makeRealmDB(t, realmRoot, "alpha", fresh)
-	// excluded has a stale db — but since it's excluded it must not cause WARN.
+	// Stale, but excluded — must not raise the severity.
 	stale := time.Now().Add(-20 * 24 * time.Hour)
 	makeRealmDB(t, realmRoot, "excluded", stale)
 
@@ -348,7 +316,6 @@ func TestRunCheckCodeIndexRealmWith_ExcludedMembersSkipped(t *testing.T) {
 	}
 }
 
-// TestRunCheckCodeIndexRealmWith_NoMembers verifies sensible PASS when realm config is empty.
 func TestRunCheckCodeIndexRealmWith_NoMembers(t *testing.T) {
 	realmRoot := t.TempDir()
 	_ = makeRealmLayout(t, realmRoot, nil)
@@ -359,14 +326,13 @@ func TestRunCheckCodeIndexRealmWith_NoMembers(t *testing.T) {
 	}
 }
 
-// TestRunCheckCodeIndexRealmWith_NeverFail asserts the realm check never produces FAIL.
 func TestRunCheckCodeIndexRealmWith_NeverFail(t *testing.T) {
 	realmRoot := t.TempDir()
 	members := []realmMember{
 		{Key: "alpha", Path: "repos/alpha"},
 	}
+	// alpha deliberately gets no db — the worst case.
 	_ = makeRealmLayout(t, realmRoot, members)
-	// alpha not indexed and stale — worst possible case.
 
 	r := doctor.RunCheckCodeIndexRealmWith(realmRoot, 7)
 	if r.Severity == doctor.FAIL {
@@ -374,8 +340,6 @@ func TestRunCheckCodeIndexRealmWith_NeverFail(t *testing.T) {
 	}
 }
 
-// TestRunCheckCodeIndexWith_SingleRepoUnchanged_Absent verifies single-repo
-// behavior (absent → PASS informational) is unchanged by the realm feature.
 func TestRunCheckCodeIndexWith_SingleRepoUnchanged_Absent(t *testing.T) {
 	root := t.TempDir()
 	r := doctor.RunCheckCodeIndexWith(root, 7)
@@ -384,8 +348,6 @@ func TestRunCheckCodeIndexWith_SingleRepoUnchanged_Absent(t *testing.T) {
 	}
 }
 
-// TestRunCheckCodeIndexWith_SingleRepoUnchanged_Stale verifies single-repo
-// behavior (stale → WARN) is unchanged by the realm feature.
 func TestRunCheckCodeIndexWith_SingleRepoUnchanged_Stale(t *testing.T) {
 	root := t.TempDir()
 	mtime := time.Now().Add(-10 * 24 * time.Hour)
@@ -396,8 +358,6 @@ func TestRunCheckCodeIndexWith_SingleRepoUnchanged_Stale(t *testing.T) {
 	}
 }
 
-// TestRunCheckCodeIndexWith_SingleRepoUnchanged_Fresh verifies single-repo
-// behavior (fresh → PASS) is unchanged by the realm feature.
 func TestRunCheckCodeIndexWith_SingleRepoUnchanged_Fresh(t *testing.T) {
 	root := t.TempDir()
 	mtime := time.Now().Add(-1 * 24 * time.Hour)
@@ -408,23 +368,13 @@ func TestRunCheckCodeIndexWith_SingleRepoUnchanged_Fresh(t *testing.T) {
 	}
 }
 
-// ---- dispatcher tests (Fix 1 + Fix 3) ----
+// ---- dispatcher tests ----
 //
-// These tests drive RunCheckCodeIndex (the exported wrapper over the private
-// checkCodeIndex dispatcher) so that the scope-detection branch — including the
-// new ScopeRealmMember → aggregate routing — is exercised end-to-end.
-//
-// The realm fixture mirrors makeRealmLayout but also needs a member directory so
-// t.Chdir can navigate into it.
+// These drive RunCheckCodeIndex so the scope-detection branch is exercised
+// end-to-end, not just the two per-scope helpers.
 
-// makeDispatcherFixture builds a complete realm fixture and returns:
-//   - realmRoot  — the realm root directory
-//   - memberDir  — path to a member sub-directory (no local .atomic-index)
-//   - claudeMD   — a CLAUDE.md whose <wikis> block points at realmRoot/wiki/index.md
-//
-// Two member dbs are created under <realmRoot>/.atomic/:
-//   - "alpha" fresh (1 day old)
-//   - "beta"  fresh (1 day old)
+// makeDispatcherFixture builds a realm with two fresh member dbs and member
+// directories t.Chdir can enter; no member carries a local .atomic-index.
 func makeDispatcherFixture(t *testing.T) (realmRoot, memberDir, claudeMD string) {
 	t.Helper()
 	realmRoot = t.TempDir()
@@ -435,7 +385,6 @@ func makeDispatcherFixture(t *testing.T) (realmRoot, memberDir, claudeMD string)
 	}
 	claudeMD = makeRealmLayout(t, realmRoot, members)
 
-	// Create the member directories (needed for t.Chdir).
 	for _, m := range members {
 		dir := filepath.Join(realmRoot, m.Path)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -443,7 +392,6 @@ func makeDispatcherFixture(t *testing.T) (realmRoot, memberDir, claudeMD string)
 		}
 	}
 
-	// Both dbs fresh (1 day old, threshold 7).
 	fresh := time.Now().Add(-1 * 24 * time.Hour)
 	makeRealmDB(t, realmRoot, "alpha", fresh)
 	makeRealmDB(t, realmRoot, "beta", fresh)
@@ -452,12 +400,10 @@ func makeDispatcherFixture(t *testing.T) (realmRoot, memberDir, claudeMD string)
 	return realmRoot, memberDir, claudeMD
 }
 
-// TestCheckCodeIndex_RealmAllDispatch verifies that RunCheckCodeIndex routes to
-// the realm aggregate (ScopeRealmAll) when cwd == realmRoot.
 func TestCheckCodeIndex_RealmAllDispatch(t *testing.T) {
 	realmRoot, _, claudeMD := makeDispatcherFixture(t)
 
-	// Chdir to the realm root so Resolve returns ScopeRealmAll.
+	// cwd == realmRoot makes Resolve return ScopeRealmAll.
 	t.Chdir(realmRoot)
 
 	opts := doctor.Opts{
@@ -466,28 +412,24 @@ func TestCheckCodeIndex_RealmAllDispatch(t *testing.T) {
 	}
 	r := doctor.RunCheckCodeIndex(opts)
 
-	// Both members are fresh → PASS with "2 fresh".
 	if r.Severity != doctor.PASS {
 		t.Errorf("ScopeRealmAll: severity = %v, want PASS (both fresh); detail: %s", r.Severity, r.Detail)
 	}
 	if !strings.Contains(r.Detail, "fresh") {
 		t.Errorf("ScopeRealmAll: detail = %q, want aggregate detail containing 'fresh'", r.Detail)
 	}
-	// The aggregate format never contains "not initialized" (that's single-repo absent).
+	// "not initialized" is the single-repo absent string; the aggregate never emits it.
 	if strings.Contains(r.Detail, "not initialized") {
 		t.Errorf("ScopeRealmAll: detail = %q, must not contain single-repo 'not initialized' string", r.Detail)
 	}
 }
 
-// TestCheckCodeIndex_RealmMemberDispatch verifies that RunCheckCodeIndex routes to
-// the realm aggregate (Fix 1) when cwd is inside a member directory (ScopeRealmMember).
-// Prior to Fix 1 this branch fell through to the single-repo path and falsely
-// reported "code index not initialized".
+// A member dir carries no local index, so a dispatcher that does not route
+// ScopeRealmMember to the aggregate falsely reports "not initialized".
 func TestCheckCodeIndex_RealmMemberDispatch(t *testing.T) {
 	_, memberDir, claudeMD := makeDispatcherFixture(t)
 
-	// Chdir into a member directory — no local .claude/.atomic-index here, so
-	// Resolve must return ScopeRealmMember (not ScopeRepo).
+	// No local .claude/.atomic-index here, so Resolve returns ScopeRealmMember.
 	t.Chdir(memberDir)
 
 	opts := doctor.Opts{
@@ -496,8 +438,6 @@ func TestCheckCodeIndex_RealmMemberDispatch(t *testing.T) {
 	}
 	r := doctor.RunCheckCodeIndex(opts)
 
-	// Expect the realm aggregate result (PASS, "fresh"), NOT the single-repo
-	// "code index not initialized" PASS that the broken path produced.
 	if r.Severity != doctor.PASS {
 		t.Errorf("ScopeRealmMember: severity = %v, want PASS (realm aggregate); detail: %s", r.Severity, r.Detail)
 	}

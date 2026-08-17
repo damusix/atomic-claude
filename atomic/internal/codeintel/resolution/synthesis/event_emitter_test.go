@@ -1,17 +1,10 @@
 package synthesis_test
 
-// event_emitter_test.go — TDD tests for EventEmitterSynthesizer and
-// RNEventChannelSynthesizer (batch 3).
+// EventEmitterSynthesizer and RNEventChannelSynthesizer tests.
 //
-// Ground truth (probe 2026-06-05): .on('login', onLogin) and .emit('login', user)
-// produce UnresolvedReferences with ReferenceName="emitter.on" / "emitter.emit"
-// and Arguments=["login"] (EE2 captures the string event-name arg). The handler
-// identifier (onLogin) is NOT captured — only string-literal args are recorded.
-//
-// Granularity choice (documented): the synthesizer correlates by event name,
-// emitting an enclosing-function → enclosing-function edge (emit-site → on-site).
-// This is coarser than emit-site → specific-handler but it is honest (no fabricated
-// identity), and sufficient for call-graph tracing.
+// Only string-literal call arguments are extracted, so the handler
+// identity is unavailable and edges run enclosing-function to
+// enclosing-function. Coarser than the real dispatch, but not invented.
 
 import (
 	"context"
@@ -26,7 +19,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// seedRefWithArgs inserts an unresolved ref with string arguments.
 func seedRefWithArgs(t *testing.T, d *db.DB, id, fromID, name string, kind types.EdgeKind, args []string) {
 	t.Helper()
 	if err := d.InsertUnresolvedRef(context.Background(), types.UnresolvedReference{
@@ -41,10 +33,6 @@ func seedRefWithArgs(t *testing.T, d *db.DB, id, fromID, name string, kind types
 		t.Fatalf("InsertUnresolvedRef %s: %v", id, err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// EventEmitterSynthesizer — unit tests with seeded DB
-// ---------------------------------------------------------------------------
 
 // TestEventEmitterSynthesizer_CorrelatesByEventName verifies the core signal:
 // a .on('login', ...) registration ref + .emit('login', ...) dispatch ref →
@@ -338,8 +326,6 @@ function triggerLogin(user: any) {
 	}
 }
 
-// assertEventEmitterEdge asserts a calls+heuristic edge from source→target
-// with synthesizedBy="event-emitter" and event=eventName.
 func assertEventEmitterEdge(t *testing.T, d *db.DB, sourceID, targetID, eventName string) {
 	t.Helper()
 	edges := edgesFrom(t, d, sourceID)
@@ -366,14 +352,9 @@ func assertEventEmitterEdge(t *testing.T, d *db.DB, sourceID, targetID, eventNam
 	t.Errorf("no heuristic calls edge %s→%s (synthesizedBy=event-emitter event=%s)", sourceID, targetID, eventName)
 }
 
-// nodeID generates a deterministic node id for cap tests.
 func nodeID(prefix string, i int) string {
 	return prefix + "-" + string(rune('0'+i))
 }
-
-// ---------------------------------------------------------------------------
-// RNEventChannelSynthesizer — gate test
-// ---------------------------------------------------------------------------
 
 // TestRNEventChannelSynthesizer_Gate runs a React-Native fixture through the
 // full pipeline and asserts a heuristic edge from the emit-enclosing function
@@ -453,8 +434,6 @@ function fireDeviceReady() {
 	}
 }
 
-// assertRNEdge asserts a calls+heuristic edge from source→target with
-// synthesizedBy="rn-event-channel" and event=eventName.
 func assertRNEdge(t *testing.T, d *db.DB, sourceID, targetID, eventName string) {
 	t.Helper()
 	edges := edgesFrom(t, d, sourceID)

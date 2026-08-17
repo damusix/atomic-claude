@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildDoctorCmd returns the "doctor" top-level command with flag metadata.
 func buildDoctorCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                "doctor",
@@ -39,7 +38,6 @@ func runDoctor(args []string) {
 		os.Exit(2)
 	}
 
-	// Resolve home directory for the missing-~/.claude/ short-circuit.
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic doctor: resolve home dir: %v\n", err)
@@ -61,10 +59,9 @@ func runDoctor(args []string) {
 		os.Exit(0)
 	}
 
-	// Resolve project name: git toplevel basename, or cwd basename on failure.
 	project := doctorProjectName()
 
-	// Wire claudeMDPath for realm detection in check 11 (code-index).
+	// claudeMDPath drives realm detection in the code-index check.
 	opts.ClaudeMDPath = filepath.Join(home, ".claude", "CLAUDE.md")
 
 	results, err := doctor.Run(opts)
@@ -97,17 +94,11 @@ func runDoctor(args []string) {
 	os.Exit(exitCode)
 }
 
-// postRepairExitCode returns the status `atomic doctor --fix` should terminate
-// with once the repair pass has run.
-//
-// Repairs mutate the very state the checks examined, so the pre-repair verdict
-// is stale by the time the process exits. A caller gating CI on `--fix` has to
-// be able to tell "found problems and fixed them" from "still broken", and the
-// pre-repair code collapses both to 1.
-//
-// Re-checking costs a second full pass, so it only runs when a repair actually
-// landed. A re-check that itself errors keeps the original verdict rather than
-// reporting success for a state nobody managed to observe.
+// Repairs mutate the state the checks examined, so the pre-repair verdict
+// collapses "fixed it" and "still broken" into the same 1 — no use to a caller
+// gating CI on --fix. The second pass costs a full re-check, so it runs only
+// when a repair landed; if it errors, the original verdict stands rather than
+// reporting success for a state nobody observed.
 func postRepairExitCode(pre, applied int, recheck func() ([]doctor.Result, error)) int {
 	if applied <= 0 {
 		return pre
@@ -119,8 +110,7 @@ func postRepairExitCode(pre, applied int, recheck func() ([]doctor.Result, error
 	return doctor.ExitCode(after)
 }
 
-// doctorProjectName returns the project name to display in doctor output.
-// Uses the git toplevel directory basename; falls back to cwd basename.
+// doctorProjectName prefers the git toplevel basename, else the cwd basename.
 func doctorProjectName() string {
 	out, err := repoctx.Resolve("")
 	if err == nil && out != "" {

@@ -8,7 +8,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
 )
 
-// writePartials creates a partials dir holding the given name→body files.
 func writePartials(t *testing.T, files map[string]string) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), templaterender.PartialsDir)
@@ -23,9 +22,8 @@ func writePartials(t *testing.T, files map[string]string) string {
 	return dir
 }
 
-// A source composing no partial must come back byte-identical. This is what
-// lets the mirror run every command and agent through Expand without first
-// checking whether it contains a directive — most of them do not.
+// Byte-identical passthrough is what lets the mirror run every artifact through
+// Expand without first checking for a directive.
 func TestExpand_NoDirectiveIsByteIdentical(t *testing.T) {
 	pool, err := templaterender.LoadPartials(writePartials(t, map[string]string{
 		"greet.md": `{{ define "greet" }}hello{{ end }}`,
@@ -44,8 +42,7 @@ func TestExpand_NoDirectiveIsByteIdentical(t *testing.T) {
 	}
 }
 
-// The composed body must be substituted, since that expanded text is what
-// installs to a user's ~/.claude and what the manifest SHA is taken over.
+// The expanded text is what installs and what the manifest SHA covers.
 func TestExpand_SubstitutesPartialBody(t *testing.T) {
 	pool, err := templaterender.LoadPartials(writePartials(t, map[string]string{
 		"flow.md": `{{ define "flow" }}STEP ONE{{ end }}`,
@@ -63,8 +60,8 @@ func TestExpand_SubstitutesPartialBody(t *testing.T) {
 	}
 }
 
-// A directive naming a partial that does not exist must fail loudly. Silently
-// emitting an artifact with a missing section would ship a broken command.
+// A missing partial must fail loudly; emitting the artifact with a hole would
+// ship a broken command.
 func TestExpand_UnknownPartialErrors(t *testing.T) {
 	pool, err := templaterender.LoadPartials(writePartials(t, nil))
 	if err != nil {

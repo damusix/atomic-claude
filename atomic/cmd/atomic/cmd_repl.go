@@ -8,8 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildReplCmd builds the "repl" parent + start|eval|list|status|reset|stop
-// children. Dispatch is runRepl (→ repl.ReplAction from internal/repl/action.go).
 func buildReplCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runRepl(args, *repoOverride) }
 	parent := &cobra.Command{
@@ -66,18 +64,15 @@ func buildReplCmd(repoOverride *string) *cobra.Command {
 	return parent
 }
 
-// runRepl resolves the process's real home dir and cwd — the two things
-// repl.ReplAction needs but must not resolve itself (see ReplAction's doc) —
-// and delegates. os.Stdin flows through so eval can read piped code;
-// repl.isTerminalReader is what turns "connected to a real terminal" into
-// the usage-error path rather than a hang.
+// runRepl resolves home and cwd, which ReplAction needs but must not resolve
+// itself. os.Stdin flows through so eval can read piped code; a real terminal
+// there takes the usage-error path instead of hanging.
 func runRepl(args []string, repoOverride string) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic repl: resolve home dir: %v\n", err)
-		// 1, not 2: repl's own exit table assigns 2 to ExitNotFound (session
-		// not found) — an infra failure before ReplAction even runs must not
-		// collide with that code.
+		// 1, not 2: repl.s exit table assigns 2 to ExitNotFound, and an infra
+		// failure before ReplAction runs must not collide with it.
 		os.Exit(int(repl.ExitUsage))
 	}
 	cwd, err := os.Getwd()

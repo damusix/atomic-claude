@@ -5,20 +5,13 @@ import (
 	"testing"
 )
 
-// TestSpawnServeRefusesUnderTestBinary pins the guard that keeps a missed test
-// seam from becoming a fork bomb.
-//
-// spawnServe locates the daemon binary with os.Executable. Under `go test`
-// that is the compiled bus.test binary, which does not understand the
-// "bus serve" arguments — it ignores them and re-runs the entire test suite.
-// Those tests call EnsureDaemon and spawn again, and each generation
-// multiplies until the machine is out of memory. This happened once, from a
-// single call site in joinAction that used the package-level EnsureDaemon
-// instead of the recoveryEnsurer seam.
-//
-// The seam is still the right mechanism and tests should still inject
-// Ensurer.Spawn. This guard covers the case where someone forgets, because the
-// cost of forgetting is the developer's machine rather than a failing test.
+// spawnServe locates the daemon with os.Executable. Under `go test` that is the
+// bus.test binary, which ignores the "bus serve" arguments and re-runs the whole
+// suite; those tests call EnsureDaemon and spawn again, multiplying until the
+// machine is out of memory. This happened once, from a single call site using
+// the package-level EnsureDaemon instead of the recoveryEnsurer seam. The seam
+// remains the right mechanism; this guard covers forgetting it, because the cost
+// of forgetting is the developer's machine rather than a failing test.
 func TestSpawnServeRefusesUnderTestBinary(t *testing.T) {
 	err := spawnServe(t.TempDir())
 	if err == nil {
@@ -29,14 +22,10 @@ func TestSpawnServeRefusesUnderTestBinary(t *testing.T) {
 	}
 }
 
-// TestIsTestBinary_ExecutableNameSignal checks that the executable-name signal
-// distinguishes a test binary from a real one. A false positive here would make
-// the installed `atomic` refuse to start its own daemon, so the negative cases
-// matter as much as the positive one.
-//
-// isTestBinary also keys on -test.* flags in os.Args, which are present in this
-// process — so calling it directly always reports true regardless of the
-// argument. This exercises the name signal in isolation instead.
+// A false positive here would make the installed `atomic` refuse to start its own
+// daemon, so the negative cases matter as much as the positive one. isTestBinary
+// also keys on -test.* flags present in this process, so calling it directly
+// always reports true — this exercises the name signal in isolation.
 func TestIsTestBinary_ExecutableNameSignal(t *testing.T) {
 	tests := []struct {
 		name string

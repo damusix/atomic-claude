@@ -11,7 +11,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/prompt"
 )
 
-// makeOldSignalsLayout creates a minimal old signals layout in root:
+// makeOldSignalsLayout writes:
 //
 //	.claude/project/signals.md     (router with an @-ref line)
 //	.claude/project/signals/dom.md (domain file)
@@ -32,7 +32,6 @@ func makeOldSignalsLayout(t *testing.T, root string) {
 	mkfile("CLAUDE.md", "@.claude/project/signals.md\n")
 }
 
-// TestMigrateSchemaToSemver covers the schemaToSemver conversion table.
 func TestMigrateSchemaToSemver(t *testing.T) {
 	cases := []struct {
 		n    int
@@ -49,7 +48,6 @@ func TestMigrateSchemaToSemver(t *testing.T) {
 	}
 }
 
-// TestMigrateSemverToSchema covers the reverse conversion.
 func TestMigrateSemverToSchema(t *testing.T) {
 	cases := []struct {
 		v    string
@@ -67,7 +65,6 @@ func TestMigrateSemverToSchema(t *testing.T) {
 	}
 }
 
-// TestScopedMigrations returns only migrations matching the given scope.
 func TestScopedMigrations(t *testing.T) {
 	reg := []migrate.Migration{
 		{TargetVersion: "1.0.0", Scope: "install"},
@@ -88,10 +85,6 @@ func TestScopedMigrations(t *testing.T) {
 	}
 }
 
-// TestMigrateRepoActionOldLayout is the end-to-end happy path for
-// `atomic migrate --repo <path>` on an old-layout temp repo.
-// After the call: docs/wiki/index.md exists, has <wiki-schema>1</wiki-schema>,
-// @-ref is rewired in CLAUDE.md.
 func TestMigrateRepoActionOldLayout(t *testing.T) {
 	root := t.TempDir()
 	makeOldSignalsLayout(t, root)
@@ -100,7 +93,6 @@ func TestMigrateRepoActionOldLayout(t *testing.T) {
 		t.Fatalf("migrateRepoAction: %v", err)
 	}
 
-	// docs/wiki/index.md must exist.
 	indexPath := filepath.Join(root, "docs", "wiki", "index.md")
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
@@ -108,17 +100,14 @@ func TestMigrateRepoActionOldLayout(t *testing.T) {
 	}
 	content := string(data)
 
-	// <wiki-schema>1</wiki-schema> must be present.
 	if !strings.Contains(content, "<wiki-schema>1</wiki-schema>") {
 		t.Errorf("index.md missing <wiki-schema>1</wiki-schema>:\n%s", content)
 	}
 
-	// Schema stamped by WriteWikiSchema on success.
 	if got := migrate.ReadWikiSchema(root); got != 1 {
 		t.Errorf("ReadWikiSchema after migration: got %d, want 1", got)
 	}
 
-	// @-ref rewired in CLAUDE.md.
 	claudeData, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
 	if err != nil {
 		t.Fatalf("read CLAUDE.md: %v", err)
@@ -131,8 +120,7 @@ func TestMigrateRepoActionOldLayout(t *testing.T) {
 	}
 }
 
-// TestMigrateRepoActionIdempotent: calling migrateRepoAction twice on the same
-// repo is safe — second call is a no-op (schema already at 1).
+// The second call is a no-op: the schema is already at 1.
 func TestMigrateRepoActionIdempotent(t *testing.T) {
 	root := t.TempDir()
 	makeOldSignalsLayout(t, root)
@@ -141,7 +129,6 @@ func TestMigrateRepoActionIdempotent(t *testing.T) {
 		t.Fatalf("first migrateRepoAction: %v", err)
 	}
 
-	// Sentinel to detect re-writes.
 	indexPath := filepath.Join(root, "docs", "wiki", "index.md")
 	after1, _ := os.ReadFile(indexPath)
 
@@ -154,7 +141,6 @@ func TestMigrateRepoActionIdempotent(t *testing.T) {
 	}
 }
 
-// TestMigrateRepoActionNoSignals: a repo with no signals layout is a no-op.
 func TestMigrateRepoActionNoSignals(t *testing.T) {
 	root := t.TempDir()
 
@@ -162,14 +148,11 @@ func TestMigrateRepoActionNoSignals(t *testing.T) {
 		t.Fatalf("migrateRepoAction on empty repo: %v", err)
 	}
 
-	// docs/wiki/index.md must NOT have been created.
 	if _, err := os.Stat(filepath.Join(root, "docs", "wiki", "index.md")); err == nil {
 		t.Error("docs/wiki/index.md should not exist for a no-signals repo")
 	}
 }
 
-// withRealmConfirmStub replaces realmConfirmFn for the duration of f, then
-// restores it. Allows tests to control what runMigrateRealm does when prompted.
 func withRealmConfirmStub(result bool, err error, f func()) {
 	orig := realmConfirmFn
 	realmConfirmFn = func(_, _ string, _ bool) (bool, error) { return result, err }
@@ -177,8 +160,6 @@ func withRealmConfirmStub(result bool, err error, f func()) {
 	f()
 }
 
-// makeRealmWithMember creates a realm directory containing one member sub-dir
-// with the given layout setup function applied.
 func makeRealmWithMember(t *testing.T, setup func(memberRoot string)) (realmRoot, memberPath string) {
 	t.Helper()
 	realm := t.TempDir()
@@ -192,23 +173,17 @@ func makeRealmWithMember(t *testing.T, setup func(memberRoot string)) (realmRoot
 	return realm, member
 }
 
-// TestRunMigrateInstall_TwoRootSplit proves the two-root split:
-// config.toml is read/written under <home>/.atomic (config helpers get home),
-// while migrate.Context.Root — the root install-scope steps operate on —
-// still receives <home>/.claude. A step that captured home instead of
-// <home>/.claude would silently corrupt install-scope migrations that touch
-// the Claude artifact tree (e.g. renaming a file under commands/).
+// A step that captured home instead of <home>/.claude would silently corrupt
+// install-scope migrations touching the Claude artifact tree.
 func TestRunMigrateInstall_TwoRootSplit(t *testing.T) {
 	home := t.TempDir()
 
-	// Seed a pre-framework config.toml under the NEW location so migrate.Run
-	// has a "0.0.0" floor to migrate up from.
+	// Gives migrate.Run a "0.0.0" floor to migrate up from.
 	cfgPath := config.TOMLPath(home)
 	if err := config.WritePersist(cfgPath, config.Default()); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
 
-	// Inject a fake install-scope step and restore the real registry after.
 	origRegistry := migrate.Registry
 	defer func() { migrate.Registry = origRegistry }()
 
@@ -231,8 +206,7 @@ func TestRunMigrateInstall_TwoRootSplit(t *testing.T) {
 		t.Errorf("migrate.Context.Root = %q, want %q", capturedRoot, wantClaudeHome)
 	}
 
-	// Config helpers must have operated on <home>/.atomic/config.toml, not
-	// <home>/.claude/.atomic/config.toml.
+	// Must be <home>/.atomic/config.toml, not <home>/.claude/.atomic/config.toml.
 	cfg, _, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatalf("load persisted config: %v", err)
@@ -247,9 +221,7 @@ func TestRunMigrateInstall_TwoRootSplit(t *testing.T) {
 	}
 }
 
-// TestRunMigrateRealmNonInteractiveSkipsAll verifies that when the confirm
-// prompt returns ErrNonInteractive, runMigrateRealm skips all members and
-// performs no migration — it must NOT auto-migrate in a non-TTY context.
+// A non-TTY context must never auto-migrate.
 func TestRunMigrateRealmNonInteractiveSkipsAll(t *testing.T) {
 	realm, member := makeRealmWithMember(t, func(root string) {
 		makeOldSignalsLayout(t, root)
@@ -261,7 +233,6 @@ func TestRunMigrateRealmNonInteractiveSkipsAll(t *testing.T) {
 		}
 	})
 
-	// Migration must NOT have happened: old layout still present.
 	if _, err := os.Stat(filepath.Join(member, ".claude", "project", "signals.md")); err != nil {
 		t.Errorf("old signals.md should still exist (migration must have been skipped): %v", err)
 	}
@@ -270,11 +241,10 @@ func TestRunMigrateRealmNonInteractiveSkipsAll(t *testing.T) {
 	}
 }
 
-// TestRunMigrateRealmSkipsAlreadyMigratedMember verifies that a member repo
-// whose wiki schema is already >= 1 is skipped without prompting.
+// A member already at schema >= 1 is skipped without prompting.
 func TestRunMigrateRealmSkipsAlreadyMigratedMember(t *testing.T) {
 	realm, member := makeRealmWithMember(t, func(root string) {
-		// Write docs/wiki/index.md with <wiki-schema>1 to simulate a fully-migrated member.
+		// <wiki-schema>1 marks this member fully migrated.
 		p := filepath.Join(root, "docs", "wiki", "index.md")
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatalf("mkdir docs/wiki: %v", err)
@@ -288,7 +258,6 @@ func TestRunMigrateRealmSkipsAlreadyMigratedMember(t *testing.T) {
 
 	prompted := false
 	withRealmConfirmStub(false, nil, func() {
-		// Override to detect if a prompt is issued.
 		orig := realmConfirmFn
 		realmConfirmFn = func(_, _ string, _ bool) (bool, error) {
 			prompted = true
@@ -306,9 +275,7 @@ func TestRunMigrateRealmSkipsAlreadyMigratedMember(t *testing.T) {
 	}
 }
 
-// TestRunMigrateRealmAbortedSkipsMemberNotRealm verifies that ErrAborted on
-// the confirm prompt skips that single member but does not abort the realm
-// loop as a whole (no error returned).
+// ErrAborted skips that one member without aborting the realm loop.
 func TestRunMigrateRealmAbortedSkipsMemberNotRealm(t *testing.T) {
 	realm, member := makeRealmWithMember(t, func(root string) {
 		makeOldSignalsLayout(t, root)
@@ -320,7 +287,6 @@ func TestRunMigrateRealmAbortedSkipsMemberNotRealm(t *testing.T) {
 		}
 	})
 
-	// Migration must NOT have happened.
 	if _, err := os.Stat(filepath.Join(member, ".claude", "project", "signals.md")); err != nil {
 		t.Errorf("old signals.md should still exist (member was skipped): %v", err)
 	}

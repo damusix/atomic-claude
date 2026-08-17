@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildDockerCmd builds the "docker" parent + init child.
 func buildDockerCmd() *cobra.Command {
 	parent := &cobra.Command{
 		Use:   "docker",

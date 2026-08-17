@@ -11,9 +11,8 @@ import (
 	"time"
 )
 
-// subscribeTimeout bounds every subscriber-channel assertion in this file.
-// A missed publish must fail the test with a clear message, never hang
-// the suite — see the atomic-bus brief's concurrency success criteria.
+// subscribeTimeout bounds every subscriber-channel assertion here: a missed
+// publish must fail with a clear message, never hang the suite.
 const subscribeTimeout = 2 * time.Second
 
 func recvEnvelope(t *testing.T, ch <-chan Envelope) Envelope {
@@ -56,10 +55,8 @@ func TestHub_Join_FirstClaimGetsExactName(t *testing.T) {
 	}
 }
 
-// TestHub_Join_StoresRepoAndRealmOnMember is the position-derived naming
-// entry's core Hub-level assertion: Join stores whatever repo/realm the
-// caller reports directly on the roster — Member is the record of a
-// resolved position, not merely a name.
+// Join stores whatever repo/realm the caller reports directly on the roster —
+// Member is the record of a resolved position, not merely a name.
 func TestHub_Join_StoresRepoAndRealmOnMember(t *testing.T) {
 	h := NewHub(t.TempDir())
 
@@ -82,9 +79,7 @@ func TestHub_Join_StoresRepoAndRealmOnMember(t *testing.T) {
 	}
 }
 
-// TestHub_Join_EmptyRealmIsValidNotFabricated proves an empty realm at
-// Join stays empty on the roster — never a placeholder — per the spec's
-// "both empty is valid" criterion.
+// An empty realm at Join stays empty on the roster, never a placeholder.
 func TestHub_Join_EmptyRealmIsValidNotFabricated(t *testing.T) {
 	h := NewHub(t.TempDir())
 
@@ -147,10 +142,9 @@ func TestHub_Join_SameNameDifferentRoomsDoNotCollide(t *testing.T) {
 	}
 }
 
-// TestHub_Join_RejoiningReleasesPriorName proves a session that joins the
-// same room twice does not leak a stale roster entry under its old name —
-// otherwise a retried join would silently accumulate ghost members that
-// Who would report as still present.
+// A session that joins the same room twice must not leak a stale roster entry
+// under its old name — otherwise a retried join accumulates ghost members Who
+// reports as present.
 func TestHub_Join_RejoiningReleasesPriorName(t *testing.T) {
 	h := NewHub(t.TempDir())
 
@@ -170,13 +164,10 @@ func TestHub_Join_RejoiningReleasesPriorName(t *testing.T) {
 	}
 }
 
-// TestHub_Join_FailedRejoinLeavesRosterAndPublishIntact reproduces the
-// review's headline bug: Join used to delete a session's
-// prior roster entry before confirming the new name was claimable, so a
-// Join that failed with ExitNameTaken left bySession pointing at a name no
-// longer in members — Who() undercounted, and the next Publish from that
-// session carried a stale From with an empty FromKind. A failed Join must
-// be a no-op on the roster.
+// Join once deleted a session's prior roster entry before confirming the new
+// name was claimable, so an ExitNameTaken failure left bySession pointing at a
+// name no longer in members: Who undercounted, and the next Publish carried a
+// stale From with an empty FromKind. A failed Join must be a roster no-op.
 func TestHub_Join_FailedRejoinLeavesRosterAndPublishIntact(t *testing.T) {
 	h := NewHub(t.TempDir())
 
@@ -190,8 +181,7 @@ func TestHub_Join_FailedRejoinLeavesRosterAndPublishIntact(t *testing.T) {
 		t.Fatalf("Join worker-2: %v", err)
 	}
 
-	// sess-1 attempts to rejoin as "worker", which is taken in both its
-	// bare and "-2" forms by sess-2 and sess-3.
+	// sess-1 rejoins as "worker", taken in both its bare and "-2" forms.
 	_, err := h.Join("potato", "worker", "normal", "agent", "sess-1", "", "")
 	mustError(t, err, ExitNameTaken)
 
@@ -227,14 +217,10 @@ func TestHub_Join_FailedRejoinLeavesRosterAndPublishIntact(t *testing.T) {
 	}
 }
 
-// TestHub_Join_Concurrent_ExactlyOneKeepsExactNameOneGetsSuffixRestFail is
-// the load-bearing test of this checkpoint: the name claim must be atomic,
-// not merely unlikely to collide. N goroutines race to join the same room
-// under the same name; the atomicity guarantee is that the outcome
-// distribution is exactly {1 exact-name winner, 1 "-2" winner, N-2
-// ExitNameTaken failures} — never two exact-name winners, never two "-2"
-// winners, never an outcome that depends on scheduling. Run with
-// -race: the whole point of Hub.mu is that this can't race.
+// The name claim must be atomic, not merely unlikely to collide. N goroutines
+// race to join under one name; the outcome distribution is exactly {1 exact-name
+// winner, 1 "-2" winner, N-2 ExitNameTaken failures}, never scheduling-
+// dependent. Run with -race: the point of Hub.mu is that this cannot race.
 func TestHub_Join_Concurrent_ExactlyOneKeepsExactNameOneGetsSuffixRestFail(t *testing.T) {
 	const n = 20
 	h := NewHub(t.TempDir())
@@ -288,9 +274,9 @@ func TestHub_Join_Concurrent_ExactlyOneKeepsExactNameOneGetsSuffixRestFail(t *te
 		t.Errorf("unexpected non-ExitNameTaken outcomes = %d", otherFails)
 	}
 
-	// The roster itself must agree with the outcome: exactly two members,
-	// never more (a lost update would manifest as a missing or duplicated
-	// roster entry even if the returned names looked right above).
+	// The roster must agree with the outcome: exactly two members. A lost update
+	// shows up as a missing or duplicated entry even when the returned names
+	// looked right above.
 	members, err := h.Who("potato")
 	if err != nil {
 		t.Fatalf("Who: %v", err)
@@ -300,13 +286,9 @@ func TestHub_Join_Concurrent_ExactlyOneKeepsExactNameOneGetsSuffixRestFail(t *te
 	}
 }
 
-// TestHub_Join_ReservedSystemNameRejected reproduces the round 3 review's
-// finding 1: before this fix, a client could Join as "system" and every
-// subsequent Publish from it would carry From:"system" — bit-for-bit
-// identical to a daemon control envelope (setHalted's announcement,
-// fanOut's drop marker), defeating the guarantee those exist for. A
-// rejected Join must also be a no-op: the room's existing roster is
-// untouched.
+// A client could once Join as "system", making every Publish from it
+// bit-for-bit identical to a daemon control envelope and defeating the
+// guarantee those exist for. The rejected Join must also be a no-op.
 func TestHub_Join_ReservedSystemNameRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -325,13 +307,9 @@ func TestHub_Join_ReservedSystemNameRejected(t *testing.T) {
 	}
 }
 
-// TestHub_Join_InvalidKindRejected is the other half of finding 1: kind was
-// previously unvalidated, so a client could Join with any string and have
-// it stamped verbatim onto every envelope's from_kind — including "system",
-// which is exactly what let a spoofed member match fanOut's drop marker
-// (From:"system", FromKind:"system"). kind must be one of the two
-// documented values (protocol.go's KindAgent/KindHuman) or Join fails
-// cleanly, never silently stores the bogus value.
+// kind was once unvalidated and stamped verbatim onto every envelope's
+// from_kind — including "system", which let a spoofed member match fanOut's
+// drop marker. It must be one of the two documented values or Join fails.
 func TestHub_Join_InvalidKindRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	_, err := h.Join("potato", "backend", "normal", "hologram", "sess-1", "", "")
@@ -342,10 +320,8 @@ func TestHub_Join_InvalidKindRejected(t *testing.T) {
 	}
 }
 
-// TestHub_Join_OverLongRoomNameRejected is finding 2's Join-side half: an
-// unbounded room name written into every envelope's Room field could grow
-// the room log without bound, the same failure class MaxTextBytes closed
-// for Text.
+// An unbounded room name lands in every envelope's Room field and grows the room
+// log without bound — the failure class MaxTextBytes closed for Text.
 func TestHub_Join_OverLongRoomNameRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	overlong := strings.Repeat("r", MaxIdentifierBytes+1)
@@ -360,8 +336,7 @@ func TestHub_Join_OverLongRoomNameRejected(t *testing.T) {
 	}
 }
 
-// TestHub_Join_OverLongNameRejected mirrors the room-name case above for a
-// member's assigned name, which lands in every envelope's From field.
+// The same cap for a member's assigned name, which lands in every From field.
 func TestHub_Join_OverLongNameRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	overlong := strings.Repeat("n", MaxIdentifierBytes+1)
@@ -375,9 +350,8 @@ func TestHub_Join_OverLongNameRejected(t *testing.T) {
 
 // --- Rehydrate: restoring the roster from bus.json at daemon startup ---
 //
-// a restarted daemon rehydrates the whole roster
-// ... not one session at a time" and "mode and kind survive a daemon
-// restart".
+// A restarted daemon rehydrates the whole roster at once, not one session at a
+// time, and mode and kind survive the restart.
 
 func TestHub_Rehydrate_RestoresWholeRosterAcrossMultipleRoomsAndSessions(t *testing.T) {
 	h := NewHub(t.TempDir())
@@ -388,9 +362,8 @@ func TestHub_Rehydrate_RestoresWholeRosterAcrossMultipleRoomsAndSessions(t *test
 		"sess-be": {Rooms: map[string]roomMembership{
 			"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: time.Now()},
 		}},
-		// judge never runs another command after the restart — rehydration
-		// must not depend on that, unlike the per-session re-registration
-		// this replaced.
+		// judge never runs another command after the restart — rehydration must
+		// not depend on that, unlike the per-session re-registration it replaced.
 		"sess-jd": {Rooms: map[string]roomMembership{
 			"potato": {Name: "judge", Mode: "observe", Kind: KindAgent, Joined: time.Now()},
 		}},
@@ -428,10 +401,8 @@ func TestHub_Rehydrate_RestoresWholeRosterAcrossMultipleRoomsAndSessions(t *test
 	}
 }
 
-// TestHub_Rehydrate_DefaultsEmptyModeAndKindForPreExistingEntries covers a
-// bus.json written before Mode/Kind existed on roomMembership: Rehydrate
-// must default exactly as a fresh Join would (room.go's Hub.Join defaults),
-// not leave the zero value on the roster.
+// A bus.json written before Mode/Kind existed: Rehydrate must default exactly as
+// a fresh Join would, not leave the zero value on the roster.
 func TestHub_Rehydrate_DefaultsEmptyModeAndKindForPreExistingEntries(t *testing.T) {
 	h := NewHub(t.TempDir())
 	st := &State{Sessions: map[string]*sessionState{
@@ -457,8 +428,7 @@ func TestHub_Rehydrate_DefaultsEmptyModeAndKindForPreExistingEntries(t *testing.
 	}
 }
 
-// TestHub_Rehydrate_RestoresRepoAndRealm proves repo/realm survive a
-// daemon restart via bus.json rehydration, exactly like mode/kind.
+// repo/realm survive a restart via rehydration, exactly like mode/kind.
 func TestHub_Rehydrate_RestoresRepoAndRealm(t *testing.T) {
 	h := NewHub(t.TempDir())
 	st := &State{Sessions: map[string]*sessionState{
@@ -484,12 +454,10 @@ func TestHub_Rehydrate_RestoresRepoAndRealm(t *testing.T) {
 	}
 }
 
-// TestHub_Rehydrate_PreservesSuffixedNamesWithoutRenaming proves Rehydrate
-// bypasses Join's numeric-suffix collision retry entirely: two sessions
-// that originally collided on "backend" (the second became "backend-2")
-// must come back under those exact names, never renamed again — a fresh
-// Join replaying the same claims in map-iteration order would have no way
-// to know "backend-2" was ever legitimately held by someone else.
+// Rehydrate bypasses Join's collision retry: two sessions that collided on
+// "backend" (the second became "backend-2") come back under those exact names.
+// A fresh Join replaying the claims in map order could not know "backend-2" was
+// legitimately held by someone else.
 func TestHub_Rehydrate_PreservesSuffixedNamesWithoutRenaming(t *testing.T) {
 	h := NewHub(t.TempDir())
 	st := &State{Sessions: map[string]*sessionState{
@@ -559,9 +527,7 @@ func TestHub_UnknownAddressees_UnknownRoomReturnsEveryNameUnknown(t *testing.T) 
 	}
 }
 
-// --- --to resolution: exact match, then unique suffix/substring
-// (the name is the position; --as is
-// the role" entry) ---
+// --- --to resolution: exact match, then unique suffix/substring ---
 
 func TestRoom_ResolveOneAddressee_ExactMatchWinsOverSuffixCollision(t *testing.T) {
 	r := &Room{members: map[string]Member{
@@ -591,13 +557,10 @@ func TestRoom_ResolveOneAddressee_UniqueSubstringResolves(t *testing.T) {
 	}
 }
 
-// TestRoom_ResolveOneAddressee_UniqueSuffixResolves proves the suffix case
-// separately from the substring case above: a suffix is a substring that
-// happens to end the string, so a single strings.Contains scan already
-// covers both — this pins that a change narrowing the match to
-// strings.HasSuffix alone (which would still pass the substring test above,
-// since "fe-main" is also a suffix there) cannot silently ship, since a
-// pure mid-string match ("gui" below) would then stop resolving.
+// The suffix case, separate from the substring case above: a suffix is a
+// substring that ends the string, so one strings.Contains scan covers both.
+// Narrowing to strings.HasSuffix would still pass the substring test above but
+// would stop resolving a pure mid-string match, which this pins.
 func TestRoom_ResolveOneAddressee_UniqueSuffixResolves(t *testing.T) {
 	r := &Room{members: map[string]Member{
 		"taxgentic-gui-fe-main": {Name: "taxgentic-gui-fe-main"},
@@ -624,10 +587,9 @@ func TestRoom_ResolveOneAddressee_MidStringSubstring_AlsoResolves(t *testing.T) 
 	}
 }
 
-// TestRoom_ResolveOneAddressee_AmbiguousMatch_ErrorsNamingEveryCandidate
-// proves ambiguity is an error, never a silent pick, and that the error is
-// distinguishable from Hub.UnknownAddressees's "not currently in room"
-// warning text — the two mean different things and must never be confused.
+// Ambiguity is an error naming every candidate, never a silent pick, and its
+// text is distinguishable from UnknownAddressees's "not currently in room"
+// warning — the two mean different things.
 func TestRoom_ResolveOneAddressee_AmbiguousMatch_ErrorsNamingEveryCandidate(t *testing.T) {
 	r := &Room{members: map[string]Member{
 		"taxgentic-gui-fe-main": {Name: "taxgentic-gui-fe-main"},
@@ -704,8 +666,7 @@ func TestHub_Publish_ToResolvesUniqueSubstring_DeliveredUnderFullName(t *testing
 	}
 }
 
-// TestHub_Publish_ToAmbiguous_AbortsSend_NoEnvelopeAppended proves an
-// ambiguous --to aborts the whole send rather than delivering under a
+// An ambiguous --to aborts the whole send rather than delivering under a
 // half-resolved list: no envelope reaches the room log at all.
 func TestHub_Publish_ToAmbiguous_AbortsSend_NoEnvelopeAppended(t *testing.T) {
 	home := t.TempDir()
@@ -752,9 +713,8 @@ func TestHub_Leave_RemovesMemberFromRoster(t *testing.T) {
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
-	// A second member keeps the room non-empty after sess-1 leaves, so this
-	// test proves member removal specifically, independent of the
-	// auto-drop-when-empty behavior covered by its own tests below.
+	// A second member keeps the room non-empty, so this proves member removal
+	// independent of the auto-drop-when-empty behavior covered below.
 	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-2", "", ""); err != nil {
 		t.Fatalf("Join second member: %v", err)
 	}
@@ -787,10 +747,8 @@ func TestHub_Leave_SessionNotMemberReturnsExitNotJoined(t *testing.T) {
 	mustError(t, err, ExitNotJoined)
 }
 
-// TestHub_Leave_LastMemberDropsTheRoom is the auto-drop half of
-// a room is dropped when its last member
-// leaves" entry: a room created by a typo (or simply finished with) does
-// not linger forever with zero members.
+// A room created by a typo, or simply finished with, must not linger forever
+// with zero members.
 func TestHub_Leave_LastMemberDropsTheRoom(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -815,12 +773,10 @@ func TestHub_Leave_LastMemberDropsTheRoom(t *testing.T) {
 	}
 }
 
-// TestHub_Leave_LastMemberWithLiveSubscriberDoesNotDropTheRoom is the
-// guard clause on the auto-drop above: a tail or recv holding an open
-// subscription on an otherwise-empty room must not be orphaned — dropping
-// the room would mean any future Publish creates a brand new Room object
-// with an empty subs map, and this subscriber would never hear anything
-// again with no error to explain why.
+// The guard on that auto-drop: a tail or recv holding an open subscription on an
+// otherwise-empty room must not be orphaned. Dropping the room means any future
+// Publish builds a new Room with an empty subs map, and this subscriber never
+// hears anything again, with no error to explain why.
 func TestHub_Leave_LastMemberWithLiveSubscriberDoesNotDropTheRoom(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -847,9 +803,8 @@ func TestHub_Leave_LastMemberWithLiveSubscriberDoesNotDropTheRoom(t *testing.T) 
 	}
 
 	env, err := h.Publish("potato", "", nil, "", "still listening")
-	// A memberless room has no member to publish as via Publish (session
-	// unmatched) — PublishAsOperator is the right path here, mirroring how
-	// `say` reaches a room with no roster entry of its own.
+	// A memberless room has no member to publish as, so PublishAsOperator is the
+	// right path here — the same way `say` reaches a room with no roster entry.
 	_ = env
 	if err == nil {
 		t.Fatal("Publish with no session should still fail with ExitNotJoined — using PublishAsOperator below to actually prove delivery")
@@ -873,10 +828,9 @@ func TestHub_Who_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 	mustError(t, err, ExitNoRoom)
 }
 
-// TestHub_Rooms_ListsEveryKnownRoomSorted is also finding 4's regression:
-// rooms must report a member count per room, not merely its name — potato
-// and carrot are given different member counts specifically to catch a
-// fix that reports a count but always the same (wrong) one.
+// rooms must report a per-room member count, not merely names. potato and carrot
+// get different counts specifically to catch a fix that reports a count but
+// always the same wrong one.
 func TestHub_Rooms_ListsEveryKnownRoomSorted(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -901,11 +855,8 @@ func TestHub_Rooms_ListsEveryKnownRoomSorted(t *testing.T) {
 	}
 }
 
-// TestHub_Rooms_EmptyRoomWithLiveSubscriberStillListedWithZeroMembers is the
-// surviving case of the old "rooms persist after everyone leaves" contract:
-// dropIfEmpty only drops a room with *neither* members *nor* subscribers, so
-// a room a tail is still watching keeps appearing in Rooms() with an honest
-// Members == 0 even though its last member has left.
+// dropIfEmpty drops only a room with neither members nor subscribers, so a room
+// a tail is still watching keeps appearing with an honest Members == 0.
 func TestHub_Rooms_EmptyRoomWithLiveSubscriberStillListedWithZeroMembers(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -956,12 +907,10 @@ func TestHub_Publish_AssignsIDStampsTsAndFromKind(t *testing.T) {
 	}
 }
 
-// TestHub_Publish_ID_IsShortOpaqueString_NotSequential proves finding 2's
-// documented wire shape ("id": "k2m9" — a short opaque string) rather than
-// the sequential base36 counter this used to be. A sequential counter's
-// first-ever id is always "1" regardless of format; this asserts the id is
-// neither "1" nor purely numeric, so a regression back to a counter fails
-// this test even if someone reformats the counter's base.
+// The id must be a short opaque string, not the sequential base36 counter this
+// used to be. A counter's first id is always "1" regardless of format, so
+// asserting the id is neither "1" nor purely numeric catches a regression back
+// to a counter even if someone reformats its base.
 func TestHub_Publish_ID_IsShortOpaqueString_NotSequential(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -984,12 +933,9 @@ func TestHub_Publish_ID_IsShortOpaqueString_NotSequential(t *testing.T) {
 	}
 }
 
-// TestHub_Publish_IDsUniqueAcrossDaemonRestart is finding 2's core
-// regression: a per-process sequential counter reset to zero on every
-// daemon restart, so the first message published by a fresh Hub always got
-// id "1" — indistinguishable from the first message published by the
-// previous daemon's Hub, in the same durable room log. Two separate Hub
-// instances (simulating two daemon lifetimes) publishing into the same
+// A per-process counter reset to zero on every restart, so a fresh Hub's first
+// message always got id "1" — indistinguishable from the previous daemon's
+// first message in the same durable log. Two Hub instances publishing into one
 // room must never produce the same id.
 func TestHub_Publish_IDsUniqueAcrossDaemonRestart(t *testing.T) {
 	home := t.TempDir()
@@ -1003,8 +949,8 @@ func TestHub_Publish_IDsUniqueAcrossDaemonRestart(t *testing.T) {
 		t.Fatalf("Publish (daemon 1): %v", err)
 	}
 
-	// A fresh Hub against the same home, exactly what a respawned daemon
-	// constructs — its roster and id bookkeeping start over from nothing.
+	// A fresh Hub against the same home, exactly what a respawned daemon builds:
+	// its roster and id bookkeeping start over from nothing.
 	h2 := NewHub(home)
 	if _, err := h2.Join("potato", "frontend", "normal", "agent", "sess-2", "", ""); err != nil {
 		t.Fatalf("Join (daemon 2): %v", err)
@@ -1019,9 +965,8 @@ func TestHub_Publish_IDsUniqueAcrossDaemonRestart(t *testing.T) {
 	}
 }
 
-// TestHub_Publish_ManyMessagesAllGetUniqueIDs is the collision-adequacy
-// check the finding calls for: nextEnvelopeID's own usedIDs guard must
-// hold under real volume, not merely for a couple of calls.
+// nextEnvelopeID's usedIDs guard must hold under real volume, not just a couple
+// of calls.
 func TestHub_Publish_ManyMessagesAllGetUniqueIDs(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -1057,9 +1002,7 @@ func TestHub_Publish_SessionNotMemberReturnsExitNotJoined(t *testing.T) {
 	mustError(t, err, ExitNotJoined)
 }
 
-// TestHub_Publish_EveryEnvelopeLandsInRoomLog_EvenWithNoSubscribers locks
-// in the durability contract: the room log is written unconditionally,
-// not only when someone happens to be watching.
+// The room log is written unconditionally, not only when someone is watching.
 func TestHub_Publish_EveryEnvelopeLandsInRoomLog_EvenWithNoSubscribers(t *testing.T) {
 	home := t.TempDir()
 	h := NewHub(home)
@@ -1093,11 +1036,8 @@ func TestHub_Publish_EveryEnvelopeLandsInRoomLog_EvenWithNoSubscribers(t *testin
 	}
 }
 
-// TestHub_Publish_SlowSubscriberDoesNotBlockPublisher is the other
-// concurrency-shaped correctness property this checkpoint calls out
-// explicitly: a subscriber that never drains its channel must not be able
-// to stall Publish. Bounded by a timeout so a regression to a blocking
-// send hangs this test instead of the whole suite.
+// A subscriber that never drains its channel must not stall Publish. Bounded by
+// a timeout so a regression to a blocking send hangs this test, not the suite.
 func TestHub_Publish_SlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -1113,8 +1053,8 @@ func TestHub_Publish_SlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		// subscriberBuffer+several more, so this would overflow a
-		// blocking-send implementation many times over.
+		// Well past subscriberBuffer, so a blocking-send implementation would
+		// overflow many times over.
 		for i := 0; i < subscriberBuffer*3; i++ {
 			if _, err := h.Publish("potato", "sess-1", nil, "", "msg"); err != nil {
 				t.Errorf("Publish: %v", err)
@@ -1130,9 +1070,8 @@ func TestHub_Publish_SlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 	}
 }
 
-// TestHub_Publish_OversizedTextRejected proves a message over
-// MaxTextBytes is rejected at Publish, before it ever reaches the room
-// log — a bound on how large a single room-log line can grow.
+// A message over MaxTextBytes is rejected before it reaches the room log — a
+// bound on how large a single log line can grow.
 func TestHub_Publish_OversizedTextRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -1147,9 +1086,8 @@ func TestHub_Publish_OversizedTextRejected(t *testing.T) {
 	}
 }
 
-// TestHub_Publish_OverLongReplyToRejected is finding 2's Publish-side cap on
-// ReplyTo, the same failure class as the oversized-Text test above but for
-// a field MaxTextBytes never covered.
+// The same failure class as the oversized-Text case, for a field MaxTextBytes
+// never covered.
 func TestHub_Publish_OverLongReplyToRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -1164,9 +1102,8 @@ func TestHub_Publish_OverLongReplyToRejected(t *testing.T) {
 	}
 }
 
-// TestHub_Publish_TooManyAddresseesRejected caps the addressee count
-// independently of their combined length — see MaxAddressees's doc
-// comment on why both a count cap and a byte cap are needed.
+// The addressee count is capped independently of their combined length — see
+// MaxAddressees for why both caps are needed.
 func TestHub_Publish_TooManyAddresseesRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -1184,10 +1121,8 @@ func TestHub_Publish_TooManyAddresseesRejected(t *testing.T) {
 	}
 }
 
-// TestHub_Publish_AddresseesTotalBytesOverLimitRejected proves the
-// addressee cap is on combined raw length, not merely on count: two
-// entries, both well under MaxAddressees, whose lengths sum past
-// MaxAddresseesBytes must still be rejected.
+// The cap is on combined raw length, not just count: two entries well under
+// MaxAddressees whose lengths sum past MaxAddresseesBytes are still rejected.
 func TestHub_Publish_AddresseesTotalBytesOverLimitRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -1225,12 +1160,9 @@ func TestHub_Subscribe_ReceivesEnvelopePublishedAfterSubscribing(t *testing.T) {
 	}
 }
 
-// TestHub_Subscribe_PriorTrafficNotDelivered_OnlyFuturePublishesArrive is
-// the Hub-level proof of the bug this change fixes: a room with existing
-// traffic must not replay any of it to a newly subscribing recv — a
-// subscriber sees only what is published after it subscribes. The prior
-// ring-backed Since("") returned the entire ring, so a recv on a busy room
-// delivered old messages as Monitor notifications, each acted on as if
+// A room with existing traffic must not replay any of it to a new subscriber.
+// The prior ring-backed Since("") returned the entire ring, so a recv on a busy
+// room delivered old messages as Monitor notifications, each acted on as if
 // freshly arrived.
 func TestHub_Subscribe_PriorTrafficNotDelivered_OnlyFuturePublishesArrive(t *testing.T) {
 	h := NewHub(t.TempDir())
@@ -1264,9 +1196,8 @@ func TestHub_Subscribe_PriorTrafficNotDelivered_OnlyFuturePublishesArrive(t *tes
 	}
 }
 
-// TestHub_Subscribe_TailNeverJoinsRoster locks in decision #5 from
-// docs/design/atomic-bus.md: tail (and any other pure Subscribe caller)
-// never appears in Who, and never claims a name.
+// tail — and any other pure Subscribe caller — never appears in Who and never
+// claims a name.
 func TestHub_Subscribe_TailNeverJoinsRoster(t *testing.T) {
 	h := NewHub(t.TempDir())
 
@@ -1305,11 +1236,9 @@ func TestHub_Subscribe_UnsubscribeStopsDelivery(t *testing.T) {
 	}
 }
 
-// TestHub_FanOut_DropMarkerPrecedesNextDeliveryAfterOverflow proves a
-// dropped envelope is never indistinguishable from "nothing was sent":
-// once a subscriber's buffer overflows, the next envelope that does fit
-// is preceded by a synthetic control envelope naming the drop count and
-// the room log path.
+// A dropped envelope must never be indistinguishable from "nothing was sent":
+// once a subscriber's buffer overflows, the next envelope that fits is preceded
+// by a marker naming the drop count and the room log path.
 func TestHub_FanOut_DropMarkerPrecedesNextDeliveryAfterOverflow(t *testing.T) {
 	home := t.TempDir()
 	h := NewHub(home)
@@ -1364,10 +1293,9 @@ func TestHub_FanOut_DropMarkerPrecedesNextDeliveryAfterOverflow(t *testing.T) {
 
 // --- Halt / Resume: server-enforced, not advisory ---
 
-// TestHub_Halt_BlocksAgentPublish_ButNotHumanPublish is the asymmetry the
-// whole halt feature exists for: an agent's send must be rejected, and a
-// human's send must not be, because that asymmetry is what lets an
-// operator still speak into (and thereby direct) a room they've stopped.
+// The asymmetry the whole halt feature exists for: an agent's send is rejected
+// and a human's is not, which is what lets an operator still speak into — and
+// thereby direct — a room they have stopped.
 func TestHub_Halt_BlocksAgentPublish_ButNotHumanPublish(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
@@ -1400,8 +1328,7 @@ func TestHub_Halt_BlocksAgentPublish_ButNotHumanPublish(t *testing.T) {
 	}
 }
 
-// TestHub_Resume_RestoresAgentPublish proves resume is not merely "halt
-// wears off" but actually flips the enforced flag back.
+// resume actually flips the enforced flag back; halt does not merely wear off.
 func TestHub_Resume_RestoresAgentPublish(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
@@ -1428,14 +1355,10 @@ func TestHub_Resume_RestoresAgentPublish(t *testing.T) {
 	}
 }
 
-// TestHub_Halt_AppendFailureDoesNotFlipHaltedFlag reproduces the
-// review finding that setHalted flipped r.halted before the
-// durable append: on an Append failure the operator's error implied the
-// halt might not have taken effect, while the room was in fact halted
-// with no control envelope ever logged or broadcast to prove it. Forces
-// the failure deterministically by making the room log's parent directory
-// unwritable, mirroring internal/repoinit's
-// TestInit_MkdirErrorPropagates.
+// setHalted once flipped r.halted before the durable append, so on an Append
+// failure the operator's error implied the halt might not have taken while the
+// room was in fact halted with nothing logged to prove it. The failure is forced
+// deterministically by making the log's parent directory unwritable.
 func TestHub_Halt_AppendFailureDoesNotFlipHaltedFlag(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root bypasses permission checks")
@@ -1471,10 +1394,8 @@ func TestHub_Halt_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 	mustError(t, err, ExitNoRoom)
 }
 
-// TestHub_Halt_PublishesControlEnvelopeVisibleToSubscribers proves halt
-// binds by being observable, not just by rejecting the next send — a
-// watching subscriber (e.g. `atomic bus tail`) sees the halt announcement
-// itself as a normal envelope.
+// halt binds by being observable, not only by rejecting the next send: a
+// watching subscriber sees the announcement as a normal envelope.
 func TestHub_Halt_PublishesControlEnvelopeVisibleToSubscribers(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
@@ -1499,16 +1420,13 @@ func TestHub_Halt_PublishesControlEnvelopeVisibleToSubscribers(t *testing.T) {
 
 // --- roomlog.go: Append ---
 //
-// No dedicated roomlog_test.go exists in this checkpoint's file scope (see
-// the atomic-bus brief); Append is exercised directly here rather than
-// only indirectly through Hub.Publish. Reads go straight at the on-disk
-// JSONL file rather than through a package API — roomlog.go no longer
-// exposes a read path (ReadSince backed --since replay, now removed); the
-// room log is the durable record, not something the daemon reads back.
+// Append is exercised directly here rather than only through Hub.Publish. Reads
+// go at the on-disk JSONL file because roomlog.go exposes no read path: the room
+// log is the durable record, not something the daemon reads back.
 
-// readRoomLog reads every envelope in room's on-disk log, in append order.
-// A missing log file yields an empty, nil-error result — mirrors Append's
-// own "room has never had a message" case.
+// readRoomLog reads every envelope in room's log, in append order. A missing file
+// yields an empty, nil-error result, mirroring Append's own never-had-a-message
+// case.
 func readRoomLog(t *testing.T, home, room string) []Envelope {
 	t.Helper()
 	b, err := os.ReadFile(RoomLogPath(home, room))
@@ -1554,9 +1472,7 @@ func TestAppend_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestAppend_MessageAtMaxTextBytesRoundTrips is the other half of finding
-// 7's fix: a message right at the limit Publish admits must always read
-// back intact.
+// A message right at the limit Publish admits must always read back intact.
 func TestAppend_MessageAtMaxTextBytesRoundTrips(t *testing.T) {
 	home := t.TempDir()
 	text := strings.Repeat("a", MaxTextBytes)
@@ -1575,20 +1491,15 @@ func TestAppend_MessageAtMaxTextBytesRoundTrips(t *testing.T) {
 	}
 }
 
-// TestAppend_EnvelopeAtEveryMetadataLimitRoundTrips is finding 2's full
-// regression: every capped field (Room, From, ReplyTo at
-// MaxIdentifierBytes; To with MaxAddressees entries whose combined length
-// is exactly MaxAddresseesBytes) simultaneously at its admitted limit,
-// alongside Text at MaxTextBytes, must still round-trip through Append —
-// not merely Text alone, which TestAppend_MessageAtMaxTextBytesRoundTrips
-// above already covers.
+// Every capped field simultaneously at its admitted limit — Room, From, ReplyTo
+// at MaxIdentifierBytes, To at MaxAddressees entries summing to exactly
+// MaxAddresseesBytes, Text at MaxTextBytes — must still round-trip, not merely
+// Text alone.
 //
-// Every capped field is filled with 0x01 rather than a plain letter: a
-// plain ASCII byte marshals to itself, so a same-length fill only proves
-// maximum *length* round-trips. 0x01 has no short escape in encoding/json
-// (unlike \n, \t, ...), so it marshals to the full 6-byte \u0001 escape
-// sequence — the worst-case *escaped* size a Publish-admitted envelope
-// can reach on disk.
+// The fill byte is 0x01, not a letter: a plain ASCII byte marshals to itself, so
+// a same-length fill would only prove maximum length round-trips. 0x01 has no
+// short JSON escape, so it marshals to the full 6-byte \u0001 — the worst-case
+// escaped size a Publish-admitted envelope can reach on disk.
 func TestAppend_EnvelopeAtEveryMetadataLimitRoundTrips(t *testing.T) {
 	home := t.TempDir()
 
@@ -1653,11 +1564,8 @@ func TestReadRoomLog_MissingLogFileIsNotAnError(t *testing.T) {
 	}
 }
 
-// TestAppend_ConcurrentAppendsAllLandWithoutCorruption is roomlog.go's own
-// concurrency property ("Appends must be safe against concurrent
-// publishes" per the brief) proven independently of Hub.mu, which already
-// serializes every real Publish call — this test calls Append directly
-// and concurrently to prove the file-level safety holds on its own too.
+// Append's own file-level concurrency safety, proven independently of Hub.mu,
+// which already serializes every real Publish.
 func TestAppend_ConcurrentAppendsAllLandWithoutCorruption(t *testing.T) {
 	home := t.TempDir()
 	const n = 50
@@ -1694,17 +1602,13 @@ func TestRoomLogPath_MatchesHubHome(t *testing.T) {
 
 // --- PublishAsOperator: say's path, publishing without a roster entry ---
 //
-// say is a one-shot send that never joins.
-//
 // The sender identity is not a parameter. An earlier signature took name and
-// kind from the caller and was reachable from the wire via OpSay, which let a
-// raw request claim an existing agent's name with kind "agent" and publish into
-// a halted room. These tests pin the properties that fix relies on.
+// kind from the caller and was reachable from the wire via OpSay, which let a raw
+// request claim an agent's name and publish into a halted room. These tests pin
+// the properties that fix relies on.
 
-// TestHub_PublishAsOperator_SucceedsWithoutPriorJoin_NoRosterMemberAdded proves
-// the defining property: an envelope lands and the roster is untouched — say
-// never occupies a name (mirroring tail's own no-roster-footprint guarantee in
-// TestHub_Subscribe_TailNeverJoinsRoster above).
+// The defining property: an envelope lands and the roster is untouched — say
+// never occupies a name, mirroring tail's own no-roster-footprint guarantee.
 func TestHub_PublishAsOperator_SucceedsWithoutPriorJoin_NoRosterMemberAdded(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
@@ -1728,10 +1632,8 @@ func TestHub_PublishAsOperator_SucceedsWithoutPriorJoin_NoRosterMemberAdded(t *t
 	}
 }
 
-// TestHub_PublishAsOperator_BypassesHalt is the Hub-level half of the say/halt
-// asymmetry (docs/design/atomic-bus.md decision #4). Skipping the halt check is
-// safe here only because the identity is pinned: halt binds agents, and a human
-// is the one who lifts it.
+// The Hub-level half of the say/halt asymmetry. Skipping the halt check is safe
+// only because the identity is pinned: halt binds agents, a human lifts it.
 func TestHub_PublishAsOperator_BypassesHalt(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
@@ -1755,10 +1657,9 @@ func TestHub_PublishAsOperator_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 	mustError(t, err, ExitNoRoom)
 }
 
-// TestHub_PublishAsOperator_IdentityIsAlwaysTheOperator is the regression test
-// for the impersonation hole: whatever the caller does, every envelope this
-// path produces carries the operator identity. There is no argument that can
-// change it, which is the whole reason the parameters were removed.
+// The impersonation hole: whatever the caller does, every envelope this path
+// produces carries the operator identity. No argument can change it, which is
+// why the parameters were removed.
 func TestHub_PublishAsOperator_IdentityIsAlwaysTheOperator(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
@@ -1778,9 +1679,8 @@ func TestHub_PublishAsOperator_IdentityIsAlwaysTheOperator(t *testing.T) {
 	}
 }
 
-// TestHub_PublishAsOperator_OversizedTextRejected proves this path shares
-// Publish's validation limits via publishValidated rather than re-implementing
-// — or forgetting — them.
+// This path shares Publish's validation via publishValidated rather than
+// re-implementing — or forgetting — it.
 func TestHub_PublishAsOperator_OversizedTextRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
@@ -1791,22 +1691,18 @@ func TestHub_PublishAsOperator_OversizedTextRejected(t *testing.T) {
 	mustError(t, err, ExitUsage)
 }
 
-// TestHub_Join_ReservedOperatorNameRejected closes the name-squatting half of
-// the same hole: without it an agent could join as "human" and its sends would
-// render identically to operator input in a tail transcript.
+// The name-squatting half of the same hole: without it an agent could join as
+// "human" and render identically to operator input in a tail transcript.
 func TestHub_Join_ReservedOperatorNameRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	_, err := h.Join("potato", operatorName, "normal", "agent", "sess-agent", "", "")
 	mustError(t, err, ExitUsage)
 }
 
-// --- self-echo: fanOut skips a subscription's own session (finding 2 of
-// docs/spec/atomic-bus.md's 2026-07-29 change-log entry) ---
+// --- self-echo: fanOut skips a subscription's own session ---
 
-// TestHub_Subscribe_SkipSelf_DoesNotReceiveOwnPublish is the regression test
-// for the self-echo finding: before this fix, Hub.Subscribe carried no
-// identity at all, so fanOut delivered every publish to every subscriber
-// including its own sends.
+// Hub.Subscribe once carried no identity at all, so fanOut delivered every
+// publish to every subscriber, including its own sends.
 func TestHub_Subscribe_SkipSelf_DoesNotReceiveOwnPublish(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -1827,17 +1723,16 @@ func TestHub_Subscribe_SkipSelf_DoesNotReceiveOwnPublish(t *testing.T) {
 		t.Fatalf("Publish (other): %v", err)
 	}
 
-	// The self-published message must never surface — the first (and only)
-	// envelope this subscription sees is the other session's.
+	// The self-published message must never surface — the only envelope this
+	// subscription sees is the other session's.
 	env := recvEnvelope(t, ch)
 	if env.Text != "someone else's message" {
 		t.Fatalf("delivered = %q, want %q — the self-published message should have been skipped entirely, not merely reordered", env.Text, "someone else's message")
 	}
 }
 
-// TestHub_Subscribe_SkipSelfFalse_StillReceivesOwnPublish is tail/chat's
-// contract: a subscription that does not opt out must keep seeing its own
-// session's publishes.
+// tail/chat's contract: a subscription that does not opt out keeps seeing its
+// own session's publishes.
 func TestHub_Subscribe_SkipSelfFalse_StillReceivesOwnPublish(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -1858,10 +1753,9 @@ func TestHub_Subscribe_SkipSelfFalse_StillReceivesOwnPublish(t *testing.T) {
 	}
 }
 
-// TestHub_Subscribe_SkipSelf_OperatorPublishAlwaysDelivered proves an empty
-// publisherSession (PublishAsOperator's say/halt/resume path) can never
-// match — and therefore never wrongly suppress — a skipSelf subscription,
-// since a real session id assigned by Join is never empty.
+// An empty publisherSession (the say/halt/resume path) can never match, and so
+// never wrongly suppress, a skipSelf subscription: a session id from Join is
+// never empty.
 func TestHub_Subscribe_SkipSelf_OperatorPublishAlwaysDelivered(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -1882,11 +1776,10 @@ func TestHub_Subscribe_SkipSelf_OperatorPublishAlwaysDelivered(t *testing.T) {
 	}
 }
 
-// --- resume: envelope body (finding 4) ---
+// --- resume: envelope body ---
 
-// TestHub_Resume_EmptyText_PublishesDefaultBody is the regression test for
-// the resume finding: resumeAction never had a --text flag, so every resume
-// published Text == "" — a notification carrying nothing to act on.
+// resumeAction never had a --text flag, so every resume published Text == "" —
+// a notification carrying nothing to act on.
 func TestHub_Resume_EmptyText_PublishesDefaultBody(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
@@ -1910,8 +1803,7 @@ func TestHub_Resume_EmptyText_PublishesDefaultBody(t *testing.T) {
 	}
 }
 
-// TestHub_Resume_ExplicitText_Preserved proves a caller that does supply
-// text is not overridden by the default.
+// A caller that does supply text is not overridden by the default.
 func TestHub_Resume_ExplicitText_Preserved(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
@@ -1935,8 +1827,7 @@ func TestHub_Resume_ExplicitText_Preserved(t *testing.T) {
 	}
 }
 
-// TestHub_Halt_EmptyText_StaysEmpty pins the "do not change halt" half of
-// the brief: an operator's empty --text on halt must not gain a synthetic
+// The do-not-change-halt half: an empty --text on halt must not gain a synthetic
 // default the way resume's did.
 func TestHub_Halt_EmptyText_StaysEmpty(t *testing.T) {
 	h := NewHub(t.TempDir())
@@ -1956,10 +1847,10 @@ func TestHub_Halt_EmptyText_StaysEmpty(t *testing.T) {
 	}
 }
 
-// --- last_seen, staleness, prune (finding 3) ---
+// --- last_seen, staleness, prune ---
 
-// testClock is a controllable time source for staleness tests, injected via
-// Hub.SetClock — advances deterministically, without a real sleep.
+// testClock is a controllable time source injected via Hub.SetClock, advancing
+// deterministically without a real sleep.
 type testClock struct {
 	mu  sync.Mutex
 	now time.Time
@@ -1999,11 +1890,9 @@ func TestHub_Who_FreshMember_NotStale(t *testing.T) {
 	}
 }
 
-// TestHub_Who_MemberStale_AfterThresholdWithNoActivityAndNoSubscription is
-// the regression test for the "dead members were immortal" finding: nothing
-// distinguished a session that exited from one still around, so `who` had
-// no way to tell them apart — a roster from live testing showed five dead
-// sessions, still listed, indistinguishable from live ones.
+// Dead members were once immortal: nothing distinguished a session that exited
+// from one still around, so a roster from live testing showed five dead sessions
+// indistinguishable from live ones.
 func TestHub_Who_MemberStale_AfterThresholdWithNoActivityAndNoSubscription(t *testing.T) {
 	h := NewHub(t.TempDir())
 	clock := newTestClock(time.Now())
@@ -2024,10 +1913,8 @@ func TestHub_Who_MemberStale_AfterThresholdWithNoActivityAndNoSubscription(t *te
 	}
 }
 
-// TestHub_Who_LiveSubscription_NeverStale_RegardlessOfThreshold proves the
-// override: a member holding an open recv/chat subscription is not stale no
-// matter how long it has been since its last send — the subscription itself
-// is ongoing proof of life.
+// A member holding an open subscription is not stale however long since its last
+// send — the subscription is ongoing proof of life.
 func TestHub_Who_LiveSubscription_NeverStale_RegardlessOfThreshold(t *testing.T) {
 	h := NewHub(t.TempDir())
 	clock := newTestClock(time.Now())
@@ -2051,8 +1938,7 @@ func TestHub_Who_LiveSubscription_NeverStale_RegardlessOfThreshold(t *testing.T)
 	}
 }
 
-// TestHub_Who_Publish_RefreshesLastSeen proves the other half of "refreshed
-// on any operation from that session": a send resets the staleness clock.
+// A send resets the staleness clock.
 func TestHub_Who_Publish_RefreshesLastSeen(t *testing.T) {
 	h := NewHub(t.TempDir())
 	clock := newTestClock(time.Now())
@@ -2076,13 +1962,10 @@ func TestHub_Who_Publish_RefreshesLastSeen(t *testing.T) {
 	}
 }
 
-// TestHub_Rehydrate_MemberNotImmediatelyStale proves a restarted daemon does
-// not report a genuinely recent member as stale the instant it comes back up
-// — Rehydrate restores the persisted LastSeen (here, freshly stamped by
-// State.Join moments earlier) rather than discarding it.
-// TestHub_Rehydrate_RestoresLastSeenNotRestamped below covers the
-// complementary case — a member persisted as genuinely stale must read as
-// stale immediately after rehydration, not fresh.
+// A restarted daemon must not report a genuinely recent member as stale the
+// instant it comes back: Rehydrate restores the persisted LastSeen rather than
+// discarding it. TestHub_Rehydrate_RestoresLastSeenNotRestamped covers the
+// complementary case.
 func TestHub_Rehydrate_MemberNotImmediatelyStale(t *testing.T) {
 	home := t.TempDir()
 	h1 := NewHub(home)
@@ -2114,12 +1997,10 @@ func TestHub_Rehydrate_MemberNotImmediatelyStale(t *testing.T) {
 	}
 }
 
-// TestHub_Rehydrate_RestoresLastSeenNotRestamped is the regression test for
-// the "last_seen must persist, not be restamped" fix: a member persisted as
-// genuinely stale (LastSeen hours in the past) must read as stale
-// immediately after Rehydrate, not fresh — the old behavior stamped
-// LastSeen at rehydrate time unconditionally, resurrecting every idle
-// member as freshly live and putting it permanently out of Prune's reach.
+// A member persisted as genuinely stale must read as stale immediately after
+// Rehydrate. The old behavior stamped LastSeen at rehydrate time
+// unconditionally, resurrecting every idle member as live and putting it
+// permanently out of Prune's reach.
 func TestHub_Rehydrate_RestoresLastSeenNotRestamped(t *testing.T) {
 	longAgo := time.Now().Add(-3 * time.Hour)
 	st := &State{Sessions: map[string]*sessionState{
@@ -2142,11 +2023,9 @@ func TestHub_Rehydrate_RestoresLastSeenNotRestamped(t *testing.T) {
 	}
 }
 
-// TestHub_Rehydrate_ZeroLastSeenFallsBackToJoined covers a bus.json written
-// before LastSeen was persisted: Rehydrate must not leave the zero value in
-// place (which would read as maximally stale regardless of how recently the
-// member actually joined) — Joined is the best available signal for such an
-// entry, and Hub.Join never leaves it zero.
+// A bus.json written before LastSeen was persisted: the zero value would read as
+// maximally stale however recently the member joined, so Rehydrate falls back to
+// Joined, which Hub.Join never leaves zero.
 func TestHub_Rehydrate_ZeroLastSeenFallsBackToJoined(t *testing.T) {
 	recentJoin := time.Now().Add(-time.Minute)
 	st := &State{Sessions: map[string]*sessionState{
@@ -2170,9 +2049,8 @@ func TestHub_Rehydrate_ZeroLastSeenFallsBackToJoined(t *testing.T) {
 	}
 }
 
-// TestHub_Rehydrate_RestoresHaltedFlagAndReason proves halt state comes back
-// after a restart even for a room with no current members — a member row is
-// not available to derive the halt flag from.
+// Halt state comes back after a restart even for a room with no members — there
+// is no member row to derive the flag from.
 func TestHub_Rehydrate_RestoresHaltedFlagAndReason(t *testing.T) {
 	st := &State{Rooms: map[string]*roomState{
 		"potato": {Halted: true, HaltText: "investigating a bad deploy"},
@@ -2193,9 +2071,8 @@ func TestHub_Rehydrate_RestoresHaltedFlagAndReason(t *testing.T) {
 	}
 }
 
-// TestHub_Rehydrate_UnhaltedRoomEntryDoesNothing proves a resumed (or
-// never-halted) room's absence from st.Rooms — or a Halted:false entry, if
-// one somehow existed — never spuriously halts a room on rehydrate.
+// A resumed or never-halted room — absent from st.Rooms, or a Halted:false entry
+// if one somehow existed — must never spuriously halt on rehydrate.
 func TestHub_Rehydrate_UnhaltedRoomEntryDoesNothing(t *testing.T) {
 	st := &State{
 		Sessions: map[string]*sessionState{
@@ -2218,9 +2095,8 @@ func TestHub_Rehydrate_UnhaltedRoomEntryDoesNothing(t *testing.T) {
 	}
 }
 
-// TestHub_IsHalted_ReportsReason proves IsHalted's third return value
-// actually carries the text Halt was given, not just the flag —
-// handleWho/handleRooms depend on this to surface "why" alongside "halted".
+// IsHalted's third return carries the text Halt was given, not just the flag;
+// handleWho/handleRooms depend on it to surface "why" alongside "halted".
 func TestHub_IsHalted_ReportsReason(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -2252,11 +2128,9 @@ func TestHub_IsHalted_ReportsReason(t *testing.T) {
 
 // --- close ---
 
-// TestHub_Close_PublishesEnvelopeEvictsMembersAndDropsRoom proves the three
-// observable effects of Close in one place: a "room closed" control
-// envelope lands in the room log, the roster is empty afterward (the room
-// itself is gone), and a subsequent operation against the same room name
-// sees ExitNoRoom rather than a leftover empty room.
+// Close's three observable effects in one place: a "room closed" envelope lands
+// in the log, the roster is empty afterward, and a later operation on the same
+// room name sees ExitNoRoom rather than a leftover empty room.
 func TestHub_Close_PublishesEnvelopeEvictsMembersAndDropsRoom(t *testing.T) {
 	home := t.TempDir()
 	h := NewHub(home)
@@ -2289,18 +2163,15 @@ func TestHub_Close_PublishesEnvelopeEvictsMembersAndDropsRoom(t *testing.T) {
 	}
 }
 
-// TestHub_Close_UnknownRoomReturnsExitNoRoom mirrors Halt's own contract for
-// a room that was never joined or already dropped.
+// Mirrors Halt's contract for a room never joined or already dropped.
 func TestHub_Close_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 	h := NewHub(t.TempDir())
 	err := h.Close("nonexistent")
 	mustError(t, err, ExitNoRoom)
 }
 
-// TestHub_Close_TerminatesLiveSubscribersStream proves "subscribers' streams
-// end after they receive that envelope": a live subscriber's channel
-// receives the closing envelope and is then closed, not merely left
-// dangling on a room that no longer exists.
+// A live subscriber's channel receives the closing envelope and is then closed,
+// not left dangling on a room that no longer exists.
 func TestHub_Close_TerminatesLiveSubscribersStream(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
@@ -2329,9 +2200,8 @@ func TestHub_Close_TerminatesLiveSubscribersStream(t *testing.T) {
 	}
 }
 
-// TestHub_Close_DoesNotDeleteTheRoomLog proves the room log on disk survives
-// Close — it is the durable record, and a roster operation must not delete
-// it.
+// The room log survives Close: it is the durable record, and a roster operation
+// must not delete it.
 func TestHub_Close_DoesNotDeleteTheRoomLog(t *testing.T) {
 	home := t.TempDir()
 	h := NewHub(home)
@@ -2355,9 +2225,7 @@ func TestHub_Close_DoesNotDeleteTheRoomLog(t *testing.T) {
 	}
 }
 
-// TestHub_Prune_RemovesOnlyStaleMembers is the regression test for the
-// missing prune verb: a stale member must be removed, a fresh one left
-// alone, in the same room.
+// A stale member is removed and a fresh one left alone, in the same room.
 func TestHub_Prune_RemovesOnlyStaleMembers(t *testing.T) {
 	h := NewHub(t.TempDir())
 	clock := newTestClock(time.Now())
@@ -2388,9 +2256,7 @@ func TestHub_Prune_RemovesOnlyStaleMembers(t *testing.T) {
 	}
 }
 
-// TestHub_Prune_NoStaleMembers_RemovesNothing proves prune never touches a
-// live roster — nothing here is auto-reaped, only what isStale already
-// flags.
+// prune never touches a live roster — only what isStale already flags.
 func TestHub_Prune_NoStaleMembers_RemovesNothing(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {

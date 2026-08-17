@@ -1,16 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for batch D (Java): Spring MVC/Boot.
-//
-// Coverage:
-//   - Detect: pom.xml / build.gradle / import-based detection.
-//   - Extract: class @RequestMapping prefix + method annotations → full path.
-//   - @GetMapping/@PostMapping/@PutMapping/@DeleteMapping/@PatchMapping fan-out.
-//   - @RequestMapping(value=..., method=RequestMethod.GET) explicit method form.
-//   - @RequestMapping without method → "ANY".
-//   - Class-prefix join: @RequestMapping("/api") + @GetMapping("/users") → GET /api/users.
-//   - Commented routes emit nothing.
-//   - Resolve: confidence in [0.8, 0.9]; ClaimsReference correct.
+// Spring MVC / Spring Boot resolver tests.
 
 import (
 	"context"
@@ -21,10 +11,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution/frameworks"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Detect tests
-// ---------------------------------------------------------------------------
 
 func TestSpringDetect_PomXml(t *testing.T) {
 	dir := t.TempDir()
@@ -90,10 +76,6 @@ func TestSpringDetect_NoSpring(t *testing.T) {
 		t.Fatal("Detect: want false when no spring dependency")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Extract tests
-// ---------------------------------------------------------------------------
 
 func TestSpringExtract_ClassPrefixJoin(t *testing.T) {
 	// Class-level @RequestMapping("/api") + @GetMapping("/users") → GET /api/users
@@ -290,10 +272,6 @@ func TestSpringExtract_CommentedRouteEmitsNothing(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Resolve / ClaimsReference
-// ---------------------------------------------------------------------------
-
 func TestSpringResolve_ConfidenceRange(t *testing.T) {
 	src := `
 @RestController
@@ -327,10 +305,6 @@ func TestSpringClaimsReference_False(t *testing.T) {
 		t.Fatal("ClaimsReference: want false for name never seen in Extract")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Local helper
-// ---------------------------------------------------------------------------
 
 func springNodeNames(nodes []types.Node) []string {
 	names := make([]string, len(nodes))

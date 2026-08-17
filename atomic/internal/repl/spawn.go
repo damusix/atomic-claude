@@ -12,11 +12,9 @@ import (
 	"time"
 )
 
-// ErrInterpreterUnavailable marks the one start failure that is not the
-// caller's mistake: --lang's interpreter is not installed, or an explicit --bin
-// does not resolve. The CLI maps it to its own exit code so an agent can tell
-// "install it, or point --bin somewhere real" apart from "I wrote the command
-// wrong".
+// ErrInterpreterUnavailable marks the one start failure that is not the caller's
+// mistake: the interpreter is not installed, or --bin does not resolve. Its own
+// exit code so an agent can tell that from "I wrote the command wrong".
 var ErrInterpreterUnavailable = errors.New("repl: interpreter unavailable")
 
 // DefaultIdleTimeout is the window a session self-terminates after when no
@@ -25,8 +23,7 @@ const DefaultIdleTimeout = time.Hour
 
 const (
 	// defaultStartWait bounds how long `start` waits for a freshly spawned
-	// harness to bind. An interpreter that has not accepted a connection by
-	// now is not coming up.
+	// harness to bind. An interpreter that has not accepted by now is not coming.
 	defaultStartWait = 10 * time.Second
 	// defaultStartPoll is how often that wait re-probes.
 	defaultStartPoll = 25 * time.Millisecond
@@ -42,9 +39,9 @@ var defaultBins = map[string]string{
 	LangNode:   "node",
 }
 
-// SpawnSpec is everything one harness process needs, resolved. It is passed
-// whole rather than as loose arguments so the injected SpawnFunc in tests sees
-// exactly what the real spawn would have used.
+// SpawnSpec is everything one harness process needs, resolved. Passed whole
+// rather than as loose arguments so an injected SpawnFunc sees exactly what the
+// real spawn would have used.
 type SpawnSpec struct {
 	Lang       string
 	Bin        string // absolute, already resolved through PATH
@@ -57,18 +54,15 @@ type SpawnSpec struct {
 	Env         []string // the child's whole environment, not an overlay
 }
 
-// SpawnFunc starts a harness and returns its pid. It is a seam for the same
-// reason codeintel/mcp's is: the concurrency and failure paths above it are
-// worth testing on every machine, and a real interpreter is neither guaranteed
-// present nor free to leak.
+// SpawnFunc starts a harness and returns its pid. A seam because the concurrency
+// and failure paths above it are worth testing on every machine, and a real
+// interpreter is neither guaranteed present nor free to leak.
 type SpawnFunc func(spec SpawnSpec) (pid int, err error)
 
 // DefaultSpawn starts the interpreter against the materialized harness,
-// detached, and returns its pid.
-//
-// Setsid puts the harness in its own session so it outlives the CLI invocation
-// that started it — the whole point of a persistent session. Its standard
-// streams are nil (/dev/null): nothing reads them, and an inherited pipe would
+// detached, and returns its pid. Setsid puts the harness in its own session so
+// it outlives the CLI invocation — the whole point of a persistent session. Its
+// standard streams are nil: nothing reads them, and an inherited pipe would
 // block the harness once its buffer filled.
 func DefaultSpawn(spec SpawnSpec) (int, error) {
 	cmd := exec.Command(spec.Bin, spec.ScriptPath,
@@ -98,10 +92,9 @@ func formatIdleTimeout(d time.Duration) string {
 	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64)
 }
 
-// IsLive reports whether a session is serving at socketPath. It dials rather
-// than stats: a crashed harness leaves its socket file behind, so file
-// existence proves nothing, and treating it as proof is how a dead session gets
-// reported as alive.
+// IsLive dials rather than stats: a crashed harness leaves its socket file
+// behind, so file existence proves nothing, and treating it as proof is how a
+// dead session gets reported as alive.
 func IsLive(socketPath string) bool {
 	conn, err := net.DialTimeout("unix", socketPath, liveProbeTimeout)
 	if err != nil {
@@ -111,10 +104,9 @@ func IsLive(socketPath string) bool {
 	return true
 }
 
-// ResolveInterpreter resolves the binary to spawn for lang, honoring an
-// explicit override. Both paths go through exec.LookPath, so an override that
-// does not exist fails here rather than as an opaque exec error after the
-// session directory has been built.
+// ResolveInterpreter resolves the binary to spawn for lang, honoring an explicit
+// override. Both paths go through exec.LookPath, so a bad override fails here
+// rather than as an opaque exec error after the session directory is built.
 func ResolveInterpreter(lang, override string) (string, error) {
 	name := override
 	if name == "" {
@@ -139,8 +131,7 @@ type StartOptions struct {
 	Lang      string // canonical: LangPython or LangNode
 	Bin       string // optional --bin override
 
-	// Env is the extra KEY=VALUE set (typically from --env) layered over this
-	// process's own environment.
+	// Env is the extra KEY=VALUE set layered over this process's environment.
 	Env []string
 
 	IdleTimeout time.Duration
@@ -153,11 +144,11 @@ type StartOptions struct {
 // EnsureStarted guarantees a live session for opts, returning its meta and
 // whether it was already running.
 //
-// The probe, the stale-socket cleanup, and the spawn are one decision taken
-// under one flock. Guarding only the spawn call would still let two callers
-// both observe "dead" first and both spawn — the second one binding over the
-// first's socket and orphaning a process holding live state. A caller that
-// loses the race blocks, wakes to a live session, and reports already-running.
+// The probe, the stale-socket cleanup, and the spawn are one decision under one
+// flock. Guarding only the spawn would still let two callers both observe
+// "dead" and both spawn, the second binding over the first's socket and
+// orphaning a process holding live state. A caller that loses the race blocks,
+// wakes to a live session, and reports already-running.
 func EnsureStarted(opts StartOptions) (Meta, bool, error) {
 	sockPath, err := SocketPath(opts.Home, opts.ScopeRoot, opts.Name)
 	if err != nil {
@@ -172,8 +163,8 @@ func EnsureStarted(opts StartOptions) (Meta, bool, error) {
 		return Meta{}, false, err
 	}
 
-	// Before anything is created: an absent interpreter is reported as such,
-	// not as a session that failed to come up for unclear reasons.
+	// Before anything is created: an absent interpreter is reported as such, not
+	// as a session that failed to come up for unclear reasons.
 	bin, err := ResolveInterpreter(opts.Lang, opts.Bin)
 	if err != nil {
 		return Meta{}, false, err
@@ -199,9 +190,8 @@ func EnsureStarted(opts StartOptions) (Meta, bool, error) {
 		return describeLiveSession(metaPath, opts, sockPath), true, nil
 	}
 
-	// Nothing is listening, so whatever is at the path is debris from a
-	// harness that died without cleaning up — and bind refuses a path that
-	// already exists.
+	// Nothing is listening, so whatever is at the path is debris from a harness
+	// that died without cleaning up — and bind refuses an existing path.
 	if err := os.Remove(sockPath); err != nil && !os.IsNotExist(err) {
 		return Meta{}, false, fmt.Errorf("repl: remove stale socket %s: %w", sockPath, err)
 	}
@@ -236,12 +226,12 @@ func EnsureStarted(opts StartOptions) (Meta, bool, error) {
 	}
 
 	if err := waitLive(sockPath, opts.WaitTimeout, opts.PollInterval); err != nil {
-		// The pid is deliberately not signaled here. A harness that failed to
-		// bind has almost always already exited, and a start path that kills
-		// by a just-obtained pid is one race away from killing something else;
-		// a harness that is somehow still up carries its own idle window and
-		// retires itself. No meta is written, so the session reads as
-		// never-started rather than pointing at a pid serving nothing.
+		// The pid is deliberately not signaled. A harness that failed to bind has
+		// almost always already exited, and killing by a just-obtained pid is one
+		// race away from killing something else; one that is somehow still up
+		// retires itself on its own idle window. No meta is written, so the
+		// session reads as never-started rather than pointing at a pid serving
+		// nothing.
 		return Meta{}, false, fmt.Errorf("%w (harness pid %d)", err, pid)
 	}
 
@@ -260,10 +250,10 @@ func EnsureStarted(opts StartOptions) (Meta, bool, error) {
 	return meta, false, nil
 }
 
-// describeLiveSession answers an already-running start from the meta on disk.
-// A live socket with unreadable meta is still a live session — the caller is
-// told it is running, with the fields that could be recovered, rather than
-// handed an error about a file that is not what it asked about.
+// describeLiveSession answers an already-running start from the meta on disk. A
+// live socket with unreadable meta is still a live session, so the caller is
+// told it is running with whatever fields were recoverable rather than handed an
+// error about a file it did not ask about.
 func describeLiveSession(metaPath string, opts StartOptions, sockPath string) Meta {
 	if meta, err := LoadMeta(metaPath); err == nil {
 		return meta
@@ -292,13 +282,11 @@ func waitLive(sockPath string, timeout, poll time.Duration) error {
 }
 
 // materializeHarness writes the embedded harness for lang into dir and returns
-// its path.
-//
-// It rewrites unconditionally, through a temp file and a rename: the script on
-// disk is a cache of bytes compiled into this binary, and after an `atomic
-// update` (or a hand edit) a stale copy is a harness speaking a protocol this
-// client no longer does. The rename keeps a concurrent start from ever
-// executing a half-written file.
+// its path. It rewrites unconditionally through a temp file and a rename: the
+// script on disk is a cache of bytes compiled into this binary, and after an
+// `atomic update` a stale copy is a harness speaking a protocol this client no
+// longer does. The rename keeps a concurrent start from executing a half-written
+// file.
 func materializeHarness(dir, lang string) (string, error) {
 	name, err := HarnessFilename(lang)
 	if err != nil {

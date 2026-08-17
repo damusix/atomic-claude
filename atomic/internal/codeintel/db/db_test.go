@@ -35,12 +35,6 @@ func tempDB(t *testing.T) (*codeinteldb.DB, func()) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Pragma tests — FK on, WAL mode
-// ---------------------------------------------------------------------------
-
-// TestPragmaForeignKeysOn proves that the single connection has foreign_keys=1.
-// This is load-bearing: if FK is off, cascade deletes silently do nothing.
 func TestPragmaForeignKeysOn(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -54,7 +48,6 @@ func TestPragmaForeignKeysOn(t *testing.T) {
 	}
 }
 
-// TestPragmaWAL proves WAL journal mode is active on the single connection.
 func TestPragmaWAL(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -67,10 +60,6 @@ func TestPragmaWAL(t *testing.T) {
 		t.Errorf("expected journal_mode=wal, got %q", mode)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Schema presence tests
-// ---------------------------------------------------------------------------
 
 // schemaObjects returns a map[name]sql of every object in sqlite_master
 // (tables, virtual tables, triggers, indexes) — keyed by object name.
@@ -93,7 +82,6 @@ func schemaObjects(t *testing.T, d *codeinteldb.DB) map[string]string {
 	return m
 }
 
-// TestSchemaTablesPresent asserts every required table is in the schema.
 func TestSchemaTablesPresent(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -115,7 +103,6 @@ func TestSchemaTablesPresent(t *testing.T) {
 	}
 }
 
-// TestSchemaTriggersPresent asserts the three FTS5 sync triggers exist.
 func TestSchemaTriggersPresent(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -129,8 +116,6 @@ func TestSchemaTriggersPresent(t *testing.T) {
 	}
 }
 
-// TestSchemaIndexes asserts only the intended indexes exist and the narrow
-// idx_edges_source / idx_edges_target are absent (appendix A: v4 dropped them).
 func TestSchemaIndexes(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -150,7 +135,7 @@ func TestSchemaIndexes(t *testing.T) {
 		}
 	}
 
-	// These narrow indexes must NOT be present (appendix A: composites cover
+	// These narrow indexes must NOT be present (composites cover
 	// source-only / target-only via left-prefix; v4 dropped the narrow ones).
 	forbiddenIndexes := []string{"idx_edges_source", "idx_edges_target"}
 	for _, name := range forbiddenIndexes {
@@ -187,8 +172,6 @@ func TestSchemaEdgesFKCascade(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionRow asserts that Open/Init writes the schema_version row
-// in project_metadata.
 func TestSchemaVersionRow(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
@@ -203,10 +186,6 @@ func TestSchemaVersionRow(t *testing.T) {
 		t.Error("schema_version value is empty")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Cascade delete test
-// ---------------------------------------------------------------------------
 
 // TestCascadeDelete inserts a node and an edge referencing it, deletes the
 // node, and asserts the edge is gone. Proves FK CASCADE is active on the
@@ -275,10 +254,6 @@ func TestCascadeDelete(t *testing.T) {
 		t.Errorf("cascade delete failed: edge still present (count=%d); FK is likely OFF", cnt)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// FTS sync tests
-// ---------------------------------------------------------------------------
 
 // insertTestNode is a helper for FTS tests.
 func insertTestNode(t *testing.T, d *codeinteldb.DB, id, name string) {
@@ -350,10 +325,6 @@ func TestFTSSyncDelete(t *testing.T) {
 		t.Errorf("FTS still finds deleted node (nodes_ad sentinel trigger not working, count=%d)", cnt)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Idempotent init test
-// ---------------------------------------------------------------------------
 
 // TestIdempotentInit opens the same DB path twice and asserts no error.
 // The schema uses IF NOT EXISTS throughout, so re-running init must be a no-op.

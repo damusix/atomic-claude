@@ -11,9 +11,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
 
-// --- PruneDiff pure-function tests (no filesystem access) ---
-
-// TestPruneDiff_StaleEntry: an artifact in stored but absent from the current bundle is returned.
 func TestPruneDiff_StaleEntry(t *testing.T) {
 	stored := []string{"agents/old-agent.md", "commands/commit.md"}
 	current := map[string]bool{"commands/commit.md": true} // old-agent.md gone
@@ -24,7 +21,6 @@ func TestPruneDiff_StaleEntry(t *testing.T) {
 	}
 }
 
-// TestPruneDiff_NothingStale: stored and current match → empty diff (no prune).
 func TestPruneDiff_NothingStale(t *testing.T) {
 	stored := []string{"agents/foo.md", "commands/bar.md"}
 	current := map[string]bool{"agents/foo.md": true, "commands/bar.md": true}
@@ -35,7 +31,6 @@ func TestPruneDiff_NothingStale(t *testing.T) {
 	}
 }
 
-// TestPruneDiff_EmptyStored: pre-framework install — no stored entries → nil (no prune).
 func TestPruneDiff_EmptyStored(t *testing.T) {
 	stale := claudeinstall.PruneDiff([]string{}, map[string]bool{"agents/foo.md": true})
 	if len(stale) != 0 {
@@ -43,7 +38,6 @@ func TestPruneDiff_EmptyStored(t *testing.T) {
 	}
 }
 
-// TestPruneDiff_NilStored: nil stored slice → nil result (no prune).
 func TestPruneDiff_NilStored(t *testing.T) {
 	stale := claudeinstall.PruneDiff(nil, map[string]bool{"agents/foo.md": true})
 	if len(stale) != 0 {
@@ -51,13 +45,10 @@ func TestPruneDiff_NilStored(t *testing.T) {
 	}
 }
 
-// TestPruneDiff_UserAddedFileNotReturned: PruneDiff only considers paths in stored.
 // A user-added file absent from stored is never returned, regardless of what's on disk.
 func TestPruneDiff_UserAddedFileNotReturned(t *testing.T) {
-	// stored tracks only the atomic-managed agent; user added agents/mine.md separately.
 	stored := []string{"agents/atomic-foo.md"}
 	current := map[string]bool{"agents/atomic-foo.md": true}
-	// agents/mine.md is on disk but NOT in stored → PruneDiff never sees it.
 
 	stale := claudeinstall.PruneDiff(stored, current)
 	for _, s := range stale {
@@ -70,7 +61,6 @@ func TestPruneDiff_UserAddedFileNotReturned(t *testing.T) {
 	}
 }
 
-// TestPruneDiff_MultipleStale: all stale entries returned.
 func TestPruneDiff_MultipleStale(t *testing.T) {
 	stored := []string{"agents/a.md", "agents/b.md", "commands/c.md"}
 	current := map[string]bool{} // everything gone
@@ -81,10 +71,6 @@ func TestPruneDiff_MultipleStale(t *testing.T) {
 	}
 }
 
-// --- Install manifest write integration tests ---
-
-// TestInstallWritesManifestToConfig: non-dry-run install writes [install].version
-// and [install.artifacts] per-kind lists to config.toml.
 func TestInstallWritesManifestToConfig(t *testing.T) {
 	target := t.TempDir()
 
@@ -101,10 +87,8 @@ func TestInstallWritesManifestToConfig(t *testing.T) {
 		t.Errorf("unexpected config warnings: %v", warns)
 	}
 
-	// Dev test binaries build with version.Version == "dev" (no ldflags); that
-	// literal must never be written to Install.Version (not a parseable
-	// semver — see TestInstallDoesNotRecordDevVersion). A real release build
-	// must still record its version normally.
+	// Test binaries build as "dev", which must never reach Install.Version; a
+	// real release build still records its version normally.
 	if version.Version == "dev" {
 		if cfg.Install.Version != "" {
 			t.Errorf("Install.Version = %q, want empty for dev build", cfg.Install.Version)
@@ -113,7 +97,6 @@ func TestInstallWritesManifestToConfig(t *testing.T) {
 		t.Errorf("Install.Version = %q, want %q", cfg.Install.Version, version.Version)
 	}
 
-	// Each kind list must be non-empty — the bundle has artifacts of each type.
 	if len(cfg.Install.Artifacts.Agents) == 0 {
 		t.Error("Install.Artifacts.Agents is empty — expected at least one agent")
 	}
@@ -130,7 +113,6 @@ func TestInstallWritesManifestToConfig(t *testing.T) {
 		t.Error("Install.Artifacts.Rules is empty — expected at least one rule")
 	}
 
-	// Spot-check: a known agent Target path must appear.
 	found := false
 	for _, a := range cfg.Install.Artifacts.Agents {
 		if a == "agents/atomic-implementer.md" {
@@ -143,11 +125,8 @@ func TestInstallWritesManifestToConfig(t *testing.T) {
 	}
 }
 
-// TestInstallDoesNotRecordDevVersion: a dev build (version.Version == "dev",
-// the un-ldflagged default every `go test`/`go build` invocation produces
-// without -ldflags) must leave config.toml in a state config.Validate accepts.
-// Writing the literal "dev" into Install.Version fails Validate's semver
-// check and permanently reds `atomic doctor` for every dev-build install.
+// Writing the un-ldflagged "dev" default into Install.Version fails Validate's
+// semver check and permanently reds `atomic doctor` for every dev-build install.
 func TestInstallDoesNotRecordDevVersion(t *testing.T) {
 	if version.Version != "dev" {
 		t.Skipf("test binary built with -ldflags version=%q; dev-version behavior not exercised", version.Version)
@@ -170,8 +149,6 @@ func TestInstallDoesNotRecordDevVersion(t *testing.T) {
 	}
 }
 
-// TestInstallManifestRoundTrip: second install reads back the prior manifest and
-// updates it cleanly (idempotent).
 func TestInstallManifestRoundTrip(t *testing.T) {
 	target := t.TempDir()
 
@@ -199,7 +176,6 @@ func TestInstallManifestRoundTrip(t *testing.T) {
 	}
 }
 
-// TestInstallDryRunDoesNotWriteManifest: dry-run must not create config.toml.
 func TestInstallDryRunDoesNotWriteManifest(t *testing.T) {
 	target := t.TempDir()
 
@@ -213,18 +189,12 @@ func TestInstallDryRunDoesNotWriteManifest(t *testing.T) {
 	}
 }
 
-// --- Prune tests ---
-
-// TestPruneRemovesStaleFile: when the old config has a stale agent entry (not in the
-// current bundle), and the confirm seam returns true, Install removes the stale file.
 func TestPruneRemovesStaleFile(t *testing.T) {
 	target := t.TempDir()
 
-	// Confirm seam: always approve prune.
 	claudeinstall.PruneConfirm = func(stale []string) (bool, error) { return true, nil }
 	t.Cleanup(func() { claudeinstall.PruneConfirm = claudeinstall.DefaultPruneConfirm })
 
-	// Plant a stale file that is NOT in the current embedded bundle.
 	staleTarget := "agents/old-agent-not-in-bundle.md"
 	stalePath := filepath.Join(target, staleTarget)
 	if err := os.MkdirAll(filepath.Dir(stalePath), 0o755); err != nil {
@@ -234,7 +204,6 @@ func TestPruneRemovesStaleFile(t *testing.T) {
 		t.Fatalf("write stale file: %v", err)
 	}
 
-	// Write a config.toml that records the stale agent as installed.
 	cfgPath := config.TOMLPath(target)
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatalf("mkdir .atomic: %v", err)
@@ -246,23 +215,18 @@ func TestPruneRemovesStaleFile(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	// Install detects the stale entry, confirms (seam returns true), removes.
 	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
-	// Stale file must be gone.
 	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
 		t.Errorf("stale file still exists after prune: %s", stalePath)
 	}
 }
 
-// TestPruneSkipsWhenConfirmDeclines: when the confirm seam returns false,
-// stale files are not removed.
 func TestPruneSkipsWhenConfirmDeclines(t *testing.T) {
 	target := t.TempDir()
 
-	// Confirm seam: always decline.
 	claudeinstall.PruneConfirm = func(stale []string) (bool, error) { return false, nil }
 	t.Cleanup(func() { claudeinstall.PruneConfirm = claudeinstall.DefaultPruneConfirm })
 
@@ -290,14 +254,11 @@ func TestPruneSkipsWhenConfirmDeclines(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	// Stale file must still exist (user declined prune).
 	if _, err := os.Stat(stalePath); err != nil {
 		t.Errorf("stale file removed despite declined confirm: %v", err)
 	}
 }
 
-// TestPruneNotCalledOnFreshInstall: when there is no prior [install] section in config
-// (pre-framework install or first-ever install), the prune confirm is never called.
 func TestPruneNotCalledOnFreshInstall(t *testing.T) {
 	target := t.TempDir()
 
@@ -317,7 +278,6 @@ func TestPruneNotCalledOnFreshInstall(t *testing.T) {
 	}
 }
 
-// TestPruneConfirmReceivesStaleList: the confirm seam receives the exact list of stale paths.
 func TestPruneConfirmReceivesStaleList(t *testing.T) {
 	target := t.TempDir()
 
@@ -350,10 +310,6 @@ func TestPruneConfirmReceivesStaleList(t *testing.T) {
 	}
 }
 
-// --- Uninstall scoping tests ---
-
-// TestBuildUninstallPlan_InstallArtifacts_ScopesDelete: when installedTargets is non-nil,
-// only paths in the set are added to Delete; user-added paths are protected.
 func TestBuildUninstallPlan_InstallArtifacts_ScopesDelete(t *testing.T) {
 	targetDir := t.TempDir()
 	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
@@ -364,7 +320,6 @@ func TestBuildUninstallPlan_InstallArtifacts_ScopesDelete(t *testing.T) {
 		{"path": "agents/user-custom.md", "sha256": "", "existed": false},
 	})
 
-	// Only atomic-foo.md is in install.artifacts; user-custom.md is user-added.
 	installedTargets := map[string]bool{
 		"agents/atomic-foo.md": true,
 	}
@@ -374,7 +329,6 @@ func TestBuildUninstallPlan_InstallArtifacts_ScopesDelete(t *testing.T) {
 		t.Fatalf("BuildUninstallPlanWithManifest: %v", err)
 	}
 
-	// Only atomic-foo.md must be in Delete; user-custom.md is protected.
 	if len(plan.Delete) != 1 || plan.Delete[0] != "agents/atomic-foo.md" {
 		t.Errorf("Delete = %v, want [agents/atomic-foo.md]", plan.Delete)
 	}
@@ -385,8 +339,6 @@ func TestBuildUninstallPlan_InstallArtifacts_ScopesDelete(t *testing.T) {
 	}
 }
 
-// TestBuildUninstallPlan_NilInstalledTargets_NoScoping: nil installedTargets means
-// pre-framework install — both entries go to Delete (existing unscoped behavior preserved).
 func TestBuildUninstallPlan_NilInstalledTargets_NoScoping(t *testing.T) {
 	targetDir := t.TempDir()
 	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
@@ -407,19 +359,15 @@ func TestBuildUninstallPlan_NilInstalledTargets_NoScoping(t *testing.T) {
 	}
 }
 
-// TestBuildUninstallPlan_ManifestScopedFromConfig: BuildUninstallPlan (no args variant)
-// reads [install.artifacts] from config.toml and scopes Delete accordingly.
 func TestBuildUninstallPlan_ManifestScopedFromConfig(t *testing.T) {
 	targetDir := t.TempDir()
 	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
 
-	// Write pre-install snapshot with two existed=false entries.
 	writeTestManifest(t, preInstallDir, []map[string]interface{}{
 		{"path": "agents/atomic-foo.md", "sha256": "", "existed": false},
 		{"path": "agents/user-custom.md", "sha256": "", "existed": false},
 	})
 
-	// Write config.toml that only claims atomic-foo.md was installed by atomic.
 	cfgPath := config.TOMLPath(targetDir)
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatalf("mkdir .atomic: %v", err)
@@ -436,25 +384,19 @@ func TestBuildUninstallPlan_ManifestScopedFromConfig(t *testing.T) {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
 
-	// Only atomic-foo.md in Delete; user-custom.md protected.
 	if len(plan.Delete) != 1 || plan.Delete[0] != "agents/atomic-foo.md" {
 		t.Errorf("Delete = %v, want [agents/atomic-foo.md]", plan.Delete)
 	}
 }
 
-// TestPruneAbortedIsDecline: when the confirm seam returns ErrAborted (Ctrl+C at prompt),
-// Install must NOT return an error and must NOT delete the stale file —
-// abort is treated as a decline, not a failure.
 func TestPruneAbortedIsDecline(t *testing.T) {
 	target := t.TempDir()
 
-	// Confirm seam: simulate Ctrl+C at the prune prompt.
 	claudeinstall.PruneConfirm = func(stale []string) (bool, error) {
 		return false, prompt.ErrAborted
 	}
 	t.Cleanup(func() { claudeinstall.PruneConfirm = claudeinstall.DefaultPruneConfirm })
 
-	// Plant a stale file not in the current embedded bundle.
 	staleTarget := "agents/old-agent-not-in-bundle.md"
 	stalePath := filepath.Join(target, staleTarget)
 	if err := os.MkdirAll(filepath.Dir(stalePath), 0o755); err != nil {
@@ -464,7 +406,6 @@ func TestPruneAbortedIsDecline(t *testing.T) {
 		t.Fatalf("write stale file: %v", err)
 	}
 
-	// Write a config.toml that records the stale agent as installed.
 	cfgPath := config.TOMLPath(target)
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatalf("mkdir .atomic: %v", err)
@@ -476,7 +417,6 @@ func TestPruneAbortedIsDecline(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	// Install must succeed despite the aborted prompt.
 	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install returned error on aborted prune prompt: %v", err)
 	}
@@ -487,8 +427,6 @@ func TestPruneAbortedIsDecline(t *testing.T) {
 	}
 }
 
-// TestBuildUninstallPlan_NoConfigToml_FallsBackToUnscoped: when no config.toml exists
-// (pre-framework install), BuildUninstallPlan uses unscoped behavior (nil installedTargets).
 func TestBuildUninstallPlan_NoConfigToml_FallsBackToUnscoped(t *testing.T) {
 	targetDir := t.TempDir()
 	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
@@ -496,7 +434,6 @@ func TestBuildUninstallPlan_NoConfigToml_FallsBackToUnscoped(t *testing.T) {
 	writeTestManifest(t, preInstallDir, []map[string]interface{}{
 		{"path": "agents/atomic-foo.md", "sha256": "", "existed": false},
 	})
-	// No config.toml written.
 
 	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {

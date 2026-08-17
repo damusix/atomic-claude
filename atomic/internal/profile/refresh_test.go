@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// --- ParseDuration ---
-
 func TestParseDuration_Valid(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -40,8 +38,6 @@ func TestParseDuration_Invalid(t *testing.T) {
 	}
 }
 
-// --- ParseLastcheck ---
-
 func TestParseLastcheck_Present(t *testing.T) {
 	content := "## Environment\n<deterministic lastcheck=2026-05-21>\n- OS: darwin\n</deterministic>\n"
 	got, ok := ParseLastcheck(content)
@@ -54,7 +50,7 @@ func TestParseLastcheck_Present(t *testing.T) {
 }
 
 func TestParseLastcheck_Absent(t *testing.T) {
-	// v1-format file: <deterministic> without attribute
+	// v1 format: <deterministic> with no attribute.
 	content := "## Environment\n<deterministic>\n- OS: darwin\n</deterministic>\n"
 	_, ok := ParseLastcheck(content)
 	if ok {
@@ -69,47 +65,38 @@ func TestParseLastcheck_EmptyContent(t *testing.T) {
 	}
 }
 
-// --- IsStale ---
-
 func TestIsStale_FreshWithinWindow(t *testing.T) {
-	// lastcheck 3 days ago, window 7 days → NOT stale
 	if IsStale("2026-05-25", "2026-05-28", 7) {
 		t.Error("IsStale: expected false when within 7d window")
 	}
 }
 
 func TestIsStale_ExactlyAtBoundary(t *testing.T) {
-	// lastcheck exactly 7 days ago → NOT stale (< window means fresh; = window means stale)
+	// The window boundary itself counts as stale.
 	if !IsStale("2026-05-21", "2026-05-28", 7) {
 		t.Error("IsStale: expected true when exactly at 7d boundary")
 	}
 }
 
 func TestIsStale_OlderThanWindow(t *testing.T) {
-	// lastcheck 14 days ago, window 7 days → stale
 	if !IsStale("2026-05-14", "2026-05-28", 7) {
 		t.Error("IsStale: expected true when older than window")
 	}
 }
 
 func TestIsStale_MalformedLastcheck(t *testing.T) {
-	// Unparseable lastcheck → treat as stale
 	if !IsStale("not-a-date", "2026-05-28", 7) {
 		t.Error("IsStale: expected true for malformed lastcheck")
 	}
 }
 
 func TestIsStale_MalformedToday(t *testing.T) {
-	// Unparseable today → treat as stale (safe fallback)
 	if !IsStale("2026-05-21", "bad-today", 7) {
 		t.Error("IsStale: expected true for malformed today")
 	}
 }
 
-// --- Refresh core ---
-
 func TestRefresh_WritesNewFile(t *testing.T) {
-	// File absent → creates stub + Environment section, stamps lastcheck.
 	home := t.TempDir()
 	date := "2026-05-28"
 
@@ -140,7 +127,6 @@ func TestRefresh_WritesNewFile(t *testing.T) {
 }
 
 func TestRefresh_RewritesExistingEnvironmentSection(t *testing.T) {
-	// File exists with v1-format Environment section → section replaced, lastcheck stamped.
 	home := t.TempDir()
 	atomicDir := filepath.Join(home, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
@@ -165,22 +151,18 @@ func TestRefresh_RewritesExistingEnvironmentSection(t *testing.T) {
 	content, _ := os.ReadFile(profilePath)
 	got := string(content)
 
-	// Identity section must be preserved
 	if !strings.Contains(got, "## Identity") {
 		t.Error("Refresh: Identity section was clobbered")
 	}
-	// New Environment section with lastcheck
 	if !strings.Contains(got, "<deterministic lastcheck=2026-05-28>") {
 		t.Errorf("Refresh: expected new lastcheck; got:\n%s", got)
 	}
-	// Old data should be gone
 	if strings.Contains(got, "<deterministic>\n") {
 		t.Error("Refresh: old v1 <deterministic> tag still present")
 	}
 }
 
 func TestRefresh_IfStale_NoOpWhenFresh(t *testing.T) {
-	// File has lastcheck=today → Refresh with --if-stale 7d should no-op.
 	home := t.TempDir()
 	atomicDir := filepath.Join(home, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
@@ -194,7 +176,6 @@ func TestRefresh_IfStale_NoOpWhenFresh(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Get mtime before
 	statBefore, _ := os.Stat(profilePath)
 
 	wrote, err := RefreshIfStale(home, date, 7)
@@ -205,12 +186,10 @@ func TestRefresh_IfStale_NoOpWhenFresh(t *testing.T) {
 		t.Error("RefreshIfStale: expected wrote=false when fresh")
 	}
 
-	// File must not have changed
 	statAfter, _ := os.Stat(profilePath)
 	if !statBefore.ModTime().Equal(statAfter.ModTime()) {
 		t.Error("RefreshIfStale: file mtime changed even though it was fresh")
 	}
-	// Content must not have changed
 	content, _ := os.ReadFile(profilePath)
 	if string(content) != existing {
 		t.Error("RefreshIfStale: file content changed even though it was fresh")
@@ -218,7 +197,6 @@ func TestRefresh_IfStale_NoOpWhenFresh(t *testing.T) {
 }
 
 func TestRefresh_IfStale_RefreshesWhenStale(t *testing.T) {
-	// File has lastcheck=14 days ago, window=7d → should refresh.
 	home := t.TempDir()
 	atomicDir := filepath.Join(home, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
@@ -248,7 +226,7 @@ func TestRefresh_IfStale_RefreshesWhenStale(t *testing.T) {
 }
 
 func TestRefresh_IfStale_NoLastcheck_Refreshes(t *testing.T) {
-	// v1-format file (no lastcheck attribute) → treated as infinitely stale → refreshes.
+	// No lastcheck attribute counts as infinitely stale.
 	home := t.TempDir()
 	atomicDir := filepath.Join(home, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {

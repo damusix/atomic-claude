@@ -1,51 +1,8 @@
-// Package frameworks — Elixir framework resolver (batch E).
+// Phoenix (Elixir) router resolver.
 //
-// This file implements one FrameworkResolver + FrameworkExtractor pair for
-// the Phoenix web framework (Elixir).
-//
-// # Language
-//
-// Elixir is a supported language (types.LanguageElixir). Route nodes and
-// handler refs carry LanguageElixir. Languages() returns [types.LanguageElixir]
-// so getApplicableResolvers includes this resolver when indexing .ex files.
-//
-// # Comment stripping
-//
-// Elixir uses # for single-line comments. stripHashLineComments (defined in
-// ruby.go, which calls stripPyComments from python.go) strips # lines.
-// Its triple-quote handling is harmless on Elixir router files.
-//
-// # Route node format (appendix H — via MakeRouteNode)
-//
-//	id:            route:{filePath}:{line}:{METHOD}:{path}
-//	qualifiedName: {filePath}::METHOD:{path}
-//	name:          "METHOD /path"
-//
-// # Phoenix router DSL idioms
-//
-// Supported forms in lib/*_web/router.ex:
-//
-//	get  "/path", PageController, :action
-//	post "/path", PageController, :action
-//	put  "/path", PageController, :action
-//	patch "/path", PageController, :action
-//	delete "/path", PageController, :action
-//	get("/path", PageController, :action)
-//	post("/path", PageController, :action)
-//
-// HTTP verbs: get post put patch delete → uppercase in route node name.
-// Handler = the :action atom (strip the leading ':').
-//
-// Optional `scope "/prefix" do ... end` prefix expansion is NOT supported
-// (best-effort is documented as acceptable). Paths are recorded as-is from
-// the route line. A future enhancement could walk scope blocks.
-//
-// resources/resource macro expansion is NOT supported (same rationale as Rails).
-//
-// # Detect
-//
-// Primary: mix.exs in projectRoot contains `:phoenix` as a dependency key
-// (matches `{:phoenix,` which is the standard Mix dependency tuple syntax).
+// Known gaps: `scope "/prefix" do` blocks are not expanded, so a scoped route
+// records the path as written rather than its real prefixed form, and the
+// resources macro is not expanded at all.
 package frameworks
 
 import (
@@ -60,29 +17,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Phoenix regexes
-// ---------------------------------------------------------------------------
-
-// phoenixVerbRe matches Phoenix router DSL verb lines in both space and paren forms:
-//
-//	get  "/path", SomeController, :action
-//	post "/path", SomeController, :action
-//	get("/path", SomeController, :action)
-//	post("/path", SomeController, :action)
-//
-// Capture groups:
-//
-//	1 — HTTP verb (get|post|put|patch|delete)
-//	2 — route path (double-quoted)
-//	3 — :action atom (with leading ':')
-//
-// The separator between verb and opening quote is `(?:[^\S\n]+|\()[^\S\n]*`:
-//   - space form: one or more horizontal whitespace chars (tabs/spaces, not newline)
-//   - paren form: a literal '(' followed by zero or more horizontal whitespace chars
-//
-// [^\S\n]* (spaces/tabs only, not newline) anchors each match to its correct
-// line so line-number calculation via strings.Count(…, "\n") is accurate.
+// phoenixVerbRe matches `get "/p", SomeController, :action` in both the space
+// and paren call forms. Groups: verb, path, action atom. Horizontal-whitespace
+// classes are used throughout rather than \s, so a match cannot start on one
+// line and be attributed to another.
 var phoenixVerbRe = regexp.MustCompile(
 	`(?m)^[^\S\n]*(get|post|put|patch|delete)(?:[^\S\n]+|\()[^\S\n]*` +
 		`"([^"]+)"\s*,\s*` + // double-quoted path
@@ -90,33 +28,23 @@ var phoenixVerbRe = regexp.MustCompile(
 		`:([A-Za-z_][A-Za-z0-9_]*)`, // :action atom (captured without ':')
 )
 
-// ---------------------------------------------------------------------------
-// Phoenix resolver
-// ---------------------------------------------------------------------------
-
-// PhoenixResolver implements FrameworkResolver + FrameworkExtractor for Phoenix.
-// Route nodes and refs carry LanguageElixir. See package doc.
 type PhoenixResolver struct {
 	projectRoot string
 	claimed     map[string]bool
 }
 
-// NewPhoenixResolver creates a PhoenixResolver.
 func NewPhoenixResolver(projectRoot string) *PhoenixResolver {
 	return &PhoenixResolver{projectRoot: projectRoot, claimed: make(map[string]bool)}
 }
 
-// Name returns "phoenix".
 func (r *PhoenixResolver) Name() string { return "phoenix" }
 
-// Languages returns [LanguageElixir]. The pipeline's getApplicableResolvers
-// matches this resolver to .ex files so Extract runs on Phoenix router files.
 func (r *PhoenixResolver) Languages() []types.Language {
 	return []types.Language{types.LanguageElixir}
 }
 
-// Detect returns true when mix.exs in projectRoot contains `:phoenix` as a
-// dependency, identified by the string `{:phoenix,` (standard Mix dep tuple).
+// Detect matches the Mix dependency tuple form so a mere mention of phoenix
+// elsewhere in mix.exs does not count.
 func (r *PhoenixResolver) Detect(ctx context.Context) bool {
 	data, err := os.ReadFile(filepath.Join(r.projectRoot, "mix.exs"))
 	if err != nil {
@@ -125,10 +53,6 @@ func (r *PhoenixResolver) Detect(ctx context.Context) bool {
 	return strings.Contains(string(data), "{:phoenix,")
 }
 
-// Extract scans filePath/content for Phoenix router verb lines and returns
-// route nodes + handler refs. # line comments are stripped first.
-//
-// Route nodes and refs carry LanguageElixir.
 func (r *PhoenixResolver) Extract(filePath, content string) ([]types.Node, []types.UnresolvedReference) {
 	stripped := stripHashLineComments(content)
 	totalLines := strings.Count(content, "\n") + 1
@@ -169,10 +93,8 @@ func (r *PhoenixResolver) Extract(filePath, content string) ([]types.Node, []typ
 	return nodes, refs
 }
 
-// ClaimsReference returns true if an action atom with this name was seen.
 func (r *PhoenixResolver) ClaimsReference(name string) bool { return r.claimed[name] }
 
-// Resolve returns confidence 0.85 for claimed action names.
 func (r *PhoenixResolver) Resolve(ctx context.Context, ref types.UnresolvedReference) (resolution.ResolvedRef, error) {
 	if !r.claimed[ref.ReferenceName] {
 		return resolution.ResolvedRef{}, nil

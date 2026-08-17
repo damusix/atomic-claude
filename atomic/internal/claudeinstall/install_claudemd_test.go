@@ -9,22 +9,18 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 )
 
-// These tests pin the deterministic CLAUDE.md update contract: once a user's
-// CLAUDE.md carries an <atomic>...</atomic> block, install/update compares and
-// replaces only that block. User content outside the block must never cause
-// drift (merge_required / DiffDiffer) and must never be touched on update.
-// The LLM merge path (proposed file + `atomic prompt claude-merge`) remains only for
-// files without a parseable block.
+// Once a CLAUDE.md carries an <atomic> block, install/update replaces only that
+// block: content outside it must never read as drift or be touched. The LLM
+// merge path is reserved for files without a parseable block.
 
-// mergedCLAUDEmd returns the embedded CLAUDE.md with user content appended
-// after the </atomic> block — the shape of a file after a completed merge.
+// mergedCLAUDEmd is the shape of a CLAUDE.md after a completed merge: embedded
+// content with user text appended after the </atomic> block.
 func mergedCLAUDEmd(t *testing.T) string {
 	t.Helper()
 	return string(readEmbedded(t, "bundle/CLAUDE.md")) + "\n## My custom rules\n\nKeep me intact.\n"
 }
 
-// staleBlock rewrites content so its <atomic> block differs from the embedded
-// one (simulates a file merged against an older bundle version).
+// staleBlock simulates a file merged against an older bundle version.
 func staleBlock(content string) string {
 	return strings.Replace(content, "<atomic>\n", "<atomic>\nstale line from a prior bundle version\n", 1)
 }

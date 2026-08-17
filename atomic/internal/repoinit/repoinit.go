@@ -1,9 +1,6 @@
-// Package repoinit scaffolds the deterministic .claude/ layout a repo needs
-// to work with the atomic ecosystem: the scratchpad and project directories,
-// and the git-ignore rules that keep them (and tmp/, .claude/worktrees/) out of
-// version control. Init is idempotent and non-destructive — it only creates
-// what is missing and never rewrites, reorders, or removes existing content.
-// It never runs git commit; the caller owns that.
+// Package repoinit scaffolds the .claude/ layout and its ignore rules.
+// Idempotent and non-destructive: it only adds what is missing, never rewrites
+// or reorders existing content, and never commits.
 package repoinit
 
 import (
@@ -25,39 +22,29 @@ const (
 	ActionOK      ActionKind = "ok"
 )
 
-// Action describes the outcome of one guarantee: what it names (a directory
-// path or an ignore-rule description) and whether Init created it or found
-// it already satisfied.
+// Action is one guarantee's outcome: what it names and whether Init created it
+// or found it already satisfied.
 type Action struct {
 	Name string
 	Kind ActionKind
 }
 
-// managedHeader precedes the managed rules when the nested <harness.dir>/.gitignore
-// is created fresh (it does not exist yet). An existing file is never given
-// this header retroactively. harnessDirRel is the harness dir's slash-form
-// name (e.g. ".claude" or ".pi").
+// managedHeader is written only when the nested .gitignore is created fresh;
+// an existing file never gets it retroactively.
 func managedHeader(harnessDirRel string) string {
 	return fmt.Sprintf("# managed by atomic repo init; rules are relative to %s/\n", harnessDirRel)
 }
 
-// probeFile is the nonexistent filename checked under each guarded directory
-// to answer "is it ignored" via git check-ignore. It never needs to exist —
-// git evaluates ignore patterns against the pathname alone.
+// probeFile never needs to exist: git check-ignore evaluates ignore patterns
+// against the pathname alone.
 const probeFile = ".repoinit-probe"
 
-// Init runs the seven layout guarantees against root, in order, and returns
-// one Action per guarantee. It is safe to call repeatedly: a guarantee
-// already satisfied reports ActionOK and touches nothing. Returns an error
-// only on irrecoverable I/O failure (e.g. an unwritable directory) or when
-// the repo config already declares a scope other than "repo" — a
-// conflicting marker is never rewritten (see config.EnsureScopeMarker).
+// Init runs the layout guarantees against root, returning one Action each.
+// Safe to call repeatedly. Errors only on irrecoverable I/O failure or when
+// the repo config already declares a scope other than "repo".
 //
-// Every guarantee but the root tmp/ rule is nested under the resolved
-// harness.dir (default ".claude"; see config.ScratchpadDir et al.) — passing
-// "" as the root to those helpers yields the harness-relative subpath alone
-// (e.g. ".claude/.scratchpad" or ".pi/.scratchpad"), reusing the same
-// resolver repo-local consumers thread through elsewhere.
+// Passing "" as the root to config.ScratchpadDir et al. yields the
+// harness-relative subpath alone, which is what the ignore rules need.
 func Init(root string) ([]Action, error) {
 	actions := make([]Action, 0, 7)
 
@@ -137,12 +124,8 @@ func Init(root string) ([]Action, error) {
 	return actions, nil
 }
 
-// ensureScopeMarker declares root's scope as "repo" via
-// config.EnsureScopeMarker, reporting the outcome as an Action in the same
-// shape (created / ok) the rest of Init uses — a created or added key both
-// report ActionCreated, mirroring ensureIgnored's "wrote something" ==
-// created convention. A conflicting marker (the file already declares a
-// different scope) is never rewritten and is surfaced as an error.
+// ensureScopeMarker declares root's scope as "repo". A file already declaring
+// a different scope is an error, never a rewrite.
 func ensureScopeMarker(root string) (Action, error) {
 	name := filepath.ToSlash(config.RepoConfigPath("")) + ` scope="repo"`
 
@@ -161,14 +144,10 @@ func ensureScopeMarker(root string) (Action, error) {
 	return Action{Name: name, Kind: kind}, nil
 }
 
-// dirName renders a root-relative path as the slash-form display name used
-// in Action.Name (e.g. ".claude/.scratchpad" → ".claude/.scratchpad/").
 func dirName(rel string) string {
 	return filepath.ToSlash(rel) + "/"
 }
 
-// ensureDir guarantees dirRel exists under root, reporting name as created or
-// already-ok.
 func ensureDir(root, dirRel, name string) (Action, error) {
 	full := filepath.Join(root, dirRel)
 	if info, err := os.Stat(full); err == nil && info.IsDir() {
@@ -182,17 +161,15 @@ func ensureDir(root, dirRel, name string) (Action, error) {
 
 // ignoreGuarantee describes one "is X ignored, else append a rule" guarantee.
 type ignoreGuarantee struct {
-	probeDirRel   string // directory whose ignore-effect is being checked
-	ignoreFileRel string // ignore file the rule is appended to when missing
-	ruleLine      string // the managed rule line
-	name          string // Action.Name reported to the caller
-	header        string // precedes the rule when creating ignoreFileRel fresh; empty means no header
+	probeDirRel   string
+	ignoreFileRel string
+	ruleLine      string
+	name          string
+	header        string // written only when ignoreFileRel is created fresh
 }
 
-// ensureIgnored guarantees g.ruleLine's effect is already present (via
-// git check-ignore against a nonexistent probe path, falling back to a
-// literal line scan when git is unavailable or root is not a work tree) —
-// else appends the managed rule to g.ignoreFileRel.
+// ensureIgnored asks git whether the effect is already in place, degrading to a
+// literal line scan, and appends the managed rule only when it is not.
 func ensureIgnored(root string, g ignoreGuarantee) (Action, error) {
 	probe := filepath.Join(g.probeDirRel, probeFile)
 	ignoreFile := filepath.Join(root, g.ignoreFileRel)
@@ -211,10 +188,8 @@ func ensureIgnored(root string, g ignoreGuarantee) (Action, error) {
 	return Action{Name: g.name, Kind: ActionCreated}, nil
 }
 
-// isIgnoredByGit answers "is probe (relative to root) ignored" by running
-// git check-ignore. determined is false when the answer could not be
-// established deterministically (git binary absent, or root is not a work
-// tree) — the caller degrades to a literal line scan in that case.
+// isIgnoredByGit reports determined=false when git cannot answer at all (no
+// binary, or root is not a work tree), leaving the caller to degrade.
 func isIgnoredByGit(root, probe string) (ignored bool, determined bool) {
 	cmd := exec.Command("git", "check-ignore", "-q", probe)
 	cmd.Dir = root
@@ -226,14 +201,12 @@ func isIgnoredByGit(root, probe string) (ignored bool, determined bool) {
 	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 		return false, true
 	}
-	// exec.Error (git not on PATH) or any other exit code (e.g. 128, "not a
-	// git repository") — the deterministic path is unavailable.
+	// git not on PATH, or exit 128 ("not a git repository").
 	return false, false
 }
 
-// ignoreFileHasLine reports whether ruleLine appears as its own line in the
-// file at path (trimmed of surrounding whitespace). A missing file reports
-// false. Used only as the degraded fallback when git is unavailable.
+// ignoreFileHasLine is the degraded fallback for isIgnoredByGit: an exact-line
+// match, so it cannot see rules that only match by pattern.
 func ignoreFileHasLine(path, ruleLine string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -248,11 +221,8 @@ func ignoreFileHasLine(path, ruleLine string) bool {
 	return false
 }
 
-// appendRule appends ruleLine to the file at path, preserving every existing
-// byte. A missing file is created; a non-empty header precedes the rule only
-// in that fresh-file case. An existing file that does not end in a newline
-// gets one inserted before the appended rule; its content is otherwise
-// untouched.
+// appendRule preserves every existing byte, inserting a newline first when the
+// file does not end in one.
 func appendRule(path, ruleLine, header string) error {
 	existing, err := os.ReadFile(path)
 	fileExists := err == nil

@@ -2,12 +2,11 @@ package claudeinstall
 
 import "strings"
 
-// The <atomic>...</atomic> block in CLAUDE.md bounds atomic-owned content;
-// everything outside it is user-owned. Detection is line-anchored, mirroring
-// the <wikis> block parser in internal/wiki: a line whose trimmed content is
-// exactly the tag opens/closes the block. Inline or backtick mentions of the
-// literal text never match. Ambiguous shapes (no tags, unclosed, multiple
-// blocks) report !ok so callers fall back to the LLM merge path.
+// The <atomic> block in CLAUDE.md bounds atomic-owned content; everything
+// outside it is user-owned. Detection is line-anchored — only a line whose
+// trimmed content is exactly the tag counts, so inline mentions never match.
+// Ambiguous shapes (missing, unclosed, or repeated tags) report !ok so callers
+// fall back to the LLM merge path.
 const (
 	atomicOpenTag  = "<atomic>"
 	atomicCloseTag = "</atomic>"

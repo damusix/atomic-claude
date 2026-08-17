@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildDocsCmd builds the "docs" parent + scan|stale children.
 func buildDocsCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runDocs(args, *repoOverride) }
 	parent := &cobra.Command{
@@ -36,8 +35,7 @@ func buildDocsCmd(repoOverride *string) *cobra.Command {
 	return parent
 }
 
-// docsAction executes the docs subcommand logic and returns an exit code.
-// Extracted from runDocs so that tests can exercise dispatch without os.Exit.
+// docsAction is split out of runDocs so tests reach dispatch without os.Exit.
 func docsAction(args []string, root string) int {
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "Usage: atomic docs <scan|stale>\n")

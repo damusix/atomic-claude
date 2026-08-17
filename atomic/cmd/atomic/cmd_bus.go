@@ -8,9 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildBusCmd builds the "bus" parent +
-// join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|read|halt|resume|prune|close|chat
-// children. Dispatch is runBus (→ bus.BusAction from internal/bus/action.go).
 func buildBusCmd() *cobra.Command {
 	dispatch := func(args []string) { runBus(args) }
 	parent := &cobra.Command{

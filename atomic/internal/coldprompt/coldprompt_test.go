@@ -7,9 +7,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/coldprompt"
 )
 
-// TestGet_KnownNames verifies that Get returns non-empty brief text for
-// each documented cold-op name. The briefs are embedded at build time — a
-// non-empty result proves the embed succeeded and the file has content.
 func TestGet_KnownNames(t *testing.T) {
 	cases := []string{"git-cleanup", "claude-merge", "implementer", "reviewer"}
 	for _, name := range cases {
@@ -25,26 +22,20 @@ func TestGet_KnownNames(t *testing.T) {
 	}
 }
 
-// TestGet_UnknownName verifies that Get returns a non-nil error for an
-// unregistered name and that the error message lists the valid names.
-// This prevents silent bad citations from passing undetected.
 func TestGet_UnknownName(t *testing.T) {
 	_, err := coldprompt.Get("bogus-name")
 	if err == nil {
 		t.Fatal("Get(\"bogus-name\") returned nil error, want non-nil")
 	}
 	msg := err.Error()
-	// Error must mention the unknown name.
 	if !strings.Contains(msg, "bogus-name") {
 		t.Errorf("error message does not mention the unknown name: %q", msg)
 	}
-	// Error must list at least one valid name so the caller can correct it.
 	if !strings.Contains(msg, "git-cleanup") {
 		t.Errorf("error message does not list valid name %q: %q", "git-cleanup", msg)
 	}
 }
 
-// TestNames verifies Names() returns the exact set of registered names.
 func TestNames(t *testing.T) {
 	names := coldprompt.Names()
 	if len(names) == 0 {

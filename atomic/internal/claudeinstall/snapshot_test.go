@@ -12,12 +12,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
 
-// snapshotFixedClock returns a distinct fixed time for snapshot tests.
 func snapshotFixedClock() time.Time {
 	return time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
 }
 
-// TestSnapshotCreatedOnFirstInstall: first-time install creates pre-install dir and manifest.json.
 func TestSnapshotCreatedOnFirstInstall(t *testing.T) {
 	target := t.TempDir()
 
@@ -51,7 +49,6 @@ func TestSnapshotCreatedOnFirstInstall(t *testing.T) {
 		t.Error("manifest.json has no file entries")
 	}
 
-	// Manifest must cover every artifact in the embedded manifest.
 	embeddedTargets := make(map[string]bool)
 	for _, a := range embedded.Manifest() {
 		embeddedTargets[a.Target] = true
@@ -69,11 +66,9 @@ func TestSnapshotCreatedOnFirstInstall(t *testing.T) {
 	}
 }
 
-// TestSnapshotNotOverwrittenOnSecondInstall: second install does not touch existing pre-install dir.
 func TestSnapshotNotOverwrittenOnSecondInstall(t *testing.T) {
 	target := t.TempDir()
 
-	// First install.
 	_, err := claudeinstall.Install(target, target, false, snapshotFixedClock)
 	if err != nil {
 		t.Fatalf("first Install: %v", err)
@@ -87,7 +82,6 @@ func TestSnapshotNotOverwrittenOnSecondInstall(t *testing.T) {
 		t.Fatalf("manifest.json after first install: %v", err)
 	}
 
-	// Second install with a different clock.
 	laterClock := func() time.Time { return time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC) }
 	_, err = claudeinstall.Install(target, target, false, laterClock)
 	if err != nil {
@@ -104,7 +98,6 @@ func TestSnapshotNotOverwrittenOnSecondInstall(t *testing.T) {
 	}
 }
 
-// TestSnapshotCapturesExistingSettingsJSON: settings.json present before install is snapshotted.
 func TestSnapshotCapturesExistingSettingsJSON(t *testing.T) {
 	target := t.TempDir()
 
@@ -131,7 +124,6 @@ func TestSnapshotCapturesExistingSettingsJSON(t *testing.T) {
 		t.Errorf("pre-install/settings.json content mismatch: got %q, want %q", data, settingsContent)
 	}
 
-	// manifest.json must record it as existed=true with correct sha256.
 	manifestPath := filepath.Join(preInstallDir, "manifest.json")
 	manifestData, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -161,11 +153,9 @@ func TestSnapshotCapturesExistingSettingsJSON(t *testing.T) {
 	}
 }
 
-// TestSnapshotRecordsMissingFilesAsNotExisted: files not on disk are recorded as existed=false.
 func TestSnapshotRecordsMissingFilesAsNotExisted(t *testing.T) {
 	target := t.TempDir()
 
-	// Fresh target — nothing pre-exists.
 	_, err := claudeinstall.Install(target, target, false, snapshotFixedClock)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
@@ -182,7 +172,6 @@ func TestSnapshotRecordsMissingFilesAsNotExisted(t *testing.T) {
 		t.Fatalf("unmarshal manifest: %v", err)
 	}
 
-	// All files were absent before install (fresh target): each must have existed=false.
 	for _, f := range m.Files {
 		if f.Existed {
 			t.Errorf("file %q: existed=true, want false (fresh install, nothing pre-existed)", f.Path)

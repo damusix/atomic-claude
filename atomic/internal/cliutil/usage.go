@@ -7,10 +7,8 @@ import (
 	"strings"
 )
 
-// SetUsage installs a custom Usage on fs that renders every registered flag in
-// double-dash (--name) form, matching atomic's documented convention, instead
-// of Go's default single-dash PrintDefaults output. usageLine is the one-line
-// invocation summary printed after "Usage: " (e.g. "atomic update [options]").
+// SetUsage renders flags in double-dash form, matching atomic's documented
+// convention rather than Go's single-dash PrintDefaults output.
 func SetUsage(fs *flag.FlagSet, usageLine string) {
 	fs.Usage = func() {
 		w := fs.Output()

@@ -1,21 +1,7 @@
 package languages_test
 
-// Tests for the Elixir language extractor config (engine wiring + extractor).
-//
-// Each test:
-//  1. Extracts a real fixture through the pool (proves grammar ABI + wiring ok).
-//  2. Asserts per success criteria:
-//     - defmodule → NodeKindModule (module name extracted from alias)
-//     - def       → NodeKindFunction, IsExported=true
-//     - defp      → NodeKindFunction, IsExported=false
-//     - defstruct → NodeKindStruct
-//     - alias/import/use → NodeKindImport (UnresolvedReference with EdgeKindImports)
-//     - regular calls → UnresolvedReference with EdgeKindCalls
-//     - Node count stable across two extractions.
-//
-// Node-type strings are VERIFIED by real Elixir grammar parse (see
-// tmp/probe-elixir/ for probe output). Do NOT change them without re-running
-// the probe — all Elixir constructs parse as "call" nodes.
+// Every fixture here runs through the real grammar, so these also cover ABI and
+// pool wiring, not only the config.
 
 import (
 	"context"
@@ -25,20 +11,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// elixirFixture exercises:
-//   - defmodule (MyApp.UserController)  → NodeKindModule
-//   - alias (MyApp.User)                → NodeKindImport
-//   - import (Plug.Conn)                → NodeKindImport
-//   - use (Phoenix.Controller)          → NodeKindImport
-//   - defstruct ([:id, :name, :email])  → NodeKindStruct
-//   - def create(conn, params)          → NodeKindFunction, IsExported=true
-//   - def index(conn, _params)          → NodeKindFunction, IsExported=true
-//   - defp validate(params)             → NodeKindFunction, IsExported=false
-//   - regular call User.new(params)     → UnresolvedReference EdgeKindCalls
-//   - regular call json(conn, user)     → UnresolvedReference EdgeKindCalls
-//
-// Verified by tmp/probe-elixir/: all Elixir definitions parse as "call" nodes
-// with a "target" identifier child whose text is the macro name.
+// One fixture covering every macro the config recognizes, plus plain calls.
 const elixirFixture = `defmodule MyApp.UserController do
   alias MyApp.User
   import Plug.Conn
@@ -64,10 +37,7 @@ end
 
 const elixirFixturePath = "lib/my_app/user_controller.ex"
 
-// TestElixir_ModuleExtracted verifies defmodule → NodeKindModule with the
-// correct module name extracted from the alias node.
-// WHY: Module nodes are the structural containers for Elixir code; missing
-// them breaks the entire module-level graph.
+// Modules are the containers everything else in Elixir hangs off.
 func TestElixir_ModuleExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
@@ -86,9 +56,7 @@ func TestElixir_ModuleExtracted(t *testing.T) {
 	}
 }
 
-// TestElixir_PublicFunctionExtracted verifies def → NodeKindFunction with IsExported=true.
-// WHY: Public functions are the primary call targets in Elixir; wrong kind or
-// wrong export flag breaks call-graph resolution and Phoenix route wiring.
+// Public functions are the call targets resolution and route wiring look for.
 func TestElixir_PublicFunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
@@ -110,9 +78,7 @@ func TestElixir_PublicFunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestElixir_PrivateFunctionExtracted verifies defp → NodeKindFunction with IsExported=false.
-// WHY: Private functions must be distinguished from public ones; a Phoenix route
-// resolver must not expose defp functions as routable actions.
+// A route resolver must not offer a private function as a routable action.
 func TestElixir_PrivateFunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
@@ -134,9 +100,7 @@ func TestElixir_PrivateFunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestElixir_StructExtracted verifies defstruct → NodeKindStruct.
-// WHY: Elixir structs are the primary data types; their extraction enables
-// type-reference resolution and data-flow analysis.
+// Structs are Elixir's data types, and type-reference resolution needs them.
 func TestElixir_StructExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
@@ -161,9 +125,7 @@ func TestElixir_StructExtracted(t *testing.T) {
 	}
 }
 
-// TestElixir_ImportsExtracted verifies alias/import/use → NodeKindImport.
-// WHY: Import nodes enable dependency tracking between Elixir modules; without
-// them the graph has no edges between the user controller and MyApp.User.
+// All three directives are dependencies; without them modules sit unconnected.
 func TestElixir_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
@@ -182,11 +144,8 @@ func TestElixir_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestElixir_CallEmitsUnresolvedReference verifies regular call nodes emit
-// EdgeKindCalls UnresolvedReferences (not edges directly).
-// WHY: Calls must never emit edges directly — the resolution layer owns that
-// step. A direct edge at extraction time bypasses resolution and produces an
-// incorrect, unresolvable graph entry.
+// Extraction emits references, never edges: the resolution layer owns that step,
+// and an edge minted here would bypass it unresolvable.
 func TestElixir_CallEmitsUnresolvedReference(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
@@ -199,17 +158,13 @@ func TestElixir_CallEmitsUnresolvedReference(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// Fixture has regular calls: User.new(params), json(conn, user), User.all().
-	// These should emit EdgeKindCalls UnresolvedReferences, NOT NodeKindFunction nodes.
 	callRefs := countUnresolved(result.UnresolvedReferences, types.EdgeKindCalls)
 	if callRefs == 0 {
 		t.Fatalf("no EdgeKindCalls UnresolvedReferences; fixture has User.new(params), json(conn, user), User.all(); refs: %v", result.UnresolvedReferences)
 	}
 }
 
-// TestElixir_NodeCountStable verifies extraction is deterministic (idempotent).
-// WHY: Non-deterministic extraction (e.g. from pointer aliasing or global state)
-// causes flaky test failures and unreliable incremental indexing.
+// Incremental indexing relies on a fixture extracting the same way twice.
 func TestElixir_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
@@ -229,10 +184,8 @@ func TestElixir_NodeCountStable(t *testing.T) {
 	}
 }
 
-// TestElixir_NonZeroExtraction verifies that a real .ex file produces > 0 nodes.
-// WHY: This is the primary regression gate — if Elixir extraction silently
-// regresses to 0 nodes (e.g. grammar not loaded, wiring broken), this test
-// fails immediately.
+// The blunt gate: a broken grammar load or broken wiring yields zero nodes
+// rather than an error, and every other test here would still look plausible.
 func TestElixir_NonZeroExtraction(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
@@ -245,20 +198,15 @@ func TestElixir_NonZeroExtraction(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// Must extract: 1 file node + 1 module + 2 public functions + 1 private function
-	// + 1 struct + at least 3 import nodes = minimum 9 nodes.
+	// File, module, three functions, struct, and three imports.
 	if len(result.Nodes) < 9 {
 		t.Errorf("expected >= 9 nodes (file+module+functions+struct+imports), got %d; nodes: %s",
 			len(result.Nodes), nodeKindList(result.Nodes))
 	}
 }
 
-// elixirGuardFixture exercises guard-clause functions — the shape that was
-// producing name="def" instead of the real function name before the fix.
-//
-// WHY: `def get(team_id) when is_integer(team_id) do...end` parses arguments[0]
-// as a binary_operator("get(team_id) when is_integer(team_id)") not a call node.
-// The extractor must unwrap the binary_operator to reach the real function head.
+// Guard clauses, whose arguments[0] is a binary_operator rather than the call
+// node the name extractor expects.
 const elixirGuardFixture = `defmodule MyApp.Teams do
   def get(team_id) when is_integer(team_id) do
     {:ok, team_id}
@@ -274,12 +222,9 @@ const elixirGuardFixture = `defmodule MyApp.Teams do
 end
 `
 
-// TestElixir_GuardClause_RealNameExtracted is the regression test for Bug #1.
-// It verifies that functions with guard clauses get their real names (e.g. "get",
-// "validate_id", "fetch_all") — NOT the macro keyword "def"/"defp".
-// WHY: 313 nodes in a real Phoenix app (Plausible) had name="def"/"defp" because
-// guard-clause arguments[0] is a binary_operator, not a call — the old code fell
-// through to returning the macro keyword string.
+// Regression guard: unwrapping the guard was once missing, so the name fell
+// through to the macro keyword — hundreds of nodes in one real app were named
+// "def" or "defp".
 func TestElixir_GuardClause_RealNameExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
@@ -292,7 +237,6 @@ func TestElixir_GuardClause_RealNameExtracted(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// All three functions must carry their real names, not "def"/"defp".
 	for _, wantName := range []string{"get", "validate_id", "fetch_all"} {
 		fn := findNode(result.Nodes, types.NodeKindFunction, wantName)
 		if fn == nil {
@@ -300,8 +244,7 @@ func TestElixir_GuardClause_RealNameExtracted(t *testing.T) {
 		}
 	}
 
-	// Specifically: no NodeKindFunction node must be named "def" or "defp".
-	// That is the exact symptom of the bug.
+	// A function named for its own macro keyword is the bug's signature.
 	for i := range result.Nodes {
 		n := &result.Nodes[i]
 		if n.Kind == types.NodeKindFunction && (n.Name == "def" || n.Name == "defp") {
@@ -311,12 +254,7 @@ func TestElixir_GuardClause_RealNameExtracted(t *testing.T) {
 	}
 }
 
-// elixirMacroDoBlockFixture exercises definitions nested inside macro do-blocks.
-//
-// WHY: `on_ee do def foo ... end` has `def foo` inside the do-block of a
-// non-definition macro call. The extractor was skipping the do-block entirely
-// because on_ee resolves to NodeKind("") (a regular call reference) and
-// skipChildren=true was returned without descending into the do_block.
+// Definitions nested in the do-block of a macro that is itself only a call.
 const elixirMacroDoBlockFixture = `defmodule MyApp.StatsController do
   on_ee do
     def exploration_next(conn, params) do
@@ -334,12 +272,9 @@ const elixirMacroDoBlockFixture = `defmodule MyApp.StatsController do
 end
 `
 
-// TestElixir_MacroDoBlock_DefsExtracted is the regression test for Bug #2.
-// It verifies that def/defp inside non-definition macro do-blocks (like `on_ee`)
-// are extracted — they were completely absent before the fix.
-// WHY: Functions like `exploration_next` and `funnel` in Plausible's
-// stats_controller were missing from the index because they live inside
-// `on_ee do...end` blocks that the extractor was skipping entirely.
+// Regression guard: a call resolves to the empty sentinel, and the walk once
+// stopped there without descending, so every definition inside such a block was
+// absent from the index entirely.
 func TestElixir_MacroDoBlock_DefsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
@@ -352,7 +287,6 @@ func TestElixir_MacroDoBlock_DefsExtracted(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// Both defs inside the on_ee do-block must be extracted.
 	explorationNext := findNode(result.Nodes, types.NodeKindFunction, "exploration_next")
 	if explorationNext == nil {
 		t.Errorf("exploration_next (def inside on_ee do-block) not found; nodes: %s", nodeKindList(result.Nodes))
@@ -367,7 +301,7 @@ func TestElixir_MacroDoBlock_DefsExtracted(t *testing.T) {
 		t.Errorf("funnel should NOT be exported (defp); got IsExported=true")
 	}
 
-	// The top-level def outside the macro block must also still work.
+	// Descending into the block must not cost the ordinary path.
 	index := findNode(result.Nodes, types.NodeKindFunction, "index")
 	if index == nil {
 		t.Errorf("index (top-level def) not found; nodes: %s", nodeKindList(result.Nodes))

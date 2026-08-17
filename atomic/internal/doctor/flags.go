@@ -9,9 +9,8 @@ import (
 	"strings"
 )
 
-// ParseFlags parses the args slice (not including the subcommand name) and
-// returns a validated Opts. Returns a non-nil error for usage violations;
-// callers should exit 2 on error.
+// ParseFlags parses args (subcommand name excluded) into a validated Opts.
+// Callers exit 2 on a returned error.
 func ParseFlags(args []string) (Opts, error) {
 	return ParseFlagsWithOutput(args, os.Stderr)
 }
@@ -50,23 +49,19 @@ func ParseFlagsWithOutput(args []string, w io.Writer) (Opts, error) {
 		return Opts{}, fmt.Errorf("doctor: %w", err)
 	}
 
-	// Mutual exclusion: --fix and --json cannot be combined.
 	if fix && jsonOut {
 		return Opts{}, fmt.Errorf("doctor: --fix and --json are mutually exclusive")
 	}
 
-	// Validate --stale-days.
 	if staleDays <= 0 {
 		return Opts{}, fmt.Errorf("doctor: --stale-days must be a positive integer, got %d", staleDays)
 	}
 
-	// Resolve --only.
 	only, err := resolveCategories(onlyStr)
 	if err != nil {
 		return Opts{}, fmt.Errorf("doctor: --only: %w", err)
 	}
 
-	// Resolve --skip.
 	skip, err := resolveCategories(skipStr)
 	if err != nil {
 		return Opts{}, fmt.Errorf("doctor: --skip: %w", err)
@@ -82,14 +77,13 @@ func ParseFlagsWithOutput(args []string, w io.Writer) (Opts, error) {
 	}, nil
 }
 
-// resolveCategories parses a comma-separated list of category indices or names
-// and returns the resolved indices. Empty input returns nil.
+// resolveCategories turns a comma-separated list of category indices or names
+// into indices. Empty input returns nil.
 func resolveCategories(input string) ([]int, error) {
 	if input == "" {
 		return nil, nil
 	}
 
-	// Build name→index lookup.
 	byName := make(map[string]int, len(categories))
 	byIndex := make(map[int]bool, len(categories))
 	for _, c := range categories {
@@ -107,7 +101,6 @@ func resolveCategories(input string) ([]int, error) {
 			continue
 		}
 
-		// Try parsing as integer first.
 		if n, err := strconv.Atoi(tok); err == nil {
 			if !byIndex[n] {
 				return nil, fmt.Errorf("index %d out of range (valid: 1-%d)", n, len(categories))
@@ -119,7 +112,6 @@ func resolveCategories(input string) ([]int, error) {
 			continue
 		}
 
-		// Try as canonical name.
 		idx, ok := byName[tok]
 		if !ok {
 			return nil, fmt.Errorf("unknown category %q (valid names: %s)", tok, validNames())
@@ -133,7 +125,6 @@ func resolveCategories(input string) ([]int, error) {
 	return result, nil
 }
 
-// validNames returns a comma-separated list of canonical category names.
 func validNames() string {
 	names := make([]string, len(categories))
 	for i, c := range categories {

@@ -20,8 +20,6 @@ func writeTopicFile(t *testing.T, path, content string) {
 	}
 }
 
-// --- walkBucketTopics: simple topic + exclusions ---
-
 func TestWalkBucketTopics_SimpleTopicAndExclusions(t *testing.T) {
 	dir := t.TempDir()
 	writeTopicFile(t, filepath.Join(dir, "index.md"), "# bucket\n")
@@ -44,8 +42,6 @@ func TestWalkBucketTopics_SimpleTopicAndExclusions(t *testing.T) {
 		t.Errorf("plain topic must not be flagged router/orphan: %+v", topics[0])
 	}
 }
-
-// --- walkBucketTopics: router collapse ---
 
 func TestWalkBucketTopics_RouterCollapse(t *testing.T) {
 	dir := t.TempDir()
@@ -81,8 +77,6 @@ func TestWalkBucketTopics_RouterCollapse(t *testing.T) {
 		}
 	}
 }
-
-// --- walkBucketTopics: orphan subtree ---
 
 func TestWalkBucketTopics_OrphanSubtree(t *testing.T) {
 	dir := t.TempDir()
@@ -120,8 +114,6 @@ func TestWalkBucketTopics_OrphanSubtree(t *testing.T) {
 		t.Errorf("orphan (no frontmatter possible) must be unindexed")
 	}
 }
-
-// --- deriveTitle: three-rung ladder ---
 
 func TestDeriveTitle_FrontmatterRung(t *testing.T) {
 	dir := t.TempDir()
@@ -167,8 +159,6 @@ func TestDeriveTitle_FilenameStemRung(t *testing.T) {
 	}
 }
 
-// --- description ladder ---
-
 func TestReadTopicMeta_DescriptionFrontmatterRung(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "seo.md")
@@ -209,8 +199,6 @@ func TestReadTopicMeta_DescriptionExhaustedIsLinkOnly(t *testing.T) {
 	}
 }
 
-// --- tags ladder ---
-
 func TestDeriveTags(t *testing.T) {
 	cases := []struct {
 		name string
@@ -239,8 +227,6 @@ func TestDeriveTags(t *testing.T) {
 	}
 }
 
-// --- indexed flag ---
-
 func TestReadTopicMeta_IndexedFlag(t *testing.T) {
 	dir := t.TempDir()
 
@@ -262,8 +248,6 @@ func TestReadTopicMeta_IndexedFlag(t *testing.T) {
 		t.Error("a frontmatter block with no recognized key must be unindexed")
 	}
 }
-
-// --- renderBucketDocs: indexed / unindexed grouping ---
 
 func TestRenderBucketDocs_IndexedThenUnindexedGrouping(t *testing.T) {
 	topics := []BucketTopic{
@@ -298,8 +282,6 @@ func TestRenderBucketDocs_NoUnindexedOmitsHeading(t *testing.T) {
 		t.Errorf("### Unindexed heading must be omitted when there are no unindexed topics: %q", got)
 	}
 }
-
-// --- RebuildBucketIndex: splice + idempotency + outside-prose preservation ---
 
 func TestRebuildBucketIndex_PreservesOutsideProseWithArbitraryEdits(t *testing.T) {
 	dir := t.TempDir()
@@ -402,8 +384,6 @@ func TestRebuildBucketIndex_UnpairedRegionLeavesFileUntouched(t *testing.T) {
 	}
 }
 
-// --- renderBucketList: sorted, descriptions, missing marker ---
-
 func TestRenderBucketList_SortedWithDescriptionsAndMissing(t *testing.T) {
 	root := t.TempDir()
 	wikiDir := filepath.Join(root, "wiki")
@@ -439,8 +419,6 @@ func TestRenderBucketList_ZeroEntriesHeadingOnly(t *testing.T) {
 		t.Errorf("got %q, want heading-only %q", got, "## Buckets")
 	}
 }
-
-// --- RebuildAllBucketIndexes: realm splice, missing bucket, registry untouched ---
 
 func TestRebuildAllBucketIndexes_SplicesRealmListAndSkipsMissingDir(t *testing.T) {
 	root := t.TempDir()

@@ -9,13 +9,12 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
 
-// buildMiniRepo creates a tiny fake repo structure for testing the mirror logic.
 func buildMiniRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	// rel is bundle-relative, so it doubles as the artifact's expected Target.
-	// The mirror reads only context/, so that is where the file lands.
+	// rel is bundle-relative, so it doubles as the expected Target; the mirror
+	// reads only context/, so that is where the file lands.
 	write := func(rel, content string) {
 		t.Helper()
 		full := filepath.Join(bundlespec.SourceRoot(dir), rel)
@@ -71,15 +70,13 @@ func TestRunBasic(t *testing.T) {
 	if counts["agent"] != 2 {
 		t.Errorf("agent count = %d, want 2", counts["agent"])
 	}
-	// atomic-tdd contributes 3 files (SKILL.md, REFERENCE.md, scripts/check.sh);
-	// atomic-verify contributes 1 (SKILL.md). Skill dirs ship as full subtrees.
+	// Skill dirs ship as full subtrees: atomic-tdd is 3 files, atomic-verify 1.
 	if counts["skill"] != 4 {
 		t.Errorf("skill count = %d, want 4", counts["skill"])
 	}
 	if counts["output-style"] != 1 {
 		t.Errorf("output-style count = %d, want 1", counts["output-style"])
 	}
-	// All .md files in commands/ ship, including subdirectories.
 	if counts["command"] != 4 {
 		t.Errorf("command count = %d, want 4", counts["command"])
 	}

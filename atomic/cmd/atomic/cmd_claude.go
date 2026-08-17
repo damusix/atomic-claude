@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildClaudeCmd builds the "claude" parent + install|update|list|diff|uninstall children.
 func buildClaudeCmd() *cobra.Command {
 	parent := &cobra.Command{
 		Use:   "claude",
@@ -56,27 +55,18 @@ func buildClaudeCmd() *cobra.Command {
 	return parent
 }
 
-// installResult bundles what runClaudeInstall did. HooksError is non-fatal
-// at the cmd layer — the caller decides whether to surface it as a warning.
+// HooksError is non-fatal here; the caller decides whether to warn.
 type installResult struct {
 	Plan           []claudeinstall.FileAction
 	HooksInstalled bool
 	HooksError     error
 }
 
-// runClaudeInstall performs the bundle install/update and, by default, also
-// registers the session-start hook. Extracted from the cmd switch so it can be
-// tested without invoking os.Exit. Hook registration is skipped under dry-run
-// and when noHooks is true.
-//
-// targetDir is the Claude artifact install root (may be --target-overridden);
-// home is the user's real home directory, the fixed root of atomic-owned
-// config state (~/.atomic — D1). The two are resolved independently: a custom
-// --target does not move where config state lives.
-//
-// scopeRoot for the hook is the parent of targetDir: ~/.claude → $HOME (user
-// scope), <repo>/.claude → <repo> (project scope). This mirrors the mapping
-// used by `atomic hooks install --scope user|project`.
+// runClaudeInstall is split out of the cmd switch so it is testable without
+// os.Exit. targetDir (the artifact install root, possibly --target-overridden)
+// and home (the fixed root of atomic state under ~/.atomic) resolve
+// independently: a custom --target does not move where config state lives. The
+// hook's scopeRoot is targetDir's parent, mirroring `hooks install --scope`.
 func runClaudeInstall(targetDir, home, verb string, dryRun, noHooks bool) (installResult, error) {
 	var plan []claudeinstall.FileAction
 	var err error
@@ -103,18 +93,16 @@ func runClaudeInstall(targetDir, home, verb string, dryRun, noHooks bool) (insta
 	return result, nil
 }
 
-// runClaudeUninstall builds the uninstall plan for targetDir and returns the
-// structured markdown prompt Claude should execute. When out is a TTY the
-// caller should print a human-readable hint before the prompt. Extracted from
-// the cmd switch so it can be tested without invoking os.Exit.
+// runClaudeUninstall returns the markdown prompt Claude should execute. Split
+// out of the cmd switch so it is testable without os.Exit.
 func runClaudeUninstall(targetDir, home string, out *os.File) (string, error) {
 	plan, err := claudeinstall.BuildUninstallPlan(targetDir, home)
 	if err != nil {
 		return "", err
 	}
 
-	// TTY detection: if out is a character device, we're in an interactive
-	// terminal — print a hint so the user knows what to do with the output.
+	// A character device means an interactive terminal, so hint at what to do
+	// with the output that follows.
 	info, statErr := out.Stat()
 	if statErr == nil && (info.Mode()&os.ModeCharDevice != 0) {
 		fmt.Fprintln(os.Stderr, "hint: run this inside a Claude Code session, or paste the output below into Claude.")
@@ -125,9 +113,9 @@ func runClaudeUninstall(targetDir, home string, out *os.File) (string, error) {
 	return claudeinstall.GenerateUninstallPrompt(targetDir, home, plan), nil
 }
 
-// printPostInstallHint surfaces the manual steps `atomic claude install` cannot
-// automate: output style activation (Claude Code requires user opt-in) and
-// per-repo signals initialization.
+// printPostInstallHint covers what install cannot automate: output style
+// activation, which Claude Code requires the user to opt into, and per-repo
+// signals initialization.
 func printPostInstallHint(verb string) {
 	if verb != "install" {
 		return

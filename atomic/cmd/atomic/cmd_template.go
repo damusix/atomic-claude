@@ -10,9 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildTemplateCmd builds the "template" parent + one child per embedded
-// document template (design-doc, spec, brief, state, followups,
-// session-report, diagnose-context, implementation-log).
 func buildTemplateCmd() *cobra.Command {
 	parent := &cobra.Command{
 		Use:   "template",
@@ -37,17 +34,8 @@ func buildTemplateCmd() *cobra.Command {
 	return parent
 }
 
-// --- package-resident nested switches → Cobra subcommands ---------------
-//
-// Same pattern: parent has Args:cobra.ArbitraryArgs so unknown verbs and
-// the no-args case fall through to the existing handler; each child sets
-// DisableFlagParsing:true and prepends its name to reconstruct the arg shape
-// the existing package handler expects.
-
-// templateAction executes the template subcommand logic and returns an exit
-// code. Extracted from runTemplate so tests can exercise dispatch without
-// os.Exit. out receives the template text on success; errOut receives error
-// messages.
+// templateAction is split out of runTemplate so tests reach dispatch without
+// os.Exit.
 func templateAction(args []string, out, errOut io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintf(errOut, "Usage: atomic template <name>\n")
@@ -63,7 +51,6 @@ func templateAction(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// runTemplate is the os.Exit-aware entry point for the template top-level verb.
 func runTemplate(args []string) {
 	os.Exit(templateAction(args, os.Stdout, os.Stderr))
 }

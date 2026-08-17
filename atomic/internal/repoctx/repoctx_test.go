@@ -11,7 +11,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 )
 
-// Happy path: override path — resolves to an absolute path when given a valid dir.
 func TestResolve_Override(t *testing.T) {
 	dir := t.TempDir()
 	got, err := repoctx.Resolve(dir)
@@ -26,8 +25,6 @@ func TestResolve_Override(t *testing.T) {
 	}
 }
 
-// Override with a relative path is resolved to absolute.
-// We save/restore cwd so the chdir doesn't bleed into parallel tests.
 func TestResolve_OverrideRelative(t *testing.T) {
 	dir := t.TempDir()
 
@@ -49,7 +46,6 @@ func TestResolve_OverrideRelative(t *testing.T) {
 	}
 }
 
-// Override with a non-existent path returns an error.
 func TestResolve_OverrideNotExist(t *testing.T) {
 	_, err := repoctx.Resolve("/does/not/exist/xyzzy-atomic-test")
 	if err == nil {
@@ -57,9 +53,7 @@ func TestResolve_OverrideNotExist(t *testing.T) {
 	}
 }
 
-// No override, inside a git repo: should return the repo root.
 func TestResolve_GitRepo(t *testing.T) {
-	// We are inside the claude-code-setup repo; resolve from cwd.
 	got, err := repoctx.Resolve("")
 	if err != nil {
 		t.Fatalf("Resolve(\"\") in git repo error: %v", err)
@@ -69,20 +63,12 @@ func TestResolve_GitRepo(t *testing.T) {
 	}
 }
 
-// No override, outside a git repo: falls back to the current working directory.
-//
-// Git is a history substrate, not a precondition for atomic. When `git rev-parse`
-// fails (no repo), Resolve returns the cwd so commands operate on the cwd tree
-// instead of hard-failing.
-//
-// Assumption: t.TempDir() returns a path that is not inside any git repository.
-// On some CI setups the temp directory may live under /home or /tmp which could
-// be inside a git tree; in that case the test is skipped rather than producing a
-// false negative.
+// Git is a history substrate, not a precondition: with no repo, Resolve returns
+// the cwd rather than failing. Skips when t.TempDir() happens to sit inside a
+// git tree, which some CI layouts produce.
 func TestResolve_NotInGitRepo_FallsBackToCwd(t *testing.T) {
 	dir := t.TempDir()
 
-	// Verify the assumption: the temp dir must not be inside a git repo.
 	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
 	if err == nil {
 		root := strings.TrimSpace(string(out))
@@ -98,8 +84,7 @@ func TestResolve_NotInGitRepo_FallsBackToCwd(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 
-	// The cwd Resolve should report — both Resolve and this test call os.Getwd()
-	// after the Chdir, so they resolve to the same canonical path.
+	// Both sides call os.Getwd() after the Chdir, so they canonicalize alike.
 	wantCwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -117,10 +102,6 @@ func TestResolve_NotInGitRepo_FallsBackToCwd(t *testing.T) {
 	}
 }
 
-// --- ResolveFrom ---
-
-// TestResolveFrom_Override: an override short-circuits marker/git resolution
-// entirely and reports ScopeSourceNone, regardless of dir.
 func TestResolveFrom_Override(t *testing.T) {
 	dir := t.TempDir()
 	otherDir := t.TempDir()
@@ -137,8 +118,6 @@ func TestResolveFrom_Override(t *testing.T) {
 	}
 }
 
-// TestResolveFrom_OverrideNotExist: an override that does not exist errors,
-// same as Resolve.
 func TestResolveFrom_OverrideNotExist(t *testing.T) {
 	_, _, err := repoctx.ResolveFrom(t.TempDir(), "/does/not/exist/xyzzy-atomic-test")
 	if err == nil {
@@ -146,8 +125,6 @@ func TestResolveFrom_OverrideNotExist(t *testing.T) {
 	}
 }
 
-// TestResolveFrom_MarkerWinsOverNoGit: a scope="repo" marker at or above dir
-// resolves the root, source marker, with no git repo present at all.
 func TestResolveFrom_MarkerWinsOverNoGit(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -173,9 +150,6 @@ func TestResolveFrom_MarkerWinsOverNoGit(t *testing.T) {
 	}
 }
 
-// TestResolveFrom_MarkerWinsOverGitToplevel: a scope="repo" marker nested
-// inside a git repository outranks the git toplevel — the marker directory
-// is reported, not the (higher-up) git root.
 func TestResolveFrom_MarkerWinsOverGitToplevel(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -208,10 +182,6 @@ func TestResolveFrom_MarkerWinsOverGitToplevel(t *testing.T) {
 	}
 }
 
-// TestResolveFrom_MarkerWithRelativeDir: dir passed to ResolveFrom as a
-// relative path still resolves to an absolute marker root — the documented
-// "returns the absolute path" invariant, defended explicitly in the marker
-// branch rather than relying solely on FindScopeRoot's own normalization.
 func TestResolveFrom_MarkerWithRelativeDir(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -234,10 +204,8 @@ func TestResolveFrom_MarkerWithRelativeDir(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(origWd) })
 
-	// filepath.Abs on a relative path resolves via os.Getwd(), which
-	// canonicalizes symlinks (e.g. macOS's /var -> /private/var) — resolve
-	// the expected root the same way so the comparison isn't a false
-	// negative on such platforms.
+	// filepath.Abs goes through os.Getwd(), which canonicalizes symlinks
+	// (macOS /var -> /private/var), so the expected root must too.
 	wantRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		t.Fatal(err)
@@ -258,8 +226,6 @@ func TestResolveFrom_MarkerWithRelativeDir(t *testing.T) {
 	}
 }
 
-// TestResolveFrom_GitFallback_NoMarker: no marker anywhere — falls back to
-// git toplevel, source git.
 func TestResolveFrom_GitFallback_NoMarker(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -293,11 +259,7 @@ func TestResolveFrom_GitFallback_NoMarker(t *testing.T) {
 	}
 }
 
-// TestResolveFrom_CwdFallback_NoMarkerNoGit: neither a marker nor a git repo
-// — falls back to dir itself, source cwd.
-//
-// Assumption: t.TempDir() returns a path that is not inside any git
-// repository. Skipped rather than false-negative when that assumption fails.
+// Skips when t.TempDir() happens to sit inside a git tree.
 func TestResolveFrom_CwdFallback_NoMarkerNoGit(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -321,11 +283,8 @@ func TestResolveFrom_CwdFallback_NoMarkerNoGit(t *testing.T) {
 	}
 }
 
-// TestResolveFrom_GitRunsInGivenDir_NotProcessCwd is the decisive proof that
-// ResolveFrom runs "git rev-parse --show-toplevel" in dir (cmd.Dir), not the
-// process's own cwd — otherwise the directory parameter would be a lie. Two
-// distinct git repos: the process stays chdir'd into repoA the whole time,
-// while dir=repoB is passed explicitly. The result must be repoB's toplevel.
+// git must run in dir, not the process cwd, or the dir parameter is a lie: the
+// process stays inside repoA throughout while dir=repoB must win.
 func TestResolveFrom_GitRunsInGivenDir_NotProcessCwd(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()

@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// TestInstallRoundTrip: config with [install] version + artifact lists survives WritePersist→Load.
 func TestInstallRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -52,7 +51,6 @@ func TestInstallRoundTrip(t *testing.T) {
 	}
 }
 
-// TestInstallVersionInvalid: Validate rejects a non-semver install.version.
 func TestInstallVersionInvalid(t *testing.T) {
 	cfg := Default()
 	cfg.Install.Version = "not-a-semver"
@@ -61,7 +59,6 @@ func TestInstallVersionInvalid(t *testing.T) {
 	}
 }
 
-// TestInstallVersionValidVariants: empty version (pre-framework) and standard semver forms pass.
 func TestInstallVersionValidVariants(t *testing.T) {
 	cases := []string{
 		"", // pre-framework install — no [install] table
@@ -79,7 +76,6 @@ func TestInstallVersionValidVariants(t *testing.T) {
 	}
 }
 
-// TestInstallAbsent: Load of a TOML without [install] produces zero-value Install, no warnings, valid.
 func TestInstallAbsent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -104,7 +100,6 @@ func TestInstallAbsent(t *testing.T) {
 	}
 }
 
-// TestInstallNoUnknownKeyWarnings: [install] and [install.artifacts.*] do not produce unknown-key warnings.
 func TestInstallNoUnknownKeyWarnings(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -133,7 +128,6 @@ rules = ["typescript/style.md"]
 	}
 }
 
-// TestSetUnknownKey: Set returns error on unknown key and includes a suggestion for near-matches.
 func TestSetUnknownKey(t *testing.T) {
 	cfg := Default()
 	err := Set(cfg, "output.signals.max_dept", "5") // typo: max_dept
@@ -145,33 +139,28 @@ func TestSetUnknownKey(t *testing.T) {
 	}
 }
 
-// TestSetUnknownKeyNoSuggestion: Set returns error for keys with no close match (no suggestion).
 func TestSetUnknownKeyNoSuggestion(t *testing.T) {
 	cfg := Default()
 	err := Set(cfg, "zzz.completely_unknown", "x")
 	if err == nil {
 		t.Fatal("expected error for unknown key, got nil")
 	}
-	// Should not contain any suggestion
 	if strings.Contains(err.Error(), "did you mean") {
 		t.Errorf("unexpected suggestion in error: %q", err.Error())
 	}
 }
 
-// TestSetUnknownValue: Set returns error describing the expected type on a bad value.
 func TestSetUnknownValue(t *testing.T) {
 	cfg := Default()
 	err := Set(cfg, "output.signals.max_depth", "bogus")
 	if err == nil {
 		t.Fatal("expected error for invalid value, got nil")
 	}
-	// Should describe the expected type.
 	if !strings.Contains(err.Error(), "positive integer") {
 		t.Errorf("expected 'positive integer' in error %q", err.Error())
 	}
 }
 
-// TestLoadUnknownKeyWarn: unknown top-level section on Load returns a Warning but no error.
 func TestLoadUnknownKeyWarn(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -190,13 +179,10 @@ func TestLoadUnknownKeyWarn(t *testing.T) {
 	}
 }
 
-// TestLoadUnknownLeafKeyWarn: an unknown leaf key inside a known section produces
-// a Warning mentioning the dotted path, and the valid key retains its default.
 func TestLoadUnknownLeafKeyWarn(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 
-	// [output] is a known section; foo is an unknown leaf key within it.
 	tomlContent := "[output]\nfoo = \"bar\"\n"
 	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
 		t.Fatal(err)
@@ -209,7 +195,6 @@ func TestLoadUnknownLeafKeyWarn(t *testing.T) {
 	if len(warns) == 0 {
 		t.Error("expected at least one warning for unknown leaf key, got none")
 	}
-	// Warning must mention the dotted key.
 	found := false
 	for _, w := range warns {
 		if strings.Contains(w.Message, "output.foo") {
@@ -220,7 +205,6 @@ func TestLoadUnknownLeafKeyWarn(t *testing.T) {
 	if !found {
 		t.Errorf("expected warning mentioning 'output.foo', got: %v", warns)
 	}
-	// Valid keys still resolve to defaults.
 	got, err := Get(cfg, "output.signals.max_depth")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -230,7 +214,6 @@ func TestLoadUnknownLeafKeyWarn(t *testing.T) {
 	}
 }
 
-// TestLoadMissingFile: missing file returns empty Config with no warnings/error.
 func TestLoadMissingFile(t *testing.T) {
 	cfg, warns, err := Load("/nonexistent/path/config.toml")
 	if err != nil {
@@ -239,7 +222,6 @@ func TestLoadMissingFile(t *testing.T) {
 	if len(warns) != 0 {
 		t.Errorf("unexpected warnings: %v", warns)
 	}
-	// Should return default values
 	got, err := Get(cfg, "update.run_doctor")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -249,7 +231,6 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 }
 
-// TestUnset: Unset reverts to built-in default.
 func TestUnset(t *testing.T) {
 	cfg := Default()
 	if err := Set(cfg, "output.signals.max_depth", "7"); err != nil {
@@ -267,7 +248,6 @@ func TestUnset(t *testing.T) {
 	}
 }
 
-// TestUnsetUnknownKey: Unset returns error for unknown keys.
 func TestUnsetUnknownKey(t *testing.T) {
 	cfg := Default()
 	err := Unset(cfg, "output.bogus")
@@ -276,8 +256,6 @@ func TestUnsetUnknownKey(t *testing.T) {
 	}
 }
 
-// TestWritePersistAtomic: WritePersist creates parent dir if absent and uses atomic write.
-// Also asserts no tempfile residue remains after the call — the rename must have completed.
 func TestWritePersistAtomic(t *testing.T) {
 	dir := t.TempDir()
 	nested := filepath.Join(dir, "nested")
@@ -292,8 +270,7 @@ func TestWritePersistAtomic(t *testing.T) {
 		t.Fatalf("file not created: %v", err)
 	}
 
-	// No tempfile residue: after a successful WritePersist, the rename must have
-	// completed and no *.toml.tmp files may remain in the parent directory.
+	// No tempfile residue: the rename must have completed.
 	entries, err := os.ReadDir(nested)
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
@@ -305,7 +282,6 @@ func TestWritePersistAtomic(t *testing.T) {
 	}
 }
 
-// TestResolvedDefaults: Resolved fills in defaults for empty Config.
 func TestResolvedDefaults(t *testing.T) {
 	cfg := Default()
 	m := Resolved(cfg)
@@ -314,7 +290,6 @@ func TestResolvedDefaults(t *testing.T) {
 	}
 }
 
-// TestUpdateRunDoctorDefault: Default() sets update.run_doctor = true.
 func TestUpdateRunDoctorDefault(t *testing.T) {
 	cfg := Default()
 	if !cfg.Update.RunDoctor {
@@ -322,7 +297,6 @@ func TestUpdateRunDoctorDefault(t *testing.T) {
 	}
 }
 
-// TestUpdateRunDoctorAbsent: absent update.run_doctor in TOML → default true.
 func TestUpdateRunDoctorAbsent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -344,7 +318,6 @@ func TestUpdateRunDoctorAbsent(t *testing.T) {
 	}
 }
 
-// TestUpdateRunDoctorExplicitFalse: explicit update.run_doctor = false round-trips correctly.
 func TestUpdateRunDoctorExplicitFalse(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -366,7 +339,6 @@ func TestUpdateRunDoctorExplicitFalse(t *testing.T) {
 	}
 }
 
-// TestUpdateRunDoctorExplicitTrue: explicit update.run_doctor = true loads correctly.
 func TestUpdateRunDoctorExplicitTrue(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -385,7 +357,6 @@ func TestUpdateRunDoctorExplicitTrue(t *testing.T) {
 	}
 }
 
-// TestUpdateRunDoctorRoundTrip: set false → persist → load → false.
 func TestUpdateRunDoctorRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -410,10 +381,9 @@ func TestUpdateRunDoctorRoundTrip(t *testing.T) {
 	}
 }
 
-// TestResolvedZeroValueConfig: Resolved(&Config{}) returns defaults for both keys.
-// This is the render.go backfill path — a literal zero-value Config must
-// produce "3" for max_depth and "true" for run_doctor even before Default() is called.
-// The zero-value max_depth (0) is also the sentinel that triggers the run_doctor default.
+// The render.go backfill path: a literal zero-value Config must resolve both
+// keys to their defaults before Default() is ever called. Its zero max_depth is
+// also the sentinel that triggers the run_doctor default.
 func TestResolvedZeroValueConfig(t *testing.T) {
 	m := Resolved(&Config{})
 	if m["output.signals.max_depth"] != "3" {
@@ -430,7 +400,6 @@ func TestResolvedZeroValueConfig(t *testing.T) {
 	}
 }
 
-// TestUpdateRunDoctorTrueRoundTrip: set true → persist → load → still true.
 func TestUpdateRunDoctorTrueRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -455,7 +424,6 @@ func TestUpdateRunDoctorTrueRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSetUpdateRunDoctorBadValue: Set rejects values other than true/false.
 func TestSetUpdateRunDoctorBadValue(t *testing.T) {
 	cfg := Default()
 	err := Set(cfg, "update.run_doctor", "yes")
@@ -467,7 +435,6 @@ func TestSetUpdateRunDoctorBadValue(t *testing.T) {
 	}
 }
 
-// TestSetUpdateRunDoctorTrue: Set("update.run_doctor", "true") works.
 func TestSetUpdateRunDoctorTrue(t *testing.T) {
 	cfg := Default()
 	cfg.Update.RunDoctor = false
@@ -479,7 +446,6 @@ func TestSetUpdateRunDoctorTrue(t *testing.T) {
 	}
 }
 
-// TestSetUpdateRunDoctorFalse: Set("update.run_doctor", "false") works.
 func TestSetUpdateRunDoctorFalse(t *testing.T) {
 	cfg := Default()
 	if err := Set(cfg, "update.run_doctor", "false"); err != nil {
@@ -490,7 +456,6 @@ func TestSetUpdateRunDoctorFalse(t *testing.T) {
 	}
 }
 
-// TestUnsetUpdateRunDoctor: Unset reverts update.run_doctor to default (true).
 func TestUnsetUpdateRunDoctor(t *testing.T) {
 	cfg := Default()
 	if err := Set(cfg, "update.run_doctor", "false"); err != nil {
@@ -504,7 +469,6 @@ func TestUnsetUpdateRunDoctor(t *testing.T) {
 	}
 }
 
-// TestGetUpdateRunDoctor: Get returns "true"/"false" string for update.run_doctor.
 func TestGetUpdateRunDoctor(t *testing.T) {
 	cfg := Default()
 	v, err := Get(cfg, "update.run_doctor")
@@ -527,7 +491,6 @@ func TestGetUpdateRunDoctor(t *testing.T) {
 	}
 }
 
-// TestSignalsMaxDepthDefault: Default() sets output.signals.max_depth = 3.
 func TestSignalsMaxDepthDefault(t *testing.T) {
 	cfg := Default()
 	if cfg.Output.Signals.MaxDepth != 3 {
@@ -535,7 +498,6 @@ func TestSignalsMaxDepthDefault(t *testing.T) {
 	}
 }
 
-// TestSignalsMaxDepthExplicit: explicit output.signals.max_depth in TOML overrides default.
 func TestSignalsMaxDepthExplicit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -557,7 +519,6 @@ func TestSignalsMaxDepthExplicit(t *testing.T) {
 	}
 }
 
-// TestSignalsMaxDepthNonPositiveValidation: Validate rejects max_depth <= 0.
 func TestSignalsMaxDepthNonPositiveValidation(t *testing.T) {
 	cfg := Default()
 	cfg.Output.Signals.MaxDepth = 0
@@ -572,7 +533,6 @@ func TestSignalsMaxDepthNonPositiveValidation(t *testing.T) {
 	}
 }
 
-// TestSignalsMaxDepthGetSet: Get and Set work for output.signals.max_depth.
 func TestSignalsMaxDepthGetSet(t *testing.T) {
 	cfg := Default()
 	v, err := Get(cfg, "output.signals.max_depth")
@@ -595,8 +555,6 @@ func TestSignalsMaxDepthGetSet(t *testing.T) {
 	}
 }
 
-// TestSignalsMaxDepthUnknownKeyNoFalsePositive: output.signals.max_depth does not
-// emit an unknown-key warning when present in a valid TOML file.
 func TestSignalsMaxDepthUnknownKeyNoFalsePositive(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -617,7 +575,6 @@ func TestSignalsMaxDepthUnknownKeyNoFalsePositive(t *testing.T) {
 	}
 }
 
-// TestSignalsMaxDepthRoundTrip: set → persist → load → get returns the set value.
 func TestSignalsMaxDepthRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -648,9 +605,6 @@ func TestSignalsMaxDepthRoundTrip(t *testing.T) {
 
 // --- [claude.agents] table tests ---
 
-// TestAgentsRoundTrip: config with [claude.agents] (model overrides for all 5
-// known agents) survives WritePersist→Load without structural warnings or
-// Validate error.
 func TestAgentsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -701,9 +655,8 @@ func TestAgentsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestAgentsScalarUnderClaudeAgentsIsDecodeError: nested tables are the only
-// accepted shape — a scalar value under [claude.agents] is a plain decode
-// error (no silent accept, no back-compat seam).
+// Nested tables are the only accepted shape: a scalar under [claude.agents] is a
+// plain decode error, with no silent accept and no back-compat seam.
 func TestAgentsScalarUnderClaudeAgentsIsDecodeError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -718,9 +671,8 @@ func TestAgentsScalarUnderClaudeAgentsIsDecodeError(t *testing.T) {
 	}
 }
 
-// TestAgentsStaleTopLevelBlockIsUnknownKeyWarning: a stale top-level [agents]
-// block (left by a pre-rename build) is no longer a recognized section — it
-// produces an unknown-key warning and is ignored, not loaded as an override.
+// A stale top-level [agents] block from a pre-rename build is no longer a
+// recognized section: it warns and is ignored, never loaded as an override.
 func TestAgentsStaleTopLevelBlockIsUnknownKeyWarning(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -748,8 +700,6 @@ func TestAgentsStaleTopLevelBlockIsUnknownKeyWarning(t *testing.T) {
 	}
 }
 
-// TestAgentsInvalidEffort: Validate returns an error when an agents effort value
-// is outside the allowlist {low, medium, high, xhigh, max}.
 func TestAgentsInvalidEffort(t *testing.T) {
 	cfg := Default()
 	cfg.Claude.Agents = map[string]AgentOverride{
@@ -767,7 +717,6 @@ func TestAgentsInvalidEffort(t *testing.T) {
 	}
 }
 
-// TestAgentsValidEffort: Validate accepts every enum value with no error.
 func TestAgentsValidEffort(t *testing.T) {
 	for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
 		cfg := Default()
@@ -780,8 +729,8 @@ func TestAgentsValidEffort(t *testing.T) {
 	}
 }
 
-// TestAgentsArbitraryModelNoError: model validation is lenient — an arbitrary
-// well-formed model id never fails Validate or produces an AgentWarnings entry.
+// Model validation is lenient: an arbitrary well-formed id never fails Validate
+// and never produces an AgentWarnings entry.
 func TestAgentsArbitraryModelNoError(t *testing.T) {
 	cfg := Default()
 	cfg.Claude.Agents = map[string]AgentOverride{
@@ -797,8 +746,7 @@ func TestAgentsArbitraryModelNoError(t *testing.T) {
 	}
 }
 
-// TestAgentsMalformedModelWarns: a model with internal whitespace produces a
-// warning from AgentWarnings, not a Validate error.
+// A model with internal whitespace warns rather than failing Validate.
 func TestAgentsMalformedModelWarns(t *testing.T) {
 	cfg := Default()
 	cfg.Claude.Agents = map[string]AgentOverride{
@@ -819,20 +767,17 @@ func TestAgentsMalformedModelWarns(t *testing.T) {
 	}
 }
 
-// TestAgentsUnknownKeyIsWarn: an agent name not in the known-agent set produces a
-// Warning from AgentWarnings (non-fatal), not a Validate error (FAIL).
+// An agent name outside the known set is a warning, not a Validate failure.
 func TestAgentsUnknownKeyIsWarn(t *testing.T) {
 	cfg := Default()
 	cfg.Claude.Agents = map[string]AgentOverride{
 		"made-up-agent": {Model: "haiku"}, // unknown key, but well-formed model
 	}
 
-	// Validate must succeed (unknown key is a WARNING, not a FAIL).
 	if err := Validate(cfg); err != nil {
 		t.Errorf("Validate should not error on unknown agent key, got: %v", err)
 	}
 
-	// AgentWarnings must return at least one warning mentioning the unknown key.
 	warns := AgentWarnings(cfg)
 	if len(warns) == 0 {
 		t.Fatal("AgentWarnings should return a warning for unknown agent key, got none")
@@ -849,8 +794,6 @@ func TestAgentsUnknownKeyIsWarn(t *testing.T) {
 	}
 }
 
-// TestAgentsAbsent: no [claude.agents] table → no structural warnings, Validate returns nil,
-// AgentWarnings returns empty.
 func TestAgentsAbsent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -876,9 +819,7 @@ func TestAgentsAbsent(t *testing.T) {
 	}
 }
 
-// TestAgentsNoStructuralWarningsFromLoad: [claude.agents.<name>] with valid
-// known-agent keys does not produce structural unknown-key warnings from Load
-// — [claude] is opaque, so its children are never structurally checked.
+// [claude] is opaque, so its children are never structurally checked by Load.
 func TestAgentsNoStructuralWarningsFromLoad(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -904,8 +845,7 @@ model = "haiku"
 	}
 }
 
-// TestAgentsFableIsValid: an arbitrary forward-reserved model name like
-// "fable" passes Validate — model validation has no allowlist.
+// Model validation has no allowlist, so a forward-reserved name passes.
 func TestAgentsFableIsValid(t *testing.T) {
 	cfg := Default()
 	cfg.Claude.Agents = map[string]AgentOverride{
@@ -916,8 +856,7 @@ func TestAgentsFableIsValid(t *testing.T) {
 	}
 }
 
-// TestAgentsKnownAgentNoWarnWithManifest: when install.artifacts.agents lists the agent,
-// AgentWarnings should not warn about it (manifest takes precedence over static set).
+// The install manifest takes precedence over the static known-agent set.
 func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
 	cfg := Default()
 	cfg.Install.Artifacts.Agents = []string{"custom-agent.md", "atomic-implementer.md"}
@@ -931,8 +870,7 @@ func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
 	}
 }
 
-// TestAgentsNotInConfigList: [claude.agents] keys do not appear in Resolved()
-// (machine-written section, not user-settable via `atomic config set`).
+// [claude.agents] is machine-written and not user-settable, so Resolved omits it.
 func TestAgentsNotInConfigList(t *testing.T) {
 	cfg := Default()
 	cfg.Claude.Agents = map[string]AgentOverride{"atomic-implementer": {Model: "haiku"}}
@@ -944,9 +882,8 @@ func TestAgentsNotInConfigList(t *testing.T) {
 	}
 }
 
-// --- harness.dir (configurable-state-paths) ---
+// --- harness.dir ---
 
-// TestHarnessDirDefault: Default() sets harness.dir = ".claude".
 func TestHarnessDirDefault(t *testing.T) {
 	cfg := Default()
 	if cfg.Harness.Dir != ".claude" {
@@ -954,7 +891,6 @@ func TestHarnessDirDefault(t *testing.T) {
 	}
 }
 
-// TestHarnessDirAbsent: absent harness.dir in TOML → default ".claude".
 func TestHarnessDirAbsent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -976,7 +912,6 @@ func TestHarnessDirAbsent(t *testing.T) {
 	}
 }
 
-// TestHarnessDirExplicit: explicit harness.dir in TOML overrides the default.
 func TestHarnessDirExplicit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -998,7 +933,6 @@ func TestHarnessDirExplicit(t *testing.T) {
 	}
 }
 
-// TestHarnessDirGetSet: Get and Set work for harness.dir.
 func TestHarnessDirGetSet(t *testing.T) {
 	cfg := Default()
 	v, err := Get(cfg, "harness.dir")
@@ -1021,7 +955,6 @@ func TestHarnessDirGetSet(t *testing.T) {
 	}
 }
 
-// TestHarnessDirSetValidVariants: legal values (.pi, pi, .claude) all pass Set.
 func TestHarnessDirSetValidVariants(t *testing.T) {
 	for _, v := range []string{".pi", "pi", ".claude"} {
 		cfg := Default()
@@ -1034,7 +967,6 @@ func TestHarnessDirSetValidVariants(t *testing.T) {
 	}
 }
 
-// TestHarnessDirSetInvalidVariants: illegal values (foo/bar, ., .., empty) are rejected.
 func TestHarnessDirSetInvalidVariants(t *testing.T) {
 	for _, v := range []string{"foo/bar", ".", "..", ""} {
 		cfg := Default()
@@ -1044,7 +976,6 @@ func TestHarnessDirSetInvalidVariants(t *testing.T) {
 	}
 }
 
-// TestHarnessDirUnset: Unset reverts harness.dir to the built-in default.
 func TestHarnessDirUnset(t *testing.T) {
 	cfg := Default()
 	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
@@ -1062,7 +993,6 @@ func TestHarnessDirUnset(t *testing.T) {
 	}
 }
 
-// TestHarnessDirRoundTrip: set → persist → load → get returns the set value.
 func TestHarnessDirRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1091,7 +1021,6 @@ func TestHarnessDirRoundTrip(t *testing.T) {
 	}
 }
 
-// TestHarnessDirValidateRejectsBadValue: Validate rejects a hand-corrupted value.
 func TestHarnessDirValidateRejectsBadValue(t *testing.T) {
 	cfg := Default()
 	cfg.Harness.Dir = "foo/bar"
@@ -1100,8 +1029,6 @@ func TestHarnessDirValidateRejectsBadValue(t *testing.T) {
 	}
 }
 
-// TestHarnessDirNoUnknownKeyWarning: harness.dir in TOML does not produce a
-// structural unknown-key warning.
 func TestHarnessDirNoUnknownKeyWarning(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1122,7 +1049,6 @@ func TestHarnessDirNoUnknownKeyWarning(t *testing.T) {
 	}
 }
 
-// TestHarnessDirUnknownKeyTypoSuggestion: Set typo on harness.dir suggests the correct key.
 func TestHarnessDirUnknownKeyTypoSuggestion(t *testing.T) {
 	cfg := Default()
 	err := Set(cfg, "harness.di", ".pi") // typo: harness.di
@@ -1134,10 +1060,9 @@ func TestHarnessDirUnknownKeyTypoSuggestion(t *testing.T) {
 	}
 }
 
-// --- [repl] idle_timeout (atomic-repl) ---
+// --- [repl] idle_timeout ---
 
-// TestReplIdleTimeoutAbsent: absent [repl] in TOML leaves the field empty
-// (unset), matching the schema's "empty means unset" contract for this key.
+// Empty means unset, per this key's "empty means unset" contract.
 func TestReplIdleTimeoutAbsent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1159,7 +1084,6 @@ func TestReplIdleTimeoutAbsent(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutExplicit: explicit [repl] idle_timeout in TOML loads verbatim.
 func TestReplIdleTimeoutExplicit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1181,8 +1105,6 @@ func TestReplIdleTimeoutExplicit(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutGetSet: Get returns the built-in display default when
-// unset, and the set value after Set.
 func TestReplIdleTimeoutGetSet(t *testing.T) {
 	cfg := Default()
 	v, err := Get(cfg, "repl.idle_timeout")
@@ -1205,8 +1127,6 @@ func TestReplIdleTimeoutGetSet(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutSetInvalidVariants: Set rejects unparseable, zero, and
-// negative durations.
 func TestReplIdleTimeoutSetInvalidVariants(t *testing.T) {
 	for _, v := range []string{"bogus", "0s", "-5m", "0"} {
 		cfg := Default()
@@ -1216,8 +1136,6 @@ func TestReplIdleTimeoutSetInvalidVariants(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutSetValidVariants: Set accepts every time.ParseDuration
-// shape the spec names (hours, minutes, seconds).
 func TestReplIdleTimeoutSetValidVariants(t *testing.T) {
 	for _, v := range []string{"1h", "30m", "90s"} {
 		cfg := Default()
@@ -1230,7 +1148,6 @@ func TestReplIdleTimeoutSetValidVariants(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutUnset: Unset reverts repl.idle_timeout to empty (unset).
 func TestReplIdleTimeoutUnset(t *testing.T) {
 	cfg := Default()
 	if err := Set(cfg, "repl.idle_timeout", "2h"); err != nil {
@@ -1251,7 +1168,6 @@ func TestReplIdleTimeoutUnset(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutRoundTrip: set → persist → load → get returns the set value.
 func TestReplIdleTimeoutRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1280,9 +1196,7 @@ func TestReplIdleTimeoutRoundTrip(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutRoundTrip_UnsetOmitsSection: an unset repl.idle_timeout
-// round-trips without writing an empty [repl] table — WritePersist must not
-// leave `idle_timeout = ""` on disk.
+// An unset idle_timeout must not leave `idle_timeout = ""` on disk.
 func TestReplIdleTimeoutRoundTrip_UnsetOmitsSection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1312,8 +1226,6 @@ func TestReplIdleTimeoutRoundTrip_UnsetOmitsSection(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutValidateRejectsBadValue: Validate rejects an unparseable
-// or non-positive repl.idle_timeout.
 func TestReplIdleTimeoutValidateRejectsBadValue(t *testing.T) {
 	for _, v := range []string{"bogus", "0s", "-1h"} {
 		cfg := Default()
@@ -1326,8 +1238,6 @@ func TestReplIdleTimeoutValidateRejectsBadValue(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutValidateAcceptsAbsent: Validate does not error when
-// repl.idle_timeout is unset (empty).
 func TestReplIdleTimeoutValidateAcceptsAbsent(t *testing.T) {
 	cfg := Default()
 	if err := Validate(cfg); err != nil {
@@ -1335,8 +1245,6 @@ func TestReplIdleTimeoutValidateAcceptsAbsent(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutNoUnknownKeyWarning: repl.idle_timeout in TOML does not
-// produce a structural unknown-key warning.
 func TestReplIdleTimeoutNoUnknownKeyWarning(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1357,8 +1265,6 @@ func TestReplIdleTimeoutNoUnknownKeyWarning(t *testing.T) {
 	}
 }
 
-// TestReplIdleTimeoutUnknownKeyTypoSuggestion: Set typo on repl.idle_timeout
-// suggests the correct key.
 func TestReplIdleTimeoutUnknownKeyTypoSuggestion(t *testing.T) {
 	cfg := Default()
 	err := Set(cfg, "repl.idle_timeot", "1h") // typo: idle_timeot
@@ -1370,9 +1276,8 @@ func TestReplIdleTimeoutUnknownKeyTypoSuggestion(t *testing.T) {
 	}
 }
 
-// --- [update] check / stage (selfupdate-state) ---
+// --- [update] check / stage ---
 
-// TestUpdateCheckDefault: Default() sets update.check = true.
 func TestUpdateCheckDefault(t *testing.T) {
 	cfg := Default()
 	if !cfg.Update.Check {
@@ -1380,7 +1285,6 @@ func TestUpdateCheckDefault(t *testing.T) {
 	}
 }
 
-// TestUpdateCheckAbsent: absent update.check in TOML → default true.
 func TestUpdateCheckAbsent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1402,7 +1306,6 @@ func TestUpdateCheckAbsent(t *testing.T) {
 	}
 }
 
-// TestUpdateCheckExplicitFalse: explicit update.check = false round-trips correctly.
 func TestUpdateCheckExplicitFalse(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1424,7 +1327,6 @@ func TestUpdateCheckExplicitFalse(t *testing.T) {
 	}
 }
 
-// TestUpdateCheckExplicitTrue: explicit update.check = true loads correctly.
 func TestUpdateCheckExplicitTrue(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1443,7 +1345,6 @@ func TestUpdateCheckExplicitTrue(t *testing.T) {
 	}
 }
 
-// TestUpdateCheckRoundTrip: set false → persist → load → false.
 func TestUpdateCheckRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1468,7 +1369,6 @@ func TestUpdateCheckRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSetUpdateCheckBadValue: Set rejects values other than true/false.
 func TestSetUpdateCheckBadValue(t *testing.T) {
 	cfg := Default()
 	err := Set(cfg, "update.check", "yes")
@@ -1480,7 +1380,6 @@ func TestSetUpdateCheckBadValue(t *testing.T) {
 	}
 }
 
-// TestSetUpdateCheckTrue: Set("update.check", "true") works.
 func TestSetUpdateCheckTrue(t *testing.T) {
 	cfg := Default()
 	cfg.Update.Check = false
@@ -1492,7 +1391,6 @@ func TestSetUpdateCheckTrue(t *testing.T) {
 	}
 }
 
-// TestSetUpdateCheckFalse: Set("update.check", "false") works.
 func TestSetUpdateCheckFalse(t *testing.T) {
 	cfg := Default()
 	if err := Set(cfg, "update.check", "false"); err != nil {
@@ -1503,7 +1401,6 @@ func TestSetUpdateCheckFalse(t *testing.T) {
 	}
 }
 
-// TestUnsetUpdateCheck: Unset reverts update.check to default (true).
 func TestUnsetUpdateCheck(t *testing.T) {
 	cfg := Default()
 	if err := Set(cfg, "update.check", "false"); err != nil {
@@ -1517,7 +1414,6 @@ func TestUnsetUpdateCheck(t *testing.T) {
 	}
 }
 
-// TestGetUpdateCheck: Get returns "true"/"false" string for update.check.
 func TestGetUpdateCheck(t *testing.T) {
 	cfg := Default()
 	v, err := Get(cfg, "update.check")
@@ -1540,7 +1436,6 @@ func TestGetUpdateCheck(t *testing.T) {
 	}
 }
 
-// TestUpdateStageDefault: Default() sets update.stage = true.
 func TestUpdateStageDefault(t *testing.T) {
 	cfg := Default()
 	if !cfg.Update.Stage {
@@ -1548,7 +1443,6 @@ func TestUpdateStageDefault(t *testing.T) {
 	}
 }
 
-// TestUpdateStageAbsent: absent update.stage in TOML → default true.
 func TestUpdateStageAbsent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1570,7 +1464,6 @@ func TestUpdateStageAbsent(t *testing.T) {
 	}
 }
 
-// TestUpdateStageExplicitFalse: explicit update.stage = false round-trips correctly.
 func TestUpdateStageExplicitFalse(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1592,7 +1485,6 @@ func TestUpdateStageExplicitFalse(t *testing.T) {
 	}
 }
 
-// TestUpdateStageExplicitTrue: explicit update.stage = true loads correctly.
 func TestUpdateStageExplicitTrue(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1611,7 +1503,6 @@ func TestUpdateStageExplicitTrue(t *testing.T) {
 	}
 }
 
-// TestUpdateStageRoundTrip: set false → persist → load → false.
 func TestUpdateStageRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -1636,7 +1527,6 @@ func TestUpdateStageRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSetUpdateStageBadValue: Set rejects values other than true/false.
 func TestSetUpdateStageBadValue(t *testing.T) {
 	cfg := Default()
 	err := Set(cfg, "update.stage", "yes")
@@ -1648,7 +1538,6 @@ func TestSetUpdateStageBadValue(t *testing.T) {
 	}
 }
 
-// TestSetUpdateStageTrue: Set("update.stage", "true") works.
 func TestSetUpdateStageTrue(t *testing.T) {
 	cfg := Default()
 	cfg.Update.Stage = false
@@ -1660,7 +1549,6 @@ func TestSetUpdateStageTrue(t *testing.T) {
 	}
 }
 
-// TestSetUpdateStageFalse: Set("update.stage", "false") works.
 func TestSetUpdateStageFalse(t *testing.T) {
 	cfg := Default()
 	if err := Set(cfg, "update.stage", "false"); err != nil {
@@ -1671,7 +1559,6 @@ func TestSetUpdateStageFalse(t *testing.T) {
 	}
 }
 
-// TestUnsetUpdateStage: Unset reverts update.stage to default (true).
 func TestUnsetUpdateStage(t *testing.T) {
 	cfg := Default()
 	if err := Set(cfg, "update.stage", "false"); err != nil {
@@ -1685,7 +1572,6 @@ func TestUnsetUpdateStage(t *testing.T) {
 	}
 }
 
-// TestGetUpdateStage: Get returns "true"/"false" string for update.stage.
 func TestGetUpdateStage(t *testing.T) {
 	cfg := Default()
 	v, err := Get(cfg, "update.stage")
@@ -1708,7 +1594,6 @@ func TestGetUpdateStage(t *testing.T) {
 	}
 }
 
-// TestUpdateUnknownLeafKeyWarn: unknown key under [update] section emits a warning.
 func TestUpdateUnknownLeafKeyWarn(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")

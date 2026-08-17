@@ -1,9 +1,5 @@
 package serve_test
 
-// api_status_external_test.go — /api/status and /api/external JSON
-// shape tests. TDD: written to assert the shapes pinned in the spec's
-// ## API contracts table before/alongside implementation.
-
 import (
 	"encoding/json"
 	"net/http"
@@ -14,8 +10,6 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
-
-// ─── /api/status ──────────────────────────────────────────────────────────────
 
 func TestAPIStatus_Shape(t *testing.T) {
 	handler := serve.NewAPIStatusHandler(serve.HealthOptions{
@@ -129,8 +123,7 @@ func TestAPIStatus_AllFresh(t *testing.T) {
 	}
 }
 
-// TestAPIStatus_RepoScope_NoWikiSeamCalled verifies repo scope never invokes
-// the wiki staleness seam and still returns 200.
+// No WikiStalenessSeam is supplied: repo scope must never reach for one.
 func TestAPIStatus_RepoScope_NoWikiSeamCalled(t *testing.T) {
 	handler := serve.NewAPIStatusHandler(serve.HealthOptions{
 		RealmRoot:    "/fake/repo",
@@ -158,8 +151,6 @@ func TestAPIStatus_RepoScope_NoWikiSeamCalled(t *testing.T) {
 		t.Error("isRealmScope: got true, want false")
 	}
 }
-
-// ─── /api/external ────────────────────────────────────────────────────────────
 
 func TestAPIExternal_Shape(t *testing.T) {
 	root := t.TempDir()
@@ -218,13 +209,12 @@ func TestAPIExternal_Shape(t *testing.T) {
 	}
 }
 
-// TestAPIExternal_ZeroDate_NullFirstSeen verifies a zero-time FirstSeen
-// encodes as JSON null, not an empty string or zero-value date.
+// A zero FirstSeen must encode as null, not "" or a zero-value date.
 func TestAPIExternal_ZeroDate_NullFirstSeen(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "page.md"), "# P\n\nSee [x](https://example.com/x).\n")
 
-	// perFileDateFn returns time.Time{} (zero) for any unmapped path.
+	// perFileDateFn yields the zero time for any unmapped path.
 	handler := serve.NewAPIExternalHandler(root, perFileDateFn(nil), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/external", nil)

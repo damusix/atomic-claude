@@ -1,8 +1,7 @@
 // Package cli implements the `atomic code` subcommand handlers.
 //
-// Each verb handler is extracted as a standalone function taking an engine,
-// parsed args, and an io.Writer so they can be tested without os.Exit.
-// The top-level RunCode dispatcher is called by main.go.
+// Each verb is a standalone function taking an engine, args, and an io.Writer,
+// so it is testable without os.Exit.
 package cli
 
 import (
@@ -28,12 +27,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// RunCode is the top-level dispatcher for `atomic code <verb>`. It resolves
-// the engine, then sub-dispatches on args[0]. Exits non-zero on error.
-//
-// projectRoot must be the absolute project root (resolved by main.go before
-// calling here). stdin is used by the `affected --stdin` path; pass os.Stdin
-// in production and a bytes.Reader in tests.
+// RunCode dispatches `atomic code <verb>`. projectRoot must already be
+// absolute; main.go resolves it. stdin serves the `affected --stdin` path.
 func RunCode(args []string, projectRoot string, stdout, stderr io.Writer, stdin io.Reader) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printCodeUsage(stderr)
@@ -44,15 +39,12 @@ func RunCode(args []string, projectRoot string, stdout, stderr io.Writer, stdin 
 	rest := args[1:]
 	ctx := context.Background()
 
-	// `atomic code mcp` is the proxy path: connect-or-start the daemon,
-	// then pipe stdin↔socket. Does not need the pre-created engine.
-	// dbPath for standalone repo: <projectRoot>/.claude/.atomic-index/atomic.db.
+	// mcp proxies to a daemon and so needs no engine of its own.
 	if verb == "mcp" {
 		dbPath := engine.IndexPath(projectRoot)
 		return runMCP(ctx, projectRoot, dbPath, rest, stderr)
 	}
 
-	// All other verbs need an open engine.
 	eng, err := engine.New(projectRoot)
 	if err != nil {
 		fmt.Fprintf(stderr, "atomic code: create engine: %v\n", err)
@@ -60,8 +52,7 @@ func RunCode(args []string, projectRoot string, stdout, stderr io.Writer, stdin 
 	}
 	defer eng.Close()
 
-	// index and sync initialise the index if it does not exist; all other
-	// query verbs require an existing index.
+	// index and sync may create the index; query verbs require an existing one.
 	switch verb {
 	case "index":
 		return runIndex(ctx, eng, rest, projectRoot, stdout, stderr)
@@ -113,10 +104,6 @@ func printCodeUsage(w io.Writer) {
 	fmt.Fprintln(w, "DB path: "+config.IndexDBPath("<project>"))
 }
 
-// ---------------------------------------------------------------------------
-// index
-// ---------------------------------------------------------------------------
-
 func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoot string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code index", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -127,7 +114,6 @@ func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoo
 		return 2
 	}
 
-	// Profiling is on when --profile is passed OR ATOMIC_CODE_PROFILE=1 is set.
 	profiling := profileFlag || os.Getenv("ATOMIC_CODE_PROFILE") == "1"
 
 	if err := eng.Init(ctx); err != nil {
@@ -135,15 +121,12 @@ func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoo
 		return 1
 	}
 
-	// Ensure the index directory is gitignored.
 	if err := EnsureGitignore(projectRoot); err != nil {
-		// Non-fatal: log but continue.
 		fmt.Fprintf(stderr, "atomic code index: gitignore: %v (non-fatal)\n", err)
 	}
 
 	fmt.Fprintf(stdout, "indexing %s…\n", projectRoot)
 
-	// Phase: extract — measure IndexAll wall-time.
 	extractStart := time.Now()
 	if err := eng.IndexAll(ctx); err != nil {
 		fmt.Fprintf(stderr, "atomic code index: %v\n", err)
@@ -151,23 +134,17 @@ func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoo
 	}
 	extractDur := time.Since(extractStart)
 
-	// Report files skipped because they could not be read (git-tracked-but-missing
-	// paths, broken symlinks, permission errors). These do not abort the index;
-	// surfacing the count keeps the skip visible instead of silent.
+	// Unreadable files do not abort the index; report the count so the gap is
+	// visible rather than silent. Same for a degraded .claude/atomic.toml.
 	if skipped := eng.SkippedFiles(); skipped > 0 {
 		fmt.Fprintf(stderr, "atomic code index: skipped %d unreadable file(s)\n", skipped)
 	}
 
-	// A degraded .claude/atomic.toml (malformed TOML, an invalid glob pattern,
-	// or an unknown key) does not fail the index — it is surfaced as one
-	// combined warning line so the degradation is visible, not silent.
 	if warns := eng.IgnoreWarnings(); len(warns) > 0 {
 		fmt.Fprintf(stderr, "atomic code index: repo config: %s\n", strings.Join(warns, "; "))
 	}
 
-	// Emit extract profile line immediately (before resolve starts) so a killed
-	// process still shows extract time. Capture stats here and reuse for the
-	// final summary so we avoid a second GetStats round-trip.
+	// Emitted before resolve starts, so a killed process still reports extract.
 	var profileStats types.GraphStats
 	if profiling {
 		s, err := eng.GetStats(ctx)
@@ -177,8 +154,8 @@ func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoo
 		fmt.Fprintf(stderr, "[profile] extract: %s (%d files)\n", extractDur, profileStats.FileCount)
 	}
 
-	// Phase: frameworks — extract route nodes before resolution so route→handler
-	// refs are in the DB when the resolution pipeline runs.
+	// Route nodes must land before resolution, or route→handler refs have
+	// nothing to resolve against.
 	fwStart := time.Now()
 	routeCount, err := eng.ExtractFrameworkNodes(ctx)
 	if err != nil {
@@ -189,20 +166,15 @@ func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoo
 		fmt.Fprintf(stderr, "[profile] frameworks: %s (%d routes)\n", time.Since(fwStart), routeCount)
 	}
 
-	// Phase: resolve — use profiled variant when profiling is on.
 	if profiling {
-		// emit writes each sub-phase line to stderr the moment that phase finishes,
-		// before the next phase starts. Format per spec:
-		//   warm  → "[profile] resolve.warm: <dur> (<n> nodes)"
-		//   match → "[profile] resolve.match: <dur> (<n> refs)"
-		//   synth → "[profile] resolve.synth: <dur>"  (no count)
+		// Writes each sub-phase line the moment that phase ends, not at the end.
 		emit := func(phase string, d time.Duration, count int) {
 			switch phase {
 			case "resolve.warm":
 				fmt.Fprintf(stderr, "[profile] resolve.warm: %s (%d nodes)\n", d, count)
 			case "resolve.match":
 				fmt.Fprintf(stderr, "[profile] resolve.match: %s (%d refs)\n", d, count)
-			default: // "resolve.synth"
+			default:
 				fmt.Fprintf(stderr, "[profile] resolve.synth: %s\n", d)
 			}
 		}
@@ -217,11 +189,8 @@ func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoo
 		}
 	}
 
-	// Fetch stats after resolve for the summary line. In profile mode we
-	// previously reused profileStats (captured right after extract, before
-	// framework extraction and resolution), which underreported nodes/edges.
-	// Re-fetching here ensures the summary is consistent with `status --json`.
-	// Non-profile path also fetches once here (unchanged behaviour).
+	// Re-fetched after resolve, not reused from profileStats: those were taken
+	// before framework extraction and resolution and undercount nodes/edges.
 	summaryStats, err := eng.GetStats(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "atomic code index: get stats: %v\n", err)
@@ -231,10 +200,6 @@ func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoo
 	return 0
 }
 
-// ---------------------------------------------------------------------------
-// sync
-// ---------------------------------------------------------------------------
-
 func runSync(ctx context.Context, eng *engine.Engine, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code sync", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -243,7 +208,7 @@ func runSync(ctx context.Context, eng *engine.Engine, args []string, stdout, std
 		return 2
 	}
 
-	// Sync requires an existing index; it must not silently create one.
+	// Sync must not silently create an index.
 	if err := openOrError(ctx, eng, stderr, "sync"); err != nil {
 		return 1
 	}
@@ -276,13 +241,7 @@ func runSync(ctx context.Context, eng *engine.Engine, args []string, stdout, std
 	return 0
 }
 
-// ---------------------------------------------------------------------------
-// status
-// ---------------------------------------------------------------------------
-
-// StatusJSON is the machine-readable shape emitted by `atomic code status --json`.
-// It matches appendix N: initialized, version, indexPath, lastIndexed (ISO8601),
-// file/node/edge counts, backend, journalMode, nodesByKind, pendingChanges.
+// StatusJSON is the shape emitted by `atomic code status --json`.
 type StatusJSON struct {
 	Initialized    bool           `json:"initialized"`
 	Version        string         `json:"version"`
@@ -295,8 +254,7 @@ type StatusJSON struct {
 	JournalMode    string         `json:"journalMode"`
 	NodesByKind    map[string]int `json:"nodesByKind"`
 	PendingChanges int            `json:"pendingChanges"`
-	// IgnorePatternCount/IgnoreConfigPath are omitted (zero value) when no
-	// .claude/atomic.toml ignore patterns are active.
+	// Omitted entirely when no ignore patterns are configured.
 	IgnorePatternCount int    `json:"ignorePatternCount,omitempty"`
 	IgnoreConfigPath   string `json:"ignoreConfigPath,omitempty"`
 }
@@ -339,22 +297,17 @@ func runStatus(ctx context.Context, eng *engine.Engine, args []string, projectRo
 		return 1
 	}
 
-	// pendingChanges: count files on disk whose mtime or content differs from
-	// what was indexed. We compare the indexed file records against disk state
-	// using content hashes.
 	pending, err := countPendingChanges(ctx, eng, projectRoot)
 	if err != nil {
-		// Non-fatal: log and continue with 0.
+		// Non-fatal: report 0 rather than failing the whole status call.
 		fmt.Fprintf(stderr, "atomic code status: pending changes: %v (non-fatal)\n", err)
 	}
 
-	// Use the engine's bound db path (correct in realm scope, where the db lives
-	// at <realm>/.atomic/<key>.db, not under projectRoot).
+	// The engine's bound path, not one derived from projectRoot: in realm scope
+	// the db lives under the realm, not the member repo.
 	indexPath := eng.IndexPath()
 
-	// Ignore-pattern count is a cheap, pool-free config read (see
-	// Engine.IgnorePatternInfo) — status must not boot the indexer just to
-	// report this line.
+	// A pool-free config read: status must not boot the indexer for one line.
 	ignoreCount, ignorePath := eng.IgnorePatternInfo()
 
 	if asJSON {
@@ -402,10 +355,8 @@ func runStatus(ctx context.Context, eng *engine.Engine, args []string, projectRo
 	return 0
 }
 
-// countPendingChanges counts files whose content has changed on disk since they
-// were last indexed. It does this by comparing the content_hash stored in the
-// files table against the current file content hash. This is the
-// stale-graph-visibility metric referenced in appendix N.
+// countPendingChanges compares stored content hashes against disk, so the user
+// can see how stale the graph is.
 func countPendingChanges(ctx context.Context, eng *engine.Engine, projectRoot string) (int, error) {
 	files, err := eng.GetFiles(ctx)
 	if err != nil {
@@ -416,7 +367,7 @@ func countPendingChanges(ctx context.Context, eng *engine.Engine, projectRoot st
 		absPath := filepath.Join(projectRoot, f.Path)
 		data, err := os.ReadFile(absPath)
 		if err != nil {
-			// File deleted since indexing — counts as pending.
+			// Deleted since indexing — still a pending change.
 			pending++
 			continue
 		}
@@ -427,16 +378,12 @@ func countPendingChanges(ctx context.Context, eng *engine.Engine, projectRoot st
 	return pending, nil
 }
 
-// hashContent returns a hex-encoded SHA-256 of src.
-// Mirrors the orchestrator's hashContent so hashes are comparable.
+// hashContent must stay identical to the orchestrator's, or stored and
+// freshly-computed hashes stop comparing.
 func hashContent(src []byte) string {
 	sum := sha256.Sum256(src)
 	return hex.EncodeToString(sum[:])
 }
-
-// ---------------------------------------------------------------------------
-// search
-// ---------------------------------------------------------------------------
 
 func runSearch(ctx context.Context, eng *engine.Engine, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code search", flag.ContinueOnError)
@@ -485,17 +432,9 @@ func runSearch(ctx context.Context, eng *engine.Engine, args []string, stdout, s
 	return 0
 }
 
-// ---------------------------------------------------------------------------
-// callers
-// ---------------------------------------------------------------------------
-
 func runCallers(ctx context.Context, eng *engine.Engine, args []string, stdout, stderr io.Writer) int {
 	return runSymbolGraph(ctx, eng, args, stdout, stderr, "callers")
 }
-
-// ---------------------------------------------------------------------------
-// callees
-// ---------------------------------------------------------------------------
 
 func runCallees(ctx context.Context, eng *engine.Engine, args []string, stdout, stderr io.Writer) int {
 	return runSymbolGraph(ctx, eng, args, stdout, stderr, "callees")
@@ -552,17 +491,10 @@ func runSymbolGraph(ctx context.Context, eng *engine.Engine, args []string, stdo
 	return printSubgraph(sg, asJSON, stdout, stderr)
 }
 
-// aggregateSymbolGraph runs query for every node matching the symbol name and
-// merges the results into one subgraph (union of nodes by ID, edges deduped by
-// source/target/kind/line/col, union of roots).
-//
-// A symbol name routinely maps to several definitions: overloads, an interface
-// and its implementation, or two classes that each declare a same-named method.
-// Querying only the first match silently drops the callers/callees that live on
-// the siblings — e.g. `callers $proc` returned nothing because the first `$proc`
-// node (an accessor with zero callers) was chosen while 37 caller edges sat on
-// the second `$proc` definition. The reference engine aggregates across all
-// same-name matches; this restores parity.
+// aggregateSymbolGraph unions the query across every node matching the name.
+// One name routinely covers several definitions — overloads, an interface and
+// its implementation — and querying only the first silently drops the callers
+// and callees that live on the siblings.
 func aggregateSymbolGraph(nodes []types.Node, query func(id string) (types.Subgraph, error)) (types.Subgraph, error) {
 	sgs := make([]types.Subgraph, 0, len(nodes))
 	for _, n := range nodes {
@@ -574,10 +506,6 @@ func aggregateSymbolGraph(nodes []types.Node, query func(id string) (types.Subgr
 	}
 	return types.MergeSubgraphs(sgs), nil
 }
-
-// ---------------------------------------------------------------------------
-// impact
-// ---------------------------------------------------------------------------
 
 func runImpact(ctx context.Context, eng *engine.Engine, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code impact", flag.ContinueOnError)
@@ -621,10 +549,6 @@ func runImpact(ctx context.Context, eng *engine.Engine, args []string, stdout, s
 
 	return printSubgraph(sg, asJSON, stdout, stderr)
 }
-
-// ---------------------------------------------------------------------------
-// node
-// ---------------------------------------------------------------------------
 
 func runNode(ctx context.Context, eng *engine.Engine, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code node", flag.ContinueOnError)
@@ -692,10 +616,6 @@ func runNode(ctx context.Context, eng *engine.Engine, args []string, stdout, std
 	return 0
 }
 
-// ---------------------------------------------------------------------------
-// files
-// ---------------------------------------------------------------------------
-
 func runFiles(ctx context.Context, eng *engine.Engine, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code files", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -718,7 +638,6 @@ func runFiles(ctx context.Context, eng *engine.Engine, args []string, stdout, st
 		return 1
 	}
 
-	// Optional pattern filter.
 	if pattern != "" {
 		var matched []types.FileRecord
 		for _, f := range files {
@@ -747,10 +666,6 @@ func runFiles(ctx context.Context, eng *engine.Engine, args []string, stdout, st
 	return 0
 }
 
-// ---------------------------------------------------------------------------
-// affected
-// ---------------------------------------------------------------------------
-
 func runAffected(ctx context.Context, eng *engine.Engine, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code affected", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -767,7 +682,6 @@ func runAffected(ctx context.Context, eng *engine.Engine, args []string, stdin i
 		return 2
 	}
 
-	// Collect changed file paths: from --stdin or from positional args.
 	var changedFiles []string
 	if fromStdin {
 		scanner := bufio.NewScanner(stdin)
@@ -840,39 +754,30 @@ func runAffected(ctx context.Context, eng *engine.Engine, args []string, stdin i
 	return 0
 }
 
-// IsTestFile returns true when path matches the test-glob (if set) or a
-// built-in heuristic (Go: *_test.go, JS/TS: *.test.* or *.spec.*, Python:
-// test_*.py or *_test.py).
+// IsTestFile matches the caller's glob when one is set, otherwise per-language
+// naming conventions.
 func IsTestFile(path, glob string) bool {
 	if glob != "" {
 		matched, err := filepath.Match(glob, filepath.Base(path))
 		if err == nil && matched {
 			return true
 		}
-		// Also try full path match.
 		if matched, err := filepath.Match(glob, path); err == nil && matched {
 			return true
 		}
 	}
 	base := filepath.Base(path)
-	// Go
 	if strings.HasSuffix(base, "_test.go") {
 		return true
 	}
-	// JS/TS test files
 	if strings.Contains(base, ".test.") || strings.Contains(base, ".spec.") {
 		return true
 	}
-	// Python
 	if strings.HasPrefix(base, "test_") || strings.HasSuffix(strings.TrimSuffix(base, filepath.Ext(base)), "_test") {
 		return true
 	}
 	return false
 }
-
-// ---------------------------------------------------------------------------
-// explore
-// ---------------------------------------------------------------------------
 
 func runExplore(ctx context.Context, eng *engine.Engine, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code explore", flag.ContinueOnError)
@@ -919,12 +824,8 @@ func runExplore(ctx context.Context, eng *engine.Engine, args []string, stdout, 
 	return 0
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// openOrError opens an existing engine index or prints a usage hint and
-// returns an error. verb is used in the error message.
+// openOrError opens an existing index, printing an `atomic code index` hint
+// when there is none.
 func openOrError(ctx context.Context, eng *engine.Engine, stderr io.Writer, verb string) error {
 	if !eng.IsInitialized() {
 		fmt.Fprintf(stderr, "atomic code %s: index not initialized — run `atomic code index` first\n", verb)
@@ -937,7 +838,6 @@ func openOrError(ctx context.Context, eng *engine.Engine, stderr io.Writer, verb
 	return nil
 }
 
-// printSubgraph renders a Subgraph to stdout as either JSON or human text.
 func printSubgraph(sg types.Subgraph, asJSON bool, stdout, stderr io.Writer) int {
 	if asJSON {
 		enc, err := json.MarshalIndent(sg, "", "  ")
@@ -958,15 +858,11 @@ func printSubgraph(sg types.Subgraph, asJSON bool, stdout, stderr io.Writer) int
 	return 0
 }
 
-// EnsureGitignore appends `<harness.dir>/.atomic-index/` (e.g.
-// `.claude/.atomic-index/`) to <projectRoot>/.gitignore if the entry is not
-// already present. The file is created if it does not exist. This is
-// idempotent: running it multiple times produces one entry.
+// EnsureGitignore is idempotent: repeated runs leave exactly one entry.
 func EnsureGitignore(projectRoot string) error {
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 	entry := filepath.ToSlash(config.IndexDir("")) + "/"
 
-	// Read existing content.
 	var existing string
 	data, err := os.ReadFile(gitignorePath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -974,14 +870,13 @@ func EnsureGitignore(projectRoot string) error {
 	}
 	existing = string(data)
 
-	// Check if entry already present (any line that equals the entry).
 	for _, line := range strings.Split(existing, "\n") {
 		if strings.TrimSpace(line) == entry {
 			return nil // already present
 		}
 	}
 
-	// Append the entry. Add a leading newline when the file doesn't end with one.
+	// A file not ending in a newline needs one, or the entry joins the last line.
 	toAppend := entry + "\n"
 	if len(existing) > 0 && !strings.HasSuffix(existing, "\n") {
 		toAppend = "\n" + toAppend
@@ -999,28 +894,13 @@ func EnsureGitignore(projectRoot string) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// mcp
-// ---------------------------------------------------------------------------
-
-// runMCP is `atomic code mcp`.
-//
-// Without --daemon it is the proxy path: connect-or-start the singleton
-// daemon (flock-guarded auto-start) and then bidirectionally pipe
-// stdin↔socket / stdout↔socket. The daemon stays alive when the proxy exits;
-// a second call reuses the warm engine.
-//
-// With --daemon this process IS the daemon: DefaultSpawn execs exactly this
-// invocation (see mcp.DaemonArgv) with explicit --source/--db so the daemon
-// never re-resolves scope from the process cwd. Folding daemon mode into the
-// already-registered mcp verb — instead of a separate internal verb — means
-// the spawned argv always names a real Cobra command; the old unregistered
-// internal verb used to make Cobra reject the spawn's own flags with
-// "unknown flag" before the daemon handler ever ran.
-//
-// projectRoot/dbPath are the proxy-mode source+db, resolved by main.go
-// (realm-aware) before calling here; they are ignored when --daemon is set,
-// in favor of the explicit --source/--db flags.
+// runMCP is the proxy by default, and the daemon itself under --daemon, which
+// DefaultSpawn re-execs. Daemon mode lives on this registered verb rather than
+// a separate internal one so the spawned argv always names a real Cobra
+// command; an unregistered verb made Cobra reject the spawn's own flags before
+// the handler ran. projectRoot and dbPath apply to proxy mode only — under
+// --daemon the explicit --source/--db flags win, keeping the daemon from
+// re-resolving scope from cwd.
 func runMCP(ctx context.Context, projectRoot, dbPath string, args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code mcp", flag.ContinueOnError)
 	fs.SetOutput(stderr)

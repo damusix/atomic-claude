@@ -23,29 +23,25 @@ type Result struct {
 	Severity Severity
 	Detail   string
 
-	// Rich fields — populated by checks and rendered by FormatHuman.
-	Findings    []string // per-item detail lines; printed only when Verbose=true
-	Remediation string   // fix hint; printed on Warn/Fail regardless of Verbose
+	Findings    []string // per-item lines; printed only when Verbose
+	Remediation string   // fix hint; printed on WARN/FAIL regardless of Verbose
 }
 
 // Opts holds the parsed CLI flags passed to Run.
 type Opts struct {
 	Fix       bool
 	JSON      bool
-	Only      []int // resolved category indices; nil = all
-	Skip      []int // resolved category indices; nil = none
+	Only      []int // category indices; nil = all
+	Skip      []int // category indices; nil = none
 	StaleDays int
 	Verbose   bool
 
-	// ClaudeMDPath is the path to CLAUDE.md used for wiki-realm detection in
-	// check 11 (code-index). When empty, check 11 derives it from $HOME. Inject
-	// in tests to avoid reading the real user's CLAUDE.md.
+	// ClaudeMDPath feeds the code-index check's wiki-realm detection. Empty
+	// derives it from $HOME; tests set it to avoid reading the real user's file.
 	ClaudeMDPath string
 
-	// RepoRoot is the git repository toplevel resolved once per Run. All check
-	// functions read this field instead of spawning a new git subprocess. Run
-	// populates it automatically; tests that call RunWith directly may set it
-	// explicitly to avoid git process invocations altogether.
+	// RepoRoot is resolved once per Run so no check spawns its own git
+	// subprocess. Tests calling RunWith may set it to avoid git entirely.
 	RepoRoot string
 }
 
@@ -56,21 +52,17 @@ type CheckFunc func(opts Opts) Result
 type Category struct {
 	Index    int
 	Name     string
-	Severity Severity // default severity for this category (individual Results may override)
+	Severity Severity // default; an individual Result may override
 	Run      CheckFunc
 
-	// RepoDevOnly marks a check that only makes sense inside the atomic-claude
-	// development repo (e.g. manifest parity against the embedded source
-	// snapshot). Outside that repo it is omitted entirely — not even a SKIP
-	// line — so end users running atomic doctor in their own projects never see
-	// repo-development noise. An explicit `--only <index>` request overrides
-	// this and runs the check anyway (it self-reports SKIP).
+	// RepoDevOnly checks only make sense inside the atomic-claude repo. They
+	// are omitted entirely elsewhere — not even a SKIP line — so users never
+	// see repo-development noise. An explicit --only runs them anyway.
 	RepoDevOnly bool
 }
 
-// categories is the single source of truth for all check categories.
-// Indices are stable — never renumber; new checks append.
-// Severity column: 4=refs→FAIL, 5=manifest→FAIL; all others→WARN.
+// categories is the single source of truth. Indices are stable: never
+// renumber, only append.
 var categories = []Category{
 	{Index: 1, Name: "install", Severity: WARN, Run: checkInstall},
 	{Index: 2, Name: "hooks", Severity: WARN, Run: checkHooks},
@@ -87,18 +79,14 @@ var categories = []Category{
 	{Index: 13, Name: "repo-config", Severity: WARN, Run: checkRepoConfig},
 }
 
-// Categories returns the full category registry slice. Callers must not mutate.
+// Categories returns the registry. Callers must not mutate it.
 func Categories() []Category {
 	return categories
 }
 
-// Run executes the full registry (or the filtered subset in opts) and returns
-// results in index order. Repo-dev-only checks are auto-omitted outside the
-// atomic-claude repo (detected from cwd) unless explicitly requested via --only.
+// Run executes the registry, or the subset opts selects, in index order.
 func Run(opts Opts) ([]Result, error) {
-	// Resolve the git repository root once for the entire Run. All check
-	// functions receive this via opts.RepoRoot instead of spawning their own
-	// git subprocess. IsRepoDev uses the same root for the repo-dev verdict.
+	// Resolved once for the whole Run so no check spawns its own git.
 	if opts.RepoRoot == "" {
 		if cwd, err := os.Getwd(); err == nil {
 			opts.RepoRoot = gitToplevelFn(cwd)
@@ -116,13 +104,9 @@ func Run(opts Opts) ([]Result, error) {
 	return RunWith(opts, repoDev)
 }
 
-// RunWith is Run with the repo-dev verdict injected, exported for testing so a
-// repo-dev / non-repo-dev tree can be simulated without chdir.
+// RunWith is Run with the repo-dev verdict injected, so tests can simulate
+// either kind of tree without chdir.
 func RunWith(opts Opts, repoDev bool) ([]Result, error) {
-	// Ensure RepoRoot is set so check functions can read it without spawning git.
-	// Tests that call RunWith directly may set opts.RepoRoot explicitly; if they
-	// leave it empty we resolve it here as a fallback (mirrors the pre-change
-	// per-check behaviour for test callers that don't set the field).
 	if opts.RepoRoot == "" {
 		if cwd, err := os.Getwd(); err == nil {
 			opts.RepoRoot = gitToplevelFn(cwd)
@@ -132,7 +116,6 @@ func RunWith(opts Opts, repoDev bool) ([]Result, error) {
 	onlySet := indexSet(opts.Only)
 	skipSet := indexSet(opts.Skip)
 
-	// TODO CP-6: short-circuit with PASS-everything and exit 0 when ResolveTarget(~/.claude/) is absent.
 	results := make([]Result, 0, len(categories))
 	for _, c := range categories {
 		if len(onlySet) > 0 && !onlySet[c.Index] {
@@ -141,8 +124,6 @@ func RunWith(opts Opts, repoDev bool) ([]Result, error) {
 		if skipSet[c.Index] {
 			continue
 		}
-		// Repo-dev-only checks are noise outside the atomic-claude repo. Omit
-		// them entirely unless the user explicitly asked via --only.
 		if c.RepoDevOnly && !repoDev && !onlySet[c.Index] {
 			continue
 		}
@@ -154,7 +135,7 @@ func RunWith(opts Opts, repoDev bool) ([]Result, error) {
 	return results, nil
 }
 
-// indexSet converts a slice of indices to a presence map for O(1) lookup.
+// indexSet turns a slice of indices into a presence map.
 func indexSet(indices []int) map[int]bool {
 	if len(indices) == 0 {
 		return nil
@@ -165,18 +146,3 @@ func indexSet(indices []int) map[int]bool {
 	}
 	return m
 }
-
-// All check functions are implemented in their respective files:
-// checkInstall   → checks_install.go      (CP-3)
-// checkHooks     → checks_hooks.go        (CP-4)
-// checkSignals   → checks_signals.go      (CP-5)
-// checkRefs      → checks_refs.go         (CP-4)
-// checkManifest  → checks_manifest.go     (CP-3)
-// checkFollowups → checks_followups.go    (CP-5)
-// checkMemory    → checks_memory.go       (CP-5)
-// checkBinary    → checks_binary.go       (CP-3)
-// checkConfig    → checks_config.go       (CP-7)
-// checkProfile   → checks_profile.go      (CP-5)
-// checkCodeIndex    → checks_code_index.go   (code-intel-integration)
-// checkMigrateDrift → checks_migrate.go      (C5 atomic-migrate-framework)
-// checkRepoConfig   → checks_repo_config.go  (graphignore)

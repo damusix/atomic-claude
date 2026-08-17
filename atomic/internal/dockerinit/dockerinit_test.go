@@ -35,7 +35,6 @@ func TestInit_FreshDir(t *testing.T) {
 
 func TestInit_ExistingFilesNoForce(t *testing.T) {
 	dir := t.TempDir()
-	// Pre-create two of the output files with known content.
 	preExisting := map[string]string{
 		"Dockerfile":         "# stub dockerfile\n",
 		"docker-compose.yml": "# stub compose\n",
@@ -68,14 +67,12 @@ func TestInit_ExistingFilesNoForce(t *testing.T) {
 		if byPath[name] != dockerinit.ActionSkipped {
 			t.Errorf("%s: expected ActionSkipped, got %s", name, byPath[name])
 		}
-		// Pre-existing content must be unchanged.
 		data, _ := os.ReadFile(filepath.Join(dir, name))
 		if string(data) != preExisting[name] {
 			t.Errorf("%s: content was modified without --force", name)
 		}
 	}
 
-	// All others must be ActionCreated.
 	for path, kind := range byPath {
 		if _, isPreExisting := preExisting[path]; isPreExisting {
 			continue
@@ -146,7 +143,6 @@ func TestInit_TargetDoesNotExist(t *testing.T) {
 	if len(actions) != 6 {
 		t.Fatalf("expected 6 FileActions, got %d", len(actions))
 	}
-	// Verify the dir was actually created and files are in it.
 	for _, a := range actions {
 		full := filepath.Join(dir, a.Path)
 		if _, err := os.Stat(full); os.IsNotExist(err) {
@@ -166,7 +162,6 @@ func TestInit_TemplateRendering(t *testing.T) {
 		t.Fatalf("Init returned error: %v", err)
 	}
 
-	// Dockerfile must contain ATOMIC_VERSION=v1.2.3 and reference HOST_UID=1234.
 	df, err := os.ReadFile(filepath.Join(dir, "Dockerfile"))
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +174,6 @@ func TestInit_TemplateRendering(t *testing.T) {
 		t.Errorf("Dockerfile missing HOST_UID=1234 reference; got:\n%s", dfStr)
 	}
 
-	// docker-compose.yml must have both bind mounts.
 	compose, err := os.ReadFile(filepath.Join(dir, "docker-compose.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -209,13 +203,11 @@ func TestInit_EntrypointPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	mode := info.Mode()
-	// Must be executable by owner, group, and other (0755).
 	if mode&0755 != 0755 {
 		t.Errorf("docker-entrypoint.sh mode %04o, want at least 0755", mode)
 	}
 }
 
-// contains is a helper so test bodies stay readable without importing strings.
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {

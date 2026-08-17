@@ -5,13 +5,11 @@ import (
 	"path/filepath"
 )
 
-// repoSteeringScaffold is the fixed-content docs/wiki/CLAUDE.md scaffold for
-// repo scope. Two constraints shape the examples: they live inside HTML
-// comments so markdown rendering can't promote them to headings, and they
-// name no concrete framework, tool, or path — the file loads verbatim into
-// model context as nested memory, so even a commented concrete name (an
-// earlier scaffold said "NestJS monorepo") reads as a fact about the repo
-// and derails inferrer runs on every uncustomized checkout.
+// repoSteeringScaffold's examples sit in HTML comments so markdown rendering
+// cannot promote them to headings, and they name no concrete framework or
+// path: this file loads verbatim into model context, so even a commented
+// concrete name reads as a fact about the repo and derails the inferrer on
+// every uncustomized checkout.
 const repoSteeringScaffold = `---
 type: Steering
 description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
@@ -50,30 +48,24 @@ description: Authoritative steering for the signals/wiki inferrer when operating
 -->
 `
 
-// realmSteeringScaffold is the fixed-content <root>/wiki/CLAUDE.md scaffold
-// for realm scope: a self-referencing memory file so cd'ing directly into the
-// realm's wiki/ directory auto-loads index.md at session start (symmetric
-// with a repo scope member's own root CLAUDE.md carrying @docs/wiki/index.md).
+// realmSteeringScaffold self-references so cd'ing straight into the realm's
+// wiki/ auto-loads index.md, mirroring a member repo's root CLAUDE.md.
 const realmSteeringScaffold = "@index.md\n"
 
-// InitRepoScope writes <root>/docs/wiki/CLAUDE.md with the repo-scope
-// steering scaffold, creating missing parent directories, via the same
-// writeFileAtomic idiom RegisterWiki uses. No-op when the file already
-// exists. Returns whether the file was newly created.
+// InitRepoScope writes the repo-scope steering scaffold, reporting whether it
+// created the file. An existing file is a no-op.
 func InitRepoScope(root string) (bool, error) {
 	return initScaffold(filepath.Join(root, "docs", "wiki", "CLAUDE.md"), repoSteeringScaffold)
 }
 
-// InitRealmScope writes <root>/wiki/CLAUDE.md containing only "@index.md",
-// creating missing parent directories. No-op when the file already exists.
-// Returns whether the file was newly created.
+// InitRealmScope writes the realm-scope scaffold, reporting whether it created
+// the file. An existing file is a no-op.
 func InitRealmScope(root string) (bool, error) {
 	return initScaffold(filepath.Join(root, "wiki", "CLAUDE.md"), realmSteeringScaffold)
 }
 
-// initScaffold writes content to path via writeFileAtomic if the file is
-// absent. Returns (created, error); created is false and error is nil when
-// the file already exists — the caller treats that as a deliberate no-op.
+// initScaffold reports (false, nil) when the file already exists — a
+// deliberate no-op, not a failure.
 func initScaffold(path, content string) (bool, error) {
 	if _, err := os.Lstat(path); err == nil {
 		return false, nil

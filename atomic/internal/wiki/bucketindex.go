@@ -1,15 +1,11 @@
 package wiki
 
-// bucketindex.go — per-bucket topic index: the `<bucket-docs>` region
-// inside `<bucket>/index.md`.
+// Per-bucket topic index: the `<bucket-docs>` region inside `<bucket>/index.md`.
 //
-// This walk is a DIFFERENT granularity than bucket.go's WalkBucket manifest
-// walk, deliberately. WalkBucket hashes every file (for staleness diffing);
-// this walk groups files into TOPICS — a router `<slug>.md` collapses its
-// `<slug>/` subtree into one entry instead of one entry per descendant file.
-// Do not "fix" this into a single walk: the two answer different questions
-// (content changed? vs. what should a human read next?) and the manifest
-// walk's per-file granularity is required for accurate staleness diffing.
+// This walk is deliberately coarser than bucket.go's WalkBucket, which hashes
+// every file for staleness diffing. Here a router `<slug>.md` collapses its
+// whole subtree into one entry. Do not merge the two walks: they answer
+// different questions, and staleness needs the per-file granularity.
 
 import (
 	"errors"
@@ -22,49 +18,37 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
-// recognizedFrontmatterKeys are the six keys the frontmatter contract defines.
-// A topic with a frontmatter block containing none of these is unindexed.
+// recognizedFrontmatterKeys is the frontmatter contract. A topic whose block
+// carries none of them counts as unindexed.
 var recognizedFrontmatterKeys = []string{"title", "type", "description", "tags", "status", "created"}
 
 // BucketTopic is one entry in a bucket's `<bucket-docs>` listing: a single
 // topic file, or an orphan subtree with no companion `<slug>.md`.
 type BucketTopic struct {
-	// Path is the topic's path relative to the bucket root: a file name
-	// ("seo.md") for a simple or router topic, or a directory name
-	// ("weird-notes") for an orphan subtree. Never nested — the walk only
-	// promotes bucket-root entries to topics.
+	// Path is relative to the bucket root and never nested: a file name for a
+	// simple or router topic, a directory name for an orphan subtree.
 	Path string
-	// Title is resolved via the title ladder (frontmatter -> H1 -> filename
-	// stem) for a file topic, or the directory stem verbatim for an orphan.
+	// Title comes from the frontmatter -> H1 -> filename-stem ladder, or the
+	// directory stem verbatim for an orphan.
 	Title string
-	// Description is resolved via DeriveMemberDescription; "" for orphans
-	// (no single file to derive from) and for a ladder-exhausted file topic.
+	// Description is "" for orphans, which have no single file to derive from.
 	Description string
-	// Tags is the frontmatter tags list, or nil when absent or malformed.
+	// Tags is nil when absent or malformed.
 	Tags []string
-	// Indexed is false when the topic file has no frontmatter block, or a
-	// block containing none of recognizedFrontmatterKeys. Always false for
-	// an orphan subtree (there is no single file to carry frontmatter).
+	// Indexed is false without a frontmatter block carrying a recognized key,
+	// and always false for an orphan subtree.
 	Indexed bool
-	// Router is true when a directory of the same slug sits beside this
-	// topic's file; the subtree is collapsed into this one entry.
+	// Router marks a topic whose same-slug directory is collapsed into it.
 	Router bool
-	// Orphan is true when this entry is a subtree directory with no sibling
-	// "<slug>.md" file.
+	// Orphan marks a subtree directory with no sibling "<slug>.md".
 	Orphan bool
-	// ChildCount is the recursive count of descendant .md files under the
-	// subtree, valid only when Router or Orphan is true.
+	// ChildCount counts descendant .md files; valid only for Router or Orphan.
 	ChildCount int
 }
 
-// walkBucketTopics walks bucketDir and returns its topics sorted by relative
-// path (forward-slash).
-//
-// The walk covers the bucket root plus one directory level, for router/orphan
-// detection only — .md files nested deeper than a router or orphan subtree
-// root are never promoted to top-level topics. Excluded: the bucket's own
-// index.md, osJunk basenames, skipDirs-named directories, and non-.md files
-// at the bucket root (same exclusion sets WalkBucket uses).
+// walkBucketTopics returns bucketDir's topics sorted by path. It descends one
+// directory level, purely to classify router versus orphan subtrees; nothing
+// deeper is ever promoted to a top-level topic. Exclusions match WalkBucket's.
 func walkBucketTopics(bucketDir string) ([]BucketTopic, error) {
 	entries, err := os.ReadDir(bucketDir)
 	if err != nil {
@@ -96,8 +80,7 @@ func walkBucketTopics(bucketDir string) ([]BucketTopic, error) {
 		mdSlugs[strings.TrimSuffix(name, ".md")] = true
 	}
 
-	// A directory is a router subtree when a sibling "<slug>.md" file
-	// exists at the bucket root; otherwise it's an orphan subtree.
+	// A sibling "<slug>.md" makes the directory a router; otherwise it orphans.
 	routerDirs := map[string]bool{}
 	for _, d := range dirNames {
 		if mdSlugs[d] {
@@ -126,8 +109,7 @@ func walkBucketTopics(bucketDir string) ([]BucketTopic, error) {
 
 	for _, d := range dirNames {
 		if routerDirs[d] {
-			// Collapsed under its sibling .md topic — no separate entry.
-			continue
+			continue // already collapsed under its sibling .md topic
 		}
 		count, err := countDescendantMD(filepath.Join(bucketDir, d))
 		if err != nil {
@@ -146,8 +128,6 @@ func walkBucketTopics(bucketDir string) ([]BucketTopic, error) {
 	return topics, nil
 }
 
-// countDescendantMD recursively counts .md files under dir, skipping
-// skipDirs-named subdirectories and osJunk basenames.
 func countDescendantMD(dir string) (int, error) {
 	count := 0
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -174,9 +154,8 @@ func countDescendantMD(dir string) (int, error) {
 	return count, nil
 }
 
-// readTopicMeta reads one topic file and fills a BucketTopic via the title,
-// description, and tags ladders. Path, Router, Orphan, and ChildCount are
-// left zero — the caller (walkBucketTopics) fills those in.
+// readTopicMeta fills only the fields derivable from the file itself;
+// walkBucketTopics supplies Path, Router, Orphan, and ChildCount.
 func readTopicMeta(topicPath string) BucketTopic {
 	var meta map[string]any
 	var body string
@@ -195,9 +174,8 @@ func readTopicMeta(topicPath string) BucketTopic {
 	}
 }
 
-// hasRecognizedFrontmatterKey reports whether meta carries at least one of
-// the six recognized frontmatter keys. A nil meta (no frontmatter block, or
-// an unparseable one) is never indexed.
+// hasRecognizedFrontmatterKey treats a nil meta — no block, or an unparseable
+// one — as unindexed.
 func hasRecognizedFrontmatterKey(meta map[string]any) bool {
 	if meta == nil {
 		return false
@@ -210,8 +188,8 @@ func hasRecognizedFrontmatterKey(meta map[string]any) bool {
 	return false
 }
 
-// deriveTitle resolves the title ladder: frontmatter title -> first H1 in the
-// body -> filename stem (kebab-case preserved verbatim).
+// deriveTitle walks frontmatter title -> first H1 outside a fence -> filename
+// stem, kebab-case preserved verbatim.
 func deriveTitle(meta map[string]any, body, topicPath string) string {
 	if meta != nil {
 		if v, ok := meta["title"]; ok {
@@ -242,10 +220,8 @@ func deriveTitle(meta map[string]any, body, topicPath string) string {
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-// deriveTags resolves the tags ladder: frontmatter tags as a YAML list of
-// strings; a bare string is read as a single-element list; any other shape
-// (a map, a number, a list containing a non-string element) is ignored
-// entirely — no partial tag list, no fallback.
+// deriveTags accepts a YAML string list or a bare string. Any other shape is
+// ignored whole — never a partial tag list.
 func deriveTags(meta map[string]any) []string {
 	if meta == nil {
 		return nil
@@ -266,7 +242,7 @@ func deriveTags(meta map[string]any) []string {
 		for _, item := range t {
 			s, ok := item.(string)
 			if !ok {
-				return nil // malformed element -> ignore the whole shape
+				return nil
 			}
 			tags = append(tags, s)
 		}
@@ -276,13 +252,8 @@ func deriveTags(meta map[string]any) []string {
 	}
 }
 
-// listEntry renders one BucketTopic as an OKF §6 line:
-//
-//   - [<title>](<relpath>) - <description> · tags: a, b · router (<N> docs)
-//
-// Link-only (no trailing " - ") when Description is empty, matching
-// buildMembersSection's existing link-only form. Suffix order is
-// description, then tags, then router/orphan.
+// listEntry renders one topic as an OKF §6 line, link-only when there is no
+// description — the same form buildMembersSection uses.
 func listEntry(t BucketTopic) string {
 	link := t.Path
 	if t.Orphan {
@@ -306,10 +277,8 @@ func listEntry(t BucketTopic) string {
 	return sb.String()
 }
 
-// renderBucketDocs renders the content for inside the `<bucket-docs>` region:
-// a "## Docs" heading, indexed topics as listEntry lines, then — when any
-// unindexed topics exist — a "### Unindexed" sub-heading followed by theirs.
-// Both groups preserve the caller's (relative-path-sorted) order.
+// renderBucketDocs splits topics into a "## Docs" listing and, when any exist,
+// an "### Unindexed" group, preserving the caller's sort order in both.
 func renderBucketDocs(topics []BucketTopic) string {
 	var indexed, unindexed []BucketTopic
 	for _, t := range topics {
@@ -346,13 +315,9 @@ func renderBucketDocs(topics []BucketTopic) string {
 	return sb.String()
 }
 
-// RebuildBucketIndex rebuilds the `<bucket-docs>` region in
-// <bucketDir>/index.md: walk topics, render the listing, splice the region
-// through the shared managed-region primitive, write atomically.
-//
-// index.md absent is treated as an empty document (region gets appended).
-// An errUnpairedRegion from the splice is returned unchanged — the caller
-// reports the bucket unmanageable — and index.md is left untouched.
+// RebuildBucketIndex rewrites the `<bucket-docs>` region in
+// <bucketDir>/index.md, treating an absent index.md as an empty document. An
+// errUnpairedRegion propagates and leaves index.md untouched.
 func RebuildBucketIndex(bucketDir string) error {
 	indexPath := filepath.Join(bucketDir, "index.md")
 
@@ -377,14 +342,10 @@ func RebuildBucketIndex(bucketDir string) error {
 	return writeFileAtomic(indexPath, []byte(newDocument))
 }
 
-// renderBucketList renders the content for inside the `<wiki-bucket-list>`
-// region: a "## Buckets" heading plus one OKF §6 line per registered bucket,
-// sorted by name. `<link>` is the bucket path relative to wikiDir (e.g.
-// "../research" for a realm-root bucket), matching how `atomic wiki linkify`
-// emits file-relative links — the absolute path stays in the
-// `<wiki-buckets>` block, which `stale` and `serve` resolve from any cwd.
-// A bucket whose directory is missing renders link-only with a "(missing)"
-// marker instead of a derived description, and never errors.
+// renderBucketList renders one OKF §6 line per registered bucket, name-sorted.
+// Links are relative to wikiDir, matching `atomic wiki linkify`; the absolute
+// path stays in the `<wiki-buckets>` block that stale and serve resolve from
+// any cwd. A missing bucket directory renders "(missing)" rather than erroring.
 func renderBucketList(wikiDir string, entries []BucketEntry) string {
 	sorted := make([]BucketEntry, len(entries))
 	copy(sorted, entries)
@@ -423,15 +384,10 @@ func renderBucketList(wikiDir string, entries []BucketEntry) string {
 	return sb.String()
 }
 
-// rebuildRealmBucketList splices the realm `<wiki-bucket-list>` region into
-// <wikiDir>/index.md for the given bucket entries. Zero entries → no splice
-// at all, no empty "## Buckets". An errUnpairedRegion from the splice leaves
-// index.md untouched — spliceManagedRegion never writes on that path.
-//
-// Extracted from RebuildAllBucketIndexes so a caller that has already
-// rebuilt one bucket's own `<bucket-docs>` region (e.g. wikiBucketIndexAction's
-// single-bucket branch) can refresh just the realm list without re-walking
-// every registered bucket.
+// rebuildRealmBucketList splices the realm `<wiki-bucket-list>` region. Zero
+// entries splices nothing, rather than an empty "## Buckets". It is separate
+// from RebuildAllBucketIndexes so a single-bucket rebuild can refresh the realm
+// list without re-walking every registered bucket.
 func rebuildRealmBucketList(wikiDir string, entries []BucketEntry) error {
 	if len(entries) == 0 {
 		return nil
@@ -455,18 +411,13 @@ func rebuildRealmBucketList(wikiDir string, entries []BucketEntry) error {
 	return writeFileAtomic(indexPath, []byte(newDocument))
 }
 
-// RebuildAllBucketIndexes rebuilds every registered bucket's `<bucket-docs>`
-// region, then splices the realm `<wiki-bucket-list>` region into
-// <wikiDir>/index.md (via rebuildRealmBucketList).
+// RebuildAllBucketIndexes rebuilds every bucket's `<bucket-docs>` region, then
+// the realm `<wiki-bucket-list>`. Per-bucket failures are joined into the
+// returned error but never stop the loop: one broken bucket must not block its
+// siblings or the realm splice. A missing bucket directory is skipped silently.
 //
-// A per-bucket rebuild failure (including errUnpairedRegion) is collected
-// and joined into the returned error but never stops the loop — a broken
-// bucket must not block its siblings or the realm splice. A bucket whose
-// directory is missing is skipped for rebuild entirely (no error recorded;
-// it still renders with a "(missing)" marker in the realm list).
-//
-// root is accepted for call-site symmetry with Scan; bucket paths in the
-// <wiki-buckets> registry are already absolute, so it is not needed here.
+// root is unused; it exists for call-site symmetry with Scan, since registry
+// bucket paths are already absolute.
 func RebuildAllBucketIndexes(root, wikiDir string) error {
 	indexPath := filepath.Join(wikiDir, "index.md")
 

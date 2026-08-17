@@ -5,10 +5,8 @@ import (
 	"testing"
 )
 
-// TestPromptAction_KnownNames verifies that promptAction exits 0 and writes
-// non-empty text for each registered brief name. Encodes the WHY: the embed
-// + dispatch chain must be end-to-end verified; a broken embed path or a
-// typo in the name table would silently produce empty output.
+// A broken embed path or a typo in the name table produces empty output
+// silently, so the embed-plus-dispatch chain is checked end to end.
 func TestPromptAction_KnownNames(t *testing.T) {
 	names := []string{"git-cleanup", "claude-merge", "implementer", "reviewer"}
 	for _, name := range names {
@@ -26,10 +24,8 @@ func TestPromptAction_KnownNames(t *testing.T) {
 	}
 }
 
-// TestPromptAction_UnknownName verifies that promptAction exits 1 and writes
-// to stderr for an unregistered brief name. Encodes the WHY: a non-zero exit
-// on bad input is the contract consumers (validate artifacts, CI) rely on to
-// catch stale citations before they reach production.
+// `validate artifacts` and CI rely on the non-zero exit to catch stale
+// citations before they ship.
 func TestPromptAction_UnknownName(t *testing.T) {
 	var out strings.Builder
 	var errOut strings.Builder
@@ -45,8 +41,6 @@ func TestPromptAction_UnknownName(t *testing.T) {
 	}
 }
 
-// TestPromptAction_NoArgs verifies that promptAction exits 1 with a usage
-// message when called with no arguments.
 func TestPromptAction_NoArgs(t *testing.T) {
 	var out strings.Builder
 	var errOut strings.Builder
@@ -58,5 +52,3 @@ func TestPromptAction_NoArgs(t *testing.T) {
 		t.Errorf("no-args error message missing 'Usage:'; stderr: %q", errOut.String())
 	}
 }
-
-// --- atomic template dispatch ---

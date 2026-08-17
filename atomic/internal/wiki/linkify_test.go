@@ -56,8 +56,6 @@ func readFileContent(t *testing.T, path string) string {
 	return string(data)
 }
 
-// TestLinkifyWiki_IndexLinked verifies that index.md gets its tokens linkified
-// with base = realm root.
 func TestLinkifyWiki_IndexLinked(t *testing.T) {
 	root := setupLinkifyRealm(t)
 	if err := wiki.LinkifyWiki(root); err != nil {
@@ -69,8 +67,6 @@ func TestLinkifyWiki_IndexLinked(t *testing.T) {
 	}
 }
 
-// TestLinkifyWiki_ConcernLinked verifies that concerns/*.md tokens are linkified
-// with base = realm root.
 func TestLinkifyWiki_ConcernLinked(t *testing.T) {
 	root := setupLinkifyRealm(t)
 	if err := wiki.LinkifyWiki(root); err != nil {
@@ -82,8 +78,6 @@ func TestLinkifyWiki_ConcernLinked(t *testing.T) {
 	}
 }
 
-// TestLinkifyWiki_RepoSummaryLinked verifies that repos/<repo>.md tokens are
-// linkified with base = <root>/<repo>.
 func TestLinkifyWiki_RepoSummaryLinked(t *testing.T) {
 	root := setupLinkifyRealm(t)
 	if err := wiki.LinkifyWiki(root); err != nil {
@@ -105,8 +99,6 @@ func TestLinkifyWiki_RepoSummaryLinked(t *testing.T) {
 	}
 }
 
-// TestLinkifyWiki_RepoSummaryLinked_CorrectBase verifies that a token using
-// a repo-relative path (e.g. `main.go`) resolves when base = <root>/<repo>.
 func TestLinkifyWiki_RepoSummaryLinked_CorrectBase(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "repoA/main.go", "package main\n")
@@ -123,8 +115,6 @@ func TestLinkifyWiki_RepoSummaryLinked_CorrectBase(t *testing.T) {
 	}
 }
 
-// TestLinkifyWiki_MissingRepoKey verifies that a repos/*.md without a repo:
-// frontmatter key is skipped (not crashed).
 func TestLinkifyWiki_MissingRepoKey(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "README.md", "# realm\n")
@@ -141,7 +131,6 @@ func TestLinkifyWiki_MissingRepoKey(t *testing.T) {
 	}
 }
 
-// TestLinkifyWiki_Idempotent verifies that running twice produces byte-identical files.
 func TestLinkifyWiki_Idempotent(t *testing.T) {
 	root := setupLinkifyRealm(t)
 
@@ -160,7 +149,6 @@ func TestLinkifyWiki_Idempotent(t *testing.T) {
 	}
 }
 
-// TestLinkifyWiki_EmptyWikiDir verifies no error when wiki/ doesn't exist.
 func TestLinkifyWiki_EmptyWikiDir(t *testing.T) {
 	root := t.TempDir()
 	if err := wiki.LinkifyWiki(root); err != nil {

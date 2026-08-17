@@ -5,10 +5,9 @@ import (
 	"path/filepath"
 )
 
-// DefaultCachePath returns the path to the legacy update cache file.
-// Respects XDG_CACHE_HOME if set, otherwise uses ~/.cache/atomic/update.json.
-// The cache itself is superseded by state.json (see state.go); this helper
-// survives solely so WriteState can opportunistically delete the legacy file.
+// DefaultCachePath locates the legacy update cache file, honoring
+// XDG_CACHE_HOME. state.json supersedes it; this survives only so WriteState
+// can delete the leftover.
 func DefaultCachePath() (string, error) {
 	base := os.Getenv("XDG_CACHE_HOME")
 	if base == "" {

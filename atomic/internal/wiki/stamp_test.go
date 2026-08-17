@@ -69,8 +69,6 @@ func writeFrontmatterFile(t *testing.T, path string, meta map[string]any, body s
 	}
 }
 
-// TestStamp_SummaryMode verifies that StampSummary writes the correct
-// reflects_rev from git HEAD and preserves the rest of the frontmatter.
 func TestStamp_SummaryMode(t *testing.T) {
 	repoDir, wantSHA := makeCommittedGitRepo(t)
 
@@ -118,8 +116,6 @@ func TestStamp_SummaryMode(t *testing.T) {
 	}
 }
 
-// TestStamp_SummaryMode_Idempotent verifies that stamping twice produces the
-// same result (no duplicate keys, no data loss).
 func TestStamp_SummaryMode_Idempotent(t *testing.T) {
 	repoDir, wantSHA := makeCommittedGitRepo(t)
 	summaryFile := filepath.Join(t.TempDir(), "repos", "repoA.md")
@@ -318,8 +314,6 @@ func TestStamp_ConcernMode_AllUnresolvable(t *testing.T) {
 	}
 }
 
-// TestStamp_ConcernMode_UnresolvableSkipped verifies that a cited repo id that
-// does not exist under wikiRoot is silently skipped; the command does not crash.
 func TestStamp_ConcernMode_UnresolvableSkipped(t *testing.T) {
 	wikiRoot := t.TempDir()
 

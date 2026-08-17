@@ -9,13 +9,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/dockerinit"
 )
 
-// TestComposeConvergence verifies the contributor docker-compose.yml at the
-// repo root and the end-user template rendered by Init share the same shape.
-// Shared keys that must appear in both:
-//   - service name, volume mounts, tty/stdin_open, HOST_UID mechanism.
-//
-// Uses substring assertions (no YAML parsing) — the right granularity for a
-// shape-match check that won't false-fail on whitespace or comment drift.
+// The contributor docker-compose.yml at the repo root and the end-user template
+// must keep the same shape: service name, volume mounts, tty/stdin_open,
+// HOST_UID. Substring assertions rather than YAML parsing, so whitespace and
+// comment drift do not false-fail.
 func TestComposeConvergence(t *testing.T) {
 	contributorPath := filepath.Join("..", "..", "..", "docker-compose.yml")
 	contributorBytes, err := os.ReadFile(contributorPath)

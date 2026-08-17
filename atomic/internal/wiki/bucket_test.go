@@ -9,8 +9,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// ---- helpers ----
-
 // setupBucketDir builds a temporary directory tree to use as a bucket folder.
 // Returns the bucket dir path.
 //
@@ -57,8 +55,6 @@ func wikiRoot(t *testing.T) string {
 	}
 	return root
 }
-
-// ---- WalkBucket tests ----
 
 func TestWalkBucket_ContentFilesIncluded(t *testing.T) {
 	dir := setupBucketDir(t)
@@ -171,8 +167,6 @@ func TestWalkBucket_HashDeterminism(t *testing.T) {
 	}
 }
 
-// ---- RegisterBucket / manifest directory tests ----
-
 func TestRegisterBucket_CreatesManifestDir(t *testing.T) {
 	wikiDir := filepath.Join(wikiRoot(t), "wiki")
 	if err := wiki.RegisterBucket(wikiDir, "repos"); err != nil {
@@ -264,8 +258,6 @@ func TestRegisterBucket_OrdinaryNamesAccepted(t *testing.T) {
 		})
 	}
 }
-
-// ---- BucketDiff tests ----
 
 func TestBucketDiff_EmptyBaselineAllNew(t *testing.T) {
 	wikiDir := filepath.Join(wikiRoot(t), "wiki")
@@ -429,8 +421,6 @@ func TestBucketDiff_PromoteThenDiffEmpty(t *testing.T) {
 	}
 }
 
-// ---- PromoteBucket tests ----
-
 func TestPromoteBucket_UnregisteredRefused(t *testing.T) {
 	wikiDir := filepath.Join(wikiRoot(t), "wiki")
 	err := wiki.PromoteBucket(wikiDir, "nonexistent", t.TempDir())
@@ -532,8 +522,6 @@ func TestPromoteBucket_SecondPromoteWritesPrevious(t *testing.T) {
 		t.Errorf("baseline missing after second promote: %v", err)
 	}
 }
-
-// ---- helpers ----
 
 // entryPaths extracts the path portion of WalkBucket entries (tab-separated "<path>\t<sha256hex>").
 func entryPaths(entries []string) []string {

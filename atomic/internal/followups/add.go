@@ -11,10 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// kebabCaseRe validates kebab-case ids: lowercase letters, digits, hyphens.
 var kebabCaseRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$`)
 
-// AddOpts holds parameters for Add.
 type AddOpts struct {
 	ID       string
 	Title    string
@@ -25,15 +23,13 @@ type AddOpts struct {
 	Body     string // optional body content; empty = no body
 	Today    time.Time
 
-	// Dir is unused in Add (dir is passed as first arg); kept for test compatibility.
+	// Dir is unused; Add takes the dir as its first argument. Kept for tests.
 	Dir string
 }
 
-// Add creates a new entry file in dir with the given options.
-// Returns the absolute path to the created file.
-// Exit conditions: returns error on validation failure or id collision.
+// Add returns the absolute path of the created entry, or an error on validation
+// failure or id collision.
 func Add(dir string, opts AddOpts) (string, error) {
-	// Validate id.
 	if opts.ID == "" {
 		return "", fmt.Errorf("followups add: id must not be empty")
 	}
@@ -41,18 +37,16 @@ func Add(dir string, opts AddOpts) (string, error) {
 		return "", fmt.Errorf("followups add: id %q must be kebab-case (lowercase letters, digits, hyphens)", opts.ID)
 	}
 
-	// Validate title.
 	if strings.TrimSpace(opts.Title) == "" {
 		return "", fmt.Errorf("followups add: title must not be empty")
 	}
 
-	// Validate and default kind.
 	knd, err := parseKind(opts.Kind)
 	if err != nil {
 		return "", fmt.Errorf("followups add: %w", err)
 	}
 
-	// Validate severity: required for findings, optional for plans.
+	// Severity is required for findings, optional for plans.
 	if opts.Severity != "" {
 		if _, err := parseSeverity(opts.Severity); err != nil {
 			return "", fmt.Errorf("followups add: %w", err)
@@ -61,12 +55,10 @@ func Add(dir string, opts AddOpts) (string, error) {
 		return "", fmt.Errorf("followups add: missing required field 'severity'")
 	}
 
-	// Validate origin.
 	if strings.TrimSpace(opts.Origin) == "" {
 		return "", fmt.Errorf("followups add: origin must not be empty")
 	}
 
-	// Check for id collision.
 	entryPath := filepath.Join(dir, opts.ID+".md")
 	if _, err := os.Stat(entryPath); err == nil {
 		return "", fmt.Errorf("followups add: id %q already exists at %s", opts.ID, entryPath)
@@ -80,7 +72,6 @@ func Add(dir string, opts AddOpts) (string, error) {
 	created := today.Format("2006-01-02")
 	reviewBy := today.AddDate(0, 0, 60).Format("2006-01-02")
 
-	// Build frontmatter struct.
 	type fm struct {
 		ID       string `yaml:"id"`
 		Title    string `yaml:"title"`

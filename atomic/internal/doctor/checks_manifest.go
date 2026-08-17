@@ -8,13 +8,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/manifestcheck"
 )
 
-// checkManifest implements category 5: manifest parity.
-//
-// Repo-dev only: skips when IsRepoDev returns false. When repo-dev, calls
-// manifestcheck.Compare against the committed embedded.Manifest() slice.
-// Maps result:
-//   - OK=true  → PASS
-//   - OK=false → FAIL with count summary
+// checkManifest implements category 5: manifest parity. Outside the
+// atomic-claude repo it SKIPs; inside, drift between the generated and
+// committed bundle FAILs.
 func checkManifest(opts Opts) Result {
 	root := opts.RepoRoot
 	if root == "" {
@@ -27,20 +23,17 @@ func checkManifest(opts Opts) Result {
 	return RunCheckManifestWith(root)
 }
 
-// RunCheckManifest runs the manifest parity check using cwd to determine the
-// repo root. Exported for testing.
+// RunCheckManifest resolves the repo root from cwd, then checks manifest parity.
 //
-// Deprecated: prefer RunCheckManifestWith(root) which avoids a redundant git
-// subprocess when the toplevel has already been resolved. Note: this shim
-// calls gitToplevelFn (the injectable resolver variable), not the underlying
-// gitToplevel function directly — a test that has swapped gitToplevelFn will
-// intercept this call.
+// Deprecated: prefer RunCheckManifestWith(root), which avoids a redundant git
+// subprocess when the toplevel is already resolved. This shim goes through the
+// injectable gitToplevelFn, so a test that swaps it still intercepts the call.
 func RunCheckManifest(cwd string) Result {
 	return RunCheckManifestWith(gitToplevelFn(cwd))
 }
 
-// RunCheckManifestWith runs the manifest parity check against an explicit repo root.
-// Exported for testing; production callers use checkManifest.
+// RunCheckManifestWith runs the manifest parity check against an explicit repo
+// root. Exported for testing.
 func RunCheckManifestWith(root string) Result {
 	repoDev, err := isRepoDevRoot(root)
 	if err != nil {

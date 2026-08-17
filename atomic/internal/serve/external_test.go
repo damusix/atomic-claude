@@ -11,11 +11,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// buildExternalRealm creates a temp realm with two pages for external-link tests.
-//
-//	pageA.md — links to https://example.com/x and http://foo.test
-//	pageB.md — also links to https://example.com/x
-//	pageC.md — only internal/wikilinks + a link inside a fenced code block
+// buildExternalRealm cites one URL from two pages (dedup), one from a single
+// page, and buries a third inside a fenced code block (must stay out).
 func buildExternalRealm(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -30,14 +27,12 @@ func buildExternalRealm(t *testing.T) string {
 	return root
 }
 
-// fixedDateFn returns a FileDateFn that always returns the given date for any file.
 func fixedDateFn(d time.Time) serve.FileDateFn {
 	return func(_ string) time.Time {
 		return d
 	}
 }
 
-// perFileDateFn returns a FileDateFn that maps abs path → time, falling back to epoch.
 func perFileDateFn(m map[string]time.Time) serve.FileDateFn {
 	return func(p string) time.Time {
 		if t, ok := m[p]; ok {
@@ -47,8 +42,6 @@ func perFileDateFn(m map[string]time.Time) serve.FileDateFn {
 	}
 }
 
-// TestExternalRegistry_UniqueURLs verifies the registry collects exactly the
-// external URLs present in the realm (http/https only) and deduplicates them.
 func TestExternalRegistry_UniqueURLs(t *testing.T) {
 	root := buildExternalRealm(t)
 	reg := serve.BuildExternalRegistry(root, fixedDateFn(time.Now()))
@@ -69,8 +62,6 @@ func TestExternalRegistry_UniqueURLs(t *testing.T) {
 	}
 }
 
-// TestExternalRegistry_SourcePages verifies that https://example.com/x lists
-// both pageA.md and pageB.md as sources.
 func TestExternalRegistry_SourcePages(t *testing.T) {
 	root := buildExternalRealm(t)
 	reg := serve.BuildExternalRegistry(root, fixedDateFn(time.Now()))
@@ -98,8 +89,6 @@ func TestExternalRegistry_SourcePages(t *testing.T) {
 	}
 }
 
-// TestExternalRegistry_InternalLinksExcluded verifies that relative (internal)
-// markdown links and wikilinks are NOT in the registry.
 func TestExternalRegistry_InternalLinksExcluded(t *testing.T) {
 	root := buildExternalRealm(t)
 	reg := serve.BuildExternalRegistry(root, fixedDateFn(time.Now()))
@@ -114,9 +103,6 @@ func TestExternalRegistry_InternalLinksExcluded(t *testing.T) {
 	}
 }
 
-// TestExternalRegistry_FencedCodeExcluded verifies that a URL inside a fenced
-// code block in pageC.md is excluded. ExtractLinks handles this — this test
-// asserts the end-to-end behavior at the registry level.
 func TestExternalRegistry_FencedCodeExcluded(t *testing.T) {
 	root := buildExternalRealm(t)
 	reg := serve.BuildExternalRegistry(root, fixedDateFn(time.Now()))
@@ -128,16 +114,14 @@ func TestExternalRegistry_FencedCodeExcluded(t *testing.T) {
 	}
 }
 
-// TestExternalRegistry_FirstSeenUsesDateSeam verifies that the first-seen date
-// is driven by the injected FileDateFn (the seam), not the actual file system.
+// First-seen must come from the injected FileDateFn, never the real filesystem.
 func TestExternalRegistry_FirstSeenUsesDateSeam(t *testing.T) {
 	root := buildExternalRealm(t)
 
 	dateA := time.Date(2024, 1, 10, 0, 0, 0, 0, time.UTC)
 	dateB := time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)
 
-	// pageA.md cites https://example.com/x with dateA; pageB.md also cites it with dateB.
-	// first-seen should be the EARLIEST = dateA.
+	// Both pages cite the same URL, so the earlier of the two dates must win.
 	pathA := filepath.Join(root, "pageA.md")
 	pathB := filepath.Join(root, "pageB.md")
 	pathC := filepath.Join(root, "pageC.md")
@@ -166,11 +150,7 @@ func TestExternalRegistry_FirstSeenUsesDateSeam(t *testing.T) {
 	}
 }
 
-// ─── GitOrMtimeDateFn tests ───────────────────────────────────────────────────
-
-// initGitRepo initialises a fresh git repo in dir with a minimal identity and
-// returns the dir. Uses only local git config (--local) so it never mutates the
-// user's global identity.
+// Identity is set with --local so the user's global git config is untouched.
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()
 	run := func(args ...string) {
@@ -186,12 +166,9 @@ func initGitRepo(t *testing.T, dir string) {
 	run("config", "--local", "user.name", "Test")
 }
 
-// TestGitOrMtimeDateFn_CommittedFile verifies that GitOrMtimeDateFn returns the
-// git add-date (the date the file was first committed) when git is available and
-// the file is tracked. The add-date is pinned via GIT_AUTHOR_DATE /
-// GIT_COMMITTER_DATE env vars so the assertion is deterministic.
+// The add-date is pinned through GIT_AUTHOR_DATE / GIT_COMMITTER_DATE so the
+// assertion does not depend on when the test ran.
 func TestGitOrMtimeDateFn_CommittedFile(t *testing.T) {
-	// Skip if git is not available on PATH.
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -199,11 +176,10 @@ func TestGitOrMtimeDateFn_CommittedFile(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 
-	// Write and commit a file with a fixed author/committer date.
 	filePath := filepath.Join(dir, "committed.md")
 	writeFile(t, filePath, "# Committed\n")
 
-	pinDate := "2023-07-04T12:00:00+00:00" // RFC3339; git will echo this back
+	pinDate := "2023-07-04T12:00:00+00:00" // git echoes RFC3339 back verbatim
 	cmd := exec.Command("git", "add", "committed.md")
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -222,22 +198,18 @@ func TestGitOrMtimeDateFn_CommittedFile(t *testing.T) {
 	want, _ := time.Parse(time.RFC3339, pinDate)
 	got := serve.GitOrMtimeDateFn(filePath)
 
-	// GitOrMtimeDateFn must return the pinned add-date, not the file's mtime.
 	if !got.Equal(want) {
 		t.Errorf("GitOrMtimeDateFn: want %v (git add-date), got %v", want, got)
 	}
 }
 
-// TestGitOrMtimeDateFn_NonGitDir verifies that GitOrMtimeDateFn falls back to
-// mtime when called on a file in a directory that is not a git repository.
 func TestGitOrMtimeDateFn_NonGitDir(t *testing.T) {
-	// Skip if git is not available on PATH.
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
 
 	dir := t.TempDir()
-	// Note: no git init — this is intentionally NOT a git repo.
+	// Deliberately no git init.
 	filePath := filepath.Join(dir, "plain.md")
 	writeFile(t, filePath, "# Plain\n")
 
@@ -245,17 +217,14 @@ func TestGitOrMtimeDateFn_NonGitDir(t *testing.T) {
 	got := serve.GitOrMtimeDateFn(filePath)
 	after := time.Now().Add(time.Second)
 
-	// The returned time must be within [before, after] — i.e. the file's mtime.
 	if got.Before(before) || got.After(after) {
 		t.Errorf("GitOrMtimeDateFn in non-git dir: got %v, expected mtime in [%v, %v]", got, before, after)
 	}
 }
 
-// TestGitOrMtimeDateFn_UntrackedFile verifies that GitOrMtimeDateFn falls back
-// to mtime when the file exists in a git repo but has never been committed
-// (git log --diff-filter=A produces empty output for untracked files).
+// git log --diff-filter=A prints nothing for an untracked file, so the mtime
+// fallback is the only thing left.
 func TestGitOrMtimeDateFn_UntrackedFile(t *testing.T) {
-	// Skip if git is not available on PATH.
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -263,7 +232,7 @@ func TestGitOrMtimeDateFn_UntrackedFile(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 
-	// Write the file but do NOT add or commit it — it stays untracked.
+	// Written but never added, so it stays untracked.
 	filePath := filepath.Join(dir, "untracked.md")
 	writeFile(t, filePath, "# Untracked\n")
 
@@ -271,7 +240,6 @@ func TestGitOrMtimeDateFn_UntrackedFile(t *testing.T) {
 	got := serve.GitOrMtimeDateFn(filePath)
 	after := time.Now().Add(time.Second)
 
-	// Must fall back to mtime since the file has no git history.
 	if got.Before(before) || got.After(after) {
 		t.Errorf("GitOrMtimeDateFn for untracked file: got %v, expected mtime in [%v, %v]", got, before, after)
 	}

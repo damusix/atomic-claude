@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildHooksCmd builds the "hooks" parent + session-start|install|uninstall children.
 func buildHooksCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runHooks(args, *repoOverride) }
 	parent := &cobra.Command{
@@ -148,8 +147,7 @@ func runHooks(args []string, repoOverride string) {
 	}
 }
 
-// resolveScopeRoot returns the directory against which hook files are written.
-// "user" → $HOME/.claude (user scope), "project" → repoRoot (project scope).
+// resolveScopeRoot maps "user" to $HOME/.claude and "project" to repoRoot.
 func resolveScopeRoot(scope, repoRoot string) (string, error) {
 	switch scope {
 	case "user":

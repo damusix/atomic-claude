@@ -7,8 +7,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/migrate"
 )
 
-// TestRunAppliesOnlyStepsAboveRecorded: out-of-order registry, non-empty
-// recorded — only steps with TargetVersion > recorded run, in ascending order.
 func TestRunAppliesOnlyStepsAboveRecorded(t *testing.T) {
 	var order []string
 	registry := []migrate.Migration{
@@ -18,7 +16,6 @@ func TestRunAppliesOnlyStepsAboveRecorded(t *testing.T) {
 	}
 	ctx := &migrate.Context{Root: t.TempDir()}
 
-	// recorded = "1.5.0" → only 2.0.0 and 3.0.0 run, in that order.
 	got, err := migrate.Run("1.5.0", registry, ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -32,7 +29,6 @@ func TestRunAppliesOnlyStepsAboveRecorded(t *testing.T) {
 	}
 }
 
-// TestRunIdempotent: re-running with the new recorded version applies nothing.
 func TestRunIdempotent(t *testing.T) {
 	called := 0
 	registry := []migrate.Migration{
@@ -52,7 +48,6 @@ func TestRunIdempotent(t *testing.T) {
 	}
 }
 
-// TestRunFloorRunsAll: empty or "0.0.0" recorded is the floor — all steps run.
 func TestRunFloorRunsAll(t *testing.T) {
 	cases := []string{"", "0.0.0"}
 	for _, rec := range cases {
@@ -78,8 +73,6 @@ func TestRunFloorRunsAll(t *testing.T) {
 	}
 }
 
-// TestRunStopsOnError: a failing step stops the chain; returned version is the
-// last success, and subsequent steps do not run.
 func TestRunStopsOnError(t *testing.T) {
 	sentinel := errors.New("step 2 failed")
 	var order []string
@@ -94,11 +87,9 @@ func TestRunStopsOnError(t *testing.T) {
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("expected sentinel error, got: %v", err)
 	}
-	// Version after last success.
 	if got != "1.0.0" {
 		t.Errorf("returned version after error: got %q, want %q", got, "1.0.0")
 	}
-	// Step 3.0.0 must not have run.
 	for _, v := range order {
 		if v == "3.0.0" {
 			t.Errorf("step 3.0.0 ran despite error in step 2.0.0")
@@ -106,7 +97,6 @@ func TestRunStopsOnError(t *testing.T) {
 	}
 }
 
-// TestRunEmptyRegistry: no steps — recorded is returned unchanged, no error.
 func TestRunEmptyRegistry(t *testing.T) {
 	ctx := &migrate.Context{Root: t.TempDir()}
 	got, err := migrate.Run("1.2.3", nil, ctx)
@@ -118,7 +108,6 @@ func TestRunEmptyRegistry(t *testing.T) {
 	}
 }
 
-// TestRunDoesNotMutateCallerSlice: Run sorts a copy — caller's slice unchanged.
 func TestRunDoesNotMutateCallerSlice(t *testing.T) {
 	registry := []migrate.Migration{
 		{TargetVersion: "3.0.0", Up: func(*migrate.Context) error { return nil }},
@@ -137,7 +126,6 @@ func TestRunDoesNotMutateCallerSlice(t *testing.T) {
 	}
 }
 
-// TestRunPrereleaseSorting: prerelease < release per semver 2.0.
 func TestRunPrereleaseSorting(t *testing.T) {
 	var order []string
 	registry := []migrate.Migration{

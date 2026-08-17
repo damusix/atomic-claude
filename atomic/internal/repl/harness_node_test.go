@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-// TestNodeHarness drives the embedded Node harness through the shared
-// cross-language conformance suite in harness_contract_test.go, spawning node
-// directly rather than through any Go spawn path — this checkpoint tests the
-// script, not the plumbing that will later start it.
+// Drives the embedded Node harness through the shared conformance suite, spawning
+// node directly rather than through any Go spawn path: this tests the script, not
+// the plumbing that starts it.
 func TestNodeHarness(t *testing.T) {
 	runHarnessConformance(t, harnessCase{
 		lang: LangNode,
@@ -47,9 +46,8 @@ func TestNodeHarness(t *testing.T) {
 	})
 }
 
-// TestNodeHarness_SyntaxErrorReportsTheOffendingLine covers the one failure
-// mode with no user frame to unwind: the script never compiled, so the trace
-// comes from the parse itself and must still show what and where.
+// The one failure mode with no user frame to unwind: the script never compiled,
+// so the trace comes from the parse itself and must still show what and where.
 func TestNodeHarness_SyntaxErrorReportsTheOffendingLine(t *testing.T) {
 	h := startHarness(t, nodeCase(), conformanceIdleTimeout)
 	resp := h.eval(t, "const value = 1;\nconst broken = (;\n")
@@ -66,10 +64,9 @@ func TestNodeHarness_SyntaxErrorReportsTheOffendingLine(t *testing.T) {
 	assertOK(t, h.eval(t, "6 * 7"))
 }
 
-// TestNodeHarness_RequireResolvesAgainstCWD pins the deliberate choice in the
-// harness's newContext: eval'd code's bare specifiers resolve against the
-// session's working directory (its scope root), not against the throwaway
-// directory the script was materialized into.
+// A deliberate choice in the harness's newContext: eval'd code's bare specifiers
+// resolve against the session's working directory, not the throwaway directory
+// the script was materialized into.
 func TestNodeHarness_RequireResolvesAgainstCWD(t *testing.T) {
 	h := startHarness(t, nodeCase(), conformanceIdleTimeout)
 	resp := h.eval(t, "require('node:path').basename('/a/b/c.txt')")

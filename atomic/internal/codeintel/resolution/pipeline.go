@@ -1,56 +1,8 @@
 package resolution
 
-// pipeline.go — resolver pipeline.
-//
-// Implements resolveOne (appendix-F sub-order) and resolveAndPersistBatched
-// (re-read-at-offset-0 batch loop) for the code-intelligence engine.
-//
-// # resolveOne sub-order (appendix F)
-//
-//  1. Built-in/external skip: per-language name sets; matched refs are silently
-//     dropped (will never resolve to an internal node — retaining them would
-//     pollute subsequent runs).
-//  2. Pre-filter: hasAnyPossibleMatch + matchesAnyImport + framework
-//     claimsReference. If none match, skip without attempting resolution.
-//  3. JVM FQN fast path: fully-qualified name containing "." → conf 0.95, return.
-//  4. Framework resolve (FrameworkResolver seam): returns if conf ≥ 0.9 else
-//     accumulates. The registry is EMPTY until/fill it.
-//  5. resolveViaImport: returns if conf ≥ 0.9 else accumulates.
-//  6. matchReference: accumulates.
-//  7. Return highest-confidence candidate.
-//
-// # resolveAndPersistBatched loop
-//
-// Reads unresolved_refs at offset 0 (re-read after delete — the delete shrinks
-// the set so the offset must NOT advance). Calls resolveOne per ref, collects
-// edges + ref ids to delete, then deletes in bulk and writes edges in a single
-// transaction. Breaks when a batch resolves NOTHING (avoids infinite loop on
-// unresolvable refs).
-//
-// # Edge-kind promotion (appendix F)
-//
-//   - calls  → instantiates when target is class or struct.
-//   - extends → implements when target is interface, trait, or protocol.
-//
-// # Framework + synthesis seams
-//
-// FrameworkResolver and CallbackSynthesizer are proper Go
-// interfaces. EmptyFrameworkRegistry and NoopSynthesizer are the stubs.
-// The Pipeline struct holds a FrameworkRegistry and a CallbackSynthesizer; all
-// call sites exist so/15/16 can fill them without touching the pipeline
-// logic.
-//
-// # Fuzzy cap
-//
-// byFuzzy in name_matcher.go generates edit-distance variants; for maxDist=2
-// the variant set grows as O(n * 26^2) which is manageable for typical names
-// (≤ 40 chars). For names longer than fuzzyNameLenCap (40 chars), resolveOne
-// calls MatchReferenceNoFuzzy instead of MatchReference, skipping byFuzzy
-// entirely. Non-fuzzy strategies (exact/qualified/methodCall/filePath) still
-// run. This is noted here so a future reader can distinguish "we forgot" from
-// "we deliberately bounded".
-//
-// See: appendix F (resolution order), appendix G (synthesis seam).
+// Resolver pipeline: resolveOne (ordered strategy cascade) and
+// ResolveAndPersistBatched (keyset batch loop, package mint/sweep, synthesis).
+// Contract: docs/spec/code-intel-resolution.md.
 
 import (
 	"context"
@@ -64,26 +16,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Batch size constant
-// ---------------------------------------------------------------------------
-
-// DefaultBatchSize is the batch size for resolveAndPersistBatched (appendix F).
+// DefaultBatchSize is the ResolveAndPersistBatched window size.
 const DefaultBatchSize = 5000
 
-// ---------------------------------------------------------------------------
-// ResolveProfile — per-phase timing
-// ---------------------------------------------------------------------------
-
-// ResolveProfile captures wall-time and item counts for each sub-phase of
-// the resolve pipeline. Returned by ResolveAndPersistBatched.
-//
-// Phase definitions:
-//   - WarmDur:   warmCaches call (known-files + known-names DB load).
-//   - MatchDur:  the resolveOne batch loop (total time across all batches).
-//   - SynthDur:  SynthesizeCallbackEdges.
-//   - NodeCount: number of nodes in the knownNames cache after warmCaches.
-//   - RefCount:  number of unresolved refs processed across all batches.
+// ResolveProfile captures wall-time and item counts per sub-phase of a resolve run.
 type ResolveProfile struct {
 	WarmDur  time.Duration
 	MatchDur time.Duration
@@ -93,90 +29,55 @@ type ResolveProfile struct {
 	RefCount  int // total refs processed across all batches
 }
 
-// PhaseEmitFunc is called immediately after each sub-phase of the resolve
-// pipeline completes — before the next phase starts. This allows callers to
-// flush a profile line to stderr right away so a process killed mid-resolve
-// still shows the already-completed phases.
-//
-// Arguments:
-//   - phase: one of "resolve.warm", "resolve.match", "resolve.synth".
-//   - d:     wall-time duration of the phase.
-//   - count: phase-specific count: warm → node count, match → ref count,
-//     synth → 0 (no applicable count).
-//
-// A nil PhaseEmitFunc is safe — the pipeline treats it as a no-op.
+// PhaseEmitFunc receives each sub-phase result the moment it completes, so a
+// process killed mid-resolve has still reported the phases that finished.
+// phase is "resolve.warm" | "resolve.match" | "resolve.synth"; count is nodes,
+// refs, and 0 respectively. A nil PhaseEmitFunc is a no-op.
 type PhaseEmitFunc func(phase string, d time.Duration, count int)
 
-// ---------------------------------------------------------------------------
-// Fuzzy cap constants (see package comment)
-// ---------------------------------------------------------------------------
-
-// fuzzyNameLenCap is the maximum reference name length for which the fuzzy
-// name-matcher path is attempted. Names longer than this are unlikely to be
-// meaningful fuzzy matches and would generate large variant sets.
+// fuzzyNameLenCap bounds byFuzzy, whose variant set grows O(n*26^maxDist).
+// Longer names skip fuzzy matching entirely rather than stall a batch.
 const fuzzyNameLenCap = 40
 
-// ---------------------------------------------------------------------------
-// Framework resolver seam
-// ---------------------------------------------------------------------------
-
 // ResolvedRef is the result of one framework or import resolution attempt.
+// TargetNodeID is "" when unresolved; Confidence is 0.0–1.0.
 type ResolvedRef struct {
-	// TargetNodeID is the resolved node id, or "" if unresolved.
 	TargetNodeID string
-	// Confidence is 0.0–1.0.
-	Confidence float64
+	Confidence   float64
 }
 
-// FrameworkResolver is the seam that/implement. The registry is
-// empty until those checkpoints run; all calls return nothing for now.
-//
-// Detect, ClaimsReference, and Resolve are the three mandatory methods used
-// by the registry and pipeline. Extract and PostExtract are optional (see
-// FrameworkExtractor and FrameworkPostExtractor below).
+// FrameworkResolver recognizes and resolves framework-specific references.
+// Extract and PostExtract are optional, reached by type assertion — see
+// FrameworkExtractor and FrameworkPostExtractor.
 type FrameworkResolver interface {
-	// Name returns the resolver's identifier (e.g. "express", "django").
 	Name() string
-	// Languages returns the language tags this resolver handles, or nil for any.
+	// Languages returns the languages this resolver handles, or nil for any.
 	Languages() []types.Language
-	// Detect returns true if this framework is present in the project at
-	// projectRoot. Reads a config file (package.json / go.mod / Gemfile) and
-	// falls back to path + content patterns. Used by the registry's
-	// DetectFrameworks to filter the full resolver list to active ones.
+	// Detect reports whether the framework is present in the project, by
+	// config file (package.json / go.mod / Gemfile) then path/content patterns.
 	Detect(ctx context.Context) bool
-	// ClaimsReference returns true if this resolver knows about a reference by
-	// this name (pre-filter step — fast, no DB access).
+	// ClaimsReference is the pre-filter probe: fast, no DB access.
 	ClaimsReference(name string) bool
-	// Resolve attempts to resolve the reference. Returns ResolvedRef with
-	// TargetNodeID=="" when the resolver cannot handle it.
+	// Resolve returns TargetNodeID=="" when it cannot handle the reference.
 	Resolve(ctx context.Context, ref types.UnresolvedReference) (ResolvedRef, error)
 }
 
-// FrameworkExtractor is an optional capability interface. Resolvers that can
-// extract route nodes from source files implement this alongside
-// FrameworkResolver. The pipeline checks for this interface via type assertion;
-// resolvers that only do Resolve need not implement it.
+// FrameworkExtractor is implemented by resolvers that mint nodes from source.
 type FrameworkExtractor interface {
-	// Extract scans filePath/content for framework-specific constructs (e.g.
-	// Express routes) and returns the route nodes and unresolved handler
-	// references to persist before the resolution pipeline runs.
+	// Extract returns framework constructs (e.g. Express routes) and their
+	// handler references, persisted before the resolution pipeline runs.
 	Extract(filePath, content string) (nodes []types.Node, references []types.UnresolvedReference)
 }
 
-// FrameworkPostExtractor is an optional capability interface. Resolvers that
-// need a post-extraction pass (e.g. to emit cross-file route aggregation nodes)
-// implement this alongside FrameworkResolver.
+// FrameworkPostExtractor is implemented by resolvers needing a whole-project
+// pass after extraction, e.g. cross-file route aggregation nodes.
 type FrameworkPostExtractor interface {
-	// PostExtract runs after all files have been extracted. Returns any
-	// additional nodes to persist.
 	PostExtract(ctx context.Context) ([]types.Node, error)
 }
 
 // FrameworkRegistry is an ordered list of FrameworkResolver instances.
-// getApplicableResolvers filters by language.
 type FrameworkRegistry []FrameworkResolver
 
-// getApplicableResolvers returns resolvers that apply to the given language.
 func (fr FrameworkRegistry) getApplicableResolvers(lang types.Language) []FrameworkResolver {
 	var result []FrameworkResolver
 	for _, r := range fr {
@@ -195,7 +96,6 @@ func (fr FrameworkRegistry) getApplicableResolvers(lang types.Language) []Framew
 	return result
 }
 
-// claimsAny returns true if any resolver in the registry claims the name.
 func (fr FrameworkRegistry) claimsAny(name string) bool {
 	for _, r := range fr {
 		if r.ClaimsReference(name) {
@@ -205,38 +105,24 @@ func (fr FrameworkRegistry) claimsAny(name string) bool {
 	return false
 }
 
-// EmptyFrameworkRegistry is the stub — no framework resolvers registered.
-// and populate the registry.
+// EmptyFrameworkRegistry registers no resolvers.
 var EmptyFrameworkRegistry FrameworkRegistry
 
-// ---------------------------------------------------------------------------
-// Callback synthesizer seam
-// ---------------------------------------------------------------------------
-
-// CallbackSynthesizer synthesizes dynamic-dispatch edges after all static
-// edges are persisted (appendix G). The no-op stub is used until.
+// CallbackSynthesizer synthesizes dynamic-dispatch edges. It runs last, after
+// every static edge is persisted, because it reads those edges.
 type CallbackSynthesizer interface {
-	// SynthesizeCallbackEdges creates and persists synthesized edges. It is
-	// called LAST, after the resolveAndPersistBatched loop completes.
 	SynthesizeCallbackEdges(ctx context.Context) error
 }
 
-// NoopSynthesizer is the stub — does nothing. replaces it.
+// NoopSynthesizer is the do-nothing default.
 type NoopSynthesizer struct{}
 
 func (NoopSynthesizer) SynthesizeCallbackEdges(_ context.Context) error { return nil }
 
-// ---------------------------------------------------------------------------
-// Per-language built-in / stdlib name sets
-// ---------------------------------------------------------------------------
-
-// builtinNames returns true if name is a well-known built-in or stdlib symbol
-// for lang that will never resolve to an internal node. The sets are modest
-// and documented — these are the most common false-positive ref targets that
-// extraction emits. Not exhaustive; add sparingly with A/B evidence.
-//
-// Skip policy: a matched ref is silently removed from unresolved_refs. It will
-// never produce an internal edge; keeping it would pollute subsequent runs.
+// isBuiltinOrExternal reports names that can never resolve to an internal
+// node, so the pipeline drops the ref outright rather than let it accumulate
+// across runs. The sets cover extraction's most frequent false-positive
+// targets, not the full language surface — add only with A/B evidence.
 func isBuiltinOrExternal(name string, lang types.Language) bool {
 	switch lang {
 	case types.LanguageTypeScript, types.LanguageJavaScript,
@@ -254,10 +140,6 @@ func isBuiltinOrExternal(name string, lang types.Language) bool {
 	return false
 }
 
-// jsBuiltins: common JS/TS global objects and functions that extraction emits
-// as call/reference targets. console, process, Math, JSON, etc. are never
-// internal nodes. The list is intentionally modest — only clear, high-frequency
-// hits; not an exhaustive ECMA list.
 var jsBuiltins = map[string]bool{
 	"console":       true,
 	"process":       true,
@@ -289,7 +171,6 @@ var jsBuiltins = map[string]bool{
 	"Buffer":        true,
 }
 
-// pyBuiltins: common Python built-in functions and types.
 var pyBuiltins = map[string]bool{
 	"print":      true,
 	"len":        true,
@@ -326,7 +207,7 @@ var pyBuiltins = map[string]bool{
 	"IndexError": true,
 }
 
-// goBuiltins: Go built-in functions and types (spec §Universe block).
+// goBuiltins is the Go spec's universe block.
 var goBuiltins = map[string]bool{
 	"append":  true,
 	"cap":     true,
@@ -362,7 +243,6 @@ var goBuiltins = map[string]bool{
 	"rune":    true,
 }
 
-// rustBuiltins: Rust built-in macros and common std traits that extraction emits.
 var rustBuiltins = map[string]bool{
 	"println":       true,
 	"print":         true,
@@ -379,7 +259,6 @@ var rustBuiltins = map[string]bool{
 	"unreachable":   true,
 }
 
-// jvmBuiltins: Java/Kotlin stdlib top-level names that are never internal nodes.
 var jvmBuiltins = map[string]bool{
 	"System":           true,
 	"Object":           true,
@@ -395,23 +274,14 @@ var jvmBuiltins = map[string]bool{
 	"println":          true, // Kotlin
 }
 
-// ---------------------------------------------------------------------------
-// warm-cache types
-// ---------------------------------------------------------------------------
-
-// knownFilesCache is a set of file paths that exist in the DB at pipeline start.
+// knownFilesCache is the set of file paths in the DB at pipeline start.
 type knownFilesCache map[string]bool
 
-// knownNamesCache is a set of symbol names that exist in the DB at pipeline start.
+// knownNamesCache is the set of lowercased symbol names in the DB at pipeline start.
 type knownNamesCache map[string]bool
 
-// ---------------------------------------------------------------------------
-// Pipeline
-// ---------------------------------------------------------------------------
-
-// Pipeline wires the import resolver, the name matcher, the
-// framework registry seam (/15), and the synthesis seam into the
-// ordered batch resolution loop described in appendix F.
+// Pipeline wires the import resolver, name matcher, framework registry, and
+// synthesizer into the ordered batch resolution loop.
 type Pipeline struct {
 	db         *db.DB
 	resolver   *Resolver
@@ -420,9 +290,8 @@ type Pipeline struct {
 	synth      CallbackSynthesizer
 }
 
-// NewPipeline constructs a Pipeline with the default (empty) framework registry
-// and the no-op synthesizer seam. Use NewPipelineWithSeams to inject
-// framework resolvers (/15) or a real synthesizer.
+// NewPipeline builds a Pipeline with no framework resolvers and no
+// synthesizer. Use NewPipelineWithSeams to supply either.
 func NewPipeline(d *db.DB) *Pipeline {
 	return &Pipeline{
 		db:         d,
@@ -433,9 +302,8 @@ func NewPipeline(d *db.DB) *Pipeline {
 	}
 }
 
-// NewPipelineWithSeams constructs a Pipeline with caller-supplied framework
-// registry and synthesizer. Called by/15 (framework resolvers) and
-// (synthesizer) once those checkpoints land.
+// NewPipelineWithSeams builds a Pipeline with a caller-supplied framework
+// registry and synthesizer.
 func NewPipelineWithSeams(d *db.DB, projectRoot string, registry FrameworkRegistry, synth CallbackSynthesizer) *Pipeline {
 	return &Pipeline{
 		db:         d,
@@ -446,17 +314,9 @@ func NewPipelineWithSeams(d *db.DB, projectRoot string, registry FrameworkRegist
 	}
 }
 
-// ---------------------------------------------------------------------------
-// warmCaches
-// ---------------------------------------------------------------------------
-
-// warmCaches builds the knownFiles and knownNames caches by scanning the DB.
-// These caches are used by hasAnyPossibleMatch and matchesAnyImport in the
-// pre-filter step, avoiding per-ref DB round-trips for the common "this name
-// doesn't exist at all" case.
+// warmCaches loads the pre-filter caches once, so the common "this name does
+// not exist at all" case costs no per-ref DB round-trip.
 func (p *Pipeline) warmCaches(ctx context.Context) (knownFilesCache, knownNamesCache, error) {
-	// Warm known files: collect all file_path values from the nodes table.
-	// We re-use GetNodesByKind(file) which returns all file nodes.
 	fileNodes, err := p.db.GetNodesByKind(ctx, types.NodeKindFile)
 	if err != nil {
 		return nil, nil, err
@@ -466,11 +326,9 @@ func (p *Pipeline) warmCaches(ctx context.Context) (knownFilesCache, knownNamesC
 		files[n.FilePath] = true
 	}
 
-	// Warm known names: scan a broad sample of nodes to build a name → true map.
-	// We load all nodes (the DB is expected to be a project-sized index, not
-	// multi-GB). For very large repos this scan may be slow; it runs once per
-	// batch-loop invocation. If profiling reveals it as a bottleneck, a dedicated
-	// "SELECT DISTINCT lower(name) FROM nodes" query can replace it.
+	// Loads every node: the index is project-sized, and this runs once per
+	// batch-loop invocation. A DISTINCT lower(name) query would replace it if
+	// profiling ever shows it as a bottleneck.
 	allNodes, err := p.db.GetAllNodes(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -482,48 +340,30 @@ func (p *Pipeline) warmCaches(ctx context.Context) (knownFilesCache, knownNamesC
 	return files, names, nil
 }
 
-// ---------------------------------------------------------------------------
-// pre-filter
-// ---------------------------------------------------------------------------
-
-// hasAnyPossibleMatch returns true if the reference name (or a close variant)
-// appears in the known-names cache. This is a fast false-negative filter: a
-// name NOT in the cache definitely has no match; a name IN the cache may or
-// may not resolve (the full resolver confirms). The filter avoids launching
-// the full resolution pipeline for references to names that don't exist at all.
+// hasAnyPossibleMatch is a one-sided filter: absence from the cache proves no
+// match exists, presence proves nothing — the full resolver confirms.
 func hasAnyPossibleMatch(name string, known knownNamesCache) bool {
 	return known[strings.ToLower(name)]
 }
 
-// matchesAnyImport returns true if any file in the known-files cache looks
-// like a plausible import target for the specifier. For import-kind refs this
-// is always true (the import resolver handles the detail). For non-import refs
-// it defers to hasAnyPossibleMatch.
+// matchesAnyImport admits an import ref whenever any file is indexed; the
+// import resolver probes exact candidates itself.
 func matchesAnyImport(ref types.UnresolvedReference, files knownFilesCache) bool {
 	if ref.ReferenceKind != types.EdgeKindImports {
-		return true // non-import: pass through to hasAnyPossibleMatch
+		return true
 	}
-	// For import refs: any file exists → pass (the import resolver will probe
-	// exact candidates). If no files at all, skip.
 	return len(files) > 0
 }
 
-// ---------------------------------------------------------------------------
-// resolveOne
-// ---------------------------------------------------------------------------
-
-// resolveCandidate bundles a resolved node id + confidence.
 type resolveCandidate struct {
 	targetNodeID string
 	confidence   float64
 }
 
-// resolveOne resolves a single UnresolvedReference following the appendix-F
-// sub-order. Returns (targetNodeID, edgeKind, skip, error):
-//   - skip=true means the ref should be dropped with no edge (built-in,
-//     pre-filter miss, or no candidate found at all).
-//   - On skip, targetNodeID and edgeKind are zero values.
-//   - edgeKind is the (possibly promoted) edge kind for the resolved edge.
+// resolveOne runs the strategy cascade for one reference. Strategies are
+// ordered cheapest-and-most-certain first, and each returns immediately at
+// confidence ≥ 0.9; lower-confidence hits accumulate and the best wins.
+// skip=true means no edge at all (built-in, pre-filter miss, or no candidate).
 func (p *Pipeline) resolveOne(
 	ctx context.Context,
 	ref types.UnresolvedReference,
@@ -531,22 +371,16 @@ func (p *Pipeline) resolveOne(
 	names knownNamesCache,
 ) (targetNodeID string, edgeKind types.EdgeKind, skip bool, err error) {
 
-	// Step 1 — built-in/external skip.
 	if isBuiltinOrExternal(ref.ReferenceName, ref.Language) {
 		return "", "", true, nil
 	}
 
-	// Step 2 — pre-filter (appendix F): pass if ANY of the three conditions holds.
-	//   - hasAnyPossibleMatch: name exists in the known-names cache.
-	//   - import ref with at least one file: the import resolver handles the detail.
-	//   - frameworkClaims: a framework resolver knows this name even if the cache doesn't.
 	importKind := ref.ReferenceKind == types.EdgeKindImports
 	nameMatch := hasAnyPossibleMatch(ref.ReferenceName, names)
-	// SQL qualified column refs are emitted as the full "schema.table.col"
-	// path so they resolve to the specific column node, but the known-names cache
-	// holds only bare node names ("col"). Without checking the simple name, these
-	// refs fail the pre-filter and never reach byQualifiedName. Scoped to SQL so
-	// non-SQL receiver.method / pkg.Class.member pre-filter behavior is unchanged.
+	// SQL qualified column refs carry the full "schema.table.col" path, but the
+	// cache holds bare names ("col"), so without this they fail the pre-filter
+	// and never reach byQualifiedName. SQL-scoped to leave receiver.method and
+	// pkg.Class.member pre-filtering unchanged.
 	if !nameMatch && ref.Language == types.LanguageSQL {
 		if simple := qualifiedSimpleName(ref.ReferenceName); simple != ref.ReferenceName {
 			nameMatch = hasAnyPossibleMatch(simple, names)
@@ -560,9 +394,7 @@ func (p *Pipeline) resolveOne(
 
 	var candidates []resolveCandidate
 
-	// Step 3 — JVM FQN fast path.
 	if isJVMLanguage(ref.Language) && isJVMFQN(ref.ReferenceName) {
-		// FQN: look up by qualified name directly in the DB.
 		fqnNode, fqnErr := p.resolveJVMFQN(ctx, ref.ReferenceName)
 		if fqnErr != nil {
 			return "", "", false, fqnErr
@@ -577,7 +409,6 @@ func (p *Pipeline) resolveOne(
 		}
 	}
 
-	// Step 4 — framework resolve.
 	applicable := p.frameworks.getApplicableResolvers(ref.Language)
 	for _, fr := range applicable {
 		result, frErr := fr.Resolve(ctx, ref)
@@ -600,20 +431,15 @@ func (p *Pipeline) resolveOne(
 		}
 	}
 
-	// Step 5 — resolveViaImport.
 	if ref.ReferenceKind == types.EdgeKindImports {
 		ri, riErr := p.resolver.ResolveImport(ctx, ref, ref.FilePath)
 		if riErr != nil {
 			return "", "", false, riErr
 		}
-		// External import with a derivable package identity
-		// (docs/design/code-intel-package-nodes.md) resolves straight to the
-		// shared package: node — bypassing the targetKind probe below. The
-		// package node may not exist in the DB yet on its first appearance in
-		// this resolve run (the batch loop mints it, after resolveOne
-		// returns); a GetNode probe here would fatally abort the batch on
-		// that case. promoteEdgeKind is a no-op for imports regardless of
-		// target kind, so nothing is lost by skipping it.
+		// Returns the package node id without a targetKind probe: the batch
+		// loop mints that node after resolveOne returns, so a GetNode here
+		// would abort the batch on a package's first appearance. Nothing is
+		// lost — promoteEdgeKind is a no-op for imports.
 		if ri.Kind == ResolvedKindExternal && ri.PackageName != "" {
 			return extraction.GenerateNodeID("", "package", ri.PackageName, 0), ref.ReferenceKind, false, nil
 		}
@@ -633,18 +459,9 @@ func (p *Pipeline) resolveOne(
 		}
 	}
 
-	// Step 6 — matchReference. Import-kind refs are excluded: import
-	// nodes are named the raw specifier string, and an unresolved import ref's
-	// ReferenceName is that same specifier, so generic exact-name matching
-	// would resolve the ref straight back to the import node that owns it — a
-	// self-loop edge. Import refs resolve only via Steps 3–5 (JVM FQN,
-	// framework, ResolveImport); if none produce a candidate, they are skipped
-	// with no edge.
-	//
-	// Fuzzy cap: for names longer than fuzzyNameLenCap, call MatchReferenceNoFuzzy
-	// to skip byFuzzy entirely. byFuzzy generates O(n*26^maxDist) edit-distance
-	// variants; for n=41+ that set grows large enough to stall a batch.
-	// Non-fuzzy strategies (exact/qualified/methodCall/filePath) still run.
+	// Import refs are excluded: an import node is named its own specifier and
+	// so is the ref, so generic name matching would edge the ref back to the
+	// node that owns it. Imports resolve only via the strategies above.
 	if !importKind {
 		var mr *MatchResult
 		var mrErr error
@@ -664,10 +481,9 @@ func (p *Pipeline) resolveOne(
 		}
 	}
 
-	// Step 7 — return highest-confidence candidate.
 	best := bestCandidate(candidates)
 	if best.targetNodeID == "" {
-		return "", "", true, nil // no candidate — skip (no edge)
+		return "", "", true, nil
 	}
 	tk, tkErr := p.targetKind(ctx, best.targetNodeID)
 	if tkErr != nil {
@@ -677,27 +493,18 @@ func (p *Pipeline) resolveOne(
 	return best.targetNodeID, kind, false, nil
 }
 
-// ---------------------------------------------------------------------------
-// JVM FQN helpers
-// ---------------------------------------------------------------------------
-
-// isJVMLanguage returns true for Java, Kotlin, Scala.
 func isJVMLanguage(lang types.Language) bool {
 	return lang == types.LanguageJava || lang == types.LanguageKotlin || lang == types.LanguageScala
 }
 
-// isJVMFQN returns true if the reference name looks like a Java/Kotlin FQN
-// (contains at least one "." indicating a package-qualified name).
+// isJVMFQN treats any dotted name as package-qualified.
 func isJVMFQN(name string) bool {
 	return strings.Contains(name, ".")
 }
 
-// resolveJVMFQN looks up a node by its qualified_name, returning the node id
-// or "" if not found. Confidence is fixed at 0.95 per appendix F.
+// resolveJVMFQN matches on qualified_name, narrowing by the last segment
+// first because the DB is indexed by name, not qualified name.
 func (p *Pipeline) resolveJVMFQN(ctx context.Context, fqn string) (string, error) {
-	// GetNodesByName finds by name only; for FQN we need to search by qualified_name.
-	// Use GetNodesByQualifiedName if available, else fall back to name-based lookup
-	// on the last segment.
 	simpleName := fqn
 	if idx := strings.LastIndex(fqn, "."); idx >= 0 {
 		simpleName = fqn[idx+1:]
@@ -715,14 +522,8 @@ func (p *Pipeline) resolveJVMFQN(ctx context.Context, fqn string) (string, error
 	return "", nil
 }
 
-// ---------------------------------------------------------------------------
-// Edge-kind promotion (appendix F)
-// ---------------------------------------------------------------------------
-
-// targetKind returns the NodeKind of the node with the given id. An error from
-// the DB is returned to the caller — a DB failure must not silently suppress
-// edge-kind promotion (it would mask a real infrastructure problem as "no
-// promotion").
+// targetKind propagates DB errors rather than defaulting, so an
+// infrastructure failure cannot masquerade as "no promotion applies".
 func (p *Pipeline) targetKind(ctx context.Context, nodeID string) (types.NodeKind, error) {
 	n, err := p.db.GetNode(ctx, nodeID)
 	if err != nil {
@@ -731,11 +532,9 @@ func (p *Pipeline) targetKind(ctx context.Context, nodeID string) (types.NodeKin
 	return n.Kind, nil
 }
 
-// promoteEdgeKind applies the appendix-F promotion rules:
-//   - calls  → instantiates when target is class or struct.
-//   - extends → implements when target is interface, trait, or protocol.
-//
-// All other combinations are returned as-is.
+// promoteEdgeKind sharpens a ref kind once the target's node kind is known:
+// a call to a type is really an instantiation, an extends of an interface is
+// really an implements. Everything else passes through.
 func promoteEdgeKind(refKind types.EdgeKind, targetKind types.NodeKind) types.EdgeKind {
 	switch refKind {
 	case types.EdgeKindCalls:
@@ -751,12 +550,6 @@ func promoteEdgeKind(refKind types.EdgeKind, targetKind types.NodeKind) types.Ed
 	return refKind
 }
 
-// ---------------------------------------------------------------------------
-// Candidate selection
-// ---------------------------------------------------------------------------
-
-// bestCandidate returns the resolveCandidate with the highest confidence.
-// Returns zero value if candidates is empty.
 func bestCandidate(cs []resolveCandidate) resolveCandidate {
 	var best resolveCandidate
 	for _, c := range cs {
@@ -767,21 +560,10 @@ func bestCandidate(cs []resolveCandidate) resolveCandidate {
 	return best
 }
 
-// ---------------------------------------------------------------------------
-// createEdges
-// ---------------------------------------------------------------------------
-
-// createEdges builds the Edge(s) for a resolved reference. Currently one edge
-// per resolved ref; the caller persists it.
-//
-// Origin-ref discriminator propagation: when the unresolved ref carries
-// Arguments (e.g. EE1 "jsx:<Tag>", EE3 "field:<name>"), they are written into
-// the edge's Metadata as {"refArgs":["jsx:ChildWidget"]}. This lets
-// synthesizers — which read edges, not refs — recover which mechanism produced
-// a static edge without re-querying the (already-deleted) unresolved_ref.
-// Reused by jsx-render (batch 2), and planned for event-emitter / callback
-// (batches 3–6). Static edges from refs without Arguments carry no Metadata
-// unless the ref already had a Metadata value (not currently produced).
+// createEdges builds the edges for a resolved reference; the caller persists
+// them. Ref Arguments are copied into Metadata as refArgs because synthesizers
+// read edges, not refs, and the originating ref is deleted in the same
+// transaction that writes the edge.
 func createEdges(ref types.UnresolvedReference, targetNodeID string, edgeKind types.EdgeKind) []types.Edge {
 	var meta json.RawMessage
 	if len(ref.Arguments) > 0 {
@@ -791,17 +573,9 @@ func createEdges(ref types.UnresolvedReference, targetNodeID string, edgeKind ty
 		}
 	}
 
-	// Embedded provenance seam: a ref produced by embedded SQL extraction
-	// carries Language==SQL but is filed under a host-language file (e.g. .go).
-	// Detect this by checking that the ref's Language is SQL but the file
-	// extension is NOT a standalone SQL extension. Standalone SQL files
-	// (.sql/.ddl/.pgsql/.mysql) produce refs with Language==SQL from the
-	// SQLExtractor.Extract path; those edges carry empty provenance (static).
-	//
-	// WHY: DDL contains edges are already stamped Provenance:"embedded" at
-	// creation time by ExtractEmbeddedSQL. DML refs produce edges here
-	// via the resolution pipeline; those edges must also carry Provenance.
-	// We do NOT touch the existing "heuristic" provenance dedup paths.
+	// A SQL ref filed under a non-SQL file came from embedded extraction, and
+	// its edge must carry the same provenance the DDL path already stamps.
+	// Refs from real .sql files are static and stay unstamped.
 	provenance := ""
 	if ref.Language == types.LanguageSQL && !isStandaloneSQLExt(ref.FilePath) {
 		provenance = "embedded"
@@ -820,27 +594,17 @@ func createEdges(ref types.UnresolvedReference, targetNodeID string, edgeKind ty
 	}
 }
 
-// isStandaloneSQLExt reports whether filePath has an extension that is handled
-// by the standalone SQL extractor (i.e. a "real" SQL file, not a host-language
-// file with embedded SQL). These files produce SQL refs with Language==SQL from
-// the direct extraction path; their resolved edges carry empty provenance.
-//
-// Delegates to standalone.IsSQLExt so all consumers share one canonical list.
+// isStandaloneSQLExt delegates to standalone.IsSQLExt so every consumer
+// shares one canonical extension list.
 func isStandaloneSQLExt(filePath string) bool {
 	return standalone.IsSQLExt(filePath)
 }
 
-// ---------------------------------------------------------------------------
-// Package-node mint + sweep (docs/spec/code-intel-package-nodes.md,)
-// ---------------------------------------------------------------------------
-
 // packageNodeIDPrefix mirrors extraction.GenerateNodeID's package-kind
-// formula ("package:npm/" + name). Edge targets are checked against this
-// prefix rather than probed via targetKind — see resolveOne Step 5.
+// formula. Edge targets are matched on this prefix rather than probed via
+// targetKind, since the node may not be minted yet.
 const packageNodeIDPrefix = "package:npm/"
 
-// packageNameFromNodeID extracts the normalized package name from a
-// package-kind node id, or reports ok=false for any other id shape.
 func packageNameFromNodeID(id string) (name string, ok bool) {
 	if !strings.HasPrefix(id, packageNodeIDPrefix) {
 		return "", false
@@ -848,9 +612,8 @@ func packageNameFromNodeID(id string) (name string, ok bool) {
 	return strings.TrimPrefix(id, packageNodeIDPrefix), true
 }
 
-// newPackageNode builds the synthesized package-node shape mandated by the
-// spec: bare normalized name as both Name and QualifiedName, no file/line
-// (a package has neither), language unknown, never exported, no metadata.
+// newPackageNode has no file, line, or language: a package is an identity,
+// not a location. Shape is fixed by docs/spec/code-intel-package-nodes.md.
 func newPackageNode(name string) types.Node {
 	return types.Node{
 		ID:            extraction.GenerateNodeID("", "package", name, 0),
@@ -861,10 +624,8 @@ func newPackageNode(name string) types.Node {
 	}
 }
 
-// warmKnownPackages loads the set of package-node ids already in the DB at
-// the start of a resolve run. A package present in this set is never
-// re-upserted by the mint loop below — the guard that keeps an unchanged
-// run's package nodes' updated_at stable and re-fires no FTS5 triggers.
+// warmKnownPackages seeds the mint loop's skip set. Re-upserting an existing
+// package would churn updated_at and re-fire FTS5 triggers on a no-op run.
 func (p *Pipeline) warmKnownPackages(ctx context.Context) (map[string]bool, error) {
 	nodes, err := p.db.GetNodesByKind(ctx, types.NodeKindPackage)
 	if err != nil {
@@ -877,11 +638,9 @@ func (p *Pipeline) warmKnownPackages(ctx context.Context) (map[string]bool, erro
 	return known, nil
 }
 
-// sweepOrphanPackages deletes package nodes with zero inbound edges — the
-// converse of the mint loop. Runs once per resolve invocation, after every
-// batch has committed: a package's last importer may have been deleted
-// (DeleteNodesByFile cascades away its edges) since the package was minted,
-// and nothing else in the pipeline notices that.
+// sweepOrphanPackages deletes package nodes left with zero inbound edges.
+// Deleting a package's last importer cascades its edges away, and nothing
+// else in the pipeline notices the package is now unreachable.
 func (p *Pipeline) sweepOrphanPackages(ctx context.Context) error {
 	packages, err := p.db.GetNodesByKind(ctx, types.NodeKindPackage)
 	if err != nil {
@@ -901,30 +660,11 @@ func (p *Pipeline) sweepOrphanPackages(ctx context.Context) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// ResolveAndPersistBatched — the main loop
-// ---------------------------------------------------------------------------
-
-// ResolveAndPersistBatched runs the resolution batch loop as described in
-// appendix F:
-//
-//  1. warmCaches (knownFiles, knownNames) + warmKnownPackages.
-//  2. Read unresolved_refs at offset 0 (NOT advancing — delete shrinks the set).
-//  3. Per ref: resolveOne → createEdges.
-//  4. Mint any genuinely-new package-node targets, then insertEdges —
-//     nodes before edges, FK order — in a transaction.
-//  5. deleteSpecificResolvedReferences (bulk delete resolved + skipped refs).
-//  6. Break when a batch yields nothing new (avoids infinite loop on
-//     unresolvable refs).
-//  7. Call synthesizeCallbackEdges (seam — no-op until then), then
-//     sweepOrphanPackages LAST.
-//
-// Returns a ResolveProfile (per-phase wall-time + counts), the total number of
-// edges inserted, and any error.
-//
-// emit is called immediately after each sub-phase completes, before the next
-// phase starts. Pass nil for no-op behaviour (existing call sites unchanged).
-// See PhaseEmitFunc for the argument semantics.
+// ResolveAndPersistBatched resolves every unresolved ref and returns the
+// per-phase profile plus the total edges inserted. Phase order is load-bearing:
+// name matching runs first, then callback synthesis (which reads the edges
+// matching produced), then SQL string matching, and the orphan-package sweep
+// last (it must see every edge minted this run). emit may be nil.
 func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, emit PhaseEmitFunc) (ResolveProfile, int, error) {
 	if batchSize <= 0 {
 		batchSize = DefaultBatchSize
@@ -932,33 +672,28 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 
 	var prof ResolveProfile
 
-	// Phase 1: warmCaches — measure wall-time.
 	warmStart := time.Now()
 	files, names, err := p.warmCaches(ctx)
 	prof.WarmDur = time.Since(warmStart)
 	prof.NodeCount = len(names)
-	// Check warmCaches error before using its outputs. If warmCaches returned a
-	// partial result alongside an error, emitting and populating the matcher with
-	// a partial name set would silently corrupt the match phase. Check first.
+	// Checked before the outputs are used: a partial name set would silently
+	// corrupt the match phase rather than fail it.
 	if err != nil {
 		return prof, 0, err
 	}
-	// Thread the warmed name set into the matcher so byFuzzy can scan it
-	// without issuing per-ref DB queries. The slice is built once here and
-	// read-only during the batch loop.
+	// byFuzzy scans this slice instead of querying the DB per ref. Read-only
+	// for the duration of the batch loop.
 	nameSlice := make([]string, 0, len(names))
 	for n := range names {
 		nameSlice = append(nameSlice, n)
 	}
 	p.matcher.SetKnownNames(nameSlice)
-	// Emit resolve.warm immediately so a killed process sees it before match starts.
 	if emit != nil {
 		emit("resolve.warm", prof.WarmDur, prof.NodeCount)
 	}
 
-	// Warm the known-package set once per run — mutated in place below
-	// as new packages are minted, so a package discovered in batch N is not
-	// re-minted when batch N+1 references it again.
+	// Mutated in place by the mint loop, so a package discovered in batch N is
+	// not re-minted when batch N+1 references it again.
 	knownPackages, err := p.warmKnownPackages(ctx)
 	if err != nil {
 		return prof, 0, err
@@ -966,21 +701,13 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 
 	totalEdges := 0
 
-	// Phase 2: batch loop (resolve.match).
-	//
-	// Keyset pagination by id: each window reads refs with id > cursor, and the
-	// cursor advances to the last id in the window BEFORE any deletes. This visits
-	// every ref exactly once. The earlier design re-read at offset 0 every
-	// iteration and relied on deletion to advance — but unresolvable non-builtin
-	// refs are intentionally NOT deleted (they might resolve after more files are
-	// indexed), so they accumulated as a permanent "wall" at the front of the
-	// id-ordered scan. A `len(resolvedIDs)==0 → break` then terminated the moment a
-	// window was all-wall, abandoning every resolvable ref behind it (the bulk of
-	// the call graph in any repo with many external/stdlib calls). Keyset advance
-	// removes both the wall and the premature break: the loop ends only when the
-	// table has been fully scanned (an empty window).
+	// Keyset pagination, not offset: unresolvable refs are deliberately left in
+	// the table (a later index run may resolve them), so an offset-0 re-read
+	// would hit them as a permanent wall at the front of the scan and never
+	// reach the resolvable refs behind it. The cursor advances past every
+	// window whether or not anything in it resolved.
 	matchStart := time.Now()
-	var cursor string // last id seen; "" starts from the beginning
+	var cursor string
 	for {
 		refs, err := p.db.GetUnresolvedRefsAfter(ctx, cursor, batchSize)
 		if err != nil {
@@ -988,27 +715,20 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 			return prof, totalEdges, err
 		}
 		if len(refs) == 0 {
-			// Whole table scanned — done.
 			break
 		}
 
 		prof.RefCount += len(refs)
-		// Advance the cursor before resolving/deleting so refs left behind
-		// (unresolved, not deleted) are not re-read, and resolved/deleted refs are
-		// not skipped — every ref is visited exactly once.
+		// Advanced before the deletes below, so every ref is visited exactly once.
 		cursor = refs[len(refs)-1].ID
 
 		var edges []types.Edge
-		var resolvedIDs []string // ref ids to delete (resolved + skipped built-ins)
+		var resolvedIDs []string
 
 		for _, ref := range refs {
 			if ref.ReferenceKind == types.ReferenceKindSQLString || ref.ReferenceKind == types.ReferenceKindSQLFragment {
-				// C1/C8 precondition for C2/C3: sql_string and sql_fragment
-				// are discriminators, never fed to resolveOne/promoteEdgeKind.
-				// Left untouched here (not deleted, not resolved) — passes A/B
-				// consume them in a separate batch step and either edge them
-				// or delete them (C5). wires sql_fragment matching itself;
-				// for now it is only excluded here and swept by C5 cleanup.
+				// Discriminators, not real reference kinds — resolveSQLStringRefs
+				// consumes them in a later phase. Left in place, not deleted.
 				continue
 			}
 			targetID, edgeKind, skip, err := p.resolveOne(ctx, ref, files, names)
@@ -1017,38 +737,26 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 				return prof, totalEdges, err
 			}
 			if skip {
-				// Built-in skip or no match. If built-in → remove from unresolved_refs
-				// so it doesn't pollute future runs. If truly unresolvable (no matching
-				// node) → do NOT remove, because a future re-index might add the node.
-				//
-				// Distinction: isBuiltinOrExternal check in resolveOne fires first;
-				// if skip=true due to built-in, we remove the ref. If skip=true because
-				// no candidate was found (hasAnyPossibleMatch=false or matchReference
-				// returned nil), we do NOT remove the ref.
+				// A built-in can never resolve, so drop it. Anything else that
+				// merely found no candidate stays: a later index run may add
+				// the node it needs.
 				if isBuiltinOrExternal(ref.ReferenceName, ref.Language) {
 					resolvedIDs = append(resolvedIDs, ref.ID)
 				}
-				// All other non-matching refs remain — they might resolve after
-				// more files are indexed.
 				continue
 			}
 			edges = append(edges, createEdges(ref, targetID, edgeKind)...)
 			resolvedIDs = append(resolvedIDs, ref.ID)
 		}
 
-		// Nothing resolved in this window — the refs stay; the cursor already
-		// advanced past them, so continue to the next window (do NOT break: later
-		// windows may hold resolvable refs).
+		// Continue, never break: later windows may hold resolvable refs.
 		if len(resolvedIDs) == 0 {
 			continue
 		}
 
-		// Package-node mint: any edge in this batch that targets a
-		// package node not yet known (neither warmed from the DB nor minted
-		// by an earlier batch in this same run) needs that node upserted
-		// before its edge — FK order — inside the same transaction. Dedup
-		// within the batch too: two edges in one batch may target the same
-		// genuinely-new package.
+		// A package node must be upserted before any edge targeting it (FK
+		// order) and inside the same transaction. Deduped within the batch —
+		// several edges can target the same new package.
 		var newPackages []types.Node
 		mintedThisBatch := make(map[string]bool)
 		for _, e := range edges {
@@ -1060,11 +768,9 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 			newPackages = append(newPackages, newPackageNode(name))
 		}
 
-		// Persist package-node mints, edges, AND delete resolved refs in ONE
-		// transaction. All operations share the same transaction so a crash
-		// mid-batch cannot leave an edge pointing at a package node that was
-		// never persisted, nor edges persisted without the corresponding
-		// refs deleted (which would cause duplicate edges on the next run).
+		// Mints, edges, and ref deletes share one transaction: a crash mid-batch
+		// must not leave an edge pointing at an unpersisted package node, nor
+		// edges written without their refs deleted (duplicates on the next run).
 		mintTime := time.Now().Unix()
 		if err := p.db.WithTx(ctx, func(tx *db.Tx) error {
 			for _, n := range newPackages {
@@ -1089,36 +795,29 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 		totalEdges += len(edges)
 	}
 	prof.MatchDur = time.Since(matchStart)
-	// Emit resolve.match immediately — before synth starts.
 	if emit != nil {
 		emit("resolve.match", prof.MatchDur, prof.RefCount)
 	}
 
-	// Phase 3: SynthesizeCallbackEdges (resolve.synth).
-	// This is a no-op in; fills the synthesizer.
 	synthStart := time.Now()
 	if err := p.synth.SynthesizeCallbackEdges(ctx); err != nil {
 		prof.SynthDur = time.Since(synthStart)
 		return prof, totalEdges, err
 	}
 	prof.SynthDur = time.Since(synthStart)
-	// Emit resolve.synth immediately after it completes.
 	if emit != nil {
 		emit("resolve.synth", prof.SynthDur, 0)
 	}
 
-	// Phase 4: sql_string pass A + pass B + cleanup (C2/C3/C4/C5). Runs
-	// after standard resolution completes — the refs were left untouched
-	// by the batch loop above (see the ReferenceKindSQLString skip).
+	// Consumes the sql_string/sql_fragment refs the batch loop skipped.
 	_, sqlStringEdges, err := p.resolveSQLStringRefs(ctx)
 	if err != nil {
 		return prof, totalEdges, err
 	}
 	totalEdges += sqlStringEdges
 
-	// Phase 5: sweep orphaned package nodes. Runs unconditionally,
-	// even when this invocation minted or resolved nothing — a package's
-	// last importer may have been removed since a prior run minted it.
+	// Unconditional: a package minted by a prior run may have lost its last
+	// importer even if this run resolved nothing.
 	if err := p.sweepOrphanPackages(ctx); err != nil {
 		return prof, totalEdges, err
 	}

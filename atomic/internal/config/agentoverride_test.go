@@ -6,8 +6,6 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// TestAgentOverride_UnmarshalNestedTable: a nested [x] table with both
-// fields decodes into the struct via the default decoder path.
 func TestAgentOverride_UnmarshalNestedTable(t *testing.T) {
 	var m map[string]AgentOverride
 	input := "[atomic-implementer]\nmodel = \"opus\"\neffort = \"high\"\n"
@@ -21,8 +19,6 @@ func TestAgentOverride_UnmarshalNestedTable(t *testing.T) {
 	}
 }
 
-// TestAgentOverride_UnmarshalEffortOnly: a nested table with only effort
-// set decodes to {Effort} with an empty Model.
 func TestAgentOverride_UnmarshalEffortOnly(t *testing.T) {
 	var m map[string]AgentOverride
 	input := "[atomic-implementer]\neffort = \"medium\"\n"
@@ -36,8 +32,7 @@ func TestAgentOverride_UnmarshalEffortOnly(t *testing.T) {
 	}
 }
 
-// TestValidModelFormat: lenient model-format helper — no internal whitespace
-// or control characters; brackets/slashes/dots/dashes/digits/letters pass.
+// Lenient: no internal whitespace or control characters, everything else passes.
 func TestValidModelFormat(t *testing.T) {
 	cases := []struct {
 		name string
@@ -64,7 +59,6 @@ func TestValidModelFormat(t *testing.T) {
 	}
 }
 
-// TestValidEfforts: the five-level enum, no integers, no other strings.
 func TestValidEfforts(t *testing.T) {
 	for _, v := range []string{"low", "medium", "high", "xhigh", "max"} {
 		if !validEfforts[v] {

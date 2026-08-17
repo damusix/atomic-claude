@@ -1,14 +1,7 @@
 package hooks
 
-// hujsonSettings provides JWCC-aware read/write for settings.json using
-// github.com/tailscale/hujson. Comments and trailing commas in the original
-// file are preserved on round-trip.
-//
-// Strategy:
-//  1. Parse with hujson.Parse to validate and get the AST.
-//  2. Standardize a copy and json.Unmarshal to read current state.
-//  3. If a mutation is needed, locate the relevant AST node and mutate in-place.
-//  4. Pack the AST back to bytes and write.
+// JWCC-aware read/write for settings.json: mutations happen on the parsed AST
+// and are packed back out, so the user's comments and trailing commas survive.
 
 import (
 	"encoding/json"
@@ -19,20 +12,18 @@ import (
 	"github.com/tailscale/hujson"
 )
 
-// registerInSettings adds the hook entry to settings.json if not already present.
-// Uses hujson to preserve comments and trailing commas in the existing file.
+// registerInSettings is idempotent.
 func registerInSettings(sfPath, command string) error {
 	settings, ast, _, err := readSettingsHujson(sfPath)
 	if err != nil {
 		return malformedSettingsError(sfPath, command)
 	}
 
-	// Check idempotency: look for existing entry with the same command.
 	if hasRegistration(settings, command) {
 		return nil
 	}
 
-	// If the file didn't exist, ast.Value is nil — start from an empty object.
+	// A missing file leaves ast.Value nil.
 	if ast.Value == nil {
 		ast, err = hujson.Parse([]byte("{}"))
 		if err != nil {
@@ -47,8 +38,6 @@ func registerInSettings(sfPath, command string) error {
 	return writeSettingsHujson(sfPath, ast)
 }
 
-// unregisterFromSettings removes the entry matching command from settings.json.
-// Uses hujson to preserve comments and trailing commas.
 func unregisterFromSettings(sfPath, command string) error {
 	settings, ast, _, err := readSettingsHujson(sfPath)
 	if err != nil {
@@ -58,7 +47,6 @@ func unregisterFromSettings(sfPath, command string) error {
 		return nil
 	}
 
-	// Quick check: if nothing to remove, skip writing.
 	hooksMap, ok := settings["hooks"].(map[string]any)
 	if !ok {
 		return nil
@@ -74,10 +62,8 @@ func unregisterFromSettings(sfPath, command string) error {
 	return writeSettingsHujson(sfPath, ast)
 }
 
-// readSettingsHujson reads settings.json preserving JWCC syntax (comments,
-// trailing commas). Returns (goMap, rawAST, rawBytes, error).
-// If the file does not exist, returns (empty map, zero Value, nil bytes, nil).
-// If the file is not JWCC-parseable, returns (nil, zero, raw, error).
+// readSettingsHujson returns an empty map for a missing file, and (nil, zero,
+// raw, err) when the file will not parse as JWCC.
 func readSettingsHujson(sfPath string) (map[string]any, hujson.Value, []byte, error) {
 	raw, err := os.ReadFile(sfPath)
 	if err != nil {
@@ -87,15 +73,13 @@ func readSettingsHujson(sfPath string) (map[string]any, hujson.Value, []byte, er
 		return nil, hujson.Value{}, nil, fmt.Errorf("hooks: read settings.json: %w", err)
 	}
 
-	// Parse as JWCC (validates comments + trailing commas).
 	ast, err := hujson.Parse(raw)
 	if err != nil {
 		return nil, hujson.Value{}, raw, fmt.Errorf("JWCC parse error: %w", err)
 	}
 
-	// Standardize a copy to get plain JSON for Go-level reads.
-	// IMPORTANT: do NOT standardize `raw` in-place — ast aliases raw's bytes,
-	// so in-place mutation would corrupt the comment/whitespace extras.
+	// Standardize a copy, never raw in place: ast aliases raw's bytes, so mutating
+	// them would corrupt the comment and whitespace extras.
 	rawCopy := make([]byte, len(raw))
 	copy(rawCopy, raw)
 	stdBytes, err := hujson.Standardize(rawCopy)
@@ -113,13 +97,11 @@ func readSettingsHujson(sfPath string) (map[string]any, hujson.Value, []byte, er
 	return settings, ast, raw, nil
 }
 
-// writeSettingsHujson writes settings.json from an updated hujson AST.
 func writeSettingsHujson(sfPath string, ast hujson.Value) error {
 	if err := os.MkdirAll(filepath.Dir(sfPath), 0o755); err != nil {
 		return fmt.Errorf("hooks: mkdir for settings.json: %w", err)
 	}
 	out := ast.Pack()
-	// Ensure trailing newline.
 	if len(out) > 0 && out[len(out)-1] != '\n' {
 		out = append(out, '\n')
 	}
@@ -129,8 +111,7 @@ func writeSettingsHujson(sfPath string, ast hujson.Value) error {
 	return nil
 }
 
-// astRegisterSessionStart appends a new SessionStart entry to the hujson AST.
-// It creates the hooks key and SessionStart array if they don't exist.
+// astRegisterSessionStart creates the hooks key and SessionStart array as needed.
 func astRegisterSessionStart(ast *hujson.Value, command string) error {
 	entryBytes, err := buildEntryJSON(command)
 	if err != nil {
@@ -141,10 +122,8 @@ func astRegisterSessionStart(ast *hujson.Value, command string) error {
 		return fmt.Errorf("hooks: parse entry JSON: %w", err)
 	}
 
-	// Get or create the top-level object.
 	topObj := ensureObject(ast)
 
-	// Find or create the "hooks" member.
 	hooksValPtr := findMember(topObj, "hooks")
 	if hooksValPtr == nil {
 		emptyHooks, _ := hujson.Parse([]byte("{}"))
@@ -157,7 +136,6 @@ func astRegisterSessionStart(ast *hujson.Value, command string) error {
 
 	hooksObj := ensureObject(hooksValPtr)
 
-	// Find or create the "SessionStart" member.
 	ssValPtr := findMember(hooksObj, "SessionStart")
 	if ssValPtr == nil {
 		emptyArr, _ := hujson.Parse([]byte("[]"))
@@ -168,16 +146,13 @@ func astRegisterSessionStart(ast *hujson.Value, command string) error {
 		ssValPtr = &hooksObj.Members[len(hooksObj.Members)-1].Value
 	}
 
-	// Append the new entry.
 	arr := ssValPtr.Value.(*hujson.Array)
 	arr.Elements = append(arr.Elements, entryVal)
 
 	return nil
 }
 
-// astUnregisterSessionStart removes the SessionStart entry whose inner
-// hooks[].command equals command. Drops SessionStart if empty;
-// drops hooks if empty.
+// astUnregisterSessionStart drops SessionStart, then hooks, once each empties.
 func astUnregisterSessionStart(ast *hujson.Value, command string) error {
 	topObj, ok := ast.Value.(*hujson.Object)
 	if !ok {
@@ -201,7 +176,6 @@ func astUnregisterSessionStart(ast *hujson.Value, command string) error {
 		return nil
 	}
 
-	// Filter out entries that reference command.
 	filtered := arr.Elements[:0]
 	for _, elem := range arr.Elements {
 		if !sessionStartEntryMatchesCommand(elem, command) {
@@ -210,12 +184,10 @@ func astUnregisterSessionStart(ast *hujson.Value, command string) error {
 	}
 	arr.Elements = filtered
 
-	// Drop SessionStart if empty.
 	if len(arr.Elements) == 0 {
 		removeMember(hooksObj, "SessionStart")
 	}
 
-	// Drop hooks if empty.
 	if len(hooksObj.Members) == 0 {
 		removeMember(topObj, "hooks")
 	}
@@ -223,7 +195,6 @@ func astUnregisterSessionStart(ast *hujson.Value, command string) error {
 	return nil
 }
 
-// buildEntryJSON returns the JSON bytes for a new SessionStart hook entry.
 func buildEntryJSON(command string) ([]byte, error) {
 	entry := map[string]any{
 		"matcher": ".*",
@@ -237,8 +208,6 @@ func buildEntryJSON(command string) ([]byte, error) {
 	return json.MarshalIndent(entry, "", "  ")
 }
 
-// sessionStartEntryMatchesCommand returns true if the hujson element represents
-// a SessionStart entry whose hooks[].command matches command.
 func sessionStartEntryMatchesCommand(elem hujson.Value, command string) bool {
 	std, err := hujson.Standardize(elem.Pack())
 	if err != nil {
@@ -264,8 +233,7 @@ func sessionStartEntryMatchesCommand(elem hujson.Value, command string) bool {
 	return false
 }
 
-// ensureObject returns the *hujson.Object from a Value, coercing it to an
-// empty object if it's nil or not an object.
+// ensureObject coerces a nil or non-object Value into an empty object.
 func ensureObject(v *hujson.Value) *hujson.Object {
 	if v.Value != nil {
 		if obj, ok := v.Value.(*hujson.Object); ok {
@@ -277,8 +245,6 @@ func ensureObject(v *hujson.Value) *hujson.Object {
 	return obj
 }
 
-// findMember finds the Value pointer for a named member in an Object.
-// Returns nil if not found.
 func findMember(obj *hujson.Object, key string) *hujson.Value {
 	for i := range obj.Members {
 		lit, ok := obj.Members[i].Name.Value.(hujson.Literal)
@@ -292,7 +258,6 @@ func findMember(obj *hujson.Object, key string) *hujson.Value {
 	return nil
 }
 
-// removeMember removes a named member from an Object.
 func removeMember(obj *hujson.Object, key string) {
 	kept := obj.Members[:0]
 	for _, m := range obj.Members {
@@ -305,7 +270,6 @@ func removeMember(obj *hujson.Object, key string) {
 	obj.Members = kept
 }
 
-// parseJSONString creates a hujson Value representing a JSON string literal.
 func parseJSONString(s string) hujson.Value {
 	b, _ := json.Marshal(s)
 	v, _ := hujson.Parse(b)

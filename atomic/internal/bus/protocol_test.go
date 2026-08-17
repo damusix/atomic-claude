@@ -11,12 +11,9 @@ import (
 	"time"
 )
 
-// TestEnvelope_ToMarshalsEmptyAsArrayNotNull pins the wire invariant: an
-// envelope's To must always serialize as "to":[], never "to":null or an
-// omitted key. This is not cosmetic — a receiver reads len(To) == 0 as "this
-// was an FYI to the whole room"; if To could also come across as null or
-// absent, that would be indistinguishable from a malformed frame that
-// forgot to set it at all.
+// To must always serialize as "to":[], never null or an omitted key. A receiver
+// reads len(To) == 0 as "FYI to the whole room"; null or absent would be
+// indistinguishable from a malformed frame that forgot to set it.
 func TestEnvelope_ToMarshalsEmptyAsArrayNotNull(t *testing.T) {
 	cases := []struct {
 		name string
@@ -35,10 +32,8 @@ func TestEnvelope_ToMarshalsEmptyAsArrayNotNull(t *testing.T) {
 				t.Fatalf("Marshal: %v", err)
 			}
 
-			// Assert on the raw bytes, not a re-decoded struct: decoding
-			// first would collapse "null" and "[]" back to the same nil
-			// slice, hiding exactly the wire-format bug this test exists
-			// to catch.
+			// Assert on raw bytes: decoding first collapses "null" and "[]" back
+			// to the same nil slice, hiding the bug this test exists to catch.
 			if !strings.Contains(string(b), `"to":[]`) {
 				t.Fatalf("expected %q in marshaled bytes, got: %s", `"to":[]`, b)
 			}
@@ -61,12 +56,9 @@ func TestEnvelope_ToWithAddresseesMarshalsPopulated(t *testing.T) {
 	}
 }
 
-// TestEnvelope_ToRoundTripPreservesFYISemantics is the round-trip half of
-// the invariant above: after Marshal -> Unmarshal, an FYI envelope's To
-// decodes as a non-nil empty slice, so len(env.To) == 0 stays a reliable
-// "addressed to everyone" check on the receiving side — the reaction-policy
-// distinction (act vs. note) skills/atomic-bus depends on — rather than
-// something that only holds pre-marshal.
+// The round-trip half: after Marshal -> Unmarshal an FYI envelope's To decodes
+// as a non-nil empty slice, so len(env.To) == 0 stays a reliable "addressed to
+// everyone" check on the receiving side rather than holding only pre-marshal.
 func TestEnvelope_ToRoundTripPreservesFYISemantics(t *testing.T) {
 	sent := Envelope{ID: "k3", Room: "potato", From: "referee", FromKind: "human", To: nil, Text: "fyi: build is green"}
 
@@ -87,11 +79,8 @@ func TestEnvelope_ToRoundTripPreservesFYISemantics(t *testing.T) {
 	}
 }
 
-// TestEnvelope_Ts_MarshalsAsUnixSeconds is finding 3's regression: the
-// documented wire contract (docs/design/atomic-bus.md) is "ts": 1753900000
-// — a Unix-seconds integer — not Go's default RFC3339Nano string
-// ("2026-07-28T04:39:59.609364-04:00"), which is what the daemon actually
-// emitted before this fix.
+// The wire contract is a Unix-seconds integer, not Go's default RFC3339Nano
+// string, which is what the daemon actually emitted before this fix.
 func TestEnvelope_Ts_MarshalsAsUnixSeconds(t *testing.T) {
 	when := time.Date(2026, 7, 28, 4, 39, 59, 0, time.UTC)
 	env := Envelope{ID: "m-1234abcd", Room: "potato", From: "frontend", FromKind: "agent", Ts: when, Text: "hi"}
@@ -121,11 +110,9 @@ func TestEnvelope_Ts_MarshalsAsUnixSeconds(t *testing.T) {
 	}
 }
 
-// TestEnvelope_Ts_RoundTripsThroughUnixSeconds proves the client side of
-// finding 3's fix: an envelope decoded off the wire (room log, subscription
-// frame, response payload) recovers the same instant to the second — the
-// precision the wire format actually carries — not a decode error from
-// trying to unmarshal an integer into a time.Time.
+// The client side: an envelope decoded off the wire recovers the same instant to
+// the second — the precision the wire carries — not a decode error from
+// unmarshalling an integer into a time.Time.
 func TestEnvelope_Ts_RoundTripsThroughUnixSeconds(t *testing.T) {
 	when := time.Date(2026, 7, 28, 4, 39, 59, 0, time.UTC)
 	sent := Envelope{ID: "m-1234abcd", Room: "potato", From: "frontend", FromKind: "agent", Ts: when, Text: "hi"}
@@ -187,10 +174,9 @@ func TestMember_JSONFieldNamesMatchWireContract(t *testing.T) {
 	}
 }
 
-// TestResponse_CodeSurvivesRoundTrip locks in the contract that
-// Response.Code carries the exit code a client should terminate with: the
-// daemon decides it once, and the client must recover the exact value
-// without re-deriving it from Error's free-text message.
+// Response.Code carries the exit code a client terminates with: the daemon
+// decides once, and the client recovers the exact value without re-deriving it
+// from Error's free text.
 func TestResponse_CodeSurvivesRoundTrip(t *testing.T) {
 	cases := []struct {
 		name string
@@ -225,11 +211,9 @@ func TestResponse_CodeSurvivesRoundTrip(t *testing.T) {
 	}
 }
 
-// TestExitCodes_StableValues pins the numeric exit codes named across
-// the contract in docs/design/atomic-bus.md. protocol.go is not revisited
-// once it lands, so client.go and daemon.go hardcode expectations
-// against these numbers — a silent reorder of the iota block would be a
-// wire-compatibility break the compiler cannot catch.
+// client.go and daemon.go hardcode expectations against these numbers, so a
+// silent reorder of the iota block is a wire-compatibility break the compiler
+// cannot catch.
 func TestExitCodes_StableValues(t *testing.T) {
 	cases := []struct {
 		name string
@@ -259,27 +243,20 @@ func TestBusError_ImplementsError(t *testing.T) {
 	}
 }
 
-// TestProtocolWireShape_GoldenFieldsAndOps pins the exact JSON field names on
-// Request, Response, Envelope, and Member, plus the exact Op set — the wire
-// shape ProtocolVersion gates — and, separately, ties that shape to
-// ProtocolVersion itself via protocolShapeHashes. The field/op assertions
-// below derive the observed field set reflectively from each struct's json
-// tags (wireShapeFields), never from a marshalled instance: marshalling
-// silently drops a zero-value omitempty field from the output, so a version
-// of this test that populated a struct literal and inspected the marshalled
-// keys could add a new omitempty field, leave it unset in the literal, and
-// pass unmodified — exactly the drift this test exists to catch. Reflection
-// sees the tag regardless of whether any value was ever assigned. The hash
-// check below is what correlates a shape change with a version bump: six
-// prior wire-shape-changing commits landed against a version that never moved
-// off 1, because nothing tied "the golden lists changed" to "ProtocolVersion
-// must also change". Updating the golden field/op lists above to match a new
-// shape, while leaving ProtocolVersion untouched, still fails here:
-// protocolShapeHashes[2] is frozen to the hash of the shape at version 2, so
-// a real shape change makes wireShapeHash() diverge from it regardless of
-// whether the golden lists above were kept in sync. The only way back to
-// green is either revert the shape, or bump ProtocolVersion and add a new
-// protocolShapeHashes entry for it — see protocol.go's ProtocolVersion doc.
+// Pins the exact JSON field names on Request, Response, Envelope, and Member
+// plus the exact Op set — the wire shape ProtocolVersion gates — and ties that
+// shape to ProtocolVersion via protocolShapeHashes.
+//
+// Fields are derived reflectively from json tags, never from a marshalled
+// instance: marshalling drops a zero-value omitempty field, so a test that
+// inspected marshalled keys could gain a new omitempty field and pass unchanged.
+//
+// The hash check is what correlates a shape change with a version bump. Six
+// prior shape-changing commits landed against a version that never moved off 1
+// because nothing tied "golden lists changed" to "ProtocolVersion must change".
+// Updating the golden lists while leaving the version alone still fails here:
+// the frozen hash for the current version diverges. The only way back to green
+// is to revert the shape, or bump the version and add a hashes entry.
 func TestProtocolWireShape_GoldenFieldsAndOps(t *testing.T) {
 	assertGoldenFields(t, "Request", reflect.TypeOf(Request{}), []string{
 		"op", "room", "rooms", "name", "mode", "kind", "session", "to",
@@ -316,26 +293,19 @@ func TestProtocolWireShape_GoldenFieldsAndOps(t *testing.T) {
 	}
 }
 
-// protocolShapeHashes is the versioned golden record wireShapeHash's output
-// is checked against — one entry per ProtocolVersion that has ever shipped a
-// wire-shape-changing commit. This is what ties a shape change to a version
-// bump: the entry for the CURRENT ProtocolVersion is frozen to the shape
-// that version actually shipped, so changing the shape without bumping the
-// version leaves the lookup pointed at a now-stale hash (mismatch), and
-// bumping the version without adding an entry here leaves the lookup with
-// nothing to find (missing-key failure) — either way,
-// TestProtocolWireShape_GoldenFieldsAndOps only returns to green once both
-// move together.
+// protocolShapeHashes is the versioned golden record wireShapeHash is checked
+// against — one entry per ProtocolVersion that shipped a shape change. The entry
+// for the current version is frozen to the shape that version shipped, so
+// changing the shape without bumping leaves a stale hash (mismatch) and bumping
+// without adding an entry leaves nothing to find (missing key). Either way green
+// only returns once both move together.
 var protocolShapeHashes = map[int]string{
 	2: "f4bf0980c3ca8d8177280563a956e7fd9383a1c529123e2b5d6608f703b08144",
 }
 
-// wireShapeFields returns the JSON field names declared via struct tag on
-// typ's exported fields, in declaration order — derived from the type
-// itself via reflection, never from a marshalled instance (see this file's
-// TestProtocolWireShape_GoldenFieldsAndOps doc for why that distinction is
-// load-bearing: a marshalled zero-value omitempty field is indistinguishable
-// from a field that was never declared).
+// wireShapeFields returns typ's json-tagged field names in declaration order,
+// reflected from the type rather than a marshalled instance — a marshalled
+// zero-value omitempty field is indistinguishable from one never declared.
 func wireShapeFields(typ reflect.Type) []string {
 	fields := make([]string, 0, typ.NumField())
 	for i := 0; i < typ.NumField(); i++ {
@@ -357,11 +327,9 @@ func wireShapeFields(typ reflect.Type) []string {
 	return fields
 }
 
-// wireShapeHash hashes the current wire shape — Request/Response/Envelope/
-// Member's json field names (wireShapeFields) plus AllOps — into one value,
-// each field/op set sorted first so declaration order is not part of what
-// gets pinned. Compared against protocolShapeHashes[ProtocolVersion] to
-// correlate a shape change with a version bump.
+// wireShapeHash hashes the four structs' json field names plus AllOps into one
+// value, each set sorted first so declaration order is not pinned. Compared
+// against protocolShapeHashes[ProtocolVersion].
 func wireShapeHash() string {
 	var parts []string
 	for _, pair := range []struct {
@@ -385,9 +353,8 @@ func wireShapeHash() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// assertGoldenFields asserts typ's json-tagged field set (wireShapeFields,
-// reflected from struct tags — see that function's doc for why not a
-// marshalled instance) is exactly want, order ignored.
+// assertGoldenFields asserts typ's json-tagged field set is exactly want, order
+// ignored.
 func assertGoldenFields(t *testing.T, label string, typ reflect.Type, want []string) {
 	t.Helper()
 	got := wireShapeFields(typ)

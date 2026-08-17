@@ -7,7 +7,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
-// happy path: standard YAML frontmatter + body
 func TestParse_Standard(t *testing.T) {
 	input := "---\nid: r-7b21\ncreated: 2026-05-16\n---\n\nBody text.\n"
 	meta, body, err := frontmatter.Parse(input)
@@ -25,7 +24,6 @@ func TestParse_Standard(t *testing.T) {
 	}
 }
 
-// no frontmatter — body only
 func TestParse_NoFrontmatter(t *testing.T) {
 	input := "Just a body.\nNo frontmatter.\n"
 	meta, body, err := frontmatter.Parse(input)
@@ -40,7 +38,6 @@ func TestParse_NoFrontmatter(t *testing.T) {
 	}
 }
 
-// empty frontmatter block
 func TestParse_EmptyFrontmatter(t *testing.T) {
 	input := "---\n---\nBody after empty front.\n"
 	meta, body, err := frontmatter.Parse(input)
@@ -55,7 +52,6 @@ func TestParse_EmptyFrontmatter(t *testing.T) {
 	}
 }
 
-// missing closing delimiter
 func TestParse_MissingClosingDelimiter(t *testing.T) {
 	input := "---\nid: r-1234\n"
 	_, _, err := frontmatter.Parse(input)
@@ -64,7 +60,6 @@ func TestParse_MissingClosingDelimiter(t *testing.T) {
 	}
 }
 
-// invalid YAML
 func TestParse_InvalidYAML(t *testing.T) {
 	input := "---\n: invalid: yaml:\n---\nBody.\n"
 	_, _, err := frontmatter.Parse(input)
@@ -73,9 +68,8 @@ func TestParse_InvalidYAML(t *testing.T) {
 	}
 }
 
-// Round-trip: body is preserved byte-for-byte; meta fields survive the cycle.
-// The YAML block itself may be reformatted (yaml.Marshal reorders/quotes),
-// so we check semantic equality of meta, not byte equality of the YAML block.
+// yaml.Marshal may reformat the block, so meta is compared semantically while
+// the body must survive byte-for-byte.
 func TestRoundTrip_BodyPreserved(t *testing.T) {
 	input := "---\nid: r-7b21\ncreated: 2026-05-16\n---\n\nBody text.\n"
 	meta, body, err := frontmatter.Parse(input)
@@ -88,7 +82,6 @@ func TestRoundTrip_BodyPreserved(t *testing.T) {
 		t.Fatalf("Emit error: %v", err)
 	}
 
-	// Re-parse the emitted output and verify we recover the same values.
 	meta2, body2, err := frontmatter.Parse(got)
 	if err != nil {
 		t.Fatalf("re-Parse error: %v", err)
@@ -104,7 +97,6 @@ func TestRoundTrip_BodyPreserved(t *testing.T) {
 	}
 }
 
-// body byte-for-byte preservation: body with special chars
 func TestParse_BodyPreservation(t *testing.T) {
 	body := "\n# Heading\n\n- item 1\n- item 2\n\n```go\nfmt.Println(\"hello\")\n```\n"
 	input := "---\nkey: value\n---\n" + body
@@ -117,7 +109,6 @@ func TestParse_BodyPreservation(t *testing.T) {
 	}
 }
 
-// Emit with no meta should produce body-only (no frontmatter block)
 func TestEmit_NoMeta(t *testing.T) {
 	body := "Just a body.\n"
 	got, err := frontmatter.Emit(nil, body)
@@ -129,7 +120,6 @@ func TestEmit_NoMeta(t *testing.T) {
 	}
 }
 
-// Emit with meta should include a frontmatter block
 func TestEmit_WithMeta(t *testing.T) {
 	meta := map[string]any{"id": "r-7b21", "created": "2026-05-16"}
 	body := "\nSome body.\n"
@@ -137,11 +127,9 @@ func TestEmit_WithMeta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Must start with ---\n and contain the closing delimiter.
 	if len(got) < 8 || got[:4] != "---\n" {
 		t.Errorf("Emit output does not start with '---\\n': %q", got)
 	}
-	// Body must be preserved exactly.
 	if !containsSuffix(got, body) {
 		t.Errorf("body %q not found at end of Emit output: %q", body, got)
 	}
@@ -151,7 +139,6 @@ func containsSuffix(s, suffix string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }
 
-// Emit must produce byte-identical output when called twice with the same map.
 func TestEmit_Deterministic(t *testing.T) {
 	meta := map[string]any{
 		"zebra":   "last",
@@ -174,7 +161,6 @@ func TestEmit_Deterministic(t *testing.T) {
 	}
 }
 
-// EmitOrdered preserves caller-specified key order (F-1).
 func TestEmitOrdered_PreservesCallerOrder(t *testing.T) {
 	kvs := []frontmatter.KV{
 		{Key: "generated_at", Value: "2026-05-17T00:00:00Z"},
@@ -194,7 +180,6 @@ func TestEmitOrdered_PreservesCallerOrder(t *testing.T) {
 	}
 }
 
-// EmitOrdered with reverse-alphabetical order must not be sorted alphabetically.
 func TestEmitOrdered_NotAlphabetical(t *testing.T) {
 	kvs := []frontmatter.KV{
 		{Key: "z_first", Value: "1"},
@@ -211,7 +196,6 @@ func TestEmitOrdered_NotAlphabetical(t *testing.T) {
 	}
 }
 
-// EmitOrdered with no kvs returns body-only.
 func TestEmitOrdered_EmptyKVs(t *testing.T) {
 	out, err := frontmatter.EmitOrdered(nil, "just body\n")
 	if err != nil {
@@ -222,11 +206,8 @@ func TestEmitOrdered_EmptyKVs(t *testing.T) {
 	}
 }
 
-// ── ParseOrdered tests ────────────────────────────────────────────────────────
-
-// TestParseOrdered_KeyOrder verifies that ParseOrdered preserves YAML source
-// order, not alphabetical order. A Go map would produce {generated, repo, title}
-// (alphabetical); ParseOrdered must return {title, repo, generated} (source order).
+// Source order {title, repo, generated}; a map would give the alphabetical
+// {generated, repo, title}.
 func TestParseOrdered_KeyOrder(t *testing.T) {
 	input := "---\ntitle: \"@hapi/nes\"\nrepo: nes\ngenerated: 2026-06-13\n---\n\n# Overview\n"
 	kvs, body, err := frontmatter.ParseOrdered(input)
@@ -239,7 +220,6 @@ func TestParseOrdered_KeyOrder(t *testing.T) {
 	if len(kvs) != 3 {
 		t.Fatalf("len(kvs) = %d, want 3; kvs = %v", len(kvs), kvs)
 	}
-	// Source order must be preserved: title, repo, generated — not alphabetical.
 	if kvs[0].Key != "title" {
 		t.Errorf("kvs[0].Key = %q, want %q", kvs[0].Key, "title")
 	}
@@ -251,8 +231,7 @@ func TestParseOrdered_KeyOrder(t *testing.T) {
 	}
 }
 
-// TestParseOrdered_DateAsString verifies that a date value stays a raw string,
-// not coerced to time.Time (the same guarantee Parse gives).
+// Dates stay raw strings, never time.Time — the guarantee Parse also gives.
 func TestParseOrdered_DateAsString(t *testing.T) {
 	input := "---\ngenerated: 2026-06-13\n---\nbody\n"
 	kvs, _, err := frontmatter.ParseOrdered(input)
@@ -267,7 +246,6 @@ func TestParseOrdered_DateAsString(t *testing.T) {
 	}
 }
 
-// TestParseOrdered_ListValue verifies that a sequence value parses as []any.
 func TestParseOrdered_ListValue(t *testing.T) {
 	input := "---\nsources:\n  - a\n  - b\n---\nbody\n"
 	kvs, _, err := frontmatter.ParseOrdered(input)
@@ -286,7 +264,6 @@ func TestParseOrdered_ListValue(t *testing.T) {
 	}
 }
 
-// TestParseOrdered_InlineListValue verifies that an inline sequence parses correctly.
 func TestParseOrdered_InlineListValue(t *testing.T) {
 	input := "---\nsources: [a, b]\n---\nbody\n"
 	kvs, _, err := frontmatter.ParseOrdered(input)
@@ -302,8 +279,6 @@ func TestParseOrdered_InlineListValue(t *testing.T) {
 	}
 }
 
-// TestParseOrdered_NoFrontmatter verifies that a doc without frontmatter
-// returns nil kvs and the full input as body.
 func TestParseOrdered_NoFrontmatter(t *testing.T) {
 	input := "# Just a heading\n\nNo frontmatter here.\n"
 	kvs, body, err := frontmatter.ParseOrdered(input)
@@ -318,8 +293,6 @@ func TestParseOrdered_NoFrontmatter(t *testing.T) {
 	}
 }
 
-// TestParseOrdered_EmptyBlock verifies that an empty frontmatter block (---\n---\n)
-// returns nil kvs and the remainder as body.
 func TestParseOrdered_EmptyBlock(t *testing.T) {
 	input := "---\n---\nBody after empty.\n"
 	kvs, body, err := frontmatter.ParseOrdered(input)
@@ -334,8 +307,6 @@ func TestParseOrdered_EmptyBlock(t *testing.T) {
 	}
 }
 
-// TestParseOrdered_UnclosedBlock verifies that a missing closing delimiter
-// returns an error (same behaviour as Parse).
 func TestParseOrdered_UnclosedBlock(t *testing.T) {
 	input := "---\ntitle: foo\n"
 	_, _, err := frontmatter.ParseOrdered(input)
@@ -344,14 +315,8 @@ func TestParseOrdered_UnclosedBlock(t *testing.T) {
 	}
 }
 
-// ── splitFrontmatter DRY refactor tests ──────────────────────────────────────
-//
-// These tests verify that after the splitFrontmatter extraction, Parse and
-// ParseOrdered agree on the body for every splitting edge case. They are the
-// observable contract for the shared delimiter-splitting logic.
-
-// TestParseAndParseOrdered_BodyAgreement_Empty verifies that an empty document
-// passes through both Parse and ParseOrdered identically.
+// Parse and ParseOrdered must agree on the body for every splitting edge case —
+// the observable contract for the shared splitFrontmatter helper.
 func TestParseAndParseOrdered_BodyAgreement_Empty(t *testing.T) {
 	inputs := []struct {
 		name  string
@@ -367,11 +332,9 @@ func TestParseAndParseOrdered_BodyAgreement_Empty(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, body1, err1 := frontmatter.Parse(tc.input)
 			_, body2, err2 := frontmatter.ParseOrdered(tc.input)
-			// Both must agree on error/no-error.
 			if (err1 != nil) != (err2 != nil) {
 				t.Errorf("Parse err=%v vs ParseOrdered err=%v for input %q", err1, err2, tc.input)
 			}
-			// Both must agree on body when there is no error.
 			if err1 == nil && err2 == nil && body1 != body2 {
 				t.Errorf("body mismatch:\n  Parse:        %q\n  ParseOrdered: %q", body1, body2)
 			}
@@ -379,7 +342,6 @@ func TestParseAndParseOrdered_BodyAgreement_Empty(t *testing.T) {
 	}
 }
 
-// Parse→Emit→Parse round-trip: re-parsed map must equal the original.
 func TestEmit_RoundTripParseEmitParse(t *testing.T) {
 	input := "---\nalpha: one\nbeta: two\nzebra: last\n---\nBody here.\n"
 	meta1, body1, err := frontmatter.Parse(input)

@@ -18,8 +18,7 @@ func mkFile(t *testing.T, root, rel string) {
 	}
 }
 
-// TestLinkifyFile_GitignoreSeam verifies a token reported ignored stays plain
-// while a normal resolvable token still links.
+// An ignored token stays plain while a normal resolvable one still links.
 func TestLinkifyFile_GitignoreSeam(t *testing.T) {
 	dir := t.TempDir()
 	mkFile(t, dir, "build-output.log")
@@ -43,8 +42,7 @@ func TestLinkifyFile_GitignoreSeam(t *testing.T) {
 	}
 }
 
-// TestLinkifyFile_NonGitDir verifies graceful degradation: in a non-git dir the
-// real gitignore check returns nothing, so resolvable tokens link as usual.
+// Outside a git repo the check returns nothing, so linking proceeds as usual.
 func TestLinkifyFile_NonGitDir(t *testing.T) {
 	dir := t.TempDir() // not a git repo
 	mkFile(t, dir, "agents/atomic-builder.md")
@@ -58,7 +56,6 @@ func TestLinkifyFile_NonGitDir(t *testing.T) {
 	}
 }
 
-// TestExtractTokens verifies inline spans are collected and fenced blocks skipped.
 func TestExtractTokens(t *testing.T) {
 	content := "prose `a/b.go` and `c`.\n```\n`fenced/skip.go`\n```\ntail `d/e.md`.\n"
 	got := extractTokens(content)

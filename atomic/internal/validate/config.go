@@ -16,40 +16,22 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
 )
 
-// builtinSubagents is the set of subagent names built into Claude Code that do
-// not require a corresponding agents/<name>.md file. Hardcoded per spec C3.
+// builtinSubagents need no agents/<name>.md file — Claude Code ships them.
 var builtinSubagents = map[string]bool{
 	"general-purpose": true,
 	"Explore":         true,
 	"Plan":            true,
 }
 
-// reSubagentType matches subagent_type: "name" or subagent_type: 'name' in
-// command prose (outside fenced code blocks). The name must start with a letter
-// and contain only alphanumerics, underscores, and hyphens.
-//
-// C3: subagent_type grammar.
 var reSubagentType = regexp.MustCompile(`subagent_type:\s*["']([a-zA-Z][a-zA-Z0-9_-]+)["']`)
 
-// reAtRef matches @-refs in CLAUDE.md / claude.local.md prose. An @-ref is a
-// bare @-prefixed path that resolves to a file: @path/to/file.ext where the
-// path contains only letters, digits, underscores, hyphens, dots, and slashes,
-// and ends with a 2-4 character extension.
-//
-// Grammar: @([./a-zA-Z0-9_-]+\.[a-zA-Z]{2,4})
-//
-// C5: @-ref grammar. The pattern matches the actual @-ref syntax used by
-// Claude Code (e.g. @.claude/project/signals.md). It is deliberately loose on
-// the right of the @; the email guard in runC5 (isEmailLocalChar) rejects any
-// match whose @ is preceded by an email local-part character, so `bob@host.com`
-// in prose is not mistaken for a file include.
+// reAtRef is deliberately loose to the right of the @; runC5's email guard is
+// what keeps `bob@host.com` from reading as a file include.
 var reAtRef = regexp.MustCompile(`@([./a-zA-Z0-9_-]+\.[a-zA-Z]{2,4})`)
 
-// isEmailLocalChar reports whether b can appear in an email address local part
-// (the text left of the @). A real @-ref sits at a word boundary — line start,
-// whitespace, or opening punctuation like ( or backtick — never immediately
-// after a local-part character. RE2 has no lookbehind, so the guard is applied
-// at match time in runC5 rather than in the regex itself.
+// isEmailLocalChar reports whether b can appear left of an email's @. A real
+// @-ref sits at a word boundary, never after a local-part character. RE2 has no
+// lookbehind, so runC5 applies this at match time instead of in the regex.
 func isEmailLocalChar(b byte) bool {
 	switch {
 	case b >= 'a' && b <= 'z', b >= 'A' && b <= 'Z', b >= '0' && b <= '9':
@@ -61,35 +43,29 @@ func isEmailLocalChar(b byte) bool {
 	}
 }
 
-// RunConfigRules runs C3, C5, C7, C9 on the repo rooted at repoRoot.
-// Returns findings sorted by (Path, Line, Rule) and any filesystem error.
-//
-// Exported so tests can call it directly with a synthetic repo fixture.
+// RunConfigRules runs the referential-integrity rules over repoRoot, returning
+// findings sorted by (Path, Line, Rule). Exported so tests can drive a fixture.
 func RunConfigRules(repoRoot string) ([]Finding, error) {
 	var findings []Finding
 
-	// C7: duplicate name: across agents/*.md — run first, independent of CLAUDE.md.
 	c7, err := runC7(repoRoot)
 	if err != nil {
 		return nil, err
 	}
 	findings = append(findings, c7...)
 
-	// C9: prefix check on agents/, skills/, output-styles/ files.
 	c9, err := runC9(repoRoot)
 	if err != nil {
 		return nil, err
 	}
 	findings = append(findings, c9...)
 
-	// C3: subagent_type in commands/*.md.
 	c3, err := runC3(repoRoot)
 	if err != nil {
 		return nil, err
 	}
 	findings = append(findings, c3...)
 
-	// C5: @-refs in CLAUDE.md, claude.local.md, CLAUDE.local.md.
 	c5, err := runC5(repoRoot)
 	if err != nil {
 		return nil, err
@@ -100,9 +76,8 @@ func RunConfigRules(repoRoot string) ([]Finding, error) {
 	return findings, nil
 }
 
-// runC3 checks that every subagent_type: "name" literal in commands/*.md
-// prose (outside fenced code blocks) resolves to agents/<name>.md or is a
-// known built-in.
+// runC3 checks that every subagent_type literal in commands/*.md prose resolves
+// to an agents/<name>.md or a built-in.
 func runC3(repoRoot string) ([]Finding, error) {
 	commandsDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "commands")
 	entries, err := os.ReadDir(commandsDir)
@@ -113,10 +88,8 @@ func runC3(repoRoot string) ([]Finding, error) {
 		return nil, fmt.Errorf("C3: read commands dir: %w", err)
 	}
 
-	// Commands are checked in expanded form: a dispatch can live inside a shared
-	// partial, and scanning the unexpanded source would silently stop covering
-	// it. This is the same expansion bundlemirror performs on the way into the
-	// bundle, so C3 sees exactly what installs.
+	// Commands are checked expanded, as bundlemirror expands them: a dispatch can
+	// live inside a shared partial, invisible in the unexpanded source.
 	partials, err := templaterender.LoadPartials(
 		filepath.Join(bundlespec.SourceRoot(repoRoot), templaterender.PartialsDir))
 	if err != nil {
@@ -126,7 +99,7 @@ func runC3(repoRoot string) ([]Finding, error) {
 	var findings []Finding
 	for _, e := range entries {
 		if e.IsDir() {
-			continue // skip subdirectories — non-recursive, top-level commands/*.md only
+			continue // top-level commands/*.md only
 		}
 		if !strings.HasSuffix(e.Name(), ".md") {
 			continue
@@ -141,9 +114,8 @@ func runC3(repoRoot string) ([]Finding, error) {
 			return nil, fmt.Errorf("C3: expand %s: %w", cmdPath, err)
 		}
 
-		// Extract prose-only text segments (skips fenced/indented code blocks).
-		// Note: inline backtick code spans are NOT excluded; a subagent_type
-		// literal inside `backtick span` will still match reSubagentType.
+		// Fenced and indented code blocks are skipped, but inline backtick spans
+		// are not — a literal inside one still matches.
 		segments := mdparse.TextSegments(src)
 		for _, seg := range segments {
 			matches := reSubagentType.FindAllStringSubmatchIndex(seg.Text, -1)
@@ -169,10 +141,9 @@ func runC3(repoRoot string) ([]Finding, error) {
 	return findings, nil
 }
 
-// runC5 checks that every @-ref in CLAUDE.md resolves to an existing file
-// (case-sensitive). Project-local overlays (claude.local.md, CLAUDE.local.md)
-// are intentionally NOT scanned: they are user-owned and may contain backtick
-// spans resembling @-refs (e.g. npm package paths like @fortawesome/...).
+// runC5 checks that every @-ref in CLAUDE.md resolves. Project-local overlays
+// are skipped: they are user-owned and may carry @-ref-shaped text such as npm
+// scoped package names.
 func runC5(repoRoot string) ([]Finding, error) {
 	candidates := []string{
 		filepath.Join(bundlespec.SourceRoot(repoRoot), "CLAUDE.md"),
@@ -182,23 +153,18 @@ func runC5(repoRoot string) ([]Finding, error) {
 	for _, p := range candidates {
 		src, err := os.ReadFile(p)
 		if err != nil {
-			continue // file absent: skip
+			continue
 		}
 
-		// Extract prose-only text segments (skips fenced/indented code blocks).
-		// Note: inline backtick code spans are NOT excluded; an @-ref inside
-		// `backtick span` will still match reAtRef.
 		segments := mdparse.TextSegments(src)
 		for _, seg := range segments {
 			matches := reAtRef.FindAllStringSubmatchIndex(seg.Text, -1)
 			for _, loc := range matches {
-				// Skip email addresses: an @ preceded by a local-part char
-				// (bob@host.com) is not a file include.
 				if loc[0] > 0 && isEmailLocalChar(seg.Text[loc[0]-1]) {
 					continue
 				}
 				refPath := seg.Text[loc[2]:loc[3]]
-				// Resolve relative to the repo root (not the file's directory).
+				// Repo-root relative, not relative to the containing file.
 				target := filepath.Join(repoRoot, filepath.FromSlash(refPath))
 				if _, err := os.Stat(target); os.IsNotExist(err) {
 					line := seg.Line + strings.Count(seg.Text[:loc[0]], "\n")
@@ -243,7 +209,7 @@ func runC7(repoRoot string) ([]Finding, error) {
 
 		meta, _, err := frontmatter.Parse(string(src))
 		if err != nil || meta == nil {
-			continue // no frontmatter or unparsable: skip
+			continue
 		}
 
 		nameVal, ok := meta["name"]
@@ -271,13 +237,11 @@ func runC7(repoRoot string) ([]Finding, error) {
 	return findings, nil
 }
 
-// runC9 checks that files in agents/, skills/, and output-styles/ satisfy the
-// atomic- prefix requirement. skills/ entries are directory names; the others
-// are files. Commands are explicitly excluded — they have no prefix requirement.
+// runC9 checks the atomic- prefix on agents/, skills/, and output-styles/
+// entries. Commands are excluded — they carry no prefix requirement.
 func runC9(repoRoot string) ([]Finding, error) {
 	var findings []Finding
 
-	// agents/*.md — must match bundlespec.MatchesAgent (atomic- prefix + .md)
 	agentsDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "agents")
 	if entries, err := os.ReadDir(agentsDir); err == nil {
 		for _, e := range entries {
@@ -296,7 +260,7 @@ func runC9(repoRoot string) ([]Finding, error) {
 		}
 	}
 
-	// skills/ — directories must have atomic- prefix (bundlespec.MatchesSkillDir)
+	// skills/ entries are directories, unlike the other two.
 	skillsDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "skills")
 	if entries, err := os.ReadDir(skillsDir); err == nil {
 		for _, e := range entries {
@@ -315,7 +279,6 @@ func runC9(repoRoot string) ([]Finding, error) {
 		}
 	}
 
-	// output-styles/*.md — must match bundlespec.MatchesOutputStyle (atomic prefix + .md)
 	stylesDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "output-styles")
 	if entries, err := os.ReadDir(stylesDir); err == nil {
 		for _, e := range entries {
@@ -346,10 +309,8 @@ func relPath(root, path string) string {
 	return rel
 }
 
-// runConfig is the config validator entry point, implementing CP-6 rules.
-// Replaces the CP-1 stub in validate.go.
 func runConfig(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
-	// Honor flags placed after the subcommand (F-1 fix, same pattern as runSpec).
+	// Re-parsed here so flags placed after the subcommand are honored.
 	subFS := flag.NewFlagSet("validate config", flag.ContinueOnError)
 	cliutil.SetUsage(subFS, "atomic validate config [--json] [--suggest]")
 	subFS.SetOutput(w)
@@ -365,8 +326,7 @@ func runConfig(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 		suggest = true
 	}
 
-	// Path args: ignored in CP-6 (whole-repo only). CP-8 enhancement noted in spec.
-	// _ = subFS.Args()
+	// Path args are ignored: config validation is whole-repo only.
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -387,7 +347,7 @@ func runConfig(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 
 	s := summarize(findings)
 	if jsonOut {
-		// No header in JSON mode — JSON envelope is the only UI chrome.
+		// No header: the JSON envelope is the only chrome.
 		printJSON(w, findings, s)
 	} else {
 		printHeader(w, "config", "referential integrity")

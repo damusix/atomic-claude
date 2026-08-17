@@ -1,23 +1,6 @@
 package synthesis_test
 
-// interface_impl_test.go — TDD tests for InterfaceImplSynthesizer and
-// CppOverrideSynthesizer (batch 5).
-//
-// # Ground truth (real synthesizers, activated after EE4)
-//
-// EE4 landed: heritage extraction is now wired for TypeScript, C++, and Java.
-//
-// interface-impl:
-//   EE4 produces EdgeKindImplements C→I edges + interface method nodes
-//   (method_signature IS in MethodTypes). InterfaceImplSynthesizer walks
-//   implements edges, matches methods by name, and emits calls+heuristic
-//   I.m→C.m edges with synthesizedBy="interface-impl".
-//
-// cpp-override:
-//   EE4 produces EdgeKindExtends D→B edges for C++ base_class_clause.
-//   CppOverrideSynthesizer walks C++ extends edges, matches methods by name,
-//   and emits calls+heuristic B.m→D.m edges with synthesizedBy="cpp-override".
-//   Scoped to C++ (Language==cpp) — does not fire on TypeScript extends.
+// InterfaceImplSynthesizer and CppOverrideSynthesizer tests.
 
 import (
 	"context"
@@ -28,26 +11,16 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// InterfaceImplSynthesizer — real gate tests (activated after EE4)
-// ---------------------------------------------------------------------------
-
-// TestInterfaceImplSynthesizer_EmitsDispatchEdge is the primary gate for the
-// interface-impl synthesizer. It seeds the minimal signal: an interface with one
-// method, a class that implements the interface with a matching method, and the
-// implements edge between them. The synthesizer must emit exactly one
-// calls+heuristic+synthesizedBy=interface-impl edge from the interface method
-// to the class method.
+// The minimal signal: an interface method, a matching class method, and the
+// implements edge joining them.
 func TestInterfaceImplSynthesizer_EmitsDispatchEdge(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
 
-	// Interface Speaker with method speak.
 	seedNode(t, d, "iface-speaker", "Speaker", "s.ts", types.NodeKindInterface, types.LanguageTypeScript)
 	seedNode(t, d, "meth-speaker-speak", "speak", "s.ts", types.NodeKindMethod, types.LanguageTypeScript)
 	seedEdge(t, d, "iface-speaker", "meth-speaker-speak", types.EdgeKindContains)
 
-	// Class Dog implements Speaker with a speak method.
 	seedNode(t, d, "cls-dog", "Dog", "s.ts", types.NodeKindClass, types.LanguageTypeScript)
 	seedNode(t, d, "meth-dog-speak", "speak", "s.ts", types.NodeKindMethod, types.LanguageTypeScript)
 	seedEdge(t, d, "cls-dog", "meth-dog-speak", types.EdgeKindContains)
@@ -70,19 +43,15 @@ func TestInterfaceImplSynthesizer_EmitsDispatchEdge(t *testing.T) {
 	}
 }
 
-// TestInterfaceImplSynthesizer_NoEdgeWhenClassLacksMatchingMethod verifies that
-// when the implementing class has no method with the same name as the interface
-// method, no edge is synthesized. The synthesizer must not fabricate edges.
+// Without a same-named method on the class there is no dispatch to record.
 func TestInterfaceImplSynthesizer_NoEdgeWhenClassLacksMatchingMethod(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
 
-	// Interface with method speak.
 	seedNode(t, d, "iface-talker", "Talker", "t.ts", types.NodeKindInterface, types.LanguageTypeScript)
 	seedNode(t, d, "meth-talker-speak", "speak", "t.ts", types.NodeKindMethod, types.LanguageTypeScript)
 	seedEdge(t, d, "iface-talker", "meth-talker-speak", types.EdgeKindContains)
 
-	// Class Cat implements Talker but has no speak method (only a purr method).
 	seedNode(t, d, "cls-cat", "Cat", "t.ts", types.NodeKindClass, types.LanguageTypeScript)
 	seedNode(t, d, "meth-cat-purr", "purr", "t.ts", types.NodeKindMethod, types.LanguageTypeScript)
 	seedEdge(t, d, "cls-cat", "meth-cat-purr", types.EdgeKindContains)
@@ -98,9 +67,7 @@ func TestInterfaceImplSynthesizer_NoEdgeWhenClassLacksMatchingMethod(t *testing.
 	}
 }
 
-// TestInterfaceImplSynthesizer_IdempotentViaComposite verifies that running the
-// full composite twice on the same DB produces the same edge count. The composite's
-// dedup-by-source>target prevents double insertion.
+// A second run must add nothing; the Composite's dedup is what guarantees it.
 func TestInterfaceImplSynthesizer_IdempotentViaComposite(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
@@ -150,8 +117,6 @@ func TestInterfaceImplSynthesizer_IdempotentViaComposite(t *testing.T) {
 	}
 }
 
-// TestInterfaceImplSynthesizer_SynthesizedByMetadata verifies that the composite
-// stamps synthesizedBy="interface-impl" on edges produced by InterfaceImplSynthesizer.
 func TestInterfaceImplSynthesizer_SynthesizedByMetadata(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
@@ -196,24 +161,16 @@ func TestInterfaceImplSynthesizer_SynthesizedByMetadata(t *testing.T) {
 	}
 }
 
-// TestInterfaceImplSynthesizer_NoEdgeWithoutImplementsEdge verifies that even
-// with manually seeded interface + class + method nodes, the synthesizer emits
-// nothing if no `implements` edge connects the class to the interface.
-//
-// This validates the synthesizer's signal-first design: it ONLY fires when an
-// `implements` edge exists as a confirmed prerequisite.
+// Matching names alone are not evidence: without an implements edge the
+// synthesizer must stay silent.
 func TestInterfaceImplSynthesizer_NoEdgeWithoutImplementsEdge(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
 
-	// Interface node with no method children (as extraction produces).
 	seedNode(t, d, "iface-animal", "Animal", "a.ts", types.NodeKindInterface, types.LanguageTypeScript)
-	// Class node.
 	seedNode(t, d, "cls-dog", "Dog", "a.ts", types.NodeKindClass, types.LanguageTypeScript)
-	// Method nodes under class.
 	seedNode(t, d, "meth-dog-speak", "speak", "a.ts", types.NodeKindMethod, types.LanguageTypeScript)
 	seedEdge(t, d, "cls-dog", "meth-dog-speak", types.EdgeKindContains)
-	// NO implements edge cls-dog → iface-animal.
 
 	s := &synthesis.InterfaceImplSynthesizer{}
 	edges, err := s.Synthesize(ctx, d)
@@ -225,75 +182,44 @@ func TestInterfaceImplSynthesizer_NoEdgeWithoutImplementsEdge(t *testing.T) {
 	}
 }
 
-// TestInterfaceImplSynthesizer_WithImplementsEdge documents the future behavior:
-// when an implements edge IS present (e.g., after heritage extraction lands),
-// the synthesizer should emit dispatch edges. Currently it must emit zero because
-// the extraction pipeline doesn't yet produce interface method nodes.
-//
-// This test seeds the FULL expected signal (implements edge + interface methods +
-// class methods) and verifies that IF the signal were present, the synthesizer
-// would fire correctly. Since interface method nodes are NOT extracted today,
-// the expected result is still 0 even with an implements edge.
+// An implements edge is necessary but not sufficient: with no interface method
+// nodes there is no source for a dispatch edge, so the count is still zero.
 func TestInterfaceImplSynthesizer_WithImplementsEdge(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
 
-	// Interface node.
 	seedNode(t, d, "iface-b", "Printer", "b.ts", types.NodeKindInterface, types.LanguageTypeScript)
-	// Class node that implements it.
 	seedNode(t, d, "cls-b", "LaserPrinter", "b.ts", types.NodeKindClass, types.LanguageTypeScript)
-	// Implements edge (what heritage extraction would produce after landing).
 	seedEdge(t, d, "cls-b", "iface-b", types.EdgeKindImplements)
 
-	// Class method node.
 	seedNode(t, d, "meth-b-print", "print", "b.ts", types.NodeKindMethod, types.LanguageTypeScript)
 	seedEdge(t, d, "cls-b", "meth-b-print", types.EdgeKindContains)
-	// NOTE: no interface method node (NodeKindMethod inside the interface)
-	// because method_signature is NOT in MethodTypes for TypeScript.
-	// The synthesizer would need interface method nodes to emit dispatch edges.
-	// With implements edge but no interface method nodes, expect 0 edges.
 
 	s := &synthesis.InterfaceImplSynthesizer{}
 	edges, err := s.Synthesize(ctx, d)
 	if err != nil {
 		t.Fatalf("Synthesize: %v", err)
 	}
-	// Even with implements edge, interface has no method nodes → no dispatch edges.
-	// Zero edges expected until interface method extraction is also implemented.
 	if len(edges) != 0 {
 		t.Errorf("InterfaceImplSynthesizer produced %d edges (expected 0: interface methods not extracted)", len(edges))
 	}
 }
 
-// ---------------------------------------------------------------------------
-// CppOverrideSynthesizer — real gate tests (activated after EE4)
-// ---------------------------------------------------------------------------
-
-// TestCppOverrideSynthesizer_EmitsOverrideEdge is the primary gate for the
-// cpp-override synthesizer. It seeds the minimal signal: a C++ base class with
-// one method, a C++ derived class with a matching method name, and an extends
-// edge between them. The synthesizer must emit exactly one
-// calls+heuristic+synthesizedBy=cpp-override edge from the base method to the
-// derived method.
-//
-// Note: C++ extraction uses NodeKindFunction for member functions (CppExtractor
-// has no MethodTypes). The synthesizer must handle both NodeKindFunction and
-// NodeKindMethod in the contains-edge container lookup.
+// The minimal signal: a base method, a same-named derived method, and the
+// extends edge joining them. Members are seeded as functions, which is what
+// C++ extraction actually produces.
 func TestCppOverrideSynthesizer_EmitsOverrideEdge(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()
 
-	// Base class B with method m (NodeKindFunction — C++ extraction convention).
 	seedNode(t, d, "cls-base", "B", "b.cpp", types.NodeKindClass, types.LanguageCpp)
 	seedNode(t, d, "fn-base-m", "m", "b.cpp", types.NodeKindFunction, types.LanguageCpp)
 	seedEdge(t, d, "cls-base", "fn-base-m", types.EdgeKindContains)
 
-	// Derived class D with override method m.
 	seedNode(t, d, "cls-derived", "D", "b.cpp", types.NodeKindClass, types.LanguageCpp)
 	seedNode(t, d, "fn-derived-m", "m", "b.cpp", types.NodeKindFunction, types.LanguageCpp)
 	seedEdge(t, d, "cls-derived", "fn-derived-m", types.EdgeKindContains)
 
-	// D extends B.
 	seedEdge(t, d, "cls-derived", "cls-base", types.EdgeKindExtends)
 
 	s := &synthesis.CppOverrideSynthesizer{}
@@ -313,8 +239,6 @@ func TestCppOverrideSynthesizer_EmitsOverrideEdge(t *testing.T) {
 	}
 }
 
-// TestCppOverrideSynthesizer_IdempotentViaComposite verifies that running the
-// composite twice on the same DB produces the same edge count.
 func TestCppOverrideSynthesizer_IdempotentViaComposite(t *testing.T) {
 	d := openTestDB(t)
 	ctx := context.Background()

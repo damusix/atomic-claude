@@ -1,7 +1,6 @@
 package resolution_test
 
-// sql_string_match_columns_test.go — pass B
-// (C3) qualified and anchored bare column matching.
+// Pass B: qualified and anchored bare-column matching.
 
 import (
 	"context"

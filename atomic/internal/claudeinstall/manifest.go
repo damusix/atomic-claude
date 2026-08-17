@@ -12,9 +12,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
 
-// PruneDiff returns the subset of storedTargets that are absent from currentTargets.
-// Exported for direct unit-testing. Pure function: no filesystem I/O, no side effects.
-// Returns nil when storedTargets is empty — pre-framework install with no [install.artifacts].
+// PruneDiff returns the subset of storedTargets absent from currentTargets, or
+// nil for an empty storedTargets (a pre-framework install).
 func PruneDiff(storedTargets []string, currentTargets map[string]bool) []string {
 	if len(storedTargets) == 0 {
 		return nil
@@ -28,8 +27,8 @@ func PruneDiff(storedTargets []string, currentTargets map[string]bool) []string 
 	return stale
 }
 
-// defaultPruneConfirm is the production confirm: huh-backed interactive batched confirm.
-// Non-interactive terminals (no TTY) receive ErrNonInteractive → prune is silently skipped.
+// defaultPruneConfirm is the interactive batched confirm. Without a TTY there is
+// no human to ask, so prune is silently skipped.
 func defaultPruneConfirm(stale []string) (bool, error) {
 	desc := fmt.Sprintf(
 		"The following %d artifact(s) were previously installed by atomic but are no longer in the current bundle:\n",
@@ -41,27 +40,23 @@ func defaultPruneConfirm(stale []string) (bool, error) {
 	desc += "Remove them?"
 	ok, err := prompt.Confirm("Prune stale artifacts", desc, false)
 	if errors.Is(err, prompt.ErrNonInteractive) {
-		// Non-interactive terminal — skip prune silently; no human to confirm.
 		return false, nil
 	}
 	if errors.Is(err, prompt.ErrAborted) {
-		// User pressed Ctrl+C at the prompt — treat as a decline, not an error.
+		// Ctrl+C is a decline, not an error.
 		return false, nil
 	}
 	return ok, err
 }
 
-// DefaultPruneConfirm is the production PruneConfirm implementation.
-// Exported so tests can restore the original after overriding PruneConfirm.
+// DefaultPruneConfirm lets tests restore PruneConfirm after overriding it.
 var DefaultPruneConfirm = defaultPruneConfirm
 
-// PruneConfirm is the injectable seam for the interactive batched confirm during prune.
-// Production code uses defaultPruneConfirm; tests override to avoid spawning a TTY.
+// PruneConfirm is a test seam: stubbed so tests never spawn a TTY.
 var PruneConfirm = defaultPruneConfirm
 
-// storedTargetSlice returns a flat slice of all artifact targets recorded in
-// cfg.Install.Artifacts across all kinds.
-// Returns nil when no artifacts are stored — pre-framework install or first-ever install.
+// storedTargetSlice flattens cfg.Install.Artifacts across all kinds, or returns
+// nil when nothing is stored.
 func storedTargetSlice(cfg *config.Config) []string {
 	var all []string
 	all = append(all, cfg.Install.Artifacts.Agents...)
@@ -75,9 +70,8 @@ func storedTargetSlice(cfg *config.Config) []string {
 	return all
 }
 
-// installedTargetSetFromConfig builds a map[string]bool of all targets in
-// cfg.Install.Artifacts. Returns nil when no artifacts are stored — no scoping applied
-// (pre-framework install: uninstall uses existing snapshot-only behavior).
+// installedTargetSetFromConfig indexes cfg.Install.Artifacts, or returns nil
+// when nothing is stored so callers apply no scoping.
 func installedTargetSetFromConfig(cfg *config.Config) map[string]bool {
 	stored := storedTargetSlice(cfg)
 	if len(stored) == 0 {
@@ -90,7 +84,6 @@ func installedTargetSetFromConfig(cfg *config.Config) map[string]bool {
 	return m
 }
 
-// currentBundleTargetSet returns a set of all Target paths in the current embedded bundle.
 func currentBundleTargetSet() map[string]bool {
 	artifacts := embedded.Manifest()
 	m := make(map[string]bool, len(artifacts))
@@ -100,10 +93,8 @@ func currentBundleTargetSet() map[string]bool {
 	return m
 }
 
-// writeInstallManifest persists the [install] section to config.toml after a successful install.
-// Reads the existing config leniently, updates Install.Version and Install.Artifacts, then
-// atomically rewrites the file. "claude-md" kind artifacts are not tracked in install.artifacts.
-// Must only be called on non-dry-run installs.
+// writeInstallManifest persists the [install] section to config.toml. Non-dry-run
+// installs only. "claude-md" artifacts are not tracked in install.artifacts.
 func writeInstallManifest(home string, plan []FileAction) error {
 	cfgPath := config.TOMLPath(home)
 	cfg, _, err := config.Load(cfgPath)
@@ -111,17 +102,13 @@ func writeInstallManifest(home string, plan []FileAction) error {
 		return fmt.Errorf("load config for manifest write: %w", err)
 	}
 
-	// Dev builds (version.Version == "dev", the un-ldflagged default) do not
-	// record a version — "dev" is not a parseable semver, and config.Validate
-	// requires one, so writing it would permanently fail every dev
-	// contributor's `atomic doctor`. Leave any prior recorded version
-	// untouched (an empty string is already the documented pre-framework
-	// state everywhere else in this codebase reads Install.Version).
+	// "dev" (the un-ldflagged default) is not parseable semver, and
+	// config.Validate requires one — recording it would permanently fail every
+	// dev contributor's `atomic doctor`.
 	if version.Version != "dev" {
 		cfg.Install.Version = version.Version
 	}
 
-	// Reset per-kind lists before repopulating from the current plan.
 	cfg.Install.Artifacts.Agents = nil
 	cfg.Install.Artifacts.Commands = nil
 	cfg.Install.Artifacts.Skills = nil
@@ -148,9 +135,8 @@ func writeInstallManifest(home string, plan []FileAction) error {
 	return config.WritePersist(cfgPath, cfg)
 }
 
-// runPrune presents a batched confirm for the stale paths and, if approved, removes them.
-// Returns the list of paths successfully removed.
-// Safe to call with an empty or nil stale slice (no-op).
+// runPrune confirms the stale paths as a batch and, if approved, removes them,
+// returning what it removed. A no-op on an empty slice.
 func runPrune(targetDir string, stale []string) ([]string, error) {
 	if len(stale) == 0 {
 		return nil, nil
@@ -158,7 +144,7 @@ func runPrune(targetDir string, stale []string) ([]string, error) {
 	ok, err := PruneConfirm(stale)
 	if err != nil {
 		if errors.Is(err, prompt.ErrAborted) {
-			// User pressed Ctrl+C — treat as a decline, not an error.
+			// Ctrl+C is a decline, not an error.
 			return nil, nil
 		}
 		return nil, fmt.Errorf("prune confirm: %w", err)

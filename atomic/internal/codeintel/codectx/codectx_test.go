@@ -1,27 +1,8 @@
 package codectx_test
 
-// Tests for the codectx package (master).
-//
-// Fixture structure (built via db CRUD):
-//
-//   Files:
-//     file_a.go  (Go) — contains funcA, funcB
-//     file_b.go  (Go) — contains funcC
-//
-//   Nodes:
-//     funcA  (function, "Alpha")   in file_a.go  — calls funcB
-//     funcB  (function, "Beta")    in file_a.go  — calls funcC
-//     funcC  (function, "Gamma")   in file_b.go  — leaf
-//     ifaceI (interface, "IAlpha") in file_a.go  — implemented by funcA's class
-//     classX (class, "XImpl")      in file_b.go  — implements ifaceI
-//     extra1..extra6 (functions)   in file_a.go  — diversity cap triggers
-//
-//   Edges:
-//     funcA --calls-->      funcB
-//     funcB --calls-->      funcC
-//     classX --implements--> ifaceI   (for BFS via extends/implements)
-//     ifaceI --calls-->      funcA    (heuristic provenance, for marker test)
-//     extra1..extra6 --calls--> funcA (to inflate file_a node count for diversity cap)
+// The shared fixture is an A→B→C call chain split across two files, plus an
+// implements edge, one heuristic edge, and six spare nodes in file_a.go whose
+// only job is to push that file past the diversity cap.
 
 import (
 	"context"
@@ -35,10 +16,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Fixture helpers
-// ---------------------------------------------------------------------------
-
 func openTestDB(t *testing.T) *db.DB {
 	t.Helper()
 	database, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
@@ -49,11 +26,6 @@ func openTestDB(t *testing.T) *db.DB {
 	return database
 }
 
-// insertFixture inserts a corpus with:
-//   - A→B→C call chain across 2 files
-//   - classX implements ifaceI (heritage for BFS type context)
-//   - one heuristic edge (ifaceI→funcA)
-//   - extra1..extra6 in file_a.go to trigger diversity cap on that file
 func insertFixture(t *testing.T, database *db.DB) {
 	t.Helper()
 	ctx := context.Background()
@@ -65,7 +37,6 @@ func insertFixture(t *testing.T, database *db.DB) {
 		// ifaceI in its own file so it survives diversity capping of file_a
 		{ID: "ifaceI", Kind: types.NodeKindInterface, Name: "IAlpha", QualifiedName: "pkg.IAlpha", FilePath: "src/iface.go", Language: types.LanguageGo},
 		{ID: "classX", Kind: types.NodeKindClass, Name: "XImpl", QualifiedName: "pkg.XImpl", FilePath: "src/file_b.go", Language: types.LanguageGo},
-		// extra nodes in file_a to trigger diversity cap
 		{ID: "extra1", Kind: types.NodeKindFunction, Name: "Extra1", FilePath: "src/file_a.go", Language: types.LanguageGo},
 		{ID: "extra2", Kind: types.NodeKindFunction, Name: "Extra2", FilePath: "src/file_a.go", Language: types.LanguageGo},
 		{ID: "extra3", Kind: types.NodeKindFunction, Name: "Extra3", FilePath: "src/file_a.go", Language: types.LanguageGo},
@@ -85,7 +56,6 @@ func insertFixture(t *testing.T, database *db.DB) {
 		{Source: "classX", Target: "ifaceI", Kind: types.EdgeKindImplements},
 		// heuristic edge: ifaceI "calls" funcA (synthesized — low confidence)
 		{Source: "ifaceI", Target: "funcA", Kind: types.EdgeKindCalls, Provenance: "heuristic"},
-		// extra→funcA calls to inflate file_a count
 		{Source: "extra1", Target: "funcA", Kind: types.EdgeKindCalls},
 		{Source: "extra2", Target: "funcA", Kind: types.EdgeKindCalls},
 		{Source: "extra3", Target: "funcA", Kind: types.EdgeKindCalls},
@@ -100,12 +70,6 @@ func insertFixture(t *testing.T, database *db.DB) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-// TestFindRelevantContext_GatherAndBFS verifies that querying "Alpha" finds
-// funcA as a seed and expands BFS to funcB (funcA calls funcB).
 func TestFindRelevantContext_GatherAndBFS(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
@@ -116,34 +80,20 @@ func TestFindRelevantContext_GatherAndBFS(t *testing.T) {
 		t.Fatalf("FindRelevantContext: %v", err)
 	}
 
-	// seed funcA should be present
 	if _, ok := sg.Nodes["funcA"]; !ok {
 		t.Error("expected funcA in subgraph nodes")
 	}
-	// BFS depth 1: funcB is a callee of funcA → should be present
 	if _, ok := sg.Nodes["funcB"]; !ok {
 		t.Error("expected funcB (BFS callee of funcA) in subgraph nodes")
 	}
 
-	// tier must be non-empty (fts, like, or fuzzy)
 	if tier == "" {
 		t.Error("expected non-empty tier")
 	}
 }
 
-// TestFindRelevantContext_SourceTierPropagates verifies that the source tier
-// returned by FindRelevantContext propagates correctly into Context.Source for
-// the FTS, LIKE, and fuzzy tiers.
-//
-// FTS tier: querying "Alpha" hits the FTS5 index (normal path).
-// LIKE tier: node name "LikeOnlyXq7", query "likeonlyxq" — FTS token is
-//
-//	"likeonlyxq7" so "likeonlyxq" misses FTS; LIKE substring match finds it.
-//
-// Fuzzy tier: node name "FuzzyUniq", query "fuzzyunir" — FTS token is
-//
-//	"fuzzyuniq" so "fuzzyunir" misses FTS; "fuzzyunir" is not a substring of
-//	"fuzzyuniq" so LIKE misses; DL distance=1 hits the fuzzy tier.
+// Each subtest picks a name/query pair engineered to miss every tier above the
+// one under test, so the tier that answers is unambiguous.
 func TestFindRelevantContext_SourceTierPropagates(t *testing.T) {
 	t.Run("fts", func(t *testing.T) {
 		database := openTestDB(t)
@@ -173,11 +123,8 @@ func TestFindRelevantContext_SourceTierPropagates(t *testing.T) {
 
 	t.Run("like", func(t *testing.T) {
 		database := openTestDB(t)
-		// Insert a node with name "XqLikeOnly". Query "likeonly":
-		//   - FTS5 buildFTSQuery wraps as "likeonly"* (prefix query). The FTS token
-		//     for "XqLikeOnly" is "xqlikeonly" — it does NOT start with "likeonly",
-		//     so the FTS prefix match misses.
-		//   - LIKE %likeonly% case-insensitively matches "xqlikeonly" → LIKE hit.
+		// FTS matches on a token prefix, and "xqlikeonly" does not start with
+		// "likeonly", so only LIKE's substring match can find this.
 		err := database.UpsertNode(context.Background(), types.Node{
 			ID:       "likenode1",
 			Kind:     types.NodeKindFunction,
@@ -213,10 +160,8 @@ func TestFindRelevantContext_SourceTierPropagates(t *testing.T) {
 
 	t.Run("fuzzy", func(t *testing.T) {
 		database := openTestDB(t)
-		// Insert a node whose name is "FuzzyUniq". Query "fuzzyunir":
-		//   - FTS token in index is "fuzzyuniq"; "fuzzyunir" is a different token → FTS miss.
-		//   - "fuzzyuniq" does not contain "fuzzyunir" as a substring → LIKE miss.
-		//   - DL distance("fuzzyuniq", "fuzzyunir") = 1 (q→r substitution) ≤ maxDist=2 → fuzzy hit.
+		// A one-character substitution: a different FTS token, not a substring,
+		// so only the fuzzy tier is left.
 		err := database.UpsertNode(context.Background(), types.Node{
 			ID:       "fuzzynode1",
 			Kind:     types.NodeKindFunction,
@@ -251,23 +196,17 @@ func TestFindRelevantContext_SourceTierPropagates(t *testing.T) {
 	})
 }
 
-// TestFindRelevantContext_DiversityCap verifies that when a single file
-// dominates the result set, diversity capping limits its contribution and
-// sets Truncated=true on the resulting Context.
 func TestFindRelevantContext_DiversityCap(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
 
-	// Use a big BFS depth so all extra nodes get pulled in.
 	builder := codectx.New(database)
 	sg, tier, truncated, err := builder.FindRelevantContext(context.Background(), "Alpha", codectx.Options{BFSDepth: 3})
 	if err != nil {
 		t.Fatalf("FindRelevantContext: %v", err)
 	}
 
-	// The raw BFS result would include funcA,funcB,ifaceI,extra1-6 from file_a.go
-	// (8 nodes from the same file), plus funcC, classX from file_b.go.
-	// Diversity cap should limit file_a to MaxPerFile and set Truncated on context.
+	// Uncapped, the BFS would pull 8 nodes from file_a.go alone.
 	ctx, err := builder.BuildContext(context.Background(), sg, codectx.BuildOptions{
 		Format:    codectx.FormatMarkdown,
 		Query:     "Alpha",
@@ -278,24 +217,20 @@ func TestFindRelevantContext_DiversityCap(t *testing.T) {
 		t.Fatalf("BuildContext: %v", err)
 	}
 
-	// Count file_a.go nodes in the subgraph.
 	fileACount := 0
 	for _, n := range sg.Nodes {
 		if n.FilePath == "src/file_a.go" {
 			fileACount++
 		}
 	}
-	// Should be capped at MaxPerFile (default 5)
 	if fileACount > codectx.DefaultMaxPerFile {
 		t.Errorf("file_a nodes = %d; want ≤ %d (diversity cap)", fileACount, codectx.DefaultMaxPerFile)
 	}
-	// Context must be marked Truncated because cap fired
 	if !ctx.Truncated {
 		t.Error("expected Truncated=true when diversity cap fired")
 	}
 }
 
-// TestMarkdown_StableHeadings verifies the stable section headings contract.
 func TestMarkdown_StableHeadings(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
@@ -316,7 +251,6 @@ func TestMarkdown_StableHeadings(t *testing.T) {
 	}
 
 	md := ctx.Content
-	// Required headings in order
 	headings := []string{
 		"# Context:",
 		"## Symbols",
@@ -337,8 +271,6 @@ func TestMarkdown_StableHeadings(t *testing.T) {
 	}
 }
 
-// TestMarkdown_HeuristicEdgeMarker verifies that heuristic edges get a
-// low-confidence marker and static edges do not.
 func TestMarkdown_HeuristicEdgeMarker(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
@@ -359,14 +291,10 @@ func TestMarkdown_HeuristicEdgeMarker(t *testing.T) {
 	}
 
 	md := ctx.Content
-	// The heuristic edge (ifaceI→funcA) should be visible with a marker.
-	// The marker is "(heuristic)" per the spec.
 	if !strings.Contains(md, "(heuristic)") {
 		t.Error("markdown: expected (heuristic) marker for low-confidence edge; not found")
 	}
-	// The static edge (funcA→funcB, no provenance) should NOT have the marker.
-	// We check by counting occurrences — if both edges have the marker that's wrong.
-	// A weak but sufficient check: at least one edge line without "(heuristic)".
+	// At least one unmarked edge line proves the marker is not applied blanket.
 	relSection := md
 	if idx := strings.Index(md, "## Relationships"); idx >= 0 {
 		relSection = md[idx:]
@@ -383,11 +311,8 @@ func TestMarkdown_HeuristicEdgeMarker(t *testing.T) {
 	}
 }
 
-// TestMarkdown_RelationshipsResolveNames is a regression guard: the Relationships
-// section must render human-readable node names, not raw node IDs (the graph's
-// foreign keys). Previously every edge printed as "funcA → funcB" (IDs) instead
-// of "Alpha → Beta" (names), which surfaced as opaque "function:<hash> → field:<hash>"
-// lines in real `atomic code explore` output.
+// Guards against edges rendering as raw node IDs, which surfaced in real
+// explore output as opaque "function:<hash> → field:<hash>" lines.
 func TestMarkdown_RelationshipsResolveNames(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
@@ -414,29 +339,22 @@ func TestMarkdown_RelationshipsResolveNames(t *testing.T) {
 		t.Fatal("missing ## Relationships section")
 	}
 
-	// The funcA→funcB edge must render with resolved names.
 	if !strings.Contains(rel, "Alpha → Beta (calls)") {
 		t.Errorf("Relationships should resolve node IDs to names; want 'Alpha → Beta (calls)' in:\n%s", rel)
 	}
-	// The raw ID form must not leak.
 	if strings.Contains(rel, "funcA → funcB") {
 		t.Errorf("Relationships leaked raw node IDs instead of names:\n%s", rel)
 	}
 }
 
-// TestJSON_StableShape verifies the JSON output has the required fields and
-// nodes sorted by ID.
-//
-// Uses BFSDepth=2 so ifaceI is always reached (it is in iface.go, not file_a.go,
-// so it survives any diversity capping). The heuristic-provenance assertion is
-// unconditional — a filtering regression that drops ifaceI must fail this test.
+// The heuristic-provenance assertion is deliberately unconditional: a filtering
+// regression that drops ifaceI must fail here rather than pass vacuously.
 func TestJSON_StableShape(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
 
 	builder := codectx.New(database)
-	// BFSDepth=2 ensures ifaceI (in its own file) is pulled into the subgraph
-	// so the heuristic-edge assertion below is always reachable.
+	// Depth 2 is what reaches ifaceI.
 	sg, tier, _, err := builder.FindRelevantContext(context.Background(), "Alpha", codectx.Options{BFSDepth: 2})
 	if err != nil {
 		t.Fatalf("FindRelevantContext: %v", err)
@@ -456,7 +374,6 @@ func TestJSON_StableShape(t *testing.T) {
 		t.Fatalf("json.Unmarshal: %v; content: %s", err, ctx.Content)
 	}
 
-	// Required top-level fields
 	if out.Query == "" {
 		t.Error("JSON: query field missing or empty")
 	}
@@ -467,29 +384,23 @@ func TestJSON_StableShape(t *testing.T) {
 		t.Error("JSON: nodes array empty")
 	}
 
-	// Nodes must be sorted by ID
 	for i := 1; i < len(out.Nodes); i++ {
 		if out.Nodes[i].ID < out.Nodes[i-1].ID {
 			t.Errorf("JSON: nodes not sorted by ID at index %d (%s < %s)", i, out.Nodes[i].ID, out.Nodes[i-1].ID)
 		}
 	}
 
-	// Edges must carry provenance field (even if empty string for static)
+	// Provenance is always present, empty string for static edges.
 	for _, e := range out.Edges {
-		// Just verify the struct has the Provenance field decoded (it may be "")
 		_ = e.Provenance
 	}
 
-	// ifaceI must be in the subgraph (it lives in its own file — iface.go — so
-	// diversity capping on file_a cannot remove it). Failing here means the BFS
-	// or filtering is broken and the heuristic assertion below would be vacuous.
+	// Checked first: without ifaceI the assertion below would pass vacuously.
 	if _, ok := sg.Nodes["ifaceI"]; !ok {
 		t.Fatal("JSON: ifaceI not in subgraph at BFSDepth=2; fixture or BFS is broken")
 	}
 
-	// Heuristic edge (ifaceI→funcA) must have provenance="heuristic" in the output.
-	// This assertion is unconditional: if ifaceI is present (proven above) its
-	// outgoing heuristic edge must survive deduplication and serialisation.
+	// The marker must survive both deduplication and serialisation.
 	foundHeuristic := false
 	for _, e := range out.Edges {
 		if e.Provenance == "heuristic" {
@@ -501,7 +412,6 @@ func TestJSON_StableShape(t *testing.T) {
 	}
 }
 
-// TestJSON_EdgesSortedByCompositeKey verifies edges are sorted by source+target+kind.
 func TestJSON_EdgesSortedByCompositeKey(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
@@ -537,7 +447,6 @@ func TestJSON_EdgesSortedByCompositeKey(t *testing.T) {
 	}
 }
 
-// TestNodeCountEdgeCount verifies NodeCount and EdgeCount in Context.
 func TestNodeCountEdgeCount(t *testing.T) {
 	database := openTestDB(t)
 	insertFixture(t, database)
@@ -565,16 +474,9 @@ func TestNodeCountEdgeCount(t *testing.T) {
 	}
 }
 
-// TestDeduplicateEdges_HeuristicWinsOverEmpty verifies that when the same
-// logical edge (source+target+kind) exists in the DB with both empty provenance
-// (static) and "heuristic" provenance, deduplication in FindRelevantContext
-// retains the heuristic marker. This guards the "heuristic wins over empty"
-// invariant from appendix G: the low-confidence marker must not be silently lost.
-//
-// The edges table has no unique constraint on (source,target,kind), so inserting
-// the same logical edge twice (different provenance) is valid. GetCallees (and
-// GetCallers) return all matching rows; deduplicateEdges collapses them to the
-// heuristic-provenance winner.
+// The edges table has no unique constraint on (source, target, kind), so the
+// same logical edge can exist twice with different provenance. Deduplication
+// must keep the heuristic one, or the low-confidence marker is silently lost.
 func TestDeduplicateEdges_HeuristicWinsOverEmpty(t *testing.T) {
 	ctx := context.Background()
 
@@ -647,14 +549,8 @@ func TestDeduplicateEdges_HeuristicWinsOverEmpty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// F-55: seed BFS expansion order must be deterministic
-// ---------------------------------------------------------------------------
+// seed BFS expansion order must be deterministic
 
-// TestFindRelevantContext_SeedOrderDeterministic verifies that when multiple
-// seeds are gathered (≥3), the BFS expansion order is stable across repeated
-// calls. Uses 4 seeds (A, B, C, D) with distinct callees so the combined
-// subgraph varies if seeds are iterated in non-deterministic map order.
 func TestFindRelevantContext_SeedOrderDeterministic(t *testing.T) {
 	database := openTestDB(t)
 	ctx := context.Background()

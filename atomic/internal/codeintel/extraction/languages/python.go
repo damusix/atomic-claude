@@ -1,30 +1,6 @@
 package languages
 
-// Python language extractor configuration.
-//
-// Verified node-type strings (parsed via tmp/probe-lang-details):
-//
-//   Top-level (direct children of module):
-//     import_statement       — import os; import sys
-//     import_from_statement  — from typing import Protocol
-//     class_definition       — class Canvas: ...
-//     function_definition    — def make_canvas(): ...
-//     expression_statement   — bare assignments, lambdas
-//
-//   Named iterator also sees:
-//     function_definition    — nested method defs inside class bodies
-//     call                   — function/method call sites (NOTE: "call", not "call_expression")
-//     assignment             — module-level assignments
-//
-// IsExported convention (Python has no export keyword):
-//   A symbol is exported if its name does NOT start with an underscore ("_").
-//   This matches Python's __all__ convention fallback: names starting with "_"
-//   are considered private by convention. Document this choice at point-of-use.
-//
-// Field names:
-//   - class_definition: name field = "name"
-//   - function_definition: name field = "name"
-//   - call: function field = "function" (the callee expression)
+// Node-type strings are read from the live Python grammar — do not guess.
 
 import (
 	"context"
@@ -37,61 +13,39 @@ import (
 
 // PythonExtractor returns the LanguageExtractor config for Python source files
 // (.py).
-//
-// Node-type strings are verified by parsing real Python via the wazero binding
-// (see tmp/probe-lang-details/main.go for exact output).
 func PythonExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
-		// function_definition covers all function and method definitions.
-		// Python uses the same node for both; context (inside class_definition)
-		// is not checked here — methods will appear as NodeKindFunction unless
-		// a parent-aware hook is added. This is consistent with the
-		// brief's scope for this checkpoint.
+		// One node type for functions and methods alike, so methods surface as
+		// NodeKindFunction — separating them would need a parent-aware hook.
 		FunctionTypes: extraction.TypeSet("function_definition"),
 
-		// class_definition covers classes (including Protocol subclasses).
 		ClassTypes: extraction.TypeSet("class_definition"),
 
-		// import_statement covers "import X" and "import X as Y" forms.
-		// import_from_statement covers "from X import Y" forms.
 		ImportTypes: extraction.TypeSet("import_statement", "import_from_statement"),
 
-		// "call" is the Python grammar node for function/method call expressions.
-		// NOTE: Python grammar uses "call" not "call_expression" — verified by probe.
+		// "call", not "call_expression", in this grammar.
 		CallTypes: extraction.TypeSet("call"),
 
-		// Field names in the Python grammar.
 		NameField:   "name",
 		BodyField:   "body",
 		ParamsField: "parameters",
 		ReturnField: "return_type",
 
-		// IsExportedByName: Python has no export keyword.
-		// Convention: exported if the name does NOT start with "_".
-		// This is the standard Python public/private convention; __all__ overrides
-		// are not checked (out of scope for the static extractor).
 		IsExportedByName: pyIsExportedByName,
 
-		// ExtractImport handles both import forms.
 		ExtractImport: pyExtractImport,
 	}
 }
 
-// pyIsExportedByName reports whether a Python symbol is exported.
-// By Python convention, any name not starting with "_" is considered public.
-// Names starting with "__" (dunder) are also considered exported (they are
-// part of Python's object protocol and are intentionally public).
+// pyIsExportedByName applies Python's leading-underscore privacy convention.
+// __all__ overrides are invisible to a static extractor and go unchecked.
 func pyIsExportedByName(name string) bool {
 	return name != "" && !strings.HasPrefix(name, "_")
 }
 
-// pyExtractImport extracts the module path from import_statement and
-// import_from_statement nodes.
-//
-//	import os           → name="os", path="os"
-//	import os.path      → name="path", path="os.path"
-//	from typing import Protocol → name="typing", path="typing"
-//	from pathlib import Path    → name="pathlib", path="pathlib"
+// pyExtractImport returns the module path and its last segment as the name:
+// "import os.path" → ("path", "os.path"); "from typing import Protocol" →
+// ("typing", "typing") — the imported symbol is not part of either result.
 func pyExtractImport(ctx context.Context, node sitter.Node, source string) (name string, path string) {
 	kind, err := node.Kind(ctx)
 	if err != nil {
@@ -107,9 +61,7 @@ func pyExtractImport(ctx context.Context, node sitter.Node, source string) (name
 
 	switch kind {
 	case "import_statement":
-		// "import X" or "import X as Y" or "import X.Y"
 		text = strings.TrimPrefix(text, "import ")
-		// Strip " as alias" suffix.
 		if idx := strings.Index(text, " as "); idx >= 0 {
 			text = text[:idx]
 		}
@@ -118,7 +70,6 @@ func pyExtractImport(ctx context.Context, node sitter.Node, source string) (name
 		return parts[len(parts)-1], text
 
 	case "import_from_statement":
-		// "from X import Y" or "from X import Y, Z"
 		text = strings.TrimPrefix(text, "from ")
 		idx := strings.Index(text, " import ")
 		if idx < 0 {

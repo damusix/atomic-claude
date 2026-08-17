@@ -19,28 +19,24 @@ type codeSection struct {
 
 // serveSection is the [serve] TOML table in the repo config.
 //
-// Schema is a three-state override for `atomic serve`'s SQL schema view.
-// Unset (nil) means auto-detect: the view exists when the index actually holds
-// SQL objects, so a repo with no SQL never sees a mode it can do nothing with.
-// A pointer rather than a bool because "the author said false" and "the author
-// said nothing" have to lead to different behaviour.
+// Schema is a three-state override for `atomic serve`'s SQL schema view. Unset
+// means auto-detect: the view exists when the index actually holds SQL objects,
+// so a repo with no SQL never sees a mode it can do nothing with. A pointer
+// because "the author said false" and "the author said nothing" must differ.
 type serveSection struct {
 	Schema *bool `toml:"schema"`
 }
 
-// replSection is the [repl] TOML table — one leaf, idle_timeout — shared by
-// RepoConfig (repo-scoped, this file) and Config (user-scoped, config.go).
-// Both harnesses decode the same shape; only resolution precedence differs
-// (see internal/repl/action.go's resolveIdleTimeout: repo wins over user).
+// replSection is the [repl] table — one leaf, idle_timeout — shared by RepoConfig
+// and the user-scoped Config. Same shape both places; only resolution precedence
+// differs (repo wins over user, see repl's resolveIdleTimeout).
 type replSection struct {
 	IdleTimeout string `toml:"idle_timeout"`
 }
 
-// ValidateIdleTimeout parses and validates a [repl] idle_timeout value: it
-// must parse as a Go duration string (time.ParseDuration) and be strictly
-// positive — zero or negative means invalid, never "disable" (see
-// docs/spec/atomic-repl.md). Returns the parsed duration on success so
-// callers that need the value (resolveIdleTimeout) don't reparse it.
+// ValidateIdleTimeout requires a Go duration string that is strictly positive —
+// zero or negative is invalid, never "disable". Returns the parsed duration so
+// callers that need the value do not reparse it.
 func ValidateIdleTimeout(value string) (time.Duration, error) {
 	d, err := time.ParseDuration(value)
 	if err != nil {
@@ -52,9 +48,8 @@ func ValidateIdleTimeout(value string) (time.Duration, error) {
 	return d, nil
 }
 
-// RepoConfig is the parsed repo-scoped configuration read from
-// RepoConfigPath(projectRoot) (see harness.go) — a small, separate schema
-// from the user-scoped Config above.
+// RepoConfig is the repo-scoped configuration read from RepoConfigPath — a small
+// schema, separate from the user-scoped Config.
 type RepoConfig struct {
 	Code  codeSection  `toml:"code"`
 	Scope string       `toml:"scope"`
@@ -71,10 +66,9 @@ var repoKnownSections = map[string]bool{
 	"serve": true,
 }
 
-// repoKnownTopLevelLeaves is the set of known top-level scalar keys in the
-// repo config schema — keys that name a value directly, not a table. Kept
-// separate from repoKnownSections (table names) and repoKnownLeaves (dotted
-// keys nested inside a known table).
+// repoKnownTopLevelLeaves is the top-level scalar keys — ones naming a value
+// directly rather than a table. Kept separate from repoKnownSections (table
+// names) and repoKnownLeaves (dotted keys nested inside a known table).
 var repoKnownTopLevelLeaves = map[string]bool{
 	"scope": true,
 }
@@ -86,11 +80,9 @@ var repoKnownLeaves = map[string]bool{
 	"serve.schema":      true,
 }
 
-// LoadRepoConfig reads path into a RepoConfig leniently, mirroring Load's
-// contract: a missing file returns an empty RepoConfig with no warnings and
-// no error (indexing is unaffected); unknown keys produce Warnings but no
-// error; malformed TOML (including a wrong-typed ignore value) returns an
-// error the caller can degrade on — indexing proceeds unfiltered with one
+// LoadRepoConfig mirrors Load's contract: a missing file is an empty RepoConfig
+// with no warnings and no error, unknown keys warn, and malformed TOML returns
+// an error the caller degrades on — indexing then proceeds unfiltered with one
 // reported warning, never a panic.
 func LoadRepoConfig(path string) (*RepoConfig, []Warning, error) {
 	raw, err := os.ReadFile(path)
@@ -116,9 +108,8 @@ func LoadRepoConfig(path string) (*RepoConfig, []Warning, error) {
 	return cfg, warns, nil
 }
 
-// checkUnknownRepoKeys walks a raw decoded TOML map for the repo config and
-// returns a Warning for each key outside the repo schema. Mirrors
-// checkUnknownKeys, scoped to RepoConfig's much smaller schema.
+// checkUnknownRepoKeys mirrors checkUnknownKeys, scoped to RepoConfig's much
+// smaller schema.
 func checkUnknownRepoKeys(m map[string]any, prefix string) []Warning {
 	var warns []Warning
 	for k, v := range m {
@@ -154,9 +145,8 @@ func checkUnknownRepoKeys(m map[string]any, prefix string) []Warning {
 	return warns
 }
 
-// IgnoreMatcher matches repo-relative, slash-separated paths against a set
-// of ignore glob patterns. See docs/spec/graphignore.md SC3 for the exact
-// semantics this implements.
+// IgnoreMatcher matches repo-relative, slash-separated paths against a set of
+// ignore globs. Exact semantics: docs/spec/graphignore.md.
 type IgnoreMatcher struct {
 	fullPath  []string // patterns containing "/" — doublestar full-path match
 	basenames []string // patterns without "/" — basename match at any depth
@@ -194,14 +184,10 @@ func NewIgnoreMatcher(patterns []string) (*IgnoreMatcher, []Warning) {
 	return m, warns
 }
 
-// Match reports whether relPath (repo-relative, slash-separated) is
-// excluded by any ignore pattern. A nil matcher matches nothing.
-//
-// Uses MatchUnvalidated rather than Match: every pattern stored in fullPath
-// and basenames already passed doublestar.ValidatePattern in
-// NewIgnoreMatcher, so re-validating on every Match call is redundant work
-// whose error can never actually fire here. MatchUnvalidated skips that
-// redundant validation and has no error to discard.
+// Match reports whether relPath is excluded by any ignore pattern. A nil matcher
+// matches nothing. MatchUnvalidated rather than Match: every stored pattern
+// already passed ValidatePattern in NewIgnoreMatcher, so the error can never
+// fire and re-validating on every call is redundant work.
 func (m *IgnoreMatcher) Match(relPath string) bool {
 	if m == nil {
 		return false
@@ -220,9 +206,8 @@ func (m *IgnoreMatcher) Match(relPath string) bool {
 	return false
 }
 
-// PatternCount returns the number of active (successfully compiled) glob
-// patterns m enforces — used by `atomic code status` to report how many
-// patterns are in effect. A nil matcher has 0 active patterns.
+// PatternCount returns how many globs m enforces, for `atomic code status`. A nil
+// matcher has 0.
 func (m *IgnoreMatcher) PatternCount() int {
 	if m == nil {
 		return 0

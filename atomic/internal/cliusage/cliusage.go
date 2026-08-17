@@ -1,9 +1,7 @@
-// Package cliusage defines the complete atomic command surface as structured
-// data. It serves two consumers: (1) Cobra renders --help from the registered
-// command tree, and (2) the validate artifacts rule checks artifact citations
-// against it. The surface is derived by walking the Cobra tree via SetRoot;
-// the hardcoded slice below is the pre-migration golden fixture and the
-// fallback for tests that never call SetRoot.
+// Package cliusage exposes the atomic command surface as data, so the validate
+// artifacts rule can check citations against the same tree Cobra renders help
+// from. SetRoot derives it live; the hardcoded slice below is the golden
+// fixture and the fallback for tests that never call SetRoot.
 package cliusage
 
 import (
@@ -13,26 +11,18 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// Command describes one entry in the atomic command surface.
+// Command is one entry in the atomic command surface. Flags carry their
+// leading "--"; universal flags (--help, --repo) are omitted because every
+// command accepts them.
 type Command struct {
-	// Path is the ordered verb tokens, e.g. ["code", "search"] or ["doctor"].
-	Path []string
-	// Args is the positional-argument hint shown in --help, e.g. "<query>".
-	// May be empty.
-	Args string
-	// Flags lists every --flag accepted by this command, each including the
-	// leading "--", e.g. ["--json", "--limit"]. Universal flags (--help,
-	// --repo, etc.) are not listed here; they are implicitly accepted everywhere.
-	Flags []string
-	// Description is the one-line summary shown in --help.
+	Path        []string
+	Args        string
+	Flags       []string
 	Description string
 }
 
-// commands holds the current command surface. In production it is replaced by
-// SetRoot (called from main after building the Cobra tree). In tests that
-// never call SetRoot it retains the hardcoded slice below, which serves as
-// the golden fixture for TestDeriveCommandsGolden. The hardcoded slice and
-// the Cobra tree must be kept in sync: the golden test enforces this.
+// commands is replaced by SetRoot in production. The literal below must stay in
+// sync with the Cobra tree — TestDeriveCommandsGolden enforces it.
 var commands = []Command{
 	{
 		Path:        []string{"bus", "join"},
@@ -642,30 +632,23 @@ var commands = []Command{
 	},
 }
 
-// Commands returns the ordered command surface. The returned slice is a copy;
-// callers may not mutate the underlying table.
+// Commands returns a copy of the ordered command surface.
 func Commands() []Command {
 	out := make([]Command, len(commands))
 	copy(out, commands)
 	return out
 }
 
-// SetRoot derives the command surface by walking the Cobra tree rooted at root
-// and replaces the commands slice. main() calls this once after building the
-// Cobra tree so that Commands(), LookupByPath(), and TopLevelVerbs() all read
-// from the live Cobra tree rather than the static hardcoded table.
+// SetRoot repoints the surface at the live Cobra tree; main() calls it once so
+// the accessors stop reading the static table.
 func SetRoot(root *cobra.Command) {
 	commands = DeriveCommands(root)
 }
 
-// DeriveCommands walks the Cobra tree rooted at root and returns the leaf
-// commands (those with no visible subcommands) as cliusage entries. The root
-// itself is excluded from paths; only its children and their descendants
-// contribute. Each leaf's Path comes from the ancestor chain of command names,
-// Args from Annotations["args_hint"], Flags from cmd.Flags().VisitAll
-// (alphabetical, registered flags only — inherited persistent flags are not
-// included because the FlagSet is created before the parent is assigned), and
-// Description from cmd.Short.
+// DeriveCommands returns the leaf commands under root, root itself excluded.
+// Flags come from cmd.Flags().VisitAll and cover registered flags only:
+// inherited persistent flags are absent because the FlagSet is built before the
+// parent is assigned.
 func DeriveCommands(root *cobra.Command) []Command {
 	var out []Command
 	for _, child := range root.Commands() {
@@ -677,17 +660,13 @@ func DeriveCommands(root *cobra.Command) []Command {
 	return out
 }
 
-// walkLeaves recursively walks the Cobra command tree. Non-leaf commands
-// (those with visible subcommands) are recursed into; leaf commands are
-// mapped to a Command entry and appended to out. prefix is the path tokens
-// accumulated from ancestor commands (not including root).
+// walkLeaves accumulates path tokens in prefix, which excludes root.
 func walkLeaves(cmd *cobra.Command, prefix []string, out *[]Command) {
 	path := make([]string, len(prefix)+1)
 	copy(path, prefix)
 	path[len(prefix)] = cmd.Name()
 
-	// Collect visible subcommands; skip cobra-injected "help" and "completion"
-	// even when not explicitly hidden.
+	// Cobra injects "help" and "completion" without marking them hidden.
 	var subs []*cobra.Command
 	for _, s := range cmd.Commands() {
 		if s.Hidden || s.Name() == "help" || s.Name() == "completion" {
@@ -703,7 +682,6 @@ func walkLeaves(cmd *cobra.Command, prefix []string, out *[]Command) {
 		return
 	}
 
-	// Leaf: map to a cliusage.Command.
 	c := Command{
 		Path:        path,
 		Args:        cmd.Annotations["args_hint"],
@@ -718,8 +696,6 @@ func walkLeaves(cmd *cobra.Command, prefix []string, out *[]Command) {
 	*out = append(*out, c)
 }
 
-// LookupByPath returns the Command whose Path matches path exactly, or nil
-// if no command with that path exists. Used by validate rule.
 func LookupByPath(path []string) *Command {
 	key := strings.Join(path, "\x00")
 	for i := range commands {
@@ -730,9 +706,9 @@ func LookupByPath(path []string) *Command {
 	return nil
 }
 
-// TopLevelVerbs returns a set of the distinct first tokens across all commands.
-// Used by the validate artifacts scanner to gate which "atomic <token>" spans
-// to inspect (avoids false positives for prose uses of "atomic").
+// TopLevelVerbs is the set of distinct first tokens, used to gate which
+// "atomic <token>" spans the artifacts scanner inspects — prose uses of
+// "atomic" would otherwise false-positive.
 func TopLevelVerbs() map[string]bool {
 	out := make(map[string]bool)
 	for _, c := range commands {

@@ -1,29 +1,13 @@
 package languages_test
 
-// Tests for the Dart, ObjC, and Pascal language extractor configs.
+// Dart, ObjC, and Pascal. Every fixture here runs through the real grammar, so
+// these also cover ABI and pool wiring, not only the configs.
 //
-// Each language has:
-//  1. A real fixture parsed through the pool (grammar ABI proof).
-//  2. Assertions per success criteria:
-//     - Function/method node extracted with correct kind.
-//     - Class/interface node extracted.
-//     - Import UnresolvedReference emitted.
-//     - Call site → UnresolvedReference (EdgeKindCalls) where the grammar supports it.
-//     - IsExported correct per-language rule.
-//     - Node count stable across two extractions.
-//
-// Node-type strings are VERIFIED by real grammar parse.
-// Do NOT change them without running the probe again.
-//
-// Grammar-specific notes:
-//   - Dart: no call_expression node type — calls are expression_statement +
-//     identifier + selector; call extraction is BLOCKED for this grammar.
-//     Documented below in TestDart_CallsBlocked.
-//   - ObjC: message_expression covers Objective-C message sends ([obj msg]).
-//     C-style call_expression covers NSLog()-style calls.
-//   - Pascal: declProc is the unified node for procedure/function/constructor/
-//     destructor declarations in both interface and implementation sections.
-//     defProc covers implementation-body procs. exprCall covers call expressions.
+// Each language repeats one shape: every declaration form reaches its intended
+// node kind, imports and calls surface as references rather than edges, export
+// status follows the language's own rule, and two runs agree. Calls are the
+// exception — the Dart grammar has no call node, and TestDart_CallsBlocked pins
+// that constraint rather than asserting them away.
 
 import (
 	"context"
@@ -34,37 +18,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Dart
-// ---------------------------------------------------------------------------
-
-// dartFixture exercises:
-//   - import_or_export (import 'dart:async', import 'package:...')  → EdgeKindImports
-//   - enum_declaration (Direction)                → NodeKindEnum
-//   - mixin_declaration (Drawable)                → NodeKindClass (mixin ≈ class in Dart)
-//   - class_definition (Shape, Circle)            → NodeKindClass
-//   - function_signature (inside class_body)      → NodeKindFunction or NodeKindMethod
-//   - constructor_signature (Shape, Circle)       → NodeKindFunction or NodeKindMethod
-//
-// Verified node-type strings (a grammar probe — Dart grammar):
-//
-//	import_or_export      — "import 'dart:async';"
-//	enum_declaration      — "enum Direction { ... }"
-//	mixin_declaration     — "mixin Drawable { ... }"
-//	class_definition      — "abstract class Shape ..." / "class Circle ..."
-//	function_signature    — "double computeArea(Shape s)" at top-level
-//	                        also appears nested inside method_signature for methods
-//	constructor_signature — "Shape(this.id, this.name)"
-//	method_signature      — wraps function_signature for class member declarations
-//
-// BLOCKED: Dart grammar has no call_expression node. Call sites appear as
-// expression_statement containing identifier + selector (argument_part).
-// The engine's named-iterator walk does not see a dedicated call node.
-// This is documented below and does not fail the batch — the grammar itself
-// is the constraint.
-//
-// IsExported rule: Dart convention is leading underscore = private.
-// No leading underscore = exported (IsExportedByName).
+// Covers every declaration form, a mixin among them, plus both naming
+// conventions the visibility rule turns on.
 const dartFixture = `import 'dart:async';
 import 'package:flutter/material.dart';
 
@@ -110,8 +65,6 @@ double computeArea(Shape s) {
 
 const dartFixturePath = "lib/canvas.dart"
 
-// TestDart_FunctionExtracted verifies function_signature → NodeKindFunction.
-// WHY: Top-level Dart functions are primary call targets; wrong kind breaks call-graph.
 func TestDart_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
@@ -133,9 +86,6 @@ func TestDart_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestDart_MethodExtracted verifies function_signature inside class_body → NodeKindFunction/Method.
-// WHY: Dart class methods are declared as function_signature nodes inside class_body;
-// the extractor must descend into the class and extract them.
 func TestDart_MethodExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
@@ -148,7 +98,6 @@ func TestDart_MethodExtracted(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// draw is a method inside Circle
 	fn := findNode(result.Nodes, types.NodeKindFunction, "draw")
 	if fn == nil {
 		fn = findNode(result.Nodes, types.NodeKindMethod, "draw")
@@ -158,8 +107,6 @@ func TestDart_MethodExtracted(t *testing.T) {
 	}
 }
 
-// TestDart_ClassExtracted verifies class_definition → NodeKindClass.
-// WHY: Classes are structural containers; missing them breaks the member graph.
 func TestDart_ClassExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
@@ -178,8 +125,6 @@ func TestDart_ClassExtracted(t *testing.T) {
 	}
 }
 
-// TestDart_EnumExtracted verifies enum_declaration → NodeKindEnum.
-// WHY: Enums must be indexed as NodeKindEnum for the type graph to distinguish them from classes.
 func TestDart_EnumExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
@@ -198,8 +143,6 @@ func TestDart_EnumExtracted(t *testing.T) {
 	}
 }
 
-// TestDart_ImportsExtracted verifies import_or_export → UnresolvedReference (EdgeKindImports).
-// WHY: Import declarations are the resolution layer's anchor for cross-file references.
 func TestDart_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
@@ -215,9 +158,6 @@ func TestDart_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestDart_IsExported_UnderscoreConvention verifies Dart's underscore = private convention.
-// WHY: Dart visibility is name-based (leading _ = library-private). The IsExportedByName
-// hook must return false for underscore names and true for public names.
 func TestDart_IsExported_UnderscoreConvention(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
@@ -227,7 +167,6 @@ func TestDart_IsExported_UnderscoreConvention(t *testing.T) {
 	e := newExtractor(t, extLang, cfg)
 	result := e.Extract(context.Background(), dartFixturePath, dartFixture, types.LanguageDart)
 
-	// _privateHelper has a leading underscore → not exported
 	for _, tc := range []struct {
 		name string
 		want bool
@@ -236,13 +175,14 @@ func TestDart_IsExported_UnderscoreConvention(t *testing.T) {
 		{"draw", true},
 		{"_privateHelper", false},
 	} {
-		// search both Function and Method kinds since the extractor may use either
+		// Either kind is acceptable here.
 		n := findNode(result.Nodes, types.NodeKindFunction, tc.name)
 		if n == nil {
 			n = findNode(result.Nodes, types.NodeKindMethod, tc.name)
 		}
 		if n == nil {
-			// _privateHelper may not be extracted at top-level; skip if missing
+			// Skip rather than fail: whether a private helper surfaces at
+			// top level is not what this test pins.
 			continue
 		}
 		if n.IsExported != tc.want {
@@ -251,13 +191,6 @@ func TestDart_IsExported_UnderscoreConvention(t *testing.T) {
 	}
 }
 
-// TestDart_CallsBlocked documents that Dart's grammar has no call_expression node.
-// WHY: The tree-sitter-dart grammar represents function calls as expression_statement
-// containing identifier + selector (argument_part) nodes — there is no unified
-// call_expression node type (verified by a grammar probe). The extractor therefore
-// cannot emit EdgeKindCalls without a grammar-level call node. This is a grammar
-// constraint, not an implementation gap — documented here so future maintainers
-// know this was checked and is expected behavior.
 func TestDart_CallsBlocked(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
@@ -266,18 +199,15 @@ func TestDart_CallsBlocked(t *testing.T) {
 	}
 	e := newExtractor(t, extLang, cfg)
 	result := e.Extract(context.Background(), dartFixturePath, dartFixture, types.LanguageDart)
-	// We do not assert callRefs > 0 here — that would fail by design.
-	// We assert the extractor completes without error.
+	// Asserting on call refs would fail by construction; the point is that
+	// extraction still completes.
 	if len(result.Errors) > 0 {
 		t.Fatalf("unexpected errors during Dart extraction: %v", result.Errors)
 	}
-	// Document the known limitation.
 	_ = result.UnresolvedReferences
 	t.Log("Dart: no call_expression node in grammar; EdgeKindCalls extraction is not supported (grammar constraint)")
 }
 
-// TestDart_NodeCountStable verifies deterministic extraction.
-// WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestDart_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
@@ -293,44 +223,8 @@ func TestDart_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Objective-C
-// ---------------------------------------------------------------------------
-
-// objcFixture exercises:
-//   - preproc_include (#import Foundation, "Shape.h")  → EdgeKindImports
-//   - protocol_declaration (@protocol Drawable)        → NodeKindInterface
-//   - class_interface (@interface Shape)               → NodeKindClass
-//   - class_implementation (@implementation Shape)    → NodeKindClass
-//   - method_declaration (in @interface/@protocol)     → NodeKindMethod or NodeKindFunction
-//   - implementation_definition (in @implementation)  → NodeKindMethod or NodeKindFunction
-//   - message_expression ([s draw], [[Shape alloc] init:]) → EdgeKindCalls
-//   - call_expression (NSLog(...))                    → EdgeKindCalls
-//   - function_definition (createShape)               → NodeKindFunction
-//
-// Verified node-type strings (a grammar probe — ObjC grammar):
-//
-//	preproc_include       — "#import <Foundation/Foundation.h>"
-//	protocol_declaration  — "@protocol Drawable <NSObject> ... @end"
-//	class_interface       — "@interface Shape : NSObject ... @end"
-//	class_implementation  — "@implementation Shape ... @end"
-//	method_declaration    — "- (void)draw;"
-//	implementation_definition — wraps method_definition in @implementation
-//	method_definition     — "- (instancetype)initWithId:... { ... }"
-//	message_expression    — "[super init]" / "[s draw]" / "[[Shape alloc] init...]"
-//	call_expression       — "NSLog(@"rendering %@", _name)"
-//	function_definition   — "Shape *createShape(...) { ... }"
-//
-// Name extraction:
-//   - class_interface, class_implementation: first identifier child = class name
-//   - protocol_declaration: first identifier child = protocol name
-//   - method_declaration: first identifier child after method_type = selector name
-//   - implementation_definition: wraps method_definition; selector from first identifier
-//
-// IsExported rule: ObjC default is public. No access modifier concept at the
-// method level (unlike C++ private:). We default IsExported=true for all ObjC
-// symbols. (@private/@protected ivar sections are a different story and out of
-// scope of this extractor.)
+// Covers every declaration form, both include spellings, and both call forms:
+// a message send and a C-style call.
 const objcFixture = `#import <Foundation/Foundation.h>
 #import "Shape.h"
 
@@ -380,8 +274,6 @@ Shape *createShape(NSInteger ident, NSString *name) {
 
 const objcFixturePath = "src/Shape.m"
 
-// TestObjC_ClassInterfaceExtracted verifies @interface → NodeKindClass.
-// WHY: @interface is the Obj-C class declaration; missing it breaks the class graph.
 func TestObjC_ClassInterfaceExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
@@ -400,9 +292,6 @@ func TestObjC_ClassInterfaceExtracted(t *testing.T) {
 	}
 }
 
-// TestObjC_ProtocolExtracted verifies @protocol → NodeKindInterface.
-// WHY: ObjC protocols are the semantic interface equivalent; wrong kind breaks
-// resolution's edge promotion for protocol conformance.
 func TestObjC_ProtocolExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
@@ -421,8 +310,6 @@ func TestObjC_ProtocolExtracted(t *testing.T) {
 	}
 }
 
-// TestObjC_MethodExtracted verifies method_declaration/implementation_definition → NodeKindMethod/Function.
-// WHY: ObjC methods are the primary call targets; missing them breaks the call graph.
 func TestObjC_MethodExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
@@ -444,8 +331,6 @@ func TestObjC_MethodExtracted(t *testing.T) {
 	}
 }
 
-// TestObjC_FunctionExtracted verifies C-style function_definition → NodeKindFunction.
-// WHY: ObjC files can contain plain C functions; these must be indexed.
 func TestObjC_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
@@ -464,8 +349,6 @@ func TestObjC_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestObjC_ImportsExtracted verifies preproc_include → UnresolvedReference (EdgeKindImports).
-// WHY: #import is the ObjC import mechanism; the resolution layer needs these references.
 func TestObjC_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
@@ -481,9 +364,6 @@ func TestObjC_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestObjC_MessageExpressionEmitsCall verifies message_expression → EdgeKindCalls.
-// WHY: ObjC message sends [obj method] are the primary call mechanism; they must
-// emit EdgeKindCalls so the call graph is populated.
 func TestObjC_MessageExpressionEmitsCall(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
@@ -499,8 +379,6 @@ func TestObjC_MessageExpressionEmitsCall(t *testing.T) {
 	}
 }
 
-// TestObjC_NodeCountStable verifies deterministic extraction.
-// WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestObjC_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
@@ -516,47 +394,8 @@ func TestObjC_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Pascal
-// ---------------------------------------------------------------------------
-
-// pascalFixture exercises:
-//   - declUses (uses SysUtils, Classes)           → EdgeKindImports
-//   - declType → declClass (TShape, TCircle)      → NodeKindClass
-//   - declType → declEnum (TDirection)            → NodeKindEnum (via declType + declEnum child)
-//   - declType → declIntf (IDrawable)             → NodeKindInterface
-//   - declProc (procedure/function/constructor decls in interface)  → NodeKindFunction
-//   - defProc  (procedure/function/constructor impls in impl section) → NodeKindFunction
-//   - exprCall (Render(FId), WriteLn(FName), TShape.Create(...))    → EdgeKindCalls
-//
-// Verified node-type strings (a grammar probe — Pascal grammar):
-//
-//	unit            — "unit Canvas;\n interface\n ... implementation\n ... end."
-//	interface       — "interface\n uses ...\n type ...\n"
-//	declUses        — "uses SysUtils, Classes;"
-//	declTypes       — "type TDirection = ... TShape = ..."
-//	declType        — "TDirection = (dNorth, ...);"  / "TShape = class(...)"
-//	declClass       — "class(TObject, IDrawable) ... end"
-//	declIntf        — "interface ... end" (Pascal interface type, NOT ObjC)
-//	declEnum        — "(dNorth, dSouth, dEast, dWest)"
-//	declProc        — "procedure Draw; virtual;" / "function GetId: Integer;"
-//	                  also "constructor Create(...)" / "destructor Destroy"
-//	defProc         — "procedure TShape.Draw;\nbegin ... end;"
-//	exprCall        — "Render(FId)" / "WriteLn(FName)" / "TShape.Create(AId, AName)"
-//	declField       — "FId: Integer;" / "FName: string;"
-//
-// Name extraction:
-//   - declType: first identifier child is the type name
-//   - declClass: name comes from parent declType's first identifier
-//   - declProc: identifier child (after keyword) is the procedure/function name
-//   - defProc: contains a declProc child — name from that child's identifier
-//   - exprCall: first identifier child is the callee name
-//
-// IsExported rule: Pascal has public/private/protected section keywords but
-// these are structural section markers (declSection with kPublic/kPrivate child)
-// rather than per-symbol modifiers. Default IsExported=true for all Pascal symbols
-// (public by default outside class sections). Private/protected tracking within
-// classes requires parent-section context accumulation — out of scope here.
+// A full unit: interface-section declarations and their implementation-section
+// definitions, covering all three type forms ResolveKind has to tell apart.
 const pascalFixture = `unit Canvas;
 
 interface
@@ -653,8 +492,6 @@ end.
 
 const pascalFixturePath = "src/Canvas.pas"
 
-// TestPascal_ProcedureExtracted verifies declProc (procedure) → NodeKindFunction.
-// WHY: Pascal procedures are primary callable units; wrong kind breaks the call graph.
 func TestPascal_ProcedureExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
@@ -667,7 +504,6 @@ func TestPascal_ProcedureExtracted(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// Draw is declared in the interface section as a procedure
 	fn := findNode(result.Nodes, types.NodeKindFunction, "Draw")
 	if fn == nil {
 		fn = findNode(result.Nodes, types.NodeKindMethod, "Draw")
@@ -677,8 +513,6 @@ func TestPascal_ProcedureExtracted(t *testing.T) {
 	}
 }
 
-// TestPascal_FunctionExtracted verifies declProc (function) → NodeKindFunction.
-// WHY: Pascal functions return values; must be extracted for call-graph resolution.
 func TestPascal_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
@@ -691,7 +525,6 @@ func TestPascal_FunctionExtracted(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// GetId is a function declared in the interface section
 	fn := findNode(result.Nodes, types.NodeKindFunction, "GetId")
 	if fn == nil {
 		fn = findNode(result.Nodes, types.NodeKindMethod, "GetId")
@@ -701,8 +534,6 @@ func TestPascal_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestPascal_ClassExtracted verifies declType → declClass → NodeKindClass.
-// WHY: Pascal classes are structural containers; missing them breaks the member graph.
 func TestPascal_ClassExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
@@ -721,8 +552,6 @@ func TestPascal_ClassExtracted(t *testing.T) {
 	}
 }
 
-// TestPascal_ImportsExtracted verifies declUses → UnresolvedReference (EdgeKindImports).
-// WHY: Pascal uses clauses are the import mechanism for the resolution layer.
 func TestPascal_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
@@ -738,9 +567,6 @@ func TestPascal_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestPascal_CallEmitsUnresolvedReference verifies exprCall → EdgeKindCalls.
-// WHY: exprCall is Pascal's call expression node; must emit EdgeKindCalls for
-// the call graph to be populated.
 func TestPascal_CallEmitsUnresolvedReference(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
@@ -756,8 +582,6 @@ func TestPascal_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestPascal_NodeCountStable verifies deterministic extraction.
-// WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestPascal_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
@@ -773,13 +597,6 @@ func TestPascal_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registry — batch D languages registered
-// ---------------------------------------------------------------------------
-
-// TestRegistry_For_CP8D_Languages verifies all 3 new languages are registered.
-// WHY: The registry is the single resolution point for; missing entries
-// cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8D_Languages(t *testing.T) {
 	t.Parallel()
 	reg := languages.NewRegistry()

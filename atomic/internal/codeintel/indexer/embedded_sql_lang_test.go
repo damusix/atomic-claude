@@ -1,21 +1,11 @@
 package indexer_test
 
-// embedded_sql_lang_test.go — per-language end-to-end tests for the
-// generic embedded-SQL harvester.
+// Per-language end-to-end tests for the generic embedded-SQL harvester,
+// covering the 12 languages the smoke test does not.
 //
-// Covers the 12 languages without a smoke test (Java/C#/Lua/Dart):
-//
-//   C, C++, Kotlin, Luau, Objective-C, PHP, Ruby, Rust, Scala, Swift,
-//   Pascal, JavaScript.
-//
-// Each test runs a real orchestrator index over a temp dir and makes
-// falsifiable assertions:
-//   - Exact table node name and exact file-absolute StartLine (not vacuous < N).
-//   - DML → UnresolvedReference owned by the enclosing function/method node.
-//   - GetEdgesByProvenance("embedded") returns ≥1 (DDL contains edges).
-//   - Secondary string forms (raw/heredoc/triple-quoted) where idiomatic.
-//   - Interpolation: table-target substituted → zero refs; value substituted → real ref.
-//   - Prose-rejection: non-SQL strings produce zero embedded nodes/edges.
+// Each runs a real orchestrator index over a temp dir and asserts exact node
+// names and file-absolute line numbers, never a vacuous bound — the point is
+// to fail when a grammar's node kinds drift.
 
 import (
 	"context"
@@ -25,25 +15,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInCFile — C, content-child (string_literal / string_content)
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInCFile verifies embedded SQL extraction for C .c files.
-//
 // Uses a plain double-quoted string literal (the only form for C).
-// Fixture (1-based lines):
-//
-//	1: static const char *DDL = "CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT NOT NULL)";
-//	2:
-//	3: void load_widget(int id) {
-//	4:     const char *q = "SELECT id, name FROM widgets WHERE id = ?";
-//	5: }
-//
-// Asserts:
-//   - table node "widgets" with StartLine == 1
-//   - unresolved ref to "widgets" owned by the load_widget function node
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInCFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -72,7 +44,6 @@ void load_widget(int id) {
 		t.Fatalf("GetNodesInFile(widget.c): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "widgets" at line 1 ---
 	var widgetsNode *types.Node
 	for i := range cNodes {
 		if cNodes[i].Kind == types.NodeKindTable && cNodes[i].Name == "widgets" {
@@ -87,7 +58,6 @@ void load_widget(int id) {
 		t.Errorf("widgets table StartLine=%d, want 1 (file-absolute)", widgetsNode.StartLine)
 	}
 
-	// --- Criterion 2: DML → unresolved ref owned by load_widget ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -120,7 +90,6 @@ void load_widget(int id) {
 		t.Errorf("DML ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -130,27 +99,7 @@ void load_widget(int id) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInCppFile — C++, raw string literal (secondary idiomatic form)
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInCppFile verifies embedded SQL extraction for C++ .cpp files.
-//
 // Uses the raw string `R"(...)"` form — the idiomatic multi-line form for C++.
-// Fixture (1-based lines):
-//
-//	1: #include <string>
-//	2:
-//	3: static const std::string DDL = R"(CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL))";
-//	4:
-//	5: void fetch_order(int id) {
-//	6:     std::string q = "SELECT id, total FROM orders WHERE id = ?";
-//	7: }
-//
-// Asserts:
-//   - table node "orders" with StartLine == 3 (raw string literal on line 3)
-//   - unresolved ref to "orders" owned by fetch_order function node
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInCppFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -181,7 +130,6 @@ void fetch_order(int id) {
 		t.Fatalf("GetNodesInFile(orders.cpp): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "orders" at line 3 (raw string) ---
 	var ordersNode *types.Node
 	for i := range cppNodes {
 		if cppNodes[i].Kind == types.NodeKindTable && cppNodes[i].Name == "orders" {
@@ -196,7 +144,6 @@ void fetch_order(int id) {
 		t.Errorf("orders table StartLine=%d, want 3 (file-absolute)", ordersNode.StartLine)
 	}
 
-	// --- Criterion 2: DML → unresolved ref owned by fetch_order ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -229,7 +176,6 @@ void fetch_order(int id) {
 		t.Errorf("DML ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -239,34 +185,11 @@ void fetch_order(int id) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInKotlinFile — Kotlin, triple-quoted + interpolation
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInKotlinFile verifies embedded SQL extraction for Kotlin .kt files.
-//
 // Uses the triple-quoted `"""..."""` form — the idiomatic multi-line form for Kotlin.
 // Also covers the interpolation criterion:
 //   - Interpolated table target (`"SELECT a FROM $t"`) → zero refs for "t".
 //   - Plain table + interpolated value (`"SELECT a FROM invoices WHERE id = $id"`)
 //     → a real ref to "invoices".
-//
-// Fixture (1-based lines):
-//
-//	1: class InvoiceRepo {
-//	2:     val ddl = """CREATE TABLE invoices (id INT PRIMARY KEY, amount DECIMAL)"""
-//	3:
-//	4:     fun fetch(id: Int, t: String) {
-//	5:         val q1 = "SELECT id, amount FROM invoices WHERE id = $id"
-//	6:         val q2 = "SELECT id, amount FROM $t WHERE id = 1"
-//	7:     }
-//	8: }
-//
-// Asserts:
-//   - table node "invoices" with StartLine == 2
-//   - DML ref to "invoices" from fetch method
-//   - zero refs named "t" from this file (interpolated table target)
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInKotlinFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -298,7 +221,6 @@ func TestEmbeddedSQLInKotlinFile(t *testing.T) {
 		t.Fatalf("GetNodesInFile(InvoiceRepo.kt): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "invoices" at line 2 ---
 	var invoicesNode *types.Node
 	for i := range ktNodes {
 		if ktNodes[i].Kind == types.NodeKindTable && ktNodes[i].Name == "invoices" {
@@ -313,7 +235,6 @@ func TestEmbeddedSQLInKotlinFile(t *testing.T) {
 		t.Errorf("invoices table StartLine=%d, want 2 (file-absolute)", invoicesNode.StartLine)
 	}
 
-	// --- Criterion 2: DML ref from InvoiceRepo.kt to "invoices" owned by fetch ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -346,7 +267,6 @@ func TestEmbeddedSQLInKotlinFile(t *testing.T) {
 		t.Errorf("invoices ref Language=%q, want %q", invoicesRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: interpolated table target → zero refs for "t" ---
 	// q2 = "SELECT id, amount FROM $t WHERE id = 1" → FROM ? → no ref named "t".
 	var tRefs []types.UnresolvedReference
 	for _, ref := range allRefs {
@@ -360,7 +280,6 @@ func TestEmbeddedSQLInKotlinFile(t *testing.T) {
 		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d — Kotlin interpolation not substituted", len(tRefs))
 	}
 
-	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -370,28 +289,8 @@ func TestEmbeddedSQLInKotlinFile(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInLuauFile — Luau, content-child (string / string_content)
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInLuauFile verifies embedded SQL extraction for Luau .luau files.
-//
 // Luau is the Roblox Lua dialect; its grammar exposes string_content children
 // (unlike Lua which is Shape-2). Uses plain double-quoted strings.
-//
-// Fixture (1-based lines):
-//
-//	1: local DDL = "CREATE TABLE inventory (id INTEGER PRIMARY KEY, item TEXT NOT NULL)"
-//	2:
-//	3: local function getItem(db, id)
-//	4:     local q = "SELECT id, item FROM inventory WHERE id = ?"
-//	5:     return db:query(q)
-//	6: end
-//
-// Asserts:
-//   - table node "inventory" with StartLine == 1
-//   - unresolved ref to "inventory" from getItem function
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInLuauFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -421,7 +320,6 @@ end
 		t.Fatalf("GetNodesInFile(inventory.luau): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "inventory" at line 1 ---
 	var inventoryNode *types.Node
 	for i := range luauNodes {
 		if luauNodes[i].Kind == types.NodeKindTable && luauNodes[i].Name == "inventory" {
@@ -436,7 +334,6 @@ end
 		t.Errorf("inventory table StartLine=%d, want 1 (file-absolute)", inventoryNode.StartLine)
 	}
 
-	// --- Criterion 2: DML → unresolved ref to "inventory" owned by getItem ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -469,7 +366,6 @@ end
 		t.Errorf("inventory ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -479,27 +375,7 @@ end
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInObjCFile — Objective-C, content-child (string_literal / string_content)
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInObjCFile verifies embedded SQL extraction for ObjC .m files.
-//
 // ObjC uses @"..." NS string literals parsed as string_literal nodes.
-// Fixture (1-based lines):
-//
-//	1: #import <Foundation/Foundation.h>
-//	2:
-//	3: static NSString *DDL = @"CREATE TABLE contacts (id INTEGER PRIMARY KEY, name TEXT)";
-//	4:
-//	5: void loadContact(int contactId) {
-//	6:     NSString *q = @"SELECT id, name FROM contacts WHERE id = ?";
-//	7: }
-//
-// Asserts:
-//   - table node "contacts" with StartLine == 3
-//   - unresolved ref to "contacts" owned by loadContact
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInObjCFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -530,7 +406,6 @@ void loadContact(int contactId) {
 		t.Fatalf("GetNodesInFile(contacts.m): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "contacts" at line 3 ---
 	var contactsNode *types.Node
 	for i := range objcNodes {
 		if objcNodes[i].Kind == types.NodeKindTable && objcNodes[i].Name == "contacts" {
@@ -545,7 +420,6 @@ void loadContact(int contactId) {
 		t.Errorf("contacts table StartLine=%d, want 3 (file-absolute)", contactsNode.StartLine)
 	}
 
-	// --- Criterion 2: DML → unresolved ref owned by loadContact ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -578,7 +452,6 @@ void loadContact(int contactId) {
 		t.Errorf("DML ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -588,36 +461,8 @@ void loadContact(int contactId) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInPHPFile — PHP, heredoc + interpolation
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInPHPFile verifies embedded SQL extraction for PHP .php files.
-//
 // Uses a heredoc `<<<SQL\n...\nSQL;` — the idiomatic multi-line SQL form in PHP.
 // Also covers the interpolation criterion: `"SELECT a FROM $t"` → zero refs for "t".
-//
-// Fixture (1-based lines):
-//
-//	1: <?php
-//	2:
-//	3: $ddl = <<<SQL
-//	4: CREATE TABLE payments (id INT PRIMARY KEY, amount DECIMAL(10,2))
-//	5: SQL;
-//	6:
-//	7: function fetchPayment($id, $t) {
-//	8:     $q1 = "SELECT id, amount FROM payments WHERE id = ?";
-//	9:     $q2 = "SELECT id, amount FROM $t WHERE id = 1";
-//	10: }
-//
-// NOTE on heredoc StartLine: The heredoc node in the PHP grammar starts at the
-// `<<<SQL` delimiter line (line 3). StartLine==3 is the expected value.
-//
-// Asserts:
-//   - table node "payments" (StartLine == 3, the heredoc opener)
-//   - unresolved ref to "payments" from fetchPayment
-//   - zero refs named "t" (interpolated table target)
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInPHPFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -651,7 +496,6 @@ function fetchPayment($id, $t) {
 		t.Fatalf("GetNodesInFile(payment.php): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "payments" ---
 	var paymentsNode *types.Node
 	for i := range phpNodes {
 		if phpNodes[i].Kind == types.NodeKindTable && phpNodes[i].Name == "payments" {
@@ -668,7 +512,6 @@ function fetchPayment($id, $t) {
 		t.Errorf("payments table StartLine=%d, want 3 (heredoc opener, file-absolute)", paymentsNode.StartLine)
 	}
 
-	// --- Criterion 2: DML → ref to "payments" from fetchPayment (owned by fetchPayment) ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -701,7 +544,6 @@ function fetchPayment($id, $t) {
 		t.Errorf("payments ref Language=%q, want %q", paymentsRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: interpolated table target → zero refs for "t" ---
 	// q2 = "SELECT id, amount FROM $t WHERE id = 1" → $t is variable_name interp;
 	// after substitution FROM ? → no ref named "t".
 	var tRefs []types.UnresolvedReference
@@ -714,7 +556,6 @@ function fetchPayment($id, $t) {
 		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d — PHP interpolation not substituted", len(tRefs))
 	}
 
-	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -724,35 +565,11 @@ function fetchPayment($id, $t) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInRubyFile — Ruby, heredoc + interpolation (two criteria)
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInRubyFile verifies embedded SQL extraction for Ruby .rb files.
-//
 // Uses `<<~SQL\n...\nSQL` — the idiomatic squiggly heredoc form in Ruby.
 // Covers two interpolation criteria:
 //   - Interpolated table target (`"SELECT a FROM #{t}"`) → zero refs for "t".
 //   - Plain table + interpolated value (`"SELECT a FROM users WHERE id = #{id}"`)
 //     → a real ref to "users".
-//
-// Fixture (1-based lines):
-//
-//	1: DDL = <<~SQL
-//	2:   CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)
-//	3: SQL
-//	4:
-//	5: def fetch_user(id, t)
-//	6:   q1 = "SELECT id, name FROM users WHERE id = #{id}"
-//	7:   q2 = "SELECT id, name FROM #{t} WHERE id = 1"
-//	8: end
-//
-// Asserts:
-//   - table node "users" (StartLine == 2, heredoc content line — Ruby grammar
-//     places heredoc_body start at the content line, not the <<~SQL opener)
-//   - ref to "users" from fetch_user (q1 — literal table + interp value)
-//   - zero refs named "t" (q2 — interpolated table target)
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInRubyFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -784,7 +601,6 @@ end
 		t.Fatalf("GetNodesInFile(user.rb): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "users" ---
 	var usersNode *types.Node
 	for i := range rbNodes {
 		if rbNodes[i].Kind == types.NodeKindTable && rbNodes[i].Name == "users" {
@@ -807,7 +623,6 @@ end
 		t.Fatalf("GetUnresolvedRefs: %v", err)
 	}
 
-	// --- Criterion 2: literal table + interpolated value → ref to "users" owned by fetch_user ---
 	// q1 = "SELECT id, name FROM users WHERE id = #{id}" — "users" is literal.
 	var fetchUserNode *types.Node
 	for i := range rbNodes {
@@ -836,7 +651,6 @@ end
 		t.Errorf("users ref Language=%q, want %q", usersRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: interpolated table target → zero refs for "t" ---
 	// q2 = "SELECT id, name FROM #{t} WHERE id = 1" → #{t} is interpolation;
 	// after substitution FROM ? → no ref named "t".
 	var tRefs []types.UnresolvedReference
@@ -852,7 +666,6 @@ end
 		t.Errorf("FAIL: interpolated table target '#{t}' must yield 0 refs, got %d — Ruby interpolation not substituted", len(tRefs))
 	}
 
-	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -862,25 +675,7 @@ end
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInRustFile — Rust, raw string literal r#"..."#
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInRustFile verifies embedded SQL extraction for Rust .rs files.
-//
 // Uses `r#"..."#` — the idiomatic raw string literal form in Rust for multi-line SQL.
-// Fixture (1-based lines):
-//
-//	1: static DDL: &str = r#"CREATE TABLE shipments (id INTEGER PRIMARY KEY, destination TEXT)"#;
-//	2:
-//	3: fn get_shipment(id: i64) {
-//	4:     let q = "SELECT id, destination FROM shipments WHERE id = ?";
-//	5: }
-//
-// Asserts:
-//   - table node "shipments" with StartLine == 1
-//   - unresolved ref to "shipments" owned by get_shipment
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInRustFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -909,7 +704,6 @@ fn get_shipment(id: i64) {
 		t.Fatalf("GetNodesInFile(shipment.rs): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "shipments" at line 1 ---
 	var shipmentsNode *types.Node
 	for i := range rsNodes {
 		if rsNodes[i].Kind == types.NodeKindTable && rsNodes[i].Name == "shipments" {
@@ -924,7 +718,6 @@ fn get_shipment(id: i64) {
 		t.Errorf("shipments table StartLine=%d, want 1 (file-absolute)", shipmentsNode.StartLine)
 	}
 
-	// --- Criterion 2: DML → unresolved ref owned by get_shipment ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -960,7 +753,6 @@ fn get_shipment(id: i64) {
 	// Also test the prose-rejection guard on a Rust file (see dedicated test
 	// TestEmbeddedSQLProseRejectionInRustFile below for the full assertion).
 
-	// --- Criterion 3: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -970,31 +762,8 @@ fn get_shipment(id: i64) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInScalaFile — Scala, triple-quoted + interpolation
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInScalaFile verifies embedded SQL extraction for Scala .scala files.
-//
 // Uses `"""..."""` — the idiomatic multi-line form. Also tests the interpolated
 // string form `s"SELECT a FROM $t"` → zero refs for "t".
-//
-// Fixture (1-based lines):
-//
-//	1: object CatalogRepo {
-//	2:   val ddl = """CREATE TABLE catalog (id INT PRIMARY KEY, sku TEXT NOT NULL)"""
-//	3:
-//	4:   def fetch(id: Int, t: String): Unit = {
-//	5:     val q1 = "SELECT id, sku FROM catalog WHERE id = ?"
-//	6:     val q2 = s"SELECT id, sku FROM $t WHERE id = 1"
-//	7:   }
-//	8: }
-//
-// Asserts:
-//   - table node "catalog" with StartLine == 2
-//   - ref to "catalog" from fetch method
-//   - zero refs named "t" (interpolated table target via s"...")
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInScalaFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -1026,7 +795,6 @@ func TestEmbeddedSQLInScalaFile(t *testing.T) {
 		t.Fatalf("GetNodesInFile(CatalogRepo.scala): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "catalog" at line 2 ---
 	var catalogNode *types.Node
 	for i := range scalaNodes {
 		if scalaNodes[i].Kind == types.NodeKindTable && scalaNodes[i].Name == "catalog" {
@@ -1041,7 +809,6 @@ func TestEmbeddedSQLInScalaFile(t *testing.T) {
 		t.Errorf("catalog table StartLine=%d, want 2 (file-absolute)", catalogNode.StartLine)
 	}
 
-	// --- Criterion 2: DML → ref to "catalog" owned by fetch ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -1074,7 +841,6 @@ func TestEmbeddedSQLInScalaFile(t *testing.T) {
 		t.Errorf("catalog ref Language=%q, want %q", catalogRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: interpolated table target → zero refs for "t" ---
 	// q2 = s"SELECT id, sku FROM $t WHERE id = 1" → $t is an interpolation;
 	// after substitution FROM ? → no ref named "t".
 	var tRefs []types.UnresolvedReference
@@ -1087,7 +853,6 @@ func TestEmbeddedSQLInScalaFile(t *testing.T) {
 		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d — Scala interpolation not substituted", len(tRefs))
 	}
 
-	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -1097,37 +862,8 @@ func TestEmbeddedSQLInScalaFile(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInSwiftFile — Swift, multi-line string literal + interpolation
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInSwiftFile verifies embedded SQL extraction for Swift .swift files.
-//
 // Uses `"""..."""` — the multi-line string literal form (multi_line_string_literal node).
 // Also tests: `"SELECT a FROM \(t)"` → zero refs for "t" (interpolated table target).
-//
-// Fixture (1-based lines):
-//
-//	1: class EventRepo {
-//	2:     let ddl = """
-//	3:         CREATE TABLE events (id INTEGER PRIMARY KEY, title TEXT NOT NULL)
-//	4:         """
-//	5:
-//	6:     func fetch(id: Int, t: String) {
-//	7:         let q1 = "SELECT id, title FROM events WHERE id = ?"
-//	8:         let q2 = "SELECT id, title FROM \(t) WHERE id = 1"
-//	9:     }
-//	10: }
-//
-// NOTE on multi-line string StartLine: The Swift grammar reports the
-// multi_line_string_literal node start at the first content line (line 3 in
-// this fixture), not at the `"""` opener line (line 2). StartLine==3 is expected.
-//
-// Asserts:
-//   - table node "events" (StartLine == 3, first content line of multi_line_string_literal)
-//   - ref to "events" from fetch method
-//   - zero refs named "t" (interpolated table target via \(...))
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInSwiftFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -1161,7 +897,6 @@ func TestEmbeddedSQLInSwiftFile(t *testing.T) {
 		t.Fatalf("GetNodesInFile(EventRepo.swift): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "events" ---
 	var eventsNode *types.Node
 	for i := range swiftNodes {
 		if swiftNodes[i].Kind == types.NodeKindTable && swiftNodes[i].Name == "events" {
@@ -1179,7 +914,6 @@ func TestEmbeddedSQLInSwiftFile(t *testing.T) {
 		t.Errorf("events table StartLine=%d, want 3 (multi-line content line, file-absolute)", eventsNode.StartLine)
 	}
 
-	// --- Criterion 2: DML → ref to "events" owned by fetch ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -1212,7 +946,6 @@ func TestEmbeddedSQLInSwiftFile(t *testing.T) {
 		t.Errorf("events ref Language=%q, want %q", eventsRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: interpolated table target → zero refs for "t" ---
 	// q2 = "SELECT id, title FROM \(t) WHERE id = 1" → \(t) is interpolated_expression;
 	// after substitution FROM ? → no ref named "t".
 	var tRefs []types.UnresolvedReference
@@ -1225,7 +958,6 @@ func TestEmbeddedSQLInSwiftFile(t *testing.T) {
 		t.Errorf("FAIL: interpolated table target '\\(t)' must yield 0 refs, got %d — Swift interpolation not substituted", len(tRefs))
 	}
 
-	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -1235,33 +967,9 @@ func TestEmbeddedSQLInSwiftFile(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInPascalFile — Pascal, Shape-2 (literalString)
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInPascalFile verifies embedded SQL extraction for Pascal .pas files.
-//
 // Pascal uses single-quoted string literals (`'...'`) parsed as literalString nodes
 // (Shape-2 — inline content, no separate content child). Delimiter-stripping peels
 // the surrounding quotes before passing to the SQL gate.
-//
-// Fixture (1-based lines):
-//
-//	1: program PascalDB;
-//	2: var
-//	3:   DDL: string = 'CREATE TABLE records (id INTEGER PRIMARY KEY, data TEXT)';
-//	4: begin
-//	5: end.
-//
-// WHY no DML function node: Pascal's top-level begin/end is not a function
-// boundary the tree-sitter extractor wraps as a NodeKindFunction. To keep the
-// test honest (no vacuous ownership claims), the DML ref assertion uses any ref
-// from the file regardless of owning node.
-//
-// Asserts:
-//   - table node "records" with StartLine == 3
-//   - at least one unresolved ref from records.pas to "records" (DML in begin block)
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInPascalFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -1291,7 +999,6 @@ end.
 		t.Fatalf("GetNodesInFile(records.pas): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "records" at line 3 ---
 	var recordsNode *types.Node
 	for i := range pasNodes {
 		if pasNodes[i].Kind == types.NodeKindTable && pasNodes[i].Name == "records" {
@@ -1306,7 +1013,6 @@ end.
 		t.Errorf("records table StartLine=%d, want 3 (file-absolute)", recordsNode.StartLine)
 	}
 
-	// --- Criterion 2: DML → unresolved ref to "records" ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -1326,7 +1032,6 @@ end.
 		t.Errorf("records ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -1336,29 +1041,8 @@ end.
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInJavaScriptFile — JavaScript, template literal + interpolation
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInJavaScriptFile verifies embedded SQL extraction for JS .js files.
-//
 // Uses template literals “ `...` “ — the idiomatic multi-line form for JS.
 // Also covers the interpolation criterion: “ `SELECT a FROM ${t}` “ → zero refs for "t".
-//
-// Fixture (1-based lines):
-//
-//	1: const DDL = `CREATE TABLE tasks (id INTEGER PRIMARY KEY, title TEXT NOT NULL)`;
-//	2:
-//	3: function loadTask(id, t) {
-//	4:     const q1 = `SELECT id, title FROM tasks WHERE id = ${id}`;
-//	5:     const q2 = `SELECT id, title FROM ${t} WHERE id = 1`;
-//	6: }
-//
-// Asserts:
-//   - table node "tasks" with StartLine == 1
-//   - ref to "tasks" from loadTask (q1 — literal table + interp value)
-//   - zero refs named "t" (q2 — interpolated table target)
-//   - GetEdgesByProvenance("embedded") ≥1
 func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -1383,7 +1067,6 @@ func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 		t.Fatalf("GetNodesInFile(task.js): %v", err)
 	}
 
-	// --- Criterion 1: DDL → table node "tasks" at line 1 ---
 	var tasksNode *types.Node
 	for i := range jsNodes {
 		if jsNodes[i].Kind == types.NodeKindTable && jsNodes[i].Name == "tasks" {
@@ -1398,7 +1081,6 @@ func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 		t.Errorf("tasks table StartLine=%d, want 1 (file-absolute)", tasksNode.StartLine)
 	}
 
-	// --- Criterion 2: DML → ref to "tasks" from loadTask (owned by loadTask) ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -1431,7 +1113,6 @@ func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 		t.Errorf("tasks ref Language=%q, want %q", tasksRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: interpolated table target → zero refs for "t" ---
 	// q2 = `SELECT id, title FROM ${t} WHERE id = 1` → ${t} is template_substitution;
 	// after substitution FROM ? → no ref named "t".
 	var tRefs []types.UnresolvedReference
@@ -1444,7 +1125,6 @@ func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 		t.Errorf("FAIL: interpolated table target '${t}' must yield 0 refs, got %d — JS interpolation not substituted", len(tRefs))
 	}
 
-	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
@@ -1453,10 +1133,6 @@ func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for JavaScript fixture")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLProseRejectionInRustFile — prose strings rejected (gate check)
-// ---------------------------------------------------------------------------
 
 // TestEmbeddedSQLProseRejectionInRustFile proves that the IsSQLLiteral gate
 // still rejects non-SQL prose strings in a new-language (Rust) host file.
@@ -1467,13 +1143,6 @@ func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 //
 // Neither matches the SQL gate. The test asserts that the embedded SQL
 // post-pass produces zero table nodes and zero embedded edges from this file.
-//
-// Fixture (1-based lines):
-//
-//	1: fn ui_copy() {
-//	2:     let msg1 = "choose an item from the dropdown";
-//	3:     let msg2 = "Copied from the original repo";
-//	4: }
 func TestEmbeddedSQLProseRejectionInRustFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -1501,7 +1170,6 @@ func TestEmbeddedSQLProseRejectionInRustFile(t *testing.T) {
 		t.Fatalf("GetNodesInFile(prose.rs): %v", err)
 	}
 
-	// --- Gate check: zero table nodes from prose strings ---
 	var tableNodes []types.Node
 	for _, n := range rsNodes {
 		if n.Kind == types.NodeKindTable {
@@ -1515,7 +1183,6 @@ func TestEmbeddedSQLProseRejectionInRustFile(t *testing.T) {
 		t.Errorf("FAIL: prose-only Rust file must yield 0 table nodes, got %d: %+v — IsSQLLiteral gate regression", len(tableNodes), tableNodes)
 	}
 
-	// --- Gate check: zero embedded edges from prose strings ---
 	allEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
 	if err != nil {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)

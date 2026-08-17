@@ -12,26 +12,22 @@ import (
 
 // GET /api/code/capabilities — what the shell should offer for this scope.
 //
-// Only the SQL schema view so far. Most repositories have no SQL at all, and a
-// permanent mode that can only ever say "nothing here" is worse than no mode:
-// it is a promise the tool cannot keep. So the view exists when the index
-// actually holds SQL objects, and `[serve] schema` in .claude/atomic.toml
-// overrides that in either direction for the cases detection gets wrong —
-// SQL that lives somewhere the indexer does not read, or a repo whose handful
-// of migration files are not what its authors want the tool to be about.
+// Only the SQL schema view so far. Most repositories have no SQL, and a
+// permanent mode that can only say "nothing here" is a promise the tool cannot
+// keep, so the view appears when the index actually holds SQL objects.
+// `[serve] schema` in .claude/atomic.toml overrides that either way, for SQL
+// the indexer cannot see and for repos whose few migration files are not what
+// their authors want the tool to be about.
 
 type apiCapabilitiesResponse struct {
 	Schema bool `json:"schema"`
-	// Source says how Schema was decided: "config" when .claude/atomic.toml
-	// set it outright, "detected" otherwise. Surfaced so a surprising answer
-	// is traceable to a file rather than to a guess.
+	// Source is "config" or "detected", so a surprising answer is traceable to
+	// a file rather than to a guess.
 	Source string `json:"source"`
 }
 
-// Detection opens every member's index, so it is memoized. The answer only
-// changes when an index is rebuilt, which a running server does not do behind
-// its own back — the TTL exists so a reindex started from the UI is picked up
-// without a restart.
+// Detection opens every member's index, so it is memoized. The TTL exists only
+// so a reindex started from the UI is picked up without a restart.
 const capabilitiesTTL = 60 * time.Second
 
 type capabilitiesCache struct {
@@ -59,14 +55,13 @@ func (c *capabilitiesCache) get(compute func() apiCapabilitiesResponse) apiCapab
 	return resp
 }
 
-// hasSQLObjects reports whether an index holds anything this view could show.
-// Procedures count: a database defined largely in stored routines has them
-// even in a member whose tables live elsewhere.
+// hasSQLObjects counts procedures too: a database defined largely in stored
+// routines has them even where its tables live elsewhere.
 func hasSQLObjects(ctx context.Context, eng CodeEngine) bool {
 	for _, k := range []types.NodeKind{types.NodeKindTable, types.NodeKindView, types.NodeKindProcedure} {
 		nodes, err := eng.GetNodesByKind(ctx, k)
 		if err != nil {
-			continue // best-effort: a failed probe is not a "no"
+			continue // a failed probe is not a "no"
 		}
 		for _, n := range nodes {
 			if n.Language == types.LanguageSQL {
@@ -94,7 +89,7 @@ func (h *apiCodeExplorerHandler) computeCapabilities(ctx context.Context) apiCap
 		}
 	}
 
-	// Repo scope has no members list — probe the served root's own index.
+	// Repo scope has no members, so probe the served root's own index.
 	eng, err := h.provider(ctx, h.realmRoot, h.localDBPath())
 	if err != nil {
 		return apiCapabilitiesResponse{Schema: false, Source: "detected"}

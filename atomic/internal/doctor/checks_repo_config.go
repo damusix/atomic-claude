@@ -11,8 +11,8 @@ import (
 )
 
 // repoConfigRelDisplay returns the harness-aware relative path of the repo
-// config, for display in this check's Detail strings (e.g. ".pi/atomic.toml"
-// under a ".pi" harness dir rather than the default ".claude/atomic.toml").
+// config for display in Detail strings (".pi/atomic.toml" under a ".pi"
+// harness dir, rather than the default ".claude/atomic.toml").
 func repoConfigRelDisplay(root string) string {
 	abs := config.RepoConfigPath(root)
 	rel, err := filepath.Rel(root, abs)
@@ -22,21 +22,13 @@ func repoConfigRelDisplay(root string) string {
 	return filepath.ToSlash(rel)
 }
 
-// checkRepoConfig implements category 13: repo-scoped config integrity
-// (<projectRoot>/.claude/atomic.toml).
-//
-// The repo config is optional — its absence is normal (code-intel indexing
-// proceeds unfiltered) and reports PASS informational, mirroring the
-// code-index check's opt-in-absence contract. Parse errors, unknown keys,
-// invalid ignore glob patterns, an invalid scope value, and an invalid
-// [repl] idle_timeout are all non-fatal by design at index/discovery time,
-// so they surface here as WARN, never FAIL.
-//
-// Beyond RunCheckRepoConfigWith's root-only validation, this dispatcher also
-// WARNs when root's marker declares scope = "repo" while root is registered
-// as a realm root in opts.ClaudeMDPath's <wikis> block — two mechanisms
-// making incompatible claims about one directory (scope-marker design
-// decision 2). An empty opts.ClaudeMDPath skips that sub-check.
+// checkRepoConfig implements category 13: repo-scoped config integrity. The
+// config is optional, so absence is an informational PASS; every defect
+// (parse error, unknown key, bad glob, bad scope, bad idle_timeout) is
+// non-fatal at index time and so WARNs here, never FAILs. On top of
+// RunCheckRepoConfigWith it also WARNs when the marker claims scope="repo"
+// while <wikis> registers the same root as a realm. Empty ClaudeMDPath skips
+// that sub-check.
 func checkRepoConfig(opts Opts) Result {
 	root := opts.RepoRoot
 	if root == "" {
@@ -65,18 +57,14 @@ func checkRepoConfig(opts Opts) Result {
 	return result
 }
 
-// RunCheckRepoConfig is the exported entry point for the dispatcher. It
-// delegates to checkRepoConfig so tests can exercise the <wikis>-contradiction
-// sub-check (which needs opts.ClaudeMDPath) without package-internal access.
+// RunCheckRepoConfig is the dispatcher entry point for the repo-config check.
 func RunCheckRepoConfig(opts Opts) Result {
 	return checkRepoConfig(opts)
 }
 
-// scopeWikisContradiction reports a non-empty WARN detail when root's repo
-// config declares scope = "repo" while root is also registered as a realm
-// root in claudeMDPath's <wikis> block. Returns "" — no contradiction — when
-// the marker is absent, invalid, declares "realm" instead, the <wikis> block
-// is unreadable or empty, or no registered realm root matches root.
+// scopeWikisContradiction returns a WARN detail when root declares
+// scope = "repo" while <wikis> in claudeMDPath registers root as a realm
+// root, and "" in every other case.
 func scopeWikisContradiction(root, claudeMDPath string) string {
 	cfg, _, err := config.LoadRepoConfig(config.RepoConfigPath(root))
 	if err != nil || cfg == nil || cfg.Scope != "repo" {
@@ -90,8 +78,7 @@ func scopeWikisContradiction(root, claudeMDPath string) string {
 
 	wantRoot := normalizeScopeDir(root)
 	for _, indexPath := range indexPaths {
-		// A registered index path is <realmRoot>/wiki/index.md — the realm
-		// root is its grandparent.
+		// A registered path is <realmRoot>/wiki/index.md.
 		realmRoot := filepath.Dir(filepath.Dir(indexPath))
 		if normalizeScopeDir(realmRoot) == wantRoot {
 			return fmt.Sprintf(
@@ -103,17 +90,12 @@ func scopeWikisContradiction(root, claudeMDPath string) string {
 	return ""
 }
 
-// normalizeScopeDir canonicalizes dir for comparison: absolutize, clean, then
-// resolve symlinks. Symlink resolution is required here because the two sides
-// of the comparison arrive through different mechanisms — opts.RepoRoot comes
-// from gitToplevelFn ("git rev-parse --show-toplevel"), which resolves
-// symlinks (a repo under macOS /tmp reports /private/tmp/...), while
-// wiki.ReadWikiIndexPaths returns each <wikis> entry exactly as written,
-// unresolved. Without this, a realm registered via the symlinked form never
-// compares equal to the resolved root and the contradiction WARN never fires.
-// Degrades to the unresolved cleaned path when EvalSymlinks errors — a
-// registered realm root that no longer exists on disk must not break this
-// check or the doctor run.
+// normalizeScopeDir canonicalizes dir for comparison. Symlink resolution
+// matters because the two sides arrive differently: gitToplevelFn resolves
+// symlinks (macOS /tmp reports /private/tmp/...) while <wikis> entries are
+// stored exactly as written, so the symlinked form would never compare equal.
+// A dir that no longer exists degrades to the cleaned path rather than
+// breaking the run.
 func normalizeScopeDir(dir string) string {
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
@@ -126,9 +108,8 @@ func normalizeScopeDir(dir string) string {
 }
 
 // RunCheckRepoConfigWith runs the repo-config check against an explicit
-// project root. Exported for testing; production callers use checkRepoConfig.
-// Root-only — it does not run the <wikis>-contradiction sub-check, which
-// needs a CLAUDE.md path (see checkRepoConfig).
+// project root. Exported for testing. Root-only: it skips the
+// <wikis>-contradiction sub-check, which needs a CLAUDE.md path.
 func RunCheckRepoConfigWith(root string) Result {
 	path := config.RepoConfigPath(root)
 	display := repoConfigRelDisplay(root)

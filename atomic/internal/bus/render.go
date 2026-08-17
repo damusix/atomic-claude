@@ -9,40 +9,31 @@ import (
 	"unicode/utf8"
 )
 
-// timeFormat is TailLine's fixed clock format — no timezone or date; a bus
-// room is not expected to run across a day boundary in one sitting, and a
-// bare HH:MM:SS leaves the most room for sender/addressee/text on a
-// normal-width terminal.
+// timeFormat is TailLine's clock format. No date: a room is not expected to run
+// across a day boundary in one sitting, and HH:MM:SS leaves the most room for
+// sender, addressee, and text on a normal-width terminal.
 const timeFormat = "15:04:05"
 
 // arrowSep separates sender from addressee in TailLine's output.
 const arrowSep = " → "
 
-// unaddressedMarker is what TailLine shows as the addressee for an FYI
-// envelope (empty To) — a fixed, literal placeholder, not a room-name
-// substitution: "(room)" is the literal addressee shown for an
-// unaddressed message.
+// unaddressedMarker is TailLine's addressee for an FYI envelope (empty To) — a
+// fixed literal, not a room-name substitution.
 const unaddressedMarker = "(room)"
 
-// defaultLineWidth is wrapHanging's wrap point when the caller has no
-// terminal width to report (piped/redirected output, or a size-query
-// failure) — a conventional 80-column fallback.
+// defaultLineWidth is wrapHanging's wrap point when the caller has no terminal
+// width to report.
 const defaultLineWidth = 80
 
-// minWrapColumns floors the usable text width wrapHanging computes from
-// width-indent: a long sender/addressee pair eating most of a narrow
-// terminal must not collapse the wrap point to zero or negative.
+// minWrapColumns floors the width wrapHanging computes from width-indent: a long
+// sender/addressee pair on a narrow terminal must not drive it to zero.
 const minWrapColumns = 20
 
-// TailLine formats one envelope as a single transcript line:
-// "<time>  <from> → <addressee>   <text>", with continuation lines (from
-// wrapping or an embedded newline in a multi-line payload) indented to
-// align under the text column, and long payloads collapsed to a marker
-// naming the room log where the full text is always recoverable
-// (docs/spec/atomic-bus.md). colour disables every ANSI sequence when
-// false — "detect no-tty and drop colour": piped or redirected output must
-// be clean text. roomPrefix prepends "[<room>] " for --all-rooms's
-// interleaved view. width <= 0 falls back to defaultLineWidth.
+// TailLine formats one envelope as "<time>  <from> → <addressee>   <text>", with
+// continuation lines indented to align under the text column and long payloads
+// collapsed to a marker naming the room log. colour false drops every ANSI
+// sequence, so piped output is clean text. roomPrefix prepends "[<room>] " for
+// --all-rooms. width <= 0 falls back to defaultLineWidth.
 func TailLine(env Envelope, home string, width int, colour, roomPrefix bool) string {
 	if width <= 0 {
 		width = defaultLineWidth
@@ -59,10 +50,9 @@ func TailLine(env Envelope, home string, width int, colour, roomPrefix bool) str
 	}
 	ts := env.Ts.Format(timeFormat)
 
-	// indent is computed from the plain (uncoloured) prefix's visual width
-	// — an ANSI-wrapped prefix has the same on-screen width but more
-	// bytes, and using its byte length here would misalign every
-	// continuation line.
+	// indent comes from the plain prefix's visual width: an ANSI-wrapped prefix
+	// has the same on-screen width but more bytes, and using its byte length here
+	// would misalign every continuation line.
 	plainPrefix := fmt.Sprintf("%s%s  %s%s%s   ", roomTag, ts, env.From, arrowSep, addressee)
 	indent := utf8.RuneCountInString(plainPrefix)
 
@@ -88,21 +78,17 @@ const ansiReset = "\x1b[0m"
 // per-sender.
 const ansiDim = "\x1b[2m"
 
-// ansiPalette is colourFor's fixed sender palette: eight basic ANSI
-// foreground colours, cycled by a stable hash of the sender's name so the
-// same sender keeps the same colour for the life of a tail session without
-// render.go holding any per-session state (the daemon assigns no colour;
-// this is purely a client-side rendering choice, recomputed identically by
-// any number of concurrent tails).
+// ansiPalette is colourFor's sender palette, cycled by a stable hash of the
+// sender's name so a sender keeps one colour for the life of a tail session
+// without any per-session state. The daemon assigns no colour; this is purely
+// client-side, recomputed identically by any number of concurrent tails.
 var ansiPalette = [...]string{
 	"\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m",
 	"\x1b[35m", "\x1b[36m", "\x1b[91m", "\x1b[92m",
 }
 
-// colourFor returns the open/close ANSI sequence pair for name, stable
-// across calls: the same name always yields the same colour, via a
-// non-cryptographic hash (hash/fnv, stdlib) rather than any per-process or
-// per-daemon state.
+// colourFor returns the open/close ANSI pair for name, stable across calls via a
+// non-cryptographic hash rather than any per-process state.
 func colourFor(name string) (open, close string) {
 	sum := fnv.New32a()
 	_, _ = sum.Write([]byte(name))
@@ -113,17 +99,14 @@ func colourFor(name string) (open, close string) {
 // collapses text to a marker.
 const collapseLineThreshold = 15
 
-// collapseShowLines is how many leading lines collapse keeps visible
-// before the marker — enough to orient the reader without dumping a whole
-// long payload into a fast-scrolling transcript.
+// collapseShowLines is how many leading lines survive a collapse — enough to
+// orient the reader without dumping a long payload into a scrolling transcript.
 const collapseShowLines = 8
 
-// collapse returns text unchanged when it has collapseLineThreshold lines
-// or fewer; otherwise the first collapseShowLines lines plus a marker
-// naming how many more remain and the room log where the full,
-// uncollapsed text is always recoverable — Append (roomlog.go) persists
-// every envelope's original Text before TailLine ever sees it, so
-// collapsing here is a display decision only, never data loss.
+// collapse returns text unchanged at or below collapseLineThreshold lines,
+// otherwise the first collapseShowLines plus a marker naming how many remain and
+// the room log. Append persists the original Text before TailLine ever sees it,
+// so collapsing is a display decision, never data loss.
 func collapse(text, room, home string) string {
 	lines := strings.Split(text, "\n")
 	if len(lines) <= collapseLineThreshold {
@@ -134,14 +117,11 @@ func collapse(text, room, home string) string {
 	return strings.Join(lines[:collapseShowLines], "\n") + "\n" + marker
 }
 
-// wrapHanging wraps text to width columns, splitting each of text's own
-// lines independently (so a pre-existing newline in a multi-line payload,
-// e.g. a stack trace, is preserved as a line break) and indenting every
-// line after the first by indent spaces — so the whole block reads aligned
-// under where its first line started, rather than flush against the left
-// margin where it would visually merge with the next envelope's own
-// timestamp column. The first line carries no leading indent: the caller
-// (TailLine) supplies its own prefix before this returned string.
+// wrapHanging wraps text to width columns, splitting each of text's own lines
+// independently so an embedded newline (a stack trace) survives, and indenting
+// every line after the first so the block reads aligned under where it started
+// rather than merging with the next envelope's timestamp column. The first line
+// carries no indent — TailLine supplies its own prefix.
 func wrapHanging(text string, indent, width int) string {
 	avail := width - indent
 	if avail < minWrapColumns {
@@ -156,12 +136,10 @@ func wrapHanging(text string, indent, width int) string {
 	return strings.Join(out, "\n"+indentStr)
 }
 
-// wrapOneLine breaks line into avail-column chunks on word boundaries. A
-// single word wider than avail (a URL, a file path, a hash) is kept intact
-// on its own line rather than hard-broken mid-token: a chopped path is
-// unreadable and uncopyable, and collapse's whole point is to leave a
-// working pointer to the room log — letting one token overflow the column
-// is a smaller cost than breaking it.
+// wrapOneLine breaks line into avail-column chunks on word boundaries. A single
+// word wider than avail (a URL, a path, a hash) is kept intact rather than
+// hard-broken: a chopped path is unreadable and uncopyable, which costs more
+// than one overflowing column.
 func wrapOneLine(line string, avail int) []string {
 	if utf8.RuneCountInString(line) <= avail {
 		return []string{line}
@@ -209,13 +187,10 @@ func wrapOneLine(line string, avail int) []string {
 	return lines
 }
 
-// MemberTable writes members as an aligned table (name, kind, mode,
-// live/stale, repo, realm) via text/tabwriter — one row per member, in the
-// order given (Hub.Who already sorts). There is no separate qualified-name
-// column: a member's Name is already its stacked position, so a second
-// column repeating it would only duplicate the first. livenessLabel
-// (action.go) is the shared source of the liveness column, so `who` and
-// chat's `/who` never drift apart on how they describe the same Member.
+// MemberTable writes members as an aligned table in the order given (Hub.Who
+// already sorts). No separate qualified-name column: a member's Name is already
+// its stacked position. The liveness column comes from livenessLabel so `who`
+// and chat's `/who` cannot drift apart.
 func MemberTable(w io.Writer, members []Member) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	for _, m := range members {
@@ -224,9 +199,8 @@ func MemberTable(w io.Writer, members []Member) error {
 	return tw.Flush()
 }
 
-// RoomTable writes rooms as an aligned table (name, member count) via
-// text/tabwriter — one row per room, in the order given (Hub.Rooms already
-// sorts).
+// RoomTable writes rooms as an aligned table in the order given (Hub.Rooms
+// already sorts).
 func RoomTable(w io.Writer, rooms []RoomInfo) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	for _, r := range rooms {

@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildWhereCmd returns the "where" top-level command with flag metadata.
 func buildWhereCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                "where",
@@ -27,10 +26,8 @@ func buildWhereCmd() *cobra.Command {
 	return c
 }
 
-// runWhere is the os.Exit-aware entry point for the "where" top-level verb.
-// It reports cwd's position across three independent axes — repo-scope wiki
-// presence, realm-scope position, and code-index scope — as a descriptive
-// report (no PASS/WARN/FAIL severity).
+// runWhere reports cwd across three independent axes — repo-scope wiki
+// presence, realm position, code-index scope — descriptively, with no severity.
 func runWhere(args []string) {
 	fs := flag.NewFlagSet("where", flag.ContinueOnError)
 	cliutil.SetUsage(fs, "atomic where [--json]")

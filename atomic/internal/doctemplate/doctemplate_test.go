@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// The registered set is the contract: commands instruct Claude to run
-// `atomic template <name>` for exactly these names, so a rename or removal
-// here breaks installed command artifacts.
+// Installed command artifacts cite these names verbatim, so a rename or
+// removal here breaks them.
 var wantNames = []string{
 	"brief",
 	"design-doc",
@@ -40,9 +39,8 @@ func TestGetEveryRegisteredTemplate(t *testing.T) {
 		if strings.TrimSpace(text) == "" {
 			t.Fatalf("Get(%q) returned empty template", name)
 		}
-		// Every template opens with a guidance comment carrying the fill rule
-		// and its own provenance — the filler is told to delete it, so it must
-		// be present in the emitted text.
+		// The opening guidance comment is what tells the filler what to do, so
+		// it has to survive into the emitted text.
 		if !strings.HasPrefix(text, "<!--") {
 			t.Errorf("Get(%q) does not start with a guidance comment", name)
 		}

@@ -1,62 +1,12 @@
 package languages
 
-// JavaScript language extractor configuration.
+// Node-type strings are read from the live JavaScript grammar — do not guess.
+// It is the same grammar family as TypeScript, so typescript.go's header notes
+// on generator nodes, structural export detection, and function-scope
+// suppression apply here unchanged.
 //
-// Verified node-type strings (parsed via tmp/probe-lang-details; see main.go
-// and probe2.go for exact output):
-//
-//   Top-level (direct children of program):
-//     import_statement       — import { X } from 'y';
-//     export_statement       — wraps the actual declaration
-//     lexical_declaration    — const x = ...; let x = ...;
-//     variable_declaration   — var x = ...;
-//     expression_statement   — bare calls, require() calls
-//
-//   Inside lexical_declaration / variable_declaration:
-//     variable_declarator    — holds the name (field "name") and value
-//
-//   Inside export_statement (via "declaration" field):
-//     class_declaration      — export class Widget { ... }
-//     function_declaration   — export function make() { ... }
-//     lexical_declaration    — export const helper = (x) => x * 2;
-//
-//   "export default function foo()" emits export_statement with a
-//   function_declaration child that starts at the "function" keyword, so
-//   text-prefix lookback only sees "default " (not "export ").
-//
-//   Named iterator also sees:
-//     method_definition      — class method implementations
-//     call_expression        — function/method calls
-//     arrow_function         — (x) => x + 1 (inside lexical_declaration)
-//
-// IsExported strategy: ExportStatementTypes = {"export_statement"}.
-// The engine detects the export_statement wrapper and sets forceExported=true
-// for all semantic children. This handles export, export default, and all JS
-// export forms correctly. See typescript.go for full design rationale.
-//
-// Note: JavaScript has no interfaces, no type aliases, no enums (in the grammar
-// sense). Only ClassTypes and FunctionTypes are wired.
-//
-// Arrow functions as exports: "export const helper = (x) => x * 2" — the
-// lexical_declaration is the child of export_statement. The arrow_function is
-// the value inside the variable_declarator. The extractor descends into
-// lexical_declaration (unmatched) → variable_declarator (unmatched) → sees the
-// arrow_function as a child. Arrow functions are NOT added to FunctionTypes here
-// because nameFromNode can't reliably extract a name from them (the name lives in
-// the parent variable_declarator). Deferred to (lexical_declaration → arrow
-// function with name from declarator).
-//
-// FunctionScopeTypes probe (verified via a real-parse probe against the wazero
-// JS binding; see extraction/languages/zzprobe_test.go, deleted after use) —
-// identical findings to TypeScript (same grammar family):
-//
-//	const f = (x) => x * 2;                     → arrow_function
-//	const f = function(x) { return x; };        → function_expression
-//	const f = function*(x) { yield x; };        → generator_function
-//	for (const x of y) { ... }                  → for_in_statement with a bare
-//	  "identifier" binding child — not wrapped in a lexical_declaration, so
-//	  VariableTypes never matches it. Unaffected by scope suppression by
-//	  construction.
+// An arrow function stays out of FunctionTypes: its name lives on the parent
+// variable_declarator, out of reach of the name-from-node path.
 
 import (
 	"context"
@@ -68,80 +18,54 @@ import (
 )
 
 // JavaScriptExtractor returns the LanguageExtractor config for JavaScript source
-// files (.js, .mjs, .cjs). JSX (.jsx) uses a different grammar.
-//
-// Node-type strings are verified by parsing real JavaScript via the wazero
-// binding (see tmp/probe-lang-details/main.go and probe2.go).
+// files (.js, .mjs, .cjs). JSX (.jsx) uses a different grammar; see JSXExtractor.
 func JavaScriptExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
-		// function_declaration covers named functions.
-		// method_definition covers class methods.
 		FunctionTypes: extraction.TypeSet("function_declaration"),
 		MethodTypes:   extraction.TypeSet("method_definition"),
 
-		// class_declaration covers classes.
 		ClassTypes: extraction.TypeSet("class_declaration"),
 
-		// No InterfaceTypes, TypeAliasTypes, EnumTypes — JavaScript grammar lacks them.
+		// The grammar has no interfaces, type aliases, or enums to wire.
 
-		// lexical_declaration covers const/let declarations.
-		// variable_declaration covers var declarations.
-		// jsResolveVariableDeclarator unwraps to the first variable_declarator child
-		// so nameFromNode finds the identifier via NameField="name".
-		// Known limitation: multi-declarator statements (const a=1, b=2) only produce
-		// a node for the first declarator.
-		// Known simplification: arrow-function consts (const f = () => {}) are
-		// extracted as NodeKindVariable, not NodeKindFunction.
+		// Two known simplifications: "const a = 1, b = 2" yields a node only for
+		// the first declarator, and "const f = () => {}" is a variable, not a
+		// function.
 		VariableTypes: extraction.TypeSet("lexical_declaration", "variable_declaration"),
 
-		// FunctionScopeTypes: scope-opening constructs that are not themselves
-		// FunctionTypes matches. Same set and rationale as TypeScript — see
-		// typescript.go and extractor.go extractSimpleNode.
 		FunctionScopeTypes: extraction.TypeSet("arrow_function", "function_expression", "generator_function"),
 
-		// import_statement covers ESM imports.
 		ImportTypes: extraction.TypeSet("import_statement"),
 
-		// call_expression covers function and method calls.
 		CallTypes: extraction.TypeSet("call_expression"),
 
-		// export_statement is the AST-level export wrapper. The engine sets
-		// forceExported=true for all semantic children when it encounters this type.
 		ExportStatementTypes: extraction.TypeSet("export_statement"),
 
-		// JSXElementTypes: populated here so .js files with embedded JSX (e.g.
-		// with the appropriate babel/esbuild pragma) emit component refs if the JS
-		// grammar happens to parse jsx_element nodes. The JS grammar does not
-		// reliably emit JSX nodes without mode flags — .jsx files use LangTSX via
-		// JSXExtractor() instead. This is a safe no-op for standard .js files.
+		// A no-op for ordinary .js, whose grammar needs mode flags before it
+		// emits JSX at all; .jsx files go through JSXExtractor and the tsx
+		// grammar instead.
 		JSXElementTypes: extraction.TypeSet("jsx_element", "jsx_self_closing_element"),
 
-		// FieldAssignmentTypes enables EE3 field-assignment capture.
-		// Same node type as TypeScript — "assignment_expression" covers `x = y`.
-		// Enables the callback synthesizer to find `this.onData = handler` sites.
+		// Field assignments, which is how the callback synthesizer finds a site
+		// like "this.onData = handler".
 		FieldAssignmentTypes: extraction.TypeSet("assignment_expression"),
 
-		// Field names in the JavaScript grammar (same as TypeScript for shared kinds).
 		NameField:   "name",
 		BodyField:   "body",
 		ParamsField: "parameters",
 
-		// ResolveBody: unwrap lexical_declaration / variable_declaration to its first
-		// variable_declarator child so nameFromNode finds the identifier via NameField.
 		ResolveBody: jsResolveVariableDeclarator,
 
-		// GetSignature for functions and methods.
 		GetSignature: jsGetSignature,
 
-		// ExtractImport handles import_statement (ESM) nodes.
-		// Note: require() / CommonJS imports are not handled this checkpoint.
+		// ESM only; require() goes unextracted.
 		ExtractImport: jsExtractImport,
 	}
 }
 
-// jsResolveVariableDeclarator unwraps a lexical_declaration or variable_declaration
-// to its first variable_declarator child so nameFromNode resolves the identifier
-// via the "name" field. All other node types are returned unchanged.
+// jsResolveVariableDeclarator unwraps a declaration to its first
+// variable_declarator, the node that actually carries the "name" field. Any
+// other node passes through unchanged.
 func jsResolveVariableDeclarator(ctx context.Context, node sitter.Node, source string) (sitter.Node, error) {
 	kind, err := node.Kind(ctx)
 	if err != nil {
@@ -165,7 +89,7 @@ func jsResolveVariableDeclarator(ctx context.Context, node sitter.Node, source s
 	return child, nil
 }
 
-// jsGetSignature returns the signature text for functions and methods.
+// jsGetSignature returns everything before the body, truncated to 200 bytes.
 func jsGetSignature(ctx context.Context, node sitter.Node, source string) string {
 	kind, err := node.Kind(ctx)
 	if err != nil {
@@ -202,16 +126,8 @@ func jsGetSignature(ctx context.Context, node sitter.Node, source string) string
 	return sig
 }
 
-// jsExtractImport extracts the module path from an import_statement node.
-// Supports: import { X } from 'path'; import X from 'path'; import 'path';
-//
-// name is the full specifier for a package import (e.g. "@hapi/hapi",
-// "@langchain/core/messages") so scoped/subpath packages keep their full
-// identity instead of collapsing to the last path segment; it stays the
-// basename for a relative/absolute specifier (e.g. "./utils/context.js" →
-// "context.js"), since those resolve to a real file node via the imports
-// edge and a short label is less noisy there. See importNodeName in
-// typescript.go (same package).
+// jsExtractImport returns the module path of an import_statement, side-effect
+// form included, and the name importNodeName derives from it.
 func jsExtractImport(ctx context.Context, node sitter.Node, source string) (name string, path string) {
 	kind, err := node.Kind(ctx)
 	if err != nil || kind != "import_statement" {
@@ -224,7 +140,6 @@ func jsExtractImport(ctx context.Context, node sitter.Node, source string) (name
 	}
 	text := source[sb:eb]
 
-	// Extract quoted path from "from 'path'" or "from \"path\"".
 	if idx := strings.Index(text, " from "); idx >= 0 {
 		rest := strings.TrimSpace(text[idx+6:])
 		rest = strings.TrimSuffix(rest, ";")
@@ -234,7 +149,7 @@ func jsExtractImport(ctx context.Context, node sitter.Node, source string) (name
 		}
 	}
 
-	// Bare import 'path'; (side-effect import)
+	// Side-effect form: import 'path';
 	rest := strings.TrimPrefix(text, "import ")
 	rest = strings.TrimSuffix(rest, ";")
 	rest = strings.Trim(rest, `"'`)

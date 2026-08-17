@@ -19,11 +19,6 @@ func fixtureBytes(t *testing.T, rel string) []byte {
 	return data
 }
 
-// --- S0: ATX-only ---
-
-// TestRunSpecRules_S0_Pass proves that a file with only ATX headings produces
-// no S0 finding. WHY: S0 exists because mdparse only handles ATX correctly;
-// a false-positive here would block valid spec files.
 func TestRunSpecRules_S0_Pass(t *testing.T) {
 	src := fixtureBytes(t, "pass/S0/atx-only.md")
 	findings, err := validate.RunSpecRules("testdata/spec/pass/S0/atx-only.md", src)
@@ -37,9 +32,6 @@ func TestRunSpecRules_S0_Pass(t *testing.T) {
 	}
 }
 
-// TestRunSpecRules_S0_Fail proves that a file with a Setext heading produces
-// an S0 FAIL finding. WHY: silent mis-parsing of Setext docs would produce
-// wrong section bracketing; loud rejection beats silent wrong.
 func TestRunSpecRules_S0_Fail(t *testing.T) {
 	src := fixtureBytes(t, "fail/S0/setext.md")
 	findings, err := validate.RunSpecRules("testdata/spec/fail/S0/setext.md", src)
@@ -57,10 +49,6 @@ func TestRunSpecRules_S0_Fail(t *testing.T) {
 	}
 }
 
-// --- S1: File starts with H1 ---
-
-// TestRunSpecRules_S1_Pass proves that a file starting with # H1 produces no
-// S1 finding. WHY: every spec must have a title; false-positives block valid specs.
 func TestRunSpecRules_S1_Pass(t *testing.T) {
 	src := fixtureBytes(t, "pass/S1/starts-with-h1.md")
 	findings, err := validate.RunSpecRules("testdata/spec/pass/S1/starts-with-h1.md", src)
@@ -74,9 +62,6 @@ func TestRunSpecRules_S1_Pass(t *testing.T) {
 	}
 }
 
-// TestRunSpecRules_S1_Fail proves that a file starting with H2 (no H1) produces
-// an S1 FAIL finding. WHY: a spec without a title is structurally broken; the
-// rule enforces the minimal identity contract.
 func TestRunSpecRules_S1_Fail(t *testing.T) {
 	src := fixtureBytes(t, "fail/S1/no-h1.md")
 	findings, err := validate.RunSpecRules("testdata/spec/fail/S1/no-h1.md", src)
@@ -94,11 +79,6 @@ func TestRunSpecRules_S1_Fail(t *testing.T) {
 	}
 }
 
-// --- S5: ## Checkpoints section with correct table header ---
-
-// TestRunSpecRules_S5_Pass proves that a spec with the correct Checkpoints table
-// header produces no S5 finding. WHY: S5 ensures implementation specs are
-// actionable — false-positives on valid specs erode trust in the validator.
 func TestRunSpecRules_S5_Pass(t *testing.T) {
 	src := fixtureBytes(t, "pass/S5/has-checkpoints.md")
 	findings, err := validate.RunSpecRules("testdata/spec/pass/S5/has-checkpoints.md", src)
@@ -112,10 +92,6 @@ func TestRunSpecRules_S5_Pass(t *testing.T) {
 	}
 }
 
-// TestRunSpecRules_S5_Fail proves that a spec missing the ## Checkpoints section
-// entirely produces an S5 FAIL. WHY: a spec without Checkpoints cannot drive
-// the implement→review loop; this is a structural incompleteness the validator
-// must catch.
 func TestRunSpecRules_S5_Fail(t *testing.T) {
 	src := fixtureBytes(t, "fail/S5/missing-checkpoints.md")
 	findings, err := validate.RunSpecRules("testdata/spec/fail/S5/missing-checkpoints.md", src)
@@ -133,9 +109,6 @@ func TestRunSpecRules_S5_Fail(t *testing.T) {
 	}
 }
 
-// TestRunSpecRules_S5_Pass_SixCol proves that the canonical 6-column header
-// emitted by /atomic-plan passes S5. WHY: S5 must accept the canonical output
-// of the planning tool; rejecting it was the bug this test guards against.
 func TestRunSpecRules_S5_Pass_SixCol(t *testing.T) {
 	src := fixtureBytes(t, "pass/S5/has-checkpoints-6col.md")
 	findings, err := validate.RunSpecRules("testdata/spec/pass/S5/has-checkpoints-6col.md", src)
@@ -149,9 +122,6 @@ func TestRunSpecRules_S5_Pass_SixCol(t *testing.T) {
 	}
 }
 
-// TestRunSpecRules_S5_Fail_MissingRequiredCol proves that a Checkpoints table
-// missing a required column produces S5 FAIL. WHY: extra columns are allowed
-// but all four required columns must be present in order.
 func TestRunSpecRules_S5_Fail_MissingRequiredCol(t *testing.T) {
 	src := fixtureBytes(t, "fail/S5/missing-required-col.md")
 	findings, err := validate.RunSpecRules("testdata/spec/fail/S5/missing-required-col.md", src)
@@ -169,9 +139,6 @@ func TestRunSpecRules_S5_Fail_MissingRequiredCol(t *testing.T) {
 	}
 }
 
-// TestRunSpecRules_S5_WrongHeader proves that a spec with ## Checkpoints but a
-// wrong table header produces an S5 FAIL. WHY: the exact header is the machine-
-// readable contract; a different header is a real defect, not a style issue.
 func TestRunSpecRules_S5_WrongHeader(t *testing.T) {
 	src := []byte(`# Spec with wrong table header
 
@@ -200,11 +167,6 @@ func TestRunSpecRules_S5_WrongHeader(t *testing.T) {
 	}
 }
 
-// --- S6: ## Change log section ---
-
-// TestRunSpecRules_S6_Pass proves that a spec with ## Change log produces no
-// S6 finding. WHY: the change log is the audit trail; false-positives on valid
-// specs would discourage maintaining it.
 func TestRunSpecRules_S6_Pass(t *testing.T) {
 	src := fixtureBytes(t, "pass/S6/has-changelog.md")
 	findings, err := validate.RunSpecRules("testdata/spec/pass/S6/has-changelog.md", src)
@@ -218,9 +180,6 @@ func TestRunSpecRules_S6_Pass(t *testing.T) {
 	}
 }
 
-// TestRunSpecRules_S6_Fail proves that a spec without ## Change log produces an
-// S6 FAIL. WHY: every spec must carry an audit trail — absence signals a spec
-// that has never been maintained or a freshly edited spec that lost its log.
 func TestRunSpecRules_S6_Fail(t *testing.T) {
 	src := fixtureBytes(t, "fail/S6/missing-changelog.md")
 	findings, err := validate.RunSpecRules("testdata/spec/fail/S6/missing-changelog.md", src)
@@ -238,15 +197,7 @@ func TestRunSpecRules_S6_Fail(t *testing.T) {
 	}
 }
 
-// --- Integration: validate spec subcommand + flag parsing ---
-
-// TestDispatch_FlagAfterSubcommand_JSONHonored proves that --json placed after
-// the subcommand is honored (flag state is captured, not just exit code).
-// WHY: F-1 was that validate spec --json silently produced human output; F-2
-// strengthens this test to assert the flag was actually seen. A future regression
-// where jsonOut is reset to false must cause this test to fail.
 func TestDispatch_FlagAfterSubcommand_JSONHonored(t *testing.T) {
-	// Use a temp dir with a valid spec to ensure the runner has work to do.
 	dir := t.TempDir()
 	specFile := filepath.Join(dir, "test.md")
 	content := `# Test Spec
@@ -266,20 +217,16 @@ func TestDispatch_FlagAfterSubcommand_JSONHonored(t *testing.T) {
 	}
 
 	var buf strings.Builder
-	// --json after the subcommand: must be honored
 	code := validate.RunWithOutput([]string{"spec", "--json", specFile}, &buf)
 	out := buf.String()
 	if code != 0 {
 		t.Errorf("exit %d (want 0); output:\n%s", code, out)
 	}
-	// The output must be JSON (schema_version key), not human text.
 	if !strings.Contains(out, "schema_version") {
 		t.Errorf("--json after subcommand: expected JSON output with schema_version, got:\n%s", out)
 	}
 }
 
-// TestDispatch_FlagBeforeSubcommand_JSONHonored proves --json before subcommand
-// also produces JSON output (regression guard for the top-level parse path).
 func TestDispatch_FlagBeforeSubcommand_JSONHonored(t *testing.T) {
 	dir := t.TempDir()
 	specFile := filepath.Join(dir, "test.md")
@@ -310,13 +257,7 @@ func TestDispatch_FlagBeforeSubcommand_JSONHonored(t *testing.T) {
 	}
 }
 
-// TestDispatch_NoSubcommand_WholeRepo proves that no-subcommand now runs
-// whole-repo validation (CP-8), not the old "subcommand required" stub.
-// WHY: CP-8 contract — `atomic validate` (no args) must run all validators.
-// The test runs from a temp dir so findRepoRoot fails → exit 2. The meaningful
-// assertion is that the old "subcommand required" stub message is gone.
 func TestDispatch_NoSubcommand_WholeRepo(t *testing.T) {
-	// Run from a dir with no .git so we get a deterministic internal-error path.
 	orig, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -331,23 +272,17 @@ func TestDispatch_NoSubcommand_WholeRepo(t *testing.T) {
 	code := validate.RunWithOutput([]string{}, &buf)
 	out := buf.String()
 
-	// Outside a repo → exit 2 (internal error: no .git).
 	if code != 2 {
 		t.Errorf("no subcommand outside repo: got exit %d, want 2\noutput: %q", code, out)
 	}
-	// Old stub message must be gone.
 	if strings.Contains(out, "subcommand required") {
 		t.Errorf("whole-repo dispatch: old stub message leaked: %q", out)
 	}
 }
 
-// TestDispatch_SuggestFlagForS5 proves that --suggest for a file with S5 failure
-// prints the structural template. WHY: --suggest is the only user-actionable
-// output for structural defects; absence means users see FAIL with no path forward.
 func TestDispatch_SuggestFlagForS5(t *testing.T) {
 	dir := t.TempDir()
 	specFile := filepath.Join(dir, "test.md")
-	// Missing Checkpoints section → S5 FAIL
 	content := `# Test Spec
 
 ## Change log
@@ -361,7 +296,6 @@ func TestDispatch_SuggestFlagForS5(t *testing.T) {
 	var buf strings.Builder
 	code := validate.RunWithOutput([]string{"spec", "--suggest", specFile}, &buf)
 	out := buf.String()
-	// Should exit 1 (FAIL) and include the suggestion template.
 	if code != 1 {
 		t.Errorf("exit %d (want 1 for FAIL); output:\n%s", code, out)
 	}
@@ -370,10 +304,6 @@ func TestDispatch_SuggestFlagForS5(t *testing.T) {
 	}
 }
 
-// TestDispatch_SpecOnAtomicValidateMd proves that atomic-validate's own spec
-// passes all four rules (S0/S1/S5/S6). WHY: the tool must eat its own dogfood —
-// if the canonical spec file fails its own rules, the rules are wrong or the
-// spec is defective.
 func TestDispatch_SpecOnAtomicValidateMd(t *testing.T) {
 	specPath := filepath.Join("..", "..", "..", "docs", "spec", "atomic-validate.md")
 	src, err := os.ReadFile(specPath)

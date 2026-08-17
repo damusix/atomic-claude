@@ -7,12 +7,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctemplate"
 )
 
-// TestTemplateAction_KnownNames verifies that templateAction exits 0 and
-// writes non-empty text for each registered document-template name. Encodes
-// the WHY: command artifacts instruct Claude to seed workflow documents from
-// `atomic template <name>` — a broken embed path or missing template would
-// silently hand back an empty skeleton and the improvised-structure problem
-// the templates exist to prevent would return.
+// Command artifacts seed workflow documents from `atomic template <name>`; a
+// broken embed path would hand back an empty skeleton and silently restore the
+// improvised-structure problem the templates exist to prevent.
 func TestTemplateAction_KnownNames(t *testing.T) {
 	for _, name := range doctemplate.Names() {
 		t.Run(name, func(t *testing.T) {
@@ -29,9 +26,7 @@ func TestTemplateAction_KnownNames(t *testing.T) {
 	}
 }
 
-// TestTemplateAction_UnknownName verifies that templateAction exits 1 and
-// writes to stderr for an unregistered template name — the fail-loud contract
-// command artifacts rely on to stop rather than improvise structure.
+// The fail-loud contract artifacts rely on to stop rather than improvise.
 func TestTemplateAction_UnknownName(t *testing.T) {
 	var out strings.Builder
 	var errOut strings.Builder
@@ -47,8 +42,6 @@ func TestTemplateAction_UnknownName(t *testing.T) {
 	}
 }
 
-// TestTemplateAction_NoArgs verifies that templateAction exits 1 with a usage
-// message listing the valid names when called with no arguments.
 func TestTemplateAction_NoArgs(t *testing.T) {
 	var out strings.Builder
 	var errOut strings.Builder
@@ -63,5 +56,3 @@ func TestTemplateAction_NoArgs(t *testing.T) {
 		t.Errorf("no-args error message missing valid names; stderr: %q", errOut.String())
 	}
 }
-
-// --- migrate helpers ---

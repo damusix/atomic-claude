@@ -1,14 +1,5 @@
-// Package engine tests — engine facade.
-//
-// Tests cover:
-//  1. Lifecycle: Init creates .claude/.atomic-index/atomic.db; IsInitialized
-//     true after, false before; Uninitialize removes it; ProjectRoot correct.
-//  2. End-to-end: Init → IndexAll(fixture) → ResolveReferences → GetStats
-//     returns NodeCount/EdgeCount/FileCount > 0 with NodesByKind populated.
-//  3. Delegation: GetCallers, SearchNodes, FindRelevantContext return the same
-//     shape as calling the underlying packages directly (one assertion each).
-//  4. Constants: GetBackend=="sqlite", GetJournalMode=="wal".
-//  5. Watch stubs: Watch/StopWatch return ErrWatchNotImplemented.
+// Facade tests: lifecycle, an index-resolve-stats end-to-end pass, and one
+// assertion per delegating method that it returns the underlying shape.
 package engine_test
 
 import (
@@ -22,10 +13,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
-
-// --------------------------------------------------------------------------
-// Test fixture: a small Go source file and a caller.
-// --------------------------------------------------------------------------
 
 const fixtureA = `package greeter
 
@@ -57,10 +44,6 @@ func writeFixture(t *testing.T) string {
 	return dir
 }
 
-// --------------------------------------------------------------------------
-// 1. Lifecycle
-// --------------------------------------------------------------------------
-
 func TestLifecycle_InitCreatesDB(t *testing.T) {
 	dir := t.TempDir()
 	e, err := engine.New(dir)
@@ -81,17 +64,14 @@ func TestLifecycle_InitCreatesDB(t *testing.T) {
 		t.Fatal("IsInitialized should be true after Init")
 	}
 
-	// DB file must exist at the canonical path.
 	dbPath := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("DB file not found at %s: %v", dbPath, err)
 	}
 }
 
-// TestLifecycle_InitCreatesDB_UnderNonDefaultHarnessDir verifies Init/IndexPath
-// thread the project root through config.IndexDBPath — under a ".pi" harness
-// dir, the db lives at .pi/.atomic-index/atomic.db, not the default
-// .claude/.atomic-index/atomic.db.
+// The harness dir is configurable, so under ".pi" the db must land in
+// .pi/.atomic-index rather than the hardcoded .claude default.
 func TestLifecycle_InitCreatesDB_UnderNonDefaultHarnessDir(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".pi")
 	defer restore()
@@ -115,14 +95,13 @@ func TestLifecycle_InitCreatesDB_UnderNonDefaultHarnessDir(t *testing.T) {
 		t.Errorf("IndexPath() = %q, want %q", got, dbPath)
 	}
 
-	// The default .claude location must not have been touched.
 	if _, err := os.Stat(filepath.Join(dir, ".claude")); !os.IsNotExist(err) {
 		t.Errorf(".claude should not exist under a .pi harness, stat err=%v", err)
 	}
 }
 
-// TestIndexPath_UnderNonDefaultHarnessDir verifies the package-level IndexPath
-// function (used by doctor's code-index check) resolves through the harness dir.
+// The package-level IndexPath, which doctor's code-index check calls, must
+// resolve through the harness dir too.
 func TestIndexPath_UnderNonDefaultHarnessDir(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".pi")
 	defer restore()
@@ -175,14 +154,12 @@ func TestLifecycle_Uninitialize(t *testing.T) {
 func TestLifecycle_Open(t *testing.T) {
 	dir := t.TempDir()
 
-	// Init then Close.
 	e1, _ := engine.New(dir)
 	if err := e1.Init(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	e1.Close()
 
-	// Open should succeed — DB already exists.
 	e2, err := engine.New(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -196,10 +173,6 @@ func TestLifecycle_Open(t *testing.T) {
 		t.Fatal("IsInitialized should be true after Open on existing DB")
 	}
 }
-
-// --------------------------------------------------------------------------
-// 2. End-to-end: Init → IndexAll → ResolveReferences → GetStats
-// --------------------------------------------------------------------------
 
 func TestEndToEnd_GetStatsAfterIndex(t *testing.T) {
 	dir := writeFixture(t)
@@ -239,10 +212,6 @@ func TestEndToEnd_GetStatsAfterIndex(t *testing.T) {
 		t.Error("GetStats.NodesByKind should be non-empty after indexing")
 	}
 }
-
-// --------------------------------------------------------------------------
-// 3. Delegation correctness
-// --------------------------------------------------------------------------
 
 func TestDelegation_SearchNodes(t *testing.T) {
 	dir := writeFixture(t)
@@ -294,7 +263,6 @@ func TestDelegation_GetCallers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Find the Greet node id.
 	results, err := e.SearchNodes(ctx, types.SearchOptions{Query: "Greet", Limit: 5})
 	if err != nil {
 		t.Fatal(err)
@@ -314,13 +282,10 @@ func TestDelegation_GetCallers(t *testing.T) {
 		t.Skip("Greet function node not found")
 	}
 
-	// GetCallers returns a Subgraph — verify the call doesn't error and
-	// returns the right shape.
 	sg, err := e.GetCallers(ctx, greetID, 1)
 	if err != nil {
 		t.Fatal("GetCallers:", err)
 	}
-	// Subgraph.Nodes is a map; verify it was initialized.
 	if sg.Nodes == nil {
 		t.Error("GetCallers: Subgraph.Nodes should not be nil")
 	}
@@ -344,7 +309,6 @@ func TestDelegation_FindRelevantContext(t *testing.T) {
 	if err != nil {
 		t.Fatal("FindRelevantContext:", err)
 	}
-	// tierStr should be one of the valid tier strings.
 	if tierStr != "fts" && tierStr != "like" && tierStr != "fuzzy" {
 		t.Errorf("FindRelevantContext: unexpected tier %q", tierStr)
 	}
@@ -352,10 +316,6 @@ func TestDelegation_FindRelevantContext(t *testing.T) {
 		t.Error("FindRelevantContext: Subgraph.Nodes should not be nil")
 	}
 }
-
-// --------------------------------------------------------------------------
-// 4. Constants
-// --------------------------------------------------------------------------
 
 func TestConstants_BackendAndJournalMode(t *testing.T) {
 	dir := t.TempDir()
@@ -374,10 +334,6 @@ func TestConstants_BackendAndJournalMode(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
-// 5. Watch stubs
-// --------------------------------------------------------------------------
-
 func TestWatchStubs(t *testing.T) {
 	dir := t.TempDir()
 	e, _ := engine.New(dir)
@@ -395,17 +351,8 @@ func TestWatchStubs(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
-// 6. NewWithDBPath — explicit DB path decoupled from scan root
-// --------------------------------------------------------------------------
-
-// TestNewWithDBPath_ExplicitPathWritesCorrectLocation proves that
-// NewWithDBPath places the SQLite file at the caller-supplied path, not at
-// the default <scanRoot>/.claude/.atomic-index/atomic.db location.
-//
-// This is of the realm federation: a caller that wants to store the index
-// outside the member repo (e.g. <realm>/.atomic/<key>.db) can supply an
-// explicit absolute path while still scanning the member source tree normally.
+// Realm federation stores the index outside the member repo, so the explicit
+// path must win and the default location must stay untouched.
 func TestNewWithDBPath_ExplicitPathWritesCorrectLocation(t *testing.T) {
 	scanRoot := writeFixture(t) // source tree to index
 	dbDir := t.TempDir()        // separate dir — simulates <realm>/.atomic/
@@ -422,18 +369,15 @@ func TestNewWithDBPath_ExplicitPathWritesCorrectLocation(t *testing.T) {
 		t.Fatal("Init:", err)
 	}
 
-	// DB must exist at the explicit path.
 	if _, err := os.Stat(explicitDB); err != nil {
 		t.Fatalf("DB not found at explicit path %s: %v", explicitDB, err)
 	}
 
-	// Default path inside scan root must NOT exist.
 	defaultDB := filepath.Join(scanRoot, ".claude", ".atomic-index", "atomic.db")
 	if _, err := os.Stat(defaultDB); err == nil {
 		t.Fatalf("DB should NOT exist at default scan-root path %s", defaultDB)
 	}
 
-	// Indexing and querying must still work against the explicit DB.
 	if err := e.IndexAll(ctx); err != nil {
 		t.Fatal("IndexAll:", err)
 	}
@@ -446,8 +390,7 @@ func TestNewWithDBPath_ExplicitPathWritesCorrectLocation(t *testing.T) {
 	}
 }
 
-// TestNewWithDBPath_DefaultUnchanged proves that engine.New still places the
-// DB at <projectRoot>/.claude/.atomic-index/atomic.db — no regression.
+// The explicit-path seam must not have moved New's default location.
 func TestNewWithDBPath_DefaultUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	e, err := engine.New(dir)
@@ -460,25 +403,14 @@ func TestNewWithDBPath_DefaultUnchanged(t *testing.T) {
 		t.Fatal("Init:", err)
 	}
 
-	// Default path must be the canonical repo-scope location.
 	defaultDB := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
 	if _, err := os.Stat(defaultDB); err != nil {
 		t.Fatalf("DB not found at default path %s: %v", defaultDB, err)
 	}
 }
 
-// --------------------------------------------------------------------------
-// 7. IndexFiles — selective indexing (F-56)
-// --------------------------------------------------------------------------
-
-// TestIndexFiles_SelectiveOnly proves that IndexFiles indexes ONLY the listed
-// files. It creates a two-file fixture, calls IndexFiles with only one file,
-// then asserts:
-//   - the indexed file has at least one node in the graph, AND
-//   - the un-indexed file has NO nodes.
-//
-// This test would fail if IndexFiles silently fell back to IndexAll (both
-// files would have nodes).
+// Two files, one indexed: the other must stay absent from the graph, which is
+// what a silent fallback to IndexAll would break.
 func TestIndexFiles_SelectiveOnly(t *testing.T) {
 	dir := writeFixture(t) // greeter.go + main.go
 	ctx := context.Background()
@@ -493,13 +425,11 @@ func TestIndexFiles_SelectiveOnly(t *testing.T) {
 		t.Fatal("Init:", err)
 	}
 
-	// Index ONLY greeter.go (absolute path required by IndexFiles).
 	greeterAbs := filepath.Join(dir, "greeter.go")
 	if err := e.IndexFiles(ctx, []string{greeterAbs}); err != nil {
 		t.Fatal("IndexFiles:", err)
 	}
 
-	// greeter.go must have nodes (Greet function).
 	greeterNodes, err := e.GetNodesByName(ctx, "Greet", "")
 	if err != nil {
 		t.Fatal("GetNodesByName Greet:", err)
@@ -508,9 +438,6 @@ func TestIndexFiles_SelectiveOnly(t *testing.T) {
 		t.Error("expected nodes for Greet (in greeter.go) after IndexFiles([greeter.go])")
 	}
 
-	// main.go must have NO nodes — it was not listed in IndexFiles.
-	// Use GetNodesByName for "main" to check; if IndexFiles fell back to IndexAll,
-	// main() would have been indexed and this assertion would fail.
 	mainNodes, err := e.GetNodesByName(ctx, "main", "")
 	if err != nil {
 		t.Fatal("GetNodesByName main:", err)

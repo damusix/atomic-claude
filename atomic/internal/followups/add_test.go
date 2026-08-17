@@ -30,7 +30,6 @@ func TestAdd_HappyPath(t *testing.T) {
 		t.Fatal("Add returned empty path")
 	}
 
-	// File must exist and parse cleanly.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read entry: %v", err)
@@ -146,7 +145,6 @@ func TestAdd_KindPlan_SeverityOptional(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	// File must parse cleanly.
 	e, err := ParseEntry(string(raw))
 	if err != nil {
 		t.Fatalf("ParseEntry: %v", err)
@@ -154,11 +152,9 @@ func TestAdd_KindPlan_SeverityOptional(t *testing.T) {
 	if e.Kind != KindPlan {
 		t.Errorf("kind=%q, want %q", e.Kind, KindPlan)
 	}
-	// Frontmatter must contain kind: plan.
 	if !strings.Contains(string(raw), "kind: plan") {
 		t.Errorf("expected 'kind: plan' in frontmatter:\n%s", raw)
 	}
-	// Severity must not be set.
 	if e.Severity != "" {
 		t.Errorf("severity=%q, want empty for plan", e.Severity)
 	}
@@ -205,7 +201,6 @@ func TestAdd_KindFinding_SeverityRequired(t *testing.T) {
 	}
 	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
 
-	// Omit severity with kind=finding → must fail.
 	_, err := Add(dir, AddOpts{
 		ID:     "finding-no-sev",
 		Title:  "missing severity",
@@ -250,7 +245,6 @@ func TestAdd_DefaultKindIsFinding(t *testing.T) {
 	}
 	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
 
-	// Omit Kind field → should default to finding.
 	path, err := Add(dir, AddOpts{
 		ID:       "default-kind-001",
 		Title:    "default kind test",
@@ -274,7 +268,6 @@ func TestAdd_DefaultKindIsFinding(t *testing.T) {
 	}
 }
 
-// missing severity error must not double-wrap.
 func TestAdd_MissingSeverityErrorSingleWrapped(t *testing.T) {
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "followups")
@@ -294,11 +287,9 @@ func TestAdd_MissingSeverityErrorSingleWrapped(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	msg := err.Error()
-	// Must not contain the double-prefix "followups add: followups: missing".
 	if strings.Contains(msg, "followups add: followups:") {
 		t.Errorf("error is double-wrapped: %q", msg)
 	}
-	// Must still say something about severity.
 	if !strings.Contains(strings.ToLower(msg), "severity") {
 		t.Errorf("error should mention severity: %q", msg)
 	}
@@ -349,7 +340,6 @@ func TestAdd_ValidationErrors(t *testing.T) {
 		},
 	}
 
-	// Pre-create one entry for duplicate test.
 	if _, err := Add(dir, AddOpts{
 		ID: "my-finding-001", Title: "existing", Severity: "risk", Origin: "o", Today: today,
 	}); err != nil {

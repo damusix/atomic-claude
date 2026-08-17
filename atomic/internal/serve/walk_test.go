@@ -1,16 +1,5 @@
 package serve_test
 
-// walk_test.go — tests for shouldSkipDir behaviour across all three walkers.
-//
-// Each test builds a temp realm that has:
-//   - a "normal" page at the root level
-//   - a page inside .claude/ (servable project docs — must be INCLUDED)
-//   - a page inside .git/ (hidden dir — must be excluded)
-//   - a page inside tmp/ / node_modules/ (named skip dirs — must be excluded)
-//
-// Then asserts that the respective walker sees the normal page and .claude docs
-// but not the genuinely-skipped dirs.
-
 import (
 	"encoding/json"
 	"net/http"
@@ -22,16 +11,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// buildPollutedRealm creates a temp realm for skip-dir tests.
-//
-// Layout:
-//
-//	normal.md                    — real page, should be included
-//	.claude/project/signals.md   — .claude IS walked (servable project docs),
-//	                               so this should be INCLUDED
-//	.git/hidden.md               — hidden dir, should be excluded
-//	tmp/junk.md                  — named skip dir, should be excluded
-//	node_modules/pkg.md          — named skip dir, should be excluded
+// .claude holds servable project docs and IS walked, unlike the other hidden and
+// named-skip dirs seeded here.
 func buildPollutedRealm(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -45,9 +26,6 @@ func buildPollutedRealm(t *testing.T) string {
 	return root
 }
 
-// TestBuildLinkGraph_IncludesClaudeExcludesOtherSkipDirs asserts that
-// BuildLinkGraph walks .claude (servable project docs cited by wiki linkify)
-// but still excludes .git/, tmp/, and node_modules/.
 func TestBuildLinkGraph_IncludesClaudeExcludesOtherSkipDirs(t *testing.T) {
 	root := buildPollutedRealm(t)
 	g := serve.BuildLinkGraph(root)
@@ -58,15 +36,13 @@ func TestBuildLinkGraph_IncludesClaudeExcludesOtherSkipDirs(t *testing.T) {
 		nodeSet[n] = true
 	}
 
-	// normal.md and the .claude project doc must both be present: the page
-	// handler serves .claude files, so the graph must know about them too.
+	// The page handler serves .claude files, so the graph has to know them too.
 	for _, want := range []string{"normal.md", ".claude/project/signals.md"} {
 		if !nodeSet[want] {
 			t.Errorf("BuildLinkGraph: expected %q in nodes, got %v", want, nodes)
 		}
 	}
 
-	// Other hidden/skip-dir pages must remain absent.
 	forbidden := []string{
 		".git/hidden.md",
 		"tmp/junk.md",
@@ -79,17 +55,11 @@ func TestBuildLinkGraph_IncludesClaudeExcludesOtherSkipDirs(t *testing.T) {
 	}
 }
 
-// TestWalkMarkdownFilesRecursive_ExcludesHiddenAndSkipDirs asserts that the
-// docs-tree walker (used by renderRepoNav) skips .* and named-skip dirs.
-//
-// walkMarkdownFilesRecursive is unexported so we drive it indirectly through
-// the /nav handler in repo scope, whose docs group calls it on root/docs.
-// We build a docs/ subtree that has the same pattern: a normal page plus
-// hidden/skip-dir pages, and confirm only the normal one appears in the HTML.
+// walkMarkdownFilesRecursive is unexported, so it is driven through the nav
+// handler in repo scope, whose docs group calls it on root/docs.
 func TestWalkMarkdownFilesRecursive_ExcludesHiddenAndSkipDirs(t *testing.T) {
 	root := t.TempDir()
 
-	// repo-scope nav reads docs/**/*.md via walkMarkdownFilesRecursive.
 	writeFile(t, filepath.Join(root, "docs", "guide.md"), "# Guide\n")
 	writeFile(t, filepath.Join(root, "docs", ".claude", "claudedoc.md"), "# ClaudeDoc\n")
 	writeFile(t, filepath.Join(root, "docs", ".git", "hidden.md"), "# Hidden\n")
@@ -103,7 +73,7 @@ func TestWalkMarkdownFilesRecursive_ExcludesHiddenAndSkipDirs(t *testing.T) {
 
 	labels := navLabelsFromOpts(t, opts)
 
-	// guide.md and the .claude doc are both servable, so both appear in nav.
+	// Both are servable, so both belong in nav.
 	for _, want := range []string{"guide", "claudedoc"} {
 		if !labels[want] {
 			t.Errorf("buildRepoNavGroupsJSON: expected %q among nav labels, got:\n%v", want, labels)
@@ -118,13 +88,9 @@ func TestWalkMarkdownFilesRecursive_ExcludesHiddenAndSkipDirs(t *testing.T) {
 	}
 }
 
-// TestBuildExternalRegistry_ExcludesHiddenAndSkipDirs asserts that
-// BuildExternalRegistry does not process files inside .claude/, tmp/, or node_modules/.
 func TestBuildExternalRegistry_ExcludesHiddenAndSkipDirs(t *testing.T) {
 	root := buildPollutedRealm(t)
 
-	// Add external links to the normal page, a .claude doc (walked), and the
-	// genuinely-skipped dirs.
 	writeFile(t, filepath.Join(root, "normal.md"),
 		"# Normal\n\n[good link](https://good.example.com/normal)\n")
 	writeFile(t, filepath.Join(root, ".claude", "project", "signals.md"),
@@ -143,7 +109,6 @@ func TestBuildExternalRegistry_ExcludesHiddenAndSkipDirs(t *testing.T) {
 		urlSet[e.URL] = true
 	}
 
-	// Links from normal.md and from .claude (walked) are both registered.
 	for _, u := range []string{
 		"https://good.example.com/normal",
 		"https://good.example.com/claude",
@@ -165,9 +130,7 @@ func TestBuildExternalRegistry_ExcludesHiddenAndSkipDirs(t *testing.T) {
 	}
 }
 
-// navLabelsFromOpts fires the /api/nav handler and flattens every group's
-// item (and nested folder-child) labels into a set, for membership assertions
-// that don't care about tree shape.
+// navLabelsFromOpts flattens the nav tree to a label set, dropping tree shape.
 func navLabelsFromOpts(t *testing.T, opts serve.NavOptions) map[string]bool {
 	t.Helper()
 	h := serve.NewAPINavHandler(opts)
@@ -201,8 +164,7 @@ func navLabelsFromOpts(t *testing.T, opts serve.NavOptions) map[string]bool {
 	return labels
 }
 
-// navLabelNode mirrors the /api/nav navNodeJSON shape (label + optional
-// children), used only to flatten labels for membership assertions.
+// navLabelNode is the label-bearing subset of the server's navNodeJSON.
 type navLabelNode struct {
 	Label    string         `json:"label"`
 	Children []navLabelNode `json:"children,omitempty"`

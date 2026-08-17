@@ -1,12 +1,5 @@
 package serve_test
 
-// api_code_test.go — /api/code/{node,callers,callees,impact,files,
-// schema,file} JSON shape tests. TDD: written to assert the shapes pinned in
-// the spec's ## API contracts table before/alongside implementation.
-//
-// Reuses the fakeCodeEngine / fakeProviderFor / richFakeCodeEngine seams from
-// codeexplorer_test.go (same package).
-
 import (
 	"context"
 	"encoding/json"
@@ -23,8 +16,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
-
-// ─── /api/code/node ──────────────────────────────────────────────────────────
 
 func TestAPICodeNode_Found(t *testing.T) {
 	fake := &fakeCodeEngine{
@@ -124,8 +115,6 @@ func TestAPICodeNode_Unresolvable_404(t *testing.T) {
 	assertErrorEnvelope(t, rr)
 }
 
-// ─── /api/code/{callers,callees,impact} ──────────────────────────────────────
-
 func TestAPICodeCallers_Shape(t *testing.T) {
 	callers := types.Subgraph{
 		Nodes: map[string]types.Node{
@@ -181,9 +170,7 @@ func TestAPICodeCallers_Shape(t *testing.T) {
 	}
 }
 
-// TestAPICodeCallers_Unresolvable_404 verifies that an unresolvable id on
-// /api/code/callers returns 404 (not 500) — mirrors /api/code/node's
-// not-found handling, per the reviewer finding.
+// An unresolvable id is 404, not 500, matching /api/code/node.
 func TestAPICodeCallers_Unresolvable_404(t *testing.T) {
 	fake := &fakeCodeEngine{callersErr: fmt.Errorf("codeintel/db: GetNode missing: %w", db.ErrNotFound)}
 
@@ -240,8 +227,6 @@ func TestAPICodeImpact_DepthPassedThrough(t *testing.T) {
 	}
 }
 
-// ─── /api/code/files ──────────────────────────────────────────────────────────
-
 func TestAPICodeFiles_Shape(t *testing.T) {
 	fake := &fakeCodeEngine{
 		files: []types.FileRecord{
@@ -280,8 +265,6 @@ func TestAPICodeFiles_Shape(t *testing.T) {
 		t.Errorf("files[0]: got %+v", got.Files[0])
 	}
 }
-
-// ─── /api/code/schema ─────────────────────────────────────────────────────────
 
 func TestAPICodeSchema_TableColumnsFK(t *testing.T) {
 	richFake := &richFakeCodeEngine{
@@ -345,7 +328,6 @@ func TestAPICodeSchema_TableColumnsFK(t *testing.T) {
 		t.Fatalf("unmarshal: %v; body=%s", err, rr.Body.String())
 	}
 
-	// Two tables (users, orders) — no views.
 	if len(got.Tables) != 2 {
 		t.Fatalf("expected 2 tables, got %d: %+v", len(got.Tables), got.Tables)
 	}
@@ -414,8 +396,6 @@ func TestAPICodeSchema_Empty(t *testing.T) {
 	}
 }
 
-// ─── /api/code/file ───────────────────────────────────────────────────────────
-
 func TestAPICodeFile_Shape(t *testing.T) {
 	fake := &fakeCodeEngine{
 		nodesInFile: []types.Node{
@@ -476,9 +456,8 @@ func TestAPICodeFile_MissingPath_400(t *testing.T) {
 	assertErrorEnvelope(t, rr)
 }
 
-// TestAPICodeFile_NotIndexed_Degraded verifies the not-indexed state is a
-// 200 response with a data-carried "degraded" reason — not an error envelope
-// (per the API contracts soft-state convention).
+// Not-indexed is soft state: 200 with a data-carried reason, not an error
+// envelope.
 func TestAPICodeFile_NotIndexed_Degraded(t *testing.T) {
 	fake := &fakeCodeEngine{nodesInFile: nil}
 
@@ -511,10 +490,8 @@ func TestAPICodeFile_NotIndexed_Degraded(t *testing.T) {
 	}
 }
 
-// TestAPICodeFiles_ProductionRealIndex proves the production EngineProvider
-// (nil → DefaultEngineProvider) opens a real on-disk index and the /api/code/files
-// handler surfaces its indexed files — not just the fakeCodeEngine seam used by
-// the rest of this file. Ported from the pre-cutover codeexplorer_test.go.
+// Every other test here runs on the fake seam; this one drives the production
+// provider against a real on-disk index.
 func TestAPICodeFiles_ProductionRealIndex(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping production-wiring test in short mode")
@@ -561,16 +538,13 @@ func TestAPICodeFiles_ProductionRealIndex(t *testing.T) {
 	}
 }
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
 var errNotFound = errFor("node not found")
 
 type errFor string
 
 func (e errFor) Error() string { return string(e) }
 
-// assertErrorEnvelope verifies the response body is the {"error": "..."}
-// envelope shared by every /api/* endpoint.
+// assertErrorEnvelope checks the {"error": "..."} shape every /api/* route uses.
 func assertErrorEnvelope(t *testing.T, rr *httptest.ResponseRecorder) {
 	t.Helper()
 	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {

@@ -8,11 +8,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// A re-runnable schema script is written with IF NOT EXISTS on every ALTER and
-// with CREATE DOMAIN wrapped in a DO block (Postgres gives DOMAIN no IF NOT
-// EXISTS form). Both idioms were invisible or actively wrong: the ALTER
-// captured the literal "IF" as a column name, ADD CONSTRAINT captured
-// "CONSTRAINT" as one, and no domain in such a file was extracted at all.
+// Re-runnable Postgres: IF NOT EXISTS on every ALTER, CREATE DOMAIN wrapped in a
+// DO block (Postgres has no IF NOT EXISTS form for DOMAIN). Both used to mis-parse —
+// "IF" and "CONSTRAINT" captured as column names, DO-wrapped domains missed entirely.
 const idempotentPgFixture = `
 DO $$ BEGIN CREATE DOMAIN tg_no   AS bigint;      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE DOMAIN tg_code AS varchar(50); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -58,16 +56,14 @@ func TestIdempotentPostgresScript(t *testing.T) {
 		}
 	}
 
-	// The real columns behind IF NOT EXISTS still land.
 	for _, name := range []string{"updated_at", "updated_by"} {
 		if findSQLNode(nodes, types.NodeKindColumn, name) == nil {
 			t.Errorf("expected column %q from ALTER TABLE ADD COLUMN IF NOT EXISTS", name)
 		}
 	}
 
-	// And the keywords around them never become columns. REFERENCES is the
-	// continuation line of a multi-line table constraint, which reads exactly
-	// like a `<name> <type>` column definition if nothing rules it out.
+	// REFERENCES leads the continuation line of a multi-line table constraint,
+	// which reads exactly like a `<name> <type>` column definition.
 	for _, bogus := range []string{
 		"IF", "if", "CONSTRAINT", "constraint", "NOT", "EXISTS", "REFERENCES", "references", "FOREIGN",
 	} {
@@ -76,7 +72,6 @@ func TestIdempotentPostgresScript(t *testing.T) {
 		}
 	}
 
-	// The real columns of the multi-line-constraint table still land.
 	for _, name := range []string{"party_no", "sales_order_no"} {
 		if findSQLNode(nodes, types.NodeKindColumn, name) == nil {
 			t.Errorf("expected column %q on sales_order_item", name)
@@ -105,10 +100,8 @@ func constraintCols(t *testing.T, nodes []types.Node, name string) []string {
 	return meta.Columns
 }
 
-// Which columns a key covers is stated in the declaration. Reading it off the
-// constraint's *name* was guesswork that a repo naming its keys pk_<table>
-// defeats entirely, and that a table named after one of its own columns
-// defeats in the other direction — by marking a column that is not in the key.
+// Columns come from the declaration, never the constraint's name: pk_<table>
+// naming defeats name-guessing, and so does a table named after its own column.
 func TestConstraintsRecordTheirActualColumns(t *testing.T) {
 	ext := newSQL()
 	result, err := ext.Extract("/db/config.sql", idempotentPgFixture)
@@ -117,18 +110,16 @@ func TestConstraintsRecordTheirActualColumns(t *testing.T) {
 	}
 	nodes := result.Nodes
 
-	// Single-column key, name says nothing about the column.
+	// The name says nothing about the column it covers.
 	if got := constraintCols(t, nodes, "pk_app_setting"); !slices.Equal(got, []string{"param"}) {
 		t.Errorf("pk_app_setting columns = %v, want [param]", got)
 	}
 
-	// Composite key, declared on one line.
 	if got := constraintCols(t, nodes, "pk_sales_order_item"); !slices.Equal(got, []string{"party_no", "sales_order_no"}) {
 		t.Errorf("pk_sales_order_item columns = %v, want [party_no sales_order_no]", got)
 	}
 
-	// Split across three lines, and the local columns — not the REFERENCES
-	// target's list, which happens to be spelled the same here on purpose.
+	// Local columns, not the REFERENCES target's list — spelled the same on purpose.
 	if got := constraintCols(t, nodes, "fk_sales_order_item_is_a_line_of_sales_order"); !slices.Equal(got, []string{"party_no", "sales_order_no"}) {
 		t.Errorf("multi-line FK columns = %v, want [party_no sales_order_no]", got)
 	}
@@ -137,8 +128,7 @@ func TestConstraintsRecordTheirActualColumns(t *testing.T) {
 		t.Errorf("single-line FK columns = %v, want [type]", got)
 	}
 
-	// A CHECK's parentheses hold an expression. Picking identifiers out of it
-	// would be exactly the guesswork this replaces.
+	// A CHECK holds an expression, not a column list.
 	if got := constraintCols(t, nodes, "ck_app_setting_kind"); len(got) != 0 {
 		t.Errorf("CHECK constraint reported columns %v; expressions are not column lists", got)
 	}

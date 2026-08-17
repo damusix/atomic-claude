@@ -1,26 +1,9 @@
 package languages
 
-// Java language extractor configuration.
-//
-// Verified node-type strings (read from the live Java grammar):
-//
-//	Top-level (direct children of program):
-//	  import_declaration       — import java.util.List;
-//	  interface_declaration    — public interface Drawable { ... }
-//	  enum_declaration         — public enum Direction { ... }
-//	  class_declaration        — public class Canvas ... / public class Main ...
-//
-//	Named-iterator also sees (inside bodies):
-//	  method_declaration       — public void draw() {} / int getId() {}
-//	  field_declaration        — private int id; / public String name;
-//	  method_invocation        — render(this.id) / c.draw() / System.out.println(...)
-//	  object_creation_expression — new Canvas(1, "test")
-//
-// Name field: 'name' works on class_declaration, interface_declaration,
-// enum_declaration, method_declaration (verified by probe4).
-//
-// IsExported rule: 'modifiers' named child (kind="modifiers") contains "public".
-// Java uses plural 'modifiers' as a container node — distinct from C# 'modifier'.
+// Node-type strings are read from the live Java grammar — do not guess. Java
+// puts every modifier inside one plural "modifiers" container node, where C#
+// repeats a singular "modifier" node; the two extractors read them differently
+// for that reason.
 
 import (
 	"context"
@@ -33,57 +16,38 @@ import (
 )
 
 // JavaExtractor returns the LanguageExtractor config for Java source files (.java).
-//
-// Node-type strings are verified by parsing real Java via the wazero binding
-// .
 func JavaExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
-		// Java has method_declaration for methods; no separate function_declaration.
+		// Java has no free functions, so every callable is a method.
 		MethodTypes: extraction.TypeSet("method_declaration"),
 
-		// Separate top-level declarations — all have 'name' field.
 		ClassTypes:     extraction.TypeSet("class_declaration"),
 		InterfaceTypes: extraction.TypeSet("interface_declaration"),
 		EnumTypes:      extraction.TypeSet("enum_declaration"),
 
-		// Field and import declarations.
 		FieldTypes:  extraction.TypeSet("field_declaration"),
 		ImportTypes: extraction.TypeSet("import_declaration"),
 
-		// method_invocation for regular calls; object_creation_expression for new Foo().
 		CallTypes:          extraction.TypeSet("method_invocation"),
 		InstantiationTypes: extraction.TypeSet("object_creation_expression"),
 
-		// Field names in the Java grammar (verified by probe4).
 		NameField:   "name",
 		BodyField:   "body",
 		ParamsField: "formal_parameters",
 
-		// IsExported: checks for a 'modifiers' named child (kind="modifiers") whose
-		// text contains "public". Java uses a container 'modifiers' node (plural),
-		// distinct from C#'s 'modifier' (singular).
 		IsExported: javaIsExported,
 
-		// ExtractImport extracts the import path from import_declaration nodes.
 		ExtractImport: javaExtractImport,
 
-		// ExtractHeritage extracts superclass and implemented interfaces from
-		// class_declaration nodes.
 		ExtractHeritage: javaExtractHeritage,
 	}
 }
 
-// javaIsExported reports whether a Java node is public.
-// Rules:
-//  1. If the node has a 'modifiers' child (kind="modifiers") containing "public" → exported.
-//  2. If the node is a method_declaration with NO 'modifiers' child AND no body →
-//     it is an interface abstract method (implicitly public in Java) → exported.
-//  3. Otherwise → not exported (package-private or non-public modifier).
-//
-// Rule 2 is scoped to method_declaration only. A bare field_declaration with no
-// modifiers is package-private in Java, not public — applying the implicit-public
-// fallback to fields would wrongly grant them IsExported=true and skew resolution
-// scoring (+10 ScoreExported) toward hidden symbols.
+// javaIsExported looks for "public" in the modifiers container, then falls back
+// to treating a bodiless, modifier-less method as an implicitly public interface
+// method. That fallback is deliberately scoped to methods: an unmarked field is
+// package-private, and calling it exported would hand hidden symbols the
+// exported bonus in resolution scoring.
 func javaIsExported(ctx context.Context, node sitter.Node, source string) bool {
 	nodeKind, err := node.Kind(ctx)
 	if err != nil {
@@ -119,28 +83,20 @@ func javaIsExported(ctx context.Context, node sitter.Node, source string) bool {
 			hasBlock = true
 		}
 	}
-	// Interface abstract method: method_declaration with no modifiers and no body
-	// is implicitly public in Java. Scope this rule to method_declaration only —
-	// a bare field_declaration with no modifiers is package-private, not public.
 	if nodeKind == "method_declaration" && !hasModifiers && !hasBlock {
 		return true
 	}
 	return false
 }
 
-// javaExtractImport extracts the import path from an import_declaration node.
-//
-//	import java.util.List;         → name="List",  path="java.util.List"
-//	import java.io.*;              → name="io",    path="java.io"
-//	import static java.lang.Math.PI; → name="PI",  path="java.lang.Math.PI"
+// javaExtractImport returns the import path and its last segment as the name. A
+// wildcard import yields the package it expands: "java.io.*" → "java.io".
 func javaExtractImport(ctx context.Context, node sitter.Node, source string) (name string, path string) {
 	kind, err := node.Kind(ctx)
 	if err != nil || kind != "import_declaration" {
 		return "", ""
 	}
 
-	// import_declaration's first named child is typically a scoped_identifier or
-	// asterisk. Use the full node text and strip "import " prefix and ";".
 	sb, _ := node.StartByte(ctx)
 	eb, _ := node.EndByte(ctx)
 	if int(eb) > len(source) {
@@ -152,36 +108,21 @@ func javaExtractImport(ctx context.Context, node sitter.Node, source string) (na
 	text = strings.TrimSuffix(text, ";")
 	text = strings.TrimSpace(text)
 
-	// Handle wildcard imports: "java.io.*" → path="java.io", name="io".
 	if strings.HasSuffix(text, ".*") {
 		path = strings.TrimSuffix(text, ".*")
 	} else {
 		path = text
 	}
 
-	// Name = last segment.
 	segments := strings.Split(path, ".")
 	name = segments[len(segments)-1]
 	return name, path
 }
 
-// javaExtractHeritage extracts superclass and implemented-interface references
-// from Java class_declaration nodes.
-//
-// Grammar layout (verified by real parse probe):
-//
-//	class_declaration
-//	  name: identifier                 — "Dog"
-//	  superclass                       — "extends Animal"
-//	    type_identifier                — "Animal"
-//	  super_interfaces                 — "implements Speakable, Runnable"
-//	    type_list
-//	      type_identifier              — "Speakable"
-//	      type_identifier              — "Runnable"
-//
-// superclass → first type_identifier child → EdgeKindExtends.
-// super_interfaces → type_list → all type_identifier grandchildren → EdgeKindImplements.
-// interface_declaration has no superclass / super_interfaces in Java 8+ grammar.
+// javaExtractHeritage reads a class_declaration's superclass child as an extends
+// edge and every type_identifier under its super_interfaces/type_list as an
+// implements edge. Only classes are handled: the Java 8+ grammar gives
+// interface_declaration neither child.
 func javaExtractHeritage(ctx context.Context, node sitter.Node, source string) []extraction.HeritageRef {
 	kind, err := node.Kind(ctx)
 	if err != nil {
@@ -208,7 +149,6 @@ func javaExtractHeritage(ctx context.Context, node sitter.Node, source string) [
 		}
 		switch ck {
 		case "superclass":
-			// superclass has one type_identifier child.
 			gcnt, err := ch.NamedChildCount(ctx)
 			if err != nil {
 				continue
@@ -237,7 +177,6 @@ func javaExtractHeritage(ctx context.Context, node sitter.Node, source string) [
 				break // only one superclass in Java
 			}
 		case "super_interfaces":
-			// super_interfaces → type_list → type_identifier grandchildren.
 			slcnt, err := ch.NamedChildCount(ctx)
 			if err != nil {
 				continue

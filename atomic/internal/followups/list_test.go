@@ -19,13 +19,11 @@ func setupListDir(t *testing.T) (string, time.Time) {
 
 	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
 
-	// Create entries: one risk, one nit (stale), one question.
 	if _, err := Add(dir, AddOpts{
 		ID: "risk-001", Title: "Risk one", Severity: "risk", Origin: "o", Today: today,
 	}); err != nil {
 		t.Fatalf("Add risk: %v", err)
 	}
-	// Create a stale nit: review_by in the past → use a fake entry written directly.
 	staleEntry := `---
 id: stale-nit
 title: Stale nit
@@ -111,7 +109,7 @@ func TestFormatListHuman(t *testing.T) {
 	}
 }
 
-// plan entries must not appear in --stale output even when review_by is past.
+// A plan stays out of --stale even with review_by in the past.
 func TestListEntries_PlanNotInStale(t *testing.T) {
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "followups")
@@ -120,7 +118,6 @@ func TestListEntries_PlanNotInStale(t *testing.T) {
 	}
 	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
 
-	// Write a plan entry with review_by far in the past.
 	stalePlan := `---
 id: old-plan
 title: Old plan
@@ -138,7 +135,6 @@ Body.
 		t.Fatalf("write old-plan: %v", err)
 	}
 
-	// Write a stale finding for contrast.
 	staleFinding := `---
 id: stale-finding
 title: Stale finding
@@ -160,7 +156,6 @@ Body.
 	if err != nil {
 		t.Fatalf("ListEntries: %v", err)
 	}
-	// Only the finding should appear; plan must be excluded.
 	if len(entries) != 1 {
 		t.Errorf("expected 1 stale entry (the finding), got %d", len(entries))
 	}
@@ -185,7 +180,6 @@ func TestFormatListJSON(t *testing.T) {
 	if len(parsed) != 3 {
 		t.Errorf("expected 3 JSON entries, got %d", len(parsed))
 	}
-	// Each entry must have an "id" field.
 	for _, m := range parsed {
 		if _, ok := m["id"]; !ok {
 			t.Errorf("JSON entry missing 'id' field: %v", m)
@@ -193,7 +187,7 @@ func TestFormatListJSON(t *testing.T) {
 	}
 }
 
-// F-4: list --json must include a "kind" field for each entry.
+// Every --json entry carries a kind.
 func TestFormatListJSON_KindField(t *testing.T) {
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "followups")
@@ -202,14 +196,12 @@ func TestFormatListJSON_KindField(t *testing.T) {
 	}
 	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
 
-	// Add a finding entry (severity required).
 	if _, err := Add(dir, AddOpts{
 		ID: "f-001", Title: "Finding entry", Severity: "risk", Origin: "o", Today: today,
 	}); err != nil {
 		t.Fatalf("Add finding: %v", err)
 	}
 
-	// Add a plan entry (no severity).
 	planEntry := `---
 id: p-001
 title: Plan entry
@@ -248,7 +240,6 @@ Body.
 		byID[id] = m
 	}
 
-	// finding must have kind "finding".
 	finding, ok := byID["f-001"]
 	if !ok {
 		t.Fatal("f-001 not found in JSON output")
@@ -257,7 +248,6 @@ Body.
 		t.Errorf("f-001 kind=%q, want %q", kind, "finding")
 	}
 
-	// plan must have kind "plan".
 	plan, ok := byID["p-001"]
 	if !ok {
 		t.Fatal("p-001 not found in JSON output")

@@ -10,27 +10,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/validate"
 )
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// buildMinimalRepo creates a synthetic repo under dir with the minimal
-// structure required for spec + config + bundle validators to return exit 0.
-//
-// Structure:
-//   - docs/spec/good-spec.md — a valid spec (passes S0/S1/S5/S6)
-//   - CLAUDE.md              — minimal, references no agents
-//   - agents/                — empty dir (no agents to check)
-//   - commands/              — empty dir
-//   - skills/                — empty dir
-//   - output-styles/         — empty dir
-//   - rules/                 — empty dir
-//   - .git                   — file (simulates a git worktree)
 func buildMinimalRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 
-	// Artifact dirs live under context/; docs/ does not ship and stays at root.
 	dirs := []string{
 		"docs/spec",
 		"context/agents",
@@ -45,12 +28,10 @@ func buildMinimalRepo(t *testing.T) string {
 		}
 	}
 
-	// .git as a file (simulates a worktree; findRepoRoot handles both).
 	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: ../.git/worktrees/test"), 0o644); err != nil {
 		t.Fatalf("write .git: %v", err)
 	}
 
-	// A valid spec that passes all S-rules.
 	goodSpec := `# Good Spec
 
 ## Checkpoints
@@ -67,7 +48,6 @@ func buildMinimalRepo(t *testing.T) string {
 		t.Fatalf("write good-spec.md: %v", err)
 	}
 
-	// Minimal CLAUDE.md with no @-refs and no agent registry entries.
 	claudeMD := `# CLAUDE.md
 
 Minimal config for test.
@@ -79,9 +59,6 @@ Minimal config for test.
 	return root
 }
 
-// addRepoDevMarker creates the bundle-mirror source file that identifies a tree
-// as the atomic-claude development repo. Bundle parity only runs when this
-// marker is present.
 func addRepoDevMarker(t *testing.T, root string) {
 	t.Helper()
 	dir := filepath.Join(root, "atomic", "internal", "bundlemirror")
@@ -93,8 +70,6 @@ func addRepoDevMarker(t *testing.T, root string) {
 	}
 }
 
-// runFromDir temporarily sets the working directory and calls RunWithOutput,
-// then restores the original wd. This is needed so findRepoRoot works correctly.
 func runFromDir(t *testing.T, dir string, args []string) (code int, out string) {
 	t.Helper()
 	orig, err := os.Getwd()
@@ -112,45 +87,24 @@ func runFromDir(t *testing.T, dir string, args []string) (code int, out string) 
 	return
 }
 
-// ---------------------------------------------------------------------------
-// TestDispatch_WholeRepo
-// ---------------------------------------------------------------------------
-
-// TestDispatch_WholeRepo_Exit0 proves that `atomic validate` (no args) on a
-// minimal repo runs ALL three validators (evidenced by all three headers) and
-// exits with a valid code (0 or 1 — not 2).
-//
-// WHY: CP-8 replaces the "subcommand required" stub with real whole-repo
-// dispatch. The key contract is: all three validator sections run and produce
-// output. Exit 0 or 1 both indicate validators ran; exit 2 means the dispatch
-// itself failed (internal error), which must not happen on a valid repo.
-//
-// Note: a minimal repo is NOT the atomic-claude dev repo (no bundle-mirror
-// marker), so the bundle validator is skipped silently — spec + config run and
-// the bundle header must NOT appear.
 func TestDispatch_WholeRepo_Exit0(t *testing.T) {
 	root := buildMinimalRepo(t)
 	code, out := runFromDir(t, root, []string{})
 
-	// exit 2 = internal error: dispatch itself failed — must not happen.
 	if code == 2 {
 		t.Errorf("whole-repo on minimal repo: got internal error (exit 2)\noutput:\n%s", out)
 	}
 
-	// spec + config run anywhere.
 	for _, header := range []string{"atomic validate spec", "atomic validate config"} {
 		if !strings.Contains(out, header) {
 			t.Errorf("whole-repo output missing header %q:\n%s", header, out)
 		}
 	}
-	// bundle is repo-dev-only: must be skipped outside the atomic-claude repo.
 	if strings.Contains(out, "atomic validate bundle") {
 		t.Errorf("whole-repo outside atomic-claude repo must skip bundle, but bundle header present:\n%s", out)
 	}
 }
 
-// TestDispatch_WholeRepo_RepoDev_IncludesBundle proves the bundle validator
-// runs (header present) when the tree IS the atomic-claude dev repo.
 func TestDispatch_WholeRepo_RepoDev_IncludesBundle(t *testing.T) {
 	root := buildMinimalRepo(t)
 	addRepoDevMarker(t, root)
@@ -166,8 +120,6 @@ func TestDispatch_WholeRepo_RepoDev_IncludesBundle(t *testing.T) {
 	}
 }
 
-// TestDispatch_Bundle_NotRepoDev_Skips proves explicit `atomic validate bundle`
-// outside the atomic-claude repo exits 0 with a clean SKIP, not a crash (exit 2).
 // Regression: it used to crash with exit 2 instead of skipping.
 func TestDispatch_Bundle_NotRepoDev_Skips(t *testing.T) {
 	root := buildMinimalRepo(t)
@@ -181,8 +133,6 @@ func TestDispatch_Bundle_NotRepoDev_Skips(t *testing.T) {
 	}
 }
 
-// TestDispatch_Bundle_NotRepoDev_JSON proves the JSON path also skips cleanly
-// (exit 0, valid envelope, no internal error) outside the repo.
 func TestDispatch_Bundle_NotRepoDev_JSON(t *testing.T) {
 	root := buildMinimalRepo(t)
 	code, out := runFromDir(t, root, []string{"--json", "bundle"})
@@ -195,12 +145,6 @@ func TestDispatch_Bundle_NotRepoDev_JSON(t *testing.T) {
 	}
 }
 
-// TestDispatch_WholeRepo_JSON proves `atomic validate --json` emits a single
-// JSON envelope containing findings from ALL validators (schema_version:1).
-//
-// WHY: JSON consumers must receive one envelope, not three separate JSON blobs.
-// Exit 0 or 1 both valid (synthetic repo may fail bundle parity). Exit 2 must
-// not occur — that is an internal dispatch error.
 func TestDispatch_WholeRepo_JSON(t *testing.T) {
 	root := buildMinimalRepo(t)
 	code, out := runFromDir(t, root, []string{"--json"})
@@ -211,17 +155,12 @@ func TestDispatch_WholeRepo_JSON(t *testing.T) {
 	if !strings.Contains(out, "schema_version") {
 		t.Errorf("--json output missing schema_version:\n%s", out)
 	}
-	// Must be valid-ish JSON (starts with '{').
 	trimmed := strings.TrimSpace(out)
 	if !strings.HasPrefix(trimmed, "{") {
 		t.Errorf("--json output does not start with '{': %q", trimmed[:min(50, len(trimmed))])
 	}
 }
 
-// TestDispatch_WholeRepo_InternalError proves that whole-repo dispatch exits 2
-// when findRepoRoot cannot find a .git (i.e. not in a repo).
-//
-// WHY: Internal error path must be loud (exit 2), not silently exit 0.
 func TestDispatch_WholeRepo_InternalError(t *testing.T) {
 	noRepo := t.TempDir() // no .git
 	code, out := runFromDir(t, noRepo, []string{})
@@ -231,18 +170,9 @@ func TestDispatch_WholeRepo_InternalError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestDispatch_PathRouting
-// ---------------------------------------------------------------------------
-
-// TestDispatch_PathRouting_SpecPath proves that `atomic validate docs/spec/foo.md`
-// routes to the spec validator (runs S-rules on the file) rather than erroring.
-//
-// WHY: CP-8 path-aware routing — docs/spec/*.md must reach the spec runner.
 func TestDispatch_PathRouting_SpecPath(t *testing.T) {
 	root := buildMinimalRepo(t)
 
-	// Run with the path to the good spec.
 	code, out := runFromDir(t, root, []string{filepath.Join("docs", "spec", "good-spec.md")})
 	if code != 0 {
 		t.Errorf("path route to spec: got exit %d, want 0\noutput:\n%s", code, out)
@@ -252,15 +182,10 @@ func TestDispatch_PathRouting_SpecPath(t *testing.T) {
 	}
 }
 
-// TestDispatch_PathRouting_UnknownPath proves that `atomic validate <unknown>`
-// emits a WARN finding for paths that have no applicable validator.
-//
-// WHY: spec § CP-8: unknown paths → WARN, not FAIL or exit 2.
 func TestDispatch_PathRouting_UnknownPath(t *testing.T) {
 	root := buildMinimalRepo(t)
 
 	code, out := runFromDir(t, root, []string{"some/unknown/path.txt"})
-	// Exit 0 (WARN is not FAIL).
 	if code != 0 {
 		t.Errorf("unknown path: got exit %d, want 0\noutput:\n%s", code, out)
 	}
@@ -272,15 +197,6 @@ func TestDispatch_PathRouting_UnknownPath(t *testing.T) {
 	}
 }
 
-// TestDispatch_PathRouting_AbsolutePath proves that an absolute path argument
-// to `atomic validate` routes correctly to the spec validator rather than
-// falling through to WARN.
-//
-// WHY: CP-8 reviewer flag — filepath.Join(repoRoot, absPath) does NOT strip
-// the root on Unix; it concatenates, producing a double-rooted path whose
-// Rel() result is wrong. The fix detects IsAbs first and calls Rel directly.
-// Without the fix, docs/spec/foo.md passed as an absolute path gets WARNed
-// instead of validated.
 func TestDispatch_PathRouting_AbsolutePath(t *testing.T) {
 	root := buildMinimalRepo(t)
 
@@ -293,7 +209,6 @@ func TestDispatch_PathRouting_AbsolutePath(t *testing.T) {
 		realRoot = root
 	}
 
-	// Construct the absolute path to the good spec inside the temp repo.
 	absPath := filepath.Join(realRoot, "docs", "spec", "good-spec.md")
 	code, out := runFromDir(t, root, []string{absPath})
 	if code != 0 {
@@ -309,10 +224,6 @@ func TestDispatch_PathRouting_AbsolutePath(t *testing.T) {
 	}
 }
 
-// TestDispatch_PathRouting_MixedPaths proves that a mixed-path invocation routes
-// spec paths to spec and unknown paths to WARN, all in one run.
-//
-// WHY: users may pass mixed file lists from git status or CI matchers.
 func TestDispatch_PathRouting_MixedPaths(t *testing.T) {
 	root := buildMinimalRepo(t)
 
@@ -320,7 +231,6 @@ func TestDispatch_PathRouting_MixedPaths(t *testing.T) {
 	designPath := filepath.Join("docs", "design", "something.md")
 	code, out := runFromDir(t, root, []string{specPath, designPath})
 
-	// Exit 0 (spec passes; design → WARN only).
 	if code != 0 {
 		t.Errorf("mixed paths: got exit %d, want 0\noutput:\n%s", code, out)
 	}
@@ -329,26 +239,11 @@ func TestDispatch_PathRouting_MixedPaths(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestPerfBudget
-// ---------------------------------------------------------------------------
-
-// TestPerfBudget proves that `atomic validate` (whole-repo) on this repo
-// completes in under 500ms.
-//
-// WHY: spec § "Soft perf budget: <500ms on a modern machine." Performance
-// regression guard — new rules must fit within this envelope.
-//
-// The test locates the actual repo root by walking up from the test binary's
-// location (which is under atomic/internal/validate/ during `go test`). If no
-// .git is found (e.g. running outside the repo), the test is skipped rather
-// than failing.
 func TestPerfBudget(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping perf test in -short mode")
 	}
 
-	// Find the repo root from the test's working directory.
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -373,10 +268,8 @@ func TestPerfBudget(t *testing.T) {
 	t.Logf("whole-repo validate elapsed: %v", elapsed)
 }
 
-// findRepoRootForTest walks up from startDir looking for .git (file or dir).
-// Duplicates the internal findRepoRoot to avoid importing from the same package
-// under test (it's already in the package under test via white-box access but
-// this is an _test package).
+// findRepoRootForTest duplicates the package-internal findRepoRoot because this
+// is an external _test package.
 func findRepoRootForTest(startDir string) string {
 	dir := startDir
 	for {

@@ -1,9 +1,5 @@
 package serve_test
 
-// api_search_test.go — /api/search/md, /api/code/search,
-// /api/search/stream JSON shape tests. TDD: written to assert the shapes
-// pinned in the spec's ## API contracts table before/alongside implementation.
-
 import (
 	"bufio"
 	"context"
@@ -19,8 +15,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
-
-// ─── /api/search/md ─────────────────────────────────────────────────────────
 
 func TestAPISearchMD(t *testing.T) {
 	root := t.TempDir()
@@ -135,8 +129,6 @@ func TestAPISearchMD_EmptyQuery(t *testing.T) {
 	}
 }
 
-// ─── /api/code/search ────────────────────────────────────────────────────────
-
 type apiNodeRefWire struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -244,15 +236,13 @@ func TestAPICodeSearch_MissingQuery(t *testing.T) {
 	}
 }
 
-// ─── /api/search/stream ──────────────────────────────────────────────────────
-
 // sseEvent is one parsed "event: <name>\ndata: <payload>\n\n" block.
 type sseEvent struct {
 	Name string
 	Data string
 }
 
-// parseSSE reads all events out of an SSE body (small, complete test bodies only).
+// parseSSE consumes a whole SSE body at once, so only complete ones work.
 func parseSSE(t *testing.T, body string) []sseEvent {
 	t.Helper()
 	var events []sseEvent
@@ -331,9 +321,8 @@ func TestAPISearchStream_MdAndEnd(t *testing.T) {
 
 func TestAPISearchStream_CodeEvents(t *testing.T) {
 	root := t.TempDir()
-	// A bare repo (no realm/wikis registration) resolves to ScopeNoIndex,
-	// which discoverCodeMembers still maps to a single local-index member
-	// (Key: "", no [key] wrap) — the SearchFn seam makes db presence moot.
+	// A bare repo resolves to ScopeNoIndex, which still maps to one unkeyed local
+	// member; the SearchFn seam makes actual db presence moot.
 
 	handler := serve.NewAPISearchStreamHandler(serve.SearchStreamOptions{
 		NavRoot:      root,
@@ -394,7 +383,7 @@ func TestAPISearchStream_SrcClamping(t *testing.T) {
 		ClaudeMDPath: filepath.Join(root, "nonexistent-claude.md"),
 	})
 
-	// An invalid src clamps to "all" (md + code + end).
+	// Invalid src clamps to "all".
 	req := httptest.NewRequest(http.MethodGet, "/api/search/stream?q=needle&src=bogus", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -409,10 +398,8 @@ func TestAPISearchStream_SrcClamping(t *testing.T) {
 	}
 }
 
-// TestAPICodeSearch_ProductionDefault_RealIndex proves DefaultMemberSearchFn
-// (production seam) finds a symbol in a real on-disk index, and that
-// NewAPICodeSearchHandler wires it when SearchFn is nil. Ported from the
-// pre-cutover codesearch_test.go.
+// Drives DefaultMemberSearchFn against a real on-disk index, and checks the
+// handler falls back to it when SearchFn is nil.
 func TestAPICodeSearch_ProductionDefault_RealIndex(t *testing.T) {
 	memberDir := t.TempDir()
 	goSrc := "package greeter\n\n// Greet returns a greeting.\nfunc Greet(name string) string { return \"Hello, \" + name }\n"
@@ -453,8 +440,6 @@ func TestAPICodeSearch_ProductionDefault_RealIndex(t *testing.T) {
 		t.Errorf("no result with name containing 'Greet'; results: %+v", results)
 	}
 
-	// Also verify the /api/code/search handler wires to the production seam
-	// when SearchFn is nil, without panicking.
 	realmRoot := t.TempDir()
 	claudeMDPath := filepath.Join(realmRoot, "CLAUDE.md")
 	writeFile(t, claudeMDPath, "# no wiki\n")

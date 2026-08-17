@@ -7,9 +7,7 @@ import (
 	"testing"
 )
 
-// TestProfileAction_NoArgsUsageError verifies that profileAction with no args
-// returns exit code 2 (usage error). WHY: callers rely on exit 2 to distinguish
-// usage errors from runtime errors.
+// Callers rely on exit 2 to tell a usage error from a runtime error.
 func TestProfileAction_NoArgsUsageError(t *testing.T) {
 	home := t.TempDir()
 	code := profileAction([]string{}, home, "2026-05-28")
@@ -18,8 +16,6 @@ func TestProfileAction_NoArgsUsageError(t *testing.T) {
 	}
 }
 
-// TestProfileAction_UnknownVerbUsageError verifies that an unknown sub-verb
-// returns exit code 2 and does not silently succeed.
 func TestProfileAction_UnknownVerbUsageError(t *testing.T) {
 	home := t.TempDir()
 	code := profileAction([]string{"bogus"}, home, "2026-05-28")
@@ -28,10 +24,8 @@ func TestProfileAction_UnknownVerbUsageError(t *testing.T) {
 	}
 }
 
-// TestProfileAction_RefreshWritesFile verifies that "refresh" (no flags) creates
-// profile.md and stamps the lastcheck attribute with the injected date.
-// WHY: proves the main.go dispatch actually reaches Refresh; the profile-package
-// unit tests cover the core logic, but this test verifies the wiring.
+// The profile package unit-tests Refresh itself; this covers the dispatch
+// wiring that reaches it.
 func TestProfileAction_RefreshWritesFile(t *testing.T) {
 	home := t.TempDir()
 	code := profileAction([]string{"refresh"}, home, "2026-05-28")
@@ -49,9 +43,7 @@ func TestProfileAction_RefreshWritesFile(t *testing.T) {
 	}
 }
 
-// TestProfileAction_IfStaleBadDuration verifies that --if-stale with an invalid
-// duration returns exit code 1 (runtime error, not usage error). WHY: the spec
-// requires an explicit parse error with non-zero exit; exit 2 is for usage errors.
+// A bad duration is a runtime error (exit 1), not a usage error (exit 2).
 func TestProfileAction_IfStaleBadDuration(t *testing.T) {
 	home := t.TempDir()
 	code := profileAction([]string{"refresh", "--if-stale", "7h"}, home, "2026-05-28")
@@ -60,9 +52,7 @@ func TestProfileAction_IfStaleBadDuration(t *testing.T) {
 	}
 }
 
-// TestProfileAction_IfStaleNoOpWhenFresh verifies that --if-stale with a fresh
-// lastcheck does not modify the file. WHY: the --if-stale gate exists precisely
-// to avoid spurious re-runs during session start.
+// The --if-stale gate exists to avoid spurious re-runs at session start.
 func TestProfileAction_IfStaleNoOpWhenFresh(t *testing.T) {
 	home := t.TempDir()
 	atomicDir := filepath.Join(home, ".atomic")

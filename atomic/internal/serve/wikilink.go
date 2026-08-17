@@ -1,16 +1,10 @@
-// wikilink.go — goldmark inline support for Obsidian-style [[wikilinks]].
+// goldmark inline support for Obsidian-style [[wikilinks]], which goldmark has
+// no native syntax for.
 //
-// goldmark has no native wikilink syntax, so a bare [[page]] / [[page|alias]] in
-// a markdown body renders as literal text. The realm link graph already parses
-// and resolves these (mdlink.ExtractLinks + resolveWikilink), which is why the
-// right rail shows the OUT/IN links — but the page body never linked them. This
-// file closes that gap: an inline parser turns [[…]] into a wikilinkNode, and a
-// renderer resolves it through the *same* graph edges the rail uses, so the body
-// and the rail can never disagree.
-//
-// Resolution is not recomputed here. wikilinkResolverFromGraph reads the focused
-// page's already-resolved outbound edges, so the nearest-then-alphabetical rule
-// (and ambiguity/broken classification) lives in exactly one place: graph.go.
+// Nothing is resolved here: the renderer reads the focused page's already
+// resolved outbound edges, so the nearest-then-alphabetical rule and the
+// broken/ambiguous classification live only in graph.go, and the body and the
+// rail cannot disagree.
 package serve
 
 import (
@@ -27,15 +21,14 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
 )
 
-// kindWikilink is the AST node kind for an Obsidian-style wikilink.
 var kindWikilink = ast.NewNodeKind("Wikilink")
 
 // wikilinkNode is an inline AST node for [[page]] / [[page|alias]].
 type wikilinkNode struct {
 	ast.BaseInline
-	// Page is the raw page name (left of '|'), used for resolution.
+	// Page is what resolution matches on.
 	Page string
-	// Alias is the display text (right of '|', or Page when no alias).
+	// Alias is the display text, defaulting to Page.
 	Alias string
 }
 
@@ -48,21 +41,16 @@ func (n *wikilinkNode) Dump(source []byte, level int) {
 	}, nil)
 }
 
-// ─── inline parser ───────────────────────────────────────────────────────────
-
-// wikilinkInlineParser recognises [[page]] / [[page|alias]] on the '[' trigger.
-// Registered at a higher priority (lower number) than goldmark's default link
-// parser (200) so it gets first crack at '['; on a single '[' (a normal markdown
-// link) it returns nil and the default link parser runs with the reader position
-// restored by the goldmark dispatch loop. It never advances the reader unless it
-// commits a node, which keeps the nil-then-fallthrough contract safe.
+// wikilinkInlineParser gets first crack at '[' by outranking goldmark's link
+// parser. It returns nil on a plain markdown link and never advances the
+// reader unless it commits a node, which is what makes the fallthrough safe.
 type wikilinkInlineParser struct{}
 
 func (p *wikilinkInlineParser) Trigger() []byte { return []byte{'['} }
 
 func (p *wikilinkInlineParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
 	line, _ := block.PeekLine()
-	// Shortest possible wikilink is "[[x]]" (5 bytes). line[0] is '[' by trigger.
+	// "[[x]]" is the shortest possible wikilink; line[0] is '[' by trigger.
 	if len(line) < 5 || line[1] != '[' {
 		return nil
 	}
@@ -72,7 +60,6 @@ func (p *wikilinkInlineParser) Parse(_ ast.Node, block text.Reader, _ parser.Con
 		return nil
 	}
 	inner := rest[:close]
-	// Reject empty ([[]]) and inner brackets (not a clean wikilink).
 	if len(bytes.TrimSpace(inner)) == 0 || bytes.ContainsAny(inner, "[]") {
 		return nil
 	}
@@ -80,14 +67,12 @@ func (p *wikilinkInlineParser) Parse(_ ast.Node, block text.Reader, _ parser.Con
 	if page == "" {
 		return nil
 	}
-	// Consume "[[" + inner + "]]".
 	block.Advance(2 + close + 2)
 	return &wikilinkNode{Page: page, Alias: alias}
 }
 
-// splitWikilinkInner splits "page" or "page|alias" into its parts, mirroring
-// mdlink.parseWikilink: the alias defaults to the page name, and an empty alias
-// (e.g. "page|") falls back to the page name so the link always has display text.
+// splitWikilinkInner mirrors mdlink.parseWikilink: an absent or empty alias
+// falls back to the page name, so a link always has display text.
 func splitWikilinkInner(inner string) (page, alias string) {
 	if i := strings.IndexByte(inner, '|'); i != -1 {
 		page = strings.TrimSpace(inner[:i])
@@ -101,19 +86,13 @@ func splitWikilinkInner(inner string) (page, alias string) {
 	return page, page
 }
 
-// ─── resolver ────────────────────────────────────────────────────────────────
-
-// wikilinkResolver maps a raw wikilink page name to its resolution for the
-// page being rendered: the realm-root-relative target, plus broken/ambiguous
-// flags. broken means no realm file matched; ambiguous means more than one did
-// and the nearest-then-alphabetical winner is returned.
+// wikilinkResolver resolves one page name. broken means nothing matched;
+// ambiguous means several did and the nearest-then-alphabetical winner is
+// returned.
 type wikilinkResolver func(page string) (resolved string, broken, ambiguous bool)
 
-// wikilinkResolverFromGraph derives a resolver from the focused page's outbound
-// graph edges. It reuses the resolution the graph already computed (graph.go's
-// resolveWikilink), so the body and the right rail are guaranteed to agree.
-// Returns nil when g is nil — callers skip wikilink wiring entirely in that case,
-// leaving [[…]] as literal text (the prior behaviour for the graphless path).
+// wikilinkResolverFromGraph returns nil for a nil graph, and callers then skip
+// wikilink wiring entirely, leaving [[…]] as literal text.
 func wikilinkResolverFromGraph(g *Graph, pageRelPath string) wikilinkResolver {
 	if g == nil {
 		return nil
@@ -123,7 +102,7 @@ func wikilinkResolverFromGraph(g *Graph, pageRelPath string) wikilinkResolver {
 		if e.Kind != mdlink.Wikilink {
 			continue
 		}
-		// First edge wins; duplicate [[same]] links resolve identically anyway.
+		// First edge wins; duplicates resolve identically anyway.
 		key := strings.ToLower(strings.TrimSpace(e.Target))
 		if _, seen := index[key]; !seen {
 			index[key] = e
@@ -138,13 +117,8 @@ func wikilinkResolverFromGraph(g *Graph, pageRelPath string) wikilinkResolver {
 	}
 }
 
-// ─── renderer ────────────────────────────────────────────────────────────────
-
-// wikilinkRenderer renders a wikilinkNode using the per-page resolver. Resolved
-// links become plain hrefs to /page/<target> (mirroring the rail and the
-// markdown-link rewriter — client-side routing intercepts navigation, the
-// renderer never emits hx-* attributes); broken links render as a visible
-// non-navigable span so a dead wikilink reads as dead rather than as plain prose.
+// wikilinkRenderer emits a plain href for a resolved link and a non-navigable
+// span for a broken one, so a dead wikilink reads as dead rather than as prose.
 type wikilinkRenderer struct {
 	resolve wikilinkResolver
 }
@@ -162,8 +136,8 @@ func (r *wikilinkRenderer) render(w util.BufWriter, _ []byte, n ast.Node, enteri
 		return ast.WalkContinue, nil
 	}
 
-	// No resolver: degrade to plain display text (should not happen in the
-	// graph-wired path, which only registers this renderer alongside a resolver).
+	// Unreachable in the graph-wired path, which registers this renderer only
+	// alongside a resolver.
 	if r.resolve == nil {
 		_, _ = w.WriteString(template.HTMLEscapeString(node.Alias))
 		return ast.WalkContinue, nil
@@ -198,5 +172,4 @@ func (r *wikilinkRenderer) render(w util.BufWriter, _ []byte, n ast.Node, enteri
 	return ast.WalkContinue, nil
 }
 
-// Ensure the renderer satisfies the goldmark interface.
 var _ goldrenderer.NodeRenderer = (*wikilinkRenderer)(nil)

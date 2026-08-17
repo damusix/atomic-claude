@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// semver holds the parsed components of a semantic version string.
 type semver struct {
 	major      int
 	minor      int
@@ -15,10 +14,8 @@ type semver struct {
 }
 
 // parseSemver parses "vX.Y.Z", "X.Y.Z", "vX.Y.Z-pre", "X.Y.Z-pre".
-// Build metadata ("+...") is stripped and ignored.
 func parseSemver(s string) (semver, error) {
 	s = strings.TrimPrefix(s, "v")
-	// strip build metadata
 	if idx := strings.IndexByte(s, '+'); idx >= 0 {
 		s = s[:idx]
 	}
@@ -47,7 +44,6 @@ func parseSemver(s string) (semver, error) {
 }
 
 // compare returns -1, 0, or 1 (a < b, a == b, a > b).
-// Follows semver 2.0: prerelease has lower precedence than the release.
 func (a semver) compare(b semver) int {
 	if a.major != b.major {
 		return cmpInt(a.major, b.major)
@@ -82,16 +78,10 @@ func cmpInt(a, b int) int {
 }
 
 // IsValidSemver reports whether s is a parseable semver string.
-// It is the canonical exported validity check, alongside CompareSemver.
 func IsValidSemver(s string) bool { _, err := parseSemver(s); return err == nil }
 
-// CompareSemver compares two semver strings a and b.
-// Returns -1 if a < b, 0 if a == b, 1 if a > b.
-//
-// Malformed inputs (unparseable by parseSemver) are treated as "0.0.0" (the
-// floor), so CompareSemver("bad", "1.0.0") returns -1 and
-// CompareSemver("bad", "0.0.0") returns 0. This is the canonical exported
-// compare for consumers that cannot access the unexported semver type.
+// CompareSemver returns -1, 0, or 1 for a < b, a == b, a > b. Unparseable
+// input is treated as the 0.0.0 floor rather than an error.
 func CompareSemver(a, b string) int {
 	sv := func(s string) semver {
 		v, err := parseSemver(s)
@@ -103,7 +93,6 @@ func CompareSemver(a, b string) int {
 	return sv(a).compare(sv(b))
 }
 
-// newerThan returns true when b.TagName is newer than aVersion string.
 func newerThan(current string, latest string) (bool, error) {
 	a, err := parseSemver(current)
 	if err != nil {

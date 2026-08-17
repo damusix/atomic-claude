@@ -9,9 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildWikiCmd builds the "wiki" parent + scan|stale|linkify children and the
-// 3-level "wiki bucket" intermediate command with add|list|diff|promote|doc|skill|index leaves.
-// Dispatch is runWiki (→ wiki.WikiAction from internal/wiki/action.go).
 func buildWikiCmd() *cobra.Command {
 	dispatch := func(args []string) { runWiki(args) }
 	parent := &cobra.Command{
@@ -57,10 +54,8 @@ func buildWikiCmd() *cobra.Command {
 		c.Flags().String("sources", "", "comma-separated sources entries (knowledge mode)")
 	})
 
-	// 3-level nesting: wiki bucket → add|list|diff|promote.
-	// The bucket intermediate command routes through dispatch as well so that
-	// the internal verb (mark-dirty) and the no-args usage path all still
-	// reach wiki.WikiAction unchanged.
+	// The bucket intermediate routes through dispatch too, so the internal
+	// mark-dirty verb and the no-args usage path still reach wiki.WikiAction.
 	bucketParent := &cobra.Command{
 		Use:   "bucket",
 		Short: "Manage capture buckets (add|list|diff|promote|doc|skill|index)",

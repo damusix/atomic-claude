@@ -15,17 +15,14 @@ import (
 )
 
 // ApplyAgentsHook re-patches already-installed agent files with the current
-// [claude.agents] overrides after `atomic config agents` saves. nil in production
-// until cmd/atomic wires it to claudeinstall.ReapplyAgents at startup — this
-// seam exists because internal/config must not import internal/claudeinstall
-// (claudeinstall already imports config, which would be a cycle). changed is
-// the list of agent basenames rewritten; installed is how many configured
-// agents were already present on disk.
+// [claude.agents] overrides after `atomic config agents` saves. The seam exists
+// because config must not import claudeinstall, which already imports config;
+// cmd/atomic wires it at startup. changed lists the agent basenames rewritten,
+// installed counts how many configured agents were present on disk.
 var ApplyAgentsHook func(home string) (changed []string, installed int, err error)
 
-// Run is the CLI entry point for `atomic config <verb> [args]`.
-// home is the user's home directory (caller resolves it; Run does not call os.UserHomeDir).
-// Returns an exit code: 0 success, 1 error, 2 usage error.
+// Run is the CLI entry point for `atomic config <verb> [args]`. home is resolved
+// by the caller. Exit codes: 0 success, 1 error, 2 usage.
 func Run(args []string, home string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		printConfigUsage(stderr)

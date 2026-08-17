@@ -7,10 +7,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// TestCheckBinary_pass: up-to-date → PASS.
 func TestCheckBinary_pass(t *testing.T) {
 	r := doctor.RunCheckBinaryWith(func(_ string) (bool, string, error) {
-		// not newer, same version
 		return false, "v1.0.0", nil
 	}, "v1.0.0")
 
@@ -22,7 +20,6 @@ func TestCheckBinary_pass(t *testing.T) {
 	}
 }
 
-// TestCheckBinary_warn_newer: newer version available → WARN.
 func TestCheckBinary_warn_newer(t *testing.T) {
 	r := doctor.RunCheckBinaryWith(func(_ string) (bool, string, error) {
 		return true, "v2.0.0", nil
@@ -33,8 +30,7 @@ func TestCheckBinary_warn_newer(t *testing.T) {
 	}
 }
 
-// TestCheckBinary_warn_network_error: network failure → WARN (not FAIL;
-// offline machines must not break doctor).
+// An offline machine must not break the doctor run, so this stays WARN.
 func TestCheckBinary_warn_network_error(t *testing.T) {
 	r := doctor.RunCheckBinaryWith(func(_ string) (bool, string, error) {
 		return false, "", errors.New("connection refused")

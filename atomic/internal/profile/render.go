@@ -5,26 +5,20 @@ import (
 	"strings"
 )
 
-// RenderEnvironmentSection produces the full ## Environment section markdown
-// from detection results and a caller-injected date.
-//
-// The date parameter must be a YYYY-MM-DD string; it is written verbatim into
-// the <deterministic lastcheck=...> attribute. time.Now() is never called here —
-// the caller supplies the date for testability (mirrors hooks.SessionStart(root, now)).
+// RenderEnvironmentSection writes date verbatim into the <deterministic
+// lastcheck=...> attribute. The caller supplies it; time.Now is never called here.
 func RenderEnvironmentSection(e Env, tools []ToolResult, shell ShellResult, date string) string {
 	var sb strings.Builder
 
 	sb.WriteString("## Environment\n")
 	fmt.Fprintf(&sb, "<deterministic lastcheck=%s>\n", date)
 
-	// Base deterministic fields from CaptureEnv.
 	fmt.Fprintf(&sb, "- Git user.name: %s\n", e.GitUserName)
 	fmt.Fprintf(&sb, "- Git user.email: %s\n", e.GitUserEmail)
 	fmt.Fprintf(&sb, "- OS: %s\n", e.GOOS)
 	fmt.Fprintf(&sb, "- Arch: %s\n", e.GOARCH)
 	fmt.Fprintf(&sb, "- CPU count: %d\n", e.NumCPU)
 
-	// Group installed tools by category, in the canonical category order.
 	catOrder := []ToolCategory{
 		CategoryLanguageRuntime,
 		CategoryVersionManager,
@@ -45,7 +39,6 @@ func RenderEnvironmentSection(e Env, tools []ToolResult, shell ShellResult, date
 		CategoryCloud:           "Cloud",
 	}
 
-	// Collect installed tools per category.
 	byCategory := map[ToolCategory][]ToolResult{}
 	for _, r := range tools {
 		if !r.Installed {
@@ -65,7 +58,6 @@ func RenderEnvironmentSection(e Env, tools []ToolResult, shell ShellResult, date
 		}
 	}
 
-	// Shell section.
 	if shell.LoginShell != "" || shell.Framework != "" {
 		sb.WriteString("\n### Shell\n")
 		if shell.LoginShell != "" {
@@ -90,17 +82,13 @@ func RenderEnvironmentSection(e Env, tools []ToolResult, shell ShellResult, date
 	return sb.String()
 }
 
-// renderToolLine formats a single ToolResult into a markdown bullet line.
-//
-// Rules:
-//   - Has resolved path → "- name: version (source)" (provenance line)
-//   - No resolved path (directory-only detection) → "- name: installed" (presence flag)
+// renderToolLine emits "- name: version (source)", or "- name: installed" when
+// directory-only detection left no resolved path.
 func renderToolLine(r ToolResult) string {
 	if r.ResolvedPath == "" {
 		return fmt.Sprintf("- %s: installed\n", r.Name)
 	}
-	// Defensive guard: version should always be set by CaptureVersion when a
-	// resolved path is present, but fall back to "unknown" if somehow empty.
+	// CaptureVersion always sets a version alongside a resolved path; guard anyway.
 	version := r.Version
 	if version == "" {
 		version = "unknown"
@@ -108,35 +96,20 @@ func renderToolLine(r ToolResult) string {
 	return fmt.Sprintf("- %s: %s (%s)\n", r.Name, version, r.SourceClass)
 }
 
-// RewriteEnvironmentSection takes the existing file content and a freshly
-// rendered Environment section, and returns the complete new file content.
-//
-// The four cases from the spec:
-//
-//   - Section present (clean): replace heading→next-## span wholesale.
-//   - Section present but malformed: same wholesale replace — anchor is the
-//     heading, not the tags; cannot produce duplicates.
-//   - Section absent: append the new section at EOF.
-//   - File absent (empty content): produce the full stub then replace/append
-//     the Environment section into it.
-//
-// User-authored sections outside the ## Environment span are byte-preserved.
-// A user section after ## Environment is NOT truncated.
+// RewriteEnvironmentSection replaces the heading→next-## span wholesale, appends
+// when the section is absent, and builds a stub when content is empty. Anchoring
+// on the heading rather than the tags means a malformed section cannot duplicate.
+// Everything outside the span is byte-preserved, including sections after it.
 func RewriteEnvironmentSection(content, envSection string) string {
-	// Case: file absent / empty — produce stub, then recurse once.
 	if strings.TrimSpace(content) == "" {
-		// Build a stub without the Environment section; we will append below.
 		stub := renderStubWithoutEnv()
 		return RewriteEnvironmentSection(stub, envSection)
 	}
 
-	// Locate "## Environment" heading (must be at line start).
 	const heading = "## Environment"
 	headingIdx := findHeadingIndex(content, heading)
 
 	if headingIdx == -1 {
-		// Case: section absent — append at EOF.
-		// Ensure a newline separator before appending.
 		result := content
 		if !strings.HasSuffix(result, "\n") {
 			result += "\n"
@@ -145,30 +118,21 @@ func RewriteEnvironmentSection(content, envSection string) string {
 		return result
 	}
 
-	// Cases: section present (clean or malformed) — find the span end.
-	// The span runs from headingIdx to the next "## " heading at line-start, or EOF.
 	spanEnd := findNextH2After(content, headingIdx+len(heading))
 	if spanEnd == -1 {
-		// ## Environment is the last section — replace to EOF.
 		before := content[:headingIdx]
 		return before + envSection
 	}
 
-	// ## Environment has a following section — replace the span, preserve the rest.
 	before := content[:headingIdx]
 	after := content[spanEnd:]
-	// The "\n" is injected here because findNextH2After returns the index of the
-	// "##" character, which means the blank line that originally separated the
-	// Environment section from the next section was consumed into the replaced
-	// span (it was part of the envSection's trailing content). Re-injecting "\n"
-	// restores exactly one blank line between the new section and what follows.
+	// findNextH2After points at the "##" itself, so the blank line that separated
+	// the sections was swallowed by the replaced span; "\n" puts it back.
 	return before + envSection + "\n" + after
 }
 
-// findHeadingIndex returns the byte index of "## Environment" at a line start,
-// or -1 if not found.
+// findHeadingIndex requires the heading to sit at a line start.
 func findHeadingIndex(content, heading string) int {
-	// Must be at the start of a line (pos 0, or after a newline).
 	idx := 0
 	for {
 		pos := strings.Index(content[idx:], heading)
@@ -176,11 +140,9 @@ func findHeadingIndex(content, heading string) int {
 			return -1
 		}
 		abs := idx + pos
-		// Check that this occurrence is at a line start.
 		if abs == 0 || content[abs-1] == '\n' {
 			return abs
 		}
-		// Advance past this occurrence and keep looking.
 		idx = abs + len(heading)
 		if idx >= len(content) {
 			return -1
@@ -188,22 +150,19 @@ func findHeadingIndex(content, heading string) int {
 	}
 }
 
-// findNextH2After finds the byte index of the next "## " heading at a line start
-// that occurs after the given offset. Returns -1 if none exists.
+// findNextH2After returns -1 when no further line-start "## " heading exists.
 func findNextH2After(content string, after int) int {
-	// We scan for "\n## " which guarantees line-start.
 	search := "\n## "
 	idx := strings.Index(content[after:], search)
 	if idx == -1 {
 		return -1
 	}
-	// +1 to skip the leading newline; we want the ## to start right here.
+	// +1 skips the newline so the index lands on the "##".
 	return after + idx + 1
 }
 
-// writeStubSections writes the five non-Environment profile sections into sb.
-// Extracted so both RenderStub (profile.go) and renderStubWithoutEnv share a
-// single definition of the schema — a schema change only needs to happen here.
+// writeStubSections is the single definition of the non-Environment schema,
+// shared by RenderStub and renderStubWithoutEnv.
 func writeStubSections(sb *strings.Builder) {
 	sb.WriteString("# User profile\n")
 
@@ -238,9 +197,7 @@ func writeStubSections(sb *strings.Builder) {
 	sb.WriteString("</volatile>\n")
 }
 
-// renderStubWithoutEnv produces a profile.md stub without the ## Environment
-// section. Used by RewriteEnvironmentSection when content is absent so the
-// Environment section can be appended cleanly.
+// renderStubWithoutEnv leaves out ## Environment so the caller can append it.
 func renderStubWithoutEnv() string {
 	var sb strings.Builder
 	writeStubSections(&sb)

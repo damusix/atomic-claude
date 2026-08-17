@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildProfileCmd builds the "profile" parent + refresh child.
 func buildProfileCmd() *cobra.Command {
 	parent := &cobra.Command{
 		Use:   "profile",
@@ -35,10 +34,9 @@ func buildProfileCmd() *cobra.Command {
 	return parent
 }
 
-// profileAction executes the profile subcommand logic and returns an exit code.
-// Extracted from runProfile so tests can exercise dispatch without os.Exit.
-// home is the user's home directory (config.ProfilePath resolves it to
-// <home>/.atomic/profile.md); today is YYYY-MM-DD (injected, never time.Now here).
+// profileAction is split out of runProfile so tests reach dispatch without
+// os.Exit. home is the real home dir — config.ProfilePath appends
+// .atomic/profile.md — and today is injected, never time.Now.
 func profileAction(args []string, home, today string) int {
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "Usage: atomic profile <refresh> [flags]\n")
@@ -74,7 +72,6 @@ func profileAction(args []string, home, today string) int {
 			return 0
 		}
 
-		// Unconditional refresh.
 		_, err := profile.Refresh(home, today)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic profile refresh: %v\n", err)

@@ -11,14 +11,12 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/manifestcheck"
 )
 
-// makeRepo builds a minimal fake repo under dir with the given artifacts on disk.
-// artifacts maps target path (e.g. "agents/atomic-foo.md") to file content.
 func makeRepo(t *testing.T, artifacts map[string][]byte) string {
 	t.Helper()
 	root := t.TempDir()
 	ctx := bundlespec.SourceRoot(root)
 
-	// Create the required dirs under context/ so bundlemirror.Enumerate doesn't fail.
+	// Enumerate fails on a context/ tree missing these dirs.
 	for _, dir := range []string{"agents", "skills", "output-styles", "commands", "rules"} {
 		if err := os.MkdirAll(filepath.Join(ctx, dir), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
@@ -38,10 +36,9 @@ func makeRepo(t *testing.T, artifacts map[string][]byte) string {
 	return root
 }
 
-// committedFrom converts a slice of disk artifacts (from Enumerate) into the
-// embedded.Artifact format expected by Compare. The two structs are field-wise
-// identical; they stay separate types so the mirror can build without the
-// embedded package. See bundlemirror.Artifact.
+// committedFrom retypes Enumerate's output. The two structs are field-wise
+// identical and stay separate only so the mirror can build without importing
+// the embedded package.
 func committedFrom(arts []bundlemirror.Artifact) []embedded.Artifact {
 	out := make([]embedded.Artifact, len(arts))
 	for i, a := range arts {
@@ -94,7 +91,6 @@ func TestCompare_Drift(t *testing.T) {
 		t.Fatalf("Enumerate: %v", err)
 	}
 
-	// Mutate the on-disk file after we captured the committed state.
 	if err := os.WriteFile(filepath.Join(bundlespec.SourceRoot(root), "agents/atomic-foo.md"), []byte("# agent CHANGED\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -135,7 +131,6 @@ func TestCompare_Missing(t *testing.T) {
 		t.Fatalf("Enumerate: %v", err)
 	}
 
-	// Add a phantom entry to committed that doesn't exist on disk.
 	phantom := embedded.Artifact{
 		Kind:   "agent",
 		Source: "bundle/agents/atomic-phantom.md",
@@ -177,7 +172,6 @@ func TestCompare_Extra(t *testing.T) {
 		t.Fatalf("Enumerate: %v", err)
 	}
 
-	// Committed is a subset: drop the agent, so disk has it but committed doesn't.
 	committed := make([]embedded.Artifact, 0, len(live))
 	for _, a := range committedFrom(live) {
 		if a.Target == "agents/atomic-foo.md" {
@@ -220,21 +214,17 @@ func TestCompare_Combined(t *testing.T) {
 		t.Fatalf("Enumerate: %v", err)
 	}
 
-	// Build committed: mutate foo's SHA, drop bar, add phantom.
 	committed := make([]embedded.Artifact, 0, len(live)+1)
 	for _, a := range committedFrom(live) {
 		switch a.Target {
 		case "agents/atomic-foo.md":
-			// SHA drift: keep the target but alter the committed SHA.
 			a.SHA256 = "aaaaaaaabbbbbbbbccccccccdddddddd00000000111111112222222233333333"
 			committed = append(committed, a)
 		case "agents/atomic-bar.md":
-			// Drop bar → it will appear in Extra.
 		default:
 			committed = append(committed, a)
 		}
 	}
-	// Add phantom → will appear in Missing.
 	committed = append(committed, embedded.Artifact{
 		Kind:   "agent",
 		Source: "bundle/agents/atomic-phantom.md",

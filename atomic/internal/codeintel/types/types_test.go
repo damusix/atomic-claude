@@ -9,13 +9,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Const-set contract tests (appendix C gate)
-// ---------------------------------------------------------------------------
-
-// TestNodeKindCount asserts that AllNodeKinds contains exactly 39 entries
-// matching the appendix C verbatim list. Any addition or removal breaks the
-// on-disk data model and should be a deliberate, test-gated change.
+// Adding or removing a kind breaks the on-disk data model, so the count is
+// pinned to force the change through this gate.
 func TestNodeKindCount(t *testing.T) {
 	want := []types.NodeKind{
 		types.NodeKindFile,
@@ -63,7 +58,6 @@ func TestNodeKindCount(t *testing.T) {
 		t.Errorf("AllNodeKinds: got %d entries, want 39", len(types.AllNodeKinds))
 	}
 
-	// Build a lookup set from the exported slice.
 	got := make(map[types.NodeKind]bool, len(types.AllNodeKinds))
 	for _, k := range types.AllNodeKinds {
 		got[k] = true
@@ -88,8 +82,6 @@ func TestNodeKindCount(t *testing.T) {
 	}
 }
 
-// TestEdgeKindCount asserts exactly 13 EdgeKind entries per appendix C.
-// added EdgeKindWrites for routine→table mutation targets.
 func TestEdgeKindCount(t *testing.T) {
 	want := []types.EdgeKind{
 		types.EdgeKindContains,
@@ -135,7 +127,6 @@ func TestEdgeKindCount(t *testing.T) {
 	}
 }
 
-// TestLanguageCount asserts exactly 32 Language entries per appendix C.
 func TestLanguageCount(t *testing.T) {
 	want := []types.Language{
 		types.LanguageTypeScript,
@@ -200,14 +191,8 @@ func TestLanguageCount(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// JSON-in-TEXT round-trip test (json.RawMessage convention)
-// ---------------------------------------------------------------------------
-
-// TestNodeJSONInTextRoundTrip proves that json.RawMessage fields in Node
-// survive a marshal→unmarshal cycle without mutation. The convention chosen is
-// json.RawMessage (opaque bytes); this test is the contract gate for that
-// choice. If typed structs replace RawMessage, this test must be updated.
+// The gate on the json.RawMessage convention: opaque bytes must round-trip
+// unmutated. Replacing RawMessage with typed structs breaks this.
 func TestNodeJSONInTextRoundTrip(t *testing.T) {
 	decorators := json.RawMessage(`["@Controller","@Get"]`)
 	typeParams := json.RawMessage(`["T","U"]`)
@@ -262,14 +247,8 @@ func TestNodeJSONInTextRoundTrip(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Subgraph determinism test
-// ---------------------------------------------------------------------------
-
-// TestSubgraphSortedNodes proves that SubgraphSortedNodes returns the same
-// ordered slice regardless of Go's non-deterministic map iteration. This is
-// the stable-sort contract gate for any serialization path that iterates the
-// Subgraph.Nodes map.
+// The gate on the stable-sort contract every serialisation path depends on:
+// output must not vary with Go's map iteration order.
 func TestSubgraphSortedNodes(t *testing.T) {
 	sg := types.Subgraph{
 		Nodes: map[string]types.Node{
@@ -281,13 +260,11 @@ func TestSubgraphSortedNodes(t *testing.T) {
 		Roots: []string{"function:aaa"},
 	}
 
-	// Run many times to expose non-determinism if the sort is missing.
 	const rounds = 50
 	var baseline []byte
 	for i := 0; i < rounds; i++ {
 		nodes := types.SubgraphSortedNodes(sg)
 
-		// Verify sort order.
 		if !sort.SliceIsSorted(nodes, func(a, b int) bool {
 			return nodes[a].ID < nodes[b].ID
 		}) {
@@ -306,7 +283,6 @@ func TestSubgraphSortedNodes(t *testing.T) {
 		}
 	}
 
-	// Verify the expected ID ordering.
 	nodes := types.SubgraphSortedNodes(sg)
 	wantIDs := []string{"function:aaa", "function:mmm", "function:zzz"}
 	for i, n := range nodes {
@@ -316,11 +292,8 @@ func TestSubgraphSortedNodes(t *testing.T) {
 	}
 }
 
-// TestMergeSubgraphs_UnionsDedupsAndUnionsRoots pins the shared merge primitive
-// behind the callers/callees/impact multi-definition fix: nodes union by ID,
-// edges dedup by source/target/kind/line/col, roots dedup preserving order.
-// A symbol name that maps to several definitions must surface the relationships
-// on EVERY definition, not just the first.
+// A symbol name mapping to several definitions must surface the relationships
+// on every one of them, not just the first.
 func TestMergeSubgraphs_UnionsDedupsAndUnionsRoots(t *testing.T) {
 	shared := types.Edge{Source: "caller", Target: "proc", Kind: types.EdgeKindCalls, Line: 7}
 	sgs := []types.Subgraph{
@@ -350,7 +323,6 @@ func TestMergeSubgraphs_UnionsDedupsAndUnionsRoots(t *testing.T) {
 		t.Errorf("roots dedup: got %d, want 2 (proc, proc2)", len(got.Roots))
 	}
 
-	// Empty input is a well-defined empty subgraph (non-nil map).
 	empty := types.MergeSubgraphs(nil)
 	if empty.Nodes == nil {
 		t.Error("MergeSubgraphs(nil) must return a usable (non-nil) Nodes map")

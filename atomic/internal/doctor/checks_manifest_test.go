@@ -10,9 +10,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
 
-// TestCheckManifest_notRepoDev: when IsRepoDev returns false → SKIP.
 func TestCheckManifest_notRepoDev(t *testing.T) {
-	// Use a temp dir with no marker file → not repo-dev.
+	// No marker file, so this dir is not repo-dev.
 	cwd := t.TempDir()
 
 	r := doctor.RunCheckManifest(cwd)
@@ -24,8 +23,6 @@ func TestCheckManifest_notRepoDev(t *testing.T) {
 	}
 }
 
-// TestCheckManifest_pass: synthetic repo root with marker + all artifacts
-// matching the committed manifest → PASS.
 func TestCheckManifest_pass(t *testing.T) {
 	root := buildSyntheticRepoDev(t)
 
@@ -35,18 +32,13 @@ func TestCheckManifest_pass(t *testing.T) {
 	}
 }
 
-// TestCheckManifest_fail_drift: same synthetic repo but one source artifact
-// is mutated on disk → Compare returns OK=false → FAIL.
 func TestCheckManifest_fail_drift(t *testing.T) {
 	root := buildSyntheticRepoDev(t)
 
-	// Mutate one agent source file to cause drift.
 	manifest := embedded.Manifest()
 	var driftTarget string
 	for _, a := range manifest {
-		// Pick any agent artifact source path relative to root.
-		// The source path inside embedded FS is e.g. "bundle/agents/atomic-builder.md".
-		// The file lives at <root>/context/<Target> where Target = "agents/atomic-builder.md".
+		// Sources live at <root>/context/<Target>, not at the embedded path.
 		if a.Kind == "agent" {
 			driftTarget = filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(a.Target))
 			break
@@ -65,8 +57,6 @@ func TestCheckManifest_fail_drift(t *testing.T) {
 	}
 }
 
-// TestCheckManifest_pass_no_findings: a clean repo-dev must have empty
-// Findings and empty Remediation.
 func TestCheckManifest_pass_no_findings(t *testing.T) {
 	root := buildSyntheticRepoDev(t)
 
@@ -82,12 +72,9 @@ func TestCheckManifest_pass_no_findings(t *testing.T) {
 	}
 }
 
-// TestCheckManifest_fail_findings: a drifted artifact on FAIL result must
-// have Findings with "drifted: " prefix and Remediation set.
 func TestCheckManifest_fail_findings(t *testing.T) {
 	root := buildSyntheticRepoDev(t)
 
-	// Mutate one agent source file to cause drift.
 	manifest := embedded.Manifest()
 	var driftTarget string
 	var driftRelPath string
@@ -126,12 +113,9 @@ func TestCheckManifest_fail_findings(t *testing.T) {
 	}
 }
 
-// TestCheckManifest_fail_findings_missing: removing an embedded artifact from disk
-// causes a "missing: <path>" finding in the FAIL result.
 func TestCheckManifest_fail_findings_missing(t *testing.T) {
 	root := buildSyntheticRepoDev(t)
 
-	// Pick the first agent artifact and delete it from disk.
 	manifest := embedded.Manifest()
 	var missingRelPath string
 	for _, a := range manifest {
@@ -168,14 +152,11 @@ func TestCheckManifest_fail_findings_missing(t *testing.T) {
 	}
 }
 
-// TestCheckManifest_fail_findings_extra: adding a new agent file on disk (not in the
-// embedded manifest) causes an "extra: <path>" finding in the FAIL result.
 func TestCheckManifest_fail_findings_extra(t *testing.T) {
 	root := buildSyntheticRepoDev(t)
 
-	// Write an extra agent file that matches bundlespec (atomic-*.md) but is not
-	// present in embedded.Manifest(). The name is chosen to be distinct from any
-	// real artifact.
+	// Matches bundlespec's atomic-*.md shape but is absent from the manifest,
+	// and named so it cannot collide with a real artifact.
 	extraRelPath := "agents/atomic-zzz-extra-fixture-test.md"
 	extraDst := filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(extraRelPath))
 	if err := os.WriteFile(extraDst, []byte("# extra fixture\n"), 0o644); err != nil {
@@ -203,18 +184,13 @@ func TestCheckManifest_fail_findings_extra(t *testing.T) {
 	}
 }
 
-// buildSyntheticRepoDev creates a temporary directory tree that looks like the
-// atomic-claude repo root to IsRepoDev and bundlemirror.Enumerate:
-//   - atomic/internal/bundlemirror/mirror.go  (marker file)
-//   - all source artifact files from embedded.Manifest() written under context/
-//     at their Target paths
-//
-// Returns the root path.
+// buildSyntheticRepoDev returns a tree that looks like the atomic-claude repo
+// root to IsRepoDev and bundlemirror.Enumerate: the marker file, plus every
+// embedded artifact written under the source root at its Target path.
 func buildSyntheticRepoDev(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 
-	// Create the IsRepoDev marker.
 	markerDir := filepath.Join(root, "atomic", "internal", "bundlemirror")
 	if err := os.MkdirAll(markerDir, 0o755); err != nil {
 		t.Fatalf("mkdir marker: %v", err)
@@ -223,7 +199,6 @@ func buildSyntheticRepoDev(t *testing.T) string {
 		t.Fatalf("write marker: %v", err)
 	}
 
-	// Write each embedded artifact at its Target path so Enumerate can hash them.
 	for _, a := range embedded.Manifest() {
 		data, err := embedded.FS.ReadFile(a.Source)
 		if err != nil {

@@ -16,31 +16,29 @@ import (
 	"unicode/utf8"
 )
 
-// This file holds the cross-language conformance suite the two harness tests
-// share, so the Python and Node emitters are held to one contract rather than
-// two hand-written approximations of it. harness_python_test.go and
-// harness_node_test.go supply only their language's snippets.
+// The cross-language conformance suite both harness tests share, so the Python
+// and Node emitters are held to one contract rather than two hand-written
+// approximations of it; the per-language files supply only their snippets.
 //
-// Every round trip here strict-decodes the harness's live JSON into the
-// canonical Response — unknown fields rejected, exact key set asserted — which
-// is what makes it impossible for one emitter to quietly drift from the other
-// or from protocol.go.
+// Every round trip strict-decodes the harness's live JSON into the canonical
+// Response — unknown fields rejected, exact key set asserted — which is what
+// makes it impossible for one emitter to drift from the other or from
+// protocol.go.
 
 const (
-	// Long enough that no conformance subtest can trip the idle watchdog while
-	// it runs. The self-exit path gets its own short-window harness.
+	// Long enough that no conformance subtest trips the idle watchdog. The
+	// self-exit path gets its own short-window harness.
 	conformanceIdleTimeout = "60"
 
-	// Bounds every wait in this file. A harness that has not come up, answered,
-	// or exited by now is broken, and hanging the suite hides that.
+	// Bounds every wait here. A harness that has not come up, answered, or exited
+	// by now is broken, and hanging the suite hides that.
 	harnessBootTimeout = 20 * time.Second
 	harnessCallTimeout = 20 * time.Second
 	harnessExitTimeout = 20 * time.Second
 
-	// The idle-window subtests trade a short real wait for the only honest
-	// proof that the watchdog fires. idleProbeDeadline is generous against a
-	// loaded machine but still finite — the failure it guards is a harness
-	// that never exits at all, not one that exits late.
+	// The idle subtests trade a short real wait for the only honest proof the
+	// watchdog fires. Generous against a loaded machine but finite — the failure
+	// it guards is a harness that never exits, not one that exits late.
 	idleProbeWindow   = "0.5"
 	idleProbeInterval = 50 * time.Millisecond
 	idleProbeDeadline = 5 * time.Second
@@ -68,11 +66,10 @@ type harnessCase struct {
 	bigOutput   string // writes more than MaxStreamBytes to stdout
 	smallOutput string // writes well under the cap
 	surrogate   string // writes a lone surrogate to stdout
-	// bigValue evaluates to a value whose repr/inspect exceeds MaxStreamBytes.
-	// The two snippets differ in kind, not just syntax: Python's repr of a long
-	// string is the whole string, while Node's util.inspect elides one past
-	// maxStringLength (10000 by default) with a self-describing "... N more
-	// characters", so only a large structure gets Node past the cap.
+	// bigValue's two snippets differ in kind, not just syntax: Python's repr of a
+	// long string is the whole string, while Node's util.inspect elides past
+	// maxStringLength with a self-describing marker, so only a large structure
+	// gets Node past the cap.
 	bigValue string
 
 	stateSet         string // binds a variable
@@ -84,9 +81,9 @@ type harnessCase struct {
 	wantFast string
 }
 
-// slowEvalWindow is how long each language's slowEval blocks. Long enough that
-// a non-serializing harness would visibly finish the fast eval first, short
-// enough not to drag the suite.
+// slowEvalWindow is how long each language's slowEval blocks: long enough that a
+// non-serializing harness would visibly finish the fast eval first, short enough
+// not to drag the suite.
 const slowEvalWindow = 600 * time.Millisecond
 
 func runHarnessConformance(t *testing.T, c harnessCase) {
@@ -193,8 +190,8 @@ func runHarnessConformance(t *testing.T, c harnessCase) {
 		if len(resp.Stdout) > MaxStreamBytes {
 			t.Errorf("stdout is %d bytes, over the %d-byte cap", len(resp.Stdout), MaxStreamBytes)
 		}
-		// A cut can drop at most one partial code point, never a meaningful
-		// slice of the payload.
+		// A cut can drop at most one partial code point, never a meaningful slice
+		// of the payload.
 		if len(resp.Stdout) < MaxStreamBytes-4 {
 			t.Errorf("stdout is %d bytes, want ~%d — truncation cut too much", len(resp.Stdout), MaxStreamBytes)
 		}
@@ -207,9 +204,9 @@ func runHarnessConformance(t *testing.T, c harnessCase) {
 		h := startHarness(t, c, conformanceIdleTimeout)
 		resp := h.eval(t, c.bigValue)
 		assertOK(t, resp)
-		// The cap covers the value, not just the streams: a repr of a large
-		// object is as unbounded as a runaway print loop, and either one can
-		// hand the client a frame it has to buffer whole.
+		// The cap covers the value too: a repr of a large object is as unbounded as
+		// a runaway print loop, and either hands the client a frame it must buffer
+		// whole.
 		if !resp.Truncated {
 			t.Error("truncated = false for a value over the cap")
 		}
@@ -254,8 +251,8 @@ func runHarnessConformance(t *testing.T, c harnessCase) {
 	t.Run("state persists across connections", func(t *testing.T) {
 		h := startHarness(t, c, conformanceIdleTimeout)
 		assertOK(t, h.eval(t, c.stateSet))
-		// A second, separate connection — the same shape the CLI uses across
-		// two Bash calls.
+		// A second, separate connection — the shape the CLI uses across two Bash
+		// calls.
 		resp := h.eval(t, c.stateGet)
 		assertOK(t, resp)
 		if resp.Value != c.wantValue {
@@ -347,9 +344,8 @@ func runHarnessConformance(t *testing.T, c harnessCase) {
 			slowDone <- resp
 		}()
 
-		// Give the harness time to accept the slow connection and start
-		// executing before the second one is offered, so this really tests
-		// serialization rather than accept ordering.
+		// Let the harness accept the slow connection and start executing before the
+		// second is offered, so this tests serialization rather than accept order.
 		time.Sleep(slowEvalWindow / 6)
 
 		go func() {
@@ -366,12 +362,11 @@ func runHarnessConformance(t *testing.T, c harnessCase) {
 			t.Errorf("second eval errored while another was in flight: %s", fast.Error)
 		}
 		assertOK(t, fast)
-		// Ordering is proven inside the interpreter: fastEval computes its
-		// value from a marker slowEval binds as its final act, so a harness
-		// that ran them concurrently yields an unbound-name error or a wrong
-		// value here. Comparing client-side time.Now() stamps instead was
-		// flaky — both responses can arrive within the same instant and
-		// goroutine scheduling then decides which stamps first.
+		// Ordering is proven inside the interpreter: fastEval computes its value
+		// from a marker slowEval binds as its final act, so a concurrent harness
+		// yields an unbound-name error or a wrong value. Comparing client-side
+		// timestamps instead was flaky — both responses can arrive in the same
+		// instant, and goroutine scheduling then decides which stamps first.
 		if fast.Value != c.wantFast {
 			t.Errorf("second eval value = %q, want %q — evals did not serialize", fast.Value, c.wantFast)
 		}
@@ -394,13 +389,11 @@ func runHarnessConformance(t *testing.T, c harnessCase) {
 		h := startHarness(t, c, idleProbeWindow)
 		assertOK(t, h.do(t, Request{V: ProtocolVersion, Op: OpPing}))
 
-		// Connect and hang up without asking anything, faster than the idle
-		// window, for as long as this subtest runs. A harness that bumps its
-		// clock per accepted connection rather than per answered request
-		// stays alive forever under this traffic — which is the whole point:
-		// the two harnesses reached the same behavior by different routes
-		// (Python once bumped after every accept), so the contract has to be
-		// asserted rather than assumed.
+		// Connect and hang up without asking anything, faster than the idle window.
+		// A harness that bumps its clock per accepted connection rather than per
+		// answered request stays alive forever under this traffic. The two harnesses
+		// reached the same behavior by different routes (Python once bumped after
+		// every accept), so the contract has to be asserted rather than assumed.
 		stop := make(chan struct{})
 		probing := make(chan struct{})
 		go func() {
@@ -430,14 +423,12 @@ func runHarnessConformance(t *testing.T, c harnessCase) {
 		if err != nil {
 			t.Fatalf("stat socket: %v", err)
 		}
-		// A session socket is code execution into a process that may hold
-		// --env secrets, so it is never left at the house default. Each
-		// harness now also sets its process umask to 0o177 before bind (born
-		// 0600, not just chmod'd to it afterward) — not independently
-		// asserted here: the window that hardening closes is between bind and
-		// the very next chmod syscall inside the same process, too narrow for
-		// this out-of-process stat to race reliably, so this subtest still
-		// only proves the end state both mechanisms agree on.
+		// A session socket is code execution into a process that may hold --env
+		// secrets, so it is never left at the house default. Each harness also sets
+		// umask 0o177 before bind (born 0600, not chmod'd afterward), not asserted
+		// separately: the window that closes is between bind and the next chmod
+		// syscall in the same process, too narrow for an out-of-process stat to
+		// race, so this only proves the end state both mechanisms agree on.
 		if perm := info.Mode().Perm(); perm != 0o600 {
 			t.Errorf("socket mode = %o, want 600", perm)
 		}
@@ -456,8 +447,7 @@ type harnessProcess struct {
 }
 
 // syncBuffer collects a harness's stderr. os/exec copies into it from its own
-// goroutine while the failure paths here read it to report what went wrong, so
-// the buffer has to be safe for both at once.
+// goroutine while the failure paths here read it, so it must be safe for both.
 type syncBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -475,9 +465,9 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// startHarness spawns c's interpreter directly against the embedded harness
-// script, skipping the test when that interpreter is not installed. The
-// process is killed on cleanup whether or not the test got that far.
+// startHarness spawns c's interpreter against the embedded harness script,
+// skipping when that interpreter is absent. The process is killed on cleanup
+// whether or not the test got that far.
 func startHarness(t *testing.T, c harnessCase, idleTimeout string) *harnessProcess {
 	t.Helper()
 
@@ -561,8 +551,8 @@ func (h *harnessProcess) waitForSocket(t *testing.T) {
 		h.socketPath, harnessBootTimeout, h.stderr)
 }
 
-// assertCleanExit waits for the harness to end on its own — shutdown or the
-// idle watchdog — and asserts it exited 0 having removed both of its files.
+// assertCleanExit waits for the harness to end on its own — shutdown or the idle
+// watchdog — and asserts it exited 0 having removed both of its files.
 func (h *harnessProcess) assertCleanExit(t *testing.T) {
 	t.Helper()
 	h.assertCleanExitWithin(t, harnessExitTimeout)
@@ -637,10 +627,10 @@ func (c *harnessConn) writeRaw(t *testing.T, frame string) {
 	}
 }
 
-// read decodes one response frame strictly: unknown fields are rejected and the
-// raw key set must be exactly the seven the protocol documents. That is the
-// cross-language contract — a harness that renames, drops, or adds a field
-// fails here rather than degrading silently on the client.
+// read decodes one response frame strictly: unknown fields rejected and the raw
+// key set exactly the seven the protocol documents. That is the cross-language
+// contract — a harness that renames, drops, or adds a field fails here rather
+// than degrading silently on the client.
 func (c *harnessConn) read(t *testing.T) (Response, []byte) {
 	t.Helper()
 	line, err := c.reader.ReadBytes('\n')
@@ -690,7 +680,7 @@ func waitOutcome[T any](t *testing.T, ch <-chan T, label string) T {
 
 // shortTempDir keeps the socket path inside the ~104-byte sun_path limit: on
 // macOS $TMPDIR alone is long enough that t.TempDir()'s test-name segments push
-// a socket beneath it over the edge. Same fallback the bus tests use.
+// a socket beneath it over the edge.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "atomicrepl")

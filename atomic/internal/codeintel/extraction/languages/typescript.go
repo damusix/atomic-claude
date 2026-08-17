@@ -1,72 +1,19 @@
 package languages
 
-// TypeScript language extractor configuration.
+// Node-type strings are read from the live TypeScript grammar — do not guess.
+// A generator expression is a bare "generator_function", for one, not the
+// "generator_function_expression" its siblings' naming suggests.
 //
-// Verified node-type strings (parsed via tmp/probe-lang-details; see probe2.go
-// for exact output):
+// Exports are detected structurally, through ExportStatementTypes: the engine
+// force-marks the children of an export_statement as exported. Scanning the text
+// before a declaration cannot work, because "export default function foo()"
+// gives the function_declaration a start byte just past "default ".
 //
-//   Top-level (direct children of program):
-//     import_statement       — import { X } from "y"; import X from "y";
-//     export_statement       — wraps the actual declaration via "declaration" field
-//     lexical_declaration    — const x = ...; let x = ...; (non-exported, top-level)
-//     variable_declaration   — var x = ...;
-//
-//   Inside export_statement (via "declaration" field):
-//     interface_declaration  — export interface Widget { ... }
-//     type_alias_declaration — export type Handler = ...
-//     enum_declaration       — export enum Color { Red, Green }
-//     class_declaration      — export class Button { ... }
-//     function_declaration   — export function makeButton() { ... }
-//     lexical_declaration    — export const helper = (x) => x * 2;
-//
-//   Inside lexical_declaration / variable_declaration:
-//     variable_declarator    — holds the name (field "name") and value
-//
-//   "export default function foo()" emits export_statement with a
-//   function_declaration child. The function_declaration starts at the "function"
-//   keyword — text lookback would only see "default " (not "export "), so the
-//   old 8-byte text-scan missed this case.
-//
-//   Named iterator also sees (inside class/function bodies):
-//     method_definition      — method implementations
-//     method_signature       — method signatures (in interface bodies)
-//     call_expression        — function/method call sites
-//
-// FunctionScopeTypes probe (verified via a real-parse probe against the wazero
-// TS binding; see extraction/languages/zzprobe_test.go, deleted after use):
-//
-//	const f = (x) => x * 2;                     → arrow_function
-//	const f = function(x) { return x; };        → function_expression
-//	const f = function*(x) { yield x; };        → generator_function
-//	  (NOT "generator_function_expression" — the grammar's node-type is the
-//	  bare "generator_function", same family as "function_expression".)
-//	for (const x of y) { ... }                  → for_in_statement, whose
-//	  binding is a bare "identifier" child (field "left") — NOT wrapped in a
-//	  lexical_declaration/variable_declarator, so VariableTypes never matches
-//	  the for-of binding at all. It is unaffected by scope suppression by
-//	  construction, not because it is in FunctionScopeTypes.
-//	const { a, b } = x; const [c, d] = y;        → variable_declarator's
-//	  "name" field resolves to object_pattern / array_pattern, whose full text
-//	  ("{ a, b }", "[c, d]") is what nameFromNode returns — the identifier
-//	  guard in extractSimpleNode rejects it.
-//	namespace N { const X = 1; }                 → internal_module wraps a
-//	  statement_block directly; internal_module is not in FunctionScopeTypes,
-//	  so scopeDepth is unaffected — the namespace-scoped const is kept.
-//
-// IsExported strategy: ExportStatementTypes = {"export_statement"}.
-// The engine detects when it is visiting children of an export_statement and
-// sets forceExported=true for all semantic children it extracts. This is the
-// AST-based approach — it handles export, export default, and all export forms
-// without text scanning. The binding has no Parent() method, so detecting the
-// parent via ExportStatementTypes at the grandparent-visits-child level is the
-// correct idiomatic approach.
-//
-// Fields:
-//   - interface_declaration, class_declaration: name field = "name"
-//   - function_declaration: name field = "name"
-//   - type_alias_declaration: name field = "name"
-//   - enum_declaration: name field = "name"
-//   - method_definition: name field = "name"
+// Two constructs look like they should be affected by FunctionScopeTypes
+// suppression and are not. A for-of binding is a bare identifier under
+// for_in_statement, so VariableTypes never matches it to begin with. A
+// namespace body hangs off internal_module, which is not a function scope, so
+// its consts survive.
 
 import (
 	"context"
@@ -79,101 +26,64 @@ import (
 )
 
 // TypeScriptExtractor returns the LanguageExtractor config for TypeScript source
-// files (.ts). TSX uses a separate grammar and is not handled by this config.
-//
-// Node-type strings are verified by parsing real TypeScript via the wazero
-// binding (see tmp/probe-lang-details/main.go and probe2.go).
+// files (.ts). TSX uses a separate grammar; see TSXExtractor.
 func TypeScriptExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
-		// function_declaration covers named functions.
-		// method_definition covers class methods; method_signature covers interface methods.
 		FunctionTypes: extraction.TypeSet("function_declaration"),
 		MethodTypes:   extraction.TypeSet("method_definition", "method_signature"),
 
-		// class_declaration covers classes.
 		ClassTypes: extraction.TypeSet("class_declaration"),
 
-		// interface_declaration covers TypeScript interfaces.
 		InterfaceTypes: extraction.TypeSet("interface_declaration"),
 
-		// type_alias_declaration covers "type X = ..." type aliases.
 		TypeAliasTypes: extraction.TypeSet("type_alias_declaration"),
 
-		// enum_declaration covers TypeScript enums.
 		EnumTypes: extraction.TypeSet("enum_declaration"),
 
-		// lexical_declaration covers const/let declarations.
-		// variable_declaration covers var declarations.
-		// Both are matched here; tsResolveVariableDeclarator unwraps to the first
-		// variable_declarator so nameFromNode finds the identifier via NameField="name".
-		// Known limitation: multi-declarator statements (const a=1, b=2) only
-		// produce a node for the first declarator.
-		// Known simplification: arrow-function consts (const f = () => {}) are
-		// extracted as NodeKindVariable, not NodeKindFunction.
+		// Two known simplifications: "const a = 1, b = 2" yields a node only for
+		// the first declarator, and "const f = () => {}" is a variable, not a
+		// function.
 		VariableTypes: extraction.TypeSet("lexical_declaration", "variable_declaration"),
 
-		// FunctionScopeTypes: scope-opening constructs that are not themselves
-		// FunctionTypes matches (a callback passed as a call argument, not a
-		// named declaration). VariableTypes matches found underneath one of
-		// these (scopeDepth > 0) never mint a node — see extractor.go
-		// extractSimpleNode. Node-type strings probe-confirmed above.
+		// Scope openers that are not themselves declarations, such as a callback
+		// passed as an argument. A VariableTypes match found underneath one of
+		// these mints no node.
 		FunctionScopeTypes: extraction.TypeSet("arrow_function", "function_expression", "generator_function"),
 
-		// import_statement covers all import forms.
 		ImportTypes: extraction.TypeSet("import_statement"),
 
-		// call_expression covers function and method calls.
 		CallTypes: extraction.TypeSet("call_expression"),
 
-		// export_statement is the AST-level export wrapper. When the engine sees
-		// this node type, it sets forceExported=true for all semantic children it
-		// extracts. This correctly handles export, export default, and all TS export
-		// forms without relying on text-prefix scanning.
 		ExportStatementTypes: extraction.TypeSet("export_statement"),
 
-		// JSXElementTypes: populated here so mixed .ts files that contain JSX
-		// (rare, but possible with certain tsconfig settings) emit component refs.
-		// The tsx grammar is not used for .ts files — the TS grammar does not emit
-		// these node types, so this is a safe no-op for standard .ts files.
+		// A no-op for ordinary .ts, whose grammar never emits these; it earns its
+		// place on the tsconfig settings that do allow JSX in a .ts file.
 		JSXElementTypes: extraction.TypeSet("jsx_element", "jsx_self_closing_element"),
 
-		// FieldAssignmentTypes enables EE3 field-assignment capture.
-		// "assignment_expression" is the TS/JS grammar node for `x = y` expressions.
-		// The extractor walks it for member_expression LHS + callable RHS and emits
-		// a "references" UnresolvedReference with Arguments[0] = "field:<fieldName>"
-		// as the discriminator sentinel for the callback synthesizer.
-		// Verified via tmp/ probe (assignment_expression node confirmed in TS grammar).
+		// Field assignments ("x.y = fn") become references carrying a
+		// "field:<name>" sentinel in Arguments[0], which the callback
+		// synthesizer keys on.
 		FieldAssignmentTypes: extraction.TypeSet("assignment_expression"),
 
-		// Field names in the TypeScript grammar.
 		NameField:   "name",
 		BodyField:   "body",
 		ParamsField: "parameters",
 		ReturnField: "return_type",
 
-		// ResolveBody: unwrap lexical_declaration / variable_declaration to its first
-		// variable_declarator child so nameFromNode finds the identifier via NameField.
 		ResolveBody: tsResolveVariableDeclarator,
 
-		// GetSignature extracts the signature text for functions and methods.
 		GetSignature: tsGetSignature,
 
-		// ExtractImport extracts the import path from import_statement nodes.
 		ExtractImport: tsExtractImport,
 
-		// ExtractHeritage extracts extends/implements base types from class and
-		// interface declarations.
 		ExtractHeritage: tsExtractHeritage,
 	}
 }
 
-// tsResolveVariableDeclarator unwraps a lexical_declaration or variable_declaration
-// to its first variable_declarator child. This lets nameFromNode resolve the
-// declarator's "name" field (an identifier) rather than looking for a "name" field
-// on the declaration itself (which does not exist in the TS grammar).
-//
-// For all other node types it returns the node unchanged, so it is safe to use as
-// the blanket ResolveBody hook for the TS config.
+// tsResolveVariableDeclarator unwraps a declaration to its first
+// variable_declarator, the node that actually carries the "name" field. Any
+// other node passes through unchanged, so this is safe as the blanket
+// ResolveBody hook.
 func tsResolveVariableDeclarator(ctx context.Context, node sitter.Node, source string) (sitter.Node, error) {
 	kind, err := node.Kind(ctx)
 	if err != nil {
@@ -197,8 +107,7 @@ func tsResolveVariableDeclarator(ctx context.Context, node sitter.Node, source s
 	return child, nil
 }
 
-// tsGetSignature returns the text of a function or method signature (everything
-// before the body block).
+// tsGetSignature returns everything before the body, truncated to 200 bytes.
 func tsGetSignature(ctx context.Context, node sitter.Node, source string) string {
 	kind, err := node.Kind(ctx)
 	if err != nil {
@@ -235,15 +144,8 @@ func tsGetSignature(ctx context.Context, node sitter.Node, source string) string
 	return sig
 }
 
-// tsExtractImport extracts the module path from a TypeScript import_statement.
-// Supports: import { X } from "path"; import X from "path"; import "path";
-//
-// name is the full specifier for a package import (e.g. "@hapi/hapi",
-// "@langchain/core/messages") so scoped/subpath packages keep their full
-// identity instead of collapsing to the last path segment; it stays the
-// basename for a relative/absolute specifier (e.g. "./utils/context.ts" →
-// "context.ts"), since those resolve to a real file node via the imports
-// edge and a short label is less noisy there.
+// tsExtractImport returns the module path of an import_statement, side-effect
+// form included, and the name importNodeName derives from it.
 func tsExtractImport(ctx context.Context, node sitter.Node, source string) (name string, path string) {
 	kind, err := node.Kind(ctx)
 	if err != nil || kind != "import_statement" {
@@ -256,7 +158,6 @@ func tsExtractImport(ctx context.Context, node sitter.Node, source string) (name
 	}
 	text := source[sb:eb]
 
-	// Extract quoted path from "from 'path'" or "from \"path\"".
 	if idx := strings.Index(text, " from "); idx >= 0 {
 		rest := strings.TrimSpace(text[idx+6:])
 		rest = strings.TrimSuffix(rest, ";")
@@ -266,7 +167,7 @@ func tsExtractImport(ctx context.Context, node sitter.Node, source string) (name
 		}
 	}
 
-	// Bare import "path"; (side-effect import)
+	// Side-effect form: import "path";
 	rest := strings.TrimPrefix(text, "import ")
 	rest = strings.TrimSuffix(rest, ";")
 	rest = strings.Trim(rest, `"'`)
@@ -277,9 +178,10 @@ func tsExtractImport(ctx context.Context, node sitter.Node, source string) (name
 	return "", ""
 }
 
-// importNodeName returns the import node's display name for a specifier: the
-// full specifier for a package import, or the basename for a relative/
-// absolute one. Shared by the TypeScript and JavaScript extractors.
+// importNodeName names a package import by its full specifier, so that scoped
+// and subpath packages keep their identity instead of colliding on a last
+// segment, and a relative or absolute one by basename, since it resolves to a
+// real file node anyway. Shared by the TypeScript and JavaScript extractors.
 func importNodeName(specifier string) string {
 	if strings.HasPrefix(specifier, ".") || strings.HasPrefix(specifier, "/") {
 		parts := strings.Split(specifier, "/")
@@ -288,26 +190,8 @@ func importNodeName(specifier string) string {
 	return specifier
 }
 
-// tsExtractHeritage extracts base-type references from TypeScript class and
-// interface declarations.
-//
-// Grammar layout (verified by real parse probe):
-//
-//	class_declaration
-//	  class_heritage
-//	    extends_clause       — "extends Animal"
-//	      type_identifier    — "Animal"  (or identifier)
-//	    implements_clause    — "implements Speaker, Runner"
-//	      type_identifier    — "Speaker"
-//	      type_identifier    — "Runner"
-//
-//	interface_declaration
-//	  extends_type_clause    — "extends Printable"
-//	    type_identifier      — "Printable"
-//
-// All extends_clause children → EdgeKindExtends.
-// All implements_clause children → EdgeKindImplements.
-// All extends_type_clause children (on interface) → EdgeKindExtends.
+// tsExtractHeritage collects base-type references. Classes and interfaces
+// declare them under different node types, hence the two walkers.
 func tsExtractHeritage(ctx context.Context, node sitter.Node, source string) []extraction.HeritageRef {
 	kind, err := node.Kind(ctx)
 	if err != nil {
@@ -326,7 +210,8 @@ func tsExtractHeritage(ctx context.Context, node sitter.Node, source string) []e
 	return refs
 }
 
-// tsWalkClassHeritage walks a class_declaration for class_heritage children.
+// tsWalkClassHeritage reads the extends and implements clauses nested under a
+// class_declaration's class_heritage child.
 func tsWalkClassHeritage(ctx context.Context, node sitter.Node, source string) []extraction.HeritageRef {
 	cnt, err := node.NamedChildCount(ctx)
 	if err != nil {
@@ -345,7 +230,6 @@ func tsWalkClassHeritage(ctx context.Context, node sitter.Node, source string) [
 		if ck != "class_heritage" {
 			continue
 		}
-		// Walk children of class_heritage: extends_clause + implements_clause.
 		hcnt, err := ch.NamedChildCount(ctx)
 		if err != nil {
 			continue

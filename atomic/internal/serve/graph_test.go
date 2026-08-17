@@ -9,17 +9,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// buildGraphRealm creates a minimal test realm for link graph tests.
-//
-// Layout:
-//
-//	a.md  → links to b.md (markdown link)
-//	b.md  → links to c.md (wikilink [[c]])
-//	c.md  → no outbound links
-//	d.md  → no outbound links (orphan)
-//	sub/e.md  → same basename as a second "e" in sub2/e.md (ambiguity test)
-//	sub2/e.md → same basename as sub/e.md
-//	broken.md → links to [[nonexistent]]
+// buildGraphRealm covers every edge shape the graph tests need: a markdown link
+// (a→b), a wikilink (b→c), an orphan (d), a wikilink whose basename matches two
+// files (ambiguous→sub/e, sub2/e), and a dead wikilink (broken).
 func buildGraphRealm(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -36,7 +28,6 @@ func buildGraphRealm(t *testing.T) string {
 	return root
 }
 
-// TestLinkGraph_BacklinksOfB asserts that B has A as a backlink.
 func TestLinkGraph_BacklinksOfB(t *testing.T) {
 	root := buildGraphRealm(t)
 	g := serve.BuildLinkGraph(root)
@@ -47,7 +38,6 @@ func TestLinkGraph_BacklinksOfB(t *testing.T) {
 	}
 }
 
-// TestLinkGraph_OutboundOfA asserts that A's outbound links include b.md.
 func TestLinkGraph_OutboundOfA(t *testing.T) {
 	root := buildGraphRealm(t)
 	g := serve.BuildLinkGraph(root)
@@ -67,7 +57,6 @@ func TestLinkGraph_OutboundOfA(t *testing.T) {
 	}
 }
 
-// TestLinkGraph_DIsOrphan asserts that d.md is an orphan (no inbound links).
 func TestLinkGraph_DIsOrphan(t *testing.T) {
 	root := buildGraphRealm(t)
 	g := serve.BuildLinkGraph(root)
@@ -75,16 +64,12 @@ func TestLinkGraph_DIsOrphan(t *testing.T) {
 	if !g.IsOrphan("d.md") {
 		t.Errorf("d.md should be an orphan (no inbound links), but IsOrphan returned false")
 	}
-	// a.md is NOT an orphan in the sense that it has outbound links, but it also
-	// has no inbound links from other pages in this realm.
-	// c.md has B linking to it → not orphan.
+	// Orphan means no inbound links, so a wikilink has to count as one.
 	if g.IsOrphan("c.md") {
 		t.Errorf("c.md should NOT be orphan (b.md links to it via wikilink)")
 	}
 }
 
-// TestLinkGraph_AmbiguousWikilink asserts that a wikilink matching two files
-// is flagged as ambiguous.
 func TestLinkGraph_AmbiguousWikilink(t *testing.T) {
 	root := buildGraphRealm(t)
 	g := serve.BuildLinkGraph(root)
@@ -104,8 +89,6 @@ func TestLinkGraph_AmbiguousWikilink(t *testing.T) {
 	}
 }
 
-// TestLinkGraph_BrokenWikilink asserts that a wikilink that resolves to nothing
-// is flagged as broken.
 func TestLinkGraph_BrokenWikilink(t *testing.T) {
 	root := buildGraphRealm(t)
 	g := serve.BuildLinkGraph(root)
@@ -125,7 +108,6 @@ func TestLinkGraph_BrokenWikilink(t *testing.T) {
 	}
 }
 
-// containsPage reports whether relPath appears in a backlinks slice.
 func containsPage(pages []string, relPath string) bool {
 	for _, p := range pages {
 		if p == relPath {
@@ -135,24 +117,16 @@ func containsPage(pages []string, relPath string) bool {
 	return false
 }
 
-// TestContextHandler_PageViewTriggersRail verifies that /page/* (non-htmx) includes
-// an htmx trigger to load /rail/<relpath> — the FE2 rail compositing wiring.
-// The dead #context-pane is no longer referenced; the right rail slots are the
-// new targets (#rail-out-content, #rail-in-content, #rail-graph-content).
-// TestLinkGraph_WikilinkToC verifies that b.md's wikilink [[c]] resolves to c.md.
 func TestLinkGraph_WikilinkToC(t *testing.T) {
 	root := buildGraphRealm(t)
 	g := serve.BuildLinkGraph(root)
 
-	// c.md should appear as a backlink recipient — b.md links to it.
 	backlinks := g.Backlinks("c.md")
 	if !containsPage(backlinks, "b.md") {
 		t.Errorf("expected b.md to be a backlink of c.md, got: %v", backlinks)
 	}
 }
 
-// TestLinkGraph_WalksMDFiles verifies that the graph builder picks up .md files
-// from the realm root recursively.
 func TestLinkGraph_WalksMDFiles(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "index.md"), "# Index\n")
@@ -165,7 +139,6 @@ func TestLinkGraph_WalksMDFiles(t *testing.T) {
 		t.Errorf("expected at least 3 nodes, got %d: %v", len(nodes), nodes)
 	}
 
-	// Make sure all three pages are present as nodes.
 	wantNodes := []string{"index.md", filepath.Join("sub", "page.md"), filepath.Join("sub", "README.md")}
 	for _, want := range wantNodes {
 		found := false
@@ -181,11 +154,8 @@ func TestLinkGraph_WalksMDFiles(t *testing.T) {
 	}
 }
 
-// TestLinkGraph_ClaudeProjectLinkResolves verifies that a markdown link into a
-// member's .claude/project/signals.md (the kind `atomic wiki linkify` emits)
-// resolves to a real page rather than a broken link. This is the cross-cutting
-// fix: .claude is walked, so the page is a graph node (the rail gates on Has)
-// and the link is not falsely marked broken.
+// `atomic wiki linkify` emits links into a member's .claude/project/, so .claude
+// has to be walked — otherwise the page is not a node and the link reads broken.
 func TestLinkGraph_ClaudeProjectLinkResolves(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "wiki", "index.md"),
@@ -194,7 +164,7 @@ func TestLinkGraph_ClaudeProjectLinkResolves(t *testing.T) {
 
 	g := serve.BuildLinkGraph(root)
 
-	// The .claude doc must be a graph node so /rail/<page> (which gates on Has) serves it.
+	// /rail/<page> gates on Has, so node membership is what makes the page servable.
 	if !g.Has("member/.claude/project/signals.md") {
 		t.Fatal("expected member/.claude/project/signals.md to be a graph node")
 	}
@@ -217,10 +187,8 @@ func TestLinkGraph_ClaudeProjectLinkResolves(t *testing.T) {
 	}
 }
 
-// TestLinkGraph_DirectoryLinkResolvesToIndex verifies that a link to a bare
-// directory (e.g. a pending wiki member rendered as `../member/`) resolves to an
-// index file inside it (README.md / index.md / .claude/project/signals.md)
-// rather than being marked broken.
+// A pending wiki member renders as a bare `../member/` link, which must land on
+// an index file inside the directory rather than read as broken.
 func TestLinkGraph_DirectoryLinkResolvesToIndex(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "index.md"), "# Index\n\nSee [member](member/) repo.\n")
@@ -246,11 +214,9 @@ func TestLinkGraph_DirectoryLinkResolvesToIndex(t *testing.T) {
 	}
 }
 
-// A directory with no index file is still a page: the /api/page handler serves
-// it as a listing and resolvePageHref routes it to /page/<dir>/. Marking the
-// edge Broken made the rail report "unresolved" for a link the reader can see
-// working in the rendered body — the render/graph disagreement this package
-// otherwise goes to lengths to avoid.
+// A directory with no index file is still a page — /api/page serves it as a
+// listing. Marking the edge Broken made the rail say "unresolved" for a link the
+// reader can watch work in the body.
 func TestLinkGraph_DirectoryLinkWithoutIndexIsNotBroken(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "index.md"), "# Index\n\nSee [pkg](src/pkg) source.\n")
@@ -282,10 +248,8 @@ func TestLinkGraph_DirectoryLinkWithoutIndexIsNotBroken(t *testing.T) {
 	}
 }
 
-// A leading-slash link is relative to whatever the author treated as the site
-// root. Docs written for a published site are rooted at docs/, but serve is
-// rooted at the repository — so "/reference/concepts#wikis" pointed at
-// nothing and the rail called it unresolved while the body link worked.
+// Docs written for a published site are rooted at docs/, but serve is rooted at
+// the repository, so a leading-slash link resolved to nothing.
 func TestLinkGraph_DocsRootRelativeLinkResolves(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "docs", "wiki", "index.md"),
@@ -312,17 +276,11 @@ func TestLinkGraph_DocsRootRelativeLinkResolves(t *testing.T) {
 	}
 }
 
-// TestLinkGraph_LeadingSlashMarkdownLink verifies that resolveMarkdownLink treats
-// a leading-slash target as bundle-root-relative (same semantics as resolvePageHref)
-// rather than marking it Broken.
-//
-// OKF §5.1 form: `/repos/alpha.md` means the file at <root>/repos/alpha.md — it is
-// NOT an OS absolute path. Both resolvePageHref (render path) and resolveMarkdownLink
-// (graph-build path) must agree, otherwise a link renders as an in-shell href but the
-// right-rail OUT LINKS panel shows it with a broken ❌ marker.
+// `/repos/alpha.md` is bundle-root-relative, not an OS absolute path. The render
+// path and the graph-build path must agree on that, or the body renders a working
+// href while the rail marks the same link broken.
 func TestLinkGraph_LeadingSlashMarkdownLink(t *testing.T) {
 	root := t.TempDir()
-	// Create a page that uses a leading-slash link, and the target page.
 	writeFile(t, filepath.Join(root, "index.md"),
 		"# Index\n\nSee [alpha](/repos/alpha.md) and [beta](/concerns/beta.md).\n")
 	writeFile(t, filepath.Join(root, "repos", "alpha.md"), "# Alpha\n")
@@ -330,7 +288,6 @@ func TestLinkGraph_LeadingSlashMarkdownLink(t *testing.T) {
 
 	g := serve.BuildLinkGraph(root)
 
-	// ── case 1: leading-slash link to an existing .md page is NOT broken ─────
 	var alphaEdge, betaEdge *serve.Edge
 	for i := range g.Outbound("index.md") {
 		e := g.Outbound("index.md")[i]
@@ -357,13 +314,11 @@ func TestLinkGraph_LeadingSlashMarkdownLink(t *testing.T) {
 		t.Errorf("leading-slash link to existing page must NOT be Broken; edge=%+v", *betaEdge)
 	}
 
-	// ── case 2: backlinks must record the edge (body and graph agree) ─────────
 	backlinks := g.Backlinks("repos/alpha.md")
 	if !containsPage(backlinks, "index.md") {
 		t.Errorf("repos/alpha.md should have index.md as a backlink; got %v", backlinks)
 	}
 
-	// ── case 3: leading-slash traversal attempt stays Broken ──────────────────
 	writeFile(t, filepath.Join(root, "trap.md"),
 		"# Trap\n\n[escape](/../../../etc/passwd)\n")
 	g2 := serve.BuildLinkGraph(root)
@@ -376,7 +331,6 @@ func TestLinkGraph_LeadingSlashMarkdownLink(t *testing.T) {
 		}
 	}
 
-	// ── case 4: leading-slash to a non-existent path stays Broken ────────────
 	writeFile(t, filepath.Join(root, "ghost.md"),
 		"# Ghost\n\n[missing](/no-such-file.md)\n")
 	g3 := serve.BuildLinkGraph(root)
@@ -390,12 +344,8 @@ func TestLinkGraph_LeadingSlashMarkdownLink(t *testing.T) {
 	}
 }
 
-// TestNodeMeta_SnippetSkipsDashLine verifies that a body whose first non-heading
-// non-blank line is a setext underline or horizontal rule (---/===) is not taken
-// as the snippet. The scanner must fall through to the next prose line (or return
-// an empty snippet when none follows). The critical case is a bare `---` used as
-// a horizontal rule — isSetextUnderline catches it (all same character, length ≥ 2)
-// so it is never mistaken for prose.
+// A setext underline or horizontal rule (---/===) reads as prose to a naive
+// scanner; isSetextUnderline must catch it and fall through to the next line.
 func TestNodeMeta_SnippetSkipsDashLine(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -403,33 +353,26 @@ func TestNodeMeta_SnippetSkipsDashLine(t *testing.T) {
 		wantSnippet string
 	}{
 		{
-			// Bare --- horizontal rule as the first body line after a heading —
-			// must be skipped and fall through to the actual prose.
 			name:        "bare horizontal rule --- followed by prose",
 			content:     "# Heading\n\n---\n\nActual prose.\n",
 			wantSnippet: "Actual prose.",
 		},
 		{
-			// Long dash line (6 dashes) — isSetextUnderline covers multi-char runs.
 			name:        "long dash line is also skipped",
 			content:     "# Heading\n\n------\n\nProse below.\n",
 			wantSnippet: "Prose below.",
 		},
 		{
-			// === equals underline — all same character, also caught by isSetextUnderline.
 			name:        "setext equals line",
 			content:     "# Heading\n\n===\n\nFollowing prose.\n",
 			wantSnippet: "Following prose.",
 		},
 		{
-			// Only a horizontal rule with no prose after — snippet is empty.
 			name:        "only horizontal rule no prose",
 			content:     "# Heading\n\n---\n",
 			wantSnippet: "",
 		},
 		{
-			// Mixed body: heading → blank → --- → blank → prose.
-			// Verifies the scanner skips the --- and finds the prose line.
 			name:        "heading then blank then --- then prose",
 			content:     "# Title\n\n---\n\nThis is the description.\n",
 			wantSnippet: "This is the description.",
@@ -449,19 +392,13 @@ func TestNodeMeta_SnippetSkipsDashLine(t *testing.T) {
 	}
 }
 
-// TestNodeType_IndexAndDomain verifies that frontmatter `type: Index` maps to
-// the "index" FE class and `type: Domain` maps to "domain", while the pre-existing
-// OKF types (knowledge, concern, repo, bucket) are unaffected.
-// This is the success criterion for the wiki-storage-relocation spec.
 func TestNodeType_IndexAndDomain(t *testing.T) {
 	root := t.TempDir()
 
-	// Write files with explicit OKF frontmatter type values.
 	writeFile(t, filepath.Join(root, "wiki-index.md"),
 		"---\ntype: Index\ndescription: Signals index\n---\n# Index\n")
 	writeFile(t, filepath.Join(root, "wiki-domain.md"),
 		"---\ntype: Domain\ndescription: A domain file\n---\n# Domain\n")
-	// Existing types — verify they are unaffected.
 	writeFile(t, filepath.Join(root, "k.md"),
 		"---\ntype: Knowledge\n---\n# K\n")
 	writeFile(t, filepath.Join(root, "c.md"),
@@ -470,7 +407,6 @@ func TestNodeType_IndexAndDomain(t *testing.T) {
 		"---\ntype: Repo\n---\n# R\n")
 	writeFile(t, filepath.Join(root, "b.md"),
 		"---\ntype: Bucket\n---\n# B\n")
-	// No-frontmatter page falls back to "page".
 	writeFile(t, filepath.Join(root, "plain.md"), "# Plain\n")
 
 	g := serve.BuildLinkGraph(root)
@@ -495,5 +431,5 @@ func TestNodeType_IndexAndDomain(t *testing.T) {
 	}
 }
 
-// Stub to avoid "declared and not used" issues for the OS import.
+// Keeps the os import referenced.
 var _ = os.DevNull

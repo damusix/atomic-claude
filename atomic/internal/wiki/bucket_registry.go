@@ -1,14 +1,9 @@
 package wiki
 
-// bucket_registry.go — registry primitives for `atomic wiki bucket`.
-//
-// Two concerns:
-//
-//  1. <wiki-buckets> block in wiki/index.md: machine-managed, idempotent splice
-//     of <bucket name="…" path="…"/> entries. Mirrors the <wiki-scan> pattern.
-//
-//  2. ## Capture surfaces section in realm CLAUDE.md: written once on the first
-//     `bucket add`. Appends a bullet per bucket; heading written once only.
+// Registry primitives for `atomic wiki bucket`, covering two surfaces: the
+// machine-managed <wiki-buckets> block in wiki/index.md (idempotent splice,
+// mirroring <wiki-scan>) and the ## Capture surfaces section in realm
+// CLAUDE.md, whose heading is written once and gains a bullet per bucket.
 
 import (
 	"fmt"
@@ -16,22 +11,16 @@ import (
 	"strings"
 )
 
-// bucketsMarkerOpen / bucketsMarkerClose are the block boundaries in wiki/index.md.
 const bucketsMarkerOpen = "<wiki-buckets"
 const bucketsMarkerClose = "</wiki-buckets>"
 
-// captureSurfacesHeading is the heading written to realm CLAUDE.md.
 const captureSurfacesHeading = "## Capture surfaces"
 
-// spliceBucketEntry adds a `<bucket name="<name>" path="<absPath>"/>` entry
-// to the <wiki-buckets> block in indexPath.
-//
-//   - If the block is absent, one is appended preserving all prior content.
-//   - If the entry is already present (same name), the call is idempotent.
-//   - If the block carries a declined="true" attribute, that attribute is removed.
-//   - If indexPath does not exist, it is created containing only the block.
+// spliceBucketEntry registers a bucket in indexPath's <wiki-buckets> block,
+// creating the file or block when absent and preserving prior content. Adding
+// a name that is already registered is a no-op; any declined="true" attribute
+// is dropped, since the realm clearly is using buckets now.
 func spliceBucketEntry(indexPath, name, absPath string) error {
-	// Read existing content.
 	data, err := os.ReadFile(indexPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("bucket registry: read %s: %w", indexPath, err)
@@ -48,34 +37,27 @@ func spliceBucketEntry(indexPath, name, absPath string) error {
 	return writeFileAtomic(indexPath, []byte(newContent))
 }
 
-// rewriteBucketsBlock rewrites the <wiki-buckets> block in content.
-// If no block is present, one is appended.
-// If the block has declined="true", that attribute is removed.
-// If the entry already exists (same name), the block is returned as-is.
+// rewriteBucketsBlock appends a fresh block whenever the existing one is
+// absent or malformed, rather than trying to repair it.
 func rewriteBucketsBlock(content, name, absPath string) string {
 	entry := fmt.Sprintf(`<bucket name=%q path=%q/>`, name, absPath)
 
 	openIdx := strings.Index(content, bucketsMarkerOpen)
 	if openIdx == -1 {
-		// No block — append one.
 		if content != "" && !strings.HasSuffix(content, "\n") {
 			content += "\n"
 		}
 		return content + "\n" + buildBucketsBlock([]string{entry})
 	}
 
-	// Find end of the open tag line (up to ">").
 	openTagEnd := strings.Index(content[openIdx:], ">")
 	if openTagEnd == -1 {
-		// Malformed — append.
 		return content + "\n" + buildBucketsBlock([]string{entry})
 	}
 	openTagEnd += openIdx + 1
 
-	// Find the close tag.
 	closeIdx := strings.Index(content[openTagEnd:], bucketsMarkerClose)
 	if closeIdx == -1 {
-		// No close tag — append new block instead.
 		return content + "\n" + buildBucketsBlock([]string{entry})
 	}
 	blockBodyStart := openTagEnd
@@ -84,18 +66,14 @@ func rewriteBucketsBlock(content, name, absPath string) string {
 
 	blockEnd := blockBodyEnd + len(bucketsMarkerClose)
 
-	// Extract the open tag (for attribute inspection).
 	openTag := content[openIdx:openTagEnd]
 
-	// Check if entry already present (idempotent).
 	if strings.Contains(blockBody, fmt.Sprintf(`name=%q`, name)) {
 		return content
 	}
 
-	// Remove declined="true" attribute if present.
 	newOpenTag := strings.ReplaceAll(openTag, ` declined="true"`, "")
 
-	// Append the new entry to the block body.
 	newBody := blockBody
 	if !strings.HasSuffix(newBody, "\n") {
 		newBody += "\n"
@@ -108,7 +86,6 @@ func rewriteBucketsBlock(content, name, absPath string) string {
 	return before + newOpenTag + newBody + bucketsMarkerClose + after
 }
 
-// buildBucketsBlock produces a fresh <wiki-buckets>…</wiki-buckets> block.
 func buildBucketsBlock(entries []string) string {
 	var sb strings.Builder
 	sb.WriteString("<wiki-buckets>\n")
@@ -121,9 +98,7 @@ func buildBucketsBlock(entries []string) string {
 	return sb.String()
 }
 
-// readBucketEntries parses the <wiki-buckets> block in indexPath and returns
-// a slice of (name, path) pairs. Returns nil when the block is absent or the
-// file does not exist.
+// readBucketEntries returns nil, no error, when the file or block is absent.
 func readBucketEntries(indexPath string) ([]bucketEntry, error) {
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
@@ -135,25 +110,21 @@ func readBucketEntries(indexPath string) ([]bucketEntry, error) {
 	return parseBucketEntries(string(data)), nil
 }
 
-// BucketEntry holds a parsed <bucket> tag from the <wiki-buckets> block.
-// Exported for consumers such as atomic serve (nav tree).
+// BucketEntry is one parsed <bucket> tag. Exported for consumers such as
+// atomic serve's nav tree.
 type BucketEntry struct {
 	Name string
 	Path string
 }
 
-// bucketEntry is the unexported alias kept for internal use.
 type bucketEntry = BucketEntry
 
-// ReadBucketEntries parses the <wiki-buckets> block in indexPath and returns
-// the registered bucket names and paths.  Returns nil when the block is absent
-// or the file does not exist — never returns an error for those cases.
-// A genuine read failure returns a non-nil error.
+// ReadBucketEntries returns nil, no error, when the file or block is absent;
+// only a genuine read failure errors.
 func ReadBucketEntries(indexPath string) ([]BucketEntry, error) {
 	return readBucketEntries(indexPath)
 }
 
-// parseBucketEntries extracts bucket entries from wiki/index.md content.
 func parseBucketEntries(content string) []bucketEntry {
 	openIdx := strings.Index(content, bucketsMarkerOpen)
 	if openIdx == -1 {
@@ -185,38 +156,24 @@ func parseBucketEntries(content string) []bucketEntry {
 	return entries
 }
 
-// findCaptureSurfacesHeading returns the byte offset of the first line-anchored
-// "## Capture surfaces" heading in content, or -1 if absent.
-//
-// Line-anchored means the heading must appear at the start of a line:
-// either at offset 0 or immediately after a '\n'. This mirrors the discipline
-// used by the <wiki-scan> and <wikis> block parsers and prevents false-positive
-// matches when the text "## Capture surfaces" appears inside a prose paragraph,
-// backtick span, or code block.
+// findCaptureSurfacesHeading matches only at a line start, so the heading text
+// inside a paragraph, backtick span, or code fence cannot false-match.
 func findCaptureSurfacesHeading(content string) int {
-	// Check if the file starts with the heading.
 	if strings.HasPrefix(content, captureSurfacesHeading+"\n") ||
 		content == captureSurfacesHeading {
 		return 0
 	}
-	// Search for the heading preceded by a newline (line-anchored).
 	needle := "\n" + captureSurfacesHeading
 	idx := strings.Index(content, needle)
 	if idx == -1 {
 		return -1
 	}
-	// Return offset of the heading itself, not the preceding newline.
-	return idx + 1
+	return idx + 1 // skip the anchoring newline
 }
 
-// writeCaptureSurfacesSection writes (or appends to) the ## Capture surfaces
-// section in the realm CLAUDE.md file at claudeMDPath.
-//
-//   - File absent: created with only the section.
-//   - Section absent: appended at EOF; all prior content preserved byte-for-byte.
-//     No content is written inside any <...> block — the section is always EOF-appended
-//     when absent from a real line-anchored heading.
-//   - Section present: a new bullet for the bucket is appended; heading not duplicated.
+// writeCaptureSurfacesSection appends one bullet per bucket to realm
+// CLAUDE.md, creating the file or the section when absent and never
+// duplicating the heading. Prior content survives byte-for-byte.
 func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
 	data, err := os.ReadFile(claudeMDPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -227,39 +184,30 @@ func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
 
 	var newContent string
 	if os.IsNotExist(err) || len(data) == 0 {
-		// Create with section only.
 		newContent = captureSurfacesHeading + "\n\n" + bullet + "\n"
 	} else {
 		content := string(data)
 		idx := findCaptureSurfacesHeading(content)
 		if idx == -1 {
-			// Section absent — append at EOF. No insertion inside any <...> block.
+			// EOF-append only, so nothing lands inside an existing <...> block.
 			if !strings.HasSuffix(content, "\n") {
 				content += "\n"
 			}
 			newContent = content + "\n" + captureSurfacesHeading + "\n\n" + bullet + "\n"
 		} else {
-			// Section present — append bullet after last line of section.
-			// Find the end of the section: next line-anchored ## heading or EOF.
-			// We search for "\n## " in the text after the heading so that a
-			// heading at the very start of `after` (offset 0) can never match
-			// — the leading "\n" is part of the delimiter and would require a
-			// preceding newline that does not exist at offset 0.  In practice
-			// captureSurfacesHeading is always followed by at least "\n\n",
-			// so this edge case cannot arise in well-formed content, but the
-			// search pattern makes it structurally impossible regardless.
+			// The section ends at the next line-anchored ## heading, or EOF.
+			// Searching "\n## " rather than "## " makes it structurally
+			// impossible to match our own heading at offset 0 of after.
 			after := content[idx+len(captureSurfacesHeading):]
 			nextH2 := strings.Index(after, "\n## ")
 			var insertPos int
 			if nextH2 == -1 {
 				insertPos = len(content)
 			} else {
-				// Insert before the newline that precedes the next heading.
 				insertPos = idx + len(captureSurfacesHeading) + nextH2
 			}
 			before := strings.TrimRight(content[:insertPos], "\n")
 			afterInsert := content[insertPos:]
-			// Avoid duplicating the bullet if already present.
 			if strings.Contains(before, absPath) {
 				return nil
 			}
@@ -270,19 +218,13 @@ func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
 	return writeFileAtomic(claudeMDPath, []byte(newContent))
 }
 
-// createBucketIndexStub writes <bucketDir>/index.md if absent.
-//
-// The stub carries OKF frontmatter (title, type: Bucket, description
-// placeholder), the bucket name as an H1, a purpose placeholder, a
-// ## Conventions section, and an empty `<bucket-docs>` region — so the
-// first RebuildBucketIndex fills an existing well-formed region rather than
-// appending a fresh one at EOF.
-//
-// If index.md already exists, this is a no-op.
+// createBucketIndexStub writes <bucketDir>/index.md, or nothing when one
+// already exists. The stub includes an empty `<bucket-docs>` region so the
+// first RebuildBucketIndex fills a well-formed region in place instead of
+// appending one at EOF.
 func createBucketIndexStub(bucketDir, name string) error {
 	indexPath := fmt.Sprintf("%s/index.md", bucketDir)
 	if _, err := os.Lstat(indexPath); err == nil {
-		// Already exists — preserve it.
 		return nil
 	}
 

@@ -19,8 +19,6 @@ import (
 	"time"
 )
 
-// ---------- semver tests ----------
-
 func TestParseSemver(t *testing.T) {
 	cases := []struct {
 		in      string
@@ -70,7 +68,6 @@ func TestSemverOrdering(t *testing.T) {
 	if c.compare(d) != 0 {
 		t.Errorf("build metadata should be ignored")
 	}
-	// ordering
 	v010, _ := parseSemver("0.1.0")
 	v011, _ := parseSemver("0.1.1")
 	if v010.compare(v011) >= 0 {
@@ -80,8 +77,6 @@ func TestSemverOrdering(t *testing.T) {
 		t.Errorf("0.1.1 should be > 0.1.0")
 	}
 }
-
-// ---------- helpers ----------
 
 func makeTestServer(releases []Release) *httptest.Server {
 	mux := http.NewServeMux()
@@ -98,8 +93,6 @@ func testClient(srv *httptest.Server) *Client {
 		HTTPClient: &http.Client{Timeout: 5 * time.Second},
 	}
 }
-
-// ---------- Lookup tests ----------
 
 func TestLookupStableChannel(t *testing.T) {
 	releases := []Release{
@@ -197,8 +190,6 @@ func TestLookupBodyParseError(t *testing.T) {
 	}
 }
 
-// ---------- Cache tests ----------
-
 func TestCacheXDGOverride(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", dir)
@@ -211,11 +202,7 @@ func TestCacheXDGOverride(t *testing.T) {
 	}
 }
 
-// ---------- Apply tests ----------
-
-// buildTarGz creates a tar.gz archive with a single file named "atomic"
-// containing content, and returns (archivePath, sha256hex).
-// The archive name uses the current runtime OS and arch so Apply can find it.
+// buildTarGz names the archive for the current OS/arch so Apply can find it.
 func buildTarGz(dir, content string) (archivePath string, sha256sum string, err error) {
 	assetBase := fmt.Sprintf("atomic_0.1.1_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
 	archivePath = filepath.Join(dir, assetBase)
@@ -243,7 +230,6 @@ func buildTarGz(dir, content string) (archivePath string, sha256sum string, err 
 	gz.Close()
 	f.Close()
 
-	// hash the completed archive file
 	af, err := os.Open(archivePath)
 	if err != nil {
 		return "", "", err
@@ -323,7 +309,6 @@ func TestApplySHAMismatch(t *testing.T) {
 		t.Fatalf("build archive: %v", err)
 	}
 	assetName := filepath.Base(archivePath)
-	// write wrong checksum
 	checksumPath := buildChecksums(buildDir, assetName, strings.Repeat("0", 64))
 
 	mux := http.NewServeMux()
@@ -361,15 +346,12 @@ func TestApplySHAMismatch(t *testing.T) {
 		t.Errorf("expected 'SHA256 mismatch' in error, got: %v", err)
 	}
 
-	// original binary must be untouched
 	got, _ := os.ReadFile(currentBin)
 	if string(got) != "original" {
 		t.Errorf("binary was replaced despite SHA mismatch")
 	}
 }
 
-// TestApplyContextCancellation: cancelling ctx mid-Apply causes Apply to return
-// an error from the context rather than completing the download.
 func TestApplyContextCancellation(t *testing.T) {
 	buildDir := t.TempDir()
 	const binaryContent = "fake-atomic-binary-v0.1.1"
@@ -381,7 +363,6 @@ func TestApplyContextCancellation(t *testing.T) {
 	assetName := filepath.Base(archivePath)
 	checksumPath := buildChecksums(buildDir, assetName, sha256sum)
 
-	// Slow handler — waits long enough for cancellation to fire first.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/"+assetName, func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -420,18 +401,14 @@ func TestApplyContextCancellation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from cancelled context, got nil")
 	}
-	// Must have returned with the context error, not a success.
 	got, _ := os.ReadFile(currentBin)
 	if string(got) != "old-binary" {
 		t.Errorf("binary was replaced despite cancellation")
 	}
 }
 
-// TestApply_StagingInInstallDir: Apply stages the new binary next to the target
-// binary before renaming, ensuring same-filesystem rename (EXDEV avoidance).
-// This is a behavioral test: we verify that Apply completes successfully even
-// when the binary's dir is not the same as os.TempDir(). The staging file
-// (.atomic.new) must be cleaned up on success.
+// Apply must succeed with the binary dir outside os.TempDir(), leaving no
+// .atomic.new behind — the EXDEV-avoiding staging path, observed behaviorally.
 func TestApply_StagingInInstallDir(t *testing.T) {
 	buildDir := t.TempDir()
 	const binaryContent = "fake-atomic-binary-v0.1.1-staged"
@@ -474,7 +451,6 @@ func TestApply_StagingInInstallDir(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	// Binary must be replaced.
 	got, err := os.ReadFile(currentBin)
 	if err != nil {
 		t.Fatalf("read replaced binary: %v", err)
@@ -483,14 +459,11 @@ func TestApply_StagingInInstallDir(t *testing.T) {
 		t.Errorf("binary content mismatch: got %q, want %q", got, binaryContent)
 	}
 
-	// Staging file must be gone after successful apply.
 	staged := filepath.Join(binDir, ".atomic.new")
 	if _, err := os.Stat(staged); err == nil {
 		t.Errorf(".atomic.new staging file was not cleaned up after Apply")
 	}
 }
-
-// ---------- Check tests ----------
 
 func TestCheckUpToDate(t *testing.T) {
 	releases := []Release{{TagName: "v0.1.0"}}
@@ -524,8 +497,6 @@ func TestCheckNewerAvailable(t *testing.T) {
 		t.Errorf("expected tag 0.1.1 (no leading v), got %s", tag)
 	}
 }
-
-// ---------- IsNewer / ShouldNotify tests (parent state-only banner decision) ----------
 
 func TestIsNewer(t *testing.T) {
 	cases := []struct {
@@ -573,8 +544,6 @@ func TestShouldNotify(t *testing.T) {
 	}
 }
 
-// ---------- displayVersion tests ----------
-
 func TestDisplayVersion(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -593,8 +562,7 @@ func TestDisplayVersion(t *testing.T) {
 	}
 }
 
-// TestCheckReturnsNoVPrefix: Check with a server whose release tag is "v1.2.0"
-// must return "1.2.0" (no leading v) in the tag return value.
+// A "v1.2.0" release tag must come back as "1.2.0".
 func TestCheckReturnsNoVPrefix(t *testing.T) {
 	releases := []Release{{TagName: "v1.2.0"}}
 	srv := makeTestServer(releases)
@@ -613,7 +581,6 @@ func TestCheckReturnsNoVPrefix(t *testing.T) {
 	}
 }
 
-// TestCheckUpToDateReturnsNoVPrefix: the up-to-date path must also return no-v.
 func TestCheckUpToDateReturnsNoVPrefix(t *testing.T) {
 	releases := []Release{{TagName: "v1.2.0"}}
 	srv := makeTestServer(releases)
@@ -632,14 +599,10 @@ func TestCheckUpToDateReturnsNoVPrefix(t *testing.T) {
 	}
 }
 
-// ---------- Lookup context cancellation test ----------
-
 func TestLookupContextCancelled(t *testing.T) {
-	// Slow handler — delays long enough for the cancelled context to fire first.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
-			// request cancelled by client
 		case <-time.After(5 * time.Second):
 			json.NewEncoder(w).Encode([]Release{{TagName: "v0.1.0"}})
 		}
@@ -656,12 +619,6 @@ func TestLookupContextCancelled(t *testing.T) {
 	}
 }
 
-// ---------- DisplayVersion (exported wrapper, F-1) ----------
-
-// TestDisplayVersion_ExportedWrapper pins the exported wrapper against the
-// same table as the unexported displayVersion — callers outside this
-// package (the check-branch write site, the banner) need this to normalize
-// a raw tag before it ever reaches state.json or stdout.
 func TestDisplayVersion_ExportedWrapper(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"v1.2.0", "1.2.0"},
@@ -675,12 +632,6 @@ func TestDisplayVersion_ExportedWrapper(t *testing.T) {
 	}
 }
 
-// ---------- StageDir ----------
-
-// TestStageDir_NoHardcodedHome proves the staging directory is derived
-// purely from the home argument (never os.UserHomeDir()), so tests and a
-// future real caller land in ~/.cache/atomic/staged/ under whatever home is
-// passed in — never a hardcoded path.
 func TestStageDir_NoHardcodedHome(t *testing.T) {
 	home := "/tmp/fake-home-for-test"
 	want := filepath.Join(home, ".cache", "atomic", "staged")
@@ -689,11 +640,6 @@ func TestStageDir_NoHardcodedHome(t *testing.T) {
 	}
 }
 
-// ---------- Stage (background staging helper) ----------
-
-// stageTestServer wires a release archive + checksums.txt behind an
-// httptest server and returns (srv, rel, sha256sum) — rel points its asset
-// URLs at the server via DownloadURL like the existing Apply tests.
 func stageTestServer(t *testing.T, tag, content string) (*httptest.Server, Release, string) {
 	t.Helper()
 	buildDir := t.TempDir()
@@ -802,9 +748,6 @@ func TestStage_SHAMismatchFailsWithoutStaging(t *testing.T) {
 }
 
 func TestStage_NeverTouchesCurrentBinary(t *testing.T) {
-	// Stage takes no currentBinary argument at all — this test documents
-	// that contract by construction (a compile-time guarantee), and
-	// additionally proves stageDir is left as the sole write target.
 	srv, rel, _ := stageTestServer(t, "v0.1.1", "content")
 	c := &Client{HTTPClient: &http.Client{Timeout: 5 * time.Second}, DownloadURL: srv.URL}
 	stageDir := t.TempDir()
@@ -820,8 +763,6 @@ func TestStage_NeverTouchesCurrentBinary(t *testing.T) {
 		t.Errorf("expected exactly 1 staged file, got %d", len(entries))
 	}
 }
-
-// ---------- AcquireLock / ReleaseLock ----------
 
 func TestAcquireLock_FreeLockAcquires(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -849,7 +790,6 @@ func TestAcquireLock_HeldLockRefuses(t *testing.T) {
 	if ok {
 		t.Fatal("expected refusal when lock already held")
 	}
-	// State must be returned unmodified on refusal.
 	if !got.Update.UpdateStartedAt.Equal(held) {
 		t.Errorf("UpdateStartedAt mutated on refusal: got %v, want unchanged %v", got.Update.UpdateStartedAt, held)
 	}
@@ -870,11 +810,6 @@ func TestReleaseLock_ClearsLockFields(t *testing.T) {
 	}
 }
 
-// TestReleaseLock_OwnerMismatchLeavesLockFieldsUntouched pins the fencing
-// guard: when s's on-disk UpdateStartedAt no longer equals the caller's
-// recorded ownedSince token, a newer holder has taken over (or --force
-// re-stamped) since — the stale caller's release must not clear that
-// holder's active lock, only its own already-set non-lock fields.
 func TestReleaseLock_OwnerMismatchLeavesLockFieldsUntouched(t *testing.T) {
 	ownedSince := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	newerHolderSince := ownedSince.Add(5 * time.Minute)
@@ -893,8 +828,6 @@ func TestReleaseLock_OwnerMismatchLeavesLockFieldsUntouched(t *testing.T) {
 		t.Errorf("LastResult = %q, want preserved even without lock ownership", got.Update.LastResult)
 	}
 }
-
-// ---------- AcquireOrTakeoverLock (foreground apply lock policy) ----------
 
 func TestAcquireOrTakeoverLock_FreeLockAcquires(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -925,7 +858,6 @@ func TestAcquireOrTakeoverLock_FreshLockRefusesNamingAge(t *testing.T) {
 	if !strings.Contains(err.Error(), "3m0s") {
 		t.Errorf("expected the lock's age (3m0s) named in the error, got: %v", err)
 	}
-	// State must be returned unmodified on refusal.
 	if !got.Update.UpdateStartedAt.Equal(started) {
 		t.Errorf("UpdateStartedAt mutated on refusal: got %v, want unchanged %v", got.Update.UpdateStartedAt, started)
 	}
@@ -966,13 +898,6 @@ func TestAcquireOrTakeoverLock_ForceBypassesFreshLock(t *testing.T) {
 	}
 }
 
-// ---------- ApplyStaged (swap-from-staged sibling of Apply) ----------
-
-// buildStagedArchive builds a genuine, extractable gzip-compressed tar
-// archive named assetName, containing a single "atomic" file with content,
-// under dir. Unlike stageTestServer's checksum-only fixtures (Stage never
-// extracts what it downloads), ApplyStaged actually extracts and swaps, so
-// its tests need a real archive.
 func buildStagedArchive(t *testing.T, dir, assetName, content string) (archivePath, sha string) {
 	t.Helper()
 	archivePath = filepath.Join(dir, assetName)

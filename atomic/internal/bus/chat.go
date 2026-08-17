@@ -8,26 +8,18 @@ import (
 	"strings"
 )
 
-// ansiClearLine returns the cursor to column 0 of the current line and
-// erases it — the one primitive every redraw in this file builds on. Chat
-// only ever rewrites its own single pinned input line this way; the
-// scrolling transcript above it is ordinary sequential output, which the
-// terminal's own scrollback already handles, so there is no multi-line
-// cursor tracking to get wrong (docs/spec/atomic-bus.md the risk
-// row: line-oriented redraw, not a full-screen widget tree).
+// ansiClearLine returns the cursor to column 0 and erases the line — the one
+// primitive every redraw here builds on. Chat only ever rewrites its own pinned
+// input line; the transcript above is ordinary sequential output the terminal's
+// scrollback handles, so there is no multi-line cursor tracking to get wrong.
 const ansiClearLine = "\r\x1b[2K"
 
 // promptPrefix opens the pinned input line when nothing is buffered.
 const promptPrefix = "> "
 
-// Chat is atomic bus chat's interactive loop: a scrolling transcript above
-// one pinned input line. Every collaborator is a field, not a package-level
-// call, so the loop is fully driven by a test with no real terminal and no
-// real socket — in is any io.Reader (a raw-mode stdin in production, an
-// io.Pipe in tests), out is any io.Writer, and envelopes is any
-// receive-only channel. send/who/rooms/halt/resume/leave are the wire
-// operations chatAction (action.go) wires to the daemon; a test substitutes
-// spies for all of them.
+// Chat is `atomic bus chat`'s interactive loop: a scrolling transcript above one
+// pinned input line. Every collaborator is a field rather than a package-level
+// call, so a test drives the loop with no real terminal and no real socket.
 type Chat struct {
 	home string
 	room string
@@ -46,30 +38,23 @@ type Chat struct {
 	colour bool
 	width  int
 
-	// pending is what the operator has typed since the last Enter, decoded
-	// one rune at a time (never raw bytes) so a backspace can never split a
-	// multi-byte character. Its emptiness is the one signal the rest of
-	// this file keys off — see backlog below.
+	// pending is what the operator has typed since the last Enter, decoded one
+	// rune at a time so a backspace can never split a multi-byte character. Its
+	// emptiness is the signal the rest of this file keys off — see backlog.
 	pending []rune
 
-	// backlog holds envelopes that arrived while pending was non-empty.
-	// There is no portable, raw-terminal-safe way to ask the emulator
-	// whether the operator has scrolled its native scrollback away from
-	// the bottom, so this checkpoint uses "is the operator mid-typing" as
-	// the one reachable proxy for the brief's backpressure requirement:
-	// interleaving a new transcript line while someone is composing is
-	// exactly the "yank the viewport" the brief warns against. Nothing
-	// here is ever dropped — every envelope in backlog is flushed the
-	// instant pending goes empty again (Enter, or backspacing to nothing).
+	// backlog holds envelopes that arrived while pending was non-empty. There is
+	// no portable raw-terminal-safe way to ask whether the operator has scrolled
+	// away from the bottom, so "mid-typing" is the reachable proxy: interleaving
+	// a transcript line while someone is composing yanks the viewport. Nothing is
+	// dropped — the backlog flushes the instant pending goes empty.
 	backlog []Envelope
 }
 
-// Run is Chat's core loop: multiplex keystrokes from in against envelopes
-// arriving on the subscription channel until /quit, Ctrl+C, or in closes
-// (io.EOF — e.g. Ctrl+D, or a closed pipe in a test). All three leave the
-// room via leave (when set) before returning, so a chat session never
-// leaves a ghost member behind. Only a genuine read error other than EOF is
-// returned; every clean exit path returns nil.
+// Run multiplexes keystrokes from in against envelopes arriving on the
+// subscription channel until /quit, Ctrl+C, or in closes. All three leave the
+// room first, so a chat session never leaves a ghost member behind. Only a read
+// error other than EOF is returned; every clean exit returns nil.
 func (c *Chat) Run() error {
 	defer c.leaveQuiet()
 
@@ -100,10 +85,8 @@ func (c *Chat) Run() error {
 	}
 }
 
-// leaveQuiet runs c.leave (if set) once Run's loop has ended, printing the
-// same "left <room>" confirmation leaveAction prints — or a warning on
-// failure — cleared onto the pinned line rather than appended after
-// whatever was there.
+// leaveQuiet leaves once Run's loop has ended, printing the same confirmation
+// leaveAction prints, cleared onto the pinned line rather than appended.
 func (c *Chat) leaveQuiet() {
 	if c.leave == nil {
 		return
@@ -115,28 +98,21 @@ func (c *Chat) leaveQuiet() {
 	fmt.Fprintf(c.out, "%sleft %s\n", ansiClearLine, c.room)
 }
 
-// keyEvent is one decoded keystroke, or the terminal error that ended
-// readKeys.
+// keyEvent is one decoded keystroke, or the error that ended readKeys.
 type keyEvent struct {
 	r   rune
 	err error
 }
 
-// readKeys decodes one UTF-8 rune at a time from r and pushes it to out,
-// blocking on each send so a slow consumer paces the read exactly one
-// keystroke at a time — this is what makes it safe for Run's select loop
-// to interleave keystrokes against arriving envelopes without a data race
-// on c.pending. done lets Run's return unblock a send that would otherwise
-// park forever once nothing is reading out anymore; it does not unblock a
-// read already parked in br.ReadRune() — that only returns once the
-// underlying reader is closed, exactly like Client.Close does for a
-// Subscribe goroutine (client.go).
+// readKeys decodes one UTF-8 rune at a time and blocks on each send, so a slow
+// consumer paces the read one keystroke at a time — which is what lets Run's
+// select interleave keystrokes and envelopes without racing on c.pending. done
+// unblocks a send once nothing is reading out; it does not unblock a read
+// already parked in ReadRune, which returns only when the reader is closed.
 func readKeys(r io.Reader, out chan<- keyEvent, done <-chan struct{}) {
-	// A panic here would kill the process outright, and the deferred terminal
-	// restore lives on Run's goroutine stack, not this one — so the operator
-	// would be left in a shell with echo and line editing disabled. Convert it
-	// into an error event instead: Run sees a read failure, unwinds normally,
-	// and its defers put the terminal back.
+	// A panic here kills the process, and the deferred terminal restore lives on
+	// Run's stack, not this one — the operator would be left in a shell with echo
+	// disabled. Convert it to an error event so Run unwinds and its defers run.
 	defer func() {
 		if p := recover(); p != nil {
 			select {
@@ -164,8 +140,7 @@ func readKeys(r io.Reader, out chan<- keyEvent, done <-chan struct{}) {
 	}
 }
 
-// handleKey applies one decoded keystroke and reports whether it ends the
-// session (submitting "/quit", or Ctrl+C).
+// handleKey applies one keystroke and reports whether it ends the session.
 func (c *Chat) handleKey(r rune) bool {
 	switch r {
 	case '\r', '\n':
@@ -189,9 +164,8 @@ func (c *Chat) echoRune(r rune) {
 	fmt.Fprint(c.out, string(r))
 }
 
-// backspace erases the last typed rune, both from pending and the screen.
-// Erasing the final rune crosses pending back to empty, which is exactly
-// the trigger flushBacklog waits for — see backlog's doc.
+// backspace erases the last typed rune from pending and the screen. Erasing the
+// final one crosses pending back to empty, which is flushBacklog's trigger.
 func (c *Chat) backspace() {
 	if len(c.pending) == 0 {
 		return
@@ -204,9 +178,8 @@ func (c *Chat) backspace() {
 	fmt.Fprint(c.out, "\b \b")
 }
 
-// submitLine processes the line the operator just pressed Enter on:
-// dispatches it (unless blank), then flushes anything buffered while they
-// were composing. Returns true only for "/quit" (via onInput).
+// submitLine dispatches the submitted line (unless blank), then flushes anything
+// buffered while the operator was composing. True only for "/quit".
 func (c *Chat) submitLine() bool {
 	line := strings.TrimSpace(string(c.pending))
 	c.pending = nil
@@ -218,11 +191,9 @@ func (c *Chat) submitLine() bool {
 	return false
 }
 
-// onInput dispatches one submitted, non-blank line per
-// docs/spec/atomic-bus.md the in-chat syntax table: a bare line
-// sends to the room, "@name text" addresses one member, "/who" and
-// "/rooms" print inline, "/halt" and "/resume" toggle the room, and
-// "/quit" ends the session (signalled via the bool return).
+// onInput dispatches one submitted non-blank line: a bare line sends to the
+// room, "@name text" addresses one member, "/who" and "/rooms" print inline,
+// "/halt" and "/resume" toggle the room, "/quit" ends the session.
 func (c *Chat) onInput(line string) bool {
 	switch {
 	case line == "/quit":
@@ -245,10 +216,8 @@ func (c *Chat) onInput(line string) bool {
 	return false
 }
 
-// sendAddressed parses "<name> <text>" (the part of an "@name text" line
-// after the "@") and sends to exactly that one addressee — the in-chat
-// syntax table specifies a single name, not a comma-separated list like
-// send --to.
+// sendAddressed sends to exactly one addressee — the in-chat syntax takes a
+// single name, not a comma-separated list like send --to.
 func (c *Chat) sendAddressed(rest string) {
 	name, text, ok := strings.Cut(rest, " ")
 	text = strings.TrimSpace(text)
@@ -279,8 +248,8 @@ func (c *Chat) doResume() {
 	}
 }
 
-// printMembers and printRooms reuse render.go's own table formatting
-// (MemberTable, RoomTable) rather than a second, chat-specific renderer.
+// printMembers and printRooms reuse render.go's table formatting rather than a
+// second chat-specific renderer.
 func (c *Chat) printMembers() {
 	members, err := c.who()
 	if err != nil {
@@ -307,12 +276,10 @@ func (c *Chat) printSystem(msg string) {
 	c.printRaw("! " + msg)
 }
 
-// printRaw clears the pinned input line, writes s (a trailing newline is
-// guaranteed), and redraws the prompt below it. Every path that puts a
-// full line into the transcript — an arriving envelope, a /who or /rooms
-// table, a system notice — goes through this, so the input line is
-// cleared and rebuilt the same way every time rather than each caller
-// reimplementing the redraw dance.
+// printRaw clears the pinned input line, writes s with a guaranteed trailing
+// newline, and redraws the prompt below it. Every path that puts a full line
+// into the transcript goes through this, so the redraw happens one way rather
+// than being reimplemented per caller.
 func (c *Chat) printRaw(s string) {
 	fmt.Fprint(c.out, ansiClearLine)
 	fmt.Fprint(c.out, s)
@@ -322,10 +289,8 @@ func (c *Chat) printRaw(s string) {
 	c.redrawPrompt()
 }
 
-// deliver handles one arriving envelope: printed immediately when the
-// operator isn't mid-composition, or held in backlog and counted in the
-// prompt otherwise — see backlog's doc comment for why "mid-composition"
-// is this checkpoint's stand-in for "scrolled up".
+// deliver prints an arriving envelope immediately, or holds it in backlog and
+// counts it in the prompt when the operator is mid-composition.
 func (c *Chat) deliver(env Envelope) {
 	if len(c.pending) > 0 {
 		c.backlog = append(c.backlog, env)
@@ -335,11 +300,8 @@ func (c *Chat) deliver(env Envelope) {
 	c.printRaw(TailLine(env, c.home, c.width, c.colour, false))
 }
 
-// flushBacklog prints every envelope withheld while the operator was
-// composing, then redraws the prompt. Called the instant pending goes
-// empty (Enter, or backspacing to nothing) so nothing buffered is ever
-// held longer than the composition that caused it to be buffered — this
-// is the "backpressure, not truncation" the brief asks for: a count while
+// flushBacklog prints every envelope withheld while the operator was composing,
+// then redraws the prompt. Backpressure, not truncation: a count while
 // composing, never a dropped message.
 func (c *Chat) flushBacklog() {
 	if len(c.backlog) > 0 {
@@ -359,9 +321,8 @@ func (c *Chat) redrawPrompt() {
 	fmt.Fprint(c.out, ansiClearLine+c.promptLine())
 }
 
-// promptLine is the pinned line's full content: a "[N new]" prefix while
-// backlog is non-empty (see its doc), then the fixed prompt marker and
-// whatever the operator has typed so far.
+// promptLine is the pinned line's full content: a "[N new]" prefix while backlog
+// is non-empty, then the prompt marker and whatever has been typed.
 func (c *Chat) promptLine() string {
 	if n := len(c.backlog); n > 0 {
 		return fmt.Sprintf("[%d new] %s%s", n, promptPrefix, string(c.pending))

@@ -1,6 +1,5 @@
-// Package mdparse_test exercises the mdparse public API from a caller's
-// perspective. Each test group verifies a contract the caller relies on:
-// wrong detection = validator reports false positives/negatives downstream.
+// Each group here pins a contract the validators rely on; wrong detection turns
+// into false positives or missed findings downstream.
 package mdparse_test
 
 import (
@@ -9,10 +8,6 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 )
-
-// ---------------------------------------------------------------------------
-// Sections
-// ---------------------------------------------------------------------------
 
 func TestSections_TypicalDoc(t *testing.T) {
 	src := []byte(`# Title
@@ -33,7 +28,6 @@ Sub-detail content.
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Expect: H1 "Title", H2 "Overview", H2 "Details" (H3 is inside Details).
 	if len(sections) != 3 {
 		t.Fatalf("expected 3 sections, got %d: %+v", len(sections), sections)
 	}
@@ -57,7 +51,6 @@ text
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// H3s belong to the enclosing H2 — not their own section.
 	if len(sections) != 1 {
 		t.Fatalf("expected 1 section, got %d: %+v", len(sections), sections)
 	}
@@ -104,19 +97,8 @@ func TestSections_LineNumbersIncrease(t *testing.T) {
 }
 
 func TestSections_EndLineValues(t *testing.T) {
-	// "# A\n\n## B\n\n## C\n"
-	// Line 1: # A
-	// Line 2: (blank)
-	// Line 3: ## B
-	// Line 4: (blank)
-	// Line 5: ## C
-	//
-	// Section "A" (H1) starts at 1, must end at Start("B")-1 = 2.
-	// Section "B" (H2) starts at 3, must end at Start("C")-1 = 4.
-	// Section "C" (H2) starts at 5, End == 0 (extends to EOF).
-	//
-	// CP-5 callers use End to bound section-range searches; wrong End values
-	// cause false positives or missed findings in adjacent sections.
+	// Callers bound section-range searches with End, so an off-by-one leaks
+	// findings into the adjacent section.
 	src := []byte("# A\n\n## B\n\n## C\n")
 	sections, err := mdparse.Sections(src)
 	if err != nil {
@@ -126,27 +108,20 @@ func TestSections_EndLineValues(t *testing.T) {
 		t.Fatalf("expected 3 sections, got %d: %+v", len(sections), sections)
 	}
 
-	// sections[0] ("A"): End must be sections[1].Start - 1
 	wantEndA := sections[1].Start - 1
 	if sections[0].End != wantEndA {
 		t.Errorf("sections[0].End = %d, want %d (sections[1].Start-1)", sections[0].End, wantEndA)
 	}
 
-	// sections[1] ("B"): End must be sections[2].Start - 1
 	wantEndB := sections[2].Start - 1
 	if sections[1].End != wantEndB {
 		t.Errorf("sections[1].End = %d, want %d (sections[2].Start-1)", sections[1].End, wantEndB)
 	}
 
-	// sections[2] ("C"): End == 0 (no following section, extends to EOF)
 	if sections[2].End != 0 {
 		t.Errorf("sections[2].End = %d, want 0 (last section extends to EOF)", sections[2].End)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// IsATXOnly
-// ---------------------------------------------------------------------------
 
 func TestIsATXOnly_ATXReturnsTrue(t *testing.T) {
 	src := []byte("# Heading\n\n## Sub\n\ntext\n")
@@ -156,7 +131,6 @@ func TestIsATXOnly_ATXReturnsTrue(t *testing.T) {
 }
 
 func TestIsATXOnly_SetextH1ReturnsFalse(t *testing.T) {
-	// Setext-style H1: paragraph text followed by === underline.
 	src := []byte("Title\n=====\n\nSome text.\n")
 	if mdparse.IsATXOnly(src) {
 		t.Error("expected false for source with Setext H1")
@@ -164,7 +138,6 @@ func TestIsATXOnly_SetextH1ReturnsFalse(t *testing.T) {
 }
 
 func TestIsATXOnly_SetextH2ReturnsFalse(t *testing.T) {
-	// Setext-style H2: paragraph text followed by --- underline.
 	src := []byte("Subtitle\n--------\n\nSome text.\n")
 	if mdparse.IsATXOnly(src) {
 		t.Error("expected false for source with Setext H2")
@@ -185,9 +158,8 @@ func TestIsATXOnly_MixedReturnsFalse(t *testing.T) {
 }
 
 func TestIsATXOnly_SetextWithCRLF(t *testing.T) {
-	// CRLF-encoded file: the underline line ends in \r\n. isSetextUnderline must
-	// strip \r before checking characters, otherwise \r != '=' causes a false-
-	// negative and IsATXOnly silently returns true for a Setext heading.
+	// Without stripping \r first, \r != '=' turns a Setext heading into a silent
+	// false negative.
 	src := []byte("Title\r\n=====\r\n\r\nSome text.\r\n")
 	if mdparse.IsATXOnly(src) {
 		t.Error("expected false for CRLF-encoded Setext H1 (IsATXOnly must not mis-detect as ATX-only)")
@@ -195,9 +167,7 @@ func TestIsATXOnly_SetextWithCRLF(t *testing.T) {
 }
 
 func TestIsATXOnly_SetextInsideFencedCodeBlockReturnsTrue(t *testing.T) {
-	// A fenced code block (backtick fence) containing a YAML frontmatter-style
-	// `---` line must NOT trigger Setext detection. The `---` is inside the
-	// block and therefore not a heading underline in the document.
+	// A `---` inside a fence is block content, not a heading underline.
 	src := []byte("# Title\n\n## Section\n\nHere is an example:\n\n```yaml\nkey: value\n---\nother: val\n```\n\nMore text.\n")
 	if !mdparse.IsATXOnly(src) {
 		t.Error("expected true: --- inside backtick fenced block must not be treated as Setext underline")
@@ -205,23 +175,15 @@ func TestIsATXOnly_SetextInsideFencedCodeBlockReturnsTrue(t *testing.T) {
 }
 
 func TestIsATXOnly_SetextInsideTildeFencedCodeBlockReturnsTrue(t *testing.T) {
-	// Same but with tilde fence (~~~). The `---` inside must not trigger Setext.
+	// Same, with a tilde fence.
 	src := []byte("# Title\n\n## Section\n\n~~~yaml\nkey: value\n---\nother: val\n~~~\n\nMore text.\n")
 	if !mdparse.IsATXOnly(src) {
 		t.Error("expected true: --- inside tilde fenced block must not be treated as Setext underline")
 	}
 }
 
-// TestIsATXOnly_SetextInsideIndentedCodeBlockReturnsTrue was deleted: the test
-// passed vacuously because "    ---" starts with a space and isSetextUnderline
-// returns false at trimmed[0] == ' ' before any fence-tracking logic runs. The
-// indented-code short-circuit is pre-existing behavior independent of the fence
-// fix. TestIsATXOnly_SetextInsideFencedCodeBlockReturnsTrue (backtick fence) and
-// TestIsATXOnly_SetextWithCRLF cover the meaningful detection paths.
-
 func TestIsATXOnly_RealRepoFiles(t *testing.T) {
-	// Dogfood test: real spec files in this repo must all be ATX-only.
-	// If run outside the repo tree, skip gracefully.
+	// Dogfood: this repo's own spec files must all be ATX-only.
 	paths := []string{
 		"../../../docs/spec/atomic-binary.md",
 		"../../../docs/spec/install-workflow.md",
@@ -237,10 +199,6 @@ func TestIsATXOnly_RealRepoFiles(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// FindTableByHeader
-// ---------------------------------------------------------------------------
 
 const tableDoc = `# Doc
 
@@ -309,10 +267,6 @@ func TestFindTableByHeader_EmptyInput(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// InlineRefs
-// ---------------------------------------------------------------------------
-
 func TestInlineRefs_ExtractsCodeSpansAndLinks(t *testing.T) {
 	src := []byte("Use `atomic validate` and see [docs](https://example.com).\n")
 	refs, err := mdparse.InlineRefs(src)
@@ -337,8 +291,7 @@ func TestInlineRefs_ExtractsCodeSpansAndLinks(t *testing.T) {
 }
 
 func TestInlineRefs_FencedCodeBlockNotExtracted(t *testing.T) {
-	// The string "atomic validate" appears both in a fenced code block and as
-	// an inline code span. Only the inline span must be extracted.
+	// The same string sits in a fenced block and an inline span; only the span counts.
 	src := []byte("Use `atomic validate` in prose.\n\n```\natomic validate --json\n```\n")
 	refs, err := mdparse.InlineRefs(src)
 	if err != nil {
@@ -350,19 +303,16 @@ func TestInlineRefs_FencedCodeBlockNotExtracted(t *testing.T) {
 			codeTexts = append(codeTexts, r.Text)
 		}
 	}
-	// Should find exactly one: the inline span, not the fenced block content.
 	if len(codeTexts) != 1 {
 		t.Errorf("expected 1 code ref, got %d: %v", len(codeTexts), codeTexts)
 	}
-	// Content must be the inline span text, not the fenced block body.
 	if len(codeTexts) == 1 && codeTexts[0] != "atomic validate" {
 		t.Errorf("expected 'atomic validate', got %q", codeTexts[0])
 	}
 }
 
 func TestInlineRefs_IndentedCodeBlockNotExtracted(t *testing.T) {
-	// The string "my-command" appears in an indented code block (4 spaces) and
-	// as an inline code span. Only the inline span must be extracted.
+	// Same, with an indented code block.
 	src := []byte("Use `my-command` here.\n\n    my-command --flag\n")
 	refs, err := mdparse.InlineRefs(src)
 	if err != nil {
@@ -405,10 +355,6 @@ func TestInlineRefs_Empty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FindTableByRequiredColumns
-// ---------------------------------------------------------------------------
-
 const tableDoc6Col = `# Doc
 
 ## Checkpoints
@@ -419,7 +365,6 @@ const tableDoc6Col = `# Doc
 `
 
 func TestFindTableByRequiredColumns_ExactFourColPass(t *testing.T) {
-	// 4-col header matching required columns exactly must pass (unchanged behavior).
 	src := []byte(`# Doc
 
 | # | Checkpoint | Files/areas | Verifies |
@@ -442,8 +387,7 @@ func TestFindTableByRequiredColumns_ExactFourColPass(t *testing.T) {
 }
 
 func TestFindTableByRequiredColumns_SixColSubsequencePass(t *testing.T) {
-	// 6-col canonical header from /atomic-plan must pass: required columns are
-	// a subsequence (in order) of the actual header.
+	// The canonical 6-column header: required columns are an ordered subsequence.
 	found, line, err := mdparse.FindTableByRequiredColumns(
 		[]byte(tableDoc6Col),
 		[]string{"#", "Checkpoint", "Files/areas", "Verifies"},
@@ -460,7 +404,6 @@ func TestFindTableByRequiredColumns_SixColSubsequencePass(t *testing.T) {
 }
 
 func TestFindTableByRequiredColumns_MissingRequiredFail(t *testing.T) {
-	// Header missing "Verifies" must not match.
 	src := []byte(`# Doc
 
 | # | Checkpoint | Files/areas |
@@ -480,7 +423,7 @@ func TestFindTableByRequiredColumns_MissingRequiredFail(t *testing.T) {
 }
 
 func TestFindTableByRequiredColumns_OutOfOrderFail(t *testing.T) {
-	// Required columns present but Verifies appears before Checkpoint — must not match.
+	// All required columns present, but out of order.
 	src := []byte(`# Doc
 
 | # | Verifies | Checkpoint | Files/areas |
@@ -511,10 +454,6 @@ func TestFindTableByRequiredColumns_EmptyInput(t *testing.T) {
 		t.Errorf("expected line=0 on empty input, got %d", line)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
 
 func assertSection(t *testing.T, s mdparse.Section, heading string, level int) {
 	t.Helper()

@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildValidateCmd returns the "validate" top-level command with flag metadata.
 func buildValidateCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                "validate",

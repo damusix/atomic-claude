@@ -8,8 +8,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// makeMemoryFile writes MEMORY.md at dotClaudeProjects/<project>/memory/MEMORY.md.
-// Returns the dotClaudeProjects base dir (caller uses it as the claudeHome prefix).
+// makeMemorySetup writes MEMORY.md for a project and returns the base dir the
+// caller passes as claudeHome.
 func makeMemorySetup(t *testing.T, project, content string) string {
 	t.Helper()
 	base := t.TempDir()
@@ -23,11 +23,8 @@ func makeMemorySetup(t *testing.T, project, content string) string {
 	return base
 }
 
-// TestProjectMemoryDirDerivation verifies the project name from cwd path.
-// Rule: mirror Claude Code's slugification — every non-alphanumeric character
-// (path separators "/" and "\", the Windows drive colon ":", dots, etc.) is
-// replaced by "-", per character. A POSIX leading "/" yields a leading "-";
-// existing hyphens and letter case are preserved.
+// These expectations mirror Claude Code's own slugification: every
+// non-alphanumeric character becomes "-", per character, and case is kept.
 func TestProjectMemoryDirDerivation(t *testing.T) {
 	tests := []struct {
 		cwd  string
@@ -36,12 +33,10 @@ func TestProjectMemoryDirDerivation(t *testing.T) {
 		{"/Users/alonso/projects/github/claude-code-setup", "-Users-alonso-projects-github-claude-code-setup"},
 		{"/home/user/repo", "-home-user-repo"},
 		{"/tmp/x", "-tmp-x"},
-		// Dotted segment: "/.claude" → "--claude" (both "/" and "." become "-").
-		// Matches Claude Code's real dir name for ~/.claude (-Users-alonso--claude).
+		// Both "/" and "." convert, so a dotted segment doubles the dash.
 		{"/Users/alonso/.claude", "-Users-alonso--claude"},
 		{"/Users/alonso/projects/pi-os/.worktrees/x", "-Users-alonso-projects-pi-os--worktrees-x"},
-		// Windows path: drive colon and backslashes slugify too, with
-		// no stray leading "-". C:\...\vibe-core → C--Users-...-vibe-core.
+		// A drive letter leaves no stray leading dash.
 		{`C:\Users\master-user\Documents\Projects\vibe0\vibe-core`, "C--Users-master-user-Documents-Projects-vibe0-vibe-core"},
 	}
 	for _, tc := range tests {
@@ -52,7 +47,6 @@ func TestProjectMemoryDirDerivation(t *testing.T) {
 	}
 }
 
-// TestCheckMemoryFileAbsent verifies PASS when no MEMORY.md exists.
 func TestCheckMemoryFileAbsent(t *testing.T) {
 	claudeHome := t.TempDir()
 	project := "-tmp-testproject"
@@ -62,7 +56,6 @@ func TestCheckMemoryFileAbsent(t *testing.T) {
 	}
 }
 
-// TestCheckMemoryAllResolve verifies PASS when all links resolve.
 func TestCheckMemoryAllResolve(t *testing.T) {
 	project := "-tmp-testproject"
 	content := "# Persistent Agent Memory\n\n- [Topic A](topic_a.md)\n- [Topic B](topic_b.md)\n"
@@ -81,7 +74,6 @@ func TestCheckMemoryAllResolve(t *testing.T) {
 	}
 }
 
-// TestCheckMemoryOneOrphan verifies WARN when one link target is missing.
 func TestCheckMemoryOneOrphan(t *testing.T) {
 	project := "-tmp-testproject"
 	content := "# Persistent Agent Memory\n\n- [Topic A](topic_a.md)\n- [Missing](missing.md)\n"
@@ -99,13 +91,9 @@ func TestCheckMemoryOneOrphan(t *testing.T) {
 	}
 }
 
-// TestCheckMemoryAllResolve_ExcludesSkippedTargets verifies that absolute-path
-// and URL targets are NOT counted in the N/N refs resolve total. Including them
-// would over-report the denominator (e.g. "3/3" when only 1 relative link exists).
+// Counting absolute-path and URL targets would over-report the denominator.
 func TestCheckMemoryAllResolve_ExcludesSkippedTargets(t *testing.T) {
 	project := "-tmp-testproject"
-	// MEMORY.md has one relative link (resolves), one absolute path, one URL.
-	// Only the relative link should be counted.
 	content := "# Persistent Agent Memory\n\n- [Topic A](topic_a.md)\n- [Absolute](/absolute/path.md)\n- [External](https://example.com/file.md)\n"
 	claudeHome := makeMemorySetup(t, project, content)
 
@@ -118,18 +106,18 @@ func TestCheckMemoryAllResolve_ExcludesSkippedTargets(t *testing.T) {
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %v, want PASS (detail: %s)", r.Severity, r.Detail)
 	}
-	// Must be "1/1", not "1/3" (absolute+URL targets excluded from count).
+	// "1/1", not "1/3".
 	if r.Detail != "1/1 refs resolve" {
 		t.Errorf("detail = %q, want %q", r.Detail, "1/1 refs resolve")
 	}
 }
 
-// TestCheckMemoryManyOrphans verifies WARN with "..." when more than 3 orphans.
+// Past three orphans the detail truncates with an ellipsis.
 func TestCheckMemoryManyOrphans(t *testing.T) {
 	project := "-tmp-testproject"
 	content := "# Persistent Agent Memory\n\n- [A](a.md)\n- [B](b.md)\n- [C](c.md)\n- [D](d.md)\n"
 	claudeHome := makeMemorySetup(t, project, content)
-	// All targets absent.
+	// No target file is written.
 
 	r := doctor.RunCheckMemoryWith(claudeHome, project)
 	if r.Severity != doctor.WARN {

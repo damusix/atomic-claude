@@ -10,24 +10,15 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/ids"
 )
 
-// subscriberBuffer bounds each live subscriber's delivery channel. See
-// Room.fanOut for why a full channel drops rather than blocks.
+// subscriberBuffer bounds each subscriber's delivery channel; a full channel
+// drops rather than blocks (Room.fanOut).
 const subscriberBuffer = 32
 
-// Hub owns every room a running daemon knows about, behind one mutex. A
-// single mutex — rather than one per room — is deliberate: "never allow
-// two backends in one room" is a compare-and-swap against the roster, and
-// that check-then-set can only be atomic if nothing else can observe or
-// mutate room state in between. room_test.go's concurrent-join tests are the
-// proof of this property.
-//
-// The same mutex also serializes every room's disk I/O: Publish and
-// setHalted append to the room log synchronously while h.mu is held, so
-// one room's slow write blocks every other room's operation until it
-// returns. That is an acceptable trade at this daemon's scale (one
-// process, one user, local disk) — it is a consequence of choosing
-// roster atomicity over per-room locks, not a design goal, and it is
-// worth knowing before assuming Publish is cheap.
+// Hub owns every room a running daemon knows about, behind one mutex. One
+// mutex rather than one per room: "never two backends in one room" is a
+// compare-and-swap against the roster, atomic only if no other room state can
+// change in between. The cost is that Publish and setHalted hold h.mu across
+// their room-log writes, so one room's slow write blocks every other room.
 type Hub struct {
 	home string
 	now  func() time.Time
@@ -36,58 +27,43 @@ type Hub struct {
 	rooms map[string]*Room
 }
 
-// NewHub creates a Hub whose room logs are written under home (see
-// RoomLogPath in paths.go). Its clock defaults to time.Now; see SetClock.
+// NewHub creates a Hub whose room logs are written under home (RoomLogPath).
+// Its clock defaults to time.Now; see SetClock.
 func NewHub(home string) *Hub {
 	return &Hub{home: home, now: time.Now, rooms: map[string]*Room{}}
 }
 
-// SetClock overrides Hub's time source — the seam staleness tests use to
-// advance "now" without a real sleep. Production code (serveAction) never
-// calls this; NewHub's time.Now default is what every real daemon runs on.
-// Not safe to call once the Hub is serving concurrent requests — set it
-// once, immediately after NewHub, before any goroutine can observe h.mu.
+// SetClock overrides Hub's time source so staleness tests can advance "now"
+// without sleeping. Call once immediately after NewHub — not safe once the Hub
+// is serving concurrent requests.
 func (h *Hub) SetClock(now func() time.Time) {
 	h.now = now
 }
 
 // Room is one named room's authoritative state: who's in it, whether it's
-// halted, and who is currently subscribed to its live traffic.
-//
-// Room has no lock of its own — every field here is guarded by the owning
-// Hub's mutex, and every method on Room assumes that lock is already held.
-// A Room with its own lock would let a caller correctly serialize its own
-// calls while still racing another goroutine going through Hub directly;
-// one lock for all room state removes that whole class of mistake.
+// halted, and who is subscribed to its live traffic. It has no lock of its
+// own — every field is guarded by the owning Hub's mutex, and every method
+// here assumes that lock is already held.
 type Room struct {
 	members   map[string]Member // by assigned name
 	bySession map[string]string // session id -> assigned name
 
 	halted bool
-	// haltReason is the text a Halt call was given, cleared on Resume.
-	// Retained rather than only broadcast at halt time so rooms/who/status can
-	// report why a room is halted later, including after Rehydrate restores it.
+	// Retained rather than only broadcast at halt time, so rooms/who/status can
+	// report why a room is halted later, including after Rehydrate.
 	haltReason string
 
-	// usedIDs records every envelope id this Room has assigned during this
-	// daemon's lifetime — nextEnvelopeID's collision guard. See that
-	// method's doc for why a per-process sequential counter (the prior
-	// design) was replaced: it made ids unique only within one daemon's
-	// lifetime, and the room log they land in outlives the daemon.
+	// usedIDs is nextEnvelopeID's collision guard, scoped to this daemon's
+	// lifetime.
 	usedIDs map[string]struct{}
 
 	subs   map[int]*subscriber
 	subSeq int
 }
 
-// subscriber pairs a live subscriber's delivery channel with its own drop
-// count, the session it was opened for, and whether it opts out of
-// receiving that session's own publishes. dropped is only ever touched from
-// fanOut, which always runs under the owning Hub's mutex (see Room's doc
-// comment) — no separate lock needed.
-//
-// session and skipSelf are the only way the daemon can tell who published or
-// who is currently watching: the subscribe call itself carries no identity.
+// subscriber pairs a delivery channel with its own drop count and the session
+// it was opened for; the subscribe call itself carries no identity. dropped is
+// only ever touched from fanOut, always under the owning Hub's mutex.
 type subscriber struct {
 	ch       chan<- Envelope
 	dropped  int
@@ -95,9 +71,8 @@ type subscriber struct {
 	skipSelf bool
 }
 
-// getOrCreateRoom returns the named room, creating it if this is the first
-// time anything (a join or a subscribe) has touched it. Caller must hold
-// h.mu.
+// getOrCreateRoom returns the named room, creating it on first touch. Caller
+// must hold h.mu.
 func (h *Hub) getOrCreateRoom(name string) *Room {
 	r, ok := h.rooms[name]
 	if !ok {
@@ -122,77 +97,46 @@ func noRoomError(room string) error {
 	return &Error{Code: ExitNoRoom, Msg: fmt.Sprintf("bus: room %q does not exist", room)}
 }
 
-// systemName is the sentinel identity daemon-generated control envelopes
-// use as From — setHalted's halt/resume announcement and fanOut's drop
-// marker (dropMarkerEnvelope). Join rejects any real member claiming this
-// name (see the check below), so From == systemName is proof a subscriber
-// can trust: no member can ever publish under this name, only the daemon's
-// own sentinel envelopes carry it.
-//
-// kindSystem is dropMarkerEnvelope's FromKind, deliberately outside
-// validKind's {KindAgent, KindHuman} enum — Join can never assign it to a
-// member, so FromKind == kindSystem is exactly as unspoofable as
-// From == systemName. setHalted's control envelope uses KindHuman instead,
-// where systemName alone is what makes it unspoofable.
-// operatorName is the fixed From of every `say` / `halt` / `resume` envelope.
-// The daemon assigns it in handleSay — it is never read from the request — and
-// Join reserves it exactly as it reserves systemName, so From == operatorName
-// is proof the message came from a human operator. That proof is load-bearing:
-// the skill tells agents to treat operator messages as authoritative user
-// input, so a forgeable operator identity is a privilege escalation between
-// agents, not a cosmetic confusion.
+// systemName and operatorName are the sentinel From values Join refuses to
+// assign (reservedNames), which is what makes them proof rather than
+// convention: From == systemName is a daemon control envelope, From ==
+// operatorName is a human operator. The operator proof is load-bearing — the
+// skill tells agents to treat operator messages as authoritative user input,
+// so a forgeable operator identity is privilege escalation between agents.
+// kindSystem sits outside validKind's enum, so FromKind == kindSystem is
+// unspoofable the same way.
 const (
 	systemName   = "system"
 	kindSystem   = "system"
 	operatorName = "human"
 )
 
-// reservedNames are the sentinel From values no member may claim at Join.
-// Adding a sentinel elsewhere in the package means adding it here — that is
-// the point of the set existing rather than a chain of != comparisons.
+// reservedNames are the sentinel From values no member may claim at Join. A
+// new sentinel anywhere in the package belongs here.
 var reservedNames = map[string]bool{
 	systemName:   true,
 	operatorName: true,
 }
 
-// validKind reports whether kind is one of the two values Member.Kind
-// accepts (protocol.go's KindAgent/KindHuman). Join rejects anything else
-// with ExitUsage — a client-supplied Kind is wire input, so an unknown
-// value must be a clean protocol error, never silently stored or panicked
-// on. Closing Kind to exactly these two values is also what makes
-// Publish's halt check load-bearing in the form it's written: see that
-// check's doc comment.
+// validKind closes Member.Kind to exactly two values. Kind is wire input, so
+// an unknown value must be a clean protocol error rather than something stored
+// or panicked on; Publish's halt check relies on the enum being closed.
 func validKind(kind string) bool {
 	return kind == KindAgent || kind == KindHuman
 }
 
-// Join claims name in room, atomically: taken -> retry once as
-// "<name>-2" -> still taken -> ExitNameTaken. The whole operation runs
-// under h.mu as a single critical section, so the check ("is this name
-// free?") and the claim ("take it") can never be separated by another
-// goroutine's Join landing in between — that gap is exactly what would let
-// two "backend"s exist in one room. See room_test.go's concurrent-join
-// tests for the actual proof.
+// Join claims name in room, atomically: taken -> retry once as "<name>-2" ->
+// still taken -> ExitNameTaken. The check and the claim run as one critical
+// section, which is what stops two "backend"s ever existing in one room.
 //
-// Nothing about session's existing roster entry is touched until the new
-// name is confirmed claimable — a failed Join (ExitNameTaken) is a no-op
-// on the roster, full stop. Only once assigned is known free does Join
-// release session's prior entry (if any) and take assigned; a session
-// re-joining a room it's already in can therefore never end up holding two
-// roster entries, and a session whose rejoin fails can never end up
-// holding zero.
+// A failed Join is a no-op on the roster: session's prior entry is released
+// only once the new name is known claimable, so a rejoin can never leave a
+// session holding two entries, and a failed one can never leave it holding
+// zero.
 //
-// Join also validates before any of that: room and name are capped at
-// MaxIdentifierBytes (see roomlog.go's scannerMaxLineBytes, which depends
-// on this cap holding), kind must be one of validKind's two values, and
-// name may not be systemName — closing off the two ways a member could
-// otherwise spoof a daemon control envelope (see systemName's doc
-// comment).
-//
-// repo and realm are the client's own reported position, stored verbatim at
-// the same trust level as mode: unlike From/FromKind at publish time there is
-// no roster entry to check them against, because this call is what creates
-// one. Empty realm is valid and common; never rewritten to a placeholder.
+// repo and realm are the client's own reported position, stored verbatim —
+// unlike From at publish time there is no roster entry yet to check them
+// against. Empty realm is valid and never rewritten to a placeholder.
 func (h *Hub) Join(room, name, mode, kind, session, repo, realm string) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -245,28 +189,21 @@ func (h *Hub) Join(room, name, mode, kind, session, repo, realm string) (string,
 	return assigned, nil
 }
 
-// nameAvailableTo reports whether candidate can be claimed by session: free
-// outright, or already held by session itself (so a session re-asserting
-// its own current name is never blocked by its own entry).
+// nameAvailableTo reports whether candidate is free, or already held by session
+// itself, so re-asserting your own name is never blocked by your own entry.
 func (r *Room) nameAvailableTo(candidate, session string) bool {
 	m, taken := r.members[candidate]
 	return !taken || m.Session == session
 }
 
-// Rehydrate restores every room and member recorded in st into the Hub —
-// the startup step that rebuilds the whole roster from ~/.atomic/bus.json
-// bus.json already holds every session on the machine, so this one pass at
-// Serve startup keeps a member who stays idle across the restart present and
-// addressable — the per-client re-registration it replaced could only restore a session that ran
+// Rehydrate rebuilds the whole roster from ~/.atomic/bus.json at Serve startup,
+// so a member idle across a restart stays present and addressable — the
+// per-client re-registration it replaced could only restore a session that ran
 // a command.
 //
-// Rehydrate bypasses Join's name-collision retry entirely: a restored
-// member owns its name by right — it is the authoritative record of who
-// already held that name before the daemon went away — not a new claim
-// racing whatever else is in the (freshly empty) roster. Kind and Mode
-// default to KindAgent and "participate" — Join's own defaults — for a
-// membership persisted before those fields existed, so an old bus.json
-// entry rehydrates exactly as a fresh join would have assigned it.
+// It bypasses Join's collision retry: a restored member owns its name by right,
+// it is not a new claim racing a freshly empty roster. Kind and Mode fall back
+// to Join's own defaults for entries persisted before those fields existed.
 func (h *Hub) Rehydrate(st *State) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -281,11 +218,10 @@ func (h *Hub) Rehydrate(st *State) {
 			if mode == "" {
 				mode = "participate"
 			}
-			// LastSeen is restored as persisted, never restamped to "now":
-			// restamping resurrects a session dead for hours as freshly live
-			// and puts it permanently out of Prune's reach. A zero LastSeen
-			// predates the field, and Joined is the best available stand-in
-			// because it is never zero.
+			// Restored as persisted, never restamped to "now": restamping
+			// resurrects a long-dead session as freshly live and puts it
+			// permanently out of Prune's reach. Zero predates the field, and
+			// Joined is the best stand-in because it is never zero.
 			lastSeen := m.LastSeen
 			if lastSeen.IsZero() {
 				lastSeen = m.Joined
@@ -296,8 +232,8 @@ func (h *Hub) Rehydrate(st *State) {
 		}
 	}
 
-	// Halt is room-level, not tied to any session's membership — restore it
-	// independently so a halted room comes back halted even when empty.
+	// Halt is room-level, not tied to any membership — restore it separately so
+	// a halted room comes back halted even when empty.
 	for room, rs := range st.Rooms {
 		if rs == nil || !rs.Halted {
 			continue
@@ -308,10 +244,9 @@ func (h *Hub) Rehydrate(st *State) {
 	}
 }
 
-// UnknownAddressees reports which entries of to are not currently members
-// of room, so `send --to <name>` can warn about a message that reaches
-// nobody. This never blocks or alters delivery: a named member may
-// legitimately be about to join, so Publish still sends unconditionally.
+// UnknownAddressees reports which entries of to are not currently members of
+// room. It never blocks or alters delivery: a named member may legitimately be
+// about to join, so Publish still sends unconditionally.
 func (h *Hub) UnknownAddressees(room string, to []string) []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -329,9 +264,8 @@ func (h *Hub) UnknownAddressees(room string, to []string) []string {
 	return unknown
 }
 
-// Leave removes session's membership from room, dropping the room when that
-// was its last member and nothing is subscribed. The dropped return is what
-// tells callers holding room-scoped state (a halt flag, say) to clear it.
+// Leave removes session's membership, dropping the room when that was its last
+// member and nothing is subscribed.
 func (h *Hub) Leave(room, session string) (dropped bool, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -350,14 +284,11 @@ func (h *Hub) Leave(room, session string) (dropped bool, err error) {
 	return h.dropIfEmpty(room, r), nil
 }
 
-// dropIfEmpty removes room from the Hub when it has no members and no live
-// subscribers — a room created by a typo, or simply finished with, does not
-// outlive the mistake. The subscriber check is what keeps this from
-// yanking a room out from under a live `tail` or `recv`: those hold no
-// roster membership, so a room with subscribers but zero members must stay
-// — dropping it here would orphan them, since any future Publish to this
-// room name would create a brand new Room object with an empty subs map,
-// never reaching them again. Caller must hold h.mu.
+// dropIfEmpty removes a room with no members and no live subscribers. The
+// subscriber check is what keeps this from yanking a room out from under a live
+// tail or recv: those hold no membership, and dropping the Room here would
+// orphan them, since the next Publish would build a fresh Room with an empty
+// subs map. Caller must hold h.mu.
 func (h *Hub) dropIfEmpty(room string, r *Room) bool {
 	if len(r.members) > 0 || len(r.subs) > 0 {
 		return false
@@ -366,9 +297,8 @@ func (h *Hub) dropIfEmpty(room string, r *Room) bool {
 	return true
 }
 
-// Who returns room's current roster, sorted by name for stable output. Each
-// returned Member's Stale field is computed fresh against the current clock
-// (Room.isStale) — Stale is never persisted, only reported at query time.
+// Who returns room's roster, sorted by name. Stale is computed fresh against
+// the current clock at query time, never persisted.
 func (h *Hub) Who(room string) ([]Member, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -387,27 +317,17 @@ func (h *Hub) Who(room string) ([]Member, error) {
 	return out, nil
 }
 
-// staleThreshold is how long a member may go with neither fresh LastSeen
-// activity nor a live subscription before who/prune consider it stale.
-// Ten minutes already proved a reasonable "this session is gone" bar for one
-// Claude Code agent turn (think, tool calls, reply) without being
-// trigger-happy on an agent mid-task. A member holding an open recv/chat subscription is never stale
-// regardless of this threshold — see isStale below — so staleThreshold only
-// bites a member that joined and then neither sent anything nor kept a
-// subscription open, e.g. a `join` with no following `Monitor(recv)`.
-//
-// Whatever value is picked here is a judgment call, not a derived
-// constant — there is no wire contract or external system dictating it,
-// only "long enough that a normal quiet spell never gets flagged, short
-// enough that `who` is still a useful signal". Named and isolated here so
-// it can be revisited without touching the staleness logic itself.
+// staleThreshold is how long a member may go without fresh LastSeen activity
+// before who/prune consider it stale. A judgment call — long enough that a
+// normal quiet spell is not flagged, short enough that `who` stays useful — so
+// it is named here to be revisited without touching the staleness logic. A
+// member holding an open subscription is never stale regardless (isStale), so
+// this only bites a join with no following recv.
 const staleThreshold = 10 * time.Minute
 
-// isStale reports whether m should currently be treated as gone: no recent
-// activity (LastSeen within staleThreshold of now) and no live subscription
-// for its session (hasLiveSubscription). A live subscription overrides
-// LastSeen entirely: an open subscription is ongoing proof of life, however
-// long the member has been quiet. Caller must hold h.mu.
+// isStale reports whether m should be treated as gone. A live subscription
+// overrides LastSeen entirely: it is ongoing proof of life, however long the
+// member has been quiet. Caller must hold h.mu.
 func (r *Room) isStale(m Member, now time.Time) bool {
 	if now.Sub(m.LastSeen) <= staleThreshold {
 		return false
@@ -415,10 +335,9 @@ func (r *Room) isStale(m Member, now time.Time) bool {
 	return !r.hasLiveSubscription(m.Session)
 }
 
-// hasLiveSubscription reports whether any currently-open subscription in
-// this room belongs to session. An empty session (operator publishes,
-// tail's subscriptions — see Subscribe's callers) never counts: it cannot
-// be any member's session, since Hub.Join always assigns one.
+// hasLiveSubscription reports whether an open subscription in this room belongs
+// to session. An empty session (operator publishes, tail) never counts — Join
+// always assigns one.
 func (r *Room) hasLiveSubscription(session string) bool {
 	if session == "" {
 		return false
@@ -431,11 +350,10 @@ func (r *Room) hasLiveSubscription(session string) bool {
 	return false
 }
 
-// Prune removes every member of room currently marked stale (isStale) and
-// reports their names, sorted. This is the one place in the package that
-// removes a member without that session asking to leave, so it is operator-
-// invoked and never automatic: a quiet session is not a dead one, and
-// evicting a live member would break addressing with no diagnostic.
+// Prune removes every stale member of room and reports their names, sorted.
+// The one place a member is removed without that session asking, so it is
+// operator-invoked and never automatic: a quiet session is not a dead one, and
+// evicting a live member breaks addressing with no diagnostic.
 func (h *Hub) Prune(room string) ([]string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -461,11 +379,9 @@ func (h *Hub) Prune(room string) ([]string, error) {
 	return removed, nil
 }
 
-// Rooms returns a summary of every room the Hub currently knows about
-// (created by a join or a subscribe): name plus current member count,
-// sorted by name. A room that has emptied because every joined member left
-// is still reported, with Members == 0 — see room_test.go's
-// TestHub_Rooms_ListsEveryKnownRoomSorted for the leave-then-list case.
+// Rooms summarizes every room the Hub knows about (created by a join or a
+// subscribe), sorted by name. A room emptied by its last member leaving is
+// still reported, with Members == 0.
 func (h *Hub) Rooms() []RoomInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -480,21 +396,11 @@ func (h *Hub) Rooms() []RoomInfo {
 
 // Publish assigns an id and timestamp, stamps from/from_kind/from_repo/
 // from_realm from the sender's roster membership and never from the request,
-// appends unconditionally to the durable room log, and fans out to live
-// subscribers.
+// appends unconditionally to the durable room log, and fans out.
 //
-// Halt is enforced here, not merely advertised: a member whose kind is not
-// exactly KindHuman is rejected before any of that happens when the room
-// is halted. Halt only makes unattended agent-to-agent loops safe if the
-// daemon refuses the send: an advisory flag is exactly what a looping agent
-// would ignore.
-//
-// Written as "!= KindHuman" rather than "== KindAgent" deliberately: Kind
-// is closed to exactly {KindAgent, KindHuman} by Join's validKind check, so
-// the two forms are equivalent today — but "!= KindHuman" is the
-// load-bearing choice, kept as the safer fail-closed default should a
-// third kind ever be added (an unrecognized future kind gets blocked, not
-// waved through).
+// Halt is enforced here, not merely advertised: an advisory flag is exactly
+// what a looping agent would ignore. Written as "!= KindHuman" rather than the
+// equivalent "== KindAgent" so a future third kind fails closed.
 func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (Envelope, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -516,9 +422,8 @@ func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (
 		}
 	}
 
-	// A successful send counts as activity, so refresh LastSeen before
-	// publishing. member is a map value, not a pointer, so the touched copy
-	// must be written back.
+	// A successful send counts as activity. member is a map value, not a
+	// pointer, so the touched copy must be written back.
 	now := h.now()
 	member.LastSeen = now
 	r.members[name] = member
@@ -530,26 +435,15 @@ func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (
 	return r.publishValidated(h.home, room, name, member.Kind, member.Repo, member.Realm, resolvedTo, replyTo, text, session, now)
 }
 
-// PublishAs publishes on behalf of name/kind directly, without requiring
-// name to hold a room membership via Join — the path `say` uses to speak
-// into a room without occupying a roster slot or appearing in `who`
-// Unlike Publish, room must already exist (getRoom, not
-// getOrCreateRoom) — nothing is listening in a room nobody has ever
-// joined, mirroring Halt/Resume's own "room must exist" contract.
+// PublishAsOperator publishes into an already-existing room without holding a
+// membership — the path `say` uses to speak into a room without occupying a
+// roster slot or appearing in `who`.
 //
-// The sender identity is fixed — operatorName / KindHuman — and deliberately
-// not a parameter. An earlier signature took name and kind from the caller and
-// was reachable from the wire via OpSay, which let any local process publish
-// under an existing agent's name with kind "agent" and, because this path does
-// not consult the halt flag, speak into a halted room. Both the impersonation
-// and the halt bypass came from the daemon trusting a client-supplied identity
-// — the same mistake Join's reserved-name and kind-enum checks exist to
-// prevent. A function that cannot accept an identity cannot be talked into
-// believing one.
-//
-// Skipping the halt check is correct here precisely because the identity is
-// pinned: halt binds agents, and a human is the one who lifts it. Publish's own
-// check lets KindHuman through for the same reason.
+// The identity is fixed, deliberately not a parameter: an earlier signature
+// read name and kind from the wire, which let any local process publish under
+// an existing agent's name and, since this path skips the halt check, speak
+// into a halted room. Skipping halt is correct only because the identity is
+// pinned — halt binds agents, and a human is who lifts it.
 func (h *Hub) PublishAsOperator(room string, to []string, replyTo, text string) (Envelope, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -562,23 +456,15 @@ func (h *Hub) PublishAsOperator(room string, to []string, replyTo, text string) 
 	if err != nil {
 		return Envelope{}, err
 	}
-	// "" for publisherSession: an operator publish is never tied to a
-	// joined session's subscription, so it can never match (and therefore
-	// never wrongly self-skip) any subscriber's skipSelf check in fanOut —
-	// see that method's doc. "", "" for repo/realm: the operator is not a
-	// roster member with a resolved position — say never joins, so there is
-	// no Member to read one from.
+	// "" publisherSession: an operator publish is tied to no subscription, so it
+	// can never wrongly trip a subscriber's skipSelf check in fanOut. "" repo and
+	// realm: say never joins, so there is no Member to read a position from.
 	return r.publishValidated(h.home, room, operatorName, KindHuman, "", "", resolvedTo, replyTo, text, "", h.now())
 }
 
-// resolveAddressees resolves every entry of to against r's current
-// membership: an entry naming an existing member verbatim passes through
-// unchanged (see resolveOneAddressee), a suffix/substring match resolving
-// to more than one member aborts the whole send (never a partial publish
-// under a half-resolved to list), and any other entry passes through
-// untouched for Hub.UnknownAddressees's own "not currently in room"
-// warning to catch. Caller must hold h.mu (resolveOneAddressee reads
-// r.members).
+// resolveAddressees resolves every entry of to against r's membership. An
+// ambiguous entry aborts the whole send — never a partial publish under a
+// half-resolved to list. Caller must hold h.mu.
 func (r *Room) resolveAddressees(to []string) ([]string, error) {
 	if len(to) == 0 {
 		return to, nil
@@ -594,26 +480,14 @@ func (r *Room) resolveAddressees(to []string) ([]string, error) {
 	return resolved, nil
 }
 
-// resolveOneAddressee resolves one --to entry against r's roster
-// An exact name wins, then a unique suffix or substring: a fully stacked name
-// is long to type by hand, so "--to fe-main" reaches "taxgentic-gui-fe-main".
-//
-// Exact match wins outright, before any scan — the case that matters once
-// a "-2" collision sibling exists: "--to taxgentic-gui-fe-main" must reach
-// exactly that member, never a longer name that happens to contain it as a
-// substring too. Short of an exact hit, strings.Contains covers both
-// "suffix" and "substring" in one pass (a suffix is a substring that
-// happens to end the string) — a unique match resolves to that member's
-// name; more than one match is an ambiguous --to, and the failure this
-// whole resolution scheme exists to avoid is a silent pick among them, so
-// this returns an error naming every candidate instead. Zero matches is
-// deliberately not an error here: it passes name through unresolved, the
-// same as before this resolution step existed, so Hub.UnknownAddressees's
-// existing "not currently in room" warning — a softer failure that still
-// delivers — covers a genuine typo or a peer about to join, and this
-// stricter ambiguity error is reserved for the case where the sender's
-// intent is genuinely unclear rather than simply wrong. Caller must hold
-// h.mu.
+// resolveOneAddressee resolves one --to entry: exact name first, then a unique
+// substring, so "--to fe-main" reaches "taxgentic-gui-fe-main" without typing
+// the whole stacked name. Exact wins outright so a "-2" collision sibling can
+// still be addressed precisely. Several matches is an error naming every
+// candidate, because a silent pick among them is the failure this whole scheme
+// exists to avoid. Zero matches passes through unresolved, leaving
+// UnknownAddressees's softer warning — which still delivers — to cover a typo
+// or a peer about to join. Caller must hold h.mu.
 func (r *Room) resolveOneAddressee(name string) (string, error) {
 	if _, ok := r.members[name]; ok {
 		return name, nil
@@ -638,17 +512,12 @@ func (r *Room) resolveOneAddressee(name string) (string, error) {
 	}
 }
 
-// publishValidated is the shared tail end of Publish and PublishAs: once
-// the caller has resolved from/fromKind/fromRepo/fromRealm (via a roster
-// lookup, or supplied directly) and cleared any halt check, this validates
-// the wire-size limits (MaxTextBytes, MaxIdentifierBytes for replyTo,
-// MaxAddressees/MaxAddresseesBytes for to), assigns an id, appends to the
-// durable room log, and fans out to subscribers. publisherSession is "" for
-// PublishAsOperator's operator sends (see that method's doc) and the
-// sending session id for Publish's member sends — fanOut's self-echo check
-// against it. now is the single timestamp this call stamps onto the
-// envelope and (via Publish) the sender's LastSeen, so both agree exactly.
-// Caller must hold h.mu (both Hub.Publish and Hub.PublishAsOperator do).
+// publishValidated is the shared tail of Publish and PublishAsOperator: with
+// the sender identity resolved and any halt check cleared, it enforces the
+// wire-size limits, assigns an id, appends to the durable room log, and fans
+// out. publisherSession is "" for operator sends (fanOut's self-echo check).
+// now is the single timestamp stamped onto both the envelope and the sender's
+// LastSeen, so the two agree exactly. Caller must hold h.mu.
 func (r *Room) publishValidated(home, room, from, fromKind, fromRepo, fromRealm string, to []string, replyTo, text string, publisherSession string, now time.Time) (Envelope, error) {
 	if len(text) > MaxTextBytes {
 		return Envelope{}, &Error{
@@ -704,34 +573,27 @@ func (r *Room) publishValidated(home, room, from, fromKind, fromRepo, fromRealm 
 	return env, nil
 }
 
-// Halt sets room's halt flag and publishes a control envelope announcing
-// it. Halt does not
-// require the caller to be a joined member — an operator can stop a room
-// whether or not they are currently in it — so the control envelope's From
-// is the fixed sentinel "system" rather than a roster name.
+// Halt sets room's halt flag and publishes a control envelope announcing it.
+// The caller need not be a joined member — an operator can stop a room they
+// are not in — so the envelope's From is the systemName sentinel.
 func (h *Hub) Halt(room, text string) error {
 	return h.setHalted(room, true, text)
 }
 
-// Resume clears room's halt flag and publishes the clearing envelope. An
-// empty text is replaced with defaultResumeText — see that constant's doc.
+// Resume clears room's halt flag and publishes the clearing envelope.
 func (h *Hub) Resume(room, text string) error {
 	return h.setHalted(room, false, text)
 }
 
-// defaultResumeText is the envelope body setHalted publishes when Resume is
-// called with no explicit text — a resume notification must never carry an
-// empty body. Halt is left as given: an agent reading a halt with no reason
-// still learns the one fact that matters, where an empty resume notification
-// carries nothing to act on at all.
+// defaultResumeText fills an empty Resume body. Halt is left as given: a halt
+// with no reason still carries the one fact that matters, where an empty resume
+// notification carries nothing to act on.
 const defaultResumeText = "room resumed"
 
-// setHalted only flips r.halted once the control envelope announcing it is
-// durably appended — an Append failure returns an error to the operator,
-// and that error must be true: if the flag flipped first and Append then
-// failed, the room would in fact be halted with no control envelope ever
-// logged or broadcast to prove it, while the operator's error implied the
-// halt might not have taken effect at all.
+// setHalted flips r.halted only once the announcing envelope is durably
+// appended. Flipping first would leave the room genuinely halted with no
+// control envelope logged or broadcast, while the returned error implied the
+// halt might not have taken.
 func (h *Hub) setHalted(room string, halted bool, text string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -767,17 +629,13 @@ func (h *Hub) setHalted(room string, halted bool, text string) error {
 	} else {
 		r.haltReason = ""
 	}
-	// "" for publisherSession: a halt/resume control envelope is never a
-	// member's own send, so it can never wrongly trip a subscriber's
-	// skipSelf check — same reasoning as PublishAsOperator's own "" above.
+	// "" publisherSession: a control envelope is never a member's own send.
 	r.fanOut(env, h.home, "")
 	return nil
 }
 
-// IsHalted reports whether room currently has its halt flag set, and the
-// reason given at halt time (empty when not halted, or when halted with no
-// --text) — the query handleWho/handleRooms use to surface halt state
-// alongside a room's own contents.
+// IsHalted reports room's halt flag and the reason given at halt time (empty
+// when not halted, or when halted with no --text).
 func (h *Hub) IsHalted(room string) (halted bool, reason string, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -789,19 +647,15 @@ func (h *Hub) IsHalted(room string) (halted bool, reason string, err error) {
 	return r.halted, r.haltReason, nil
 }
 
-// Close publishes a final "room closed" envelope, evicts every member,
-// ends every live subscriber's stream, and drops the room from the Hub
-// entirely — an operator-level operation like Halt, needing no prior
-// membership, like halt/say/tail. The room log on disk is
-// never touched: it is the durable record, and a roster operation must not
-// delete it.
+// Close publishes a final "room closed" envelope, evicts every member, ends
+// every live subscriber's stream, and drops the room from the Hub. Operator-
+// level, needing no prior membership. The room log on disk is never touched:
+// it is the durable record, and a roster operation must not delete it.
 //
-// Closing a subscriber's channel (rather than merely unregistering it, as
-// dropIfEmpty's guard exists to protect) is deliberate here: Close's whole
-// point is that a listener learns why it stopped, not merely that it did.
-// daemon.go's subscribe loop now checks the channel's ok value on every
-// receive so this terminates the connection cleanly instead of spinning on
-// a closed channel's zero-value reads.
+// Closing each subscriber channel — rather than only unregistering it, as
+// dropIfEmpty does — is deliberate: a listener should learn why it stopped.
+// daemon.go's subscribe loop checks the receive ok value so this terminates
+// the connection instead of spinning on a closed channel.
 func (h *Hub) Close(room string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -837,19 +691,13 @@ func (h *Hub) Close(room string) error {
 	return nil
 }
 
-// SessionIsMember reports whether session currently holds a membership in
-// room — the check daemon.go's OpRecv dispatch uses to refuse a
-// client-claimed session it does not actually own before handing it to
-// Subscribe (see that dispatch's doc comment). There is no way to prove a
-// connection genuinely *is* the session it names — the socket has no
-// authentication beyond Unix file permissions — so this cannot close every
-// spoofing path; what it does close is a session that names nobody, or not
-// yet nobody: a subscription opened under a session before that session has
-// joined the room can no longer sit in r.subs waiting to attach itself to
-// whichever member happens to join under that name later and silently keep
-// them non-stale from that moment on. An empty session or an unknown room
-// both report false — there is nothing to validate against, and Subscribe's
-// own contract already treats "" as "no session of its own" (tail's case).
+// SessionIsMember reports whether session holds a membership in room — the
+// check daemon.go's OpRecv dispatch makes before trusting a client-claimed
+// session. The socket has no authentication beyond Unix file permissions, so
+// this cannot close every spoofing path; what it does close is a subscription
+// opened before its session joined, which could otherwise sit in r.subs and
+// attach itself to whoever joins under that name later, silently keeping them
+// non-stale. Empty session or unknown room both report false.
 func (h *Hub) SessionIsMember(room, session string) bool {
 	if session == "" {
 		return false
@@ -865,22 +713,15 @@ func (h *Hub) SessionIsMember(room, session string) bool {
 	return ok
 }
 
-// Subscribe registers ch to receive every future Publish (including
-// Halt/Resume's control envelopes) on room, creating room if it doesn't
-// exist yet — tail may watch a room before anyone has joined it (see
-// tail never joins and holds no name). session identifies the subscribing
-// session for fanOut's self-echo
-// check and hasLiveSubscription's liveness check — pass "" when the caller
-// has no session of its own (tail's subscriptions; a caller that never
-// sends and therefore has nothing to self-skip). Subscribe itself trusts
-// session verbatim — it is OpRecv's dispatch (daemon.go), via
-// SessionIsMember above, that is responsible for downgrading an unowned
-// claim to "" before it ever reaches here; OpTail always passes "" directly,
-// having no identity to skip in the first place. skipSelf, meaningful only
-// when session is non-empty, opts this subscription out of receiving
-// envelopes published by that same session (fanOut). The returned func
-// removes the subscription; callers must invoke it exactly once, typically
-// via defer, when the subscribing connection ends.
+// Subscribe registers ch for every future Publish on room (control envelopes
+// included), creating the room if needed — tail may watch a room before anyone
+// has joined it. session feeds fanOut's self-echo check and
+// hasLiveSubscription; pass "" when the caller has no session of its own.
+// Subscribe trusts session verbatim — OpRecv's dispatch, via SessionIsMember,
+// is what downgrades an unowned claim to "" before it reaches here. skipSelf,
+// meaningful only when session is set, opts the subscription out of its own
+// session's publishes. The returned func removes the subscription and must be
+// called exactly once.
 func (h *Hub) Subscribe(room string, ch chan<- Envelope, session string, skipSelf bool) func() {
 	h.mu.Lock()
 	r := h.getOrCreateRoom(room)
@@ -898,31 +739,19 @@ func (h *Hub) Subscribe(room string, ch chan<- Envelope, session string, skipSel
 
 // --- Room internals. All of the following assume h.mu is already held. ---
 
-// messageIDPrefix names every opaque envelope id nextEnvelopeID assigns
-// (e.g. "m-3f2ab71c") — short and opaque.
+// messageIDPrefix prefixes every opaque envelope id nextEnvelopeID assigns,
+// e.g. "m-3f2ab71c".
 const messageIDPrefix = "m"
 
-// maxIDGenAttempts bounds nextEnvelopeID's collision-retry loop — the same
-// "generate, check, retry a few times" shape internal/reminder's Add uses
-// for its own ids.ShortID-derived filenames.
+// maxIDGenAttempts bounds nextEnvelopeID's collision-retry loop.
 const maxIDGenAttempts = 5
 
-// nextEnvelopeID assigns a short opaque id, replacing the sequential
-// per-process counter this used to be. A counter reset to zero on every
-// daemon restart while the room log it writes into is durable and outlives
-// the daemon: two different messages, from two different daemon lifetimes,
-// would both be assigned id "1" — exactly the ambiguity
-// ids must stay unique across a daemon restart.
-//
-// ids.ShortID draws 2 random bytes (65536 values) per call — not adequate
-// on its own for a room log that persists indefinitely and can accumulate
-// thousands of messages over its lifetime; the birthday bound puts a 50%
-// collision chance at only a few hundred ids. Two draws concatenated widen
-// the space to 32 bits (~4.3 billion), while still reusing ids.ShortID
-// rather than a second random generator. usedIDs is this Room's own
-// collision guard on top of that: a duplicate draw (astronomically
-// unlikely, but cheap to rule out) is retried rather than silently
-// producing two envelopes that share an id within one daemon's lifetime.
+// nextEnvelopeID assigns a short opaque id. Ids must stay unique across a
+// daemon restart, which the sequential per-process counter this replaced could
+// not do: the room log outlives the daemon, so two lifetimes both minted "1".
+// ids.ShortID draws only 2 random bytes, whose birthday bound collides within a
+// few hundred ids, so two draws are concatenated to 32 bits; usedIDs rules out
+// the remainder within one daemon's lifetime.
 func (r *Room) nextEnvelopeID() (string, error) {
 	for attempt := 0; attempt < maxIDGenAttempts; attempt++ {
 		a, err := randomIDHalf(messageIDPrefix)
@@ -942,9 +771,8 @@ func (r *Room) nextEnvelopeID() (string, error) {
 	return "", &Error{Code: ExitHard, Msg: "bus: could not generate a unique envelope id after retrying"}
 }
 
-// randomIDHalf draws 4 lowercase hex characters via ids.ShortID, discarding
-// the "<prefix>-" ShortID always adds — nextEnvelopeID composes two draws
-// into one wider id rather than trusting a single draw's 65536-value space.
+// randomIDHalf draws 4 lowercase hex characters via ids.ShortID, discarding the
+// "<prefix>-" ShortID always prepends.
 func randomIDHalf(prefix string) (string, error) {
 	id, err := ids.ShortID(prefix)
 	if err != nil {
@@ -953,25 +781,17 @@ func randomIDHalf(prefix string) (string, error) {
 	return strings.TrimPrefix(id, prefix+"-"), nil
 }
 
-// fanOut delivers env to every live subscriber without blocking the
-// publisher, except a subscriber whose skipSelf is set and whose session
-// matches publisherSession — that subscriber is skipped entirely, silently
-// and without touching its drop count, because it was never meant to
-// receive this envelope in the first place. An empty
-// publisherSession (operator publishes, halt/resume control envelopes)
-// never matches any subscriber's session, since a real session id is never
-// empty — see Subscribe's doc.
+// fanOut delivers env to every live subscriber without blocking the publisher.
+// A subscriber with skipSelf whose session matches publisherSession is skipped
+// silently, without touching its drop count — it was never meant to receive
+// this envelope. An empty publisherSession matches nobody, since a real session
+// id is never empty.
 //
-// For everyone else, each subscriber's channel is buffered
-// (subscriberBuffer); a full channel means that subscriber is falling
-// behind or its reader has stopped, so the send is dropped rather than
-// blocking — Publish must never stall because one reader stopped reading. A
-// drop is never silent to the subscriber that missed it: each one tracks
-// its own drop count, and the next envelope that does fit in its buffer is
-// preceded by a synthetic control envelope (From systemName) naming how
-// many were dropped and the room log path where they remain durably
-// recorded — so a subscriber can always tell "nothing was sent" from "you
-// missed N".
+// A full channel means that subscriber's reader has stalled, so the send is
+// dropped rather than blocking — Publish must never stall on one reader. Drops
+// are never silent: each subscriber tracks its own count, and the next envelope
+// that fits is preceded by a marker naming how many were missed and the room
+// log where they remain.
 func (r *Room) fanOut(env Envelope, home string, publisherSession string) {
 	for _, sub := range r.subs {
 		if sub.skipSelf && publisherSession != "" && sub.session == publisherSession {
@@ -980,8 +800,7 @@ func (r *Room) fanOut(env Envelope, home string, publisherSession string) {
 		if sub.dropped > 0 {
 			marker := r.dropMarkerEnvelope(env.Room, home, sub.dropped)
 			if !trySend(sub.ch, marker) {
-				// No room even for the marker; env won't fit either. Leave
-				// dropped as-is (plus this env) and try again next publish.
+				// No room even for the marker; env won't fit either.
 				sub.dropped++
 				continue
 			}
@@ -993,15 +812,11 @@ func (r *Room) fanOut(env Envelope, home string, publisherSession string) {
 	}
 }
 
-// dropMarkerEnvelope builds the synthetic control envelope fanOut delivers
-// ahead of the next real one once a subscriber has missed messages. It is
-// never appended to the room log — it exists only on the one
-// subscriber's live stream that actually missed something, and other
-// subscribers of the same room may never see one at all. A ShortID failure
-// here (rand exhausted — not realistically reachable) falls back to an
-// empty id rather than dropping the marker itself: this envelope is never
-// looked up by id (never logged, never replayed — there is no replay of
-// any kind), so an empty id costs nothing.
+// dropMarkerEnvelope builds the synthetic envelope fanOut delivers ahead of the
+// next real one once a subscriber has missed messages. Never appended to the
+// room log — it exists only on the one stream that missed something. An id
+// failure falls back to an empty id rather than dropping the marker: this
+// envelope is never logged, replayed, or looked up by id.
 func (r *Room) dropMarkerEnvelope(room, home string, n int) Envelope {
 	id, err := r.nextEnvelopeID()
 	if err != nil {

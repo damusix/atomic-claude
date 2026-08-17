@@ -1,24 +1,14 @@
 package realm
 
-// codeindex_block.go — idempotent <code-index> block writer for the realm CLAUDE.md.
+// The <code-index> block in the realm CLAUDE.md lists indexed members, so a
+// Claude session opened in any member repo picks up realm awareness through the
+// upward CLAUDE.md walk, which crosses git boundaries.
 //
-// The block lists the non-excluded, indexed members so that Claude sessions
-// opened inside any member repo pick up the realm's code-index awareness via
-// the upward CLAUDE.md walk (which crosses git boundaries).
+// The block carries no timestamp: one would diff on every index run, defeating
+// the regen-only-on-change rule.
 //
-// Unlike wiki's <wiki-scan> block the <code-index> block carries NO timestamp.
-// A timestamp would diff on every index run and violate SC 7 (regen-only-on-change).
-// The block is purely structural: member keys + realm-relative paths.
-//
-// Write contract:
-//   - Compute desired block string from the given member list.
-//   - Read the current CLAUDE.md (absent → create with a minimal stub).
-//   - Splice or append the block; preserve all surrounding content byte-for-byte.
-//   - Write ONLY if the resulting file content differs from what is on disk.
-//
-// This is the same splice pattern as wiki.rewriteScanBlock /
-// wiki.writeWikiScanBlock; duplicated here to keep the realm package
-// self-contained and avoid a dependency cycle (wiki → codeintel would be bad).
+// The splice logic duplicates wiki's rather than importing it, since wiki →
+// codeintel would be a dependency cycle.
 
 import (
 	"fmt"
@@ -27,19 +17,13 @@ import (
 	"strings"
 )
 
-// codeIndexMarkerOpen is the prefix of the managed block open tag.
 const codeIndexMarkerOpen = "<code-index>"
 
-// codeIndexMarkerClose is the close tag of the managed block.
 const codeIndexMarkerClose = "</code-index>"
 
-// WriteCodeIndexBlock writes (or replaces) the <code-index> block in
-// <realmRoot>/CLAUDE.md.  It creates the file if absent.
-// The function is idempotent: calling it twice with the same member list
-// produces byte-identical output and skips the write on the second call.
-//
-// members must already be filtered to the non-excluded set — the caller is
-// responsible for the filter.
+// WriteCodeIndexBlock rewrites the block in <realmRoot>/CLAUDE.md, creating the
+// file if absent. Idempotent: a second call with the same members writes
+// nothing. members must arrive already filtered to the non-excluded set.
 func WriteCodeIndexBlock(realmRoot string, members []MemberEntry) error {
 	claudeMDPath := filepath.Join(realmRoot, "CLAUDE.md")
 	block := buildCodeIndexBlock(members)
@@ -51,13 +35,13 @@ func WriteCodeIndexBlock(realmRoot string, members []MemberEntry) error {
 
 	var newContent string
 	if os.IsNotExist(err) || len(existing) == 0 {
-		// Create fresh: block + minimal stub so the file is immediately useful.
+		// Add a stub alongside the block so a fresh file is usable as-is.
 		newContent = block + "\n" + codeIndexDefaultStub()
 	} else {
 		newContent = rewriteCodeIndexBlock(string(existing), block)
 	}
 
-	// Write only if content differs (SC 7: regen-only-on-change).
+	// Skip the write when nothing changed, so mtime stays stable.
 	if string(existing) == newContent {
 		return nil
 	}
@@ -65,9 +49,8 @@ func WriteCodeIndexBlock(realmRoot string, members []MemberEntry) error {
 	return os.WriteFile(claudeMDPath, []byte(newContent), 0o644)
 }
 
-// buildCodeIndexBlock produces the full <code-index> … </code-index> block
-// string for the given members.  NO timestamp — the block must be
-// byte-identical across consecutive runs with the same membership.
+// buildCodeIndexBlock must stay byte-identical across runs with the same
+// membership, so nothing time- or order-varying may enter it.
 func buildCodeIndexBlock(members []MemberEntry) string {
 	var sb strings.Builder
 	sb.WriteString(codeIndexMarkerOpen)
@@ -79,13 +62,11 @@ func buildCodeIndexBlock(members []MemberEntry) string {
 	return sb.String()
 }
 
-// rewriteCodeIndexBlock splices newBlock into content, replacing any existing
-// <code-index>…</code-index> block in-place.  Content outside the block is
-// preserved byte-for-byte.  If no block exists the new block is appended.
+// rewriteCodeIndexBlock preserves everything outside the block byte-for-byte,
+// appending when no block exists yet.
 func rewriteCodeIndexBlock(content, newBlock string) string {
 	openIdx := strings.Index(content, codeIndexMarkerOpen)
 	if openIdx == -1 {
-		// No existing block — append.
 		result := content
 		if !strings.HasSuffix(result, "\n") {
 			result += "\n"
@@ -93,10 +74,9 @@ func rewriteCodeIndexBlock(content, newBlock string) string {
 		return result + "\n" + newBlock
 	}
 
-	// Find the close tag.
 	closeIdx := strings.Index(content[openIdx:], codeIndexMarkerClose)
 	if closeIdx == -1 {
-		// Malformed (open but no close) — replace from open tag to EOF.
+		// Open tag with no close: replace through EOF rather than nest a block.
 		return content[:openIdx] + newBlock
 	}
 
@@ -108,8 +88,6 @@ func rewriteCodeIndexBlock(content, newBlock string) string {
 	return before + newBlock + after
 }
 
-// codeIndexDefaultStub is the minimal narrative appended when creating a fresh
-// realm CLAUDE.md.
 func codeIndexDefaultStub() string {
 	return "\n<!-- Realm CLAUDE.md — managed by `atomic code index`. Edit below this block freely. -->\n"
 }

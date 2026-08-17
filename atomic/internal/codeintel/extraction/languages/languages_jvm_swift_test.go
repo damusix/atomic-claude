@@ -1,20 +1,12 @@
 package languages_test
 
-// Tests for the Swift, Kotlin, and Scala language extractor configs.
+// Swift, Kotlin, and Scala. Every fixture here runs through the real grammar, so
+// these also cover ABI and pool wiring, not only the configs.
 //
-// Each language has:
-//  1. A real fixture parsed through the pool (grammar ABI proof).
-//  2. Assertions per success criteria:
-//     - Function/method node extracted with correct kind.
-//     - Class node extracted.
-//     - Interface-equivalent (protocol/interface/trait) → NodeKindInterface.
-//     - Import UnresolvedReference emitted.
-//     - Call site → UnresolvedReference (EdgeKindCalls).
-//     - IsExported correct per-language rule.
-//     - Node count stable across two extractions.
-//
-// Node-type strings are VERIFIED by real grammar parse.
-// Do NOT change them without running the probe again.
+// Each language repeats one shape: every declaration form reaches its intended
+// node kind, its interface equivalent included; imports and calls surface as
+// references rather than edges; export status follows the language's own rule;
+// and two runs agree.
 
 import (
 	"context"
@@ -25,32 +17,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Swift
-// ---------------------------------------------------------------------------
-
-// swiftFixture exercises:
-//   - import_declaration     (import Foundation, import UIKit)
-//   - protocol_declaration   (Drawable)          → NodeKindInterface
-//   - class_declaration      (Direction[enum], Point[struct], Canvas[class])
-//   - function_declaration   (draw, isVertical, createCanvas)
-//   - init_declaration       (Canvas.init)
-//   - property_declaration   (public/private var)
-//   - call_expression        (render, c.draw, print)
-//
-// Verified node-type strings (a grammar probe — Swift grammar):
-//
-//	import_declaration     — "import Foundation"
-//	protocol_declaration   — "public protocol Drawable { ... }"
-//	class_declaration      — "public enum Direction" / "public struct Point" / "open class Canvas"
-//	function_declaration   — "public func draw() -> Void { ... }"
-//	init_declaration       — "public init(id: Int, name: String) { ... }"
-//	property_declaration   — "public var x: Double"
-//	call_expression        — "render(self._id)"
-//
-// IsExported rule: Swift default is internal. Only public/open → exported.
-//
-//	modifiers child (kind="modifiers") text contains "public" or "open".
+// Declares an enum, a struct, and a class, all three of which parse as the same
+// node type, and mixes public, open, private, and unmarked visibility.
 const swiftFixture = `import Foundation
 import UIKit
 
@@ -106,8 +74,6 @@ func createCanvas() -> Canvas {
 
 const swiftFixturePath = "src/Canvas.swift"
 
-// TestSwift_FunctionExtracted verifies function_declaration → NodeKindFunction/NodeKindMethod.
-// WHY: Swift functions are the primary callable units; wrong kind breaks call-graph resolution.
 func TestSwift_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
@@ -129,8 +95,6 @@ func TestSwift_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestSwift_ClassExtracted verifies class_declaration (class) → NodeKindClass.
-// WHY: Classes are structural containers; missing them breaks the member graph.
 func TestSwift_ClassExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
@@ -149,8 +113,6 @@ func TestSwift_ClassExtracted(t *testing.T) {
 	}
 }
 
-// TestSwift_InterfaceExtracted verifies protocol_declaration → NodeKindInterface.
-// WHY: Swift protocols are the semantic equivalent of interfaces; wrong kind breaks type-graph.
 func TestSwift_InterfaceExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
@@ -169,8 +131,6 @@ func TestSwift_InterfaceExtracted(t *testing.T) {
 	}
 }
 
-// TestSwift_EnumExtracted verifies class_declaration with enum_class_body → NodeKindEnum.
-// WHY: Swift enums must be typed correctly for the query layer.
 func TestSwift_EnumExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
@@ -189,8 +149,6 @@ func TestSwift_EnumExtracted(t *testing.T) {
 	}
 }
 
-// TestSwift_ImportsExtracted verifies import_declaration emits UnresolvedReference.
-// WHY: Imports are the starting point for the resolution layer's import resolver.
 func TestSwift_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
@@ -206,8 +164,6 @@ func TestSwift_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestSwift_CallEmitsUnresolvedReference verifies call_expression → EdgeKindCalls.
-// WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestSwift_CallEmitsUnresolvedReference(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
@@ -223,10 +179,6 @@ func TestSwift_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestSwift_IsExported_PublicOpen verifies that only public/open → exported;
-// internal/private → not exported; default (no modifier) → not exported.
-// WHY: Swift's default access level is internal (module-private). Only public/open
-// cross module boundaries. Wrong IsExported breaks cross-module resolution scoring.
 func TestSwift_IsExported_PublicOpen(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
@@ -241,12 +193,9 @@ func TestSwift_IsExported_PublicOpen(t *testing.T) {
 		name string
 		want bool
 	}{
-		// public/open → exported
 		{types.NodeKindInterface, "Drawable", true}, // public protocol
 		{types.NodeKindClass, "Canvas", true},       // open class
-		// draw is public func inside Canvas
-		// private → not exported
-		// internal → not exported (Swift default is internal, not public)
+		// Unmarked means internal, which does not leave the module.
 		{types.NodeKindFunction, "internalHelper", false}, // internal func
 		{types.NodeKindFunction, "render", false},         // private func
 	} {
@@ -267,8 +216,6 @@ func TestSwift_IsExported_PublicOpen(t *testing.T) {
 	}
 }
 
-// TestSwift_NodeCountStable verifies deterministic extraction.
-// WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestSwift_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
@@ -284,30 +231,8 @@ func TestSwift_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Kotlin
-// ---------------------------------------------------------------------------
-
-// kotlinFixture exercises:
-//   - import_header        (import java.io.File, import kotlin.math.sqrt)
-//   - class_declaration    (Drawable[interface], Direction[enum class], Point[data class], Canvas[class])
-//   - object_declaration   (Singleton)
-//   - function_declaration (draw, isVertical, render, createCanvas)
-//   - property_declaration (val id, val name)
-//   - call_expression      (render, c.draw, println)
-//
-// Verified node-type strings (a grammar probe — Kotlin grammar):
-//
-//	import_header          — "import java.io.File"
-//	class_declaration      — "interface Drawable { ... }" / "enum class Direction { ... }"
-//	object_declaration     — "object Singleton { ... }"
-//	function_declaration   — "fun draw(): Unit { ... }"
-//	property_declaration   — "val id: Int"
-//	call_expression        — "render(_id)"
-//
-// IsExported rule: Kotlin default is public. private/internal → not exported.
-//
-//	modifiers child (kind="modifiers") text contains "private" or "internal".
+// Declares an interface, an enum class, a data class, and a class, all four of
+// which parse as the same node type, plus a singleton object.
 const kotlinFixture = `import java.io.File
 import kotlin.math.sqrt
 
@@ -353,8 +278,6 @@ fun createCanvas(): Canvas {
 
 const kotlinFixturePath = "src/Canvas.kt"
 
-// TestKotlin_FunctionExtracted verifies function_declaration → NodeKindFunction/NodeKindMethod.
-// WHY: Kotlin functions are the primary callable units; wrong kind breaks call-graph.
 func TestKotlin_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
@@ -376,8 +299,6 @@ func TestKotlin_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestKotlin_ClassExtracted verifies class_declaration (class) → NodeKindClass.
-// WHY: Classes are structural containers; missing them breaks the member graph.
 func TestKotlin_ClassExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
@@ -396,9 +317,6 @@ func TestKotlin_ClassExtracted(t *testing.T) {
 	}
 }
 
-// TestKotlin_InterfaceExtracted verifies class_declaration (interface) → NodeKindInterface.
-// WHY: Kotlin interfaces are the semantic equivalent of Java interfaces; wrong kind breaks
-// implements edge promotion during resolution.
 func TestKotlin_InterfaceExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
@@ -417,8 +335,6 @@ func TestKotlin_InterfaceExtracted(t *testing.T) {
 	}
 }
 
-// TestKotlin_EnumExtracted verifies class_declaration (enum class) → NodeKindEnum.
-// WHY: Kotlin enum classes must be typed correctly for query correctness.
 func TestKotlin_EnumExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
@@ -437,8 +353,6 @@ func TestKotlin_EnumExtracted(t *testing.T) {
 	}
 }
 
-// TestKotlin_ImportsExtracted verifies import_header emits UnresolvedReference.
-// WHY: Kotlin uses import_header (not import_declaration); the resolution layer needs these.
 func TestKotlin_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
@@ -454,8 +368,6 @@ func TestKotlin_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestKotlin_CallEmitsUnresolvedReference verifies call_expression → EdgeKindCalls.
-// WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestKotlin_CallEmitsUnresolvedReference(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
@@ -471,10 +383,6 @@ func TestKotlin_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestKotlin_IsExported_DefaultPublic verifies that default Kotlin functions are exported,
-// and private/internal → not exported.
-// WHY: Kotlin's default visibility is public — opposite of Java. Wrong IsExported corrupts
-// resolution scoring for cross-module calls.
 func TestKotlin_IsExported_DefaultPublic(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
@@ -497,11 +405,11 @@ func TestKotlin_IsExported_DefaultPublic(t *testing.T) {
 	} {
 		n := findNode(result.Nodes, tc.kind, tc.name)
 		if n == nil {
-			// Functions inside classes may be NodeKindMethod
 			n = findNode(result.Nodes, types.NodeKindMethod, tc.name)
 		}
 		if n == nil {
-			// skip check for functions we can't locate (may not be extracted as standalone)
+			// Skip rather than fail: whether a member function surfaces
+			// standalone is not what this test pins.
 			continue
 		}
 		if n.IsExported != tc.want {
@@ -510,8 +418,6 @@ func TestKotlin_IsExported_DefaultPublic(t *testing.T) {
 	}
 }
 
-// TestKotlin_NodeCountStable verifies deterministic extraction.
-// WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestKotlin_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
@@ -527,34 +433,8 @@ func TestKotlin_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Scala
-// ---------------------------------------------------------------------------
-
-// scalaFixture exercises:
-//   - import_declaration    (import scala.collection.mutable.ListBuffer, import java.io.File)
-//   - trait_definition      (Drawable)          → NodeKindInterface
-//   - enum_definition       (Direction)         → NodeKindEnum
-//   - class_definition      (Point[case class], Canvas[class])
-//   - object_definition     (Singleton)         → NodeKindClass
-//   - function_definition   (def draw, def render, def createCanvas)
-//   - call_expression       (render, c.draw, println)
-//   - instance_expression   (new Canvas(1, "test"))
-//
-// Verified node-type strings (a grammar probe — Scala grammar):
-//
-//	import_declaration   — "import scala.collection.mutable.ListBuffer"
-//	trait_definition     — "trait Drawable { ... }"
-//	enum_definition      — "enum Direction { ... }"
-//	class_definition     — "case class Point(x: Double, y: Double)"
-//	object_definition    — "object Singleton { ... }"
-//	function_definition  — "def draw(): Unit = { ... }"
-//	call_expression      — "render(_id)"
-//	instance_expression  — "new Canvas(1, \"test\")"
-//
-// IsExported rule: Scala default is public. private/protected in modifiers → not exported.
-//
-//	modifiers child (kind="modifiers") text contains "private" or "protected".
+// Covers every definition form, each of which has its own node type here, plus
+// an instantiation.
 const scalaFixture = `import scala.collection.mutable.ListBuffer
 import java.io.File
 
@@ -600,8 +480,6 @@ def createCanvas(): Canvas = {
 
 const scalaFixturePath = "src/Canvas.scala"
 
-// TestScala_FunctionExtracted verifies function_definition → NodeKindFunction/NodeKindMethod.
-// WHY: Scala defs are the primary callable units; wrong kind breaks call-graph resolution.
 func TestScala_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
@@ -623,8 +501,6 @@ func TestScala_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestScala_ClassExtracted verifies class_definition → NodeKindClass.
-// WHY: Classes are structural containers; missing them breaks the member graph.
 func TestScala_ClassExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
@@ -643,8 +519,6 @@ func TestScala_ClassExtracted(t *testing.T) {
 	}
 }
 
-// TestScala_InterfaceExtracted verifies trait_definition → NodeKindInterface.
-// WHY: Scala traits are the semantic equivalent of interfaces; wrong kind breaks type-graph.
 func TestScala_InterfaceExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
@@ -663,8 +537,6 @@ func TestScala_InterfaceExtracted(t *testing.T) {
 	}
 }
 
-// TestScala_EnumExtracted verifies enum_definition → NodeKindEnum.
-// WHY: Scala 3 enums must produce NodeKindEnum, not NodeKindClass, for correct query routing.
 func TestScala_EnumExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
@@ -683,8 +555,6 @@ func TestScala_EnumExtracted(t *testing.T) {
 	}
 }
 
-// TestScala_ImportsExtracted verifies import_declaration emits UnresolvedReference.
-// WHY: Imports are the starting point for the resolution layer's import resolver.
 func TestScala_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
@@ -700,8 +570,6 @@ func TestScala_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestScala_CallEmitsUnresolvedReference verifies call_expression → EdgeKindCalls.
-// WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestScala_CallEmitsUnresolvedReference(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
@@ -717,8 +585,6 @@ func TestScala_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestScala_IsExported_DefaultPublic verifies that Scala default is public; private/protected → not exported.
-// WHY: Scala default visibility is public. Wrong IsExported corrupts resolution scoring.
 func TestScala_IsExported_DefaultPublic(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
@@ -752,8 +618,6 @@ func TestScala_IsExported_DefaultPublic(t *testing.T) {
 	}
 }
 
-// TestScala_NodeCountStable verifies deterministic extraction.
-// WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestScala_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
@@ -769,13 +633,6 @@ func TestScala_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registry — batch B languages registered
-// ---------------------------------------------------------------------------
-
-// TestRegistry_For_CP8B_Languages verifies all 3 new languages are registered.
-// WHY: The registry is the single resolution point for; missing entries
-// cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8B_Languages(t *testing.T) {
 	t.Parallel()
 	reg := languages.NewRegistry()

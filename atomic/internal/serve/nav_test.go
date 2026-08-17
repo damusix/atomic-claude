@@ -1,13 +1,5 @@
 package serve_test
 
-// nav_test.go — nav tree fixtures + behavior tests not already covered by the
-// /api/nav shape tests in api_handlers_test.go (which reuse buildMinimalWikiRealm
-// / buildRepoScope below). Shape coverage (group labels, member entries, folder
-// tree, stale badges) lives in api_handlers_test.go; this file keeps the two
-// behaviors that are otherwise untested by a shape assertion: the production
-// (non-seam-injected) computeStaleness path, and the SSE-triggered request's
-// staleness skip.
-
 import (
 	"encoding/json"
 	"net/http"
@@ -19,12 +11,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// buildMinimalWikiRealm creates a temp realm dir with:
-//   - wiki/index.md containing a <wiki-scan> block with 2 members
-//   - wiki/concerns/foo.md
-//   - wiki/knowledge/bar.md
-//
-// Returns the realm root.
+// buildMinimalWikiRealm seeds a two-member <wiki-scan> plus one concern and one
+// knowledge page, the smallest realm the nav groups can render.
 func buildMinimalWikiRealm(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -40,7 +28,6 @@ func buildMinimalWikiRealm(t *testing.T) string {
 		t.Fatal(err)
 	}
 
-	// wiki/index.md with a <wiki-scan> block listing 2 members.
 	indexContent := `<wiki-scan root="/realm" generated="2026-01-01">
 <repo path="alpha" status="summarized" summary="repos/alpha.md"/>
 <repo path="beta" status="pending"/>
@@ -52,16 +39,15 @@ Some narrative.
 `
 	writeFile(t, filepath.Join(wikiDir, "index.md"), indexContent)
 
-	// wiki/concerns/foo.md
 	writeFile(t, filepath.Join(wikiDir, "concerns", "foo.md"), "# Foo concern\n")
 
-	// wiki/knowledge/bar.md
 	writeFile(t, filepath.Join(wikiDir, "knowledge", "bar.md"), "# Bar knowledge\n")
 
 	return root
 }
 
-// buildRepoScope creates a temp dir with some docs files and no wiki/.
+// buildRepoScope has docs files and deliberately no wiki/, so scope resolves to
+// repo rather than realm.
 func buildRepoScope(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -73,10 +59,8 @@ func buildRepoScope(t *testing.T) string {
 	return root
 }
 
-// buildSelfIndexedRealm builds a wiki realm with one self-indexed member and
-// returns (realmRoot, claudeMDPath). No code.toml — federation is absent,
-// exactly like a realm that was never set up for code federation. Shared by
-// codegraph_test.go's realm self-index coverage.
+// No code.toml, so this is a realm that was never set up for code federation and
+// the member's own index is the only one available.
 func buildSelfIndexedRealm(t *testing.T, memberPath string) (string, string) {
 	t.Helper()
 	realmRoot := t.TempDir()
@@ -87,7 +71,7 @@ func buildSelfIndexedRealm(t *testing.T, memberPath string) (string, string) {
 			"</wiki-scan>\n")
 	claudeMDPath := filepath.Join(realmRoot, "CLAUDE.md")
 	buildClaudeMD(t, claudeMDPath, []string{wikiIndex})
-	// The member's own index (cd member; atomic code index).
+	// What `cd member && atomic code index` would have written.
 	db := filepath.Join(realmRoot, memberPath, ".claude", ".atomic-index", "atomic.db")
 	if err := os.MkdirAll(filepath.Dir(db), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -98,10 +82,8 @@ func buildSelfIndexedRealm(t *testing.T, memberPath string) (string, string) {
 	return realmRoot, claudeMDPath
 }
 
-// TestAPINav_ProductionStalenessPath proves that with no StalenessFn injected,
-// NewAPINavHandler's production computeStaleness path fires: a drifted member
-// (listed in <wiki-scan> but missing on disk) badges stale, and a bucket with a
-// non-empty diff badges too.
+// Covers the real computeStaleness, which every other nav test replaces with an
+// injected seam.
 func TestAPINav_ProductionStalenessPath(t *testing.T) {
 	root := t.TempDir()
 	wikiDir := filepath.Join(root, "wiki")
@@ -118,10 +100,10 @@ func TestAPINav_ProductionStalenessPath(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(bucketDir, "note.md"), "# Research note\n")
 
-	// Empty baseline so every file in the bucket appears as Added (diff).
+	// Empty baseline, so every bucket file reads as Added.
 	writeFile(t, filepath.Join(wikiDir, ".buckets", "research", "baseline"), "")
 
-	// "ghost" is listed but its dir does not exist → DRIFT removed ghost.
+	// Listed but absent on disk, which is what drift looks like.
 	indexContent := `<wiki-scan root="` + root + `" generated="2026-01-01">
 <repo path="ghost" status="pending"/>
 </wiki-scan>
@@ -132,7 +114,7 @@ func TestAPINav_ProductionStalenessPath(t *testing.T) {
 `
 	writeFile(t, filepath.Join(wikiDir, "index.md"), indexContent)
 
-	// No StalenessFn injected → production computeStaleness fires.
+	// No StalenessFn, so the production path runs.
 	handler := serve.NewAPINavHandler(serve.NavOptions{
 		RealmRoot:     root,
 		IsRealmScope:  true,
@@ -189,9 +171,7 @@ func TestAPINav_ProductionStalenessPath(t *testing.T) {
 	}
 }
 
-// TestAPINav_SSETriggeredRequestSkipsStaleness proves that a live-reload-triggered
-// nav refetch (?live=1) skips the (git-subprocess-backed) StalenessFn, while an
-// ordinary request still calls it.
+// StalenessFn shells out to git, too costly to run on every live-reload refetch.
 func TestAPINav_SSETriggeredRequestSkipsStaleness(t *testing.T) {
 	root := buildMinimalWikiRealm(t)
 

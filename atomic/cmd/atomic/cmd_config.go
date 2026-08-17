@@ -8,8 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildConfigCmd builds the "config" parent and its config-operation children.
-// Dispatch is config.Run (from internal/config/cli.go).
 func buildConfigCmd() *cobra.Command {
 	dispatch := func(args []string) {
 		home, err := os.UserHomeDir()

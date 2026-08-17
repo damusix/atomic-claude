@@ -1,20 +1,7 @@
-// embedded-sql-admission: scan source files in a directory tree and report
-// all string literals that pass the IsSQLLiteral admission gate.
+// embedded-sql-admission scans a directory tree and reports every string
+// literal that passes the IsSQLLiteral admission gate.
 //
-// Usage:
-//   embedded-sql-admission <dir> [--no-dump]
-//
-// Output (to stdout):
-//   CORPUS_ROOT: <dir>
-//   TOTAL_LITERALS_SCANNED: <n>
-//   ADMITTED_COUNT: <n>
-//   ---ADMITTED LITERALS---
-//   [file:line] <literal text (first 200 chars)>
-//   ...
-//
-// Exit codes:
-//   0: success
-//   1: usage error or fatal IO error
+//	embedded-sql-admission <dir> [--no-dump]
 
 package main
 
@@ -84,10 +71,8 @@ func main() {
 			return nil // skip unreadable file
 		}
 
-		// Use the proper Go harvester for .go files.
-		// For Python/TS: use a best-effort double-quoted scanner — the
-		// adversarial corpus is primarily Go, so this is adequate for
-		// the FP/admission surface report.
+		// The adversarial corpus is primarily Go, so a best-effort scanner is
+		// adequate for the other languages.
 		var spans []standalone.StringLiteralSpan
 		switch ext {
 		case ".go":
@@ -127,17 +112,14 @@ func main() {
 			if len(text) > 200 {
 				text = text[:200] + "...(truncated)"
 			}
-			// Replace newlines for single-line display.
 			text = strings.ReplaceAll(text, "\n", "\\n")
 			fmt.Printf("[%s:%d] %s\n", a.file, a.line, text)
 		}
 	}
 }
 
-// roughHarvestDoubleQuoted does a simple scan for double-quoted strings on
-// non-Go files where we don't have a proper harvester. Used only for
-// admission surface reporting on the adversarial corpus; acceptable to miss
-// edge cases (raw strings, template literals, etc.).
+// roughHarvestDoubleQuoted deliberately misses raw strings and template
+// literals; it exists only for admission-surface reporting.
 func roughHarvestDoubleQuoted(src string) []standalone.StringLiteralSpan {
 	var spans []standalone.StringLiteralSpan
 	line := 1

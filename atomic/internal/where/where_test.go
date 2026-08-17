@@ -13,8 +13,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/where"
 )
 
-// mkGitMarker creates a ".git" directory marker under dir — a pure filesystem
-// stat target, no real git repository required.
 func mkGitMarker(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
@@ -22,10 +20,8 @@ func mkGitMarker(t *testing.T, dir string) {
 	}
 }
 
-// mkGitFileMarker writes ".git" under dir as a regular file containing a
-// "gitdir: ..." pointer — the shape a git worktree uses (this very worktree
-// is one). The repo-root stat walk must treat this the same as a ".git"
-// directory.
+// mkGitFileMarker writes ".git" as a regular "gitdir:" pointer file — the
+// shape a git worktree uses.
 func mkGitFileMarker(t *testing.T, dir string) {
 	t.Helper()
 	content := "gitdir: /tmp/some-other-place/.git/worktrees/example\n"
@@ -34,8 +30,6 @@ func mkGitFileMarker(t *testing.T, dir string) {
 	}
 }
 
-// mkRepoScopeWiki writes docs/wiki/index.md under dir (content is irrelevant
-// to detection — only existence matters).
 func mkRepoScopeWiki(t *testing.T, dir string) string {
 	t.Helper()
 	wikiDir := filepath.Join(dir, "docs", "wiki")
@@ -49,8 +43,6 @@ func mkRepoScopeWiki(t *testing.T, dir string) string {
 	return indexPath
 }
 
-// mkRealmClaudeMD writes a CLAUDE.md at claudeMDPath registering a single
-// realm whose wiki index.md lives at realmRoot/wiki/index.md.
 func mkRealmClaudeMD(t *testing.T, claudeMDPath, wikiIndexPath string) {
 	t.Helper()
 	content := "<wikis>\n- " + wikiIndexPath + "\n</wikis>\n"
@@ -59,8 +51,7 @@ func mkRealmClaudeMD(t *testing.T, claudeMDPath, wikiIndexPath string) {
 	}
 }
 
-// mkRealmWikiIndex writes realmRoot/wiki/index.md with a <wiki-scan> block
-// registering the given member paths (all status="indexed").
+// mkRealmWikiIndex registers memberPaths in a <wiki-scan> block, all indexed.
 func mkRealmWikiIndex(t *testing.T, realmRoot string, memberPaths ...string) string {
 	t.Helper()
 	wikiDir := filepath.Join(realmRoot, "wiki")
@@ -80,16 +71,12 @@ func mkRealmWikiIndex(t *testing.T, realmRoot string, memberPaths ...string) str
 	return indexPath
 }
 
-// missingClaudeMD returns a path to a CLAUDE.md that does not exist — the
-// standard "no realm registered" input.
+// missingClaudeMD is the standard "no realm registered" input.
 func missingClaudeMD(t *testing.T, dir string) string {
 	t.Helper()
 	return filepath.Join(dir, "does-not-exist", "CLAUDE.md")
 }
 
-// TestResolve_PlainRepo_AllAxesAbsent covers SC1: a plain repo with no
-// docs/wiki/, no realm registration, and no code index reports all three
-// axes as absent/none.
 func TestResolve_PlainRepo_AllAxesAbsent(t *testing.T) {
 	root := t.TempDir()
 	mkGitMarker(t, root)
@@ -109,8 +96,6 @@ func TestResolve_PlainRepo_AllAxesAbsent(t *testing.T) {
 	}
 }
 
-// TestResolve_RepoScopeWikiFound_FromNestedCwd covers SC2: docs/wiki/index.md
-// present at an ancestor (up to the .git boundary) is found from a nested cwd.
 func TestResolve_RepoScopeWikiFound_FromNestedCwd(t *testing.T) {
 	root := t.TempDir()
 	mkGitMarker(t, root)
@@ -133,9 +118,7 @@ func TestResolve_RepoScopeWikiFound_FromNestedCwd(t *testing.T) {
 	}
 }
 
-// TestResolve_RepoScopeWiki_StopsAtGitBoundary covers the false-positive-guard
-// risk noted in the spec: an unrelated ancestor's docs/wiki/ (outside the
-// nearest .git) must NOT be reported.
+// An unrelated ancestor's docs/wiki/, outside the nearest .git, must not match.
 func TestResolve_RepoScopeWiki_StopsAtGitBoundary(t *testing.T) {
 	outer := t.TempDir()
 	mkRepoScopeWiki(t, outer) // ancestor wiki — must be invisible
@@ -155,8 +138,6 @@ func TestResolve_RepoScopeWiki_StopsAtGitBoundary(t *testing.T) {
 	}
 }
 
-// TestResolve_RealmScope_Root_Member_Orphaned covers SC3: root/member/orphaned
-// classification against one registered realm.
 func TestResolve_RealmScope_Root_Member_Orphaned(t *testing.T) {
 	realmRoot := t.TempDir()
 	wikiIndexPath := mkRealmWikiIndex(t, realmRoot, "repos/alpha")
@@ -218,9 +199,7 @@ func TestResolve_RealmScope_Root_Member_Orphaned(t *testing.T) {
 	})
 }
 
-// TestResolve_Composite_RealmMemberWithOwnRepoScopeWiki covers SC4: a cwd
-// that is simultaneously a realm member AND carries its own repo-scope
-// docs/wiki/index.md reports both facts together in one call.
+// The axes are independent: a realm member may carry its own repo-scope wiki.
 func TestResolve_Composite_RealmMemberWithOwnRepoScopeWiki(t *testing.T) {
 	realmRoot := t.TempDir()
 	wikiIndexPath := mkRealmWikiIndex(t, realmRoot, "repos/alpha")
@@ -255,9 +234,6 @@ func TestResolve_Composite_RealmMemberWithOwnRepoScopeWiki(t *testing.T) {
 	}
 }
 
-// TestResolve_CodeIndexScope_PassThroughUnmodified covers SC5: code-index
-// scope reflects codeintel/realm.Resolve's result unmodified and appears
-// unconditionally, regardless of --json.
 func TestResolve_CodeIndexScope_PassThroughUnmodified(t *testing.T) {
 	root := t.TempDir()
 	mkGitMarker(t, root)
@@ -288,8 +264,6 @@ func TestResolve_CodeIndexScope_PassThroughUnmodified(t *testing.T) {
 	}
 }
 
-// TestFormatJSON_CarriesSameInformationAsHuman covers SC6: --json emits the
-// same information as the plain-text report.
 func TestFormatJSON_CarriesSameInformationAsHuman(t *testing.T) {
 	realmRoot := t.TempDir()
 	wikiIndexPath := mkRealmWikiIndex(t, realmRoot, "repos/alpha")
@@ -321,11 +295,7 @@ func TestFormatJSON_CarriesSameInformationAsHuman(t *testing.T) {
 	}
 }
 
-// --- RepoRoot axis ---
-
-// TestResolveRepoRoot_MarkerWinsOverGit: a scope="repo" marker nested inside
-// a git repository outranks the .git stat walk — the marker directory is
-// reported, not the (higher-up) git root.
+// A marker nested inside a git repo outranks the (higher-up) git root.
 func TestResolveRepoRoot_MarkerWinsOverGit(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -356,8 +326,6 @@ func TestResolveRepoRoot_MarkerWinsOverGit(t *testing.T) {
 	}
 }
 
-// TestResolveRepoRoot_GitFallback_NoMarker: no marker present — falls back
-// to the nearest ancestor carrying a .git entry, source git.
 func TestResolveRepoRoot_GitFallback_NoMarker(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -381,8 +349,6 @@ func TestResolveRepoRoot_GitFallback_NoMarker(t *testing.T) {
 	}
 }
 
-// TestResolveRepoRoot_CwdFallback_NoMarkerNoGit: neither a marker nor a .git
-// entry anywhere up to the filesystem root — falls back to cwd, source cwd.
 func TestResolveRepoRoot_CwdFallback_NoMarkerNoGit(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -401,9 +367,7 @@ func TestResolveRepoRoot_CwdFallback_NoMarkerNoGit(t *testing.T) {
 	}
 }
 
-// TestResolveRepoRoot_GitFileMarker_WorktreeStyle: ".git" as a file (a git
-// worktree, not a plain repo) must resolve the same as ".git" as a
-// directory — source git, path the directory holding the file.
+// A worktree's ".git" file must resolve the same as a ".git" directory.
 func TestResolveRepoRoot_GitFileMarker_WorktreeStyle(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -427,11 +391,7 @@ func TestResolveRepoRoot_GitFileMarker_WorktreeStyle(t *testing.T) {
 	}
 }
 
-// --- RealmScope: marker-first ---
-
-// TestResolveRealmScope_MarkerRoot_NoWikisEntry: a scope="realm" marker
-// resolves realm root even with no <wikis> registration at all — the core
-// claim of decision 1 in the design doc.
+// A marker resolves realm root with no <wikis> registration at all.
 func TestResolveRealmScope_MarkerRoot_NoWikisEntry(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -456,9 +416,6 @@ func TestResolveRealmScope_MarkerRoot_NoWikisEntry(t *testing.T) {
 	}
 }
 
-// TestResolveRealmScope_MarkerMember: member classification proceeds against
-// <realm>/wiki/index.md exactly as the registry path does, once the marker
-// has identified the realm root.
 func TestResolveRealmScope_MarkerMember(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -486,9 +443,8 @@ func TestResolveRealmScope_MarkerMember(t *testing.T) {
 	}
 }
 
-// TestResolveRealmScope_MarkerOrphaned_NoWikiIndexYet: a realm marked before
-// its first /refresh-wiki has no wiki/index.md yet — degrades to orphaned
-// rather than erroring, per the spec.
+// A realm marked before its first /refresh-wiki has no wiki/index.md yet and
+// must degrade to orphaned rather than erroring.
 func TestResolveRealmScope_MarkerOrphaned_NoWikiIndexYet(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -517,8 +473,6 @@ func TestResolveRealmScope_MarkerOrphaned_NoWikiIndexYet(t *testing.T) {
 	}
 }
 
-// TestResolveRealmScope_RegistryFallback_SourceRegistry: no marker present —
-// the pre-existing <wikis> path runs unchanged, now carrying Source registry.
 func TestResolveRealmScope_RegistryFallback_SourceRegistry(t *testing.T) {
 	realmRoot := t.TempDir()
 	wikiIndexPath := mkRealmWikiIndex(t, realmRoot, "repos/alpha")
@@ -537,8 +491,6 @@ func TestResolveRealmScope_RegistryFallback_SourceRegistry(t *testing.T) {
 	}
 }
 
-// TestResolveRealmScope_NoRealm_SourceNone: no marker, no <wikis> match —
-// RealmNone carries source none.
 func TestResolveRealmScope_NoRealm_SourceNone(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -558,13 +510,8 @@ func TestResolveRealmScope_NoRealm_SourceNone(t *testing.T) {
 	}
 }
 
-// TestRealmPositionClassification_MarkerAndRegistry_Agree drives the exact
-// same directory layout through both realm-resolution mechanisms —
-// scope="realm" marker, then <wikis>-registry — and asserts identical
-// Position classification for root, member, and orphaned cwds. Marker and
-// registry resolution share one classification helper (classifyRealmPosition)
-// precisely so this can never diverge; this test fails if a future edit
-// special-cases one path without the other.
+// Marker and registry resolution share classifyRealmPosition so they can never
+// classify the same directory differently. Fails if one path is special-cased.
 func TestRealmPositionClassification_MarkerAndRegistry_Agree(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -586,8 +533,7 @@ func TestRealmPositionClassification_MarkerAndRegistry_Agree(t *testing.T) {
 		"orphaned": orphanDir,
 	}
 
-	// Round 1: resolve every cwd through the marker path — same directories,
-	// no <wikis> registration at all.
+	// Round 1: marker path, no <wikis> registration.
 	if _, err := config.EnsureScopeMarker(realmRoot, "realm"); err != nil {
 		t.Fatalf("EnsureScopeMarker: %v", err)
 	}
@@ -603,8 +549,7 @@ func TestRealmPositionClassification_MarkerAndRegistry_Agree(t *testing.T) {
 		markerPositions[name] = report.RealmScope.Position
 	}
 
-	// Round 2: remove the marker, register the same directories via <wikis>
-	// instead, and resolve the identical cwds through the registry path.
+	// Round 2: same directories, marker removed, resolved via <wikis>.
 	if err := os.Remove(config.RepoConfigPath(realmRoot)); err != nil {
 		t.Fatalf("remove marker: %v", err)
 	}
@@ -629,10 +574,6 @@ func TestRealmPositionClassification_MarkerAndRegistry_Agree(t *testing.T) {
 	}
 }
 
-// --- Format: repo root + provenance ---
-
-// TestFormatHuman_RepoRootLine locks the exact human-output shape from the
-// spec: "repo root:        <path> — <source>".
 func TestFormatHuman_RepoRootLine(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -654,7 +595,6 @@ func TestFormatHuman_RepoRootLine(t *testing.T) {
 	}
 }
 
-// TestFormatJSON_RepoRootFields: repo_root carries path and source.
 func TestFormatJSON_RepoRootFields(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".claude")
 	defer restore()
@@ -681,9 +621,8 @@ func TestFormatJSON_RepoRootFields(t *testing.T) {
 	}
 }
 
-// TestFormatHuman_RegistryHint: a realm resolved through registry gets a
-// backfill hint naming `atomic wiki init --scope realm`; a marker-resolved
-// realm does not (nothing to backfill).
+// Only a registry-resolved realm gets the backfill hint; a marker-resolved one
+// has nothing to backfill.
 func TestFormatHuman_RegistryHint(t *testing.T) {
 	realmRoot := t.TempDir()
 	wikiIndexPath := mkRealmWikiIndex(t, realmRoot, "repos/alpha")
@@ -715,8 +654,7 @@ func TestFormatHuman_RegistryHint(t *testing.T) {
 	}
 }
 
-// TestFormatJSON_RealmScopeSourceField: realm_scope carries a source field;
-// the hint text is absent from JSON (the spec's stated JSON exclusion).
+// The human-only backfill hint stays out of JSON.
 func TestFormatJSON_RealmScopeSourceField(t *testing.T) {
 	realmRoot := t.TempDir()
 	wikiIndexPath := mkRealmWikiIndex(t, realmRoot, "repos/alpha")
@@ -740,10 +678,8 @@ func TestFormatJSON_RealmScopeSourceField(t *testing.T) {
 	}
 }
 
-// TestZeroGitSpawns_NoOSExecImport is a structural proof of the zero-git-spawn
-// contract: the where package's production source files must never import
-// os/exec. Complements wiki/staleness.go's runtime-injected-runner proof —
-// this package has no exec dependency to inject in the first place.
+// Structural proof of the zero-git-spawn contract: production sources here
+// must never import os/exec.
 func TestZeroGitSpawns_NoOSExecImport(t *testing.T) {
 	for _, name := range []string{"where.go", "format.go"} {
 		fset := token.NewFileSet()

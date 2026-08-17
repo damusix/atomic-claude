@@ -24,26 +24,22 @@ func writeProfileFile(t *testing.T, path, content string) {
 	}
 }
 
-// freshProfile returns a profile.md body with a lastcheck set to today's date.
-// The staleness check uses time.Now() inside RunCheckProfileWith, so "today"
-// here matches that clock — guaranteed fresh.
+// freshProfile stamps today's date, matching the real clock the check reads.
 func freshProfile() string {
 	today := time.Now().Format("2006-01-02")
 	return "# User profile\n\n## Environment\n<deterministic lastcheck=" + today + ">\n- OS: linux\n</deterministic>\n"
 }
 
-// staleProfile returns a profile.md body with lastcheck fixed to 2000-01-01
-// (always stale relative to any real today).
+// staleProfile pins a lastcheck stale against any real today.
 func staleProfile() string {
 	return "# User profile\n\n## Environment\n<deterministic lastcheck=2000-01-01>\n- OS: linux\n</deterministic>\n"
 }
 
-// v1Profile returns a profile.md body without a lastcheck attribute (v1 format).
+// v1Profile predates the lastcheck attribute.
 func v1Profile() string {
 	return "# User profile\n\n## Environment\n<deterministic>\n- OS: linux\n</deterministic>\n"
 }
 
-// PASS: profile.md exists and @-ref present in CLAUDE.md.
 func TestCheckProfile_FileAndRefPresent_Pass(t *testing.T) {
 	home := t.TempDir()
 	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
@@ -55,10 +51,8 @@ func TestCheckProfile_FileAndRefPresent_Pass(t *testing.T) {
 	}
 }
 
-// WARN: @-ref present, but profile.md file is absent.
 func TestCheckProfile_RefPresent_FileMissing_Warn(t *testing.T) {
 	home := t.TempDir()
-	// no .atomic/profile.md
 	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), profileBlock())
 
 	r := doctor.RunCheckProfileWith(home)
@@ -67,11 +61,9 @@ func TestCheckProfile_RefPresent_FileMissing_Warn(t *testing.T) {
 	}
 }
 
-// WARN: profile.md file present, but @-ref absent from all candidates.
 func TestCheckProfile_FilePresent_RefMissing_Warn(t *testing.T) {
 	home := t.TempDir()
 	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
-	// CLAUDE.md exists but contains no ref
 	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), "# Hello\nno ref here\n")
 
 	r := doctor.RunCheckProfileWith(home)
@@ -80,7 +72,6 @@ func TestCheckProfile_FilePresent_RefMissing_Warn(t *testing.T) {
 	}
 }
 
-// WARN: both file and @-ref absent.
 func TestCheckProfile_BothAbsent_Warn(t *testing.T) {
 	home := t.TempDir()
 	r := doctor.RunCheckProfileWith(home)
@@ -89,7 +80,6 @@ func TestCheckProfile_BothAbsent_Warn(t *testing.T) {
 	}
 }
 
-// PASS: @-ref wired in claude.local.md (not CLAUDE.md).
 func TestCheckProfile_RefInClaudeLocalMd_Pass(t *testing.T) {
 	home := t.TempDir()
 	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
@@ -101,7 +91,6 @@ func TestCheckProfile_RefInClaudeLocalMd_Pass(t *testing.T) {
 	}
 }
 
-// PASS: @-ref wired in CLAUDE.local.md variant.
 func TestCheckProfile_RefInCLAUDELocalMd_Pass(t *testing.T) {
 	home := t.TempDir()
 	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
@@ -113,8 +102,6 @@ func TestCheckProfile_RefInCLAUDELocalMd_Pass(t *testing.T) {
 	}
 }
 
-// WARN: profile.md present and ref wired, but lastcheck is stale (2000-01-01).
-// Detail must contain the lastcheck date and guidance to run `atomic profile refresh`.
 func TestCheckProfile_StaleLastcheck_Warn(t *testing.T) {
 	home := t.TempDir()
 	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), staleProfile())
@@ -132,8 +119,7 @@ func TestCheckProfile_StaleLastcheck_Warn(t *testing.T) {
 	}
 }
 
-// WARN: profile.md exists but is unreadable (permissions).
-// Must report "unreadable", not "absent".
+// An unreadable file must not be reported as an absent one.
 func TestCheckProfile_FileUnreadable_Warn(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root: chmod 000 does not restrict access")
@@ -161,8 +147,6 @@ func TestCheckProfile_FileUnreadable_Warn(t *testing.T) {
 	}
 }
 
-// WARN: profile.md present and ref wired, but no lastcheck attribute (v1 format).
-// Detail must mention "atomic profile refresh" so the user knows how to fix it.
 func TestCheckProfile_AbsentLastcheck_Warn(t *testing.T) {
 	home := t.TempDir()
 	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), v1Profile())
@@ -177,7 +161,6 @@ func TestCheckProfile_AbsentLastcheck_Warn(t *testing.T) {
 	}
 }
 
-// PASS: profile.md present, ref wired, and lastcheck is today (fresh).
 func TestCheckProfile_FreshLastcheck_Pass(t *testing.T) {
 	home := t.TempDir()
 	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
@@ -189,9 +172,8 @@ func TestCheckProfile_FreshLastcheck_Pass(t *testing.T) {
 	}
 }
 
-// WARN: installed CLAUDE.md still carries the legacy @~/.claude/.atomic/profile.md
-// ref (stale v5 bundle) instead of the current @~/.atomic/profile.md ref. Detail
-// must name `atomic claude install` so the user knows how to refresh.
+// The legacy ref still resolves through the compat symlink, so only this
+// check tells the user their CLAUDE.md is from an old bundle.
 func TestCheckProfile_LegacyRef_Warn(t *testing.T) {
 	home := t.TempDir()
 	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())

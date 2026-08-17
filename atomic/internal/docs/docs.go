@@ -1,14 +1,6 @@
-// Package docs scans a repository's documentation directories and writes a
-// lightweight "doc surfaces" cache file under the harness-scoped project dir
-// (config.ProjectDir), e.g. .claude/project/doc-surfaces.md by default.
-//
-// The cache lists each discovered .md file with its H1 title and up to the
-// first three H2 section headings. The file is used by the signals workflow to
-// give Claude an index of what documentation exists without loading every doc.
-//
-// Directory search order: docs/, doc/, documentation/, wiki/, ADR/, adr/,
-// decisions/, and any README.md found anywhere in the repo root (non-recursive
-// at root). .signalsignore exclude globs are respected.
+// Package docs writes a doc-surfaces cache under config.ProjectDir: every
+// discovered .md file with its H1 and first three H2 headings, so the signals
+// workflow can index the documentation without loading it.
 package docs
 
 import (
@@ -23,11 +15,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 )
 
-// cacheFileName is the cache's basename under the harness-scoped project dir
-// (config.ProjectDir), e.g. .claude/project/doc-surfaces.md by default.
 const cacheFileName = "doc-surfaces.md"
 
-// docDirs is the ordered list of directories searched for .md files.
+// docDirs is searched in order; root README.md is handled separately.
 var docDirs = []string{
 	"docs",
 	"doc",
@@ -38,14 +28,10 @@ var docDirs = []string{
 	"decisions",
 }
 
-// Options configures a ScanWithOptions run. All fields are optional.
+// Options configures a ScanWithOptions run. All fields are optional; an unset
+// ExcludeGlobs is filled from the repo's .signalsignore.
 type Options struct {
-	// Clock returns the current time. Inject a fixed clock in tests to get
-	// deterministic last-scanned timestamps.
-	Clock func() time.Time
-	// ExcludeGlobs holds glob patterns (plain, no prefix) from .signalsignore.
-	// Files matching any glob are omitted. Populated automatically by
-	// ScanWithOptions from the repo's .signalsignore when not set by the caller.
+	Clock        func() time.Time
 	ExcludeGlobs []string
 }
 
@@ -59,13 +45,12 @@ func (o *Options) clock() time.Time {
 // ErrStale is returned by Stale when the cache is out of date.
 var ErrStale = fmt.Errorf("docs stale: doc files are newer than doc-surfaces cache")
 
-// Scan walks the repo at root and writes the doc-surfaces cache under the
-// harness-scoped project dir (e.g. .claude/project/doc-surfaces.md by default).
+// Scan writes the doc-surfaces cache under config.ProjectDir(root).
 func Scan(root string) error {
 	return ScanWithOptions(root, nil)
 }
 
-// ScanWithOptions is like Scan but accepts Options for dependency injection.
+// ScanWithOptions is Scan with injectable clock and exclude globs.
 func ScanWithOptions(root string, opts *Options) error {
 	if opts == nil {
 		opts = &Options{}
@@ -86,19 +71,12 @@ func ScanWithOptions(root string, opts *Options) error {
 	return writeCacheFile(root, surfaces, opts.clock())
 }
 
-// surface represents one discovered doc file.
 type surface struct {
-	// rel is the repo-relative path (e.g. "docs/guide.md")
-	rel string
-	// title is the H1 heading text (empty if none found)
+	rel   string
 	title string
-	// h2s holds up to 3 H2 heading texts
-	h2s []string
+	h2s   []string
 }
 
-// collectSurfaces discovers all .md files in the configured directories and
-// README.md files at repo root, parses headings, and returns one surface per
-// file (excluding signalsignore matches).
 func collectSurfaces(root string, opts *Options) ([]surface, error) {
 	paths, err := docPaths(root, opts.ExcludeGlobs)
 	if err != nil {
@@ -109,28 +87,23 @@ func collectSurfaces(root string, opts *Options) ([]surface, error) {
 	for _, rel := range paths {
 		s, err := parseSurface(root, rel)
 		if err != nil {
-			// Skip unreadable files; don't abort the whole scan.
-			continue
+			continue // an unreadable file must not abort the scan
 		}
 		surfaces = append(surfaces, s)
 	}
 	return surfaces, nil
 }
 
-// docPaths returns the repo-relative paths of all doc files (root README.md
-// plus *.md under the configured doc directories), excluding signalsignore
-// matches. It is the single source of truth for "which doc files exist",
-// shared by collectSurfaces (scan) and Stale (delete detection).
+// docPaths is the single source of truth for "which doc files exist", shared
+// by collectSurfaces and Stale so scan and delete-detection cannot disagree.
 func docPaths(root string, excludeGlobs []string) ([]string, error) {
 	var paths []string
 
-	// README.md at repo root.
 	rootReadme := filepath.Join(root, "README.md")
 	if _, err := os.Stat(rootReadme); err == nil {
 		paths = append(paths, "README.md")
 	}
 
-	// Configured doc directories (recursive *.md).
 	for _, dir := range docDirs {
 		abs := filepath.Join(root, dir)
 		if _, err := os.Stat(abs); os.IsNotExist(err) {
@@ -168,7 +141,6 @@ func docPaths(root string, excludeGlobs []string) ([]string, error) {
 	return kept, nil
 }
 
-// parseSurface reads one .md file and extracts H1 + up to 3 H2 headings.
 func parseSurface(root, rel string) (surface, error) {
 	data, err := os.ReadFile(filepath.Join(root, rel))
 	if err != nil {
@@ -197,8 +169,6 @@ func parseSurface(root, rel string) (surface, error) {
 	return s, nil
 }
 
-// writeCacheFile writes the doc-surfaces.md cache under the harness-scoped
-// project dir (config.ProjectDir).
 func writeCacheFile(root string, surfaces []surface, now time.Time) error {
 	var sb strings.Builder
 	sb.WriteString("# Doc surfaces\n\n")
@@ -228,14 +198,9 @@ func writeCacheFile(root string, surfaces []surface, now time.Time) error {
 	return os.WriteFile(outPath, []byte(sb.String()), 0o644)
 }
 
-// Stale returns ErrStale if the cache is out of date, or an error if the cache
-// does not exist. Two independent triggers mark the cache stale:
-//
-//   - mtime: any scanned .md file is newer than the cache file (covers new and
-//     edited docs).
-//   - set drift: the set of doc files on disk differs from the set recorded in
-//     the cache (covers deletes, which bump no surviving file's mtime, and adds
-//     for completeness).
+// Stale returns ErrStale if the cache is out of date, or an error if it does
+// not exist. Two triggers: any doc newer than the cache, or set drift between
+// disk and cache — a delete bumps no surviving file's mtime.
 func Stale(root string) error {
 	cachePath := filepath.Join(config.ProjectDir(root), cacheFileName)
 	fi, err := os.Stat(cachePath)
@@ -256,8 +221,6 @@ func Stale(root string) error {
 		return ErrStale
 	}
 
-	// Set drift: compare the doc files on disk against those the cache lists.
-	// Catches deletions (and additions), which an mtime check cannot.
 	excl, err := readSignalsIgnore(root)
 	if err != nil {
 		return fmt.Errorf("docs stale: %w", err)
@@ -276,9 +239,8 @@ func Stale(root string) error {
 	return nil
 }
 
-// cachedDocPaths parses the repo-relative doc paths recorded in a doc-surfaces
-// cache file. Each surface is written as "- <rel>[ — <title>][ [<h2s>]]", so
-// the path is the token after "- " up to the first " — " or " [" delimiter.
+// cachedDocPaths reverses writeCacheFile's "- <rel>[ — <title>][ [<h2s>]]" line
+// format back to bare paths.
 func cachedDocPaths(cachePath string) ([]string, error) {
 	f, err := os.Open(cachePath)
 	if err != nil {
@@ -294,7 +256,6 @@ func cachedDocPaths(cachePath string) ([]string, error) {
 			continue
 		}
 		rest := strings.TrimPrefix(line, "- ")
-		// Cut at the earliest of the title or h2-list delimiters.
 		cut := len(rest)
 		if i := strings.Index(rest, " — "); i >= 0 && i < cut {
 			cut = i
@@ -310,8 +271,6 @@ func cachedDocPaths(cachePath string) ([]string, error) {
 	return paths, scanner.Err()
 }
 
-// sameStringSet reports whether a and b contain the same elements, ignoring
-// order and duplicates.
 func sameStringSet(a, b []string) bool {
 	setA := make(map[string]bool, len(a))
 	for _, s := range a {
@@ -332,8 +291,6 @@ func sameStringSet(a, b []string) bool {
 	return true
 }
 
-// newestDocMtime returns the mtime of the newest .md file across all doc dirs
-// and root README.md. Returns zero time if no doc files exist.
 func newestDocMtime(root string) (time.Time, error) {
 	var newest time.Time
 
@@ -348,10 +305,8 @@ func newestDocMtime(root string) (time.Time, error) {
 		return nil
 	}
 
-	// Root README.md
 	_ = checkFile(filepath.Join(root, "README.md"))
 
-	// Configured doc directories
 	for _, dir := range docDirs {
 		abs := filepath.Join(root, dir)
 		if _, err := os.Stat(abs); os.IsNotExist(err) {
@@ -381,10 +336,9 @@ func newestDocMtime(root string) (time.Time, error) {
 	return newest, nil
 }
 
-// readSignalsIgnore reads .signalsignore from the repo root and returns the
-// exclude globs (plain lines without '+' prefix). Comment lines and blank lines
-// are ignored. '+'-prefixed lines (generated markers) are not returned — the
-// docs scanner has no "generated" concept. Absent file is not an error.
+// readSignalsIgnore returns .signalsignore's exclude globs. '+'-prefixed lines
+// are generated-markers and are dropped: this scanner has no such concept.
+// An absent file is not an error.
 func readSignalsIgnore(root string) ([]string, error) {
 	path := filepath.Join(root, ".signalsignore")
 	f, err := os.Open(path)
@@ -408,10 +362,8 @@ func readSignalsIgnore(root string) ([]string, error) {
 	return globs, scanner.Err()
 }
 
-// matchesGlobs reports whether rel matches any of the provided glob patterns.
-// Each pattern is tested against the full repo-relative path and the base
-// filename, so patterns like "excluded.md" match both "excluded.md" and
-// "docs/excluded.md".
+// matchesGlobs tests each pattern against both the relative path and the base
+// filename, so "excluded.md" matches "docs/excluded.md" too.
 func matchesGlobs(rel string, globs []string) bool {
 	base := filepath.Base(rel)
 	for _, glob := range globs {

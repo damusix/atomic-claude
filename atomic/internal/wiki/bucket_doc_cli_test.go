@@ -26,8 +26,6 @@ func registerBucketCLI(t *testing.T, root, claudeHome, name string) {
 	}
 }
 
-// ---- wiki bucket doc ----
-
 func TestBucketDoc_HappyPathWritesFile(t *testing.T) {
 	root := t.TempDir()
 	claudeHome := t.TempDir()
@@ -139,8 +137,6 @@ func TestBucketDoc_MissingArgsUsageError(t *testing.T) {
 	}
 }
 
-// ---- wiki bucket skill ----
-
 func TestBucketSkill_WritesFileAndReportsNote(t *testing.T) {
 	root := t.TempDir()
 	claudeHome := t.TempDir()
@@ -217,8 +213,6 @@ func TestBucketSkill_UnregisteredBucketRejected(t *testing.T) {
 		t.Fatal("expected non-zero exit for unregistered bucket")
 	}
 }
-
-// ---- wiki bucket index ----
 
 func TestBucketIndex_AllRebuildsEveryBucketAndRealmList(t *testing.T) {
 	root := t.TempDir()

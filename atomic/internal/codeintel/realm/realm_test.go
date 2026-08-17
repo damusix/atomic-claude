@@ -9,7 +9,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// writeFile writes content to path, creating parent dirs as needed.
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -20,8 +19,6 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// buildClaudeMD writes a CLAUDE.md with a <wikis> block listing the given
-// wiki/index.md paths.
 func buildClaudeMD(t *testing.T, claudeMDPath string, wikiIndexPaths []string) {
 	t.Helper()
 	block := "<wikis>\n"
@@ -31,8 +28,6 @@ func buildClaudeMD(t *testing.T, claudeMDPath string, wikiIndexPaths []string) {
 	block += "</wikis>\n"
 	writeFile(t, claudeMDPath, "# CLAUDE.md\n\n"+block)
 }
-
-// ─── Config (code.toml) tests ────────────────────────────────────────────────
 
 func TestLoadConfig_HappyPath(t *testing.T) {
 	dir := t.TempDir()
@@ -77,7 +72,6 @@ exclude = true
 
 func TestLoadConfig_AbsentFile(t *testing.T) {
 	dir := t.TempDir()
-	// No .atomic/code.toml written.
 
 	cfg, err := realm.LoadConfig(dir)
 	if err != nil {
@@ -109,19 +103,13 @@ exclude = true
 	}
 }
 
-// ─── Resolver tests ──────────────────────────────────────────────────────────
-
-// makeRealm sets up a realm at realmDir with:
-//   - wiki/index.md (registered in claudeMD)
-//   - .atomic/code.toml listing the given members
-//   - member dirs created on disk
+// - wiki/index.md (registered in claudeMD)
+// - .atomic/code.toml listing the given members
+// - member dirs created on disk
 func makeRealm(t *testing.T, realmDir, claudeMDPath string, members []realm.MemberEntry) {
 	t.Helper()
-	// Write wiki/index.md so the path exists.
 	writeFile(t, filepath.Join(realmDir, "wiki", "index.md"), "# wiki\n")
-	// Register in CLAUDE.md.
 	buildClaudeMD(t, claudeMDPath, []string{filepath.Join(realmDir, "wiki", "index.md")})
-	// Write code.toml if members provided.
 	if len(members) > 0 {
 		toml := ""
 		for _, m := range members {
@@ -133,7 +121,6 @@ func makeRealm(t *testing.T, realmDir, claudeMDPath string, members []realm.Memb
 		}
 		writeFile(t, filepath.Join(realmDir, ".atomic", "code.toml"), toml)
 	}
-	// Create member directories on disk.
 	for _, m := range members {
 		abs := filepath.Join(realmDir, m.Path)
 		if err := os.MkdirAll(abs, 0o755); err != nil {
@@ -142,13 +129,11 @@ func makeRealm(t *testing.T, realmDir, claudeMDPath string, members []realm.Memb
 	}
 }
 
-// TestResolve_LocalIndexPresent verifies Repo scope when a local .atomic-index/atomic.db exists.
 func TestResolve_LocalIndexPresent(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(dir, "CLAUDE.md")
 	writeFile(t, claudeMD, "# no wikis\n")
 
-	// Place a local index db.
 	dbPath := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
 	writeFile(t, dbPath, "")
 
@@ -161,10 +146,6 @@ func TestResolve_LocalIndexPresent(t *testing.T) {
 	}
 }
 
-// TestResolve_LocalIndexPresent_UnderNonDefaultHarnessDir verifies the local
-// index short-circuit threads cwd through config.IndexDBPath — under a ".pi"
-// harness dir the local index lives at .pi/.atomic-index/atomic.db, not the
-// default .claude/.atomic-index/atomic.db.
 func TestResolve_LocalIndexPresent_UnderNonDefaultHarnessDir(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".pi")
 	defer restore()
@@ -196,7 +177,6 @@ func TestResolve_LocalIndexPresent_UnderNonDefaultHarnessDir(t *testing.T) {
 	}
 }
 
-// TestResolve_RealmAll verifies RealmAll scope when cwd == realm root.
 func TestResolve_RealmAll(t *testing.T) {
 	root := t.TempDir()
 	claudeMD := filepath.Join(root, "CLAUDE.md")
@@ -207,7 +187,6 @@ func TestResolve_RealmAll(t *testing.T) {
 	}
 	makeRealm(t, root, claudeMD, members)
 
-	// cwd == realm root, no local index.
 	res, err := realm.Resolve(root, claudeMD)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -224,14 +203,11 @@ func TestResolve_RealmAll(t *testing.T) {
 	if len(res.Config.Members) != 2 {
 		t.Errorf("expected 2 members, got %d", len(res.Config.Members))
 	}
-	// res.Members is the non-excluded slice will fan out across.
-	// Both fixture members have exclude=false, so all 2 must appear.
 	if len(res.Members) != 2 {
 		t.Errorf("expected 2 non-excluded members in res.Members, got %d", len(res.Members))
 	}
 }
 
-// TestResolve_RealmMember verifies RealmMember scope when cwd is inside a member path.
 func TestResolve_RealmMember(t *testing.T) {
 	root := t.TempDir()
 	claudeMD := filepath.Join(root, "CLAUDE.md")
@@ -242,7 +218,6 @@ func TestResolve_RealmMember(t *testing.T) {
 	}
 	makeRealm(t, root, claudeMD, members)
 
-	// cwd inside member foo.
 	cwdInFoo := filepath.Join(root, "repos", "foo", "src")
 	if err := os.MkdirAll(cwdInFoo, 0o755); err != nil {
 		t.Fatal(err)
@@ -266,8 +241,6 @@ func TestResolve_RealmMember(t *testing.T) {
 	}
 }
 
-// TestResolve_RealmRootButNonMemberSubdir verifies NoIndex when cwd is inside
-// the realm root but not under any member path (e.g. wiki/).
 func TestResolve_RealmRootButNonMemberSubdir(t *testing.T) {
 	root := t.TempDir()
 	claudeMD := filepath.Join(root, "CLAUDE.md")
@@ -277,7 +250,6 @@ func TestResolve_RealmRootButNonMemberSubdir(t *testing.T) {
 	}
 	makeRealm(t, root, claudeMD, members)
 
-	// cwd inside wiki/ — a realm subdir but not a member.
 	cwdInWiki := filepath.Join(root, "wiki")
 
 	res, err := realm.Resolve(cwdInWiki, claudeMD)
@@ -289,7 +261,6 @@ func TestResolve_RealmRootButNonMemberSubdir(t *testing.T) {
 	}
 }
 
-// TestResolve_OutsideAnyRealm verifies NoIndex when cwd is outside any registered realm.
 func TestResolve_OutsideAnyRealm(t *testing.T) {
 	// Two separate temp dirs — one is the realm, the other is cwd.
 	realmDir := t.TempDir()
@@ -310,7 +281,6 @@ func TestResolve_OutsideAnyRealm(t *testing.T) {
 	}
 }
 
-// TestResolve_NoWikisRegistered verifies NoIndex when CLAUDE.md has no <wikis> block.
 func TestResolve_NoWikisRegistered(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(dir, "CLAUDE.md")
@@ -325,9 +295,6 @@ func TestResolve_NoWikisRegistered(t *testing.T) {
 	}
 }
 
-// TestResolve_WikiRegistryReadError verifies that a hard I/O error from
-// ReadWikiIndexPaths (e.g. claudeMDPath points at a directory) propagates as a
-// non-nil error rather than silently resolving to ScopeNoIndex.
 func TestResolve_WikiRegistryReadError(t *testing.T) {
 	dir := t.TempDir()
 	// Pass a directory path as claudeMDPath — os.ReadFile on a dir returns a
@@ -338,7 +305,6 @@ func TestResolve_WikiRegistryReadError(t *testing.T) {
 	}
 }
 
-// TestResolve_NoWikisRegisteredNilError verifies the normal no-block case returns nil error.
 func TestResolve_NoWikisRegisteredNilError(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(dir, "CLAUDE.md")
@@ -350,13 +316,10 @@ func TestResolve_NoWikisRegisteredNilError(t *testing.T) {
 	}
 }
 
-// TestResolve_RealmRootDerivation verifies that realm root is correctly derived
-// from a .../wiki/index.md path (parent of parent).
 func TestResolve_RealmRootDerivation(t *testing.T) {
 	root := t.TempDir()
 	claudeMD := filepath.Join(root, "CLAUDE.md")
 
-	// Manually verify derivation: wiki/index.md → Dir → wiki dir → Dir → realm root.
 	wikiIndexPath := filepath.Join(root, "wiki", "index.md")
 	derivedRoot := filepath.Dir(filepath.Dir(wikiIndexPath))
 	if derivedRoot != root {
@@ -375,8 +338,6 @@ func TestResolve_RealmRootDerivation(t *testing.T) {
 	}
 }
 
-// TestResolve_LocalIndexWinsOverRealm verifies local index short-circuits even
-// when cwd is inside a registered realm.
 func TestResolve_LocalIndexWinsOverRealm(t *testing.T) {
 	root := t.TempDir()
 	claudeMD := filepath.Join(root, "CLAUDE.md")
@@ -384,12 +345,10 @@ func TestResolve_LocalIndexWinsOverRealm(t *testing.T) {
 	members := []realm.MemberEntry{{Key: "foo", Path: "repos/foo"}}
 	makeRealm(t, root, claudeMD, members)
 
-	// Place a local index inside the member dir.
 	fooDir := filepath.Join(root, "repos", "foo")
 	dbPath := filepath.Join(fooDir, ".claude", ".atomic-index", "atomic.db")
 	writeFile(t, dbPath, "")
 
-	// cwd inside the member.
 	res, err := realm.Resolve(fooDir, claudeMD)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -399,12 +358,10 @@ func TestResolve_LocalIndexWinsOverRealm(t *testing.T) {
 	}
 }
 
-// TestResolve_RealmAllNoConfig verifies RealmAll when cwd == realm root but no code.toml.
 func TestResolve_RealmAllNoConfig(t *testing.T) {
 	root := t.TempDir()
 	claudeMD := filepath.Join(root, "CLAUDE.md")
 
-	// Register realm but don't write code.toml.
 	writeFile(t, filepath.Join(root, "wiki", "index.md"), "# wiki\n")
 	buildClaudeMD(t, claudeMD, []string{filepath.Join(root, "wiki", "index.md")})
 
@@ -415,13 +372,11 @@ func TestResolve_RealmAllNoConfig(t *testing.T) {
 	if res.Scope != realm.ScopeRealmAll {
 		t.Errorf("expected ScopeRealmAll, got %v", res.Scope)
 	}
-	// Config should be nil (absent file returns nil).
 	if res.Config != nil {
 		t.Error("expected nil Config when code.toml absent")
 	}
 }
 
-// TestResolve_DBPaths verifies that DB path helpers produce the right path for realm members.
 func TestResolve_DBPaths(t *testing.T) {
 	root := t.TempDir()
 	claudeMD := filepath.Join(root, "CLAUDE.md")

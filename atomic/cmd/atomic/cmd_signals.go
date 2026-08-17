@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildSignalsCmd builds the "signals" parent + scan|show|stale|diff|linkify children.
 func buildSignalsCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runSignals(args, *repoOverride) }
 	parent := &cobra.Command{
@@ -92,17 +91,14 @@ func runSignals(args []string, repoOverride string) {
 			return // fresh → exit 0, silent
 		}
 		if err == signals.ErrStale {
-			// Imperative, evidence-bearing output. The staleness gate is read by
-			// an LLM orchestrator that can rationalize a silent exit code away, so
-			// the tool states the directive and the evidence, not just the state.
-			// Deliberate model-safeguard layer over the deterministic exit code —
-			// see the prefer-code-over-model exception in CLAUDE.md.
+			// An LLM orchestrator reads this gate and can rationalize a silent exit
+			// code away, so state the directive and the evidence, not just the
+			// status. A deliberate model-safeguard layer over the exit code.
 			fmt.Printf("signals: STALE — a fresh scan would change the deterministic snapshot (~%d lines)\n", info.ChangedLines)
 			fmt.Printf("→ refresh required; dispatch atomic-wiki-inferrer. do not skip.\n")
 			os.Exit(1)
 		}
-		// Hard error (e.g. missing signals file): exit 2, distinct from the
-		// exit-1 stale signal so callers can tell "out of date" from "broken".
+		// Exit 2 for a hard error, so callers tell "out of date" from "broken".
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(2)
 	case "diff":
@@ -116,8 +112,7 @@ func runSignals(args []string, repoOverride string) {
 		if err == signals.ErrNoPrior {
 			os.Exit(2)
 		}
-		// Hard error: exit 2, alongside ErrNoPrior — distinct from the exit-1
-		// "diff present" signal. See the check-family exit convention.
+		// Exit 2 for a hard error (and ErrNoPrior), distinct from exit-1 "diff present".
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(2)
 	case "linkify":
@@ -126,8 +121,7 @@ func runSignals(args []string, repoOverride string) {
 		if err := fs.Parse(args[1:]); err != nil {
 			os.Exit(2)
 		}
-		// Root follows the signals convention (cwd / global --repo), like
-		// scan and stale. There is no per-verb --root flag here.
+		// Root follows the signals convention (cwd / global --repo); no --root flag.
 		if err := signals.LinkifyFiles(root); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)

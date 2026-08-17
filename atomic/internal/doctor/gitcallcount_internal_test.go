@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// TestRunWith_PresetRepoRoot_NoGitCalls proves that when opts.RepoRoot is
-// pre-populated, RunWith does NOT invoke gitToplevelFn at all — the cached
-// value is used as-is across all 11 checks.
+// A pre-set RepoRoot must be used as-is: zero git subprocesses.
 func TestRunWith_PresetRepoRoot_NoGitCalls(t *testing.T) {
 	var calls atomic.Int32
 
@@ -25,7 +23,7 @@ func TestRunWith_PresetRepoRoot_NoGitCalls(t *testing.T) {
 		RepoRoot:  root, // pre-set: RunWith must NOT call gitToplevelFn
 	}
 
-	// repoDev=true to include the manifest check; all 11 checks run.
+	// repoDev=true so the manifest check runs too.
 	if _, err := RunWith(opts, true); err != nil {
 		t.Fatalf("RunWith: %v", err)
 	}
@@ -35,11 +33,7 @@ func TestRunWith_PresetRepoRoot_NoGitCalls(t *testing.T) {
 	}
 }
 
-// TestRunWith_LazyFill_ExactlyOneGitCall proves that when opts.RepoRoot is
-// empty, RunWith resolves it exactly once — not once per check. This is the
-// key invariant that proves the fan-out was eliminated: before the fix each of
-// N checks spawned its own git subprocess; after the fix RunWith's lazy-fill
-// path fires exactly once and all checks reuse opts.RepoRoot.
+// The lazy-fill path must resolve once for the whole run, not once per check.
 func TestRunWith_LazyFill_ExactlyOneGitCall(t *testing.T) {
 	var calls atomic.Int32
 
@@ -51,10 +45,10 @@ func TestRunWith_LazyFill_ExactlyOneGitCall(t *testing.T) {
 		return orig(cwd)
 	}
 
-	// Empty RepoRoot triggers the lazy-fill path inside RunWith.
+	// An empty RepoRoot is what triggers the lazy-fill path.
 	opts := Opts{StaleDays: 7}
 
-	// repoDev=true to include the manifest check; all 11 checks run.
+	// repoDev=true so the manifest check runs too.
 	if _, err := RunWith(opts, true); err != nil {
 		t.Fatalf("RunWith: %v", err)
 	}
@@ -64,10 +58,8 @@ func TestRunWith_LazyFill_ExactlyOneGitCall(t *testing.T) {
 	}
 }
 
-// TestRun_GitToplevelCalledExactlyOnce verifies that the public Run entry
-// point resolves the git toplevel exactly once. Asserting == 1 (not ≤ 1)
-// prevents the test from passing vacuously if a future refactor stops
-// resolving the root entirely.
+// Asserting == 1 rather than <= 1 keeps this from passing vacuously if a
+// refactor stops resolving the root at all.
 func TestRun_GitToplevelCalledExactlyOnce(t *testing.T) {
 	var calls atomic.Int32
 
@@ -79,8 +71,8 @@ func TestRun_GitToplevelCalledExactlyOnce(t *testing.T) {
 		return orig(cwd)
 	}
 
+	// RepoRoot is left unset so Run has to resolve it.
 	opts := Opts{StaleDays: 7}
-	// Do not set RepoRoot so that Run resolves it (exactly once).
 
 	if _, err := Run(opts); err != nil {
 		t.Fatalf("Run: %v", err)

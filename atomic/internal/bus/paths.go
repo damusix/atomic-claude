@@ -13,9 +13,8 @@ func SocketPath(home string) string {
 	return filepath.Join(config.Dir(home), "bus.sock")
 }
 
-// LockPath returns <home>/.atomic/bus.lock — the flock that guards the
-// daemon spawn-and-connect sequence, so two concurrent `join` calls racing
-// from cold produce exactly one daemon.
+// LockPath returns <home>/.atomic/bus.lock — the flock guarding the daemon
+// spawn-and-connect sequence, so two cold `join` calls produce one daemon.
 func LockPath(home string) string {
 	return filepath.Join(config.Dir(home), "bus.lock")
 }
@@ -26,16 +25,15 @@ func StatePath(home string) string {
 	return filepath.Join(config.Dir(home), "bus.json")
 }
 
-// RoomLogPath returns <home>/.atomic/rooms/<room>.log — the durable,
-// append-only record of a room's traffic. There is no replay of any kind
-// there is no replay buffer; this file is the only history.
+// RoomLogPath returns <home>/.atomic/rooms/<room>.log — the durable append-only
+// record of a room's traffic. There is no replay buffer; this file is the only
+// history.
 func RoomLogPath(home, room string) string {
 	return filepath.Join(roomsDir(home), room+".log")
 }
 
-// EnsureDirs creates <home>/.atomic/rooms (and its parent) at 0700, if
-// absent. 0700 keeps room logs private to this user — bus's only
-// authentication is Unix file permissions (see docs/design/atomic-bus.md).
+// EnsureDirs creates <home>/.atomic/rooms at 0700. Unix file permissions are
+// bus's only authentication, so room logs stay private to this user.
 func EnsureDirs(home string) error {
 	return os.MkdirAll(roomsDir(home), 0o700)
 }

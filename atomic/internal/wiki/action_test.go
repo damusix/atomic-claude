@@ -23,8 +23,6 @@ import (
 	"testing"
 )
 
-// ---- resolveWikiRoot: help sentinel ----
-
 func TestResolveWikiRoot_HelpTokensYieldSentinel(t *testing.T) {
 	cwd := t.TempDir()
 	for _, tok := range []string{"-h", "-help", "--help"} {
@@ -47,8 +45,6 @@ func TestResolveWikiRoot_HelpTokenAnyPosition(t *testing.T) {
 		t.Fatalf("expected errUsageRequested after --root and a positional, got %v", err)
 	}
 }
-
-// ---- resolveWikiRoot: unrecognized dash tokens ----
 
 func TestResolveWikiRoot_UnrecognizedSingleDashRejected(t *testing.T) {
 	cwd := t.TempDir()
@@ -84,8 +80,6 @@ func TestResolveWikiRoot_UnrecognizedDashTokenDoesNotLeakIntoPositional(t *testi
 		t.Fatalf("expected rejection, got positional %v", positional)
 	}
 }
-
-// ---- parseBucketDocArgs: delegates to resolveWikiRoot ----
 
 func TestParseBucketDocArgs_HelpSentinel(t *testing.T) {
 	cwd := t.TempDir()
@@ -171,10 +165,6 @@ func TestParseBucketDocArgs_RouterAbsentDefaultsFalse(t *testing.T) {
 	}
 }
 
-// ---- wikiAction integration: help probe across all seven bucket verbs ----
-
-// TestBucketVerbs_HelpFlagPrintsUsageAndExitsZero verifies -h, -help, and
-// --help all print usage to out and exit 0 for every bucket sub-verb.
 func TestBucketVerbs_HelpFlagPrintsUsageAndExitsZero(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
@@ -267,7 +257,6 @@ func TestBucketVerbs_UnrecognizedSingleDashTokenExits2(t *testing.T) {
 	}
 }
 
-// ---- wikiStampAction: flag/positional argument order ----
 //
 // Stdlib flag.FlagSet stops parsing at the first non-flag argument, so the
 // documented `atomic wiki stamp <file> --repo <path>` form (flags after the

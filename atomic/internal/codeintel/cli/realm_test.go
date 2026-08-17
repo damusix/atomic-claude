@@ -1,20 +1,5 @@
 package cli_test
 
-// realm_test.go — tests for realm fan-out in `atomic code` verbs.
-//
-// Tests cover:
-//   1. ScopeRepo: RunCode with a local index falls through unchanged (SC 2)
-//   2. ScopeRealmAll index: seeding code.toml + writing realm dbs; no member dir touched (SC 3, 6)
-//   3. ScopeRealmAll search: [key] headers in human output; {key:...} in JSON (SC 5)
-//   4. ScopeRealmAll partial failure: missing db → "[key] not indexed" warning; rest continues (SC 4)
-//   5. --only filter: limits fan-out to named keys (SC 5)
-//   6. --exclude filter: omits named keys from fan-out (SC 5)
-//   7. ScopeRealmMember: query targets just that member's db (SC 1)
-//   8. ScopeNoIndex outside realm: no crash (SC 1)
-//   9. ScopeRepo delegates via repoctx path (finding 1)
-//  10. ScopeRealmMember index: no write into member dir (finding 2 / SC 3)
-//  11. ScopeRepo subdir→git-root: query from a subdirectory resolves to git root (finding 1)
-
 import (
 	"bytes"
 	"encoding/json"
@@ -29,9 +14,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 )
 
-// ─── Realm fixture helpers ───────────────────────────────────────────────────
-
-// writeGoFile writes a minimal Go source file at path.
 func writeGoFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -42,24 +24,15 @@ func writeGoFile(t *testing.T, path, content string) {
 	}
 }
 
-// buildRealmFixture creates a realm layout:
-//
-//	<tmp>/
-//	  wiki/index.md        (with <wiki-scan> block listing members)
-//	  .atomic/code.toml   (if wantConfig=true, pre-seeded; else absent)
-//	  repos/<name>/       (one tiny Go file each)
-//
-// Returns realmRoot and a fake claudeMD path that registers the wiki.
+// buildRealmFixture returns the realm root and a CLAUDE.md path registering it.
 func buildRealmFixture(t *testing.T, memberNames []string) (realmRoot, claudeMD string) {
 	t.Helper()
 	realmRoot = t.TempDir()
 	claudeMD = filepath.Join(realmRoot, "CLAUDE.md")
 
-	// Register wiki.
 	wikiIndexPath := filepath.Join(realmRoot, "wiki", "index.md")
 	writeRealmCLAUDEMD(t, claudeMD, wikiIndexPath)
 
-	// Build wiki/index.md with <wiki-scan> block.
 	var scanBlock strings.Builder
 	scanBlock.WriteString("<wiki-scan generated=\"2026-01-01\" root=\"" + realmRoot + "\">\n")
 	for _, name := range memberNames {
@@ -68,7 +41,6 @@ func buildRealmFixture(t *testing.T, memberNames []string) (realmRoot, claudeMD 
 	scanBlock.WriteString("</wiki-scan>\n")
 	writeGoFile(t, wikiIndexPath, "# wiki\n\n"+scanBlock.String())
 
-	// Create member directories with a tiny Go file.
 	for _, name := range memberNames {
 		memberDir := filepath.Join(realmRoot, "repos", name)
 		writeGoFile(t, filepath.Join(memberDir, "main.go"),
@@ -77,15 +49,12 @@ func buildRealmFixture(t *testing.T, memberNames []string) (realmRoot, claudeMD 
 	return realmRoot, claudeMD
 }
 
-// writeRealmCLAUDEMD writes a CLAUDE.md with a <wikis> block at claudeMD path.
 func writeRealmCLAUDEMD(t *testing.T, claudeMD, wikiIndexPath string) {
 	t.Helper()
 	content := "# CLAUDE.md\n\n<wikis>\n- " + wikiIndexPath + "\n</wikis>\n"
 	writeGoFile(t, claudeMD, content)
 }
 
-// indexMember indexes a single member repo at memberDir, storing the db at dbPath.
-// Returns when indexing completes or calls t.Fatal on error.
 func indexMember(t *testing.T, memberDir, dbPath string) {
 	t.Helper()
 	ctx := testCtx(t)
@@ -102,7 +71,6 @@ func indexMember(t *testing.T, memberDir, dbPath string) {
 	}
 }
 
-// capitalize returns s with first letter uppercased.
 func capitalize(s string) string {
 	if s == "" {
 		return s
@@ -110,18 +78,12 @@ func capitalize(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// ─── 1. ScopeRepo unchanged (SC 2) ───────────────────────────────────────────
-
-// TestRunCodeRealm_ScopeRepo_Unchanged verifies that when a local index exists,
-// RunCodeWithRealm delegates to the normal single-engine path unchanged.
-// We probe this by running `status` against a locally-indexed fixture.
 func TestRunCodeRealm_ScopeRepo_Unchanged(t *testing.T) {
 	dir := writeFixture(t)
-	// Index it normally (repo scope, db at <dir>/.claude/.atomic-index/atomic.db).
 	indexedEngine(t, dir)
 
 	var stdout, stderr bytes.Buffer
-	// claudeMD with no wikis — ensures realm code path is bypassed.
+	// No wikis, so the realm path is bypassed.
 	claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
 	writeGoFile(t, claudeMD, "# no wikis\n")
 
@@ -129,19 +91,12 @@ func TestRunCodeRealm_ScopeRepo_Unchanged(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d; stderr: %s", code, stderr.String())
 	}
-	// Repo-scope status output must include "initialized: true".
 	out := stdout.String()
 	if !strings.Contains(out, "initialized:") {
 		t.Fatalf("expected 'initialized:' in output, got: %s", out)
 	}
 }
 
-// ─── 2. ScopeRealmAll index: seeding + db location (SC 3, 6) ────────────────
-
-// TestRunCodeRealm_Index_SeedsConfigAndWritesRealmDBs verifies:
-//   - code.toml is created at <realm>/.atomic/code.toml
-//   - realm dbs are created at <realm>/.atomic/<key>.db
-//   - no .claude/.atomic-index/ directory is created inside member dirs
 func TestRunCodeRealm_Index_SeedsConfigAndWritesRealmDBs(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
 
@@ -151,13 +106,11 @@ func TestRunCodeRealm_Index_SeedsConfigAndWritesRealmDBs(t *testing.T) {
 		t.Fatalf("realm index failed (exit %d);\nstdout: %s\nstderr: %s", code, stdout.String(), stderr.String())
 	}
 
-	// code.toml must exist.
 	tomlPath := filepath.Join(realmRoot, ".atomic", "code.toml")
 	if _, err := os.Stat(tomlPath); err != nil {
 		t.Fatalf("code.toml not created: %v", err)
 	}
 
-	// DB files must exist at realm/.atomic/<key>.db.
 	cfg, err := realm.LoadConfig(realmRoot)
 	if err != nil || cfg == nil || len(cfg.Members) < 2 {
 		t.Fatalf("code.toml not parseable or wrong member count: err=%v, cfg=%v", err, cfg)
@@ -178,21 +131,14 @@ func TestRunCodeRealm_Index_SeedsConfigAndWritesRealmDBs(t *testing.T) {
 	}
 }
 
-// ─── 3. ScopeRealmAll search: grouped output (SC 5) ─────────────────────────
-
-// TestRunCodeRealm_Search_GroupedByKey verifies:
-//   - human output has [key] header per member
-//   - --json output has {"key": <results>} shape
 func TestRunCodeRealm_Search_GroupedByKey(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
 
-	// First index the realm so dbs exist.
 	var idx bytes.Buffer
 	if code := codecli.RunCodeWithRealm([]string{"index"}, realmRoot, claudeMD, &idx, &idx, noStdin()); code != 0 {
 		t.Fatalf("index failed: %s", idx.String())
 	}
 
-	// Human output — should contain [alpha] and [beta].
 	var stdout, stderr bytes.Buffer
 	code := codecli.RunCodeWithRealm([]string{"search", "Hello"}, realmRoot, claudeMD, &stdout, &stderr, noStdin())
 	if code != 0 {
@@ -206,7 +152,6 @@ func TestRunCodeRealm_Search_GroupedByKey(t *testing.T) {
 		t.Errorf("expected [beta] header in human output, got: %s", out)
 	}
 
-	// JSON output — top-level keys should be member keys.
 	var jsonOut, jsonErr bytes.Buffer
 	code = codecli.RunCodeWithRealm([]string{"search", "Hello", "--json"}, realmRoot, claudeMD, &jsonOut, &jsonErr, noStdin())
 	if code != 0 {
@@ -224,31 +169,20 @@ func TestRunCodeRealm_Search_GroupedByKey(t *testing.T) {
 	}
 }
 
-// ─── 4. Partial failure (SC 4) ───────────────────────────────────────────────
-
-// TestRunCodeRealm_PartialFailure_MissingDB verifies that a member with no db
-// emits "[key] not indexed" to stderr and the operation continues for other members.
 func TestRunCodeRealm_PartialFailure_MissingDB(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
 
-	// Only index alpha; leave beta without a db.
 	cfg, err := realm.SeedConfig(realmRoot, filepath.Join(realmRoot, "wiki", "index.md"))
 	if err != nil || cfg == nil {
 		t.Fatalf("seed failed: %v", err)
 	}
 
-	// Index only alpha.
 	for _, m := range cfg.Members {
 		if m.Key == "alpha" {
 			indexMember(t, filepath.Join(realmRoot, m.Path), realm.Resolution{RealmRoot: realmRoot}.DBPath(m.Key))
 		}
 	}
 
-	// Override DBPath helper by using the resolution directly.
-	// Use a workaround: run RunCodeWithRealm with cwd=realmRoot; it will fan out.
-	// alpha is indexed; beta db is absent.
-
-	// We need to also make sure the db actually exists for alpha:
 	alphaKey := ""
 	for _, m := range cfg.Members {
 		if strings.HasSuffix(m.Path, "alpha") {
@@ -259,7 +193,6 @@ func TestRunCodeRealm_PartialFailure_MissingDB(t *testing.T) {
 		t.Fatal("could not find alpha member key")
 	}
 
-	// Confirm alpha db exists.
 	alphaDB := filepath.Join(realmRoot, ".atomic", alphaKey+".db")
 	if _, err := os.Stat(alphaDB); err != nil {
 		t.Fatalf("alpha db not found at %s: %v", alphaDB, err)
@@ -267,33 +200,23 @@ func TestRunCodeRealm_PartialFailure_MissingDB(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := codecli.RunCodeWithRealm([]string{"search", "Hello"}, realmRoot, claudeMD, &stdout, &stderr, noStdin())
-	// Exit 0 expected: the run completes because alpha is indexed and produces
-	// results.  The missing beta db is reported as "[beta] not indexed" on stderr
-	// and skipped (fanOutQuery continues to the next member).  The overall exit
-	// reflects the dispatched verbs' codes: search returns 0 for normal/empty
-	// results, so the aggregate is 0 despite the partial skip.
+	// A skipped member is not a failure: the aggregate exit stays 0.
 	if code != 0 {
 		t.Fatalf("expected exit 0 on partial failure, got %d; stderr: %s", code, stderr.String())
 	}
-	// stderr should mention "not indexed" for beta.
 	se := stderr.String()
 	if !strings.Contains(se, "not indexed") {
 		t.Errorf("expected 'not indexed' warning in stderr, got: %s", se)
 	}
-	// stdout should still contain alpha results.
 	so := stdout.String()
 	if !strings.Contains(so, "[alpha]") {
 		t.Errorf("expected [alpha] results even on partial failure, got: %s", so)
 	}
 }
 
-// ─── 5. --only filter (SC 5) ─────────────────────────────────────────────────
-
-// TestRunCodeRealm_OnlyFilter restricts fan-out to the named key.
 func TestRunCodeRealm_OnlyFilter(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
 
-	// Index both.
 	var idx bytes.Buffer
 	if code := codecli.RunCodeWithRealm([]string{"index"}, realmRoot, claudeMD, &idx, &idx, noStdin()); code != 0 {
 		t.Fatalf("index failed: %s", idx.String())
@@ -313,13 +236,9 @@ func TestRunCodeRealm_OnlyFilter(t *testing.T) {
 	}
 }
 
-// ─── 6. --exclude filter (SC 5) ──────────────────────────────────────────────
-
-// TestRunCodeRealm_ExcludeFilter omits the named key from fan-out.
 func TestRunCodeRealm_ExcludeFilter(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
 
-	// Index both.
 	var idx bytes.Buffer
 	if code := codecli.RunCodeWithRealm([]string{"index"}, realmRoot, claudeMD, &idx, &idx, noStdin()); code != 0 {
 		t.Fatalf("index failed: %s", idx.String())
@@ -339,20 +258,14 @@ func TestRunCodeRealm_ExcludeFilter(t *testing.T) {
 	}
 }
 
-// ─── 7. ScopeRealmMember (SC 1) ──────────────────────────────────────────────
-
-// TestRunCodeRealm_ScopeRealmMember verifies that when cwd is inside a member
-// directory, the command queries only that member's keyed db.
 func TestRunCodeRealm_ScopeRealmMember(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
 
-	// Index both via realm.
 	var idx bytes.Buffer
 	if code := codecli.RunCodeWithRealm([]string{"index"}, realmRoot, claudeMD, &idx, &idx, noStdin()); code != 0 {
 		t.Fatalf("index failed: %s", idx.String())
 	}
 
-	// cwd inside alpha member dir.
 	alphaCWD := filepath.Join(realmRoot, "repos", "alpha")
 
 	var stdout, stderr bytes.Buffer
@@ -361,24 +274,17 @@ func TestRunCodeRealm_ScopeRealmMember(t *testing.T) {
 		t.Fatalf("member search failed (exit %d); stderr: %s", code, stderr.String())
 	}
 	out := stdout.String()
-	// Member scope — no [key] wrapping, just direct results.
-	// Should not have [alpha] grouping header (single member, no wrapper).
+	// Single target, so no [key] grouping header.
 	if strings.Contains(out, "[alpha]") {
 		t.Errorf("ScopeRealmMember should not wrap with [key] header, got: %s", out)
 	}
-	// Should NOT include beta results.
 	if strings.Contains(out, "HelloBeta") {
 		t.Errorf("ScopeRealmMember should not include beta results, got: %s", out)
 	}
 }
 
-// ─── 8. ScopeNoIndex outside realm (SC 1) ───────────────────────────────────
-
-// TestRunCodeRealm_NoIndex_QueryVerb verifies that a query verb outside any
-// realm runs through the single-repo repoctx path without panicking.
-// The exact exit code depends on the test environment (whether the process cwd
-// is inside a git repo with a code index), so we only assert no panic and
-// that any error goes to stderr.
+// The exit code depends on whether the test process happens to sit in an
+// indexed git repo, so the only invariant asserted here is "no crash".
 func TestRunCodeRealm_NoIndex_QueryVerb(t *testing.T) {
 	dir := t.TempDir()
 	claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
@@ -392,13 +298,8 @@ func TestRunCodeRealm_NoIndex_QueryVerb(t *testing.T) {
 	// Both are acceptable — the invariant is no crash.
 }
 
-// ─── 9. ScopeRepo: queries the projectRoot index directly ───────────────────
-
-// TestRunCodeRealm_ScopeRepo_UsesProjectRootIndex verifies that when a local
-// index is present at the projectRoot, the ScopeRepo branch queries that index
-// directly — without consulting the process working directory. This must hold
-// regardless of where the test process is running (the bug this guards against
-// resolved the root via the process cwd, which passed locally but failed in CI).
+// ScopeRepo must query projectRoot.s index without consulting the process cwd —
+// the earlier cwd-based resolution passed locally and failed in CI.
 func TestRunCodeRealm_ScopeRepo_UsesProjectRootIndex(t *testing.T) {
 	dir := writeFixture(t)
 	indexedEngine(t, dir)
@@ -407,8 +308,6 @@ func TestRunCodeRealm_ScopeRepo_UsesProjectRootIndex(t *testing.T) {
 	writeGoFile(t, claudeMD, "# no wikis\n")
 
 	var stdout, stderr bytes.Buffer
-	// ScopeRepo is detected because dir has a local index.
-	// RunCodeWithRealm should delegate via repoctx.Resolve and return the status.
 	code := codecli.RunCodeWithRealm([]string{"status"}, dir, claudeMD, &stdout, &stderr, noStdin())
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d; stderr: %s", code, stderr.String())
@@ -418,56 +317,40 @@ func TestRunCodeRealm_ScopeRepo_UsesProjectRootIndex(t *testing.T) {
 	}
 }
 
-// TestRunCodeRealm_RepoScope_SubdirResolvesToGitRoot verifies that when the
-// process cwd is a subdirectory of a git repo, RunCodeWithRealm routes through
-// the repo-scope path (repoctx.Resolve → git toplevel) rather than treating the
-// subdir itself as the project root.  Uses t.Chdir (Go 1.24+) to set the
-// process cwd safely — the test is non-parallel as a result.
-//
-// We do NOT index the repo; we only confirm the no-index path is reached from
-// the git root, not a realm path and not a cwd-resolution error.
+// A cwd inside a git repo must resolve to the git root, not be treated as the
+// project root itself. t.Chdir makes this test non-parallel.
 func TestRunCodeRealm_RepoScope_SubdirResolvesToGitRoot(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
 
-	// Create a real git repo in a temp dir.
 	repoRoot := t.TempDir()
 	if out, err := exec.Command("git", "init", repoRoot).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 
-	// Create a subdirectory inside the repo.
 	subdir := filepath.Join(repoRoot, "src")
 	if err := os.MkdirAll(subdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// claudeMD with no <wikis> block — ensures no realm path is taken for this repo.
 	claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
 	writeGoFile(t, claudeMD, "# no wikis\n")
 
-	// Change the process cwd to the subdir.  t.Chdir auto-restores on cleanup
-	// and marks the test as non-parallel.
 	t.Chdir(subdir)
 
 	var stdout, stderr bytes.Buffer
-	// With no index present, repo-scope search must produce the no-index message
-	// on stderr (exit 1), NOT a realm message and NOT a cwd-resolution error.
 	code := codecli.RunCodeWithRealm([]string{"search", "foo"}, subdir, claudeMD, &stdout, &stderr, noStdin())
 
 	se := stderr.String()
 	so := stdout.String()
 
-	// Must NOT look like a realm response.
 	if strings.Contains(so, "[") && strings.Contains(so, "]") {
 		t.Errorf("got realm-style [key] output — should not have taken realm path: %s", so)
 	}
-	// Must NOT surface a cwd/git-root resolution error.
 	if strings.Contains(se, "not inside a git repository") {
 		t.Errorf("repoctx.Resolve failed — subdir→git-root resolution broken: %s", se)
 	}
-	// Must reach the repo-scope no-index path (exit 1 + message on stderr).
 	if code == 0 {
 		t.Errorf("expected non-zero exit for no-index repo-scope search, got 0; stdout: %s stderr: %s", so, se)
 	}
@@ -476,19 +359,12 @@ func TestRunCodeRealm_RepoScope_SubdirResolvesToGitRoot(t *testing.T) {
 	}
 }
 
-// ─── 10. ScopeRealmMember index: no member dir touched (SC 3 — member scope) ─
-
-// TestRunCodeRealm_MemberIndex_NoWriteIntoMemberDir verifies SC 3 for the
-// ScopeRealmMember branch: indexing via `atomic code index` from inside a
-// member dir must not create .gitignore or .claude/ inside that member repo.
-//
-// To ensure ScopeRealmMember resolves correctly (resolver needs code.toml to
-// match the member), we pre-seed code.toml before calling RunCodeWithRealm.
+// Indexing from inside a member repo must leave that repo untouched.
 func TestRunCodeRealm_MemberIndex_NoWriteIntoMemberDir(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha"})
 	alphaCWD := filepath.Join(realmRoot, "repos", "alpha")
 
-	// Pre-seed code.toml so realm.Resolve can detect ScopeRealmMember.
+	// Without code.toml the resolver cannot match the member.
 	wikiIndexPath := filepath.Join(realmRoot, "wiki", "index.md")
 	if _, err := realm.SeedConfig(realmRoot, wikiIndexPath); err != nil {
 		t.Fatalf("SeedConfig: %v", err)
@@ -500,19 +376,15 @@ func TestRunCodeRealm_MemberIndex_NoWriteIntoMemberDir(t *testing.T) {
 		t.Fatalf("member index failed (exit %d);\nstdout: %s\nstderr: %s", code, stdout.String(), stderr.String())
 	}
 
-	// .claude/.atomic-index/ must NOT exist inside the member repo.
 	memberLocal := filepath.Join(alphaCWD, ".claude", ".atomic-index")
 	if _, err := os.Stat(memberLocal); err == nil {
 		t.Errorf("member dir had .claude/.atomic-index/ created — violates SC 3")
 	}
-	// .gitignore must NOT be written into the member repo by the realm path.
 	if _, err := os.Stat(filepath.Join(alphaCWD, ".gitignore")); err == nil {
-		// A .gitignore from the realm index is a violation; the fixture doesn't
-		// create one, so any .gitignore here came from the realm indexer.
+		// The fixture writes none, so any file here came from the indexer.
 		t.Errorf("member dir had .gitignore created — violates SC 3")
 	}
 
-	// DB must exist in realm's .atomic dir, not in member dir.
 	atomicDir := filepath.Join(realmRoot, ".atomic")
 	entries, err := os.ReadDir(atomicDir)
 	if err != nil {
@@ -529,18 +401,10 @@ func TestRunCodeRealm_MemberIndex_NoWriteIntoMemberDir(t *testing.T) {
 	}
 }
 
-// ─── 11. <code-index> block written after realm index (SC 7) ─────────────────
-
-// TestRunCodeRealm_Index_WritesCodeIndexBlock verifies that after a successful
-// `atomic code index` from the realm root, the realm CLAUDE.md contains a
-// <code-index> block listing the indexed members (SC 7).
-//
-// The existing CLAUDE.md (which registers the wiki) must have its original
-// content preserved — the block is spliced in, not the whole file replaced.
+// The block is spliced into the existing CLAUDE.md, never replacing it.
 func TestRunCodeRealm_Index_WritesCodeIndexBlock(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
 
-	// Snapshot the original CLAUDE.md content (has <wikis> block + header).
 	originalContent, err := os.ReadFile(claudeMD)
 	if err != nil {
 		t.Fatalf("read original CLAUDE.md: %v", err)
@@ -552,7 +416,6 @@ func TestRunCodeRealm_Index_WritesCodeIndexBlock(t *testing.T) {
 		t.Fatalf("realm index failed (exit %d);\nstdout: %s\nstderr: %s", code, stdout.String(), stderr.String())
 	}
 
-	// CLAUDE.md must contain the <code-index> block.
 	data, err := os.ReadFile(claudeMD)
 	if err != nil {
 		t.Fatalf("read CLAUDE.md after index: %v", err)
@@ -566,7 +429,6 @@ func TestRunCodeRealm_Index_WritesCodeIndexBlock(t *testing.T) {
 		t.Errorf("realm CLAUDE.md missing </code-index> close tag after index;\ncontent:\n%s", content)
 	}
 
-	// Both members must appear in the block.
 	if !strings.Contains(content, `key="alpha"`) {
 		t.Errorf("realm CLAUDE.md <code-index> missing member alpha;\ncontent:\n%s", content)
 	}
@@ -574,17 +436,15 @@ func TestRunCodeRealm_Index_WritesCodeIndexBlock(t *testing.T) {
 		t.Errorf("realm CLAUDE.md <code-index> missing member beta;\ncontent:\n%s", content)
 	}
 
-	// No timestamp in the block (SC 7: no volatile fields).
+	// A timestamp would make the block diff on every run.
 	if strings.Contains(content, "generated=") {
 		t.Errorf("<code-index> block must not contain generated= timestamp;\ncontent:\n%s", content)
 	}
 
-	// The original <wikis> block must still be present (surrounding content preserved).
 	if !strings.Contains(content, "<wikis>") {
 		t.Errorf("original <wikis> block lost after code-index splice;\ncontent:\n%s", content)
 	}
 
-	// Idempotency: a second index run must not change the file.
 	var stdout2, stderr2 bytes.Buffer
 	code2 := codecli.RunCodeWithRealm([]string{"index"}, realmRoot, claudeMD, &stdout2, &stderr2, noStdin())
 	if code2 != 0 {
@@ -604,18 +464,11 @@ func TestRunCodeRealm_Index_WritesCodeIndexBlock(t *testing.T) {
 	}
 }
 
-// ─── 12. <code-index> block reflects full membership even with --only (SC 7) ──
-
-// TestRunCodeRealm_Index_OnlyFilter_BlockContainsAllMembers verifies that when
-// `atomic code index --only <key>` is run, the <code-index> block written into
-// the realm CLAUDE.md still lists ALL non-excluded members — not just the --only
-// target.  The block advertises realm membership (awareness), not the transient
-// CLI-filtered set.
+// The block advertises realm membership, so --only must not narrow it.
 func TestRunCodeRealm_Index_OnlyFilter_BlockContainsAllMembers(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
 
 	var stdout, stderr bytes.Buffer
-	// Index only alpha via --only; beta is intentionally skipped.
 	code := codecli.RunCodeWithRealm([]string{"index", "--only", "alpha"}, realmRoot, claudeMD, &stdout, &stderr, noStdin())
 	if code != 0 {
 		t.Fatalf("realm index --only alpha failed (exit %d);\nstdout: %s\nstderr: %s", code, stdout.String(), stderr.String())
@@ -627,7 +480,6 @@ func TestRunCodeRealm_Index_OnlyFilter_BlockContainsAllMembers(t *testing.T) {
 	}
 	content := string(data)
 
-	// The <code-index> block must list BOTH members regardless of --only.
 	if !strings.Contains(content, `key="alpha"`) {
 		t.Errorf("<code-index> block missing alpha; content:\n%s", content)
 	}
@@ -637,14 +489,9 @@ func TestRunCodeRealm_Index_OnlyFilter_BlockContainsAllMembers(t *testing.T) {
 	}
 }
 
-// ─── 13. sync / status are available in realm scope ──────────────────────────
-//
-// Regression for the "sync incorrectly detects a wiki" report: from inside a
-// member repo, `atomic code sync`/`status` were rejected with "not available in
-// realm scope; cd into a member repo" — advice the user had already followed.
-// sync/status operate on the member's realm db (written nowhere near the member
-// repo), so they must work in both realm-member and realm-root (fan-out) scope.
-// Before the fix all three of these returned exit 1 with the rejection message.
+// sync and status act on the member.s realm db, which lives nowhere near the
+// member repo, so both must work in member and realm-root scope alike. They
+// were once rejected with advice the user had already followed.
 
 func TestRunCodeRealm_ScopeRealmMember_Sync(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
@@ -666,7 +513,7 @@ func TestRunCodeRealm_ScopeRealmMember_Sync(t *testing.T) {
 	if !strings.Contains(stdout.String(), "synced:") {
 		t.Errorf("expected 'synced:' in member sync output; got stdout: %s\nstderr: %s", stdout.String(), stderr.String())
 	}
-	// SC 3: sync must write to the realm db, never create a local index in the member repo.
+	// Sync must never create a local index inside the member repo.
 	if _, err := os.Stat(filepath.Join(alphaCWD, ".claude", ".atomic-index")); err == nil {
 		t.Errorf("member sync created .claude/.atomic-index/ inside the member repo — must write to the realm db only")
 	}
@@ -690,7 +537,6 @@ func TestRunCodeRealm_ScopeRealmMember_StatusReportsRealmDB(t *testing.T) {
 	if !strings.Contains(out, "initialized:") {
 		t.Errorf("expected status report; got: %s", out)
 	}
-	// The reported index path must be the realm db, not a path inside the member repo.
 	realmDB := filepath.Join(realmRoot, ".atomic", "alpha.db")
 	if !strings.Contains(out, realmDB) {
 		t.Errorf("member status should report the realm db path %q; got: %s", realmDB, out)

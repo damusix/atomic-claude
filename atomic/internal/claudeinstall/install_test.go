@@ -17,12 +17,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 )
 
-// fixedClock returns a deterministic timestamp for tests.
 func fixedClock() time.Time {
 	return time.Date(2026, 5, 16, 18, 32, 11, 0, time.UTC)
 }
-
-// --- helpers ---
 
 func readEmbedded(t *testing.T, source string) []byte {
 	t.Helper()
@@ -48,9 +45,6 @@ func countKind(plan []claudeinstall.FileAction, kind claudeinstall.ActionKind) i
 	return n
 }
 
-// --- tests ---
-
-// TestInstallIntoEmptyTarget: first-time install writes all artifacts.
 func TestInstallIntoEmptyTarget(t *testing.T) {
 	target := t.TempDir()
 
@@ -69,7 +63,6 @@ func TestInstallIntoEmptyTarget(t *testing.T) {
 		t.Errorf("installed count = %d, want %d (all)", installed, len(manifest))
 	}
 
-	// Verify each file exists on disk.
 	for _, fa := range plan {
 		onDisk := filepath.Join(target, filepath.FromSlash(fa.Artifact.Target))
 		data, err := os.ReadFile(onDisk)
@@ -83,14 +76,12 @@ func TestInstallIntoEmptyTarget(t *testing.T) {
 		}
 	}
 
-	// No proposed file for CLAUDE.md on fresh install.
 	proposed := filepath.Join(target, ".atomic", "proposed", "CLAUDE.md")
 	if _, err := os.Stat(proposed); !os.IsNotExist(err) {
 		t.Errorf(".atomic/proposed/CLAUDE.md should not exist on fresh install")
 	}
 }
 
-// TestInstallSecondRunAllUnchanged: re-running after full install reports all unchanged.
 func TestInstallSecondRunAllUnchanged(t *testing.T) {
 	target := t.TempDir()
 
@@ -109,7 +100,6 @@ func TestInstallSecondRunAllUnchanged(t *testing.T) {
 	}
 }
 
-// TestInstallUpdatesChangedArtifact: hand-edited bundle artifact gets backed up and overwritten.
 func TestInstallUpdatesChangedArtifact(t *testing.T) {
 	target := t.TempDir()
 
@@ -117,7 +107,6 @@ func TestInstallUpdatesChangedArtifact(t *testing.T) {
 		t.Fatalf("first Install: %v", err)
 	}
 
-	// Hand-edit agents/atomic-reviewer.md.
 	editPath := filepath.Join(target, "agents", "atomic-reviewer.md")
 	original, _ := os.ReadFile(editPath)
 	tampered := append(original, []byte("\ntampered\n")...)
@@ -135,7 +124,6 @@ func TestInstallUpdatesChangedArtifact(t *testing.T) {
 		t.Errorf("updated = %d, want 1", updated)
 	}
 
-	// Find the updated action.
 	var updatedAction *claudeinstall.FileAction
 	for i := range plan {
 		if plan[i].Kind == claudeinstall.ActionUpdated {
@@ -146,7 +134,6 @@ func TestInstallUpdatesChangedArtifact(t *testing.T) {
 		t.Fatal("no updated action in plan")
 	}
 
-	// Backup file must exist and contain the tampered bytes.
 	backupData, err := os.ReadFile(updatedAction.BackupPath)
 	if err != nil {
 		t.Fatalf("backup %s: %v", updatedAction.BackupPath, err)
@@ -155,7 +142,6 @@ func TestInstallUpdatesChangedArtifact(t *testing.T) {
 		t.Errorf("backup content doesn't match tampered content")
 	}
 
-	// On-disk file must now match embedded bytes.
 	onDisk, _ := os.ReadFile(editPath)
 	embedded := readEmbedded(t, "bundle/agents/atomic-reviewer.md")
 	if sha256hex(onDisk) != sha256hex(embedded) {
@@ -163,11 +149,9 @@ func TestInstallUpdatesChangedArtifact(t *testing.T) {
 	}
 }
 
-// TestInstallCLAUDEmdDiffers: existing CLAUDE.md that differs → proposed file; original untouched.
 func TestInstallCLAUDEmdDiffers(t *testing.T) {
 	target := t.TempDir()
 
-	// Pre-install with hand-crafted CLAUDE.md.
 	claudePath := filepath.Join(target, "CLAUDE.md")
 	userContent := []byte("# My custom CLAUDE.md\n\nCustom content.\n")
 	if err := os.WriteFile(claudePath, userContent, 0o644); err != nil {
@@ -184,13 +168,11 @@ func TestInstallCLAUDEmdDiffers(t *testing.T) {
 		t.Errorf("merge_required = %d, want 1", mergeRequired)
 	}
 
-	// Original CLAUDE.md must be untouched.
 	current, _ := os.ReadFile(claudePath)
 	if sha256hex(current) != sha256hex(userContent) {
 		t.Errorf("CLAUDE.md was modified; should be untouched")
 	}
 
-	// Proposed file must exist at new path and contain embedded bytes.
 	proposedPath := filepath.Join(target, ".atomic", "proposed", "CLAUDE.md")
 	proposed, err := os.ReadFile(proposedPath)
 	if err != nil {
@@ -201,20 +183,16 @@ func TestInstallCLAUDEmdDiffers(t *testing.T) {
 		t.Errorf("proposed file does not match embedded CLAUDE.md")
 	}
 
-	// Report must surface the "atomic prompt claude-merge" next-step instruction
-	// so users know how to complete the merge. A regression that drops or renames
-	// this string would silently leave users with no guidance.
+	// Dropping or renaming this string leaves users with no way to finish the merge.
 	report := claudeinstall.Report(plan, target)
 	if !strings.Contains(report, "atomic prompt claude-merge") {
 		t.Errorf("Report output missing 'atomic prompt claude-merge' next-step instruction:\n%s", report)
 	}
 }
 
-// TestInstallCLAUDEmdIdentical: CLAUDE.md matching embedded → unchanged, no proposed.
 func TestInstallCLAUDEmdIdentical(t *testing.T) {
 	target := t.TempDir()
 
-	// Write embedded CLAUDE.md to target first.
 	embeddedClaude := readEmbedded(t, "bundle/CLAUDE.md")
 	claudePath := filepath.Join(target, "CLAUDE.md")
 	if err := os.WriteFile(claudePath, embeddedClaude, 0o644); err != nil {
@@ -226,7 +204,6 @@ func TestInstallCLAUDEmdIdentical(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	// CLAUDE.md should be unchanged.
 	for _, fa := range plan {
 		if fa.Artifact.Target == "CLAUDE.md" {
 			if fa.Kind != claudeinstall.ActionUnchanged {
@@ -235,14 +212,12 @@ func TestInstallCLAUDEmdIdentical(t *testing.T) {
 		}
 	}
 
-	// No proposed file.
 	proposed := filepath.Join(target, ".atomic", "proposed", "CLAUDE.md")
 	if _, err := os.Stat(proposed); !os.IsNotExist(err) {
 		t.Errorf(".atomic/proposed/CLAUDE.md should not exist when CLAUDE.md is unchanged")
 	}
 }
 
-// TestDryRunNoWrites: --dry-run makes no filesystem changes.
 func TestDryRunNoWrites(t *testing.T) {
 	target := t.TempDir()
 
@@ -251,20 +226,17 @@ func TestDryRunNoWrites(t *testing.T) {
 		t.Fatalf("Install dry-run: %v", err)
 	}
 
-	// Should have planned installs.
 	installed := countKind(plan, claudeinstall.ActionInstalled)
 	if installed == 0 {
 		t.Errorf("dry-run plan has zero installs — unexpected")
 	}
 
-	// But no files written.
 	entries, _ := os.ReadDir(target)
 	if len(entries) != 0 {
 		t.Errorf("dry-run wrote files: %v", entries)
 	}
 }
 
-// TestListStableOrder: List returns all manifest rows sorted by kind then target.
 func TestListStableOrder(t *testing.T) {
 	rows := claudeinstall.List()
 	if len(rows) == 0 {
@@ -286,7 +258,6 @@ func TestListStableOrder(t *testing.T) {
 	}
 }
 
-// TestListTabSeparated: Spot-check that List row fields are non-empty.
 func TestListTabSeparated(t *testing.T) {
 	rows := claudeinstall.List()
 	for _, r := range rows {
@@ -296,7 +267,6 @@ func TestListTabSeparated(t *testing.T) {
 	}
 }
 
-// TestDiffAllAbsent: Diff against empty dir shows all absent.
 func TestDiffAllAbsent(t *testing.T) {
 	target := t.TempDir()
 
@@ -312,7 +282,6 @@ func TestDiffAllAbsent(t *testing.T) {
 	}
 }
 
-// TestDiffAllMatch: Diff after full install shows all match.
 func TestDiffAllMatch(t *testing.T) {
 	target := t.TempDir()
 
@@ -332,7 +301,6 @@ func TestDiffAllMatch(t *testing.T) {
 	}
 }
 
-// TestDiffMixed: half-installed shows mixed status.
 func TestDiffMixed(t *testing.T) {
 	target := t.TempDir()
 
@@ -340,13 +308,11 @@ func TestDiffMixed(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	// Remove one file to make it absent.
 	absentTarget := "agents/atomic-investigator.md"
 	if err := os.Remove(filepath.Join(target, absentTarget)); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
-	// Tamper one file to make it diff.
 	diffTarget := "agents/atomic-reviewer.md"
 	diffPath := filepath.Join(target, diffTarget)
 	existing, _ := os.ReadFile(diffPath)
@@ -372,7 +338,6 @@ func TestDiffMixed(t *testing.T) {
 	if statusFor(diffTarget) != claudeinstall.DiffDiffer {
 		t.Errorf("%s: want diff, got %s", diffTarget, statusFor(diffTarget))
 	}
-	// Everything else should be match.
 	for _, r := range rows {
 		if r.Artifact.Target == absentTarget || r.Artifact.Target == diffTarget {
 			continue
@@ -383,7 +348,6 @@ func TestDiffMixed(t *testing.T) {
 	}
 }
 
-// TestManifestSHAMatchesEmbedded: manifest SHA256 values match actual embedded bytes.
 func TestManifestSHAMatchesEmbedded(t *testing.T) {
 	for _, a := range embedded.Manifest() {
 		data := readEmbedded(t, a.Source)
@@ -394,7 +358,6 @@ func TestManifestSHAMatchesEmbedded(t *testing.T) {
 	}
 }
 
-// TestUpdate_DelegatesToInstall: Update() installs the same artifact set as Install().
 func TestUpdate_DelegatesToInstall(t *testing.T) {
 	target := t.TempDir()
 
@@ -408,13 +371,11 @@ func TestUpdate_DelegatesToInstall(t *testing.T) {
 		t.Fatalf("Update plan len = %d, want %d", len(plan), len(manifest))
 	}
 
-	// All artifacts should be installed on a fresh target.
 	installed := countKind(plan, claudeinstall.ActionInstalled)
 	if installed != len(manifest) {
 		t.Errorf("Update installed = %d, want %d (all)", installed, len(manifest))
 	}
 
-	// All files must exist on disk with the correct content.
 	for _, fa := range plan {
 		onDisk := filepath.Join(target, filepath.FromSlash(fa.Artifact.Target))
 		data, err := os.ReadFile(onDisk)
@@ -429,7 +390,6 @@ func TestUpdate_DelegatesToInstall(t *testing.T) {
 	}
 }
 
-// TestBackupPathContainsTimestamp: backup path includes the fixed timestamp.
 func TestBackupPathContainsTimestamp(t *testing.T) {
 	target := t.TempDir()
 
@@ -448,7 +408,6 @@ func TestBackupPathContainsTimestamp(t *testing.T) {
 
 	for _, fa := range plan {
 		if fa.Kind == claudeinstall.ActionUpdated {
-			// timestamp portion: 2026-05-16T18-32-11Z
 			if !strings.Contains(fa.BackupPath, "2026-05-16T18-32-11Z") {
 				t.Errorf("backup path %q doesn't contain expected timestamp", fa.BackupPath)
 			}
@@ -478,22 +437,17 @@ func TestInstall_CreatesProfileStub(t *testing.T) {
 	}
 }
 
-// TestInstall_ProfileStubIdempotent: ensureProfileStub must not overwrite profile.md
-// when it already exists. User-authored content (Identity, Work, etc.) is preserved.
-// The profileRefresh seam is no-op'd here to isolate the stub-idempotency concern
-// from the env-section rewrite introduced in v2.2 — refresh behaviour is tested
-// separately in TestInstall_ProfileRefreshCalledAfterStub.
+// The refresh seam is no-op'd so this isolates stub idempotency from the
+// env-section rewrite, covered by TestInstall_ProfileRefreshCalledAfterStub.
 func TestInstall_ProfileStubIdempotent(t *testing.T) {
 	target := t.TempDir()
 
-	// No-op the refresh seam so only ensureProfileStub behaviour is under test.
 	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
 		return false, nil
 	}
 	prevProfileRefresh := claudeinstall.ProfileRefresh
 	t.Cleanup(func() { claudeinstall.ProfileRefresh = prevProfileRefresh })
 
-	// Pre-create profile.md with custom user content.
 	atomicDir := filepath.Join(target, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -517,9 +471,7 @@ func TestInstall_ProfileStubIdempotent(t *testing.T) {
 	}
 }
 
-// TestInstall_PrintsNudgeOnFirstCreate: Install prints the full bootstrap nudge to stdout
-// when profile.md is created for the first time. The exact text is the spec-mandated
-// verbatim string from claudeinstall.ProfileNudge — no paraphrasing allowed.
+// The nudge text must match ProfileNudge verbatim — no paraphrasing.
 func TestInstall_PrintsNudgeOnFirstCreate(t *testing.T) {
 	target := t.TempDir()
 
@@ -534,19 +486,15 @@ func TestInstall_PrintsNudgeOnFirstCreate(t *testing.T) {
 	}
 }
 
-// TestInstall_SuppressesNudgeWhenAlreadyExists: Install must not print the nudge
-// when profile.md already exists (idempotent no-op path).
 func TestInstall_SuppressesNudgeWhenAlreadyExists(t *testing.T) {
 	target := t.TempDir()
 
-	// No-op the refresh seam — this test is only about the nudge suppression, not refresh.
 	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
 		return false, nil
 	}
 	prevProfileRefresh := claudeinstall.ProfileRefresh
 	t.Cleanup(func() { claudeinstall.ProfileRefresh = prevProfileRefresh })
 
-	// Pre-create profile.md so ensureProfileStub is a no-op.
 	atomicDir := filepath.Join(target, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -567,10 +515,8 @@ func TestInstall_SuppressesNudgeWhenAlreadyExists(t *testing.T) {
 	}
 }
 
-// TestInstall_ProfileRefreshCalledAfterStub verifies that installOrUpdate invokes the
-// profileRefresh seam after ensureProfileStub with the shared refresh-window constant.
-// WHY: install must populate the env fingerprint on first install; the seam allows
-// testing the wiring without real detection or disk writes.
+// Install must populate the env fingerprint on first install. The seam lets this
+// exercise the wiring without real detection or disk writes.
 func TestInstall_ProfileRefreshCalledAfterStub(t *testing.T) {
 	target := t.TempDir()
 
@@ -605,9 +551,7 @@ func TestInstall_ProfileRefreshCalledAfterStub(t *testing.T) {
 	}
 }
 
-// TestInstall_ProfileRefreshError_BestEffort verifies that when the profileRefresh
-// seam returns an error, installOrUpdate still returns nil (best-effort).
-// WHY: install MUST NOT fail because detection failed; the stub must still be present.
+// Install must not fail because detection failed; the stub must still be present.
 func TestInstall_ProfileRefreshError_BestEffort(t *testing.T) {
 	target := t.TempDir()
 
@@ -623,16 +567,13 @@ func TestInstall_ProfileRefreshError_BestEffort(t *testing.T) {
 		t.Fatalf("Install returned error despite best-effort refresh: %v", err)
 	}
 
-	// Profile stub must still be present.
 	profilePath := filepath.Join(target, ".atomic", "profile.md")
 	if _, statErr := os.Stat(profilePath); statErr != nil {
 		t.Errorf("profile.md not present after best-effort error: %v", statErr)
 	}
 }
 
-// TestInstall_ProfileRefreshPanic_BestEffort verifies that when the profileRefresh
-// seam panics, installOrUpdate recovers and still returns nil.
-// WHY: install must not crash even if detection panics; the stub must still be present.
+// Install must not crash even if detection panics; the stub must still be present.
 func TestInstall_ProfileRefreshPanic_BestEffort(t *testing.T) {
 	target := t.TempDir()
 
@@ -648,25 +589,20 @@ func TestInstall_ProfileRefreshPanic_BestEffort(t *testing.T) {
 		t.Fatalf("Install returned error despite panic recovery: %v", err)
 	}
 
-	// Profile stub must still be present.
 	profilePath := filepath.Join(target, ".atomic", "profile.md")
 	if _, statErr := os.Stat(profilePath); statErr != nil {
 		t.Errorf("profile.md not present after panic recovery: %v", statErr)
 	}
 }
 
-// TestInstall_NudgeNoLongerClaimsClaudeFillsIt verifies that ProfileNudge does not
-// contain the stale "Claude will fill it in" copy (retargeted in v2.2).
-// WHY: the env block is now populated at install time, so the old copy is misleading.
+// The env block is populated at install time, so "Claude will fill it in" misleads.
 func TestInstall_NudgeNoLongerClaimsClaudeFillsIt(t *testing.T) {
 	if strings.Contains(claudeinstall.ProfileNudge, "Claude will fill it in") {
 		t.Errorf("ProfileNudge still contains 'Claude will fill it in': %q", claudeinstall.ProfileNudge)
 	}
 }
 
-// TestInstall_NudgePointsToRetrospectiveLearning verifies that ProfileNudge directs
-// users to /retrospective-learning, not the pre-rename /atomic-improve verb.
-// WHY: the command was renamed; a stale nudge would point users at a dead verb.
+// A stale nudge would point users at a verb that no longer exists.
 func TestInstall_NudgePointsToRetrospectiveLearning(t *testing.T) {
 	if !strings.Contains(claudeinstall.ProfileNudge, "/retrospective-learning") {
 		t.Errorf("ProfileNudge does not mention /retrospective-learning: %q", claudeinstall.ProfileNudge)
@@ -676,19 +612,15 @@ func TestInstall_NudgePointsToRetrospectiveLearning(t *testing.T) {
 	}
 }
 
-// TestBackupTimestampUsesRunStart: Apply uses the clock captured at the start of the
-// run, not the time of the first ActionUpdated. Both items in the plan that are
-// Updated must share the same timestamp directory, which must equal the fixed
-// clock's value regardless of how many unchanged entries precede them.
+// Every backup in one run shares the run-start timestamp, not the time of the
+// first ActionUpdated, however many unchanged entries precede it.
 func TestBackupTimestampUsesRunStart(t *testing.T) {
 	target := t.TempDir()
 
-	// Fresh install first.
 	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
 
-	// Tamper two artifacts so both are ActionUpdated.
 	paths := []string{
 		filepath.Join(target, "agents", "atomic-builder.md"),
 		filepath.Join(target, "agents", "atomic-reviewer.md"),
@@ -703,12 +635,9 @@ func TestBackupTimestampUsesRunStart(t *testing.T) {
 		t.Fatalf("second Install: %v", err)
 	}
 
-	// Collect all backup timestamps.
 	seen := map[string]bool{}
 	for _, fa := range plan {
 		if fa.Kind == claudeinstall.ActionUpdated && fa.BackupPath != "" {
-			// Extract the timestamp portion from the path.
-			// BackupPath: <target>/.atomic/backups/<timestamp>/<relpath>
 			rel := strings.TrimPrefix(fa.BackupPath, target)
 			parts := strings.Split(strings.TrimPrefix(rel, string(os.PathSeparator)), string(os.PathSeparator))
 			if len(parts) >= 3 {

@@ -11,14 +11,12 @@ func TestCompareSemver(t *testing.T) {
 		a, b string
 		want int
 	}{
-		// basic ordering
 		{"1.0.0", "1.0.0", 0},
 		{"1.0.0", "2.0.0", -1},
 		{"2.0.0", "1.0.0", 1},
 		// minor ordering: 1.2.0 vs 1.10.0
 		{"1.2.0", "1.10.0", -1},
 		{"1.10.0", "1.2.0", 1},
-		// patch ordering
 		{"1.0.1", "1.0.2", -1},
 		{"1.0.2", "1.0.1", 1},
 		// prerelease < release (semver 2.0)

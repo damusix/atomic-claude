@@ -4,13 +4,12 @@ import (
 	"strings"
 )
 
-// LinkKind distinguishes the syntax used to express a link.
 type LinkKind int
 
 const (
-	// MarkdownLink is a standard markdown link: [text](target)
+	// MarkdownLink is [text](target).
 	MarkdownLink LinkKind = iota
-	// Wikilink is an Obsidian-style wikilink: [[page]] or [[page|alias]]
+	// Wikilink is [[page]] or [[page|alias]].
 	Wikilink
 )
 
@@ -25,31 +24,21 @@ func (k LinkKind) String() string {
 	}
 }
 
-// Link is a single link extracted from a markdown document.
 type Link struct {
-	// Text is the display text.
-	//   - MarkdownLink: the bracket text, e.g. "overview" in [overview](target)
-	//   - Wikilink: the alias if present, else the page name
+	// Text is the bracket text, or a wikilink's alias falling back to its page name.
 	Text string
 
-	// Target is the link destination.
-	//   - MarkdownLink: the URL or path inside the parens
-	//   - Wikilink: the page name (left of '|' when an alias is present)
+	// Target is the parenthesized destination, or a wikilink's page name.
 	Target string
 
-	// Kind is MarkdownLink or Wikilink.
 	Kind LinkKind
 
-	// Line is the 1-based line number of the link in the source content.
+	// Line is 1-based.
 	Line int
 }
 
-// ExtractLinks returns all markdown links [text](target) and Obsidian wikilinks
-// [[page]] / [[page|alias]] found in content.
-//
-// Fence-aware: links inside fenced code blocks (``` or ~~~) and inline code
-// spans (`…`) are excluded. This reuses the same fenceState/isFenceOpener/isCloser
-// fence-tracking infrastructure used by Linkify.
+// ExtractLinks returns every markdown link and wikilink in content, excluding
+// fenced blocks and inline code spans via Linkify's fence tracking.
 func ExtractLinks(content string) []Link {
 	var results []Link
 
@@ -62,47 +51,36 @@ func ExtractLinks(content string) []Link {
 		trimmed := strings.TrimSpace(line)
 
 		if fence.char == 0 {
-			// Not in a fence: check for an opener.
 			if ch, n := isFenceOpener(trimmed); ch != 0 {
 				fence = fenceState{char: ch, length: n}
 				continue
 			}
-			// Normal prose line — extract links, skipping inline code spans.
 			results = append(results, extractLineLinks(line, lineNum)...)
 		} else {
-			// Inside a fence: check for the closer.
 			if isCloser(trimmed, fence) {
 				fence = fenceState{}
 			}
-			// Skip all content inside the fence (no link extraction).
 		}
 	}
 
 	return results
 }
 
-// extractLineLinks extracts links from a single non-fenced line, skipping
-// content inside inline code spans (`…`).
 func extractLineLinks(line string, lineNum int) []Link {
 	var results []Link
 	i := 0
 	n := len(line)
 
 	for i < n {
-		// Skip inline code spans to avoid matching links inside them.
 		if line[i] == '`' {
-			// Find the closing backtick.
 			close := strings.IndexByte(line[i+1:], '`')
 			if close == -1 {
-				// Unclosed — skip the rest of the line.
 				break
 			}
-			// Jump past the closing backtick.
 			i = i + 1 + close + 1
 			continue
 		}
 
-		// Check for wikilink: [[
 		if i+1 < n && line[i] == '[' && line[i+1] == '[' {
 			close := strings.Index(line[i+2:], "]]")
 			if close != -1 {
@@ -114,19 +92,16 @@ func extractLineLinks(line string, lineNum int) []Link {
 			}
 		}
 
-		// Check for markdown link: [text](target)
 		if line[i] == '[' {
-			// Find the closing ']'.
 			closeBracket := strings.IndexByte(line[i+1:], ']')
 			if closeBracket != -1 {
 				afterBracket := i + 1 + closeBracket + 1
-				// Must be immediately followed by '('.
 				if afterBracket < n && line[afterBracket] == '(' {
 					closeParen := strings.IndexByte(line[afterBracket+1:], ')')
 					if closeParen != -1 {
 						text := line[i+1 : i+1+closeBracket]
 						target := line[afterBracket+1 : afterBracket+1+closeParen]
-						// Skip image links: ![...](...)
+						// ![...](...) is an image, not a link.
 						if i > 0 && line[i-1] == '!' {
 							i = afterBracket + 1 + closeParen + 1
 							continue
@@ -150,8 +125,7 @@ func extractLineLinks(line string, lineNum int) []Link {
 	return results
 }
 
-// parseWikilink parses the inner content of [[…]] and returns a Link.
-// Supports [[page]] and [[page|alias]].
+// parseWikilink handles both [[page]] and [[page|alias]].
 func parseWikilink(inner string, lineNum int) Link {
 	if idx := strings.IndexByte(inner, '|'); idx != -1 {
 		page := strings.TrimSpace(inner[:idx])

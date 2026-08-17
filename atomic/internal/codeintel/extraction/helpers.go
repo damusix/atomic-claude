@@ -10,34 +10,17 @@ import (
 	sitter "github.com/malivvan/tree-sitter"
 )
 
-// generateNodeID returns the stable identifier for a code node.
-//
-// Formula (appendix B, COPY exactly):
-//
-//	id = kind + ":" + hex(sha256("filePath:kind:name:line"))[:32]
-//
-// Exception for file nodes (kind == "file"):
-//
-//	id = "file:" + filePath
-//
-// Exception for package nodes (kind == "package", docs/design/
-// code-intel-package-nodes.md): a synthesized shared hub keyed by ecosystem +
-// normalized name, not by file/line — a package has neither.
-//
-//	id = "package:npm/" + name
-//
-// v1 hardcodes the "npm/" ecosystem segment (JS-family only, per the design's
-// non-goals); a future ecosystem needs its own segment, not a parameter here.
-//
-// line is 1-based. Edges reference ids by value — any divergence breaks every
-// edge (risk R3). The golden-vector test in helpers_test.go is the CI gate.
+// generateNodeID returns the stable identifier for a code node. line is 1-based.
+// Edges store ids by value, so any drift in the formula orphans every edge —
+// the golden-vector test in helpers_test.go is the gate.
 func generateNodeID(filePath, kind, name string, line int) string {
 	return GenerateNodeID(filePath, kind, name, line)
 }
 
-// GenerateNodeID is the exported form of generateNodeID, available to sibling
-// packages (e.g. extraction/standalone) that need to generate IDs using the
-// same stable formula without reimplementing it.
+// GenerateNodeID is the exported form, for sibling packages (extraction/
+// standalone) that must produce identical ids. Package nodes key off ecosystem
+// + name because a package has no file or line; the npm segment is hardcoded —
+// JS-family only, see docs/design/code-intel-package-nodes.md.
 func GenerateNodeID(filePath, kind, name string, line int) string {
 	if kind == "file" {
 		return "file:" + filePath
@@ -50,27 +33,18 @@ func GenerateNodeID(filePath, kind, name string, line int) string {
 	return kind + ":" + hex.EncodeToString(sum[:])[:32]
 }
 
-// GenerateRefID returns a stable, unique identifier for one unresolved reference
-// site. Mirroring the node-id scheme (appendix B) but prefixed "ref:" to keep
-// the id spaces disjoint.
-//
-// Formula:
-//
-//	id = "ref:" + hex(sha256("fromNodeID:referenceName:referenceKind:line:col"))[:32]
-//
-// Distinct call sites for the same callee name produce distinct ids because
-// line and col differ. Genuinely-identical sites (same fromNode + name + kind +
-// line + col) hash to the same id — the INSERT OR IGNORE in db/resolution.go
-// deduplicates them correctly.
+// GenerateRefID identifies one unresolved reference site. The "ref:" prefix
+// keeps the id space disjoint from node ids. Line and col separate distinct call
+// sites for the same callee; sites identical in all five inputs collide by
+// design, and INSERT OR IGNORE in db/resolution.go dedupes them.
 func GenerateRefID(fromNodeID, referenceName, referenceKind string, line, col int) string {
 	input := fmt.Sprintf("%s:%s:%s:%d:%d", fromNodeID, referenceName, referenceKind, line, col)
 	sum := sha256.Sum256([]byte(input))
 	return "ref:" + hex.EncodeToString(sum[:])[:32]
 }
 
-// nodeText slices the source string by the node's [startByte, endByte) range.
-// Both values are byte offsets into source as returned by sitter.Node.StartByte
-// and sitter.Node.EndByte. Returns an empty string when startByte == endByte.
+// nodeText slices source by a node's half-open range. Byte offsets, not rune
+// indexes — they come straight from sitter.Node.
 func nodeText(startByte, endByte uint64, source string) string {
 	if startByte >= endByte || int(endByte) > len(source) {
 		return ""
@@ -78,13 +52,9 @@ func nodeText(startByte, endByte uint64, source string) string {
 	return source[startByte:endByte]
 }
 
-// childByField returns the named child for a grammar field (e.g. "name",
-// "body"). Returns (nil, nil) when the field does not exist for this node —
-// callers must not treat a missing field as an error.
-//
-// The implementation uses the tree-sitter ts_node_child_by_field_name API
-// wired in tsbinding/node.go. The WASM exports ts_node_is_null to distinguish
-// a valid null-node return from an actual child.
+// childByField returns the named child for a grammar field. A missing field is
+// (nil, nil), not an error — tree-sitter returns a null node, which the WASM
+// ts_node_is_null export distinguishes from a real child.
 func childByField(ctx context.Context, node sitter.Node, field string) (*sitter.Node, error) {
 	child, err := node.ChildByFieldName(ctx, field)
 	if err != nil {
@@ -100,33 +70,22 @@ func childByField(ctx context.Context, node sitter.Node, field string) (*sitter.
 	return &child, nil
 }
 
-// precedingDocstring scans the source text immediately before nodeStartByte and
-// collects the contiguous block of line comments (// …) or block comments
-// (/* … */) directly above the declaration. Any blank line between the comment
-// and the declaration breaks the chain.
-//
-// Returns the combined comment text with "//" prefixes stripped and lines
-// joined by "\n". Returns an empty string when no such comment exists.
-//
-// This is a pure byte-scan over the source string — no WASM calls.
+// precedingDocstring returns the contiguous comment block directly above
+// nodeStartByte, markers intact, joined by newlines; a blank or non-comment line
+// breaks the chain. Pure byte scan over source, no WASM round-trips.
 func precedingDocstring(nodeStartByte uint64, source string) string {
 	if nodeStartByte == 0 || int(nodeStartByte) > len(source) {
 		return ""
 	}
 
-	// Split source up to the node's start into lines. We'll scan upward.
 	before := source[:nodeStartByte]
-	// Trim the trailing newline that immediately precedes the declaration line.
 	before = strings.TrimRight(before, "\n")
 	lines := strings.Split(before, "\n")
 
-	// Walk lines backwards, collecting comment lines. A blank line (or a
-	// non-comment, non-blank line) terminates the docstring scan.
 	var commentLines []string
 	for i := len(lines) - 1; i >= 0; i-- {
 		trimmed := strings.TrimSpace(lines[i])
 		if trimmed == "" {
-			// Blank line — docstring chain broken.
 			break
 		}
 		if strings.HasPrefix(trimmed, "//") {
@@ -134,11 +93,9 @@ func precedingDocstring(nodeStartByte uint64, source string) string {
 			continue
 		}
 		if strings.HasPrefix(trimmed, "/*") || strings.HasSuffix(trimmed, "*/") {
-			// Block comment line — include it.
 			commentLines = append(commentLines, trimmed)
 			continue
 		}
-		// Non-comment line — chain broken.
 		break
 	}
 
@@ -146,7 +103,7 @@ func precedingDocstring(nodeStartByte uint64, source string) string {
 		return ""
 	}
 
-	// Reverse to restore top-down order.
+	// Collected bottom-up; restore source order.
 	for l, r := 0, len(commentLines)-1; l < r; l, r = l+1, r-1 {
 		commentLines[l], commentLines[r] = commentLines[r], commentLines[l]
 	}

@@ -11,18 +11,11 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 )
 
-// checkCodeIndex implements category 11: code-index freshness.
-//
-// The code index is opt-in — its absence is normal and reports PASS
-// (informational). Only a stale or missing-but-previously-present index
-// warrants a WARN. This check never produces FAIL.
-//
-// When the doctor runs at a wiki realm root (detected via realm.Resolve), it
-// aggregates across all non-excluded member dbs instead of the single local db.
+// checkCodeIndex implements category 11: code-index freshness. The index is
+// opt-in, so its absence is an informational PASS; only a stale or unreadable
+// index WARNs. Never FAILs. At a wiki realm root this aggregates across all
+// non-excluded member dbs instead of the single local db.
 func checkCodeIndex(opts Opts) Result {
-	// Use the pre-resolved repo root from opts when available; fall back to
-	// resolving from cwd (preserves the behaviour for callers that invoke
-	// RunCheckCodeIndex directly without going through Run).
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
 		cwd, err := os.Getwd()
@@ -32,76 +25,57 @@ func checkCodeIndex(opts Opts) Result {
 		repoRoot = gitToplevelFn(cwd)
 	}
 
-	// Derive claudeMDPath: prefer the injected value in opts, fall back to $HOME.
 	claudeMDPath := opts.ClaudeMDPath
 	if claudeMDPath == "" {
 		home, herr := os.UserHomeDir()
 		if herr != nil {
-			// Can't locate CLAUDE.md — degrade to single-repo path.
 			return RunCheckCodeIndexWith(repoRoot, opts.StaleDays)
 		}
 		claudeMDPath = filepath.Join(home, ".claude", "CLAUDE.md")
 	}
 
-	// Attempt realm detection. realm.Resolve needs the actual cwd for scope
-	// detection (ScopeRealmMember vs ScopeRealmAll), but repoRoot is already
-	// available for the single-repo fall-through paths.
+	// realm.Resolve needs the real cwd, not repoRoot, to tell ScopeRealmMember
+	// from ScopeRealmAll.
 	cwd, cwdErr := os.Getwd()
 	if cwdErr != nil {
-		// Can't determine cwd for realm detection — degrade to single-repo path.
 		return RunCheckCodeIndexWith(repoRoot, opts.StaleDays)
 	}
 	res, rerr := realm.Resolve(cwd, claudeMDPath)
 	if rerr != nil {
-		// Registry read error: fall through to single-repo path.
 		return RunCheckCodeIndexWith(repoRoot, opts.StaleDays)
 	}
 
 	if res.Scope == realm.ScopeRealmAll || res.Scope == realm.ScopeRealmMember {
-		// Both realm scopes report the aggregate across all non-excluded members.
-		// ScopeRealmMember carries a valid RealmRoot even when cwd is inside a
-		// member dir — the aggregate is the correct view (the member is indexed in
-		// the realm db, not in a local .claude/.atomic-index).
+		// ScopeRealmMember reports the aggregate too: a member is indexed in the
+		// realm db, not in a local .claude/.atomic-index.
 		return RunCheckCodeIndexRealmWith(res.RealmRoot, opts.StaleDays)
 	}
 
-	// Single-repo path (ScopeRepo, ScopeNoIndex).
 	return RunCheckCodeIndexWith(repoRoot, opts.StaleDays)
 }
 
-// RunCheckCodeIndex is the exported entry point for the dispatcher. It delegates
-// to checkCodeIndex so tests can exercise the full scope-detection branch without
-// requiring package-internal access.
+// RunCheckCodeIndex is the dispatcher entry point for the code-index check.
 func RunCheckCodeIndex(opts Opts) Result {
 	return checkCodeIndex(opts)
 }
 
 // RunCheckCodeIndexWith runs the code-index freshness check against an explicit
-// project root and staleness threshold. Exported for testing; production callers
-// use checkCodeIndex.
+// project root and staleness threshold. Exported for testing.
 //
-// Staleness signal: DB mtime age against staleDays, mirroring checks_signals.go.
-// We stat the DB file rather than opening it — doctor checks are read-only and
-// the DB open path (modernc.org/sqlite + engine.Open) spins up the WASM pool,
-// which is too heavyweight for a health check. Mtime age is the honest proxy
-// for "has the index been synced recently". If the project's source tree changes
-// faster than staleDays, `atomic code sync` restores freshness — the same
-// actionable advice regardless of the exact staleness measure chosen.
+// Staleness is DB mtime age. We stat rather than open: engine.Open spins up the
+// WASM pool, too heavyweight for a health check.
 func RunCheckCodeIndexWith(root string, staleDays int) Result {
 	dbPath := engine.IndexPath(root)
 
 	fi, err := os.Stat(dbPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Absence is normal — the index is opt-in. Informational PASS only.
-			// "atomic code index" (not "sync") is intentional: index = cold-start
-			// creation of a missing index; sync = refresh an existing one.
+			// "index" not "sync": index creates a missing index, sync refreshes one.
 			return Result{
 				Severity: PASS,
 				Detail:   "code index not initialized (optional; run 'atomic code index' to enable)",
 			}
 		}
-		// Stat error other than not-exist: something odd but not a hard failure.
 		return Result{Severity: WARN, Detail: fmt.Sprintf("could not stat code index: %v", err)}
 	}
 
@@ -121,24 +95,17 @@ func RunCheckCodeIndexWith(root string, staleDays int) Result {
 	}
 }
 
-// RunCheckCodeIndexRealmWith runs the realm-aware code-index freshness check.
-// It aggregates across all non-excluded members in the realm config:
-//   - fresh (db exists, age < staleDays): counted
-//   - stale (db exists, age ≥ staleDays): named, triggers WARN
-//   - not indexed (db absent): named, triggers WARN
-//
-// All-fresh or no members → PASS. This check never produces FAIL.
-// Exported for testing; production callers use checkCodeIndex.
+// RunCheckCodeIndexRealmWith runs the realm-aware code-index freshness check,
+// aggregating across all non-excluded members. Any stale or unindexed member
+// WARNs; all-fresh or no members PASSes. Never FAILs. Exported for testing.
 func RunCheckCodeIndexRealmWith(realmRoot string, staleDays int) Result {
 	cfg, err := realm.LoadConfig(realmRoot)
 	if err != nil {
-		// Config parse error: surface but don't FAIL.
 		return Result{Severity: WARN, Detail: fmt.Sprintf("realm config error: %v", err)}
 	}
 
 	var members []realm.MemberEntry
 	if cfg != nil {
-		// Filter excluded members.
 		for _, m := range cfg.Members {
 			if !m.Exclude {
 				members = append(members, m)
@@ -161,7 +128,7 @@ func RunCheckCodeIndexRealmWith(realmRoot string, staleDays int) Result {
 			if os.IsNotExist(serr) {
 				notIndexed = append(notIndexed, m.Key)
 			} else {
-				// Unreadable db counts as stale for safety.
+				// An unreadable db counts as stale, not fresh.
 				stale = append(stale, m.Key)
 			}
 			continue
@@ -175,8 +142,6 @@ func RunCheckCodeIndexRealmWith(realmRoot string, staleDays int) Result {
 		}
 	}
 
-	// Build detail line following the spec example:
-	// "code index: 6 fresh; stale: foo, bar (run atomic code sync); not indexed: baz"
 	parts := []string{fmt.Sprintf("code index: %d fresh", len(fresh))}
 	if len(stale) > 0 {
 		parts = append(parts, fmt.Sprintf("stale: %s (run atomic code sync)", strings.Join(stale, ", ")))

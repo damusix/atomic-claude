@@ -10,10 +10,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 )
 
-// TestRunClaudeInstallWiresHooks proves that `atomic claude install` lays the
-// bundle AND registers the session-start hook in one shot. Encodes the WHY:
-// the previous flow required users to chain `atomic hooks install` separately,
-// which was undocumented in the curl|bash output and a real onboarding gap.
+// Install must lay the bundle and register the session-start hook in one shot;
+// requiring a separate `atomic hooks install` was an onboarding gap.
 func TestRunClaudeInstallWiresHooks(t *testing.T) {
 	scope := t.TempDir()
 	target := filepath.Join(scope, ".claude")
@@ -43,9 +41,8 @@ func TestRunClaudeInstallWiresHooks(t *testing.T) {
 	}
 }
 
-// TestRunClaudeInstallNoHooksFlag verifies the opt-out path. Users with their
-// own hook config need a way to install the bundle without atomic touching
-// settings.json.
+// Users with their own hook config need the bundle without settings.json
+// being touched.
 func TestRunClaudeInstallNoHooksFlag(t *testing.T) {
 	scope := t.TempDir()
 	target := filepath.Join(scope, ".claude")
@@ -64,8 +61,7 @@ func TestRunClaudeInstallNoHooksFlag(t *testing.T) {
 	}
 }
 
-// TestRunClaudeInstallDryRunSkipsHooks dry-run must be observation-only;
-// touching settings.json under dry-run would defeat its purpose.
+// Dry-run is observation-only; touching settings.json would defeat it.
 func TestRunClaudeInstallDryRunSkipsHooks(t *testing.T) {
 	scope := t.TempDir()
 	target := filepath.Join(scope, ".claude")
@@ -84,13 +80,11 @@ func TestRunClaudeInstallDryRunSkipsHooks(t *testing.T) {
 	}
 }
 
-// TestRunClaudeUninstall_MissingManifest verifies that runClaudeUninstall returns
-// an error (and the CLI exits 1) when no pre-install snapshot exists. This is the
-// primary guard that prevents uninstall from silently doing nothing.
+// The primary guard against uninstall silently doing nothing.
 func TestRunClaudeUninstall_MissingManifest(t *testing.T) {
 	targetDir := t.TempDir()
 
-	// Use /dev/null as the output so TTY detection doesn't try to stat a nil file.
+	// /dev/null keeps TTY detection from stat-ing a nil file.
 	devNull, err := os.Open(os.DevNull)
 	if err != nil {
 		t.Fatalf("open devnull: %v", err)
@@ -106,11 +100,8 @@ func TestRunClaudeUninstall_MissingManifest(t *testing.T) {
 	}
 }
 
-// TestRunClaudeUninstall_NeedsMerge verifies the end-to-end NeedsMerge path:
-// a file that existed pre-install has been modified on disk post-install, so the
-// generated prompt must flag it as "NEEDS MERGE". Encodes the WHY: three-way
-// detection must surface user modifications so uninstall doesn't silently clobber
-// post-install changes to settings.json or CLAUDE.md.
+// Three-way detection must surface user modifications, or uninstall silently
+// clobbers post-install edits to settings.json or CLAUDE.md.
 func TestRunClaudeUninstall_NeedsMerge(t *testing.T) {
 	targetDir := t.TempDir()
 	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
@@ -119,17 +110,15 @@ func TestRunClaudeUninstall_NeedsMerge(t *testing.T) {
 		t.Fatalf("mkdir pre-install: %v", err)
 	}
 
-	// settings.json is not in the embedded bundle, so embeddedSHAs["settings.json"]=="".
-	// Pre-install SHA records the original content.
+	// settings.json is not in the bundle, so its embedded SHA is "".
 	preInstallContent := []byte(`{"theme":"light"}`)
 	preInstallSHA := sha256HexString(preInstallContent)
 
-	// Write the pre-install snapshot copy.
 	if err := os.WriteFile(filepath.Join(preInstallDir, "settings.json"), preInstallContent, 0o644); err != nil {
 		t.Fatalf("write pre-install settings.json: %v", err)
 	}
 
-	// On-disk version differs from both pre-install and embedded (none) — user modified it.
+	// Differs from both pre-install and embedded: the user modified it.
 	onDiskContent := []byte(`{"theme":"dark","fontSize":14}`)
 	if err := os.WriteFile(filepath.Join(targetDir, "settings.json"), onDiskContent, 0o644); err != nil {
 		t.Fatalf("write on-disk settings.json: %v", err)
@@ -164,16 +153,11 @@ func TestRunClaudeUninstall_NeedsMerge(t *testing.T) {
 	}
 }
 
-// TestRunProfile_UsesHomeNotClaudeHome is the regression guard for the
-// runProfile chain bug:
-// runProfile must pass home directly to profileAction, not <home>/.claude —
-// config.ProfilePath resolves <home>/.atomic/profile.md, so an extra ".claude"
-// join wrote to the wrong path. profileAction's own tests above inject a
-// tempdir directly as home, which is exactly what let this bug in runProfile's
-// own home-resolution glue go unnoticed. runProfile calls os.Exit, so it is
-// exercised in a subprocess (the standard Go idiom for os.Exit-calling code)
-// with HOME redirected to a temp dir — the real ~/.claude and ~/.atomic are
-// never touched.
+// runProfile must pass home straight to profileAction: config.ProfilePath
+// resolves <home>/.atomic/profile.md, so an extra ".claude" join writes to the
+// wrong path. profileAction's own tests inject a tempdir as home, which is why
+// they cannot catch this. runProfile calls os.Exit, so it runs in a subprocess
+// with HOME redirected.
 func TestRunProfile_UsesHomeNotClaudeHome(t *testing.T) {
 	if os.Getenv("ATOMIC_TEST_RUN_PROFILE_HELPER") == "1" {
 		runProfile([]string{"refresh"})
@@ -182,9 +166,8 @@ func TestRunProfile_UsesHomeNotClaudeHome(t *testing.T) {
 
 	home := t.TempDir()
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunProfile_UsesHomeNotClaudeHome")
-	// PATH is stripped so the profile detectors find no real tools: the test
-	// guards home-path resolution only, and a real probe (e.g. bazel) writes
-	// its cache into the temp HOME and races t.TempDir cleanup on CI.
+	// PATH is stripped so no detector runs: a real probe (bazel, say) writes its
+	// cache into the temp HOME and races t.TempDir cleanup on CI.
 	cmd.Env = append(os.Environ(), "ATOMIC_TEST_RUN_PROFILE_HELPER=1", "HOME="+home, "PATH=")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("subprocess runProfile failed: %v\n%s", err, out)
@@ -200,14 +183,10 @@ func TestRunProfile_UsesHomeNotClaudeHome(t *testing.T) {
 	}
 }
 
-// TestRunClaudeUninstall_ProducesPrompt verifies that runClaudeUninstall returns
-// a non-empty prompt with the required structural sections when a valid manifest
-// exists.
 func TestRunClaudeUninstall_ProducesPrompt(t *testing.T) {
 	targetDir := t.TempDir()
 	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
 
-	// Write a minimal manifest with one file to delete and one to restore.
 	if err := os.MkdirAll(preInstallDir, 0o755); err != nil {
 		t.Fatalf("mkdir pre-install: %v", err)
 	}

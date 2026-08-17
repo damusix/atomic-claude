@@ -1,6 +1,5 @@
-// Package followups manages per-entry follow-up files under
-// .claude/project/followups/. Each entry is a frontmatter markdown file.
-// This package handles parsing, rendering, and the CLOSED.md ledger.
+// Package followups parses and renders the per-entry frontmatter markdown files
+// under the project followups dir, plus the CLOSED.md ledger.
 package followups
 
 import (
@@ -13,7 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Kind classifies the follow-up entry type.
 type Kind string
 
 const (
@@ -21,7 +19,6 @@ const (
 	KindPlan    Kind = "plan"
 )
 
-// Severity is one of the three severity tiers.
 type Severity string
 
 const (
@@ -30,7 +27,6 @@ const (
 	SeverityQuestion Severity = "question"
 )
 
-// Status is the entry lifecycle state.
 type Status string
 
 const (
@@ -38,9 +34,7 @@ const (
 	StatusClosed Status = "closed"
 )
 
-// Entry is a parsed follow-up entry.
 type Entry struct {
-	// Required fields
 	ID       string
 	Title    string
 	Created  string // YYYY-MM-DD
@@ -50,14 +44,11 @@ type Entry struct {
 	ReviewBy string // YYYY-MM-DD
 	Status   Status
 
-	// Optional
 	File string // path[:lines]
 
-	// Body is the markdown content after the frontmatter.
 	Body string
 }
 
-// entryFrontmatter mirrors the YAML shape for strict struct decode.
 type entryFrontmatter struct {
 	ID       string `yaml:"id"`
 	Title    string `yaml:"title"`
@@ -70,8 +61,6 @@ type entryFrontmatter struct {
 	File     string `yaml:"file"`
 }
 
-// ParseEntry parses a raw frontmatter markdown document into an Entry.
-// Returns an error if any required field is missing or invalid.
 func ParseEntry(raw string) (Entry, error) {
 	const open = "---\n"
 	if !strings.HasPrefix(raw, open) {
@@ -95,7 +84,6 @@ func ParseEntry(raw string) (Entry, error) {
 		return Entry{}, fmt.Errorf("followups: invalid YAML frontmatter: %w", err)
 	}
 
-	// Validate required fields.
 	if fm.ID == "" {
 		return Entry{}, fmt.Errorf("followups: missing required field 'id'")
 	}
@@ -111,13 +99,12 @@ func ParseEntry(raw string) (Entry, error) {
 	if fm.Origin == "" {
 		return Entry{}, fmt.Errorf("followups: missing required field 'origin'")
 	}
-	// Parse kind first; default missing/empty to "finding" for back-compat.
+	// A missing kind decodes as "finding", for entries predating the field.
 	knd, err := parseKind(fm.Kind)
 	if err != nil {
 		return Entry{}, err
 	}
 
-	// Severity is required for findings, optional for plans.
 	if fm.Severity == "" && knd != KindPlan {
 		return Entry{}, fmt.Errorf("followups: missing required field 'severity'")
 	}
@@ -131,7 +118,6 @@ func ParseEntry(raw string) (Entry, error) {
 		return Entry{}, fmt.Errorf("followups: missing required field 'status'")
 	}
 
-	// Validate enum fields.
 	var sev Severity
 	if fm.Severity != "" {
 		sev, err = parseSeverity(fm.Severity)
@@ -144,7 +130,7 @@ func ParseEntry(raw string) (Entry, error) {
 		return Entry{}, err
 	}
 
-	// Trim trailing newline from block-scalar origin for clean display.
+	// A block-scalar origin carries a trailing newline.
 	origin := strings.TrimRight(fm.Origin, "\n")
 
 	return Entry{
@@ -161,7 +147,6 @@ func ParseEntry(raw string) (Entry, error) {
 	}, nil
 }
 
-// validateDate checks that v is a valid YYYY-MM-DD date string.
 func validateDate(field, v string) error {
 	if _, err := time.Parse("2006-01-02", v); err != nil {
 		return fmt.Errorf("followups: field %q has invalid date %q: must be YYYY-MM-DD", field, v)
@@ -199,10 +184,8 @@ func parseStatus(s string) (Status, error) {
 	}
 }
 
-// LoadEntriesWithErrors reads all *.md files (excluding INDEX.md and CLOSED.md)
-// from dir, parses each as an Entry, and returns valid entries alongside a map
-// of filename → error for files that failed to parse. The top-level error is
-// non-nil only if dir cannot be read at all.
+// LoadEntriesWithErrors returns the parsed entries plus a filename → error map
+// for the ones that failed. The top-level error means dir itself is unreadable.
 func LoadEntriesWithErrors(dir string) ([]Entry, map[string]error, error) {
 	fis, err := os.ReadDir(dir)
 	if err != nil {
@@ -238,10 +221,8 @@ func LoadEntriesWithErrors(dir string) ([]Entry, map[string]error, error) {
 	return entries, errs, nil
 }
 
-// LoadEntries reads all *.md files (excluding INDEX.md and CLOSED.md) from dir,
-// parses each as an Entry, and returns only the successfully-parsed results.
-// Returns an error if dir does not exist or cannot be read. Files that fail to
-// parse are silently skipped; use LoadEntriesWithErrors to surface per-file errors.
+// LoadEntries silently skips unparseable files; LoadEntriesWithErrors surfaces
+// them instead.
 func LoadEntries(dir string) ([]Entry, error) {
 	entries, _, err := LoadEntriesWithErrors(dir)
 	return entries, err

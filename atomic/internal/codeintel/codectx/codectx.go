@@ -1,47 +1,9 @@
-// Package codectx implements the context builder and formatter (master).
+// Package codectx turns a natural-language query into an agent-ready snapshot
+// of the relevant portion of the code graph.
 //
-// The context builder turns a natural-language query into an agent-ready
-// snapshot of the relevant portion of the code graph. It composes:
-//   - search.Searcher for multi-channel seed gathering
-//   - graph.Manager for BFS neighbor expansion
-//
-// # Reproducibility contract
-//
-// All serialisation paths sort before iterating: nodes via
-// types.SubgraphSortedNodes (ascending Node.ID); edges via sortEdges
-// (composite key source+target+kind); roots sorted ascending by ID.
-// Go map iteration is non-deterministic — no raw map ranging in serialise paths.
-//
-// # Diversity caps
-//
-// FindRelevantContext applies two caps before returning the subgraph:
-//   - DefaultMaxPerFile: max nodes from any single file_path in the gathered set.
-//   - DefaultMaxPerKind: max nodes of any single node kind.
-//
-// When either cap drops nodes, FindRelevantContext returns truncated=true.
-// Callers should pass that value via BuildOptions.Truncated so BuildContext
-// marks Context.Truncated = true.
-//
-// # Markdown section headings (stable contract — tested)
-//
-//	# Context: <query>
-//	## Symbols
-//	## Call paths
-//	## Relationships
-//
-// # JSON shape (stable contract — tested)
-//
-//	{
-//	  "query":     string,
-//	  "source":    string,   // "fts" | "like" | "fuzzy"
-//	  "truncated": bool,
-//	  "nodes":     Node[],   // sorted ascending by id
-//	  "edges":     Edge[],   // sorted by source+target+kind composite key
-//	  "roots":     string[]  // sorted ascending
-//	}
-//
-// Each Edge in JSON carries "provenance" (empty string for static edges,
-// "heuristic" for synthesized edges per appendix G).
+// Every serialisation path sorts before iterating (nodes by ID, edges by
+// source+target+kind, roots ascending): Go map order is non-deterministic and
+// the emitted markdown headings and JSON shape are a tested contract.
 package codectx
 
 import (
@@ -58,26 +20,16 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Diversity cap constants
-// ---------------------------------------------------------------------------
-
-// DefaultMaxPerFile is the maximum number of nodes from any single file_path
-// that FindRelevantContext will include in the returned subgraph.
-// Prevents one large file from crowding out all other context.
+// DefaultMaxPerFile caps nodes drawn from any one file, so a single large file
+// cannot crowd out the rest of the context.
 const DefaultMaxPerFile = 5
 
-// DefaultMaxPerKind is the maximum number of nodes of any single NodeKind
-// that FindRelevantContext will include in the returned subgraph.
-// Prevents, e.g., 30 variables swamping functions/classes.
+// DefaultMaxPerKind caps nodes of any one NodeKind, so e.g. 30 variables cannot
+// swamp the functions and classes.
 const DefaultMaxPerKind = 8
 
-// DefaultBFSDepth is the BFS expansion depth used when Options.BFSDepth == 0.
+// DefaultBFSDepth is used when Options.BFSDepth == 0.
 const DefaultBFSDepth = 2
-
-// ---------------------------------------------------------------------------
-// Format constants
-// ---------------------------------------------------------------------------
 
 // Format selects the output format for BuildContext.
 type Format int
@@ -87,38 +39,27 @@ const (
 	FormatJSON
 )
 
-// ---------------------------------------------------------------------------
-// Options
-// ---------------------------------------------------------------------------
-
 // Options controls FindRelevantContext behaviour.
 type Options struct {
-	// BFSDepth is the number of BFS hops to expand from seeds.
-	// 0 uses DefaultBFSDepth.
+	// BFSDepth is hops to expand from seeds; 0 uses DefaultBFSDepth.
 	BFSDepth int
-	// Limit caps the search tier result count. 0 uses the search default (20).
+	// Limit caps the search tier result count; 0 uses the search default (20).
 	Limit int
 }
 
 // BuildOptions controls BuildContext behaviour.
 type BuildOptions struct {
-	// Format selects markdown or JSON output.
 	Format Format
-	// Query is the original raw query string — used as the heading label.
-	Query string
-	// Source is the tier string returned by FindRelevantContext ("fts"/"like"/"fuzzy").
+	Query  string
+	// Source is the tier string returned by FindRelevantContext.
 	Source string
-	// Truncated, if true, marks the Context as truncated even before size
-	// checking. FindRelevantContext callers pass true when diversity capping fired.
+	// Truncated marks the Context truncated before size checking; callers pass
+	// through the bool FindRelevantContext returns when diversity capping fired.
 	Truncated bool
 }
 
-// ---------------------------------------------------------------------------
-// Exported JSON structs (stable shape — tested)
-// ---------------------------------------------------------------------------
-
-// JSONEdge is the JSON representation of a graph edge. Provenance is always
-// present (empty string for static edges, "heuristic" for synthesized edges).
+// JSONEdge is a graph edge as serialised. Provenance is always present: empty
+// for static edges, "heuristic" for synthesized ones.
 type JSONEdge struct {
 	Source     string `json:"source"`
 	Target     string `json:"target"`
@@ -126,11 +67,8 @@ type JSONEdge struct {
 	Provenance string `json:"provenance"`
 }
 
-// JSONOutput is the top-level JSON document emitted by BuildContext(FormatJSON).
-// All slices are sorted for reproducibility:
-//   - Nodes: ascending by ID
-//   - Edges: ascending by source+target+kind composite key
-//   - Roots: ascending
+// JSONOutput is the document emitted by BuildContext(FormatJSON). Every slice
+// is sorted for reproducibility.
 type JSONOutput struct {
 	Query     string       `json:"query"`
 	Source    string       `json:"source"`
@@ -140,23 +78,13 @@ type JSONOutput struct {
 	Roots     []string     `json:"roots"`
 }
 
-// ---------------------------------------------------------------------------
-// DB interface (seam for testing)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Builder
-// ---------------------------------------------------------------------------
-
 // Builder is the entry point for context gathering and formatting.
-// Create with New(db).
 type Builder struct {
 	mgr      *graph.Manager
 	searcher *search.Searcher
 }
 
-// New creates a Builder backed by the given database. Both graph.Manager
-// and search.Searcher are constructed from it.
+// New creates a Builder backed by the given database.
 func New(d *db.DB) *Builder {
 	return &Builder{
 		mgr:      graph.NewManager(d),
@@ -164,19 +92,9 @@ func New(d *db.DB) *Builder {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FindRelevantContext
-// ---------------------------------------------------------------------------
-
-// FindRelevantContext gathers a relevant subgraph for query by:
-//  1. Searching for seed nodes via search.Searcher.Search.
-//  2. Looking up any exact-name matches not caught by search (exact-symbol channel).
-//  3. BFS-expanding seeds via graph.Manager along calls/references/extends/implements.
-//  4. Applying diversity caps (MaxPerFile, MaxPerKind) to avoid one file/kind dominating.
-//
-// Returns the capped Subgraph, the source tier string ("fts"/"like"/"fuzzy"),
-// a truncated bool (true when diversity caps dropped content), and any error.
-// Callers pass the truncated bool via BuildOptions.Truncated to BuildContext.
+// FindRelevantContext searches for seed nodes, BFS-expands them, and applies
+// the diversity caps. Returns the capped subgraph, the search tier string, and
+// whether capping dropped content (pass through to BuildOptions.Truncated).
 func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Options) (types.Subgraph, string, bool, error) {
 	depth := opts.BFSDepth
 	if depth <= 0 {
@@ -187,9 +105,6 @@ func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Op
 		limit = 20
 	}
 
-	// -----------------------------------------------------------------------
-	// Channel A: search.Searcher
-	// -----------------------------------------------------------------------
 	results, tier, err := b.searcher.Search(ctx, types.SearchOptions{
 		Query: query,
 		Limit: limit,
@@ -198,34 +113,26 @@ func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Op
 		return types.Subgraph{}, "", false, fmt.Errorf("codectx: search: %w", err)
 	}
 
-	tierStr := tier.String() // "fts", "like", or "fuzzy"
+	tierStr := tier.String()
 
-	// Union seeds, dedup by node ID.
 	seeds := make(map[string]types.Node)
 	for _, r := range results {
 		seeds[r.Node.ID] = r.Node
 	}
 
-	// -----------------------------------------------------------------------
-	// Channel B: exact-name resolution
-	// -----------------------------------------------------------------------
-	// Extract the bare query text (strip field: tokens) for exact matching.
 	pq := search.ParseQuery(query)
 	nameTarget := pq.FTSText
 	if nameTarget == "" {
 		nameTarget = query
 	}
 	nameTarget = strings.TrimSpace(nameTarget)
-	// We already have search results; exact-name channel adds nodes whose Name
-	// matches exactly but may have been missed by FTS tokenisation (e.g. short
-	// or special-character names). Search with name: filter.
+	// Second channel: exact-name matches FTS tokenisation misses (short or
+	// special-character names). Purely additive, so an error here is ignored.
 	if nameTarget != "" {
 		nameResults, _, nameErr := b.searcher.Search(ctx, types.SearchOptions{
 			Query: "name:" + nameTarget,
 			Limit: limit,
 		})
-		// Best-effort graceful degradation: the exact-name channel is additive;
-		// if it errors, the primary search results are still used as seeds.
 		if nameErr == nil {
 			for _, r := range nameResults {
 				if _, ok := seeds[r.Node.ID]; !ok {
@@ -236,24 +143,16 @@ func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Op
 	}
 
 	if len(seeds) == 0 {
-		// No seeds: return empty subgraph with tier.
 		return types.Subgraph{Nodes: make(map[string]types.Node)}, tierStr, false, nil
 	}
 
-	// -----------------------------------------------------------------------
-	// BFS expansion from all seeds
-	// -----------------------------------------------------------------------
-	// The subgraph accumulates all visited nodes + edges across all seed expansions.
-	// nodeDepth tracks the minimum BFS distance from any seed for each node.
-	// Seeds have depth 0; BFS neighbors get depth 1 (outgoing callee path first,
-	// then incoming caller path). Depth is used for diversity-cap priority so that
-	// closer nodes survive capping over distant ones.
 	combined := types.Subgraph{
 		Nodes: make(map[string]types.Node),
 	}
-	nodeDepth := make(map[string]int) // node ID → min BFS distance from any seed
+	// Min BFS distance from any seed, used as diversity-cap priority: closer
+	// nodes survive capping over distant ones.
+	nodeDepth := make(map[string]int)
 
-	// Seed roots at depth 0.
 	for id, n := range seeds {
 		combined.Nodes[id] = n
 		nodeDepth[id] = 0
@@ -261,7 +160,7 @@ func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Op
 	}
 	sort.Strings(combined.Roots)
 
-	// F-55: iterate seeds in sorted order so BFS expansion is deterministic.
+	// Sorted so BFS expansion order is deterministic.
 	sortedSeedIDs := make([]string, 0, len(seeds))
 	for id := range seeds {
 		sortedSeedIDs = append(sortedSeedIDs, id)
@@ -269,49 +168,35 @@ func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Op
 	sort.Strings(sortedSeedIDs)
 
 	for _, seedID := range sortedSeedIDs {
-		// Use GetCallees for outgoing calls/references context.
-		// Callees are assigned depth 1 (direct dependency context — the seed
-		// calls/uses them). In diversity capping, callees are preferred over
-		// callers because they represent what the queried symbol depends on.
+		// Callees rank above callers under capping: they are what the queried
+		// symbol depends on. Expansion is additive, so per-seed errors are ignored.
 		calleeSG, err := b.mgr.GetCallees(ctx, seedID, depth)
-		// Best-effort graceful degradation: BFS callee expansion is additive context;
-		// if it errors for a seed, we proceed with whatever seeds we have.
 		if err == nil {
 			for id, n := range calleeSG.Nodes {
 				combined.Nodes[id] = n
 				if _, ok := nodeDepth[id]; !ok {
-					nodeDepth[id] = 1 // callee priority
+					nodeDepth[id] = 1
 				}
 			}
 			combined.Edges = append(combined.Edges, calleeSG.Edges...)
 		}
 
-		// Use GetCallers for incoming calls/references context.
-		// Callers are assigned depth 2: they are important for impact context
-		// but subordinate to direct callees in diversity-cap priority.
 		callerSG, err := b.mgr.GetCallers(ctx, seedID, depth)
-		// Best-effort graceful degradation: BFS caller expansion is additive context;
-		// if it errors for a seed, we proceed with callee results already gathered.
 		if err == nil {
 			for id, n := range callerSG.Nodes {
 				combined.Nodes[id] = n
 				if _, ok := nodeDepth[id]; !ok {
-					nodeDepth[id] = 2 // caller priority (lower than callee)
+					nodeDepth[id] = 2
 				}
 			}
 			combined.Edges = append(combined.Edges, callerSG.Edges...)
 		}
 	}
 
-	// Dedup edges by composite key (source+target+kind).
 	combined.Edges = deduplicateEdges(combined.Edges)
 
-	// -----------------------------------------------------------------------
-	// Diversity caps
-	// -----------------------------------------------------------------------
 	truncated := false
 
-	// Count nodes per file and per kind.
 	fileCount := make(map[string]int)
 	kindCount := make(map[types.NodeKind]int)
 	for _, n := range combined.Nodes {
@@ -319,7 +204,6 @@ func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Op
 		kindCount[n.Kind]++
 	}
 
-	// Determine which files/kinds exceed their cap.
 	fileCapped := make(map[string]bool)
 	kindCapped := make(map[types.NodeKind]bool)
 	for fp, cnt := range fileCount {
@@ -334,18 +218,16 @@ func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Op
 	}
 
 	if len(fileCapped) > 0 || len(kindCapped) > 0 {
-		// Apply caps: for each capped group, keep only the top-N nodes.
-		// Priority order: (depth asc, ID asc) — closer nodes to seeds survive.
-		// This ensures seeds (depth=0) and their direct BFS neighbors (depth=1)
-		// are preferred over more distant accumulated nodes.
-		allNodes := types.SubgraphSortedNodes(combined) // sorted by ID first
+		// Keep the top-N of each capped group by (depth asc, ID asc), so seeds
+		// and their direct neighbors survive over distant accumulated nodes.
+		allNodes := types.SubgraphSortedNodes(combined)
 		sort.SliceStable(allNodes, func(i, j int) bool {
 			di := nodeDepth[allNodes[i].ID]
 			dj := nodeDepth[allNodes[j].ID]
 			if di != dj {
-				return di < dj // closer to seed wins
+				return di < dj
 			}
-			return allNodes[i].ID < allNodes[j].ID // stable tiebreak by ID
+			return allNodes[i].ID < allNodes[j].ID
 		})
 
 		kept := make(map[string]types.Node)
@@ -355,13 +237,12 @@ func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Op
 		for _, n := range allNodes {
 			isSeed := nodeDepth[n.ID] == 0
 			if isSeed {
-				// Seeds always kept regardless of cap.
+				// Seeds are exempt from the caps.
 				kept[n.ID] = n
 				fileUsed[n.FilePath]++
 				kindUsed[n.Kind]++
 				continue
 			}
-			// Check caps.
 			if fileCapped[n.FilePath] && fileUsed[n.FilePath] >= DefaultMaxPerFile {
 				truncated = true
 				continue
@@ -375,7 +256,6 @@ func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Op
 			kindUsed[n.Kind]++
 		}
 
-		// Filter edges to only those where both endpoints are in kept.
 		var keptEdges []types.Edge
 		for _, e := range combined.Edges {
 			if _, srcOK := kept[e.Source]; !srcOK {
@@ -393,16 +273,7 @@ func (b *Builder) FindRelevantContext(ctx context.Context, query string, opts Op
 	return combined, tierStr, truncated, nil
 }
 
-// ---------------------------------------------------------------------------
-// BuildContext
-// ---------------------------------------------------------------------------
-
-// BuildContext renders the gathered subgraph into the chosen format and
-// returns a types.Context ready for an AI agent. Sets NodeCount, EdgeCount,
-// Source, and Truncated.
-//
-// Context.Truncated is set to true when opts.Truncated is true (which callers
-// set from the bool returned by FindRelevantContext when diversity capping fired).
+// BuildContext renders the gathered subgraph into the chosen format.
 func (b *Builder) BuildContext(ctx context.Context, sg types.Subgraph, opts BuildOptions) (types.Context, error) {
 	truncated := opts.Truncated
 
@@ -429,41 +300,22 @@ func (b *Builder) BuildContext(ctx context.Context, sg types.Subgraph, opts Buil
 	}, nil
 }
 
-// ---------------------------------------------------------------------------
-// Markdown formatter
-// ---------------------------------------------------------------------------
-
-// formatMarkdown renders the subgraph as markdown with stable section headings:
-//
-//	# Context: <query>
-//	## Symbols
-//	## Call paths
-//	## Relationships
-//
-// Section headings are the tested contract; their order and exact text must not
-// change without updating the tests.
-//
-// Heuristic edges (Provenance=="heuristic") are marked with "(heuristic)" in
-// the Relationships section per appendix G.
+// formatMarkdown renders the subgraph as markdown. The section headings and
+// their order are a tested contract — changing either breaks the tests.
 func formatMarkdown(sg types.Subgraph, query, source string) (string, error) {
 	var b bytes.Buffer
 
-	// Section 1: title
 	fmt.Fprintf(&b, "# Context: %s\n\n", query)
 	if source != "" {
 		fmt.Fprintf(&b, "_Source: %s_\n\n", source)
 	}
 
-	// Section 2: Symbols
-	// Nodes grouped by file_path then kind then name (stable: sorted by ID).
 	fmt.Fprintln(&b, "## Symbols")
 	b.WriteString("\n")
-	nodes := types.SubgraphSortedNodes(sg) // sorted ascending by Node.ID
+	nodes := types.SubgraphSortedNodes(sg)
 	if len(nodes) == 0 {
 		fmt.Fprintln(&b, "_No symbols found._")
 	} else {
-		// Group by file for readability; process in sorted order.
-		// Build a map of filePath → []Node, then sort file paths.
 		byFile := make(map[string][]Node)
 		for _, n := range nodes {
 			byFile[n.FilePath] = append(byFile[n.FilePath], n)
@@ -475,8 +327,6 @@ func formatMarkdown(sg types.Subgraph, query, source string) (string, error) {
 		sort.Strings(filePaths)
 		for _, fp := range filePaths {
 			fileNodes := byFile[fp]
-			// Already in ID-order from SubgraphSortedNodes iteration above;
-			// secondary sort by kind then name for readability within a file.
 			sort.Slice(fileNodes, func(i, j int) bool {
 				if fileNodes[i].Kind != fileNodes[j].Kind {
 					return fileNodes[i].Kind < fileNodes[j].Kind
@@ -495,7 +345,6 @@ func formatMarkdown(sg types.Subgraph, query, source string) (string, error) {
 		}
 	}
 
-	// Section 3: Call paths
 	fmt.Fprintln(&b, "## Call paths")
 	b.WriteString("\n")
 	callEdges := edgesOfKind(sg.Edges, types.EdgeKindCalls)
@@ -503,7 +352,6 @@ func formatMarkdown(sg types.Subgraph, query, source string) (string, error) {
 	if len(callEdges) == 0 {
 		fmt.Fprintln(&b, "_No call paths in gathered subgraph._")
 	} else {
-		// Render chains: find representative chains by following calls.
 		chains := buildCallChains(sg, callEdges)
 		for _, chain := range chains {
 			fmt.Fprintf(&b, "- %s\n", strings.Join(chain, " → "))
@@ -511,7 +359,6 @@ func formatMarkdown(sg types.Subgraph, query, source string) (string, error) {
 	}
 	b.WriteString("\n")
 
-	// Section 4: Relationships
 	fmt.Fprintln(&b, "## Relationships")
 	b.WriteString("\n")
 	allEdges := make([]types.Edge, len(sg.Edges))
@@ -532,16 +379,13 @@ func formatMarkdown(sg types.Subgraph, query, source string) (string, error) {
 	return b.String(), nil
 }
 
-// buildCallChains finds representative call chains among the gathered nodes by
-// following calls edges. Returns chains of node names (longest / starting from
-// nodes with no incoming call edges in the subgraph). Deterministic: stable
-// sort on chain start node ID.
+// buildCallChains walks calls edges from each node with no incoming call inside
+// the subgraph, returning chains of node names.
 func buildCallChains(sg types.Subgraph, callEdges []types.Edge) [][]string {
 	if len(callEdges) == 0 {
 		return nil
 	}
 
-	// Build adjacency (source → []target) and in-degree within subgraph.
 	adj := make(map[string][]string)
 	hasIncoming := make(map[string]bool)
 	for _, e := range callEdges {
@@ -555,12 +399,11 @@ func buildCallChains(sg types.Subgraph, callEdges []types.Edge) [][]string {
 		hasIncoming[e.Target] = true
 	}
 
-	// Sort adjacency lists for determinism.
+	// Sorted for determinism.
 	for src := range adj {
 		sort.Strings(adj[src])
 	}
 
-	// Find roots: nodes in the subgraph with outgoing calls but no incoming calls.
 	var roots []string
 	for src := range adj {
 		if !hasIncoming[src] {
@@ -569,7 +412,7 @@ func buildCallChains(sg types.Subgraph, callEdges []types.Edge) [][]string {
 	}
 	sort.Strings(roots)
 
-	// DFS from each root to build chains (depth-limited to avoid explosion).
+	// Depth-limited to keep the DFS from exploding on dense graphs.
 	const maxChainDepth = 6
 	var chains [][]string
 	seen := make(map[string]bool)
@@ -587,7 +430,7 @@ func buildCallChains(sg types.Subgraph, callEdges []types.Edge) [][]string {
 		}
 		for _, next := range nexts {
 			if seen[next] {
-				// Cycle: emit the path and stop this branch.
+				// Cycle: emit and stop this branch.
 				chains = append(chains, appendNodeNames(sg, append(path, next)))
 				continue
 			}
@@ -606,9 +449,8 @@ func buildCallChains(sg types.Subgraph, callEdges []types.Edge) [][]string {
 	return chains
 }
 
-// nodeName resolves a node ID (the graph's foreign key) to its human-readable
-// name, falling back to the raw ID when the node is absent from the subgraph or
-// has no name, so rendered output is never blank.
+// nodeName resolves a node ID to its display name, falling back to the raw ID
+// so rendered output is never blank.
 func nodeName(sg types.Subgraph, id string) string {
 	if n, ok := sg.Nodes[id]; ok && n.Name != "" {
 		return n.Name
@@ -624,13 +466,8 @@ func appendNodeNames(sg types.Subgraph, ids []string) []string {
 	return names
 }
 
-// ---------------------------------------------------------------------------
-// JSON formatter
-// ---------------------------------------------------------------------------
-
-// formatJSON renders the subgraph as deterministic JSON per the documented shape.
 func formatJSON(sg types.Subgraph, query, source string, truncated bool) (string, error) {
-	nodes := types.SubgraphSortedNodes(sg) // ascending by ID
+	nodes := types.SubgraphSortedNodes(sg)
 
 	edges := make([]JSONEdge, 0, len(sg.Edges))
 	rawEdges := make([]types.Edge, len(sg.Edges))
@@ -665,15 +502,10 @@ func formatJSON(sg types.Subgraph, query, source string, truncated bool) (string
 	return string(data), nil
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// Node is a local alias — defined here to avoid import cycle in byFile grouping.
 type Node = types.Node
 
-// sortEdges sorts edges in-place by composite key: source + "\x00" + target + "\x00" + kind.
-// This is the stable key used for JSON serialisation and markdown rendering.
+// sortEdges imposes the source+target+kind ordering that both the JSON and
+// markdown renderers rely on for reproducible output.
 func sortEdges(edges []types.Edge) {
 	sort.SliceStable(edges, func(i, j int) bool {
 		ki := edges[i].Source + "\x00" + edges[i].Target + "\x00" + string(edges[i].Kind)
@@ -682,18 +514,15 @@ func sortEdges(edges []types.Edge) {
 	})
 }
 
-// deduplicateEdges removes duplicate edges (same source+target+kind) from a
-// slice. When the same logical edge (source+target+kind) appears with both empty
-// and "heuristic" provenance, the heuristic one is kept so the low-confidence
-// marker survives (appendix G). This handles both orderings: heuristic-first and
-// static-first. If both occurrences have the same provenance, the first wins.
+// deduplicateEdges collapses edges sharing source+target+kind. Where the same
+// logical edge arrives with both empty and "heuristic" provenance, the
+// heuristic one wins in either arrival order so the low-confidence marker
+// survives; otherwise the first occurrence wins.
 func deduplicateEdges(edges []types.Edge) []types.Edge {
 	type key struct {
 		src, tgt string
 		kind     types.EdgeKind
 	}
-	// First pass: record the winning provenance for each logical edge.
-	// "heuristic" beats empty; among equal provenances, first occurrence wins.
 	best := make(map[key]types.Edge, len(edges))
 	for _, e := range edges {
 		k := key{e.Source, e.Target, e.Kind}
@@ -702,13 +531,11 @@ func deduplicateEdges(edges []types.Edge) []types.Edge {
 			best[k] = e
 			continue
 		}
-		// Heuristic provenance wins over empty (static) regardless of arrival order.
 		if e.Provenance == "heuristic" && prev.Provenance != "heuristic" {
 			best[k] = e
 		}
 	}
-	// Second pass: emit edges in original order, using the best (winning) edge
-	// for each logical key and skipping subsequent occurrences.
+	// Emit in original order, one entry per key.
 	emitted := make(map[key]bool, len(edges))
 	out := make([]types.Edge, 0, len(best))
 	for _, e := range edges {
@@ -717,12 +544,11 @@ func deduplicateEdges(edges []types.Edge) []types.Edge {
 			continue
 		}
 		emitted[k] = true
-		out = append(out, best[k]) // emit the winning edge, not necessarily this one
+		out = append(out, best[k])
 	}
 	return out
 }
 
-// edgesOfKind filters edges to those of the given kind.
 func edgesOfKind(edges []types.Edge, kind types.EdgeKind) []types.Edge {
 	var out []types.Edge
 	for _, e := range edges {

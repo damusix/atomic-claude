@@ -1,29 +1,15 @@
 package db
 
-// CRUD prepared-statement layer for the code-intelligence DB.
+// CRUD layer for the code-intelligence DB. Three conventions run through it:
 //
-// # Integer-bool convention
+// Integer-bool: modernc.org/sqlite will not convert INTEGER to Go bool, so
+// every bool column is scanned into an int and converted by hand.
 //
-// SQLite stores is_exported/is_async/is_static/is_const as INTEGER (0/1).
-// modernc.org/sqlite does not auto-convert INTEGER to Go bool, so every scan
-// reads into a local int and converts: flag = n != 0. Writes go the other way:
-// if b { return 1 } else { return 0 }.
+// JSON-in-TEXT: decorators, type_parameters, metadata, candidates, and errors
+// are opaque JSON blobs. SQL NULL round-trips as a nil json.RawMessage; a
+// non-null column's bytes pass through unmutated.
 //
-// # JSON-in-TEXT convention
-//
-// Columns decorators/type_parameters/metadata/candidates/errors store opaque
-// JSON blobs as TEXT. The types.Node/Edge/FileRecord structs use json.RawMessage
-// for these fields. SQLite NULL round-trips as nil; a non-null TEXT byte-slice
-// round-trips without mutation. The db layer uses *[]byte for scanning: a NULL
-// column yields a nil pointer which maps to nil json.RawMessage; a non-null
-// column yields a non-nil pointer whose value is the TEXT bytes.
-//
-// # Batch chunking (appendix O)
-//
-// Any variadic IN (...) query is split into chunks of at most
-// SQLITE_PARAM_CHUNK_SIZE = 500 parameters. SQLite's SQLITE_LIMIT_VARIABLE_NUMBER
-// defaults to 999 (or 32766 in newer builds) but the spec mandates 500 to match
-// the reference implementation's explicit chunk size.
+// Batch chunking: every variadic IN (...) splits at SQLITE_PARAM_CHUNK_SIZE.
 
 import (
 	"context"
@@ -36,32 +22,23 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// jsonUnmarshal is an alias so the crud.go helpers can call json.Unmarshal
-// without a bare "json" identifier in the call sites below.
 var jsonUnmarshal = json.Unmarshal
 
-// SQLITE_PARAM_CHUNK_SIZE is the maximum number of parameters per IN (...)
-// clause (appendix O). Any variadic query must split its inputs into chunks of
-// at most this size and union the results.
+// SQLITE_PARAM_CHUNK_SIZE caps parameters per IN (...) clause. Well under
+// SQLite's own limit, and fixed so chunk boundaries stay reproducible.
 const SQLITE_PARAM_CHUNK_SIZE = 500
 
 // ErrNotFound is returned by Get* methods when the requested row does not exist.
 var ErrNotFound = errors.New("codeintel/db: not found")
 
-// ---------------------------------------------------------------------------
-// Node CRUD
-// ---------------------------------------------------------------------------
-
-// UpsertNode inserts or replaces a node row (INSERT OR REPLACE). The FTS5
-// triggers (nodes_ai, nodes_au) keep nodes_fts in sync automatically.
-// updated_at is stored as 0; use UpsertNodeAt to record a specific timestamp.
+// UpsertNode stores updated_at as 0; use UpsertNodeAt to record a timestamp.
 func (d *DB) UpsertNode(ctx context.Context, n types.Node) error {
 	return d.UpsertNodeAt(ctx, n, 0)
 }
 
-// UpsertNodeAt inserts or replaces a node row with an explicit updatedAt Unix
-// timestamp (seconds since epoch). The orchestrator passes
-// time.Now().Unix() so the re-index time is recorded per node.
+// UpsertNodeAt inserts or replaces a node, stamping updatedAt (Unix seconds)
+// so the re-index time is recorded per node. FTS5 triggers keep nodes_fts in
+// sync.
 func (d *DB) UpsertNodeAt(ctx context.Context, n types.Node, updatedAt int64) error {
 	_, err := d.db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO nodes
@@ -85,7 +62,7 @@ func (d *DB) UpsertNodeAt(ctx context.Context, n types.Node, updatedAt int64) er
 	return nil
 }
 
-// GetNode returns the node with the given id, or ErrNotFound if absent.
+// GetNode returns ErrNotFound when id has no row.
 func (d *DB) GetNode(ctx context.Context, id string) (types.Node, error) {
 	row := d.db.QueryRowContext(ctx, `
 		SELECT id, kind, name, qualified_name, file_path, language,
@@ -104,7 +81,7 @@ func (d *DB) GetNode(ctx context.Context, id string) (types.Node, error) {
 	return n, nil
 }
 
-// GetNodesInFile returns all nodes with the given file_path.
+// GetNodesInFile returns every node declared in filePath.
 func (d *DB) GetNodesInFile(ctx context.Context, filePath string) ([]types.Node, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT id, kind, name, qualified_name, file_path, language,
@@ -134,10 +111,8 @@ func (d *DB) GetNodesByKind(ctx context.Context, kind types.NodeKind) ([]types.N
 	return collectNodes(rows)
 }
 
-// GetNodesByIds returns nodes for the given ids, chunking the IN (...) into
-// batches of SQLITE_PARAM_CHUNK_SIZE to stay within SQLite's parameter limit.
-// The returned slice may be in any order; callers that need deterministic order
-// must sort the result.
+// GetNodesByIds chunks the IN (...) to stay inside SQLite's parameter limit.
+// Results come back in arbitrary order.
 func (d *DB) GetNodesByIds(ctx context.Context, ids []string) ([]types.Node, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -158,7 +133,6 @@ func (d *DB) GetNodesByIds(ctx context.Context, ids []string) ([]types.Node, err
 	return result, nil
 }
 
-// getNodesByIdsChunk executes a single IN (...) for a chunk of ≤500 ids.
 func getNodesByIdsChunk(ctx context.Context, db *sql.DB, ids []string) ([]types.Node, error) {
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
@@ -181,9 +155,8 @@ func getNodesByIdsChunk(ctx context.Context, db *sql.DB, ids []string) ([]types.
 	return collectNodes(rows)
 }
 
-// GetAllNodes returns all nodes in the database. Used by the resolution pipeline
-// warmCaches to build the known-names cache. On large repos this is a
-// full table scan; it runs once per resolveAndPersistBatched invocation.
+// GetAllNodes is a full table scan, run once per batched resolution pass to
+// warm the known-names cache.
 func (d *DB) GetAllNodes(ctx context.Context) ([]types.Node, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT id, kind, name, qualified_name, file_path, language,
@@ -198,9 +171,8 @@ func (d *DB) GetAllNodes(ctx context.Context) ([]types.Node, error) {
 	return collectNodes(rows)
 }
 
-// DeleteNode deletes the node with the given id. FTS5 delete-sentinel trigger
-// (nodes_ad) removes it from the FTS index automatically. FK CASCADE removes
-// any edges that reference this node as source or target.
+// DeleteNode also drops the node's FTS row and, by FK cascade, every edge
+// referencing it as source or target.
 func (d *DB) DeleteNode(ctx context.Context, id string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM nodes WHERE id = ?", id)
 	if err != nil {
@@ -209,15 +181,10 @@ func (d *DB) DeleteNode(ctx context.Context, id string) error {
 	return nil
 }
 
-// DeleteNodesByFile deletes all nodes whose file_path matches the given path.
-// FK CASCADE (appendix A: edges.source/target ON DELETE CASCADE) removes every
-// edge that references any of those nodes. FTS5 delete-sentinel triggers keep
-// the FTS index consistent.
-//
-// This is the load-bearing sync primitive (R-E): because node-id embeds the
-// line number, a moved symbol gets a new id. An in-place REPLACE would leave
-// the old-id node orphaned with dangling edges. Deleting all of a file's nodes
-// before re-extracting guarantees no orphans.
+// DeleteNodesByFile is the load-bearing sync primitive: a node id embeds its
+// line, so a moved symbol gets a new id and an in-place REPLACE would strand
+// the old node with dangling edges. Clearing the file first guarantees no
+// orphans; FK cascade takes the edges with it.
 func (d *DB) DeleteNodesByFile(ctx context.Context, filePath string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM nodes WHERE file_path = ?", filePath)
 	if err != nil {
@@ -226,13 +193,8 @@ func (d *DB) DeleteNodesByFile(ctx context.Context, filePath string) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Edge CRUD
-// ---------------------------------------------------------------------------
-
-// InsertEdge inserts a new edge (AUTOINCREMENT id) and returns the new row id.
-// Use INSERT OR IGNORE semantics are not forced here — edge deduplication is the
-// caller's responsibility. The returned id is the SQLite ROWID of the new edge.
+// InsertEdge returns the new ROWID. It does not dedup — that is the caller's
+// job.
 func (d *DB) InsertEdge(ctx context.Context, e types.Edge) (int64, error) {
 	res, err := d.db.ExecContext(ctx, `
 		INSERT INTO edges (source, target, kind, metadata, line, col, provenance)
@@ -250,7 +212,7 @@ func (d *DB) InsertEdge(ctx context.Context, e types.Edge) (int64, error) {
 	return id, nil
 }
 
-// GetEdgesBySource returns all edges with the given source node id.
+// GetEdgesBySource returns the outbound edges of sourceID.
 func (d *DB) GetEdgesBySource(ctx context.Context, sourceID string) ([]types.Edge, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT id, source, target, kind, metadata, line, col, COALESCE(provenance,'')
@@ -261,7 +223,7 @@ func (d *DB) GetEdgesBySource(ctx context.Context, sourceID string) ([]types.Edg
 	return collectEdges(rows)
 }
 
-// GetEdgesByTarget returns all edges with the given target node id.
+// GetEdgesByTarget returns the inbound edges of targetID.
 func (d *DB) GetEdgesByTarget(ctx context.Context, targetID string) ([]types.Edge, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT id, source, target, kind, metadata, line, col, COALESCE(provenance,'')
@@ -272,8 +234,8 @@ func (d *DB) GetEdgesByTarget(ctx context.Context, targetID string) ([]types.Edg
 	return collectEdges(rows)
 }
 
-// GetAllEdges returns all edges in the database. Used by synthesizers that need
-// to build a full target→edges map in one pass rather than querying per node.
+// GetAllEdges is a full table scan, for synthesizers building a target→edges
+// map in one pass instead of querying per node.
 func (d *DB) GetAllEdges(ctx context.Context) ([]types.Edge, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT id, source, target, kind, metadata, line, col, COALESCE(provenance,'')
@@ -284,9 +246,8 @@ func (d *DB) GetAllEdges(ctx context.Context) ([]types.Edge, error) {
 	return collectEdges(rows)
 }
 
-// GetEdgesByProvenance returns all edges whose provenance equals the given
-// string. Passing "heuristic" returns all synthesis-stamped edges in one query,
-// avoiding the O(N-nodes) loop in loadExistingSynthEdges.
+// GetEdgesByProvenance fetches a whole provenance class in one query, sparing
+// loadExistingSynthEdges an O(nodes) loop.
 func (d *DB) GetEdgesByProvenance(ctx context.Context, provenance string) ([]types.Edge, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT id, source, target, kind, metadata, line, col, COALESCE(provenance,'')
@@ -297,7 +258,7 @@ func (d *DB) GetEdgesByProvenance(ctx context.Context, provenance string) ([]typ
 	return collectEdges(rows)
 }
 
-// DeleteEdge deletes the edge with the given id.
+// DeleteEdge removes one edge by ROWID.
 func (d *DB) DeleteEdge(ctx context.Context, id int64) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM edges WHERE id = ?", id)
 	if err != nil {
@@ -306,11 +267,7 @@ func (d *DB) DeleteEdge(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// FileRecord CRUD
-// ---------------------------------------------------------------------------
-
-// UpsertFile inserts or replaces a file record (INSERT OR REPLACE by path PK).
+// UpsertFile replaces by path, the primary key.
 func (d *DB) UpsertFile(ctx context.Context, f types.FileRecord) error {
 	_, err := d.db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO files
@@ -326,7 +283,7 @@ func (d *DB) UpsertFile(ctx context.Context, f types.FileRecord) error {
 	return nil
 }
 
-// GetFile returns the file record for the given path, or ErrNotFound if absent.
+// GetFile returns ErrNotFound when path has no row.
 func (d *DB) GetFile(ctx context.Context, path string) (types.FileRecord, error) {
 	row := d.db.QueryRowContext(ctx, `
 		SELECT path, content_hash, language, size, modified_at, indexed_at, node_count, errors
@@ -341,7 +298,7 @@ func (d *DB) GetFile(ctx context.Context, path string) (types.FileRecord, error)
 	return f, nil
 }
 
-// DeleteFile deletes the file record with the given path.
+// DeleteFile removes only the file row; nodes are DeleteNodesByFile's job.
 func (d *DB) DeleteFile(ctx context.Context, path string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM files WHERE path = ?", path)
 	if err != nil {
@@ -350,17 +307,12 @@ func (d *DB) DeleteFile(ctx context.Context, path string) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Internal scan helpers
-// ---------------------------------------------------------------------------
-
 // rowScanner is the common interface between *sql.Row and *sql.Rows.
 type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-// scanNode scans a single node row. The caller is responsible for checking
-// sql.ErrNoRows before wrapping the error.
+// scanNode leaves sql.ErrNoRows unwrapped for the caller to classify.
 func scanNode(s rowScanner) (types.Node, error) {
 	var (
 		n          types.Node
@@ -395,15 +347,13 @@ func scanNode(s rowScanner) (types.Node, error) {
 	n.Decorators = nullBytesToRaw(decorators)
 	n.TypeParameters = nullBytesToRaw(typeParams)
 	n.Metadata = nullBytesToRaw(metadata)
-	// updated_at is stored as INTEGER; Node.UpdatedAt is string. Leave as ""
-	// for zero; callers that need the timestamp can read it directly.
+	// Column is INTEGER, Node.UpdatedAt is string; zero stays "".
 	if updatedAt != 0 {
 		n.UpdatedAt = fmt.Sprintf("%d", updatedAt)
 	}
 	return n, nil
 }
 
-// collectNodes drains a *sql.Rows into a []types.Node and closes the rows.
 func collectNodes(rows *sql.Rows) ([]types.Node, error) {
 	defer rows.Close()
 	var result []types.Node
@@ -417,7 +367,6 @@ func collectNodes(rows *sql.Rows) ([]types.Node, error) {
 	return result, rows.Err()
 }
 
-// scanEdge scans a single edge row (id, source, target, kind, metadata, line, col, provenance).
 func scanEdge(s rowScanner) (types.Edge, error) {
 	var (
 		e        types.Edge
@@ -436,7 +385,6 @@ func scanEdge(s rowScanner) (types.Edge, error) {
 	return e, nil
 }
 
-// collectEdges drains a *sql.Rows into a []types.Edge and closes the rows.
 func collectEdges(rows *sql.Rows) ([]types.Edge, error) {
 	defer rows.Close()
 	var result []types.Edge
@@ -450,7 +398,6 @@ func collectEdges(rows *sql.Rows) ([]types.Edge, error) {
 	return result, rows.Err()
 }
 
-// scanFile scans a single file row.
 func scanFile(s rowScanner) (types.FileRecord, error) {
 	var (
 		f      types.FileRecord
@@ -469,11 +416,6 @@ func scanFile(s rowScanner) (types.FileRecord, error) {
 	return f, nil
 }
 
-// ---------------------------------------------------------------------------
-// Conversion helpers
-// ---------------------------------------------------------------------------
-
-// boolToInt converts a Go bool to the SQLite INTEGER convention (0/1).
 func boolToInt(b bool) int {
 	if b {
 		return 1
@@ -481,9 +423,7 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-// nullBytesToRaw converts a possibly-nil []byte to json.RawMessage.
-// A nil slice (SQL NULL) maps to nil RawMessage. A non-nil slice maps to the
-// bytes as-is — no copy needed since json.RawMessage is []byte.
+// nullBytesToRaw needs no copy: json.RawMessage is already []byte.
 func nullBytesToRaw(b []byte) []byte {
 	if b == nil {
 		return nil
@@ -491,9 +431,7 @@ func nullBytesToRaw(b []byte) []byte {
 	return b
 }
 
-// rawOrNil converts a json.RawMessage to the value to pass to ExecContext.
-// A nil RawMessage maps to nil (which SQLite stores as NULL). A non-nil
-// RawMessage maps to the bytes as a string argument.
+// rawOrNil turns a JSON blob into an ExecContext argument, nil becoming NULL.
 func rawOrNil(r []byte) any {
 	if r == nil {
 		return nil
@@ -501,9 +439,7 @@ func rawOrNil(r []byte) any {
 	return string(r)
 }
 
-// nullIfEmpty returns nil for an empty string (stored as SQL NULL) and the
-// string otherwise. Used for optional TEXT columns like callee_expr so absent
-// values are NULL rather than empty strings.
+// nullIfEmpty keeps optional TEXT columns NULL rather than empty-string.
 func nullIfEmpty(s string) any {
 	if s == "" {
 		return nil
@@ -511,8 +447,6 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-// nullableString converts an empty string to nil (stored as NULL) and a
-// non-empty string to the value itself.
 func nullableString(s string) any {
 	if s == "" {
 		return nil
@@ -520,16 +454,12 @@ func nullableString(s string) any {
 	return s
 }
 
-// stringSliceToJSON encodes a []string as a JSON array for SQLite TEXT storage.
-// A nil or empty slice maps to nil (stored as NULL), matching the candidates
-// column convention. Only string-literal content is encoded — the resulting JSON
-// has no surrounding whitespace.
+// stringSliceToJSON encodes a compact JSON array for TEXT storage; an empty
+// slice becomes NULL, matching the candidates column convention.
 func stringSliceToJSON(ss []string) any {
 	if len(ss) == 0 {
 		return nil
 	}
-	// Hand-encode to avoid an encoding/json import for a trivial case.
-	// Each element is JSON-escaped; the result is a compact array.
 	var b strings.Builder
 	b.WriteByte('[')
 	for i, s := range ss {
@@ -559,16 +489,12 @@ func stringSliceToJSON(ss []string) any {
 	return b.String()
 }
 
-// jsonToStringSlice decodes a nullable JSON TEXT column into []string.
-// A nil byte slice (SQL NULL) or empty byte slice maps to nil. A non-nil byte
-// slice is JSON-decoded as []string; decode errors are ignored (returns nil)
-// since the column value is always written by stringSliceToJSON.
+// jsonToStringSlice inverts stringSliceToJSON. Decode errors return nil: the
+// column is only ever written by that function.
 func jsonToStringSlice(b []byte) []string {
 	if len(b) == 0 {
 		return nil
 	}
-	// Minimal hand-decode for a JSON string array produced by stringSliceToJSON.
-	// We use encoding/json for correctness — the value is always a compact array.
 	var result []string
 	if err := jsonUnmarshal(b, &result); err != nil {
 		return nil

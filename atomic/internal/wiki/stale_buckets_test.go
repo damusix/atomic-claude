@@ -23,8 +23,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// --- helpers ------------------------------------------------------------------
-
 // setupBucketRealm creates a minimal realm with a wiki/ dir (via Scan) and
 // returns (root, wikiDir).  At least one git repo is required by Scan.
 func setupBucketRealm(t *testing.T) (root, wikiDir string) {
@@ -81,10 +79,6 @@ func currentManifestMtime(wikiDir, name string) time.Time {
 	return fi.ModTime()
 }
 
-// --- tests --------------------------------------------------------------------
-
-// TestStale_BucketFresh verifies that a bucket with no pending diff emits no
-// STALE bucket line and exits 0 (assuming no other staleness).
 func TestStale_BucketFresh(t *testing.T) {
 	root, wikiDir := setupBucketRealm(t)
 
@@ -106,8 +100,6 @@ func TestStale_BucketFresh(t *testing.T) {
 	}
 }
 
-// TestStale_BucketPending verifies that a bucket with a non-empty diff emits
-// `STALE bucket <name>` and exits 1.
 func TestStale_BucketPending(t *testing.T) {
 	root, wikiDir := setupBucketRealm(t)
 
@@ -126,8 +118,6 @@ func TestStale_BucketPending(t *testing.T) {
 	}
 }
 
-// TestStale_BucketPendingLiteralPrefix verifies the exact output prefix
-// is `STALE bucket ` (not `STALE bucket:` or similar).
 func TestStale_BucketPendingLiteralPrefix(t *testing.T) {
 	root, wikiDir := setupBucketRealm(t)
 
@@ -145,8 +135,6 @@ func TestStale_BucketPendingLiteralPrefix(t *testing.T) {
 	}
 }
 
-// TestStale_BucketHardError verifies that a missing wiki/ dir still causes
-// exit 2 (bucket extension does not change the hard-error contract).
 func TestStale_BucketHardError(t *testing.T) {
 	root := t.TempDir()
 	// Do NOT run Scan — wiki/ does not exist.
@@ -165,8 +153,6 @@ func TestStale_BucketHardError(t *testing.T) {
 	}
 }
 
-// TestStale_NoBucketsBlock verifies that a wiki with no <wiki-buckets> block
-// emits zero bucket lines and does not error.
 func TestStale_NoBucketsBlock(t *testing.T) {
 	root, _ := setupBucketRealm(t)
 
@@ -184,8 +170,6 @@ func TestStale_NoBucketsBlock(t *testing.T) {
 	}
 }
 
-// TestStale_DeclinedBlock verifies that a <wiki-buckets declined="true"> block
-// (empty, user declined offer) emits zero bucket lines and does not error.
 func TestStale_DeclinedBlock(t *testing.T) {
 	root, wikiDir := setupBucketRealm(t)
 
@@ -211,8 +195,6 @@ func TestStale_DeclinedBlock(t *testing.T) {
 	}
 }
 
-// TestStale_BucketReadOnly verifies that Stale does not write `current` for
-// any bucket (the stale check is read-only).
 func TestStale_BucketReadOnly(t *testing.T) {
 	root, wikiDir := setupBucketRealm(t)
 
@@ -236,8 +218,6 @@ func TestStale_BucketReadOnly(t *testing.T) {
 	}
 }
 
-// TestStale_BucketReadOnly_NoMutateAfterPromote verifies that Stale does not
-// update the mtime of an existing current manifest written by a prior promote.
 func TestStale_BucketReadOnly_NoMutateAfterPromote(t *testing.T) {
 	root, wikiDir := setupBucketRealm(t)
 
@@ -264,8 +244,6 @@ func TestStale_BucketReadOnly_NoMutateAfterPromote(t *testing.T) {
 	}
 }
 
-// TestStale_BucketMultiple verifies that multiple pending buckets each emit
-// their own STALE bucket line.
 func TestStale_BucketMultiple(t *testing.T) {
 	root, wikiDir := setupBucketRealm(t)
 
@@ -288,8 +266,6 @@ func TestStale_BucketMultiple(t *testing.T) {
 	}
 }
 
-// TestStale_BucketMixedFreshAndPending verifies that only the pending bucket
-// emits a line when one bucket is fresh and one is pending.
 func TestStale_BucketMixedFreshAndPending(t *testing.T) {
 	root, wikiDir := setupBucketRealm(t)
 
@@ -314,8 +290,6 @@ func TestStale_BucketMixedFreshAndPending(t *testing.T) {
 	}
 }
 
-// TestStale_BucketAndRepoConcernUnaffected verifies that adding bucket staleness
-// does not suppress DRIFT/STALE repo/concern lines — all appear in the same run.
 func TestStale_BucketAndRepoConcernUnaffected(t *testing.T) {
 	root, wikiDir := setupBucketRealm(t)
 
@@ -339,8 +313,6 @@ func TestStale_BucketAndRepoConcernUnaffected(t *testing.T) {
 	}
 }
 
-// TestStale_BucketEmptyBucket verifies that an empty bucket (no content files)
-// with no baseline emits no STALE bucket line (empty diff → no lines to report).
 func TestStale_BucketEmptyBucket(t *testing.T) {
 	root, wikiDir := setupBucketRealm(t)
 

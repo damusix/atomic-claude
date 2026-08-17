@@ -1,12 +1,11 @@
-// Package extraction provides the parser-pool runtime that drives the
-// tsbinding (tree-sitter via wazero). The binding sits behind a Go interface
-// so later extractors never import wazero or tsbinding directly — an A→C swap
-// (wazero → cgo) is a build-tag flip without touching extractor code.
+// Package extraction provides the parser-pool runtime over tsbinding
+// (tree-sitter via wazero). The binding sits behind a Go interface so extractors
+// never import wazero or tsbinding, leaving a swap to a cgo binding a build-tag
+// flip.
 //
-// Concurrency model: one independent wazero module instance per in-flight
-// file. A bounded pool of instances (cap ≈ GOMAXPROCS) is shared via
-// borrow/return. Instances are recycled every RecycleInterval parses to
-// release wazero's grow-only linear memory.
+// Concurrency: one wazero module instance per in-flight file, drawn from a
+// bounded pool (cap ≈ GOMAXPROCS); instances recycle every RecycleInterval
+// parses to release wazero's grow-only linear memory.
 package extraction
 
 import (
@@ -17,16 +16,13 @@ import (
 	sitter "github.com/malivvan/tree-sitter"
 )
 
-// treeRooter is a package-internal interface used by WalkNamed to obtain the
-// root node from a Tree implementation without exposing sitter.Node in the
+// treeRooter gives WalkNamed the root node without putting sitter.Node in the
 // public Tree interface.
 type treeRooter interface {
 	rootNode(ctx context.Context) (sitter.Node, error)
 }
 
-// ---------------------------------------------------------------------------
-// Language constants — named aliases so callers don't import tsbinding.
-// ---------------------------------------------------------------------------
+// --- Language constants: aliases so callers don't import tsbinding ---
 
 // Lang enumerates the supported tree-sitter grammars.
 type Lang int
@@ -56,71 +52,44 @@ const (
 	LangErlang          // Erlang
 )
 
-// ---------------------------------------------------------------------------
-// Tree / Node interfaces
-// ---------------------------------------------------------------------------
+// --- Tree / Node interfaces ---
 
-// NodeInfo carries the fields the walker callback receives for each named node.
-// Using a value type (not Node) keeps callers decoupled from the binding.
+// NodeInfo is a value type so walker callbacks stay decoupled from the binding.
 type NodeInfo struct {
 	Kind      string
 	StartByte uint64
 	EndByte   uint64
 }
 
-// Tree is the parse tree returned by Instance.ParseString. The public
-// traversal API is WalkNamed — callers do not need to inspect the root node
-// directly. Exposing sitter.Node here would couple callers to the binding;
-// if a root handle is needed in the future, expose it as NodeInfo, not
-// sitter.Node.
+// Tree is the parse tree from Instance.ParseString. Traverse it with WalkNamed;
+// any future root handle must surface as NodeInfo, never sitter.Node.
 type Tree interface {
-	// treeRooter is satisfied by the concrete tsTree; WalkNamed uses it
-	// internally. The method is unexported so callers outside this package
-	// cannot reach sitter.Node.
+	// Unexported, so callers outside this package cannot reach sitter.Node.
 	treeRooter
 }
 
-// ---------------------------------------------------------------------------
-// Instance interface
-// ---------------------------------------------------------------------------
+// --- Instance interface ---
 
-// Instance is one independent parsing unit: its own wazero runtime+module,
-// its own parser, with the language set. Borrow one per goroutine; never
-// share across goroutines (data race — proven in spike A2).
-//
-// Callers hold Instance, not *tsInstance, so they have no wazero dependency.
+// Instance is one parsing unit — its own wazero runtime+module and parser.
+// Borrow one per goroutine; sharing one races.
 type Instance interface {
-	// ID returns a stable integer that uniquely identifies this instance
-	// within its pool. Used in tests to detect double-lending.
+	// ID is unique within the pool; tests use it to detect double-lending.
 	ID() int
 
-	// SetLanguage configures the parser for the given language.
-	// The language persists until the next SetLanguage call.
+	// SetLanguage persists until the next call.
 	SetLanguage(ctx context.Context, lang Lang) error
 
-	// ParseString parses src and returns the parse tree.
 	ParseString(ctx context.Context, src string) (Tree, error)
 }
 
-// ---------------------------------------------------------------------------
-// WalkNamed — low-round-trip named traversal
-// ---------------------------------------------------------------------------
+// --- WalkNamed ---
 
-// WalkNamed parses src with inst (advancing its parse counter) and visits
-// every named node in DFS pre-order, calling fn for each.
+// WalkNamed parses src with inst (advancing its parse counter) and visits every
+// named node in DFS pre-order. A non-nil error from fn stops the walk and is
+// returned; the iterator's io.EOF is swallowed as the natural end of tree.
 //
-// Implementation note: the underlying tsbinding Iterator uses
-// NamedChildCount + N×NamedChild per node — each call crosses the WASM
-// boundary. The tree-sitter C library exposes ts_tree_cursor_* for
-// lower-round-trip traversal, but the current Go binding (tsbinding/) does
-// not expose a cursor API. Cursor-based reimplementation is deferred to
-// FOLLOWUPS F-3 (design open-Q#4: in-WASM bulk-serialize). The present
-// implementation is correct and covers all extractor use cases; it trades
-// per-node WASM overhead for simplicity until F-3 is addressed.
-//
-// fn returning a non-nil error stops the walk immediately and WalkNamed
-// returns that error. io.EOF from the iterator signals natural end of tree
-// and is swallowed.
+// Each node costs NamedChildCount + N×NamedChild WASM crossings. tree-sitter's
+// ts_tree_cursor_* would cut that, but tsbinding exposes no cursor API.
 func WalkNamed(ctx context.Context, inst Instance, src string, fn func(NodeInfo) error) error {
 	tree, err := inst.ParseString(ctx, src)
 	if err != nil {

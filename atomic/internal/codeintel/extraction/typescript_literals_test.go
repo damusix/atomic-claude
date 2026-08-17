@@ -1,11 +1,8 @@
 package extraction_test
 
-// typescript_literals_test.go — unit tests for HarvestTypeScriptLiterals.
-//
-// WHY: verify template-literal interpolation substitution and plain-string
-// harvesting for TypeScript and TSX, independent of the orchestrator pipeline.
-// These tests exercise the tree-sitter walk logic directly so regressions
-// surface at the unit boundary.
+// Covers template-literal substitution and plain-string harvesting under both
+// the TypeScript and TSX grammars, driving the tree-sitter walk directly so a
+// regression surfaces here rather than downstream in the orchestrator.
 
 import (
 	"context"
@@ -14,7 +11,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction"
 )
 
-// newTSPool creates a single-instance pool and returns it with a cleanup func.
 func newTSPool(t *testing.T) *extraction.Pool {
 	t.Helper()
 	ctx := context.Background()
@@ -26,8 +22,6 @@ func newTSPool(t *testing.T) *extraction.Pool {
 	return pool
 }
 
-// tsHarvest is a thin helper: borrows an instance, sets the given language, calls
-// HarvestTypeScriptLiterals.
 func tsHarvest(t *testing.T, pool *extraction.Pool, src string, lang extraction.Lang) []extraction.TSLiteralSpan {
 	t.Helper()
 	ctx := context.Background()
@@ -66,12 +60,8 @@ func indexOf(s, substr string) int {
 	return -1
 }
 
-// ---------------------------------------------------------------------------
-// Plain string tests (TypeScript)
-// ---------------------------------------------------------------------------
-
+// Quoted strings yield their content verbatim — no delimiters, no rewriting.
 func TestHarvestTypeScriptLiterals_PlainStringContent(t *testing.T) {
-	// WHY: single/double-quoted strings must yield their content verbatim.
 	pool := newTSPool(t)
 	src := `const q = "SELECT id FROM users WHERE active = 1";` + "\n"
 	spans := tsHarvest(t, pool, src, extraction.LangTypeScript)
@@ -86,8 +76,8 @@ func TestHarvestTypeScriptLiterals_PlainStringContent(t *testing.T) {
 	}
 }
 
+// StartLine is file-absolute and 1-based.
 func TestHarvestTypeScriptLiterals_PlainStringLineNumber(t *testing.T) {
-	// WHY: StartLine must be 1-based file-absolute.
 	pool := newTSPool(t)
 	src := "// line 1\n// line 2\nconst q = \"SELECT a FROM users WHERE id = 1\";\n"
 	spans := tsHarvest(t, pool, src, extraction.LangTypeScript)
@@ -101,12 +91,8 @@ func TestHarvestTypeScriptLiterals_PlainStringLineNumber(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Template literal tests (TypeScript)
-// ---------------------------------------------------------------------------
-
+// A template literal with no substitutions yields its full content unaltered.
 func TestHarvestTypeScriptLiterals_TemplateLiteralNoInterpolation(t *testing.T) {
-	// WHY: a template literal without substitutions must yield the full content.
 	pool := newTSPool(t)
 	src := "const q = `SELECT id FROM orders WHERE paid = 1`;\n"
 	spans := tsHarvest(t, pool, src, extraction.LangTypeScript)
@@ -117,9 +103,9 @@ func TestHarvestTypeScriptLiterals_TemplateLiteralNoInterpolation(t *testing.T) 
 	}
 }
 
+// Substituting "?" leaves no valid identifier after FROM, so scanBodyEdges
+// emits zero refs from this literal.
 func TestHarvestTypeScriptLiterals_TemplateLiteralInterpolatedTable_SubstitutedToPlaceholder(t *testing.T) {
-	// WHY: decision 8a — an interpolated table target must produce "?" so no valid
-	// SQL identifier appears after FROM. scanBodyEdges emits zero refs for this literal.
 	pool := newTSPool(t)
 	src := "const q = `SELECT a FROM ${table} WHERE id = ?`;\n"
 	spans := tsHarvest(t, pool, src, extraction.LangTypeScript)
@@ -134,9 +120,9 @@ func TestHarvestTypeScriptLiterals_TemplateLiteralInterpolatedTable_SubstitutedT
 	}
 }
 
+// Interpolating a value must leave the literal table name beside it intact,
+// or the SQL ref is lost with it.
 func TestHarvestTypeScriptLiterals_TemplateLiteralLiteralTable_PreservesTableName(t *testing.T) {
-	// WHY: decision 8b — an interpolated VALUE with a literal table name must
-	// preserve the table name so a SQL ref is emitted.
 	pool := newTSPool(t)
 	src := "const q = `SELECT a FROM users WHERE id = ${id}`;\n"
 	spans := tsHarvest(t, pool, src, extraction.LangTypeScript)
@@ -151,14 +137,10 @@ func TestHarvestTypeScriptLiterals_TemplateLiteralLiteralTable_PreservesTableNam
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TSX grammar path
-// ---------------------------------------------------------------------------
-
+// TSX is a separate grammar that happens to share these node types; the harvest
+// path must hold across both.
 func TestHarvestTypeScriptLiterals_TSXGrammarPlainString(t *testing.T) {
-	// WHY: confirms the TSX grammar path works — same node types, different grammar.
 	pool := newTSPool(t)
-	// Minimal TSX: a functional component with an embedded SQL string.
 	src := `export function Repo() {
   const ddl = "CREATE TABLE widgets (id INT PRIMARY KEY, name TEXT)";
   return <div>{ddl}</div>;
@@ -173,7 +155,6 @@ func TestHarvestTypeScriptLiterals_TSXGrammarPlainString(t *testing.T) {
 }
 
 func TestHarvestTypeScriptLiterals_TSXGrammarTemplateLiteral(t *testing.T) {
-	// WHY: confirms template literals are harvested under the TSX grammar.
 	pool := newTSPool(t)
 	src := "const q = `CREATE TABLE sessions (id INT PRIMARY KEY, token TEXT NOT NULL)`;\n"
 	spans := tsHarvest(t, pool, src, extraction.LangTSX)
@@ -184,15 +165,9 @@ func TestHarvestTypeScriptLiterals_TSXGrammarTemplateLiteral(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Callee scoping (sql-string-match C1 finding 2): calleeCtx must apply only
-// to the call's "arguments" subtree, not the callee/receiver position.
-// ---------------------------------------------------------------------------
-
+// calleeCtx applies only to a call's "arguments" subtree: here the literal sits
+// in the receiver position, so it must not inherit "toUpperCase".
 func TestHarvestTypeScriptLiterals_CalleeExprScopedToArguments(t *testing.T) {
-	// WHY: "tbl".toUpperCase() puts the literal in the receiver position of
-	// the toUpperCase() call — it must not inherit "toUpperCase" as its
-	// CalleeExpr.
 	pool := newTSPool(t)
 	src := `"tbl".toUpperCase();` + "\n"
 	spans := tsHarvest(t, pool, src, extraction.LangTypeScript)
@@ -206,9 +181,9 @@ func TestHarvestTypeScriptLiterals_CalleeExprScopedToArguments(t *testing.T) {
 	}
 }
 
+// Control for the case above: inside the arguments list, the bare callee name
+// is still captured.
 func TestHarvestTypeScriptLiterals_CalleeExprSetForArgument(t *testing.T) {
-	// WHY: control case — a literal actually inside the arguments list still
-	// picks up the call's bare callee name.
 	pool := newTSPool(t)
 	src := `db.selectFrom("orders_view");` + "\n"
 	spans := tsHarvest(t, pool, src, extraction.LangTypeScript)

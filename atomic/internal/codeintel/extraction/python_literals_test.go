@@ -1,11 +1,8 @@
 package extraction_test
 
-// python_literals_test.go — unit tests for HarvestPythonLiterals.
-//
-// WHY: verify docstring exclusion at all three PEP 257 positions (module,
-// class, function) and f-string interpolation substitution, independent of the
-// orchestrator pipeline. These tests exercise the tree-sitter walk logic
-// directly so regressions surface at the unit boundary.
+// Covers docstring exclusion at all three PEP 257 positions and f-string
+// substitution, driving the tree-sitter walk directly so a regression surfaces
+// here rather than downstream in the orchestrator.
 
 import (
 	"context"
@@ -14,8 +11,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction"
 )
 
-// newPyPool creates a single-instance pool and returns it with a cleanup
-// function. Shared across subtests within a test function.
 func newPyPool(t *testing.T) *extraction.Pool {
 	t.Helper()
 	ctx := context.Background()
@@ -27,8 +22,6 @@ func newPyPool(t *testing.T) *extraction.Pool {
 	return pool
 }
 
-// pyHarvest is a thin helper that borrows an instance, sets Python, and calls
-// HarvestPythonLiterals, returning the slice (or nil on error).
 func pyHarvest(t *testing.T, pool *extraction.Pool, src string) []extraction.PythonLiteralSpan {
 	t.Helper()
 	ctx := context.Background()
@@ -45,7 +38,7 @@ func pyHarvest(t *testing.T, pool *extraction.Pool, src string) []extraction.Pyt
 	return spans
 }
 
-// findSpan returns the first span whose Text contains substr, or nil.
+// findPySpan returns the first span whose Text contains substr, or nil.
 func findPySpan(spans []extraction.PythonLiteralSpan, substr string) *extraction.PythonLiteralSpan {
 	for i := range spans {
 		s := spans[i].Text
@@ -60,13 +53,9 @@ func findPySpan(spans []extraction.PythonLiteralSpan, substr string) *extraction
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Docstring exclusion tests
-// ---------------------------------------------------------------------------
-
+// A bare string at the top of a module is a docstring, not code: prose SQL
+// inside it must not become a ref.
 func TestHarvestPythonLiterals_ModuleDocstringExcluded(t *testing.T) {
-	// WHY: a bare string at the top of a module is a module-level docstring
-	// (PEP 257). SQL inside it must be excluded (decision 4).
 	pool := newPyPool(t)
 	src := `"""Module docstring: SELECT * FROM module_secret"""
 
@@ -74,7 +63,6 @@ x = "SELECT a FROM users WHERE id = 1"
 `
 	spans := pyHarvest(t, pool, src)
 
-	// "module_secret" must be marked as docstring.
 	secretSpan := findPySpan(spans, "module_secret")
 	if secretSpan == nil {
 		t.Fatal("expected span containing 'module_secret' but not found")
@@ -83,7 +71,6 @@ x = "SELECT a FROM users WHERE id = 1"
 		t.Error("module-level docstring not marked as IsDocstring=true")
 	}
 
-	// The non-docstring "users" span must NOT be a docstring.
 	usersSpan := findPySpan(spans, "FROM users")
 	if usersSpan == nil {
 		t.Fatal("expected span containing 'FROM users' but not found")
@@ -93,8 +80,8 @@ x = "SELECT a FROM users WHERE id = 1"
 	}
 }
 
+// The class docstring is the first expression_statement in the class body.
 func TestHarvestPythonLiterals_ClassDocstringExcluded(t *testing.T) {
-	// WHY: first expression_statement in a class body is the class docstring.
 	pool := newPyPool(t)
 	src := `class Repo:
     """Class docstring: SELECT * FROM class_secret"""
@@ -120,8 +107,8 @@ func TestHarvestPythonLiterals_ClassDocstringExcluded(t *testing.T) {
 	}
 }
 
+// Likewise the first expression_statement in a function body.
 func TestHarvestPythonLiterals_FunctionDocstringExcluded(t *testing.T) {
-	// WHY: first expression_statement in a function body is the function docstring.
 	pool := newPyPool(t)
 	src := `def run():
     """Function docstring: CREATE TABLE fn_secret (id INT)"""
@@ -146,14 +133,9 @@ func TestHarvestPythonLiterals_FunctionDocstringExcluded(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// F-string substitution tests
-// ---------------------------------------------------------------------------
-
+// Substituting "?" leaves no valid identifier after FROM, so the SQL gate may
+// still pass the string while scanBodyEdges emits zero refs from it.
 func TestHarvestPythonLiterals_FStringInterpolatedTable_SubstitutedToPlaceholder(t *testing.T) {
-	// WHY: decision 8a — an interpolated table target must yield a post-substitution
-	// text with "?" in place of the interpolation, so no valid SQL identifier
-	// appears after FROM. The SQL gate may pass, but scanBodyEdges emits zero refs.
 	pool := newPyPool(t)
 	src := `q = f"SELECT a FROM {table} WHERE id = %s"
 `
@@ -168,9 +150,9 @@ func TestHarvestPythonLiterals_FStringInterpolatedTable_SubstitutedToPlaceholder
 	}
 }
 
+// Interpolating a value must leave the literal table name beside it intact,
+// or the SQL ref is lost with it.
 func TestHarvestPythonLiterals_FStringLiteralTable_PreservesTableName(t *testing.T) {
-	// WHY: decision 8b — an interpolated VALUE with a literal table name must
-	// preserve the table name so a SQL ref is emitted.
 	pool := newPyPool(t)
 	src := `q = f"SELECT a FROM users WHERE id = {uid}"
 `
@@ -185,12 +167,8 @@ func TestHarvestPythonLiterals_FStringLiteralTable_PreservesTableName(t *testing
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Line number tests
-// ---------------------------------------------------------------------------
-
+// StartLine is file-absolute and 1-based.
 func TestHarvestPythonLiterals_RegularStringLineNumbers(t *testing.T) {
-	// WHY: StartLine must be file-absolute (1-based).
 	pool := newPyPool(t)
 	src := `# line 1
 # line 2
@@ -206,9 +184,9 @@ q = "SELECT a FROM users WHERE id = 1"
 	}
 }
 
+// A triple-quoted string in assignment position carries most multi-line SQL in
+// Python, so it must be harvested rather than mistaken for a docstring.
 func TestHarvestPythonLiterals_TripleQuotedString(t *testing.T) {
-	// WHY: triple-quoted strings must be harvested; they are common for
-	// multi-line SQL in Python.
 	pool := newPyPool(t)
 	src := `q = """
 CREATE TABLE orders (id SERIAL PRIMARY KEY)
@@ -224,14 +202,9 @@ CREATE TABLE orders (id SERIAL PRIMARY KEY)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Callee scoping (sql-string-match C1 finding 2): calleeCtx must apply only
-// to the call's "arguments" subtree, not the callee/receiver position.
-// ---------------------------------------------------------------------------
-
+// calleeCtx applies only to a call's "arguments" subtree: here the literal sits
+// in the receiver position, so it must not inherit "upper".
 func TestHarvestPythonLiterals_CalleeExprScopedToArguments(t *testing.T) {
-	// WHY: "tbl".upper() puts the literal in the receiver position of the
-	// upper() call — it must not inherit "upper" as its CalleeExpr.
 	pool := newPyPool(t)
 	src := "\"tbl\".upper()\n"
 	spans := pyHarvest(t, pool, src)
@@ -245,9 +218,9 @@ func TestHarvestPythonLiterals_CalleeExprScopedToArguments(t *testing.T) {
 	}
 }
 
+// Control for the case above: inside the arguments list, the bare callee name
+// is still captured.
 func TestHarvestPythonLiterals_CalleeExprSetForArgument(t *testing.T) {
-	// WHY: control case — a literal actually inside the arguments list still
-	// picks up the call's bare callee name.
 	pool := newPyPool(t)
 	src := "db.select_from(\"orders_view\")\n"
 	spans := pyHarvest(t, pool, src)

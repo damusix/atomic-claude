@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildServeCmd returns the "serve" top-level command with flag metadata.
 func buildServeCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                "serve",

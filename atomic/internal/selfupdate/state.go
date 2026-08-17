@@ -8,17 +8,15 @@ import (
 	"time"
 )
 
-// State is the on-disk shape of ~/.atomic/state.json — the single
-// machine-managed source of truth for update-check cadence, staged
-// downloads, and swap-lock coordination. No atomic invocation performs
-// network I/O directly; the update-available banner and all update
-// decisions read from this file alone.
+// State is the on-disk shape of ~/.atomic/state.json. No atomic invocation
+// performs network I/O directly: the banner and every update decision read from
+// this file alone.
 type State struct {
 	Update UpdateState `json:"update"`
 }
 
-// UpdateState tracks the self-update lifecycle: check cadence, banner
-// dedup, the swap lock, and the once-only staging budget for a version.
+// UpdateState tracks check cadence, banner dedup, the swap lock, and the
+// once-only staging budget for a version.
 type UpdateState struct {
 	LastCheck         time.Time  `json:"last_check"`
 	Updating          bool       `json:"updating"`
@@ -31,17 +29,15 @@ type UpdateState struct {
 	Staged            StagedInfo `json:"staged"`
 }
 
-// StagedInfo records a downloaded-and-checksum-verified binary awaiting an
-// `atomic update` swap.
+// StagedInfo records a checksum-verified archive awaiting an `atomic update` swap.
 type StagedInfo struct {
 	Version string `json:"version"`
 	Path    string `json:"path"`
 	SHA256  string `json:"sha256"`
 }
 
-// LoadState reads state.json at path. A missing file, corrupt JSON, or an
-// unreadable file all yield a zero-value State — never an error — since a
-// state-read failure must never block the invoked verb.
+// LoadState reads state.json. Missing, corrupt, and unreadable all yield a
+// zero-value State rather than an error: this must never block the invoked verb.
 func LoadState(path string) State {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -54,11 +50,8 @@ func LoadState(path string) State {
 	return s
 }
 
-// WriteState writes state atomically (temp file + rename, same directory as
-// path to guarantee same filesystem), then opportunistically removes the
-// legacy ~/.cache/atomic/update.json cache file — its absence, or any
-// failure locating/removing it, is never an error; nothing reads that file
-// once state.json exists.
+// WriteState writes atomically via a temp file in the same directory, so the
+// rename cannot cross filesystems.
 func WriteState(path string, s State) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -96,9 +89,8 @@ func WriteState(path string, s State) error {
 	return nil
 }
 
-// removeLegacyCache opportunistically deletes the pre-state.json cache
-// file. Its absence, or any failure locating or removing it, is never an
-// error.
+// removeLegacyCache deletes the pre-state.json cache file. Nothing reads it once
+// state.json exists, so failing to find or remove it is never an error.
 func removeLegacyCache() {
 	path, err := DefaultCachePath()
 	if err != nil {

@@ -16,9 +16,8 @@ import (
 )
 
 // stubHarness is an in-process stand-in for a session, so the client's timeout
-// and escalation paths are exercised without a real interpreter — including the
-// case a real one cannot be made to reproduce on demand: a harness that ignores
-// SIGINT.
+// and escalation paths run without a real interpreter — including the case a real
+// one cannot be made to reproduce on demand: a harness that ignores SIGINT.
 type stubHarness struct {
 	socketPath string
 	metaPath   string
@@ -62,8 +61,8 @@ func startStubHarness(t *testing.T, handler func(Request) (Response, bool)) *stu
 				}
 				resp, reply := handler(req)
 				if !reply {
-					// Hold the connection open with nothing coming, which is
-					// what an eval stuck in a hot loop looks like from here.
+					// Hold the connection open with nothing coming: what an eval stuck
+					// in a hot loop looks like from here.
 					<-make(chan struct{})
 				}
 				frame, err := json.Marshal(resp)
@@ -180,8 +179,8 @@ func TestDial_ClassifiesAnAbsentSocketApartFromADeadOne(t *testing.T) {
 	}
 
 	// A socket file with nothing behind it: the harness crashed or the host
-	// rebooted. That is a dead session, not an absent one — reporting it as
-	// absent would hide the state loss behind a "just run start" remedy.
+	// rebooted. Reporting that as absent would hide the state loss behind a
+	// "just run start" remedy.
 	stale := filepath.Join(dir, "stale.sock")
 	if err := os.WriteFile(stale, nil, 0o600); err != nil {
 		t.Fatalf("write stale socket: %v", err)
@@ -228,10 +227,10 @@ func TestEval_AnEvalExceptionIsAResponseNotATransportError(t *testing.T) {
 }
 
 func TestEval_TimeoutEscalatesSigintThenSigkillAndRemovesTheSession(t *testing.T) {
-	// A harness that never answers and never dies — the Node/Python asymmetry
-	// made concrete: SIGINT kills a Node harness outright, while a Python one
-	// catches KeyboardInterrupt and keeps serving. The escalation must end the
-	// session either way, so it is written against the harness that survives.
+	// A harness that never answers and never dies — the asymmetry made concrete:
+	// SIGINT kills a Node harness outright, while Python catches KeyboardInterrupt
+	// and keeps serving. The escalation must end the session either way, so it is
+	// written against the harness that survives.
 	h := startStubHarness(t, func(Request) (Response, bool) { return Response{}, false })
 	sess := h.session(t, Meta{Name: "work", PID: 4242, StartedAt: time.Now()})
 
@@ -270,9 +269,8 @@ func TestEval_TimeoutStopsAtSigintWhenTheHarnessDies(t *testing.T) {
 			mu.Unlock()
 			return signals.fn()(pid, sig)
 		},
-		// The process is gone once the interrupt lands, which is what a Node
-		// harness does: it installs no SIGINT handler, so the signal's default
-		// disposition terminates it mid-eval.
+		// The process is gone once the interrupt lands, which is what Node does:
+		// no SIGINT handler, so the default disposition terminates it mid-eval.
 		PidMatch: func(int, time.Time) bool {
 			mu.Lock()
 			defer mu.Unlock()

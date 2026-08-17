@@ -17,7 +17,6 @@ func TestClose_HappyPath(t *testing.T) {
 
 	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
 
-	// Create an entry to close.
 	if _, err := Add(dir, AddOpts{
 		ID: "close-me", Title: "Something to close", Severity: "risk", Origin: "origin", Today: today,
 	}); err != nil {
@@ -28,12 +27,10 @@ func TestClose_HappyPath(t *testing.T) {
 		t.Fatalf("CloseEntry: %v", err)
 	}
 
-	// Entry file should be deleted.
 	if _, err := os.Stat(filepath.Join(dir, "close-me.md")); err == nil {
 		t.Error("expected close-me.md to be deleted, still exists")
 	}
 
-	// CLOSED.md should have a line for close-me.
 	closedRaw, err := os.ReadFile(filepath.Join(dir, "CLOSED.md"))
 	if err != nil {
 		t.Fatalf("CLOSED.md: %v", err)
@@ -41,7 +38,6 @@ func TestClose_HappyPath(t *testing.T) {
 	if !strings.Contains(string(closedRaw), "close-me") {
 		t.Errorf("CLOSED.md should contain 'close-me', got:\n%s", string(closedRaw))
 	}
-	// Default marker format includes the date.
 	if !strings.Contains(string(closedRaw), "2026-05-22") {
 		t.Errorf("CLOSED.md should contain the date, got:\n%s", string(closedRaw))
 	}
@@ -96,7 +92,6 @@ func TestClose_RegeneratesIndex(t *testing.T) {
 	}
 	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
 
-	// Create two entries.
 	if _, err := Add(dir, AddOpts{ID: "keep-me", Title: "Keep", Severity: "risk", Origin: "o", Today: today}); err != nil {
 		t.Fatalf("Add keep-me: %v", err)
 	}
@@ -108,7 +103,6 @@ func TestClose_RegeneratesIndex(t *testing.T) {
 		t.Fatalf("CloseEntry: %v", err)
 	}
 
-	// INDEX.md should exist and mention keep-me but not close-me2.
 	indexRaw, err := os.ReadFile(filepath.Join(dir, "INDEX.md"))
 	if err != nil {
 		t.Fatalf("INDEX.md: %v", err)

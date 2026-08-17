@@ -27,9 +27,7 @@ const (
 type DetectionStrategy string
 
 const (
-	// StrategyBinary checks exec.LookPath only.
-	StrategyBinary DetectionStrategy = "binary"
-	// StrategyDirectory checks a known install directory only (e.g. nvm, sdkman).
+	StrategyBinary    DetectionStrategy = "binary"
 	StrategyDirectory DetectionStrategy = "directory"
 	// StrategyBoth tries binary first, then directory.
 	StrategyBoth DetectionStrategy = "both"
@@ -37,98 +35,73 @@ const (
 
 // RegistryEntry describes a single tool in the detection registry.
 type RegistryEntry struct {
-	// Name is the canonical tool name used in results.
 	Name string
-	// Binaries are candidate binary names tried in order by exec.LookPath.
-	Binaries []string
-	// VersionArgs are the arguments passed to the binary to retrieve its version.
+	// Binaries are candidate names tried in order by exec.LookPath.
+	Binaries    []string
 	VersionArgs []string
-	// VersionLinePrefix, when non-empty, causes CaptureVersion to capture the first
-	// output line that starts with this prefix rather than the literal first line.
-	// This handles tools (e.g. elixir, mix) whose --version output leads with an
-	// unrelated banner (Erlang/OTP) before the relevant version line.
+	// VersionLinePrefix picks the first output line with this prefix instead of
+	// the literal first line, for tools that lead with an unrelated banner.
 	VersionLinePrefix string
-	// Category groups the tool by concern.
-	Category ToolCategory
-	// Strategy controls how presence is detected.
-	Strategy DetectionStrategy
-	// InstallDirs are home-relative paths checked when Strategy is directory or both.
-	// A leading "$" prefix means an env var is checked first (e.g. "$ASDF_DIR").
+	Category          ToolCategory
+	Strategy          DetectionStrategy
+	// InstallDirs are home-relative paths for the directory strategies; a leading
+	// "$" names an env var to consult first.
 	InstallDirs []string
 }
 
 // ToolResult holds the detection outcome for a single registry entry.
 type ToolResult struct {
-	// Name matches RegistryEntry.Name.
-	Name string
-	// Category matches RegistryEntry.Category.
-	Category ToolCategory
-	// Installed is true when the tool was found via binary or directory check.
+	Name      string
+	Category  ToolCategory
 	Installed bool
-	// Version is the trimmed first line of the version command output.
-	// Empty string means the binary was not found or detection was directory-only.
-	// "unknown" means the binary was found but the version command errored.
+	// Version is the trimmed version line; empty when the binary was absent or
+	// detection was directory-only, "unknown" when the version command errored.
 	Version string
-	// ResolvedPath is the full path of the resolved binary (empty for directory-only).
+	// ResolvedPath is empty for directory-only detection.
 	ResolvedPath string
-	// SourceClass classifies the resolved binary's origin.
-	SourceClass SourceClass
+	SourceClass  SourceClass
 }
 
-// SourceClass classifies where a binary comes from.
-// When the resolved path is under a known version-manager directory, the value
-// is that manager's name (e.g. "pyenv", "nvm", "asdf"). Otherwise one of the
-// fixed labels below.
+// SourceClass is the version manager's name when the resolved path sits under a
+// known manager directory, otherwise one of the fixed labels below.
 type SourceClass string
 
 const (
-	// SourceBrew is the fixed label for Homebrew-managed binaries.
 	SourceBrew SourceClass = "brew"
-	// SourceSys is the fixed label for system-installed binaries (/usr/bin, /bin, etc.).
-	SourceSys SourceClass = "sys"
+	SourceSys  SourceClass = "sys"
 	// SourceOther is the fallback when no known prefix matches.
 	SourceOther SourceClass = "other"
 )
 
-// DetectOptions configures a DetectAll call. The Home field overrides the user's
-// home directory for testing against a tempdir without reading the real $HOME.
+// DetectOptions configures a DetectAll call. Both fields exist so tests can run
+// against a tempdir and a fixed registry rather than the real $HOME.
 type DetectOptions struct {
-	// Home overrides os.UserHomeDir(). If empty, os.UserHomeDir() is used.
-	Home string
-	// Registry overrides DefaultRegistry() when non-nil; for tests.
+	Home     string
 	Registry []RegistryEntry
 }
 
-// ShellEnvOptions controls DetectShell. All fields are injectable so tests
-// work without reading the real $SHELL, $HOME, or PATH.
+// ShellEnvOptions controls DetectShell. All fields are injectable so tests work
+// without reading the real $SHELL, $HOME, or PATH.
 type ShellEnvOptions struct {
-	// Shell overrides os.Getenv("SHELL"). If empty, os.Getenv("SHELL") is used.
-	Shell string
-	// Home overrides os.UserHomeDir(). If empty, os.UserHomeDir() is used.
-	Home string
-	// LookPath overrides exec.LookPath for framework binary detection (e.g. starship).
-	// If nil, exec.LookPath is used. Injected in tests to avoid real PATH dependency.
+	Shell    string
+	Home     string
 	LookPath func(file string) (string, error)
 }
 
 // ShellResult holds the shell-environment detection output.
 type ShellResult struct {
-	// LoginShell is the value of $SHELL (or the override).
 	LoginShell string
 	// Framework is one of "oh-my-zsh", "prezto", "starship", or empty.
-	Framework string
-	// OhMyZshPlugins enumerates entries under ~/.oh-my-zsh/custom/plugins/.
+	Framework      string
 	OhMyZshPlugins []string
-	// OhMyZshThemes enumerates entries under ~/.oh-my-zsh/custom/themes/.
-	OhMyZshThemes []string
-	// CustomScripts enumerates top-level *.zsh files under ~/.oh-my-zsh/custom/.
-	// oh-my-zsh auto-sources these on shell startup.
+	OhMyZshThemes  []string
+	// CustomScripts are top-level *.zsh files under ~/.oh-my-zsh/custom/, which
+	// oh-my-zsh auto-sources on startup.
 	CustomScripts []string
 }
 
-// DefaultRegistry returns the static detection registry.
-// All 7 categories must be represented. The registry is the sole source of truth;
-// extend it here when adding tools.
+// DefaultRegistry is the sole source of truth for detection; extend it here when
+// adding a tool. All 7 categories must stay represented.
 func DefaultRegistry() []RegistryEntry {
 	return []RegistryEntry{
 		// --- Language runtimes ---
@@ -157,8 +130,7 @@ func DefaultRegistry() []RegistryEntry {
 			Category: CategoryLanguageRuntime, Strategy: StrategyBinary,
 		},
 		{
-			// elixir --version emits the Erlang/OTP banner first, then the Elixir version
-			// line. VersionLinePrefix "Elixir" captures the right line (v2.1 reversal of F-16).
+			// Leads with the Erlang/OTP banner before the Elixir version line.
 			Name: "elixir", Binaries: []string{"elixir"}, VersionArgs: []string{"--version"},
 			VersionLinePrefix: "Elixir",
 			Category:          CategoryLanguageRuntime, Strategy: StrategyBinary,
@@ -210,8 +182,7 @@ func DefaultRegistry() []RegistryEntry {
 			Category: CategoryPackageManager, Strategy: StrategyBinary,
 		},
 		{
-			// mix --version emits the Erlang/OTP banner first, then the Mix version line.
-			// VersionLinePrefix "Mix" captures the right line (v2.1 reversal of F-16).
+			// Leads with the Erlang/OTP banner before the Mix version line.
 			Name: "mix", Binaries: []string{"mix"}, VersionArgs: []string{"--version"},
 			VersionLinePrefix: "Mix",
 			Category:          CategoryPackageManager, Strategy: StrategyBinary,
@@ -234,53 +205,45 @@ func DefaultRegistry() []RegistryEntry {
 		},
 
 		// --- Version managers ---
-		// nvm is a shell function; installed via ~/.nvm directory.
+		// nvm and sdkman are shell functions, never binaries on PATH.
 		{
 			Name: "nvm", Binaries: []string{"nvm"}, VersionArgs: []string{"--version"},
 			Category: CategoryVersionManager, Strategy: StrategyDirectory,
 			InstallDirs: []string{".nvm"},
 		},
-		// pyenv ships a binary on PATH.
 		{
 			Name: "pyenv", Binaries: []string{"pyenv"}, VersionArgs: []string{"--version"},
 			Category: CategoryVersionManager, Strategy: StrategyBoth,
 			InstallDirs: []string{".pyenv"},
 		},
-		// rbenv ships a binary on PATH.
 		{
 			Name: "rbenv", Binaries: []string{"rbenv"}, VersionArgs: []string{"--version"},
 			Category: CategoryVersionManager, Strategy: StrategyBoth,
 			InstallDirs: []string{".rbenv"},
 		},
-		// asdf may use $ASDF_DIR or default ~/.asdf.
 		{
 			Name: "asdf", Binaries: []string{"asdf"}, VersionArgs: []string{"--version"},
 			Category: CategoryVersionManager, Strategy: StrategyBoth,
 			InstallDirs: []string{"$ASDF_DIR", ".asdf"},
 		},
-		// mise (formerly rtx) is a binary.
 		{
 			Name: "mise", Binaries: []string{"mise"}, VersionArgs: []string{"--version"},
 			Category: CategoryVersionManager, Strategy: StrategyBoth,
 			InstallDirs: []string{".local/share/mise"},
 		},
-		// rustup is a binary.
 		{
 			Name: "rustup", Binaries: []string{"rustup"}, VersionArgs: []string{"--version"},
 			Category: CategoryVersionManager, Strategy: StrategyBinary,
 		},
-		// volta is a binary but also has a data dir.
 		{
 			Name: "volta", Binaries: []string{"volta"}, VersionArgs: []string{"--version"},
 			Category: CategoryVersionManager, Strategy: StrategyBoth,
 			InstallDirs: []string{".volta"},
 		},
-		// fnm is a binary.
 		{
 			Name: "fnm", Binaries: []string{"fnm"}, VersionArgs: []string{"--version"},
 			Category: CategoryVersionManager, Strategy: StrategyBinary,
 		},
-		// sdkman is a shell function installed via ~/.sdkman.
 		{
 			Name: "sdkman", Binaries: []string{"sdk"}, VersionArgs: []string{"version"},
 			Category: CategoryVersionManager, Strategy: StrategyDirectory,
@@ -301,8 +264,7 @@ func DefaultRegistry() []RegistryEntry {
 			Category: CategoryContainer, Strategy: StrategyBinary,
 		},
 		{
-			// kubectl version --client --short was removed in newer kubectl versions.
-			// Use version --client instead; the F-3 guard handles any error output.
+			// Newer kubectl dropped --short from `version --client`.
 			Name: "kubectl", Binaries: []string{"kubectl"}, VersionArgs: []string{"version", "--client"},
 			Category: CategoryContainer, Strategy: StrategyBinary,
 		},
@@ -395,7 +357,6 @@ func DefaultRegistry() []RegistryEntry {
 	}
 }
 
-// resolveHome returns the effective home directory for the given options.
 func resolveHome(override string) (string, error) {
 	if override != "" {
 		return override, nil
@@ -403,9 +364,8 @@ func resolveHome(override string) (string, error) {
 	return os.UserHomeDir()
 }
 
-// expandInstallDir resolves a single InstallDirs entry against the home directory.
-// Entries beginning with "$" are treated as env vars; the home parameter is used
-// for relative path entries.
+// expandInstallDir resolves an InstallDirs entry, returning "" for an unset env
+// var so the caller skips that candidate.
 func expandInstallDir(entry string, home string) string {
 	if strings.HasPrefix(entry, "$") {
 		varName := entry[1:]
@@ -413,13 +373,11 @@ func expandInstallDir(entry string, home string) string {
 		if val != "" {
 			return val
 		}
-		// env var absent — fall through returns "" so caller skips this entry.
 		return ""
 	}
 	return filepath.Join(home, entry)
 }
 
-// dirExists reports whether the given path is an existing directory.
 func dirExists(path string) bool {
 	if path == "" {
 		return false
@@ -428,15 +386,13 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// detectEntry runs the detection logic for a single registry entry.
-// home must be the resolved (non-empty) home directory.
+// detectEntry requires an already-resolved, non-empty home.
 func detectEntry(e RegistryEntry, home string) ToolResult {
 	result := ToolResult{
 		Name:     e.Name,
 		Category: e.Category,
 	}
 
-	// Binary check.
 	var resolvedPath string
 	if e.Strategy == StrategyBinary || e.Strategy == StrategyBoth {
 		for _, bin := range e.Binaries {
@@ -452,20 +408,18 @@ func detectEntry(e RegistryEntry, home string) ToolResult {
 		result.Installed = true
 		result.ResolvedPath = resolvedPath
 		result.SourceClass = ClassifySource(resolvedPath)
-		// Only capture version when args are provided; nil/empty means presence-only.
+		// Empty VersionArgs means presence-only.
 		if len(e.VersionArgs) > 0 {
 			result.Version = CaptureVersionWithPrefix(resolvedPath, e.VersionArgs, e.VersionLinePrefix)
 		}
 		return result
 	}
 
-	// Directory check (for directory or both strategies).
 	if e.Strategy == StrategyDirectory || e.Strategy == StrategyBoth {
 		for _, dir := range e.InstallDirs {
 			expanded := expandInstallDir(dir, home)
 			if dirExists(expanded) {
 				result.Installed = true
-				// No binary path or version for directory-only detection.
 				return result
 			}
 		}
@@ -474,15 +428,12 @@ func detectEntry(e RegistryEntry, home string) ToolResult {
 	return result
 }
 
-// detectConcurrency is the maximum number of registry entries detected in parallel.
-// Each detection may spawn a subprocess; bounded concurrency prevents spawning
-// all ~55 subprocesses simultaneously while still parallelizing the wait time.
+// detectConcurrency bounds parallel detections so the whole registry's version
+// subprocesses don't spawn at once.
 const detectConcurrency = 8
 
-// DetectAll runs detection for every registry entry and returns a result per entry.
-// Results are returned in registry order regardless of detection completion order.
-// Detection runs with bounded concurrency (detectConcurrency workers) to avoid
-// spawning all subprocesses simultaneously.
+// DetectAll returns one result per registry entry, in registry order regardless
+// of completion order.
 func DetectAll(opts DetectOptions) []ToolResult {
 	home, err := resolveHome(opts.Home)
 	if err != nil || home == "" {
@@ -495,13 +446,11 @@ func DetectAll(opts DetectOptions) []ToolResult {
 	}
 	results := make([]ToolResult, len(reg))
 
-	// Semaphore limits active subprocesses to detectConcurrency at a time.
 	sem := make(chan struct{}, detectConcurrency)
 	var wg sync.WaitGroup
 
 	for i, e := range reg {
 		wg.Add(1)
-		// Capture loop variables.
 		i, e := i, e
 		go func() {
 			defer wg.Done()
@@ -515,51 +464,34 @@ func DetectAll(opts DetectOptions) []ToolResult {
 	return results
 }
 
-// CaptureVersion runs `binary args...` and returns the trimmed first non-prompt
-// line of combined stdout+stderr output. Returns "unknown" on any error.
-// The binary parameter may be a full path or a name resolvable by exec.LookPath.
+// CaptureVersion returns the first non-prompt line of the binary's combined
+// output, or "unknown".
 //
-// Non-zero exit always yields "unknown", regardless of any output the command
-// produced. This prevents error messages (e.g. rustup "no default toolchain",
-// kubectl "unknown flag: --short") from being recorded as the version.
-//
-// Lines starting with "!" are skipped before taking the first line; this
-// handles corepack-intercepted pnpm/yarn which prefix a download prompt with "!".
+// Non-zero exit yields "unknown" whatever the command printed, so an error
+// message never lands in the version field. Lines starting with "!" are skipped
+// because corepack prefixes a download prompt to pnpm/yarn output.
 func CaptureVersion(binary string, args []string) string {
 	return CaptureVersionWithPrefix(binary, args, "")
 }
 
-// versionCmdTimeout is the per-tool timeout for version commands. One hung
-// --version must not stall the entire detection batch (and therefore not block
-// install, session-start, or manual refresh). Distinct from the refresh-window
-// constant W — this bounds a single subprocess, not the staleness window.
+// versionCmdTimeout keeps one hung --version from stalling the whole detection
+// batch, and with it install, session-start, and manual refresh.
 const versionCmdTimeout = 3 * time.Second
 
-// versionCmdWaitDelay is the additional grace period given after context
-// cancellation for the subprocess's I/O pipes to drain. Some tools (e.g.
-// "sh -c 'sleep N'") spawn child processes that hold the pipe open after the
-// parent is killed; WaitDelay forces Wait to return once this window expires.
-// Keep this well below versionCmdTimeout (currently ~1/6 of it) so the total
-// worst-case wait per entry stays under 2× versionCmdTimeout.
+// versionCmdWaitDelay drains pipes held open by grandchild processes after the
+// parent is killed. Keep it well under versionCmdTimeout so the worst-case wait
+// per entry stays below 2× that timeout.
 const versionCmdWaitDelay = 500 * time.Millisecond
 
-// CaptureVersionWithPrefix is like CaptureVersion but when prefix is non-empty,
-// returns the first output line that starts with prefix (trimmed) instead of the
-// literal first line. Returns "unknown" if no matching line is found.
-// This handles tools like elixir and mix whose --version output leads with an
-// unrelated Erlang/OTP banner before the relevant version line.
+// CaptureVersionWithPrefix returns the first output line starting with prefix,
+// or "unknown" when none matches. Empty prefix behaves like CaptureVersion.
 func CaptureVersionWithPrefix(binary string, args []string, prefix string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), versionCmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, args...) //nolint:gosec // binary comes from the registry, not user input
-	// WaitDelay ensures CombinedOutput returns promptly after context cancellation
-	// even when child processes hold the I/O pipe open after the parent is killed.
 	cmd.WaitDelay = versionCmdWaitDelay
-	// Capture combined output (some tools write version to stderr, e.g. java).
+	// Combined, because some tools (java) write the version to stderr.
 	out, err := cmd.CombinedOutput()
-	// Non-zero exit or context timeout → unknown, regardless of any output.
-	// This prevents error messages (and timed-out partial output) from being
-	// recorded as the version string.
 	if err != nil {
 		return "unknown"
 	}
@@ -570,24 +502,18 @@ func CaptureVersionWithPrefix(binary string, args []string, prefix string) strin
 			continue
 		}
 		if prefix != "" {
-			// Prefix mode: return the first line that starts with the given prefix.
 			if strings.HasPrefix(line, prefix) {
 				return line
 			}
-			// Keep scanning for a matching line.
 			continue
 		}
-		// No-prefix mode: return the first non-empty, non-prompt line.
 		return line
 	}
-	// Either no line matched the prefix, or the output was entirely empty/skipped.
 	return "unknown"
 }
 
-// vmPathRules maps a path substring to the version-manager name it signals.
-// Checked in declaration order; first match wins. Entries are ordered so that
-// more-specific substrings appear before less-specific ones to avoid false
-// positives (e.g. "/.volta/tools/" before "/.volta/").
+// vmPathRules maps a path substring to the version manager it signals. First
+// match wins, so more-specific substrings must come first.
 var vmPathRules = []struct {
 	substr  string
 	manager SourceClass
@@ -606,22 +532,16 @@ var vmPathRules = []struct {
 	{"/.rustup/toolchains/", "rustup"},
 }
 
-// ClassifySource determines where a binary came from based on its resolved path.
-// When the path is under a known version-manager directory, the manager's name is
-// returned (e.g. "pyenv", "nvm"). Otherwise one of the fixed labels: "brew", "sys",
-// or "other".
+// ClassifySource maps a resolved binary path to its origin.
 func ClassifySource(path string) SourceClass {
-	// Version-manager paths — checked first; return manager name directly.
 	for _, rule := range vmPathRules {
 		if strings.Contains(path, rule.substr) {
 			return rule.manager
 		}
 	}
 
-	// Homebrew paths. These are checked BEFORE system paths because
-	// /usr/local/Cellar/ and /usr/local/opt/ share the /usr/local/ prefix with
-	// /usr/local/bin/. Swapping the order would misclassify Homebrew binaries as
-	// system — the ordering here is load-bearing.
+	// Homebrew must precede the system check: /usr/local/Cellar/ and
+	// /usr/local/opt/ share the /usr/local/ prefix with /usr/local/bin/.
 	homebrewPrefixes := []string{
 		"/opt/homebrew/",
 		"/usr/local/Cellar/",
@@ -635,7 +555,6 @@ func ClassifySource(path string) SourceClass {
 		}
 	}
 
-	// System paths (non-Homebrew /usr/local/bin counts as system).
 	systemPrefixes := []string{
 		"/usr/bin/",
 		"/bin/",
@@ -652,8 +571,7 @@ func ClassifySource(path string) SourceClass {
 	return SourceOther
 }
 
-// DetectShell detects the login shell and shell framework via filesystem probes.
-// The ShellEnvOptions fields allow injection of $SHELL and $HOME for testing.
+// DetectShell probes the filesystem for the login shell and its framework.
 func DetectShell(opts ShellEnvOptions) ShellResult {
 	shell := opts.Shell
 	if shell == "" {
@@ -667,13 +585,12 @@ func DetectShell(opts ShellEnvOptions) ShellResult {
 
 	result := ShellResult{LoginShell: shell}
 
-	// Resolve the LookPath function — use the injected seam or fall back to exec.LookPath.
 	lookPath := opts.LookPath
 	if lookPath == nil {
 		lookPath = exec.LookPath
 	}
 
-	// Framework detection (first match wins).
+	// First match wins.
 	switch {
 	case dirExists(filepath.Join(home, ".oh-my-zsh")):
 		result.Framework = "oh-my-zsh"
@@ -683,7 +600,6 @@ func DetectShell(opts ShellEnvOptions) ShellResult {
 	case dirExists(filepath.Join(home, ".zprezto")):
 		result.Framework = "prezto"
 	default:
-		// Check for starship binary via the injectable seam.
 		if _, err := lookPath("starship"); err == nil {
 			result.Framework = "starship"
 		}
@@ -692,9 +608,7 @@ func DetectShell(opts ShellEnvOptions) ShellResult {
 	return result
 }
 
-// enumerateZshFiles returns the names of top-level *.zsh files in dir.
-// Subdirectories and non-.zsh files are excluded.
-// Returns nil if the directory does not exist or cannot be read.
+// enumerateZshFiles returns nil for an unreadable or missing dir.
 func enumerateZshFiles(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -712,8 +626,7 @@ func enumerateZshFiles(dir string) []string {
 	return names
 }
 
-// enumerateDir returns the names of all top-level entries in dir.
-// Returns nil if the directory does not exist or cannot be read.
+// enumerateDir returns nil for an unreadable or missing dir.
 func enumerateDir(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

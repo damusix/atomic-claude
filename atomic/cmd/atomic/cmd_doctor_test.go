@@ -7,10 +7,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// The contract these tests pin: `atomic doctor --fix` must exit on what is true
-// after repairs, not on the verdict that triggered them. A caller gating CI on
-// the exit code has to be able to distinguish "found problems and fixed them"
-// from "still broken"; reporting the pre-repair code collapses both to 1.
+// `doctor --fix` must exit on what is true after repairs, not on the verdict
+// that triggered them.
 
 func TestPostRepairExitCode_noRepairsKeepsOriginalVerdict(t *testing.T) {
 	called := false

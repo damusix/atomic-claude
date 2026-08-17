@@ -41,7 +41,6 @@ func TestCheckConfig_noTOML(t *testing.T) {
 	if r.Detail == "" {
 		t.Error("detail is empty")
 	}
-	// Must mention defaults
 	if !strings.Contains(r.Detail, "defaults") {
 		t.Errorf("detail %q: want mention of 'defaults'", r.Detail)
 	}
@@ -60,7 +59,6 @@ func TestCheckConfig_unparseableTOML(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_unknownKey: TOML with unknown section → WARN listing the key.
 func TestCheckConfig_unknownKey(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[unknown]\nfoo = \"bar\"\n")
@@ -74,7 +72,6 @@ func TestCheckConfig_unknownKey(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_invalidValue: known key, out-of-enum value → FAIL with Validate error.
 func TestCheckConfig_invalidValue(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[output.signals]\nmax_depth = 0\n")
@@ -92,23 +89,19 @@ func TestRepairPlan_configFAIL_notFixable(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[output.signals]\nmax_depth = 0\n")
 
-	// RunCheckConfigWith returns FAIL for invalid values.
 	r := doctor.RunCheckConfigWith(root)
 	if r.Severity != doctor.FAIL {
 		t.Fatalf("precondition: severity = %q, want FAIL", r.Severity)
 	}
 
-	// Inject the name so repairPlan can look it up.
+	// repairPlan keys off Name and is unexported, so drive it through Repair.
 	r.Name = "config"
 
-	// repairPlan is not exported; drive it through Repair with a fake prompter
-	// that should never be called (because non-fixable items skip the prompt).
 	var repairCalled bool
 	rp := doctor.DefaultRepairer()
 
 	nopPrompter := &alwaysYesPrompter{}
 	var buf strings.Builder
-	// Pass the single FAIL result — Repair should report it as NonFixable.
 	summary := rp.Repair([]doctor.Result{r}, doctor.Opts{}, nopPrompter, &buf)
 	if summary.NonFixable != 1 {
 		t.Errorf("NonFixable = %d, want 1; output:\n%s", summary.NonFixable, buf.String())
@@ -131,7 +124,6 @@ func TestCheckConfig_noInstallTable(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_invalidInstallVersion: non-semver install.version → FAIL.
 func TestCheckConfig_invalidInstallVersion(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[install]\nversion = \"not-a-semver\"\n")
@@ -145,7 +137,6 @@ func TestCheckConfig_invalidInstallVersion(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_validInstallVersion: parseable install.version + in-sync resolved → PASS.
 func TestCheckConfig_validInstallVersion(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, `[install]
@@ -172,9 +163,7 @@ rules = []
 
 // --- [claude.agents] doctor tests ---
 
-// TestCheckConfig_agents_invalidEffort: [claude.agents.<name>] with an invalid
-// effort value → FAIL. effort is validated against a strict enum; model is
-// lenient (see TestCheckConfig_agents_arbitraryModelNotFail).
+// effort is a strict enum; model is lenient.
 func TestCheckConfig_agents_invalidEffort(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[claude.agents.atomic-implementer]\neffort = \"turbo\"\n")
@@ -191,9 +180,8 @@ func TestCheckConfig_agents_invalidEffort(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_agents_arbitraryModelNotFail: [claude.agents] model value
-// is lenient — any well-formed string passes doctor's config check, since
-// Claude Code (not atomic) resolves the model name.
+// Claude Code, not atomic, resolves the model name, so any well-formed string
+// has to pass here.
 func TestCheckConfig_agents_arbitraryModelNotFail(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[claude.agents.atomic-implementer]\nmodel = \"turbo\"\n")
@@ -204,7 +192,6 @@ func TestCheckConfig_agents_arbitraryModelNotFail(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_agents_unknownAgent: [claude.agents] with an unknown agent key → WARN, not FAIL.
 func TestCheckConfig_agents_unknownAgent(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[claude.agents.made-up-agent]\nmodel = \"haiku\"\n")
@@ -218,7 +205,6 @@ func TestCheckConfig_agents_unknownAgent(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_agents_valid: [claude.agents] with known agents + valid model/effort → PASS (when resolved synced).
 func TestCheckConfig_agents_valid(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, `[claude.agents.atomic-implementer]
@@ -243,10 +229,8 @@ model = "opus"
 	}
 }
 
-// --- [repl] idle_timeout (atomic-repl) ---
+// --- [repl] idle_timeout ---
 
-// TestCheckConfig_invalidIdleTimeout: an unparseable repl.idle_timeout → FAIL
-// naming the offending value.
 func TestCheckConfig_invalidIdleTimeout(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[repl]\nidle_timeout = \"turbo\"\n")
@@ -260,8 +244,7 @@ func TestCheckConfig_invalidIdleTimeout(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_zeroIdleTimeout: a zero-duration repl.idle_timeout → FAIL —
-// zero means invalid, never "disable".
+// Zero means invalid, never "disable".
 func TestCheckConfig_zeroIdleTimeout(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[repl]\nidle_timeout = \"0s\"\n")
@@ -272,8 +255,6 @@ func TestCheckConfig_zeroIdleTimeout(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_validIdleTimeout: a well-formed repl.idle_timeout with a
-// synced resolved.md → PASS.
 func TestCheckConfig_validIdleTimeout(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[repl]\nidle_timeout = \"45m\"\n")
@@ -290,7 +271,7 @@ func TestCheckConfig_validIdleTimeout(t *testing.T) {
 	}
 }
 
-// --- Chronic background-update-check failure (selfupdate-state) ---
+// --- Chronic background-update-check failure ---
 
 // writeUpdateState writes a selfupdate.State to <root>/.atomic/state.json.
 func writeUpdateState(t *testing.T, root string, s selfupdate.State) {
@@ -301,10 +282,8 @@ func writeUpdateState(t *testing.T, root string, s selfupdate.State) {
 	}
 }
 
-// TestCheckConfig_chronicUpdateFailure_WARN: a non-empty update.last_result
-// (runUpdateCheck writes LastResult="" on success, lookupErr.Error() or
-// stageErr.Error() on failure) surfaces as WARN naming the recorded failure
-// text, even though config.toml itself is absent (otherwise PASS).
+// A non-empty last_result is how the background check records a failure, and
+// it must surface even with config.toml absent (which alone would PASS).
 func TestCheckConfig_chronicUpdateFailure_WARN(t *testing.T) {
 	root := t.TempDir()
 	lastCheck := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
@@ -324,9 +303,7 @@ func TestCheckConfig_chronicUpdateFailure_WARN(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_chronicUpdateFailure_emptySuccess_noFinding: an empty
-// update.last_result (runUpdateCheck writes LastResult="" on a successful
-// check) is healthy and must not produce a finding; PASS is preserved.
+// An empty last_result is what a successful check writes, so it is healthy.
 func TestCheckConfig_chronicUpdateFailure_emptySuccess_noFinding(t *testing.T) {
 	root := t.TempDir()
 	writeUpdateState(t, root, selfupdate.State{
@@ -343,12 +320,10 @@ func TestCheckConfig_chronicUpdateFailure_emptySuccess_noFinding(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_chronicUpdateFailure_missingStateFile_noFinding: no
-// state.json at all (LoadState's zero-value contract) must not produce a
-// finding — absence is not itself a failure signal.
+// An absent state file is not itself a failure signal.
 func TestCheckConfig_chronicUpdateFailure_missingStateFile_noFinding(t *testing.T) {
 	root := t.TempDir()
-	// Deliberately do NOT write state.json.
+	// Deliberately no state.json.
 
 	r := doctor.RunCheckConfigWith(root)
 	if r.Severity != doctor.PASS {
@@ -356,10 +331,8 @@ func TestCheckConfig_chronicUpdateFailure_missingStateFile_noFinding(t *testing.
 	}
 }
 
-// TestCheckConfig_chronicUpdateFailure_neverEscalatesToFAIL: category
-// severity ceiling for this finding is WARN, never FAIL — a chronic update
-// failure alone (independent of config.toml validity) must not FAIL the
-// category.
+// This finding's severity ceiling is WARN: a failing background check is not
+// a config validity problem.
 func TestCheckConfig_chronicUpdateFailure_neverEscalatesToFAIL(t *testing.T) {
 	root := t.TempDir()
 	writeUpdateState(t, root, selfupdate.State{

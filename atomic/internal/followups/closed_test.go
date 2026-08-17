@@ -25,23 +25,18 @@ func TestAppendClosed_Basic(t *testing.T) {
 	}
 	content := string(raw)
 
-	// Must contain the id
 	if !strings.Contains(content, "atomic-doctor-F-2") {
 		t.Errorf("missing id in output:\n%s", content)
 	}
-	// Must contain quoted title
 	if !strings.Contains(content, `"gitToplevel called 3× per run"`) {
 		t.Errorf("missing quoted title in output:\n%s", content)
 	}
-	// Must contain the marker
 	if !strings.Contains(content, "design promoted to spec") {
 		t.Errorf("missing marker in output:\n%s", content)
 	}
-	// Must contain the date
 	if !strings.Contains(content, "2026-05-21") {
 		t.Errorf("missing date in output:\n%s", content)
 	}
-	// Must be a single line per entry (no internal newlines in the line)
 	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
 	entryLines := 0
 	for _, l := range lines {
@@ -66,7 +61,6 @@ func TestAppendClosed_Format(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	content := strings.TrimRight(string(raw), "\n")
 
-	// Expected format: - YYYY-MM-DD <id> — "<title>" — <marker>
 	expected := `- 2026-05-21 my-feature-F-1 — "some title" — shipped in v2`
 	if content != expected {
 		t.Errorf("format mismatch:\ngot:  %q\nwant: %q", content, expected)
@@ -77,7 +71,6 @@ func TestAppendClosed_MultilineMarkerCollapsed(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "CLOSED.md")
 
-	// Marker with embedded newlines should be collapsed to spaces
 	marker := "line one\nline two\nline three"
 	err := AppendClosed(path, "my-F-1", "title", marker, closedTestTime)
 	if err != nil {
@@ -87,7 +80,6 @@ func TestAppendClosed_MultilineMarkerCollapsed(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	content := string(raw)
 
-	// Must not contain raw newlines inside the marker
 	line := strings.TrimRight(content, "\n")
 	if strings.Contains(line, "\n") {
 		t.Errorf("entry line contains embedded newlines:\n%s", content)
@@ -101,7 +93,6 @@ func TestAppendClosed_TitleEscaping(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "CLOSED.md")
 
-	// Title with embedded double-quote should be escaped
 	err := AppendClosed(path, "my-F-1", `title with "quotes" inside`, "done", closedTestTime)
 	if err != nil {
 		t.Fatalf("AppendClosed: %v", err)
@@ -119,13 +110,11 @@ func TestAppendClosed_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "CLOSED.md")
 
-	// First close
 	err := AppendClosed(path, "dedup-F-1", "some title", "first marker", closedTestTime)
 	if err != nil {
 		t.Fatalf("first AppendClosed: %v", err)
 	}
 
-	// Second close with same id on same date → must not double-append
 	err = AppendClosed(path, "dedup-F-1", "some title", "first marker", closedTestTime)
 	if err != nil {
 		t.Fatalf("second AppendClosed: %v", err)
@@ -134,7 +123,6 @@ func TestAppendClosed_Idempotent(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	content := string(raw)
 
-	// Count occurrences of the id
 	count := strings.Count(content, "dedup-F-1")
 	if count != 1 {
 		t.Errorf("expected 1 occurrence of id, got %d:\n%s", count, content)

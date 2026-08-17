@@ -1,59 +1,11 @@
-// Package frameworks — Java Spring framework resolver (batch D).
+// Spring MVC / Spring Boot resolver.
 //
-// This file implements one FrameworkResolver + FrameworkExtractor pair for
-// Spring MVC / Spring Boot.
-//
-// # Language
-//
-// The resolver sets Language = types.LanguageJava.
-//
-// # Comment stripping
-//
-// Java comments use the same delimiters as JS/TS:
-//   - Single-line: // to end of line.
-//   - Block: /* ... */ (can span lines).
-//
-// stripJSComments (defined in frameworks.go) handles both — no Java-specific
-// stripper needed. Comments are stripped before route regexes run, so
-// commented-out annotations never emit route nodes.
-//
-// # Route node format (appendix H — via MakeRouteNode)
-//
-//	id:            route:{filePath}:{line}:{METHOD}:{path}
-//	qualifiedName: {filePath}::METHOD:{path}
-//	name:          "METHOD /path"
-//
-// # Spring MVC annotation model
-//
-// Class-level annotations establish a route prefix:
-//   - @RequestMapping("/prefix") on a class sets the prefix.
-//   - @RestController alone contributes no prefix (empty string).
-//
-// Method-level annotations define sub-paths and HTTP methods:
-//   - @GetMapping("/sub") → GET prefix+sub
-//   - @PostMapping("/sub") → POST prefix+sub
-//   - @PutMapping("/sub") → PUT prefix+sub
-//   - @DeleteMapping("/sub") → DELETE prefix+sub
-//   - @PatchMapping("/sub") → PATCH prefix+sub
-//   - @RequestMapping(value="/sub", method=RequestMethod.GET) → GET prefix+sub
-//   - @RequestMapping("/sub") (no method) → ANY prefix+sub
-//
-// The bounded-handler-lookahead is the same pattern as nestHandlerName
-// in node.go: scan forward line-by-line, skip blank lines and @annotation
-// lines, stop at '}' or a class/field declaration, return the method name
-// from the first public/private/protected method definition.
-//
-// # Prefix tracking
-//
-// Collect all @RequestMapping positions + prefixes on the class (outside any
-// method body, at indentation ≤ 4 spaces to distinguish class-level from
-// method-level). For each method annotation, find the most-recently-declared
-// class-level prefix (same strategy as NestJS controller tracking).
-//
-// # Detect
-//
-// Primary: pom.xml or build.gradle containing "org.springframework".
-// Fallback: any .java file in projectRoot containing an org.springframework import.
+// A route's path is split across two annotations: a class-level
+// @RequestMapping supplies the prefix, a method-level mapping supplies the
+// sub-path and the HTTP method. Since the same @RequestMapping annotation can
+// appear in either position, the class-level ones are identified first (their
+// next meaningful line is a class declaration) and each method annotation then
+// takes the nearest preceding one as its prefix.
 package frameworks
 
 import (
@@ -68,70 +20,39 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Spring regexes
-// ---------------------------------------------------------------------------
-
-// springClassMappingRe matches a class-level @RequestMapping with a path arg:
-//
-//	@RequestMapping("/prefix")
-//	@RequestMapping(value = "/prefix")
-//
-// Capture group 1 = prefix path.
+// springClassMappingRe captures the prefix from `@RequestMapping("/p")`, in
+// both the bare and value= forms.
 var springClassMappingRe = regexp.MustCompile(
 	`@RequestMapping\s*\(\s*(?:value\s*=\s*)?["']([^"']+)["']\s*\)`,
 )
 
-// springMethodAnnotationRe matches method-level mapping annotations:
-//
-//	@GetMapping("/sub")
-//	@PostMapping
-//	@PutMapping("/sub")
-//	@DeleteMapping("/sub")
-//	@PatchMapping("/sub")
-//
-// Capture groups: 1=verb (Get|Post|Put|Delete|Patch), 2=sub-path (may be empty string).
+// springMethodAnnotationRe matches `@GetMapping("/sub")` and its siblings.
+// Groups: verb, sub-path — the path is optional.
 var springMethodAnnotationRe = regexp.MustCompile(
 	`@(Get|Post|Put|Delete|Patch)Mapping\s*(?:\(\s*(?:value\s*=\s*)?["']([^"']*)["']\s*\))?`,
 )
 
-// springRequestMappingMethodRe matches @RequestMapping with explicit method:
-//
-//	@RequestMapping(value = "/sub", method = RequestMethod.GET)
-//	@RequestMapping(value = "/sub", method = RequestMethod.POST)
-//
-// Capture groups: 1=value path, 2=HTTP method verb (GET|POST|...).
+// springRequestMappingMethodRe matches `@RequestMapping(value = "/sub",
+// method = RequestMethod.GET)`. Groups: path, verb.
 var springRequestMappingMethodRe = regexp.MustCompile(
 	`@RequestMapping\s*\(\s*(?:value\s*=\s*)?["']([^"']+)["']\s*,\s*method\s*=\s*RequestMethod\.([A-Z]+)\s*\)`,
 )
 
-// springRequestMappingNoMethodRe matches @RequestMapping with a path but NO method= clause.
-// We use a negative approach: match path-only forms that don't contain "method=".
-//
-// Capture group 1 = path.
+// springRequestMappingNoMethodRe matches only the path-only form; a match here
+// means the route accepts any method.
 var springRequestMappingNoMethodRe = regexp.MustCompile(
 	`@RequestMapping\s*\(\s*(?:value\s*=\s*)?["']([^"']+)["']\s*\)`,
 )
 
-// springHandlerDefRe matches a Java method definition line after skipping annotations.
-// Captures the method name.
 var springHandlerDefRe = regexp.MustCompile(
 	`^\s*(?:public|private|protected)(?:\s+static)?(?:\s+final)?(?:\s+\w[\w<>[\], ]*)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(`,
 )
 
-// springClassDeclRe matches a Java class or interface declaration line.
 var springClassDeclRe = regexp.MustCompile(`(?m)^\s*(?:public\s+|private\s+|protected\s+|abstract\s+|final\s+)*(?:class|interface|enum)\s+[A-Za-z_$]`)
 
-// ---------------------------------------------------------------------------
-// Spring helper: handler name lookup
-// ---------------------------------------------------------------------------
-
-// springHandlerName scans forward line-by-line from rest (text after a method
-// annotation) to find the Java method definition that follows. It skips:
-//   - blank lines
-//   - lines starting with '@' (stacked annotations like @ResponseBody, @Valid)
-//
-// Returns "" if a class/interface boundary (line starts with '}') is reached.
+// springHandlerName finds the method an annotation decorates, skipping blank
+// lines and stacked annotations. It gives up at a class boundary rather than
+// attribute a method from the next class.
 func springHandlerName(rest string) string {
 	for _, line := range strings.Split(rest, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -147,22 +68,18 @@ func springHandlerName(rest string) string {
 		if m := springHandlerDefRe.FindStringSubmatch(line); m != nil {
 			return m[1]
 		}
-		// Non-annotation, non-blank line that isn't a method def — stop.
 		return ""
 	}
 	return ""
 }
 
-// springPrefixEntry holds a class-level @RequestMapping position and its prefix.
 type springPrefixEntry struct {
 	offset int
 	prefix string
 }
 
-// isClassLevelOffset returns true if the given match offset corresponds to one
-// of the collected class-level @RequestMapping prefix entries. Used by sections
-// 2 and 3 of Extract to skip class-level @RequestMapping annotations that were
-// already captured as prefix entries.
+// isClassLevelOffset keeps a class-level @RequestMapping from being re-read as
+// a route of its own; it has already contributed a prefix.
 func isClassLevelOffset(classPrefixes []springPrefixEntry, offset int) bool {
 	for _, p := range classPrefixes {
 		if p.offset == offset {
@@ -172,9 +89,8 @@ func isClassLevelOffset(classPrefixes []springPrefixEntry, offset int) bool {
 	return false
 }
 
-// springJoinPaths joins a class-level prefix with a method-level sub-path.
-// Both may or may not have leading slashes; the result always has exactly one
-// leading slash.
+// springJoinPaths normalises to exactly one leading slash, whether or not
+// either half carries its own.
 func springJoinPaths(prefix, sub string) string {
 	prefix = strings.TrimPrefix(prefix, "/")
 	sub = strings.TrimPrefix(sub, "/")
@@ -190,46 +106,33 @@ func springJoinPaths(prefix, sub string) string {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Spring resolver
-// ---------------------------------------------------------------------------
-
-// SpringResolver implements FrameworkResolver + FrameworkExtractor for Spring MVC.
 type SpringResolver struct {
 	projectRoot string
 	claimed     map[string]bool
 }
 
-// NewSpringResolver creates a SpringResolver.
 func NewSpringResolver(projectRoot string) *SpringResolver {
 	return &SpringResolver{projectRoot: projectRoot, claimed: make(map[string]bool)}
 }
 
-// Name returns "spring".
 func (r *SpringResolver) Name() string { return "spring" }
 
-// Languages returns [LanguageJava].
 func (r *SpringResolver) Languages() []types.Language {
 	return []types.Language{types.LanguageJava}
 }
 
-// Detect returns true when the project uses Spring:
-//  1. pom.xml or build.gradle contains "org.springframework".
-//  2. Fallback: any .java file in projectRoot contains an org.springframework import.
+// Detect reads the build file first, then falls back to source imports.
 func (r *SpringResolver) Detect(_ context.Context) bool {
-	// Primary: pom.xml
 	if data, err := os.ReadFile(filepath.Join(r.projectRoot, "pom.xml")); err == nil {
 		if strings.Contains(string(data), "org.springframework") {
 			return true
 		}
 	}
-	// Primary: build.gradle
 	if data, err := os.ReadFile(filepath.Join(r.projectRoot, "build.gradle")); err == nil {
 		if strings.Contains(string(data), "org.springframework") {
 			return true
 		}
 	}
-	// Fallback: scan top-level .java files
 	entries, err := os.ReadDir(r.projectRoot)
 	if err != nil {
 		return false
@@ -249,17 +152,6 @@ func (r *SpringResolver) Detect(_ context.Context) bool {
 	return false
 }
 
-// Extract scans filePath/content for Spring MVC route annotations and returns
-// route nodes + handler references.
-//
-// Strategy:
-//  1. Strip comments.
-//  2. Collect class-level @RequestMapping positions and their prefixes.
-//  3. For each method annotation, find the active class-level prefix
-//     (the last class-level @RequestMapping before this offset).
-//  4. Determine sub-path + HTTP method from the annotation form.
-//  5. Bounded-lookahead to find the Java method name.
-//  6. Build route node via MakeRouteNode + emit handler ref.
 func (r *SpringResolver) Extract(filePath, content string) ([]types.Node, []types.UnresolvedReference) {
 	stripped := stripJSComments(content)
 	totalLines := strings.Count(content, "\n") + 1
@@ -267,28 +159,14 @@ func (r *SpringResolver) Extract(filePath, content string) ([]types.Node, []type
 	var nodes []types.Node
 	var refs []types.UnresolvedReference
 
-	// Collect class-level @RequestMapping positions and prefixes.
-	//
-	// Strategy: a class-level @RequestMapping appears BEFORE the class body
-	// opening brace '{'. We track class declaration positions by finding
-	// "class " or "interface " keywords, and for each class declaration we
-	// look for @RequestMapping annotations that precede the class body '{'.
-	//
-	// Simpler robust approach: mark positions of class-body opening braces
-	// (lines containing exactly "public class Foo" / "class Foo" followed
-	// eventually by '{'), then for each @RequestMapping match determine whether
-	// it sits between a class keyword and its opening '{'.
-	//
-	// Even simpler: look for @RequestMapping annotations whose NEXT
-	// non-blank, non-annotation line contains "class " or "interface ".
+	// An annotation is class-level when its next meaningful line declares a
+	// class — cheaper and more robust than tracking class-body brace spans.
 	var classPrefixes []springPrefixEntry
 
 	for _, loc := range springClassMappingRe.FindAllStringSubmatchIndex(stripped, -1) {
 		if len(loc) < 4 {
 			continue
 		}
-		// Check if this is followed by a class declaration (possibly with other
-		// annotations between them). Scan forward from loc[1].
 		isClassLevel := false
 		rest := stripped[loc[1]:]
 		for _, line := range strings.Split(rest, "\n") {
@@ -299,7 +177,6 @@ func (r *SpringResolver) Extract(filePath, content string) ([]types.Node, []type
 			if strings.HasPrefix(trimmed, "@") {
 				continue // stacked annotations
 			}
-			// If the next meaningful line is a class/interface declaration → class-level
 			if springClassDeclRe.MatchString(line) {
 				isClassLevel = true
 			}
@@ -312,7 +189,6 @@ func (r *SpringResolver) Extract(filePath, content string) ([]types.Node, []type
 		classPrefixes = append(classPrefixes, springPrefixEntry{offset: loc[0], prefix: prefix})
 	}
 
-	// Helper: active prefix at the given offset.
 	activePrefix := func(offset int) string {
 		prefix := ""
 		for _, p := range classPrefixes {
@@ -323,7 +199,6 @@ func (r *SpringResolver) Extract(filePath, content string) ([]types.Node, []type
 		return prefix
 	}
 
-	// 1. Shorthand mapping annotations: @GetMapping, @PostMapping, etc.
 	for _, loc := range springMethodAnnotationRe.FindAllStringSubmatchIndex(stripped, -1) {
 		if len(loc) < 4 {
 			continue
@@ -350,7 +225,6 @@ func (r *SpringResolver) Extract(filePath, content string) ([]types.Node, []type
 		r.emitSpringRoute(filePath, line, method, fullPath, handlerName, &nodes, &refs)
 	}
 
-	// 2. @RequestMapping with explicit method=RequestMethod.VERB
 	for _, loc := range springRequestMappingMethodRe.FindAllStringSubmatchIndex(stripped, -1) {
 		if len(loc) < 6 {
 			continue
@@ -364,7 +238,6 @@ func (r *SpringResolver) Extract(filePath, content string) ([]types.Node, []type
 			line = totalLines
 		}
 
-		// Skip class-level matches (those captured in classPrefixes).
 		if isClassLevelOffset(classPrefixes, matchOffset) {
 			continue
 		}
@@ -377,11 +250,8 @@ func (r *SpringResolver) Extract(filePath, content string) ([]types.Node, []type
 		r.emitSpringRoute(filePath, line, method, fullPath, handlerName, &nodes, &refs)
 	}
 
-	// 3. @RequestMapping with path but NO method= → ANY
-	// Skip matches that were already captured as class-level prefixes or as
-	// method= forms (which springRequestMappingMethodRe already consumed).
-	//
-	// Build a set of offsets matched by the method= form to deduplicate.
+	// The path-only form overlaps the method= form's matches, so those offsets
+	// are collected first and skipped below.
 	methodFormOffsets := make(map[int]bool)
 	for _, mloc := range springRequestMappingMethodRe.FindAllStringIndex(stripped, -1) {
 		methodFormOffsets[mloc[0]] = true
@@ -394,12 +264,10 @@ func (r *SpringResolver) Extract(filePath, content string) ([]types.Node, []type
 		subPath := stripped[loc[2]:loc[3]]
 		matchOffset := loc[0]
 
-		// Skip class-level prefixes.
 		if isClassLevelOffset(classPrefixes, matchOffset) {
 			continue
 		}
 
-		// Skip if already handled by method= form.
 		if methodFormOffsets[matchOffset] {
 			continue
 		}
@@ -420,7 +288,7 @@ func (r *SpringResolver) Extract(filePath, content string) ([]types.Node, []type
 	return nodes, refs
 }
 
-// emitSpringRoute builds a route node + references ref and appends them.
+// emitSpringRoute appends the route node and its handler ref.
 func (r *SpringResolver) emitSpringRoute(
 	filePath string,
 	line int,
@@ -448,10 +316,8 @@ func (r *SpringResolver) emitSpringRoute(
 	}
 }
 
-// ClaimsReference returns true if a handler with this name was seen in Extract.
 func (r *SpringResolver) ClaimsReference(name string) bool { return r.claimed[name] }
 
-// Resolve returns confidence 0.85 for claimed handlers.
 func (r *SpringResolver) Resolve(ctx context.Context, ref types.UnresolvedReference) (resolution.ResolvedRef, error) {
 	if !r.claimed[ref.ReferenceName] {
 		return resolution.ResolvedRef{}, nil

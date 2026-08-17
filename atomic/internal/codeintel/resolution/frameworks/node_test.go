@@ -1,20 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for batch C: Node/JS-TS web frameworks.
-//
-// Frameworks: nestjs, koa, hapi, fastify, sails, adonisjs.
-//
-// Per-framework coverage:
-//  1. Detect true on a realistic package.json fixture + false on unrelated dir.
-//  2. Extract emits ≥1 route node (exact appendix-H id/qn/name via MakeRouteNode) + handler ref.
-//  3. Commented JS route (stripJSComments) emits nothing.
-//  4. ClaimsReference true for extracted handler, false for unseen.
-//  5. Resolve returns confidence 0.8–0.9.
-//
-// NestJS-specific: controller-prefix join, decorator scanning.
-// Hapi-specific: method-array fan-out.
-// Fastify-specific: object form with `url` field.
-// Sails/Adonis: action-string last-segment handler.
+// NestJS, Koa, Hapi, Fastify, Sails, and AdonisJS resolver tests.
 
 import (
 	"context"
@@ -25,10 +11,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution/frameworks"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// NestJS tests
-// ---------------------------------------------------------------------------
 
 func TestNestJSDetect_PackageJSON(t *testing.T) {
 	dir := t.TempDir()
@@ -201,10 +183,6 @@ export class AppController {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Koa tests
-// ---------------------------------------------------------------------------
-
 func TestKoaDetect_PackageJSON(t *testing.T) {
 	dir := t.TempDir()
 	pkgJSON := `{"dependencies": {"koa": "^2.14.0", "koa-router": "^12.0.0"}}`
@@ -321,10 +299,6 @@ func TestKoaResolve_Confidence(t *testing.T) {
 		t.Errorf("Koa.Resolve: confidence want 0.8–0.9, got %v", result.Confidence)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Hapi tests
-// ---------------------------------------------------------------------------
 
 func TestHapiDetect_PackageJSON(t *testing.T) {
 	dir := t.TempDir()
@@ -515,10 +489,6 @@ func TestHapiResolve_Confidence(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Fastify tests
-// ---------------------------------------------------------------------------
-
 func TestFastifyDetect_PackageJSON(t *testing.T) {
 	dir := t.TempDir()
 	pkgJSON := `{"dependencies": {"fastify": "^4.0.0"}}`
@@ -653,10 +623,6 @@ func TestFastifyResolve_Confidence(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Sails tests
-// ---------------------------------------------------------------------------
-
 func TestSailsDetect_PackageJSON(t *testing.T) {
 	dir := t.TempDir()
 	pkgJSON := `{"dependencies": {"sails": "^1.5.0"}}`
@@ -786,10 +752,6 @@ func TestSailsResolve_Confidence(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// AdonisJS tests
-// ---------------------------------------------------------------------------
-
 func TestAdonisDetect_PackageJSON(t *testing.T) {
 	dir := t.TempDir()
 	pkgJSON := `{"dependencies": {"@adonisjs/core": "^6.0.0"}}`
@@ -908,10 +870,6 @@ func TestAdonisResolve_Confidence(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// NestJS: two @Controller classes in one file — document-order prefix isolation
-// ---------------------------------------------------------------------------
-
 // TestNestJSExtract_TwoControllersInOneFile asserts that when two @Controller
 // classes appear in the same file, methods in the SECOND class use the SECOND
 // controller's prefix (last-write-wins in document order).  The first
@@ -959,10 +917,6 @@ export class BetaController {
 		t.Errorf("TwoControllers: 'POST /alpha/two' must not exist — second controller has prefix 'beta', not 'alpha'")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// NestJS: stacked decorators — handler resolves to method, not guard name
-// ---------------------------------------------------------------------------
 
 // TestNestJSExtract_StackedDecoratorResolvesHandler asserts that stacked
 // decorators between the route decorator and the method definition do NOT
@@ -1057,10 +1011,6 @@ export class ItemsService {
 		t.Errorf("NoBoundaryBleed: 'processItem' must not be in claimed set — it belongs to a different class")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Registry: Node/JS-TS frameworks appear in GetApplicableFrameworks
-// ---------------------------------------------------------------------------
 
 func TestRegistry_NodeFrameworksRegistered(t *testing.T) {
 	dir := t.TempDir()

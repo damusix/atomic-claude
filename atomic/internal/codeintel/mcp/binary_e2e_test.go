@@ -1,12 +1,6 @@
-// This file is the one test in the package that runs the shipped atomic
-// binary rather than calling into the package in-process. Everything else in
-// this package structurally cannot see argv assembly through the real Cobra
-// tree, exit-code propagation through main, or whether a spawned subprocess
-// actually binds its socket — exactly the seam the daemon bug hid behind:
-// a green in-process suite while every real `atomic code mcp` auto-start
-// failed with "daemon did not start within 10s".
-//
-// Precedent: atomic/internal/repl/binary_e2e_test.go.
+// The only test here that execs the shipped binary. In-process tests cannot see
+// argv assembly through the real Cobra tree or whether a spawned subprocess
+// binds its socket — the seam a green suite once hid a broken auto-start behind.
 package mcp_test
 
 import (
@@ -21,23 +15,14 @@ import (
 )
 
 const (
-	// e2eBuildTimeout bounds `go build`. Generous because a cold module cache
-	// links the whole binary (tree-sitter/wazero included); warm it is ~1s.
+	// Generous: a cold module cache links tree-sitter and wazero too.
 	e2eBuildTimeout = 5 * time.Minute
-	// e2eRunTimeout bounds the whole daemon subprocess's lifetime in this test.
-	e2eRunTimeout = 30 * time.Second
-	// e2eSocketWait bounds how long we wait for the daemon to bind its socket
-	// before declaring the spawn broken. Generous relative to a local unix
-	// listen + MkdirAll, which is sub-second in practice.
-	e2eSocketWait = 10 * time.Second
+	e2eRunTimeout   = 30 * time.Second
+	e2eSocketWait   = 10 * time.Second
 )
 
-// TestMCPDaemonBinary_StartsAndBindsSocket execs the real atomic binary with
-// exactly the argv DefaultSpawn would produce (via DaemonArgv) and asserts the
-// daemon binds its socket within a bounded window. Before the GitHub issue
-// #193 fix, this argv named an unregistered internal verb: Cobra rejected it
-// with "unknown flag", the process exited immediately, and no socket ever
-// appeared.
+// Runs exactly the argv DefaultSpawn produces. When that argv named an
+// unregistered verb, Cobra rejected it and no socket ever appeared.
 func TestMCPDaemonBinary_StartsAndBindsSocket(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skipf("go toolchain not on PATH: %v", err)
@@ -45,9 +30,8 @@ func TestMCPDaemonBinary_StartsAndBindsSocket(t *testing.T) {
 
 	bin := buildAtomicBinaryForMCPE2E(t)
 
-	// /tmp-rooted, not t.TempDir(): the socket path is derived from dbPath's
-	// directory (SocketPathFromDB), and t.TempDir() embeds the full test name —
-	// long enough to blow the ~104-108 byte unix sun_path limit on macOS/Linux.
+	// /tmp-rooted because the socket path derives from this one, and t.TempDir()
+	// embeds the full test name — long enough to blow the sun_path limit.
 	srcDir := shortE2ETempDir(t)
 	dbPath := filepath.Join(shortE2ETempDir(t), "atomic.db")
 
@@ -70,10 +54,8 @@ func TestMCPDaemonBinary_StartsAndBindsSocket(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start daemon subprocess (%v %v): %v", bin, argv, err)
 	}
-	// exited fires once, from the Wait() goroutine below, the moment the
-	// subprocess exits — including the pre-fix RED case where Cobra rejects
-	// the argv and the process exits within milliseconds, well before
-	// e2eSocketWait would otherwise be spent polling a socket that never appears.
+	// Fires the moment the subprocess exits, so a rejected argv fails fast
+	// instead of burning the socket-wait budget.
 	exited := make(chan *os.ProcessState, 1)
 	go func() {
 		_ = cmd.Wait()
@@ -108,9 +90,8 @@ func TestMCPDaemonBinary_StartsAndBindsSocket(t *testing.T) {
 	}
 }
 
-// shortE2ETempDir returns a short, /tmp-rooted temp dir, mirroring
-// atomic/internal/repl's shortTempDir — t.TempDir() nests the full test name
-// and can exceed the unix sun_path limit for a socket path derived from it.
+// shortE2ETempDir avoids t.TempDir(), whose nested test name can push a derived
+// socket path past the unix sun_path limit.
 func shortE2ETempDir(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "atmc-mcp-e2e")
@@ -121,8 +102,6 @@ func shortE2ETempDir(t *testing.T) string {
 	return dir
 }
 
-// buildAtomicBinaryForMCPE2E builds cmd/atomic and returns the path to the
-// binary. Mirrors atomic/internal/repl/binary_e2e_test.go's buildAtomicBinary.
 func buildAtomicBinaryForMCPE2E(t *testing.T) string {
 	t.Helper()
 

@@ -1,11 +1,7 @@
 package languages_test
 
-// F-61 regression: goExtractImport previously dropped all but the first path
-// in a multi-import block (import ( "a"; "b"; "c" ) → only 1 ref emitted).
-//
-// Fix: ImportTypes is now "import_spec" (not "import_declaration") so the
-// walker descends into import_declaration and calls extractImport once per
-// import_spec, emitting one UnresolvedReference per path.
+// Regression guard: a grouped import block once emitted a single reference
+// instead of one per path.
 
 import (
 	"context"
@@ -15,9 +11,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// goMultiImportFixture is a minimal Go file with a grouped import block
-// containing three distinct paths. The file also has a function so the
-// extractor has something to anchor to.
+// The function exists so the extractor has something to anchor to.
 const goMultiImportFixture = `package main
 
 import (
@@ -31,12 +25,8 @@ func greet(name string) string {
 }
 `
 
-// TestGo_MultiImportEmitsAllRefs proves that a grouped import block with N
-// paths emits N import UnresolvedReferences, not just 1.
-//
-// WHY: File-level import edges are the foundation of GetFileDependents,
-// affected-file analysis, and circular-dependency detection. Missing import
-// refs mean those traversals silently skip real dependencies.
+// Import edges carry dependent-file, affected-file, and cycle analysis, so a
+// dropped path makes those traversals silently miss a real dependency.
 func TestGo_MultiImportEmitsAllRefs(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageGo)
@@ -56,7 +46,6 @@ func TestGo_MultiImportEmitsAllRefs(t *testing.T) {
 			importRefs, result.UnresolvedReferences)
 	}
 
-	// Verify specific paths are present.
 	wantPaths := map[string]bool{"fmt": false, "strings": false, "os": false}
 	for _, ref := range result.UnresolvedReferences {
 		if ref.ReferenceKind == types.EdgeKindImports {
@@ -74,10 +63,7 @@ func TestGo_MultiImportEmitsAllRefs(t *testing.T) {
 	}
 }
 
-// TestGo_SingleImportStillWorks proves that a bare single-path import
-// (import "fmt") still emits exactly one import ref.
-//
-// WHY: The fix must not break single-import files — the common case.
+// The common case, which the grouped-import fix must not have broken.
 const goSingleImportFixture = `package main
 
 import "fmt"

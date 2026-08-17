@@ -54,8 +54,6 @@ description: Authoritative steering for the signals/wiki inferrer when operating
 -->
 `
 
-// --- InitRepoScope ---
-
 func TestInitRepoScope_WritesGoldenScaffold(t *testing.T) {
 	root := t.TempDir()
 
@@ -105,8 +103,6 @@ func TestInitRepoScope_NoopWhenFileExists(t *testing.T) {
 	}
 }
 
-// --- InitRealmScope ---
-
 func TestInitRealmScope_WritesIndexReference(t *testing.T) {
 	root := t.TempDir()
 
@@ -155,8 +151,6 @@ func TestInitRealmScope_NoopWhenFileExists(t *testing.T) {
 		t.Errorf("existing file was overwritten:\ngot:\n%s\nwant:\n%s", got, existing)
 	}
 }
-
-// --- wiki init CLI dispatch ---
 
 func TestWikiInitAction_MissingScope_ExitsUsageError_WritesNothing(t *testing.T) {
 	root := t.TempDir()
@@ -306,8 +300,6 @@ func TestWikiInitAction_ScopeMarkerIdempotent(t *testing.T) {
 		t.Errorf("second run changed the marker file:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
-
-// --- Scan() realm scaffold hook ---
 
 func TestScan_ScaffoldsRealmClaudeMD(t *testing.T) {
 	root := t.TempDir()

@@ -1,7 +1,5 @@
-// Package validate implements the `atomic validate` subcommand: deterministic,
-// fast artifact linting with exit codes 0 (pass/warn), 1 (fail), 2 (error).
-// CP-1 scaffolds dispatch and flag parsing only; rule logic ships in later
-// checkpoints (CP-5 spec rules, CP-6 config rules, CP-3 bundle parity).
+// Package validate implements `atomic validate`: deterministic artifact linting
+// with exit codes 0 (pass or warn), 1 (fail), 2 (validator error).
 package validate
 
 import (
@@ -11,14 +9,13 @@ import (
 	"os"
 )
 
-// Run is the entry point called from main. Returns an exit code: 0 ok, 1 FAIL
-// findings, 2 validator-internal error (bad invocation, unreadable file, etc.).
+// Run reports an exit code: 0 ok, 1 FAIL findings, 2 validator error.
 func Run(args []string) int {
 	return RunWithOutput(args, os.Stdout)
 }
 
-// RunWithOutput is like Run but writes usage/help to w. Extracted so tests can
-// capture output without exec.Command round-trips.
+// RunWithOutput is Run with usage and help redirected to w, so tests avoid
+// exec.Command round-trips.
 func RunWithOutput(args []string, w io.Writer) int {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	fs.SetOutput(w)
@@ -41,7 +38,6 @@ func RunWithOutput(args []string, w io.Writer) int {
 	}
 
 	if err := fs.Parse(args); err != nil {
-		// flag.ContinueOnError: -h/-help causes ErrHelp, already printed usage.
 		if err == flag.ErrHelp {
 			return 0
 		}
@@ -50,7 +46,6 @@ func RunWithOutput(args []string, w io.Writer) int {
 
 	remaining := fs.Args()
 
-	// No subcommand: whole-repo mode (CP-8).
 	if len(remaining) == 0 {
 		return runWholeRepo(jsonOut, suggest, w)
 	}
@@ -58,9 +53,8 @@ func RunWithOutput(args []string, w io.Writer) int {
 	sub := remaining[0]
 	subArgs := remaining[1:]
 
-	// Path-aware dispatch: if sub looks like a file path (contains a path
-	// separator or extension, i.e. not a bare verb), treat all remaining args
-	// as paths rather than a subcommand.
+	// A first arg that looks like a path, not a bare verb, makes every
+	// remaining arg a path.
 	if isPathArg(sub) {
 		return runPathDispatch(append([]string{sub}, subArgs...), jsonOut, suggest, w)
 	}
@@ -85,7 +79,6 @@ func RunWithOutput(args []string, w io.Writer) int {
 	}
 }
 
-// runBundle is the bundle validator entry point. Wired in CP-3.
 func runBundle(paths []string, jsonOut, suggest bool, w io.Writer) int {
 	_ = paths
 	return runBundleImpl(jsonOut, suggest, w)

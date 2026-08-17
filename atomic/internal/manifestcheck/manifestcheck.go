@@ -1,6 +1,5 @@
 // Package manifestcheck compares the committed embedded manifest against what
-// bundlemirror would generate from the live repo root, without writing any files.
-// Used by check 5 in doctor and by atomic validate.
+// bundlemirror would generate from the live repo root, writing nothing.
 package manifestcheck
 
 import (
@@ -8,40 +7,30 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
 
-// DriftEntry describes an artifact whose SHA256 differs between the committed
-// manifest and the current state of the repo root.
+// DriftEntry is an artifact whose SHA256 differs between manifest and disk.
 type DriftEntry struct {
 	Target       string
 	CommittedSHA string
 	GeneratedSHA string
 }
 
-// Result is the output of Compare.
+// Result is the output of Compare. Missing is committed-but-not-on-disk, Extra
+// the reverse; OK is true only when all three lists are empty.
 type Result struct {
-	// OK is true iff committed and generated match exactly (same set of targets,
-	// all SHAs equal).
-	OK bool
-
-	// Missing contains targets present in committed but absent from disk.
+	OK      bool
 	Missing []string
-
-	// Extra contains targets present on disk but absent from committed.
-	Extra []string
-
-	// Drifted contains targets present in both but with different SHA256 values.
+	Extra   []string
 	Drifted []DriftEntry
 }
 
-// Compare walks repoRoot using the same inclusion rules as bundlemirror.Run
-// (via bundlemirror.Enumerate) and compares the result against committed.
-// No files are written. No external processes are spawned.
+// Compare reuses bundlemirror.Enumerate, so the inclusion rules cannot drift
+// from what the mirror actually writes. Writes nothing, spawns nothing.
 func Compare(repoRoot string, committed []embedded.Artifact) (Result, error) {
 	generated, err := bundlemirror.Enumerate(repoRoot)
 	if err != nil {
 		return Result{}, err
 	}
 
-	// Index both slices by Target for O(1) lookup.
 	committedIdx := make(map[string]string, len(committed)) // target → sha256
 	for _, a := range committed {
 		committedIdx[a.Target] = a.SHA256
@@ -54,7 +43,6 @@ func Compare(repoRoot string, committed []embedded.Artifact) (Result, error) {
 
 	var res Result
 
-	// Find drifted and extra (in generated, check against committed).
 	for _, g := range generated {
 		csha, inCommitted := committedIdx[g.Target]
 		if !inCommitted {
@@ -68,7 +56,6 @@ func Compare(repoRoot string, committed []embedded.Artifact) (Result, error) {
 		}
 	}
 
-	// Find missing (in committed, not in generated).
 	for _, c := range committed {
 		if _, inGenerated := generatedIdx[c.Target]; !inGenerated {
 			res.Missing = append(res.Missing, c.Target)

@@ -7,9 +7,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 )
 
-// TestCaptureEnv_HasRequiredFields verifies that CaptureEnv returns a non-nil
-// Env with the runtime fields always populated (GOOS, GOARCH, NumCPU are
-// always available; git fields may be empty but must not panic).
+// Runtime fields are always available; git fields may be empty but must not panic.
 func TestCaptureEnv_HasRequiredFields(t *testing.T) {
 	e := profile.CaptureEnv()
 
@@ -22,12 +20,9 @@ func TestCaptureEnv_HasRequiredFields(t *testing.T) {
 	if e.NumCPU <= 0 {
 		t.Errorf("NumCPU = %d, want > 0", e.NumCPU)
 	}
-	// GitUserName and GitUserEmail may be empty (git may not be installed in CI),
-	// but must not cause a panic — the test reaching this line proves that.
+	// Reaching this line is the proof: empty git fields did not panic.
 }
 
-// TestRenderStub_ContainsAllSections verifies that the stub markdown contains
-// the six required section headings from the schema contract.
 func TestRenderStub_ContainsAllSections(t *testing.T) {
 	e := profile.CaptureEnv()
 	stub := profile.RenderStub(e)
@@ -47,7 +42,6 @@ func TestRenderStub_ContainsAllSections(t *testing.T) {
 	}
 }
 
-// TestRenderStub_ContainsXMLTags verifies the volatility tags are present.
 func TestRenderStub_ContainsXMLTags(t *testing.T) {
 	e := profile.CaptureEnv()
 	stub := profile.RenderStub(e)
@@ -60,11 +54,8 @@ func TestRenderStub_ContainsXMLTags(t *testing.T) {
 	}
 }
 
-// TestRenderStub_EnvFieldsPopulated verifies deterministic env fields are
-// filled in the Environment section with the values from CaptureEnv.
 func TestRenderStub_EnvFieldsPopulated(t *testing.T) {
 	e := profile.CaptureEnv()
-	// Override with known values so we can assert exact output.
 	e.GOOS = "testOS"
 	e.GOARCH = "testARCH"
 	e.NumCPU = 42
@@ -87,8 +78,6 @@ func TestRenderStub_EnvFieldsPopulated(t *testing.T) {
 	}
 }
 
-// TestRenderStub_EmptyGitFields verifies that empty git config values produce
-// empty field entries rather than panicking or crashing.
 func TestRenderStub_EmptyGitFields(t *testing.T) {
 	e := profile.Env{
 		GOOS:         "linux",
@@ -99,7 +88,6 @@ func TestRenderStub_EmptyGitFields(t *testing.T) {
 	}
 	stub := profile.RenderStub(e)
 
-	// Must contain the field labels even when values are empty.
 	if !strings.Contains(stub, "Git user.name:") {
 		t.Error("stub missing 'Git user.name:' label")
 	}
@@ -108,7 +96,6 @@ func TestRenderStub_EmptyGitFields(t *testing.T) {
 	}
 }
 
-// TestRenderStub_HasH1Title verifies the stub begins with the H1 title.
 func TestRenderStub_HasH1Title(t *testing.T) {
 	e := profile.CaptureEnv()
 	stub := profile.RenderStub(e)

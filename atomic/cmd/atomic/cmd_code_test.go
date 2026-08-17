@@ -10,36 +10,28 @@ import (
 	"testing"
 )
 
-// TestCodeMCPDaemonArgv_MatchesCobraTree is the regression
-// test: DefaultSpawn's argv (codemcp.DaemonArgv) must always name a
-// Cobra-registered command, or the spawned daemon subprocess dies on
-// "unknown flag" before its handler ever runs — the only symptom being
-// "daemon did not start within 10s" at the proxy. Driving DaemonArgv's own
-// output through the real root command (rather than hand-writing the argv
-// here) means a future drift between DefaultSpawn and the Cobra tree fails
-// this test instead of silently reintroducing the bug.
-//
-// runCode calls os.Exit, so the dispatch is exercised in a subprocess (the
-// standard Go idiom for os.Exit-calling code), matching
-// TestRunBus_DispatchUsesRealHomeFromEnv's established pattern.
+// codemcp.DaemonArgv must always name a Cobra-registered command, or the
+// spawned daemon dies on "unknown flag" before its handler runs, surfacing only
+// as "daemon did not start within 10s" at the proxy. Feeding DaemonArgv's own
+// output through the real root command means drift fails here rather than
+// reintroducing the bug. runCode calls os.Exit, hence the subprocess.
 func TestCodeMCPDaemonArgv_MatchesCobraTree(t *testing.T) {
 	if os.Getenv("ATOMIC_TEST_CODE_MCP_DAEMON_ARGV_HELPER") == "1" {
 		var repoOverride string
 		root := buildRootCmd(&repoOverride)
 		root.SetArgs(codemcp.DaemonArgv(os.Getenv("ATOMIC_TEST_MCP_SRC"), os.Getenv("ATOMIC_TEST_MCP_DB"), codemcp.WatchOptions{}))
 		if err := root.Execute(); err != nil {
-			// Mirrors main()'s own Execute() error handling so the subprocess's
-			// stderr/exit code match what a real invocation would produce.
+			// Mirrors main()'s Execute() error handling so the subprocess's
+			// stderr and exit code match a real invocation.
 			fmt.Fprintf(os.Stderr, "atomic: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// dbPath's parent path component is a regular file, not a directory: the
-	// daemon handler's own MkdirAll fails fast and deterministically (no
-	// accept loop ever starts, no socket ever binds), giving a handler-level
-	// error to assert against instead of racing a real daemon's lifetime.
+	// dbPath's parent is a regular file, so the handler's MkdirAll fails fast:
+	// nothing binds, and there is a deterministic error to assert against
+	// instead of a race against a real daemon's lifetime.
 	tmp := t.TempDir()
 	blocker := filepath.Join(tmp, "blocker")
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {

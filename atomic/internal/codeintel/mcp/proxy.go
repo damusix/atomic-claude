@@ -1,12 +1,6 @@
-// Proxy implements the client-side `atomic code mcp` path (master).
-//
-// RunProxy is the new implementation of `atomic code mcp`: it connect-or-starts
-// the singleton daemon (flock-guarded) and then bidirectionally pipes
-// stdin↔socket / stdout↔socket.
-//
-// The daemon entry point is RunDaemon, invoked via the same `mcp` verb with
-// --daemon set (see code.go). --daemon is not advertised as a normal workflow
-// flag; it exists for the auto-start path (DefaultSpawn/DaemonArgv) to invoke.
+// Client side of `atomic code mcp`: connect-or-start the singleton daemon under
+// an flock, then pipe stdio to its socket. Daemon mode is the same `mcp` verb
+// with --daemon, an unadvertised flag existing only for the auto-start path.
 package mcp
 
 import (
@@ -21,35 +15,21 @@ import (
 	"time"
 )
 
-// WatchOptions controls the background sync poller passed to the daemon on spawn.
+// WatchOptions carries the sync-poller flags forwarded to the daemon on spawn.
 type WatchOptions struct {
-	// Disable disables the sync poller when true (--no-watch).
+	// Disable turns the poller off entirely (--no-watch).
 	Disable bool
-	// Interval overrides the default SyncInterval when non-zero (--watch-interval).
+	// Interval overrides SyncInterval when non-zero (--watch-interval).
 	Interval time.Duration
 }
 
-// ---------------------------------------------------------------------------
-// Spawn seam (injectable for tests)
-// ---------------------------------------------------------------------------
-
-// SpawnFunc is the function called by the proxy to start the daemon when the
-// socket is absent or dead. The real implementation forks a detached
-// `atomic code mcp --daemon --source SRC --db DB [--watch-interval T | --no-watch]`
-// subprocess. Tests inject an in-process stub that starts a goroutine daemon
-// instead.
-//
-// sourceRoot is the directory containing the source files to serve.
-// dbPath is the absolute path to the SQLite index file.
-// opts controls the sync-poller flags forwarded to the daemon.
+// SpawnFunc starts the daemon when the socket is absent or dead. Production
+// forks a detached subprocess; tests inject an in-process goroutine instead.
 type SpawnFunc func(sourceRoot, dbPath string, opts WatchOptions) error
 
-// DaemonArgv builds the argv DefaultSpawn execs to start the daemon: the
-// already-registered `code mcp` verb with --daemon plus the explicit
-// source+db paths (folding daemon mode into `mcp` instead
-// of a separate internal verb keeps the spawned command permanently
-// Cobra-registered, so it can never again drift out of the command tree).
-// Exported so tests can drive the exact argv DefaultSpawn produces.
+// DaemonArgv spawns through the registered `code mcp` verb rather than a
+// separate internal one, so the spawned command can never drift out of the
+// Cobra tree. Exported so tests can assert the exact argv.
 func DaemonArgv(sourceRoot, dbPath string, opts WatchOptions) []string {
 	argv := []string{"code", "mcp", "--daemon", "--source", sourceRoot, "--db", dbPath}
 	if opts.Disable {
@@ -60,11 +40,8 @@ func DaemonArgv(sourceRoot, dbPath string, opts WatchOptions) []string {
 	return argv
 }
 
-// DefaultSpawn starts `atomic code mcp --daemon --source <sourceRoot> --db
-// <dbPath>` detached (no TTY, stdout/stderr to devnull so the parent can exit
-// immediately). Passing explicit paths makes the daemon cwd-independent: it
-// never re-resolves scope from the process working directory.
-// opts is forwarded as --watch-interval / --no-watch flags to the daemon.
+// DefaultSpawn starts the daemon detached with no stdio, so the parent can exit
+// immediately. Explicit paths keep the daemon from re-resolving scope from cwd.
 func DefaultSpawn(sourceRoot, dbPath string, opts WatchOptions) error {
 	self, err := os.Executable()
 	if err != nil {
@@ -72,7 +49,7 @@ func DefaultSpawn(sourceRoot, dbPath string, opts WatchOptions) error {
 	}
 	cmd := exec.Command(self, DaemonArgv(sourceRoot, dbPath, opts)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		// Detach from the parent's process group so the daemon survives the proxy exit.
+		// New session, so the daemon outlives the proxy that spawned it.
 		Setsid: true,
 	}
 	cmd.Stdin = nil
@@ -81,21 +58,9 @@ func DefaultSpawn(sourceRoot, dbPath string, opts WatchOptions) error {
 	return cmd.Start()
 }
 
-// ---------------------------------------------------------------------------
-// Auto-start (flock-guarded)
-// ---------------------------------------------------------------------------
-
-// EnsureRunning ensures the daemon is running, starting it if necessary.
-// It uses an flock on LockPathFromDB(dbPath) to prevent a thundering herd:
-//
-//  1. Try connecting — if it works, we are done.
-//  2. Acquire the flock.
-//  3. Re-check the socket (another goroutine/process may have won).
-//  4. Remove stale socket file if present.
-//  5. Invoke spawn(sourceRoot, dbPath, opts).
-//  6. Retry connect with bounded backoff.
-//
-// Exported so tests can exercise the auto-start logic directly.
+// EnsureRunning starts the daemon if it is not already up, serialising
+// concurrent starters behind an flock so a burst of clients spawns one daemon
+// rather than a herd. Exported so tests can drive the auto-start path.
 func EnsureRunning(ctx context.Context, sourceRoot, dbPath string, spawn SpawnFunc) error {
 	return ensureRunning(ctx, sourceRoot, dbPath, WatchOptions{}, spawn)
 }
@@ -103,12 +68,10 @@ func EnsureRunning(ctx context.Context, sourceRoot, dbPath string, spawn SpawnFu
 func ensureRunning(ctx context.Context, sourceRoot, dbPath string, opts WatchOptions, spawn SpawnFunc) error {
 	sockPath := SocketPathFromDB(dbPath)
 
-	// Fast path: daemon already running.
 	if IsLive(sockPath) {
 		return nil
 	}
 
-	// Acquire the flock to serialise concurrent starters.
 	lockPath := LockPathFromDB(dbPath)
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		return fmt.Errorf("ensure daemon: mkdir lock dir: %w", err)
@@ -125,24 +88,21 @@ func ensureRunning(ctx context.Context, sourceRoot, dbPath string, opts WatchOpt
 	}
 	defer func() { _ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN) }()
 
-	// Re-check: another starter may have won the race.
+	// Whoever held the lock before us may have started it already.
 	if IsLive(sockPath) {
 		return nil
 	}
 
-	// Remove stale socket file (server died, file left behind).
+	// A socket file left behind by a dead server would block Listen.
 	_ = os.Remove(sockPath)
 
-	// Spawn the daemon detached with explicit source+db (cwd-independent).
 	if err := spawn(sourceRoot, dbPath, opts); err != nil {
 		return fmt.Errorf("ensure daemon: spawn: %w", err)
 	}
 
-	// Retry connect with bounded backoff (max ~5 s).
 	return waitLive(ctx, sockPath)
 }
 
-// waitLive polls the socket until it becomes connectable or ctx is done.
 func waitLive(ctx context.Context, sockPath string) error {
 	backoff := 50 * time.Millisecond
 	const maxBackoff = 500 * time.Millisecond
@@ -169,23 +129,9 @@ func waitLive(ctx context.Context, sockPath string) error {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Proxy (bidirectional byte pipe)
-// ---------------------------------------------------------------------------
-
-// RunProxy implements `atomic code mcp`:
-//
-//  1. Ensure the daemon is running (flock-guarded auto-start via spawn).
-//  2. Connect to the unix socket.
-//  3. Bidirectionally pipe stdin→socket and socket→stdout.
-//
-// sourceRoot is the directory containing the source files to serve.
-// dbPath is the absolute path to the SQLite index file.
-// opts controls watch-poller flags forwarded to the daemon on spawn.
-// The socket is derived from dbPath so proxy and daemon always agree.
-//
-// When the MCP client disconnects (stdin closes), the proxy exits. The daemon
-// stays alive so a second `atomic code mcp` invocation reuses the warm engine.
+// RunProxy pipes stdio to the daemon's socket, which is derived from dbPath so
+// proxy and daemon always agree on the path. On client disconnect the proxy
+// exits but the daemon stays up, so the next invocation reuses a warm engine.
 func RunProxy(ctx context.Context, sourceRoot, dbPath string, opts WatchOptions, spawn SpawnFunc, stdin io.Reader, stdout io.Writer) error {
 	if spawn == nil {
 		spawn = DefaultSpawn
@@ -202,23 +148,18 @@ func RunProxy(ctx context.Context, sourceRoot, dbPath string, opts WatchOptions,
 	}
 	defer conn.Close()
 
-	// Bidirectional pipe: stdin→socket and socket→stdout, simultaneously.
 	errCh := make(chan error, 2)
 
 	go func() {
 		_, err := io.Copy(conn, stdin)
-		// Signal the other direction to stop by half-closing the write side.
-		// conn is always a *net.UnixConn here (we just dialed a unix socket),
-		// but assert explicitly so a wrapped conn that supports CloseWrite via
-		// a different interface is also handled; log the miss rather than
-		// silently skipping half-close.
+		// Half-close signals EOF to the daemon without killing the read side.
 		type halfCloser interface {
 			CloseWrite() error
 		}
 		if hc, ok := conn.(halfCloser); ok {
 			_ = hc.CloseWrite()
 		} else {
-			// Fallback: close the whole connection so the read goroutine unblocks.
+			// No half-close available: a full close at least unblocks the reader.
 			_ = conn.Close()
 		}
 		errCh <- err
@@ -229,7 +170,7 @@ func RunProxy(ctx context.Context, sourceRoot, dbPath string, opts WatchOptions,
 		errCh <- err
 	}()
 
-	// Wait for either direction to finish (client disconnect or daemon exit).
+	// Either direction finishing means the session is over.
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

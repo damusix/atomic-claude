@@ -1,27 +1,6 @@
-// Package engine is the facade layer (master) that both the
-// `atomic code` CLI and the MCP server compile against.
-//
-// # Data directory
-//
-// The index lives at:
-//
-//	<projectRoot>/.claude/.atomic-index/atomic.db
-//
-// Init creates this directory tree; Uninitialize removes it.
-// NewWithDBPath overrides this default by accepting an explicit dbPath,
-// decoupling the scan root from the index location — used by realm/federated callers.
-//
-// # Lifecycle
-//
-// Use New to create an Engine bound to a project root; the engine is
-// unopened — neither Init nor Open has been called. Call Init to create a
-// fresh index, or Open to open an existing one.  Close must be called when
-// the engine is no longer needed.
-//
-// # Watch methods
-//
-// Watch and StopWatch are stubbed in v1 per appendix M. They return
-// ErrWatchNotImplemented.
+// Package engine is the facade both the `atomic code` CLI and the MCP server
+// compile against. New binds an engine to a project root but leaves it dormant;
+// Init or Open must be called before any DB-backed method, and Close after.
 package engine
 
 import (
@@ -44,22 +23,18 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// ErrWatchNotImplemented is returned by Watch and StopWatch, which are
-// stubbed in v1 per appendix M.
+// ErrWatchNotImplemented is returned by the stubbed Watch and StopWatch.
 var ErrWatchNotImplemented = errors.New("codeintel/engine: Watch not implemented in v1")
 
-// ErrNotInitialized is returned by methods that require an open DB when
-// Init/Open has not been called.
+// ErrNotInitialized is returned by DB-backed methods before Init or Open.
 var ErrNotInitialized = errors.New("codeintel/engine: not initialized; call Init or Open first")
 
 // ContextOptions configures FindRelevantContext.
 type ContextOptions = codectx.Options
 
-// Engine is the shared facade used by both the CLI adapter and the
-// MCP server adapter. It wraps the db, pool, orchestrator, pipeline,
-// graph manager, searcher, and context builder into one cohesive API.
-//
-// The zero-value Engine is not usable. Use New or NewWithDBPath.
+// Engine wraps the db, pool, orchestrator, pipeline, graph manager, searcher,
+// and context builder into one API. The zero value is not usable — use New or
+// NewWithDBPath.
 type Engine struct {
 	root       string // absolute project root (source tree to scan)
 	explicitDB string // when non-empty, overrides the computed DB path
@@ -71,44 +46,24 @@ type Engine struct {
 	mgr        *graph.Manager
 	srch       *search.Searcher
 	bld        *codectx.Builder
-	// ignoreWarnings holds any diagnostics from loading the repo-scoped ignore
-	// config (.claude/atomic.toml) during the last ensureIndexer boot: unknown
-	// keys, an unparseable file, or an invalid glob pattern. Empty when the
-	// file is absent or fully well-formed. Surfaced via IgnoreWarnings so the
-	// CLI can report a degraded config without indexing failing.
+	// Diagnostics from the last ensureIndexer boot's ignore-config load, so the
+	// CLI can report a degraded .claude/atomic.toml without failing the index.
 	ignoreWarnings []string
 }
 
-// New creates an Engine bound to projectRoot. Neither Init nor Open is called;
-// the engine is dormant until one of them is invoked. Close must still be
-// called to release any resources that are acquired lazily (e.g. the pool).
-//
-// The DB is placed at the canonical repo-scope path:
-//
-//	<projectRoot>/.claude/.atomic-index/atomic.db
-//
-// To decouple the DB location from the scan root (e.g. for realm federation
-// where the index lives outside the member repo), use NewWithDBPath instead.
+// New creates an Engine bound to projectRoot, with the DB at the canonical
+// repo-scope path. Close must still be called — the pool is acquired lazily.
 func New(projectRoot string) (*Engine, error) {
 	return &Engine{root: projectRoot}, nil
 }
 
-// NewWithDBPath creates an Engine that scans projectRoot but stores its SQLite
-// index at the caller-supplied absolute dbPath. This is the internal seam for
-// realm federation: callers can direct the index to
-// <realm>/.atomic/<key>.db while the source tree being scanned stays at
-// projectRoot. No user-facing flag exposes this — it is callable from Go only.
-//
-// The existing repo-scope behavior (DB at
-// <projectRoot>/.claude/.atomic-index/atomic.db) is unchanged: use New for
-// that path. No meta row recording the source root is written into the DB.
+// NewWithDBPath scans projectRoot but stores the index at dbPath, decoupling
+// the two. Go-only seam for realm federation, where the index lives outside the
+// member repo; nothing in the DB records the source root.
 func NewWithDBPath(projectRoot, dbPath string) (*Engine, error) {
 	return &Engine{root: projectRoot, explicitDB: dbPath}, nil
 }
 
-// indexPath returns the absolute path to the SQLite file for this engine.
-// When an explicit DB path was supplied via NewWithDBPath, that path is
-// returned; otherwise the canonical repo-scope path is computed.
 func (e *Engine) indexPath() string {
 	if e.explicitDB != "" {
 		return e.explicitDB
@@ -116,9 +71,6 @@ func (e *Engine) indexPath() string {
 	return config.IndexDBPath(e.root)
 }
 
-// indexDir returns the directory that contains the SQLite file. When an
-// explicit DB path is set, this is filepath.Dir(explicitDB); otherwise it is
-// the canonical .claude/.atomic-index directory under the project root.
 func (e *Engine) indexDir() string {
 	if e.explicitDB != "" {
 		return filepath.Dir(e.explicitDB)
@@ -126,14 +78,8 @@ func (e *Engine) indexDir() string {
 	return config.IndexDir(e.root)
 }
 
-// ---------------------------------------------------------------------------
-// Lifecycle
-// ---------------------------------------------------------------------------
-
-// Init creates the index directory, opens (or creates) the SQLite database,
-// and initialises the pool + dependent components.
-//
-// Init is idempotent: if the index already exists it is opened and migrated.
+// Init creates the index directory and opens the database. Idempotent: an
+// existing index is opened and migrated.
 func (e *Engine) Init(ctx context.Context) error {
 	if err := os.MkdirAll(e.indexDir(), 0o755); err != nil {
 		return err
@@ -141,8 +87,7 @@ func (e *Engine) Init(ctx context.Context) error {
 	return e.open(ctx)
 }
 
-// Open opens an existing index. Returns an error if the index directory or
-// database file does not exist; use Init to create a new index.
+// Open opens an existing index, erroring when none is on disk.
 func (e *Engine) Open(ctx context.Context) error {
 	if !e.IsInitialized() {
 		return errors.New("codeintel/engine: Open: index does not exist; call Init first")
@@ -150,15 +95,13 @@ func (e *Engine) Open(ctx context.Context) error {
 	return e.open(ctx)
 }
 
-// open is the shared implementation for Init and Open.
 func (e *Engine) open(ctx context.Context) error {
-	// If the pool was previously created (e.g. partial re-init), close it first.
 	if e.pool != nil {
 		e.pool.Close()
 		e.pool = nil
 	}
-	// orch holds the (now-closed) pool + db; drop it so ensureIndexer rebuilds
-	// it against the fresh DB on the next indexing call.
+	// orch holds the now-closed pool + db; drop it so ensureIndexer rebuilds
+	// against the fresh DB.
 	e.orch = nil
 	if e.indexDB != nil {
 		_ = e.indexDB.Close()
@@ -171,18 +114,13 @@ func (e *Engine) open(ctx context.Context) error {
 	}
 	e.indexDB = database
 
-	// The extraction pool + orchestrator are NOT built here. NewPool spins up
-	// one wazero runtime per CPU and compiles every tree-sitter WASM grammar
-	// (measured ~4.7 s of CPU and ~1.9 GB peak RSS); read-only queries never
-	// parse source, so they must not pay that cost. ensureIndexer boots them
-	// lazily on the first call to an indexing method (IndexAll/IndexFiles/Sync).
+	// The pool + orchestrator are deliberately not built here — see ensureIndexer.
 	e.mgr = graph.NewManager(database)
 	e.srch = search.New(database)
 	e.bld = codectx.New(database)
 
-	// Build the full framework registry + synthesis composite for ResolveReferences.
-	// Retain the Registry on the engine so ExtractFrameworkNodes can call
-	// ExtractAndPersist; pass its FrameworkRegistry view to the pipeline.
+	// The Registry is retained so ExtractFrameworkNodes can call ExtractAndPersist;
+	// the pipeline only gets its narrower FrameworkRegistry view.
 	reg := frameworks.NewRegistry(e.root, database)
 	e.fwReg = reg
 	synth := synthesis.Default(database)
@@ -191,16 +129,10 @@ func (e *Engine) open(ctx context.Context) error {
 	return nil
 }
 
-// ensureIndexer lazily boots the extraction pool + orchestrator. It is called
-// by every method that parses source (IndexAll / IndexFiles / Sync). The pool
-// instantiates one wazero runtime per CPU and compiles every tree-sitter WASM
-// grammar — measured at ~4.7 s of CPU and ~1.9 GB peak RSS — so it is built on
-// demand, never during open(). Read-only queries (search, callers, callees,
-// impact, explore, context) bypass this entirely and stay pure SQLite reads.
-//
-// Idempotent: a second call while the pool is live is a no-op. open() resets
-// e.orch to nil, so a re-open followed by an index correctly rebuilds against
-// the fresh DB.
+// ensureIndexer lazily boots the extraction pool + orchestrator, called only by
+// methods that parse source. The pool spins up one wazero runtime per CPU and
+// compiles every tree-sitter grammar (~4.7 s CPU, ~1.9 GB peak RSS), so read-only
+// queries must never trigger it. Idempotent while the pool is live.
 func (e *Engine) ensureIndexer(ctx context.Context) error {
 	if err := e.requireDB(); err != nil {
 		return err
@@ -215,13 +147,9 @@ func (e *Engine) ensureIndexer(ctx context.Context) error {
 	e.pool = pool
 	orch := indexer.NewOrchestrator(e.indexDB, pool)
 
-	// Repo-scoped ignore config (.claude/atomic.toml [code] ignore), loaded
-	// once per indexer boot — not re-read on every IndexAll/Sync/IndexPaths
-	// call within this engine's lifetime. A missing file degrades to a nil
-	// matcher (identical to pre-graphignore behavior, no warning). Malformed
-	// TOML or an invalid glob pattern degrades to unfiltered/partially
-	// filtered indexing rather than failing the run — messages are collected
-	// on e.ignoreWarnings for the CLI to report.
+	// Ignore config is read once per indexer boot, not per index call. A missing
+	// file yields a nil matcher; a malformed one degrades to unfiltered indexing
+	// rather than failing the run.
 	cfg, warns, err := config.LoadRepoConfig(config.RepoConfigPath(e.root))
 	var msgs []string
 	if err != nil {
@@ -244,20 +172,15 @@ func (e *Engine) ensureIndexer(ctx context.Context) error {
 	return nil
 }
 
-// IgnoreWarnings returns any diagnostics recorded while loading the
-// repo-scoped ignore config during the last indexer boot (see ensureIndexer).
-// Empty when no .claude/atomic.toml is present, or it is well-formed with no
-// unknown keys or invalid patterns.
+// IgnoreWarnings returns diagnostics from the last indexer boot's ignore-config
+// load. Empty when .claude/atomic.toml is absent or well-formed.
 func (e *Engine) IgnoreWarnings() []string {
 	return e.ignoreWarnings
 }
 
-// IgnorePatternInfo reports the number of active (successfully compiled)
-// ignore patterns from .claude/atomic.toml and the config's path, without
-// booting the indexer pool — `atomic code status` is a read-only query and
-// must not pay indexing's pool-boot cost (~2GB peak RSS, see ensureIndexer)
-// just to report this line. count is 0 when the file is absent, empty, or
-// fails to parse.
+// IgnorePatternInfo reports how many ignore patterns compiled, and from where.
+// Reads the config directly rather than via the indexer, so a read-only status
+// query does not pay ensureIndexer's pool-boot cost. count is 0 on any failure.
 func (e *Engine) IgnorePatternInfo() (count int, path string) {
 	path = config.RepoConfigPath(e.root)
 	cfg, _, err := config.LoadRepoConfig(path)
@@ -268,43 +191,33 @@ func (e *Engine) IgnorePatternInfo() (count int, path string) {
 	return matcher.PatternCount(), path
 }
 
-// IndexPath returns the absolute path to the SQLite database this engine is
-// bound to: the explicit realm db path when constructed via NewWithDBPath,
-// otherwise the canonical <root>/.claude/.atomic-index/atomic.db. Callers that
-// report the active index location (e.g. `atomic code status`) must use this
-// rather than recomputing from the project root — the latter is wrong in realm
-// scope, where the db lives at <realm>/.atomic/<key>.db, not under the member.
+// IndexPath returns the database path this engine is actually bound to. Callers
+// reporting the live index location must use this, not the package-level
+// IndexPath: in realm scope the db lives outside the member repo.
 func (e *Engine) IndexPath() string {
 	return e.indexPath()
 }
 
-// IsInitialized returns true if the index directory and atomic.db file exist
-// on disk. It does NOT check whether Init or Open has been called in this
-// session — use it to distinguish "index present" from "never indexed".
+// IsInitialized reports whether the db file exists on disk. It says nothing
+// about whether Init or Open has run in this session.
 func (e *Engine) IsInitialized() bool {
 	_, err := os.Stat(e.indexPath())
 	return err == nil
 }
 
-// IndexPath returns the canonical absolute path to the SQLite database for the
-// given project root. The path is deterministic:
-//
-//	<projectRoot>/.claude/.atomic-index/atomic.db
-//
-// Callers that need the DB path without opening an engine (e.g. the doctor
-// check) use this function to avoid hardcoding the path.
+// IndexPath returns the canonical repo-scope database path, for callers that
+// need it without opening an engine. Wrong for realm scope — see the method.
 func IndexPath(projectRoot string) string {
 	return config.IndexDBPath(projectRoot)
 }
 
-// Close releases all resources held by the engine: the DB connection and the
-// pool. Close is idempotent: calling it multiple times is safe.
+// Close releases the DB connection and the pool. Idempotent.
 func (e *Engine) Close() {
 	if e.pool != nil {
 		e.pool.Close()
 		e.pool = nil
 	}
-	// orch references the pool we just closed; drop it so a later ensureIndexer
+	// orch references the pool just closed; drop it so a later ensureIndexer
 	// rebuilds rather than reusing a dead pool.
 	e.orch = nil
 	if e.indexDB != nil {
@@ -318,18 +231,12 @@ func (e *Engine) ProjectRoot() string {
 	return e.root
 }
 
-// Uninitialize removes the entire index directory from disk. The engine
-// transitions back to the uninitialized state; Init can be called again to
-// rebuild. This is a destructive, synchronous operation — the caller is
-// responsible for ensuring no concurrent reads or writes are in flight.
+// Uninitialize deletes the index directory, returning the engine to its
+// uninitialized state. The caller must ensure no reads or writes are in flight.
 func (e *Engine) Uninitialize() error {
 	e.Close()
 	return os.RemoveAll(e.indexDir())
 }
-
-// ---------------------------------------------------------------------------
-// Indexing
-// ---------------------------------------------------------------------------
 
 // IndexAll indexes all source files under the project root.
 func (e *Engine) IndexAll(ctx context.Context) error {
@@ -339,10 +246,8 @@ func (e *Engine) IndexAll(ctx context.Context) error {
 	return e.orch.IndexAll(ctx, e.root)
 }
 
-// SkippedFiles returns the number of files skipped (unreadable / un-stat-able)
-// during the most recent IndexAll / Sync / IndexFiles run. The CLI reports this
-// so a skipped file (e.g. a git-tracked-but-missing path) is visible rather than
-// silently dropped.
+// SkippedFiles returns how many files the last index run could not read or stat,
+// so the CLI can surface them rather than dropping them silently.
 func (e *Engine) SkippedFiles() int {
 	if e.orch == nil {
 		return 0
@@ -350,38 +255,32 @@ func (e *Engine) SkippedFiles() int {
 	return e.orch.SkippedFiles()
 }
 
-// ExtractFrameworkNodes scans the project's source files, runs the framework
-// route-extraction seam (frameworks.Registry.ExtractAndPersist), and returns
-// the number of NodeKindRoute nodes now in the DB.
-//
-// Call this AFTER IndexAll/Sync and BEFORE ResolveReferences so that route
-// nodes and their handler refs are in the DB when the resolution pipeline runs.
+// ExtractFrameworkNodes runs the framework route-extraction seam and returns the
+// resulting route-node count. Must run after IndexAll/Sync and before
+// ResolveReferences, so route nodes and handler refs are present for resolution.
 func (e *Engine) ExtractFrameworkNodes(ctx context.Context) (int, error) {
 	if err := e.ensureIndexer(ctx); err != nil {
 		return 0, err
 	}
 
-	// Scan source files — same set the generic extractor processes, filtered
-	// through the same ignore matcher ensureIndexer wired onto e.orch, so a
-	// route/handler node never appears for a file `atomic code files` hides.
+	// Scanning through e.orch applies the same ignore matcher the generic
+	// extractor uses, so no route node appears for a file the index hides.
 	absPaths, err := e.orch.ScanFiles(e.root)
 	if err != nil {
 		return 0, fmt.Errorf("codeintel/engine: ExtractFrameworkNodes: scan: %w", err)
 	}
 
-	// Build []FileInput with RELATIVE paths + content.
-	// Relative path form matches the generic extractor's relPath convention so
-	// route node file_path values are consistent with generic nodes in the DB.
-	// Unreadable files are skipped (best-effort).
+	// Paths must be relative to match the generic extractor's convention, or route
+	// nodes get file_path values inconsistent with every other node in the DB.
 	files := make([]frameworks.FileInput, 0, len(absPaths))
 	for _, abs := range absPaths {
 		rel, err := filepath.Rel(e.root, abs)
 		if err != nil {
-			rel = abs // fallback: shouldn't happen
+			rel = abs
 		}
 		data, err := os.ReadFile(abs)
 		if err != nil {
-			continue // best-effort: skip unreadable
+			continue
 		}
 		files = append(files, frameworks.FileInput{Path: rel, Content: string(data)})
 	}
@@ -390,7 +289,6 @@ func (e *Engine) ExtractFrameworkNodes(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("codeintel/engine: ExtractFrameworkNodes: %w", err)
 	}
 
-	// Return the route-node count so callers can emit a profile line.
 	routes, err := e.indexDB.GetNodesByKind(ctx, types.NodeKindRoute)
 	if err != nil {
 		return 0, fmt.Errorf("codeintel/engine: ExtractFrameworkNodes: count routes: %w", err)
@@ -398,11 +296,8 @@ func (e *Engine) ExtractFrameworkNodes(ctx context.Context) (int, error) {
 	return len(routes), nil
 }
 
-// IndexFiles indexes exactly the listed files. Each path must be absolute.
-// Only paths with a known extension are processed; paths with no recognized
-// extension are silently skipped (consistent with IndexAll behaviour). This is
-// the real selective-indexing implementation (F-56 fix — the prior stub
-// incorrectly delegated to IndexAll, re-indexing the entire project root).
+// IndexFiles indexes exactly the listed absolute paths. Paths with no recognized
+// extension are skipped, matching IndexAll.
 func (e *Engine) IndexFiles(ctx context.Context, paths []string) error {
 	if err := e.ensureIndexer(ctx); err != nil {
 		return err
@@ -418,8 +313,7 @@ func (e *Engine) Sync(ctx context.Context) error {
 	return e.orch.Sync(ctx, e.root)
 }
 
-// ResolveReferences runs the resolution pipeline to turn unresolved
-// references into edges.
+// ResolveReferences turns unresolved references into edges.
 func (e *Engine) ResolveReferences(ctx context.Context) error {
 	if err := e.requireDB(); err != nil {
 		return err
@@ -428,11 +322,9 @@ func (e *Engine) ResolveReferences(ctx context.Context) error {
 	return err
 }
 
-// ResolveReferencesProfiled runs the resolution pipeline with an optional
-// per-phase emit callback. emit is called immediately after each sub-phase
-// completes (warm → match → synth) so callers can flush a profile line
-// before the next phase starts. Pass nil for no incremental output.
-// The returned ResolveProfile always contains the final timings and counts.
+// ResolveReferencesProfiled resolves with an optional callback fired after each
+// sub-phase (warm → match → synth), so callers can flush a profile line before
+// the next starts. emit may be nil; the returned profile is always complete.
 func (e *Engine) ResolveReferencesProfiled(ctx context.Context, emit resolution.PhaseEmitFunc) (resolution.ResolveProfile, error) {
 	if err := e.requireDB(); err != nil {
 		return resolution.ResolveProfile{}, err
@@ -441,8 +333,7 @@ func (e *Engine) ResolveReferencesProfiled(ctx context.Context, emit resolution.
 	return prof, err
 }
 
-// GetDetectedFrameworks returns the names of framework resolvers that Detect
-// as active in the project root.
+// GetDetectedFrameworks names the framework resolvers active in the project root.
 func (e *Engine) GetDetectedFrameworks(ctx context.Context) ([]string, error) {
 	if err := e.requireDB(); err != nil {
 		return nil, err
@@ -456,29 +347,21 @@ func (e *Engine) GetDetectedFrameworks(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-// IsIndexing returns false in v1. A future daemon will set this when
-// a background index run is in progress.
+// IsIndexing always returns false; no background indexer exists yet.
 func (e *Engine) IsIndexing() bool {
 	return false
 }
 
-// ExtractFromSource extracts nodes from source (provided as a string with a
-// virtual filename). The results are returned but NOT persisted — callers use
-// this for preview or diff tools. Returns the extraction result.
+// ExtractFromSource would extract nodes from an in-memory source string without
+// persisting them, for preview and diff tools. Not implemented.
 func (e *Engine) ExtractFromSource(ctx context.Context, filename, source string) (types.ExtractionResult, error) {
 	if err := e.requireDB(); err != nil {
 		return types.ExtractionResult{}, err
 	}
-	// Use IndexAll on a temp fixture — this is a convenience method; the full
-	// implementation that avoids disk I/O can be added at. For now,
-	// write to a temp file, index it, and return the nodes/edges from the DB.
-	// Actually, return an informative not-implemented error for now; the
-	// brief only requires the method to exist on the facade.
 	return types.ExtractionResult{}, errors.New("codeintel/engine: ExtractFromSource not implemented in v1")
 }
 
-// GetLastIndexedAt returns the most recent IndexedAt timestamp across all
-// indexed files, or "" if no files have been indexed.
+// GetLastIndexedAt returns the newest IndexedAt across all files, or "" if none.
 func (e *Engine) GetLastIndexedAt(ctx context.Context) (string, error) {
 	if err := e.requireDB(); err != nil {
 		return "", err
@@ -490,12 +373,8 @@ func (e *Engine) GetLastIndexedAt(ctx context.Context) (string, error) {
 	return stats.LastIndexedAt, nil
 }
 
-// ---------------------------------------------------------------------------
-// Stats
-// ---------------------------------------------------------------------------
-
-// GetStats returns aggregate counts (node/edge/file counts, by-kind breakdown,
-// last indexed timestamp).
+// GetStats returns node/edge/file counts, the by-kind breakdown, and the last
+// indexed timestamp.
 func (e *Engine) GetStats(ctx context.Context) (types.GraphStats, error) {
 	if err := e.requireDB(); err != nil {
 		return types.GraphStats{}, err
@@ -512,10 +391,6 @@ func (e *Engine) GetBackend() string {
 func (e *Engine) GetJournalMode() string {
 	return "wal"
 }
-
-// ---------------------------------------------------------------------------
-// Nodes
-// ---------------------------------------------------------------------------
 
 // GetNode returns the node with the given id.
 func (e *Engine) GetNode(ctx context.Context, id string) (types.Node, error) {
@@ -559,9 +434,8 @@ func (e *Engine) SearchNodes(ctx context.Context, opts types.SearchOptions) ([]t
 	return results, err
 }
 
-// GetTopRouteFile returns the file path with the highest concentration of
-// route nodes (NodeKindRoute), or "" if no routes exist. Used by the MCP
-// explore tool to seed the flow graph.
+// GetTopRouteFile returns the file holding the most route nodes, or "" if there
+// are none. The MCP explore tool uses it to seed the flow graph.
 func (e *Engine) GetTopRouteFile(ctx context.Context) (string, error) {
 	if err := e.requireDB(); err != nil {
 		return "", err
@@ -573,7 +447,6 @@ func (e *Engine) GetTopRouteFile(ctx context.Context) (string, error) {
 	if len(routes) == 0 {
 		return "", nil
 	}
-	// Count routes per file.
 	counts := make(map[string]int)
 	for _, r := range routes {
 		counts[r.FilePath]++
@@ -597,19 +470,14 @@ func (e *Engine) GetRoutingManifest(ctx context.Context) ([]types.Node, error) {
 	return e.indexDB.GetNodesByKind(ctx, types.NodeKindRoute)
 }
 
-// GetAllNodes returns every node in the index. Used by full-graph export
-// (e.g. the code graph view) — a full table scan, intended for one bulk read
-// per request rather than per-node querying.
+// GetAllNodes returns every node. A full table scan, meant for one bulk read per
+// request (full-graph export), never for per-node querying.
 func (e *Engine) GetAllNodes(ctx context.Context) ([]types.Node, error) {
 	if err := e.requireDB(); err != nil {
 		return nil, err
 	}
 	return e.indexDB.GetAllNodes(ctx)
 }
-
-// ---------------------------------------------------------------------------
-// Edges
-// ---------------------------------------------------------------------------
 
 // GetOutgoingEdges returns all edges whose source is nodeID.
 func (e *Engine) GetOutgoingEdges(ctx context.Context, nodeID string) ([]types.Edge, error) {
@@ -627,18 +495,13 @@ func (e *Engine) GetIncomingEdges(ctx context.Context, nodeID string) ([]types.E
 	return e.indexDB.GetEdgesByTarget(ctx, nodeID)
 }
 
-// GetAllEdges returns every edge in the index. Used by full-graph export
-// alongside GetAllNodes.
+// GetAllEdges returns every edge; the GetAllNodes caveat applies.
 func (e *Engine) GetAllEdges(ctx context.Context) ([]types.Edge, error) {
 	if err := e.requireDB(); err != nil {
 		return nil, err
 	}
 	return e.indexDB.GetAllEdges(ctx)
 }
-
-// ---------------------------------------------------------------------------
-// Files
-// ---------------------------------------------------------------------------
 
 // GetFile returns the file record for the file at path.
 func (e *Engine) GetFile(ctx context.Context, path string) (types.FileRecord, error) {
@@ -656,13 +519,8 @@ func (e *Engine) GetFiles(ctx context.Context) ([]types.FileRecord, error) {
 	return e.indexDB.GetAllFiles(ctx)
 }
 
-// ---------------------------------------------------------------------------
-// Graph traversal
-// ---------------------------------------------------------------------------
-
-// GetContext returns the immediate neighbourhood of nodeID — its container,
-// direct callers, direct callees, and sibling nodes. This is a convenience
-// wrapper around a depth-1 GetCallers + GetCallees expansion.
+// GetContext returns the immediate neighbourhood of nodeID: a depth-1
+// GetCallers + GetCallees expansion, merged.
 func (e *Engine) GetContext(ctx context.Context, nodeID string) (types.Subgraph, error) {
 	if err := e.requireDB(); err != nil {
 		return types.Subgraph{}, err
@@ -675,7 +533,6 @@ func (e *Engine) GetContext(ctx context.Context, nodeID string) (types.Subgraph,
 	if err != nil {
 		return types.Subgraph{}, err
 	}
-	// Merge into one subgraph.
 	combined := types.Subgraph{
 		Nodes: make(map[string]types.Node),
 		Roots: []string{nodeID},
@@ -691,8 +548,8 @@ func (e *Engine) GetContext(ctx context.Context, nodeID string) (types.Subgraph,
 	return combined, nil
 }
 
-// Traverse performs a BFS traversal from nodeID following the given edge
-// kinds up to maxDepth hops. direction must be "outgoing" or "incoming".
+// Traverse BFS-walks from nodeID up to maxDepth hops. direction must be
+// "outgoing" or "incoming".
 func (e *Engine) Traverse(ctx context.Context, nodeID string, direction string, edgeKinds []types.EdgeKind, maxDepth int) (types.Subgraph, error) {
 	if err := e.requireDB(); err != nil {
 		return types.Subgraph{}, err
@@ -720,8 +577,7 @@ func (e *Engine) GetTypeHierarchy(ctx context.Context, nodeID string, direction 
 	return e.mgr.GetTypeHierarchy(ctx, nodeID, direction)
 }
 
-// FindUsages returns all nodes that reference nodeID via any incoming edge
-// kind. Equivalent to GetCallers at depth 1 but returns a flat list.
+// FindUsages is GetCallers at depth 1, flattened to a sorted list.
 func (e *Engine) FindUsages(ctx context.Context, nodeID string) ([]types.Node, error) {
 	if err := e.requireDB(); err != nil {
 		return nil, err
@@ -765,13 +621,11 @@ func (e *Engine) FindPath(ctx context.Context, fromID, toID string, edgeKinds []
 	return e.mgr.FindPath(ctx, fromID, toID, edgeKinds)
 }
 
-// GetAncestors returns nodes that startID extends/implements (outgoing
-// heritage edges). Equivalent to GetTypeHierarchy "ancestors".
+// GetAncestors returns what nodeID extends or implements, as a Subgraph.
 func (e *Engine) GetAncestors(ctx context.Context, nodeID string, maxDepth int) (types.Subgraph, error) {
 	if err := e.requireDB(); err != nil {
 		return types.Subgraph{}, err
 	}
-	// GetTypeHierarchy returns []Node; wrap into Subgraph.
 	nodes, err := e.mgr.GetTypeHierarchy(ctx, nodeID, "ancestors")
 	if err != nil {
 		return types.Subgraph{}, err
@@ -786,8 +640,7 @@ func (e *Engine) GetAncestors(ctx context.Context, nodeID string, maxDepth int) 
 	return sg, nil
 }
 
-// GetChildren returns nodes that extend/implement startID (incoming heritage
-// edges). Equivalent to GetTypeHierarchy "descendants".
+// GetChildren returns what extends or implements nodeID, as a Subgraph.
 func (e *Engine) GetChildren(ctx context.Context, nodeID string) (types.Subgraph, error) {
 	if err := e.requireDB(); err != nil {
 		return types.Subgraph{}, err
@@ -811,12 +664,10 @@ func (e *Engine) GetFileDependencies(ctx context.Context, filePath string) ([]ty
 	if err := e.requireDB(); err != nil {
 		return nil, err
 	}
-	// Find the file node for this path.
 	fileNodes, err := e.indexDB.GetNodesInFile(ctx, filePath)
 	if err != nil {
 		return nil, err
 	}
-	// Collect file nodes (kind==file) and follow outgoing imports edges.
 	var fileNodeIDs []string
 	for _, n := range fileNodes {
 		if n.Kind == types.NodeKindFile {
@@ -838,10 +689,9 @@ func (e *Engine) GetFileDependencies(ctx context.Context, filePath string) ([]ty
 			if edge.Kind != types.EdgeKindImports {
 				continue
 			}
-			// Look up the target node's file path.
 			target, err := e.indexDB.GetNode(ctx, edge.Target)
 			if err != nil {
-				continue // best-effort
+				continue
 			}
 			if target.FilePath != "" && !seen[target.FilePath] {
 				seen[target.FilePath] = true
@@ -860,7 +710,6 @@ func (e *Engine) GetFileDependents(ctx context.Context, filePath string) ([]type
 	if err := e.requireDB(); err != nil {
 		return nil, err
 	}
-	// Find the file node for this path.
 	fileNodes, err := e.indexDB.GetNodesInFile(ctx, filePath)
 	if err != nil {
 		return nil, err
@@ -911,7 +760,7 @@ func (e *Engine) FindCircularDependencies(ctx context.Context) ([][]string, erro
 }
 
 // FindDeadCode returns unexported functions, methods, and classes with no
-// non-contains incoming edges.
+// incoming edge other than contains.
 func (e *Engine) FindDeadCode(ctx context.Context) ([]types.Node, error) {
 	if err := e.requireDB(); err != nil {
 		return nil, err
@@ -919,8 +768,7 @@ func (e *Engine) FindDeadCode(ctx context.Context) ([]types.Node, error) {
 	return e.mgr.FindDeadCode(ctx)
 }
 
-// GetNodeMetrics returns a basic metrics map for a node: incoming edge count,
-// outgoing edge count, and the node kind.
+// GetNodeMetrics returns edge counts and identity fields for one node.
 func (e *Engine) GetNodeMetrics(ctx context.Context, nodeID string) (map[string]interface{}, error) {
 	if err := e.requireDB(); err != nil {
 		return nil, err
@@ -947,12 +795,7 @@ func (e *Engine) GetNodeMetrics(ctx context.Context, nodeID string) (map[string]
 	}, nil
 }
 
-// ---------------------------------------------------------------------------
-// Context
-// ---------------------------------------------------------------------------
-
-// GetCode returns the raw source excerpt for a node. In v1 it reads the file
-// and returns the lines from StartLine to EndLine inclusive.
+// GetCode returns the node's source lines, StartLine to EndLine inclusive.
 func (e *Engine) GetCode(ctx context.Context, nodeID string) (types.CodeBlock, error) {
 	if err := e.requireDB(); err != nil {
 		return types.CodeBlock{}, err
@@ -964,7 +807,7 @@ func (e *Engine) GetCode(ctx context.Context, nodeID string) (types.CodeBlock, e
 	absPath := filepath.Join(e.root, n.FilePath)
 	data, err := os.ReadFile(absPath)
 	if err != nil {
-		// File may have been deleted since indexing. Return empty but not error.
+		// The file may have been deleted since indexing; that is not an error.
 		return types.CodeBlock{
 			FilePath:  n.FilePath,
 			StartLine: n.StartLine,
@@ -996,8 +839,8 @@ func (e *Engine) GetCode(ctx context.Context, nodeID string) (types.CodeBlock, e
 	}, nil
 }
 
-// FindRelevantContext gathers a relevant subgraph for query and returns the
-// Subgraph, tier string, truncated flag, and any error.
+// FindRelevantContext gathers a subgraph for query, returning it with the search
+// tier that produced it and whether diversity capping truncated the result.
 func (e *Engine) FindRelevantContext(ctx context.Context, query string, opts ContextOptions) (types.Subgraph, string, bool, error) {
 	if err := e.requireDB(); err != nil {
 		return types.Subgraph{}, "", false, err
@@ -1013,10 +856,6 @@ func (e *Engine) BuildContext(ctx context.Context, sg types.Subgraph, opts codec
 	return e.bld.BuildContext(ctx, sg, opts)
 }
 
-// ---------------------------------------------------------------------------
-// DB
-// ---------------------------------------------------------------------------
-
 // Optimize runs PRAGMA optimize and PRAGMA wal_checkpoint(PASSIVE) on the DB.
 func (e *Engine) Optimize(ctx context.Context) error {
 	if err := e.requireDB(); err != nil {
@@ -1025,9 +864,8 @@ func (e *Engine) Optimize(ctx context.Context) error {
 	return e.indexDB.Optimize(ctx)
 }
 
-// Clear removes all nodes, edges, files, and unresolved_refs from the DB,
-// preserving the schema. Use before a full re-index when you want to reset
-// the graph without recreating the file.
+// Clear empties every table but keeps the schema, resetting the graph without
+// recreating the file.
 func (e *Engine) Clear(ctx context.Context) error {
 	if err := e.requireDB(); err != nil {
 		return err
@@ -1035,28 +873,17 @@ func (e *Engine) Clear(ctx context.Context) error {
 	return e.indexDB.Clear(ctx)
 }
 
-// ---------------------------------------------------------------------------
-// Watch (stubbed in v1)
-// ---------------------------------------------------------------------------
-
-// Watch starts a file-system watcher that triggers incremental re-indexing
-// on change. Not implemented in v1 — returns ErrWatchNotImplemented.
+// Watch would start a file-system watcher driving incremental re-indexing.
+// Not implemented.
 func (e *Engine) Watch() error {
 	return ErrWatchNotImplemented
 }
 
-// StopWatch stops the file-system watcher. Not implemented in v1 — returns
-// ErrWatchNotImplemented.
+// StopWatch would stop the file-system watcher. Not implemented.
 func (e *Engine) StopWatch() error {
 	return ErrWatchNotImplemented
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-// requireDB returns ErrNotInitialized when the DB is not open. All facade
-// methods that need the DB call this first.
 func (e *Engine) requireDB() error {
 	if e.indexDB == nil {
 		return ErrNotInitialized
@@ -1064,7 +891,8 @@ func (e *Engine) requireDB() error {
 	return nil
 }
 
-// splitLines splits s into lines, preserving empty trailing lines from \n.
+// splitLines drops the trailing empty element strings.Split leaves after a
+// final newline.
 func splitLines(s string) []string {
 	if s == "" {
 		return nil
@@ -1083,7 +911,6 @@ func splitLines(s string) []string {
 	return lines
 }
 
-// joinLines re-joins lines with newlines.
 func joinLines(lines []string) string {
 	if len(lines) == 0 {
 		return ""

@@ -1,11 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for batch A: Python frameworks (Django, Flask, FastAPI).
-//
-// Per-framework coverage:
-//   1. Detect true on a realistic fixture (dep file / import line) + false on unrelated dir.
-//   2. Extract emits ≥1 route node (exact appendix-H id/qn/name via MakeRouteNode) + handler ref.
-//   3. Comment-stripped route emits nothing (asserted for Flask; proves stripper runs first).
+// Flask, FastAPI, and Django resolver tests.
 
 import (
 	"context"
@@ -17,10 +12,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution/frameworks"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Flask tests
-// ---------------------------------------------------------------------------
 
 func TestFlaskDetect_RequirementsTxt(t *testing.T) {
 	dir := t.TempDir()
@@ -219,7 +210,7 @@ def my_view():
 		t.Fatal(err)
 	}
 	// Flask.Resolve has no DB — TargetNodeID will be empty — but MUST return
-	// confidence 0.8–0.9 when the handler is claimed (appendix H contract).
+	// confidence 0.8–0.9 when the handler is claimed.
 	if result.Confidence < 0.8 || result.Confidence > 0.9 {
 		t.Errorf("Flask.Resolve: confidence want 0.8–0.9, got %v", result.Confidence)
 	}
@@ -274,10 +265,6 @@ urlpatterns = [
 		t.Errorf("Django.Resolve: confidence want 0.8–0.9, got %v", result.Confidence)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// FastAPI tests
-// ---------------------------------------------------------------------------
 
 func TestFastAPIDetect_RequirementsTxt(t *testing.T) {
 	dir := t.TempDir()
@@ -403,10 +390,6 @@ def my_handler():
 		t.Error("FastAPI.ClaimsReference: should return false for unseen name")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Django tests
-// ---------------------------------------------------------------------------
 
 func TestDjangoDetect_ManagePy(t *testing.T) {
 	dir := t.TempDir()
@@ -542,10 +525,6 @@ urlpatterns = [
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registry integration: Python resolvers appear in GetApplicableFrameworks
-// ---------------------------------------------------------------------------
-
 func TestRegistry_PythonFrameworksRegistered(t *testing.T) {
 	dir := t.TempDir()
 	reg := frameworks.NewRegistry(dir, nil)
@@ -562,10 +541,6 @@ func TestRegistry_PythonFrameworksRegistered(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Helpers (shared with main test file via same package _test)
-// ---------------------------------------------------------------------------
 
 func nodeNames(nodes []types.Node) []string {
 	out := make([]string, len(nodes))
@@ -600,10 +575,6 @@ func findRefByNodeAndName(refs []types.UnresolvedReference, fromNodeID, name str
 	}
 	return nil
 }
-
-// ---------------------------------------------------------------------------
-// R1: real-idiom tests (failing pre-fix, green after)
-// ---------------------------------------------------------------------------
 
 // TestFlaskExtract_BlueprintTupleMethod tests the real rw-flask idiom:
 // methods=('GET',) — tuple form, not list form. Pre-fix the regex only handled

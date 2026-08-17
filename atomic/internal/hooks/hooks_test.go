@@ -15,8 +15,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/where"
 )
 
-// addReminderWithDate writes a reminder file whose created date is backdated by
-// the given number of days. It uses reminder.Add then patches the frontmatter.
+// addReminderWithDate backdates a new reminder's frontmatter created date.
 func addReminderWithDate(t *testing.T, root, body string, daysAgo int) string {
 	t.Helper()
 	id, err := reminder.Add(root, body)
@@ -26,7 +25,6 @@ func addReminderWithDate(t *testing.T, root, body string, daysAgo int) string {
 	if daysAgo == 0 {
 		return id
 	}
-	// Patch the created date in the file.
 	dir := filepath.Join(root, ".claude", ".scratchpad", "reminders")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -41,12 +39,10 @@ func addReminderWithDate(t *testing.T, root, body string, daysAgo int) string {
 		raw, _ := os.ReadFile(p)
 		content := string(raw)
 		today := time.Now().UTC().Format("2006-01-02")
-		// Replace the created date in frontmatter.
 		patched := strings.Replace(content, "created: "+today, "created: "+target, 1)
 		if patched == content {
 			continue
 		}
-		// Check this file has our id.
 		if !strings.Contains(content, "id: "+id) {
 			continue
 		}
@@ -59,11 +55,8 @@ func addReminderWithDate(t *testing.T, root, body string, daysAgo int) string {
 	return ""
 }
 
-// --- SessionStart tests ---
-
-// stubNoWikiStaleness overrides the WikiCheckStaleness seam so tests that
-// assert empty output are not contaminated by the real ~/.claude/CLAUDE.md
-// <wikis> block (which may contain dirty registered wikis on the test machine).
+// stubNoWikiStaleness keeps empty-output assertions off the test machine's real
+// <wikis> registry, which may list dirty wikis.
 func stubNoWikiStaleness(t *testing.T) {
 	t.Helper()
 	orig := hooks.WikiCheckStaleness
@@ -73,10 +66,8 @@ func stubNoWikiStaleness(t *testing.T) {
 	t.Cleanup(func() { hooks.WikiCheckStaleness = orig })
 }
 
-// stubNoWherePosition overrides the WherePosition seam to return the plain
-// no-wiki/no-realm case, so tests that assert empty output are not
-// contaminated by the real ~/.claude/CLAUDE.md <wikis> registry or the test
-// process's actual cwd/ancestor tree.
+// stubNoWherePosition pins the plain no-wiki/no-realm case, keeping empty-output
+// assertions off the real registry and the test process's own ancestor tree.
 func stubNoWherePosition(t *testing.T) {
 	t.Helper()
 	orig := hooks.WherePosition
@@ -119,12 +110,10 @@ func TestSessionStart_OneFreshReminder_JSONEnvelope(t *testing.T) {
 		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
 	}
 
-	// suppressOutput must be true.
 	if suppress, ok := payload["suppressOutput"].(bool); !ok || !suppress {
 		t.Errorf("expected suppressOutput=true, got %v", payload["suppressOutput"])
 	}
 
-	// hookSpecificOutput must exist.
 	hso, ok := payload["hookSpecificOutput"].(map[string]any)
 	if !ok {
 		t.Fatalf("hookSpecificOutput missing or wrong type: %v", payload["hookSpecificOutput"])
@@ -143,7 +132,6 @@ func TestSessionStart_OneFreshReminder_JSONEnvelope(t *testing.T) {
 		t.Errorf("additionalContext missing 'today': %q", ctx)
 	}
 
-	// No systemMessage for fresh reminders.
 	if _, has := payload["systemMessage"]; has {
 		t.Errorf("unexpected systemMessage for fresh reminder: %v", payload["systemMessage"])
 	}
@@ -169,15 +157,12 @@ func TestSessionStart_TwelveReminders_CappedAtTen(t *testing.T) {
 	hso := payload["hookSpecificOutput"].(map[string]any)
 	ctx := hso["additionalContext"].(string)
 
-	// Header should say 12.
 	if !strings.Contains(ctx, "Pending reminders (12)") {
 		t.Errorf("header should show total count 12: %q", ctx)
 	}
-	// Must contain the overflow line.
 	if !strings.Contains(ctx, "(and 2 more)") {
 		t.Errorf("expected '(and 2 more)' in context: %q", ctx)
 	}
-	// Count bullet lines (each starts with "- [").
 	lines := strings.Split(ctx, "\n")
 	bulletCount := 0
 	for _, l := range lines {
@@ -231,7 +216,6 @@ func TestSessionStart_FormatText(t *testing.T) {
 	if out == "" {
 		t.Fatal("expected non-empty text output")
 	}
-	// Must be plain markdown, not JSON.
 	if strings.HasPrefix(strings.TrimSpace(out), "{") {
 		t.Errorf("text format should not be JSON: %q", out)
 	}
@@ -271,7 +255,6 @@ func TestSessionStart_BodyTruncated(t *testing.T) {
 	hso := payload["hookSpecificOutput"].(map[string]any)
 	ctx := hso["additionalContext"].(string)
 
-	// The 100-char body should be truncated.
 	if !strings.Contains(ctx, "…") {
 		t.Errorf("expected ellipsis in truncated body: %q", ctx)
 	}
@@ -280,7 +263,6 @@ func TestSessionStart_BodyTruncated(t *testing.T) {
 	}
 }
 
-// TestSessionStart_AgoBuckets tests the "N ago" relative time formatting.
 func TestSessionStart_AgoBuckets(t *testing.T) {
 	stubNoWherePosition(t)
 	cases := []struct {
@@ -322,8 +304,7 @@ func TestSessionStart_AgoBuckets(t *testing.T) {
 	}
 }
 
-// addReminderWithDue writes a reminder with an explicit due timestamp offset
-// from now. daysOffset may be negative (past), zero (now), or positive (future).
+// addReminderWithDue offsets due from now; daysOffset may be negative.
 func addReminderWithDue(t *testing.T, root, body string, daysOffset int) string {
 	t.Helper()
 	due := time.Now().UTC().AddDate(0, 0, daysOffset).Format(time.RFC3339)
@@ -334,8 +315,7 @@ func addReminderWithDue(t *testing.T, root, body string, daysOffset int) string 
 	return id
 }
 
-// patchDueField rewrites the due: line in the reminder file for the given id
-// to an arbitrary string (including malformed values).
+// patchDueField rewrites a reminder's due: line, malformed values included.
 func patchDueField(t *testing.T, root, id, dueValue string) {
 	t.Helper()
 	dir := filepath.Join(root, ".claude", ".scratchpad", "reminders")
@@ -353,7 +333,6 @@ func patchDueField(t *testing.T, root, id, dueValue string) {
 		if !strings.Contains(content, "id: "+id) {
 			continue
 		}
-		// Replace the due line.
 		lines := strings.Split(content, "\n")
 		for i, l := range lines {
 			if strings.HasPrefix(l, "due: ") {
@@ -366,14 +345,11 @@ func patchDueField(t *testing.T, root, id, dueValue string) {
 	t.Fatalf("patchDueField: could not find file for id %q", id)
 }
 
-// --- Past-due filter tests ---
-
 func TestSessionStart_FutureDue_Silent(t *testing.T) {
 	stubNoWikiStaleness(t)
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
-	// Reminder due 1 day in the future — must not appear.
 	addReminderWithDue(t, root, "future reminder should be silent", +1)
 
 	out, err := hooks.SessionStart(root, now)
@@ -389,7 +365,6 @@ func TestSessionStart_PastDue_InOutput(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
-	// Reminder due 1 day in the past — must appear with marker.
 	addReminderWithDue(t, root, "past due reminder", -1)
 
 	out, err := hooks.SessionStart(root, now)
@@ -415,7 +390,6 @@ func TestSessionStart_PastDue_InOutput(t *testing.T) {
 
 func TestSessionStart_LegacyNoDue_InOutput(t *testing.T) {
 	stubNoWherePosition(t)
-	// Legacy reminder with no due field must be treated as past-due.
 	root := t.TempDir()
 	now := time.Now().UTC()
 	addReminderWithDate(t, root, "legacy reminder no due field", 0)
@@ -442,15 +416,12 @@ func TestSessionStart_LegacyNoDue_InOutput(t *testing.T) {
 }
 
 func TestSessionStart_MalformedDue_InOutput(t *testing.T) {
-	// Malformed due value (non-parseable) must surface the reminder defensively.
-	// Use addReminderWithDue so the file actually has a due: field, then corrupt
-	// it — this exercises the parse-error branch in filterPastDue, not the
-	// legacy Due=="" branch.
+	// Corrupting a real due: field exercises filterPastDue's parse-error branch
+	// rather than its legacy Due=="" branch.
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	id := addReminderWithDue(t, root, "malformed due reminder", -1)
-	// Overwrite the valid due value with a non-parseable string.
 	patchDueField(t, root, id, "not-a-valid-iso")
 
 	out, err := hooks.SessionStart(root, now)
@@ -474,17 +445,12 @@ func TestSessionStart_MalformedDue_InOutput(t *testing.T) {
 	}
 }
 
-// TestSessionStart_OldReminder_SystemMessage_CountsOnlySurfaced verifies that
-// systemMessage reports the count of *surfaced* (past-due) reminders, not the
-// total stored count. A user with 1 old past-due + 5 future reminders should
-// see "1 reminders pending", not "6 reminders pending".
+// systemMessage counts surfaced reminders, not everything stored.
 func TestSessionStart_OldReminder_SystemMessage_CountsOnlySurfaced(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
-	// One old past-due reminder (legacy, no due field) — old enough to trigger systemMessage.
 	addReminderWithDate(t, root, "old past due reminder", 15)
-	// Five future reminders — must not appear and must not count in systemMessage.
 	for i := range 5 {
 		addReminderWithDue(t, root, strings.Repeat("f", i+1)+" future silent", +1)
 	}
@@ -503,7 +469,6 @@ func TestSessionStart_OldReminder_SystemMessage_CountsOnlySurfaced(t *testing.T)
 	if !ok || sm == "" {
 		t.Fatalf("expected systemMessage for old reminder, got %v", payload["systemMessage"])
 	}
-	// Must report 1 (surfaced count), not 6 (total count).
 	if strings.Contains(sm, "6 reminders") {
 		t.Errorf("systemMessage over-counts (includes future reminders): %q", sm)
 	}
@@ -516,11 +481,8 @@ func TestSessionStart_MixedDue_OnlyPastDue(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
-	// Past-due: should appear.
 	addReminderWithDue(t, root, "past due visible", -2)
-	// Future: should be silent.
 	addReminderWithDue(t, root, "future silent", +2)
-	// Legacy (no due): should appear.
 	addReminderWithDate(t, root, "legacy visible", 0)
 
 	out, err := hooks.SessionStart(root, now)
@@ -552,11 +514,9 @@ func TestSessionStart_CapAppliedToPastDueSet(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
-	// 12 past-due reminders.
 	for i := range 12 {
 		addReminderWithDue(t, root, strings.Repeat("p", i+1)+" past due", -1)
 	}
-	// 5 future reminders — must not appear and must not count against cap.
 	for i := range 5 {
 		addReminderWithDue(t, root, strings.Repeat("f", i+1)+" future", +1)
 	}
@@ -572,11 +532,9 @@ func TestSessionStart_CapAppliedToPastDueSet(t *testing.T) {
 	hso := payload["hookSpecificOutput"].(map[string]any)
 	ctx := hso["additionalContext"].(string)
 
-	// Header shows count of past-due only (12), not total (17).
 	if !strings.Contains(ctx, "Pending reminders (12)") {
 		t.Errorf("header should show past-due count 12, not total 17: %q", ctx)
 	}
-	// Cap applies: 10 bullets shown, 2 overflow line.
 	if !strings.Contains(ctx, "(and 2 more)") {
 		t.Errorf("expected '(and 2 more)' overflow line: %q", ctx)
 	}
@@ -590,7 +548,6 @@ func TestSessionStart_CapAppliedToPastDueSet(t *testing.T) {
 	if bulletCount != 10 {
 		t.Errorf("expected 10 reminder bullets, got %d", bulletCount)
 	}
-	// Future reminders must not appear.
 	if strings.Contains(ctx, "future") {
 		t.Errorf("future reminders must not appear in output: %q", ctx)
 	}
@@ -621,9 +578,7 @@ func TestSessionStartText_PastDueFilter(t *testing.T) {
 	}
 }
 
-// TestSessionStart_SystemMessage_Pluralization verifies that systemMessage uses
-// singular "reminder" when exactly one reminder is past-due and old enough to
-// trigger the systemMessage, and plural "reminders" for two or more.
+// systemMessage says "reminder" for one and "reminders" for more.
 func TestSessionStart_SystemMessage_Pluralization(t *testing.T) {
 	stubNoWherePosition(t)
 	t.Run("singular", func(t *testing.T) {
@@ -675,8 +630,6 @@ func TestSessionStart_SystemMessage_Pluralization(t *testing.T) {
 	})
 }
 
-// --- Install tests ---
-
 func TestInstall_EmptyDir_RegistersInlineCommand(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
@@ -700,8 +653,7 @@ func TestInstall_EmptyDir_RegistersInlineCommand(t *testing.T) {
 	}
 }
 
-// sessionStartCommandIn returns the command string of the first SessionStart
-// hook entry in settings.json bytes, failing the test if the structure is absent.
+// sessionStartCommandIn fails the test when the expected structure is absent.
 func sessionStartCommandIn(t *testing.T, raw []byte) string {
 	t.Helper()
 	var settings map[string]any
@@ -773,7 +725,6 @@ func TestInstall_Idempotent(t *testing.T) {
 	json.Unmarshal(raw, &settings)
 	hooks_, _ := settings["hooks"].(map[string]any)
 	ss, _ := hooks_["SessionStart"].([]any)
-	// Should only have one entry, not two.
 	if len(ss) != 1 {
 		t.Errorf("expected 1 SessionStart entry after idempotent install, got %d", len(ss))
 	}
@@ -815,7 +766,6 @@ func TestInstall_MalformedSettings_Refuses(t *testing.T) {
 		t.Fatal("expected error for malformed settings.json, got nil")
 	}
 
-	// File must be untouched.
 	raw, _ := os.ReadFile(settingsPath)
 	if string(raw) != "{ not valid json " {
 		t.Errorf("malformed settings.json was modified: %q", string(raw))
@@ -823,7 +773,6 @@ func TestInstall_MalformedSettings_Refuses(t *testing.T) {
 }
 
 func TestInstall_ScopeProject_WritesUnderClaudeDir(t *testing.T) {
-	// scopeRoot here acts as the project root — same as repoRoot for project scope.
 	projectRoot := t.TempDir()
 	if err := hooks.Install(projectRoot, projectRoot); err != nil {
 		t.Fatalf("Install: %v", err)
@@ -838,14 +787,11 @@ func TestInstall_ScopeProject_WritesUnderClaudeDir(t *testing.T) {
 	}
 }
 
-// TestInstall_JWCCSettingsPreservesCommentsAndTrailingCommas verifies that when
-// settings.json contains JWCC extensions (// comments and trailing commas), a
-// full install+uninstall cycle does not corrupt them.
+// A full install+uninstall cycle must not corrupt JWCC settings.json.
 func TestInstall_JWCCSettingsPreservesCommentsAndTrailingCommas(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
 
-	// Write a settings.json with JWCC features.
 	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -858,7 +804,6 @@ func TestInstall_JWCCSettingsPreservesCommentsAndTrailingCommas(t *testing.T) {
 `
 	os.WriteFile(settingsPath, []byte(jwcc), 0o644)
 
-	// Install should succeed and add the hook registration.
 	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install on JWCC settings: %v", err)
 	}
@@ -868,23 +813,18 @@ func TestInstall_JWCCSettingsPreservesCommentsAndTrailingCommas(t *testing.T) {
 		t.Fatalf("read settings after install: %v", err)
 	}
 
-	// The comment must survive.
 	if !strings.Contains(string(raw), "// user preference") {
 		t.Errorf("install stripped JWCC comment from settings.json:\n%s", raw)
 	}
 	// The trailing comma after the last original key must survive (JWCC feature).
-	// The input has `"claude-opus-4-6",` with a trailing comma — that comma must
-	// still be present after the install merge.
 	if !strings.Contains(string(raw), `"claude-opus-4-6",`) {
 		t.Errorf("install stripped trailing comma from JWCC settings.json:\n%s", raw)
 	}
 
-	// The hook must be registered.
 	if !strings.Contains(string(raw), "SessionStart") {
 		t.Errorf("install did not add SessionStart to JWCC settings:\n%s", raw)
 	}
 
-	// Uninstall should also preserve comments.
 	if err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Uninstall on JWCC settings: %v", err)
 	}
@@ -893,13 +833,10 @@ func TestInstall_JWCCSettingsPreservesCommentsAndTrailingCommas(t *testing.T) {
 	if !strings.Contains(string(raw2), "// user preference") {
 		t.Errorf("uninstall stripped JWCC comment from settings.json:\n%s", raw2)
 	}
-	// hooks key should be gone after uninstall.
 	if strings.Contains(string(raw2), "SessionStart") {
 		t.Errorf("SessionStart should be removed after uninstall:\n%s", raw2)
 	}
 }
-
-// --- Uninstall tests ---
 
 func TestUninstall_RemovesRegistration(t *testing.T) {
 	scopeRoot := t.TempDir()
@@ -919,8 +856,7 @@ func TestUninstall_RemovesRegistration(t *testing.T) {
 	}
 }
 
-// TestUninstall_RemovesLegacyScriptFile verifies Uninstall cleans up a wrapper
-// script left by an older install, while preserving unrelated sibling scripts.
+// Uninstall removes the legacy wrapper script but not its siblings.
 func TestUninstall_RemovesLegacyScriptFile(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
@@ -957,7 +893,6 @@ func TestUninstall_DropsHooksKeyWhenEmpty(t *testing.T) {
 	json.Unmarshal(raw, &settings)
 
 	if _, has := settings["hooks"]; has {
-		// Only fail if it's empty.
 		if m, ok := settings["hooks"].(map[string]any); ok && len(m) == 0 {
 			t.Error("empty hooks object should be dropped from settings.json")
 		}
@@ -967,7 +902,6 @@ func TestUninstall_DropsHooksKeyWhenEmpty(t *testing.T) {
 func TestUninstall_NoScript_NoError(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
-	// Don't install first — just try to uninstall.
 	if err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Uninstall without prior install: %v", err)
 	}
@@ -979,11 +913,9 @@ func TestUninstall_PreservesOtherRegistrations(t *testing.T) {
 
 	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
 	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
-	// Pre-populate with another SessionStart hook AND our hook.
 	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
 	initial := `{"hooks": {"SessionStart": [{"matcher": ".*", "hooks": [{"type": "command", "command": "/other/hook.sh"}]}, {"matcher": ".*", "hooks": [{"type": "command", "command": "` + scriptPath + `"}]}]}}`
 	os.WriteFile(settingsPath, []byte(initial), 0o644)
-	// Write the script file so uninstall can remove it.
 	os.MkdirAll(filepath.Dir(scriptPath), 0o755)
 	os.WriteFile(scriptPath, []byte("#!/usr/bin/env bash\nexec atomic hooks session-start\n"), 0o755)
 
@@ -999,7 +931,6 @@ func TestUninstall_PreservesOtherRegistrations(t *testing.T) {
 	if len(ss) != 1 {
 		t.Errorf("expected 1 remaining SessionStart entry, got %d", len(ss))
 	}
-	// The remaining entry should be the other hook.
 	entry, _ := ss[0].(map[string]any)
 	innerHooks, _ := entry["hooks"].([]any)
 	innerHook, _ := innerHooks[0].(map[string]any)
@@ -1007,8 +938,6 @@ func TestUninstall_PreservesOtherRegistrations(t *testing.T) {
 		t.Errorf("wrong remaining hook: %v", innerHook["command"])
 	}
 }
-
-// --- IsInstalled tests ---
 
 func TestIsInstalled_AfterInstall_InstalledNotDrifted(t *testing.T) {
 	scopeRoot := t.TempDir()
@@ -1063,8 +992,7 @@ func TestIsInstalled_NoHookEntry_NotInstalled(t *testing.T) {
 	}
 }
 
-// seedLegacyRegistration writes a settings.json containing a SessionStart entry
-// whose command is the absolute path of the old wrapper script (pre-inline form).
+// seedLegacyRegistration registers the old wrapper-script path as the command.
 func seedLegacyRegistration(t *testing.T, scopeRoot string) {
 	t.Helper()
 	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
@@ -1106,15 +1034,12 @@ func TestIsInstalled_MalformedSettings_Error(t *testing.T) {
 	}
 }
 
-// TestInstall_MigratesLegacyRegistration verifies that running Install over an
-// older wrapper-script install replaces the legacy registration with the inline
-// command, deletes the stale script file, and leaves exactly one entry (no
-// double-fire).
+// Install over a wrapper-script install must leave exactly one entry, so the
+// hook cannot double-fire.
 func TestInstall_MigratesLegacyRegistration(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
 
-	// Seed a legacy install: script-path registration + the script file.
 	seedLegacyRegistration(t, scopeRoot)
 	legacyPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
 	os.MkdirAll(filepath.Dir(legacyPath), 0o755)
@@ -1124,12 +1049,10 @@ func TestInstall_MigratesLegacyRegistration(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	// Legacy script file removed.
 	if _, err := os.Stat(legacyPath); err == nil {
 		t.Error("legacy wrapper script not removed by migration")
 	}
 
-	// Exactly one entry, and it is the inline command.
 	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
 	raw, _ := os.ReadFile(settingsPath)
 	var settings map[string]any
@@ -1143,7 +1066,6 @@ func TestInstall_MigratesLegacyRegistration(t *testing.T) {
 		t.Errorf("post-migration command = %q, want inline command", cmd)
 	}
 
-	// IsInstalled reports clean (not drifted).
 	installed, drifted, err := hooks.IsInstalled(scopeRoot)
 	if err != nil {
 		t.Fatalf("IsInstalled: %v", err)
@@ -1153,15 +1075,8 @@ func TestInstall_MigratesLegacyRegistration(t *testing.T) {
 	}
 }
 
-// --- Profile refresh seam tests ---
-
-// TestSessionStart_ProfileRefreshCalled verifies that SessionStart invokes the
-// profileRefresh seam with days==7, today==now.Format("2006-01-02"), and home
-// (not <home>/.claude — config.ProfilePath expects home directly per
-// docs/spec/configurable-state-paths.md).
-// WHY: the refresh is a ride-along; proving the seam fires with correct args
-// ensures the wiring is correct without real disk I/O. Injects HOME via
-// t.Setenv so the assertion never depends on the real developer machine's home.
+// The seam receives home itself, not <home>/.claude — config.ProfilePath expects
+// the former. HOME is injected so the assertion never reads the real one.
 func TestSessionStart_ProfileRefreshCalled(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
@@ -1196,7 +1111,6 @@ func TestSessionStart_ProfileRefreshCalled(t *testing.T) {
 	}
 }
 
-// TestSessionStartText_ProfileRefreshCalled verifies SessionStartText also fires the seam.
 func TestSessionStartText_ProfileRefreshCalled(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
@@ -1218,10 +1132,7 @@ func TestSessionStartText_ProfileRefreshCalled(t *testing.T) {
 	}
 }
 
-// TestSessionStart_ProfileRefreshError_NeverBlocks verifies that when the
-// profileRefresh seam returns an error, SessionStart still returns its normal
-// reminder output (or empty string) with NO error.
-// WHY: the refresh is best-effort; a disk failure must not break reminder injection.
+// The refresh is best-effort: a disk failure must not break reminder injection.
 func TestSessionStart_ProfileRefreshError_NeverBlocks(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
@@ -1245,18 +1156,12 @@ func TestSessionStart_ProfileRefreshError_NeverBlocks(t *testing.T) {
 	}
 }
 
-// --- Wiki staleness seam tests ---
-
-// TestSessionStart_WikiNudgesInjected verifies that when the WikiCheckStaleness
-// seam returns nudge lines, SessionStart includes them in the additionalContext.
-// WHY: the wiki nudge is a ride-along; proving the seam fires and its output
-// lands in the JSON payload ensures the wiring is correct without real disk I/O.
+// Nudges from the seam must reach additionalContext.
 func TestSessionStart_WikiNudgesInjected(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 
-	// Seed one past-due reminder so the hook has something to return.
 	addReminderWithDate(t, root, "existing reminder", 0)
 
 	hooks.WikiCheckStaleness = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
@@ -1284,8 +1189,6 @@ func TestSessionStart_WikiNudgesInjected(t *testing.T) {
 	}
 }
 
-// TestSessionStart_WikiNudgesOnly_NoReminders verifies that wiki nudges appear
-// even when there are no pending reminders — the hook returns non-empty output.
 func TestSessionStart_WikiNudgesOnly_NoReminders(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
@@ -1315,10 +1218,7 @@ func TestSessionStart_WikiNudgesOnly_NoReminders(t *testing.T) {
 	}
 }
 
-// TestSessionStart_WikiError_NeverBlocks verifies that when the WikiCheckStaleness
-// seam returns an error, SessionStart still succeeds (best-effort: errors are
-// swallowed, no nudges emitted, session is not blocked).
-// WHY: wiki staleness is a ride-along; a file-read failure must not break the session.
+// Wiki staleness is best-effort: a read failure must not break the session.
 func TestSessionStart_WikiError_NeverBlocks(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
@@ -1342,8 +1242,7 @@ func TestSessionStart_WikiError_NeverBlocks(t *testing.T) {
 	}
 }
 
-// TestSessionStart_WikiSeamReceivesThreshold30 verifies the seam is called with
-// thresholdDays == 30 (the spec-mandated deterministic floor).
+// The seam gets the 30-day deterministic floor.
 func TestSessionStart_WikiSeamReceivesThreshold30(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
@@ -1371,11 +1270,7 @@ func TestSessionStart_WikiSeamReceivesThreshold30(t *testing.T) {
 	}
 }
 
-// --- Orientation (where) seam tests ---
-
-// TestSessionStart_WhereSuppressed_PlainPosition verifies that when the
-// resolved position is the plain no-wiki/no-realm case, SessionStart emits
-// no orientation content — the hook stays silent-unless-relevant.
+// A plain position emits nothing — the hook stays silent unless relevant.
 func TestSessionStart_WhereSuppressed_PlainPosition(t *testing.T) {
 	stubNoWikiStaleness(t)
 	root := t.TempDir()
@@ -1395,9 +1290,7 @@ func TestSessionStart_WhereSuppressed_PlainPosition(t *testing.T) {
 	}
 }
 
-// TestSessionStart_WhereSurfaced_RepoScopeFound verifies that a non-trivial
-// position (repo-scope wiki found) surfaces exactly one orientation nudge
-// line in additionalContext, even when there are no reminders or wiki nudges.
+// A repo-scope wiki surfaces one orientation line on its own.
 func TestSessionStart_WhereSurfaced_RepoScopeFound(t *testing.T) {
 	stubNoWikiStaleness(t)
 	root := t.TempDir()
@@ -1432,7 +1325,6 @@ func TestSessionStart_WhereSurfaced_RepoScopeFound(t *testing.T) {
 		t.Errorf("orientation nudge missing pointer to `atomic where`: %q", ctx)
 	}
 
-	// Exactly one nudge bullet under the Orientation section.
 	lines := strings.Split(ctx, "\n")
 	bulletCount := 0
 	for _, l := range lines {
@@ -1445,12 +1337,8 @@ func TestSessionStart_WhereSurfaced_RepoScopeFound(t *testing.T) {
 	}
 }
 
-// TestSessionStart_WhereSurfaced_RealmMember verifies that a non-trivial
-// realm-scope position (RealmMember, no repo-scope wiki) surfaces an
-// orientation nudge line naming the realm root. WHY: the only other
-// "surfaced" test exercises RepoScope.Found alone, so isPlainPosition's
-// RealmScope.Position != RealmNone clause and whereNudgeLine's realm-position
-// switch were otherwise never reached by any hook-integration-layer test.
+// Realm-only position: the sibling test covers RepoScope.Found alone, leaving
+// isPlainPosition's RealmScope clause and whereNudgeLine's switch unreached.
 func TestSessionStart_WhereSurfaced_RealmMember(t *testing.T) {
 	stubNoWikiStaleness(t)
 	root := t.TempDir()
@@ -1486,10 +1374,7 @@ func TestSessionStart_WhereSurfaced_RealmMember(t *testing.T) {
 	}
 }
 
-// TestSessionStart_WhereSurfaced_RealmRoot verifies that the RealmRoot
-// position surfaces an orientation nudge line naming the realm root. WHY:
-// whereNudgeLine's realm-position switch has a RealmRoot case (hooks.go)
-// that was otherwise never reached by any hook-integration-layer test.
+// Covers whereNudgeLine's RealmRoot case.
 func TestSessionStart_WhereSurfaced_RealmRoot(t *testing.T) {
 	stubNoWikiStaleness(t)
 	root := t.TempDir()
@@ -1525,11 +1410,7 @@ func TestSessionStart_WhereSurfaced_RealmRoot(t *testing.T) {
 	}
 }
 
-// TestSessionStart_WhereSurfaced_RealmOrphaned verifies that the
-// RealmOrphaned position surfaces an orientation nudge line naming the
-// realm root. WHY: whereNudgeLine's realm-position switch has a
-// RealmOrphaned case (hooks.go) that was otherwise never reached by any
-// hook-integration-layer test.
+// Covers whereNudgeLine's RealmOrphaned case.
 func TestSessionStart_WhereSurfaced_RealmOrphaned(t *testing.T) {
 	stubNoWikiStaleness(t)
 	root := t.TempDir()
@@ -1565,9 +1446,7 @@ func TestSessionStart_WhereSurfaced_RealmOrphaned(t *testing.T) {
 	}
 }
 
-// TestSessionStart_WhereSeamReceivesRepoRoot verifies the WherePosition seam
-// is invoked with repoRoot as cwd (the position is relative to the caller's
-// project root, not the hook process's own cwd).
+// The seam gets repoRoot as cwd, not the hook process's own working directory.
 func TestSessionStart_WhereSeamReceivesRepoRoot(t *testing.T) {
 	stubNoWikiStaleness(t)
 	root := t.TempDir()
@@ -1588,9 +1467,7 @@ func TestSessionStart_WhereSeamReceivesRepoRoot(t *testing.T) {
 	}
 }
 
-// TestSessionStart_WhereError_NeverBlocks verifies that when the WherePosition
-// seam returns an error, SessionStart still succeeds (best-effort: errors are
-// swallowed, no orientation nudge emitted, session is not blocked).
+// Orientation is best-effort: a seam error must not block the session.
 func TestSessionStart_WhereError_NeverBlocks(t *testing.T) {
 	stubNoWikiStaleness(t)
 	root := t.TempDir()

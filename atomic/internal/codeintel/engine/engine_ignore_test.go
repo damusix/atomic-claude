@@ -1,11 +1,5 @@
-// Package engine tests — graphignore config wiring.
-//
-// ensureIndexer loads .claude/atomic.toml once per indexer boot and wires the
-// resulting matcher onto the orchestrator. These tests exercise that wiring
-// end-to-end through the public Engine API (New/Init/IndexAll), which is the
-// only way to reach ensureIndexer — each test pays the tree-sitter pool boot
-// once (see ensureIndexer's doc comment on cost), consistent with every other
-// engine-level test in this package.
+// Ignore-config wiring tests. ensureIndexer is reachable only through the public
+// API, so each of these pays a full pool boot.
 package engine_test
 
 import (
@@ -18,10 +12,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 )
 
-// TestIndexAll_AbsentIgnoreConfig_OutputUnchanged is the
-// "absent config" success criterion: with no .claude/atomic.toml present,
-// discovery output is identical to pre-graphignore behavior — every file is
-// indexed and no warnings are recorded.
+// With no config present, every file is indexed and no warning is recorded.
 func TestIndexAll_AbsentIgnoreConfig_OutputUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	writeGoFile(t, dir, "main.go", "func Main() {}")
@@ -57,21 +48,16 @@ func TestIndexAll_AbsentIgnoreConfig_OutputUnchanged(t *testing.T) {
 	}
 }
 
-// TestIndexAll_IgnoreConfigFiltersAndWarns proves the full config→matcher
-// wiring: a valid pattern excludes the matching file from the index, an
-// invalid pattern mixed into the same array degrades to a warning (not a
-// hard failure), and IgnorePatternInfo reports only the successfully
-// compiled pattern.
+// A valid pattern excludes its file; an invalid one alongside it degrades to a
+// warning rather than failing the run, and is not counted as compiled.
 func TestIndexAll_IgnoreConfigFiltersAndWarns(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeGoFile(t, dir, "main.go", "func Main() {}")
-	// "external", not "vendor": walkDirFallback (used here — this fixture has
-	// no git repo) already skips a literal "vendor" directory by name, which
-	// would make the test pass for the wrong reason (structural skip, not the
-	// ignore matcher under test).
+	// Named "external", not "vendor": walkDirFallback skips a literal "vendor"
+	// dir by name, which would pass this test without the matcher doing anything.
 	writeGoFile(t, dir, filepath.Join("external", "lib.go"), "func Lib() {}")
 
 	tomlContent := "[code]\nignore = [\"external/**\", \"vendor[/**\"]\n"
@@ -123,7 +109,6 @@ func TestIndexAll_IgnoreConfigFiltersAndWarns(t *testing.T) {
 	}
 }
 
-// writeGoFile writes a minimal .go file with body inside a package.
 func writeGoFile(t *testing.T, dir, relPath, body string) {
 	t.Helper()
 	abs := filepath.Join(dir, relPath)

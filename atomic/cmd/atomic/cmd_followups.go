@@ -10,8 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildFollowupsCmd builds the "followups" parent + list|add|close|render|path children.
-// Dispatch is runFollowups (→ followups.Run from internal/followups/cli.go).
 func buildFollowupsCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runFollowups(args, *repoOverride) }
 	parent := &cobra.Command{
@@ -57,14 +55,9 @@ func buildFollowupsCmd(repoOverride *string) *cobra.Command {
 	return parent
 }
 
-// --- top-level-only verb builders with flag metadata ---------------------
-//
-// The five verbs below have no Cobra subcommands (they are leaves). Each uses
-// DisableFlagParsing:true so the existing handler's own flag.NewFlagSet parses
-// flags at runtime; the Flags() registrations here are metadata only, read by
-// cliusage.DeriveCommands to populate the Commands() surface for the A1 linter.
-// Flag names and the args_hint annotation must match cliusage.go's hardcoded
-// golden slice exactly.
+// The leaf verbs below register Flags() as metadata only, read by
+// cliusage.DeriveCommands for the A1 linter. Flag names and args_hint must
+// match cliusage.go.s golden slice exactly.
 
 func runFollowups(args []string, repoOverride string) {
 	root, err := repoctx.Resolve(repoOverride)

@@ -1,9 +1,3 @@
-// Package cli tests — graphignore CLI wiring.
-//
-// Covers the two CLI-visible success criteria that don't fit engine/indexer
-// package tests: `atomic code index` prints exactly one repo-config warning
-// line on a degraded .claude/atomic.toml, and `atomic code status` reports
-// the active ignore-pattern count and config path.
 package cli_test
 
 import (
@@ -18,9 +12,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 )
 
-// TestIndex_RepoConfigWarning_PrintsOneLine verifies that an invalid glob
-// pattern in .claude/atomic.toml does not fail `atomic code index` — it
-// degrades to unfiltered indexing plus exactly one warning line on stderr.
 func TestIndex_RepoConfigWarning_PrintsOneLine(t *testing.T) {
 	dir := writeFixture(t)
 	must(t, os.MkdirAll(filepath.Join(dir, ".claude"), 0o755))
@@ -49,18 +40,14 @@ func TestIndex_RepoConfigWarning_PrintsOneLine(t *testing.T) {
 	}
 }
 
-// TestStatus_IgnorePatternCount verifies `atomic code status` reports the
-// active ignore-pattern count and config path, in both --json and text form,
-// once a well-formed .claude/atomic.toml is present.
 func TestStatus_IgnorePatternCount(t *testing.T) {
 	dir := t.TempDir()
 	must(t, os.MkdirAll(filepath.Join(dir, ".claude"), 0o755))
 	toml := "[code]\nignore = [\"vendor/**\", \"*.min.js\"]\n"
 	must(t, os.WriteFile(filepath.Join(dir, ".claude", "atomic.toml"), []byte(toml), 0o644))
 
-	// IgnorePatternInfo is a pool-free read; status only needs the index dir
-	// to exist (IsInitialized), so Init (no IndexAll) is enough — and avoids
-	// paying the indexer's pool-boot cost for a status-only test.
+	// Init without IndexAll is enough: the pattern read is pool-free, so a
+	// status-only test need not pay the indexer.s boot cost.
 	ctx := testCtx(t)
 	eng, err := engine.New(dir)
 	must(t, err)
@@ -94,8 +81,6 @@ func TestStatus_IgnorePatternCount(t *testing.T) {
 	}
 }
 
-// TestStatus_NoIgnoreConfig_NoLine verifies the line is entirely absent (not
-// printed as "0") when no .claude/atomic.toml is present.
 func TestStatus_NoIgnoreConfig_NoLine(t *testing.T) {
 	dir := t.TempDir()
 	ctx := testCtx(t)

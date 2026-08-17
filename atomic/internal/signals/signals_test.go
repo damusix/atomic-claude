@@ -18,8 +18,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/signals"
 )
 
-// makeRepo creates a minimal temporary repo directory with the given files.
-// files maps relative path → content.
+// makeRepo creates a temp repo seeded from a relpath → content map.
 func makeRepo(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -48,8 +47,6 @@ func initGit(t *testing.T, root string) {
 		}
 	}
 }
-
-// ---- Tree scanner ----
 
 func TestScanTree_EmptyRepo(t *testing.T) {
 	root := makeRepo(t, nil)
@@ -98,7 +95,6 @@ func TestScanTree_SkipDirs(t *testing.T) {
 }
 
 func TestScanTree_DepthCap(t *testing.T) {
-	// Create a directory 4 levels deep — level 4 should not appear.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/deep.go":  "package main\n",
 		"a/b/c/d/too.go": "package main\n",
@@ -107,11 +103,9 @@ func TestScanTree_DepthCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// deep.go is at depth 3 — should be present.
 	if !strings.Contains(out, "deep.go") {
 		t.Errorf("expected deep.go (depth 3), not found:\n%s", out)
 	}
-	// too.go is at depth 4 — should be absent.
 	if strings.Contains(out, "too.go") {
 		t.Errorf("expected too.go (depth 4) to be excluded:\n%s", out)
 	}
@@ -130,7 +124,6 @@ func TestScanTree_DirsBeforeFiles(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("expected at least 2 lines, got: %v", lines)
 	}
-	// a_dir/ should appear before z_file.go (tree glyphs prefix each line).
 	dirIdx, fileIdx := -1, -1
 	for i, l := range lines {
 		if strings.Contains(l, "a_dir/") {
@@ -162,13 +155,10 @@ func TestScanTree_Sorted(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("expected 3 lines, got %d:\n%s", len(lines), out)
 	}
-	// Lines have tree glyphs: "├── a.go", "├── m.go", "└── z.go".
 	if !strings.Contains(lines[0], "a.go") || !strings.Contains(lines[1], "m.go") || !strings.Contains(lines[2], "z.go") {
 		t.Errorf("not sorted: %v", lines)
 	}
 }
-
-// ---- Manifests scanner ----
 
 func TestScanManifests_Empty(t *testing.T) {
 	root := makeRepo(t, nil)
@@ -195,7 +185,6 @@ func TestScanManifests_PackageJSON(t *testing.T) {
 	if !strings.Contains(out, "version=1.2.3") {
 		t.Errorf("missing version: %s", out)
 	}
-	// Scripts should be sorted.
 	if !strings.Contains(out, "scripts=[build, lint, test]") {
 		t.Errorf("missing sorted scripts: %s", out)
 	}
@@ -327,7 +316,6 @@ func TestScanManifests_SortedByFilename(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanManifests: %v", err)
 	}
-	// Cargo.toml < go.mod < package.json alphabetically.
 	cargoIdx := strings.Index(out, "Cargo.toml")
 	goIdx := strings.Index(out, "go.mod")
 	pkgIdx := strings.Index(out, "package.json")
@@ -338,8 +326,6 @@ func TestScanManifests_SortedByFilename(t *testing.T) {
 		t.Errorf("manifests not sorted alphabetically: %s", out)
 	}
 }
-
-// ---- Languages scanner ----
 
 func TestScanLanguages_Empty(t *testing.T) {
 	root := makeRepo(t, nil)
@@ -379,7 +365,6 @@ func TestScanLanguages_MultipleLanguages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanLanguages: %v", err)
 	}
-	// TypeScript should be first (most LOC).
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) == 0 || !strings.Contains(lines[0], "TypeScript") {
 		t.Errorf("expected TypeScript first (most LOC): %v", lines)
@@ -504,14 +489,12 @@ func TestScanLanguages_SkipDirs(t *testing.T) {
 	if !strings.Contains(out, "Go:") {
 		t.Errorf("expected Go: %s", out)
 	}
-	// JavaScript from node_modules should not bloat the count.
 	if strings.Contains(out, "JavaScript: 10000") {
 		t.Errorf("node_modules JS should be excluded: %s", out)
 	}
 }
 
 func TestScanLanguages_Top10Cap(t *testing.T) {
-	// Create 12 different languages.
 	files := map[string]string{}
 	exts := []string{".go", ".ts", ".js", ".py", ".rs", ".rb", ".java", ".kt", ".swift", ".cs", ".c", ".cpp"}
 	for i, ext := range exts {
@@ -527,8 +510,6 @@ func TestScanLanguages_Top10Cap(t *testing.T) {
 		t.Errorf("expected at most 10 languages, got %d:\n%s", len(lines), out)
 	}
 }
-
-// ---- Scan verb ----
 
 func TestScan_CreatesFile(t *testing.T) {
 	root := makeRepo(t, map[string]string{
@@ -570,7 +551,6 @@ func TestScan_Idempotent(t *testing.T) {
 	}
 	first, _ := os.ReadFile(signals.SignalsPath(root))
 
-	// Second scan on unchanged repo.
 	if err := signals.Scan(root); err != nil {
 		t.Fatalf("Scan second: %v", err)
 	}
@@ -588,13 +568,11 @@ func TestScan_BacksUpPrevFile(t *testing.T) {
 	if err := signals.Scan(root); err != nil {
 		t.Fatalf("Scan first: %v", err)
 	}
-	// Capture the first scan's output — the prev file should contain these bytes.
 	firstOutput, err := os.ReadFile(signals.SignalsPath(root))
 	if err != nil {
 		t.Fatalf("read first output: %v", err)
 	}
 
-	// Modify a source file to force a rewrite.
 	if err := os.WriteFile(filepath.Join(root, "new.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatalf("write new.go: %v", err)
 	}
@@ -606,7 +584,6 @@ func TestScan_BacksUpPrevFile(t *testing.T) {
 	if _, err := os.Stat(prevPath); err != nil {
 		t.Fatalf("prev file not created: %v", err)
 	}
-	// Content of the prev file must equal the first scan's output.
 	prevContent, err := os.ReadFile(prevPath)
 	if err != nil {
 		t.Fatalf("read prev file: %v", err)
@@ -616,8 +593,6 @@ func TestScan_BacksUpPrevFile(t *testing.T) {
 	}
 }
 
-// ---- Show verb ----
-
 func TestShow_PrintsFile(t *testing.T) {
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
@@ -625,7 +600,6 @@ func TestShow_PrintsFile(t *testing.T) {
 	if err := signals.Scan(root); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	// Redirect stdout.
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -658,8 +632,6 @@ func TestShow_MissingFile(t *testing.T) {
 	}
 }
 
-// ---- Stale verb ----
-
 func TestStale_FreshAfterScan(t *testing.T) {
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
@@ -667,7 +639,6 @@ func TestStale_FreshAfterScan(t *testing.T) {
 	if err := signals.Scan(root); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	// Signals file was just written — should not be stale.
 	if _, err := signals.Stale(root); err != nil {
 		t.Errorf("expected fresh (nil), got: %v", err)
 	}
@@ -681,8 +652,6 @@ func TestStale_StaleAfterSourceChange(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 
-	// Add a new source file. This changes the deterministic body (file count,
-	// tree listing, language LOC) — so a fresh scan would differ from stored.
 	if err := os.WriteFile(filepath.Join(root, "helper.go"), []byte("package main\n\nfunc helper() {}\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -691,18 +660,13 @@ func TestStale_StaleAfterSourceChange(t *testing.T) {
 	if err != signals.ErrStale {
 		t.Errorf("expected ErrStale, got: %v", err)
 	}
-	// Evidence drives the imperative CLI output: the orchestrator sees a
-	// concrete magnitude of drift rather than a bare exit code it can dismiss.
 	if info.ChangedLines < 1 {
 		t.Errorf("expected changed-line evidence > 0, got ChangedLines=%d", info.ChangedLines)
 	}
 }
 
-// TestStale_FreshAfterIdempotentRewrite is the regression test for the
-// commit-time-regeneration treadmill: a generated file (e.g. manifest.go) is
-// rewritten with identical bytes at commit time, bumping its mtime without
-// changing what a scan would produce. A pure-mtime staleness check called this
-// stale forever; the content-based check must call it fresh.
+// A generated file rewritten with identical bytes bumps mtime without changing
+// what a scan produces. A pure-mtime check called that stale forever.
 func TestStale_FreshAfterIdempotentRewrite(t *testing.T) {
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
@@ -711,14 +675,13 @@ func TestStale_FreshAfterIdempotentRewrite(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 
-	// Make the signals file older so any mtime-based check would call it stale.
+	// Age the signals file so any mtime-based check would call it stale.
 	signalsPath := signals.SignalsPath(root)
 	past := time.Now().Add(-2 * time.Second)
 	if err := os.Chtimes(signalsPath, past, past); err != nil {
 		t.Fatalf("chtimes: %v", err)
 	}
 
-	// Rewrite a source file with byte-identical content — newer mtime, same bytes.
 	srcPath := filepath.Join(root, "main.go")
 	if err := os.WriteFile(srcPath, []byte("package main\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -740,8 +703,6 @@ func TestStale_MissingFile(t *testing.T) {
 	}
 }
 
-// ---- Diff verb ----
-
 func TestDiff_NoPriorFallback(t *testing.T) {
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
@@ -749,7 +710,6 @@ func TestDiff_NoPriorFallback(t *testing.T) {
 	if err := signals.Scan(root); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	// No prev file exists, and this is not a git repo → should get ErrNoPrior.
 	err := signals.Diff(root, io.Discard)
 	if err != signals.ErrNoPrior {
 		t.Errorf("expected ErrNoPrior, got: %v", err)
@@ -786,12 +746,10 @@ func TestDiff_GitDiffPresent(t *testing.T) {
 		t.Fatalf("Scan first: %v", err)
 	}
 
-	// Stage initial scan.
 	exec.Command("git", "-C", root, "add", ".").Run()
 	exec.Command("git", "-C", root, "commit", "-m", "initial").Run()
 
-	// Directly modify the signals file to add a known marker line.
-	// This forces a diff that contains a '+' line with that marker.
+	// Marker line forces a diff containing a matching '+' line.
 	const marker = "# test-diff-marker-line"
 	sigPath := signals.SignalsPath(root)
 	existing, err := os.ReadFile(sigPath)
@@ -803,7 +761,6 @@ func TestDiff_GitDiffPresent(t *testing.T) {
 		t.Fatalf("modify signals file: %v", err)
 	}
 
-	// git diff should show the added marker line.
 	var out bytes.Buffer
 	err = signals.Diff(root, &out)
 	if err != signals.ErrDiffPresent {
@@ -812,7 +769,6 @@ func TestDiff_GitDiffPresent(t *testing.T) {
 	if out.Len() == 0 {
 		t.Error("expected non-empty diff output on stdout")
 	}
-	// The diff body must contain a '+' line with the marker we added.
 	diffStr := out.String()
 	if !strings.Contains(diffStr, "+"+marker) {
 		t.Errorf("diff output does not contain expected '+' line with marker %q:\n%s", marker, diffStr)
@@ -827,22 +783,18 @@ func TestDiff_MissingSignalsFile(t *testing.T) {
 	}
 }
 
-// ---- Golden tests (testdata/signals/<scenario>/ fixture layout) ----
-//
 // Run with -update to regenerate expected.md fixtures.
 
 var update = flag.Bool("update", false, "regenerate golden testdata fixtures")
 
-// goldenTest scans a temp repo seeded from testdata/signals/<scenario>/repo/,
-// and compares against testdata/signals/<scenario>/expected.md.
-// With -update, it writes the expected file instead of comparing.
+// goldenTest scans a temp repo seeded from testdata/signals/<scenario>/repo/ and
+// compares against expected.md; with -update it rewrites expected.md instead.
 func goldenTest(t *testing.T, scenario string) {
 	t.Helper()
 
-	// Seed the temp repo from testdata fixture.
 	srcRepo := filepath.Join("testdata", "signals", scenario, "repo")
 
-	// repo/ must exist. An intentionally-empty repo must contain a .keep marker.
+	// An intentionally-empty scenario repo/ must carry a .keep marker.
 	repoInfo, err := os.Stat(srcRepo)
 	if err != nil {
 		t.Fatalf("goldenTest: scenario %q is missing repo/ directory (expected at %s)", scenario, srcRepo)
@@ -853,12 +805,10 @@ func goldenTest(t *testing.T, scenario string) {
 
 	root := t.TempDir()
 
-	// Copy all files from the scenario repo into the temp dir.
 	entries, readErr := os.ReadDir(srcRepo)
 	if readErr != nil {
 		t.Fatalf("read repo/: %v", readErr)
 	}
-	// Allow an empty repo/ only if it contains a .keep marker.
 	hasKeep := false
 	for _, e := range entries {
 		if e.Name() == ".keep" {
@@ -869,7 +819,7 @@ func goldenTest(t *testing.T, scenario string) {
 		t.Fatalf("goldenTest: repo/ is empty with no .keep marker for scenario %q", scenario)
 	}
 	if len(entries) == 1 && hasKeep {
-		// Intentionally empty repo — don't copy .keep into the scan dir.
+		// .keep is a fixture marker, not scan input.
 	} else {
 		if err := copyDir(t, srcRepo, root); err != nil {
 			t.Fatalf("copy fixture: %v", err)
@@ -909,7 +859,6 @@ func goldenTest(t *testing.T, scenario string) {
 }
 
 // diffSnippet produces a minimal unified-diff-style snippet for two strings.
-// Only changed lines are shown (no context lines). No external dependency.
 func diffSnippet(want, got string) string {
 	wantLines := strings.Split(want, "\n")
 	gotLines := strings.Split(got, "\n")
@@ -943,7 +892,6 @@ func diffSnippet(want, got string) string {
 	return sb.String()
 }
 
-// copyDir recursively copies src into dst.
 func copyDir(t *testing.T, src, dst string) error {
 	t.Helper()
 	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
@@ -974,8 +922,6 @@ func TestGolden_Multilang(t *testing.T) {
 	goldenTest(t, "multilang")
 }
 
-// ---- U1: Tree glyph rendering ----
-
 func TestScanTree_Glyphs(t *testing.T) {
 	root := makeRepo(t, map[string]string{
 		"a.go":       "package main\n",
@@ -986,18 +932,15 @@ func TestScanTree_Glyphs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// Output must contain tree branch glyphs.
 	if !strings.Contains(out, "├──") {
 		t.Errorf("expected ├── glyph in output:\n%s", out)
 	}
 	if !strings.Contains(out, "└──") {
 		t.Errorf("expected └── glyph in output:\n%s", out)
 	}
-	// pkg/ is a dir and should appear before files; its child uses │   prefix.
 	if !strings.Contains(out, "pkg/") {
 		t.Errorf("expected pkg/ in output:\n%s", out)
 	}
-	// Continuation prefix for non-last dir.
 	lines := strings.Split(out, "\n")
 	foundContinuation := false
 	for _, l := range lines {
@@ -1019,7 +962,6 @@ func TestScanTree_LastEntryGlyph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// Single entry is always the last: must use └──.
 	if !strings.Contains(out, "└──") {
 		t.Errorf("single entry should use └──:\n%s", out)
 	}
@@ -1027,8 +969,6 @@ func TestScanTree_LastEntryGlyph(t *testing.T) {
 		t.Errorf("single entry should not use ├──:\n%s", out)
 	}
 }
-
-// ---- U2: Git-backed enumeration shows dotfile dirs ----
 
 func TestEnumerateFiles_GitShowsDotfiles(t *testing.T) {
 	root := makeRepo(t, map[string]string{
@@ -1074,10 +1014,8 @@ func TestEnumerateFiles_GitExcludesScratchpad(t *testing.T) {
 	}
 }
 
-// TestEnumerateFiles_GitExcludesScratchpad_UnderNonDefaultHarnessDir verifies
-// skipPrefixes threads the resolved harness dir: under a ".pi" harness, the
-// exclusion prefix moves to .pi/.scratchpad/ + .pi/project/, and the default
-// .claude/.scratchpad/ prefix no longer applies.
+// skipPrefixes threads the resolved harness dir, so a ".pi" harness excludes
+// .pi/.scratchpad/ and stops excluding .claude/.scratchpad/.
 func TestEnumerateFiles_GitExcludesScratchpad_UnderNonDefaultHarnessDir(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".pi")
 	defer restore()
@@ -1086,9 +1024,7 @@ func TestEnumerateFiles_GitExcludesScratchpad_UnderNonDefaultHarnessDir(t *testi
 		"main.go": "package main\n",
 		".pi/.scratchpad/2026-01-01-task/BRIEF.md": "# brief\n",
 		".pi/rules/ts.md":                          "# ts\n",
-		// Under the .pi harness, the default .claude/.scratchpad/ prefix no
-		// longer matches — a file there must survive in the scan.
-		".claude/.scratchpad/leftover.md": "# leftover\n",
+		".claude/.scratchpad/leftover.md":          "# leftover\n",
 	})
 	initGit(t, root)
 	exec.Command("git", "-C", root, "add", ".").Run()
@@ -1109,19 +1045,11 @@ func TestEnumerateFiles_GitExcludesScratchpad_UnderNonDefaultHarnessDir(t *testi
 	}
 }
 
-// ---- U4: docs/wiki/ excluded from scan (generated signals output) ----
-
-// TestEnumerateFiles_ExcludesDocsWiki asserts that the entire docs/wiki/ directory
-// is excluded from the scan in both the WalkDir path (non-git) and the git path.
-// WHY: docs/wiki/ is generated signals output (router index.md, domain files,
-// scan.md, steering CLAUDE.md). Including any of those files in the scan tree
-// makes the scan self-referential — the inferrer writes a <scan-sha> hash into
-// docs/wiki/index.md, which changes its blob SHA, which changes the scan tree,
-// which makes `atomic signals stale` return exit 1 forever (circular staleness).
-// This mirrors .claude/project/ (the prior signals output location), which is
-// already fully skipped.
+// docs/wiki/ is generated signals output, so scanning it is self-referential:
+// the inferrer stamps a <scan-sha> into index.md, which changes index.md's blob
+// SHA, which changes the scan tree — leaving `signals stale` at exit 1 forever.
 func TestEnumerateFiles_ExcludesDocsWiki(t *testing.T) {
-	// WalkDir path (no git) — covers enumWalk.
+	// Covers enumWalk (no git).
 	t.Run("walkdir", func(t *testing.T) {
 		root := makeRepo(t, map[string]string{
 			"main.go":               "package main\n",
@@ -1136,26 +1064,23 @@ func TestEnumerateFiles_ExcludesDocsWiki(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ScanTree (walkdir): %v", err)
 		}
-		// All docs/wiki/* files must be absent.
 		for _, bad := range []string{"index.md", "bundle.md", "CLAUDE.md", "scan.md", "workflow.md"} {
-			// Only fail if the file appears under a "wiki" directory line.
+			// A bare basename may legitimately appear outside docs/wiki/.
 			if strings.Contains(out, "wiki/") {
 				t.Errorf("docs/wiki/ directory should be excluded but 'wiki/' found in output:\n%s", out)
 				break
 			}
 			_ = bad
 		}
-		// docs/guide/ is NOT wiki — it must be included.
 		if !strings.Contains(out, "install.md") {
 			t.Errorf("expected docs/guide/install.md to be included in scan:\n%s", out)
 		}
-		// main.go must be included.
 		if !strings.Contains(out, "main.go") {
 			t.Errorf("expected main.go to be included in scan:\n%s", out)
 		}
 	})
 
-	// Git path — covers enumGit (git ls-files).
+	// Covers enumGit (git ls-files).
 	t.Run("git", func(t *testing.T) {
 		root := makeRepo(t, map[string]string{
 			"main.go":               "package main\n",
@@ -1172,22 +1097,17 @@ func TestEnumerateFiles_ExcludesDocsWiki(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ScanTree (git): %v", err)
 		}
-		// docs/wiki/ must be absent.
 		if strings.Contains(out, "wiki/") {
 			t.Errorf("docs/wiki/ directory should be excluded but 'wiki/' found in output:\n%s", out)
 		}
-		// docs/guide/ is NOT wiki — it must be included.
 		if !strings.Contains(out, "install.md") {
 			t.Errorf("expected docs/guide/install.md to be included in scan:\n%s", out)
 		}
-		// main.go must be included.
 		if !strings.Contains(out, "main.go") {
 			t.Errorf("expected main.go to be included in scan:\n%s", out)
 		}
 	})
 }
-
-// ---- U3: Languages file count format ----
 
 func TestScanLanguages_FileCountFormat(t *testing.T) {
 	root := makeRepo(t, map[string]string{
@@ -1199,7 +1119,6 @@ func TestScanLanguages_FileCountFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanLanguages: %v", err)
 	}
-	// Must contain "files" column.
 	if !strings.Contains(out, "files") {
 		t.Errorf("expected 'files' in languages output: %s", out)
 	}
@@ -1209,10 +1128,7 @@ func TestScanLanguages_FileCountFormat(t *testing.T) {
 	}
 }
 
-// ---- F-1: EmitOrdered preserves caller-specified key order ----
-
 func TestEmitOrdered_PreservesOrder(t *testing.T) {
-	// Order: generated_at before atomic_version (spec example order).
 	out, err := frontmatter.EmitOrdered([]frontmatter.KV{
 		{Key: "generated_at", Value: "2026-05-17T00:00:00Z"},
 		{Key: "atomic_version", Value: "v0.1.0"},
@@ -1255,7 +1171,6 @@ func TestEmitOrdered_Stable(t *testing.T) {
 }
 
 func TestScan_SectionsPresent(t *testing.T) {
-	// scan.md carries the three deterministic sections and no frontmatter.
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
 	})
@@ -1269,7 +1184,6 @@ func TestScan_SectionsPresent(t *testing.T) {
 			t.Errorf("missing section %q in scan output:\n%s", section, content)
 		}
 	}
-	// No frontmatter keys should appear.
 	for _, key := range []string{"generated_at:", "atomic_version:"} {
 		if strings.Contains(content, key) {
 			t.Errorf("frontmatter key %q must not appear in scan output", key)
@@ -1277,12 +1191,9 @@ func TestScan_SectionsPresent(t *testing.T) {
 	}
 }
 
-// ---- F-4: parseComposerJSON handles array-valued scripts ----
-
 func TestScanManifests_ComposerArrayScripts(t *testing.T) {
 	root := makeRepo(t, map[string]string{
-		// scripts.post-install is an array — this caused json.Unmarshal to fail
-		// when the field was typed as map[string]string.
+		// An array-valued script broke json.Unmarshal into map[string]string.
 		"composer.json": `{
 			"name": "vendor/myapp",
 			"scripts": {
@@ -1301,7 +1212,6 @@ func TestScanManifests_ComposerArrayScripts(t *testing.T) {
 	if !strings.Contains(out, "name=vendor/myapp") {
 		t.Errorf("missing name: %s", out)
 	}
-	// Both script keys should appear sorted.
 	if !strings.Contains(out, "post-install-cmd") {
 		t.Errorf("missing post-install-cmd: %s", out)
 	}
@@ -1310,10 +1220,7 @@ func TestScanManifests_ComposerArrayScripts(t *testing.T) {
 	}
 }
 
-// ---- Tree directory annotations ----
-
 func TestScanTree_NormalDirChildCount(t *testing.T) {
-	// pkg/ has 2 children (lib.go, util.go) — should show (2).
 	root := makeRepo(t, map[string]string{
 		"pkg/lib.go":  "package pkg\n",
 		"pkg/util.go": "package pkg\n",
@@ -1323,18 +1230,15 @@ func TestScanTree_NormalDirChildCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// Directory line must end with " (2)".
 	if !strings.Contains(out, "pkg/ (2)") {
 		t.Errorf("expected 'pkg/ (2)' in tree:\n%s", out)
 	}
-	// Files carry metadata annotations — main.go should have a "(" annotation.
 	if !strings.Contains(out, "main.go (") {
 		t.Errorf("file main.go should have metadata annotation:\n%s", out)
 	}
 }
 
 func TestScanTree_NormalDirChildCountSingular(t *testing.T) {
-	// sub/ has exactly 1 child — should show (1).
 	root := makeRepo(t, map[string]string{
 		"sub/only.go": "package sub\n",
 	})
@@ -1348,9 +1252,6 @@ func TestScanTree_NormalDirChildCountSingular(t *testing.T) {
 }
 
 func TestScanTree_DepthCapAnnotation(t *testing.T) {
-	// a/b/c/ is at depth 3; d/ inside it would be depth 4 (max_depth+1).
-	// c/ shows all its children (d/ + deep.go) — uses simple (N) annotation.
-	// d/ carries the new (N files, M dirs) summary annotation.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/deep.go":  "package main\n",
 		"a/b/c/d/too.go": "package main\n",
@@ -1359,23 +1260,18 @@ func TestScanTree_DepthCapAnnotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// c/ shows all its children — simple annotation.
 	if !strings.Contains(out, "c/ (2)") {
 		t.Errorf("expected simple annotation 'c/ (2)' (all children shown):\n%s", out)
 	}
-	// d/ is the depth-cap dir with (N files, M dirs) annotation.
 	if !strings.Contains(out, "d/ (1 file, 0 dirs)") {
 		t.Errorf("expected 'd/ (1 file, 0 dirs)' summary annotation:\n%s", out)
 	}
-	// too.go must not appear (depth 4).
 	if strings.Contains(out, "too.go") {
 		t.Errorf("too.go should be pruned:\n%s", out)
 	}
 }
 
 func TestScanTree_DepthCapAnnotationSingularSubitem(t *testing.T) {
-	// c/ has only 1 direct child (dir d/) which is at depth 4 (max_depth+1).
-	// c/ shows d/ → simple annotation (1). d/ carries the new (N files, M dirs) summary.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/d/only.go": "package main\n",
 	})
@@ -1383,18 +1279,15 @@ func TestScanTree_DepthCapAnnotationSingularSubitem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// c/ shows its one child (d/) — simple annotation.
 	if !strings.Contains(out, "c/ (1)") {
 		t.Errorf("expected 'c/ (1)' (simple annotation, child shown):\n%s", out)
 	}
-	// d/ is the depth-cap dir with (1 file, 0 dirs) summary.
 	if !strings.Contains(out, "d/ (1 file, 0 dirs)") {
 		t.Errorf("expected 'd/ (1 file, 0 dirs)' summary annotation:\n%s", out)
 	}
 }
 
 func TestScanTree_AnnotationIdempotent(t *testing.T) {
-	// Two consecutive ScanTree calls on the same directory produce identical output.
 	root := makeRepo(t, map[string]string{
 		"pkg/a.go":     "package pkg\n",
 		"pkg/b.go":     "package pkg\n",
@@ -1414,8 +1307,6 @@ func TestScanTree_AnnotationIdempotent(t *testing.T) {
 	}
 }
 
-// ---- Fix 1: Languages singular/plural file count ----
-
 func TestScanLanguages_FileCountSingular(t *testing.T) {
 	// Exactly 1 file — must render "1 file" not "1 files".
 	root := makeRepo(t, map[string]string{
@@ -1433,11 +1324,7 @@ func TestScanLanguages_FileCountSingular(t *testing.T) {
 	}
 }
 
-// ---- Fix 2: Total items singular ----
-
 func TestScanTree_DepthCapAnnotationSingularTotalItem(t *testing.T) {
-	// c/ has 1 direct child (dir d/) which is at depth 4 (max_depth+1).
-	// d/ shows (1 file, 0 dirs) summary. Verify no stale "total items" text.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/d/only.go": "package main\n",
 	})
@@ -1445,22 +1332,15 @@ func TestScanTree_DepthCapAnnotationSingularTotalItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// Old format should not appear.
 	if strings.Contains(out, "total items") || strings.Contains(out, "total item") {
 		t.Errorf("old 'total item(s)' annotation should not appear:\n%s", out)
 	}
-	// New format: d/ shows file/dir counts.
 	if !strings.Contains(out, "d/ (1 file, 0 dirs)") {
 		t.Errorf("expected 'd/ (1 file, 0 dirs)' summary:\n%s", out)
 	}
 }
 
-// ---- Fix 3: Directory entries visible at depth cap ----
-
 func TestScanTree_DepthCapShowsDirEntry(t *testing.T) {
-	// a/b/c/ is at depth 3 — it has two children:
-	//   - deep.go (file, shown with metadata)
-	//   - d/ (dir at depth 4 = max_depth+1, shown as summary)
 	root := makeRepo(t, map[string]string{
 		"a/b/c/deep.go":  "package main\n",
 		"a/b/c/d/too.go": "package main\n",
@@ -1469,19 +1349,15 @@ func TestScanTree_DepthCapShowsDirEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// d/ must appear (depth 4 = max_depth+1).
 	if !strings.Contains(out, "d/") {
 		t.Errorf("expected 'd/' (depth-cap dir entry) to be visible:\n%s", out)
 	}
-	// d/ must carry the new (N files, M dirs) annotation.
 	if !strings.Contains(out, "d/ (1 file, 0 dirs)") {
 		t.Errorf("expected 'd/ (1 file, 0 dirs)' annotation:\n%s", out)
 	}
-	// too.go must NOT appear (it's a file at depth 4).
 	if strings.Contains(out, "too.go") {
 		t.Errorf("too.go should be pruned (depth 4):\n%s", out)
 	}
-	// c/ shows all children — must use simple (N) annotation, not (N files, M dirs) summary.
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "c/") && strings.Contains(l, "file") {
 			t.Errorf("c/ should use simple annotation, not file/dir summary; got: %q\nfull output:\n%s", l, out)
@@ -1493,8 +1369,6 @@ func TestScanTree_DepthCapShowsDirEntry(t *testing.T) {
 }
 
 func TestScanTree_DepthCapParentAnnotation(t *testing.T) {
-	// When the parent now shows all its children (including the dir),
-	// it should carry the simple (N) annotation, not (N subitems)(M total items).
 	root := makeRepo(t, map[string]string{
 		"a/b/c/deep.go":  "package main\n",
 		"a/b/c/d/too.go": "package main\n",
@@ -1503,18 +1377,14 @@ func TestScanTree_DepthCapParentAnnotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// c/ has 2 children (d/ + deep.go); it shows both — use simple annotation.
 	if !strings.Contains(out, "c/ (2)") {
 		t.Errorf("expected 'c/ (2)' (simple annotation after showing all children):\n%s", out)
 	}
 }
 
-// ---- CP-1: Bounded tree + per-path metadata ----
-
 func TestScanTree_FileMetadata(t *testing.T) {
-	// File entries at depth ≤ max_depth must carry per-file metadata:
-	// "<filename> (<sha>, <lines>L, <chars>ch, <bytes>B)"
-	// sha = 7-char hex prefix of SHA-256 of file bytes.
+	// Format: "<filename> (<sha>, <lines>L, <chars>ch, <bytes>B)", sha being the
+	// 7-char hex prefix of SHA-256 over the file bytes.
 	content := "package main\n\nfunc main() {}\n"
 	root := makeRepo(t, map[string]string{
 		"main.go": content,
@@ -1523,30 +1393,22 @@ func TestScanTree_FileMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// Must contain filename.
 	if !strings.Contains(out, "main.go") {
 		t.Fatalf("expected main.go in output:\n%s", out)
 	}
-	// Must contain lines annotation.
 	if !strings.Contains(out, "L,") {
 		t.Errorf("expected lines metadata (e.g. '3L,') in output:\n%s", out)
 	}
-	// Must contain chars annotation.
 	if !strings.Contains(out, "ch,") {
 		t.Errorf("expected chars metadata (e.g. '30ch,') in output:\n%s", out)
 	}
-	// Must contain bytes annotation.
 	if !strings.Contains(out, "B)") {
 		t.Errorf("expected bytes metadata (e.g. '30B)') in output:\n%s", out)
 	}
-	// Must contain a 7-char hex string (sha prefix).
-	// Format: "main.go (abc1234, 3L, 30ch, 30B)"
-	// The sha is 7 hex chars followed by a comma.
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	found := false
 	for _, l := range lines {
 		if strings.Contains(l, "main.go") {
-			// Extract what's in the parentheses: (sha, NL, Nch, NB)
 			open := strings.Index(l, "(")
 			close := strings.LastIndex(l, ")")
 			if open == -1 || close == -1 || close <= open {
@@ -1559,7 +1421,6 @@ func TestScanTree_FileMetadata(t *testing.T) {
 				t.Errorf("expected 4 metadata parts, got %d in %q", len(parts), meta)
 				break
 			}
-			// parts[0] = sha (7 hex chars)
 			sha := parts[0]
 			if len(sha) != 7 {
 				t.Errorf("expected 7-char sha, got %q (len=%d)", sha, len(sha))
@@ -1579,10 +1440,8 @@ func TestScanTree_FileMetadata(t *testing.T) {
 }
 
 func TestScanTree_MetadataSingleRead(t *testing.T) {
-	// Verify that metadata values are consistent with actual file content
-	// (proving a single read is used for both LOC and SHA derivation).
+	// Metadata matching real content proves one read feeds both LOC and SHA.
 	content := "line one\nline two\nline three\n"
-	// SHA-256 of content, 7-char prefix.
 	wantSHA := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))[:7]
 	lines := 3
 	chars := len([]rune(content))
@@ -1596,7 +1455,6 @@ func TestScanTree_MetadataSingleRead(t *testing.T) {
 		t.Fatalf("ScanTree: %v", err)
 	}
 
-	// Find the line for file.go.
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "file.go") {
 			open := strings.Index(l, "(")
@@ -1631,9 +1489,8 @@ func TestScanTree_MetadataSingleRead(t *testing.T) {
 }
 
 func TestScanTree_DepthPlusOneShowsFolderSummary(t *testing.T) {
-	// Directory at max_depth+1 (depth 4 with default max_depth=3) must show:
-	// "<dirname>/ (<N> files, <M> dirs)" — NOT contents, NOT file metadata.
-	// Structure: a/b/c/ is depth 3 (shown with files); d/ inside is depth 4 (summary only).
+	// A directory at max_depth+1 collapses to "<dirname>/ (<N> files, <M> dirs)"
+	// — no contents, no per-file metadata.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/deep.go":      "package main\n",
 		"a/b/c/d/file1.go":   "package main\n",
@@ -1644,31 +1501,25 @@ func TestScanTree_DepthPlusOneShowsFolderSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// d/ must appear (depth 4 = max_depth+1).
 	if !strings.Contains(out, "d/") {
 		t.Fatalf("expected d/ (depth 4 = max_depth+1) in output:\n%s", out)
 	}
-	// d/ must show files=2, dirs=1 summary. Format: "d/ (2 files, 1 dir)" or "d/ (2 files, 1 dirs)".
-	// The exact format per spec: "<N> files, <M> dirs".
 	if !strings.Contains(out, "2 files") {
 		t.Errorf("expected '2 files' in d/ summary:\n%s", out)
 	}
-	// file1.go and file2.go must NOT appear individually.
 	if strings.Contains(out, "file1.go") {
 		t.Errorf("file1.go should not appear (depth 4 content):\n%s", out)
 	}
 	if strings.Contains(out, "file2.go") {
 		t.Errorf("file2.go should not appear (depth 4 content):\n%s", out)
 	}
-	// too.go must NOT appear (depth 5 = > max_depth+1 — elided entirely).
 	if strings.Contains(out, "too.go") {
 		t.Errorf("too.go should not appear (depth 5 — elided):\n%s", out)
 	}
 }
 
 func TestScanTree_BeyondDepthPlusOneElided(t *testing.T) {
-	// Directories > max_depth+1 are elided (contribute to parent count only).
-	// Structure: a/b/c/d/e/f.go — e/ is depth 5, elided.
+	// Directories past max_depth+1 are elided, counting only toward the parent.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/d/e/f.go": "package main\n",
 	})
@@ -1676,30 +1527,21 @@ func TestScanTree_BeyondDepthPlusOneElided(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// d/ appears at depth 4 (max_depth+1) — should show summary.
 	if !strings.Contains(out, "d/") {
 		t.Fatalf("expected d/ at depth 4 in output:\n%s", out)
 	}
-	// e/ must NOT appear (depth 5 — elided).
 	if strings.Contains(out, "e/") {
 		t.Errorf("e/ should not appear (depth 5 — elided):\n%s", out)
 	}
-	// f.go must NOT appear.
 	if strings.Contains(out, "f.go") {
 		t.Errorf("f.go should not appear (depth 5+ — elided):\n%s", out)
 	}
-	// d/ summary should mention 1 dir (e/).
 	if !strings.Contains(out, "1 dir") {
 		t.Errorf("expected '1 dir' in d/ summary:\n%s", out)
 	}
 }
 
 func TestScanTree_MaxDepthParameterized(t *testing.T) {
-	// When MaxDepth=1 is passed via Options:
-	//   - Files at depth 1 (direct children of root) appear with metadata.
-	//   - pkg/ (dir at depth 1) is fully expanded — its direct file children appear.
-	//   - Subdirs of pkg/ at depth 2 (= max_depth+1) appear as summaries.
-	//   - Files inside those subdirs (depth 3) are elided.
 	root := makeRepo(t, map[string]string{
 		"top.go":          "package main\n",
 		"pkg/lib.go":      "package pkg\n",
@@ -1711,27 +1553,21 @@ func TestScanTree_MaxDepthParameterized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTreeWithOptions: %v", err)
 	}
-	// top.go is a direct child of root — must appear with metadata.
 	if !strings.Contains(out, "top.go") {
 		t.Errorf("expected top.go in output:\n%s", out)
 	}
-	// top.go must have metadata annotation.
 	if !strings.Contains(out, "L,") {
 		t.Errorf("expected metadata on top.go:\n%s", out)
 	}
-	// pkg/ is at depth 1 — shown.
 	if !strings.Contains(out, "pkg/") {
 		t.Errorf("expected pkg/ in output:\n%s", out)
 	}
-	// pkg/sub/ is a dir at depth 2 (max_depth+1) — must appear as summary.
 	if !strings.Contains(out, "sub/") {
 		t.Errorf("expected sub/ (depth 2 = max_depth+1) as summary:\n%s", out)
 	}
-	// sub/ summary must list file/dir counts.
 	if !strings.Contains(out, "1 file") {
 		t.Errorf("expected '1 file' in sub/ summary:\n%s", out)
 	}
-	// deep.go is inside sub/ (summarized) — must NOT appear individually.
 	if strings.Contains(out, "deep.go") {
 		t.Errorf("deep.go should not appear (inside summarized sub/):\n%s", out)
 	}
@@ -1747,18 +1583,14 @@ func TestScanWithOptions_MaxDepthDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTreeWithOptions: %v", err)
 	}
-	// file.go is at depth 3 — must appear (default max_depth=3).
 	if !strings.Contains(out, "file.go") {
 		t.Errorf("expected file.go (depth 3) with default max_depth=3:\n%s", out)
 	}
 }
 
-// ---- CP-2: .signalsignore read + [generated] flagging ----
-
 func TestSignalsIgnore_MatchingPathFlagged(t *testing.T) {
-	// Files matching '+'-prefixed .signalsignore globs must appear in tree with [generated] marker.
-	// WHY: inferrer must be able to identify generated files without omitting them from the
-	// deterministic substrate (their SHA is still needed for change detection).
+	// '+' globs mark rather than omit: the inferrer must recognize generated files
+	// while their SHAs stay available for change detection.
 	content := "package main\n"
 	root := makeRepo(t, map[string]string{
 		"main.go":              content,
@@ -1769,13 +1601,11 @@ func TestSignalsIgnore_MatchingPathFlagged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// main.go must NOT be flagged.
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "main.go") && strings.Contains(l, "[generated]") {
 			t.Errorf("main.go should not have [generated] flag:\n%s", l)
 		}
 	}
-	// openapi.go must be flagged.
 	found := false
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "openapi.go") {
@@ -1791,8 +1621,6 @@ func TestSignalsIgnore_MatchingPathFlagged(t *testing.T) {
 }
 
 func TestSignalsIgnore_ContentSHAStillComputed(t *testing.T) {
-	// [generated] files must still carry full metadata (SHA, lines, chars, bytes).
-	// WHY: content SHA on generated files is needed for change detection (CP-4).
 	content := "package main\n\nfunc main() {}\n"
 	root := makeRepo(t, map[string]string{
 		"gen.go":         content,
@@ -1802,13 +1630,11 @@ func TestSignalsIgnore_ContentSHAStillComputed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// gen.go must appear with both metadata and [generated] flag.
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "gen.go") {
 			if !strings.Contains(l, "[generated]") {
 				t.Errorf("gen.go missing [generated] flag: %q", l)
 			}
-			// Metadata: must contain a 7-char hex SHA followed by "L," pattern.
 			if !strings.Contains(l, "L,") {
 				t.Errorf("gen.go missing line count metadata: %q", l)
 			}
@@ -1825,8 +1651,7 @@ func TestSignalsIgnore_ContentSHAStillComputed(t *testing.T) {
 }
 
 func TestSignalsIgnore_AbsentFileNoExclusions(t *testing.T) {
-	// Absent .signalsignore means no files are flagged — no error.
-	// WHY: .signalsignore is opt-in; absence is the common case.
+	// .signalsignore is opt-in, so absence must not error.
 	content := "package main\n"
 	root := makeRepo(t, map[string]string{
 		"main.go": content,
@@ -1841,8 +1666,7 @@ func TestSignalsIgnore_AbsentFileNoExclusions(t *testing.T) {
 }
 
 func TestSignalsIgnore_CommentsAndBlankLinesIgnored(t *testing.T) {
-	// Comment lines (# ...) and blank lines in .signalsignore are skipped.
-	// WHY: standard .gitignore-style format; comments are documentation, not patterns.
+	// .gitignore-style format: '#' lines and blanks are not patterns.
 	content := "package main\n"
 	root := makeRepo(t, map[string]string{
 		"gen.go":  content,
@@ -1857,7 +1681,6 @@ func TestSignalsIgnore_CommentsAndBlankLinesIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// gen.go matches the '+' pattern — must be flagged as [generated].
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "gen.go") {
 			if !strings.Contains(l, "[generated]") {
@@ -1865,7 +1688,6 @@ func TestSignalsIgnore_CommentsAndBlankLinesIgnored(t *testing.T) {
 			}
 		}
 	}
-	// real.go does not match — must NOT be flagged.
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "real.go") && strings.Contains(l, "[generated]") {
 			t.Errorf("real.go should not be flagged: %q", l)
@@ -1874,8 +1696,7 @@ func TestSignalsIgnore_CommentsAndBlankLinesIgnored(t *testing.T) {
 }
 
 func TestSignalsIgnore_PlainGlobExcludesEntirely(t *testing.T) {
-	// Plain (no '+' prefix) .signalsignore globs exclude files from the tree entirely.
-	// WHY: the new default behavior is full exclusion; '+' prefix opts into [generated] flagging.
+	// Plain globs exclude outright; only the '+' prefix opts into flagging.
 	content := "package main\n"
 	root := makeRepo(t, map[string]string{
 		"main.go":              content,
@@ -1888,26 +1709,21 @@ func TestSignalsIgnore_PlainGlobExcludesEntirely(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// main.go must appear without any flag.
 	if !strings.Contains(out, "main.go") {
 		t.Errorf("main.go must appear in tree, got:\n%s", out)
 	}
-	// vendor and generated files must be absent from the tree entirely.
 	if strings.Contains(out, "dep.go") {
 		t.Errorf("dep.go (excluded via plain glob) must not appear in tree:\n%s", out)
 	}
 	if strings.Contains(out, "openapi.go") {
 		t.Errorf("openapi.go (excluded via plain glob) must not appear in tree:\n%s", out)
 	}
-	// No [generated] flags — excluded files are gone, not flagged.
 	if strings.Contains(out, "[generated]") {
 		t.Errorf("excluded files must not produce [generated] flags:\n%s", out)
 	}
 }
 
 func TestSignalsIgnore_MixedPrefixes(t *testing.T) {
-	// A .signalsignore file may contain both plain excludes and '+' generated flags.
-	// WHY: users need both behaviors in one file.
 	content := "package main\n"
 	root := makeRepo(t, map[string]string{
 		"main.go":           content,
@@ -1920,15 +1736,12 @@ func TestSignalsIgnore_MixedPrefixes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// main.go: present, no flag.
 	if !strings.Contains(out, "main.go") {
 		t.Errorf("main.go must appear in tree:\n%s", out)
 	}
-	// x.js: plain exclude — must be absent.
 	if strings.Contains(out, "x.js") {
 		t.Errorf("x.js (plain exclude) must not appear in tree:\n%s", out)
 	}
-	// pb.go: '+' generated — must appear with [generated] flag.
 	found := false
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "pb.go") {
@@ -1943,28 +1756,20 @@ func TestSignalsIgnore_MixedPrefixes(t *testing.T) {
 	}
 }
 
-// ---- CP-3: output.signals.max_depth config wiring ----
-
 func TestScanWithOptions_ConfigMaxDepthWiring(t *testing.T) {
-	// WHY: CP-3 requires that when opts.MaxDepth==0, ScanWithOptions reads
-	// output.signals.max_depth from config. This test injects a config that
-	// sets max_depth=1 and verifies the tree is bounded accordingly. With
-	// max_depth=1, directories at depth 2 (= max_depth+1) appear as summaries;
-	// their sub-directories' contents are elided. Verified via the written file.
+	// A zero opts.MaxDepth must pick up output.signals.max_depth from config.
 	root := makeRepo(t, map[string]string{
 		"top.go":          "package main\n",
 		"pkg/sub/deep.go": "package sub\n",
 	})
 
-	// Write a config file with max_depth=1.
 	configDir := t.TempDir()
 	configPath := filepath.Join(configDir, "config.toml")
 	if err := os.WriteFile(configPath, []byte("[output.signals]\nmax_depth = 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Inject the config path so we don't touch ~/.atomic/config.toml.
-	// MaxDepth is left 0 — ScanWithOptions must read it from ConfigPath.
+	// Injected path keeps the real ~/.atomic/config.toml out of the test.
 	opts := &signals.Options{ConfigPath: configPath}
 	if err := signals.ScanWithOptions(root, opts); err != nil {
 		t.Fatalf("ScanWithOptions: %v", err)
@@ -1976,7 +1781,6 @@ func TestScanWithOptions_ConfigMaxDepthWiring(t *testing.T) {
 	}
 	out := string(data)
 
-	// top.go is at depth 1 — must appear with metadata.
 	if !strings.Contains(out, "top.go") {
 		t.Errorf("expected top.go in output:\n%s", out)
 	}
@@ -1984,25 +1788,21 @@ func TestScanWithOptions_ConfigMaxDepthWiring(t *testing.T) {
 		t.Errorf("expected metadata on top.go:\n%s", out)
 	}
 
-	// pkg/ is at depth 1 — must appear.
 	if !strings.Contains(out, "pkg/") {
 		t.Errorf("expected pkg/ in output:\n%s", out)
 	}
 
-	// sub/ is a directory at depth 2 (= max_depth+1) — must appear as a file/dir summary.
 	if !strings.Contains(out, "sub/") {
 		t.Errorf("expected sub/ (depth 2 = max_depth+1) to appear as summary:\n%s", out)
 	}
 
-	// deep.go is inside sub/ (depth 3, elided) — must NOT appear individually.
 	if strings.Contains(out, "deep.go") {
 		t.Errorf("deep.go should not appear (depth 3 > max_depth+1 with max_depth=1):\n%s", out)
 	}
 }
 
 func TestScanWithOptions_ConfigMaxDepthFallbackDefault(t *testing.T) {
-	// WHY: when ConfigPath points to a missing file and MaxDepth is 0,
-	// ScanWithOptions must use the built-in default of 3.
+	// Missing config plus zero MaxDepth falls back to the built-in default of 3.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/file.go": "package main\n",
 	})
@@ -2018,17 +1818,13 @@ func TestScanWithOptions_ConfigMaxDepthFallbackDefault(t *testing.T) {
 	}
 	out := string(data)
 
-	// file.go is at depth 3 — must appear with default max_depth=3.
 	if !strings.Contains(out, "file.go") {
 		t.Errorf("expected file.go (depth 3) with fallback default max_depth=3:\n%s", out)
 	}
 }
 
-// ---- CP-4: Content-SHA diff: prev vs current deterministic scan ----
-
 func TestParseTreeSHAs_UnchangedNotInChanged(t *testing.T) {
-	// WHY: files with identical SHAs in prev and current must NOT appear in the
-	// changed set — only actual modifications should trigger domain refresh.
+	// Only real modifications may trigger a domain refresh.
 	content := `## Tree
 
 ├── main.go (abc1234, 10L, 100ch, 100B)
@@ -2042,7 +1838,6 @@ func TestParseTreeSHAs_UnchangedNotInChanged(t *testing.T) {
 		t.Errorf("expected lib.go sha=def5678, got %q", shas["lib.go"])
 	}
 
-	// Diff against itself: no changes.
 	cp := signals.DiffSHAs(shas, shas)
 	if len(cp.Changed) != 0 {
 		t.Errorf("expected 0 changed, got %v", cp.Changed)
@@ -2056,8 +1851,6 @@ func TestParseTreeSHAs_UnchangedNotInChanged(t *testing.T) {
 }
 
 func TestParseTreeSHAs_ChangedSHAInChangedSet(t *testing.T) {
-	// WHY: a file whose SHA differs between scans means its content changed —
-	// the inferrer must refresh any domain that references this path.
 	prev := signals.ParseTreeSHAs(`## Tree
 
 └── main.go (abc1234, 10L, 100ch, 100B)
@@ -2079,8 +1872,6 @@ func TestParseTreeSHAs_ChangedSHAInChangedSet(t *testing.T) {
 }
 
 func TestParseTreeSHAs_AddedFileInAddedSet(t *testing.T) {
-	// WHY: a new file that didn't exist in prev must appear in Added so the
-	// inferrer knows to include it in domain analysis.
 	prev := signals.ParseTreeSHAs(`## Tree
 
 └── main.go (abc1234, 10L, 100ch, 100B)
@@ -2103,8 +1894,6 @@ func TestParseTreeSHAs_AddedFileInAddedSet(t *testing.T) {
 }
 
 func TestParseTreeSHAs_RemovedFileInRemovedSet(t *testing.T) {
-	// WHY: a file deleted between scans must appear in Removed so the inferrer
-	// can clean up domain references to that path.
 	prev := signals.ParseTreeSHAs(`## Tree
 
 ├── main.go (abc1234, 10L, 100ch, 100B)
@@ -2127,10 +1916,8 @@ func TestParseTreeSHAs_RemovedFileInRemovedSet(t *testing.T) {
 }
 
 func TestParseTreeSHAs_GeneratedPathsExcluded(t *testing.T) {
-	// WHY: [generated] files must NOT appear in the changed set even when their
-	// SHA changes — generated files don't drive domain narratives (spec §Change
-	// detection: "Changed content SHAs on generated files do not trigger domain
-	// file refresh").
+	// Generated files don't drive domain narratives, so a changed SHA on one must
+	// stay out of every changed set.
 	prev := signals.ParseTreeSHAs(`## Tree
 
 ├── main.go (abc1234, 10L, 100ch, 100B)
@@ -2142,7 +1929,6 @@ func TestParseTreeSHAs_GeneratedPathsExcluded(t *testing.T) {
 └── gen.go (new9999, 8L, 80ch, 80B) [generated]
 `)
 	cp := signals.DiffSHAs(prev, curr)
-	// gen.go SHA changed but it's [generated] — must NOT be in any set.
 	for _, p := range cp.Changed {
 		if p == "gen.go" {
 			t.Errorf("gen.go should not appear in Changed (it's [generated])")
@@ -2164,11 +1950,8 @@ func TestParseTreeSHAs_GeneratedPathsExcluded(t *testing.T) {
 }
 
 func TestParseTreeSHAs_NestedPathsNeverCollide(t *testing.T) {
-	// WHY: two files with the same leaf name in different directories must produce
-	// distinct map keys. ParseTreeSHAs must reconstruct repo-relative paths by
-	// tracking the directory stack from tree indentation, not just returning the
-	// leaf filename. Without this fix, src/main.go and cmd/main.go would both map
-	// to "main.go" and silently collide — only the last one written survives.
+	// ParseTreeSHAs must rebuild repo-relative paths from the indentation stack;
+	// keying on the leaf name alone silently collides src/main.go with cmd/main.go.
 	content := `## Tree
 
 ├── cmd/ (1)
@@ -2189,9 +1972,7 @@ func TestParseTreeSHAs_NestedPathsNeverCollide(t *testing.T) {
 }
 
 func TestParseTreeSHAs_DeepNestedPath(t *testing.T) {
-	// WHY: paths nested more than one level deep must be fully reconstructed.
-	// Without directory-stack tracking, internal/signals/diff.go would yield
-	// "diff.go" instead of "internal/signals/diff.go".
+	// The directory stack must survive more than one level of nesting.
 	content := `## Tree
 
 └── internal/ (1)
@@ -2208,18 +1989,15 @@ func TestParseTreeSHAs_DeepNestedPath(t *testing.T) {
 }
 
 func TestDiffPaths_WorksWithoutGit(t *testing.T) {
-	// WHY: content-SHA diff must work in any directory — no git commands, no mtime.
-	// The spec requires: "works without git; content SHA comparison, not git commands."
+	// Content-SHA diff must work in any directory: no git, no mtime.
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
 	})
 
-	// First scan — no prev file yet.
 	if err := signals.Scan(root); err != nil {
 		t.Fatalf("first Scan: %v", err)
 	}
 
-	// Add a new file to force a second scan to differ.
 	if err := os.WriteFile(filepath.Join(root, "new.go"), []byte("package main\n// new\n"), 0o644); err != nil {
 		t.Fatalf("write new.go: %v", err)
 	}
@@ -2227,12 +2005,10 @@ func TestDiffPaths_WorksWithoutGit(t *testing.T) {
 		t.Fatalf("second Scan: %v", err)
 	}
 
-	// DiffPaths must succeed without git.
 	cp, err := signals.DiffPaths(root)
 	if err != nil {
 		t.Fatalf("DiffPaths: %v", err)
 	}
-	// new.go should appear as Added.
 	found := false
 	for _, p := range cp.Added {
 		if p == "new.go" {
@@ -2244,15 +2020,10 @@ func TestDiffPaths_WorksWithoutGit(t *testing.T) {
 	}
 }
 
-// --- LinkifyFiles tests ---
-
-// TestLinkifyFiles_LinkifiesRouterAndDomains verifies that LinkifyFilesWithBase
-// rewrites docs/wiki/index.md and flat domain files under docs/wiki/, and leaves
-// non-path tokens untouched.
+// Router and flat domain files are linkified; non-path tokens are left alone.
 func TestLinkifyFiles_LinkifiesRouterAndDomains(t *testing.T) {
 	root := t.TempDir()
 
-	// Create the target file that the token will resolve to.
 	targetPath := filepath.Join(root, "agents", "atomic-builder.md")
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -2261,7 +2032,6 @@ func TestLinkifyFiles_LinkifiesRouterAndDomains(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create docs/wiki/index.md (router) with a plain backtick token.
 	wikiDir := filepath.Join(root, "docs", "wiki")
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -2272,7 +2042,6 @@ func TestLinkifyFiles_LinkifiesRouterAndDomains(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create a flat domain file under docs/wiki/ with a plain backtick token.
 	domainContent := "# domain\n\n`agents/atomic-builder.md` is key.\n"
 	domainPath := filepath.Join(wikiDir, "workflow.md")
 	if err := os.WriteFile(domainPath, []byte(domainContent), 0o644); err != nil {
@@ -2283,7 +2052,6 @@ func TestLinkifyFiles_LinkifiesRouterAndDomains(t *testing.T) {
 		t.Fatalf("LinkifyFilesWithBase: %v", err)
 	}
 
-	// Router should be linkified.
 	gotRouter, err := os.ReadFile(routerPath)
 	if err != nil {
 		t.Fatal(err)
@@ -2292,7 +2060,6 @@ func TestLinkifyFiles_LinkifiesRouterAndDomains(t *testing.T) {
 		t.Errorf("router not linkified:\n%s", gotRouter)
 	}
 
-	// Domain file should be linkified.
 	gotDomain, err := os.ReadFile(domainPath)
 	if err != nil {
 		t.Fatal(err)
@@ -2302,8 +2069,7 @@ func TestLinkifyFiles_LinkifiesRouterAndDomains(t *testing.T) {
 	}
 }
 
-// TestLinkifyFiles_Idempotent verifies that running twice produces no change on
-// the second run (byte-identical output).
+// A second run must be byte-identical to the first.
 func TestLinkifyFiles_Idempotent(t *testing.T) {
 	root := t.TempDir()
 
@@ -2339,8 +2105,7 @@ func TestLinkifyFiles_Idempotent(t *testing.T) {
 	}
 }
 
-// TestLinkifyFiles_NoOp_WhenNoFiles verifies no error when docs/wiki/index.md
-// and docs/wiki/ directory don't exist.
+// A missing docs/wiki/ is not an error.
 func TestLinkifyFiles_NoOp_WhenNoFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := signals.LinkifyFilesWithBase(root, root); err != nil {
@@ -2348,14 +2113,11 @@ func TestLinkifyFiles_NoOp_WhenNoFiles(t *testing.T) {
 	}
 }
 
-// TestLinkifyFiles_ExcludesSpecialFiles verifies that scan.md and CLAUDE.md
-// inside docs/wiki/ are NOT linkified — they are excluded by name.
-// WHY: scan.md is the raw deterministic dump (linkifying it corrupts structure);
-// CLAUDE.md is the steering file (managed separately, not a domain narrative).
+// Linkifying scan.md would corrupt the raw dump's structure, and CLAUDE.md is
+// steering rather than a domain narrative — both are excluded by name.
 func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
 	root := t.TempDir()
 
-	// Target that tokens could resolve to.
 	targetPath := filepath.Join(root, "agents", "atomic-builder.md")
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -2385,7 +2147,6 @@ func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
 		t.Fatalf("LinkifyFilesWithBase: %v", err)
 	}
 
-	// scan.md must be unchanged (not linkified).
 	gotScan, err := os.ReadFile(scanPath)
 	if err != nil {
 		t.Fatal(err)
@@ -2394,7 +2155,6 @@ func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
 		t.Errorf("scan.md was modified; must be excluded:\ngot: %q\nwant: %q", gotScan, rawContent)
 	}
 
-	// CLAUDE.md must be unchanged (not linkified).
 	gotClaude, err := os.ReadFile(claudePath)
 	if err != nil {
 		t.Fatal(err)
@@ -2404,43 +2164,32 @@ func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
 	}
 }
 
-// ---- f-4: ScanWithOptions must not mutate caller-passed Options ----
-
-// TestScanWithOptions_DoesNotMutateOpts proves that a reused Options{} struct is
-// not mutated between two ScanWithOptions calls.
-// WHY: resolveScanOptions populates ExcludeGlobs / GeneratedGlobs / MaxDepth on
-// the caller's pointer. A reused opts value would carry stale globs into the
-// second scan, causing it to apply .signalsignore patterns from a different repo.
+// A mutated Options would carry one repo's .signalsignore globs into the next
+// scan, so a reused value must survive two calls untouched.
 func TestScanWithOptions_DoesNotMutateOpts(t *testing.T) {
-	// Two independent repos — each with a different .signalsignore.
 	repoA := makeRepo(t, map[string]string{
 		"main.go":        "package main\n",
 		".signalsignore": "vendor/**\n",
 	})
 	repoB := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
-		// No .signalsignore.
 	})
 
-	// Share ONE Options value (zero-value — all fields empty).
 	opts := &signals.Options{}
 
-	// Snapshot the caller's fields before any scan.
 	beforeExclude := opts.ExcludeGlobs
 	beforeGenerated := opts.GeneratedGlobs
 	beforeMaxDepth := opts.MaxDepth
 
-	// First scan — populates internal resolved copy; must NOT touch opts.
 	if err := signals.ScanWithOptions(repoA, opts); err != nil {
 		t.Fatalf("ScanWithOptions repoA: %v", err)
 	}
 
-	// Second scan — if opts was mutated, repoA's globs leak into repoB's scan.
+	// If opts was mutated, repoA's globs leak into repoB's scan.
 	if err := signals.ScanWithOptions(repoB, opts); err != nil {
 		t.Fatalf("ScanWithOptions repoB: %v", err)
 	}
 
-	// The caller's opts fields must be identical to the snapshot taken before any call.
 	if len(opts.ExcludeGlobs) != len(beforeExclude) {
 		t.Errorf("opts.ExcludeGlobs mutated: before=%v after=%v", beforeExclude, opts.ExcludeGlobs)
 	}
@@ -2452,12 +2201,7 @@ func TestScanWithOptions_DoesNotMutateOpts(t *testing.T) {
 	}
 }
 
-// ---- wiki-storage-relocation: new path constants and no-frontmatter contract ----
-
-// TestNewStoragePaths_PathConstants asserts that SignalsPath and PrevPath resolve
-// to the new docs/wiki/ and tmp/ layout rather than the old .claude/project/ paths.
-// WHY: relocates signalsFile → "docs/wiki/scan.md" and prevFile → "tmp/.scan.prev.md"
-// so that the deterministic substrate lives alongside committed wiki output.
+// The substrate lives alongside committed wiki output, not under .claude/project/.
 func TestNewStoragePaths_PathConstants(t *testing.T) {
 	root := t.TempDir()
 	wantScanPath := filepath.Join(root, "docs", "wiki", "scan.md")
@@ -2471,10 +2215,7 @@ func TestNewStoragePaths_PathConstants(t *testing.T) {
 	}
 }
 
-// TestNewStoragePaths_NoFrontmatter asserts that scan output does not start with
-// a YAML frontmatter delimiter (---).
-// WHY: docs/wiki/scan.md is a raw deterministic dump (not an OKF-formatted file);
-// frontmatter belongs on index.md and domain files, not on the scan substrate.
+// scan.md is a raw dump, so frontmatter belongs on index.md and domain files only.
 func TestNewStoragePaths_NoFrontmatter(t *testing.T) {
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
@@ -2494,22 +2235,14 @@ func TestNewStoragePaths_NoFrontmatter(t *testing.T) {
 		}
 		t.Errorf("scan output must not start with YAML frontmatter delimiter; first 80 bytes:\n%q", preview)
 	}
-	// The body must still begin with the expected heading.
 	if !strings.HasPrefix(strings.TrimSpace(content), "# Deterministic signals") {
 		t.Errorf("scan output must start with '# Deterministic signals' heading; got:\n%q", content[:min(80, len(content))])
 	}
 }
 
-// ---- f-2: assembleBody is output-preserving after I/O-reduction refactor ----
-
-// TestAssembleBody_OutputPreserved is a characterization test: the tree, manifests,
-// and languages sections produced by ScanWithOptions must be byte-identical before
-// and after the double-read elimination refactor.
-// WHY: f-2 removes the redundant second enumerateFiles + readFileMeta pass in
-// ScanLanguages. This test locks the output so we can verify the refactor doesn't
-// silently change any line — same nodes, same LOC, same metadata.
+// Characterization anchor: locks tree, manifests, and languages output so the
+// shared-read path in ScanLanguages cannot silently change a line.
 func TestAssembleBody_OutputPreserved(t *testing.T) {
-	// A repo with mixed languages so both tree metadata AND language LOC are exercised.
 	root := makeRepo(t, map[string]string{
 		"main.go":        strings.Repeat("line\n", 50),
 		"index.ts":       strings.Repeat("line\n", 30),
@@ -2527,9 +2260,6 @@ func TestAssembleBody_OutputPreserved(t *testing.T) {
 		t.Fatalf("read first output: %v", err)
 	}
 
-	// A second scan on the same repo must produce byte-identical output.
-	// (idempotency is already tested elsewhere; this test's purpose is to serve
-	// as a characterization anchor for the f-2 refactor.)
 	if err := signals.ScanWithOptions(root, &signals.Options{}); err != nil {
 		t.Fatalf("second ScanWithOptions: %v", err)
 	}
@@ -2543,7 +2273,6 @@ func TestAssembleBody_OutputPreserved(t *testing.T) {
 			firstBytes, secondBytes)
 	}
 
-	// Also verify languages section is present and non-empty (proves LOC counts survived).
 	body := string(firstBytes)
 	if !strings.Contains(body, "## Languages") {
 		t.Errorf("Languages section missing from output:\n%s", body)

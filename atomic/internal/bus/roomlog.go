@@ -9,18 +9,15 @@ import (
 	"sync"
 )
 
-// appendMu serializes writes to room log files across the process. In
-// practice every Append call reaches here through Hub.Publish, which
-// already serializes under Hub.mu — this mutex exists so Append stays
-// correct on its own regardless of caller, rather than relying on a
-// synchronization guarantee this file can't see or enforce.
+// appendMu serializes room-log writes across the process. Every Append reaches
+// here through Hub.Publish, which already serializes under Hub.mu; this exists
+// so Append stays correct regardless of caller.
 var appendMu sync.Mutex
 
-// Append writes one JSON line for env to
-// <home>/.atomic/rooms/<room>.log (RoomLogPath), creating the file and its
-// parent directory if absent. Every room's traffic is logged
-// unconditionally, whether or not anyone is subscribed — this file is the
-// operator's only way to reconstruct a loop that ran overnight.
+// Append writes one JSON line for env to RoomLogPath, creating the file and its
+// parent if absent. Every room's traffic is logged whether or not anyone is
+// subscribed — this file is the operator's only way to reconstruct a loop that
+// ran overnight.
 func Append(home, room string, env Envelope) error {
 	path := RoomLogPath(home, room)
 
@@ -49,17 +46,14 @@ func Append(home, room string, env Envelope) error {
 	return nil
 }
 
-// scannerMaxLineBytes bounds one log line for readers of this file: Text
-// can be MaxTextBytes, plus headroom for the envelope's bounded metadata
-// fields (MaxIdentifierBytes ids/names, MaxAddresseesBytes addressees,
-// JSON syntax overhead).
+// scannerMaxLineBytes bounds one log line: MaxTextBytes plus headroom for the
+// envelope's bounded metadata fields and JSON overhead.
 const scannerMaxLineBytes = MaxTextBytes + 64*1024
 
-// ReadEnvelope scans room's log for the envelope with the given id. Found
-// is false when the log exists but holds no such id; a missing log file
-// returns os.ErrNotExist (the room has never had traffic). Later
-// occurrences win on a duplicate id, matching the append order — though
-// ids are unique across daemon restarts by construction (see Envelope.ID).
+// ReadEnvelope scans room's log for the envelope with the given id. found is
+// false when the log exists but holds no such id; a missing log returns
+// os.ErrNotExist. A later occurrence wins on a duplicate id, matching append
+// order — though ids are unique across restarts by construction.
 func ReadEnvelope(home, room, id string) (Envelope, bool, error) {
 	f, err := os.Open(RoomLogPath(home, room))
 	if err != nil {

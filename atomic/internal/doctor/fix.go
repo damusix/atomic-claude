@@ -20,12 +20,9 @@ const (
 )
 
 // Prompter is the interface for interactive fix-mode prompts.
-// Tests inject a fakePrompter; production uses stdinPrompter.
 type Prompter interface {
-	// Confirm prompts the user and returns their decision.
 	Confirm(prompt string) Decision
-	// Indexed presents a numbered list and returns the 1-based index the user
-	// chose (0 = cancel/none).
+	// Indexed returns the 1-based index picked from a numbered list; 0 = none.
 	Indexed(items []string) int
 }
 
@@ -36,9 +33,8 @@ type RepairSummary struct {
 	NonFixable int
 }
 
-// Repairer holds the injectable repair functions used by the fix loop.
-// Construct one with DefaultRepairer() for production, or build a struct
-// literal with faked fields in tests — no shared mutable globals, no races.
+// Repairer holds the injectable repair functions used by the fix loop. Tests
+// build a literal with faked fields, so there are no mutable globals to race on.
 type Repairer struct {
 	InstallFn         func(io.Writer) error
 	HooksFn           func(io.Writer) error
@@ -49,7 +45,7 @@ type Repairer struct {
 	RepoRootFn        func() string
 }
 
-// DefaultRepairer returns a Repairer wired with the real production implementations.
+// DefaultRepairer returns a Repairer wired with the production implementations.
 func DefaultRepairer() Repairer {
 	return Repairer{
 		InstallFn:         defaultInstallRepair,
@@ -62,8 +58,7 @@ func DefaultRepairer() Repairer {
 	}
 }
 
-// Repair is a convenience wrapper that calls DefaultRepairer().Repair(...).
-// It is the production entry point used by main.go.
+// Repair is the production entry point: DefaultRepairer().Repair(...).
 func Repair(results []Result, opts Opts, p Prompter, out io.Writer) RepairSummary {
 	return DefaultRepairer().Repair(results, opts, p, out)
 }
@@ -84,22 +79,12 @@ func defaultRepoRoot() string {
 	return gitToplevel(cwd)
 }
 
-// -- Repairer methods --
-
-// Repair drives the interactive fix loop.
-//
-// For each result where Severity is WARN or FAIL:
-//  1. Print the item header and repair plan.
-//  2. For non-auto-fixable: print the instruction and count as NonFixable.
-//  3. For auto-fixable: prompt; apply on Yes/All; skip on No/Quit.
-//
-// On success, prints "✓ fixed: <summary>" to out.
-// Prints a summary line at the end.
-// The passed io.Writer receives all output (prompts are also written there;
-// the prompter reads from its own input source).
+// Repair drives the interactive fix loop over every WARN and FAIL result,
+// prompting once per auto-fixable item. All output goes to out, prompts
+// included; the prompter reads from its own input source.
 func (rp Repairer) Repair(results []Result, _ Opts, p Prompter, out io.Writer) RepairSummary {
 	var summary RepairSummary
-	runAll := false // set when user chose 'a' (all)
+	runAll := false
 
 	actionable := filterActionable(results)
 
@@ -123,11 +108,9 @@ func (rp Repairer) Repair(results []Result, _ Opts, p Prompter, out io.Writer) R
 
 		switch decision {
 		case DecisionQuit:
-			// Count this item and all remaining as skipped.
 			summary.Skipped += len(actionable) - i
 			return summarizeAndPrint(summary, out)
 		case DecisionAbort:
-			// Ctrl+C / huh ErrUserAborted — stop entire loop.
 			fmt.Fprintln(out, "Aborted.")
 			summary.Skipped += len(actionable) - i
 			return summarizeAndPrint(summary, out)
@@ -189,8 +172,8 @@ func repairPlan(r Result) (plan string, fixable bool) {
 	case "manifest":
 		return "run `make -C atomic bundle` to regenerate embedded bundle", true
 	case "followups":
-		// INDEX-sync subcase is auto-fixable.
-		// Stale entries and invalid frontmatter are not (require user action).
+		// Only the INDEX-sync subcase is auto-fixable; stale entries and invalid
+		// frontmatter need the user.
 		if strings.Contains(r.Detail, "atomic followups render") || strings.Contains(r.Detail, "INDEX.md") {
 			return "run `atomic followups render` to regenerate INDEX.md", true
 		}
@@ -200,24 +183,19 @@ func repairPlan(r Result) (plan string, fixable bool) {
 	case "binary":
 		return "cannot auto-fix — run `atomic update` to update.", false
 	case "config":
-		// Unknown keys and invalid values are both user-authored; the only
-		// remedy is editing config.toml or `atomic config unset <key>`.
 		return "cannot auto-fix — edit config.toml or run `atomic config unset <key>`", false
 	case "profile":
-		// Profile file and @-ref are created/updated by install/update; cannot auto-fix here.
 		return "run `atomic claude install` to create the profile stub; @-ref insertion is bundle-source-driven and updates with `atomic claude install/update`", false
 	default:
 		return "cannot auto-fix — unknown category", false
 	}
 }
 
-// errNonFixable is a sentinel returned when a nominally-fixable check cannot
-// be repaired in this context (e.g. manifest repair outside the atomic-claude
-// repo). Callers should increment NonFixable, not Skipped.
+// errNonFixable marks a nominally-fixable check that cannot be repaired in
+// this context. Callers count it as NonFixable, not Skipped.
 var errNonFixable = fmt.Errorf("cannot auto-fix in this context")
 
-// applyRepair dispatches the actual repair for fixable categories.
-// Returns a concise summary string and nil on success, or an error.
+// applyRepair runs the repair for a fixable category and returns a summary line.
 func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, error) {
 	switch r.Name {
 	case "install":
@@ -247,9 +225,8 @@ func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, err
 		}
 		return "INDEX.md regenerated via `atomic followups render`", nil
 	case "profile":
-		// Belt-and-suspenders: repairPlan returns fixable=false for profile, so this
-		// branch should never be reached. If a future change sets fixable=true without
-		// adding real implementation here, return an explicit error rather than silently no-op.
+		// Unreachable while repairPlan reports profile as non-fixable; erroring
+		// keeps a future fixable=true from silently no-opping.
 		return "", fmt.Errorf("profile repair not yet implemented — run 'atomic claude install' instead")
 	default:
 		return "", fmt.Errorf("no repair for %q", r.Name)
@@ -264,9 +241,8 @@ func (rp Repairer) applyFollowupsRepair(r Result, out io.Writer) error {
 	return fmt.Errorf("no auto-fix available for this followups condition")
 }
 
-// applyManifestRepairWithGuard checks repo-dev before delegating.
-// Returns errNonFixable when not in the atomic-claude repo so the caller
-// can increment NonFixable rather than Skipped.
+// applyManifestRepairWithGuard returns errNonFixable outside the atomic-claude
+// repo, where the bundle regen has nothing to act on.
 func (rp Repairer) applyManifestRepairWithGuard(out io.Writer) error {
 	inRepoDev, err := rp.IsRepoDevFn()
 	if err != nil {
@@ -279,22 +255,15 @@ func (rp Repairer) applyManifestRepairWithGuard(out io.Writer) error {
 	return rp.ManifestFn(out)
 }
 
-// -- refs repair --
-
 const refsBlock = "\n## Project wiki (auto-loaded)\n\n@docs/wiki/index.md\n"
 
-// applyRefsRepair appends the @-ref block to the chosen candidate file.
-// Returns the chosen filename on success.
-// Selection rules per brief:
-//   - 0 existing candidates → default CLAUDE.md (create).
-//   - 1 existing candidate → single Yes/No via Confirm.
-//   - >1 existing candidates → Indexed numbered list.
+// applyRefsRepair appends the @-ref block to a candidate file and returns its
+// name. The user picks only when more than one candidate exists.
 func (rp Repairer) applyRefsRepair(p Prompter, out io.Writer) (string, error) {
 	root := rp.RepoRootFn()
 
-	// Collect which candidate files exist. Deduplicate by inode to handle
-	// case-insensitive filesystems (macOS) where CLAUDE.md and claude.md both
-	// stat successfully but refer to the same on-disk file.
+	// Dedupe by inode: on case-insensitive filesystems CLAUDE.md and claude.md
+	// both stat but are the same file.
 	var existing []string
 	seenInode := make(map[uint64]bool)
 	for _, name := range candidateFiles {
@@ -315,13 +284,11 @@ func (rp Repairer) applyRefsRepair(p Prompter, out io.Writer) (string, error) {
 
 	switch len(existing) {
 	case 0:
-		// Default to CLAUDE.md (create it). User already confirmed at the outer prompt.
+		// Nothing to pick from; the outer prompt already confirmed the write.
 		chosenFile = "CLAUDE.md"
 	case 1:
-		// Single candidate — user already confirmed at the outer level.
 		chosenFile = existing[0]
 	default:
-		// Multiple candidates — numbered list per axiom 4.
 		items := make([]string, len(existing))
 		copy(items, existing)
 		idx := p.Indexed(items)
@@ -339,8 +306,8 @@ func (rp Repairer) applyRefsRepair(p Prompter, out io.Writer) (string, error) {
 	return chosenFile, nil
 }
 
-// appendRefsIfMissing reads the file (or treats as empty if absent) and appends
-// the signals.md @-ref if missing. Idempotent.
+// appendRefsIfMissing appends the @-ref block unless already present.
+// Idempotent; an absent file is treated as empty.
 func appendRefsIfMissing(path string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {

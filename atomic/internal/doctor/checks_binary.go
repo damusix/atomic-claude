@@ -14,10 +14,8 @@ const (
 	binaryCheckTimeout = 5 * time.Second
 )
 
-// binaryLookupFn is the injectable function for check 8. Defaults to the real
-// selfupdate.Client.Check call. Tests override it to avoid network calls.
-//
-// Signature: func(channel string) (isNewer bool, latestTag string, err error)
+// binaryLookupFn reports (isNewer, latestTag, err). Tests override it to keep
+// the check off the network.
 var binaryLookupFn = defaultBinaryLookup
 
 func defaultBinaryLookup(channel string) (bool, string, error) {
@@ -27,14 +25,9 @@ func defaultBinaryLookup(channel string) (bool, string, error) {
 	return c.Check(ctx, channel, version.Version)
 }
 
-// checkBinary implements category 8: binary self-check.
-//
-// Calls binaryLookupFn (default: selfupdate.Client.Check with a 5s timeout).
-// Maps result:
-//   - up-to-date  → PASS with "v<tag> (latest)"
-//   - newer avail → WARN with "v<current> < v<latest> available"
-//   - error       → WARN with "update check failed: <err>"  (never FAIL;
-//     offline machines must not break doctor)
+// checkBinary implements category 8: binary self-check. An available update
+// WARNs, and so does a failed lookup — an offline machine must not break the
+// doctor run, so this never FAILs.
 func checkBinary(_ Opts) Result {
 	return RunCheckBinaryWith(binaryLookupFn, version.Version)
 }

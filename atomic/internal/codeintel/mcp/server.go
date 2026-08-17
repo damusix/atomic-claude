@@ -1,28 +1,7 @@
-// Package mcp implements the atomic code MCP server (master).
+// Package mcp serves the code-intelligence index as MCP tools.
 //
-// # Server construction
-//
-// NewServer creates a configured *mcp.Server bound to the given engine. The
-// server is transport-agnostic: can run it over a unix-socket transport;
-// RunStdio runs it over stdio.
-//
-// # Tool gating (tiny-repo)
-//
-// When fileCount < 500 only three tools are registered: atomic_code_explore,
-// atomic_code_search, and atomic_code_node. Larger repos get all 8.
-//
-// # Explore budget constants
-//
-// The budget tiers in this package are copied exactly from appendix K and are
-// asserted by tests. A table-driven test checks every literal and the
-// monotonic-non-decreasing invariant on maxCharsPerFile.
-//
-// # Server instructions
-//
-// The initialize instructions text is the single source of truth for agent
-// guidance. It is stored in serverInstructions (below) and returned as the
-// instructions field of the initialize response. It is de-branded: no
-// reference product name; only "atomic" and "atomic_code_*" tool names.
+// Small repos get only explore/search/node; graph-traversal tools are withheld
+// below tinyRepoThreshold, where a whole-repo read is cheaper than a traversal.
 package mcp
 
 import (
@@ -41,12 +20,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
 
-// ---------------------------------------------------------------------------
-// Explore budget constants (appendix K — COPY EXACTLY; asserted by tests)
-// ---------------------------------------------------------------------------
-
-// ExploreOutputBudget is the per-call output budget returned by GetExploreOutputBudget.
-// Fields are exported so tests can assert exact appendix-K values.
+// ExploreOutputBudget caps one explore call's output. Every literal below is
+// pinned by a table-driven test, including the invariant that MaxCharsPerFile
+// never decreases as repos grow.
 type ExploreOutputBudget struct {
 	MaxOutputChars       int
 	DefaultMaxFiles      int
@@ -55,14 +31,7 @@ type ExploreOutputBudget struct {
 	ExcludeLowValueFiles bool
 }
 
-// GetExploreBudget returns the number of allowed explore calls based on
-// project size. Copied exactly from appendix K.
-//
-//	<500  → 1
-//	<5000 → 2
-//	<15000 → 3
-//	<25000 → 4
-//	≥25000 → 5
+// GetExploreBudget returns how many explore calls a repo of this size allows.
 func GetExploreBudget(fileCount int) int {
 	switch {
 	case fileCount < 500:
@@ -79,7 +48,6 @@ func GetExploreBudget(fileCount int) int {
 }
 
 // GetExploreOutputBudget returns the output budget for the given file count.
-// Tiers copied exactly from appendix K.
 func GetExploreOutputBudget(fileCount int) ExploreOutputBudget {
 	switch {
 	case fileCount < 150:
@@ -106,7 +74,7 @@ func GetExploreOutputBudget(fileCount int) ExploreOutputBudget {
 			GapThreshold:         12,
 			ExcludeLowValueFiles: false,
 		}
-	default: // ≥5000
+	default:
 		return ExploreOutputBudget{
 			MaxOutputChars:       24000,
 			DefaultMaxFiles:      8,
@@ -117,20 +85,13 @@ func GetExploreOutputBudget(fileCount int) ExploreOutputBudget {
 	}
 }
 
-// exploreHardCeiling is the absolute maximum output characters (25000).
-// Any output longer than min(maxOutputChars*1.5, 25000) must be cut at the
-// last \n#### section boundary in the back half.
+// exploreHardCeiling bounds output regardless of the per-tier budget.
 const exploreHardCeiling = 25000
 
-// exploreWholeCentralLines is the max line count for inlining a "central" file in full.
+// Line ceilings above which a file is excerpted rather than inlined whole.
 const exploreWholeCentralLines = 280
 
-// exploreWholePeripheralLines is the max line count for inlining a "peripheral" file in full.
 const exploreWholePeripheralLines = 220
-
-// ---------------------------------------------------------------------------
-// Input limits (appendix L)
-// ---------------------------------------------------------------------------
 
 const (
 	maxQueryLen  = 10000
@@ -138,19 +99,11 @@ const (
 	maxPathLen   = 4096
 )
 
-// ---------------------------------------------------------------------------
-// Tiny-repo threshold (appendix K)
-// ---------------------------------------------------------------------------
-
+// Below this file count, graph-traversal tools are not registered at all.
 const tinyRepoThreshold = 500
 
-// ---------------------------------------------------------------------------
-// Server instructions (de-branded — appendix L)
-//
-// This is the ONLY place agent guidance lives. Never duplicate it in tool
-// descriptions or elsewhere.
-// ---------------------------------------------------------------------------
-
+// serverInstructions is the only place agent guidance lives — never duplicate
+// it into tool descriptions.
 const serverInstructions = `You have access to a code-intelligence index via the atomic_code_* tools.
 These tools let you navigate large codebases efficiently without reading files manually.
 
@@ -194,15 +147,8 @@ The index is local and fast — prefer these tools over reading files directly.
 Explore output is already-read source; do not read the same files again with a
 file-read tool. For more context, call atomic_code_explore with a refined query.`
 
-// ---------------------------------------------------------------------------
-// Server construction
-// ---------------------------------------------------------------------------
-
-// NewServer creates a configured *sdk.Server bound to eng. The server
-// registers the applicable tools based on fileCount (tiny-repo gating) and
-// sets the de-branded server instructions. The returned server is
-// transport-agnostic: call RunStdio to serve over stdio, or use
-// srv.Connect(ctx, transport, nil) to serve over any other transport.
+// NewServer builds a transport-agnostic server whose registered tool set
+// depends on fileCount. Call RunStdio, or srv.Connect for another transport.
 func NewServer(eng *engine.Engine, fileCount int) *sdk.Server {
 	srv := sdk.NewServer(
 		&sdk.Implementation{
@@ -214,12 +160,10 @@ func NewServer(eng *engine.Engine, fileCount int) *sdk.Server {
 		},
 	)
 
-	// Always-registered tools.
 	addToolExplore(srv, eng, fileCount)
 	addToolSearch(srv, eng)
 	addToolNode(srv, eng)
 
-	// Full-repo tools (≥500 files).
 	if fileCount >= tinyRepoThreshold {
 		addToolCallers(srv, eng)
 		addToolCallees(srv, eng)
@@ -231,8 +175,7 @@ func NewServer(eng *engine.Engine, fileCount int) *sdk.Server {
 	return srv
 }
 
-// RunStdio builds the engine (Init or Open), creates the MCP server, and runs
-// it over the stdio transport. This is the implementation for `atomic code mcp`.
+// RunStdio backs `atomic code mcp`.
 func RunStdio(ctx context.Context, projectRoot string) error {
 	eng, err := engine.New(projectRoot)
 	if err != nil {
@@ -240,13 +183,13 @@ func RunStdio(ctx context.Context, projectRoot string) error {
 	}
 	defer eng.Close()
 
-	// Open existing index (do not re-index on every mcp start).
+	// Open rather than index: a server start must not trigger a re-index.
 	if eng.IsInitialized() {
 		if err := eng.Open(ctx); err != nil {
 			return fmt.Errorf("atomic code mcp: open engine: %w", err)
 		}
 	} else {
-		// No index yet — still serve with a working (empty) engine.
+		// No index yet — serve an empty engine rather than refusing to start.
 		if err := eng.Init(ctx); err != nil {
 			return fmt.Errorf("atomic code mcp: init engine: %w", err)
 		}
@@ -261,10 +204,6 @@ func RunStdio(ctx context.Context, projectRoot string) error {
 	srv := NewServer(eng, fileCount)
 	return srv.Run(ctx, &sdk.StdioTransport{})
 }
-
-// ---------------------------------------------------------------------------
-// Tool: atomic_code_search
-// ---------------------------------------------------------------------------
 
 type searchInput struct {
 	Query string `json:"query" jsonschema:"Search query (symbol name or keywords)"`
@@ -299,10 +238,6 @@ func addToolSearch(srv *sdk.Server, eng *engine.Engine) {
 		return textResult(text), nil, nil
 	})
 }
-
-// ---------------------------------------------------------------------------
-// Tool: atomic_code_callers
-// ---------------------------------------------------------------------------
 
 type callersInput struct {
 	Symbol string `json:"symbol" jsonschema:"Symbol name or node ID to find callers of"`
@@ -340,10 +275,6 @@ func addToolCallers(srv *sdk.Server, eng *engine.Engine) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Tool: atomic_code_callees
-// ---------------------------------------------------------------------------
-
 type calleesInput struct {
 	Symbol string `json:"symbol" jsonschema:"Symbol name or node ID to find callees of"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"Maximum callees to return (default 20)"`
@@ -380,10 +311,6 @@ func addToolCallees(srv *sdk.Server, eng *engine.Engine) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Tool: atomic_code_impact
-// ---------------------------------------------------------------------------
-
 type impactInput struct {
 	Symbol string `json:"symbol" jsonschema:"Symbol name or node ID to analyse impact of"`
 	Depth  int    `json:"depth,omitempty" jsonschema:"Maximum traversal depth (default 3)"`
@@ -417,10 +344,6 @@ func addToolImpact(srv *sdk.Server, eng *engine.Engine) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Tool: atomic_code_node
-// ---------------------------------------------------------------------------
-
 type nodeInput struct {
 	Symbol      string `json:"symbol"                 jsonschema:"Symbol name or node ID"`
 	IncludeCode *bool  `json:"includeCode,omitempty"  jsonschema:"Include source code in output (default true); set false to omit code block"`
@@ -440,14 +363,12 @@ func addToolNode(srv *sdk.Server, eng *engine.Engine) {
 			return errorResult("file path exceeds maximum length of %d characters", maxPathLen), nil, nil
 		}
 
-		// Default includeCode to true; false only when caller explicitly passes false.
+		// Pointer field so an omitted key stays true; only an explicit false wins.
 		includeCode := true
 		if in.IncludeCode != nil && !*in.IncludeCode {
 			includeCode = false
 		}
 
-		// Resolve: if it looks like a node ID (starts with "node:"), look it up
-		// directly. Otherwise do a full name-scan returning ALL overloads.
 		var nodes []types.Node
 		if strings.HasPrefix(in.Symbol, "node:") {
 			n, err := eng.GetNode(ctx, in.Symbol)
@@ -456,7 +377,6 @@ func addToolNode(srv *sdk.Server, eng *engine.Engine) {
 			}
 			nodes = []types.Node{n}
 		} else {
-			// GetNodesByName with kind="" returns all kinds.
 			all, err := eng.GetNodesByName(ctx, in.Symbol, "")
 			if err != nil {
 				return errorResult("node: %v", err), nil, nil
@@ -464,10 +384,9 @@ func addToolNode(srv *sdk.Server, eng *engine.Engine) {
 			if len(all) == 0 {
 				return textResult(fmt.Sprintf("No nodes found for %q", in.Symbol)), nil, nil
 			}
-			// Apply optional file/line filters.
 			nodes = filterNodes(all, in.File, in.Line)
 			if len(nodes) == 0 {
-				nodes = all // fallback: no filter matched, return all
+				nodes = all // over-narrow filter beats nothing at all
 			}
 		}
 
@@ -482,10 +401,7 @@ func addToolNode(srv *sdk.Server, eng *engine.Engine) {
 	})
 }
 
-// renderNodeDetail renders one node as detailed markdown into sb.
-// includeCode controls whether the source code block is emitted.
 func renderNodeDetail(ctx context.Context, eng *engine.Engine, sb *strings.Builder, n types.Node, includeCode bool) {
-	// Header
 	fmt.Fprintf(sb, "#### %s `%s`\n\n", n.Kind, n.QualifiedName)
 	fmt.Fprintf(sb, "- **id:** `%s`\n", n.ID)
 	fmt.Fprintf(sb, "- **file:** `%s`\n", n.FilePath)
@@ -498,7 +414,7 @@ func renderNodeDetail(ctx context.Context, eng *engine.Engine, sb *strings.Build
 	}
 	sb.WriteString("\n")
 
-	// Container kinds → structural outline (member signatures, not full body).
+	// A container's full body would swamp the response, so it gets an outline.
 	isContainer := n.Kind == types.NodeKindClass ||
 		n.Kind == types.NodeKindInterface ||
 		n.Kind == types.NodeKindModule ||
@@ -506,7 +422,6 @@ func renderNodeDetail(ctx context.Context, eng *engine.Engine, sb *strings.Build
 	if isContainer {
 		renderContainerOutline(ctx, eng, sb, n)
 	} else if includeCode {
-		// Non-container: include line-numbered source code only when requested.
 		cb, err := eng.GetCode(ctx, n.ID)
 		if err == nil && cb.Content != "" {
 			lang := strings.ToLower(string(n.Language))
@@ -516,17 +431,16 @@ func renderNodeDetail(ctx context.Context, eng *engine.Engine, sb *strings.Build
 		}
 	}
 
-	// Trail: up to 12 callers + 12 callees.
 	renderTrail(ctx, eng, sb, n.ID)
 }
 
-// renderContainerOutline writes member signatures for a container node.
+// renderContainerOutline writes signatures for the members whose line range
+// falls inside n — the index has no explicit containment edge to follow.
 func renderContainerOutline(ctx context.Context, eng *engine.Engine, sb *strings.Builder, n types.Node) {
 	members, err := eng.GetNodesInFile(ctx, n.FilePath)
 	if err != nil {
 		return
 	}
-	// Filter to members contained within this node's line range.
 	var contained []types.Node
 	for _, m := range members {
 		if m.ID == n.ID {
@@ -549,8 +463,8 @@ func renderContainerOutline(ctx context.Context, eng *engine.Engine, sb *strings
 	sb.WriteString("\n")
 }
 
-// renderTrail appends up to 12 callers + 12 callees with heuristic annotations.
-// DB errors are surfaced inline rather than silently yielding an empty trail.
+// renderTrail surfaces db errors inline: a silent empty trail reads as "no
+// callers", which is a different and misleading answer.
 func renderTrail(ctx context.Context, eng *engine.Engine, sb *strings.Builder, nodeID string) {
 	callers, callersErr := eng.GetCallers(ctx, nodeID, 1)
 	callees, calleesErr := eng.GetCallees(ctx, nodeID, 1)
@@ -594,15 +508,13 @@ func renderTrail(ctx context.Context, eng *engine.Engine, sb *strings.Builder, n
 	}
 }
 
-// isSynthesizedProvenance reports whether an edge's provenance marks it as
-// synthesized rather than directly extracted — heuristic (dynamic-call
-// resolution) or string-match (SQL identifier-string matching).
+// isSynthesizedProvenance reports whether an edge was inferred rather than
+// directly extracted, and so is lower-confidence.
 func isSynthesizedProvenance(p string) bool {
 	return p == "heuristic" || p == "string-match"
 }
 
-// heuristicAnnotation returns " [dynamic]" if any edge between fromID and toID
-// in sg has synthesized provenance, else "".
+// heuristicAnnotation marks an edge pair as synthesized, in either direction.
 func heuristicAnnotation(sg types.Subgraph, fromID, toID string) string {
 	for _, e := range sg.Edges {
 		if (e.Source == fromID && e.Target == toID) ||
@@ -615,7 +527,7 @@ func heuristicAnnotation(sg types.Subgraph, fromID, toID string) string {
 	return ""
 }
 
-// renderLineNumbered writes source with line numbers starting at startLine.
+// renderLineNumbered numbers from startLine so the output matches the file.
 func renderLineNumbered(sb *strings.Builder, content string, startLine int) {
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
@@ -623,7 +535,6 @@ func renderLineNumbered(sb *strings.Builder, content string, startLine int) {
 	}
 }
 
-// filterNodes applies optional file and line filters.
 func filterNodes(nodes []types.Node, file string, line int) []types.Node {
 	if file == "" && line == 0 {
 		return nodes
@@ -640,10 +551,6 @@ func filterNodes(nodes []types.Node, file string, line int) []types.Node {
 	}
 	return out
 }
-
-// ---------------------------------------------------------------------------
-// Tool: atomic_code_explore
-// ---------------------------------------------------------------------------
 
 type exploreInput struct {
 	Query    string `json:"query"              jsonschema:"Natural-language question or topic to explore"`
@@ -665,9 +572,8 @@ func addToolExplore(srv *sdk.Server, eng *engine.Engine, fileCount int) {
 			maxFiles = in.MaxFiles
 		}
 
-		// Build context via FindRelevantContext.
 		opts := codectx.Options{
-			Limit: maxFiles * 5, // generous result cap
+			Limit: maxFiles * 5,
 		}
 		sg, tier, truncated, err := eng.FindRelevantContext(ctx, in.Query, opts)
 		if err != nil {
@@ -685,10 +591,8 @@ func addToolExplore(srv *sdk.Server, eng *engine.Engine, fileCount int) {
 			return errorResult("explore: build context: %v", err), nil, nil
 		}
 
-		// Build the Flow section from named symbols in the query.
 		flowSection := buildFlowFromNamedSymbols(ctx, eng, in.Query)
 
-		// Assemble output.
 		var sb strings.Builder
 		if flowSection != "" {
 			sb.WriteString(flowSection)
@@ -696,40 +600,32 @@ func addToolExplore(srv *sdk.Server, eng *engine.Engine, fileCount int) {
 		}
 		sb.WriteString(ctxResult.Content)
 
-		// Append tier note (for transparency).
 		if tier != "" {
 			fmt.Fprintf(&sb, "\n\n*Search tier: %s*", tier)
 		}
 
 		output := sb.String()
 
-		// Apply hard ceiling: min(maxOutputChars*1.5, 25000).
 		ceiling := budget.MaxOutputChars * 3 / 2
 		if ceiling > exploreHardCeiling {
 			ceiling = exploreHardCeiling
 		}
 		output = ApplyCeiling(output, ceiling)
-
-		// Ensure output never tells the agent to "use Read".
 		output = sanitizeExploreOutput(output)
 
 		return textResult(output), nil, nil
 	})
 }
 
-// buildFlowFromNamedSymbols tokenizes the query, resolves named symbols to
-// node IDs, performs a BFS along calls edges (≤1 unnamed bridge hop), finds
-// the longest chain, and returns a "## Flow" markdown section. Returns "" if
-// no symbols are found.
+// buildFlowFromNamedSymbols renders a "## Flow" section tracing calls between
+// symbols the query named, allowing at most one unnamed bridge hop between
+// them. Returns "" when the query names nothing indexed.
 func buildFlowFromNamedSymbols(ctx context.Context, eng *engine.Engine, query string) string {
-	// Tokenize: split on whitespace and common punctuation, keep CamelCase and
-	// snake_case tokens that look like identifiers (≥3 chars, at least one letter).
 	tokens := tokenizeQuery(query)
 	if len(tokens) == 0 {
 		return ""
 	}
 
-	// Resolve each token to nodes.
 	type namedNode struct {
 		token string
 		node  types.Node
@@ -751,25 +647,22 @@ func buildFlowFromNamedSymbols(ctx context.Context, eng *engine.Engine, query st
 			}
 		}
 		if len(named) >= 8 {
-			break // limit resolution effort
+			break
 		}
 	}
 	if len(named) == 0 {
 		return ""
 	}
 
-	// BFS along calls edges from each named node to find chains.
-	// Allow ≤1 unnamed bridge hop (a node not named in the query).
 	type chainLink struct {
 		nodeID string
-		bridge bool // true if this is an unnamed bridge hop
+		bridge bool
 	}
 	type chainState struct {
 		links   []chainLink
 		bridges int
 	}
 
-	// Build a set of named node IDs for quick lookup.
 	namedIDs := make(map[string]bool, len(named))
 	for _, nn := range named {
 		namedIDs[nn.node.ID] = true
@@ -777,7 +670,6 @@ func buildFlowFromNamedSymbols(ctx context.Context, eng *engine.Engine, query st
 
 	var longestChain []string
 	for _, start := range named {
-		// BFS to find chains connecting named nodes.
 		type bfsState struct {
 			nodeID  string
 			chain   []string
@@ -794,7 +686,7 @@ func buildFlowFromNamedSymbols(ctx context.Context, eng *engine.Engine, query st
 				longestChain = append([]string(nil), cur.chain...)
 			}
 
-			if len(cur.chain) > 6 { // max chain length
+			if len(cur.chain) > 6 {
 				continue
 			}
 
@@ -812,7 +704,7 @@ func buildFlowFromNamedSymbols(ctx context.Context, eng *engine.Engine, query st
 					newBridges++
 				}
 				if newBridges > 1 {
-					continue // exceed bridge budget
+					continue
 				}
 				visited[next.ID] = true
 				newChain := append(append([]string(nil), cur.chain...), next.ID)
@@ -829,7 +721,6 @@ func buildFlowFromNamedSymbols(ctx context.Context, eng *engine.Engine, query st
 		return ""
 	}
 
-	// Supplement with heuristic (synthesized) edges incident to named symbols.
 	type heuristicEdge struct {
 		from, to string
 	}
@@ -849,11 +740,9 @@ func buildFlowFromNamedSymbols(ctx context.Context, eng *engine.Engine, query st
 		}
 	}
 
-	// Build the markdown Flow section.
 	var sb strings.Builder
 	sb.WriteString("## Flow\n\n")
 
-	// Render the longest chain.
 	for i, id := range longestChain {
 		n, err := eng.GetNode(ctx, id)
 		name := id
@@ -870,7 +759,6 @@ func buildFlowFromNamedSymbols(ctx context.Context, eng *engine.Engine, query st
 		}
 	}
 
-	// Append heuristic edges.
 	if len(hEdges) > 0 {
 		sb.WriteString("\n**Synthesized (heuristic) edges:**\n\n")
 		seen2 := make(map[string]bool)
@@ -898,10 +786,10 @@ func buildFlowFromNamedSymbols(ctx context.Context, eng *engine.Engine, query st
 	return sb.String()
 }
 
-// tokenizeQuery splits a query string into identifier-like tokens.
+// tokenizeQuery keeps runs of identifier characters at least 3 long that
+// contain a letter, so prose and numbers do not become lookup candidates.
 func tokenizeQuery(query string) []string {
 	var tokens []string
-	// Split on whitespace and common punctuation.
 	cur := strings.Builder{}
 	for _, r := range query {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' {
@@ -909,7 +797,6 @@ func tokenizeQuery(query string) []string {
 		} else {
 			if cur.Len() >= 3 {
 				tok := cur.String()
-				// Must contain at least one letter.
 				if hasLetter(tok) {
 					tokens = append(tokens, tok)
 				}
@@ -935,18 +822,15 @@ func hasLetter(s string) bool {
 	return false
 }
 
-// ApplyCeiling truncates output to ceiling chars, cutting at the last
-// \n#### section boundary in the back half of the string.
-// Exported so tests can assert the exact cut behaviour.
+// ApplyCeiling truncates at the last section boundary in the back half, so the
+// output ends on a whole section rather than mid-sentence. Exported for tests.
 func ApplyCeiling(output string, ceiling int) string {
 	if len(output) <= ceiling {
 		return output
 	}
 
-	// The "back half" begins at ceiling/2.
 	backHalfStart := ceiling / 2
 
-	// Find the last \n#### in the range [backHalfStart, ceiling].
 	searchRegion := output[backHalfStart:ceiling]
 	lastBoundary := strings.LastIndex(searchRegion, "\n####")
 	if lastBoundary >= 0 {
@@ -954,12 +838,11 @@ func ApplyCeiling(output string, ceiling int) string {
 		return output[:cutAt]
 	}
 
-	// No \n#### found in the back half — cut at ceiling.
 	return output[:ceiling]
 }
 
-// sanitizeExploreOutput replaces any instruction to "use Read" with a
-// steering message directing the agent to call explore again.
+// sanitizeExploreOutput rewrites any "use Read" steer, since explore output is
+// already-read source and a re-read wastes the agent's budget.
 func sanitizeExploreOutput(output string) string {
 	replacements := []string{
 		"use Read", "use the Read tool", "use file read", "call Read",
@@ -970,10 +853,6 @@ func sanitizeExploreOutput(output string) string {
 	}
 	return output
 }
-
-// ---------------------------------------------------------------------------
-// Tool: atomic_code_status
-// ---------------------------------------------------------------------------
 
 func addToolStatus(srv *sdk.Server, eng *engine.Engine) {
 	sdk.AddTool(srv, &sdk.Tool{
@@ -1022,10 +901,6 @@ func addToolStatus(srv *sdk.Server, eng *engine.Engine) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Tool: atomic_code_files
-// ---------------------------------------------------------------------------
-
 type filesInput struct {
 	Path    string `json:"path,omitempty"    jsonschema:"Filter by path prefix"`
 	Pattern string `json:"pattern,omitempty" jsonschema:"Filter by glob pattern (e.g. '*.go')"`
@@ -1046,7 +921,6 @@ func addToolFiles(srv *sdk.Server, eng *engine.Engine) {
 			return errorResult("files: %v", err), nil, nil
 		}
 
-		// Apply filters.
 		var filtered []types.FileRecord
 		for _, f := range files {
 			if in.Path != "" && !strings.HasPrefix(f.Path, in.Path) {
@@ -1069,7 +943,6 @@ func addToolFiles(srv *sdk.Server, eng *engine.Engine) {
 			return textResult(string(data)), nil, nil
 		}
 
-		// Default: list format.
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "%d files\n\n", len(filtered))
 		for _, f := range filtered {
@@ -1079,17 +952,10 @@ func addToolFiles(srv *sdk.Server, eng *engine.Engine) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-// resolveSymbolToIDs resolves a symbol string to all matching node IDs. If the
-// input already looks like a node ID (starts with "node:"), it resolves to
-// exactly that node. Otherwise GetNodesByName is called and EVERY match is
-// returned — a name routinely maps to several definitions (overloads, an
-// interface and its implementation, two same-named methods), and the caller must
-// aggregate across all of them. Using only the first match silently drops the
-// callers/callees that live on the siblings (the `$proc` bug).
+// resolveSymbolToIDs returns EVERY node matching the name, not just the first.
+// One name routinely covers several definitions — overloads, an interface and
+// its implementation — and taking only the first silently drops the
+// callers and callees that live on the siblings.
 func resolveSymbolToIDs(ctx context.Context, eng *engine.Engine, symbol string) ([]string, error) {
 	if strings.HasPrefix(symbol, "node:") {
 		return []string{symbol}, nil
@@ -1108,9 +974,8 @@ func resolveSymbolToIDs(ctx context.Context, eng *engine.Engine, symbol string) 
 	return ids, nil
 }
 
-// aggregateSubgraphByIDs runs query for every node ID and merges the results.
-// Shared by the callers/callees/impact MCP tools so a multi-definition symbol
-// returns the union of relationships across all its definitions.
+// aggregateSubgraphByIDs unions the query across every ID, so a multi-definition
+// symbol reports all its relationships. Pairs with resolveSymbolToIDs.
 func aggregateSubgraphByIDs(ids []string, query func(id string) (types.Subgraph, error)) (types.Subgraph, error) {
 	sgs := make([]types.Subgraph, 0, len(ids))
 	for _, id := range ids {
@@ -1123,7 +988,6 @@ func aggregateSubgraphByIDs(ids []string, query func(id string) (types.Subgraph,
 	return types.MergeSubgraphs(sgs), nil
 }
 
-// formatSearchResults formats a slice of SearchResult as markdown.
 func formatSearchResults(results []types.SearchResult) string {
 	if len(results) == 0 {
 		return "No results found."
@@ -1138,7 +1002,6 @@ func formatSearchResults(results []types.SearchResult) string {
 	return sb.String()
 }
 
-// formatNodeList formats a slice of nodes as a markdown list.
 func formatNodeList(heading string, nodes []types.Node) string {
 	if len(nodes) == 0 {
 		return heading + ": none found."
@@ -1152,7 +1015,6 @@ func formatNodeList(heading string, nodes []types.Node) string {
 	return sb.String()
 }
 
-// textResult creates a successful *sdk.CallToolResult with a single TextContent.
 func textResult(text string) *sdk.CallToolResult {
 	return &sdk.CallToolResult{
 		Content: []sdk.Content{
@@ -1161,7 +1023,6 @@ func textResult(text string) *sdk.CallToolResult {
 	}
 }
 
-// errorResult creates an error *sdk.CallToolResult.
 func errorResult(format string, args ...any) *sdk.CallToolResult {
 	msg := fmt.Sprintf(format, args...)
 	return &sdk.CallToolResult{

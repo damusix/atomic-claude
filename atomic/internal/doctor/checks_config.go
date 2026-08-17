@@ -11,8 +11,6 @@ import (
 )
 
 // checkConfig implements category 9: config integrity.
-//
-// Resolves the user's home directory then calls RunCheckConfigWith.
 func checkConfig(opts Opts) Result {
 	home, err := resolveHome()
 	if err != nil {
@@ -22,14 +20,9 @@ func checkConfig(opts Opts) Result {
 }
 
 // RunCheckConfigWith runs the config check against an explicit home dir.
-// Exported for testing; production callers use checkConfig.
-//
-// Combines two independent findings: config.toml validity
-// (checkConfigValidity) and a chronic background self-update-check failure
-// (checkChronicUpdateFailure, read from ~/.atomic/state.json). The chronic
-// finding never escalates severity past WARN — a background check failure
-// is not itself a config validity problem — but its detail is appended
-// alongside whatever the validity check already found.
+// Exported for testing. It merges config.toml validity with a chronic
+// background update-check failure; the chronic finding never escalates past
+// WARN, since a failing background check is not a config validity problem.
 func RunCheckConfigWith(home string) Result {
 	base := checkConfigValidity(home)
 	chronicDetail := checkChronicUpdateFailure(home)
@@ -44,12 +37,9 @@ func RunCheckConfigWith(home string) Result {
 	}
 }
 
-// checkChronicUpdateFailure reads the self-update state file and reports a
-// detail string when the background check's last_result records a failure
-// (non-empty — see cmd/atomic/main.go's runUpdateCheck, which writes
-// lookupErr.Error() or stageErr.Error() on failure and "" on success).
-// Returns "" when the state file is absent (selfupdate.LoadState's
-// zero-value contract) or the last check succeeded.
+// checkChronicUpdateFailure reports a detail when the background update
+// check's last_result is non-empty, which is how it records a failure.
+// A missing state file loads as the zero value and so reports "".
 func checkChronicUpdateFailure(home string) string {
 	state := selfupdate.LoadState(config.StatePath(home))
 	if state.Update.LastResult == "" {
@@ -69,25 +59,20 @@ func checkChronicUpdateFailure(home string) string {
 func checkConfigValidity(home string) Result {
 	tomlPath := config.TOMLPath(home)
 
-	// If config.toml does not exist, defaults are valid — PASS.
 	if _, err := os.Stat(tomlPath); os.IsNotExist(err) {
 		return Result{Severity: PASS, Detail: "config.toml not present (using built-in defaults)"}
 	}
 
-	// Load config (lenient: unknown keys → warnings, parse error → error).
 	cfg, warns, err := config.Load(tomlPath)
 	if err != nil {
 		return Result{Severity: FAIL, Detail: fmt.Sprintf("config parse error: %v", err)}
 	}
 
-	// Invalid values → FAIL (includes [claude.agents] effort validation, model
-	// is lenient, and [repl] idle_timeout duration validation).
-	// Unknown keys are non-fatal; an invalid value is not.
+	// An unknown key only WARNs; an invalid value FAILs.
 	if err := config.Validate(cfg); err != nil {
 		return Result{Severity: FAIL, Detail: err.Error()}
 	}
 
-	// Append non-fatal [claude.agents] unknown-agent-name warnings after Validate passes.
 	warns = append(warns, config.AgentWarnings(cfg)...)
 
 	var unknownKeysDetail string

@@ -1,21 +1,11 @@
 package serve
 
-// provenance.go — provenance DAG walk for SC12.
+// The provenance DAG: which concern cites which knowledge page, and which
+// bucket file each knowledge page was synthesized from, with a Drift flag
+// wherever a stamped fingerprint no longer matches live content.
 //
-// ReadProvenance reads the YAML frontmatter of a single markdown file and
-// returns:
-//   - For concern pages (reflects: key present): the cited ids + stamped fps.
-//   - For knowledge pages (sources: key present): the bucket file paths + stamped sha256.
-//   - For any other page: empty provenance (no error).
-//
-// BuildProvenanceDAG walks wiki/concerns/ and wiki/knowledge/ under wikiDir,
-// reads provenance from each, resolves fingerprints against live content, and
-// returns a ProvenanceDAG whose edges carry a Drift flag when the stamped
-// fingerprint diverges from the live hash.
-//
-// Read-only: this package NEVER writes frontmatter or re-stamps anything.
-// Hash helpers are imported from the wiki package to guarantee byte-identical
-// results between stamper and reader (see wiki.FileSHA256 / wiki.ResolveFingerprint).
+// Strictly read-only — nothing here re-stamps. Hashing goes through the wiki
+// package so stamper and reader cannot disagree byte-for-byte.
 
 import (
 	"os"
@@ -26,48 +16,43 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// ProvKind identifies whether a provenance record is from a concern or a
-// knowledge page (or is unknown/empty).
+// ProvKind identifies which provenance key a page carries.
 type ProvKind int
 
 const (
 	ProvUnknown   ProvKind = iota
-	ProvConcern            // page carries reflects: key
-	ProvKnowledge          // page carries sources: key
+	ProvConcern            // page carries reflects:
+	ProvKnowledge          // page carries sources:
 )
 
-// ReflectsEntry is one entry from a concern's reflects: YAML list.
-// Format in the file: "<id>@<fingerprint>".
+// ReflectsEntry is one "<id>@<fingerprint>" entry from a concern's reflects:
+// list.
 type ReflectsEntry struct {
-	// ID is the cited artifact id — either "knowledge/<topic>.md" for a knowledge
-	// page, or a repo relative path for a summarized/indexed repo.
+	// ID is either "knowledge/<topic>.md" or a repo-relative path.
 	ID string
 	// StampedFP is the fingerprint recorded at stamp time.
 	StampedFP string
 }
 
-// SourceEntry is one entry from a knowledge page's sources: YAML list.
-// Format in the file: "<bucket>/<relpath>@<sha256hex>".
+// SourceEntry is one "<bucket>/<relpath>@<sha256hex>" entry from a knowledge
+// page's sources: list.
 type SourceEntry struct {
-	// BucketRelPath is the bucket-relative path of the source file (e.g. "research/note.txt").
 	BucketRelPath string
-	// StampedSHA256 is the SHA-256 hex recorded at stamp time.
 	StampedSHA256 string
 }
 
-// PageProvenance is the provenance record for a single markdown file.
+// PageProvenance is one markdown file's provenance record.
 type PageProvenance struct {
-	// Kind indicates whether this page is a concern or knowledge page.
+	// Kind names which key the page carried.
 	Kind ProvKind
-	// Reflects holds entries from the reflects: key (concern pages).
+	// Reflects is populated for a concern page.
 	Reflects []ReflectsEntry
-	// Sources holds entries from the sources: key (knowledge pages).
+	// Sources is populated for a knowledge page.
 	Sources []SourceEntry
 }
 
-// ReadProvenance reads the YAML frontmatter from path and extracts provenance
-// data. It does not error on missing frontmatter or missing keys — those are
-// returned as empty slices. Only I/O and YAML parse errors propagate.
+// ReadProvenance extracts provenance from path's frontmatter. Missing
+// frontmatter or keys yield an empty record; only I/O errors propagate.
 func ReadProvenance(path string) (PageProvenance, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -76,7 +61,7 @@ func ReadProvenance(path string) (PageProvenance, error) {
 
 	meta, _, err := frontmatter.Parse(string(data))
 	if err != nil {
-		// Malformed YAML frontmatter — treat as empty provenance (non-fatal).
+		// Malformed frontmatter is not fatal — the page simply has none.
 		return PageProvenance{}, nil
 	}
 	if meta == nil {
@@ -85,7 +70,6 @@ func ReadProvenance(path string) (PageProvenance, error) {
 
 	prov := PageProvenance{}
 
-	// Check for reflects: (concern page).
 	if raw, ok := meta["reflects"]; ok {
 		entries, ok := raw.([]any)
 		if ok {
@@ -109,7 +93,6 @@ func ReadProvenance(path string) (PageProvenance, error) {
 		}
 	}
 
-	// Check for sources: (knowledge page).
 	if raw, ok := meta["sources"]; ok {
 		entries, ok := raw.([]any)
 		if ok {
@@ -136,27 +119,21 @@ func ReadProvenance(path string) (PageProvenance, error) {
 	return prov, nil
 }
 
-// ProvenanceNode is a node in the provenance DAG.
+// ProvenanceNode is a page or bucket file in the DAG.
 type ProvenanceNode struct {
-	// ID is the unique identifier for this node:
-	//   - concerns: "wiki/concerns/<name>.md" (realm-root-relative)
-	//   - knowledge: "wiki/knowledge/<topic>.md" (realm-root-relative)
-	//   - bucket files: the BucketRelPath (e.g. "research/note.txt")
+	// ID is realm-relative for pages, bucket-relative for source files.
 	ID string
-	// Kind is "concern", "knowledge", or "bucket".
+	// Kind is "concern", "knowledge", "repo", or "bucket".
 	Kind string
-	// Drift is true when any edge pointing TO this node is drifted, or when
-	// this node's sources are drifted (for knowledge nodes).
+	// Drift is set when any edge into this node drifted.
 	Drift bool
 }
 
-// ProvenanceEdge is a directed edge in the provenance DAG.
+// ProvenanceEdge is a citation from a page to what it was built from.
 type ProvenanceEdge struct {
-	// Source is the node ID of the edge's source (e.g. a concern or knowledge page).
 	Source string
-	// Target is the node ID of the edge's target (a knowledge page or bucket file).
 	Target string
-	// Drift is true when the stamped fingerprint does not match the live hash.
+	// Drift is set when the stamped fingerprint no longer matches the live hash.
 	Drift bool
 }
 
@@ -166,15 +143,10 @@ type ProvenanceDAG struct {
 	Edges []ProvenanceEdge
 }
 
-// BuildProvenanceDAG walks wiki/concerns/ and wiki/knowledge/ under wikiDir,
-// reads provenance from each page, resolves live fingerprints, and returns the
-// populated DAG with drift flags set where the stamped value diverges.
-//
-// root is the realm root (parent of wikiDir). wikiDir is the wiki/ directory.
-//
-// This function is read-only — it never writes any file.
+// BuildProvenanceDAG walks the realm's concerns and knowledge pages, resolving
+// each stamped fingerprint against live content. root is the parent of wikiDir.
 func BuildProvenanceDAG(root, wikiDir string) ProvenanceDAG {
-	// Use heap-allocated nodes in a map so pointer mutation is safe across appends.
+	// Pointers, so a later drift flag reaches a node already recorded.
 	nodeByID := make(map[string]*ProvenanceNode)
 	var edges []ProvenanceEdge
 
@@ -187,7 +159,6 @@ func BuildProvenanceDAG(root, wikiDir string) ProvenanceDAG {
 		return n
 	}
 
-	// ── Walk wiki/concerns/ ──────────────────────────────────────────────────
 	concernsDir := filepath.Join(wikiDir, "concerns")
 	concernFiles := globMDFiles(concernsDir)
 
@@ -197,14 +168,11 @@ func BuildProvenanceDAG(root, wikiDir string) ProvenanceDAG {
 			continue
 		}
 
-		// Realm-relative id for the concern node (e.g. "wiki/concerns/c.md").
 		concernID := realmRelative(root, fp)
 		concernNode := ensureNode(concernID, "concern")
 
 		for _, entry := range prov.Reflects {
-			// Determine the live fingerprint.
-			// knowledge/ ids: resolveRoot = wikiDir.
-			// repo ids: resolveRoot = root.
+			// A knowledge id resolves inside wiki/; a repo id against the realm.
 			resolveRoot := root
 			if strings.HasPrefix(entry.ID, "knowledge/") && strings.HasSuffix(entry.ID, ".md") {
 				resolveRoot = wikiDir
@@ -212,10 +180,8 @@ func BuildProvenanceDAG(root, wikiDir string) ProvenanceDAG {
 			liveFP, ok := wiki.ResolveFingerprint(resolveRoot, entry.ID)
 			drifted := !ok || liveFP != entry.StampedFP
 
-			// Target node id: knowledge page → realm-relative; otherwise use entry.ID.
 			targetID := entry.ID
 			if strings.HasPrefix(entry.ID, "knowledge/") {
-				// Make it realm-relative: "wiki/knowledge/<topic>.md"
 				targetID = realmRelative(root, filepath.Join(wikiDir, entry.ID))
 			}
 			targetKind := "knowledge"
@@ -236,7 +202,6 @@ func BuildProvenanceDAG(root, wikiDir string) ProvenanceDAG {
 		}
 	}
 
-	// ── Walk wiki/knowledge/ ─────────────────────────────────────────────────
 	knowledgeDir := filepath.Join(wikiDir, "knowledge")
 	knowledgeFiles := globMDFiles(knowledgeDir)
 
@@ -250,8 +215,6 @@ func BuildProvenanceDAG(root, wikiDir string) ProvenanceDAG {
 		kn := ensureNode(knowledgeID, "knowledge")
 
 		for _, src := range prov.Sources {
-			// The sources: entry is "<bucket>/<relpath>@<sha256>".
-			// The actual file lives at <root>/<BucketRelPath>.
 			bucketAbs := filepath.Join(root, filepath.FromSlash(src.BucketRelPath))
 			liveHash, hashErr := wiki.FileSHA256(bucketAbs)
 			drifted := hashErr != nil || liveHash != src.StampedSHA256
@@ -270,8 +233,7 @@ func BuildProvenanceDAG(root, wikiDir string) ProvenanceDAG {
 		}
 	}
 
-	// Flatten the node map into a slice (order is non-deterministic but stable
-	// per build for test purposes; sort if needed by callers).
+	// Node order is map-iteration order; callers needing determinism sort.
 	dag := ProvenanceDAG{Edges: edges}
 	for _, n := range nodeByID {
 		dag.Nodes = append(dag.Nodes, *n)
@@ -279,8 +241,7 @@ func BuildProvenanceDAG(root, wikiDir string) ProvenanceDAG {
 	return dag
 }
 
-// globMDFiles returns all *.md files under dir (non-recursive, single level).
-// Returns nil when dir does not exist.
+// globMDFiles returns the *.md files directly in dir.
 func globMDFiles(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -295,8 +256,7 @@ func globMDFiles(dir string) []string {
 	return out
 }
 
-// realmRelative converts an absolute path to a realm-root-relative path using
-// forward slashes. Returns the absolute path unchanged on error.
+// realmRelative returns absPath relative to root, unchanged on error.
 func realmRelative(root, absPath string) string {
 	rel, err := filepath.Rel(root, absPath)
 	if err != nil {

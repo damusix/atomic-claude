@@ -12,10 +12,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/bus"
 )
 
-// testBusDispatchHome creates a short, /tmp-rooted (not t.TempDir()) home
-// directory for this test's real Unix domain socket, mirroring
-// internal/bus/client_test.go's testBusHome — t.TempDir() embeds the full
-// test name and can exceed the ~104-108 byte sun_path limit on macOS/Linux.
+// Deliberately not t.TempDir(): that path embeds the full test name and can
+// exceed the ~104-108 byte sun_path limit for a Unix domain socket.
 func testBusDispatchHome(t *testing.T) string {
 	t.Helper()
 
@@ -27,23 +25,12 @@ func testBusDispatchHome(t *testing.T) string {
 	return dir
 }
 
-// TestRunBus_DispatchUsesRealHomeFromEnv is the mandatory dispatch-layer
-// real-filesystem test the brief requires: the earlier
-// disk test (internal/bus/identity_test.go) injects home directly into
-// State.Load/Save, so it can never observe the os.UserHomeDir()-to-home
-// hand-off inside runBus — that hand-off is only reachable, and only
-// breakable, here.
-//
-// A real daemon is bound at bus.SocketPath(home) in this process, and a
-// member is seeded on it directly (bypassing the CLI entirely, via
-// bus.Dial). The subprocess then runs `atomic bus who dispatch-room --json`
-// with HOME redirected to that same home and nothing else — if runBus
-// resolved the wrong path (e.g. home+"/.claude", the scope-root class of
-// bug .claude/skills/atomic-cli-contrib/SKILL.md §3-4 warns about), the
-// subprocess would fail to dial the real socket and exit 6, not merely
-// return an empty roster. runBus calls os.Exit, so it is exercised in a
-// subprocess (the standard Go idiom for os.Exit-calling code), matching
-// TestRunProfile_UsesHomeNotClaudeHome's established pattern.
+// internal/bus tests inject home straight into State.Load/Save, so they never
+// exercise the os.UserHomeDir()-to-home hand-off inside runBus. Here a real
+// daemon binds at bus.SocketPath(home) and a member is seeded via bus.Dial;
+// a subprocess then runs with only HOME redirected. Resolving the wrong path
+// (home+"/.claude", say) fails to dial and exits 6 rather than quietly
+// returning an empty roster. runBus calls os.Exit, hence the subprocess.
 func TestRunBus_DispatchUsesRealHomeFromEnv(t *testing.T) {
 	if os.Getenv("ATOMIC_TEST_RUN_BUS_HELPER") == "1" {
 		runBus([]string{"who", "dispatch-room", "--json"})

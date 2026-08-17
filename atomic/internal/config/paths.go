@@ -1,6 +1,6 @@
-// Package config manages atomic's TOML-backed configuration stored under
-// ~/.atomic/. It provides lenient load, strict write validation,
-// get/set/unset, atomic file writes, and a markdown render of resolved values.
+// Package config manages atomic's TOML-backed configuration under ~/.atomic/:
+// lenient load, strict write validation, get/set/unset, atomic file writes, and
+// a markdown render of resolved values.
 package config
 
 import "path/filepath"
@@ -32,23 +32,22 @@ func PreInstallDir(home string) string {
 	return filepath.Join(Dir(home), "pre-install")
 }
 
-// ProfilePath returns the path to the user profile file.
-// This file is @-referenced from CLAUDE.md so every Claude session can load it.
-// It is created at install time (idempotent) and written to opportunistically by Claude.
+// ProfilePath returns the user profile file. It is @-referenced from CLAUDE.md so
+// every session loads it: created idempotently at install time, written
+// opportunistically by Claude.
 func ProfilePath(home string) string {
 	return filepath.Join(Dir(home), "profile.md")
 }
 
-// ProfileRelPath returns the home-relative path of profile.md using
-// forward slashes (matching the format stored in pre-install manifests).
-// Use this instead of a hardcoded string when comparing against manifest entries.
+// ProfileRelPath returns profile.md's home-relative path with forward slashes,
+// matching how pre-install manifests store it. Compare against manifest entries
+// through this, never a hardcoded string.
 func ProfileRelPath() string {
 	return ".atomic/profile.md"
 }
 
-// StatePath returns the path to the self-update state file
-// (~/.atomic/state.json) — the single machine-managed source of truth for
-// update-check cadence, staged downloads, and swap-lock coordination.
+// StatePath returns ~/.atomic/state.json — the machine-managed source of truth
+// for update-check cadence, staged downloads, and swap-lock coordination.
 func StatePath(home string) string {
 	return filepath.Join(Dir(home), "state.json")
 }

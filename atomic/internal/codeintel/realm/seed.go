@@ -10,37 +10,23 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// SeedConfig seeds <realmRoot>/.atomic/code.toml from the <wiki-scan> block in
-// wikiIndexPath.  It is called by the realm index verb when no code.toml exists.
-//
-// Seeding rules:
-//   - key = basename of member path (slugged with a numeric suffix on collision).
-//   - path = the wiki-relative member path (same value stored in the <wiki-scan> block).
-//   - exclude = true when member status is "pending" OR the path starts with "trash/".
-//
-// Append-don't-overwrite: if code.toml already exists, only members not already
-// present (by path) are appended.  Existing entries and manual edits are
-// preserved byte-for-byte.
-//
-// Returns the resulting (possibly updated) Config.  If wikiIndexPath is absent
-// or has no <wiki-scan> block, no file is written and nil Config is returned.
+// SeedConfig derives code.toml from the <wiki-scan> block, marking pending and
+// trash/ members excluded. It appends rather than overwrites, so manual edits
+// to existing entries survive. Returns nil when there is no block to seed from.
 func SeedConfig(realmRoot, wikiIndexPath string) (*Config, error) {
 	members, err := wiki.ReadScanMembers(wikiIndexPath)
 	if err != nil {
 		return nil, fmt.Errorf("realm seed: read scan members: %w", err)
 	}
 	if len(members) == 0 {
-		// Nothing to seed from; leave code.toml absent.
 		return nil, nil
 	}
 
-	// Load existing config (may be nil if code.toml absent).
 	existing, err := LoadConfig(realmRoot)
 	if err != nil {
 		return nil, fmt.Errorf("realm seed: load existing config: %w", err)
 	}
 
-	// Build a set of paths already present so we don't duplicate them.
 	presentPaths := make(map[string]bool)
 	if existing != nil {
 		for _, m := range existing.Members {
@@ -48,7 +34,6 @@ func SeedConfig(realmRoot, wikiIndexPath string) (*Config, error) {
 		}
 	}
 
-	// Build a set of keys already present for slug-on-collision.
 	usedKeys := make(map[string]bool)
 	if existing != nil {
 		for _, m := range existing.Members {
@@ -72,11 +57,9 @@ func SeedConfig(realmRoot, wikiIndexPath string) (*Config, error) {
 	}
 
 	if len(toAppend) == 0 && existing != nil {
-		// Nothing new to add; return current config unchanged.
 		return existing, nil
 	}
 
-	// Merge new entries with existing.
 	var allMembers []MemberEntry
 	if existing != nil {
 		allMembers = append(allMembers, existing.Members...)
@@ -85,7 +68,6 @@ func SeedConfig(realmRoot, wikiIndexPath string) (*Config, error) {
 
 	cfg := &Config{Members: allMembers}
 
-	// Write code.toml.
 	cfgPath := configPath(realmRoot)
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		return nil, fmt.Errorf("realm seed: mkdir %s: %w", filepath.Dir(cfgPath), err)
@@ -103,9 +85,8 @@ func SeedConfig(realmRoot, wikiIndexPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// slugKey returns key when it is unused; otherwise appends -2, -3, … until unique.
+// slugKey appends -2, -3, … until the key is unique.
 func slugKey(base string, used map[string]bool) string {
-	// Normalise: lowercase, replace non-alphanumeric with '-'.
 	slug := slugify(base)
 	if !used[slug] {
 		return slug
@@ -118,8 +99,8 @@ func slugKey(base string, used map[string]bool) string {
 	}
 }
 
-// slugify converts a string to a URL-safe key: lowercase alphanumeric with
-// hyphens.  Multiple consecutive hyphens are collapsed to one.
+// slugify lowercases to alphanumerics and hyphens, collapsing hyphen runs.
+// The result becomes a db filename stem, so it must be filesystem-safe.
 func slugify(s string) string {
 	var b strings.Builder
 	prevHyphen := false
@@ -128,7 +109,6 @@ func slugify(s string) string {
 			b.WriteRune(r)
 			prevHyphen = false
 		} else if !prevHyphen {
-			// Emit at most one hyphen per run of non-alphanumeric runes.
 			b.WriteRune('-')
 			prevHyphen = true
 		}
@@ -140,7 +120,6 @@ func slugify(s string) string {
 	return result
 }
 
-// isTrashPath reports whether path starts with "trash/" (realm-relative).
 func isTrashPath(path string) bool {
 	clean := filepath.ToSlash(filepath.Clean(path))
 	return strings.HasPrefix(clean, "trash/")

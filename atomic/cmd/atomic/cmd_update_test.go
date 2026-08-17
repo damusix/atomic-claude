@@ -26,14 +26,12 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 )
 
-// sha256HexString returns the hex-encoded SHA256 of data.
 func sha256HexString(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
-// TestShouldRunPostUpdateDoctor tests precedence:
-// flag (--no-doctor) > config (update.run_doctor=false) > default true.
+// Precedence: --no-doctor > config update.run_doctor > default true.
 func TestShouldRunPostUpdateDoctor(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -121,10 +119,7 @@ func TestScanNoUpdateCheck(t *testing.T) {
 	}
 }
 
-// artifactRefreshArgs builds the re-exec argv for the post-swap refresh.
-// The hook clause encodes the one policy in this flow: the refresh must
-// never be the thing that first registers hooks or overrides an explicit
-// --no-hooks install choice — only an existing registration is renewed.
+// The refresh renews an existing hook registration and never creates one.
 func TestArtifactRefreshArgs(t *testing.T) {
 	got := artifactRefreshArgs(true)
 	want := []string{"claude", "update", "--no-update-check"}
@@ -138,8 +133,6 @@ func TestArtifactRefreshArgs(t *testing.T) {
 		t.Errorf("hooksInstalled=false: args = %v, want %v", got, want)
 	}
 }
-
-// --- self-update fast path (docs/spec/selfupdate-state.md, parent fast path) ---
 
 func TestStripBackgroundCheckMarker(t *testing.T) {
 	cases := []struct {
@@ -186,9 +179,8 @@ func TestStripBackgroundCheckMarker(t *testing.T) {
 	}
 }
 
-// writeTestUpdateConfig writes a minimal config.toml under home with the
-// given [update] table body, so tests can exercise config.Update.Check
-// without going through the full Set/WritePersist machinery.
+// writeTestUpdateConfig bypasses the Set/WritePersist machinery so tests can
+// set an [update] table directly.
 func writeTestUpdateConfig(t *testing.T, home, updateTableBody string) {
 	t.Helper()
 	dir := config.Dir(home)
@@ -201,11 +193,8 @@ func writeTestUpdateConfig(t *testing.T, home, updateTableBody string) {
 	}
 }
 
-// TestSelfupdateFastPath_SpawnGates covers success criterion: "Spawn fires
-// only when ALL gates hold ... last_check stamped and persisted BEFORE the
-// spawn". Each subtest flips exactly one gate false against an otherwise
-// spawn-eligible baseline. The injected spawn func means no subtest ever
-// forks a real process.
+// Each subtest flips exactly one gate false against a spawn-eligible baseline.
+// The injected spawn func means no subtest forks a real process.
 func TestSelfupdateFastPath_SpawnGates(t *testing.T) {
 	baseNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	now := func() time.Time { return baseNow }
@@ -215,8 +204,7 @@ func TestSelfupdateFastPath_SpawnGates(t *testing.T) {
 		var calls int
 		spawn := func(exe string) error {
 			calls++
-			// The stamp-before-spawn ordering: by the time spawn runs,
-			// last_check must already be on disk.
+			// By the time spawn runs, last_check must already be on disk.
 			st := selfupdate.LoadState(config.StatePath(home))
 			if st.Update.LastCheck.IsZero() {
 				t.Error("last_check was not persisted before spawn was invoked")
@@ -291,10 +279,8 @@ func TestSelfupdateFastPath_SpawnGates(t *testing.T) {
 	})
 }
 
-// TestSelfupdateFastPath_Banner covers success criterion: "Banner prints
-// from state only (no network), at most once per 24h, stamps last_notified."
 // Every subtest sets noUpdateCheck=true and verb="update" so the spawn gate
-// never fires — isolating banner behavior from the spawn decision above.
+// never fires, isolating banner behavior from the spawn decision.
 func TestSelfupdateFastPath_Banner(t *testing.T) {
 	baseNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	now := func() time.Time { return baseNow }
@@ -358,9 +344,8 @@ func TestSelfupdateFastPath_Banner(t *testing.T) {
 		}
 	})
 
-	// F-1: the banner must never print a "v"-prefixed version, regardless of
-	// what is already on disk in state.json — defense-in-depth alongside the
-	// check-branch write site normalizing before it ever writes latest_version.
+	// The banner must never print a "v" prefix, whatever state.json holds —
+	// defense-in-depth behind the check branch's own normalization.
 	t.Run("v-prefixed latest_version on disk: banner strips the v", func(t *testing.T) {
 		home := t.TempDir()
 		state := selfupdate.State{}
@@ -379,10 +364,8 @@ func TestSelfupdateFastPath_Banner(t *testing.T) {
 	})
 }
 
-// TestSelfupdateFastPath_ExecutableFailureReportsToWriter covers F-2:
-// os.Executable() failing in the spawn path must report to w, matching the
-// sibling failure branches (write-state, spawn) immediately above and below
-// it, instead of returning silently.
+// An os.Executable failure must report to w like its sibling failure branches,
+// not return silently.
 func TestSelfupdateFastPath_ExecutableFailureReportsToWriter(t *testing.T) {
 	home := t.TempDir()
 	orig := executableFn
@@ -405,10 +388,8 @@ func TestSelfupdateFastPath_ExecutableFailureReportsToWriter(t *testing.T) {
 	}
 }
 
-// TestDefaultUpdateSpawn_StartsDetachedWithoutWaiting proves the real spawn
-// path starts a process and returns without waiting on it — using /bin/echo
-// rather than a built atomic binary, since defaultUpdateSpawn only cares
-// that the target process starts and is released, not what it does.
+// Uses /bin/echo rather than a built atomic binary: defaultUpdateSpawn only
+// cares that the target starts and is released, not what it does.
 func TestDefaultUpdateSpawn_StartsDetachedWithoutWaiting(t *testing.T) {
 	if _, err := exec.LookPath("/bin/echo"); err != nil {
 		t.Skip("/bin/echo not available")
@@ -418,15 +399,9 @@ func TestDefaultUpdateSpawn_StartsDetachedWithoutWaiting(t *testing.T) {
 	}
 }
 
-// --- runUpdateCheck (detached-child check branch + once-only staging) ---
-
-// fakeReleaseServer wires a full fake GitHub release backend behind one
-// httptest server: /releases (hit by both Check and the staging Lookup),
-// the release archive, and checksums.txt (hit by Stage). Every hit against
-// /releases increments releaseHits so tests can assert exactly how many
-// lookups occurred (the once-only staging gate's whole point is to avoid a
-// second download attempt, not a second lookup, but counting lookups also
-// proves the gate short-circuits before any network call on a repeat).
+// fakeReleaseServer stands in for the GitHub release backend: /releases (hit by
+// both Check and the staging Lookup), the archive, and checksums.txt. Counting
+// releaseHits proves the once-only gate short-circuits before any repeat call.
 type fakeReleaseServer struct {
 	srv         *httptest.Server
 	client      *selfupdate.Client
@@ -479,9 +454,8 @@ func newFakeReleaseServer(t *testing.T, tag, archiveContent string) *fakeRelease
 	return f
 }
 
-// brokenReleaseClient returns a Client whose lookups always fail (points at
-// a closed listener), for exercising runUpdateCheck's lookup-failure path
-// without any real network access.
+// brokenReleaseClient points at a closed listener, so every lookup fails
+// without touching the real network.
 func brokenReleaseClient(t *testing.T) *selfupdate.Client {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -600,9 +574,7 @@ func TestRunUpdateCheck_OnceOnlyGateHoldsAcrossRepeatedChecks(t *testing.T) {
 		t.Fatalf("archiveHits after first check = %d, want 1", f.archiveHits)
 	}
 
-	// Repeat the exact same cycle: same version, still background, still
-	// newer, still enabled. The once-only budget for this version is
-	// already spent — no second download.
+	// Identical cycle: the once-only budget for this version is already spent.
 	if _, _, err := runUpdateCheck(context.Background(), home, true, f.client, "stable", "1.0.0", now, io.Discard); err != nil {
 		t.Fatalf("second check: %v", err)
 	}
@@ -624,8 +596,7 @@ func TestRunUpdateCheck_NewVersionAllowsNewAttemptAfterBudgetSpent(t *testing.T)
 		t.Fatalf("StageAttemptedFor = %q, want %q", got.Update.StageAttemptedFor, "1.1.0")
 	}
 
-	// A new release appears: same home, different version — a fresh
-	// once-only budget for 1.2.0 must be available.
+	// A different version gets a fresh once-only budget.
 	f2 := newFakeReleaseServer(t, "v1.2.0", "payload-1.2.0")
 	if _, _, err := runUpdateCheck(context.Background(), home, true, f2.client, "stable", "1.1.0", now, io.Discard); err != nil {
 		t.Fatalf("second check: %v", err)
@@ -666,8 +637,7 @@ func TestRunUpdateCheck_LockContentionSkipsStagingWithoutStamping(t *testing.T) 
 	if f.archiveHits != 0 {
 		t.Errorf("archiveHits = %d, want 0 under lock contention", f.archiveHits)
 	}
-	// The base state write (latest_version/last_result) still happens —
-	// only staging is gated by the lock.
+	// The base state write still happens; only staging is lock-gated.
 	if got.Update.LatestVersion != "2.0.0" {
 		t.Errorf("LatestVersion = %q, want %q even under lock contention", got.Update.LatestVersion, "2.0.0")
 	}
@@ -677,10 +647,8 @@ func TestRunUpdateCheck_FailedStageRecordsLastResultStaysStampedNeverRetried(t *
 	home := t.TempDir()
 	now := func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }
 
-	// A release whose advertised assets never match the archive name Stage
-	// computes ("atomic_3.0.0_<goos>_<goarch>.tar.gz") — Stage fails
-	// deterministically at asset lookup, before any download, no network
-	// flakiness required to produce the failure.
+	// Assets that never match the archive name Stage computes, so it fails
+	// deterministically at asset lookup with no network flakiness involved.
 	var releaseHits int
 	mux := http.NewServeMux()
 	mux.HandleFunc("/releases", func(w http.ResponseWriter, r *http.Request) {
@@ -717,13 +685,12 @@ func TestRunUpdateCheck_FailedStageRecordsLastResultStaysStampedNeverRetried(t *
 		t.Error("lock must be released even after a staging failure")
 	}
 
-	// Repeat: same version, same failure mode — must never retry.
+	// Same version, same failure mode: must never retry.
 	if _, _, err := runUpdateCheck(context.Background(), home, true, c, "stable", "1.0.0", now, io.Discard); err != nil {
 		t.Fatalf("second check: %v", err)
 	}
 	if releaseHits != 3 {
-		// 1 (first Check) + 1 (first staging Lookup) + 1 (second Check) — the
-		// second staging Lookup must never fire because the gate short-circuits.
+		// Two Checks plus one staging Lookup: the second staging Lookup is gated.
 		t.Errorf("releaseHits = %d, want 3 (no retry of the failed stage attempt)", releaseHits)
 	}
 }
@@ -747,15 +714,9 @@ func TestRunUpdateCheck_StageDisabledByConfigNeverStages(t *testing.T) {
 	}
 }
 
-// TestRunUpdateCheck_StagerCompletionDoesNotClobberForegroundTakeover pins
-// the owner-checked release fix: the background stager acquires the lock,
-// then — while its archive download is in flight — a foreground `atomic
-// update` takes over the (now stale, or --force-stamped) lock, recording a
-// newer update_started_at. When the stager's own download finishes and it
-// writes its completion record, the foreground's active lock must survive:
-// a blind ReleaseLock would clear Updating/UpdateStartedAt out from under
-// the still-in-progress foreground swap, opening a window for a third
-// `atomic update` to race a concurrent os.Rename on the same binary.
+// A foreground swap takes over the lock while the stager's download is in
+// flight. A blind ReleaseLock at completion would clear the foreground's active
+// lock, letting a third `atomic update` race its os.Rename on the same binary.
 func TestRunUpdateCheck_StagerCompletionDoesNotClobberForegroundTakeover(t *testing.T) {
 	home := t.TempDir()
 	statePath := config.StatePath(home)
@@ -790,8 +751,7 @@ func TestRunUpdateCheck_StagerCompletionDoesNotClobberForegroundTakeover(t *test
 		}})
 	})
 	mux.HandleFunc("/"+assetName, func(w http.ResponseWriter, r *http.Request) {
-		// Simulate the foreground process's takeover write landing on disk
-		// mid-download — before this stager's own completion write below.
+		// The foreground takeover lands on disk mid-download.
 		if !takeoverDone {
 			takeoverDone = true
 			fg := selfupdate.State{}
@@ -819,8 +779,7 @@ func TestRunUpdateCheck_StagerCompletionDoesNotClobberForegroundTakeover(t *test
 		t.Fatalf("foreground lock clobbered by stager completion: Updating=%v UpdateStartedAt=%v, want Updating=true UpdateStartedAt=%v",
 			got.Update.Updating, got.Update.UpdateStartedAt, foregroundStartedAt)
 	}
-	// The stager's own non-lock fields must still land even though it no
-	// longer owns the lock at completion time.
+	// Non-lock fields still land even though the stager no longer owns the lock.
 	if got.Update.StageAttemptedFor != "2.0.0" {
 		t.Errorf("StageAttemptedFor = %q, want %q even without lock ownership", got.Update.StageAttemptedFor, "2.0.0")
 	}
@@ -829,13 +788,9 @@ func TestRunUpdateCheck_StagerCompletionDoesNotClobberForegroundTakeover(t *test
 	}
 }
 
-// --- runUpdateApply (lock + staged fast-path swap in the apply branch) ---
-
-// buildRealArchiveTarGz builds a genuine gzip-compressed tar archive
-// containing one file, "atomic", with content, at dir/assetName — unlike
-// fakeReleaseServer's raw-bytes fixture (checksum-only; staging never
-// extracts what it downloads), swap flow actually extracts and
-// renames the binary, so its tests need a real, extractable archive.
+// buildRealArchiveTarGz produces a genuinely extractable archive. Staging only
+// checksums what it downloads, but the swap flow extracts and renames the
+// binary, so its tests cannot use fakeReleaseServer's raw-bytes fixture.
 func buildRealArchiveTarGz(t *testing.T, dir, assetName, content string) (archivePath, sha string) {
 	t.Helper()
 	archivePath = filepath.Join(dir, assetName)
@@ -863,9 +818,8 @@ func buildRealArchiveTarGz(t *testing.T, dir, assetName, content string) (archiv
 	return archivePath, sha256HexString(data)
 }
 
-// fakeSwapServer serves a real, extractable release (archive + checksums.txt
-// + /releases lookup) for one tag — used by tests that exercise actual
-// extraction/swap, as opposed to fakeReleaseServer's checksum-only fixture.
+// fakeSwapServer serves one tag as a real, extractable release, for the tests
+// that exercise extraction and swap rather than checksums alone.
 type fakeSwapServer struct {
 	srv         *httptest.Server
 	client      *selfupdate.Client
@@ -916,9 +870,7 @@ func TestRunUpdateApply_StagedFastPathSwapsWithoutDownloadingArchive(t *testing.
 	const binaryContent = "new-binary-v2-content"
 	f := newFakeSwapServer(t, "v2.0.0", binaryContent)
 
-	// Place a byte-identical copy of the release archive in the staged
-	// directory — mirrors what a prior background Stage() call would
-	// have left behind.
+	// A byte-identical copy, as a prior background Stage() would have left.
 	stageDir := selfupdate.StageDir(home)
 	if err := os.MkdirAll(stageDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -1027,8 +979,7 @@ func TestRunUpdateApply_StagedChecksumMismatchFallsBackToDownload(t *testing.T) 
 	const binaryContent = "new-binary-v4-content"
 	f := newFakeSwapServer(t, "v4.0.0", binaryContent)
 
-	// Same version, same asset name, but different bytes than the fresh
-	// release now serves — simulates a re-cut release since staging.
+	// Same version and asset name, different bytes: a re-cut release.
 	stageDir := selfupdate.StageDir(home)
 	if err := os.MkdirAll(stageDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -1149,7 +1100,7 @@ func TestRunUpdateApply_FreshLockRefusesNamingAge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Never contacted — refusal happens before any lookup.
+	// Refusal happens before any lookup.
 	c := brokenReleaseClient(t)
 	var buf bytes.Buffer
 	err := runUpdateApply(context.Background(), home, c, "stable", "1.0.0", currentBin, false, now, &buf)
@@ -1196,10 +1147,8 @@ func TestRunUpdateApply_StaleLockTakenOverSwaps(t *testing.T) {
 	}
 }
 
-// TestRunUpdateApply_ForceBypassesLockButNotChecksum covers the success
-// criterion: --force bypasses lock contention only. A corrupted staged
-// archive under --force must still fail its checksum re-verify and fall
-// back to a real download rather than swapping the corrupted bytes in.
+// --force bypasses lock contention only: a corrupted staged archive must still
+// fail checksum re-verify and fall back to a download.
 func TestRunUpdateApply_ForceBypassesLockButNotChecksum(t *testing.T) {
 	home := t.TempDir()
 	statePath := config.StatePath(home)
@@ -1269,8 +1218,7 @@ func TestRunUpdateApply_LockClearedOnLookupFailure(t *testing.T) {
 
 func TestRunUpdateApply_LockClearedOnApplyFailure(t *testing.T) {
 	home := t.TempDir()
-	// A release advertising no matching archive asset — Apply fails
-	// deterministically at asset lookup, before any network flakiness.
+	// No matching archive asset, so Apply fails deterministically at lookup.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/releases", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1305,5 +1253,3 @@ func TestRunUpdateApply_LockClearedOnApplyFailure(t *testing.T) {
 		t.Error("binary must be untouched on apply failure")
 	}
 }
-
-// --- atomic prompt dispatch ---

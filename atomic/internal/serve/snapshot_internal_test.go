@@ -1,11 +1,5 @@
 package serve
 
-// Tests for snapshotStore — the realm snapshot core.
-//
-// Why internal: snapshotStore, realmSnapshot, and their methods are
-// unexported (an implementation detail behind the graphDataCache/handler
-// seam), so these tests live in package serve rather than serve_test.
-
 import (
 	"os"
 	"path/filepath"
@@ -14,10 +8,8 @@ import (
 	"time"
 )
 
-// writeSnapFile creates a file at root/relPath (making parent dirs), with an
-// mtime old enough to be outside any reasonable quiet window used in these
-// tests — so a freshly-written fixture file is immediately eligible for the
-// fingerprint manifest unless a test explicitly wants otherwise.
+// Backdates the mtime past any quiet window these tests use, so a fixture file
+// is eligible for the fingerprint manifest the moment it is written.
 func writeSnapFile(t *testing.T, root, relPath, content string) {
 	t.Helper()
 	abs := filepath.Join(root, filepath.FromSlash(relPath))
@@ -33,9 +25,6 @@ func writeSnapFile(t *testing.T, root, relPath, content string) {
 	}
 }
 
-// TestEnsureFresh_OneWalkPopulatesFpNavPathsAndGraph verifies SC1: a single
-// ensureFresh rebuild populates the fingerprint, nav paths, and link graph
-// together, and current() exposes all three from one consistent snapshot.
 func TestEnsureFresh_OneWalkPopulatesFpNavPathsAndGraph(t *testing.T) {
 	root := t.TempDir()
 	writeSnapFile(t, root, "alpha.md", "# Alpha\n\nSee [beta](beta.md).\n")
@@ -57,17 +46,15 @@ func TestEnsureFresh_OneWalkPopulatesFpNavPathsAndGraph(t *testing.T) {
 	if !snap.graph.Has("alpha.md") || !snap.graph.Has("beta.md") {
 		t.Errorf("ensureFresh: graph missing expected nodes: %v", snap.graph.Nodes())
 	}
-	// current() must expose the exact same published snapshot (single atomic
-	// pointer swap — no separate state to fall out of sync).
+	// One atomic pointer swap publishes all three, so there is no second piece of
+	// state that can fall out of sync.
 	if cur := store.current(); cur != snap {
 		t.Error("current() must return the same snapshot ensureFresh just published")
 	}
 }
 
-// TestEnsureFresh_QuietWindowExcludesRecentFile verifies SC4: a file whose
-// mtime is within the quiet window of now does not flip the fingerprint, so
-// it is not (yet) picked up by a rebuild; once its mtime ages past the
-// window, the next ensureFresh call detects it.
+// A file still being written must not flip the fingerprint; it becomes visible
+// only once its mtime ages past the quiet window.
 func TestEnsureFresh_QuietWindowExcludesRecentFile(t *testing.T) {
 	root := t.TempDir()
 	writeSnapFile(t, root, "stable.md", "# Stable\n")
@@ -81,7 +68,7 @@ func TestEnsureFresh_QuietWindowExcludesRecentFile(t *testing.T) {
 	}
 	fp1 := snap1.fp
 
-	// Write a brand-new file — its mtime is "now", inside the quiet window.
+	// Bypasses writeSnapFile so the mtime is "now", inside the quiet window.
 	if err := os.WriteFile(filepath.Join(root, "fresh.md"), []byte("# Fresh\n"), 0o644); err != nil {
 		t.Fatalf("write fresh.md: %v", err)
 	}
@@ -97,7 +84,6 @@ func TestEnsureFresh_QuietWindowExcludesRecentFile(t *testing.T) {
 		t.Errorf("quiet window: fresh.md must not appear in nav paths yet, got %v", snap2.navPaths)
 	}
 
-	// Age past the quiet window: the next ensureFresh call must detect it.
 	time.Sleep(quietWindow + 50*time.Millisecond)
 
 	snap3, changed3 := store.ensureFresh()
@@ -118,14 +104,9 @@ func TestEnsureFresh_QuietWindowExcludesRecentFile(t *testing.T) {
 	}
 }
 
-// TestRebuild_UnreadableFileSkippedWithoutError verifies SC5's contract at the
-// error-handling level: a file that fails to read during rebuild (simulated
-// via a permission-denied file — the same os.ReadFile error path a file
-// vanishing between stat and read would hit) is skipped for that rebuild
-// without aborting it (BuildLinkGraph still discovers its name — file listing
-// needs no read permission — but its content-derived metadata is left unset),
-// and a later rebuild (once the file becomes readable again — standing in for
-// "reappears") picks up its content.
+// A permission-denied file stands in for one that vanishes between stat and
+// read: same os.ReadFile error path. Listing still names it, so it stays a node
+// with unset content metadata, and a later rebuild fills it in.
 func TestRebuild_UnreadableFileSkippedWithoutError(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("skip: running as root ignores file permission bits")
@@ -143,18 +124,14 @@ func TestRebuild_UnreadableFileSkippedWithoutError(t *testing.T) {
 	store := newSnapshotStore(root, defaultTickInterval, defaultQuietWindow)
 
 	snap, _ := store.ensureFresh()
-	// The rebuild must complete for every other file despite the read failure.
 	if !snap.graph.Has("ok.md") || snap.graph.Meta("ok.md").Title == "" {
 		t.Error("rebuild: the unreadable file must not abort processing of the rest of the rebuild")
 	}
-	// Content-derived metadata for the unreadable file must be unset (its read
-	// failed and was skipped, not substituted with stale or partial data).
 	if title := snap.graph.Meta("blocked.md").Title; title != "" {
 		t.Errorf("rebuild: unreadable file must have no content-derived metadata yet, got title %q", title)
 	}
 
-	// Restore readability and age the mtime so it clears the quiet window,
-	// then force a rebuild: the file's content must now be picked up.
+	// The mtime has to be aged too, or the quiet window hides the change.
 	if err := os.Chmod(blockedPath, 0o644); err != nil {
 		t.Fatalf("restore chmod: %v", err)
 	}
@@ -169,19 +146,17 @@ func TestRebuild_UnreadableFileSkippedWithoutError(t *testing.T) {
 	}
 }
 
-// TestEnsureFresh_ConcurrentCallersCollapseToOneRebuild verifies SC7:
-// concurrent ensureFresh calls racing a stale fingerprint collapse to exactly
-// one rebuild, gated by the rebuild-in-flight CAS, not by the computed
+// The rebuild-in-flight CAS is what collapses racing callers, not the computed
 // fingerprint value.
 func TestEnsureFresh_ConcurrentCallersCollapseToOneRebuild(t *testing.T) {
 	root := t.TempDir()
 	writeSnapFile(t, root, "a.md", "# A\n")
 
 	store := newSnapshotStore(root, defaultTickInterval, defaultQuietWindow)
-	// Baseline rebuild so the store has a published snapshot already.
+	// Baseline rebuild, so the store already has a published snapshot.
 	store.ensureFresh()
 
-	// Change the realm so the next ensureFresh call observes staleness.
+	// Makes the next ensureFresh observe staleness.
 	writeSnapFile(t, root, "b.md", "# B\n")
 
 	baseline := store.rebuildCalls.Load()
@@ -202,15 +177,11 @@ func TestEnsureFresh_ConcurrentCallersCollapseToOneRebuild(t *testing.T) {
 		t.Errorf("concurrent ensureFresh: expected exactly 1 rebuild for the staleness signal, got %d", got)
 	}
 
-	// The realm state must reflect the winning rebuild regardless of which
-	// goroutine performed it.
 	if !store.current().graph.Has("b.md") {
 		t.Error("concurrent ensureFresh: the published snapshot must reflect the rebuild that ran")
 	}
 }
 
-// TestDiffManifest_AddedEditedRemoved verifies the manifest diff used to
-// compute the changed-relpath set consumed by the event payload.
 func TestDiffManifest_AddedEditedRemoved(t *testing.T) {
 	prev := map[string]fileManifestEntry{
 		"unchanged.md": {size: 10, modUnixNano: 100},
@@ -236,16 +207,13 @@ func TestDiffManifest_AddedEditedRemoved(t *testing.T) {
 	}
 }
 
-// TestSnapshotStore_Seed verifies that seed() publishes the given graph
-// as-is (no rebuild) with a fingerprint reflecting current on-disk state, so
-// a caller that already built a graph can hand ongoing revalidation to the
-// store without discarding what it built.
+// seed() lets a caller that already built a graph hand ongoing revalidation to
+// the store without that graph being discarded and rebuilt.
 func TestSnapshotStore_Seed(t *testing.T) {
 	root := t.TempDir()
 	writeSnapFile(t, root, "page.md", "# Page\n")
 
-	// A graph built from a different (empty) root — proves seed() publishes
-	// exactly the graph it was given, not one rebuilt from root.
+	// Built from a different, empty root, so a rebuild would be visible.
 	emptyRoot := t.TempDir()
 	injected := BuildLinkGraph(emptyRoot)
 
@@ -263,8 +231,7 @@ func TestSnapshotStore_Seed(t *testing.T) {
 		t.Error("seed: fingerprint must be computed from current on-disk state, not left empty")
 	}
 
-	// A subsequent ensureFresh call with nothing changed on disk must not
-	// trigger a rebuild (the seeded fp must match a fresh fingerprint walk).
+	// The seeded fp must match a fresh fingerprint walk, or this rebuilds.
 	baseline := store.rebuildCalls.Load()
 	snap, _ := store.ensureFresh()
 	if store.rebuildCalls.Load() != baseline {

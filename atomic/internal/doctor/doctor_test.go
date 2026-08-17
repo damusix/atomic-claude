@@ -7,14 +7,12 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// TestRegistryCount verifies exactly 13 entries with stable indices 1–13.
 func TestRegistryCount(t *testing.T) {
 	cats := doctor.Categories()
 	if len(cats) != 13 {
 		t.Fatalf("registry len = %d, want 13", len(cats))
 	}
 
-	// Indices must be 1..13 with no gaps.
 	for i, c := range cats {
 		want := i + 1
 		if c.Index != want {
@@ -23,7 +21,6 @@ func TestRegistryCount(t *testing.T) {
 	}
 }
 
-// TestRegistryCategoryNames verifies the canonical names match the spec exactly.
 func TestRegistryCategoryNames(t *testing.T) {
 	wantNames := []string{
 		"install",
@@ -48,8 +45,6 @@ func TestRegistryCategoryNames(t *testing.T) {
 	}
 }
 
-// TestRegistryCategorySeverities verifies each category's default severity matches the spec table.
-// Spec: 4=refs→FAIL, 5=manifest→FAIL; all others→WARN.
 func TestRegistryCategorySeverities(t *testing.T) {
 	wantSeverities := []doctor.Severity{
 		doctor.WARN, // 1 install
@@ -74,7 +69,6 @@ func TestRegistryCategorySeverities(t *testing.T) {
 	}
 }
 
-// TestRunFiltersByOnly verifies Run with Only=[1,3] returns exactly those two results in registry order.
 func TestRunFiltersByOnly(t *testing.T) {
 	opts := doctor.Opts{Only: []int{1, 3}, StaleDays: 7}
 	results, err := doctor.Run(opts)
@@ -92,7 +86,6 @@ func TestRunFiltersByOnly(t *testing.T) {
 	}
 }
 
-// TestRunFiltersBySkip verifies Run with Skip=[2,4,6,8] returns indices [1,3,5,7,9,10,11,12,13].
 func TestRunFiltersBySkip(t *testing.T) {
 	opts := doctor.Opts{Skip: []int{2, 4, 6, 8}, StaleDays: 7}
 	results, err := doctor.Run(opts)
@@ -110,16 +103,12 @@ func TestRunFiltersBySkip(t *testing.T) {
 	}
 }
 
-// TestStubsReturnSkip verified CP-4 stubs. All 8 checks are now implemented
-// (CP-5 completed signals, followups, memory). This test is retained as a
-// no-op assertion to document that no stubs remain.
 func TestStubsReturnSkip(t *testing.T) {
-	// All checks implemented after CP-5; no stubs remain.
+	// Retained as a no-op: every check is implemented, no stubs remain.
 }
 
-// TestRunReturnsAllResults verifies Run returns results in index order.
-// Check 8 (binary) is excluded via Only to avoid live network calls — it is
-// tested in isolation via RunCheckBinaryWith in checks_binary_test.go.
+// Check 8 (binary) is excluded to keep this test off the network; it is
+// covered in isolation via RunCheckBinaryWith.
 func TestRunReturnsAllResults(t *testing.T) {
 	opts := doctor.Opts{Only: []int{1, 2, 3, 4, 5, 6, 7}, StaleDays: 7}
 	results, err := doctor.Run(opts)
@@ -137,7 +126,6 @@ func TestRunReturnsAllResults(t *testing.T) {
 	}
 }
 
-// TestFlagParsingHappyPath verifies ParseFlags accepts valid input.
 func TestFlagParsingHappyPath(t *testing.T) {
 	opts, err := doctor.ParseFlags([]string{"--stale-days", "14", "--verbose"})
 	if err != nil {
@@ -151,7 +139,6 @@ func TestFlagParsingHappyPath(t *testing.T) {
 	}
 }
 
-// TestFlagParsingRejectsNegativeStaleDays verifies negative threshold is rejected.
 func TestFlagParsingRejectsNegativeStaleDays(t *testing.T) {
 	_, err := doctor.ParseFlags([]string{"--stale-days", "-1"})
 	if err == nil {
@@ -159,7 +146,6 @@ func TestFlagParsingRejectsNegativeStaleDays(t *testing.T) {
 	}
 }
 
-// TestFlagParsingRejectsZeroStaleDays verifies zero threshold is rejected.
 func TestFlagParsingRejectsZeroStaleDays(t *testing.T) {
 	_, err := doctor.ParseFlags([]string{"--stale-days", "0"})
 	if err == nil {
@@ -167,7 +153,6 @@ func TestFlagParsingRejectsZeroStaleDays(t *testing.T) {
 	}
 }
 
-// TestFlagParsingMutualExclusionFixAndJSON verifies --fix + --json is rejected.
 func TestFlagParsingMutualExclusionFixAndJSON(t *testing.T) {
 	_, err := doctor.ParseFlags([]string{"--fix", "--json"})
 	if err == nil {
@@ -175,7 +160,6 @@ func TestFlagParsingMutualExclusionFixAndJSON(t *testing.T) {
 	}
 }
 
-// TestFlagParsingOnlyByIndex verifies --only accepts comma-separated indices.
 func TestFlagParsingOnlyByIndex(t *testing.T) {
 	opts, err := doctor.ParseFlags([]string{"--only", "1,3"})
 	if err != nil {
@@ -186,13 +170,11 @@ func TestFlagParsingOnlyByIndex(t *testing.T) {
 	}
 }
 
-// TestFlagParsingOnlyByName verifies --only accepts canonical names.
 func TestFlagParsingOnlyByName(t *testing.T) {
 	opts, err := doctor.ParseFlags([]string{"--only", "install,signals"})
 	if err != nil {
 		t.Fatalf("ParseFlags: %v", err)
 	}
-	// Resolved to indices 1 and 3.
 	wantIndices := map[int]bool{1: true, 3: true}
 	if len(opts.Only) != 2 {
 		t.Fatalf("Only len = %d, want 2", len(opts.Only))
@@ -204,7 +186,6 @@ func TestFlagParsingOnlyByName(t *testing.T) {
 	}
 }
 
-// TestFlagParsingOnlyMixed verifies --only accepts mixed indices+names.
 func TestFlagParsingOnlyMixed(t *testing.T) {
 	opts, err := doctor.ParseFlags([]string{"--only", "1,signals"})
 	if err != nil {
@@ -221,7 +202,6 @@ func TestFlagParsingOnlyMixed(t *testing.T) {
 	}
 }
 
-// TestFlagParsingRejectsUnknownCategory verifies --only rejects unknown names/indices.
 func TestFlagParsingRejectsUnknownCategory(t *testing.T) {
 	_, err := doctor.ParseFlags([]string{"--only", "notacategory"})
 	if err == nil {
@@ -232,7 +212,6 @@ func TestFlagParsingRejectsUnknownCategory(t *testing.T) {
 	}
 }
 
-// TestFlagParsingRejectsOutOfRangeIndex verifies --only rejects index 0 and >13.
 func TestFlagParsingRejectsOutOfRangeIndex(t *testing.T) {
 	_, err := doctor.ParseFlags([]string{"--only", "14"})
 	if err == nil {
@@ -245,7 +224,6 @@ func TestFlagParsingRejectsOutOfRangeIndex(t *testing.T) {
 	}
 }
 
-// TestFlagParsingSkipByName verifies --skip accepts canonical names.
 func TestFlagParsingSkipByName(t *testing.T) {
 	opts, err := doctor.ParseFlags([]string{"--skip", "binary"})
 	if err != nil {

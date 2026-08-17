@@ -5,9 +5,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// Registry maps types.Language values to (LanguageExtractor, extraction.Lang) pairs.
-// It is the single resolution point the orchestrator will use to obtain the
-// correct config for a given file language.
+// Registry is the orchestrator's single resolution point from a file's language
+// to its extractor config and grammar.
 type Registry struct {
 	entries map[types.Language]registryEntry
 }
@@ -17,9 +16,7 @@ type registryEntry struct {
 	lang extraction.Lang
 }
 
-// NewRegistry builds and returns a fully-initialised Registry containing the
-// twenty-three language configs: Go, TypeScript, JavaScript, TSX, JSX, Python, Rust,
-// Java, C, C++, C#, Swift, Kotlin, Scala, Ruby, PHP, Lua, Luau, Dart, ObjC, Pascal, Elixir, Erlang.
+// NewRegistry returns a Registry populated with every supported language config.
 func NewRegistry() *Registry {
 	r := &Registry{
 		entries: make(map[types.Language]registryEntry, 23),
@@ -50,8 +47,8 @@ func NewRegistry() *Registry {
 	return r
 }
 
-// For returns the LanguageExtractor config and extraction.Lang for the given
-// types.Language. Returns (zero, 0, false) when the language is not registered.
+// For returns the config and grammar registered for lang, or (zero, 0, false)
+// when lang is not registered.
 func (r *Registry) For(lang types.Language) (extraction.LanguageExtractor, extraction.Lang, bool) {
 	entry, ok := r.entries[lang]
 	if !ok {

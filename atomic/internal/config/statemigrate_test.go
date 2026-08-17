@@ -6,8 +6,7 @@ import (
 	"testing"
 )
 
-// TestMigrateUserState_FreshNoOp: neither ~/.atomic nor ~/.claude/.atomic exists
-// — nothing to migrate, no directories created.
+// Nothing to migrate, and no directories created.
 func TestMigrateUserState_FreshNoOp(t *testing.T) {
 	home := t.TempDir()
 
@@ -24,8 +23,8 @@ func TestMigrateUserState_FreshNoOp(t *testing.T) {
 	}
 }
 
-// TestMigrateUserState_LegacyRenameAndSymlink: a real legacy directory is
-// renamed to ~/.atomic and a compat symlink is left behind at the old path.
+// A real legacy directory is renamed to ~/.atomic with a compat symlink left
+// behind at the old path.
 func TestMigrateUserState_LegacyRenameAndSymlink(t *testing.T) {
 	home := t.TempDir()
 	legacyDir := filepath.Join(home, ".claude", ".atomic")
@@ -78,8 +77,7 @@ func TestMigrateUserState_LegacyRenameAndSymlink(t *testing.T) {
 	}
 }
 
-// TestMigrateUserState_IdempotentSecondRun: once ~/.atomic is a real directory,
-// a second invocation is a no-op — the symlink and content are untouched.
+// Once ~/.atomic is a real directory, a second run is a no-op.
 func TestMigrateUserState_IdempotentSecondRun(t *testing.T) {
 	home := t.TempDir()
 	legacyDir := filepath.Join(home, ".claude", ".atomic")
@@ -113,10 +111,8 @@ func TestMigrateUserState_IdempotentSecondRun(t *testing.T) {
 	}
 }
 
-// TestMigrateUserState_BothDirsRealConflict: when ~/.atomic already exists as a
-// real directory AND a real (non-symlink) legacy directory is also present,
-// prefer the new location and never merge — the legacy dir is left untouched
-// for `atomic doctor` to flag.
+// With ~/.atomic already real AND a real legacy directory present, prefer the
+// new location and never merge — the legacy dir is left for doctor to flag.
 func TestMigrateUserState_BothDirsRealConflict(t *testing.T) {
 	home := t.TempDir()
 	newDir := Dir(home)
@@ -163,9 +159,8 @@ func TestMigrateUserState_BothDirsRealConflict(t *testing.T) {
 	}
 }
 
-// TestMigrateUserState_RenameErrorCopyFallback: when the rename fails (e.g. a
-// cross-device error), fall back to a recursive copy. The legacy directory is
-// left in place (path occupied, symlink skipped) for doctor to flag.
+// A failed rename falls back to a recursive copy. The legacy directory stays in
+// place, so the symlink is skipped and doctor flags the leftover.
 func TestMigrateUserState_RenameErrorCopyFallback(t *testing.T) {
 	home := t.TempDir()
 	legacyDir := filepath.Join(home, ".claude", ".atomic")
@@ -204,8 +199,8 @@ func TestMigrateUserState_RenameErrorCopyFallback(t *testing.T) {
 		t.Errorf("copied nested content = %q, want %q", nested, "nested\n")
 	}
 
-	// Copy fallback never symlinks — the legacy dir is left as a real directory
-	// (path occupied) so doctor can flag the leftover.
+	// Copy fallback never symlinks: the legacy dir stays a real directory so
+	// doctor can flag the leftover.
 	legacyInfo, err := os.Lstat(legacyDir)
 	if err != nil {
 		t.Fatalf("lstat legacy dir: %v", err)
@@ -218,10 +213,8 @@ func TestMigrateUserState_RenameErrorCopyFallback(t *testing.T) {
 	}
 }
 
-// TestMigrateUserState_SymlinkRetryOnSecondRun: when the rename succeeds but
-// the subsequent symlink creation fails (e.g. transient permission error),
-// the idempotency short-circuit on a later run must not swallow the retry —
-// the symlink has to eventually get created.
+// When the rename succeeds but the symlink fails, the idempotency
+// short-circuit on a later run must not swallow the retry.
 func TestMigrateUserState_SymlinkRetryOnSecondRun(t *testing.T) {
 	home := t.TempDir()
 	legacyDir := filepath.Join(home, ".claude", ".atomic")
@@ -250,7 +243,7 @@ func TestMigrateUserState_SymlinkRetryOnSecondRun(t *testing.T) {
 		t.Fatalf("expected legacy path to remain absent after failed symlink, lstat err = %v", err)
 	}
 
-	// Second run: rename is now a no-op (already migrated) — the symlink retry must fire.
+	// Second run: rename is a no-op, so the symlink retry must fire.
 	if err := MigrateUserState(home); err != nil {
 		t.Fatalf("second MigrateUserState: %v", err)
 	}
@@ -271,10 +264,8 @@ func TestMigrateUserState_SymlinkRetryOnSecondRun(t *testing.T) {
 	}
 }
 
-// TestMigrateUserState_StagedCopyAtomicity: when the recursive copy fails
-// partway through, the partial result must never become visible at the final
-// ~/.atomic path — a later idempotency check must not trust a half-copied
-// directory forever.
+// A copy that fails partway must never become visible at the final ~/.atomic
+// path, or a later idempotency check would trust a half-copied directory.
 func TestMigrateUserState_StagedCopyAtomicity(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root: chmod 000 does not restrict access")
@@ -314,10 +305,8 @@ func TestMigrateUserState_StagedCopyAtomicity(t *testing.T) {
 	}
 }
 
-// TestMigrateUserState_StaleStagingDirCleanedBeforeCopy: a staging dir left
-// behind by a previous crashed run must be wiped before a new copy attempt,
-// not merged with — otherwise stale content from the crashed run could leak
-// into the freshly migrated ~/.atomic.
+// A staging dir left by a crashed run is wiped before a new copy attempt, not
+// merged with — otherwise its stale content leaks into the migrated ~/.atomic.
 func TestMigrateUserState_StaleStagingDirCleanedBeforeCopy(t *testing.T) {
 	home := t.TempDir()
 	legacyDir := filepath.Join(home, ".claude", ".atomic")

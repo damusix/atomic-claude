@@ -1,24 +1,9 @@
-// graphoverlay.go — /graph/data JSON endpoint.
+// /graph/data: the realm link graph as Cytoscape elements JSON. With no
+// ?node= it emits every node and resolved edge; with ?node=&depth= it emits
+// the BFS neighbourhood, inbound and outbound, defaulting to depth 2.
 //
-// /graph/data emits the realm link graph as Cytoscape elements JSON:
-//
-//	{ "nodes": [{data:{id,label,type}}], "edges": [{data:{id,source,target}, classes:"..."}] }
-//
-// Global view: all nodes + all resolved (non-broken, non-external) edges.
-// Local view:  ?node=<relpath>&depth=<1|2> → BFS subgraph within depth hops
-//
-//	(both inbound and outbound). Default depth 2 when node= is given.
-//
-// Three edge classes (SC11):
-//   - "md-link"     — standard markdown link [text](path)
-//   - "wikilink"    — Obsidian [[page]] link
-//   - "fingerprint" — provenance edges (fills; styled in layout.html atomicCyStyle())
-//
-// FE3: the standalone /graph page has been removed. The system-graph toggle in
-// layout.html replaces it — clicking [system] in the shell swaps #main-pane to
-// a Cytoscape instance that fetches /graph/data directly. The three vendored JS
-// scripts and atomicCyStyle() live in layout.html <head> so both the rail
-// mini-graph (FE2) and the system graph (FE3) share the same loaded assets.
+// Edges carry one of three classes the client styles on: "md-link",
+// "wikilink", and "fingerprint" for provenance.
 package serve
 
 import (
@@ -32,7 +17,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
 )
 
-// cytoNode is a Cytoscape node element.
 type cytoNode struct {
 	Data cytoNodeData `json:"data"`
 }
@@ -46,7 +30,6 @@ type cytoNodeData struct {
 	Snippet     string `json:"snippet,omitempty"`
 }
 
-// cytoEdge is a Cytoscape edge element.
 type cytoEdge struct {
 	Data    cytoEdgeData `json:"data"`
 	Classes string       `json:"classes"`
@@ -58,13 +41,11 @@ type cytoEdgeData struct {
 	Target string `json:"target"`
 }
 
-// cytoElements is the top-level Cytoscape elements object.
 type cytoElements struct {
 	Nodes []cytoNode `json:"nodes"`
 	Edges []cytoEdge `json:"edges"`
 }
 
-// edgeClassFor converts a mdlink.LinkKind to a Cytoscape edge class string.
 func edgeClassFor(k mdlink.LinkKind) string {
 	if k == mdlink.Wikilink {
 		return "wikilink"
@@ -72,8 +53,7 @@ func edgeClassFor(k mdlink.LinkKind) string {
 	return "md-link"
 }
 
-// buildCytoElements converts the Graph to Cytoscape elements for the global view.
-// Broken and external edges are skipped (no ResolvedPath).
+// buildCytoElements emits the whole graph, skipping broken and external edges.
 func buildCytoElements(g *Graph) cytoElements {
 	nodes := g.Nodes()
 	elems := cytoElements{
@@ -83,7 +63,6 @@ func buildCytoElements(g *Graph) cytoElements {
 
 	for _, n := range nodes {
 		label := n
-		// Use the base filename (without extension) as a more readable label.
 		if idx := strings.LastIndexByte(n, '/'); idx >= 0 {
 			label = n[idx+1:]
 		}
@@ -102,29 +81,21 @@ func buildCytoElements(g *Graph) cytoElements {
 		})
 	}
 
-	// Build edges from outbound links for every node.
-	seen := make(map[string]bool) // deduplicate edges
+	seen := make(map[string]bool)
 	for _, src := range nodes {
 		for _, edge := range g.Outbound(src) {
-			// Skip broken links and external URLs (no resolved file in realm).
 			if edge.Broken || edge.ResolvedPath == "" {
 				continue
 			}
-			// Skip code-file links: the system graph is a page-to-page graph,
-			// and a source file is not a node (it has no /page/). Emitting an
-			// edge to it would reference a nonexistent target and Cytoscape
-			// would abort the whole graph render. Code files surface in the
-			// rail OUT list as /file/ links instead.
+			// This is a page-to-page graph; a source file has no page node, so
+			// an edge to one would dangle and Cytoscape drops the entire
+			// element set on a dangling reference.
 			if edge.CodeFile {
 				continue
 			}
-			// Defensive: drop any edge whose target is not a known node. The
-			// CodeFile check above covers the known case; this guards against
-			// any future resolved-but-unwalked target crashing the client.
 			if !g.Has(edge.ResolvedPath) {
 				continue
 			}
-			// Skip self-loops.
 			if src == edge.ResolvedPath {
 				continue
 			}
@@ -148,10 +119,9 @@ func buildCytoElements(g *Graph) cytoElements {
 	return elems
 }
 
-// buildLocalSubgraph performs a BFS from the given node (both inbound and
-// outbound) to depth hops and returns the induced subgraph as Cytoscape elements.
+// buildLocalSubgraph returns the subgraph induced by a BFS from nodeID, in
+// both directions, out to depth hops.
 func buildLocalSubgraph(g *Graph, nodeID string, depth int) cytoElements {
-	// BFS: collect nodes within depth hops.
 	visited := make(map[string]bool)
 	frontier := []string{nodeID}
 	visited[nodeID] = true
@@ -159,9 +129,8 @@ func buildLocalSubgraph(g *Graph, nodeID string, depth int) cytoElements {
 	for hop := 0; hop < depth; hop++ {
 		var next []string
 		for _, cur := range frontier {
-			// Outbound neighbours. Skip code-file links — they are not page
-			// nodes (no /page/), so they must never enter the visited set or
-			// they would render as dangling edge targets.
+			// Code files are not page nodes, so they must never enter the
+			// visited set or they become dangling edge targets.
 			for _, edge := range g.Outbound(cur) {
 				if edge.Broken || edge.ResolvedPath == "" || edge.CodeFile {
 					continue
@@ -172,7 +141,6 @@ func buildLocalSubgraph(g *Graph, nodeID string, depth int) cytoElements {
 					next = append(next, nb)
 				}
 			}
-			// Inbound neighbours.
 			for _, src := range g.Backlinks(cur) {
 				if !visited[src] {
 					visited[src] = true
@@ -183,7 +151,6 @@ func buildLocalSubgraph(g *Graph, nodeID string, depth int) cytoElements {
 		frontier = next
 	}
 
-	// Build elements restricted to the visited set.
 	elems := cytoElements{
 		Nodes: make([]cytoNode, 0, len(visited)),
 		Edges: make([]cytoEdge, 0),
@@ -216,7 +183,7 @@ func buildLocalSubgraph(g *Graph, nodeID string, depth int) cytoElements {
 			}
 			tgt := edge.ResolvedPath
 			if !visited[tgt] {
-				continue // edge crosses outside the subgraph
+				continue // leaves the subgraph
 			}
 			if src == tgt {
 				continue
@@ -241,40 +208,30 @@ func buildLocalSubgraph(g *Graph, nodeID string, depth int) cytoElements {
 	return elems
 }
 
-// GraphDataHandler handles GET /graph/data.
-// It accepts an optional ?node=<relpath>&depth=<1|2> for local views.
+// GraphDataHandler serves GET /graph/data, optionally scoped by ?node=&depth=.
 type GraphDataHandler struct {
 	root string
-	// store is the shared snapshot store (live-reload). When non-nil,
-	// both the full-view cache and the node-specific local-view branch below
-	// read the current graph through it, so a file added, edited, or removed
-	// after startup is reflected on the next request without a restart. nil
-	// for the per-request NewGraphDataHandler constructor, which falls back
-	// to a fresh BuildLinkGraph call per request (original behaviour).
+	// store is nil for the per-request constructor, which rebuilds the graph
+	// on every request instead of tracking realm changes.
 	store *snapshotStore
-	// cache caches the full-view (no ?node=) assembly — provenance walk + element
-	// build + marshal — keyed by a filesystem fingerprint, warmed in the background
-	// at startup. nil for the per-request NewGraphDataHandler constructor.
+	// cache holds the full-view assembly — provenance walk, element build,
+	// marshal — keyed by filesystem fingerprint. Nil alongside a nil store.
 	cache *graphDataCache
 }
 
-// NewGraphDataHandler returns an http.Handler for /graph/data that builds the
-// link graph on every request. Prefer NewGraphDataHandlerWithGraph when a
-// shared snapshot store is available to avoid per-request latency.
+// NewGraphDataHandler builds the link graph on every request. Prefer
+// NewGraphDataHandlerWithGraph when a shared store is available.
 func NewGraphDataHandler(root string) http.Handler {
 	return &GraphDataHandler{root: root}
 }
 
-// NewGraphDataHandlerWithGraph returns an http.Handler for /graph/data backed
-// by store: both the full-view cache and the node-specific local-view branch
-// read the current graph through store.currentGraph, so a request no longer
-// serves a startup-frozen graph — once the realm changes on disk, the store's
-// lazy fingerprint check (shared with the nav/page/rail handlers — SC7)
-// rebuilds it. store must not be nil.
+// NewGraphDataHandlerWithGraph reads through store, so a realm change on disk
+// is reflected on the next request rather than at the next restart. store must
+// not be nil.
 func NewGraphDataHandlerWithGraph(root string, store *snapshotStore) http.Handler {
 	cache := newGraphDataCache(root, store)
-	// Warm the full-view assembly in the background so the first Network View open
-	// serves cached bytes instead of waiting on the provenance walk.
+	// Warm in the background so the first graph open does not wait on the
+	// provenance walk.
 	go cache.warm()
 	return &GraphDataHandler{root: root, store: store, cache: cache}
 }
@@ -282,25 +239,20 @@ func NewGraphDataHandlerWithGraph(root string, store *snapshotStore) http.Handle
 func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	nodeParam := r.URL.Query().Get("node")
 
-	// Full view (no ?node=): serve the cached, fingerprint-invalidated assembly.
-	// The expensive provenance walk + whole-realm element build runs once per realm
-	// state, warmed in the background at startup, instead of on every open.
+	// The full view runs a provenance walk over the whole realm, so it is
+	// cached per realm state; an assemble error falls through to the live path.
 	if nodeParam == "" && h.cache != nil {
 		if b, fp, err := h.cache.fullJSON(); err == nil {
 			w.Header().Set("Content-Type", "application/json")
-			// Surface the realm fingerprint so the client can key its layout cache
-			// (IndexedDB) off the exact realm state.
+			// The client keys its IndexedDB layout cache off this.
 			if fp != "" {
 				w.Header().Set("X-Graph-Fingerprint", fp)
 			}
 			_, _ = w.Write(b)
 			return
 		}
-		// On assemble error, fall through to the live path below.
 	}
 
-	// Use the shared store when available (resolves once per request, live);
-	// fall back to a fresh per-request build (NewGraphDataHandler callers).
 	var g *Graph
 	if h.store != nil {
 		g = h.store.currentGraph()
@@ -308,15 +260,13 @@ func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g = BuildLinkGraph(h.root)
 	}
 
-	// Build the provenance DAG and inject fingerprint-class edges.
-	// wikiDir = <root>/wiki — the conventional wiki directory.
 	wikiDir := filepath.Join(h.root, "wiki")
 	provDAG := BuildProvenanceDAG(h.root, wikiDir)
 
 	var elems cytoElements
 
 	if nodeParam != "" {
-		depth := 2 // default depth for local view
+		depth := 2
 		if dStr := r.URL.Query().Get("depth"); dStr != "" {
 			if d, err := strconv.Atoi(dStr); err == nil && d > 0 {
 				depth = d
@@ -327,37 +277,29 @@ func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		elems = buildCytoElements(g)
 	}
 
-	// Inject provenance nodes + fingerprint-class edges. Scoped when a local
-	// subgraph was requested — see injectProvenanceEdges.
 	injectProvenanceEdges(&elems, provDAG, nodeParam != "")
 
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(elems); err != nil {
-		// Headers already sent.
-		return
+		return // headers already sent
 	}
 }
 
-// injectProvenanceEdges merges the ProvenanceDAG nodes and edges into the
-// Cytoscape elements. Nodes not already present are added with their kind as
-// type. Provenance edges carry the "fingerprint" class; drifted edges carry
-// "fingerprint drift" so the graph page CSS renders them red.
-// When scoped is true the elements are a local subgraph around one node, and
-// the DAG may only contribute to what is already there: it adds no nodes, and
-// only those edges whose endpoints are both in scope. Injecting the realm's
-// whole provenance DAG into a one-node neighbourhood is what put a dozen
-// unrelated clusters in the rail's mini-graph, with no path to the page being
-// viewed — the panel claimed they were that page's neighbours.
+// injectProvenanceEdges merges the provenance DAG into the elements. Drifted
+// edges get an extra class so the client can colour them.
+//
+// A scoped call may only decorate what is already present — no new nodes, and
+// only edges with both endpoints in scope. Injecting the whole realm DAG into
+// a one-node neighbourhood filled the rail mini-graph with unrelated clusters
+// that had no path to the page being viewed.
 func injectProvenanceEdges(elems *cytoElements, dag ProvenanceDAG, scoped bool) {
-	// Build a set of existing node IDs to avoid duplicates.
 	existing := make(map[string]bool, len(elems.Nodes))
 	for _, n := range elems.Nodes {
 		existing[n.Data.ID] = true
 	}
 
-	// Add provenance nodes that aren't already in the graph.
 	for _, n := range dag.Nodes {
 		if scoped {
 			break
@@ -379,11 +321,9 @@ func injectProvenanceEdges(elems *cytoElements, dag ProvenanceDAG, scoped bool) 
 		}
 	}
 
-	// Add provenance edges with "fingerprint" class (or "fingerprint drift").
 	seen := make(map[string]bool)
 	for _, e := range dag.Edges {
-		// In a scoped view an edge to a node that was never added would be a
-		// dangling reference, and Cytoscape drops the whole element set on one.
+		// Cytoscape drops the whole element set on one dangling reference.
 		if scoped && (!existing[e.Source] || !existing[e.Target]) {
 			continue
 		}

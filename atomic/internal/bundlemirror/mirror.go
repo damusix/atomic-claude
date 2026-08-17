@@ -1,5 +1,5 @@
-// Package bundlemirror implements the artifact mirror logic used by internal/tools/bundle-mirror.
-// Separated so it can be tested without the main() entrypoint.
+// Package bundlemirror implements the artifact mirror logic behind
+// internal/tools/bundle-mirror, split out so it is testable without main().
 package bundlemirror
 
 import (
@@ -15,13 +15,9 @@ import (
 	"text/template"
 )
 
-// Artifact describes one file in the embedded manifest.
-//
-// This package deliberately declares its own type rather than reusing
-// embedded.Artifact: internal/embedded carries the go:embed directive for
-// bundle/, so importing it here would make the mirror unbuildable until the
-// very directory the mirror exists to create is already present. Keeping the
-// generator free of that import is what lets a fresh clone bootstrap.
+// Artifact duplicates embedded.Artifact deliberately: internal/embedded carries
+// the go:embed for bundle/, so importing it would make this generator
+// unbuildable until the directory it exists to create already exists.
 type Artifact struct {
 	Kind   string
 	Source string // path inside embedded FS, e.g. "bundle/agents/atomic-builder.md"
@@ -29,20 +25,15 @@ type Artifact struct {
 	SHA256 string
 }
 
-// enumeratedArtifact is the internal type returned by enumerate. It carries the
-// Artifact fields alongside SrcPath (the absolute filesystem source path) and
-// Data (the file bytes already read during enumeration) so that Run can write
-// the artifact without a second os.ReadFile call.
+// enumeratedArtifact retains Data from the enumeration read so Run can write
+// the file without a second os.ReadFile.
 type enumeratedArtifact struct {
 	Artifact
 	SrcPath string // absolute path of the source file on disk
 	Data    []byte // file bytes read during enumeration; reused by Run to avoid a second read
 }
 
-// Enumerate walks repoRoot per the bundle inclusion rules and returns the
-// artifact list without writing anything to disk. Callers outside this package
-// (e.g. manifestcheck) should use this instead of Run when no disk write is
-// needed.
+// Enumerate is Run without the disk write — what manifestcheck uses.
 func Enumerate(repoRoot string) ([]Artifact, error) {
 	items, err := enumerate(repoRoot)
 	if err != nil {
@@ -55,11 +46,8 @@ func Enumerate(repoRoot string) ([]Artifact, error) {
 	return out, nil
 }
 
-// enumerate is the internal no-write walker shared by Enumerate and Run.
-//
-// Every path is resolved under repoRoot/context/, and every Target is relative
-// to that context root — so the bundle layout, and therefore the install tree
-// under ~/.claude/, is unaffected by where the sources live in the repo.
+// enumerate resolves every path under repoRoot/context/ and makes every Target
+// relative to it, so the install tree is independent of the repo layout.
 func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	var artifacts []enumeratedArtifact
 
@@ -71,7 +59,6 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		return nil, err
 	}
 
-	// agents/atomic-*.md
 	agentsDir := filepath.Join(contextRoot, "agents")
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
@@ -90,7 +77,6 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		artifacts = append(artifacts, a)
 	}
 
-	// skills/atomic-*/** — full directory tree per matching skill.
 	skillsDir := filepath.Join(contextRoot, "skills")
 	skillEntries, err := os.ReadDir(skillsDir)
 	if err != nil {
@@ -128,7 +114,6 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		}
 	}
 
-	// output-styles/atomic*.md
 	outputStylesDir := filepath.Join(contextRoot, "output-styles")
 	osEntries, err := os.ReadDir(outputStylesDir)
 	if err != nil {
@@ -147,7 +132,6 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		artifacts = append(artifacts, a)
 	}
 
-	// commands/**/*.md — all markdown files, including subdirectories.
 	commandsDir := filepath.Join(contextRoot, "commands")
 	err = filepath.WalkDir(commandsDir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
@@ -172,7 +156,6 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		return nil, fmt.Errorf("walk commands: %w", err)
 	}
 
-	// rules/**/*.md
 	rulesDir := filepath.Join(contextRoot, "rules")
 	err = filepath.WalkDir(rulesDir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
@@ -197,7 +180,6 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		return nil, fmt.Errorf("walk rules: %w", err)
 	}
 
-	// CLAUDE.md
 	claudeMdSrc := filepath.Join(contextRoot, "CLAUDE.md")
 	a, err := readArtifact(partials, claudeMdSrc, "CLAUDE.md", "claude-md")
 	if err != nil {
@@ -205,7 +187,6 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 	artifacts = append(artifacts, a)
 
-	// Stable sort: kind asc, then target asc.
 	sort.Slice(artifacts, func(i, j int) bool {
 		if artifacts[i].Kind != artifacts[j].Kind {
 			return artifacts[i].Kind < artifacts[j].Kind
@@ -216,20 +197,13 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	return artifacts, nil
 }
 
-// expandedKinds are the artifact kinds whose sources may compose a shared
-// partial. Everything else is copied through byte-for-byte: a skill or rule has
-// never been templated, and running one through the engine would treat a
+// expandedKinds may compose a shared partial. Everything else is copied
+// byte-for-byte: running a skill or rule through the engine would read a
 // literal {{ in its prose as a directive.
 var expandedKinds = map[string]bool{"command": true, "agent": true}
 
-// readArtifact reads src once, expands it if its kind is templated, computes
-// the SHA256 of the result, and returns an enumeratedArtifact without writing
-// anything to disk. The bytes are retained in Data so Run can write them
-// without a second os.ReadFile.
-//
-// The SHA is taken over the expanded bytes because that is what installs; a
-// parity check comparing sources to the manifest has to agree with the file a
-// user ends up with.
+// readArtifact hashes the expanded bytes, not the source, because that is what
+// installs — a parity check has to agree with the file the user ends up with.
 func readArtifact(partials *template.Template, src, target, kind string) (enumeratedArtifact, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -253,8 +227,7 @@ func readArtifact(partials *template.Template, src, target, kind string) (enumer
 	}, nil
 }
 
-// Run walks repoRoot per the inclusion rules, copies matching files into
-// outDir/bundle/<target-path>, and returns the artifact list.
+// Run mirrors every matching artifact into outDir/bundle/<target>.
 func Run(repoRoot, outDir string) ([]Artifact, error) {
 	bundleDir := filepath.Join(outDir, "bundle")
 	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
@@ -278,8 +251,6 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 	return artifacts, nil
 }
 
-// mirrorFile writes data into bundleDir/<target> and returns an Artifact.
-// data is already read by readArtifact; no second os.ReadFile occurs here.
 func mirrorFile(data []byte, target, kind, bundleDir string) (Artifact, error) {
 	dst := filepath.Join(bundleDir, filepath.FromSlash(target))
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -298,7 +269,7 @@ func mirrorFile(data []byte, target, kind, bundleDir string) (Artifact, error) {
 	}, nil
 }
 
-// SHA256Hex returns the hex-encoded SHA256 of data. Exported for tests.
+// SHA256Hex is the manifest's checksum form.
 func SHA256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])

@@ -1,19 +1,7 @@
-// external.go — external-link registry.
-//
-// BuildExternalRegistry walks every *.md file under root, calls
-// mdlink.ExtractLinks on each, and aggregates all outbound http/https URLs into
-// a registry: one ExternalEntry per unique URL with the list of source pages
-// (realm-root-relative) that cite it and the earliest first-seen date across
-// those source files.
-//
-// First-seen date is determined by the injected FileDateFn seam:
-//   - Production: GitOrMtimeDateFn — runs `git log --diff-filter=A` to get the
-//     file's add-date from git history; falls back to mtime on any failure
-//     (git absent, non-zero exit, untracked file, parse error).
-//   - Tests: a deterministic stub that returns known dates without disk I/O.
-//
-// The registry data feeds the /api/external JSON handler (NewAPIExternalHandler
-// below).
+// The external-link registry behind /api/external: every outbound http(s) URL
+// in the realm's markdown, with the pages citing it and the earliest date any
+// of them was added. The date comes from the FileDateFn seam, so tests can
+// supply known dates without touching disk or git.
 package serve
 
 import (
@@ -31,13 +19,11 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
 )
 
-// FileDateFn is the injectable seam for determining the "date" of a file.
-// It receives the absolute path to the file and returns the relevant timestamp.
-// The production default is MtimeDateFn. Tests inject a stub.
+// FileDateFn dates one file. Tests inject a stub.
 type FileDateFn func(absPath string) time.Time
 
-// MtimeDateFn is a FileDateFn that returns the file's modification time.
-// Falls back to the zero time on stat failure so the caller always gets a value.
+// MtimeDateFn returns the file's mtime, or the zero time, so the caller always
+// gets a value.
 func MtimeDateFn(absPath string) time.Time {
 	info, err := os.Stat(absPath) //nolint:gosec // absPath is validated by the walk
 	if err != nil {
@@ -46,24 +32,16 @@ func MtimeDateFn(absPath string) time.Time {
 	return info.ModTime()
 }
 
-// GitOrMtimeDateFn is the production FileDateFn: it queries git for the
-// file's first-commit date (the date git first added the file to history)
-// and falls back to MtimeDateFn on any failure:
-//   - git binary not on PATH
-//   - non-zero exit (file untracked or repo not initialised)
-//   - empty output (untracked file with no commits referencing it)
-//   - RFC3339 parse error
-//
-// The git call is read-only (`git log`). It is run with the file's directory
-// as cwd so relative-path resolution is consistent across platforms.
+// GitOrMtimeDateFn is the production FileDateFn: the date git added the file,
+// falling back to mtime whenever git cannot answer — absent binary, untracked
+// file, no repo, unparseable output. The call runs in the file's own directory
+// so relative-path resolution is consistent.
 func GitOrMtimeDateFn(absPath string) time.Time {
 	dir := filepath.Dir(absPath)
 	base := filepath.Base(absPath)
 
-	// Run: git log --diff-filter=A --format=%aI -1 -- <basename>
-	// --diff-filter=A: only the commit that Added the file.
-	// %aI: author date in strict ISO 8601 / RFC3339 format.
-	// -1: one result (the earliest add commit).
+	// --diff-filter=A restricts to the commit that added the file; %aI is
+	// RFC3339.
 	cmd := exec.Command("git", "log", "--diff-filter=A", "--format=%aI", "-1", "--", base) //nolint:gosec
 	cmd.Dir = dir
 
@@ -71,54 +49,46 @@ func GitOrMtimeDateFn(absPath string) time.Time {
 	cmd.Stdout = &out
 
 	if err := cmd.Run(); err != nil {
-		// git not found, not a repo, or non-zero exit — fall back silently.
 		return MtimeDateFn(absPath)
 	}
 
 	raw := strings.TrimSpace(out.String())
 	if raw == "" {
-		// File exists on disk but is untracked — fall back to mtime.
 		return MtimeDateFn(absPath)
 	}
 
 	t, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
-		// Unexpected format — fall back to mtime.
 		return MtimeDateFn(absPath)
 	}
 	return t
 }
 
-// ExternalEntry is one entry in the external-link registry.
+// ExternalEntry is one URL in the registry.
 type ExternalEntry struct {
-	// URL is the absolute http/https URL.
 	URL string
 
-	// Sources is the sorted list of realm-root-relative paths that cite this URL.
+	// Sources are the realm-relative paths citing this URL, sorted.
 	Sources []string
 
-	// FirstSeen is the earliest date across the source files (determined by FileDateFn).
-	// Zero time when no source file yields a valid date.
+	// FirstSeen is the earliest date across the sources, zero when none yields
+	// a valid date.
 	FirstSeen time.Time
 }
 
-// BuildExternalRegistry walks *.md files under root, extracts external URLs via
-// mdlink.ExtractLinks, and returns a sorted slice of ExternalEntry (sorted by URL).
-// Internal links (relative paths, wikilinks) and code-block-embedded URLs are
-// excluded by ExtractLinks' fence-aware logic.
+// BuildExternalRegistry returns the registry sorted by URL. ExtractLinks is
+// fence-aware, so URLs inside code blocks are already excluded.
 func BuildExternalRegistry(root string, dateFn FileDateFn) []ExternalEntry {
 	if dateFn == nil {
 		dateFn = MtimeDateFn
 	}
 
-	// url → {sources set, first-seen}
 	type accumulator struct {
-		sources   map[string]bool // rel paths that cite the URL
+		sources   map[string]bool
 		firstSeen time.Time
 	}
 	acc := make(map[string]*accumulator)
 
-	// Walk every .md file under root (same walk as BuildLinkGraph).
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic serve /external: walk error at %s: %v\n", path, err)
@@ -149,8 +119,6 @@ func BuildExternalRegistry(root string, dateFn FileDateFn) []ExternalEntry {
 		fileDate := dateFn(path)
 
 		for _, l := range links {
-			// Keep only absolute http/https URLs in markdown links.
-			// Wikilinks never have http:// targets; markdown links might be internal.
 			if l.Kind != mdlink.MarkdownLink {
 				continue
 			}
@@ -166,7 +134,6 @@ func BuildExternalRegistry(root string, dateFn FileDateFn) []ExternalEntry {
 			}
 			entry.sources[rel] = true
 
-			// Track earliest date across source files.
 			if entry.firstSeen.IsZero() || (!fileDate.IsZero() && fileDate.Before(entry.firstSeen)) {
 				entry.firstSeen = fileDate
 			}
@@ -174,7 +141,6 @@ func BuildExternalRegistry(root string, dateFn FileDateFn) []ExternalEntry {
 		return nil
 	})
 
-	// Build sorted result slice.
 	result := make([]ExternalEntry, 0, len(acc))
 	for url, a := range acc {
 		sources := make([]string, 0, len(a.sources))
@@ -194,31 +160,24 @@ func BuildExternalRegistry(root string, dateFn FileDateFn) []ExternalEntry {
 	return result
 }
 
-// ─── GET /api/external ───────────────────────────────────────────────────────
-
-// apiExternalEntry is one /api/external entry — reshapes ExternalEntry.
-// FirstSeen is nil (JSON null) when no source file yields a valid date.
+// apiExternalEntry carries FirstSeen as null when no source yields a date.
 type apiExternalEntry struct {
 	URL       string   `json:"url"`
 	Sources   []string `json:"sources"`
 	FirstSeen *string  `json:"firstSeen"`
 }
 
-// apiExternalResponse is the /api/external success payload.
 type apiExternalResponse struct {
 	Entries []apiExternalEntry `json:"entries"`
 }
 
-// NewAPIExternalHandler returns an http.Handler for GET /api/external. Reuses
-// BuildExternalRegistry — the same walk NewExternalHandler's HTML table
-// uses — reshaped as JSON with FirstSeen as a nullable ISO date string.
+// NewAPIExternalHandler serves GET /api/external.
 func NewAPIExternalHandler(root string, dateFn FileDateFn, store *snapshotStore) http.Handler {
 	if dateFn == nil {
 		dateFn = MtimeDateFn
 	}
-	// BuildExternalRegistry walks the whole realm (git-date per file — seconds
-	// on a large realm), so the result is memoized keyed by the snapshot
-	// fingerprint: recomputed only when the realm actually changed.
+	// The registry walk runs git once per file, seconds on a large realm, so
+	// memoize it against the snapshot fingerprint.
 	var mu sync.Mutex
 	var cachedFP string
 	var cached []ExternalEntry

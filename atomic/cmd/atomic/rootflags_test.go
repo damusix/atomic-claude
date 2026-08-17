@@ -2,11 +2,8 @@ package main
 
 import "testing"
 
-// TestScanRepoOverride covers the pre-scan that makes the global --repo
-// override actually take effect (cli-repo-flag-never-parses): every leaf
-// command sets DisableFlagParsing:true, so Cobra's own persistent-flag
-// parsing of --repo is a no-op regardless of position — this scan is the
-// only place --repo is read.
+// Every leaf sets DisableFlagParsing, so this pre-scan is the only place the
+// global --repo is read.
 func TestScanRepoOverride(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -84,11 +81,8 @@ func TestScanRepoOverride(t *testing.T) {
 	}
 }
 
-// TestRepoFlagExempt verifies that migrate, config resolve, and wiki stamp —
-// the three verbs whose own --repo flag already carries different,
-// established semantics — are detected as exempt from the global pre-scan,
-// while every other verb (including ones that also take their own flags, or
-// share a top-level name with an exempt verb's parent) is not.
+// Only migrate, config resolve and wiki stamp are exempt — including verbs
+// sharing a top-level name with an exempt verb.s parent.
 func TestRepoFlagExempt(t *testing.T) {
 	cases := []struct {
 		name string

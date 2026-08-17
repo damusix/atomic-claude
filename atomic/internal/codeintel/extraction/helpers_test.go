@@ -6,25 +6,9 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// Node-id golden-vector tests — the R3 CI gate.
-//
-// WHY these vectors exist: node-id is load-bearing — every edge in the graph
-// references node ids by value. Any divergence from the appendix-B formula
-// silently corrupts the entire edge table.
-//
-// Formula (appendix B):
-//   id = kind + ":" + hex(sha256("filePath:kind:name:line"))[:32]
-// File-node exception:
-//   id = "file:" + filePath (no hash)
-//
-// Goldens derived independently via Python:
-//   import hashlib
-//   def node_id(fp, k, n, l):
-//       h = hashlib.sha256(f"{fp}:{k}:{n}:{l}".encode()).hexdigest()[:32]
-//       return f"{k}:{h}"
-// ---------------------------------------------------------------------------
-
+// Every edge references node ids by value, so drift in the formula
+// (kind + ":" + hex(sha256("filePath:kind:name:line"))[:32]) silently corrupts
+// the whole edge table. These goldens were derived independently, outside Go.
 type nodeIDCase struct {
 	filePath string
 	kind     string
@@ -34,7 +18,7 @@ type nodeIDCase struct {
 }
 
 var nodeIDGoldens = []nodeIDCase{
-	// line=1 edge case — must use 1-based line encoding.
+	// Line encoding is 1-based.
 	{
 		filePath: "src/main.go",
 		kind:     "function",
@@ -42,7 +26,6 @@ var nodeIDGoldens = []nodeIDCase{
 		line:     1,
 		want:     "function:a9be729e3f1710774db40aa699ff076b",
 	},
-	// Same file + name, different line — ids must differ (line is load-bearing: R-E).
 	{
 		filePath: "src/main.go",
 		kind:     "function",
@@ -50,7 +33,6 @@ var nodeIDGoldens = []nodeIDCase{
 		line:     10,
 		want:     "function:88112bead45af3a69c236a0c9adb0c69",
 	},
-	// Method with "::" qualified name.
 	{
 		filePath: "src/auth/token.ts",
 		kind:     "method",
@@ -58,7 +40,6 @@ var nodeIDGoldens = []nodeIDCase{
 		line:     42,
 		want:     "method:a1171d6d17c0ca4c4bcf790c54cd182e",
 	},
-	// Class node.
 	{
 		filePath: "src/db/pool.go",
 		kind:     "class",
@@ -66,7 +47,7 @@ var nodeIDGoldens = []nodeIDCase{
 		line:     5,
 		want:     "class:584ea4e5872bb717b14bf162337483e0",
 	},
-	// Python function — ensures no language-specific branching.
+	// Python: the formula must not branch on language.
 	{
 		filePath: "src/utils.py",
 		kind:     "function",
@@ -74,7 +55,6 @@ var nodeIDGoldens = []nodeIDCase{
 		line:     100,
 		want:     "function:c8c838d6e89ea4c0fef591b314239eac",
 	},
-	// Variable node.
 	{
 		filePath: "cmd/atomic/main.go",
 		kind:     "variable",
@@ -103,11 +83,10 @@ func TestGenerateNodeID_GoldenVectors(t *testing.T) {
 	}
 }
 
-// TestGenerateNodeID_FileException verifies the file-node short-circuit:
-// id = "file:" + filePath (no hash, no kind prefix from hash).
+// File nodes short-circuit the hash: id = "file:" + filePath, so name and line
+// are irrelevant.
 func TestGenerateNodeID_FileException(t *testing.T) {
 	for _, tc := range fileNodeGoldens {
-		// line=0 and name="" are irrelevant for file nodes.
 		got := generateNodeID(tc.filePath, "file", "", 0)
 		if got != tc.want {
 			t.Errorf("generateNodeID(%q, \"file\", \"\", 0) = %q, want %q",
@@ -116,9 +95,8 @@ func TestGenerateNodeID_FileException(t *testing.T) {
 	}
 }
 
-// packageNodeGoldens pins the package-node id exception (docs/design/
-// code-intel-package-nodes.md): id = "package:npm/" + name — no hash,
-// filePath/line irrelevant, mirroring the file-node exception's shape.
+// Package nodes take the same shape of exception as file nodes:
+// id = "package:npm/" + name. See docs/spec/code-intel-package-nodes.md.
 var packageNodeGoldens = []struct {
 	name string
 	want string
@@ -127,10 +105,8 @@ var packageNodeGoldens = []struct {
 	{"vitest", "package:npm/vitest"},
 }
 
-// TestGenerateNodeID_PackageException verifies the package-node short-circuit.
 func TestGenerateNodeID_PackageException(t *testing.T) {
 	for _, tc := range packageNodeGoldens {
-		// filePath="" and line=0 are irrelevant for package nodes.
 		got := generateNodeID("", "package", tc.name, 0)
 		if got != tc.want {
 			t.Errorf("generateNodeID(\"\", \"package\", %q, 0) = %q, want %q", tc.name, got, tc.want)
@@ -138,8 +114,6 @@ func TestGenerateNodeID_PackageException(t *testing.T) {
 	}
 }
 
-// TestGenerateNodeID_Stability verifies idempotence: sha256 is deterministic;
-// repeated calls with the same inputs must produce the same output.
 func TestGenerateNodeID_Stability(t *testing.T) {
 	const want = "function:a9be729e3f1710774db40aa699ff076b"
 	for i := 0; i < 50; i++ {
@@ -150,9 +124,8 @@ func TestGenerateNodeID_Stability(t *testing.T) {
 	}
 }
 
-// TestGenerateNodeID_LineChangesID verifies that line is load-bearing in the
-// id — the same (file, kind, name) at different lines MUST produce different
-// ids. This is the property that forces delete-then-reinsert on line shift (R-E).
+// Line is load-bearing in the id — this is the property that forces
+// delete-then-reinsert when a symbol shifts lines.
 func TestGenerateNodeID_LineChangesID(t *testing.T) {
 	id1 := generateNodeID("src/main.go", "function", "main", 1)
 	id2 := generateNodeID("src/main.go", "function", "main", 2)
@@ -161,13 +134,8 @@ func TestGenerateNodeID_LineChangesID(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Helper tests — work on real parsed snippets via the pool/binding.
-//
-// We use the pool+binding to get a real sitter.Node, then test each helper.
-// ---------------------------------------------------------------------------
-
-// goSnippet is a minimal Go source with a block comment above a function.
+// goSnippet carries a two-line doc comment above the function; the helper tests
+// below run against a real parse tree rather than a hand-built node.
 const goSnippet = `package main
 
 // Add adds two integers together.
@@ -177,11 +145,8 @@ func Add(a, b int) int {
 }
 `
 
-// goSnippetNoDoc is a Go source with no comments above the function.
 const goSnippetNoDoc = "package main\nfunc noDoc() {}\n"
 
-// findFuncDecl parses src as Go, finds the first function_declaration, and
-// returns it. Fails the test if none is found.
 func findFuncDecl(t *testing.T, src string) (inst Instance, funcStartByte uint64, funcEndByte uint64, cleanup func()) {
 	t.Helper()
 	ctx := context.Background()
@@ -263,10 +228,8 @@ func findFuncDecl(t *testing.T, src string) (inst Instance, funcStartByte uint64
 	return nil, 0, 0, nil
 }
 
-// TestNodeText verifies that nodeText returns the exact source slice for a
-// parsed node's byte range.
-// WHY: the extractor uses nodeText to populate name, signature, and docstring
-// fields — an off-by-one here corrupts every extracted field.
+// nodeText fills name, signature, and docstring; an off-by-one on the byte
+// range corrupts every extracted field.
 func TestNodeText(t *testing.T) {
 	_, start, end, cleanup := findFuncDecl(t, goSnippet)
 	defer cleanup()
@@ -281,7 +244,6 @@ func TestNodeText(t *testing.T) {
 	}
 }
 
-// TestNodeText_EmptyRange verifies that an empty range returns an empty string.
 func TestNodeText_EmptyRange(t *testing.T) {
 	text := nodeText(5, 5, "hello world")
 	if text != "" {
@@ -289,10 +251,9 @@ func TestNodeText_EmptyRange(t *testing.T) {
 	}
 }
 
-// TestChildByField verifies ChildByField finds the "name" child of a Go
-// function_declaration, and returns nil/no-error for a missing field.
-// WHY: every language extractor calls childByField to locate the function/
-// class name node — returning the wrong child corrupts the node's name in DB.
+// Every language extractor locates function and class names through
+// childByField, so a wrong child corrupts the stored node name. A missing field
+// must come back nil with no error, not an error.
 func TestChildByField(t *testing.T) {
 	ctx := context.Background()
 	pool, err := NewPool(ctx, PoolOptions{Size: 1})
@@ -341,7 +302,6 @@ func TestChildByField(t *testing.T) {
 		}
 		funcFound = true
 
-		// "name" field of a Go function_declaration is the identifier node.
 		nameNode, err := childByField(ctx, child, "name")
 		if err != nil {
 			t.Fatalf("childByField(\"name\"): %v", err)
@@ -363,7 +323,6 @@ func TestChildByField(t *testing.T) {
 			t.Errorf("\"name\" field text = %q, want \"Add\"", nameText)
 		}
 
-		// A non-existent field must return nil, nil (not an error).
 		absent, err := childByField(ctx, child, "nonexistent_field_xyz")
 		if err != nil {
 			t.Fatalf("childByField(nonexistent): unexpected error: %v", err)
@@ -382,10 +341,8 @@ func TestChildByField(t *testing.T) {
 	}
 }
 
-// TestPrecedingDocstring verifies that precedingDocstring collects the
-// contiguous block of line-comments immediately above a declaration.
-// WHY: docstrings populate the nodes.docstring column used by FTS5 — a missed
-// comment means the symbol is less discoverable in search.
+// Docstrings feed the FTS5-indexed nodes.docstring column, so a dropped line in
+// the contiguous comment block above a declaration costs search recall.
 func TestPrecedingDocstring(t *testing.T) {
 	_, funcStart, _, cleanup := findFuncDecl(t, goSnippet)
 	defer cleanup()
@@ -403,8 +360,6 @@ func TestPrecedingDocstring(t *testing.T) {
 	}
 }
 
-// TestPrecedingDocstring_NoneWhenAbsent verifies empty return when no comment
-// precedes the declaration.
 func TestPrecedingDocstring_NoneWhenAbsent(t *testing.T) {
 	_, funcStart, _, cleanup := findFuncDecl(t, goSnippetNoDoc)
 	defer cleanup()

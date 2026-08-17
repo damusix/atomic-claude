@@ -9,19 +9,12 @@ import (
 	"time"
 )
 
-// ─── run identity ───────────────────────────────────────────────────────────
-
-// runID identifies this server process. Browser tabs use it to tell "the
-// layout was warmed by the server I am talking to now" from "warmed by a
-// previous run" — a restart may be serving different content, so a warm from
-// an older run cannot be trusted to still match.
-//
-// PID alone would collide after a reboot recycles it; the start timestamp
-// makes it unique in practice without needing randomness.
+// runID lets a browser tab tell a layout warmed by this server from one warmed
+// by a previous run, which may have served different content. The timestamp is
+// there because a reboot recycles PIDs.
 var runID = fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
 
-// startedAt is when this process began serving. Reported as an elapsed
-// duration rather than a wall-clock instant so the reader does not have to
+// startedAt is reported as an elapsed duration, so the reader never has to
 // reconcile the server's clock and timezone with their own.
 var startedAt = time.Now()
 
@@ -30,8 +23,6 @@ func RunID() string { return runID }
 
 // Uptime reports how long this process has been serving.
 func Uptime() time.Duration { return time.Since(startedAt) }
-
-// ─── reindex jobs ───────────────────────────────────────────────────────────
 
 // reindexState is the lifecycle of one member's index rebuild.
 type reindexState string
@@ -50,10 +41,9 @@ type reindexJob struct {
 	Error     string       `json:"error,omitempty"`
 }
 
-// reindexRegistry tracks one job per member key. Indexing is expensive and
-// writes to a SQLite file, so a second concurrent run over the same member
-// would contend with the first for no benefit — the registry is what makes a
-// repeated click a no-op rather than a pile-up.
+// reindexRegistry tracks one job per member key. Indexing writes to SQLite, so
+// a second concurrent run over the same member would only contend with the
+// first; this is what makes a repeated click a no-op instead of a pile-up.
 type reindexRegistry struct {
 	mu   sync.Mutex
 	jobs map[string]*reindexJob
@@ -72,8 +62,8 @@ func (r *reindexRegistry) get(key string) reindexJob {
 	return reindexJob{State: reindexIdle}
 }
 
-// begin marks key as running. started is false when a run is already in
-// flight, and the caller must not start another.
+// begin returns false when a run is already in flight, and the caller must not
+// start another.
 func (r *reindexRegistry) begin(key string) (started bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -100,23 +90,19 @@ func (r *reindexRegistry) finish(key string, err error) {
 	job.State = reindexDone
 }
 
-// ─── handler ────────────────────────────────────────────────────────────────
-
 type reindexHandler struct {
 	memberResolver
 	provider EngineProvider
 	registry *reindexRegistry
 }
 
-// NewAPIReindexHandler serves GET (status) and POST (start) on
-// /api/code/index. Member resolution matches the code explorer's exactly —
-// the same memberResolver — so the member a rebuild targets is the one the
-// rest of the UI is showing.
+// NewAPIReindexHandler serves GET for status and POST to start on
+// /api/code/index. It shares memberResolver with the code explorer, so a
+// rebuild targets the member the rest of the UI is showing.
 //
-// This is the second write surface on an otherwise read-only server, and like
-// the first (bus chat) it is refused off-loopback: rebuilding an index is
-// real work on the serving machine's disk and must never be reachable from
-// the LAN when --host widens the bind.
+// Refused off-loopback: rebuilding an index is real work on the serving
+// machine's disk and must not be reachable from the LAN when --host widens
+// the bind.
 func NewAPIReindexHandler(opts CodeExplorerOptions) http.Handler {
 	prov := opts.EngineProvider
 	if prov == nil {
@@ -157,14 +143,13 @@ func (h *reindexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !h.registry.begin(member) {
-		// Already running: report the live job rather than erroring, so a
-		// double-click reads as "still going", not as a failure.
+		// Report the live job, so a double-click reads as "still going".
 		writeAPIJSON(w, h.registry.get(member))
 		return
 	}
 
-	// Detached from the request: indexing outlives any sane HTTP timeout, so
-	// the client polls GET for completion instead of holding the connection.
+	// Detached: indexing outlives any sane HTTP timeout, so the client polls
+	// GET rather than holding the connection.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()

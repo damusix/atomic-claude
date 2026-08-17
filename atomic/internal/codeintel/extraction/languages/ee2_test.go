@@ -1,17 +1,8 @@
 package languages_test
 
-// EE2 extractor tests — call-argument capture.
-//
-// These tests prove:
-//   - Indexing `emitter.on('login', handler)` produces an UnresolvedReference
-//     (callee "emitter.on" or "on") whose Arguments contains "login".
-//   - A call with no string args (e.g. foo(x, y)) produces an empty Arguments slice.
-//   - A call with only non-string args produces an empty Arguments slice.
-//   - The existing node-count stability invariant is unaffected (regression guard).
-//
-// WHY: EE2 enables event-emitter and rn-event-channel synthesizers to correlate
-// .on('event', fn) <-> .emit('event') by the event-name string argument.
-// Without Arguments capture these synthesizers cannot derive their edges.
+// Call-argument capture. The event-emitter and event-channel synthesizers pair
+// an .on('login', fn) with its .emit('login') by that string argument, so
+// without it in Arguments they can derive no edge at all.
 
 import (
 	"context"
@@ -23,16 +14,12 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// jsSource wraps src in a function body so call_expression nodes are inside a
-// function and are walked via visitFunctionBody.
+// jsSource wraps src in a function so its calls are reached by the body walk.
 const ee2JSFuncWrapper = `function handler() {
 %s
 }`
 
-// TestEE2_StringArgCaptured proves that indexing a call with a string-literal
-// first argument captures that string in Arguments.
-// WHY: this is the core EE2 contract — the synthesizer reads Arguments[0] to
-// correlate .on('login', fn) with .emit('login').
+// The core contract: the synthesizer reads Arguments[0].
 func TestEE2_StringArgCaptured(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -45,7 +32,6 @@ func TestEE2_StringArgCaptured(t *testing.T) {
 		t.Fatalf("unexpected extraction errors: %v", result.Errors)
 	}
 
-	// Find the call UnresolvedReference whose callee contains "on".
 	var found *types.UnresolvedReference
 	for i := range result.UnresolvedReferences {
 		r := &result.UnresolvedReferences[i]
@@ -66,17 +52,13 @@ func TestEE2_StringArgCaptured(t *testing.T) {
 	}
 }
 
-// TestEE2_NoStringArgs proves that a call with only identifier arguments
-// records no bare string entries — identifiers are captured with the "arg:"
-// prefix (EE5) and must not appear as empty strings or undecorated names.
-// WHY: EE5 extends this case to capture identifier args as "arg:<name>";
-// the invariant is that no empty-string entries appear in Arguments.
+// Identifier arguments are captured as "arg:<name>". The invariant is that
+// nothing lands in Arguments bare or empty.
 func TestEE2_NoStringArgs(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
-	// foo(x, y) — both args are identifiers, no string literals.
 	src := "function handler() {\n  foo(x, y);\n}"
 	result := e.Extract(ctx, "src/ee2nostr.js", src, types.LanguageJavaScript)
 
@@ -86,8 +68,6 @@ func TestEE2_NoStringArgs(t *testing.T) {
 
 	for _, r := range result.UnresolvedReferences {
 		if r.ReferenceKind == types.EdgeKindCalls && r.ReferenceName == "foo" {
-			// Post-EE5: identifier args are captured as "arg:x", "arg:y".
-			// Assert no empty strings and no bare (undecorated) identifier names.
 			for _, a := range r.Arguments {
 				if a == "" {
 					t.Errorf("Arguments %v contains empty string entry", r.Arguments)
@@ -99,12 +79,9 @@ func TestEE2_NoStringArgs(t *testing.T) {
 			return
 		}
 	}
-	// foo call may not have been extracted (no function body issue) — skip if not found.
 	t.Log("foo call not found in refs (may be a top-level scope issue) — skip")
 }
 
-// TestEE2_ArglessCallProducesNilArguments proves that a call with no arguments
-// produces nil Arguments.
 func TestEE2_ArglessCallProducesNilArguments(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -128,8 +105,6 @@ func TestEE2_ArglessCallProducesNilArguments(t *testing.T) {
 	t.Log("doSomething() call not found — skip")
 }
 
-// TestEE2_TypeScriptStringArgCaptured proves that TypeScript extractions also
-// capture string-literal arguments (same grammar family).
 func TestEE2_TypeScriptStringArgCaptured(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -161,10 +136,8 @@ func TestEE2_TypeScriptStringArgCaptured(t *testing.T) {
 	}
 }
 
-// TestEE2_NodeCountStable proves that the EE2 change does not alter node count
-// across two extractions of the same fixture (regression guard from/).
-// WHY: node-count stability is a core invariant — extra UnresolvedReference rows
-// must not be confused with node explosion.
+// Re-extracting a fixture must yield the same counts: argument capture adds
+// reference rows, and that must never read as node growth.
 func TestEE2_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

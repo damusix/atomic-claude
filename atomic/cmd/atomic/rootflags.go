@@ -8,10 +8,8 @@ import (
 	"strings"
 )
 
-// findFirstVerb scans argv (os.Args[1:] after scanNoUpdateCheck) for the
-// first positional argument, skipping flags and their values. Only --repo
-// takes a value among the root-level flags; all other root flags are booleans.
-// Used to gate the background update goroutine (skip when verb == "update").
+// findFirstVerb returns the first positional argument, skipping flags. --repo
+// is the only root flag that takes a value; the rest are booleans.
 func findFirstVerb(argv []string) string {
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
@@ -30,10 +28,8 @@ func findFirstVerb(argv []string) string {
 	return ""
 }
 
-// scanNoUpdateCheck pre-scans argv for --no-update-check (and
-// --no-update-check=true/false) in any position. It returns the resolved flag
-// value and a cleaned argv with the flag tokens removed so subcommand parsers
-// don't trip over an unknown flag.
+// scanNoUpdateCheck resolves --no-update-check from any position and returns an
+// argv with its tokens removed, so no subcommand parser sees an unknown flag.
 func scanNoUpdateCheck(argv []string) (found bool, cleaned []string) {
 	cleaned = make([]string, 0, len(argv))
 	for _, a := range argv {
@@ -49,10 +45,8 @@ func scanNoUpdateCheck(argv []string) (found bool, cleaned []string) {
 	return found, cleaned
 }
 
-// repoFlagExemptions are verb paths (leading positional-token prefixes)
-// whose own --repo flag already carries different, established semantics —
-// a required target path, not the global context override — so
-// scanRepoOverride must leave their argv untouched entirely:
+// repoFlagExemptions are verb paths whose own --repo is a required target path,
+// not the global context override, so scanRepoOverride must not consume it:
 //
 //	migrate --repo <path>            : repo-scope migration target
 //	config resolve --repo <root>     : the repo to resolve Pi config for
@@ -63,9 +57,8 @@ var repoFlagExemptions = [][]string{
 	{"wiki", "stamp"},
 }
 
-// repoFlagExempt reports whether argv's verb path is one of
-// repoFlagExemptions (or is prefixed by one — wiki stamp takes a positional
-// <file> before its own flags, so the exempt prefix still matches).
+// repoFlagExempt matches on prefix, not equality: `wiki stamp` takes a
+// positional <file> before its flags, and must still match.
 func repoFlagExempt(argv []string) bool {
 	prefix := verbPrefix(argv)
 	for _, exempt := range repoFlagExemptions {
@@ -86,10 +79,9 @@ func repoFlagExempt(argv []string) bool {
 	return false
 }
 
-// verbPrefix returns the leading run of non-flag tokens in argv. Every
-// atomic invocation places its full verb path, and any of that verb's own
-// positional args, before its flags (see each verb's own usage string), so
-// this identifies the target verb without a full argv parse.
+// verbPrefix returns the leading run of non-flag tokens. Every invocation puts
+// the verb path and its positionals before any flag, so this identifies the
+// target verb without a full argv parse.
 func verbPrefix(argv []string) []string {
 	var out []string
 	for _, a := range argv {
@@ -101,18 +93,10 @@ func verbPrefix(argv []string) []string {
 	return out
 }
 
-// scanRepoOverride pre-scans argv for a global "--repo <path>" or
-// "--repo=<path>" override in any position and strips it, so no verb — a
-// Cobra leaf or a hand-rolled flag.NewFlagSet — ever sees an unrecognized
-// flag. DisableFlagParsing:true on every leaf command (see buildRootCmd)
-// makes Cobra's own persistent-flag parsing a no-op regardless of --repo's
-// position; this scan is the only place --repo is actually read. Not called
-// when repoFlagExempt reports the invocation targets a verb with its own,
-// differently-scoped --repo flag.
-//
-// Returns an error when --repo has no value to consume — end of argv, or the
-// next token looks like another flag — rather than silently treating an
-// unrelated token (e.g. the verb name) as the path.
+// scanRepoOverride is the only place the global --repo is read, since every
+// leaf sets DisableFlagParsing. It strips the tokens so no verb sees an
+// unrecognized flag. Errors rather than consuming an unrelated token (the verb
+// name, say) when --repo has no value to take.
 func scanRepoOverride(argv []string) (value string, cleaned []string, err error) {
 	cleaned = make([]string, 0, len(argv))
 	for i := 0; i < len(argv); i++ {

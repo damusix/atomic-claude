@@ -1,7 +1,7 @@
 package claudeinstall_test
 
-// Tests for ReapplyAgents — re-patching already-installed agent files
-// after a config-only change, without a full `atomic claude install` run.
+// ReapplyAgents re-patches installed agent files after a config-only change,
+// without a full `atomic claude install` run.
 
 import (
 	"io/fs"
@@ -15,9 +15,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
-// writeInstalledAgent copies the embedded atomic-implementer bytes straight
-// to <target>/agents/atomic-implementer.md, simulating a prior plain install
-// with no config overrides in effect.
+// writeInstalledAgent simulates a prior plain install with no overrides in effect.
 func writeInstalledAgent(t *testing.T, target string) {
 	t.Helper()
 	src, err := fs.ReadFile(embedded.FS, "bundle/agents/atomic-implementer.md")

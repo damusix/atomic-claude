@@ -9,9 +9,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// TestCategoryIndices asserts that the doctor registry's Index==3 entry is
-// "signals" and Index==8 is "binary". If the registry reorders, this test
-// breaks before Skip indices drift silently.
+// Run's Skip set is by index, so a doctor registry reorder must break here
+// rather than silently skipping the wrong categories.
 func TestCategoryIndices(t *testing.T) {
 	cats := doctor.Categories()
 	found := map[int]string{}
@@ -26,28 +25,24 @@ func TestCategoryIndices(t *testing.T) {
 	}
 }
 
-// stubResults returns a RunDoctorFn that yields fixed results and no error.
 func stubResults(results []doctor.Result) RunDoctorFn {
 	return func(opts doctor.Opts) ([]doctor.Result, error) {
 		return results, nil
 	}
 }
 
-// stubError returns a RunDoctorFn that yields an error.
 func stubError(err error) RunDoctorFn {
 	return func(opts doctor.Opts) ([]doctor.Result, error) {
 		return nil, err
 	}
 }
 
-// stubPanic returns a RunDoctorFn that panics.
 func stubPanic(msg string) RunDoctorFn {
 	return func(opts doctor.Opts) ([]doctor.Result, error) {
 		panic(msg)
 	}
 }
 
-// TestRunAllPass: all-PASS results → no output.
 func TestRunAllPass(t *testing.T) {
 	results := []doctor.Result{
 		{Index: 1, Name: "install", Severity: doctor.PASS, Detail: "ok"},
@@ -60,7 +55,6 @@ func TestRunAllPass(t *testing.T) {
 	}
 }
 
-// TestRunWarnOnly: WARN-only results → no output (WARN suppressed at post-update surface).
 func TestRunWarnOnly(t *testing.T) {
 	results := []doctor.Result{
 		{Index: 1, Name: "install", Severity: doctor.WARN, Detail: "stale"},
@@ -72,7 +66,6 @@ func TestRunWarnOnly(t *testing.T) {
 	}
 }
 
-// TestRunSkipOnly: SKIP-only results → no output.
 func TestRunSkipOnly(t *testing.T) {
 	results := []doctor.Result{
 		{Index: 3, Name: "signals", Severity: doctor.SKIP, Detail: "skipped"},
@@ -84,8 +77,6 @@ func TestRunSkipOnly(t *testing.T) {
 	}
 }
 
-// TestRunFailPrinted: exactly 2 FAIL lines printed; WARN in the same batch is suppressed.
-// A bug that emits duplicates, stray SKIP lines, or the WARN detail would fail this test.
 func TestRunFailPrinted(t *testing.T) {
 	results := []doctor.Result{
 		{Index: 1, Name: "install", Severity: doctor.FAIL, Detail: "missing files"},
@@ -96,7 +87,6 @@ func TestRunFailPrinted(t *testing.T) {
 	Run(stubResults(results), &buf)
 	out := buf.String()
 
-	// Split into non-empty lines; must be exactly 2 (one per FAIL result).
 	var lines []string
 	for _, l := range strings.Split(out, "\n") {
 		if l != "" {
@@ -106,19 +96,16 @@ func TestRunFailPrinted(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected exactly 2 output lines, got %d: %q", len(lines), out)
 	}
-	// Each line must contain "FAIL".
 	for _, l := range lines {
 		if !strings.Contains(l, "FAIL") {
 			t.Errorf("line does not contain 'FAIL': %q", l)
 		}
 	}
-	// WARN detail must not appear anywhere.
 	if strings.Contains(out, "hook stale") {
 		t.Errorf("WARN detail should be suppressed, got: %q", out)
 	}
 }
 
-// TestRunDoctorError: doctor returns non-nil error → print one-liner, no panic.
 func TestRunDoctorError(t *testing.T) {
 	var buf bytes.Buffer
 	Run(stubError(errors.New("some internal failure")), &buf)
@@ -131,10 +118,8 @@ func TestRunDoctorError(t *testing.T) {
 	}
 }
 
-// TestRunDoctorPanic: doctor panics → recovered, one-liner printed, no re-panic.
 func TestRunDoctorPanic(t *testing.T) {
 	var buf bytes.Buffer
-	// Must not panic.
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -152,7 +137,6 @@ func TestRunDoctorPanic(t *testing.T) {
 	}
 }
 
-// TestSkipOpts: Run calls doctor with Skip: []int{3, 8}.
 func TestSkipOpts(t *testing.T) {
 	var gotOpts doctor.Opts
 	stub := func(opts doctor.Opts) ([]doctor.Result, error) {

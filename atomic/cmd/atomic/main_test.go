@@ -9,10 +9,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 )
 
-// wantCobraSubcommandMeta is the ground truth for every ported subcommand: the exact
-// Short and args_hint values from cliusage.go. deriveCommands reads
-// cmd.Short for Description and Annotations["args_hint"] for Args; a byte-for-byte
-// mismatch here means the derived Commands() slice diverges from cliusage.go.
+// wantCobraSubcommandMeta mirrors cliusage.go byte-for-byte. deriveCommands
+// reads cmd.Short and Annotations["args_hint"], so any drift here means the
+// derived Commands() slice diverges from cliusage.go.
 var wantCobraSubcommandMeta = []struct {
 	path     []string
 	argsHint string
@@ -43,11 +42,8 @@ var wantCobraSubcommandMeta = []struct {
 	{[]string{"prompt", "claude-merge"}, "", "Emit the CLAUDE.md merge cold-op brief"},
 }
 
-// TestCobraSubcommandMetadata walks the Cobra command tree for every ported
-// subcommand and asserts the exact Short and Annotations["args_hint"] values
-// match cliusage.go byte-for-byte. WHY: deriveCommands reads these fields
-// to reproduce the Commands() slice; a silent mismatch would cause the A1 linter
-// to false-positive or false-negative against artifact citations.
+// A silent Short/args_hint mismatch makes the A1 linter false-positive or
+// false-negative against artifact citations.
 func TestCobraSubcommandMetadata(t *testing.T) {
 	var repo string
 	root := buildRootCmd(&repo)
@@ -68,9 +64,8 @@ func TestCobraSubcommandMetadata(t *testing.T) {
 	}
 }
 
-// wantDelegatedSubcommandMeta is the ground truth for every ported subcommand: the exact
-// Short and args_hint values from cliusage.go. Byte-for-byte match is required
-// so that deriveCommands reproduces the Commands() slice exactly.
+// wantDelegatedSubcommandMeta mirrors cliusage.go byte-for-byte, for the same
+// reason as wantCobraSubcommandMeta above.
 var wantDelegatedSubcommandMeta = []struct {
 	path     []string
 	argsHint string
@@ -119,9 +114,7 @@ var wantDelegatedSubcommandMeta = []struct {
 	{[]string{"followups", "path"}, "", "Print followups folder path"},
 }
 
-// TestDelegatedSubcommandMetadata walks the Cobra command tree for every ported
-// subcommand and asserts the exact Short and Annotations["args_hint"] values
-// match cliusage.go byte-for-byte. Covers the 3-level wiki bucket nesting.
+// Covers the 3-level wiki bucket nesting.
 func TestDelegatedSubcommandMetadata(t *testing.T) {
 	var repo string
 	root := buildRootCmd(&repo)
@@ -142,23 +135,14 @@ func TestDelegatedSubcommandMetadata(t *testing.T) {
 	}
 }
 
-// TestDeriveCommandsGolden is the gate for the A1 linter. It captures the
-// hardcoded cliusage.Commands() slice as the golden fixture (SetRoot is never
-// called in tests, so Commands() returns the static table) and asserts that
-// cliusage.DeriveCommands(buildRootCmd(...)) reproduces the exact same surface.
-//
-// A failure here means the Cobra tree's metadata (Short, Annotations["args_hint"],
-// or registered Flags) diverges from the golden — fix the Cobra side in main.go,
-// not the golden.
-//
-// WHY set-for-set comparison: cobra's VisitAll visits flags alphabetically; the
-// hardcoded golden has flags in non-alphabetical order for some commands. Order
-// within the Flags slice is irrelevant for the A1 linter (which builds a map).
+// The gate for the A1 linter. SetRoot is never called in tests, so Commands()
+// returns the static table and serves as the golden. On failure, fix the Cobra
+// side in main.go, not the golden. Comparison is set-for-set because VisitAll
+// walks flags alphabetically while the golden does not, and the linter builds a
+// map from them anyway.
 func TestDeriveCommandsGolden(t *testing.T) {
-	// Golden: hardcoded pre-migration slice (SetRoot not called in tests).
 	golden := cliusage.Commands()
 
-	// Derived: walk the live Cobra tree.
 	var repo string
 	root := buildRootCmd(&repo)
 	derived := cliusage.DeriveCommands(root)
@@ -166,9 +150,8 @@ func TestDeriveCommandsGolden(t *testing.T) {
 	assertCommandSetsEqual(t, derived, golden)
 }
 
-// assertCommandSetsEqual verifies that derived and golden describe the same
-// command surface: same set of paths, and for each path the same Args,
-// Description, and flag set (flag ORDER within a command is ignored).
+// assertCommandSetsEqual compares paths, Args, Description and flag sets;
+// flag order within a command is ignored.
 func assertCommandSetsEqual(t *testing.T, derived, golden []cliusage.Command) {
 	t.Helper()
 
@@ -195,7 +178,6 @@ func assertCommandSetsEqual(t *testing.T, derived, golden []cliusage.Command) {
 		return
 	}
 
-	// Index golden by path key.
 	byPath := make(map[string]cliusage.Command, len(golden))
 	for _, c := range golden {
 		byPath[strings.Join(c.Path, "/")] = c
@@ -235,12 +217,8 @@ func assertCommandSetsEqual(t *testing.T, derived, golden []cliusage.Command) {
 	}
 }
 
-// TestRootCmdExact22Verbs verifies the Cobra root command has exactly the 22
-// expected top-level verbs and no extra auto-generated commands (completion,
-// help) leaked into the visible command set.
-// WHY: DisableDefaultCmd and SetHelpCommand suppress Cobra's auto-adds;
-// this test is the gate that catches any regression where Cobra re-adds them
-// or a new verb is accidentally introduced.
+// Catches a regression where Cobra re-adds the completion or help verbs that
+// DisableDefaultCmd and SetHelpCommand suppress, or a verb slips in unnoticed.
 func TestRootCmdExact22Verbs(t *testing.T) {
 	var repoOverride string
 	root := buildRootCmd(&repoOverride)
@@ -251,7 +229,6 @@ func TestRootCmdExact22Verbs(t *testing.T) {
 		"repl", "repo", "serve", "signals", "template", "update", "validate", "where", "wiki",
 	}
 
-	// Collect visible (non-hidden) commands only.
 	var visible []string
 	for _, cmd := range root.Commands() {
 		if !cmd.Hidden {
@@ -273,7 +250,6 @@ func TestRootCmdExact22Verbs(t *testing.T) {
 		}
 	}
 
-	// Confirm no completion or help leaked into visible commands.
 	for _, name := range visible {
 		if name == "completion" || name == "help" {
 			t.Errorf("unexpected command leaked into top-level: %q", name)
@@ -281,15 +257,9 @@ func TestRootCmdExact22Verbs(t *testing.T) {
 	}
 }
 
-// TestFindAllPaths verifies that rootCmd.Find returns a non-nil, non-root
-// command for every path in cliusage.Commands(). WHY (SC3): every command path
-// registered in the golden cliusage surface must be reachable in the live Cobra
-// tree so that --help rendering and DeriveCommands produce complete output. A
-// missing path means a command is declared in the fixture but absent from the
-// tree — the A1 linter would pass while the actual command is unreachable.
-//
-// Paths are sourced from cliusage.Commands() so the assertion automatically
-// covers whatever the current command set is; no hardcoded count is used.
+// A path in the golden surface but absent from the live tree passes the A1
+// linter while the command itself is unreachable. Paths come from
+// cliusage.Commands(), so no count is hardcoded here.
 func TestFindAllPaths(t *testing.T) {
 	var repoOverride string
 	root := buildRootCmd(&repoOverride)
@@ -304,5 +274,3 @@ func TestFindAllPaths(t *testing.T) {
 		})
 	}
 }
-
-// --- post-update artifact auto-refresh ---

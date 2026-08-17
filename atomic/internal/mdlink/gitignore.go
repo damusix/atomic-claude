@@ -5,25 +5,20 @@ import (
 	"strings"
 )
 
-// LinkifyFile behaves like Linkify but adds an optional gitignore-aware layer:
-// when baseDir is inside a git work tree (and git is on PATH), any inline-code
-// token that git reports as ignored is left plain text, on top of the static
-// skip-set. When git is absent or baseDir is not a git repo, it degrades to
-// exactly Linkify — no error, nothing breaks.
+// LinkifyFile adds a gitignore-aware layer over Linkify: inside a git work tree
+// with git on PATH, ignored tokens stay plain text. Otherwise it is exactly
+// Linkify — no error, nothing breaks.
 func LinkifyFile(content, fileAbsPath, baseDir string) string {
 	tokens := extractTokens(content)
 	ignored := gitIgnored(baseDir, tokens)
 	return linkify(content, fileAbsPath, baseDir, ignored)
 }
 
-// gitIgnored is the seam for testing. Production uses defaultGitIgnored; tests
-// override it to avoid spawning git.
+// gitIgnored is a test seam, overridden to avoid spawning git.
 var gitIgnored = defaultGitIgnored
 
-// defaultGitIgnored returns the subset of tokens that git considers ignored
-// under baseDir. Returns an empty (non-nil) map when git is unavailable, baseDir
-// is not a git work tree, or no token is ignored. Never returns an error — the
-// gitignore layer is best-effort and must not break linkification.
+// defaultGitIgnored never errors: the layer is best-effort and must not break
+// linkification. A non-nil empty map covers git absent, no repo, and none ignored.
 func defaultGitIgnored(baseDir string, tokens []string) map[string]bool {
 	res := map[string]bool{}
 	if len(tokens) == 0 {
@@ -32,19 +27,17 @@ func defaultGitIgnored(baseDir string, tokens []string) map[string]bool {
 	if _, err := exec.LookPath("git"); err != nil {
 		return res
 	}
-	// Confirm baseDir is inside a git work tree before asking about ignores.
 	out, err := exec.Command("git", "-C", baseDir, "rev-parse", "--is-inside-work-tree").Output()
 	if err != nil || strings.TrimSpace(string(out)) != "true" {
 		return res
 	}
 
-	// Batch all tokens through one check-ignore call. check-ignore echoes back
-	// each ignored input path verbatim, one per line.
+	// One batched check-ignore call; it echoes each ignored path verbatim.
 	cmd := exec.Command("git", "-C", baseDir, "check-ignore", "--stdin")
 	cmd.Stdin = strings.NewReader(strings.Join(tokens, "\n") + "\n")
 	stdout, err := cmd.Output()
 	if err != nil {
-		// Exit code 1 means "no path is ignored" — not an error for us.
+		// Exit 1 means "nothing ignored", not a failure.
 		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
 			return res
 		}
@@ -57,9 +50,8 @@ func defaultGitIgnored(baseDir string, tokens []string) map[string]bool {
 	return res
 }
 
-// extractTokens collects inline-code spans (`token`) from prose, skipping fenced
-// code blocks. Mirrors Linkify's fence/inline-span recognition so the gitignore
-// batch sees exactly the tokens that linkification would consider.
+// extractTokens mirrors Linkify's fence and inline-span recognition, so the
+// gitignore batch sees exactly the tokens linkification would consider.
 func extractTokens(content string) []string {
 	var tokens []string
 	inFence := false

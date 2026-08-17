@@ -9,13 +9,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
 )
 
-// TestRunDocsScanDispatch verifies that docsAction("scan") writes the cache
-// file to the repo root. Encodes the WHY: CLI wiring must reach the correct
-// package function through the dispatch switch; a misconfigured import path
-// or switch fall-through would silently produce no output.
+// A misconfigured import path or switch fall-through would silently produce
+// no output, so these go through the dispatch switch, not docs.Scan.
 func TestRunDocsScanDispatch(t *testing.T) {
 	root := t.TempDir()
-	// Create a docs/ dir so Scan has something to walk.
 	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
 		t.Fatalf("mkdir docs: %v", err)
 	}
@@ -23,7 +20,6 @@ func TestRunDocsScanDispatch(t *testing.T) {
 		t.Fatalf("write index.md: %v", err)
 	}
 
-	// Exercise the dispatch switch, not docs.Scan directly.
 	code := docsAction([]string{"scan"}, root)
 	if code != 0 {
 		t.Fatalf("docsAction(scan) returned exit code %d, want 0", code)
@@ -39,20 +35,15 @@ func TestRunDocsScanDispatch(t *testing.T) {
 	}
 }
 
-// TestRunDocsStaleDispatch verifies that docsAction("stale") returns the
-// correct exit codes. Encodes the WHY: exit codes are the contract for CI
-// consumers; the mapping nil→0, ErrStale→1, other error→2 must be exercised
-// through the dispatch switch, not by calling docs.Stale directly.
+// Exit codes are the contract for CI consumers: nil→0, ErrStale→1, other→2.
 func TestRunDocsStaleDispatch(t *testing.T) {
 	root := t.TempDir()
 
-	// No cache yet → non-ErrStale error (cache missing) → exit code 2.
 	code := docsAction([]string{"stale"}, root)
 	if code != 2 {
 		t.Fatalf("docsAction(stale) with no cache: got exit code %d, want 2", code)
 	}
 
-	// Create a docs dir + file, scan to produce a fresh cache.
 	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
 		t.Fatalf("mkdir docs: %v", err)
 	}
@@ -63,17 +54,14 @@ func TestRunDocsStaleDispatch(t *testing.T) {
 		t.Fatalf("docs.Scan: %v", err)
 	}
 
-	// After a fresh scan the cache is current → exit code 0.
 	code = docsAction([]string{"stale"}, root)
 	if code != 0 {
 		t.Errorf("docsAction(stale) after fresh scan: got exit code %d, want 0", code)
 	}
 }
 
-// TestRunDocsNoSubcommandUsage verifies that docsAction with no subcommand
-// returns exit code 1. Encodes the WHY: every other dispatch function in
-// main.go returns a non-zero code when called with no verb; docs must follow
-// the same contract. A zero return here would silently succeed on `atomic docs`.
+// Every dispatch function returns non-zero for a missing verb; a zero here
+// would make bare `atomic docs` silently succeed.
 func TestRunDocsNoSubcommandUsage(t *testing.T) {
 	root := t.TempDir()
 
@@ -83,9 +71,7 @@ func TestRunDocsNoSubcommandUsage(t *testing.T) {
 	}
 }
 
-// TestRunDocsUnknownVerbDispatch verifies that docsAction with an unknown verb
-// returns exit code 1. Encodes the WHY: unknown verbs must not silently
-// succeed or fall through to a no-op.
+// An unknown verb must not fall through to a silent no-op.
 func TestRunDocsUnknownVerbDispatch(t *testing.T) {
 	root := t.TempDir()
 

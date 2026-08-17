@@ -1,14 +1,3 @@
-// Tests for the cwd-independent daemon fix.
-//
-// Problem reproduced: when the proxy spawns the daemon with only a projectRoot
-// arg, and the process cwd is a non-git/realm-root directory, the daemon's
-// scope resolution exits before binding its socket. These tests verify:
-//
-//  1. RunDaemon binds its socket when called with explicit (sourceRoot, dbPath)
-//     regardless of the process cwd.
-//  2. The socket/lock live next to the db (in dbPath's directory), not inside
-//     the source tree — so nothing is written into a realm member's source tree.
-//  3. SocketPathFromDB / LockPathFromDB are consistent between proxy and daemon.
 package mcp_test
 
 import (
@@ -25,16 +14,10 @@ import (
 	codemcp "github.com/damusix/atomic-claude/atomic/internal/codeintel/mcp"
 )
 
-// TestCwdIndependent_DaemonBindsSocketFromNonGitCwd verifies that a daemon
-// started with an explicit (sourceRoot, dbPath) binds its socket and answers
-// an MCP initialize request, even when the cwd is a non-git directory.
-//
-// This is the regression test for the bug: old RunDaemon(ctx, projectRoot, now)
-// used engine.New(projectRoot) which consults cwd if projectRoot has no git root.
-// The new RunDaemon(ctx, sourceRoot, dbPath, now) uses engine.NewWithDBPath and
-// is cwd-independent.
+// Explicit paths must carry the daemon through a non-git cwd. Resolving the
+// engine from projectRoot alone fell back to cwd and exited before binding.
 func TestCwdIndependent_DaemonBindsSocketFromNonGitCwd(t *testing.T) {
-	// Use /tmp so the path stays short (unix socket limit ~104 chars on macOS).
+	// /tmp keeps the socket path inside the unix sun_path limit.
 	sourceDir, err := os.MkdirTemp("/tmp", "atmc-src-")
 	if err != nil {
 		t.Fatalf("MkdirTemp source: %v", err)
@@ -49,12 +32,11 @@ func TestCwdIndependent_DaemonBindsSocketFromNonGitCwd(t *testing.T) {
 
 	dbPath := filepath.Join(dbDir, "test.db")
 
-	// Create the db dir so the daemon can write the socket there.
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll dbDir: %v", err)
 	}
 
-	// Change cwd to a temporary non-git directory (simulates realm root).
+	// A non-git cwd, standing in for a realm root.
 	nonGitCwd, err := os.MkdirTemp("/tmp", "atmc-cwd-")
 	if err != nil {
 		t.Fatalf("MkdirTemp cwd: %v", err)
@@ -73,7 +55,6 @@ func TestCwdIndependent_DaemonBindsSocketFromNonGitCwd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Initialize an empty engine at sourceRoot with db at dbPath.
 	eng, err := engine.NewWithDBPath(sourceDir, dbPath)
 	if err != nil {
 		t.Fatalf("engine.NewWithDBPath: %v", err)
@@ -87,10 +68,8 @@ func TestCwdIndependent_DaemonBindsSocketFromNonGitCwd(t *testing.T) {
 	stats, _ := eng.GetStats(ctx)
 	srv := codemcp.NewServer(eng, stats.FileCount)
 
-	// Compute the socket path the same way proxy and daemon agree.
 	sockPath := codemcp.SocketPathFromDB(dbPath)
 
-	// Start daemon with explicit (sourceRoot, dbPath) — cwd-independent.
 	daemonDone := make(chan error, 1)
 	go func() {
 		ln, err := net.Listen("unix", sockPath)
@@ -103,7 +82,6 @@ func TestCwdIndependent_DaemonBindsSocketFromNonGitCwd(t *testing.T) {
 
 	waitForSocketLive(t, sockPath, 5*time.Second)
 
-	// Connect via socket and issue MCP initialize.
 	conn, err := net.DialTimeout("unix", sockPath, 3*time.Second)
 	if err != nil {
 		t.Fatalf("dial socket: %v", err)
@@ -118,7 +96,6 @@ func TestCwdIndependent_DaemonBindsSocketFromNonGitCwd(t *testing.T) {
 	}
 	defer sess.Close()
 
-	// tools/list proves the MCP handshake succeeded.
 	res, err := sess.ListTools(ctx, &sdk.ListToolsParams{})
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
@@ -128,9 +105,6 @@ func TestCwdIndependent_DaemonBindsSocketFromNonGitCwd(t *testing.T) {
 	}
 }
 
-// TestSocketPathFromDB_IsUnderDBDir verifies the socket and lock live next to
-// the db, not inside the source tree. For a realm member with
-// dbPath=<realm>/.atomic/<key>.db, the socket must be under <realm>/.atomic/.
 func TestSocketPathFromDB_IsUnderDBDir(t *testing.T) {
 	dbPath := "/some/realm/.atomic/gui.db"
 	sockPath := codemcp.SocketPathFromDB(dbPath)
@@ -146,9 +120,6 @@ func TestSocketPathFromDB_IsUnderDBDir(t *testing.T) {
 	}
 }
 
-// TestSocketPathFromDB_NoMemberPollution verifies that when serving a realm
-// member (source at <realm>/gui, db at <realm>/.atomic/gui.db), nothing is
-// written into <realm>/gui/.claude/.atomic-index/.
 func TestSocketPathFromDB_NoMemberPollution(t *testing.T) {
 	realmDir, err := os.MkdirTemp("/tmp", "atmc-realm-")
 	if err != nil {
@@ -170,7 +141,6 @@ func TestSocketPathFromDB_NoMemberPollution(t *testing.T) {
 	sockPath := codemcp.SocketPathFromDB(dbPath)
 	lockPath := codemcp.LockPathFromDB(dbPath)
 
-	// Socket and lock must NOT be under the member's source tree.
 	memberIndexDir := filepath.Join(memberDir, ".claude", ".atomic-index")
 	if isUnderPath(sockPath, memberIndexDir) {
 		t.Errorf("socket path %s is under member index dir %s (pollutes member source)", sockPath, memberIndexDir)
@@ -179,7 +149,6 @@ func TestSocketPathFromDB_NoMemberPollution(t *testing.T) {
 		t.Errorf("lock path %s is under member index dir %s (pollutes member source)", lockPath, memberIndexDir)
 	}
 
-	// Socket and lock must be under <realm>/.atomic/.
 	if !isUnderPath(sockPath, atomicDir) {
 		t.Errorf("socket path %s should be under %s", sockPath, atomicDir)
 	}
@@ -188,9 +157,6 @@ func TestSocketPathFromDB_NoMemberPollution(t *testing.T) {
 	}
 }
 
-// TestRepoMode_SocketUnchanged verifies that for a standalone repo (db at
-// <repo>/.claude/.atomic-index/atomic.db), the socket remains in the same
-// .claude/.atomic-index/ directory as before the fix — no path regression.
 func TestRepoMode_SocketUnchanged(t *testing.T) {
 	repoDir := "/some/repo"
 	dbPath := filepath.Join(repoDir, ".claude", ".atomic-index", "atomic.db")
@@ -206,7 +172,6 @@ func TestRepoMode_SocketUnchanged(t *testing.T) {
 	}
 }
 
-// isUnderPath reports whether child is equal to or under parent.
 func isUnderPath(child, parent string) bool {
 	child = filepath.Clean(child)
 	parent = filepath.Clean(parent)

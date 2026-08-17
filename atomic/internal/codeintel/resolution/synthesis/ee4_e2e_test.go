@@ -1,22 +1,6 @@
 package synthesis_test
 
-// ee4_e2e_test.go — end-to-end tests proving EE4 heritage capture produces
-// extends/implements EDGES in the DB, not just unresolved refs.
-//
-// # Why these tests are the spec gate
-//
-//   - Previous iterations only proved refs are EMITTED by the extractor.
-//   - These tests drive the full pipeline: index real source files via
-//     IndexAll, run ResolveAndPersistBatched, then assert edges exist in DB.
-//   - "EE4 implemented" means edges exist, not just refs queued.
-//
-// # Test matrix
-//
-//   - TS class extends class → EdgeKindExtends (not promoted: target is class)
-//   - TS class implements interface → EdgeKindImplements (appendix-F promotion)
-//   - TS interface extends interface → EdgeKindExtends (extends_type_clause)
-//   - C++ class inherits class → EdgeKindExtends (base_class_clause)
-//   - Java class extends class + implements interface → both edge kinds
+// End-to-end tests: heritage extraction through to synthesized dispatch edges.
 
 import (
 	"context"
@@ -98,10 +82,6 @@ func refuteEdge(t *testing.T, d *db.DB, sourceID, targetID string, kind types.Ed
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TypeScript: class extends class
-// ---------------------------------------------------------------------------
-
 // TestEE4_E2E_TS_ExtendsClassEdge proves that `class Dog extends Animal {}`
 // produces an EdgeKindExtends edge Dog→Animal.
 // NOT promoted: Animal is NodeKindClass, appendix-F only promotes when target
@@ -126,10 +106,6 @@ class Dog extends Animal {
 	// Confirm NOT promoted (target is class, not interface).
 	refuteEdge(t, d, dog.ID, animal.ID, types.EdgeKindImplements)
 }
-
-// ---------------------------------------------------------------------------
-// TypeScript: class implements interface (extends→implements promotion)
-// ---------------------------------------------------------------------------
 
 // TestEE4_E2E_TS_ImplementsEdge proves that `class Dog implements Speaker {}`
 // produces an EdgeKindImplements edge Dog→Speaker.
@@ -156,10 +132,6 @@ class Dog implements Speaker {
 	// Confirm promotion replaced the original extends — no raw extends edge.
 	refuteEdge(t, d, dog.ID, speaker.ID, types.EdgeKindExtends)
 }
-
-// ---------------------------------------------------------------------------
-// TypeScript: interface extends interface
-// ---------------------------------------------------------------------------
 
 // TestEE4_E2E_TS_InterfaceExtendsInterface proves that `interface B extends A {}`
 // produces a B→A edge via the full pipeline.
@@ -193,10 +165,6 @@ interface B extends A {
 	refuteEdge(t, d, b.ID, a.ID, types.EdgeKindExtends)
 }
 
-// ---------------------------------------------------------------------------
-// C++: class inherits class
-// ---------------------------------------------------------------------------
-
 // TestEE4_E2E_Cpp_ExtendsEdge proves that `class Circle : public Shape {}`
 // produces an EdgeKindExtends edge Circle→Shape.
 // C++ cppExtractHeritage walks base_class_clause and emits EdgeKindExtends
@@ -222,10 +190,6 @@ public:
 
 	assertEdge(t, d, circle.ID, shape.ID, types.EdgeKindExtends)
 }
-
-// ---------------------------------------------------------------------------
-// Java: class extends class + implements interface
-// ---------------------------------------------------------------------------
 
 // TestEE4_E2E_Java_ExtendsAndImplementsEdges proves that
 // `class C extends B implements I {}` produces BOTH edge kinds:

@@ -33,11 +33,9 @@ func TestSessionID_OverrideWinsOverEnv(t *testing.T) {
 	}
 }
 
-// TestSessionID_AbsentIsAClearErrorNeverAFallback locks in hard constraint 2
-// of the atomic-bus brief: identity is keyed by session id, with no cwd or
-// pid fallback. Two Claude Code sessions in the same working directory are
-// two distinct agents; silently deriving an identity from anything else
-// would collapse that distinction.
+// Identity is keyed by session id with no cwd or pid fallback. Two Claude Code
+// sessions in one directory are two distinct agents; deriving an identity from
+// anything else would collapse that distinction.
 func TestSessionID_AbsentIsAClearErrorNeverAFallback(t *testing.T) {
 	t.Setenv(sessionEnvVar, "") // os.Getenv treats set-to-empty same as unset
 
@@ -70,16 +68,12 @@ func TestState_LoadMissingFileYieldsEmptyState(t *testing.T) {
 	}
 }
 
-// TestState_SaveLoadRoundTrip_RealFileOnDisk is the mandatory end-to-end
-// test called out in .claude/skills/atomic-cli-contrib/SKILL.md §3: it
-// points HOME at a temp dir, calls the production entry points
-// (State.Save / Load), and asserts against the literal path production code
-// would read — computed independently of StatePath, not through it, so a
-// bug in StatePath itself could not hide behind this test.
+// Points HOME at a temp dir, calls the production Save/Load, and asserts against
+// the literal path production reads — computed independently of StatePath, so a
+// bug in StatePath itself cannot hide behind this test.
 func TestState_SaveLoadRoundTrip_RealFileOnDisk(t *testing.T) {
-	// home is passed explicitly to Save/Load; nothing in this package reads
-	// $HOME, so there is no env var to point here. Resolving $HOME into
-	// `home` is the CLI dispatch layer's job, covered once that layer exists.
+	// home is passed explicitly; nothing in this package reads $HOME. Resolving
+	// it is the CLI dispatch layer's job.
 	home := t.TempDir()
 
 	st := &State{Sessions: map[string]*sessionState{}}
@@ -109,11 +103,8 @@ func TestState_SaveLoadRoundTrip_RealFileOnDisk(t *testing.T) {
 	}
 }
 
-// TestState_Join_PersistsRepoAndRealmAcrossSaveLoad proves repo/realm
-// survive the Save/Load round trip a session's own process restart
-// (a fresh `atomic bus` invocation) depends on — the local half of
-// mode, kind, repo, and realm all survive a daemon restart;
-// TestHub_Rehydrate_RestoresRepoAndRealm covers the daemon-side half.
+// repo/realm survive the Save/Load round trip a fresh `atomic bus` invocation
+// depends on. TestHub_Rehydrate_RestoresRepoAndRealm covers the daemon side.
 func TestState_Join_PersistsRepoAndRealmAcrossSaveLoad(t *testing.T) {
 	home := t.TempDir()
 
@@ -158,10 +149,9 @@ func TestState_LastRoom_UnjoinedSessionReturnsFalse(t *testing.T) {
 	}
 }
 
-// TestState_Leave_RecomputesLastRoomFromRemaining proves Leave does not
-// merely clear LastRoom when the departed room was the most recent one — it
-// falls back to whatever room remains joined, so a --room-less command
-// still has a sensible default after leaving one of several rooms.
+// Leave does not merely clear LastRoom when the departed room was the most
+// recent — it falls back to whatever remains joined, so a --room-less command
+// still has a sensible default.
 func TestState_Leave_RecomputesLastRoomFromRemaining(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
 	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
@@ -213,8 +203,8 @@ func TestState_ResolveRoom(t *testing.T) {
 		}
 	})
 
-	// ResolveRoom must return a not-joined error (exit 3) when the session
-	// has joined nothing.
+	// ResolveRoom must return a not-joined error when the session has joined
+	// nothing.
 	t.Run("not-joined session errors with ExitNotJoined", func(t *testing.T) {
 		_, err := st.ResolveRoom("sess-never-joined", "")
 		if err == nil {
@@ -244,19 +234,15 @@ func TestEnsureDirs_CreatesRoomsDirAtRestrictivePerms(t *testing.T) {
 	if !info.IsDir() {
 		t.Fatal("rooms path exists but is not a directory")
 	}
-	// Room logs are the durable record of every room's traffic, and bus's
-	// only authentication is Unix file permissions — 0700 keeps them
-	// private to this user.
+	// Room logs are the durable record and Unix file permissions are bus's only
+	// authentication, so 0700 keeps them private to this user.
 	if perm := info.Mode().Perm(); perm != 0o700 {
 		t.Fatalf("rooms dir perm = %o, want 0700", perm)
 	}
 }
 
-// TestState_Join_StampsLastSeenEqualToJoined proves a fresh join's LastSeen
-// starts as the join time, not the zero value — the fallback
-// Hub.Rehydrate relies on for a pre-existing bus.json entry treats a zero
-// LastSeen as "written before this field existed", so Join itself must
-// never leave it zero.
+// Hub.Rehydrate treats a zero LastSeen as "written before this field existed",
+// so Join must never leave it zero.
 func TestState_Join_StampsLastSeenEqualToJoined(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
 	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
@@ -270,10 +256,9 @@ func TestState_Join_StampsLastSeenEqualToJoined(t *testing.T) {
 	}
 }
 
-// TestState_TouchLastSeen_UpdatesExistingMembership is the persisted
-// counterpart to Hub.Publish's in-memory LastSeen refresh: sendAction calls
-// this after a successful send so a later restart's Hub.Rehydrate has an
-// honest timestamp to restore, not "now".
+// The persisted counterpart to Hub.Publish's in-memory refresh: sendAction calls
+// it after a successful send so a later Rehydrate has an honest timestamp to
+// restore rather than "now".
 func TestState_TouchLastSeen_UpdatesExistingMembership(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
 	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
@@ -290,10 +275,8 @@ func TestState_TouchLastSeen_UpdatesExistingMembership(t *testing.T) {
 	}
 }
 
-// TestState_TouchLastSeen_UnknownMembershipReturnsFalse covers the race a
-// send-then-leave (from a different process) can produce: nothing to touch,
-// and the caller must be able to tell so rather than silently no-op writing
-// a fresh entry.
+// The send-then-leave race across processes: nothing to touch, and the caller
+// must be able to tell rather than silently writing a fresh entry.
 func TestState_TouchLastSeen_UnknownMembershipReturnsFalse(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
 	if ok := st.TouchLastSeen("sess-never-joined", "potato", time.Now()); ok {
@@ -306,9 +289,8 @@ func TestState_TouchLastSeen_UnknownMembershipReturnsFalse(t *testing.T) {
 	}
 }
 
-// TestState_LastSeen_SurvivesSaveLoadRoundTrip is the disk half of the
-// persistence fix — TestState_TouchLastSeen_* above only prove the in-memory
-// mutation; a restarted daemon reads this back off disk via Load.
+// The disk half — the TouchLastSeen tests above only prove the in-memory
+// mutation, while a restarted daemon reads this back through Load.
 func TestState_LastSeen_SurvivesSaveLoadRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	st := &State{Sessions: map[string]*sessionState{}}
@@ -329,10 +311,8 @@ func TestState_LastSeen_SurvivesSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
-// TestState_SetHalted_PersistsAndClears proves the round trip SetHalted
-// exists for: recording a halt with its reason, and a resume removing the
-// entry outright (an absent entry and Halted:false mean the same thing, so
-// there is no reason to keep one lying around).
+// Recording a halt with its reason, and a resume removing the entry outright:
+// absent and Halted:false mean the same thing.
 func TestState_SetHalted_PersistsAndClears(t *testing.T) {
 	st := &State{}
 	st.SetHalted("potato", true, "investigating a bad deploy")
@@ -348,9 +328,8 @@ func TestState_SetHalted_PersistsAndClears(t *testing.T) {
 	}
 }
 
-// TestState_Halted_SurvivesSaveLoadRoundTrip is the disk half: an operator
-// who halts a room and walks away needs this to still be true after a
-// `bus restart` — not merely true in the process that called SetHalted.
+// The disk half: an operator who halts a room and walks away needs it still
+// halted after a `bus restart`, not merely in the process that called SetHalted.
 func TestState_Halted_SurvivesSaveLoadRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	st := &State{}
@@ -369,10 +348,8 @@ func TestState_Halted_SurvivesSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
-// TestState_ClearRoom_RemovesEveryonesMembershipAndHaltState is the
-// bus.json-side half of Hub.Close: an operator closing a room may need to
-// clear other sessions' entries too, not just their own — unlike Leave,
-// which is scoped to the calling session.
+// The bus.json-side half of Hub.Close: closing a room clears other sessions'
+// entries too, unlike Leave, which is scoped to the calling session.
 func TestState_ClearRoom_RemovesEveryonesMembershipAndHaltState(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
 	st.Join("sess-fe", "potato", "frontend", "participate", KindAgent, "", "")
@@ -391,16 +368,14 @@ func TestState_ClearRoom_RemovesEveryonesMembershipAndHaltState(t *testing.T) {
 	if _, ok := st.Rooms["potato"]; ok {
 		t.Error("potato's persisted halt state survived ClearRoom")
 	}
-	// carrot is untouched — ClearRoom only ever targets the named room.
+	// carrot is untouched — ClearRoom only targets the named room.
 	if _, ok := st.Sessions["sess-fe"].Rooms["carrot"]; !ok {
 		t.Error("ClearRoom(\"potato\") should not have touched sess-fe's carrot membership")
 	}
 }
 
-// TestState_ClearRoom_RecomputesLastRoomWhenCleared mirrors Leave's own
-// LastRoom-recompute behavior (TestState_Leave_RecomputesLastRoomFromRemaining)
-// — a session whose most recent room gets closed by someone else still needs
-// a sensible --room-less default afterward.
+// Mirrors Leave's LastRoom recompute: a session whose most recent room is closed
+// by someone else still needs a sensible --room-less default.
 func TestState_ClearRoom_RecomputesLastRoomWhenCleared(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
 	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")

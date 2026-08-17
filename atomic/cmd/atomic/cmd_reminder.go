@@ -12,9 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildReminderCmd builds the "reminder" parent + add|list|show|rm children.
-// The undocumented "set-due" verb is not a cliusage entry; it routes via the
-// parent's ArbitraryArgs fallback to the existing handler.
+// The undocumented "set-due" verb has no cliusage entry; it reaches the handler
+// through the parent.s ArbitraryArgs fallback.
 func buildReminderCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runReminder(args, *repoOverride) }
 	parent := &cobra.Command{

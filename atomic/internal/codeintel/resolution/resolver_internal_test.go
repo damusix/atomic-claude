@@ -1,15 +1,13 @@
 package resolution
 
-// npmPackageName is unexported, so this file uses the package-internal test
-// convention (mirrors stale_internal_test.go in internal/wiki) to unit test
-// it directly rather than only indirectly through ResolveImport.
+// In-package so npmPackageName can be tested directly, not only through
+// ResolveImport.
 
 import "testing"
 
-// TestNpmPackageName_NormalizerTable pins the npm package-identity rule
-// (docs/design/code-intel-package-nodes.md): a scoped package keeps its
-// scope segment, a "node:" builtin stays whole, a URL-scheme specifier
-// yields no package, and everything else truncates to its first path
+// Pins the identity rule: a scoped package keeps its scope segment, a "node:"
+// builtin stays whole, a URL specifier yields no package, everything else
+// truncates to its first path
 // segment.
 func TestNpmPackageName_NormalizerTable(t *testing.T) {
 	cases := []struct {

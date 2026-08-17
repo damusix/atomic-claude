@@ -1,21 +1,12 @@
 package languages_test
 
-// Tests for the TS, JS, Python, Rust configs and the Registry.
+// TypeScript, JavaScript, Python, and Rust, plus the registry that resolves them.
+// Every fixture here runs through the real grammar, so these also cover ABI and
+// pool wiring, not only the configs.
 //
-// Each test:
-//   1. Extracts a real fixture through the pool (proves grammar ABI ok).
-//   2. Asserts the declared success criteria:
-//      - At least one function node extracted.
-//      - At least one class/struct/trait node extracted.
-//      - At least one import UnresolvedReference emitted.
-//      - At least one call site → UnresolvedReference (EdgeKindCalls).
-//      - IsExported correct per-language.
-//      - Node count stable across two extractions.
-//
-// Rust additionally: trait → NodeKindInterface OR impl method, macro_invocation
-// call emits UnresolvedReference.
-//
-// Registry: For() returns the correct config for all 5 languages; unknown → ok=false.
+// Each language repeats one shape: every declaration form reaches its intended
+// node kind, imports and calls surface as references rather than edges, export
+// status follows the language's own rule, and two runs agree.
 
 import (
 	"context"
@@ -26,10 +17,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction/languages"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
 
 func newExtractor(t *testing.T, lang extraction.Lang, cfg extraction.LanguageExtractor) *extraction.TreeSitterExtractor {
 	t.Helper()
@@ -72,14 +59,6 @@ func nodeKindList(nodes []types.Node) string {
 	return sb.String()
 }
 
-// ---------------------------------------------------------------------------
-// Registry tests
-// ---------------------------------------------------------------------------
-
-// TestRegistry_For_KnownLanguages verifies that For() resolves all 5 registered
-// languages to non-zero configs.
-// WHY: The registry is the single resolution point for; if any language is
-// missing, the orchestrator will silently skip files of that language.
 func TestRegistry_For_KnownLanguages(t *testing.T) {
 	t.Parallel()
 	reg := languages.NewRegistry()
@@ -102,15 +81,13 @@ func TestRegistry_For_KnownLanguages(t *testing.T) {
 		if lang != tc.wantLang {
 			t.Errorf("For(%q) Lang = %d, want %d", tc.lang, lang, tc.wantLang)
 		}
-		// Sanity: returned config must have at least FunctionTypes populated.
+		// A registered but empty config would resolve without extracting.
 		if len(cfg.FunctionTypes) == 0 {
 			t.Errorf("For(%q): FunctionTypes is empty", tc.lang)
 		}
 	}
 }
 
-// TestRegistry_For_Unknown verifies that an unregistered language returns ok=false.
-// WHY: Callers must be able to skip unsupported languages without panicking.
 func TestRegistry_For_Unknown(t *testing.T) {
 	t.Parallel()
 	reg := languages.NewRegistry()
@@ -120,18 +97,7 @@ func TestRegistry_For_Unknown(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TypeScript
-// ---------------------------------------------------------------------------
-
-// Verified node types (from tmp/probe-lang-details probe2.go):
-//
-//	Top-level: import_statement, export_statement (wraps class_declaration,
-//	function_declaration, interface_declaration, type_alias_declaration,
-//	enum_declaration, lexical_declaration with arrow_function)
-//	Named-iterator sees: interface_declaration, class_declaration,
-//	function_declaration, type_alias_declaration, method_definition,
-//	call_expression, enum_declaration, lexical_declaration
+// Covers every declaration form, exported and not, plus both import styles.
 const tsFixture = `import { EventEmitter } from "events";
 import defaultExport from "./defaults";
 
@@ -164,8 +130,6 @@ export function createEmitter(name: string): MyEmitter {
 
 const tsFixturePath = "src/emitter.ts"
 
-// TestTypeScript_FunctionExtracted asserts functions are extracted as NodeKindFunction.
-// WHY: Functions are the primary call targets; if missing, call-edge resolution fails.
 func TestTypeScript_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -184,8 +148,6 @@ func TestTypeScript_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestTypeScript_ClassExtracted asserts classes are extracted as NodeKindClass.
-// WHY: Classes are the structural containers; missing them breaks the member graph.
 func TestTypeScript_ClassExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -204,8 +166,6 @@ func TestTypeScript_ClassExtracted(t *testing.T) {
 	}
 }
 
-// TestTypeScript_InterfaceExtracted asserts TS interfaces emit NodeKindInterface.
-// WHY: Interfaces are the type-contract nodes; wrong kind breaks resolution edge promotion.
 func TestTypeScript_InterfaceExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -224,8 +184,6 @@ func TestTypeScript_InterfaceExtracted(t *testing.T) {
 	}
 }
 
-// TestTypeScript_ImportsExtracted asserts import statements emit UnresolvedReferences.
-// WHY: Imports are the starting point for the resolution layer's import resolver.
 func TestTypeScript_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -241,8 +199,6 @@ func TestTypeScript_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestTypeScript_CallEmitsUnresolvedReference asserts call expressions emit calls refs.
-// WHY: Calls must NOT emit edges directly — resolution layer owns that.
 func TestTypeScript_CallEmitsUnresolvedReference(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -258,8 +214,6 @@ func TestTypeScript_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestTypeScript_IsExported_ExportedSymbolsDetected asserts exported symbols have IsExported=true.
-// WHY: IsExported drives +10 scoring bonus in resolution; missing it degrades cross-file resolution.
 func TestTypeScript_IsExported_ExportedSymbolsDetected(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -289,8 +243,6 @@ func TestTypeScript_IsExported_ExportedSymbolsDetected(t *testing.T) {
 	}
 }
 
-// TestTypeScript_NodeCountStable asserts node count is deterministic.
-// WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestTypeScript_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -306,11 +258,8 @@ func TestTypeScript_NodeCountStable(t *testing.T) {
 	}
 }
 
-// TestTypeScript_PackageImportKeepsFullSpecifierName asserts a scoped npm
-// package import ("@hapi/hapi") keeps its full specifier as the import
-// node's name, instead of collapsing to the last "/"-segment ("hapi") and
-// losing the package identity — three "@noormdev/sdk" imports used to
-// render as three indistinguishable "sdk" nodes.
+// Regression guard: a package name was once the last path segment, so several
+// scoped or subpath packages collapsed onto one indistinguishable node.
 func TestTypeScript_PackageImportKeepsFullSpecifierName(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -333,10 +282,8 @@ func TestTypeScript_PackageImportKeepsFullSpecifierName(t *testing.T) {
 	}
 }
 
-// TestTypeScript_RelativeImportUsesBasenameName asserts a relative import
-// still yields the basename as the import node's name — relative imports
-// resolve to a real file node via the imports edge, so the short label
-// stays less noisy.
+// The other half of that rule: a relative import keeps its basename, since it
+// resolves to a real file node anyway.
 func TestTypeScript_RelativeImportUsesBasenameName(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -359,16 +306,7 @@ func TestTypeScript_RelativeImportUsesBasenameName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// JavaScript
-// ---------------------------------------------------------------------------
-
-// Verified node types (from tmp/probe-lang-details probe2.go):
-//
-//	Top-level: import_statement, export_statement (wraps class_declaration,
-//	function_declaration, lexical_declaration with arrow_function), lexical_declaration
-//	Named-iterator sees: class_declaration, function_declaration, method_definition,
-//	call_expression, lexical_declaration, arrow_function
+// The TypeScript fixture minus what JavaScript has no syntax for.
 const jsFixture = `import { EventEmitter } from 'events';
 const path = require('path');
 
@@ -498,8 +436,7 @@ func TestJavaScript_NodeCountStable(t *testing.T) {
 	}
 }
 
-// TestJavaScript_PackageImportKeepsFullSpecifierName is the JavaScript
-// counterpart of TestTypeScript_PackageImportKeepsFullSpecifierName.
+// The JavaScript half of the import-naming rule; both share importNodeName.
 func TestJavaScript_PackageImportKeepsFullSpecifierName(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
@@ -522,8 +459,7 @@ func TestJavaScript_PackageImportKeepsFullSpecifierName(t *testing.T) {
 	}
 }
 
-// TestJavaScript_RelativeImportUsesBasenameName is the JavaScript
-// counterpart of TestTypeScript_RelativeImportUsesBasenameName.
+// As above, for a relative specifier.
 func TestJavaScript_RelativeImportUsesBasenameName(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
@@ -546,18 +482,7 @@ func TestJavaScript_RelativeImportUsesBasenameName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Python
-// ---------------------------------------------------------------------------
-
-// Verified node types (from tmp/probe-lang-details):
-//
-//	Top-level: import_statement, import_from_statement, class_definition,
-//	function_definition, expression_statement
-//	Named-iterator sees: class_definition, function_definition, call,
-//	import_statement, import_from_statement, assignment
-//
-// IsExported convention: NOT leading underscore (Python has no export keyword).
+// Covers both import forms and both sides of the underscore convention.
 const pyFixture = `import os
 import sys
 from typing import Protocol
@@ -651,9 +576,6 @@ func TestPython_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestPython_IsExported_UnderscoreConvention verifies the underscore convention:
-// public names (no leading _) are exported; _private names are not.
-// WHY: Python has no export keyword — the convention must be correctly implemented.
 func TestPython_IsExported_UnderscoreConvention(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePython)
@@ -698,23 +620,9 @@ func TestPython_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Rust
-// ---------------------------------------------------------------------------
-
-// Verified node types (from tmp/probe-lang-details + tmp/probe19):
-//
-//	Top-level: use_declaration, struct_item, enum_item, trait_item,
-//	impl_item, function_item, macro_invocation
-//	Named-iterator sees: struct_item, enum_item, trait_item, impl_item,
-//	function_item, use_declaration, call_expression, macro_invocation,
-//	function_signature_item (trait method signatures)
-//
-// Key distinctive nodes:
-//   - trait_item → NodeKindInterface (ResolveKind hook)
-//   - impl_item → descend into member function_items
-//   - macro_invocation (println!, vec!) → call UnresolvedReference
-//   - pub keyword → IsExported
+// Covers all three aggregate types ResolveKind has to tell apart, methods
+// reached only by descent into an impl block, a macro invocation, and both
+// visibilities.
 const rustFixture = `use std::collections::HashMap;
 use std::fmt::Display;
 
@@ -798,9 +706,6 @@ func TestRust_StructExtracted(t *testing.T) {
 	}
 }
 
-// TestRust_TraitExtractedAsInterface asserts trait_item → NodeKindInterface.
-// WHY: Rust traits are the semantic equivalent of interfaces; wrong kind breaks
-// resolution's edge promotion (calls→instantiates, extends→implements).
 func TestRust_TraitExtractedAsInterface(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
@@ -822,10 +727,6 @@ func TestRust_TraitExtractedAsInterface(t *testing.T) {
 	}
 }
 
-// TestRust_MacroInvocationEmitsCall asserts macro invocations (println!, vec!) emit
-// UnresolvedReferences with EdgeKindCalls.
-// WHY: Macros are the primary "call-like" operation in Rust; if they don't emit
-// call references, the call graph is silently incomplete for Rust codebases.
 func TestRust_MacroInvocationEmitsCall(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
@@ -843,7 +744,7 @@ func TestRust_MacroInvocationEmitsCall(t *testing.T) {
 		t.Fatalf("no calls UnresolvedReferences; fixture has println!, vec!, and compute() calls")
 	}
 
-	// Specifically check that a macro call was recorded.
+	// A macro invocation is the one call form unique to Rust.
 	var refNames []string
 	for _, r := range result.UnresolvedReferences {
 		if r.ReferenceKind == types.EdgeKindCalls {
@@ -877,9 +778,6 @@ func TestRust_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestRust_IsExported_PubKeyword asserts pub items are exported, non-pub are not.
-// WHY: Rust's visibility is explicit; pub = exported. Wrong IsExported means the
-// +10 resolution scoring bonus applies to private items.
 func TestRust_IsExported_PubKeyword(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
@@ -925,10 +823,9 @@ func TestRust_NodeCountStable(t *testing.T) {
 	}
 }
 
-// TestRust_EnumExtractedAsEnum asserts that enum_item nodes → NodeKindEnum, not NodeKindStruct.
-// WHY: rustResolveKind returns NodeKindEnum for enum_item but the engine previously
-// fell through to extractStruct for any ResolveKind value other than Interface/TypeAlias.
-// This means pub enum Direction would be stored as a struct, breaking semantic graph correctness.
+// Regression guard: the engine once honored only the interface and type-alias
+// answers from ResolveKind and stored everything else, enums included, as a
+// struct.
 func TestRust_EnumExtractedAsEnum(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRust)
@@ -948,19 +845,13 @@ func TestRust_EnumExtractedAsEnum(t *testing.T) {
 	if en.Kind != types.NodeKindEnum {
 		t.Errorf("Direction Kind=%q, want %q", en.Kind, types.NodeKindEnum)
 	}
-	// Confirm it is NOT stored as a struct.
 	wrongNode := findNode(result.Nodes, types.NodeKindStruct, "Direction")
 	if wrongNode != nil {
 		t.Errorf("Direction was also/instead found as NodeKindStruct; should be NodeKindEnum only")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TypeScript — export default / export class
-// ---------------------------------------------------------------------------
-
-// tsExportDefaultFixture exercises export default function and export class
-// alongside a non-exported function to verify IsExported correctness.
+// Puts a default export and a named one beside an unexported function.
 const tsExportDefaultFixture = `export default function defaultFn() {
     return 1;
 }
@@ -980,9 +871,8 @@ function notExported() {
 
 const tsExportDefaultFixturePath = "src/exports.ts"
 
-// TestTypeScript_ExportDefault_IsExported asserts that export default function → IsExported=true.
-// WHY: The 8-byte text lookback sees "default " (not "export ") for export default declarations,
-// so a text-scan approach misses them. AST-based detection via export_statement parent must catch all forms.
+// The form that defeats any text-lookback approach: the declaration starts just
+// past "default ", so nothing before it says "export".
 func TestTypeScript_ExportDefault_IsExported(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -1016,12 +906,7 @@ func TestTypeScript_ExportDefault_IsExported(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// JavaScript — export default / export class
-// ---------------------------------------------------------------------------
-
-// jsExportDefaultFixture exercises export default function and export class
-// alongside a non-exported function.
+// The same three shapes in JavaScript.
 const jsExportDefaultFixture = `export default function defaultFn() {
     return 1;
 }
@@ -1041,15 +926,8 @@ function notExported() {
 
 const jsExportDefaultFixturePath = "src/exports.js"
 
-// ---------------------------------------------------------------------------
-// TypeScript — variable extraction (const/let/var)
-// ---------------------------------------------------------------------------
-
-// TestTypeScript_VariableExtracted asserts top-level const/let/var declarations are
-// extracted as NodeKindVariable with the correct name and IsExported status.
-// WHY: export const X = 1 must produce a variable node so the resolution layer can
-// link references to X. Without VariableTypes wired, the lexical_declaration is
-// descended into but never emitted as a node, breaking the semantic graph.
+// An exported const needs a node of its own for references to it to resolve;
+// with VariableTypes unwired the declaration is walked through but never minted.
 func TestTypeScript_VariableExtracted(t *testing.T) {
 	t.Parallel()
 	const src = `export const X = 1;
@@ -1066,7 +944,6 @@ let z = "hello";
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// export const X → NodeKindVariable named "X", IsExported=true
 	vX := findNode(result.Nodes, types.NodeKindVariable, "X")
 	if vX == nil {
 		t.Fatalf("variable X not found; nodes: %s", nodeKindList(result.Nodes))
@@ -1078,7 +955,6 @@ let z = "hello";
 		t.Errorf("variable X: IsExported=false, want true (it is 'export const X')")
 	}
 
-	// const y → NodeKindVariable named "y", IsExported=false
 	vY := findNode(result.Nodes, types.NodeKindVariable, "y")
 	if vY == nil {
 		t.Fatalf("variable y not found; nodes: %s", nodeKindList(result.Nodes))
@@ -1088,13 +964,7 @@ let z = "hello";
 	}
 }
 
-// ---------------------------------------------------------------------------
-// JavaScript — variable extraction (const/let/var)
-// ---------------------------------------------------------------------------
-
-// TestJavaScript_VariableExtracted asserts top-level const/let/var declarations are
-// extracted as NodeKindVariable with the correct name and IsExported status.
-// WHY: Same reason as TS — export const X must produce a variable node for the graph.
+// As above, in JavaScript.
 func TestJavaScript_VariableExtracted(t *testing.T) {
 	t.Parallel()
 	const src = `export const X = 1;
@@ -1111,7 +981,6 @@ let z = "hello";
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// export const X → NodeKindVariable named "X", IsExported=true
 	vX := findNode(result.Nodes, types.NodeKindVariable, "X")
 	if vX == nil {
 		t.Fatalf("variable X not found; nodes: %s", nodeKindList(result.Nodes))
@@ -1123,7 +992,6 @@ let z = "hello";
 		t.Errorf("variable X: IsExported=false, want true (it is 'export const X')")
 	}
 
-	// const y → NodeKindVariable named "y", IsExported=false
 	vY := findNode(result.Nodes, types.NodeKindVariable, "y")
 	if vY == nil {
 		t.Fatalf("variable y not found; nodes: %s", nodeKindList(result.Nodes))
@@ -1133,8 +1001,7 @@ let z = "hello";
 	}
 }
 
-// TestJavaScript_ExportDefault_IsExported asserts that export default function → IsExported=true.
-// WHY: Same as TS — the 8-byte lookback sees "default ", not "export ", for export default.
+// As above, in JavaScript.
 func TestJavaScript_ExportDefault_IsExported(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
@@ -1168,16 +1035,8 @@ func TestJavaScript_ExportDefault_IsExported(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FunctionScopeTypes — kept-cases (constructs that must NOT be suppressed)
-// ---------------------------------------------------------------------------
-
-// TestTypeScript_NamespaceConstKept asserts a const declared inside a
-// "namespace N { ... }" block still mints a variable node.
-// WHY: internal_module (the namespace grammar node) is not a FunctionScopeTypes
-// member — it is not a function scope. If the scope-suppression mechanism ever
-// widened its net to cover it, namespace-scoped state would silently vanish
-// from the graph.
+// A namespace body is not a function scope, so its state survives suppression.
+// Were that net ever widened, namespace-scoped state would vanish silently.
 func TestTypeScript_NamespaceConstKept(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -1196,14 +1055,9 @@ func TestTypeScript_NamespaceConstKept(t *testing.T) {
 	}
 }
 
-// TestTypeScript_ForOfBindingNeverMinted asserts a for-of loop binding never
-// produces a variable node — a behavioral pin, not just a probe note.
-// WHY: "for (const x of y)" parses as for_in_statement with a bare identifier
-// binding child (field "left") — it is never wrapped in a lexical_declaration,
-// so VariableTypes never matches it. This holds both before and after
-// FunctionScopeTypes landed: the binding was never reachable via
-// extractSimpleNode in either version, so this pins a behavior that must
-// never regress, not a case the checkpoint's suppression logic newly affects.
+// A for-of binding is a bare identifier, never wrapped in a declaration, so
+// VariableTypes has never matched it. Pinned as behavior rather than left as a
+// grammar note, since nothing else would catch it starting to mint nodes.
 func TestTypeScript_ForOfBindingNeverMinted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
@@ -1222,17 +1076,10 @@ func TestTypeScript_ForOfBindingNeverMinted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TSX — FunctionScopeTypes inheritance (no tsx.go code change expected)
-// ---------------------------------------------------------------------------
-
-// TestTSX_InheritsFunctionScopeTypes asserts a callback-scoped const inside a
-// .tsx file is suppressed the same as .ts, proving TSXExtractor's
-// "cfg := TypeScriptExtractor()" copy-then-extend picks up FunctionScopeTypes
-// automatically — no tsx.go edit was needed for this checkpoint. It also
-// asserts a JSX ref inside a suppressed declaration's initializer is still
-// harvested — "walk continues either way" applies to JSXElementTypes too, not
-// only calls.
+// TSX copies the TypeScript config and extends it, so it inherits suppression
+// without an edit of its own. Also pins that suppressing a declaration does not
+// stop the walk: a JSX ref in its initializer is still harvested, as a call
+// would be.
 func TestTSX_InheritsFunctionScopeTypes(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
@@ -1273,13 +1120,8 @@ items.forEach((item) => {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// JavaScript — FunctionScopeTypes parity with TypeScript
-// ---------------------------------------------------------------------------
-
-// TestJavaScript_FunctionScopeSuppression is the JS counterpart of
-// TestExtractor_FunctionScopeSuppression_TS in extractor_test.go: module-scope
-// const kept, arrow-callback const dropped, initializer call still harvested.
+// The JavaScript half of scope suppression: a module-scope const is kept, a
+// callback-scoped one dropped, and the initializer's call harvested either way.
 func TestJavaScript_FunctionScopeSuppression(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
@@ -1317,17 +1159,9 @@ items.forEach((item) => {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Python — byte-identical output (no VariableTypes config; the new gating is
-// structurally unreachable for this language).
-// ---------------------------------------------------------------------------
-
-// TestPython_ByteIdenticalAfterScopeSuppression pins the existing pyFixture's
-// exact node/edge/ref counts. Python has no VariableTypes config, so
-// extractSimpleNode is never called with NodeKindVariable for Python — the
-// FunctionScopeTypes/identifier-guard gating added for TS/JS this checkpoint
-// cannot affect it. Counts verified identical against pre-fix extractor.go
-// (stash-and-rerun) before this test was written.
+// Python wires no VariableTypes, which puts it structurally out of reach of
+// scope suppression. These exact counts were confirmed unchanged across that
+// change and are pinned so the language cannot be drawn into it by accident.
 func TestPython_ByteIdenticalAfterScopeSuppression(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePython)

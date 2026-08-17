@@ -1,20 +1,6 @@
-// Package validation is the validation harness for the code-intelligence
-// engine. It contains:
-//
-//  1. An auditable coverage map: each of the 11 umbrella success criteria maps
-//     to the covering automated test(s) (package.TestName), proving every
-//     criterion has a real check.
-//
-//  2. A schema-drift test: opens a fresh migrated DB, dumps sqlite_master
-//     (normalized, sorted), and compares it against the canonical snapshot
-//     embedded in this file. Fails on accidental schema drift.
-//
-//  3. A synthesized-edge precision spot-check: a fixture exercises several
-//     synthesizers; asserts the EXACT set/count of synthesized edges (no
-//     over-production), each carrying provenance='heuristic' + synthesizedBy.
-//
-// This is the final checkpoint (master) — the engine is feature-complete
-// after this checkpoint passes.
+// Package validation_test is the engine's whole-system harness: a coverage map
+// tying each umbrella success criterion to a real test, a schema-drift check
+// against an embedded snapshot, and a synthesized-edge precision spot-check.
 package validation_test
 
 import (
@@ -34,22 +20,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Coverage map
-//
-// Every umbrella success criterion (docs/spec/code-intel-engine.md:85-113) is
-// mapped to the covering automated test(s). This map is the auditable artifact
-// that proves "every criterion has an automated check".
-//
-// Format:  criterionN maps to the covering test; see the table below.
-// ---------------------------------------------------------------------------
-
-// TestCoverageMap documents the 11 umbrella criteria → covering tests.
-// It is a compile-time-checked enumeration of the coverage; any criterion
-// without a covering test name causes this test to fail (entries must be non-empty).
+// TestCoverageMap is the auditable artifact proving every umbrella criterion in
+// docs/spec/code-intel-engine.md has an automated check. An entry with neither a
+// covering test nor ciOnly fails.
 func TestCoverageMap(t *testing.T) {
-	// Each entry: criterion number → description → covering test(s).
-	// An empty coveringTests slice means no automated test — must be CI-only.
 	type entry struct {
 		criterion     int
 		description   string
@@ -227,8 +201,6 @@ func TestCoverageMap(t *testing.T) {
 		},
 	}
 
-	// Validation: every criterion must have either coveringTests or ciOnly=true.
-	// An entry with neither is a failure.
 	allMapped := true
 	for _, e := range coverageMap {
 		if !e.ciOnly && len(e.coveringTests) == 0 {
@@ -247,38 +219,15 @@ func TestCoverageMap(t *testing.T) {
 		t.Logf("coverage map: all 11 umbrella criteria mapped (1 CI-only, 10 Go-test-covered)")
 	}
 
-	// Spot-check that the CI-only entry is criterion 1 (cross-compile).
 	if coverageMap[0].criterion != 1 || !coverageMap[0].ciOnly {
 		t.Errorf("expected criterion 1 (cross-compile) to be the CI-only entry")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Schema-drift test (criterion 2)
-//
-// Opens a fresh migrated DB, dumps sqlite_master, normalizes (strips
-// IF NOT EXISTS, collapses whitespace, sorts by object name), and compares
-// against the canonical snapshot below. Fails on any schema drift.
-//
-// The canonical snapshot was captured from a fresh db.Open() call and is the
-// authoritative current-state schema (base DDL + all applied migrations).
-// If you intentionally change the schema, update the canonical snapshot here
-// AND add a migration in db/migrations.go.
-//
-// Excluded from comparison: sqlite_autoindex_* (auto-generated PK indexes),
-// nodes_fts_* support tables (internal FTS5 implementation tables),
-// sqlite_sequence (autoincrement counters), schema_versions (migration ledger
-// — a table present in schema but with no fixed DDL after each run).
-// These exclusions prevent false-positive failures from SQLite internals.
-// ---------------------------------------------------------------------------
-
-// canonicalSchema is the normalized dump of user-defined objects from a
-// freshly opened, fully migrated code-intelligence DB. Each line is:
-//
-//	<type>\t<name>\t<normalized-DDL>
-//
-// "Normalized" = whitespace collapsed to single spaces (strings.Fields join).
-// Sorted by object name.
+// canonicalSchema is the sqlite_master dump of a fresh fully-migrated DB, one
+// "<type>\t<name>\t<DDL>" line per object, whitespace collapsed and sorted by
+// name. Changing the schema means updating this AND adding a migration in
+// db/migrations.go.
 var canonicalSchema = []schemaEntry{
 	{typ: "table", name: "edges", sql: "CREATE TABLE edges ( id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE, target TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE, kind TEXT NOT NULL, metadata TEXT, line INTEGER NOT NULL DEFAULT 0, col INTEGER NOT NULL DEFAULT 0, provenance TEXT DEFAULT NULL )"},
 	{typ: "table", name: "files", sql: "CREATE TABLE files ( path TEXT PRIMARY KEY, content_hash TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL DEFAULT 0, modified_at INTEGER NOT NULL DEFAULT 0, indexed_at INTEGER NOT NULL DEFAULT 0, node_count INTEGER NOT NULL DEFAULT 0, errors TEXT )"},
@@ -294,8 +243,7 @@ var canonicalSchema = []schemaEntry{
 	{typ: "table", name: "nodes_fts", sql: "CREATE VIRTUAL TABLE nodes_fts USING fts5( id, name, qualified_name, docstring, signature, content='nodes', content_rowid='rowid' )"},
 	{typ: "table", name: "project_metadata", sql: "CREATE TABLE project_metadata ( key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL DEFAULT 0 )"},
 	{typ: "table", name: "schema_versions", sql: "CREATE TABLE schema_versions ( version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL )"},
-	// unresolved_refs DDL reflects migration v2 (arguments column appended via ALTER TABLE).
-	// The normalized form has the extra column at the end, separated by " , ".
+	// ALTER TABLE appends, so migrated columns land at the end separated by " , ".
 	{typ: "table", name: "unresolved_refs", sql: "CREATE TABLE unresolved_refs ( id TEXT PRIMARY KEY, from_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE, reference_name TEXT NOT NULL, reference_kind TEXT NOT NULL, line INTEGER NOT NULL DEFAULT 0, col INTEGER NOT NULL DEFAULT 0, candidates TEXT, file_path TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT 'unknown' , arguments TEXT, callee_expr TEXT)"},
 }
 
@@ -305,29 +253,18 @@ type schemaEntry struct {
 	sql  string
 }
 
-// isExcludedFromSchemaDump reports whether a sqlite_master object should be
-// excluded from the drift comparison. We exclude:
-//   - sqlite_autoindex_* — auto-generated PK/UNIQUE indexes; not user-defined
-//   - nodes_fts_config, nodes_fts_data, nodes_fts_docsize, nodes_fts_idx — FTS5
-//     internal support tables created by SQLite itself
-//   - sqlite_sequence — autoincrement sequence table
+// isExcludedFromSchemaDump filters out SQLite's own objects — autoindexes, FTS5
+// support tables, the sequence table — which would otherwise drift on their own.
 func isExcludedFromSchemaDump(name string) bool {
 	return strings.HasPrefix(name, "sqlite_autoindex_") ||
 		strings.HasPrefix(name, "nodes_fts_") && name != "nodes_fts" ||
 		name == "sqlite_sequence"
 }
 
-// TestSchemaDrift opens a fresh fully-migrated DB, dumps sqlite_master
-// (user-defined objects only, normalized), and asserts it matches the
-// canonical snapshot embedded above.
-//
-// This test CATCHES:
-//   - Adding a column to schema.sql without a migration (snapshot differs)
-//   - Adding an index to schema.sql without updating the snapshot
-//   - Migration v2+ that adds a column but forgets to update this snapshot
-//
-// To update the snapshot after an intentional schema change: run this test
-// with -v, copy the "LIVE DUMP" block from the output, replace canonicalSchema.
+// TestSchemaDrift diffs a fresh fully-migrated DB against canonicalSchema,
+// catching a schema.sql edit that skipped a migration or a migration that
+// skipped the snapshot. To adopt an intentional change, run with -v and paste
+// the LIVE DUMP block over canonicalSchema.
 func TestSchemaDrift(t *testing.T) {
 	d, err := db.Open(filepath.Join(t.TempDir(), "drift-test.db"))
 	if err != nil {
@@ -363,7 +300,6 @@ func TestSchemaDrift(t *testing.T) {
 		return live[i].typ < live[j].typ
 	})
 
-	// Log the live dump for debugging (visible with -v or on failure).
 	t.Log("LIVE DUMP (for updating canonicalSchema on intentional changes):")
 	for _, e := range live {
 		t.Logf("  {typ:%q, name:%q, sql:%q},", e.typ, e.name, e.sql)
@@ -397,27 +333,16 @@ func objectNames(entries []schemaEntry) []string {
 	return names
 }
 
-// heuristicEdge is a compact representation of a synthesized edge for
-// precision assertions.
+// heuristicEdge is a synthesized edge flattened for precision assertions.
 type heuristicEdge struct {
 	sourceName    string
 	targetName    string
 	synthesizedBy string
 }
 
-// ---------------------------------------------------------------------------
-// Synthesized-edge precision spot-check (criterion 6)
-//
-// A fixture exercises multiple synthesizers (react-render + jsx-render). The
-// test asserts:
-//   - EXACT edge count: no over-production (no spurious edges)
-//   - Every synthesized edge carries provenance='heuristic' + synthesizedBy
-//   - The precise (source, target, synthesizedBy) set matches expectations
-//
-// WHY this complements the existing per-synthesizer recall tests: those prove
-// each synthesizer emits edges it should; this proves no synthesizer emits
-// edges it should NOT. Precision = no false positives.
-// ---------------------------------------------------------------------------
+// The per-synthesizer tests measure recall — that each synthesizer emits the
+// edges it should. This one measures precision: an exact expected edge set, so
+// any synthesizer emitting an edge it should not fails here.
 
 func TestSynthesizedEdgePrecision(t *testing.T) {
 	ctx := context.Background()
@@ -430,9 +355,8 @@ func TestSynthesizedEdgePrecision(t *testing.T) {
 
 	fixtureDir := t.TempDir()
 
-	// Fixture: two TypeScript files.
-	//   counter.ts — has a class with setState → should get react-render edge
-	//   helper.ts  — has a plain function with no setState → must NOT get any synth edge
+	// counter.ts has setState and should get a react-render edge; helper.ts has
+	// none and is the negative control.
 	writeFixture(t, fixtureDir, "counter.ts", `
 class PrecisionCounter {
   state = { n: 0 };
@@ -455,8 +379,6 @@ function helperFn(x: number): number {
 export { helperFn };
 `)
 
-	// Fixture: a TSX file — jsx-render should add a heuristic calls edge
-	//   parent.tsx renders ChildBox → expect ParentWidget→ChildBox edge
 	writeFixture(t, fixtureDir, "parent.tsx", `
 import React from "react";
 function ParentWidget() {
@@ -472,7 +394,6 @@ function ChildBox() {
 export { ChildBox };
 `)
 
-	// Index the fixture through the real indexer.
 	pool, err := extraction.NewPool(ctx, extraction.PoolOptions{Size: 2})
 	if err != nil {
 		t.Fatalf("NewPool: %v", err)
@@ -484,20 +405,17 @@ export { ChildBox };
 		t.Fatalf("IndexAll: %v", err)
 	}
 
-	// Run resolution + synthesis (Default composite = all 14 synthesizers).
 	composite := synthesis.Default(d)
 	pipe := resolution.NewPipelineWithSeams(d, fixtureDir, nil, composite)
 	if _, _, err := pipe.ResolveAndPersistBatched(ctx, 0, nil); err != nil {
 		t.Fatalf("ResolveAndPersistBatched: %v", err)
 	}
 
-	// Collect all heuristic edges from the DB.
 	allNodes, err := d.GetAllNodes(ctx)
 	if err != nil {
 		t.Fatalf("GetAllNodes: %v", err)
 	}
 
-	// Build a name→node map for readable assertions.
 	nodeByName := make(map[string]types.Node, len(allNodes))
 	for _, n := range allNodes {
 		nodeByName[n.Name] = n
@@ -514,7 +432,6 @@ export { ChildBox };
 			if e.Provenance != "heuristic" {
 				continue
 			}
-			// Resolve source name.
 			srcNode, ok := nodeByID(allNodes, e.Source)
 			if !ok {
 				t.Errorf("heuristic edge has unknown source ID %q", e.Source)
@@ -526,7 +443,6 @@ export { ChildBox };
 				continue
 			}
 
-			// Assert provenance + kind + synthesizedBy on every heuristic edge.
 			if e.Kind != types.EdgeKindCalls {
 				t.Errorf("heuristic edge %s→%s: kind=%q, want calls", e.Source, e.Target, e.Kind)
 			}
@@ -550,17 +466,7 @@ export { ChildBox };
 		}
 	}
 
-	// -----------------------------------------------------------------------
-	// Precision assertions: exact expected set.
-	//
-	// Expected heuristic edges from this fixture:
-	//   (react-render) PrecisionCounter.increment → PrecisionCounter.render
-	//   (jsx-render)   ParentWidget               → ChildBox
-	//
-	// The helper.ts function (helperFn) must NOT appear in any heuristic edge.
-	// -----------------------------------------------------------------------
-
-	// Check: helperFn must not be in any heuristic edge (precision guard).
+	// Exactly two edges are expected, and helperFn must appear in neither.
 	for _, he := range heuristicEdges {
 		if he.sourceName == "helperFn" || he.targetName == "helperFn" {
 			t.Errorf("PRECISION FAILURE: helperFn appears in heuristic edge %s→%s (synthesizedBy=%s)",
@@ -568,13 +474,10 @@ export { ChildBox };
 		}
 	}
 
-	// Check: increment → render (react-render) must exist.
 	assertHeuristicEdgeExists(t, heuristicEdges, "increment", "render", "react-render")
 
-	// Check: ParentWidget → ChildBox (jsx-render) must exist.
 	assertHeuristicEdgeExists(t, heuristicEdges, "ParentWidget", "ChildBox", "jsx-render")
 
-	// Check: no heuristic edge with source or target from helper.ts.
 	for _, he := range heuristicEdges {
 		if srcNode, ok := nodeByName[he.sourceName]; ok && strings.HasSuffix(srcNode.FilePath, "helper.ts") {
 			t.Errorf("PRECISION FAILURE: node from helper.ts is heuristic edge source: %s→%s (synthesizedBy=%s)",
@@ -586,15 +489,13 @@ export { ChildBox };
 		}
 	}
 
-	// Log the full heuristic edge set for debugging.
 	t.Logf("precision fixture: %d heuristic edges total:", len(heuristicEdges))
 	for _, he := range heuristicEdges {
 		t.Logf("  %s → %s (synthesizedBy=%s)", he.sourceName, he.targetName, he.synthesizedBy)
 	}
 }
 
-// assertHeuristicEdgeExists fails if no heuristic edge with the given source
-// name, target name, and synthesizedBy exists in the set.
+// assertHeuristicEdgeExists fails when the set has no matching edge.
 func assertHeuristicEdgeExists(t *testing.T, edges []heuristicEdge, srcName, tgtName, synthesizedBy string) {
 	t.Helper()
 	for _, e := range edges {

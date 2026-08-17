@@ -1,20 +1,7 @@
 package indexer_test
 
-// Orchestrator + sync invariant tests.
-//
-// Tests run under the repo tmp/ dir so fixture repos don't pollute the source
-// tree. Each test creates its own temp dir under os.TempDir() (with
-// t.TempDir() which is cleaned up automatically) and initialises a real SQLite
-// DB + tree-sitter pool. This exercises the full stack end-to-end.
-//
-// The headline test is TestOrphanInvariant (R-E):
-//   - Index a file with a function at line 3.
-//   - Move the function to line 7 (different node-id because id embeds line).
-//   - Re-sync.
-//   - Assert the old node is gone, the new node exists, no dangling edges.
-//   - Sub-test proves the invariant MATTERS: same test with in-place upsert
-//     (no delete) leaves an orphan — confirming delete-before-reinsert is load-
-//     bearing, not defensive.
+// Orchestrator and sync invariant tests. Each builds a real SQLite DB and
+// tree-sitter pool over its own temp dir, exercising the full stack.
 
 import (
 	"context"
@@ -30,10 +17,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/indexer"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 func openTestDB(t *testing.T) *db.DB {
 	t.Helper()
@@ -71,10 +54,6 @@ func initGitRepo(t *testing.T, dir string) {
 	run("config", "user.email", "test@test.com")
 	run("config", "user.name", "Test")
 }
-
-// ---------------------------------------------------------------------------
-// TestFullIndex — full index of a multi-file fixture repo
-// ---------------------------------------------------------------------------
 
 func TestFullIndex(t *testing.T) {
 	ctx := context.Background()
@@ -181,19 +160,10 @@ export default {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestSyncPrunesDeletedFiles — deleted-file pruning
-// ---------------------------------------------------------------------------
-
-// TestSyncPrunesDeletedFiles verifies that Sync removes a file's index rows
-// (file record, nodes, and the edges cascaded from them) once the file is
-// deleted from disk. A whole-file delete disappears from scanFiles, so the
-// only thing that can reclaim its rows is an explicit prune pass — without it,
-// the index keeps returning symbols and call-edges from code that no longer
-// exists.
-//
-// The companion sub-test proves the surviving file is untouched: pruning must
-// be scoped to vanished paths only, never collateral.
+// TestSyncPrunesDeletedFiles: a deleted file vanishes from scanFiles, so only
+// an explicit prune can reclaim its rows — otherwise the index keeps answering
+// with symbols and call edges from code that no longer exists. The surviving
+// file must come through untouched; pruning is scoped to vanished paths.
 func TestSyncPrunesDeletedFiles(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -274,20 +244,10 @@ func Hello() string {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestOrphanInvariant — the R-E headline test
-// ---------------------------------------------------------------------------
-
-// TestOrphanInvariant verifies delete-by-file-before-reinsert (R-E):
-//
-//  1. Index a Go file with Hello at line 3 → node-id embeds line 3.
-//  2. Modify the file so Hello moves to line 7 → the new node-id embeds line 7.
-//  3. Re-sync → assert old-line-3 node is gone, new-line-7 node exists, no
-//     dangling edges.
-//
-// The sub-test "WithoutDelete" proves the invariant MATTERS: using an in-place
-// upsert (skipping the delete) leaves the old node orphaned. The test confirms
-// this failure mode to prove the delete is load-bearing.
+// TestOrphanInvariant moves a function between lines, which changes its
+// node-id, and asserts the old node and its edges are gone. The WithoutDelete
+// sub-test reproduces the orphan a naive in-place upsert would leave, proving
+// delete-before-reinsert is load-bearing rather than defensive.
 func TestOrphanInvariant(t *testing.T) {
 	ctx := context.Background()
 
@@ -321,7 +281,6 @@ func Hello() string {
 
 		orch := indexer.NewOrchestrator(database, pool)
 
-		// First index.
 		if err := orch.IndexAll(ctx, dir); err != nil {
 			t.Fatalf("IndexAll v1: %v", err)
 		}
@@ -371,8 +330,7 @@ func Hello() string {
 	})
 
 	t.Run("WithoutDelete_proveOrphan", func(t *testing.T) {
-		// This sub-test deliberately skips the delete step to prove the invariant
-		// matters. It uses raw DB calls to simulate what a naive REPLACE would do.
+		// Raw DB calls, standing in for what a naive REPLACE would do.
 		pool := newTestPool(t)
 		database := openTestDB(t)
 		dir := t.TempDir()
@@ -396,10 +354,7 @@ func Hello() string {
 			t.Skip("Hello function node not found — grammar may not extract it")
 		}
 
-		// Simulate naive re-index WITHOUT delete:
-		// manually upsert a fake "Hello at line 7" node without deleting the old one.
-		// This represents what would happen if we used INSERT OR REPLACE without
-		// first deleting the file's nodes.
+		// Upsert the moved node without deleting the old one.
 		newHelloID := generateHelloNodeIDAtLine(t, "greet.go", 7)
 		fakeNode := types.Node{
 			ID:        newHelloID,
@@ -414,20 +369,14 @@ func Hello() string {
 			t.Fatalf("UpsertNode fake: %v", err)
 		}
 
-		// Without delete: the old node at line 3 is still there.
 		if _, err := database.GetNode(ctx, oldHelloID); err != nil {
 			t.Errorf("ORPHAN PROOF: expected old node %s to still exist (no delete), got: %v", oldHelloID, err)
 		}
 
-		// This demonstrates that without delete-before-reinsert, orphans persist.
-		// The correct behavior (WithDelete_noOrphans) is the invariant.
+		// The orphan persisting here is the point: it is what the invariant prevents.
 		t.Log("Without delete: orphan node confirmed present — invariant is load-bearing")
 	})
 }
-
-// ---------------------------------------------------------------------------
-// TestContentHashDedup — re-sync unchanged file → no re-extraction
-// ---------------------------------------------------------------------------
 
 func TestContentHashDedup(t *testing.T) {
 	ctx := context.Background()
@@ -446,7 +395,6 @@ func Hello() {}
 
 	orch := indexer.NewOrchestrator(database, pool)
 
-	// First index.
 	if err := orch.IndexAll(ctx, dir); err != nil {
 		t.Fatalf("IndexAll 1: %v", err)
 	}
@@ -455,7 +403,6 @@ func Hello() {}
 		t.Fatalf("GetNodesInFile 1: %v", err)
 	}
 
-	// Sync again without modifying the file.
 	if err := orch.Sync(ctx, dir); err != nil {
 		t.Fatalf("Sync (unchanged): %v", err)
 	}
@@ -464,12 +411,10 @@ func Hello() {}
 		t.Fatalf("GetNodesInFile 2: %v", err)
 	}
 
-	// Node count must be identical (dedup: no re-extraction, no extra nodes).
 	if len(nodes1) != len(nodes2) {
 		t.Errorf("dedup: node count changed from %d to %d after unchanged re-sync", len(nodes1), len(nodes2))
 	}
 
-	// Node IDs must be identical.
 	ids1 := nodeIDSet(nodes1)
 	ids2 := nodeIDSet(nodes2)
 	for id := range ids1 {
@@ -484,26 +429,14 @@ func Hello() {}
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestExtractorVersion* — extractor_version self-healing migration
-// ---------------------------------------------------------------------------
 //
-// project_metadata.extractor_version is a hand-bumped marker that changes
-// whenever extraction semantics change under extraction/. IndexAll compares
-// it against the stored value on every run: a mismatch (or an absent key on
-// an index that already has files) forces one full re-extraction pass —
-// bypassing the content-hash dedup skip — so already-indexed files self-heal
-// onto the new semantics. A matching version keeps the existing incremental
-// (dedup) behavior; a brand-new/empty index just stamps the key.
-//
-// Observability, without depending on clock resolution: a forced full pass
-// runs storeExtractionResult's delete-then-reinsert for the whole file, so a
-// node deleted directly from the DB (bypassing extraction) reappears only if
-// the file was actually re-extracted. The dedup skip returns before touching
-// the DB at all, so a deleted node stays deleted under incremental behavior.
+// The extractor-version tests below observe re-extraction without depending on
+// clock resolution: a node deleted straight from the DB reappears only if the
+// file was genuinely re-extracted, since the dedup skip returns before it
+// would touch the DB at all.
 
-// metadataValue reads one project_metadata row directly, mirroring how the
-// production code reaches the table (db.DB() — no dedicated accessor).
+// metadataValue mirrors how production reaches project_metadata: the raw
+// handle, since the db package exposes no accessor.
 func metadataValue(t *testing.T, ctx context.Context, database *db.DB, key string) (string, bool) {
 	t.Helper()
 	var value string
@@ -518,10 +451,9 @@ func metadataValue(t *testing.T, ctx context.Context, database *db.DB, key strin
 	return value, true
 }
 
-// deleteNonFileNode picks a non-file node for path and deletes it directly
-// from the nodes table, returning its id. Used to prove whether a run
-// actually re-extracted the file (id reappears) or skipped it via dedup (id
-// stays gone).
+// deleteNonFileNode removes a node behind extraction's back and returns its
+// id, so a later run's behaviour is legible: reappearing means re-extracted,
+// still gone means skipped.
 func deleteNonFileNode(t *testing.T, ctx context.Context, database *db.DB, path string) string {
 	t.Helper()
 	nodes, err := database.GetNodesInFile(ctx, path)
@@ -575,10 +507,8 @@ func Hello() {}
 	return orch
 }
 
-// TestExtractorVersionMismatchForcesFullReindex is the failing-first test:
-// before the migration mechanism exists, a stale stamped extractor_version
-// has no effect — the content-hash dedup skip still fires for an unchanged
-// file, and the manually deleted node never comes back.
+// TestExtractorVersionMismatchForcesFullReindex: a stale stamped version must
+// override the dedup skip for a file that has not changed on disk.
 func TestExtractorVersionMismatchForcesFullReindex(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -618,9 +548,8 @@ func TestExtractorVersionMismatchForcesFullReindex(t *testing.T) {
 	}
 }
 
-// TestExtractorVersionMatchKeepsIncremental pins the existing incremental
-// (content-hash dedup) behavior: when the stamped version already matches,
-// IndexAll must not force re-extraction of unchanged files.
+// TestExtractorVersionMatchKeepsIncremental pins the other side: a matching
+// version must not cost every warm run a full re-extraction.
 func TestExtractorVersionMatchKeepsIncremental(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -653,9 +582,8 @@ func TestExtractorVersionMatchKeepsIncremental(t *testing.T) {
 	}
 }
 
-// TestExtractorVersionStampedOnFreshIndex covers a brand-new index: no prior
-// extractor_version key, no prior file rows. It must stamp the key without
-// needing a forced full pass (every file is new, not skipped, on a first run).
+// TestExtractorVersionStampedOnFreshIndex: an empty index stamps without a
+// forced pass — every file is new on a first run, so nothing was skipped.
 func TestExtractorVersionStampedOnFreshIndex(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -696,12 +624,9 @@ func Hello() {}
 	}
 }
 
-// TestSyncExtractorVersionMismatchForcesFullReindex is Sync's counterpart to
-// TestExtractorVersionMismatchForcesFullReindex: warm repos only ever run
-// Sync in practice (ship verbs call sync; index is cold-start-only), and the
-// spec's "Flow: self-healing migration" names both `atomic code index` and
-// `atomic code sync` — so a stale stamped version must escalate a Sync run
-// to a full re-extraction pass too, not just IndexAll.
+// TestSyncExtractorVersionMismatchForcesFullReindex: warm repos only ever run
+// Sync, so the migration would be inert in practice if it fired for IndexAll
+// alone.
 func TestSyncExtractorVersionMismatchForcesFullReindex(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -742,10 +667,8 @@ func TestSyncExtractorVersionMismatchForcesFullReindex(t *testing.T) {
 	}
 }
 
-// TestSyncExtractorVersionMatchKeepsIncremental pins Sync's normal
-// incremental (content-hash dedup) behavior when the stamped version already
-// matches — a mismatch check must not force re-extraction of unchanged files
-// on every warm Sync.
+// TestSyncExtractorVersionMatchKeepsIncremental: the version check must not
+// cost every warm Sync a full re-extraction.
 func TestSyncExtractorVersionMatchKeepsIncremental(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -778,23 +701,11 @@ func TestSyncExtractorVersionMatchKeepsIncremental(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestUnresolvedRefsPersistence — unresolved_refs stored atomically with nodes
-// ---------------------------------------------------------------------------
-
-// TestUnresolvedRefsPersistence verifies that storeExtractionResult persists
-// ALL distinct result.UnresolvedReferences into the unresolved_refs table (inside
-// the same transaction as nodes/edges). WHY: the resolution pipeline reads
-// from unresolved_refs; if the indexer silently drops refs (e.g. due to empty-id
-// PK collision), has incomplete data to resolve.
-//
-// Three invariants proven here:
-//  1. After first index, every distinct ref site persists — count == N (not 1).
-//     This would FAIL under the empty-id bug because INSERT OR IGNORE on a
-//     shared "" PK silently drops all refs after the first.
-//  2. After re-sync with different content, the old ref set is REPLACED:
-//     old refs gone, new refs present, count matches the new fixture.
-//  3. All persisted refs carry correct file_path and language metadata.
+// TestUnresolvedRefsPersistence: the resolution pipeline can only resolve what
+// unresolved_refs holds, so every distinct ref site must persist, a re-sync
+// must replace the old set rather than accumulate, and each row must carry its
+// file_path and language. Counting sites catches an id collision, where
+// INSERT OR IGNORE would silently keep only the first.
 func TestUnresolvedRefsPersistence(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -803,9 +714,7 @@ func TestUnresolvedRefsPersistence(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 
-	// v1: 1 import + 1 call site = 2 distinct UnresolvedReferences.
-	// Under the empty-id bug all refs share id="" so INSERT OR IGNORE keeps only 1.
-	// The test asserts count == 2, which FAILS at 1 on unfixed code.
+	// 1 import + 1 call site = 2 distinct refs.
 	const wantRefsV1 = 2
 	const tsContentV1 = `import { foo } from "./util";
 
@@ -814,8 +723,7 @@ export function bar(): void {
 }
 `
 
-	// v2: 2 imports + 2 call sites = 4 distinct UnresolvedReferences.
-	// After re-sync the old 2 refs must be gone and these 4 inserted.
+	// 2 imports + 2 call sites = 4 distinct refs, replacing the earlier 2.
 	const wantRefsV2 = 4
 	const tsContentV2 = `import { foo } from "./util";
 import { baz } from "./other";
@@ -904,10 +812,6 @@ export function bar(): void {
 	t.Logf("unresolved_refs: %d after first index, %d after re-sync", len(refs1), len(refs2))
 }
 
-// ---------------------------------------------------------------------------
-// TestGitignoreAwareScan — gitignored files are skipped
-// ---------------------------------------------------------------------------
-
 func TestGitignoreAwareScan(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)
@@ -952,10 +856,6 @@ func Secret() {}
 		t.Error("main.go: expected at least one node, got 0")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
 
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
@@ -1050,10 +950,6 @@ func assertNoDanglingEdges(t *testing.T, ctx context.Context, database *db.DB, n
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInGoFile — end-to-end
-// ---------------------------------------------------------------------------
-
 // TestEmbeddedSQLInGoFile verifies that embedded SQL in Go string literals
 // produces the expected nodes and edges in the DB.
 //
@@ -1112,7 +1008,6 @@ func CreateUsersTable(db interface{}) {
 		t.Fatalf("IndexAll: %v", err)
 	}
 
-	// --- Criterion 1: at least one table node attributed to migration.go ---
 	goNodes, err := database.GetNodesInFile(ctx, "migration.go")
 	if err != nil {
 		t.Fatalf("GetNodesInFile(migration.go): %v", err)
@@ -1145,7 +1040,6 @@ func CreateUsersTable(db interface{}) {
 		t.Errorf("users table StartLine=%d, want ≥4 (file-absolute; literal starts line 4)", usersNode.StartLine)
 	}
 
-	// --- Criterion 2: ≥1 unresolved ref from a node inside migration.go for DML ---
 	// The DML "SELECT id, email FROM users WHERE id = $1" should produce an
 	// UnresolvedReference. We can't query unresolved_refs by file directly here
 	// but GetUnresolvedRefs returns all rows. Check that at least one ref is from
@@ -1165,7 +1059,7 @@ func CreateUsersTable(db interface{}) {
 		t.Fatalf("FAIL: no unresolved ref for 'users' from migration.go — embedded DML not wired")
 	}
 
-	// F-5 (tightened): the ref must be owned by the CreateUsersTable function
+	// the ref must be owned by the CreateUsersTable function
 	// node specifically — not just any non-empty FromNodeID, which would pass
 	// on file-node fallback too.
 	var createUsersTableNode *types.Node
@@ -1187,7 +1081,6 @@ func CreateUsersTable(db interface{}) {
 		t.Errorf("DML unresolved ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
 	}
 
-	// --- Criterion 3: embedded-provenance edges via GetEdgesByProvenance ---
 	// The DDL contains edges (table→column) stamped with Provenance:"embedded".
 	// After indexing, GetEdgesByProvenance("embedded") must return ≥1 edge.
 	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
@@ -1198,7 +1091,6 @@ func CreateUsersTable(db interface{}) {
 		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges — DDL embedded edges not stored")
 	}
 
-	// --- Criterion 4: standalone .sql routing unchanged ---
 	// Index a .sql file and confirm it still works (zero-regression for standaloneExts).
 	writeFile(t, dir, "schema.sql", "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL);")
 	gitAdd(t, dir, "schema.sql")
@@ -1249,10 +1141,6 @@ func generateHelloNodeIDAtLine(t *testing.T, filePath string, line int) string {
 	// qualified name = "Hello" (no parent scope at top level)
 	return extraction.GenerateNodeID(filePath, string(types.NodeKindFunction), "Hello", line)
 }
-
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInPythonFile — end-to-end
-// ---------------------------------------------------------------------------
 
 // TestEmbeddedSQLInPythonFile verifies that embedded SQL in Python string literals
 // is extracted correctly per the spec:
@@ -1327,7 +1215,6 @@ def do_query(conn):
 		t.Fatalf("GetNodesInFile(models.py): %v", err)
 	}
 
-	// --- Criterion 1: regular-string DDL → table node "users" ---
 	var usersNode *types.Node
 	for i := range pyNodes {
 		if pyNodes[i].Kind == types.NodeKindTable && pyNodes[i].Name == "users" {
@@ -1343,7 +1230,6 @@ def do_query(conn):
 		t.Errorf("users table StartLine=%d, want ≥3 (file-absolute)", usersNode.StartLine)
 	}
 
-	// --- Criterion 2: triple-quoted DDL → table node "orders" ---
 	var ordersNode *types.Node
 	for i := range pyNodes {
 		if pyNodes[i].Kind == types.NodeKindTable && pyNodes[i].Name == "orders" {
@@ -1355,7 +1241,6 @@ def do_query(conn):
 		t.Fatalf("FAIL: no table node 'orders' from triple-quoted DDL (lines 5-7) — triple-quote not wired")
 	}
 
-	// --- Criterion 3: docstrings excluded — module_secret, class_secret, fn_secret ---
 	docstringTableNames := []string{"module_secret", "class_secret", "fn_secret"}
 	for _, forbidden := range docstringTableNames {
 		for _, n := range pyNodes {
@@ -1365,7 +1250,6 @@ def do_query(conn):
 		}
 	}
 
-	// --- Criterion 4: DML ref owned by the enclosing do_query function node (F-5) ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -1398,7 +1282,6 @@ def do_query(conn):
 		t.Errorf("FAIL: no unresolved ref for 'users' from models.py owned by do_query (F-5 ownership, )")
 	}
 
-	// --- Criterion 5: f-string interpolated table target → zero refs (decision 8a) ---
 	// fq1 = f"SELECT a FROM {table} WHERE id = %%s" — after substitution: no valid table
 	for _, ref := range allRefs {
 		if ref.FilePath == "models.py" && ref.ReferenceName == "table" {
@@ -1406,7 +1289,6 @@ def do_query(conn):
 		}
 	}
 
-	// --- Criterion 6: f-string interpolated value + literal table → ref to "users" (decision 8b) ---
 	// fq2 = f"SELECT a FROM users WHERE id = {uid}" — literal "users" survives substitution
 	// ("SELECT a FROM users WHERE id = ?"), so a second distinct ref to "users" must be
 	// emitted from doQueryNode.
@@ -1427,10 +1309,6 @@ def do_query(conn):
 		t.Errorf("FAIL: want ≥2 distinct 'users' refs from doQueryNode (q DML + fq2 f-string); got %d — fq2 literal table ref not extracted (decision 8b)", usersRefsFromDoQuery)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInTypeScriptFile — end-to-end
-// ---------------------------------------------------------------------------
 
 // TestEmbeddedSQLInTypeScriptFile verifies that embedded SQL in TypeScript string
 // literals and template literals is extracted correctly per the spec:
@@ -1495,7 +1373,6 @@ export function queryUsers(db: any, id: number) {
 		t.Fatalf("GetNodesInFile(db.ts): %v", err)
 	}
 
-	// --- Criterion 1: plain-string DDL → table node "users" ---
 	var usersNode *types.Node
 	for i := range tsNodes {
 		if tsNodes[i].Kind == types.NodeKindTable && tsNodes[i].Name == "users" {
@@ -1510,7 +1387,6 @@ export function queryUsers(db: any, id: number) {
 		t.Errorf("users table StartLine=%d, want ≥3 (file-absolute)", usersNode.StartLine)
 	}
 
-	// --- Criterion 2: template-literal DDL → table node "orders" ---
 	var ordersNode *types.Node
 	for i := range tsNodes {
 		if tsNodes[i].Kind == types.NodeKindTable && tsNodes[i].Name == "orders" {
@@ -1522,7 +1398,6 @@ export function queryUsers(db: any, id: number) {
 		t.Fatalf("FAIL: no table node 'orders' from template-literal DDL (line 5) — template literal not harvested")
 	}
 
-	// --- Criterion 3: DML ref owned by enclosing queryUsers function node ---
 	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("GetUnresolvedRefs: %v", err)
@@ -1555,7 +1430,6 @@ export function queryUsers(db: any, id: number) {
 		t.Errorf("FAIL: no unresolved ref for 'users' from db.ts owned by queryUsers — DML ownership not wired")
 	}
 
-	// --- Criterion 4: template-literal interpolated table target → zero refs for "table" ---
 	// fq1 = `SELECT a FROM ${table} WHERE id = ?` — after substitution: no valid table
 	var tableRefs []types.UnresolvedReference
 	for _, ref := range allRefs {
@@ -1567,7 +1441,6 @@ export function queryUsers(db: any, id: number) {
 		t.Errorf("FAIL: interpolated table target must yield zero refs, got %d: %+v — decision 8a not enforced for TS", len(tableRefs), tableRefs)
 	}
 
-	// --- Criterion 5: template-literal interpolated value + literal table → ref to "users" (decision 8b) ---
 	// fq2 = `SELECT a FROM users WHERE id = ${id}` — literal "users" survives substitution,
 	// so a second distinct ref to "users" must be emitted from queryUsersNode.
 	//
@@ -1587,12 +1460,6 @@ export function queryUsers(db: any, id: number) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestEmbeddedSQLInTSXFile — end-to-end (TSX grammar path)
-// ---------------------------------------------------------------------------
-
-// TestEmbeddedSQLInTSXFile verifies that the TSX grammar path works for embedded
-// SQL — same harvester logic, different grammar (.tsx extension).
 func TestEmbeddedSQLInTSXFile(t *testing.T) {
 	ctx := context.Background()
 	pool := newTestPool(t)

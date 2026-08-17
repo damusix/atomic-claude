@@ -1,19 +1,5 @@
 package serve_test
 
-// graphoverlay_test.go — tests for /graph/data, the carried Cytoscape
-// elements endpoint behind the docs graph view (React owns the shell and the
-// mount lifecycle post-cutover; the endpoint's contract is what this file
-// covers).
-//
-// TDD contract:
-//  1. /graph/data returns valid Cytoscape elements JSON. Nodes have {data:{id,label,type}};
-//     edges carry {data:{id,source,target}} plus a classes field in {"md-link","wikilink"}.
-//  2. A wikilink edge has class "wikilink"; a markdown-link edge has class "md-link".
-//  3. Local view ?node=A&depth=1 returns only the depth-1 neighbourhood (a depth-2-only
-//     node must be absent from the response).
-//  4. /graph/data reads through an injected snapshot store rather than rebuilding
-//     from the served root on every request.
-
 import (
 	"encoding/json"
 	"io"
@@ -27,12 +13,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// buildGraphOverlayRealm builds a small realm with known link types:
-//
-//	alpha.md  → [beta](beta.md)  (markdown link)
-//	beta.md   → [[gamma]]        (wikilink)
-//	gamma.md  → [[delta]]        (wikilink, but delta is depth-2 from alpha)
-//	delta.md  → no links
+// buildGraphOverlayRealm chains alpha -md-> beta -wiki-> gamma -wiki-> delta, so
+// each page sits at a known depth from alpha and the link kinds differ per hop.
 func buildGraphOverlayRealm(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -43,7 +25,6 @@ func buildGraphOverlayRealm(t *testing.T) string {
 	return root
 }
 
-// cytoscapeElements is a minimal struct for JSON unmarshalling of the /graph/data response.
 type cytoscapeElements struct {
 	Nodes []struct {
 		Data struct {
@@ -62,8 +43,6 @@ type cytoscapeElements struct {
 	} `json:"edges"`
 }
 
-// TestGraphDataReturnsValidJSON verifies /graph/data emits Cytoscape elements JSON
-// with nodes that carry id/label/type and edges that carry id/source/target + classes.
 func TestGraphDataReturnsValidJSON(t *testing.T) {
 	root := buildGraphOverlayRealm(t)
 
@@ -91,12 +70,10 @@ func TestGraphDataReturnsValidJSON(t *testing.T) {
 		t.Fatalf("JSON unmarshal failed: %v\nbody: %s", err, body)
 	}
 
-	// Must have nodes — at least the four pages.
 	if len(elems.Nodes) < 4 {
 		t.Errorf("expected ≥4 nodes, got %d: %+v", len(elems.Nodes), elems.Nodes)
 	}
 
-	// Every node must carry id, label, type.
 	for _, n := range elems.Nodes {
 		if n.Data.ID == "" {
 			t.Errorf("node with empty id: %+v", n)
@@ -109,12 +86,10 @@ func TestGraphDataReturnsValidJSON(t *testing.T) {
 		}
 	}
 
-	// Must have edges.
 	if len(elems.Edges) == 0 {
 		t.Fatalf("expected edges, got none; body: %s", body)
 	}
 
-	// Every edge must carry id, source, target, and a valid classes value.
 	validClasses := map[string]bool{"md-link": true, "wikilink": true, "fingerprint": true}
 	for _, e := range elems.Edges {
 		if e.Data.ID == "" {
@@ -132,9 +107,6 @@ func TestGraphDataReturnsValidJSON(t *testing.T) {
 	}
 }
 
-// TestGraphDataEdgeClassification verifies the class assignment:
-//   - alpha→beta is a markdown link → class "md-link"
-//   - beta→gamma is a wikilink       → class "wikilink"
 func TestGraphDataEdgeClassification(t *testing.T) {
 	root := buildGraphOverlayRealm(t)
 
@@ -154,7 +126,6 @@ func TestGraphDataEdgeClassification(t *testing.T) {
 		t.Fatalf("JSON unmarshal: %v", err)
 	}
 
-	// Find the alpha→beta edge (markdown link).
 	foundMD := false
 	foundWiki := false
 	for _, e := range elems.Edges {
@@ -179,10 +150,6 @@ func TestGraphDataEdgeClassification(t *testing.T) {
 	}
 }
 
-// TestGraphDataLocalViewDepth1ExcludesDepth2 verifies that
-// /graph/data?node=alpha.md&depth=1 returns the depth-1 neighbourhood of
-// alpha.md (alpha, beta) but does NOT include gamma.md (depth-2) or
-// delta.md (depth-3).
 func TestGraphDataLocalViewDepth1ExcludesDepth2(t *testing.T) {
 	root := buildGraphOverlayRealm(t)
 
@@ -207,44 +174,25 @@ func TestGraphDataLocalViewDepth1ExcludesDepth2(t *testing.T) {
 		nodeIDs[n.Data.ID] = true
 	}
 
-	// alpha.md (origin) and beta.md (depth-1 neighbour) must appear.
 	if !nodeIDs["alpha.md"] {
 		t.Errorf("local depth-1 view: alpha.md (origin) missing; nodes: %v", nodeIDs)
 	}
 	if !nodeIDs["beta.md"] {
 		t.Errorf("local depth-1 view: beta.md (depth-1 neighbour) missing; nodes: %v", nodeIDs)
 	}
-	// gamma.md is depth-2 (alpha→beta→gamma): must be absent.
 	if nodeIDs["gamma.md"] {
 		t.Errorf("local depth-1 view: gamma.md (depth-2) must be excluded, but found; nodes: %v", nodeIDs)
 	}
-	// delta.md is depth-3: also must be absent.
 	if nodeIDs["delta.md"] {
 		t.Errorf("local depth-1 view: delta.md (depth-3) must be excluded, but found; nodes: %v", nodeIDs)
 	}
 }
 
-// TestGraphDataNoDanglingCodeFileEdge guards the system-graph crash reported in
-// the browser console:
-//
-//	Can not create edge `…/signals.md→…/search.sh→md-link` with nonexistent
-//	target `…/search.sh`
-//
-// A markdown page that links to a real source file (a .sh / .go / … file, not a
-// .md page) produces an Edge with CodeFile=true and a ResolvedPath pointing at
-// that source file. The system graph is a page-to-page graph: its nodes are
-// markdown pages only, so a code file is never a node. Emitting an edge to it
-// references a target that does not exist in the node set, and Cytoscape aborts
-// the ENTIRE graph render the moment it hits one such edge — the whole [system]
-// view goes blank.
-//
-// WHY this invariant: every edge endpoint MUST be a node. The fix is to drop
-// code-file edges (they belong in the rail's OUT list as /file/ links, not the
-// page graph) and, defensively, any edge whose target is not a known node.
+// Every edge endpoint must be a node: the graph is page-to-page, and one edge
+// pointing at a code file blanks the entire render. The sibling page→page link
+// is here to catch a filter that over-prunes.
 func TestGraphDataNoDanglingCodeFileEdge(t *testing.T) {
 	root := t.TempDir()
-	// A real source file in the realm, plus a page that links to it AND to a
-	// sibling page (so a legitimate page→page edge still survives the filter).
 	writeFile(t, filepath.Join(root, "search.sh"), "#!/bin/sh\necho hi\n")
 	writeFile(t, filepath.Join(root, "index.md"),
 		"# Index\n\nRun [the script](search.sh).\n\nSee [page two](two.md).\n")
@@ -266,13 +214,11 @@ func TestGraphDataNoDanglingCodeFileEdge(t *testing.T) {
 		t.Fatalf("JSON unmarshal: %v\nbody: %s", err, body)
 	}
 
-	// Build the node-id set.
 	nodeIDs := make(map[string]bool, len(elems.Nodes))
 	for _, n := range elems.Nodes {
 		nodeIDs[n.Data.ID] = true
 	}
 
-	// The crash condition: an edge whose source or target is not a node.
 	for _, e := range elems.Edges {
 		if !nodeIDs[e.Data.Source] {
 			t.Errorf("edge %q has source %q not present as a node — Cytoscape would abort the whole graph",
@@ -284,13 +230,10 @@ func TestGraphDataNoDanglingCodeFileEdge(t *testing.T) {
 		}
 	}
 
-	// The code file must not be a node at all (it has no /page/).
 	if nodeIDs["search.sh"] {
 		t.Errorf("code file search.sh must not appear as a system-graph node")
 	}
 
-	// The legitimate page→page edge must still be present (the filter must not
-	// over-prune real edges).
 	foundPageEdge := false
 	for _, e := range elems.Edges {
 		if e.Data.Source == "index.md" && e.Data.Target == "two.md" {
@@ -302,16 +245,11 @@ func TestGraphDataNoDanglingCodeFileEdge(t *testing.T) {
 	}
 }
 
-// TestGraphDataNodePreviewFields verifies that /graph/data nodes carry
-// title, description, and snippet fields for pages that have them, and that
-// the snippet is the first prose line (not a heading or blank line).
-//
-// WHY: The hover preview card and click modal both read these fields from
-// node.data(). If they are missing, the card renders empty content. This test
-// ensures the Go layer populates them correctly regardless of JS behaviour.
+// The hover preview card and click modal read title/description/snippet off
+// node.data(); missing fields render an empty card. Snippet must be the first
+// prose line, never a heading.
 func TestGraphDataNodePreviewFields(t *testing.T) {
 	root := t.TempDir()
-	// Page with full frontmatter: title + description + body paragraph.
 	writeFile(t, filepath.Join(root, "api-conventions.md"), `---
 title: API Conventions
 description: Rules for REST endpoint design.
@@ -322,14 +260,12 @@ type: Knowledge
 
 These conventions apply to all REST endpoints.
 `)
-	// Page with no frontmatter: title falls back to humanized filename; snippet
-	// from first prose line.
+	// No frontmatter: title falls back to the humanized filename.
 	writeFile(t, filepath.Join(root, "auth-strategy.md"), `# Auth Strategy
 
 OAuth2 with PKCE for browser clients.
 `)
-	// Page whose body starts with a heading then blank then prose — snippet must
-	// skip the heading and find the prose.
+	// Body opens with a heading, so the snippet scanner has to skip past it.
 	writeFile(t, filepath.Join(root, "caching.md"), `---
 description: Cache patterns.
 ---
@@ -350,7 +286,6 @@ Read-through on miss.
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
-	// Parse into a richer struct that captures the new fields.
 	var elems struct {
 		Nodes []struct {
 			Data struct {
@@ -380,7 +315,6 @@ Read-through on miss.
 		}{n.Data.Title, n.Data.Description, n.Data.Snippet}
 	}
 
-	// api-conventions.md: frontmatter title + description; snippet is the prose paragraph.
 	if m, ok := byID["api-conventions.md"]; !ok {
 		t.Error("api-conventions.md missing from /graph/data nodes")
 	} else {
@@ -393,13 +327,11 @@ Read-through on miss.
 		if m.Snippet == "" {
 			t.Error("api-conventions.md snippet must not be empty")
 		}
-		// The snippet must not be a heading.
 		if strings.HasPrefix(m.Snippet, "#") {
 			t.Errorf("api-conventions.md snippet must not start with '#', got %q", m.Snippet)
 		}
 	}
 
-	// auth-strategy.md: no frontmatter — title humanized from filename; snippet from body.
 	if m, ok := byID["auth-strategy.md"]; !ok {
 		t.Error("auth-strategy.md missing from /graph/data nodes")
 	} else {
@@ -409,13 +341,11 @@ Read-through on miss.
 		if m.Snippet == "" {
 			t.Error("auth-strategy.md snippet must not be empty")
 		}
-		// Snippet must not start with '#'.
 		if strings.HasPrefix(m.Snippet, "#") {
 			t.Errorf("auth-strategy.md snippet starts with '#' — heading must be skipped, got %q", m.Snippet)
 		}
 	}
 
-	// caching.md: description from frontmatter; snippet skips the h2 and finds prose.
 	if m, ok := byID["caching.md"]; !ok {
 		t.Error("caching.md missing from /graph/data nodes")
 	} else {
@@ -431,14 +361,12 @@ Read-through on miss.
 	}
 }
 
-// TestGraphDataHandlerUsesInjectedGraph proves /graph/data reads through the
-// injected store rather than rebuilding from root on every request — the
-// carried live-reload contract. Ported from the pre-cutover fe8_test.go.
+// Live-reload requires reading through the injected store. The store points at
+// an empty dir, so any page.md in the response proves a per-request rebuild.
 func TestGraphDataHandlerUsesInjectedGraph(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "page.md"), "# Page\n")
 
-	// Store rooted at a different, empty dir (not root) → 0 nodes.
 	emptyRoot := t.TempDir()
 	store := serve.NewSnapshotStore(emptyRoot)
 
@@ -461,7 +389,6 @@ func TestGraphDataHandlerUsesInjectedGraph(t *testing.T) {
 	}
 }
 
-// startOpts returns default Options for a test server pointed at root.
 func startOpts(t *testing.T, root string) serve.Options {
 	t.Helper()
 	return serve.Options{

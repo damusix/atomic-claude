@@ -1,18 +1,7 @@
-// codeexplorer.go — per-repo Code Explorer + SQL schema view, backing the
-// /api/code/* JSON endpoints (bottom of this file):
-//   - GET /api/code/node?id=&member=            — node detail
-//   - GET /api/code/{callers,callees,impact}    — subgraph traversal
-//   - GET /api/code/files                       — indexed file list
-//   - GET /api/code/schema                      — SQL schema view
-//   - GET /api/code/file?path=&member=          — symbols defined in a file
+// Per-repo code exploration and the SQL schema view, behind /api/code/*.
 //
-// Design seam:
-//
-//	CodeEngine interface covers the engine methods serve uses.
-//	EngineProvider func(ctx, projectRoot, dbPath) (CodeEngine, error) opens an
-//	engine per request; the production default wraps *engine.Engine.
-//	Tests inject a fakeCodeEngine. The db path is resolved the same way
-//	does for repo scope: <realmRoot>/.claude/.atomic-index/atomic.db.
+// The CodeEngine interface and EngineProvider are the test seam: an engine is
+// opened per request, and tests inject a fake in place of *engine.Engine.
 package serve
 
 import (
@@ -29,12 +18,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// CodeEngine interface
-// ---------------------------------------------------------------------------
-
-// CodeEngine is the narrow interface serve uses for per-repo code exploration.
-// *engine.Engine satisfies this interface; tests inject a fake.
+// CodeEngine is the narrow slice of *engine.Engine that serve uses.
 type CodeEngine interface {
 	SearchNodes(ctx context.Context, opts types.SearchOptions) ([]types.SearchResult, error)
 	GetNode(ctx context.Context, id string) (types.Node, error)
@@ -48,18 +32,16 @@ type CodeEngine interface {
 	GetOutgoingEdges(ctx context.Context, nodeID string) ([]types.Edge, error)
 	GetAllNodes(ctx context.Context) ([]types.Node, error)
 	GetAllEdges(ctx context.Context) ([]types.Edge, error)
-	// IndexAll rebuilds this member's index from source — the one method
-	// here that writes. Used by the loopback-only reindex endpoint.
+	// IndexAll is the only method here that writes, reached solely by the
+	// loopback-only reindex endpoint.
 	IndexAll(ctx context.Context) error
 	Close()
 }
 
-// EngineProvider opens a CodeEngine for the given projectRoot and dbPath.
-// The engine must be closed by the caller after use.
+// EngineProvider opens a CodeEngine the caller must Close.
 type EngineProvider func(ctx context.Context, projectRoot, dbPath string) (CodeEngine, error)
 
-// DefaultEngineProvider returns the production EngineProvider:
-// NewWithDBPath → Open(ctx). The caller must call Close() after use.
+// DefaultEngineProvider returns the production EngineProvider.
 func DefaultEngineProvider() EngineProvider {
 	return func(ctx context.Context, projectRoot, dbPath string) (CodeEngine, error) {
 		eng, err := engine.NewWithDBPath(projectRoot, dbPath)
@@ -74,32 +56,25 @@ func DefaultEngineProvider() EngineProvider {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Handler
-// ---------------------------------------------------------------------------
-
 // CodeExplorerOptions configures NewCodeExplorerAPIHandler.
 type CodeExplorerOptions struct {
-	// RealmRoot is the root of the repository (or realm) being served.
+	// RealmRoot is the root of the repository or realm being served.
 	RealmRoot string
-	// ClaudeMDPath is used by realm.Resolve to discover federation members.
+	// ClaudeMDPath lets realm.Resolve discover federation members.
 	ClaudeMDPath string
-	// WikiIndexPath is the realm wiki/index.md, used to discover self-indexed
-	// members (those carrying their own .claude/.atomic-index/atomic.db).
+	// WikiIndexPath locates members carrying their own index db.
 	WikiIndexPath string
-	// EngineProvider opens an engine per request. nil → DefaultEngineProvider().
+	// EngineProvider nil takes DefaultEngineProvider.
 	EngineProvider EngineProvider
 }
 
 // codeExplorerHandler holds the member resolver and engine provider shared by
-// every /api/code/* JSON handler (apiCodeExplorerHandler embeds it).
+// every /api/code/* handler.
 type codeExplorerHandler struct {
 	memberResolver
 	provider EngineProvider
 }
 
-// newCodeExplorerHandler builds the shared resolver/provider state for the
-// /api/code/* JSON handlers.
 func newCodeExplorerHandler(opts CodeExplorerOptions) *codeExplorerHandler {
 	prov := opts.EngineProvider
 	if prov == nil {
@@ -115,9 +90,8 @@ func newCodeExplorerHandler(opts CodeExplorerOptions) *codeExplorerHandler {
 	}
 }
 
-// memberByPrefix finds a discovered member by its realm-relative Prefix. The
-// empty prefix selects the single repo-scope member. ok is false when no member
-// matches (realm scope with a missing/blank member param).
+// memberByPrefix finds a member by realm-relative prefix; the empty prefix
+// selects the single repo-scope member.
 func memberByPrefix(members []codeMember, prefix string) (codeMember, bool) {
 	for _, m := range members {
 		if m.Prefix == prefix {
@@ -127,16 +101,13 @@ func memberByPrefix(members []codeMember, prefix string) (codeMember, bool) {
 	return codeMember{}, false
 }
 
-// openEngineFor opens an engine for a specific member.
 func (h *codeExplorerHandler) openEngineFor(ctx context.Context, m codeMember) (CodeEngine, error) {
 	return h.provider(ctx, m.Path, m.DBPath)
 }
 
-// engineForRequest opens the engine for the member named by the ?member= query
-// param (realm scope) or the local index at the served root (repo/member scope,
-// or when the param does not resolve). It returns the member's realm-relative
-// prefix so callers can thread it into rendered drill-down links and /file/
-// locations. The caller must Close() the returned engine.
+// engineForRequest opens the engine for the ?member= query param, falling back
+// to the local index at the served root. The returned prefix threads into
+// drill-down links; the caller must Close the engine.
 func (h *codeExplorerHandler) engineForRequest(ctx context.Context, r *http.Request) (CodeEngine, string, error) {
 	prefix := strings.TrimSpace(r.URL.Query().Get("member"))
 	if m, ok := memberByPrefix(h.members(), prefix); ok {
@@ -147,11 +118,6 @@ func (h *codeExplorerHandler) engineForRequest(ctx context.Context, r *http.Requ
 	return eng, "", err
 }
 
-// ---------------------------------------------------------------------------
-// callers / callees / impact subgraph mode (shared by the /api/code/*
-// handlers below)
-// ---------------------------------------------------------------------------
-
 type subgraphMode int
 
 const (
@@ -159,10 +125,6 @@ const (
 	modeCallees
 	modeImpact
 )
-
-// ---------------------------------------------------------------------------
-// /code/schema  (SQL schema view)
-// ---------------------------------------------------------------------------
 
 // tableSchema holds a rendered table's schema data.
 type tableSchema struct {
@@ -172,18 +134,10 @@ type tableSchema struct {
 	Writers   []types.Node // nodes that write to this table (writes edges)
 }
 
-// computeSchema resolves table/view schema entries — columns (contains
-// edges), FK sources (references edges from other tables), and writers
-// (writes edges from routines) — for the given table and view node sets.
-// Shared by the HTML /code/schema handler and the JSON /api/code/schema
-// handler so both surface identical data.
-//
-// For each table/view node, columns come from its own outgoing contains
-// edges. FK sources and writers are collected by scanning the outgoing edges
-// of every table/view/function/method/procedure node and inverting
-// references/writes edges that target a table or view in this set:
-//   - edge {src: ordersTbl, tgt: usersTbl, kind: references} → ordersTbl is an FK source of usersTbl
-//   - edge {src: insertProc, tgt: usersTbl, kind: writes} → insertProc is a writer of usersTbl
+// computeSchema resolves each table's columns, FK sources, and writers.
+// Columns come from a table's own contains edges; the other two are found by
+// inverting the references and writes edges that point at it, since the graph
+// only records the outgoing direction.
 func computeSchema(ctx context.Context, eng CodeEngine, tables, views []types.Node) (tableSchemas, viewSchemas []tableSchema, err error) {
 	nodeByID := make(map[string]types.Node)
 	for _, t := range tables {
@@ -203,8 +157,8 @@ func computeSchema(ctx context.Context, eng CodeEngine, tables, views []types.No
 		}
 	}
 
-	fkSourcesByTable := make(map[string][]types.Node) // tableID → nodes referencing this table
-	writersByTable := make(map[string][]types.Node)   // tableID → nodes writing this table
+	fkSourcesByTable := make(map[string][]types.Node) // tableID → referencing nodes
+	writersByTable := make(map[string][]types.Node)   // tableID → writing nodes
 	for _, srcNode := range extraNodes {
 		edges, eerr := eng.GetOutgoingEdges(ctx, srcNode.ID)
 		if eerr != nil {
@@ -245,19 +199,16 @@ func computeSchema(ctx context.Context, eng CodeEngine, tables, views []types.No
 	return build(tables), build(views), nil
 }
 
-// routineSchema is a stored routine (procedure or SQL function) and the tables
-// it touches. Without the touched tables the section is a list of names, which
-// is what the table cards already were before their columns were surfaced.
+// routineSchema is a stored routine and the tables it touches.
 type routineSchema struct {
 	Node   types.Node
 	Reads  []types.Node
 	Writes []types.Node
 }
 
-// computeRoutines resolves the stored routines declared in SQL files and the
-// tables each reads or writes. Kind alone is not enough of a filter: a repo's
-// TypeScript functions are NodeKindFunction too, and this view is about the
-// database, so language gates the set.
+// computeRoutines resolves SQL-declared routines and the tables each touches.
+// Kind alone is not a sufficient filter — a repo's TypeScript functions are
+// NodeKindFunction too — so language gates the set.
 func computeRoutines(ctx context.Context, eng CodeEngine, tables, views []types.Node) []routineSchema {
 	tableByID := make(map[string]types.Node, len(tables)+len(views))
 	for _, t := range tables {
@@ -271,7 +222,7 @@ func computeRoutines(ctx context.Context, eng CodeEngine, tables, views []types.
 	for _, k := range []types.NodeKind{types.NodeKindProcedure, types.NodeKindFunction} {
 		nodes, err := eng.GetNodesByKind(ctx, k)
 		if err != nil {
-			continue // best-effort, same as the schema scan
+			continue // best-effort
 		}
 		for _, n := range nodes {
 			if n.Language == types.LanguageSQL {
@@ -293,9 +244,8 @@ func computeRoutines(ctx context.Context, eng CodeEngine, tables, views []types.
 			if !ok {
 				continue
 			}
-			// There is no separate reads edge — a routine's SELECT lands as
-			// references, the same kind an FK uses. Direction and node kinds
-			// are what distinguish them, and both are already fixed here.
+			// There is no reads edge kind: a routine's SELECT lands as
+			// references, the same kind an FK uses.
 			switch e.Kind {
 			case types.EdgeKindWrites:
 				rs.Writes = appendIfNew(rs.Writes, target)
@@ -308,10 +258,9 @@ func computeRoutines(ctx context.Context, eng CodeEngine, tables, views []types.
 	return out
 }
 
-// computeSQLTypes resolves user-defined SQL types — Postgres domains and
-// composite types, both extracted as type_alias. Language gates the set for
-// the same reason it does for routines: type_alias is overwhelmingly a
-// TypeScript kind in a mixed repo.
+// computeSQLTypes resolves user-defined SQL types, extracted as type_alias.
+// Language gates the set: type_alias is overwhelmingly TypeScript in a mixed
+// repo.
 func computeSQLTypes(ctx context.Context, eng CodeEngine) []types.Node {
 	nodes, err := eng.GetNodesByKind(ctx, types.NodeKindTypeAlias)
 	if err != nil {
@@ -326,11 +275,7 @@ func computeSQLTypes(ctx context.Context, eng CodeEngine) []types.Node {
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// appendIfNew appends n to nodes only if n.ID is not already present.
+// appendIfNew appends n unless its ID is already present.
 func appendIfNew(nodes []types.Node, n types.Node) []types.Node {
 	for _, existing := range nodes {
 		if existing.ID == n.ID {
@@ -340,13 +285,7 @@ func appendIfNew(nodes []types.Node, n types.Node) []types.Node {
 	return append(nodes, n)
 }
 
-// ---------------------------------------------------------------------------
-// /api/code/* — JSON siblings of the /code/* explorer routes.
-// ---------------------------------------------------------------------------
-
-// apiCodeNode is the full node shape for code-intel API responses (the API
-// contracts table: id, name, kind, filePath, startLine, signature, language,
-// docstring).
+// apiCodeNode is the node shape every code-intel API response uses.
 type apiCodeNode struct {
 	ID        string         `json:"id"`
 	Name      string         `json:"name"`
@@ -356,16 +295,13 @@ type apiCodeNode struct {
 	Signature string         `json:"signature,omitempty"`
 	Language  types.Language `json:"language,omitempty"`
 	Docstring string         `json:"docstring,omitempty"`
-	// DataType is a SQL column's declared type, and ConstraintType a SQL
-	// constraint's kind (primary_key / foreign_key / unique / check). Both are
-	// lifted out of Node.Metadata rather than passing the raw map through:
-	// without them a column list renders as bare names with nothing marking
-	// them as columns, and a constraint renders as an opaque identifier.
+	// Lifted out of Node.Metadata rather than passing the raw map through, so
+	// a column list is not a row of bare names and a constraint is not an
+	// opaque identifier.
 	DataType       string `json:"dataType,omitempty"`
 	ConstraintType string `json:"constraintType,omitempty"`
-	// ConstraintColumns are the columns a key covers, as declared. Which
-	// columns are in a key is a fact in the source; without it the view was
-	// left inferring key membership from the constraint's name.
+	// ConstraintColumns are the columns a key covers, as declared in source,
+	// so the view need not infer membership from the constraint's name.
 	ConstraintColumns []string `json:"constraintColumns,omitempty"`
 }
 
@@ -379,8 +315,8 @@ type sqlNodeMetadata struct {
 func apiCodeNodeFrom(n types.Node) apiCodeNode {
 	var meta sqlNodeMetadata
 	if len(n.Metadata) > 0 {
-		// Metadata is best-effort decoration; a node whose metadata does not
-		// parse still renders, just without the type badge.
+		// Best-effort decoration: a node with unparseable metadata still
+		// renders, just without the type badge.
 		_ = json.Unmarshal(n.Metadata, &meta)
 	}
 	return apiCodeNode{
@@ -398,15 +334,12 @@ func apiCodeNodeFrom(n types.Node) apiCodeNode {
 	}
 }
 
-// apiCodeExplorerHandler serves the JSON /api/code/* siblings of
-// codeExplorerHandler's HTML routes, reusing its member resolution and
-// engine provisioning via embedding.
 type apiCodeExplorerHandler struct {
 	*codeExplorerHandler
 	capabilities *capabilitiesCache
 }
 
-// NewCodeExplorerAPIHandler returns an http.Handler for the JSON
+// NewCodeExplorerAPIHandler serves the
 // /api/code/{node,callers,callees,impact,files,schema,file,capabilities} routes.
 func NewCodeExplorerAPIHandler(opts CodeExplorerOptions) http.Handler {
 	h := newCodeExplorerHandler(opts)
@@ -437,8 +370,6 @@ func (h *apiCodeExplorerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// ─── GET /api/code/node?id=&member= ────────────────────────────────────────
-
 type apiCodeNodeResponse struct {
 	Member string      `json:"member"`
 	Node   apiCodeNode `json:"node"`
@@ -468,8 +399,6 @@ func (h *apiCodeExplorerHandler) handleAPINode(w http.ResponseWriter, r *http.Re
 	writeAPIJSON(w, apiCodeNodeResponse{Member: prefix, Node: apiCodeNodeFrom(n)})
 }
 
-// ─── GET /api/code/{callers,callees,impact}?id=&member= ────────────────────
-
 type apiCodeEdge struct {
 	Kind   types.EdgeKind `json:"kind"`
 	Source string         `json:"source"`
@@ -491,7 +420,7 @@ func (h *apiCodeExplorerHandler) handleAPISubgraph(w http.ResponseWriter, r *htt
 		return
 	}
 
-	depth := 2 // default
+	depth := 2
 	if ds := strings.TrimSpace(r.URL.Query().Get("depth")); ds != "" {
 		if n, err := strconv.Atoi(ds); err == nil && n > 0 {
 			depth = n
@@ -540,8 +469,6 @@ func (h *apiCodeExplorerHandler) handleAPISubgraph(w http.ResponseWriter, r *htt
 	writeAPIJSON(w, apiCodeSubgraphResponse{Member: prefix, Root: root, Edges: edges, Nodes: nodes})
 }
 
-// ─── GET /api/code/files?member= ────────────────────────────────────────────
-
 type apiCodeFileRecord struct {
 	Path      string         `json:"path"`
 	Language  types.Language `json:"language"`
@@ -575,8 +502,6 @@ func (h *apiCodeExplorerHandler) handleAPIFiles(w http.ResponseWriter, r *http.R
 	writeAPIJSON(w, apiCodeFilesResponse{Files: out})
 }
 
-// ─── GET /api/code/schema?member= ───────────────────────────────────────────
-
 type apiTableSchema struct {
 	Node      apiCodeNode   `json:"node"`
 	Columns   []apiCodeNode `json:"columns"`
@@ -584,14 +509,12 @@ type apiTableSchema struct {
 	Writers   []apiCodeNode `json:"writers"`
 }
 
-// Degraded is set (and Tables left empty) when no index is available for the
-// requested member — a data field per the API contracts conventions
-// (mirrors apiCodeFileResponse.Degraded), not an error envelope.
+// apiCodeSchemaResponse carries Degraded as a data field, not an error
+// envelope: an unindexed member is a soft state the UI renders.
 type apiCodeSchemaResponse struct {
 	Tables []apiTableSchema `json:"tables"`
-	// Routines and Types are the rest of what a schema is made of. They were
-	// indexed all along and simply never surfaced, so a database defined
-	// largely in stored procedures looked like it had none.
+	// Routines and Types are the rest of a schema; without them a database
+	// defined largely in stored procedures reads as empty.
 	Routines []apiRoutineSchema `json:"routines"`
 	Types    []apiCodeNode      `json:"types"`
 	Degraded string             `json:"degraded,omitempty"`
@@ -636,7 +559,6 @@ func (h *apiCodeExplorerHandler) handleAPISchema(w http.ResponseWriter, r *http.
 
 	eng, _, err := h.engineForRequest(ctx, r)
 	if err != nil {
-		// Not-indexed is a soft state, not an error — see the response type.
 		writeAPIJSON(w, apiCodeSchemaResponse{Tables: []apiTableSchema{}, Degraded: "index not available: " + err.Error()})
 		return
 	}
@@ -682,8 +604,6 @@ func (h *apiCodeExplorerHandler) handleAPISchema(w http.ResponseWriter, r *http.
 	writeAPIJSON(w, apiCodeSchemaResponse{Tables: out, Routines: apiRoutines, Types: apiTypes})
 }
 
-// ─── GET /api/code/file?path=&member= ───────────────────────────────────────
-
 type apiCodeFileNode struct {
 	ID        string         `json:"id"`
 	Name      string         `json:"name"`
@@ -691,9 +611,8 @@ type apiCodeFileNode struct {
 	StartLine int            `json:"startLine"`
 }
 
-// apiCodeFileResponse is the /api/code/file success payload. Degraded is set
-// (and Nodes left empty) for the not-indexed/no-intel soft states — a data
-// field per the API contracts conventions, not an error envelope.
+// apiCodeFileResponse carries Degraded as a data field, not an error envelope:
+// a file with no intel is a soft state the UI renders.
 type apiCodeFileResponse struct {
 	Path     string            `json:"path"`
 	Member   string            `json:"member"`

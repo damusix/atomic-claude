@@ -36,10 +36,7 @@ func TestTailLine_AddressedMessage_ShowsSenderArrowAddressee(t *testing.T) {
 	}
 }
 
-// TestTailLine_UnaddressedMessage_ShowsRoomMarker proves an FYI message
-// (empty To) renders the literal "(room)" placeholder as its addressee —
-// `(room)` is the addressee
-// for an unaddressed FYI message."
+// An FYI message renders the literal "(room)" placeholder as its addressee.
 func TestTailLine_UnaddressedMessage_ShowsRoomMarker(t *testing.T) {
 	env := testEnvelope()
 	env.To = nil
@@ -49,9 +46,7 @@ func TestTailLine_UnaddressedMessage_ShowsRoomMarker(t *testing.T) {
 	}
 }
 
-// TestTailLine_NoColour_NoANSIEscapes is the success criterion,
-// asserted at the byte level: "piping tail to a non-tty emits no ANSI
-// escapes".
+// Piping tail to a non-tty emits no ANSI escapes, asserted at the byte level.
 func TestTailLine_NoColour_NoANSIEscapes(t *testing.T) {
 	line := TailLine(testEnvelope(), t.TempDir(), 80, false, false)
 	if strings.ContainsRune(line, '\x1b') {
@@ -80,9 +75,8 @@ func TestTailLine_NoRoomPrefix_WhenDisabled(t *testing.T) {
 	}
 }
 
-// TestTailLine_LongPayload_CollapsesAndNamesLogPath proves TailLine wires
-// collapse in: a payload over collapseLineThreshold lines is cut down and
-// the rendered line names the room log path.
+// TailLine wires collapse in: a payload over the threshold is cut down and the
+// rendered line names the room log path.
 func TestTailLine_LongPayload_CollapsesAndNamesLogPath(t *testing.T) {
 	home := t.TempDir()
 	env := testEnvelope()
@@ -110,9 +104,8 @@ func TestWrapHanging_ShortTextUnchanged(t *testing.T) {
 	}
 }
 
-// TestWrapHanging_LongTextWrapsWithHangingIndent proves every continuation
-// line is indented by exactly indent spaces, and no wrapped line exceeds
-// width-indent columns.
+// Every continuation line is indented by exactly indent spaces, and no wrapped
+// line exceeds width-indent columns.
 func TestWrapHanging_LongTextWrapsWithHangingIndent(t *testing.T) {
 	indent := 10
 	width := 40
@@ -140,9 +133,8 @@ func TestWrapHanging_LongTextWrapsWithHangingIndent(t *testing.T) {
 	}
 }
 
-// TestWrapHanging_PreservesEmbeddedNewlines proves a pre-existing newline
-// in text (a multi-line payload, e.g. a stack trace) is preserved as a
-// line break and indented like any other continuation line.
+// A pre-existing newline is preserved as a line break and indented like any
+// other continuation line.
 func TestWrapHanging_PreservesEmbeddedNewlines(t *testing.T) {
 	got := wrapHanging("first line\nsecond line", 4, 80)
 	lines := strings.Split(got, "\n")
@@ -157,11 +149,9 @@ func TestWrapHanging_PreservesEmbeddedNewlines(t *testing.T) {
 	}
 }
 
-// TestWrapHanging_SingleOverlongWordStaysIntact proves one pathological
-// token (a URL, a file path) longer than the available width is kept
-// intact on its own line rather than hard-broken mid-token — a chopped
-// path is unreadable and uncopyable, which defeats collapse's whole point
-// of leaving a working pointer to the room log.
+// One token longer than the available width is kept intact rather than broken
+// mid-token: a chopped path is unreadable and uncopyable, which defeats
+// collapse's point of leaving a working pointer to the room log.
 func TestWrapHanging_SingleOverlongWordStaysIntact(t *testing.T) {
 	overlong := strings.Repeat("x", 100)
 	got := wrapHanging(overlong, 0, 40)
@@ -180,10 +170,8 @@ func TestCollapse_ShortTextUnchanged(t *testing.T) {
 	}
 }
 
-// TestCollapse_LongTextTruncatesAndNamesLogPath_FullTextStillInRoomLog
-// proves both halves of the success criterion together: the rendered
-// text is cut, and the full original text is still recoverable from the
-// room log — collapse is a display decision, never a data-loss one.
+// Both halves together: the rendered text is cut, and the full original is still
+// recoverable from the room log — collapse is a display decision, not data loss.
 func TestCollapse_LongTextTruncatesAndNamesLogPath_FullTextStillInRoomLog(t *testing.T) {
 	home := t.TempDir()
 	lines := make([]string, collapseLineThreshold+10)
@@ -204,9 +192,7 @@ func TestCollapse_LongTextTruncatesAndNamesLogPath_FullTextStillInRoomLog(t *tes
 		t.Fatalf("collapsed text = %q, want the tail of the payload cut off", got)
 	}
 
-	// The full, uncollapsed text must still be recoverable from the room
-	// log — Append writes the original envelope before TailLine ever sees
-	// it.
+	// Append writes the original envelope before TailLine ever sees it.
 	env := Envelope{ID: "m-1", Room: "potato", From: "human", FromKind: KindHuman, Text: full}
 	if err := Append(home, "potato", env); err != nil {
 		t.Fatalf("Append: %v", err)

@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildPromptCmd builds the "prompt" parent + git-cleanup|claude-merge|implementer|reviewer children.
 func buildPromptCmd() *cobra.Command {
 	parent := &cobra.Command{
 		Use:   "prompt",
@@ -38,9 +37,7 @@ func buildPromptCmd() *cobra.Command {
 	return parent
 }
 
-// promptAction executes the prompt subcommand logic and returns an exit code.
-// Extracted from runPrompt so tests can exercise dispatch without os.Exit.
-// out receives the brief text on success; errOut receives error messages.
+// promptAction is split out of runPrompt so tests reach dispatch without os.Exit.
 func promptAction(args []string, out, errOut io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintf(errOut, "Usage: atomic prompt <name>\n")
@@ -56,7 +53,6 @@ func promptAction(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// runPrompt is the os.Exit-aware entry point for the prompt top-level verb.
 func runPrompt(args []string) {
 	os.Exit(promptAction(args, os.Stdout, os.Stderr))
 }

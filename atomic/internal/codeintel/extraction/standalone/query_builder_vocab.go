@@ -1,17 +1,12 @@
 package standalone
 
-// query_builder_vocab.go — C4: query-builder vocabulary.
-//
-// QueryBuilderCallees is the shared, exported set of bare callee names that
-// resolution pass A (C2) checks a sql_string ref's CalleeExpr against to
-// decide confidence tier: a hit upgrades medium to high. Membership alone
-// never creates an edge — the object-name match in C2 is always required.
-
 import "strings"
 
-// QueryBuilderCallees is the flat set of bare callee names recognized as
-// query-builder / ORM entry points (Kysely, Knex, and similar). Keys are
-// lowercase; compare via IsQueryBuilderCallee for case-insensitive lookup.
+// QueryBuilderCallees names query-builder / ORM entry points (Kysely, Knex, and
+// similar). A SQL string-match ref whose CalleeExpr hits this set is upgraded
+// from medium to high confidence; the hit alone never creates an edge, an
+// object-name match is still required. Keys are lowercase — compare via
+// IsQueryBuilderCallee.
 var QueryBuilderCallees = map[string]bool{
 	"selectfrom":    true,
 	"insertinto":    true,
@@ -43,8 +38,8 @@ var QueryBuilderCallees = map[string]bool{
 	"entityname":    true,
 }
 
-// IsQueryBuilderCallee reports whether name (case-insensitive) is in the C4
-// vocabulary.
+// IsQueryBuilderCallee reports whether name is in QueryBuilderCallees,
+// case-insensitively.
 func IsQueryBuilderCallee(name string) bool {
 	if name == "" {
 		return false

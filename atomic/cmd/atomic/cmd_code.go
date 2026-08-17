@@ -10,11 +10,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildCodeCmd builds the "code" parent + index|sync|status|search|callers|
-// callees|impact|node|files|affected|explore|mcp children.
-// Dispatch is runCode (→ codecli.RunCodeWithRealm); the handler's own
-// flag.NewFlagSet parses flags at runtime — Cobra flag registrations here are
-// for deriveCommands, which reads cmd.Flags; they are not parsed here.
+// Flag registrations here feed deriveCommands only; the handler.s own
+// flag.NewFlagSet does the runtime parsing.
 func buildCodeCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runCode(args, *repoOverride) }
 	parent := &cobra.Command{
@@ -102,12 +99,9 @@ func buildCodeCmd(repoOverride *string) *cobra.Command {
 }
 
 func runCode(args []string, repoOverride string) {
-	// Resolve scope BEFORE calling repoctx.Resolve, because repoctx.Resolve
-	// runs `git rev-parse --show-toplevel` which errors at a realm root (a
-	// plain container directory, not a git repo).  realm.Resolve position-senses
-	// the cwd and branches to the correct engine path without git.
+	// Before repoctx.Resolve, which shells out to `git rev-parse --show-toplevel`
+	// and errors at a realm root. realm.Resolve senses the cwd without git.
 	if repoOverride == "" {
-		// Inject cwd + claudeMD path for realm detection.
 		cwd, err := os.Getwd()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic code: get cwd: %v\n", err)
@@ -122,11 +116,9 @@ func runCode(args []string, repoOverride string) {
 		os.Exit(codecli.RunCodeWithRealm(args, cwd, claudeMDPath, os.Stdout, os.Stderr, os.Stdin))
 	}
 
-	// --repo override: user explicitly specified a path. Normalise it to an
-	// absolute path, then use the realm-aware dispatcher so a member path gets
-	// its realm db and a standalone repo gets its local index. We avoid
-	// repoctx.Resolve here because it runs `git rev-parse --show-toplevel` which
-	// fails when the cwd is a realm root (no git repo there).
+	// The realm-aware dispatcher, so a member path gets its realm db and a
+	// standalone repo its local index. repoctx.Resolve is avoided for the same
+	// git-at-a-realm-root reason as above.
 	absRepo, err := filepath.Abs(repoOverride)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic code: resolve --repo path: %v\n", err)

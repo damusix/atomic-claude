@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildRepoCmd builds the "repo" parent + init child.
 func buildRepoCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runRepo(args, *repoOverride) }
 	parent := &cobra.Command{

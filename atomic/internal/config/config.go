@@ -11,11 +11,9 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// replIdleTimeoutDefault is the display default for the resolved-value
-// surface (Resolved/Get/atomic config list) when repl.idle_timeout is unset.
-// Mirrors internal/repl.DefaultIdleTimeout (time.Hour) — config cannot import
-// internal/repl (repl already imports config; that would cycle), so this
-// string must be kept in sync by hand if the repl-side default ever changes.
+// replIdleTimeoutDefault is the display default shown for an unset
+// repl.idle_timeout. It mirrors internal/repl.DefaultIdleTimeout, which config
+// cannot import (repl already imports config), so the two are synced by hand.
 const replIdleTimeoutDefault = "1h"
 
 // runDoctorDefault is the built-in default for update.run_doctor.
@@ -35,9 +33,9 @@ const signalsMaxDepthDefault = 3
 // onto a project root.
 const harnessDirDefault = ".claude"
 
-// knownKeys is the list of user-settable leaf keys exposed via Get/Set/Unset/Resolved.
-// Machine-written sections (e.g. [install]) are NOT included here — they are not
-// user-settable via `atomic config set` and do not appear in `atomic config list`.
+// knownKeys is the user-settable leaf keys exposed via Get/Set/Unset/Resolved.
+// Machine-written sections like [install] are excluded: not user-settable, and
+// never shown by `atomic config list`.
 var knownKeys = []string{
 	"output.signals.max_depth",
 	"update.run_doctor",
@@ -47,11 +45,9 @@ var knownKeys = []string{
 	"repl.idle_timeout",
 }
 
-// knownSchemaKeys is the exhaustive set of recognized dotted keys across all
-// schema versions. It is a superset of knownKeys: machine-written sections like
-// [install] (written by atomic claude install, C3+) are valid TOML but are NOT
-// user-settable. knownSchemaKeys is used only by checkUnknownKeys to avoid
-// producing false-positive unknown-key warnings for these fields.
+// knownSchemaKeys is every recognized dotted key across all schema versions — a
+// superset of knownKeys including machine-written sections. Used only by
+// checkUnknownKeys, to avoid false-positive unknown-key warnings for them.
 var knownSchemaKeys = func() []string {
 	extra := []string{
 		"install.version",
@@ -61,24 +57,21 @@ var knownSchemaKeys = func() []string {
 		"install.artifacts.output-styles",
 		"install.artifacts.rules",
 	}
-	// Safe append: knownKeys[:len:len] prevents mutation of the backing array.
+	// knownKeys[:len:len] prevents mutation of the backing array.
 	return append(knownKeys[:len(knownKeys):len(knownKeys)], extra...)
 }()
 
-// opaqueSections is the set of top-level TOML table names whose child keys are
-// structurally arbitrary (any string key is valid). checkUnknownKeys accepts
-// any child key of an opaque section without producing a structural warning;
-// semantic validation (value allowlist, known-key check) is left to Validate /
-// AgentWarnings.
+// opaqueSections are top-level tables whose child keys are structurally
+// arbitrary. checkUnknownKeys accepts any child of one without a structural
+// warning; semantic validation is left to Validate / AgentWarnings.
 var opaqueSections = map[string]bool{
 	"claude": true,
 	"pi":     true,
 }
 
-// knownSections is the set of known top-level TOML table names.
-// Derived once from knownSchemaKeys (full schema, not just settable keys) so that
-// machine-written sections like [install] don't trigger unknown-section warnings.
-// opaqueSections are also included so their top-level table names are recognized.
+// knownSections is the known top-level table names, derived from the full schema
+// so machine-written sections do not trigger unknown-section warnings.
+// opaqueSections are added so their table names are recognized too.
 var knownSections = func() map[string]bool {
 	m := map[string]bool{}
 	for _, k := range knownSchemaKeys {
@@ -114,11 +107,11 @@ type outputSection struct {
 // updateSection is the [update] TOML table.
 type updateSection struct {
 	RunDoctor bool `toml:"run_doctor"`
-	// Check gates the background detached-child GitHub lookup (selfupdate-state).
-	// No repo-scoped equivalent — user config only.
+	// Check gates the background detached-child GitHub lookup. User config only,
+	// no repo-scoped equivalent.
 	Check bool `toml:"check"`
-	// Stage gates once-only background download+checksum staging of a newer
-	// release binary (selfupdate-state). No repo-scoped equivalent.
+	// Stage gates once-only background staging of a newer release binary. User
+	// config only.
 	Stage bool `toml:"stage"`
 }
 
@@ -127,9 +120,8 @@ type harnessSection struct {
 	Dir string `toml:"dir"`
 }
 
-// installArtifactsSection is the [install.artifacts] TOML sub-table.
-// Each field is the list of artifact file names (relative to their kind directory)
-// that were copied by the last `atomic claude install` invocation.
+// installArtifactsSection lists, per artifact kind, the file names the last
+// `atomic claude install` copied.
 type installArtifactsSection struct {
 	Agents       []string `toml:"agents"`
 	Commands     []string `toml:"commands"`
@@ -138,19 +130,16 @@ type installArtifactsSection struct {
 	Rules        []string `toml:"rules"`
 }
 
-// installSection is the [install] TOML table (schema v2).
-// It is written by atomic claude install (C3) and read by the migration
-// runner (C4) and the prune logic (C3). A missing [install] table means the
-// config was written before the migration framework existed (pre-framework
-// install) — this is valid and treated as version "0.0.0".
+// installSection is written by `atomic claude install` and read by the migration
+// runner and the prune logic. A missing table means the config predates the
+// migration framework — valid, treated as version "0.0.0".
 type installSection struct {
 	Version   string                  `toml:"version"`
 	Artifacts installArtifactsSection `toml:"artifacts"`
 }
 
-// knownAtomicAgents is the static set of bundled atomic agent filenames (no .md suffix).
-// Used as the fallback known-agent set when [install.artifacts].agents is absent.
-// Must stay in sync with the agent files shipped under agents/ in the repo.
+// knownAtomicAgents is the fallback known-agent set when
+// [install.artifacts].agents is absent. Keep in sync with agents/ in the repo.
 var knownAtomicAgents = map[string]bool{
 	"atomic-implementer":   true,
 	"atomic-investigator":  true,
@@ -159,37 +148,34 @@ var knownAtomicAgents = map[string]bool{
 	"atomic-wiki-inferrer": true,
 }
 
-// claudeSection is the [claude] TOML table, namespaced to mirror pi's
-// [pi.agents]: both harnesses read [<harness>.agents.<name>].
+// claudeSection is the [claude] table, namespaced to mirror pi's: both harnesses
+// read [<harness>.agents.<name>].
 type claudeSection struct {
-	// Agents maps bundled agent filenames (no .md suffix) to their model/effort
-	// override, read from [claude.agents.<name>] tables. Machine-written by
-	// `atomic config agents`; re-applied at install time. Omitted from TOML
-	// when empty. NOT in knownKeys — not user-settable via `atomic config set`.
-	// Nested-table decode only — no scalar form, no migration.
+	// Agents maps a bundled agent filename to its model/effort override.
+	// Machine-written by `atomic config agents`, re-applied at install time; not
+	// user-settable via `atomic config set`. Nested-table decode only — no
+	// scalar form, no migration.
 	Agents map[string]AgentOverride `toml:"agents,omitempty"`
 }
 
-// Config is the parsed + defaulted configuration.
-// Fields track explicit set values; zero values mean "use built-in default".
+// Config is the parsed and defaulted configuration. Fields track explicit set
+// values; zero values mean "use built-in default".
 type Config struct {
 	Output  outputSection  `toml:"output"`
 	Update  updateSection  `toml:"update"`
 	Harness harnessSection `toml:"harness"`
-	// Pi preserves the opaque [pi] tree so unrelated config writes do not discard
-	// Pi agent overrides. ResolvePiAgents performs semantic validation.
+	// Pi preserves the opaque [pi] tree so unrelated writes do not discard Pi
+	// agent overrides. ResolvePiAgents does the semantic validation.
 	Pi map[string]any `toml:"pi,omitempty"`
 	// Install is omitted from TOML when zero-valued (no install manifest yet).
 	Install installSection `toml:"install,omitempty"`
 	// Claude carries the Claude Code harness's per-agent overrides. Omitted
 	// from TOML when zero-valued.
 	Claude claudeSection `toml:"claude,omitempty"`
-	// Repl carries the user-level [repl] idle_timeout fallback, consulted by
-	// internal/repl's resolveIdleTimeout only when the repo config has none.
-	// Empty IdleTimeout means unset — unlike Harness.Dir, "" needs no backfill
-	// here because resolveIdleTimeout's own fallback (DefaultIdleTimeout) is
-	// what supplies the concrete default, not Load. Omitted from TOML when
-	// zero-valued.
+	// Repl is the user-level idle_timeout fallback, consulted by repl only when
+	// the repo config has none. Empty means unset — unlike Harness.Dir it needs
+	// no backfill, since repl's own DefaultIdleTimeout supplies the concrete
+	// value rather than Load.
 	Repl replSection `toml:"repl,omitempty"`
 }
 
@@ -208,8 +194,8 @@ func Default() *Config {
 	}
 }
 
-// Load reads path into a Config leniently: unknown keys produce Warnings but
-// no error. If path does not exist, Load returns Default() with no warnings.
+// Load reads path into a Config leniently: unknown keys produce Warnings, not an
+// error. A missing file yields Default() with no warnings.
 func Load(path string) (*Config, []Warning, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -219,7 +205,7 @@ func Load(path string) (*Config, []Warning, error) {
 		return nil, nil, fmt.Errorf("config: read %s: %w", path, err)
 	}
 
-	// Decode into a raw map first so we can detect unknown keys.
+	// Decode into a raw map first so unknown keys can be detected.
 	var rawMap map[string]any
 	if err := toml.Unmarshal(raw, &rawMap); err != nil {
 		return nil, nil, fmt.Errorf("config: parse %s: %w", path, err)
@@ -228,9 +214,8 @@ func Load(path string) (*Config, []Warning, error) {
 	var warns []Warning
 	warns = append(warns, checkUnknownKeys(rawMap, "")...)
 
-	// Detect explicit presence of update.run_doctor before decoding into the
-	// typed struct. The bool zero-value (false) is indistinguishable from
-	// "absent" after decode, so we check the raw map here.
+	// A bool's zero value is indistinguishable from "absent" after decode, so
+	// explicit presence is read from the raw map.
 	updateRunDoctorExplicit := false
 	updateCheckExplicit := false
 	updateStageExplicit := false
@@ -248,9 +233,7 @@ func Load(path string) (*Config, []Warning, error) {
 		}
 	}
 
-	// Detect explicit presence of output.signals.max_depth before decoding into
-	// the typed struct. The int zero-value (0) is indistinguishable from
-	// "absent" after decode, so we check the raw map here.
+	// Same for the int: 0 is indistinguishable from "absent" after decode.
 	signalsMaxDepthExplicit := false
 	if outputRaw, ok := rawMap["output"]; ok {
 		if outputTable, ok := outputRaw.(map[string]any); ok {
@@ -270,31 +253,25 @@ func Load(path string) (*Config, []Warning, error) {
 		return nil, warns, fmt.Errorf("config: decode %s: %w", path, err)
 	}
 
-	// Backfill defaults for any zero-value fields.
-	// update.run_doctor: only backfill default when the key was absent.
-	// When explicitly set to false, the decoded value is already false — correct.
-	// When absent, Default() already set it to true; TOML decode of a missing
-	// section resets the struct to zero (false), so we must restore the default.
+	// Backfill only where the key was absent: an explicit false is already false,
+	// and TOML decode of a missing section resets Default()'s true back to zero.
 	if !updateRunDoctorExplicit {
 		cfg.Update.RunDoctor = runDoctorDefault
 	}
-	// update.check / update.stage: same explicit-presence backfill as run_doctor.
+	// Same explicit-presence backfill as run_doctor.
 	if !updateCheckExplicit {
 		cfg.Update.Check = updateCheckDefault
 	}
 	if !updateStageExplicit {
 		cfg.Update.Stage = updateStageDefault
 	}
-	// output.signals.max_depth: only backfill default when the key was absent.
-	// When explicitly set, it is decoded as-is (even 0 or negative); Validate
-	// will catch non-positive values. When absent, restore the default.
+	// An explicit max_depth decodes as-is, even 0 or negative; Validate catches
+	// that. Only an absent key is backfilled.
 	if !signalsMaxDepthExplicit {
 		cfg.Output.Signals.MaxDepth = signalsMaxDepthDefault
 	}
-	// harness.dir: unlike run_doctor/max_depth, an explicit empty string is
-	// never a valid value (Set/Validate reject it), so there's no collision
-	// between "absent" and "explicitly set to the zero value" — backfill
-	// unconditionally whenever the decoded value is empty.
+	// An explicit empty harness.dir is never valid (Set/Validate reject it), so
+	// there is no absent-versus-zero collision — backfill unconditionally.
 	if cfg.Harness.Dir == "" {
 		cfg.Harness.Dir = harnessDirDefault
 	}
@@ -302,8 +279,8 @@ func Load(path string) (*Config, []Warning, error) {
 	return cfg, warns, nil
 }
 
-// knownLeaves is the set of known dotted leaf keys, computed once from the full
-// schema (knownSchemaKeys) so that [install] leaf keys don't produce warnings.
+// knownLeaves is the known dotted leaf keys, from the full schema so [install]
+// leaves produce no warnings.
 var knownLeaves = func() map[string]bool {
 	m := map[string]bool{}
 	for _, k := range knownSchemaKeys {
@@ -312,9 +289,8 @@ var knownLeaves = func() map[string]bool {
 	return m
 }()
 
-// knownPrefixes is the set of known intermediate dotted paths (non-leaf sections),
-// computed once from the full schema. Example: "output.signals" is a prefix of
-// "output.signals.max_depth"; "install.artifacts" is a prefix of "install.artifacts.agents".
+// knownPrefixes is the known intermediate dotted paths — e.g. "output.signals"
+// is a prefix of "output.signals.max_depth".
 var knownPrefixes = func() map[string]bool {
 	m := map[string]bool{}
 	for _, k := range knownSchemaKeys {
@@ -330,8 +306,8 @@ var knownPrefixes = func() map[string]bool {
 	return m
 }()
 
-// checkUnknownKeys walks a raw decoded TOML map and returns a Warning for each
-// key that is not in knownKeys. prefix is the dotted path so far.
+// checkUnknownKeys walks a raw decoded TOML map and warns for each key not in
+// the schema. prefix is the dotted path so far.
 func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 	var warns []Warning
 	for k, v := range m {
@@ -340,7 +316,7 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 			dotted = prefix + "." + k
 		}
 
-		// Check if this is a known section at the top level.
+		// Top level: the key must name a known section.
 		if prefix == "" {
 			if !knownSections[k] {
 				warns = append(warns, Warning{
@@ -348,16 +324,14 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 				})
 				continue
 			}
-			// Opaque sections (e.g. [claude]) accept arbitrary child keys.
-			// Do not recurse — structural checking is skipped for their children.
-			// Semantic validation (value allowlist, known-key check) is in Validate / AgentWarnings.
+			// Opaque sections accept arbitrary child keys, so structural checking
+			// stops here; semantics are Validate / AgentWarnings' job.
 			if opaqueSections[k] {
 				continue
 			}
 		} else {
-			// For nested keys, accept both leaf keys and known intermediate prefixes.
-			// knownPrefixes covers cases like "output.signals" which is a sub-table,
-			// not a leaf, but must not produce a false-positive warning.
+			// Nested keys accept both leaves and known intermediate prefixes: a
+			// sub-table like "output.signals" must not warn.
 			if !knownLeaves[dotted] && !knownPrefixes[dotted] {
 				warns = append(warns, Warning{
 					Message: fmt.Sprintf("config: unknown key %q (ignored)", dotted),
@@ -374,9 +348,7 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 	return warns
 }
 
-// Validate returns an error if cfg contains values outside the allowed schema.
-// update.run_doctor / update.check / update.stage are bools and have no
-// invalid state at the Config level.
+// Validate returns an error if cfg holds values outside the allowed schema.
 func Validate(cfg *Config) error {
 	if cfg.Output.Signals.MaxDepth <= 0 {
 		return fmt.Errorf("config: output.signals.max_depth must be a positive integer, got %d", cfg.Output.Signals.MaxDepth)
@@ -384,22 +356,19 @@ func Validate(cfg *Config) error {
 	if err := validateHarnessDir(cfg.Harness.Dir); err != nil {
 		return err
 	}
-	// install.version must be a parseable semver when present.
-	// An empty string is valid — it means no [install] table yet (pre-framework install).
+	// An empty install.version is valid — it means no [install] table yet.
 	if cfg.Install.Version != "" && !selfupdate.IsValidSemver(cfg.Install.Version) {
 		return fmt.Errorf("config: install.version %q is not a valid semver string (e.g. \"1.2.0\")", cfg.Install.Version)
 	}
-	// [claude.agents]: effort is strict — any non-empty value outside the enum
-	// is a hard validation failure. model is lenient and never blocks loading
-	// (see AgentWarnings for the non-fatal malformed-model check). A key that
-	// is not a known agent name is also a non-fatal warning (see AgentWarnings).
+	// effort is strict: any non-empty value outside the enum fails validation.
+	// model is lenient and never blocks loading, and an unknown agent name is
+	// only a warning — both live in AgentWarnings.
 	for agentName, ov := range cfg.Claude.Agents {
 		if ov.Effort != "" && !validEfforts[ov.Effort] {
 			return fmt.Errorf("config: claude.agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
 		}
 	}
-	// repl.idle_timeout: empty means unset (valid — resolveIdleTimeout falls
-	// back to its own default); a present value must be a positive duration.
+	// Empty idle_timeout means unset; a present value must be a positive duration.
 	if cfg.Repl.IdleTimeout != "" {
 		if _, err := ValidateIdleTimeout(cfg.Repl.IdleTimeout); err != nil {
 			return err
@@ -408,20 +377,16 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
-// AgentWarnings returns non-fatal warnings for [claude.agents] keys that are
-// not in the known bundled-agent set. An unknown key does not prevent loading
-// or rendering — the user may have a custom agent or may have removed a
-// bundled one.
-//
-// The known-agent set is derived from cfg.Install.Artifacts.Agents (the install
-// manifest, filenames including .md suffix) when available; otherwise falls back
-// to knownAtomicAgents (the static set of the 5 shipped atomic-* agents).
+// AgentWarnings returns non-fatal warnings for [claude.agents] keys outside the
+// known bundled-agent set. An unknown key does not prevent loading — the user
+// may have a custom agent, or removed a bundled one. The known set comes from
+// the install manifest when available, else knownAtomicAgents.
 func AgentWarnings(cfg *Config) []Warning {
 	if len(cfg.Claude.Agents) == 0 {
 		return nil
 	}
 
-	// Derive the known-agent set: prefer the install manifest, fall back to static.
+	// Prefer the install manifest over the static fallback.
 	known := knownAtomicAgents
 	if len(cfg.Install.Artifacts.Agents) > 0 {
 		known = make(map[string]bool, len(cfg.Install.Artifacts.Agents))
@@ -446,9 +411,8 @@ func AgentWarnings(cfg *Config) []Warning {
 	return warns
 }
 
-// Get returns the resolved value for a dotted key.
-// Returns error for unknown keys (with a near-match suggestion when
-// Levenshtein distance ≤ 2).
+// Get returns the resolved value for a dotted key, erroring on an unknown one
+// with a near-match suggestion.
 func Get(cfg *Config, dottedKey string) (string, error) {
 	m := Resolved(cfg)
 	v, ok := m[dottedKey]
@@ -462,9 +426,8 @@ func Get(cfg *Config, dottedKey string) (string, error) {
 	return v, nil
 }
 
-// Set updates cfg in memory for the given dotted key/value pair.
-// Returns an error for unknown keys (with a near-match suggestion when
-// Levenshtein distance ≤ 2) or values outside the allowed enum.
+// Set updates cfg in memory for a dotted key/value pair. Errors on an unknown
+// key (with a near-match suggestion) or a value outside the allowed enum.
 func Set(cfg *Config, dottedKey, value string) error {
 	if !isKnownKey(dottedKey) {
 		suggestion := nearMatch(dottedKey, knownKeys)
@@ -522,8 +485,8 @@ func Set(cfg *Config, dottedKey, value string) error {
 	return nil
 }
 
-// validateHarnessDir enforces the harness.dir value shape: a single
-// non-empty path segment that is never "." or ".." and never contains "/".
+// validateHarnessDir requires a single non-empty path segment, never "." or
+// "..", never containing "/".
 func validateHarnessDir(value string) error {
 	if value == "" || value == "." || value == ".." || strings.Contains(value, "/") {
 		return fmt.Errorf("config: harness.dir must be a single non-empty path segment (not \".\", \"..\", and not containing \"/\"), got %q", value)
@@ -531,9 +494,8 @@ func validateHarnessDir(value string) error {
 	return nil
 }
 
-// Unset reverts the given key to its built-in default.
-// Returns an error for unknown keys (with a near-match suggestion when
-// Levenshtein distance ≤ 2).
+// Unset reverts a key to its built-in default, erroring on an unknown one with a
+// near-match suggestion.
 func Unset(cfg *Config, dottedKey string) error {
 	if !isKnownKey(dottedKey) {
 		suggestion := nearMatch(dottedKey, knownKeys)
@@ -559,9 +521,8 @@ func Unset(cfg *Config, dottedKey string) error {
 	return nil
 }
 
-// WritePersist atomically writes cfg to path as TOML.
-// Creates the parent directory if it does not exist.
-// Uses write-to-tmp + rename for interrupt safety.
+// WritePersist writes cfg to path as TOML through write-to-tmp + rename, creating
+// the parent directory if needed.
 func WritePersist(path string, cfg *Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("config: mkdir %s: %w", filepath.Dir(path), err)
@@ -572,7 +533,7 @@ func WritePersist(path string, cfg *Config) error {
 		return fmt.Errorf("config: marshal: %w", err)
 	}
 
-	// Write to a temp file in the same directory to ensure same filesystem.
+	// Same directory so the rename stays on one filesystem.
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.toml.tmp")
 	if err != nil {
 		return fmt.Errorf("config: create temp: %w", err)
@@ -606,8 +567,7 @@ func isKnownKey(dottedKey string) bool {
 	return false
 }
 
-// nearMatch returns the element from candidates with Levenshtein distance ≤ 2
-// to target, or "" if none qualify. When multiple qualify, returns the closest.
+// nearMatch returns the closest candidate within Levenshtein distance 2, or "".
 func nearMatch(target string, candidates []string) string {
 	best := ""
 	bestDist := 3 // threshold: only return if dist ≤ 2

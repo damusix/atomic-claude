@@ -1,10 +1,7 @@
-// api_bus_transcript.go — EXPERIMENT (bus chat, api_bus.go): session
-// transcript endpoints for the /bus rail. A bus member's Session is a
-// Claude Code session id; its transcript lives at
-// <home>/.claude/projects/<encoded-cwd>/<session>.jsonl. The rail lists
-// each room member's session with transcript availability; clicking one
-// renders the .jsonl into markdown server-side (RenderMarkdown, same
-// pipeline every page uses) and returns HTML-in-JSON.
+// Session-transcript endpoints for the bus rail. A bus member's Session is a
+// Claude Code session id, whose transcript lives at
+// <home>/.claude/projects/<encoded-cwd>/<session>.jsonl. Opening one renders
+// the .jsonl to markdown through the same pipeline every page uses.
 package serve
 
 import (
@@ -29,10 +26,9 @@ import (
 // it can traverse.
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 
-// findSessionTranscript globs every Claude Code project dir for
-// <session>.jsonl and returns the newest match — the same session id can
-// appear under more than one encoded cwd (e.g. a session that moved into a
-// worktree), and the newest file is the one still being written.
+// findSessionTranscript returns the newest match: one session id can appear
+// under several encoded cwds — a session that moved into a worktree — and the
+// newest file is the one still being written.
 func findSessionTranscript(home, session string) (string, os.FileInfo, error) {
 	if !sessionIDPattern.MatchString(session) || strings.Contains(session, "..") {
 		return "", nil, fmt.Errorf("invalid session id")
@@ -123,11 +119,8 @@ type busTranscriptResponse struct {
 	ShownEntries int    `json:"shownEntries"`
 	TotalEntries int    `json:"totalEntries"`
 	Offset       int    `json:"offset"`
-	// FirstEntry/LastEntry are the 1-based absolute positions of the shown
-	// window within the whole transcript (0/0 when the window is empty) —
-	// the same numbers transcriptToMarkdown renders into its own range
-	// note, single-sourced via transcriptMeta so the client never
-	// recomputes them from shownEntries/totalEntries/offset.
+	// FirstEntry/LastEntry are the window's 1-based positions in the whole
+	// transcript, so the client never recomputes them from the counts above.
 	FirstEntry int `json:"firstEntry"`
 	LastEntry  int `json:"lastEntry"`
 }
@@ -144,8 +137,7 @@ func (h *busAPIHandler) handleTranscript(w http.ResponseWriter, r *http.Request)
 			n = parsed
 		}
 	}
-	// offset counts entries skipped from the tail — offset 0 is the latest
-	// window, offset n is the one before it, and so on backward.
+	// offset counts entries skipped from the tail: 0 is the latest window.
 	offset := 0
 	if raw := r.URL.Query().Get("offset"); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 10000 {
@@ -185,11 +177,8 @@ func (h *busAPIHandler) handleTranscript(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// --- .jsonl → markdown ---
-
-// transcriptLine is the subset of a Claude Code session .jsonl line the
-// renderer reads. Meta line types (ai-title, agent-name) share the struct;
-// unused fields stay zero.
+// transcriptLine is the subset of a session .jsonl line the renderer reads.
+// Meta line types share the struct, leaving unused fields zero.
 type transcriptLine struct {
 	Type        string          `json:"type"`
 	Timestamp   string          `json:"timestamp"`
@@ -226,21 +215,19 @@ type transcriptMeta struct {
 	agentName string
 	shown     int
 	total     int
-	// first/last are the 1-based absolute positions of the shown window
-	// within the whole transcript; 0/0 when the window is empty.
+	// first/last are 1-based window positions, 0/0 when the window is empty.
 	first int
 	last  int
 }
 
-// maxTranscriptLineBytes bounds one .jsonl line; a tool result can carry
-// megabytes, and a line beyond this is skipped rather than failing the read.
+// maxTranscriptLineBytes: a tool result can carry megabytes, and a line beyond
+// this is skipped rather than failing the read.
 const maxTranscriptLineBytes = 8 * 1024 * 1024
 
-// transcriptToMarkdown reads a session .jsonl and produces markdown for a
-// window of maxEntries user/assistant entries, offset entries back from
-// the tail (offset 0 = latest window). Per-block truncation keeps one
-// giant tool result from swamping the page; the sliding ring bounds
-// memory at offset+maxEntries entries regardless of transcript size.
+// transcriptToMarkdown renders a window of maxEntries entries, offset back
+// from the tail. Per-block truncation keeps one giant tool result from
+// swamping the page, and the sliding ring bounds memory regardless of
+// transcript size.
 func transcriptToMarkdown(path string, maxEntries, offset int) (string, transcriptMeta, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -291,8 +278,6 @@ func transcriptToMarkdown(path string, maxEntries, offset int) (string, transcri
 	window := entries[start:end]
 	meta.shown = len(window)
 	if meta.shown > 0 {
-		// 1-based chronological positions of the window within the whole
-		// transcript, for the range note below and the API response.
 		meta.first = meta.total - len(entries) + start + 1
 		meta.last = meta.total - len(entries) + end
 	}
@@ -304,8 +289,7 @@ func transcriptToMarkdown(path string, maxEntries, offset int) (string, transcri
 	if meta.shown == 0 && meta.total > 0 {
 		fmt.Fprintf(&b, "*(no entries this far back — the transcript has %d)*\n", meta.total)
 	}
-	// Newest first: the modal opens on the latest window, so the latest
-	// entry belongs at the top and reading down walks back in time.
+	// Newest first, so reading down walks back in time.
 	for i := len(window) - 1; i >= 0; i-- {
 		if i < len(window)-1 {
 			b.WriteString("\n---\n\n")
@@ -315,8 +299,7 @@ func transcriptToMarkdown(path string, maxEntries, offset int) (string, transcri
 	return b.String(), meta, nil
 }
 
-// readBoundedLine reads one \n-terminated line, returning nil (skipping)
-// for lines beyond maxTranscriptLineBytes instead of erroring out.
+// readBoundedLine returns nil for an over-long line instead of erroring out.
 func readBoundedLine(r *bufio.Reader) ([]byte, error) {
 	var buf []byte
 	overflowed := false
@@ -363,7 +346,7 @@ func parseTranscriptLine(raw []byte) (transcriptEntry, transcriptMeta, bool) {
 		entry.role = line.Type
 	}
 
-	// content is either one string or a block list.
+	// Content is either one string or a block list.
 	var asString string
 	if json.Unmarshal(msg.Content, &asString) == nil {
 		entry.text = asString
@@ -424,8 +407,7 @@ func onlyToolResults(blocks []transcriptBlock) bool {
 	return sawResult
 }
 
-// toolResultText flattens a tool_result's content (string, or a list of
-// text blocks) into plain text.
+// toolResultText flattens a tool_result's content to plain text.
 func toolResultText(raw json.RawMessage) string {
 	var asString string
 	if json.Unmarshal(raw, &asString) == nil {

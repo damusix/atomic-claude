@@ -17,18 +17,11 @@ type scopeIdentity struct {
 	Branch string
 }
 
-// resolveScopeIdentity names the served tree. The scope root is resolved the
-// way the rest of atomic resolves it — the directory holding the nearest
-// scope="repo" marker in .claude/atomic.toml, else the git work-tree root,
-// else the served directory (repoctx.ResolveFrom owns that precedence).
-//
-// The NAME then prefers the origin remote's owner/repo over that directory's
-// own name, because a directory name is a local accident: worktrees, clones
-// into a renamed folder, and "src" checkouts all misreport the project.
-// owner/repo is what the project is actually called everywhere else.
-//
-// Resolution failure is not an error worth surfacing in a header chip — each
-// step falls back to the one below it, ending at the served directory's name.
+// resolveScopeIdentity names the served tree, preferring the origin remote's
+// owner/repo over the directory name — a directory name is a local accident,
+// and worktrees, renamed clones, and "src" checkouts all misreport under it.
+// Every step falls back to the next, ending at the served directory's name;
+// a failure here is not worth surfacing in a header chip.
 func resolveScopeIdentity(servedRoot string) scopeIdentity {
 	root := servedRoot
 	if resolved, _, err := repoctx.ResolveFrom(servedRoot, ""); err == nil && resolved != "" {
@@ -46,13 +39,10 @@ func resolveScopeIdentity(servedRoot string) scopeIdentity {
 	}
 }
 
-// gitRemoteName returns the origin remote as "owner/repo", or "" when there
-// is no origin or it does not parse to that shape.
+// gitRemoteName returns origin as "owner/repo", handling both remote forms:
 //
-// Handles both remote forms git itself accepts:
-//
-//	git@github.com:damusix/atomic-claude.git  → damusix/atomic-claude
-//	https://github.com/damusix/atomic-claude  → damusix/atomic-claude
+//	git@github.com:owner/repo.git  → owner/repo
+//	https://github.com/owner/repo  → owner/repo
 func gitRemoteName(root string) string {
 	cmd := exec.Command("git", "remote", "get-url", "origin")
 	cmd.Dir = root
@@ -64,9 +54,7 @@ func gitRemoteName(root string) string {
 	url := strings.TrimSpace(string(out))
 	url = strings.TrimSuffix(url, ".git")
 
-	// SCP-style (git@host:owner/repo) has no scheme to strip — split on the
-	// colon instead. Everything else is a URL whose host segment goes away
-	// with the rest of the path prefix below.
+	// SCP-style has no scheme to strip, so split on the colon instead.
 	if at := strings.LastIndex(url, ":"); at != -1 && !strings.Contains(url, "://") {
 		url = url[at+1:]
 	} else if i := strings.Index(url, "://"); i != -1 {
@@ -83,7 +71,7 @@ func gitRemoteName(root string) string {
 	if len(segments) < 2 {
 		return ""
 	}
-	// Keep the last two: nested group paths (GitLab) collapse to group/repo.
+	// Last two only, so a nested GitLab group path collapses to group/repo.
 	owner, repo := segments[len(segments)-2], segments[len(segments)-1]
 	if owner == "" || repo == "" {
 		return ""
@@ -91,14 +79,10 @@ func gitRemoteName(root string) string {
 	return owner + "/" + repo
 }
 
-// gitBranch returns the checked-out branch name at root, or "" when root is
-// not a git work tree or HEAD is detached.
-//
-// symbolic-ref rather than "rev-parse --abbrev-ref": rev-parse fails outright
-// on an unborn branch (a repo with no commits yet), which would leave a
-// freshly initialised project showing no branch at all. symbolic-ref reads
-// HEAD's target directly, so it answers before the first commit and still
-// fails — correctly — on a detached HEAD, which is not a branch.
+// gitBranch uses symbolic-ref rather than rev-parse --abbrev-ref: rev-parse
+// fails on an unborn branch, leaving a freshly initialised repo with no branch
+// shown. symbolic-ref reads HEAD directly, so it answers before the first
+// commit and still fails, correctly, on a detached HEAD.
 func gitBranch(root string) string {
 	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
 	cmd.Dir = root

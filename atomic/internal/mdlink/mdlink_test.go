@@ -9,7 +9,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
 )
 
-// makeFile creates a file at root/rel with content (creating parent dirs).
 func makeFile(t *testing.T, root, rel string) {
 	t.Helper()
 	abs := filepath.Join(root, rel)
@@ -21,7 +20,6 @@ func makeFile(t *testing.T, root, rel string) {
 	}
 }
 
-// TestLinkify_NoResolvableTokens verifies prose with no matching disk paths is unchanged.
 func TestLinkify_NoResolvableTokens(t *testing.T) {
 	dir := t.TempDir()
 	content := "Run `atomic signals scan` or `git status` to refresh.\n"
@@ -32,27 +30,22 @@ func TestLinkify_NoResolvableTokens(t *testing.T) {
 	}
 }
 
-// TestLinkify_ResolvesExistingFile verifies a token that resolves to a real file is linked.
 func TestLinkify_ResolvesExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	makeFile(t, dir, "agents/atomic-builder.md")
 
-	// File at .claude/project/signals.md, base=dir
 	fileAbs := filepath.Join(dir, ".claude", "project", "signals.md")
 	content := "See `agents/atomic-builder.md` for details.\n"
 	got := mdlink.Linkify(content, fileAbs, dir)
 
-	// Rel from .claude/project/ to agents/atomic-builder.md = ../../agents/atomic-builder.md
 	want := "See [`agents/atomic-builder.md`](../../agents/atomic-builder.md) for details.\n"
 	if got != want {
 		t.Errorf("link not emitted correctly:\ngot:  %q\nwant: %q", got, want)
 	}
 }
 
-// TestLinkify_SkipSet verifies junk dirs that resolve on disk are never linked.
 func TestLinkify_SkipSet(t *testing.T) {
 	dir := t.TempDir()
-	// All of these exist on disk but must stay plain text.
 	for _, d := range []string{".git", "node_modules", "dist", "build", "target", "vendor", ".worktrees", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", d, err)
@@ -76,10 +69,8 @@ func TestLinkify_SkipSet(t *testing.T) {
 	}
 }
 
-// TestLinkify_DegenerateTokens verifies prose that quotes a bare path character
-// is left alone. These tokens always stat clean — Join(base, ".") and Join(base,
-// "/") are base, ".." is its parent — so disk resolution cannot reject them, and
-// linking one aims the reader at the repo root or above it.
+// A quoted bare path character always stats clean, so disk resolution cannot
+// reject it — and linking one aims the reader at the repo root or above.
 func TestLinkify_DegenerateTokens(t *testing.T) {
 	dir := t.TempDir()
 	makeFile(t, dir, "agents/atomic-builder.md")
@@ -95,10 +86,8 @@ func TestLinkify_DegenerateTokens(t *testing.T) {
 	}
 }
 
-// TestLinkify_DoubleBacktickSpan verifies a doubled-backtick span quoting text
-// that itself contains backticks survives. The scanner reads the pair as a
-// zero-width token, which resolves to the base dir and would otherwise be
-// emitted as a link, shredding the quoted string into three pieces.
+// The scanner reads a doubled backtick as a zero-width token that resolves to
+// the base dir, which would shred the quoted string into three pieces.
 func TestLinkify_DoubleBacktickSpan(t *testing.T) {
 	dir := t.TempDir()
 
@@ -111,7 +100,6 @@ func TestLinkify_DoubleBacktickSpan(t *testing.T) {
 	}
 }
 
-// TestLinkify_Idempotent verifies re-running on already-linkified content is byte-identical.
 func TestLinkify_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 	makeFile(t, dir, "agents/atomic-builder.md")
@@ -126,7 +114,6 @@ func TestLinkify_Idempotent(t *testing.T) {
 	}
 }
 
-// TestLinkify_FenceSkip verifies content inside fenced code blocks is not linkified.
 func TestLinkify_FenceSkip(t *testing.T) {
 	dir := t.TempDir()
 	makeFile(t, dir, "agents/atomic-builder.md")
@@ -139,7 +126,6 @@ func TestLinkify_FenceSkip(t *testing.T) {
 	}
 }
 
-// TestLinkify_FenceSkip_ProseAround verifies prose outside a fence is linked but inside is not.
 func TestLinkify_FenceSkip_ProseAround(t *testing.T) {
 	dir := t.TempDir()
 	makeFile(t, dir, "agents/atomic-builder.md")
@@ -148,17 +134,14 @@ func TestLinkify_FenceSkip_ProseAround(t *testing.T) {
 	content := "Before `agents/atomic-builder.md` stuff.\n```\nSee `agents/atomic-builder.md` inside.\n```\nAfter `agents/atomic-builder.md` end.\n"
 	got := mdlink.Linkify(content, fileAbs, dir)
 
-	// Inside the fence must not be linked.
 	if !contains(got, "```\nSee `agents/atomic-builder.md` inside.\n```") {
 		t.Errorf("fenced content was modified:\n%q", got)
 	}
-	// Outside the fence must be linked.
 	if !contains(got, "[`agents/atomic-builder.md`](../../agents/atomic-builder.md)") {
 		t.Errorf("prose outside fence was not linked:\n%q", got)
 	}
 }
 
-// TestLinkify_AlreadyLinked verifies a token already in markdown link syntax is skipped.
 func TestLinkify_AlreadyLinked(t *testing.T) {
 	dir := t.TempDir()
 	makeFile(t, dir, "agents/atomic-builder.md")
@@ -171,7 +154,6 @@ func TestLinkify_AlreadyLinked(t *testing.T) {
 	}
 }
 
-// TestLinkify_DirToken verifies a token that resolves to a directory is also linked.
 func TestLinkify_DirToken(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0o755); err != nil {
@@ -182,52 +164,43 @@ func TestLinkify_DirToken(t *testing.T) {
 	content := "See `agents/` for all agents.\n"
 	got := mdlink.Linkify(content, fileAbs, dir)
 
-	// filepath.Rel strips the trailing slash; the important thing is the link was emitted.
+	// filepath.Rel strips the trailing slash; what matters is that a link appeared.
 	if !contains(got, "[`agents/`](../../agents") {
 		t.Errorf("directory token not linked:\ngot: %q", got)
 	}
 }
 
-// TestLinkify_DepthFromDomainFile verifies correct relative path from a domain file
-// under .claude/project/signals/ (one level deeper than signals.md itself).
+// A domain file sits one level deeper than signals.md.
 func TestLinkify_DepthFromDomainFile(t *testing.T) {
 	dir := t.TempDir()
 	makeFile(t, dir, "atomic/internal/wiki/wiki.go")
 
-	// Domain file at .claude/project/signals/wiki.md, base=dir
 	fileAbs := filepath.Join(dir, ".claude", "project", "signals", "wiki.md")
 	content := "Key file: `atomic/internal/wiki/wiki.go`\n"
 	got := mdlink.Linkify(content, fileAbs, dir)
 
-	// Rel from .claude/project/signals/ to atomic/internal/wiki/wiki.go
-	// = ../../../atomic/internal/wiki/wiki.go
 	want := "Key file: [`atomic/internal/wiki/wiki.go`](../../../atomic/internal/wiki/wiki.go)\n"
 	if got != want {
 		t.Errorf("wrong relative path from domain file:\ngot:  %q\nwant: %q", got, want)
 	}
 }
 
-// TestLinkify_DomainDetailChain verifies the exact chain the spec requires:
-// token ".claude/project/signals/auth.md" in signals.md links to "signals/auth.md"
-// (which is what the doctor extracts and joins as root/.claude/project/signals/auth.md).
+// The emitted relative link is what the doctor re-joins against the repo root.
 func TestLinkify_DomainDetailChain(t *testing.T) {
 	dir := t.TempDir()
 	makeFile(t, dir, ".claude/project/signals/auth.md")
 
-	// signals.md is at .claude/project/signals.md
 	fileAbs := filepath.Join(dir, ".claude", "project", "signals.md")
-	// Token as the inferrer writes it: repo-root-relative path
+	// The inferrer writes repo-root-relative tokens.
 	content := "| auth | src/auth/ | auth desc | `.claude/project/signals/auth.md` |\n"
 	got := mdlink.Linkify(content, fileAbs, dir)
 
-	// Rel from .claude/project/ to .claude/project/signals/auth.md = signals/auth.md
 	if !contains(got, "[`.claude/project/signals/auth.md`](signals/auth.md)") {
 		t.Errorf("domain detail chain link wrong:\ngot: %q", got)
 	}
 }
 
-// TestLinkify_TableCell verifies linkify handles pipe-table rows correctly
-// (doesn't break table syntax by inserting extra pipes or corrupting alignment).
+// Linkifying a table cell must not introduce pipes or break alignment.
 func TestLinkify_TableCell(t *testing.T) {
 	dir := t.TempDir()
 	makeFile(t, dir, "agents/atomic-builder.md")
@@ -239,35 +212,22 @@ func TestLinkify_TableCell(t *testing.T) {
 	if !contains(got, "[`agents/atomic-builder.md`](../../agents/atomic-builder.md)") {
 		t.Errorf("table cell not linked:\ngot: %q", got)
 	}
-	// Table row structure must still be intact
 	if !contains(got, "| domain | src/ | desc |") {
 		t.Errorf("table structure broken:\ngot: %q", got)
 	}
 }
 
-// TestLinkify_NestedFence verifies that a 4-backtick outer fence containing a
-// 3-backtick inner block is handled correctly per CommonMark rules:
-//   - The inner 3-backtick lines are NOT treated as fence boundaries.
-//   - Content inside the outer fence (including the inner block) is left literal.
-//   - A link-eligible token OUTSIDE all fences IS linkified.
-//
-// Pre-fix, the bare bool toggle flips inFence on the inner 3-backtick lines,
-// so the inner content gets linkified — this test catches that regression.
+// A 3-backtick run inside a 4-backtick fence is content, not a boundary. A bare
+// bool toggle flips inFence there and exposes the inner block as prose.
 func TestLinkify_NestedFence(t *testing.T) {
 	dir := t.TempDir()
-	// agents/atomic-builder.md must exist on disk so Linkify would linkify it
-	// if fence tracking is broken.
+	// The token must exist on disk, or broken fence tracking proves nothing.
 	makeFile(t, dir, "agents/atomic-builder.md")
 
 	fileAbs := filepath.Join(dir, ".claude", "project", "signals.md")
 
-	// Outer fence: 4 backticks. Inner block: 3 backticks.
-	// `agents/atomic-builder.md` appears three times:
-	//   (a) inside the outer fence before the inner block (must stay literal)
-	//   (b) BETWEEN the inner 3-backtick lines (must stay literal — this is where
-	//       the bool-toggle bug exposes content: inFence flips false on the inner
-	//       opener, so content between the inner ``` lines is treated as prose)
-	//   (c) in prose below the outer fence (must be linked)
+	// The token appears before the inner block, between the inner lines, and in
+	// prose below the outer fence — only the last may be linked.
 	content := strings.Join([]string{
 		"prose before",
 		"````",
@@ -283,41 +243,32 @@ func TestLinkify_NestedFence(t *testing.T) {
 
 	got := mdlink.Linkify(content, fileAbs, dir)
 
-	// The outer fence lines must be preserved verbatim.
 	if !contains(got, "````\n") {
 		t.Errorf("outer fence opener missing from output:\n%q", got)
 	}
 
-	// All three interior occurrences must stay literal (plain backtick spans).
-	// (a) before the inner 3-backtick opener
 	if !contains(got, "inner prose `agents/atomic-builder.md` should stay literal") {
 		t.Errorf("first inner token was linkified (before inner 3-backtick opener):\n%q", got)
 	}
-	// (b) BETWEEN the inner 3-backtick lines — this is the line the bool-toggle
-	//     bug exposes as prose (inFence flips false on the inner ``` opener).
+	// The line a bool toggle would expose as prose.
 	if !contains(got, "`agents/atomic-builder.md` between inner fences also literal") {
 		t.Errorf("token between inner fences was linkified (bool-toggle bug):\n%q", got)
 	}
-	// (c) after the inner 3-backtick closer, still inside the outer fence
 	if !contains(got, "more inner content `agents/atomic-builder.md` also literal") {
 		t.Errorf("third inner token was linkified:\n%q", got)
 	}
 
-	// Token OUTSIDE the fence must be linkified.
 	wantLink := "[`agents/atomic-builder.md`](../../agents/atomic-builder.md)"
 	if !contains(got, wantLink) {
 		t.Errorf("prose token after outer fence was NOT linkified:\ngot: %q\nwant substring: %q", got, wantLink)
 	}
 
-	// The prose-after line must contain the link, not the plain token.
 	wantAfterLine := "prose after " + wantLink + " should be linked"
 	if !contains(got, wantAfterLine) {
 		t.Errorf("prose-after line has wrong form:\ngot: %q\nwant substring: %q", got, wantAfterLine)
 	}
 }
 
-// TestLinkify_TildeFence verifies that tilde fences (~~~) are also tracked and
-// their contents are not linkified.
 func TestLinkify_TildeFence(t *testing.T) {
 	dir := t.TempDir()
 	makeFile(t, dir, "agents/atomic-builder.md")
@@ -326,11 +277,9 @@ func TestLinkify_TildeFence(t *testing.T) {
 	content := "~~~\nSee `agents/atomic-builder.md` inside tilde fence.\n~~~\nAfter `agents/atomic-builder.md` end.\n"
 	got := mdlink.Linkify(content, fileAbs, dir)
 
-	// Inside the tilde fence must not be linked.
 	if !contains(got, "~~~\nSee `agents/atomic-builder.md` inside tilde fence.\n~~~") {
 		t.Errorf("tilde fence content was modified:\n%q", got)
 	}
-	// Outside the tilde fence must be linked.
 	if !contains(got, "[`agents/atomic-builder.md`](../../agents/atomic-builder.md)") {
 		t.Errorf("prose outside tilde fence was not linked:\n%q", got)
 	}

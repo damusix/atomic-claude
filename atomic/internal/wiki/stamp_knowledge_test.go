@@ -29,8 +29,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// --- helpers ------------------------------------------------------------------
-
 // makeKnowledgePage writes a wiki/knowledge/<topic>.md file with the given
 // content (no frontmatter). Returns the file path and its SHA-256 hex.
 func makeKnowledgePage(t *testing.T, wikiDir, topic, content string) (path, sha256hex string) {
@@ -110,8 +108,6 @@ func writeConcernWithReflects(t *testing.T, wikiDir, name string, reflectsEntrie
 	return path
 }
 
-// --- StampKnowledge tests -----------------------------------------------------
-
 // TestStampKnowledge_WritesSourcesList verifies that StampKnowledge writes
 // the sources: YAML list with correctly-formatted <bucket>/<relpath>@<sha256>
 // entries and preserves other frontmatter + body.
@@ -176,8 +172,6 @@ func TestStampKnowledge_WritesSourcesList(t *testing.T) {
 	}
 }
 
-// TestStampKnowledge_Idempotent verifies that stamping twice produces the same
-// sources: list (no duplication, no data loss).
 func TestStampKnowledge_Idempotent(t *testing.T) {
 	wikiDir := t.TempDir()
 	knowledgePage := makeKnowledgePageWithFrontmatter(t, wikiDir, "auth-patterns.md",
@@ -215,8 +209,6 @@ func TestStampKnowledge_Idempotent(t *testing.T) {
 	}
 }
 
-// TestStampKnowledge_EmptySources verifies that stamping with zero sources
-// writes an empty sources: list (not absent).
 func TestStampKnowledge_EmptySources(t *testing.T) {
 	wikiDir := t.TempDir()
 	knowledgePage := makeKnowledgePageWithFrontmatter(t, wikiDir, "topic.md",
@@ -276,8 +268,6 @@ func TestStampKnowledge_ErrorWhenAbsent(t *testing.T) {
 		t.Errorf("StampKnowledge must not create a missing file")
 	}
 }
-
-// --- CLI dispatch tests (wikiStampAction via WikiAction) ----------------------
 
 // TestStampAction_KnowledgeModeWritesSources verifies the CLI
 // `atomic wiki stamp --knowledge --sources <entries> <path>` dispatch writes
@@ -360,8 +350,6 @@ func TestStampAction_KnowledgeModeNonConformingTopicName(t *testing.T) {
 	}
 }
 
-// TestStampAction_KnowledgeModeConformingNames verifies that conforming topic
-// names (kebab-case [a-z0-9-]+.md) are accepted and written.
 func TestStampAction_KnowledgeModeConformingNames(t *testing.T) {
 	goodNames := []string{
 		"vendor-x.md",
@@ -409,8 +397,6 @@ func TestStampAction_KnowledgeModeConformingNames(t *testing.T) {
 	}
 }
 
-// TestStampAction_KnowledgeMissingSourcesFlag verifies that --knowledge without
-// --sources returns exit 1 (usage error).
 func TestStampAction_KnowledgeMissingSourcesFlag(t *testing.T) {
 	wikiDir := t.TempDir()
 	path := filepath.Join(wikiDir, "knowledge", "topic.md")
@@ -422,8 +408,6 @@ func TestStampAction_KnowledgeMissingSourcesFlag(t *testing.T) {
 		t.Errorf("expected non-zero exit when --sources missing with --knowledge, got 0")
 	}
 }
-
-// --- resolveFingerprint knowledge branch tests --------------------------------
 
 // TestStampConcern_KnowledgeCitation verifies that a concern citing
 // "knowledge/<topic>.md" in its reflects: list is fingerprinted using the
@@ -474,8 +458,6 @@ func TestStampConcern_KnowledgeCitation(t *testing.T) {
 	}
 }
 
-// TestStampConcern_KnowledgeCitation_MixedWithRepo verifies that a concern
-// citing both a repo id and a knowledge page id gets both fingerprinted correctly.
 func TestStampConcern_KnowledgeCitation_MixedWithRepo(t *testing.T) {
 	wikiDir := t.TempDir()
 
@@ -548,10 +530,6 @@ func TestStampConcern_KnowledgeCitation_MixedWithRepo(t *testing.T) {
 	}
 }
 
-// --- atomic wiki stale — knowledge-citation staleness tests -------------------
-
-// TestStale_KnowledgeCitationFresh verifies that a concern citing a knowledge
-// page is reported as fresh when the stored hash matches the current file.
 func TestStale_KnowledgeCitationFresh(t *testing.T) {
 	root, wikiDir := makeRealmWithWiki(t)
 
@@ -609,8 +587,6 @@ func TestStale_KnowledgeCitationStale(t *testing.T) {
 	}
 }
 
-// TestStale_KnowledgeCitationMissingFile verifies that a concern citing a
-// knowledge page that no longer exists is reported as stale (fail-safe).
 func TestStale_KnowledgeCitationMissingFile(t *testing.T) {
 	root, wikiDir := makeRealmWithWiki(t)
 
@@ -629,8 +605,6 @@ func TestStale_KnowledgeCitationMissingFile(t *testing.T) {
 	}
 }
 
-// TestStale_KnowledgeCitationHashMismatchLiteral verifies the exact output
-// format: "STALE concern <wikirel-path> (knowledge/<topic>.md)".
 func TestStale_KnowledgeCitationHashMismatchLiteral(t *testing.T) {
 	root, wikiDir := makeRealmWithWiki(t)
 

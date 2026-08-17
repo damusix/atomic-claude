@@ -1,20 +1,11 @@
 package languages_test
 
-// Tests for the Java, C, C++, and C# language extractor configs.
+// Java, C, C++, and C#. Every fixture here runs through the real grammar, so
+// these also cover ABI and pool wiring, not only the configs.
 //
-// Each language has:
-//   1. A real fixture parsed through the pool (grammar ABI proof).
-//   2. Assertions per success criteria:
-//      - Function/method node extracted with correct kind.
-//      - Class/struct node extracted.
-//      - Interface (Java, C#) or enum (C, C++) extracted with correct kind.
-//      - Import UnresolvedReference emitted.
-//      - Call site → UnresolvedReference (EdgeKindCalls).
-//      - IsExported correct per-language rule.
-//      - Node count stable across two extractions.
-//
-// Node-type strings are VERIFIED by real grammar parse.
-// Do NOT change them without running the probe again.
+// Each language repeats one shape: every declaration form reaches its intended
+// node kind, imports and calls surface as references rather than edges, export
+// status follows the language's own rule, and two runs agree.
 
 import (
 	"context"
@@ -25,36 +16,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
-// ---------------------------------------------------------------------------
-// Java
-// ---------------------------------------------------------------------------
-
-// javaFixture exercises:
-//   - import_declaration  (java.util.List, java.io.IOException)
-//   - interface_declaration  (Drawable)
-//   - enum_declaration  (Direction)
-//   - class_declaration  (Canvas — public, implements Drawable; Main)
-//   - method_declaration  (public draw / private getId / package-private helper)
-//   - field_declaration  (public/private/protected fields)
-//   - method_invocation  (render(), c.draw(), System.out.println())
-//   - object_creation_expression  (new Canvas(...))
-//
-// Verified node-type strings (a grammar probe — Java grammar):
-//
-//	import_declaration         — "import java.util.List;"
-//	interface_declaration      — "public interface Drawable { ... }"
-//	enum_declaration           — "public enum Direction { ... }"
-//	class_declaration          — "public class Canvas ..." / "public class Main ..."
-//	method_declaration         — "public void draw() {}" / "int getId() {}"
-//	field_declaration          — "private int id;" / "public String name;"
-//	method_invocation          — "render(this.id)" / "c.draw()" / "System.out.println(...)"
-//	object_creation_expression — "new Canvas(1, \"test\")"
-//
-// Name field: 'name' works on class_declaration, interface_declaration,
-//
-//	enum_declaration, method_declaration (verified by probe4).
-//
-// IsExported rule: 'modifiers' named child contains "public".
+// Covers every declaration form, at all three visibilities.
 const javaFixture = `import java.util.List;
 import java.io.IOException;
 
@@ -106,9 +68,6 @@ public class Main {
 
 const javaFixturePath = "src/Canvas.java"
 
-// TestJava_FunctionExtracted verifies method_declaration → NodeKindMethod.
-// WHY: Java methods are the primary call targets; wrong kind breaks call-graph
-// edge promotion during resolution.
 func TestJava_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
@@ -127,8 +86,6 @@ func TestJava_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestJava_ClassExtracted verifies class_declaration → NodeKindClass.
-// WHY: Classes are the structural containers; missing them breaks the member graph.
 func TestJava_ClassExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
@@ -147,8 +104,6 @@ func TestJava_ClassExtracted(t *testing.T) {
 	}
 }
 
-// TestJava_InterfaceExtracted verifies interface_declaration → NodeKindInterface.
-// WHY: Interfaces are the type-contract nodes; wrong kind breaks implements edge promotion.
 func TestJava_InterfaceExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
@@ -167,8 +122,6 @@ func TestJava_InterfaceExtracted(t *testing.T) {
 	}
 }
 
-// TestJava_EnumExtracted verifies enum_declaration → NodeKindEnum.
-// WHY: Enums are typed constant sets; extracting as struct would break query correctness.
 func TestJava_EnumExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
@@ -187,8 +140,6 @@ func TestJava_EnumExtracted(t *testing.T) {
 	}
 }
 
-// TestJava_ImportsExtracted verifies import_declaration emits UnresolvedReference.
-// WHY: Imports are the starting point for the resolution layer's import resolver.
 func TestJava_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
@@ -204,8 +155,6 @@ func TestJava_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestJava_CallEmitsUnresolvedReference verifies method_invocation → EdgeKindCalls.
-// WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestJava_CallEmitsUnresolvedReference(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
@@ -221,9 +170,6 @@ func TestJava_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestJava_IsExported_PublicModifier verifies public=exported, non-public=not exported.
-// WHY: Java's access control is explicit; public = exported. Wrong IsExported means
-// the +10 resolution scoring bonus applies to package-private symbols.
 func TestJava_IsExported_PublicModifier(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
@@ -255,8 +201,6 @@ func TestJava_IsExported_PublicModifier(t *testing.T) {
 	}
 }
 
-// TestJava_NodeCountStable verifies deterministic extraction.
-// WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestJava_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
@@ -272,38 +216,7 @@ func TestJava_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// C
-// ---------------------------------------------------------------------------
-
-// cFixture exercises:
-//   - preproc_include   (#include <stdio.h>, etc.)
-//   - type_definition   (typedef struct → Point; typedef enum → Color)
-//   - function_definition  (static int helper / int add / void process / int main)
-//   - call_expression   (printf, helper, add, process)
-//
-// Verified node-type strings (a grammar probe — C grammar):
-//
-//	preproc_include        — "#include <stdio.h>"
-//	type_definition        — "typedef struct { ... } Point;"
-//	struct_specifier       — "struct { int x; int y; }"  (inside type_definition)
-//	enum_specifier         — "enum { RED, GREEN, BLUE }" (inside type_definition)
-//	function_definition    — "static int helper(...)" / "int add(...)"
-//	call_expression        — "printf(...)" / "helper(p->x)"
-//
-// Name extraction for function_definition:
-//
-//	function_definition.ChildByFieldName("declarator") = function_declarator
-//	function_declarator first-named-child = identifier (the function name)
-//
-// Name extraction for type_definition (typedef struct/enum):
-//
-//	type_definition last-named-child = type_identifier (the typedef alias name)
-//
-// IsExported rule: top-level non-static symbols are exported.
-//
-//	Absence of a storage_class_specifier named child = exported.
-//	Presence of storage_class_specifier with text "static" = not exported.
+// Covers both typedef forms and a static function beside a non-static one.
 const cFixture = `#include <stdio.h>
 #include <stdlib.h>
 
@@ -343,8 +256,6 @@ int main(void) {
 
 const cFixturePath = "src/shapes.c"
 
-// TestC_FunctionExtracted verifies function_definition → NodeKindFunction.
-// WHY: C functions are the primary callable units; wrong kind breaks call-graph.
 func TestC_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
@@ -363,8 +274,6 @@ func TestC_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestC_StructExtracted verifies typedef struct → NodeKindStruct.
-// WHY: Struct types are the primary data containers in C; missing them breaks member resolution.
 func TestC_StructExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
@@ -383,8 +292,6 @@ func TestC_StructExtracted(t *testing.T) {
 	}
 }
 
-// TestC_EnumExtracted verifies typedef enum → NodeKindEnum.
-// WHY: C enums model typed constants; storing as struct breaks semantic correctness.
 func TestC_EnumExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
@@ -403,8 +310,6 @@ func TestC_EnumExtracted(t *testing.T) {
 	}
 }
 
-// TestC_ImportsExtracted verifies preproc_include emits UnresolvedReference.
-// WHY: #include is the C import mechanism; the resolution layer uses it to resolve headers.
 func TestC_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
@@ -420,8 +325,6 @@ func TestC_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestC_CallEmitsUnresolvedReference verifies call_expression → EdgeKindCalls.
-// WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestC_CallEmitsUnresolvedReference(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
@@ -437,8 +340,6 @@ func TestC_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestC_IsExported_StaticRule verifies static functions are NOT exported; non-static are.
-// WHY: C uses static for translation-unit-private; wrong IsExported corrupts link-resolution.
 func TestC_IsExported_StaticRule(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
@@ -468,7 +369,6 @@ func TestC_IsExported_StaticRule(t *testing.T) {
 	}
 }
 
-// TestC_NodeCountStable verifies deterministic extraction.
 func TestC_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageC)
@@ -484,43 +384,8 @@ func TestC_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// C++
-// ---------------------------------------------------------------------------
-
-// cppFixture exercises:
-//   - preproc_include    (#include <iostream>, etc.)
-//   - class_specifier    (Shape — abstract; Circle — concrete)
-//   - struct_specifier   (Point)
-//   - enum_specifier     (Color — scoped enum class)
-//   - namespace_definition  (geometry)
-//   - function_definition   (inside class + top-level)
-//   - call_expression    (c.area(), geometry::distance(), Circle::unit(), etc.)
-//
-// Verified node-type strings (a grammar probe — C++ grammar):
-//
-//	class_specifier      — "class Shape { ... }" / "class Circle : public Shape { ... }"
-//	struct_specifier     — "struct Point { ... }"
-//	enum_specifier       — "enum class Color { ... }"
-//	namespace_definition — "namespace geometry { ... }"
-//	function_definition  — "double area() const { ... }" (inside class body)
-//	preproc_include      — "#include <iostream>"
-//	call_expression      — "c.area()" / "Circle::unit()"
-//
-// Kind disambiguation (ResolveKind):
-//
-//	class_specifier  → NodeKindClass  (default for StructTypes)
-//	struct_specifier → NodeKindStruct (returned by ResolveKind)
-//	enum_specifier   → NodeKindEnum   (returned by ResolveKind)
-//
-// Name: class_specifier / struct_specifier have 'name' field → type_identifier.
-//
-//	function_definition: ResolveBody → function_declarator; fallback finds identifier.
-//
-// IsExported rule: C++ has no export keyword. Rule: top-level symbols and
-// public-section members are treated as potentially exported. Implementation:
-// all symbols are exported=true (C++ visibility is enforced by the linker and
-// access specifiers, not by a dedicated grammar node). Document this simplification.
+// Covers all three aggregate types ResolveKind has to tell apart, plus a
+// namespace, and both member and free functions.
 const cppFixture = `#include <iostream>
 #include <vector>
 
@@ -577,8 +442,6 @@ int main() {
 
 const cppFixturePath = "src/shapes.cpp"
 
-// TestCpp_FunctionExtracted verifies function_definition → NodeKindFunction.
-// WHY: C++ functions are the primary callable units; wrong kind breaks call-graph.
 func TestCpp_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
@@ -591,15 +454,12 @@ func TestCpp_FunctionExtracted(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// main() is a top-level function
 	fn := findNode(result.Nodes, types.NodeKindFunction, "main")
 	if fn == nil {
 		t.Fatalf("main function not found; nodes: %s", nodeKindList(result.Nodes))
 	}
 }
 
-// TestCpp_ClassExtracted verifies class_specifier → NodeKindClass.
-// WHY: C++ classes are structural containers; missing them breaks member resolution.
 func TestCpp_ClassExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
@@ -618,8 +478,6 @@ func TestCpp_ClassExtracted(t *testing.T) {
 	}
 }
 
-// TestCpp_StructExtracted verifies struct_specifier → NodeKindStruct (via ResolveKind).
-// WHY: C++ structs are structurally distinct from classes; wrong kind breaks field resolution.
 func TestCpp_StructExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
@@ -638,8 +496,6 @@ func TestCpp_StructExtracted(t *testing.T) {
 	}
 }
 
-// TestCpp_EnumExtracted verifies enum_specifier → NodeKindEnum (via ResolveKind).
-// WHY: C++ enums (including scoped enum class) must produce NodeKindEnum, not NodeKindStruct.
 func TestCpp_EnumExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
@@ -658,8 +514,6 @@ func TestCpp_EnumExtracted(t *testing.T) {
 	}
 }
 
-// TestCpp_ImportsExtracted verifies preproc_include emits UnresolvedReference.
-// WHY: #include is C++'s import mechanism; the resolution layer uses these paths.
 func TestCpp_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
@@ -675,8 +529,6 @@ func TestCpp_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestCpp_CallEmitsUnresolvedReference verifies call_expression → EdgeKindCalls.
-// WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestCpp_CallEmitsUnresolvedReference(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
@@ -692,7 +544,6 @@ func TestCpp_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestCpp_NodeCountStable verifies deterministic extraction.
 func TestCpp_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCpp)
@@ -708,40 +559,7 @@ func TestCpp_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// C#
-// ---------------------------------------------------------------------------
-
-// csharpFixture exercises:
-//   - using_directive     (using System; using System.Collections.Generic;)
-//   - namespace_declaration  (namespace MyApp { ... })
-//   - interface_declaration  (IDrawable)
-//   - enum_declaration    (Direction)
-//   - class_declaration   (Canvas — public; Program — package-private)
-//   - method_declaration  (public Draw / private static Render / void Main)
-//   - property_declaration (Name { get; set; })
-//   - field_declaration   (private int _id; protected List<string> Items;)
-//   - invocation_expression  (Render(_id), Console.WriteLine(...))
-//   - object_creation_expression  (new List<string>(), new Canvas(...))
-//
-// Verified node-type strings (a grammar probe — C# grammar):
-//
-//	using_directive              — "using System;"
-//	namespace_declaration        — "namespace MyApp { ... }"
-//	interface_declaration        — "public interface IDrawable { ... }"
-//	enum_declaration             — "public enum Direction { ... }"
-//	class_declaration            — "public class Canvas : IDrawable { ... }"
-//	method_declaration           — "public void Draw() {}" / "private static void Render(...)"
-//	property_declaration         — "public string Name { get; set; }"
-//	field_declaration            — "private int _id;"
-//	invocation_expression        — "Render(_id)" / "Console.WriteLine(...)"
-//	object_creation_expression   — "new Canvas(1, \"test\")"
-//
-// Name field: 'name' works on class_declaration, interface_declaration,
-//
-//	enum_declaration, method_declaration, namespace_declaration (verified by probe4).
-//
-// IsExported rule: 'modifier' named child contains "public" → exported.
+// Covers every declaration form, at all three visibilities.
 const csharpFixture = `using System;
 using System.Collections.Generic;
 
@@ -808,8 +626,6 @@ namespace MyApp
 
 const csharpFixturePath = "src/Canvas.cs"
 
-// TestCSharp_FunctionExtracted verifies method_declaration → NodeKindMethod.
-// WHY: C# methods are the primary callable units; wrong kind breaks call-graph.
 func TestCSharp_FunctionExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
@@ -828,8 +644,6 @@ func TestCSharp_FunctionExtracted(t *testing.T) {
 	}
 }
 
-// TestCSharp_ClassExtracted verifies class_declaration → NodeKindClass.
-// WHY: Classes are structural containers; missing them breaks the member graph.
 func TestCSharp_ClassExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
@@ -848,8 +662,6 @@ func TestCSharp_ClassExtracted(t *testing.T) {
 	}
 }
 
-// TestCSharp_InterfaceExtracted verifies interface_declaration → NodeKindInterface.
-// WHY: Interfaces are the type-contract nodes; wrong kind breaks implements edge promotion.
 func TestCSharp_InterfaceExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
@@ -868,8 +680,6 @@ func TestCSharp_InterfaceExtracted(t *testing.T) {
 	}
 }
 
-// TestCSharp_EnumExtracted verifies enum_declaration → NodeKindEnum.
-// WHY: C# enums are typed constant sets; storing as struct breaks semantic correctness.
 func TestCSharp_EnumExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
@@ -888,8 +698,6 @@ func TestCSharp_EnumExtracted(t *testing.T) {
 	}
 }
 
-// TestCSharp_ImportsExtracted verifies using_directive emits UnresolvedReference.
-// WHY: using directives are C#'s import mechanism; the resolution layer uses these.
 func TestCSharp_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
@@ -905,8 +713,6 @@ func TestCSharp_ImportsExtracted(t *testing.T) {
 	}
 }
 
-// TestCSharp_CallEmitsUnresolvedReference verifies invocation_expression → EdgeKindCalls.
-// WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestCSharp_CallEmitsUnresolvedReference(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
@@ -922,8 +728,6 @@ func TestCSharp_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
-// TestCSharp_IsExported_PublicModifier verifies public=exported, non-public=not exported.
-// WHY: C# access control is explicit; public = exported. Wrong IsExported corrupts scoring.
 func TestCSharp_IsExported_PublicModifier(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
@@ -955,7 +759,6 @@ func TestCSharp_IsExported_PublicModifier(t *testing.T) {
 	}
 }
 
-// TestCSharp_NodeCountStable verifies deterministic extraction.
 func TestCSharp_NodeCountStable(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
@@ -971,22 +774,9 @@ func TestCSharp_NodeCountStable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registry — extended for 4 new languages
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// F-13: implicit-public heuristic must NOT mark bare class fields as exported
-// ---------------------------------------------------------------------------
-
-// javaFieldVisibilityFixture has:
-//   - a bare (package-private) field "int x;" inside a class — must be IsExported=false
-//   - an interface method "void run();" — must be IsExported=true (legitimate implicit-public)
-//
-// WHY: javaIsExported's "no modifiers AND no body → implicitly public" rule was
-// designed for interface abstract methods, which are genuinely public. A bare class
-// field has no modifiers AND no body but is package-private in Java — IsExported=true
-// is wrong and skews the +10 ScoreExported bonus in resolution toward hidden fields.
+// The two shapes the implicit-public fallback must separate: an unmarked class
+// field, which is package-private, and an unmarked interface method, which is
+// genuinely public. Both carry no modifier and no body.
 const javaFieldVisibilityFixture = `public interface Runnable {
     void run();
 }
@@ -998,9 +788,6 @@ class Box {
 
 const javaFieldVisibilityPath = "src/Box.java"
 
-// TestJava_BareClassField_NotExported verifies that a bare (no-modifier) field
-// inside a class is IsExported=false, not implicitly public.
-// This test must FAIL before the F-13 fix and PASS after.
 func TestJava_BareClassField_NotExported(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
@@ -1013,7 +800,6 @@ func TestJava_BareClassField_NotExported(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// Field "x" in class Box has no access modifier → package-private in Java → not exported.
 	field := findNode(result.Nodes, types.NodeKindField, "x")
 	if field == nil {
 		t.Fatalf("field x not found; nodes: %s", nodeKindList(result.Nodes))
@@ -1023,9 +809,6 @@ func TestJava_BareClassField_NotExported(t *testing.T) {
 	}
 }
 
-// TestJava_InterfaceMethod_ImplicitlyPublic verifies that an interface method with
-// no modifiers and no body is still IsExported=true (the legitimate case).
-// This test must PASS before and after the F-13 fix — regression guard.
 func TestJava_InterfaceMethod_ImplicitlyPublic(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJava)
@@ -1038,7 +821,6 @@ func TestJava_InterfaceMethod_ImplicitlyPublic(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// "void run();" in an interface — no modifiers, no body → implicitly public.
 	method := findNode(result.Nodes, types.NodeKindMethod, "run")
 	if method == nil {
 		t.Fatalf("method run not found; nodes: %s", nodeKindList(result.Nodes))
@@ -1048,12 +830,7 @@ func TestJava_InterfaceMethod_ImplicitlyPublic(t *testing.T) {
 	}
 }
 
-// csharpFieldVisibilityFixture has:
-//   - a bare (no-modifier) field "int x;" inside a class — must be IsExported=false
-//   - an interface method "void Run();" — must be IsExported=true
-//
-// WHY: same as Java — C# class members without an access modifier default to
-// private, not public. The implicit-public fallback only applies to interface members.
+// The same pair as Java, where an unmarked class member defaults to private.
 const csharpFieldVisibilityFixture = `public interface IRunnable {
     void Run();
 }
@@ -1065,9 +842,6 @@ class Box {
 
 const csharpFieldVisibilityPath = "src/Box.cs"
 
-// TestCSharp_BareClassField_NotExported verifies that a bare (no-modifier) field
-// inside a class is IsExported=false.
-// This test must FAIL before the F-13 fix and PASS after.
 func TestCSharp_BareClassField_NotExported(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
@@ -1089,9 +863,6 @@ func TestCSharp_BareClassField_NotExported(t *testing.T) {
 	}
 }
 
-// TestCSharp_InterfaceMethod_ImplicitlyPublic verifies that an interface method with
-// no modifiers and no body is IsExported=true (the legitimate case).
-// Regression guard — must pass before and after F-13 fix.
 func TestCSharp_InterfaceMethod_ImplicitlyPublic(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageCSharp)
@@ -1113,13 +884,6 @@ func TestCSharp_InterfaceMethod_ImplicitlyPublic(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registry — extended for 4 new languages
-// ---------------------------------------------------------------------------
-
-// TestRegistry_For_CP8A_Languages verifies all 4 new languages are registered.
-// WHY: The registry is the single resolution point for; missing entries
-// cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8A_Languages(t *testing.T) {
 	t.Parallel()
 	reg := languages.NewRegistry()

@@ -30,37 +30,24 @@ func PrevPath(root string) string {
 
 // Options configures a Scan run. All fields are optional.
 type Options struct {
-	// MaxDepth limits the tree depth. Files at depth ≤ MaxDepth are fully
-	// enumerated with per-file metadata. Directories at MaxDepth+1 show a
-	// summary (N files, M dirs). Directories beyond MaxDepth+1 are elided.
-	// If 0, ScanWithOptions reads output.signals.max_depth from ConfigPath
-	// (defaulting to 3 when the config file is absent or the key unset).
+	// MaxDepth limits the tree depth: files at depth ≤ MaxDepth get per-file
+	// metadata, directories at MaxDepth+1 collapse to a summary, deeper ones are
+	// elided. 0 falls back to output.signals.max_depth, then to 3.
 	MaxDepth int
-	// ConfigPath is the path to the atomic config TOML file
-	// (~/.atomic/config.toml). When empty, ScanWithOptions resolves it
-	// from os.UserHomeDir. Used by tests to inject an alternate config.
+	// ConfigPath overrides ~/.atomic/config.toml. Empty resolves from the home dir.
 	ConfigPath string
-	// ExcludeGlobs holds plain (no-prefix) glob patterns from .signalsignore.
-	// Files matching any glob are omitted from the tree entirely.
-	// Populated automatically by ScanWithOptions from the repo's .signalsignore.
-	// Callers may also set this directly for testing.
+	// ExcludeGlobs omits matching files from the tree entirely.
 	ExcludeGlobs []string
-	// GeneratedGlobs holds '+'-prefixed glob patterns from .signalsignore (prefix stripped).
-	// Files matching any glob appear in the tree with a [generated] marker but
-	// the inferrer skips them for domain content.
-	// Populated automatically by ScanWithOptions from the repo's .signalsignore.
-	// Callers may also set this directly for testing.
+	// GeneratedGlobs keeps matching files in the tree with a [generated] marker
+	// so the inferrer skips them for domain content.
 	GeneratedGlobs []string
-	// OutDir, when non-empty, redirects the deterministic substrate to
-	// <OutDir>/docs/wiki/scan.md instead of the default <root>/docs/wiki/scan.md.
-	// The scanned repo is never written to when OutDir is set.
+	// OutDir redirects the substrate away from <root>, leaving the scanned repo
+	// unwritten.
 	OutDir string
 }
 
-// readSignalsIgnore reads .signalsignore from the repo root and returns two
-// slices: excludeGlobs (plain lines) and generatedGlobs ('+'-prefixed lines,
-// with the '+' stripped). Comment lines (# ...) and blank lines are ignored.
-// If the file is absent, both slices are nil and no error is returned.
+// readSignalsIgnore splits .signalsignore into plain excludes and '+'-prefixed
+// generated globs. An absent file yields nil slices and no error.
 func readSignalsIgnore(root string) (excludeGlobs, generatedGlobs []string, err error) {
 	path := filepath.Join(root, ".signalsignore")
 	f, ferr := os.Open(path)
@@ -88,14 +75,13 @@ func readSignalsIgnore(root string) (excludeGlobs, generatedGlobs []string, err 
 }
 
 // Scan walks the repo at root, assembles the signals document, and writes it.
-// Idempotency: the file is rewritten only when the body content changes, so
-// mtime stays stable on repeated scans of an unchanged repo.
+// The file is rewritten only when the body changes, so mtime stays stable on
+// repeated scans of an unchanged repo.
 func Scan(root string) error {
 	return ScanWithOptions(root, nil)
 }
 
-// resolveConfigPath returns the atomic config TOML path for the current user.
-// Falls back to empty string (which config.Load treats as missing) on error.
+// resolveConfigPath falls back to "", which config.Load treats as missing.
 func resolveConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -104,21 +90,15 @@ func resolveConfigPath() string {
 	return config.TOMLPath(home)
 }
 
-// resolveScanOptions fills opts with the .signalsignore globs and config-driven
-// MaxDepth that a scan uses, so callers that assemble a body (Scan and Stale)
-// produce identical output for identical source. Reading .signalsignore also
-// lets the tree scanner flag matching paths as [generated].
-//
-// The caller's *Options value is never mutated: resolveScanOptions works on a
-// copy and returns the resolved copy.
+// resolveScanOptions resolves the globs and MaxDepth a scan uses, so Scan and
+// Stale assemble identical bodies from identical source. Works on a copy; the
+// caller's *Options is never mutated.
 func resolveScanOptions(root string, opts *Options) (*Options, error) {
-	// Clone into a local copy so the caller's struct is never written.
 	var resolved Options
 	if opts != nil {
 		resolved = *opts
 	}
 
-	// Resolve MaxDepth from config when not explicitly set by the caller.
 	if resolved.MaxDepth == 0 {
 		cfgPath := resolved.ConfigPath
 		if cfgPath == "" {
@@ -128,7 +108,7 @@ func resolveScanOptions(root string, opts *Options) (*Options, error) {
 		if cfg != nil {
 			resolved.MaxDepth = cfg.Output.Signals.MaxDepth
 		}
-		// Final fallback handled inside ScanTreeWithOptions (defaultMaxDepth).
+		// Zero still falls through to ScanTreeWithOptions's defaultMaxDepth.
 	}
 
 	if len(resolved.ExcludeGlobs) == 0 && len(resolved.GeneratedGlobs) == 0 {
@@ -154,8 +134,6 @@ func ScanWithOptions(root string, opts *Options) error {
 		return fmt.Errorf("signals scan: %w", err)
 	}
 
-	// When OutDir is set, redirect both the substrate and the prev-file backup
-	// to that directory so the scanned repo is never written to.
 	outputRoot := root
 	if opts.OutDir != "" {
 		outputRoot = opts.OutDir
@@ -163,17 +141,14 @@ func ScanWithOptions(root string, opts *Options) error {
 	outPath := filepath.Join(outputRoot, signalsFile)
 	prevPath := filepath.Join(outputRoot, prevFile)
 
-	// Read existing file (if any) to check idempotency.
 	existingRaw, readErr := os.ReadFile(outPath)
 
 	rewrite := true
 	if readErr == nil && string(existingRaw) == body {
-		// Body unchanged — skip rewrite so mtime stays stable.
-		rewrite = false
+		rewrite = false // unchanged body: skip the write so mtime stays stable
 	}
 
 	if rewrite {
-		// Back up the existing file before overwriting.
 		if readErr == nil {
 			if err := os.MkdirAll(filepath.Dir(prevPath), 0o755); err != nil {
 				return fmt.Errorf("signals scan: create prev dir: %w", err)
@@ -194,11 +169,9 @@ func ScanWithOptions(root string, opts *Options) error {
 	return nil
 }
 
-// assembleBody builds the body of the signals document (without frontmatter).
-// It performs a single shared enumeration and file-read pass: the tree scanner
-// populates a metaCache (rel → fileMeta) for all non-beyond files, and the
-// language counter draws from that cache — only files beyond the tree depth cap
-// require a second read for their line count.
+// assembleBody builds the signals body (no frontmatter) in one shared read pass:
+// the tree scanner fills a metaCache the language counter reuses, so only files
+// beyond the depth cap are read twice.
 func assembleBody(root string, opts *Options) (string, error) {
 	tree, metaCache, err := scanTreeWithMetaCache(root, opts)
 	if err != nil {
@@ -242,27 +215,20 @@ func Show(root string) error {
 	return err
 }
 
-// StaleInfo carries evidence about why the signals file is stale. The CLI
-// turns it into imperative output because the staleness gate is consumed by an
-// LLM orchestrator that can rationalize a silent exit code away — a concrete
-// magnitude of drift makes the staleness real, not dismissable. Zero when fresh.
+// StaleInfo carries the magnitude of drift, which the CLI renders as imperative
+// output: the gate is consumed by an LLM orchestrator that can rationalize a
+// silent exit code away. Zero when fresh.
 type StaleInfo struct {
-	// ChangedLines is how many deterministic-body lines would change (added +
-	// removed) if the signals file were re-scanned now.
+	// ChangedLines is added + removed body lines a re-scan would produce.
 	ChangedLines int
 }
 
-// Stale reports whether the signals file is out of date. It is content-based:
-// it assembles the deterministic body exactly as Scan would and compares it to
-// the stored body, so it is stale only when a fresh scan would actually differ.
-// Pure mtime cannot tell an idempotent regeneration (same bytes, newer mtime)
-// from a real edit; content comparison can, which avoids the commit-time-regen
-// false-positive treadmill.
+// Stale reports whether the signals file is out of date, by content rather than
+// mtime — mtime cannot tell an idempotent regeneration from a real edit, which
+// makes commit-time regen a false-positive treadmill.
 //
-// Returns (zero, nil) when fresh, (info, ErrStale) when a re-scan would differ
-// — info carries evidence for the caller's output — and (zero, error) on a hard
-// failure such as a missing signals file. The three outcomes map to CLI exit
-// codes 0 / 1 / 2 respectively.
+// Returns (zero, nil) fresh, (info, ErrStale) drifted, (zero, error) on a hard
+// failure such as a missing file — CLI exit codes 0 / 1 / 2.
 func Stale(root string) (StaleInfo, error) {
 	path := SignalsPath(root)
 	existingRaw, err := os.ReadFile(path)
@@ -293,9 +259,8 @@ func Stale(root string) (StaleInfo, error) {
 // signals file.
 var ErrStale = fmt.Errorf("signals stale: a fresh scan would differ from the stored signals file")
 
-// lineDelta counts how many lines differ (added + removed) between two bodies,
-// as a multiset symmetric difference — a cheap magnitude of drift, not a true
-// edit distance.
+// lineDelta is a multiset symmetric difference — a cheap magnitude of drift,
+// not a true edit distance.
 func lineDelta(oldBody, newBody string) int {
 	count := func(s string) map[string]int {
 		m := map[string]int{}
@@ -319,12 +284,8 @@ func lineDelta(oldBody, newBody string) int {
 	return delta
 }
 
-// Diff prints a unified diff between the previous and current signals files.
-// Diff output is written to out (caller may pass os.Stdout).
-// Exit codes (returned as special errors):
-//   - nil → exit 0 (no diff)
-//   - ErrDiffPresent → exit 1 (diff present, out has content)
-//   - ErrNoPrior → exit 2 (no prior version)
+// Diff writes a unified diff of the previous and current signals files to out.
+// Returns nil (exit 0), ErrDiffPresent (exit 1), or ErrNoPrior (exit 2).
 func Diff(root string, out io.Writer) error {
 	currentPath := SignalsPath(root)
 	prevPath := PrevPath(root)
@@ -333,7 +294,6 @@ func Diff(root string, out io.Writer) error {
 		return fmt.Errorf("signals diff: signals file not found at %s — run 'atomic signals scan' first", currentPath)
 	}
 
-	// Try git diff first.
 	if isGitRepo(root) {
 		return diffGit(root, currentPath, out)
 	}
@@ -352,7 +312,6 @@ func isGitRepo(root string) bool {
 }
 
 func diffGit(root, currentPath string, out io.Writer) error {
-	// Make the path relative to root for git.
 	rel, err := filepath.Rel(root, currentPath)
 	if err != nil {
 		rel = currentPath
@@ -393,23 +352,20 @@ func diffFallback(prevPath, currentPath string, out io.Writer) error {
 	return nil
 }
 
-// LinkifyFiles linkifies docs/wiki/index.md and every *.md file under docs/wiki/
-// in the repo at root (excluding scan.md and CLAUDE.md), using root as the base
-// directory for path resolution. Each file is read, linkified, and written back
-// in place. If a file's content is unchanged after linkification, it is not
-// rewritten. Idempotent: re-running on already-linkified content is a no-op.
+// LinkifyFiles rewrites docs/wiki/*.md in place with resolved links, skipping
+// files whose content is unchanged. Idempotent.
 func LinkifyFiles(root string) error {
 	return LinkifyFilesWithBase(root, root)
 }
 
-// LinkifyFilesWithBase is like LinkifyFiles but accepts an explicit base directory.
-// Exported so tests can inject a temp directory without needing a git repo.
+// LinkifyFilesWithBase is LinkifyFiles with an explicit base directory, so tests
+// can point at a temp dir instead of a git repo.
 func LinkifyFilesWithBase(root, base string) error {
 	routerPath := filepath.Join(root, "docs", "wiki", "index.md")
 	domainDir := filepath.Join(root, "docs", "wiki")
 
-	// Files excluded from linkification: scan.md is the raw deterministic dump;
-	// CLAUDE.md is the steering file; index.md is handled separately as routerPath.
+	// scan.md is the raw deterministic dump, CLAUDE.md is steering, and index.md
+	// is already covered by routerPath.
 	skipNames := map[string]bool{
 		"scan.md":   true,
 		"CLAUDE.md": true,
@@ -444,8 +400,6 @@ func LinkifyFilesWithBase(root, base string) error {
 	return nil
 }
 
-// linkifyFile reads a file, linkifies it with the given base, and writes it
-// back only if the content changed.
 func linkifyFile(path, base string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {

@@ -6,7 +6,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
 )
 
-// TestExtractLinks_MarkdownLink verifies a plain markdown link is extracted.
 func TestExtractLinks_MarkdownLink(t *testing.T) {
 	content := "See [overview](docs/overview.md) for details.\n"
 	links := mdlink.ExtractLinks(content)
@@ -28,7 +27,6 @@ func TestExtractLinks_MarkdownLink(t *testing.T) {
 	}
 }
 
-// TestExtractLinks_Wikilink verifies a plain wikilink is extracted.
 func TestExtractLinks_Wikilink(t *testing.T) {
 	content := "See [[concepts]] for more.\n"
 	links := mdlink.ExtractLinks(content)
@@ -42,7 +40,7 @@ func TestExtractLinks_Wikilink(t *testing.T) {
 	if l.Target != "concepts" {
 		t.Errorf("Target: got %q, want %q", l.Target, "concepts")
 	}
-	// Text should equal Target for plain wikilinks (no alias).
+	// Without an alias, Text equals Target.
 	if l.Text != "concepts" {
 		t.Errorf("Text: got %q, want %q", l.Text, "concepts")
 	}
@@ -51,7 +49,6 @@ func TestExtractLinks_Wikilink(t *testing.T) {
 	}
 }
 
-// TestExtractLinks_WikilinkAlias verifies [[page|alias]] extraction.
 func TestExtractLinks_WikilinkAlias(t *testing.T) {
 	content := "See [[architecture|the architecture doc]] here.\n"
 	links := mdlink.ExtractLinks(content)
@@ -70,7 +67,6 @@ func TestExtractLinks_WikilinkAlias(t *testing.T) {
 	}
 }
 
-// TestExtractLinks_FenceExcluded verifies links inside fenced blocks are excluded.
 func TestExtractLinks_FenceExcluded(t *testing.T) {
 	content := "Before.\n" +
 		"```\n" +
@@ -89,9 +85,7 @@ func TestExtractLinks_FenceExcluded(t *testing.T) {
 	}
 }
 
-// TestExtractLinks_InlineCodeExcluded verifies links inside inline code spans are excluded.
 func TestExtractLinks_InlineCodeExcluded(t *testing.T) {
-	// The pattern `[text](url)` inside a backtick span must not be extracted.
 	content := "Use `[text](not-a-link.md)` to illustrate.\nBut [real](real.md) works.\n"
 	links := mdlink.ExtractLinks(content)
 	if len(links) != 1 {
@@ -102,7 +96,6 @@ func TestExtractLinks_InlineCodeExcluded(t *testing.T) {
 	}
 }
 
-// TestExtractLinks_LineNumbers verifies that Line is the 1-based line number.
 func TestExtractLinks_LineNumbers(t *testing.T) {
 	content := "line one\n" +
 		"line two [link-a](a.md)\n" +
@@ -120,7 +113,6 @@ func TestExtractLinks_LineNumbers(t *testing.T) {
 	}
 }
 
-// TestExtractLinks_MultipleOnLine verifies multiple links on one line are all extracted.
 func TestExtractLinks_MultipleOnLine(t *testing.T) {
 	content := "See [a](a.md) and [[b]] and [c](c.md).\n"
 	links := mdlink.ExtractLinks(content)
@@ -136,7 +128,6 @@ func TestExtractLinks_MultipleOnLine(t *testing.T) {
 	}
 }
 
-// TestExtractLinks_HTTPLinksExtracted verifies http(s) markdown links are returned.
 func TestExtractLinks_HTTPLinksExtracted(t *testing.T) {
 	content := "Visit [site](https://example.com) today.\n"
 	links := mdlink.ExtractLinks(content)

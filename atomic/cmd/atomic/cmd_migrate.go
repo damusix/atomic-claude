@@ -16,11 +16,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildMigrateCmd returns the "migrate" top-level command with flag metadata.
-// Note: --repo here is a migrate-specific flag (target repo path) distinct from
-// the root's persistent --repo (context override); no Cobra conflict occurs
-// because DisableFlagParsing:true prevents flag merging at execute time, and
-// the FlagSet is created before AddCommand so the lazy-init merge never runs.
+// --repo here is a target repo path, not the root's persistent context
+// override. The two never collide: DisableFlagParsing blocks flag merging at
+// execute time, and the FlagSet predates AddCommand so lazy-init never merges.
 func buildMigrateCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                "migrate",
@@ -37,7 +35,7 @@ func buildMigrateCmd() *cobra.Command {
 	return c
 }
 
-// runMigrate is the os.Exit-aware entry point for the migrate top-level verb.
+// runMigrate routes by flag:
 //
 //	atomic migrate                  → install-scope steps against ~/.claude
 //	atomic migrate --repo <path>    → repo-scope steps on that repo
@@ -71,7 +69,6 @@ func runMigrate(args []string) {
 			fmt.Fprintf(os.Stderr, "atomic migrate: resolve --realm path: %v\n", err)
 			os.Exit(1)
 		}
-		// Install-scope first.
 		home, herr := os.UserHomeDir()
 		if herr != nil {
 			fmt.Fprintf(os.Stderr, "atomic migrate: resolve home dir: %v\n", herr)
@@ -81,14 +78,12 @@ func runMigrate(args []string) {
 			fmt.Fprintf(os.Stderr, "atomic migrate: install-scope: %v\n", err)
 			os.Exit(1)
 		}
-		// Fan-out to member repos.
 		if err := runMigrateRealm(absRealm); err != nil {
 			fmt.Fprintf(os.Stderr, "atomic migrate: realm: %v\n", err)
 			os.Exit(1)
 		}
 
 	default:
-		// Install-scope only.
 		home, herr := os.UserHomeDir()
 		if herr != nil {
 			fmt.Fprintf(os.Stderr, "atomic migrate: resolve home dir: %v\n", herr)
@@ -101,16 +96,9 @@ func runMigrate(args []string) {
 	}
 }
 
-// runMigrateInstall runs install-scope migrations against home.
-// Reads the recorded version from config.toml [install].version, applies any
-// pending install-scope steps, and writes the new version back on success.
-//
-// Two-root split: config.toml lives under <home>/.atomic (config helpers get
-// home), while migrate.Context.Root keeps its install-scope meaning of
-// <home>/.claude — install-scope migration steps operate on the Claude
-// artifact install target, not the atomic state root.
-//
-// Returns an error; the caller decides whether it is fatal.
+// runMigrateInstall works across two roots: config.toml lives under
+// <home>/.atomic, while migrate.Context.Root stays <home>/.claude, because
+// install-scope steps operate on the Claude artifact tree, not the state root.
 func runMigrateInstall(home string) error {
 	cfgPath := config.TOMLPath(home)
 	cfg, _, err := config.Load(cfgPath)
@@ -131,8 +119,6 @@ func runMigrateInstall(home string) error {
 }
 
 // migrateRepoAction is the testable seam for `atomic migrate --repo <path>`.
-// It reads the repo's wiki schema, runs repo-scope migrations, and stamps the
-// new schema back into docs/wiki/index.md on success.
 func migrateRepoAction(repoPath string) error {
 	schema := migrate.ReadWikiSchema(repoPath)
 	recorded := schemaToSemver(schema)
@@ -146,23 +132,18 @@ func migrateRepoAction(repoPath string) error {
 	if newSchema == schema {
 		return nil // nothing changed
 	}
-	// WriteWikiSchema is a no-op when docs/wiki/index.md does not exist
-	// (e.g. no-signals repo where the step ran but created no file).
+	// No-op when docs/wiki/index.md does not exist, as in a no-signals repo
+	// where the step ran but created no file.
 	return migrate.WriteWikiSchema(repoPath, newSchema)
 }
 
-// realmConfirmFn is the testable seam for runMigrateRealm's per-repo confirm
-// prompt. Tests replace it to avoid spawning a real TTY.
+// realmConfirmFn is a seam so tests avoid spawning a real TTY.
 var realmConfirmFn = prompt.Confirm
 
-// runMigrateRealm fans out repo-scope migrations across immediate subdirectory
-// member repos under realmPath. A member repo is detected by the presence of
-// .claude/project/signals.md (old layout) or docs/wiki/index.md (new layout).
-// Each detected member prompts for confirmation before migrating.
-//
-// Non-interactive context (ErrNonInteractive): the member is skipped. The spec
-// requires one explicit confirm per repo; a non-TTY context must migrate nothing.
-// ErrAborted: the member is skipped; the realm loop continues.
+// runMigrateRealm fans out across immediate subdirectories, treating
+// .claude/project/signals.md (old) or docs/wiki/index.md (new) as the marker of
+// a member repo. One explicit confirm per repo is required, so a non-TTY
+// context migrates nothing; an abort skips that member and the loop continues.
 func runMigrateRealm(realmPath string) error {
 	entries, err := os.ReadDir(realmPath)
 	if err != nil {
@@ -193,12 +174,9 @@ func runMigrateRealm(realmPath string) error {
 		)
 		if perr != nil {
 			if errors.Is(perr, prompt.ErrNonInteractive) {
-				// Non-TTY context: the spec requires explicit confirm per repo.
-				// Skip silently rather than auto-migrating.
 				fmt.Printf("migrate: %s skipped (non-interactive)\n", e.Name())
 				continue
 			} else if errors.Is(perr, prompt.ErrAborted) {
-				// User aborted this member's prompt: skip it, continue the loop.
 				fmt.Printf("migrate: %s skipped (aborted)\n", e.Name())
 				continue
 			} else {
@@ -219,7 +197,6 @@ func runMigrateRealm(realmPath string) error {
 	return nil
 }
 
-// scopedMigrations filters migrate.Registry to those with the given Scope.
 func scopedMigrations(scope string, registry []migrate.Migration) []migrate.Migration {
 	var out []migrate.Migration
 	for _, m := range registry {
@@ -230,9 +207,7 @@ func scopedMigrations(scope string, registry []migrate.Migration) []migrate.Migr
 	return out
 }
 
-// schemaToSemver converts a wiki schema integer to a semver string for
-// migrate.Run. 0 returns "" (normalised to floor "0.0.0" by Run); N > 0
-// returns "N.0.0".
+// schemaToSemver maps N to "N.0.0"; 0 maps to "", which Run floors to "0.0.0".
 func schemaToSemver(n int) string {
 	if n == 0 {
 		return ""
@@ -240,8 +215,7 @@ func schemaToSemver(n int) string {
 	return strconv.Itoa(n) + ".0.0"
 }
 
-// semverToSchema converts the semver string returned by migrate.Run back to an
-// integer schema version for WriteWikiSchema. Parses only the major component.
+// semverToSchema parses only the major component.
 func semverToSchema(v string) int {
 	if v == "" || v == "0.0.0" {
 		return 0
@@ -254,7 +228,6 @@ func semverToSchema(v string) int {
 	return n
 }
 
-// fileExistsAt returns true when the file at path exists (any type).
 func fileExistsAt(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil

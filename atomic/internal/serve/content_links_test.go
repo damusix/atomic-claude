@@ -1,10 +1,8 @@
 package serve_test
 
-// content_links_test.go — tests for server-side rewriting of in-page markdown
-// links (RenderMarkdownWithLinks). Page-content links must resolve against the
-// realm root and become real server routes so clicking one navigates inside the
-// shell (htmx) instead of doing a full-page navigation that loses the user's
-// place — the regression the user hit ("losing links like crazy").
+// A relative href in page content resolves against the browser URL, which is not
+// where the file lives. Rewriting to a real server route is what keeps a click
+// inside the shell instead of throwing the reader out of it.
 
 import (
 	"path/filepath"
@@ -16,7 +14,6 @@ import (
 
 func TestRenderLinks_RelativeMdBecomesHtmxPageLink(t *testing.T) {
 	root := t.TempDir()
-	// A page at wiki/repos/foo.md linking up-and-over to wiki/concerns/x.md.
 	writeFile(t, filepath.Join(root, "wiki", "concerns", "x.md"), "# X\n")
 	page := filepath.Join(root, "wiki", "repos", "foo.md")
 	writeFile(t, page, "see [the concern](../concerns/x.md)\n")
@@ -25,15 +22,15 @@ func TestRenderLinks_RelativeMdBecomesHtmxPageLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	// Resolved against the realm root, not the browser URL — a plain href;
-	// React Router intercepts in-shell navigation client-side (no hx-get).
+	// Resolved against the realm root, not the browser URL. A plain href is enough;
+	// the router intercepts in-shell navigation client-side.
 	if !strings.Contains(html, `href="/page/wiki/concerns/x.md"`) {
 		t.Errorf("expected realm-resolved /page href; got:\n%s", html)
 	}
 	if strings.Contains(html, "hx-get") {
 		t.Errorf("renderer must not emit hx-get attributes; got:\n%s", html)
 	}
-	// The raw "../" form must not survive — that's what the browser mis-resolves.
+	// The raw "../" form is exactly what the browser mis-resolves.
 	if strings.Contains(html, "../concerns/x.md") {
 		t.Errorf("raw relative href leaked into output:\n%s", html)
 	}
@@ -47,7 +44,7 @@ func TestRenderLinks_SourceFileBecomesFileRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	// Source files route to /file/ (the code modal handler opens them); no hx-get.
+	// /file/ is where the code modal handler picks them up.
 	if !strings.Contains(html, `href="/file/internal/billing.go"`) {
 		t.Errorf("expected /file route for source link; got:\n%s", html)
 	}
@@ -104,8 +101,8 @@ func TestRenderLinks_EscapeOutsideRealmLeftRaw(t *testing.T) {
 
 func TestRenderLinks_UnresolvedWithinRealmStaysInShell(t *testing.T) {
 	root := t.TempDir()
-	// Target does not exist, but is within the realm: route through /page/ so the
-	// handler serves a graceful in-shell 404 instead of a full-page navigation.
+	// In-realm but absent: /page/ serves an in-shell 404 rather than throwing the
+	// reader out to a full-page navigation.
 	html, _, err := serve.RenderMarkdownWithLinks(
 		[]byte("[gone](missing.md)\n"), root, "a.md")
 	if err != nil {
@@ -116,8 +113,7 @@ func TestRenderLinks_UnresolvedWithinRealmStaysInShell(t *testing.T) {
 	}
 }
 
-// RenderMarkdown (no path) must keep raw hrefs — back-compat for callers that do
-// not resolve links (and the existing test suite).
+// Without a page path there is nothing to resolve against, so hrefs stay raw.
 func TestRenderMarkdown_NoRewriteWithoutPath(t *testing.T) {
 	html, _, err := serve.RenderMarkdown([]byte("[x](../y.md)\n"))
 	if err != nil {

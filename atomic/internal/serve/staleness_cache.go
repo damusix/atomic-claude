@@ -8,25 +8,14 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// wiki.Stale walks the whole realm and hashes every bucket manifest —
-// measured at ~3s on a five-member realm. Two endpoints wanted it on every
-// request: /api/nav (member and bucket badges) and /api/status (the dashboard
-// lists). /api/nav also carries the scope identity the header renders and the
-// tree the library renders, so that walk was what made a page load open onto a
-// nameless top bar and an empty library.
+// wiki.Stale walks the realm and hashes every bucket manifest — seconds on a
+// five-member realm — and both /api/nav and /api/status want it per request.
+// One walk serves both, and only the very first caller ever blocks on it: a
+// cached-but-aged answer is served now and refreshed in the background.
 //
-// One walk now serves both, and a request never waits on a repeat of it:
-//
-//   - nothing cached  → compute, and block (the first caller has no answer to
-//     give); concurrent callers wait on that one walk rather than each start
-//     their own.
-//   - cached, fresh   → serve it.
-//   - cached, stale   → serve it now and refresh in the background.
-//
-// Serving a stale answer is a deliberate trade and a small one: the value is a
-// set of "this is out of date" badges, and the SSE reconcile path (?live=1)
-// already skips the computation entirely, so these badges were never promised
-// to be current to the request.
+// Serving a stale answer is deliberate. The value is a set of "out of date"
+// badges, and the live-reload path skips the computation entirely, so these
+// were never promised current to the request.
 const stalenessTTL = 30 * time.Second
 
 // stalenessCache memoizes one realm's parsed wiki.Stale output.
@@ -56,16 +45,14 @@ func (c *stalenessCache) walkFn() func(string) staleSets {
 	return walkStaleness
 }
 
-// get returns the realm's staleness sets, refreshing in the background when
-// the cached copy has aged out. Callers get copies: consumers store what they
-// are handed, and a shared map would let one request's bookkeeping surface in
-// another's badges.
+// get hands back a copy: consumers keep what they are given, and a shared map
+// would let one request's bookkeeping surface in another's badges.
 func (c *stalenessCache) get(realmRoot string) staleSets {
 	c.mu.Lock()
 
 	if c.sets == nil || c.root != realmRoot {
-		// No answer to give — compute while holding the lock so concurrent
-		// first callers wait on this walk instead of starting their own.
+		// Computed under the lock, so concurrent first callers wait on this
+		// walk rather than each starting their own.
 		sets := c.walkFn()(realmRoot)
 		c.root, c.at, c.sets = realmRoot, c.clock(), &sets
 		defer c.mu.Unlock()
@@ -96,9 +83,8 @@ func (c *stalenessCache) refresh(realmRoot string) {
 	c.root, c.at, c.sets = realmRoot, c.clock(), &sets
 }
 
-// walkStaleness runs wiki.Stale once and parses it. Errors (exit code 2 —
-// wiki/ absent, unreadable index) degrade to empty sets rather than an error:
-// a staleness-check failure must not take down the nav tree.
+// walkStaleness degrades to empty sets on error: a staleness-check failure
+// must not take down the nav tree.
 func walkStaleness(realmRoot string) staleSets {
 	var buf strings.Builder
 	code, err := wiki.Stale(realmRoot, &buf)
@@ -124,6 +110,6 @@ func copyBoolSet(src map[string]bool) map[string]bool {
 	return out
 }
 
-// The process-wide cache /api/nav and /api/status share. An injected seam on
-// either handler bypasses it, so tests still see each result they stage.
+// Shared by /api/nav and /api/status. An injected seam on either handler
+// bypasses it, so tests still see each result they stage.
 var navStalenessCache = &stalenessCache{}

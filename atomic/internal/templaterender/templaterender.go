@@ -1,15 +1,10 @@
-// Package templaterender expands the shared partials composed by artifact
-// sources under context/.
+// Package templaterender expands the {{ template "<name>" . }} partials that
+// artifact sources under context/ compose.
 //
-// Artifacts are authored and committed in their source form: a command or agent
-// file may carry {{ template "<name>" . }} directives that pull in a partial
-// from context/_partials/. Expansion happens at build time, on the way into the
-// embedded bundle — there is no committed rendered copy, so an artifact exists
-// exactly once in the repo.
-//
-// Callers load the partial pool once with LoadPartials, then call Expand per
-// file. Both bundlemirror (build) and validate (lint) go through here, so what
-// ships and what gets checked are expanded the same way.
+// Expansion happens on the way into the embedded bundle; there is no committed
+// rendered copy, so an artifact exists exactly once in the repo. Both
+// bundlemirror and validate expand through here, so what ships and what gets
+// linted cannot diverge.
 package templaterender
 
 import (
@@ -21,14 +16,12 @@ import (
 	"text/template"
 )
 
-// PartialsDir is the directory under the context root holding shared partials.
-// The leading underscore marks it as not-an-artifact: bundlemirror skips it, so
-// nothing in here installs to a user's ~/.claude.
+// PartialsDir's leading underscore marks it as not-an-artifact: bundlemirror
+// skips it, so nothing here installs to a user's ~/.claude.
 const PartialsDir = "_partials"
 
-// LoadPartials reads every *.md in dir and registers the named templates they
-// define into one pool. Files are parsed in sorted order so a redefinition is
-// resolved deterministically. Returns an empty pool if dir does not exist,
+// LoadPartials pools every *.md in dir, parsed in sorted order so a
+// redefinition resolves deterministically. A missing dir yields an empty pool,
 // which is what lets a context tree with no partials render unchanged.
 func LoadPartials(dir string) (*template.Template, error) {
 	base := template.New("base")
@@ -62,13 +55,11 @@ func LoadPartials(dir string) (*template.Template, error) {
 	return base, nil
 }
 
-// Expand renders src against the partial pool and returns the result. name is
-// used only for error messages and template identity. A source with no
-// directives comes back byte-identical, so callers can run every artifact
-// through Expand without special-casing the ones that compose nothing.
+// Expand renders src against the partial pool; name is only for errors and
+// template identity. A source with no directives comes back byte-identical, so
+// callers need not special-case artifacts that compose nothing.
 func Expand(partials *template.Template, name string, src []byte) ([]byte, error) {
-	// Clone so each file parses into its own tree and definitions do not leak
-	// between artifacts.
+	// Clone per file so definitions cannot leak between artifacts.
 	t, err := partials.Clone()
 	if err != nil {
 		return nil, fmt.Errorf("clone partial pool: %w", err)

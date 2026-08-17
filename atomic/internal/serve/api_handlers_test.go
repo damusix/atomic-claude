@@ -1,9 +1,5 @@
 package serve_test
 
-// api_handlers_test.go — /api/page, /api/file, /api/rail, /api/nav JSON
-// shape tests. TDD: written to assert the shapes pinned in the spec's
-// ## API contracts table before/alongside implementation.
-
 import (
 	"encoding/json"
 	"net/http"
@@ -13,8 +9,6 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
-
-// ─── /api/page ───────────────────────────────────────────────────────────────
 
 func TestAPIPage_File(t *testing.T) {
 	root := t.TempDir()
@@ -73,8 +67,7 @@ func TestAPIPage_Directory(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "docs", "a.md"), "# A\n")
 	writeFile(t, filepath.Join(root, "docs", "b.md"), "# B\n")
-	// No index file (README/index) in docs/ — must produce a dir listing, not
-	// a rendered page.
+	// No README or index in docs/, so this must list rather than render.
 
 	graph := serve.BuildLinkGraph(root)
 	handler := serve.NewAPIPageHandler(root, graph, "README.md")
@@ -151,8 +144,6 @@ func TestAPIPage_TraversalRejected(t *testing.T) {
 	}
 }
 
-// ─── /api/file ───────────────────────────────────────────────────────────────
-
 func TestAPIFile(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "main.go"), "package main\n\nfunc main() {}\n")
@@ -198,8 +189,6 @@ func TestAPIFile_NotFound(t *testing.T) {
 		t.Fatalf("status: got %d, want 404", rr.Code)
 	}
 }
-
-// ─── /api/rail ───────────────────────────────────────────────────────────────
 
 func TestAPIRail(t *testing.T) {
 	root := t.TempDir()
@@ -284,8 +273,7 @@ func TestAPIRail_Orphan(t *testing.T) {
 	}
 }
 
-// propKVWire mirrors the wire shape of a Properties entry for unmarshal targets
-// that need it (kept local — the server-side propKV type is unexported).
+// propKVWire stands in for the server's unexported propKV.
 type propKVWire struct {
 	Key    string `json:"key"`
 	Value  string `json:"value"`
@@ -306,8 +294,6 @@ func TestAPIRail_NotFound(t *testing.T) {
 		t.Fatalf("status: got %d, want 404", rr.Code)
 	}
 }
-
-// ─── /api/nav ────────────────────────────────────────────────────────────────
 
 type navNodeWire struct {
 	Label    string        `json:"label"`
@@ -362,7 +348,6 @@ func TestAPINav_RepoScope_FolderChildren(t *testing.T) {
 		t.Fatalf("no Docs group in %+v", got.Groups)
 	}
 
-	// README.md is a top-level leaf (RelPath set, no Children).
 	var readme *navNodeWire
 	var nestedFolder *navNodeWire
 	for i := range docsGroup.Items {

@@ -11,30 +11,26 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
 
-// UninstallRestoreEntry is one file that should be restored from the pre-install
-// snapshot during uninstall.
+// UninstallRestoreEntry is one file to restore from the pre-install snapshot.
 type UninstallRestoreEntry struct {
-	// RelPath is the path relative to the target dir (e.g. "settings.json").
+	// RelPath is relative to the target dir (e.g. "settings.json").
 	RelPath string
-	// NeedsMerge is true when the current on-disk file differs from the
-	// pre-install snapshot — meaning the user modified it post-install and a
-	// plain copy-back would lose their changes.
+	// NeedsMerge marks a file the user modified post-install, where a plain
+	// copy-back would lose their changes.
 	NeedsMerge bool
 }
 
 // UninstallPlan holds the computed plan for `atomic claude uninstall`.
 type UninstallPlan struct {
-	// Restore is the set of files to restore from the pre-install snapshot.
 	Restore []UninstallRestoreEntry
-	// Delete is the set of paths to remove (atomic created them; none pre-existed).
+	// Delete holds paths atomic created; none pre-existed.
 	Delete []string
 }
 
-// BuildUninstallPlan reads ~/.atomic/pre-install/manifest.json and
-// computes the restore/delete plan using the embedded bundle's SHAs to
-// distinguish user modifications from atomic-only writes. Consults [install.artifacts]
-// in config.toml to scope the Delete list — only atomic-installed files are removed.
-// Returns an error (with "no pre-install snapshot" in the message) when the manifest is absent.
+// BuildUninstallPlan computes the restore/delete plan from the pre-install
+// manifest, using the embedded SHAs to tell user modifications from atomic-only
+// writes and [install.artifacts] to scope Delete to atomic-installed files.
+// Errors with "no pre-install snapshot" when the manifest is absent.
 func BuildUninstallPlan(targetDir, home string) (UninstallPlan, error) {
 	artifacts := embedded.Manifest()
 	embeddedSHAs := make(map[string]string, len(artifacts))
@@ -42,9 +38,8 @@ func BuildUninstallPlan(targetDir, home string) (UninstallPlan, error) {
 		embeddedSHAs[a.Target] = a.SHA256
 	}
 
-	// Load [install.artifacts] from config to scope which files atomic actually installed.
-	// Best-effort: on error (e.g. no config.toml) installedTargets is nil → no scoping
-	// (pre-framework install: existing snapshot-only behavior applies).
+	// Best-effort: nil installedTargets means a pre-framework install, where the
+	// snapshot alone scopes the plan.
 	cfgPath := config.TOMLPath(home)
 	var installedTargets map[string]bool
 	if cfg, _, err := config.Load(cfgPath); err == nil {
@@ -54,18 +49,13 @@ func BuildUninstallPlan(targetDir, home string) (UninstallPlan, error) {
 	return BuildUninstallPlanWithManifest(targetDir, home, embeddedSHAs, installedTargets)
 }
 
-// BuildUninstallPlanWithManifest is the core implementation of BuildUninstallPlan
-// with injectable embeddedSHAs and installedTargets for testing.
+// BuildUninstallPlanWithManifest is BuildUninstallPlan with embeddedSHAs and
+// installedTargets injected. A nil installedTargets disables Delete scoping.
 //
-// embeddedSHAs: map[Target → hex SHA256] from the current bundle.
-// installedTargets: set of Target paths from [install.artifacts] in config.toml.
-//   - nil means pre-framework install (no [install] table): no scoping, existing behavior.
-//   - non-nil: only paths in the set are eligible for Delete.
-//
-// Three-way merge detection for files that existed before install:
-//   - current == pre-install SHA → Restore (unchanged since install, safe to copy back)
+// Three-way detection for files that existed before install:
+//   - current == pre-install SHA → Restore (safe copy-back)
 //   - current == embedded SHA    → Delete (atomic wrote it, user never touched it)
-//   - current != pre-install AND current != embedded → Restore+NeedsMerge (user modified)
+//   - neither                    → Restore+NeedsMerge (user modified)
 func BuildUninstallPlanWithManifest(targetDir, home string, embeddedSHAs map[string]string, installedTargets map[string]bool) (UninstallPlan, error) {
 	preInstallDir := config.PreInstallDir(home)
 	manifestPath := filepath.Join(preInstallDir, "manifest.json")
@@ -86,37 +76,25 @@ func BuildUninstallPlanWithManifest(targetDir, home string, embeddedSHAs map[str
 	var plan UninstallPlan
 
 	for _, f := range m.Files {
-		// Defensive guard: profile.md is user-data written post-install by
-		// ensureProfileStub. It has no pre-install counterpart and must never
-		// be deleted or restored by uninstall, even if a future manifest change
-		// accidentally includes it.
+		// profile.md is user data with no pre-install counterpart; never delete or
+		// restore it, even if a future manifest change includes it.
 		if f.Path == config.ProfileRelPath() {
 			continue
 		}
 
 		if !f.Existed {
-			// Scope: only delete when installedTargets is nil (pre-framework — no scoping)
-			// or the path is in [install.artifacts] (atomic installed it).
-			// User-added files absent from install.artifacts are never touched.
+			// User-added files absent from [install.artifacts] are never touched.
 			if installedTargets == nil || installedTargets[f.Path] {
 				plan.Delete = append(plan.Delete, f.Path)
 			}
 			continue
 		}
 
-		// File existed before install. Read the current on-disk state and apply
-		// three-way detection:
-		//   current == pre-install → unchanged, safe restore
-		//   current == embedded    → atomic-only write, user never modified → delete
-		//   otherwise              → user modified post-install, needs merge
 		needsMerge := false
 		atomicOnly := false
 
-		// Assumption: when Existed=true the snapshot writer always populates SHA256.
-		// snapshotFile() only sets SHA256 for files it successfully reads, so an
-		// empty SHA here would mean a corrupt or hand-edited manifest. In that case
-		// we skip three-way detection and fall through to a plain Restore (safest
-		// default: return the pre-install copy rather than deleting or merging blindly).
+		// An empty SHA means a corrupt or hand-edited manifest — skip three-way
+		// detection and fall through to a plain Restore, the safest default.
 		if f.SHA256 != "" {
 			onDiskPath := filepath.Join(targetDir, filepath.FromSlash(f.Path))
 			onDiskData, readErr := os.ReadFile(onDiskPath)
@@ -124,22 +102,18 @@ func BuildUninstallPlanWithManifest(targetDir, home string, embeddedSHAs map[str
 				currentSHA := hexSHA256(onDiskData)
 				switch {
 				case currentSHA == f.SHA256:
-					// Matches pre-install snapshot — unchanged since install.
-					// needsMerge stays false, atomicOnly stays false.
+					// Unchanged since install — plain restore.
 				case embeddedSHAs[f.Path] != "" && currentSHA == embeddedSHAs[f.Path]:
-					// Matches embedded bundle — atomic wrote it, user never touched it.
 					atomicOnly = true
 				default:
-					// Differs from both — user modified post-install.
 					needsMerge = true
 				}
 			}
-			// If the file is missing on disk, no merge needed — restore straight.
+			// Missing on disk: no merge needed, restore straight.
 		}
 
 		if atomicOnly {
-			// Treat as if it never existed — plain delete.
-			// Apply the same install.artifacts scope guard as the !f.Existed path.
+			// Same scope guard as the !f.Existed path.
 			if installedTargets == nil || installedTargets[f.Path] {
 				plan.Delete = append(plan.Delete, f.Path)
 			}
@@ -154,9 +128,8 @@ func BuildUninstallPlanWithManifest(targetDir, home string, embeddedSHAs map[str
 	return plan, nil
 }
 
-// GenerateUninstallPrompt builds the structured markdown prompt that Claude
-// executes to perform the uninstall. The prompt is written to stdout and either
-// run directly inside a Claude Code session or pasted into one.
+// GenerateUninstallPrompt builds the markdown prompt Claude executes to perform
+// the uninstall.
 func GenerateUninstallPrompt(targetDir, home string, plan UninstallPlan) string {
 	var sb strings.Builder
 
