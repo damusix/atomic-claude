@@ -9,11 +9,11 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 )
 
-// cp2WantMeta is the ground truth for every ported subcommand: the exact
+// wantCobraSubcommandMeta is the ground truth for every ported subcommand: the exact
 // Short and args_hint values from cliusage.go. deriveCommands reads
 // cmd.Short for Description and Annotations["args_hint"] for Args; a byte-for-byte
 // mismatch here means the derived Commands() slice diverges from cliusage.go.
-var cp2WantMeta = []struct {
+var wantCobraSubcommandMeta = []struct {
 	path     []string
 	argsHint string
 	short    string
@@ -43,16 +43,16 @@ var cp2WantMeta = []struct {
 	{[]string{"prompt", "claude-merge"}, "", "Emit the CLAUDE.md merge cold-op brief"},
 }
 
-// TestCP2CobraMetadata walks the Cobra command tree for every ported
+// TestCobraSubcommandMetadata walks the Cobra command tree for every ported
 // subcommand and asserts the exact Short and Annotations["args_hint"] values
 // match cliusage.go byte-for-byte. WHY: deriveCommands reads these fields
 // to reproduce the Commands() slice; a silent mismatch would cause the A1 linter
 // to false-positive or false-negative against artifact citations.
-func TestCP2CobraMetadata(t *testing.T) {
+func TestCobraSubcommandMetadata(t *testing.T) {
 	var repo string
 	root := buildRootCmd(&repo)
 
-	for _, w := range cp2WantMeta {
+	for _, w := range wantCobraSubcommandMeta {
 		label := fmt.Sprintf("%v", w.path)
 		found, _, _ := root.Find(w.path)
 		if found == nil || found == root {
@@ -68,10 +68,10 @@ func TestCP2CobraMetadata(t *testing.T) {
 	}
 }
 
-// cp3WantMeta is the ground truth for every ported subcommand: the exact
+// wantDelegatedSubcommandMeta is the ground truth for every ported subcommand: the exact
 // Short and args_hint values from cliusage.go. Byte-for-byte match is required
 // so that deriveCommands reproduces the Commands() slice exactly.
-var cp3WantMeta = []struct {
+var wantDelegatedSubcommandMeta = []struct {
 	path     []string
 	argsHint string
 	short    string
@@ -119,14 +119,14 @@ var cp3WantMeta = []struct {
 	{[]string{"followups", "path"}, "", "Print followups folder path"},
 }
 
-// TestCP3CobraMetadata walks the Cobra command tree for every ported
+// TestDelegatedSubcommandMetadata walks the Cobra command tree for every ported
 // subcommand and asserts the exact Short and Annotations["args_hint"] values
 // match cliusage.go byte-for-byte. Covers the 3-level wiki bucket nesting.
-func TestCP3CobraMetadata(t *testing.T) {
+func TestDelegatedSubcommandMetadata(t *testing.T) {
 	var repo string
 	root := buildRootCmd(&repo)
 
-	for _, w := range cp3WantMeta {
+	for _, w := range wantDelegatedSubcommandMeta {
 		label := fmt.Sprintf("%v", w.path)
 		found, _, _ := root.Find(w.path)
 		if found == nil || found == root {
@@ -281,7 +281,7 @@ func TestRootCmdExact22Verbs(t *testing.T) {
 	}
 }
 
-// TestCP5FindAllPaths verifies that rootCmd.Find returns a non-nil, non-root
+// TestFindAllPaths verifies that rootCmd.Find returns a non-nil, non-root
 // command for every path in cliusage.Commands(). WHY (SC3): every command path
 // registered in the golden cliusage surface must be reachable in the live Cobra
 // tree so that --help rendering and DeriveCommands produce complete output. A
@@ -290,7 +290,7 @@ func TestRootCmdExact22Verbs(t *testing.T) {
 //
 // Paths are sourced from cliusage.Commands() so the assertion automatically
 // covers whatever the current command set is; no hardcoded count is used.
-func TestCP5FindAllPaths(t *testing.T) {
+func TestFindAllPaths(t *testing.T) {
 	var repoOverride string
 	root := buildRootCmd(&repoOverride)
 

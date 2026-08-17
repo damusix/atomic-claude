@@ -81,7 +81,7 @@ void load_widget(int id) {
 		}
 	}
 	if widgetsNode == nil {
-		t.Fatalf("FAIL: no table node 'widgets' in widget.c — C content-child harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'widgets' in widget.c — C content-child harvester not wired")
 	}
 	if widgetsNode.StartLine != 1 {
 		t.Errorf("widgets table StartLine=%d, want 1 (file-absolute)", widgetsNode.StartLine)
@@ -114,7 +114,7 @@ void load_widget(int id) {
 		}
 	}
 	if dmlRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'widgets' from widget.c owned by load_widget — C DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'widgets' from widget.c owned by load_widget — C DML not extracted")
 	}
 	if dmlRef != nil && dmlRef.Language != types.LanguageSQL {
 		t.Errorf("DML ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
@@ -126,7 +126,7 @@ void load_widget(int id) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for C fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for C fixture")
 	}
 }
 
@@ -190,7 +190,7 @@ void fetch_order(int id) {
 		}
 	}
 	if ordersNode == nil {
-		t.Fatalf("FAIL: no table node 'orders' in orders.cpp — C++ raw_string_literal harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'orders' in orders.cpp — C++ raw_string_literal harvester not wired")
 	}
 	if ordersNode.StartLine != 3 {
 		t.Errorf("orders table StartLine=%d, want 3 (file-absolute)", ordersNode.StartLine)
@@ -223,7 +223,7 @@ void fetch_order(int id) {
 		}
 	}
 	if dmlRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'orders' from orders.cpp owned by fetch_order — C++ DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'orders' from orders.cpp owned by fetch_order — C++ DML not extracted")
 	}
 	if dmlRef != nil && dmlRef.Language != types.LanguageSQL {
 		t.Errorf("DML ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
@@ -235,7 +235,7 @@ void fetch_order(int id) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for C++ fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for C++ fixture")
 	}
 }
 
@@ -307,7 +307,7 @@ func TestEmbeddedSQLInKotlinFile(t *testing.T) {
 		}
 	}
 	if invoicesNode == nil {
-		t.Fatalf("FAIL: no table node 'invoices' in InvoiceRepo.kt — Kotlin triple-quoted harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'invoices' in InvoiceRepo.kt — Kotlin triple-quoted harvester not wired")
 	}
 	if invoicesNode.StartLine != 2 {
 		t.Errorf("invoices table StartLine=%d, want 2 (file-absolute)", invoicesNode.StartLine)
@@ -340,7 +340,7 @@ func TestEmbeddedSQLInKotlinFile(t *testing.T) {
 		}
 	}
 	if invoicesRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'invoices' from InvoiceRepo.kt owned by fetch — Kotlin DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'invoices' from InvoiceRepo.kt owned by fetch — Kotlin DML not extracted")
 	}
 	if invoicesRef != nil && invoicesRef.Language != types.LanguageSQL {
 		t.Errorf("invoices ref Language=%q, want %q", invoicesRef.Language, types.LanguageSQL)
@@ -357,7 +357,7 @@ func TestEmbeddedSQLInKotlinFile(t *testing.T) {
 	// WHY len==0: $t is an interpolated_identifier; the harvester replaces it
 	// with "?", so the SQL fragment reads FROM ?, not FROM t.
 	if len(tRefs) != 0 {
-		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d — Kotlin interpolation not substituted (CP3)", len(tRefs))
+		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d — Kotlin interpolation not substituted", len(tRefs))
 	}
 
 	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
@@ -366,7 +366,7 @@ func TestEmbeddedSQLInKotlinFile(t *testing.T) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Kotlin fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Kotlin fixture")
 	}
 }
 
@@ -430,7 +430,7 @@ end
 		}
 	}
 	if inventoryNode == nil {
-		t.Fatalf("FAIL: no table node 'inventory' in inventory.luau — Luau content-child harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'inventory' in inventory.luau — Luau content-child harvester not wired")
 	}
 	if inventoryNode.StartLine != 1 {
 		t.Errorf("inventory table StartLine=%d, want 1 (file-absolute)", inventoryNode.StartLine)
@@ -463,7 +463,7 @@ end
 		}
 	}
 	if dmlRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'inventory' from inventory.luau owned by getItem — Luau DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'inventory' from inventory.luau owned by getItem — Luau DML not extracted")
 	}
 	if dmlRef != nil && dmlRef.Language != types.LanguageSQL {
 		t.Errorf("inventory ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
@@ -475,7 +475,7 @@ end
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Luau fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Luau fixture")
 	}
 }
 
@@ -539,7 +539,7 @@ void loadContact(int contactId) {
 		}
 	}
 	if contactsNode == nil {
-		t.Fatalf("FAIL: no table node 'contacts' in contacts.m — ObjC content-child harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'contacts' in contacts.m — ObjC content-child harvester not wired")
 	}
 	if contactsNode.StartLine != 3 {
 		t.Errorf("contacts table StartLine=%d, want 3 (file-absolute)", contactsNode.StartLine)
@@ -572,7 +572,7 @@ void loadContact(int contactId) {
 		}
 	}
 	if dmlRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'contacts' from contacts.m owned by loadContact — ObjC DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'contacts' from contacts.m owned by loadContact — ObjC DML not extracted")
 	}
 	if dmlRef != nil && dmlRef.Language != types.LanguageSQL {
 		t.Errorf("DML ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
@@ -584,7 +584,7 @@ void loadContact(int contactId) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for ObjC fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for ObjC fixture")
 	}
 }
 
@@ -660,7 +660,7 @@ function fetchPayment($id, $t) {
 		}
 	}
 	if paymentsNode == nil {
-		t.Fatalf("FAIL: no table node 'payments' in payment.php — PHP heredoc harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'payments' in payment.php — PHP heredoc harvester not wired")
 	}
 	// The heredoc node spans from the <<<SQL line (line 3) through the closing
 	// delimiter. StartLine must be exactly 3.
@@ -695,7 +695,7 @@ function fetchPayment($id, $t) {
 		}
 	}
 	if paymentsRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'payments' from payment.php owned by fetchPayment — PHP DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'payments' from payment.php owned by fetchPayment — PHP DML not extracted")
 	}
 	if paymentsRef != nil && paymentsRef.Language != types.LanguageSQL {
 		t.Errorf("payments ref Language=%q, want %q", paymentsRef.Language, types.LanguageSQL)
@@ -711,7 +711,7 @@ function fetchPayment($id, $t) {
 		}
 	}
 	if len(tRefs) != 0 {
-		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d — PHP interpolation not substituted (CP3)", len(tRefs))
+		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d — PHP interpolation not substituted", len(tRefs))
 	}
 
 	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
@@ -720,7 +720,7 @@ function fetchPayment($id, $t) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for PHP fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for PHP fixture")
 	}
 }
 
@@ -793,7 +793,7 @@ end
 		}
 	}
 	if usersNode == nil {
-		t.Fatalf("FAIL: no table node 'users' in user.rb — Ruby heredoc harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'users' in user.rb — Ruby heredoc harvester not wired")
 	}
 	// The Ruby grammar places the heredoc_body node start at the content line
 	// (line 2 in this fixture — the line after the <<~SQL opener). The opener
@@ -830,7 +830,7 @@ end
 		}
 	}
 	if usersRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'users' from user.rb owned by fetch_user (q1 literal table) — Ruby DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'users' from user.rb owned by fetch_user (q1 literal table) — Ruby DML not extracted")
 	}
 	if usersRef != nil && usersRef.Language != types.LanguageSQL {
 		t.Errorf("users ref Language=%q, want %q", usersRef.Language, types.LanguageSQL)
@@ -849,7 +849,7 @@ end
 	// "?", so the SQL fragment reads FROM ?, not FROM t. Any non-zero count here
 	// means the Ruby interpolation substitution is not working.
 	if len(tRefs) != 0 {
-		t.Errorf("FAIL: interpolated table target '#{t}' must yield 0 refs, got %d — Ruby interpolation not substituted (CP3)", len(tRefs))
+		t.Errorf("FAIL: interpolated table target '#{t}' must yield 0 refs, got %d — Ruby interpolation not substituted", len(tRefs))
 	}
 
 	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
@@ -858,7 +858,7 @@ end
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Ruby fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Ruby fixture")
 	}
 }
 
@@ -918,7 +918,7 @@ fn get_shipment(id: i64) {
 		}
 	}
 	if shipmentsNode == nil {
-		t.Fatalf("FAIL: no table node 'shipments' in shipment.rs — Rust raw_string_literal harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'shipments' in shipment.rs — Rust raw_string_literal harvester not wired")
 	}
 	if shipmentsNode.StartLine != 1 {
 		t.Errorf("shipments table StartLine=%d, want 1 (file-absolute)", shipmentsNode.StartLine)
@@ -951,7 +951,7 @@ fn get_shipment(id: i64) {
 		}
 	}
 	if dmlRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'shipments' from shipment.rs owned by get_shipment — Rust DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'shipments' from shipment.rs owned by get_shipment — Rust DML not extracted")
 	}
 	if dmlRef != nil && dmlRef.Language != types.LanguageSQL {
 		t.Errorf("DML ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
@@ -966,7 +966,7 @@ fn get_shipment(id: i64) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Rust fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Rust fixture")
 	}
 }
 
@@ -1035,7 +1035,7 @@ func TestEmbeddedSQLInScalaFile(t *testing.T) {
 		}
 	}
 	if catalogNode == nil {
-		t.Fatalf("FAIL: no table node 'catalog' in CatalogRepo.scala — Scala triple-quoted harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'catalog' in CatalogRepo.scala — Scala triple-quoted harvester not wired")
 	}
 	if catalogNode.StartLine != 2 {
 		t.Errorf("catalog table StartLine=%d, want 2 (file-absolute)", catalogNode.StartLine)
@@ -1068,7 +1068,7 @@ func TestEmbeddedSQLInScalaFile(t *testing.T) {
 		}
 	}
 	if catalogRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'catalog' from CatalogRepo.scala owned by fetch — Scala DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'catalog' from CatalogRepo.scala owned by fetch — Scala DML not extracted")
 	}
 	if catalogRef != nil && catalogRef.Language != types.LanguageSQL {
 		t.Errorf("catalog ref Language=%q, want %q", catalogRef.Language, types.LanguageSQL)
@@ -1084,7 +1084,7 @@ func TestEmbeddedSQLInScalaFile(t *testing.T) {
 		}
 	}
 	if len(tRefs) != 0 {
-		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d — Scala interpolation not substituted (CP3)", len(tRefs))
+		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d — Scala interpolation not substituted", len(tRefs))
 	}
 
 	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
@@ -1093,7 +1093,7 @@ func TestEmbeddedSQLInScalaFile(t *testing.T) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Scala fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Scala fixture")
 	}
 }
 
@@ -1170,7 +1170,7 @@ func TestEmbeddedSQLInSwiftFile(t *testing.T) {
 		}
 	}
 	if eventsNode == nil {
-		t.Fatalf("FAIL: no table node 'events' in EventRepo.swift — Swift multi_line_string_literal harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'events' in EventRepo.swift — Swift multi_line_string_literal harvester not wired")
 	}
 	// The Swift grammar places the multi_line_string_literal node start at the
 	// first content line (line 3 in this fixture — the line after the opening """).
@@ -1206,7 +1206,7 @@ func TestEmbeddedSQLInSwiftFile(t *testing.T) {
 		}
 	}
 	if eventsRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'events' from EventRepo.swift owned by fetch — Swift DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'events' from EventRepo.swift owned by fetch — Swift DML not extracted")
 	}
 	if eventsRef != nil && eventsRef.Language != types.LanguageSQL {
 		t.Errorf("events ref Language=%q, want %q", eventsRef.Language, types.LanguageSQL)
@@ -1222,7 +1222,7 @@ func TestEmbeddedSQLInSwiftFile(t *testing.T) {
 		}
 	}
 	if len(tRefs) != 0 {
-		t.Errorf("FAIL: interpolated table target '\\(t)' must yield 0 refs, got %d — Swift interpolation not substituted (CP3)", len(tRefs))
+		t.Errorf("FAIL: interpolated table target '\\(t)' must yield 0 refs, got %d — Swift interpolation not substituted", len(tRefs))
 	}
 
 	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
@@ -1231,7 +1231,7 @@ func TestEmbeddedSQLInSwiftFile(t *testing.T) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Swift fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Swift fixture")
 	}
 }
 
@@ -1300,7 +1300,7 @@ end.
 		}
 	}
 	if recordsNode == nil {
-		t.Fatalf("FAIL: no table node 'records' in records.pas — Pascal Shape-2 harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'records' in records.pas — Pascal Shape-2 harvester not wired")
 	}
 	if recordsNode.StartLine != 3 {
 		t.Errorf("records table StartLine=%d, want 3 (file-absolute)", recordsNode.StartLine)
@@ -1320,7 +1320,7 @@ end.
 		}
 	}
 	if dmlRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'records' from records.pas — Pascal DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'records' from records.pas — Pascal DML not extracted")
 	}
 	if dmlRef != nil && dmlRef.Language != types.LanguageSQL {
 		t.Errorf("records ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
@@ -1332,7 +1332,7 @@ end.
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Pascal fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Pascal fixture")
 	}
 }
 
@@ -1392,7 +1392,7 @@ func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 		}
 	}
 	if tasksNode == nil {
-		t.Fatalf("FAIL: no table node 'tasks' in task.js — JavaScript template_string harvester not wired (CP3)")
+		t.Fatalf("FAIL: no table node 'tasks' in task.js — JavaScript template_string harvester not wired")
 	}
 	if tasksNode.StartLine != 1 {
 		t.Errorf("tasks table StartLine=%d, want 1 (file-absolute)", tasksNode.StartLine)
@@ -1425,7 +1425,7 @@ func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 		}
 	}
 	if tasksRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'tasks' from task.js owned by loadTask — JavaScript DML not extracted (CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'tasks' from task.js owned by loadTask — JavaScript DML not extracted")
 	}
 	if tasksRef != nil && tasksRef.Language != types.LanguageSQL {
 		t.Errorf("tasks ref Language=%q, want %q", tasksRef.Language, types.LanguageSQL)
@@ -1441,7 +1441,7 @@ func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 		}
 	}
 	if len(tRefs) != 0 {
-		t.Errorf("FAIL: interpolated table target '${t}' must yield 0 refs, got %d — JS interpolation not substituted (CP3)", len(tRefs))
+		t.Errorf("FAIL: interpolated table target '${t}' must yield 0 refs, got %d — JS interpolation not substituted", len(tRefs))
 	}
 
 	// --- Criterion 4: GetEdgesByProvenance("embedded") ≥1 ---
@@ -1450,7 +1450,7 @@ func TestEmbeddedSQLInJavaScriptFile(t *testing.T) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for JavaScript fixture (CP3)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for JavaScript fixture")
 	}
 }
 
@@ -1512,7 +1512,7 @@ func TestEmbeddedSQLProseRejectionInRustFile(t *testing.T) {
 	// SQL keyword patterns. Any non-zero count means the gate is broken for
 	// the Rust language, or a false-positive SQL pattern is in the fixture.
 	if len(tableNodes) != 0 {
-		t.Errorf("FAIL: prose-only Rust file must yield 0 table nodes, got %d: %+v — IsSQLLiteral gate regression (CP3)", len(tableNodes), tableNodes)
+		t.Errorf("FAIL: prose-only Rust file must yield 0 table nodes, got %d: %+v — IsSQLLiteral gate regression", len(tableNodes), tableNodes)
 	}
 
 	// --- Gate check: zero embedded edges from prose strings ---
@@ -1526,6 +1526,6 @@ func TestEmbeddedSQLProseRejectionInRustFile(t *testing.T) {
 	// WHY len==0: neither prose string passes IsSQLLiteral, so no DDL edges are
 	// emitted with Provenance:"embedded". Any non-zero count means the gate is broken.
 	if len(allEdges) != 0 {
-		t.Errorf("FAIL: prose-only Rust file must yield 0 embedded edges, got %d — IsSQLLiteral gate regression (CP3)", len(allEdges))
+		t.Errorf("FAIL: prose-only Rust file must yield 0 embedded edges, got %d — IsSQLLiteral gate regression", len(allEdges))
 	}
 }

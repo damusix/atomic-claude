@@ -123,7 +123,7 @@ func projectTmpDir() string {
 	}
 	// wd is .../atomic/internal/codeintel/resolution
 	// go up 4 levels → worktree root
-	candidate := filepath.Join(wd, "..", "..", "..", "..", "tmp", "code-intel-cp13")
+	candidate := filepath.Join(wd, "..", "..", "..", "..", "tmp", "code-intel")
 	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 		return candidate
 	}
@@ -1196,13 +1196,13 @@ func TestPackageMint_UnindexedAliasTargetMintsNothing(t *testing.T) {
 	}
 }
 
-// TestCP4_QualifiedColumnRefResolvesEndToEnd proves a SQL qualified column ref
+// TestQualifiedColumnRefResolvesEndToEnd proves a SQL qualified column ref
 // resolves through the FULL pipeline (including the known-names pre-filter), not
 // just the name matcher. The column ref name "dbo.Account.account_id" is not a
 // bare node name, so without the SQL-scoped simple-name fall-through in the
 // pre-filter it is dropped before reaching byQualifiedName. Two tables own an
 // "account_id" column; the ref must resolve to the RIGHT one (prefer-exact).
-func TestCP4_QualifiedColumnRefResolvesEndToEnd(t *testing.T) {
+func TestQualifiedColumnRefResolvesEndToEnd(t *testing.T) {
 	d := openPipelineTestDB(t)
 	ctx := context.Background()
 
@@ -1235,7 +1235,7 @@ func TestCP4_QualifiedColumnRefResolvesEndToEnd(t *testing.T) {
 	}
 
 	seedUnresolvedRef(t, d, types.UnresolvedReference{
-		ID:            "ref-cp4-col-001",
+		ID:            "ref-col-001",
 		FromNodeID:    viewID,
 		ReferenceName: "dbo.Account.account_id",
 		ReferenceKind: types.EdgeKindReferences,
@@ -1249,7 +1249,7 @@ func TestCP4_QualifiedColumnRefResolvesEndToEnd(t *testing.T) {
 		t.Fatalf("ResolveAndPersistBatched: %v", err)
 	}
 	if resolved == 0 {
-		t.Fatal("CP4: qualified column ref did not resolve — pre-filter dropped it before byQualifiedName")
+		t.Fatal("qualified column ref did not resolve — pre-filter dropped it before byQualifiedName")
 	}
 
 	edges := edgesWithKind(t, d, viewID, types.EdgeKindReferences)
@@ -1257,7 +1257,7 @@ func TestCP4_QualifiedColumnRefResolvesEndToEnd(t *testing.T) {
 		t.Fatalf("expected exactly 1 references edge from the view, got %d", len(edges))
 	}
 	if edges[0].Target != acctColID {
-		t.Errorf("CP4: column ref resolved to %q, want dbo.Account.account_id (%q) — prefer-exact must pick the right table's column, not dbo.Orders.account_id",
+		t.Errorf("column ref resolved to %q, want dbo.Account.account_id (%q) — prefer-exact must pick the right table's column, not dbo.Orders.account_id",
 			edges[0].Target, acctColID)
 	}
 }

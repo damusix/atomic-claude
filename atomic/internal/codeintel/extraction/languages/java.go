@@ -2,7 +2,7 @@ package languages
 
 // Java language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8a/ — Java grammar):
+// Verified node-type strings (read from the live Java grammar):
 //
 //	Top-level (direct children of program):
 //	  import_declaration       — import java.util.List;
@@ -35,7 +35,7 @@ import (
 // JavaExtractor returns the LanguageExtractor config for Java source files (.java).
 //
 // Node-type strings are verified by parsing real Java via the wazero binding
-// (see tmp/probe-cp8a/main.go and tmp/probe-cp8a/probe4.go).
+// .
 func JavaExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// Java has method_declaration for methods; no separate function_declaration.

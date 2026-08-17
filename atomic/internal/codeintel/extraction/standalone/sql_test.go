@@ -840,7 +840,7 @@ func TestPGNamedConstraints(t *testing.T) {
 
 	// No references edges — must NOT emit them.
 	if hasReferencesEdge(edges) {
-		t.Error("CP3 must NOT emit any references edges; found one")
+		t.Error("must not emit any references edges; found one")
 	}
 
 	// Inline column PK (id INT NOT NULL on accounts) must NOT produce a constraint node.
@@ -899,7 +899,7 @@ func TestMySQLConstraints(t *testing.T) {
 	}
 	// FK references target stashed in metadata (prep), but no references edge.
 	if hasReferencesEdge(edges) {
-		t.Error("CP3 must NOT emit references edges")
+		t.Error("must not emit references edges")
 	}
 }
 
@@ -1003,7 +1003,7 @@ func TestTSQLConstraints(t *testing.T) {
 
 	// No references edges.
 	if hasReferencesEdge(edges) {
-		t.Error("CP3 must NOT emit references edges")
+		t.Error("must not emit references edges")
 	}
 }
 
@@ -1047,7 +1047,7 @@ func TestInlineColumnConstraintNoNode(t *testing.T) {
 // Existing still passes: constraint lines not double-counted as columns
 // ---------------------------------------------------------------------------
 
-func TestCP2ColumnExtractionStillSkipsConstraintLines(t *testing.T) {
+func TestColumnExtractionSkipsConstraintLines(t *testing.T) {
 	// Re-run the Postgres fixture and verify constraint lines aren't emitted as columns.
 	ext := newSQL()
 	result, err := ext.Extract("/db/schema.sql", pgFixture)
@@ -1064,7 +1064,7 @@ func TestCP2ColumnExtractionStillSkipsConstraintLines(t *testing.T) {
 
 	// But it SHOULD now be a constraint node.
 	if hasConstraintNode(nodes, "uq_users_email") == nil {
-		t.Error("expected constraint node 'uq_users_email' from CP3 extraction")
+		t.Error("expected constraint node 'uq_users_email' from constraint extraction")
 	}
 }
 
@@ -4052,11 +4052,11 @@ func TestTSQLApplyDerivedTableNoCallEdge(t *testing.T) {
 // OUTPUT … INTO <target> lineage
 // ---------------------------------------------------------------------------
 
-// cp2MergeOutputIntoRealTableFixture tests SC5 — MERGE … OUTPUT $action, inserted.id
+// mergeOutputIntoRealTableFixture tests SC5 — MERGE … OUTPUT $action, inserted.id
 // INTO dbo.AuditLog emits a writes edge to AuditLog.
 // WHY: OUTPUT INTO is a T-SQL/SQL Server feature that routes the change-capture rows
 // into a second table; without that secondary write is invisible to the graph.
-const cp2MergeOutputIntoRealTableFixture = `
+const mergeOutputIntoRealTableFixture = `
 CREATE TABLE dbo.Tgt (id INT, val NVARCHAR(100));
 CREATE TABLE dbo.Src (id INT, val NVARCHAR(100));
 CREATE TABLE dbo.AuditLog (action NVARCHAR(10), id INT);
@@ -4073,12 +4073,12 @@ END;
 GO
 `
 
-func TestCP2MergeOutputIntoRealTable(t *testing.T) {
+func TestMergeOutputIntoRealTable(t *testing.T) {
 	// WHY SC5: MERGE … OUTPUT $action, inserted.id INTO dbo.AuditLog must emit
 	// a writes edge to AuditLog from the procedure.  $action and inserted.* appear
 	// in the OUTPUT list — the gap-text scanner must tolerate $ and dot.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp2_merge_output.sql", cp2MergeOutputIntoRealTableFixture)
+	result, err := ext.Extract("/db/merge_output.sql", mergeOutputIntoRealTableFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4095,12 +4095,12 @@ func TestCP2MergeOutputIntoRealTable(t *testing.T) {
 	}
 }
 
-// cp2InsertOutputIntoTvarFixture tests SC5 — INSERT INTO dbo.A … OUTPUT inserted.id
+// insertOutputIntoTvarFixture tests SC5 — INSERT INTO dbo.A … OUTPUT inserted.id
 // INTO @captured where @captured is declared as a table variable emits a writes edge
 // to the routine-scoped synthetic node for @captured (not to bare "@captured").
 // WHY: synthetic-name routing must also apply to OUTPUT INTO targets so that
 // the captured-rows write resolves to the same node as other @tvar edges.
-const cp2InsertOutputIntoTvarFixture = `
+const insertOutputIntoTvarFixture = `
 CREATE TABLE dbo.A (id INT, val NVARCHAR(100));
 
 CREATE PROCEDURE dbo.usp_InsertCapture
@@ -4115,11 +4115,11 @@ END;
 GO
 `
 
-func TestCP2InsertOutputIntoTvar(t *testing.T) {
+func TestInsertOutputIntoTvar(t *testing.T) {
 	// WHY SC5: INSERT INTO dbo.A … OUTPUT inserted.id INTO @captured must emit a
 	// writes edge to the synthetic node for @captured (reuse), not to bare "@captured".
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp2_insert_output_tvar.sql", cp2InsertOutputIntoTvarFixture)
+	result, err := ext.Extract("/db/insert_output_tvar.sql", insertOutputIntoTvarFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4160,11 +4160,11 @@ func TestCP2InsertOutputIntoTvar(t *testing.T) {
 	}
 }
 
-// cp2OutputNoIntoFixture tests SC6a — OUTPUT inserted.id with no INTO clause
+// outputNoIntoFixture tests SC6a — OUTPUT inserted.id with no INTO clause
 // must produce no OUTPUT-derived edge.
 // WHY: OUTPUT without INTO just returns a result set to the caller; there is no
 // secondary write target.  Emitting a spurious writes edge would be a false positive.
-const cp2OutputNoIntoFixture = `
+const outputNoIntoFixture = `
 CREATE TABLE dbo.Orders (id INT, status NVARCHAR(20));
 
 CREATE PROCEDURE dbo.usp_FulfillOrder
@@ -4178,10 +4178,10 @@ END;
 GO
 `
 
-func TestCP2OutputNoInto(t *testing.T) {
+func TestOutputNoInto(t *testing.T) {
 	// WHY SC6a: OUTPUT with no INTO must not produce any OUTPUT-derived writes edge.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp2_output_no_into.sql", cp2OutputNoIntoFixture)
+	result, err := ext.Extract("/db/output_no_into.sql", outputNoIntoFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4200,13 +4200,13 @@ func TestCP2OutputNoInto(t *testing.T) {
 	}
 }
 
-// cp2SC6bSemicolonBoundaryFixture tests SC6b — a DELETE…OUTPUT (no INTO) followed
+// outputSemicolonBoundaryFixture tests SC6b — a DELETE…OUTPUT (no INTO) followed
 // by a `SELECT … INTO <ghost>` on the next statement, separated by a semicolon.
 // `GhostSemi` is reachable ONLY through a false OUTPUT…INTO bridge: a real-table
 // `SELECT … INTO` is not captured as a write by any scan, so a guard-sensitive
 // assertion is "GhostSemi has zero writes". If the OUTPUT…INTO match wrongly spans
 // the semicolon, GhostSemi gets a spurious write and this test fails.
-const cp2SC6bSemicolonBoundaryFixture = `
+const outputSemicolonBoundaryFixture = `
 CREATE TABLE dbo.A (id INT);
 
 CREATE PROCEDURE dbo.usp_TwoStmts
@@ -4218,11 +4218,11 @@ END;
 GO
 `
 
-func TestCP2SC6bSemicolonBoundary(t *testing.T) {
+func TestOutputSemicolonBoundary(t *testing.T) {
 	// WHY SC6b: the semicolon is a hard boundary — the OUTPUT clause of the DELETE
 	// must not bridge to the next statement's `INTO dbo.GhostSemi`.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp2_sc6b_semicolon.sql", cp2SC6bSemicolonBoundaryFixture)
+	result, err := ext.Extract("/db/sc6b_semicolon.sql", outputSemicolonBoundaryFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4239,13 +4239,13 @@ func TestCP2SC6bSemicolonBoundary(t *testing.T) {
 	}
 }
 
-// cp2SC6bKeywordBoundaryFixture tests the keyword-guard path of SC6b — a
+// outputKeywordBoundaryFixture tests the keyword-guard path of SC6b — a
 // DELETE…OUTPUT (no INTO) directly followed by `SELECT … INTO <ghost>` with NO
 // semicolon, so the regex `[^;]` exclusion cannot help; only the DML/SELECT keyword
 // guard prevents the bridge. The gap between OUTPUT and INTO contains the SELECT
 // keyword. `GhostKW` is reachable only through the false bridge, so asserting zero
 // writes to it fails if the keyword guard is removed.
-const cp2SC6bKeywordBoundaryFixture = `
+const outputKeywordBoundaryFixture = `
 CREATE TABLE dbo.A (id INT);
 
 CREATE PROCEDURE dbo.usp_KeywordBoundary
@@ -4256,12 +4256,12 @@ END;
 GO
 `
 
-func TestCP2SC6bKeywordBoundary(t *testing.T) {
+func TestOutputKeywordBoundary(t *testing.T) {
 	// WHY SC6b keyword guard: with no semicolon, the gap "deleted.id SELECT id "
 	// between OUTPUT and INTO contains the SELECT keyword. The Go code guard must
 	// reject the match so no spurious write to GhostKW is emitted.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp2_sc6b_keyword.sql", cp2SC6bKeywordBoundaryFixture)
+	result, err := ext.Extract("/db/sc6b_keyword.sql", outputKeywordBoundaryFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4278,11 +4278,11 @@ func TestCP2SC6bKeywordBoundary(t *testing.T) {
 	}
 }
 
-// cp3PivotFixture — a view whose body pivots a derived table. The only object-level
+// pivotFixture — a view whose body pivots a derived table. The only object-level
 // lineage is the inner FROM source (SalesRaw); PIVOT, the aggregate (SUM), the
 // pivoted column (amt), the spread column (yr), and the IN-list value columns
 // ([2020]/[2021]) are columns/operators, not navigable objects, and must not emit edges.
-const cp3PivotFixture = `
+const pivotFixture = `
 CREATE VIEW dbo.SalesByYear AS
 SELECT custid, [2020], [2021]
 FROM (SELECT custid, yr, amt FROM dbo.SalesRaw) src
@@ -4290,11 +4290,11 @@ PIVOT (SUM(amt) FOR yr IN ([2020], [2021])) pvt;
 GO
 `
 
-func TestCP3PivotSourceOnly(t *testing.T) {
+func TestPivotSourceOnly(t *testing.T) {
 	// WHY PIVOT introduces no new object reference — the source is captured by the
 	// inner FROM. Confirms the source ref survives and no PIVOT internals leak as edges.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp3_pivot.sql", cp3PivotFixture)
+	result, err := ext.Extract("/db/pivot.sql", pivotFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4316,10 +4316,10 @@ func TestCP3PivotSourceOnly(t *testing.T) {
 	}
 }
 
-// cp3UnpivotFixture — a procedure that unpivots a real table. The source (WideMetrics)
+// unpivotFixture — a procedure that unpivots a real table. The source (WideMetrics)
 // is the only object reference; UNPIVOT, the value/name columns (val/metric), and the
 // IN-list source columns (q1/q2/q3) must not emit edges.
-const cp3UnpivotFixture = `
+const unpivotFixture = `
 CREATE PROCEDURE dbo.UnpivotDemo
 AS
 BEGIN
@@ -4330,10 +4330,10 @@ END;
 GO
 `
 
-func TestCP3UnpivotSourceOnly(t *testing.T) {
+func TestUnpivotSourceOnly(t *testing.T) {
 	// WHY UNPIVOT mirrors PIVOT — the FROM source is the only object edge.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp3_unpivot.sql", cp3UnpivotFixture)
+	result, err := ext.Extract("/db/unpivot.sql", unpivotFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4357,9 +4357,9 @@ func TestCP3UnpivotSourceOnly(t *testing.T) {
 // Column-level lineage — alias→table map + qualified column refs
 // ---------------------------------------------------------------------------
 
-// cp4ViewAliasColFixture: CREATE VIEW with alias. SELECT a.id, a.name FROM dbo.acct a.
+// viewAliasColFixture: CREATE VIEW with alias. SELECT a.id, a.name FROM dbo.acct a.
 // Expected: references edges for "dbo.acct.id" and "dbo.acct.name".
-const cp4ViewAliasColFixture = `
+const viewAliasColFixture = `
 CREATE TABLE dbo.acct (id INT, name VARCHAR(100));
 
 CREATE VIEW dbo.v_acct AS
@@ -4367,13 +4367,13 @@ SELECT a.id, a.name
 FROM dbo.acct a;
 `
 
-func TestCP4ColumnRef_ViewAlias(t *testing.T) {
+func TestColumnRef_ViewAlias(t *testing.T) {
 	// WHY qualified alias.col in a view body must emit a references edge whose
 	// ReferenceName is "table-as-written.col" (e.g. "dbo.acct.id"), matching the
 	// column node's QualifiedName so it can resolve. This is the primary emission
 	// assertion for gap 4a.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp4_view.sql", cp4ViewAliasColFixture)
+	result, err := ext.Extract("/db/view.sql", viewAliasColFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4381,21 +4381,21 @@ func TestCP4ColumnRef_ViewAlias(t *testing.T) {
 
 	// Must emit column-level references.
 	if !hasUnresolvedRef(refs, "dbo.acct.id", types.EdgeKindReferences) {
-		t.Errorf("expected references edge to 'dbo.acct.id' (alias a → dbo.acct); got refs: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge to 'dbo.acct.id' (alias a → dbo.acct); got refs: %v", uniqueRefNames(refs))
 	}
 	if !hasUnresolvedRef(refs, "dbo.acct.name", types.EdgeKindReferences) {
-		t.Errorf("expected references edge to 'dbo.acct.name' (alias a → dbo.acct); got refs: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge to 'dbo.acct.name' (alias a → dbo.acct); got refs: %v", uniqueRefNames(refs))
 	}
 
 	// Table-level FROM ref must still be present.
 	if !hasUnresolvedRef(refs, "acct", types.EdgeKindReferences) {
-		t.Errorf("expected table-level references edge to 'acct'; got refs: %v", cp4RefNames(refs))
+		t.Errorf("expected table-level references edge to 'acct'; got refs: %v", uniqueRefNames(refs))
 	}
 }
 
-// cp4ViewJoinAliasFixture: view body with a JOIN alias.
+// viewJoinAliasFixture: view body with a JOIN alias.
 // SELECT a.id, p.name FROM dbo.acct a JOIN dbo.person p ON a.id = p.acct_id.
-const cp4ViewJoinAliasFixture = `
+const viewJoinAliasFixture = `
 CREATE TABLE dbo.acct (id INT);
 CREATE TABLE dbo.person (name VARCHAR(100), acct_id INT);
 
@@ -4405,29 +4405,29 @@ FROM dbo.acct a
 JOIN dbo.person p ON a.id = p.acct_id;
 `
 
-func TestCP4ColumnRef_JoinAlias(t *testing.T) {
+func TestColumnRef_JoinAlias(t *testing.T) {
 	// WHY a JOIN alias must also build alias→table mapping. References to
 	// p.name should resolve to dbo.person.name and a.id to dbo.acct.id.
 	// Note: ON-clause qualified column refs (a.id in ON a.id = p.acct_id) are
 	// intentionally in-scope per SC8 — they are real column references, not just
 	// SELECT-list ones. The alias map covers the full body including ON clauses.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp4_join.sql", cp4ViewJoinAliasFixture)
+	result, err := ext.Extract("/db/join.sql", viewJoinAliasFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 	refs := result.UnresolvedReferences
 
 	if !hasUnresolvedRef(refs, "dbo.acct.id", types.EdgeKindReferences) {
-		t.Errorf("expected references edge to 'dbo.acct.id'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge to 'dbo.acct.id'; got: %v", uniqueRefNames(refs))
 	}
 	if !hasUnresolvedRef(refs, "dbo.person.name", types.EdgeKindReferences) {
-		t.Errorf("expected references edge to 'dbo.person.name'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge to 'dbo.person.name'; got: %v", uniqueRefNames(refs))
 	}
 }
 
-// cp4UnqualifiedSkipFixture: SELECT id FROM acct — bare unqualified column must NOT emit.
-const cp4UnqualifiedSkipFixture = `
+// unqualifiedSkipFixture: SELECT id FROM acct — bare unqualified column must NOT emit.
+const unqualifiedSkipFixture = `
 CREATE TABLE dbo.acct (id INT);
 
 CREATE VIEW dbo.v_bare AS
@@ -4435,11 +4435,11 @@ SELECT id
 FROM dbo.acct;
 `
 
-func TestCP4ColumnRef_UnqualifiedSkipped(t *testing.T) {
+func TestColumnRef_UnqualifiedSkipped(t *testing.T) {
 	// WHY unqualified column refs are ambiguous — any table could have an 'id'
 	// column. We must NOT emit edges for bare identifiers, only for alias.col forms.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp4_unqualified.sql", cp4UnqualifiedSkipFixture)
+	result, err := ext.Extract("/db/unqualified.sql", unqualifiedSkipFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4455,9 +4455,9 @@ func TestCP4ColumnRef_UnqualifiedSkipped(t *testing.T) {
 	}
 }
 
-// cp4AliaslessFixture: FROM acct (no alias) + acct.id ref.
+// aliaslessFixture: FROM acct (no alias) + acct.id ref.
 // Expected: references edge "acct.id" (table maps to itself).
-const cp4AliaslessFixture = `
+const aliaslessFixture = `
 CREATE TABLE acct (id INT, val INT);
 
 CREATE VIEW v_aliasless AS
@@ -4465,28 +4465,28 @@ SELECT acct.id, acct.val
 FROM acct;
 `
 
-func TestCP4ColumnRef_AliaslessTableSelf(t *testing.T) {
+func TestColumnRef_AliaslessTableSelf(t *testing.T) {
 	// WHY a table with no alias maps its bare name to itself — "acct.col" refs
 	// must still produce column edges. This covers the "unaliased table" branch of
 	// the alias→table map build.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp4_aliasless.sql", cp4AliaslessFixture)
+	result, err := ext.Extract("/db/aliasless.sql", aliaslessFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 	refs := result.UnresolvedReferences
 
 	if !hasUnresolvedRef(refs, "acct.id", types.EdgeKindReferences) {
-		t.Errorf("expected references edge to 'acct.id'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge to 'acct.id'; got: %v", uniqueRefNames(refs))
 	}
 	if !hasUnresolvedRef(refs, "acct.val", types.EdgeKindReferences) {
-		t.Errorf("expected references edge to 'acct.val'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge to 'acct.val'; got: %v", uniqueRefNames(refs))
 	}
 }
 
-// cp4CTEShadowFixture: CTE alias must NOT produce column edges.
+// cteAliasColumnFixture: CTE alias must NOT produce column edges.
 // WITH cte AS (SELECT id FROM acct) SELECT cte.id FROM cte — cte.id should be skipped.
-const cp4CTEShadowFixture = `
+const cteAliasColumnFixture = `
 CREATE TABLE dbo.acct (id INT);
 
 CREATE VIEW dbo.v_cte AS
@@ -4495,12 +4495,12 @@ SELECT cte.id
 FROM cte;
 `
 
-func TestCP4ColumnRef_CTEAliasSkipped(t *testing.T) {
+func TestColumnRef_CTEAliasSkipped(t *testing.T) {
 	// WHY CTE names shadow real tables — "cte.id" must not become a column edge
 	// because "cte" is a computed relation, not a base table with known column nodes.
 	// The cteShadow set must gate alias→table mapping.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp4_cte.sql", cp4CTEShadowFixture)
+	result, err := ext.Extract("/db/cte.sql", cteAliasColumnFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4514,8 +4514,8 @@ func TestCP4ColumnRef_CTEAliasSkipped(t *testing.T) {
 	}
 }
 
-// cp4ProcAliasColFixture: column refs inside a procedure body (scanBodyEdges path).
-const cp4ProcAliasColFixture = `
+// procAliasColFixture: column refs inside a procedure body (scanBodyEdges path).
+const procAliasColFixture = `
 CREATE TABLE dbo.orders (id INT, total MONEY);
 
 CREATE PROCEDURE dbo.usp_GetOrders
@@ -4528,31 +4528,31 @@ END;
 GO
 `
 
-func TestCP4ColumnRef_ProcBody(t *testing.T) {
+func TestColumnRef_ProcBody(t *testing.T) {
 	// WHY column refs must also work inside procedure bodies (scanBodyEdges path),
 	// not just view bodies. This exercises the routine alias→table map.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp4_proc.sql", cp4ProcAliasColFixture)
+	result, err := ext.Extract("/db/proc.sql", procAliasColFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 	refs := result.UnresolvedReferences
 
 	if !hasUnresolvedRef(refs, "dbo.orders.id", types.EdgeKindReferences) {
-		t.Errorf("expected references edge to 'dbo.orders.id'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge to 'dbo.orders.id'; got: %v", uniqueRefNames(refs))
 	}
 	if !hasUnresolvedRef(refs, "dbo.orders.total", types.EdgeKindReferences) {
-		t.Errorf("expected references edge to 'dbo.orders.total'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge to 'dbo.orders.total'; got: %v", uniqueRefNames(refs))
 	}
 	// Table-level edge must still be present.
 	if !hasUnresolvedRef(refs, "orders", types.EdgeKindReferences) {
-		t.Errorf("expected table-level references edge to 'orders'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected table-level references edge to 'orders'; got: %v", uniqueRefNames(refs))
 	}
 }
 
-// cp4KeywordBoundaryFixture: FROM dbo.acct WHERE a.id = 1 — "WHERE" must NOT become
+// aliasKeywordBoundaryFixture: FROM dbo.acct WHERE a.id = 1 — "WHERE" must NOT become
 // an alias named "where". The unaliased table should self-map so "acct.id" still resolves.
-const cp4KeywordBoundaryFixture = `
+const aliasKeywordBoundaryFixture = `
 CREATE TABLE dbo.acct (id INT, val INT);
 
 CREATE VIEW dbo.v_kw AS
@@ -4561,13 +4561,13 @@ FROM dbo.acct
 WHERE acct.id = 1;
 `
 
-func TestCP4ColumnRef_KeywordBoundaryNotAlias(t *testing.T) {
+func TestColumnRef_KeywordBoundaryNotAlias(t *testing.T) {
 	// WHY issue 2: bodyFromAliasRE can capture a trailing keyword as a spurious
-	// alias ("FROM dbo.acct WHERE" → alias="WHERE"). The cp4AliasBoundaryKeywords
+	// alias ("FROM dbo.acct WHERE" → alias="WHERE"). The aliasBoundaryKeywords
 	// guard must block it. Assert: no alias named "where" is created, and the
 	// unaliased table self-maps so "acct.id" column refs still resolve.
 	ext := newSQL()
-	result, err := ext.Extract("/db/cp4_kw.sql", cp4KeywordBoundaryFixture)
+	result, err := ext.Extract("/db/kw.sql", aliasKeywordBoundaryFixture)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -4575,10 +4575,10 @@ func TestCP4ColumnRef_KeywordBoundaryNotAlias(t *testing.T) {
 
 	// acct self-maps → acct.id and acct.val must produce column refs.
 	if !hasUnresolvedRef(refs, "dbo.acct.id", types.EdgeKindReferences) {
-		t.Errorf("expected references edge to 'dbo.acct.id' (unaliased self-map); got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge to 'dbo.acct.id' (unaliased self-map); got: %v", uniqueRefNames(refs))
 	}
 	if !hasUnresolvedRef(refs, "dbo.acct.val", types.EdgeKindReferences) {
-		t.Errorf("expected references edge to 'dbo.acct.val' (unaliased self-map); got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge to 'dbo.acct.val' (unaliased self-map); got: %v", uniqueRefNames(refs))
 	}
 	// Ensure "WHERE" was not treated as an alias for dbo.acct.
 	// A "where.id" or "where.val" ref would be the symptom of the bug.
@@ -4589,8 +4589,8 @@ func TestCP4ColumnRef_KeywordBoundaryNotAlias(t *testing.T) {
 	}
 }
 
-// cp4RefNames returns unique ref names for error messages.
-func cp4RefNames(refs []types.UnresolvedReference) []string {
+// uniqueRefNames returns unique ref names for error messages.
+func uniqueRefNames(refs []types.UnresolvedReference) []string {
 	names := make([]string, 0, len(refs))
 	seen := map[string]bool{}
 	for _, r := range refs {
@@ -4678,7 +4678,7 @@ func TestFKColumnLevelReferences(t *testing.T) {
 		t.Fatal("expected column node 'child.parent_no'")
 	}
 	if !hasUnresolvedRefFrom(refs, childCol.ID, "parent.parent_no") {
-		t.Errorf("expected references edge from child.parent_no's column node to 'parent.parent_no'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge from child.parent_no's column node to 'parent.parent_no'; got: %v", uniqueRefNames(refs))
 	}
 
 	// Inline column FK: inline_child.parent_no -> parent.parent_no.
@@ -4687,7 +4687,7 @@ func TestFKColumnLevelReferences(t *testing.T) {
 		t.Fatal("expected column node 'inline_child.parent_no'")
 	}
 	if !hasUnresolvedRefFrom(refs, inlineCol.ID, "parent.parent_no") {
-		t.Errorf("expected references edge from inline_child.parent_no's column node to 'parent.parent_no'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge from inline_child.parent_no's column node to 'parent.parent_no'; got: %v", uniqueRefNames(refs))
 	}
 
 	// No target column list (implicit PK reference): implicit_child.fk_col -> bare "parent".
@@ -4696,7 +4696,7 @@ func TestFKColumnLevelReferences(t *testing.T) {
 		t.Fatal("expected column node 'implicit_child.fk_col'")
 	}
 	if !hasUnresolvedRefFrom(refs, implicitCol.ID, "parent") {
-		t.Errorf("expected references edge from implicit_child.fk_col's column node to bare 'parent'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge from implicit_child.fk_col's column node to bare 'parent'; got: %v", uniqueRefNames(refs))
 	}
 
 	// Composite FK pairs positionally: a -> composite_parent.x, b -> composite_parent.y.
@@ -4706,10 +4706,10 @@ func TestFKColumnLevelReferences(t *testing.T) {
 		t.Fatal("expected column nodes 'composite_child.a' and 'composite_child.b'")
 	}
 	if !hasUnresolvedRefFrom(refs, colA.ID, "composite_parent.x") {
-		t.Errorf("expected references edge from composite_child.a's column node to 'composite_parent.x'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge from composite_child.a's column node to 'composite_parent.x'; got: %v", uniqueRefNames(refs))
 	}
 	if !hasUnresolvedRefFrom(refs, colB.ID, "composite_parent.y") {
-		t.Errorf("expected references edge from composite_child.b's column node to 'composite_parent.y'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge from composite_child.b's column node to 'composite_parent.y'; got: %v", uniqueRefNames(refs))
 	}
 
 	// The existing table→table edge must be unchanged: child (table) -> parent.
@@ -4718,7 +4718,7 @@ func TestFKColumnLevelReferences(t *testing.T) {
 		t.Fatal("expected table node 'child'")
 	}
 	if !hasUnresolvedRefFrom(refs, childTable.ID, "parent") {
-		t.Errorf("expected pre-existing table->table references edge from 'child' table node to 'parent'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected pre-existing table->table references edge from 'child' table node to 'parent'; got: %v", uniqueRefNames(refs))
 	}
 }
 
@@ -4751,12 +4751,12 @@ func TestFKColumnLevelMismatchedListsIgnoreExcess(t *testing.T) {
 	}
 
 	if !hasUnresolvedRefFrom(refs, colA.ID, "mismatch_parent.x") {
-		t.Errorf("expected references edge from mismatch_child.a to 'mismatch_parent.x'; got: %v", cp4RefNames(refs))
+		t.Errorf("expected references edge from mismatch_child.a to 'mismatch_parent.x'; got: %v", uniqueRefNames(refs))
 	}
 	if hasUnresolvedRefFrom(refs, colB.ID, "mismatch_parent.x") || countUnresolvedRefs(refs, "mismatch_parent.y") > 0 {
-		t.Errorf("excess local column 'b' must not produce a column-level FK ref; got: %v", cp4RefNames(refs))
+		t.Errorf("excess local column 'b' must not produce a column-level FK ref; got: %v", uniqueRefNames(refs))
 	}
 	if hasUnresolvedRefFrom(refs, colC.ID, "mismatch_parent") {
-		t.Errorf("excess local column 'c' must not produce a column-level FK ref; got: %v", cp4RefNames(refs))
+		t.Errorf("excess local column 'c' must not produce a column-level FK ref; got: %v", uniqueRefNames(refs))
 	}
 }

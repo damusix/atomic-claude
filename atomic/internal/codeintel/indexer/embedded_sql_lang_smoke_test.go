@@ -81,7 +81,7 @@ func TestEmbeddedSQLInJavaFile(t *testing.T) {
 		}
 	}
 	if usersNode == nil {
-		t.Fatalf("FAIL: no table node 'users' in UserRepo.java — Java content-child harvester not wired (CP2)")
+		t.Fatalf("FAIL: no table node 'users' in UserRepo.java — Java content-child harvester not wired")
 	}
 	// StartLine must be exactly 2 (file-absolute): DDL literal is on line 2 of the fixture.
 	if usersNode.StartLine != 2 {
@@ -115,7 +115,7 @@ func TestEmbeddedSQLInJavaFile(t *testing.T) {
 		}
 	}
 	if dmlRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'users' from UserRepo.java owned by loadUser — DML not wired for Java (CP2)")
+		t.Errorf("FAIL: no unresolved ref for 'users' from UserRepo.java owned by loadUser — DML not wired for Java")
 	}
 	if dmlRef != nil && dmlRef.Language != types.LanguageSQL {
 		t.Errorf("DML ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
@@ -127,7 +127,7 @@ func TestEmbeddedSQLInJavaFile(t *testing.T) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Java fixture (CP2)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Java fixture")
 	}
 }
 
@@ -202,7 +202,7 @@ public class UserQuery {
 		}
 	}
 	if usersTableNode == nil {
-		t.Fatalf("FAIL: no table node 'users' from C# DDL (line 3) — C# content-child harvester not wired (CP2)")
+		t.Fatalf("FAIL: no table node 'users' from C# DDL (line 3) — C# content-child harvester not wired")
 	}
 	// StartLine must be exactly 3 (file-absolute): DDL literal is on line 3 of the fixture.
 	if usersTableNode.StartLine != 3 {
@@ -215,7 +215,7 @@ public class UserQuery {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for C# fixture (CP2)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for C# fixture")
 	}
 
 	// --- Criterion 3: DML → ref to "users" from UserQuery.cs ---
@@ -227,7 +227,7 @@ public class UserQuery {
 		}
 	}
 	if usersRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'users' from UserQuery.cs — C# DML not wired (CP2)")
+		t.Errorf("FAIL: no unresolved ref for 'users' from UserQuery.cs — C# DML not wired")
 	}
 
 	// --- Criterion 4: Fetch method must be found (node ownership check) ---
@@ -269,7 +269,7 @@ public class UserQuery {
 		}
 	}
 	if usersRefsFromFetch < 2 {
-		t.Errorf("FAIL: want ≥2 'users' refs from Fetch (q1 plain + q2 interpolated-value); got %d — C# decision 8b not enforced (CP2)", usersRefsFromFetch)
+		t.Errorf("FAIL: want ≥2 'users' refs from Fetch (q1 plain + q2 interpolated-value); got %d — C# decision 8b not enforced", usersRefsFromFetch)
 	}
 }
 
@@ -330,7 +330,7 @@ end
 		}
 	}
 	if sessionsNode == nil {
-		t.Fatalf("FAIL: no table node 'sessions' from Lua long-bracket DDL — Lua Shape-2 harvester not wired (CP2)")
+		t.Fatalf("FAIL: no table node 'sessions' from Lua long-bracket DDL — Lua Shape-2 harvester not wired")
 	}
 	// StartLine must be exactly 1 (file-absolute): DDL literal is on line 1 of the fixture.
 	// The prior assertion was `< 1`, which is vacuously false for any 1-based line number
@@ -353,7 +353,7 @@ end
 		}
 	}
 	if dmlRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'sessions' from session.lua — Lua DML not harvested (CP2)")
+		t.Errorf("FAIL: no unresolved ref for 'sessions' from session.lua — Lua DML not harvested")
 	}
 	if dmlRef != nil && dmlRef.Language != types.LanguageSQL {
 		t.Errorf("DML ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
@@ -365,7 +365,7 @@ end
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Lua fixture (CP2)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Lua fixture")
 	}
 }
 
@@ -438,7 +438,7 @@ void queryProducts(String t, int id) {
 		}
 	}
 	if productsNode == nil {
-		t.Fatalf("FAIL: no table node 'products' from Dart DDL — Dart Shape-2 harvester not wired (CP2)")
+		t.Fatalf("FAIL: no table node 'products' from Dart DDL — Dart Shape-2 harvester not wired")
 	}
 	// StartLine must be exactly 2 (file-absolute): DDL literal is on line 2 of the fixture.
 	if productsNode.StartLine != 2 {
@@ -464,7 +464,7 @@ void queryProducts(String t, int id) {
 	// placeholder, not a table name. Any non-zero count here means the Dart
 	// Shape-2 interpolation substitution is not working.
 	if len(tRefs) != 0 {
-		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d: %+v — Dart Shape-2 interpolation not substituting (CP2)", len(tRefs), tRefs)
+		t.Errorf("FAIL: interpolated table target '$t' must yield 0 refs, got %d: %+v — Dart Shape-2 interpolation not substituting", len(tRefs), tRefs)
 	}
 
 	// --- Criterion 2b: literal table + interpolated value → ref to "users" ---
@@ -477,7 +477,7 @@ void queryProducts(String t, int id) {
 		}
 	}
 	if usersRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'users' from products.dart (q2 literal table) — Dart Shape-2 literal table not extracted (CP2)")
+		t.Errorf("FAIL: no unresolved ref for 'users' from products.dart (q2 literal table) — Dart Shape-2 literal table not extracted")
 	}
 	if usersRef != nil && usersRef.Language != types.LanguageSQL {
 		t.Errorf("users ref Language=%q, want %q", usersRef.Language, types.LanguageSQL)
@@ -489,6 +489,6 @@ void queryProducts(String t, int id) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Dart fixture (CP2)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges for Dart fixture")
 	}
 }

@@ -2,7 +2,7 @@ package languages
 
 // Ruby language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8c/ — Ruby grammar):
+// Verified node-type strings (read from the live Ruby grammar):
 //
 //	Top-level and named-iterator:
 //	  call              — require 'json' / render(id) / s.draw / puts @name
@@ -37,7 +37,7 @@ import (
 // RubyExtractor returns the LanguageExtractor config for Ruby source files (.rb).
 //
 // Node-type strings are verified by parsing real Ruby via the wazero binding
-// (see tmp/probe-cp8c/main.go and tmp/probe-cp8c/probe3.go for exact output).
+// .
 func RubyExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// method covers instance methods (def foo ... end).

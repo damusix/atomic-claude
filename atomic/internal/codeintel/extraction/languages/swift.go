@@ -2,7 +2,7 @@ package languages
 
 // Swift language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8b/ — Swift grammar):
+// Verified node-type strings (read from the live Swift grammar):
 //
 //	Top-level (direct children of source_file):
 //	  import_declaration     — "import Foundation"
@@ -44,7 +44,7 @@ import (
 // SwiftExtractor returns the LanguageExtractor config for Swift source files (.swift).
 //
 // Node-type strings are verified by parsing real Swift via the wazero binding
-// (see tmp/probe-cp8b/main.go and tmp/probe-cp8b/probe2.go).
+// .
 func SwiftExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// protocol_declaration is the semantic interface equivalent in Swift.

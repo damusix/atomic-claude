@@ -115,7 +115,7 @@ func TestEmbeddedSQLIntegrityMultilang(t *testing.T) {
 		t.Fatalf("GetAllNodes: %v", err)
 	}
 	if len(allNodes) == 0 {
-		t.Fatal("FAIL CP4: index produced 0 nodes — indexer did not process the multilang corpus (vacuous pass guard)")
+		t.Fatal("FAIL : index produced 0 nodes — indexer did not process the multilang corpus (vacuous pass guard)")
 	}
 	t.Logf("total nodes in index: %d", len(allNodes))
 
@@ -134,7 +134,7 @@ func TestEmbeddedSQLIntegrityMultilang(t *testing.T) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatal("FAIL CP4: GetEdgesByProvenance(embedded) returned 0 — embedded-SQL post-pass did not fire on any new-language file in the multilang corpus")
+		t.Fatal("FAIL : GetEdgesByProvenance(embedded) returned 0 — embedded-SQL post-pass did not fire on any new-language file in the multilang corpus")
 	}
 	t.Logf("embedded edges: %d", len(embeddedEdges))
 
@@ -158,7 +158,7 @@ func TestEmbeddedSQLIntegrityMultilang(t *testing.T) {
 	// with an ID that was never written to the nodes table — a pipeline bug
 	// that would cause ghost references in call-graph queries.
 	if len(dangling) != 0 {
-		t.Errorf("FAIL CP4: %d embedded edge(s) have phantom endpoints:", len(dangling))
+		t.Errorf("FAIL : %d embedded edge(s) have phantom endpoints:", len(dangling))
 		for _, d := range dangling {
 			t.Errorf("  edge id=%d kind=%s source=%s (missing=%v) target=%s (missing=%v)",
 				d.edge.ID, d.edge.Kind, d.edge.Source, d.missingSource, d.edge.Target, d.missingTarget)
@@ -177,7 +177,7 @@ func TestEmbeddedSQLIntegrityMultilang(t *testing.T) {
 		}
 	}
 	if len(filesWithTableNodes) < 2 {
-		t.Errorf("FAIL CP4: table nodes found in %d fixture file(s), want ≥2 (at least 2 distinct host languages must contribute): files=%v",
+		t.Errorf("FAIL : table nodes found in %d fixture file(s), want ≥2 (at least 2 distinct host languages must contribute): files=%v",
 			len(filesWithTableNodes), mapKeys(filesWithTableNodes))
 	} else {
 		t.Logf("table nodes from %d distinct files: %v", len(filesWithTableNodes), mapKeys(filesWithTableNodes))

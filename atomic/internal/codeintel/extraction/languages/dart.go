@@ -2,7 +2,7 @@ package languages
 
 // Dart language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8d/ — Dart grammar):
+// Verified node-type strings (read from the live Dart grammar):
 //
 //	Top-level (direct children of program):
 //	  import_or_export       — "import 'dart:async';" / "import 'package:...';"
@@ -47,7 +47,7 @@ import (
 // DartExtractor returns the LanguageExtractor config for Dart source files (.dart).
 //
 // Node-type strings are verified by parsing real Dart via the wazero binding
-// (see tmp/probe-cp8d/main.go).
+// .
 func DartExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// function_signature covers top-level functions and (via unmatched descent)

@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for Swift, Kotlin, Scala language extractor configs (batch B).
+// Tests for the Swift, Kotlin, and Scala language extractor configs.
 //
 // Each language has:
 //  1. A real fixture parsed through the pool (grammar ABI proof).
@@ -13,7 +13,7 @@ package languages_test
 //     - IsExported correct per-language rule.
 //     - Node count stable across two extractions.
 //
-// Node-type strings are VERIFIED by real grammar parse (see tmp/probe-cp8b/).
+// Node-type strings are VERIFIED by real grammar parse.
 // Do NOT change them without running the probe again.
 
 import (
@@ -38,7 +38,7 @@ import (
 //   - property_declaration   (public/private var)
 //   - call_expression        (render, c.draw, print)
 //
-// Verified node-type strings (tmp/probe-cp8b/ — Swift grammar):
+// Verified node-type strings (a grammar probe — Swift grammar):
 //
 //	import_declaration     — "import Foundation"
 //	protocol_declaration   — "public protocol Drawable { ... }"
@@ -296,7 +296,7 @@ func TestSwift_NodeCountStable(t *testing.T) {
 //   - property_declaration (val id, val name)
 //   - call_expression      (render, c.draw, println)
 //
-// Verified node-type strings (tmp/probe-cp8b/ — Kotlin grammar):
+// Verified node-type strings (a grammar probe — Kotlin grammar):
 //
 //	import_header          — "import java.io.File"
 //	class_declaration      — "interface Drawable { ... }" / "enum class Direction { ... }"
@@ -541,7 +541,7 @@ func TestKotlin_NodeCountStable(t *testing.T) {
 //   - call_expression       (render, c.draw, println)
 //   - instance_expression   (new Canvas(1, "test"))
 //
-// Verified node-type strings (tmp/probe-cp8b/ — Scala grammar):
+// Verified node-type strings (a grammar probe — Scala grammar):
 //
 //	import_declaration   — "import scala.collection.mutable.ListBuffer"
 //	trait_definition     — "trait Drawable { ... }"

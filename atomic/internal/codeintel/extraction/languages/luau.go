@@ -5,7 +5,7 @@ package languages
 // Luau = Lua + type annotations. It uses different grammar node names than Lua
 // for some constructs.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8c/ — Luau grammar):
+// Verified node-type strings (read from the live Luau grammar):
 //
 //	Named-iterator sees:
 //	  function_declaration   — function Shape.new(id: number, name: string): {} ... end
@@ -43,7 +43,7 @@ import (
 // LuauExtractor returns the LanguageExtractor config for Luau source files (.luau).
 //
 // Node-type strings are verified by parsing real Luau via the wazero binding
-// (see tmp/probe-cp8c/main.go, probe2.go, and probe4.go for exact output).
+// .
 func LuauExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// function_declaration covers all Luau function definitions (global, table method,

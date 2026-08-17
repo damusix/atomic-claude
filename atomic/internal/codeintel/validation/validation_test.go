@@ -212,7 +212,7 @@ func TestCoverageMap(t *testing.T) {
 		},
 		{
 			criterion:   11,
-			description: "CP0: all 19 grammars load under wazero; parallel parse across instance pool; recycle returns RSS within K% of baseline",
+			description: "all 19 grammars load under wazero; parallel parse across instance pool; recycle returns RSS within K% of baseline",
 			coveringTests: []string{
 				"extraction.TestPool_RaceClean (8 goroutines × 20 parses, -race clean)",
 				"extraction.TestPool_RecycleCadence (recycle triggers at threshold)",
@@ -232,7 +232,7 @@ func TestCoverageMap(t *testing.T) {
 	allMapped := true
 	for _, e := range coverageMap {
 		if !e.ciOnly && len(e.coveringTests) == 0 {
-			t.Errorf("criterion %d (%s): no covering tests and not marked CI-only — CP24 coverage gap",
+			t.Errorf("criterion %d (%s): no covering tests and not marked CI-only — coverage gap",
 				e.criterion, e.description)
 			allMapped = false
 		}
@@ -244,7 +244,7 @@ func TestCoverageMap(t *testing.T) {
 	}
 
 	if allMapped {
-		t.Logf("CP24 coverage map: all 11 umbrella criteria mapped (1 CI-only, 10 Go-test-covered)")
+		t.Logf("coverage map: all 11 umbrella criteria mapped (1 CI-only, 10 Go-test-covered)")
 	}
 
 	// Spot-check that the CI-only entry is criterion 1 (cross-compile).

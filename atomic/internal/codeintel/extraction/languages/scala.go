@@ -2,7 +2,7 @@ package languages
 
 // Scala language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8b/ — Scala grammar):
+// Verified node-type strings (read from the live Scala grammar):
 //
 //	Top-level (direct children of compilation_unit):
 //	  import_declaration   — "import scala.collection.mutable.ListBuffer"
@@ -45,7 +45,7 @@ import (
 // ScalaExtractor returns the LanguageExtractor config for Scala source files (.scala).
 //
 // Node-type strings are verified by parsing real Scala via the wazero binding
-// (see tmp/probe-cp8b/main.go, probe2.go, and probe3.go).
+// .
 func ScalaExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// trait_definition is the semantic interface equivalent in Scala.

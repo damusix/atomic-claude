@@ -281,7 +281,7 @@ func TestRegistry_GetApplicableFrameworks(t *testing.T) {
 
 	// Go language should return zero frameworks from this registry
 	goFrameworks := reg.GetApplicableFrameworks(types.LanguageGo)
-	_ = goFrameworks // Go frameworks come in CP15
+	_ = goFrameworks // Go frameworks land in a later batch
 }
 
 // ---------------------------------------------------------------------------

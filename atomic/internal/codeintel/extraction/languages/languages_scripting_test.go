@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for Ruby, PHP, Lua, Luau language extractor configs (batch C).
+// Tests for the Ruby, PHP, Lua, and Luau language extractor configs.
 //
 // Each language has:
 //  1. A real fixture parsed through the pool (grammar ABI proof).
@@ -14,7 +14,7 @@ package languages_test
 //     - IsExported correct per-language rule.
 //     - Node count stable across two extractions.
 //
-// Node-type strings are VERIFIED by real grammar parse (see tmp/probe-cp8c/).
+// Node-type strings are VERIFIED by real grammar parse.
 // Do NOT change them without running the probe again.
 
 import (
@@ -38,7 +38,7 @@ import (
 //   - singleton_method (self.create)      → NodeKindFunction or NodeKindMethod
 //   - call (render, include, s.draw)      → EdgeKindCalls UnresolvedReference
 //
-// Verified node-type strings (tmp/probe-cp8c/ — Ruby grammar):
+// Verified node-type strings (a grammar probe — Ruby grammar):
 //
 //	call               — require 'json' / s.draw / render(id)
 //	module             — "module Drawable { ... }"
@@ -251,7 +251,7 @@ func TestRuby_NodeCountStable(t *testing.T) {
 //   - function_call_expression (strlen, …)  → EdgeKindCalls
 //   - member_call_expression ($obj->draw()) → EdgeKindCalls
 //
-// Verified node-type strings (tmp/probe-cp8c/ — PHP grammar):
+// Verified node-type strings (a grammar probe — PHP grammar):
 //
 //	function_definition          — "function createCanvas(...) { ... }"
 //	method_declaration           — "public function draw(): void { ... }"
@@ -522,7 +522,7 @@ func TestPHP_NodeCountStable(t *testing.T) {
 //   - variable_declaration (local PI = 3.14159, local Shape = {}) → NodeKindVariable
 //   - function_call (require("json"), render, s:draw) → EdgeKindCalls
 //
-// Verified node-type strings (tmp/probe-cp8c/ — Lua grammar):
+// Verified node-type strings (a grammar probe — Lua grammar):
 //
 //	function_statement     — "function Shape.new(id, name) ... end" / "local function render(v) ... end"
 //	variable_declaration   — "local json = require(\"json\")"
@@ -776,7 +776,7 @@ func TestLua_NodeCountStable(t *testing.T) {
 //   - type_definition (type Vector2 = {...}) → NodeKindTypeAlias
 //   - function_call (require("json"), render, s:draw) → EdgeKindCalls
 //
-// Verified node-type strings (tmp/probe-cp8c/ — Luau grammar):
+// Verified node-type strings (a grammar probe — Luau grammar):
 //
 //	function_declaration   — "function Shape.new(id: number, name: string) ... end"
 //	variable_declaration   — "local json = require(\"json\")"

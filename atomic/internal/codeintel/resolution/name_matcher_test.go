@@ -1045,13 +1045,13 @@ func TestNameMatcher_CP4_SingleDotSQLResolvesToColumn(t *testing.T) {
 		t.Fatalf("MatchReference: %v", err)
 	}
 	if result == nil {
-		t.Fatal("CP4 tweak 1: MatchReference returned nil — single-dot SQL ref did not resolve")
+		t.Fatal("MatchReference returned nil — single-dot SQL ref did not resolve")
 	}
 	if result.Node.ID != colID {
-		t.Errorf("CP4 tweak 1: resolved to %q, want column node %q", result.Node.ID, colID)
+		t.Errorf("resolved to %q, want column node %q", result.Node.ID, colID)
 	}
 	if result.Strategy != resolution.StrategyQualifiedName {
-		t.Errorf("CP4 tweak 1: strategy = %q, want %q", result.Strategy, resolution.StrategyQualifiedName)
+		t.Errorf("strategy = %q, want %q", result.Strategy, resolution.StrategyQualifiedName)
 	}
 }
 
@@ -1088,10 +1088,10 @@ func TestNameMatcher_CP4_ExactQNamePreferred(t *testing.T) {
 		t.Fatalf("MatchReference: %v", err)
 	}
 	if result == nil {
-		t.Fatal("CP4 tweak 2: MatchReference returned nil — no column resolved")
+		t.Fatal("MatchReference returned nil — no column resolved")
 	}
 	if result.Node.ID != acctColID {
-		t.Errorf("CP4 tweak 2: resolved to %q, want acct.id node %q (exact-QName must beat suffix match)",
+		t.Errorf("resolved to %q, want acct.id node %q (exact-QName must beat suffix match)",
 			result.Node.ID, acctColID)
 	}
 }

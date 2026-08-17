@@ -1125,7 +1125,7 @@ func CreateUsersTable(db interface{}) {
 		}
 	}
 	if len(tableNodes) == 0 {
-		t.Fatalf("FAIL: no table nodes found in migration.go — embedded DDL extraction not wired (CP2)")
+		t.Fatalf("FAIL: no table nodes found in migration.go — embedded DDL extraction not wired")
 	}
 
 	// Verify the table node is named "users" and has a file-absolute StartLine ≥ 4
@@ -1162,7 +1162,7 @@ func CreateUsersTable(db interface{}) {
 		}
 	}
 	if dmlRef == nil {
-		t.Fatalf("FAIL: no unresolved ref for 'users' from migration.go — embedded DML not wired (CP2)")
+		t.Fatalf("FAIL: no unresolved ref for 'users' from migration.go — embedded DML not wired")
 	}
 
 	// F-5 (tightened): the ref must be owned by the CreateUsersTable function
@@ -1195,7 +1195,7 @@ func CreateUsersTable(db interface{}) {
 		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
 	}
 	if len(embeddedEdges) == 0 {
-		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges — DDL embedded edges not stored (CP2)")
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges — DDL embedded edges not stored")
 	}
 
 	// --- Criterion 4: standalone .sql routing unchanged ---
@@ -1336,7 +1336,7 @@ def do_query(conn):
 		}
 	}
 	if usersNode == nil {
-		t.Fatalf("FAIL: no table node 'users' from regular-string DDL (line 3) — CP3 not wired")
+		t.Fatalf("FAIL: no table node 'users' from regular-string DDL (line 3) — not wired")
 	}
 	// StartLine must be file-absolute.
 	if usersNode.StartLine < 3 {
@@ -1352,7 +1352,7 @@ def do_query(conn):
 		}
 	}
 	if ordersNode == nil {
-		t.Fatalf("FAIL: no table node 'orders' from triple-quoted DDL (lines 5-7) — CP3 triple-quote not wired")
+		t.Fatalf("FAIL: no table node 'orders' from triple-quoted DDL (lines 5-7) — triple-quote not wired")
 	}
 
 	// --- Criterion 3: docstrings excluded — module_secret, class_secret, fn_secret ---
@@ -1395,7 +1395,7 @@ def do_query(conn):
 		}
 	}
 	if dmlRef == nil {
-		t.Errorf("FAIL: no unresolved ref for 'users' from models.py owned by do_query (F-5 ownership, CP3)")
+		t.Errorf("FAIL: no unresolved ref for 'users' from models.py owned by do_query (F-5 ownership, )")
 	}
 
 	// --- Criterion 5: f-string interpolated table target → zero refs (decision 8a) ---
@@ -1504,7 +1504,7 @@ export function queryUsers(db: any, id: number) {
 		}
 	}
 	if usersNode == nil {
-		t.Fatalf("FAIL: no table node 'users' from plain-string DDL (line 3) — CP4 not wired for .ts")
+		t.Fatalf("FAIL: no table node 'users' from plain-string DDL (line 3) — not wired for .ts")
 	}
 	if usersNode.StartLine < 3 {
 		t.Errorf("users table StartLine=%d, want ≥3 (file-absolute)", usersNode.StartLine)
@@ -1519,7 +1519,7 @@ export function queryUsers(db: any, id: number) {
 		}
 	}
 	if ordersNode == nil {
-		t.Fatalf("FAIL: no table node 'orders' from template-literal DDL (line 5) — CP4 template literal not harvested")
+		t.Fatalf("FAIL: no table node 'orders' from template-literal DDL (line 5) — template literal not harvested")
 	}
 
 	// --- Criterion 3: DML ref owned by enclosing queryUsers function node ---
@@ -1634,7 +1634,7 @@ export function ProductList() {
 		}
 	}
 	if productsNode == nil {
-		t.Fatalf("FAIL: no table node 'products' from plain-string DDL in .tsx file — CP4 not wired for .tsx")
+		t.Fatalf("FAIL: no table node 'products' from plain-string DDL in .tsx file — not wired for .tsx")
 	}
 }
 

@@ -421,7 +421,7 @@ var bodyFlattenRE = regexp.MustCompile(`(?i)\bFLATTEN\s*\(\s*(?:INPUT\s*=>\s*)?(
 // Group 1 = table name (schema-qualified or bare), group 2 = optional alias.
 // Optional "AS" is consumed without capture. The alias group is non-capturing-
 // optional — if the word after the table is a SQL keyword (ON/WHERE/SET/…) it
-// will be captured in group 2 but is filtered out by cp4AliasBoundaryKeywords
+// will be captured in group 2 but is filtered out by aliasBoundaryKeywords
 // in buildAliasMap before it enters the map.
 var bodyFromAliasRE = regexp.MustCompile(
 	`(?i)\b(?:FROM|JOIN)\s+(` + sqlQNameRaw + `)` +
@@ -437,14 +437,14 @@ var bodyFromAliasRE = regexp.MustCompile(
 var bodyQualColRefRE = regexp.MustCompile(
 	`\b([A-Za-z_][A-Za-z0-9_$]*)\.([A-Za-z_][A-Za-z0-9_$]*)`)
 
-// cp4AliasBoundaryKeywords is the local set of tokens that can immediately
+// aliasBoundaryKeywords is the local set of tokens that can immediately
 // follow a table name in a FROM/JOIN clause but are NOT valid aliases. These are
 // distinct from sqlKeywords (which guards column-name extraction) so we don't
 // accidentally pollute the shared set. Covers every token the regex can capture
 // spuriously: clause starters (WHERE, GROUP, ORDER, HAVING, UNION, SET, OPTION),
 // join type words (JOIN, INNER, LEFT, RIGHT, OUTER, CROSS, FULL), join clause
 // (ON), T-SQL batch terminator (GO), and pivot operators (PIVOT, UNPIVOT).
-var cp4AliasBoundaryKeywords = map[string]bool{
+var aliasBoundaryKeywords = map[string]bool{
 	"WHERE": true, "GROUP": true, "ORDER": true, "HAVING": true,
 	"UNION": true, "INTERSECT": true, "EXCEPT": true,
 	"JOIN": true, "INNER": true, "LEFT": true, "RIGHT": true,
@@ -472,7 +472,7 @@ func buildAliasMap(body string, cteShadow map[string]bool) map[string]string {
 		if tableName == "" || cteShadow[strings.ToLower(tableName)] {
 			continue
 		}
-		if rawAlias != "" && !cp4AliasBoundaryKeywords[strings.ToUpper(rawAlias)] {
+		if rawAlias != "" && !aliasBoundaryKeywords[strings.ToUpper(rawAlias)] {
 			// Explicit alias: map alias → table-as-written.
 			aliasMap[strings.ToLower(rawAlias)] = rawTable
 		} else {

@@ -2,7 +2,7 @@ package languages
 
 // Pascal language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8d/ — Pascal grammar):
+// Verified node-type strings (read from the live Pascal grammar):
 //
 //	Top-level / interface section:
 //	  unit          — "unit Canvas;\n interface\n..."
@@ -59,7 +59,7 @@ import (
 // PascalExtractor returns the LanguageExtractor config for Pascal source files (.pas, .pp).
 //
 // Node-type strings are verified by parsing real Pascal via the wazero binding
-// (see tmp/probe-cp8d/main.go).
+// .
 func PascalExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// declProc covers all procedure/function/constructor/destructor declarations

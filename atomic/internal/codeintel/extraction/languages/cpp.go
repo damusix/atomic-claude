@@ -2,7 +2,7 @@ package languages
 
 // C++ language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8a/ — C++ grammar):
+// Verified node-type strings (read from the live C++ grammar):
 //
 //	Top-level (direct children of translation_unit):
 //	  preproc_include      — #include <iostream>
@@ -49,7 +49,7 @@ import (
 // CppExtractor returns the LanguageExtractor config for C++ source files (.cpp, .cc, .cxx, .h, .hpp).
 //
 // Node-type strings are verified by parsing real C++ via the wazero binding
-// (see tmp/probe-cp8a/main.go, probe2.go, probe3.go, probe4.go).
+// .
 func CppExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// function_definition covers all named functions and methods.

@@ -2,7 +2,7 @@ package languages
 
 // Lua language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8c/ — Lua grammar):
+// Verified node-type strings (read from the live Lua grammar):
 //
 //	Named-iterator sees:
 //	  function_statement     — function Shape.new(...) ... end
@@ -39,7 +39,7 @@ import (
 // LuaExtractor returns the LanguageExtractor config for Lua source files (.lua).
 //
 // Node-type strings are verified by parsing real Lua via the wazero binding
-// (see tmp/probe-cp8c/main.go, probe3.go, and probe4.go for exact output).
+// .
 func LuaExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// function_statement covers all Lua function definitions:

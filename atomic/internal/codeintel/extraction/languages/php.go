@@ -2,7 +2,7 @@ package languages
 
 // PHP language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8c/ — PHP grammar):
+// Verified node-type strings (read from the live PHP grammar):
 //
 //	Top-level and named-iterator:
 //	  function_definition      — function createCanvas(...): Canvas { ... }
@@ -54,7 +54,7 @@ import (
 // PHPExtractor returns the LanguageExtractor config for PHP source files (.php).
 //
 // Node-type strings are verified by parsing real PHP via the wazero binding
-// (see tmp/probe-cp8c/main.go and tmp/probe-cp8c/probe3.go for exact output).
+// .
 func PHPExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// function_definition covers top-level (non-method) PHP functions.

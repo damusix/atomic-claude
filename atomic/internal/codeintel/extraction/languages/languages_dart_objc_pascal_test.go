@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for Dart, ObjC, Pascal language extractor configs (batch D — final batch).
+// Tests for the Dart, ObjC, and Pascal language extractor configs.
 //
 // Each language has:
 //  1. A real fixture parsed through the pool (grammar ABI proof).
@@ -12,7 +12,7 @@ package languages_test
 //     - IsExported correct per-language rule.
 //     - Node count stable across two extractions.
 //
-// Node-type strings are VERIFIED by real grammar parse (see tmp/probe-cp8d/).
+// Node-type strings are VERIFIED by real grammar parse.
 // Do NOT change them without running the probe again.
 //
 // Grammar-specific notes:
@@ -46,7 +46,7 @@ import (
 //   - function_signature (inside class_body)      → NodeKindFunction or NodeKindMethod
 //   - constructor_signature (Shape, Circle)       → NodeKindFunction or NodeKindMethod
 //
-// Verified node-type strings (tmp/probe-cp8d/ — Dart grammar):
+// Verified node-type strings (a grammar probe — Dart grammar):
 //
 //	import_or_export      — "import 'dart:async';"
 //	enum_declaration      — "enum Direction { ... }"
@@ -254,7 +254,7 @@ func TestDart_IsExported_UnderscoreConvention(t *testing.T) {
 // TestDart_CallsBlocked documents that Dart's grammar has no call_expression node.
 // WHY: The tree-sitter-dart grammar represents function calls as expression_statement
 // containing identifier + selector (argument_part) nodes — there is no unified
-// call_expression node type (verified by tmp/probe-cp8d/). The extractor therefore
+// call_expression node type (verified by a grammar probe). The extractor therefore
 // cannot emit EdgeKindCalls without a grammar-level call node. This is a grammar
 // constraint, not an implementation gap — documented here so future maintainers
 // know this was checked and is expected behavior.
@@ -308,7 +308,7 @@ func TestDart_NodeCountStable(t *testing.T) {
 //   - call_expression (NSLog(...))                    → EdgeKindCalls
 //   - function_definition (createShape)               → NodeKindFunction
 //
-// Verified node-type strings (tmp/probe-cp8d/ — ObjC grammar):
+// Verified node-type strings (a grammar probe — ObjC grammar):
 //
 //	preproc_include       — "#import <Foundation/Foundation.h>"
 //	protocol_declaration  — "@protocol Drawable <NSObject> ... @end"
@@ -529,7 +529,7 @@ func TestObjC_NodeCountStable(t *testing.T) {
 //   - defProc  (procedure/function/constructor impls in impl section) → NodeKindFunction
 //   - exprCall (Render(FId), WriteLn(FName), TShape.Create(...))    → EdgeKindCalls
 //
-// Verified node-type strings (tmp/probe-cp8d/ — Pascal grammar):
+// Verified node-type strings (a grammar probe — Pascal grammar):
 //
 //	unit            — "unit Canvas;\n interface\n ... implementation\n ... end."
 //	interface       — "interface\n uses ...\n type ...\n"

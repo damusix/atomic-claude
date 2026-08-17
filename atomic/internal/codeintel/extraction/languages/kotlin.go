@@ -2,7 +2,7 @@ package languages
 
 // Kotlin language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8b/ — Kotlin grammar):
+// Verified node-type strings (read from the live Kotlin grammar):
 //
 //	Top-level (direct children of source_file):
 //	  import_header          — "import java.io.File"  (NOT import_declaration)
@@ -45,7 +45,7 @@ import (
 // KotlinExtractor returns the LanguageExtractor config for Kotlin source files (.kt).
 //
 // Node-type strings are verified by parsing real Kotlin via the wazero binding
-// (see tmp/probe-cp8b/main.go, probe2.go, and probe3.go).
+// .
 func KotlinExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// class_declaration covers interface, enum class, data class, and class.

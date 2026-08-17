@@ -2,7 +2,7 @@ package languages
 
 // C# language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8a/ — C# grammar):
+// Verified node-type strings (read from the live C# grammar):
 //
 //	Top-level (direct children of compilation_unit / namespace_declaration body):
 //	  using_directive          — using System; / using System.Collections.Generic;
@@ -40,7 +40,7 @@ import (
 // CSharpExtractor returns the LanguageExtractor config for C# source files (.cs).
 //
 // Node-type strings are verified by parsing real C# via the wazero binding
-// (see tmp/probe-cp8a/main.go, probe2.go, probe3.go, probe4.go).
+// .
 func CSharpExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// method_declaration covers all named methods (including constructors use

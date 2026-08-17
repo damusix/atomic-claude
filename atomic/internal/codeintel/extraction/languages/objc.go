@@ -2,7 +2,7 @@ package languages
 
 // Objective-C language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8d/ — ObjC grammar):
+// Verified node-type strings (read from the live ObjC grammar):
 //
 //	Top-level (direct children of translation_unit):
 //	  preproc_include            — "#import <Foundation/Foundation.h>" / "#import "Shape.h""
@@ -50,7 +50,7 @@ import (
 // ObjCExtractor returns the LanguageExtractor config for Objective-C source files (.m, .h).
 //
 // Node-type strings are verified by parsing real ObjC via the wazero binding
-// (see tmp/probe-cp8d/main.go).
+// .
 func ObjCExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// class_interface covers @interface declarations.

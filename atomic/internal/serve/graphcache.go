@@ -31,7 +31,7 @@ import (
 type graphDataCache struct {
 	root    string
 	wikiDir string
-	store   *snapshotStore // source of the link graph + fingerprint (CP1)
+	store   *snapshotStore // source of the link graph + fingerprint ()
 
 	sf singleflight.Group // dedupes concurrent assembles by fingerprint
 

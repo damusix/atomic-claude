@@ -19,13 +19,13 @@ import (
 // e2e fixture: cross-object reference edges
 // ---------------------------------------------------------------------------
 
-// sqlCP4Fixture defines a schema exercising every edge class:
+// sqlEdgeClassFixture defines a schema exercising every edge class:
 //   - FK inline REFERENCES (orders → customers)
 //   - view FROM (active_orders → orders)
 //   - trigger ON table (trg_orders → orders) + EXECUTE FUNCTION (trg_orders → audit_fn)
 //   - synonym → target (orders_alias → orders)
 //   - policy ON table (row_policy → orders) + fn call in USING (row_policy → current_user_fn)
-const sqlCP4Fixture = `
+const sqlEdgeClassFixture = `
 CREATE TABLE customers (
     customer_id SERIAL PRIMARY KEY,
     email       VARCHAR(255)
@@ -57,12 +57,12 @@ CREATE POLICY row_policy ON orders
 USING (current_user_fn() = customer_id);
 `
 
-// TestSQLEdgesEndToEnd is the gate: it indexes sqlCP4Fixture, resolves
+// TestSQLEdgesEndToEnd is the gate: it indexes sqlEdgeClassFixture, resolves
 // all references, then asserts each expected edge is present in the DB.
 func TestSQLEdgesEndToEnd(t *testing.T) {
 	root := t.TempDir()
-	sqlPath := filepath.Join(root, "cp4.sql")
-	if err := os.WriteFile(sqlPath, []byte(sqlCP4Fixture), 0o644); err != nil {
+	sqlPath := filepath.Join(root, "schema4.sql")
+	if err := os.WriteFile(sqlPath, []byte(sqlEdgeClassFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	idxDir := filepath.Join(root, ".claude", ".atomic-index")
@@ -190,7 +190,7 @@ func summarizeEdges(edges []types.Edge) []string {
 // e2e fixture: writes-vs-reads distinction
 // ---------------------------------------------------------------------------
 
-// sqlCP5Fixture defines a procedure that:
+// sqlWritesVsReadsFixture defines a procedure that:
 //   - INSERTs into archive_orders (writes)
 //   - UPDATEs orders (writes)
 //   - SELECTs FROM customers (references / read)
@@ -204,7 +204,7 @@ func summarizeEdges(edges []types.Edge) []string {
 //
 // And GetIncomingEdges on archive_orders must include the writes edge,
 // distinguishable from any references edge.
-const sqlCP5Fixture = `
+const sqlWritesVsReadsFixture = `
 CREATE TABLE orders (
     order_id    SERIAL PRIMARY KEY,
     status      TEXT,
@@ -241,13 +241,13 @@ END;
 $$;
 `
 
-// TestSQLWritesVsReadsEndToEnd is the gate: it indexes sqlCP5Fixture,
+// TestSQLWritesVsReadsEndToEnd is the gate: it indexes sqlWritesVsReadsFixture,
 // resolves all references, then asserts writes and references are DISTINCT
 // resolved edges and GetIncomingEdges on a written table surfaces the writer.
 func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 	root := t.TempDir()
-	sqlPath := filepath.Join(root, "cp5.sql")
-	if err := os.WriteFile(sqlPath, []byte(sqlCP5Fixture), 0o644); err != nil {
+	sqlPath := filepath.Join(root, "schema5.sql")
+	if err := os.WriteFile(sqlPath, []byte(sqlWritesVsReadsFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	idxDir := filepath.Join(root, ".claude", ".atomic-index")
@@ -383,7 +383,7 @@ func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 // regression: ALTER TABLE ONLY … FOREIGN KEY … REFERENCES schema.target
 // ---------------------------------------------------------------------------
 
-// sqlCP6Fixture exercises the real-repo FK shape that inline fixture did
+// sqlPgDumpFKFixture exercises the real-repo FK shape that inline fixture did
 // NOT cover: schema-qualified ALTER TABLE ONLY … ADD CONSTRAINT … FOREIGN KEY
 // … REFERENCES schema.target.  This is the exact pattern emitted by pg_dump
 // for every Northwind / Chinook / pagila FK.
@@ -393,7 +393,7 @@ func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 // causing the capture group for the table name to capture the literal "ONLY",
 // making findNodeID return "" and silently dropping the FK reference.
 // Fix: alterTablePat = (?:ONLY\s+)? + modPat; alterFKRefRE uses alterTablePat.
-const sqlCP6Fixture = `
+const sqlPgDumpFKFixture = `
 CREATE TABLE public.orders (
     order_id smallint NOT NULL
 );
@@ -422,7 +422,7 @@ ALTER TABLE ONLY public.orders
 func TestSQLCP6AlterTableFKResolution(t *testing.T) {
 	root := t.TempDir()
 	sqlPath := filepath.Join(root, "schema.sql")
-	if err := os.WriteFile(sqlPath, []byte(sqlCP6Fixture), 0o644); err != nil {
+	if err := os.WriteFile(sqlPath, []byte(sqlPgDumpFKFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	idxDir := filepath.Join(root, ".claude", ".atomic-index")
@@ -496,7 +496,7 @@ func TestSQLCP6AlterTableFKResolution(t *testing.T) {
 }
 
 const sqlE2EFixture = `
--- Multi-dialect SQL fixture for CP2 end-to-end test
+-- Multi-dialect SQL fixture for end-to-end test
 CREATE SCHEMA corp;
 
 CREATE TABLE corp.customers (

@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for Java, C, C++, C# language extractor configs (batch A).
+// Tests for the Java, C, C++, and C# language extractor configs.
 //
 // Each language has:
 //   1. A real fixture parsed through the pool (grammar ABI proof).
@@ -13,7 +13,7 @@ package languages_test
 //      - IsExported correct per-language rule.
 //      - Node count stable across two extractions.
 //
-// Node-type strings are VERIFIED by real grammar parse (see tmp/probe-cp8a/).
+// Node-type strings are VERIFIED by real grammar parse.
 // Do NOT change them without running the probe again.
 
 import (
@@ -39,7 +39,7 @@ import (
 //   - method_invocation  (render(), c.draw(), System.out.println())
 //   - object_creation_expression  (new Canvas(...))
 //
-// Verified node-type strings (tmp/probe-cp8a/ — Java grammar):
+// Verified node-type strings (a grammar probe — Java grammar):
 //
 //	import_declaration         — "import java.util.List;"
 //	interface_declaration      — "public interface Drawable { ... }"
@@ -282,7 +282,7 @@ func TestJava_NodeCountStable(t *testing.T) {
 //   - function_definition  (static int helper / int add / void process / int main)
 //   - call_expression   (printf, helper, add, process)
 //
-// Verified node-type strings (tmp/probe-cp8a/ — C grammar):
+// Verified node-type strings (a grammar probe — C grammar):
 //
 //	preproc_include        — "#include <stdio.h>"
 //	type_definition        — "typedef struct { ... } Point;"
@@ -497,7 +497,7 @@ func TestC_NodeCountStable(t *testing.T) {
 //   - function_definition   (inside class + top-level)
 //   - call_expression    (c.area(), geometry::distance(), Circle::unit(), etc.)
 //
-// Verified node-type strings (tmp/probe-cp8a/ — C++ grammar):
+// Verified node-type strings (a grammar probe — C++ grammar):
 //
 //	class_specifier      — "class Shape { ... }" / "class Circle : public Shape { ... }"
 //	struct_specifier     — "struct Point { ... }"
@@ -724,7 +724,7 @@ func TestCpp_NodeCountStable(t *testing.T) {
 //   - invocation_expression  (Render(_id), Console.WriteLine(...))
 //   - object_creation_expression  (new List<string>(), new Canvas(...))
 //
-// Verified node-type strings (tmp/probe-cp8a/ — C# grammar):
+// Verified node-type strings (a grammar probe — C# grammar):
 //
 //	using_directive              — "using System;"
 //	namespace_declaration        — "namespace MyApp { ... }"

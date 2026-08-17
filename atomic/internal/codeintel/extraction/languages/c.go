@@ -2,7 +2,7 @@ package languages
 
 // C language extractor configuration.
 //
-// Verified node-type strings (parsed via tmp/probe-cp8a/ — C grammar):
+// Verified node-type strings (read from the live C grammar):
 //
 //	Top-level (direct children of translation_unit):
 //	  preproc_include       — #include <stdio.h>
@@ -52,7 +52,7 @@ import (
 // CExtractor returns the LanguageExtractor config for C source files (.c, .h).
 //
 // Node-type strings are verified by parsing real C via the wazero binding
-// (see tmp/probe-cp8a/main.go, probe2.go, probe3.go, probe4.go).
+// .
 func CExtractor() extraction.LanguageExtractor {
 	return extraction.LanguageExtractor{
 		// function_definition covers all named functions.
