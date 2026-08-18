@@ -6,7 +6,7 @@
 // the same endpoint carries. Emits "page.resolved" (utils/events) so
 // components/rail — mounted separately in Shell's aside — knows which
 // relpath to fetch /api/rail for.
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
 import { faFolder } from "@fortawesome/free-solid-svg-icons";
 import { openFile } from "../../components/code-modal/store";
@@ -101,6 +101,14 @@ export function Page() {
 
   const resolvedRelpath = data && !isDirResponse(data) ? data.relpath : null;
 
+  // React 19 diffs props by identity, so a fresh { __html } wrapper on every
+  // render re-sets innerHTML on any re-render (hash navigation, rail update)
+  // and silently discards the post-injection DOM work — mermaid SVGs, the
+  // table-scroll wrappers. Memoized on the html string, only a real content
+  // change resets the body.
+  const pageHtmlString = data && !isDirResponse(data) ? data.html : "";
+  const pageHtml = useMemo(() => ({ __html: pageHtmlString }), [pageHtmlString]);
+
   useEffect(() => {
     events.emit("page.resolved", { relpath: resolvedRelpath });
   }, [resolvedRelpath]);
@@ -191,7 +199,7 @@ export function Page() {
         className="page-body md-content"
         onClick={handleClick}
         // eslint-disable-next-line react/no-danger -- server-rendered markdown, same trust domain as the pre-cutover htmx fragments
-        dangerouslySetInnerHTML={{ __html: data.html }}
+        dangerouslySetInnerHTML={pageHtml}
       />
     </div>
   );

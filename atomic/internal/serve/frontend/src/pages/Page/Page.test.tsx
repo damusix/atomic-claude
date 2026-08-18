@@ -211,6 +211,44 @@ describe("Page", () => {
     expect(document.querySelector("pre.mermaid")).toBeNull();
   });
 
+  test("a re-render without a data change preserves post-injection DOM (mermaid SVGs survive hash navigation)", async () => {
+    // React 19 diffs props by identity, so a fresh { __html } wrapper on every
+    // render re-sets innerHTML on any re-render and silently discards what
+    // mountMermaid and the table-scroll pass wrote into the injected DOM. A
+    // Contents-rail anchor click (hash navigation) is the everyday trigger.
+    mockFetchOnce({
+      html: '<pre class="mermaid">flowchart LR</pre>',
+      title: "diagram",
+      relpath: "diagram.md",
+      hasMermaid: false,
+      breadcrumb: [],
+    });
+    const router = createMemoryRouter(
+      [{ path: "/", children: [{ path: "page/*", element: <Page /> }] }],
+      { initialEntries: ["/page/diagram.md"] },
+    );
+    render(
+      <ApiProvider>
+        <RouterProvider router={router} />
+      </ApiProvider>,
+    );
+
+    const pre = await waitFor(() => {
+      const el = document.querySelector("pre.mermaid");
+      expect(el).not.toBeNull();
+      return el;
+    });
+    if (!pre) throw new Error("unreachable — waitFor asserted non-null");
+    // Stand in for mermaid.run's DOM replacement.
+    pre.innerHTML = '<svg data-rendered="true"></svg>';
+
+    await act(async () => {
+      await router.navigate("/page/diagram.md#some-heading");
+    });
+
+    expect(document.querySelector("pre.mermaid svg")).not.toBeNull();
+  });
+
   test("clicking an internal page link intercepts and prevents default browser navigation", async () => {
     mockFetchOnce({
       html: '<a class="wikilink" href="/page/other.md">other</a>',

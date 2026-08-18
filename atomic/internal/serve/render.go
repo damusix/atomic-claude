@@ -25,11 +25,18 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
+// chromaStyleName only supplies the token set chroma walks; with WithClasses
+// the style's colors are never emitted. The palette lives in app.css.
 const chromaStyleName = "monokai"
 
-// chromaFmt emits no line numbers; wrapWithLineAnchors adds them for /api/file.
+// chromaFmt emits token classes rather than inline colors, so one rendered
+// document can follow the theme toggle — an inline color cannot. It emits no
+// line numbers; wrapWithLineAnchors adds them for /api/file, and the fence
+// window numbers its lines with a CSS counter so the digits stay out of a copy.
 var chromaFmt = chromahtml.New(
 	chromahtml.TabWidth(4),
+	chromahtml.WithClasses(true),
+	chromahtml.WithLineNumbers(false),
 )
 
 // chromaHighlight highlights code, degrading to escaped plain text on error.
@@ -172,9 +179,30 @@ func (r *mermaidCodeRenderer) renderFencedCode(
 		return ast.WalkContinue, nil
 	}
 
-	_, _ = w.WriteString(chromaHighlight(lang, code))
+	// An unlabeled fence is still a block someone set apart: a file tree, a
+	// spec outline, a transcript. It gets the same window as labeled code,
+	// named for what it is. The plaintext lexer colors nothing, which is the
+	// point — the frame and the line numbers are what the block is here for.
+	if strings.TrimSpace(lang) == "" {
+		lang = "text"
+	}
+
+	_, _ = w.WriteString(codeWindow(lang, chromaHighlight(lang, code)))
 	_ = w.WriteByte('\n')
 	return ast.WalkContinue, nil
+}
+
+// codeWindow frames a highlighted fence as a titled window: the language label
+// names what the block is without the reader inferring it from the syntax, and
+// the frame marks the block as a quoted artifact rather than page furniture.
+func codeWindow(lang, highlighted string) string {
+	return `<figure class="code-window">` +
+		`<figcaption class="code-window-bar">` +
+		`<span class="code-window-dots" aria-hidden="true"></span>` +
+		`<span class="code-window-lang">` + template.HTMLEscapeString(lang) + `</span>` +
+		`</figcaption>` +
+		highlighted +
+		`</figure>`
 }
 
 var _ goldrenderer.NodeRenderer = (*mermaidCodeRenderer)(nil)
