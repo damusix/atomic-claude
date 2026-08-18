@@ -51,7 +51,7 @@ flowchart TD
 
 **No `click` handlers.** GitHub sanitizes them. Put the link in the prose around the diagram.
 
-**Semicolons are optional.** Leave them out; they add diff noise.
+**Semicolons are optional as terminators, and dangerous inside text.** Leave them off line ends; they add diff noise. Inside a sequence-diagram message a `;` splits the statement, so `I->>S: test first; report` parses `report` as a new actor and fails. Use a comma or an em dash in message text instead.
 
 **Never hardcode a color to carry meaning.** GitHub and `atomic serve` both render in light and dark themes, so a hardcoded `fill:#fff` vanishes in one of them. Encode the distinction in shape (`{diamond}` for a decision, `[(cylinder)]` for a store) or line style (`-.->` for async). If a `classDef` is unavoidable, name it semantically (`classDef external`) and check both themes.
 

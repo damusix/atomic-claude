@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -77,7 +78,10 @@ function escapeVueSyntax(src: string): string {
     return result.join('\n')
 }
 
-export default defineConfig({
+// withMermaid renders fenced ```mermaid blocks as diagrams. No `mermaid.theme` is
+// pinned on purpose: left unset, the plugin swaps between the light and dark themes
+// with VitePress, which is what keeps a diagram legible in both.
+export default withMermaid(defineConfig({
     markdown: {
         theme: {
             dark: 'vesper',
@@ -163,8 +167,8 @@ export default defineConfig({
                     { text: 'Skills', link: '/reference/skills' },
                     { text: 'Agents', link: '/reference/agents' },
                     { text: 'Output Style', link: '/reference/output-style' },
-                    { text: 'Signals Workflow', link: '/reference/signals-workflow' },
-                    { text: 'Wiki Workflow', link: '/reference/wiki-workflow' },
+                    { text: 'Repo Wiki', link: '/reference/repo-wiki' },
+                    { text: 'Realm Wiki', link: '/reference/realm-wiki' },
                     { text: 'Code Intelligence', link: '/reference/code-intel' },
                     { text: 'Serve', link: '/reference/serve' },
                     { text: 'Inter-session Bus', link: '/reference/bus' },
@@ -184,4 +188,4 @@ export default defineConfig({
             message: 'Released under the MIT License.',
         },
     },
-})
+}))

@@ -17,6 +17,19 @@ type codeSection struct {
 	Ignore []string `toml:"ignore"`
 }
 
+// scanSection is the [scan] TOML table in the repo config, the successor to the
+// repo-root .signalsignore file.
+//
+// Two lists rather than one because the legacy file's bare and '+'-prefixed
+// lines meant different things: Ignore drops a path from the scan entirely, so
+// it never appears in the tree, while Generated leaves it in the tree marked so
+// the inferrer skips it for domain content. A vendored dependency is the first;
+// protobuf output is the second.
+type scanSection struct {
+	Ignore    []string `toml:"ignore"`
+	Generated []string `toml:"generated"`
+}
+
 // serveSection is the [serve] TOML table in the repo config.
 //
 // Schema is a three-state override for `atomic serve`'s SQL schema view. Unset
@@ -52,6 +65,7 @@ func ValidateIdleTimeout(value string) (time.Duration, error) {
 // schema, separate from the user-scoped Config.
 type RepoConfig struct {
 	Code  codeSection  `toml:"code"`
+	Scan  scanSection  `toml:"scan"`
 	Scope string       `toml:"scope"`
 	Repl  replSection  `toml:"repl"`
 	Serve serveSection `toml:"serve"`
@@ -63,6 +77,7 @@ var repoKnownSections = map[string]bool{
 	"code":  true,
 	"pi":    true,
 	"repl":  true,
+	"scan":  true,
 	"serve": true,
 }
 
@@ -77,6 +92,8 @@ var repoKnownTopLevelLeaves = map[string]bool{
 var repoKnownLeaves = map[string]bool{
 	"code.ignore":       true,
 	"repl.idle_timeout": true,
+	"scan.generated":    true,
+	"scan.ignore":       true,
 	"serve.schema":      true,
 }
 

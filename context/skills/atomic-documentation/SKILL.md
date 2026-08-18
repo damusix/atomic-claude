@@ -51,6 +51,8 @@ Expected table format:
 
 The `Covers` column is the matching key. The skill compares diff file paths and changed symbols against these terms to classify each surface as `stale`, `incomplete`, or `missing`. If no `## Documentation surfaces` section exists in any of the searched files, the skill returns empty surfaces — clean degradation with no false positives.
 
+An optional `**Ownership:**` list may follow the table, each line naming a page and the facts it owns (`- docs/guides/install.md owns the update flags`). When present, it routes duplication: a proposed edit that would restate an owned fact on a sibling page becomes a pointer to the owning page, not a copy. Absent the list, ownership defaults to the page whose `Covers` terms name the fact.
+
 ## Two modes
 
 <maintenance_mode>

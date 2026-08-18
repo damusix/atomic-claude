@@ -18,7 +18,7 @@ Here is what a real session looks like — adding a Stripe webhook endpoint to a
 
 <SessionPlayer :session="FLOW" />
 
-Every concept below plays a role in that flow. Signals gave Claude the project map. Evidence-gathering settled an assumption before planning around it. The spec kept implementation on track. TDD fired during each implementer checkpoint. Session reports preserved the why. Ship commands handled signals, docs, and the commit message. Follow-ups caught what was deferred.
+Every concept below plays a role in that flow. The repo wiki gave Claude the project map. Evidence-gathering settled an assumption before planning around it. The spec kept implementation on track. TDD fired during each implementer checkpoint. Session reports preserved the why. Ship commands handled the wiki, the docs, and the commit message. Follow-ups caught what was deferred.
 
 
 ## The atomic binary
@@ -26,7 +26,7 @@ Every concept below plays a role in that flow. Signals gave Claude the project m
 
 `atomic` is a standalone Go binary, the deterministic layer beneath everything else. The model is good at judgment and bad at reproducibly scanning a tree, computing a checksum, or managing a scheduled job — so those are code's job. The binary does them and hands Claude facts it can trust.
 
-- **Deterministic signals** — scans the filesystem (tree, manifests, languages, lockfiles) into a reproducible facts file that grounds everything Claude infers about your repo.
+- **Deterministic scan** — walks the filesystem (tree, manifests, languages, lockfiles) into a reproducible facts file that grounds everything Claude infers about your repo.
 - **Code intelligence** — builds and queries the symbol graph (below).
 - **Repo scaffolding** — `atomic repo init` creates the harness layout once, idempotently: the scratchpad and project directories plus the ignore rules that keep them out of git. Commands call it instead of hand-editing `.gitignore`. The directory name follows harness detection (below).
 - **Document templates** — `atomic template <name>` emits the fill-in skeleton for each document the workflow coordinates (design doc, spec, scratchpad brief/state/followups, session report, and more). Commands seed those files from it so structure is copied, never reconstructed from memory.
@@ -39,15 +39,21 @@ Everything below is either produced by this binary or grounded by what it produc
 ## Harness detection and state paths
 
 
-The binary is not tied to Claude Code. Per-user state (config, profile, backups) lives at `~/.atomic/`, a harness-neutral location. Repo-local state (scratchpad, project files, code index, worktrees) lives under one dot-directory per repo, and the binary picks that directory by asking which coding agent launched it:
+::: warning Experimental
+Running atomic under a coding agent other than Claude Code is a work in progress. The detection below ships and works, but the non-Claude experience is not yet complete or stable. Expect changes.
+:::
 
-1. `ATOMIC_HARNESS=<name>` in the environment wins outright. `ATOMIC_HARNESS=pi` resolves every repo-local path under `.pi/`. Set it in an agent's launcher for a durable contract, and to break ties when one agent launches another.
-2. `PI_CODING_AGENT=true` (set by the pi agent for its shell commands) resolves to `.pi/`.
-3. `CLAUDECODE=1` (set by Claude Code) resolves to `.claude/`.
-4. `harness.dir` in `~/.atomic/config.toml` covers plain terminals and CI: `atomic config set harness.dir .pi`.
-5. With none of the above, the default is `.claude/`.
+The binary is not tied to Claude Code. Per-user state (config, profile, backups) lives at `~/.atomic/`, a harness-neutral location. Repo-local state (scratchpad, project files, code index, worktrees) lives under one dot-directory per repo, and the binary picks that directory by asking which coding agent launched it. First match wins:
 
-Detection means a machine running both Claude Code and a pi agent needs no configuration: each agent's sessions read and write their own layout, and neither creates the other's directory. Harness names are generic; an unknown name in `ATOMIC_HARNESS` resolves to its dot-directory as long as it is a single safe path segment.
+| Signal | Set by | Resolves to |
+|--------|--------|-------------|
+| `ATOMIC_HARNESS=<name>` | you, in an agent's launcher | `.<name>/` |
+| `PI_CODING_AGENT=true` | the pi agent, for its shell commands | `.pi/` |
+| `CLAUDECODE=1` | Claude Code | `.claude/` |
+| `harness.dir` | `atomic config set harness.dir .pi` | that value |
+| nothing | — | `.claude/` |
+
+`ATOMIC_HARNESS` sits at the top because it is the durable contract, and the tiebreak when one agent launches another. Everything below it is detection, which is why a machine running both Claude Code and a pi agent needs no configuration: each agent's sessions read and write their own layout, and neither creates the other's directory. An unknown harness name resolves to its own dot-directory as long as it is a single safe path segment.
 
 
 ## Code intelligence
@@ -64,36 +70,73 @@ Detection means a machine running both Claude Code and a pi agent needs no confi
 See the [code-intel reference](/reference/code-intel) for the full verb list and lifecycle, and the [MCP guide](/guides/code-intel-mcp).
 
 
-## Signals
+## Wikis
 
 
-Signals are context engineering — a wiki for one repo. The project's context is curated once and kept as an artifact, instead of re-derived from scratch every session.
+A wiki is a generated knowledge graph for a tree of code: context curated once and kept as an artifact, instead of re-derived from scratch every session. It comes at two scopes, and they are one concept rather than two systems — the same command, the same inferrer, the same page shape. A `<wiki-type>` marker tells `/refresh-wiki` which one it is looking at.
 
-You could hand-maintain a `CLAUDE.md`, but the odds you keep it current are slim: you add a service, rename a package, swap Jest for Vitest, and forget. Signals are baked into the workflow instead. `/refresh-wiki` scans the repo, the ship verbs refresh it on every commit, and the inference is grounded by the code-intel graph and the actual file diff, not guesswork. You front-load compressed context once — and again only when the repo changes — instead of paying for it on every request.
+| Scope | Root | Maps |
+|-------|------|------|
+| **repo** | `docs/wiki/` inside the repository | one project: its framework, commands, and domain map |
+| **realm** | `<root>/wiki/`, its own git repo | a folder of repositories: what each is, and what cuts across them |
 
-Signals fix:
+They compose. A realm summarizes the repos under it without writing into them, and a member repo that keeps its own wiki is linked rather than re-summarized. Claude loads whichever scope the session sits in.
+
+
+### Repo scope
+
+
+You could hand-maintain a `CLAUDE.md`, but the odds you keep it current are slim: you add a service, rename a package, swap Jest for Vitest, and forget. A repo wiki is baked into the workflow instead. `/refresh-wiki` scans the repo, the ship verbs refresh it on every commit, and the inference is grounded by the code-intel graph and the actual file diff, not guesswork. You front-load compressed context once — and again only when the repo changes — instead of paying for it on every request.
+
+It fixes:
 
 - Hallucinated build and test commands — invented `npm run` scripts, fake `make` targets.
 - Wrong guesses about your framework, stack, and architecture.
 - Re-explaining your project layout at the start of every session.
 - A hand-written `CLAUDE.md` that silently drifts out of date.
 
-A scan writes two files: **deterministic signals** (filesystem facts — tree, manifests, languages — reproducible) and **inferred signals** (the meaning on top — framework, commands, a domain map). Claude loads the inferred file before it reads your code; the deterministic file stays out of context and is read on demand. See [signals workflow](/reference/signals-workflow).
+A scan writes two files: a **deterministic** one (filesystem facts — tree, manifests, languages — reproducible) and an **inferred** one (the meaning on top — framework, commands, a domain map). Claude loads the inferred file before it reads your code; the deterministic file stays out of context and is read on demand. The CLI verb that produces the deterministic half is still spelled `atomic signals scan`, a name left over from before the two scopes were unified; it writes into `docs/wiki/` like everything else.
+
+Inference guesses, and on a monorepo or an unconventional layout it guesses wrong. `docs/wiki/CLAUDE.md` is where you correct it, and it works through a Claude Code feature rather than anything atomic invented: a `CLAUDE.md` in a directory is nested memory, loaded whenever Claude reads a file in that directory. Since that is exactly when the inferrer is working, the steering is in context at the moment it matters and costs nothing the rest of the time — which is why it is deliberately not `@`-referenced the way the router is. Write "this is a NestJS monorepo" or "treat `src/billing/` and `src/payments/` as one domain" there and it wins over what the scan implies. See [repo wiki](/reference/repo-wiki).
 
 
-## Wikis
+### Realm scope
 
 
-Signals map one repo; a wiki maps how a *realm* of repos relate — the shared libraries, the contracts one repo owns and another consumes, the patterns duplicated across a folder of services. A wiki is a portable, git-initialized knowledge base at `<root>/wiki/` for one such realm (most people keep three to five, one per realm). `/refresh-wiki` scans the root, points at member repos that already have signals, summarizes the ones that should not carry signals — open-source dependencies — without writing into them, and synthesizes the realm's cross-cutting concerns with cited evidence. Registered wikis live in a `<wikis>` block in your user-level `~/.claude/CLAUDE.md`, so every Claude session, in any repo, knows they exist.
+One level up, a realm wiki maps how a folder of repos relate — the shared libraries, the contracts one repo owns and another consumes, the patterns duplicated across a folder of services. It is a portable, git-initialized knowledge base at `<root>/wiki/` (most people keep three to five, one per realm). `/refresh-wiki` scans the root, points at member repos that already have their own wiki, summarizes the ones that should not carry one — open-source dependencies — without writing into them, and synthesizes the realm's cross-cutting concerns with cited evidence. Registered wikis live in a `<wikis>` block in your user-level `~/.claude/CLAUDE.md`, so every Claude session, in any repo, knows they exist.
 
 - `/refresh-wiki` — scan the realm; refresh repo summaries and shared concerns.
 - `atomic wiki bucket add <name>` — register a folder at the realm root holding loose material (research, raw dumps, ticket exports) as a capture bucket; refresh synthesizes it into `wiki/knowledge/` pages.
 - `atomic wiki stale` — report membership drift and stale content.
 - `atomic serve` — browse the realm as a typed, navigable graph in the browser.
 
-A directory declares its own identity by writing `scope = "repo"` or `scope = "realm"` at the top of `.claude/atomic.toml` — `atomic repo init` writes the former, `atomic wiki init --scope <s>` writes whichever value you pass. Discovery prefers the nearest marker above your current directory over the pre-existing mechanism: a `scope = "repo"` marker outranks the repo-root fallback — `git rev-parse --show-toplevel` in `repoctx`, a `.git` stat walk in `atomic where` — and a `scope = "realm"` marker outranks the `<wikis>` block for the realm root. `<wikis>` still owns two jobs the marker does not touch — the session-start staleness nudge, and locating a realm's `wiki/index.md` for member data — so a marker-declared realm absent from `<wikis>` resolves correctly but gets no staleness nudge. `atomic where` reports which mechanism answered each axis.
+A `CLAUDE.md` at the realm root is how you steer all of that, and again the mechanism is the harness's own: Claude Code walks up the directory tree loading every `CLAUDE.md` it finds, and that walk crosses repo boundaries. A realm-root file therefore stays in context from anywhere inside the realm, including a session you started inside a member repo. Put the rules that span repos there — where each capture folder lives, what convention it follows, how the members relate — and every session in the realm inherits them without an `@`-ref or a per-repo copy.
 
-See the [knowledge base guide](/guides/knowledge-base) and [wiki workflow](/reference/wiki-workflow).
+A directory declares its own identity by writing `scope = "repo"` or `scope = "realm"` at the top of `.claude/atomic.toml`. `atomic repo init` writes the former; `atomic wiki init --scope <s>` writes whichever value you pass. The nearest marker above your current directory outranks the older fallback on both axes.
+
+```mermaid
+flowchart TD
+    accTitle: How atomic resolves a repo root and a realm root
+    accDescr: A scope marker answers first. Without one, discovery falls back to git detection for a repo root and the wikis registry for a realm root. The staleness nudge is driven only by the registry.
+    %% source: atomic/internal/repoctx, atomic/internal/where
+    %% claim: a marker answers discovery, but the wikis registry still owns the staleness nudge
+    Dir["a directory"] --> Marker{"nearest<br/>.claude/atomic.toml"}
+    Marker -- "scope = repo" --> Repo["repo root"]
+    Marker -- "scope = realm" --> Realm["realm root"]
+    Marker -- absent --> FallRepo["git rev-parse<br/>--show-toplevel"]
+    Marker -- absent --> FallRealm["the wikis registry"]
+    FallRepo --> Repo
+    FallRealm --> Realm
+    Realm --> Reg{"listed in<br/>the wikis block?"}
+    Reg -- yes --> Nudged["resolves · staleness nudge fires"]
+    Reg -- no --> Quiet["resolves · no nudge"]
+```
+
+A `scope` marker answers discovery on its own, but only a realm the `<wikis>` block also lists gets the session-start staleness nudge.
+
+That split is why the registry survives the marker. `<wikis>` keeps two jobs a marker does not touch: driving the nudge, and locating a realm's `wiki/index.md` for member data. `atomic where` reports which mechanism answered each axis.
+
+See the [knowledge base guide](/guides/knowledge-base) and [wiki workflow](/reference/realm-wiki).
 
 
 ## Output style
@@ -110,6 +153,25 @@ This is the most optional part of Atomic Claude — everything else works withou
 
 
 Turning an idea into a spec the build loop can follow.
+
+```mermaid
+flowchart TD
+    accTitle: What planning produces for a task
+    accDescr: A triviality gate splits trivial work, which gets an inline spec, from non-trivial work, which gets a design doc and then a spec. Two optional gates feed the plan. You approve before any code is written.
+    %% source: context/commands/atomic-plan.md
+    %% claim: the triviality gate is what decides whether a design doc exists at all
+    Task["a task"] --> Gate{"/atomic-plan<br/>gauges size"}
+    Ev["/gather-evidence"] -.->|"settle a hunch first"| Gate
+    Gate -- trivial --> Inline["inline spec"]
+    Gate -- non-trivial --> Design["design doc<br/>docs/design/"]
+    PT["/pressure-test"] -.->|"find weak assumptions"| Design
+    Design --> Spec["spec<br/>docs/spec/"]
+    Inline --> Approve{"you approve"}
+    Spec --> Approve
+    Approve --> Impl["implementation"]
+```
+
+Only non-trivial work gets a design doc; the triviality gate is what decides that, and nothing reaches implementation without your approval.
 
 
 ### Plan
@@ -137,17 +199,52 @@ A spec has two parts. The body states what is true *now* — a subagent reads it
 
 `/subagent-implementation` runs the implement-then-review loop against a spec, committing each green checkpoint. The pieces below make that loop safe and resumable.
 
+Every subagent starts with no memory of the last run, which is the constraint the rest of this section exists to work around:
+
+```mermaid
+flowchart LR
+    accTitle: What carries state between fresh-context subagent runs
+    accDescr: Only the orchestrator writes the scratchpad files. The implementer and reviewer read the brief and the spec and report back to the orchestrator. When the task ends the scratchpad is deleted, so only commits and promoted follow-ups survive it.
+    %% source: context/commands/subagent-implementation.md
+    %% claim: only the orchestrator writes the scratchpad; subagents read the brief and report back
+    Orch["orchestrator"] -->|"writes BRIEF · STATE · FOLLOWUPS"| Scratch[("scratchpad")]
+    Scratch -->|"BRIEF + spec, read-only"| Impl["implementer<br/>fresh context"]
+    Scratch -->|"BRIEF + spec, read-only"| Rev["reviewer<br/>fresh context"]
+    Impl -->|"report"| Orch
+    Rev -->|"verdict + findings"| Orch
+    Scratch -.->|"defer"| FU["project follow-up<br/>committed, durable"]
+    Scratch -.->|"task ends"| Del["deleted"]
+```
+
+The write side is deliberately one-sided: the orchestrator owns all three files — `BRIEF.md` at the start, `STATE.md` and the `FOLLOWUPS.md` ledger after each round — while the subagents read the brief and hand their reports back. The scratchpad is the only thing that crosses from one subagent run to the next; everything else the loop produces either lands in a commit or is thrown away.
+
 
 ### Worktrees
 
 
-A worktree is a second checkout of the same repo, on its own branch, in a different directory — git supports it natively. The implement loop offers one at `.claude/worktrees/<feature>/` — Claude Code's native worktree home — and `/autopilot` creates it without asking; either way the loop runs a baseline test and builds there, so your main checkout stays clean with no stashing or branch juggling. On merge or squash, `/commit` notices the branch came from a worktree and offers to clean it up.
+A worktree is a second checkout of the same repo, on its own branch, in a different directory. Git supports it natively, and so does Claude Code: `.claude/worktrees/<branch>/` is the harness's own worktree home, the same place `claude --worktree` uses, and the `EnterWorktree` tool moves the session into one. Atomic leans on both rather than reimplementing them, so once the loop enters a worktree your file edits and shell commands land inside it with no `cd` discipline to remember.
+
+The one place atomic does not defer to the harness is creating the worktree. It runs `git worktree add -b <branch>` itself first, because `EnterWorktree`'s own creation mode names the branch and bases it per the `worktree.baseRef` setting, while the loop needs the branch pinned and based on the current `HEAD` — otherwise a spec you just committed does not follow the worktree, and the implementer subagent opens a file that is not there. If the tool is unavailable or a sandbox blocks worktree creation, the loop says so and works in place instead.
+
+`/subagent-implementation` offers a worktree before significant work and `/autopilot` creates one without asking. Either way the loop runs a baseline test and builds there, so your main checkout stays clean with no stashing or branch juggling. On merge or squash, `/commit` notices the branch came from a worktree and offers to clean it up.
 
 
 ### Scratchpad
 
 
-`.claude/.scratchpad/` is Claude's working memory during a task — gitignored, not for human eyes. It holds the brief (what to build now), a state log (what happened each iteration), and a follow-ups ledger. This is how the loop survives context compaction: the agent forgets between runs, the file does not. When the task is done, the scratchpad is deleted.
+`.claude/.scratchpad/<date>-<topic>/` is the loop's working memory — gitignored, written for the next subagent rather than for you. Three files, each with a different write discipline, because they answer different questions:
+
+| File | Written | Holds |
+|------|---------|-------|
+| `BRIEF.md` | overwritten every iteration | what to build *now* — the orchestrator's curated handoff |
+| `STATE.md` | append-only, never rewritten | one entry per iteration, plus the loop's base SHA |
+| `FOLLOWUPS.md` | appended after any reviewer pass with findings | non-blocking risks, nits, and questions, numbered `F-1`, `F-2`, … |
+
+`BRIEF.md` is overwritten because a stale brief is worse than no brief: the subagent treats it as current instructions. `STATE.md` is append-only for the opposite reason — it is the audit trail, and it records the base SHA the finalize step needs to scope its wiki refresh to this task's commits. `FOLLOWUPS.md` keeps closed entries, marked with the iteration and commit that closed them, so the ledger shows what was decided rather than only what is left.
+
+What is deliberately absent matters as much. There is no `GOAL.md`, `CONTEXT.md`, or `PLAN.md`, because the spec at `docs/spec/<topic>.md` already is those, and a second copy is a second thing to drift. Each file is seeded from `atomic template <name>` so its structure is copied rather than reconstructed from memory.
+
+At the end you triage the ledger. Deferring a finding promotes it to `.claude/project/followups/<id>.md`, which is committed and auto-loaded into later sessions, so it survives what happens next: the scratchpad is deleted when the task completes.
 
 
 ### Subagents
@@ -161,7 +258,7 @@ Claude Code can spawn agents that run in a fresh context with their own prompts;
 
 Atomic ships through one `/commit` verb: run it bare and it stages, commits, then asks how far to go; pass a token to skip the prompt — `/commit push`, `/commit pr`, `/commit merge`, `/commit squash`, `/commit squash merge`. One verb, escalated by intent. The reason it exists instead of a plain "commit and push" is what happens around the git operation:
 
-- A run that produces a commit refreshes signals and checks for stale docs automatically.
+- A run that produces a commit refreshes the wiki and checks for stale docs automatically.
 - A run that does not produce a commit checks staleness and asks before proceeding.
 - The merge tokens run verification and tests on the merged result first.
 - Every run writes the commit message from the diff via the `atomic-git-discipline` skill.
@@ -190,7 +287,7 @@ Both shape Claude's behavior; they trigger differently. **Skills** fire automati
 ## Documentation
 
 
-Code changes break docs silently — an endpoint renamed, a config field gone, a diagram showing a component that no longer exists. Nothing fails; months later someone acts on something wrong. `/documentation` treats docs the way signals treats project context: scan, track, and prompt on drift.
+Code changes break docs silently — an endpoint renamed, a config field gone, a diagram showing a component that no longer exists. Nothing fails; months later someone acts on something wrong. `/documentation` treats docs the way the wiki treats project context: scan, track, and prompt on drift.
 
 - **Bootstrap** — the first run scans for markdown and lets you pick which surfaces to track into a `## Documentation surfaces` table in your CLAUDE.md.
 - **Authoring** — run `/documentation` to compare recent changes against tracked surfaces and walk the stale ones with you, one at a time.
@@ -202,4 +299,4 @@ Code changes break docs silently — an endpoint renamed, a config field gone, a
 
 Claude reads `~/.atomic/profile.md` at the start of every session — personal facts that hold across repos: name, role, employer, active projects, interests, and people you work with. Install seeds the `## Environment` section from your machine (git identity, OS, tooling versions); the rest fills in as facts surface in conversation. Volatility tags (`<stable>`, `<volatile>`, `<deterministic>`) tell Claude how eagerly to flag a contradiction, and `/retrospective-learning` resolves drift with your sign-off.
 
-The routing rule: anything still true in a different repo belongs in the profile; repo-specific conventions go to that project's signals instead.
+The routing rule: anything still true in a different repo belongs in the profile; repo-specific conventions go to that project's wiki instead.

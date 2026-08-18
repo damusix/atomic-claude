@@ -48,12 +48,12 @@ The installer prints two manual steps it cannot automate:
 
     ![The output style picker with Atomic selected](/img/output-style-picker.png)
 
-2. **Scan your repos** — run `/refresh-wiki` in each repo. It builds the signals files, Claude's standing map of that repo's framework, commands, and layout
+2. **Scan your repos** — run `/refresh-wiki` in each repo. It builds the repo wiki, Claude's standing map of that repo's framework, commands, and layout
 
 A few optional steps go further:
 
-- **Check the session-start hook.** `atomic claude install` already registered a Claude Code session-start hook that refreshes your profile, injects pending reminders, and nudges you when signals or a wiki fall stale. Some managed or enterprise setups disable hooks; if yours does, remove it with `atomic hooks uninstall`, or install with `atomic claude install --no-hooks` next time. To add the hook later (or after removing it), run `atomic hooks install`; the scope defaults to your user config, and `--scope project` limits it to one repo.
-- **Map related repos with a wiki.** If you work across a folder of services, libraries, or client projects, run `/refresh-wiki` to build a cross-repo wiki. It summarizes each member repo and writes up the concerns they share, so Claude can reason about a whole realm of projects rather than one repo at a time. See the [wiki workflow](/reference/wiki-workflow).
+- **Check the session-start hook.** `atomic claude install` already registered a Claude Code session-start hook that refreshes your profile, injects pending reminders, and nudges you when a wiki falls stale. Some managed or enterprise setups disable hooks; if yours does, remove it with `atomic hooks uninstall`, or install with `atomic claude install --no-hooks` next time. To add the hook later (or after removing it), run `atomic hooks install`; the scope defaults to your user config, and `--scope project` limits it to one repo.
+- **Map related repos with a wiki.** If you work across a folder of services, libraries, or client projects, run `/refresh-wiki` to build a cross-repo wiki. It summarizes each member repo and writes up the concerns they share, so Claude can reason about a whole realm of projects rather than one repo at a time. See the [wiki workflow](/reference/realm-wiki).
 - **Index a project's symbols.** Run `atomic code index` in a project to build a symbol graph of it. Once indexed, `atomic code explore "<question>"` returns a context digest of the relevant symbols and call edges in one query, and the implementation agents use the graph for blast-radius checks and domain clustering. Indexing is opt-in and degrades to plain search when absent; see the [code-intel reference](/reference/code-intel).
 
 On first install, the binary also creates `~/.atomic/profile.md` and prints a one-line nudge. The file starts with your git name, email, OS, architecture, and CPU count filled in from the environment. The remaining sections are empty; Claude fills them in as facts surface naturally in conversation. You do not need to edit the file by hand.
@@ -71,7 +71,7 @@ Update the binary:
 atomic update
 ```
 
-This is usually near-instant. A background process checks for new releases roughly once an hour and, at most once per release, downloads and checksum-verifies the archive ahead of time, so `atomic update` swaps a file already sitting on disk instead of downloading from scratch. It still re-verifies the version and checksum before swapping, so this is never a stale or unverified binary. It then refreshes the `~/.claude` artifact bundle automatically and finishes with a health check. One command updates everything; if any check fails, it prints what to look at. The refresh respects your hook setup: if the session-start hook is not registered, the update will not add it.
+One command updates everything: it swaps the binary, refreshes the `~/.claude` artifact bundle, and finishes with a health check that prints what to look at if anything fails. It is usually near-instant because a background process pre-downloads and checksum-verifies each release ahead of time; the swap re-verifies version and checksum regardless, so the binary is never stale or unverified. The refresh respects your hook setup: if the session-start hook is not registered, the update will not add it.
 
 To skip the artifact refresh, pass `--skip-claude-update` and run it yourself when ready:
 
@@ -124,21 +124,14 @@ One migration runs automatically on every invocation rather than through `atomic
 
 ## If you already have a CLAUDE.md
 
-How the installer treats your file depends on whether it already carries an `<atomic>...</atomic>` block.
+One check decides everything: whether your file already carries an `<atomic>...</atomic>` block. Either way, your own sections are never touched and the prior version is backed up to `~/.atomic/backups/` before any change.
 
-**Your file already has an `<atomic>` block** (from a prior install):
+| Your `~/.claude/CLAUDE.md` | What the installer does | What you do |
+|---|---|---|
+| has an `<atomic>` block (prior install) | updates the block in place; a current block counts as no drift in `atomic claude diff` and `atomic doctor` | nothing |
+| no block yet (pre-block install, or hand-edited tags) | never overwrites; writes the new version to `~/.atomic/proposed/CLAUDE.md` | run `atomic prompt claude-merge` in any Claude Code session; Claude merges into a staging file (`~/.claude/CLAUDE.md.atomic-merged`) and gives you the command to apply it |
 
-- The installer updates the block in place; everything outside it is left alone.
-- Your own sections are never touched.
-- A file whose block is current does not count as drift in `atomic claude diff` or `atomic doctor`.
-- The previous version is backed up to `~/.atomic/backups/` before any change.
-
-**Your file has no `<atomic>` block yet** (a pre-block install, or hand-edited tags):
-
-- The installer will not overwrite it. It writes the new version to `~/.atomic/proposed/CLAUDE.md`.
-- In any Claude Code session, run `atomic prompt claude-merge`. It prints a brief that Claude follows to merge the new `<atomic>` block into your file.
-- Claude writes the result to a staging file (`~/.claude/CLAUDE.md.atomic-merged`) and gives you the command to apply it; your live file is never overwritten automatically. Your own sections are preserved.
-- This one-time merge wraps the atomic content in `<atomic>` tags, so future updates apply on their own.
+The one-time merge wraps the atomic content in `<atomic>` tags, so every later update lands in the first row and applies on its own.
 
 
 ## Manual install

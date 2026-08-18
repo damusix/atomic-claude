@@ -35,7 +35,7 @@ Read the `<wikis>` block in `~/.claude/CLAUDE.md` (outside `<atomic>`, CLI-manag
 
 - **cwd under a realm root** → that realm is active. Bucket operations target it.
 - **No registered realm + setup intent** → `atomic wiki scan --root <path>` bootstraps. Ask which folder is the realm root if ambiguous.
-- **`atomic` binary absent** → say so; point at `/refresh-wiki` and `docs/reference/wiki-workflow.md`. Do not hand-build the structure.
+- **`atomic` binary absent** → say so; point at `/refresh-wiki` and `docs/reference/realm-wiki.md`. Do not hand-build the structure.
 
 ## Pipeline routing
 

@@ -142,7 +142,7 @@ Run them rather than reciting. What they cannot tell the user is which verb fits
 |-----|------|--------|
 | Install or restore `~/.claude` artifacts | `claude install`, `update`, `uninstall` | `docs/guides/install.md` |
 | Understand how code fits together | `code` — lead with `explore` | `docs/reference/code-intel.md` |
-| Maintain project or cross-repo context | `wiki`, `signals` | `docs/reference/wiki-workflow.md` |
+| Maintain project or cross-repo context | `wiki`, `signals` | `docs/reference/repo-wiki.md`, `docs/reference/realm-wiki.md` |
 | Talk to another running Claude session | `bus` | `docs/reference/bus.md` |
 | Keep an interpreter alive across Bash calls | `repl` | `docs/reference/repl.md` |
 | Browse the wiki and code graph in a browser | `serve` | `docs/reference/serve.md` |

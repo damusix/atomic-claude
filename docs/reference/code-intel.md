@@ -37,7 +37,7 @@ Run `atomic code <verb>` from your project root. Every query verb accepts `--jso
 | `explore` | Gather context for a natural-language query (markdown output) |
 | `mcp` | Run the MCP server over stdio (see [Code-intel MCP](/guides/code-intel-mcp)) |
 
-Start with `explore` when you don't yet know the exact symbol. `atomic code explore "how does session refresh work"` returns a bundled digest — the relevant definitions, files, and call relationships — in one query, instead of running `search`, `callers`, and `callees` separately and stitching the results together. Once `explore` points you at a symbol, the targeted verbs (`callers`, `callees`, `impact`) drill into it precisely. Atomic's investigator, reviewer, and signals agents follow the same order automatically: explore to orient, then drill in.
+Start with `explore` when you don't yet know the exact symbol. `atomic code explore "how does session refresh work"` returns a bundled digest — the relevant definitions, files, and call relationships — in one query, instead of running `search`, `callers`, and `callees` separately and stitching the results together. Once `explore` points you at a symbol, the targeted verbs (`callers`, `callees`, `impact`) drill into it precisely. Atomic's investigator, reviewer, and wiki agents follow the same order automatically: explore to orient, then drill in.
 
 
 ## Using it without Claude
@@ -85,28 +85,14 @@ Because the indexer reads working-tree content, a `sync` after an edit makes the
 
 ## Excluding files from the index
 
-A committed `<project>/.claude/atomic.toml` with a `[code]` table excludes matching files from the index:
+A committed `.claude/atomic.toml` keeps vendored trees, generated output, and build artifacts out of the graph:
 
 ```toml
 [code]
 ignore = ["vendor/**", "*.min.js"]
 ```
 
-Patterns match doublestar-style against repo-relative, slash-separated paths. A pattern containing no `/` matches the basename at any depth (`*.min.js` excludes `a/b/lib.min.js`); a pattern containing `/` is a full-path match; a leading `./` is stripped before matching. A trailing-slash-only pattern (`vendor/`) matches nothing — exclude a directory with `vendor/**` instead. There is no negation syntax (`!pattern`) — v1 is exclude-only.
-
-A missing or empty file leaves discovery unfiltered, identical to no config at all. Malformed TOML or an invalid glob pattern also leaves indexing unfiltered, but `atomic code index`/`sync` prints one warning line to stderr; unknown keys in the file warn the same way. `atomic doctor` validates the file when present — parse errors, unknown keys, and invalid glob patterns each report WARN with detail; an absent file is not a finding.
-
-A file that becomes newly ignored is pruned from an already-built index automatically: the next `atomic code index` or `atomic code sync` removes its nodes, edges, and unresolved references — the same deleted-file pruning that already runs, since an ignored file simply drops out of the discovery list. No separate ignore-prune step exists.
-
-**Gitignore caveat.** Some repos gitignore `.claude/*` wholesale. If yours does, add a negation pair (e.g. `!.claude/atomic.toml`) so the config file itself stays committed — otherwise it never reaches git and the ignore rules never take effect for anyone who clones the repo.
-
-**Declaring root identity.** The same file also accepts a top-level `scope` key, independent of `[code]`:
-
-```toml
-scope = "repo"
-```
-
-`scope = "repo"` or `scope = "realm"` declares this directory's identity in the tree — `atomic repo init` writes `scope = "repo"`, and `atomic wiki init --scope <s>` writes whichever value you pass, both idempotently. The nearest such marker above a directory outranks each consumer's own root-discovery fallback — `git rev-parse --show-toplevel` in `repoctx`, a `.git` stat walk in `atomic where` — and the `<wikis>` registry for realm root discovery. Any other value, or a file that fails to parse, is not a marker of either kind: discovery falls through to the pre-existing mechanism. See [Concepts](/reference/concepts#wikis) for the full discovery order. `atomic doctor` validates `scope` the same way it validates `[code] ignore`: an invalid value WARNs naming the value and the two accepted ones, and a valid value is named in the PASS detail; it also WARNs when `scope = "repo"` sits on a directory already registered as a realm root in the `<wikis>` block.
+A newly ignored file is pruned from an already-built index on the next `index` or `sync`. For the pattern-matching rules, which are not gitignore rules, and the caveat for repos that gitignore `.claude/` wholesale, see [`.claude/atomic.toml`](/reference/atomic-toml).
 
 
 ## Wiki realm federation
@@ -214,28 +200,15 @@ The subagents above shell out to `atomic code … --json` and need no MCP. MCP i
 
 SQL embedded in host-language string literals is extracted alongside the host file's symbols. A Go raw-string migration, a Python `db.execute(...)` call, or a TypeScript template literal containing a `CREATE TABLE` or `SELECT` statement becomes part of the graph just like a dedicated `.sql` file would.
 
-The extraction runs as a post-pass after the host language tree-sitter extraction completes. For each file, a language-specific harvester collects string literal spans (text plus file-absolute line numbers), and each span is tested against an admission gate before SQL extraction runs.
+**What qualifies.** A string literal is admitted when it is either DDL (`CREATE TABLE|VIEW|INDEX|SEQUENCE|TRIGGER|FUNCTION|PROCEDURE|SCHEMA` followed by a valid identifier) or DML (`SELECT`, `INSERT INTO`, `UPDATE`, `DELETE FROM`, `MERGE INTO` as the first token) carrying at least one structural corroboration: a comma, a comparison operator, a quoted string, or a placeholder. Prose like `"choose an item from the dropdown"` satisfies neither, so it never reaches the SQL extractor. Python docstrings are excluded outright, whatever they contain.
 
-**Admission gate.** A literal passes when it satisfies one of two conditions:
+**What you get.** DDL produces the same table, column, constraint, and foreign-key nodes a standalone `.sql` file would. DML produces references to the tables it reads or writes, owned by the function containing the literal. Line numbers are file-absolute, so a `CREATE TABLE` on line 80 of a migration is recorded at line 80 rather than at an offset inside the literal.
 
-- DDL: `CREATE TABLE|VIEW|INDEX|SEQUENCE|TRIGGER|FUNCTION|PROCEDURE|SCHEMA` followed by a valid SQL identifier.
-- DML: `SELECT`, `INSERT INTO`, `UPDATE`, `DELETE FROM`, or `MERGE INTO` as the first non-whitespace token, plus at least one structural corroboration — a comma, comparison operator, quoted string, or placeholder (`$1`, `?`, `:name`, `%s`).
+**Interpolation** is replaced with a `?` placeholder before admission, across every language whose strings support it. An interpolated value (`WHERE id = {id}`) leaves the table name intact and extracts normally; an interpolated table name (`FROM {table}`) becomes `FROM ?`, which is not a valid identifier, so no table reference is emitted rather than a wrong one.
 
-Prose strings like `"choose an item from the dropdown"` or `"Copied from the original repo"` do not have both a DML verb at the start and a confidence discriminator, so they are rejected without running the full SQL extractor.
+**Twenty host languages** are covered, including secondary string forms where SQL commonly lives: C++ and Rust raw strings, Kotlin, Scala, and Swift triple-quoted blocks, PHP and Ruby heredocs, Lua long brackets, C# verbatim strings, and Java text blocks.
 
-**What gets emitted.** DDL literals produce the same table/column/constraint/foreign-key nodes and edges as a standalone `.sql` file would. DML literals produce `UnresolvedReference` entries pointing at the tables they read or write. Those references are owned by the narrowest enclosing host-language node — the function or method containing the literal, or the file node when no containing function exists.
-
-Every edge and unresolved reference produced by this path carries `Provenance: "embedded"`. This value is distinct from the empty string (static edges) and `"heuristic"` (synthesized edges from framework resolution). Use `GetEdgesByProvenance("embedded")` to retrieve or audit them independently.
-
-Line numbers on embedded nodes and edges are file-absolute: each harvester maps the literal's position back to its line in the host file, so a `CREATE TABLE` on line 80 of a migration is recorded at line 80, not at an offset within the literal.
-
-**Interpolation handling.** Interpolation segments are replaced with the SQL placeholder `?` before the gate runs, across every language whose strings support them — Python f-strings, JavaScript and TypeScript template literals, Ruby `#{...}`, Kotlin `$name` / `${...}`, PHP `$var`, Scala `s"...$x"`, Swift `\(...)`, Dart `$x`, and C# `$"...{x}"`. When the interpolation sits in a value position (e.g. `... WHERE id = {id}`), the table name remains intact and is extracted normally. When it sits in the table-name position (e.g. `... FROM {table}`), the `FROM` clause becomes `FROM ?` after substitution — `?` is not a valid SQL identifier, so no table reference is emitted.
-
-**Python docstrings.** Python tree-sitter parsing identifies the three PEP 257 docstring positions — the first expression statement in a module body, class body, or function body. Strings at those positions are excluded from gating entirely, regardless of content.
-
-**Supported host languages.** Twenty languages. Go, Python, TypeScript, and TSX use dedicated harvesters (Python additionally excludes docstrings). The remaining sixteen share one config-driven harvester parameterized by each grammar's string-literal node kinds: C, C++, C#, Java, JavaScript, Kotlin, Lua, Luau, Objective-C, Pascal, PHP, Ruby, Rust, Scala, Swift, and Dart. Secondary string forms are covered where SQL commonly lives — C++ and Rust raw strings, Kotlin, Scala, and Swift triple-quoted blocks, PHP and Ruby heredocs, Lua long brackets, C# verbatim and interpolated strings, and Java text blocks.
-
-**Known limitations.** Multi-fragment queries assembled by concatenation (`"SELECT " + cols + " FROM t"`) are not reconstructed — only the first fragment is seen. For languages whose grammars carry string content inline rather than in a dedicated child node (Lua, Pascal, Dart, Scala, and C# verbatim strings), a DML literal that ends with an embedded quoted SQL string may have its trailing characters clipped during delimiter stripping; this affects only tokens after the table reference and never produces a spurious edge.
+**Known limitation.** A query assembled by concatenation (`"SELECT " + cols + " FROM t"`) is not reconstructed; only the first fragment is seen.
 
 **Standalone SQL files.** Files with `.sql`, `.ddl`, `.pgsql`, `.mysql`, or `.sql.jinja` extensions route through the standalone SQL extractor. Beyond ANSI/Postgres/MySQL/T-SQL DDL, it covers Snowflake constructs — stages, streams, tasks (with `AFTER` dependency edges), file formats, `COPY INTO` lineage, and clones — and dbt models: the `ref()`/`source()` DAG, `{% macro %}` definitions with macro-scoped lineage, versioned refs (`ref('m', v=2)` → `m_v2`), and `config(alias=…)`. It emits `stage`, `stream`, `task`, `file_format`, `model`, `macro`, and `script` nodes alongside the usual table/view/column/constraint kinds. T-SQL routine bodies add intra-procedure lineage: local temp tables (`#tmp`) and table variables (`@t`) are scoped to their declaring routine (two procedures' `#tmp` stay distinct), `OUTPUT … INTO` records its write target, and qualified column references (`alias.col`) resolve through the `FROM`/`JOIN` aliases to the specific column. Embedded extraction only runs on host-language files.
 

@@ -4,7 +4,7 @@ The output style is the communication layer. Its goal is clarity, and a paragrap
 
 A shorter reply that reads worse is a failure, not a win. When a structure communicates faster than sentences (three components with a hierarchy, a sequence that branches across actors), the style picks the structure. When a paragraph is genuinely the clearest form, it stays a paragraph.
 
-It is also the most optional part of atomic-claude. The skills, commands, agents, and signals all work without it. The output style makes Claude's replies clearer to read.
+It is also the most optional part of atomic-claude. The skills, commands, agents, and wikis all work without it. The output style makes Claude's replies clearer to read.
 
 
 ## Where the behavior actually comes from

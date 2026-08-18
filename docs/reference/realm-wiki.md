@@ -1,14 +1,16 @@
-# Wiki workflow
+# Realm wiki
+
+A wiki is a generated knowledge graph for a tree of code, and it comes at two scopes. This page is the **realm** scope: a folder of repositories, mapped into a `wiki/` beside them. The [repo wiki](/reference/repo-wiki) is the other scope, one level down, mapping a single repository into its own `docs/wiki/`. Same command, same inferrer; `/refresh-wiki` reads a `<wiki-type>` marker to tell which one it is looking at.
 
 You work out of a folder. Call it a realm: a client engagement, a team's set of services, an open-source org you contribute to. It accumulates two kinds of things. Repositories, some yours and some vendored. And the loose material that collects around real work: a ticket you are halfway through, an email thread with the one detail that explains a bug, a PDF someone sent you, the notes you took chasing a problem across three systems. You keep that loose material by hand, in a `raw/` dump.
 
 ```
 ~/work/acme/                the realm
 ├─ CLAUDE.md           realm rules · ## Capture surfaces written by bucket add
-├─ billing-api/        repo · signals → indexed
-├─ gateway/            repo · signals → indexed
-├─ legacy-cron/        repo · no signals → opt-in
-├─ vendor-sdk/         repo · no signals → opt-in
+├─ billing-api/        repo · has its own wiki → indexed
+├─ gateway/            repo · has its own wiki → indexed
+├─ vendor-sdk/         repo · no wiki → summarized
+├─ legacy-cron/        repo · no wiki → offered for promotion on refresh
 ├─ raw/                capture bucket · registered via `atomic wiki bucket add raw`
 ├─ research/           capture bucket · registered via `atomic wiki bucket add research`
 ├─ experiments/        code spikes and prototypes · user-maintained (not a bucket)
@@ -22,17 +24,17 @@ You work out of a folder. Call it a realm: a client engagement, a team's set of 
       └─ research/     current · baseline · previous
 ```
 
-Holding all of that in your head is what makes a context-switch expensive. A wiki removes that cost. It is a knowledge base for one realm, compiled by `/refresh-wiki`, so the next time the realm needs explaining, the work is already done. Signals describe one repo; a wiki describes the realm above it. See [concepts](/reference/concepts#wikis) for the idea; this page is the mechanism.
+Holding all of that in your head is what makes a context-switch expensive. A wiki removes that cost. It is a knowledge base for one realm, compiled by `/refresh-wiki`, so the next time the realm needs explaining, the work is already done. A repo wiki describes one repo; this one describes the realm above it. See [concepts](/reference/concepts#wikis) for the idea; this page is the mechanism.
 
 Two layers fill a wiki, and they differ by who drives them.
 
-**Atomic drives the repo layer.** `/refresh-wiki` walks the realm, finds the repositories, and documents them. A repo that already has signals is documented in place; the wiki references those signals and cites the path, never copying them. A repo without signals is opt-in, the kind that needs a deeper dive: you pick which ones get promoted to their own signals, and the rest Claude summarizes into `repos/` from a read-only pass that never writes back to the source. `concerns/` holds what cuts across them.
+**Atomic drives the repo layer.** `/refresh-wiki` walks the realm, finds the repositories, and documents them. A repo that already has its own wiki is documented in place; the realm references it and cites the path, never copying them. A repo without one is opt-in, the kind that needs a deeper dive: you pick which ones get promoted to their own wiki, and the rest Claude summarizes into `repos/` from a read-only pass that never writes back to the source. `concerns/` holds what cuts across them.
 
 **You drive the knowledge layer through capture buckets.** Atomic never touches `raw/` or any other user-maintained folder. To bridge between loose material and the wiki, register the folder as a capture bucket. Atomic tracks what the wiki has already consumed and synthesizes only new or changed material on the next `/refresh-wiki`.
 
 **You manage the realm from a `CLAUDE.md`.** Keep one at the realm root, holding your rules for the realm and a pointer to the wiki. Claude Code walks up the directory tree when it loads `CLAUDE.md`, and the walk crosses repo boundaries, so a realm-root file stays in context from anywhere inside the realm, including a session you start in a member repo. The realm level is where that earns its place: cross-cutting concerns, or a feature or bug you are tracing across several services, work that spans repos instead of sitting in one. Start there to organize `raw/`, fold it into the wiki, manage `research/` and `experiments/`, or reason across the repos at once.
 
-This draws the boundary. Atomic stays on the code side: it documents repos, keeps signals current, runs the plan-implement-ship lifecycle, and bridges loose capture material into the wiki knowledge layer. The non-code work is yours to direct from the realm `CLAUDE.md`, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
+This draws the boundary. Atomic stays on the code side: it documents repos, keeps their wikis current, runs the plan-implement-ship lifecycle, and bridges loose capture material into the wiki knowledge layer. The non-code work is yours to direct from the realm `CLAUDE.md`, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
 
 Deterministic CLI verbs and one command do the work:
 
@@ -41,9 +43,9 @@ Deterministic CLI verbs and one command do the work:
 - **`atomic wiki stale [--root=<path>]`** — a read-only freshness verdict. Reports `DRIFT`/`STALE` lines for repos and concerns, plus `STALE bucket <name>` for capture folders with a non-empty diff. Exits `0` fresh, `1` stale, `2` error, mirroring `atomic signals stale`.
 - **`atomic wiki linkify --root=<path>`** — renders the path citations in summaries, concerns, knowledge pages, and the index into file-relative markdown links. Deterministic, idempotent, no model.
 - **`atomic wiki bucket add|list|diff|promote`** — manage capture buckets. `add` registers a folder and splices the `<wiki-buckets>` block; `list` shows status; `diff` gives a read-only change report; `promote` advances the baseline after successful synthesis. See [Capture buckets](#capture-buckets) below.
-- **`/refresh-wiki [root]`** — the LLM pass. Runs the scan, reads the staleness verdict, refreshes only what drifted (summarizes no-signals repos, synthesizes pending capture buckets into `wiki/knowledge/`, re-synthesizes affected concerns), stamps fingerprints, and runs `atomic wiki linkify`. The refreshed wiki ships as a navigable graph.
+- **`/refresh-wiki [root]`** — the LLM pass. Runs the scan, reads the staleness verdict, refreshes only what drifted (summarizes repos without their own wiki, synthesizes pending capture buckets into `wiki/knowledge/`, re-synthesizes affected concerns), stamps fingerprints, and runs `atomic wiki linkify`. The refreshed wiki ships as a navigable graph.
 
-The split is the same one signals use. The CLI does the deterministic work — walking the tree, classifying, registering, fingerprinting. The command does the judgment — summarizing repos and synthesizing the concerns that cut across them.
+The split is the same one the repo scope uses. The CLI does the deterministic work — walking the tree, classifying, registering, fingerprinting. The command does the judgment — summarizing repos and synthesizing the concerns that cut across them.
 
 | Deterministic CLI | called by | LLM command |
 |---|---|---|
@@ -78,7 +80,7 @@ The scan is idempotent. Re-running regenerates only the managed regions — the 
 ├── index.md      # managed <wiki-scan> + <wiki-buckets> blocks (CLI) + narrative (LLM)
 ├── README.md     # written by the scan
 ├── .gitignore    # ignores the transient .dirty marker
-├── repos/        # summaries — only for repos without signals
+├── repos/        # summaries — only for repos without their own wiki
 │   ├── legacy-cron.md
 │   └── vendor-sdk/<domain>.md   # large repos are split by domain
 ├── concerns/     # cross-cutting docs, one per concern
@@ -102,7 +104,7 @@ The wiki is its own git repository — `atomic wiki scan` runs `git init` for yo
 
 Cross-links between concept pages (knowledge → concern, concern → knowledge) use standard bundle-relative markdown links (`[text](/wiki/knowledge/topic.md)`) — the OKF §5.1 recommended form. `atomic serve` resolves these as in-shell navigable routes. Relative links work too; bundle-relative links are preferred for cross-directory references because they are shorter and survive file moves within the bundle.
 
-The wiki is a navigable markdown graph. The scan writes a managed `## Members` section into `index.md` in OKF §6 listing form — each entry as `- [Name](target) - description`, with a one-line description drawn from the member's signals or a brief summary. `atomic wiki linkify` then turns the inline path citations across summaries, concerns, and the index into relative links to the files they name. Open the realm in Obsidian or any markdown server and click through it. The linkifier runs after fingerprint stamping, so it never disturbs staleness, and a rendered `[text](path)` link is a plain markdown link, not an `@`-reference.
+The wiki is a navigable markdown graph. The scan writes a managed `## Members` section into `index.md` in OKF §6 listing form — each entry as `- [Name](target) - description`, with a one-line description drawn from the member's own wiki or a brief summary. `atomic wiki linkify` then turns the inline path citations across summaries, concerns, and the index into relative links to the files they name. Open the realm in Obsidian or any markdown server and click through it. The linkifier runs after fingerprint stamping, so it never disturbs staleness, and a rendered `[text](path)` link is a plain markdown link, not an `@`-reference.
 
 
 ## Repo states
@@ -111,13 +113,13 @@ The wiki is a navigable markdown graph. The scan writes a managed `## Members` s
 
 | State | Meaning | Knowledge source |
 |-------|---------|------------------|
-| `indexed` | has signals | the wiki points at the in-repo signals and cites the path — never copies them |
-| `summarized` | no signals | a summary at `wiki/repos/<repo>.md`, written by reading the repo without touching it |
-| `pending` | no signals, fresh scan | the refresh pass resolves it to `indexed` or `summarized` |
+| `indexed` | has its own wiki | the realm points at that in-repo wiki and cites the path — never copies it |
+| `summarized` | no wiki | a summary at `wiki/repos/<repo>.md`, written by reading the repo without touching it |
+| `pending` | no wiki, fresh scan | the refresh pass resolves it to `indexed` or `summarized` |
 
-"No signals" is a fork, not a defect. A repo you own can carry committed signals; an open-source dependency should not — the wiki summarizes it instead, never writing into it.
+"No wiki" is a fork, not a defect. A repo you own can carry a committed wiki; an open-source dependency should not — the wiki summarizes it instead, never writing into it.
 
-When the refresh pass meets a `pending` repo, it presents the no-signals repos as a numbered list and asks which to run `/refresh-wiki` on, promoting those to `indexed`. The rest are summarized into the wiki by `atomic-wiki-inferrer` in its wiki-output mode: it scans the repo with the substrate redirected outside it (`atomic signals scan --out`), infers, and writes the summary only into the wiki. The source repo is never modified.
+When the refresh pass meets a `pending` repo, it presents the repos without one as a numbered list and asks which to run `/refresh-wiki` on, promoting those to `indexed`. The rest are summarized into the wiki by `atomic-wiki-inferrer` in its wiki-output mode: it scans the repo with the substrate redirected outside it (`atomic signals scan --out`), infers, and writes the summary only into the wiki. The source repo is never modified.
 
 
 ## The registry
@@ -136,17 +138,34 @@ The block sits outside the `<atomic>` block, so `atomic claude update` preserves
 
 ## Staleness
 
-A wiki sits outside any single repo's lifecycle, so it cannot self-heal on commit the way signals do. `atomic wiki stale` gives a deterministic verdict instead. It reports two kinds of drift:
+A wiki sits outside any single repo's lifecycle, so it cannot self-heal on commit the way a repo wiki does. `atomic wiki stale` gives a deterministic verdict instead. It reports two kinds of drift:
 
 - **Membership and status** — repos added or removed since the last scan, or a repo that flipped between `indexed` and `pending`.
 - **Content** — each summary and concern doc records what it was built from in its frontmatter (a `reflects_*` fingerprint), and the comparator checks that fingerprint against the repo's current state.
 
-Those fingerprints are written by code, never by the model — `git rev-parse HEAD` for a summarized repo, a content hash of `signals.md` for an indexed one. The deterministic scan block cannot hold them, because it rewrites itself to *now* on every run, so they live in each artifact's frontmatter, stamped at author time. A missing or unparseable fingerprint counts as stale, so the verdict fails safe rather than passing silently.
+Those fingerprints are written by code, never by the model: `git rev-parse HEAD` for a summarized repo, and a content hash of the member's own wiki index for an indexed one. The deterministic scan block cannot hold them, because it rewrites itself to *now* on every run, so they live in each artifact's frontmatter, stamped at author time. A missing or unparseable fingerprint counts as stale, so the verdict fails safe rather than passing silently.
+
+::: warning Indexed members currently fingerprint by commit, not content
+The content-hash lookup still probes the pre-relocation path (`.claude/project/signals.md`). On a repo whose wiki has moved to `docs/wiki/`, that probe misses and the fingerprint falls back to the member's `HEAD` SHA. The practical effect is noisier staleness: any commit to an indexed member marks the concerns citing it stale, even a commit that never touched its wiki.
+:::
 
 
 ## The forcing function
 
-Two cheap detectors feed one nudge; the single heavy step (`/refresh-wiki`) clears it. Neither detector spawns git or re-runs a deterministic scan.
+A wiki leaves Fresh two ways and returns one way: only a completed `/refresh-wiki` clears the marker, so an aborted run keeps nudging until the work is actually done.
+
+```mermaid
+stateDiagram-v2
+    accTitle: Realm wiki staleness lifecycle
+    accDescr: A ship verb inside a member repo marks the wiki Dirty, and 30 days without a refresh marks it Neglected. Both states nudge at session start. Only a completed /refresh-wiki returns the wiki to Fresh; an aborted run leaves the marker set.
+    Fresh --> Dirty: ship verb inside a member (touches .dirty)
+    Fresh --> Neglected: 30 days without a refresh
+    Dirty --> Fresh: /refresh-wiki completes
+    Neglected --> Fresh: /refresh-wiki completes
+    Dirty --> Dirty: aborted run (marker survives)
+```
+
+Both non-Fresh states produce the same session-start nudge. The two detectors behind them are cheap on purpose; neither spawns git or re-runs a deterministic scan.
 
 - **Neglect.** The session-start hook reads, per registered wiki, the scan block's `generated` date and whether a `.dirty` marker is present — stats and small reads only, zero git. It nudges if the wiki is older than a threshold (30 days by default) or marked dirty.
 - **Drift.** When you ship from inside a member repo, the ship command checks whether your working directory is under a registered root — a string comparison, no git — and if so touches that wiki's `.dirty` marker. This is what turns "it has been a while" into "real changes are pending."
@@ -214,9 +233,11 @@ atomic wiki bucket index [research]              # rebuild the listing regions (
 `atomic wiki bucket index [<bucket>]` rebuilds two managed regions from frontmatter: a `<bucket-docs>` region in the named bucket's `index.md` (or every registered bucket, when no name is given), and the `<wiki-bucket-list>` region in `wiki/index.md`. Both are code-generated and spliced idempotently; everything outside the region is preserved untouched. `atomic wiki scan` runs this rebuild as part of its own pass, so you rarely need to call `bucket index` directly.
 
 
-## Relationship to signals
+## Relationship to the repo scope
 
-Signals and wikis are the same Karpathy-inspired pattern at two scales. Signals compile one repo's filesystem into a markdown model Claude reads every session. A wiki compiles a realm of repos into a markdown knowledge base one level up — pointing at the repos that already have signals, summarizing the ones that do not, writing up what they share, and synthesizing loose capture material into a knowledge layer. Neither replaces the other; the wiki points at signals, it never copies them.
+The two scopes are the same Karpathy-inspired pattern at two scales, which is why they share a command, an inferrer, and a page shape. A [repo wiki](/reference/repo-wiki) compiles one repository's filesystem into a markdown model Claude reads every session. A realm wiki compiles a folder of them into a knowledge base one level up: pointing at the members that already have their own, summarizing the ones that do not, writing up what they share, and synthesizing loose capture material into a knowledge layer.
+
+Neither replaces the other, and the realm never copies what a member already documents — it links and cites. That is also why an open-source dependency is summarized rather than promoted: the realm can describe a repo it must not write into.
 
 
 ## Federated code intelligence

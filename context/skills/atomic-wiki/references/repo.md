@@ -470,7 +470,7 @@ Write repo-root-relative paths in backticks throughout; a code linkify step rend
 
 ## [generated] skip rule
 
-Entries in `docs/wiki/scan.md` marked `[generated]` must be skipped by sub-agents when writing domain file content. Generated files do not drive domain narratives. Changed content SHAs on generated-flagged paths do not trigger domain refresh. Paths matching `.signalsignore` globs at repo root are flagged `[generated]` by the deterministic scan step.
+Entries in `docs/wiki/scan.md` marked `[generated]` must be skipped by sub-agents when writing domain file content. Generated files do not drive domain narratives. Changed content SHAs on generated-flagged paths do not trigger domain refresh. Paths matching `[scan] generated` globs in `.claude/atomic.toml` (or a legacy `.signalsignore` `+` line) are flagged `[generated]` by the deterministic scan step.
 
 
 ## File layout

@@ -46,7 +46,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | Command | What it does |
 |---------|-------------|
 | `/setup-wiki` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
-| `/refresh-wiki` | Refresh the project wiki; scope is auto-detected. Repo scope: generate (or update) the `docs/wiki/` signals files that teach Claude your repo's shape. Realm scope: run `atomic wiki scan` to classify member repos (scaffolding included), refresh stale or pending artifacts, and synthesize capture-bucket material into `wiki/knowledge/` pages. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. After repo summaries, dispatches `atomic-wiki-inferrer` in bucket-synthesis mode for each bucket with a non-empty diff; code stamps `sources:` frontmatter via `atomic wiki stamp --knowledge`. Prints a per-artifact disposition and commits the wiki automatically when done — its git history is the changelog. Idempotent. |
+| `/refresh-wiki` | Refresh the project wiki; scope is auto-detected. Repo scope: generate or update the `docs/wiki/` pages that teach Claude your repo's shape. Realm scope: run `atomic wiki scan` to classify member repos (scaffolding included), refresh stale or pending artifacts, and synthesize capture-bucket material into `wiki/knowledge/` pages. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. After repo summaries, dispatches `atomic-wiki-inferrer` in bucket-synthesis mode for each bucket with a non-empty diff; code stamps `sources:` frontmatter via `atomic wiki stamp --knowledge`. Prints a per-artifact disposition and commits the wiki automatically when done — its git history is the changelog. Idempotent. |
 
 
 ## Maintenance
@@ -70,76 +70,18 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | `/report-issue-with-atomic` | Open a GitHub issue against the atomic-claude repo itself. |
 
 
-## Binary subcommands (`atomic serve`)
 
-`atomic serve` starts a local read-only HTTP server for exploring a wiki realm and code-intel index in the browser. No write operations; binds localhost by default (`--host 0.0.0.0` opts into read-only LAN exposure). Run `atomic serve --help` for full usage. See [serve reference](/reference/serve) for the full view and route list.
+## Binary subcommands
 
-| Subcommand | What it does |
-|---------|-------------|
-| `atomic serve [path] [--port N] [--host addr] [--open]` | Start the server. `path` defaults to `cwd`; scope (realm / member / repo) is resolved automatically. `--port 0` picks a free port. `--open` opens the browser. Shuts down cleanly on SIGINT. |
+`atomic` verbs are not slash commands, so the harness never lists them in the slash menu. Each family self-describes: `atomic <family> --help` prints every verb with its flags, and `atomic <family> <verb> --help` prints one verb's contract. That output is the source of truth, which is why this page points at it rather than copying it.
 
+| Family | What it covers | Reference |
+|--------|----------------|-----------|
+| `atomic code` | Build and query the symbol graph — where a symbol is defined, what calls it, what breaks if it changes. Also serves the graph over MCP. | [Code intelligence](/reference/code-intel) |
+| `atomic wiki` | Scan and maintain the cross-repo wiki, and register capture buckets that feed its knowledge layer. | [Wiki workflow](/reference/realm-wiki) |
+| `atomic bus` | Message between concurrent Claude Code sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
+| `atomic repl` | Drive a named Python or Node interpreter session that survives across separate Bash calls. | [REPL](/reference/repl) |
+| `atomic serve` | Serve the wiki and code graph as a browsable site. Read-only, localhost by default. | [Serve](/reference/serve) |
+| `atomic doctor` · `validate` · `update` · `migrate` | Check the install, validate artifacts, self-update against a verified checksum, apply versioned migrations. | [Install](/guides/install) |
 
-## Binary subcommands (`atomic wiki`)
-
-The `atomic wiki` subcommand manages the cross-repo wiki and capture buckets. Most of these are called by `/refresh-wiki`, but the `bucket` verbs are also useful on their own. Run `atomic wiki --help` for full usage.
-
-| Subcommand | What it does |
-|---------|-------------|
-| `atomic wiki init [--scope repo\|realm] [--root=<path>]` | Write the fixed-content `CLAUDE.md` scaffold and the `scope` marker in `.claude/atomic.toml`. Idempotent; refuses to overwrite a conflicting marker. |
-| `atomic wiki scan [--root=<path>]` | Scaffold the wiki directory, classify member repos, write the managed `<wiki-scan>` block in `index.md`, and register the wiki globally. Idempotent — re-running regenerates only the managed block. |
-| `atomic wiki stale [--root=<path>]` | Read-only freshness verdict. Reports `DRIFT`/`STALE` lines for repos and concerns, plus `STALE bucket <name>` for capture folders with a non-empty diff. Exits `0` fresh, `1` stale, `2` error. |
-| `atomic wiki linkify --root=<path>` | Render inline path citations across summaries, concerns, knowledge pages, and the index into file-relative markdown links. Deterministic, idempotent, no model. |
-| `atomic wiki stamp <file> [--repo\|--root] [--cites] [--knowledge --sources]` | Write `reflects_rev`/`reflects:` fingerprint frontmatter on a summary or concern, or `sources:` on a knowledge page. Code-only — the model never writes fingerprints. |
-| `atomic wiki bucket add <name>` | Register a capture folder at the realm root. Creates `<name>/index.md` (purpose stub), `wiki/.buckets/<name>/` (manifest dir), and splices a `<bucket>` entry into the `<wiki-buckets>` block in `wiki/index.md`. On first add in a realm, also writes a `## Capture surfaces` section to the realm `CLAUDE.md`. Refuses if `<name>` is `wiki` or the bucket is already registered. |
-| `atomic wiki bucket list` | Print one line per registered bucket: name, path, baseline file count, and `pending` or `fresh` status. Exits `0` even when no buckets are registered. |
-| `atomic wiki bucket diff <name>` | Read-only diff of the capture folder against its baseline. Prints `new <path>`, `changed <path>`, or `removed <path>` per changed file. Exits `0` when the diff is empty, `1` when any line is emitted. |
-| `atomic wiki bucket promote <name>` | Advance the baseline after successful synthesis: recomputes the SHA-256 manifest, rotates `baseline→previous`, sets new manifest as `baseline`. After promote, `diff` exits `0`. |
-| `atomic wiki bucket doc <bucket> <slug> [--router]` | Scaffold `<bucket>/<slug>.md` from the embedded doc template (six-key frontmatter). `--router` also scaffolds the sibling `<slug>/` subtree. Refuses on collision. |
-| `atomic wiki bucket skill <bucket>` | Scaffold the realm's per-bucket `SKILL.md`. Silent no-op if one already exists. |
-| `atomic wiki bucket index [<bucket>]` | Rebuild the `<bucket-docs>` listing region for one bucket — or all buckets when omitted — plus the realm bucket list. `atomic wiki scan` already runs this. |
-
-
-## Binary subcommands (`atomic bus`)
-
-`atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms, over a per-user daemon that auto-spawns on first use and is otherwise controlled explicitly via `start`/`stop`/`restart` — no idle shutdown. The `atomic-bus` skill wraps `join` + a `recv` Monitor and carries the addressed-vs-FYI reaction policy. Run `atomic bus --help` for full usage. See [bus reference](/reference/bus) for the room model, envelope shape, and daemon lifecycle.
-
-| Subcommand | What it does |
-|---------|-------------|
-| `atomic bus join <room> --as <name> [--mode participate\|observe] [--session <id>]` | Join a room under a name. Auto-spawns the daemon. A taken name retries once with a numeric suffix. |
-| `atomic bus leave [<room>]` | Leave a room; defaults to the session's last-joined room. |
-| `atomic bus send <room> <text> [--to <names>] [--reply-to <id>] [--json]` | Send a message. `--to` addresses it; omit for a room-wide FYI. Text `-` reads stdin. |
-| `atomic bus recv <room> [--json]` | Receive messages: always streams one JSON envelope per line until SIGTERM. No replay — only what is published after it subscribes. |
-| `atomic bus who [<room>] [--json]` | List a room's members; defaults to the session's last-joined room. |
-| `atomic bus rooms [--json]` | List every room the daemon knows about, with a member count per room. |
-| `atomic bus status [--json]` | Report this session's joined rooms and the daemon's state. |
-| `atomic bus serve` | Run the daemon in the foreground; this is what `start` spawns. Stopped via `bus stop`. |
-| `atomic bus start` | Spawn the daemon if none is listening. Idempotent. |
-| `atomic bus stop` | Stop a running daemon; exit 0 if none is running. |
-| `atomic bus restart` | Stop then start the daemon; the remedy for a protocol version mismatch. |
-| `atomic bus tail [<room>] [--all-rooms] [--only-addressed] [--from <name>] [--json]` | Watch a room's traffic without joining; never appears in `who`. No replay. |
-| `atomic bus say <room> <text> [--to <names>]` | Send a one-shot message as the operator, without joining. Always succeeds, even in a halted room. |
-| `atomic bus halt <room> [--text <why>]` | Stop a room: agent `send` fails with exit 7 until `resume`. |
-| `atomic bus resume <room>` | Clear a room's halt flag; restores agent `send`. |
-| `atomic bus prune [<room>] [--json]` | Remove stale members — no live subscription, no recent activity — from a room. |
-| `atomic bus close <room>` | Publish a closing envelope, evict every member, and drop the room. Operator verb; no session required. |
-| `atomic bus chat <room> [--as <name>] [--session <id>]` | Interactive client. Joins as a human member; `@name`, `/who`, `/rooms`, `/halt`, `/resume`, `/quit`. |
-
-
-## Binary subcommands (`atomic code`)
-
-The `atomic code` subcommand provides a code-intelligence index and query engine. When a project has been indexed, `atomic-investigator`, `atomic-reviewer`, and `atomic-wiki-inferrer` query the symbol graph automatically; every consumer falls back to `sg`/`grep` when the index is absent. `atomic doctor` check 11 reports index health. Run `atomic code --help` for full usage.
-
-| Subcommand | What it does |
-|---------|-------------|
-| `atomic code index` | Index all source files in the project root. Creates `.claude/.atomic-index/atomic.db` and adds the path to `.gitignore`. |
-| `atomic code sync` | Incrementally re-index only files that changed since the last run. |
-| `atomic code status [--json]` | Show index status: initialized state, file/node/edge counts, last-indexed timestamp, pending changes. `--json` emits the appendix-N shape. |
-| `atomic code search <query> [--json] [--limit N]` | Full-text + fuzzy search over indexed nodes by name, kind, or language. |
-| `atomic code callers <symbol> [--depth N] [--json]` | Find all callers of a symbol up to N hops. |
-| `atomic code callees <symbol> [--depth N] [--json]` | Find all callees of a symbol up to N hops. |
-| `atomic code impact <symbol> [--depth N] [--json]` | Find the impact radius of a symbol — all nodes reachable through call/import edges. |
-| `atomic code node <symbol> [--file path] [--line N] [--json]` | Show detailed node info for a symbol. `--file` and `--line` disambiguate overloads. |
-| `atomic code files [pattern] [--json]` | List all indexed files. Optional pattern filters by path substring. |
-| `atomic code affected [--depth N] [--test-glob pattern] [--stdin] [--json] [paths...]` | BFS over the dependency graph from changed files; returns test files transitively affected. |
-| `atomic code explore <query> [--json]` | Gather relevant context for a natural-language query; returns markdown or structured JSON. |
-| `atomic code mcp` | Start an MCP server exposing the code graph as tools (`atomic_code_explore`, `atomic_code_search`, `atomic_code_node`, `atomic_code_callers`, `atomic_code_callees`, `atomic_code_impact`, `atomic_code_status`, `atomic_code_files`). Subagents do not need MCP — they shell out directly. MCP is opt-in for the interactive session; register manually in `.mcp.json`. See [code-intel MCP setup](/guides/code-intel-mcp). |
+Run `atomic --help` for the full family list.

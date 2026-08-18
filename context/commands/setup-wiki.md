@@ -70,7 +70,7 @@ Inspect the repo. Build this status table:
 | `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value is `atomic hooks session-start` (the inline command written by `atomic hooks install`) | registered / missing |
 | `docs/wiki/index.md` | `test -f docs/wiki/index.md` | exists / missing |
 | Signals `@-ref` wired | present in ANY of `claude.local.md`, `CLAUDE.local.md`, `CLAUDE.md` — check each with `grep -qF '@docs/wiki/index.md' <file>` (mirrors the `atomic-wiki-inferrer` search order); n/a only when none of the three files exist. Only `docs/wiki/index.md` (the compact router) is `@-ref`'d — `docs/wiki/scan.md` is too large for context on big repos and is read by the inferrer on demand. | yes / no / n/a |
-| `.signalsignore` at repo root | `test -f .signalsignore` | exists / missing |
+| Legacy `.signalsignore` at repo root | `test -f .signalsignore` | present (needs migrating) / absent |
 | `docs/wiki/CLAUDE.md` | `test -f docs/wiki/CLAUDE.md` | exists / missing |
 
 Classify the repo:
@@ -102,7 +102,7 @@ For each missing item, propose an action. Skip items already present.
 | Legacy wrapper-script registration present | Run `atomic hooks install` (migrates to the inline command and deletes the stale `session-start-reminders.sh` script). |
 | `docs/wiki/index.md` missing but `atomic` present | Print: "Run `/refresh-wiki` to generate project signals." (follow-up only; setup does not invoke it). |
 | `CLAUDE.md` exists but the `@-ref` is missing | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
-| `.signalsignore` missing | Create `.signalsignore` with commented explanation (see `.signalsignore` subsection in Step 4). Never overwrite if it exists. |
+| Legacy `.signalsignore` present | Point at `atomic migrate --repo .`, which folds it into `[scan]` in `.claude/atomic.toml` and removes the file. Never hand-convert it. |
 | `docs/wiki/CLAUDE.md` missing | Create `docs/wiki/CLAUDE.md` via `atomic wiki init --scope repo` (see `docs/wiki/CLAUDE.md` subsection in Step 4). Never overwrite if it exists. |
 
 Present the proposed actions as a numbered list:
@@ -147,35 +147,21 @@ For each confirmed action, in order:
 grep -qxF 'tmp/' .gitignore || echo 'tmp/' >> .gitignore
 ```
 
-### `.signalsignore`
+### Scan exclusions (`[scan]` in `.claude/atomic.toml`)
 
-Refuse to overwrite if file exists (audit already gated this — defensive double-check).
+Nothing to scaffold. Scan exclusions live in the repo config that `atomic repo init` already created, and an empty `[scan]` table would be noise in every repo that needs no exclusions.
 
-Write the file only when `.signalsignore` is absent:
+Mention the option only when the audit found a plausible reason for it — a committed `vendor/`, `third_party/`, a large fixtures tree, or generated output such as `*.pb.go` or `dist/`. Name the paths you actually saw and show the shape:
 
-```bash
-if ! test -f .signalsignore; then
-  cat > .signalsignore << 'EOF'
-# .signalsignore
-#
-# Augments .gitignore for the signals scan. Gitignored paths are
-# already excluded automatically. This file is for TRACKED paths
-# you want excluded from signals or flagged as generated.
-#
-# Two modes:
-#   plain glob  → fully excluded from scan (not in tree at all)
-#   + prefix    → appears in tree with [generated] flag (inferrer skips)
-#
-# One glob per line. Blank lines and # comments ignored.
-#
-# Examples:
-#   third_party/**     ← committed but excluded from signals
-#   fixtures/**        ← committed but excluded from signals
-#   +dist/**           ← in tree, flagged [generated]
-#   +*.pb.go           ← in tree, flagged [generated]
-EOF
-fi
+```toml
+[scan]
+ignore = ["third_party/**", "fixtures/**"]
+generated = ["*.pb.go", "dist/**"]
 ```
+
+`ignore` drops a path from the tree entirely; `generated` keeps it in the tree but marks it so the inferrer skips its content. Gitignored paths are already excluded, so this is only for committed ones. Never write the table without the user agreeing to the specific paths.
+
+If the repo still has a legacy `.signalsignore`, say so and point at `atomic migrate --repo .`, which converts it into `[scan]` and removes the file. Do not hand-convert it.
 
 ### `docs/wiki/CLAUDE.md`
 

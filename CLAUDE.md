@@ -233,19 +233,27 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `docs/reference/commands.md` | command reference table | atomic-writing |
 | `docs/reference/agents.md` | agent reference table | atomic-writing |
 | `docs/reference/skills.md` | skills reference table | atomic-writing |
-| `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-writing |
+| `docs/reference/repo-wiki.md` | repo-scope wiki: scan, infer, wire pipeline, steering, `.signalsignore` | atomic-writing |
 | `docs/reference/code-intel.md` | code-intel engine: verbs, index, lifecycle, workflow integration | atomic-writing |
 | `docs/reference/output-style.md` | atomic output style reference | atomic-writing |
 | `docs/reference/concepts.md` | how atomic-claude fits together, the atomic binary, code intelligence flow | atomic-writing |
 | `docs/reference/conventions.md` | atomic style scope, CLAUDE.md hygiene, commit bylines, scratchpad/tmp rules, worktree auto-detect | atomic-writing |
 | `docs/reference/serve.md` | `atomic serve` usage, scope resolution, browsing wiki + code graph locally | atomic-writing |
-| `docs/reference/wiki-workflow.md` | wiki setup, repo/realm scope, wiki verbs (scan/stale/linkify/bucket) | atomic-writing |
+| `docs/reference/realm-wiki.md` | realm-scope wiki: setup, repo states, registry, staleness, capture buckets | atomic-writing |
 | `docs/reference/bus.md` | `atomic bus` room model, addressed vs FYI, envelope, daemon lifecycle, exit codes, operator verbs | atomic-writing |
 | `docs/reference/repl.md` | `atomic repl` persistent interpreter sessions, scope model, six verbs, exit codes, idle_timeout config | atomic-writing |
 | `docs/reference/atomic-toml.md` | repo-scoped `.claude/atomic.toml`: scope marker, code-index ignore globs, repl idle_timeout, lenient load contract | atomic-writing |
 | `docs/credits.md` | inspirations, prior-art credits | atomic-writing |
 | `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-writing |
 | `context/CLAUDE.md` | global contract, agent/command/skill registry | atomic-writing |
+
+**Ownership:** where two pages could carry the same fact, the owner below carries it and the sibling points. A doc edit that would restate an owned fact on a sibling page becomes a link instead.
+
+- `docs/guides/install.md` owns the update flags, the background staging mechanism, and the CLAUDE.md merge flow.
+- `docs/guides/getting-started.md` owns the first-session walkthrough (output style, repo setup, first task); `docs/reference/workflow.md` §0 compresses and points.
+- `docs/reference/concepts.md` owns harness detection and the state-path resolution order.
+- `docs/reference/code-intel.md` owns index setup and the `atomic code` verbs; guides show one invocation and point.
+- `docs/reference/atomic-toml.md` owns the `[scan]`, `[code]`, and `[repl]` key semantics; `repo-wiki.md` and `code-intel.md` show their own table and point.
 
 
 ## Research notes (`docs/research/`)

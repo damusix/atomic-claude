@@ -336,30 +336,12 @@ func newestDocMtime(root string) (time.Time, error) {
 	return newest, nil
 }
 
-// readSignalsIgnore returns .signalsignore's exclude globs. '+'-prefixed lines
-// are generated-markers and are dropped: this scanner has no such concept.
-// An absent file is not an error.
+// readSignalsIgnore returns the scan's exclude globs, from [scan] ignore in the
+// repo config or a legacy .signalsignore. Generated globs are dropped: this
+// scanner has no such concept. An absent source is not an error.
 func readSignalsIgnore(root string) ([]string, error) {
-	path := filepath.Join(root, ".signalsignore")
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read .signalsignore: %w", err)
-	}
-	defer f.Close()
-
-	var globs []string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "+") {
-			continue
-		}
-		globs = append(globs, line)
-	}
-	return globs, scanner.Err()
+	ignore, _, _, err := config.ScanGlobs(root)
+	return ignore, err
 }
 
 // matchesGlobs tests each pattern against both the relative path and the base
