@@ -1,7 +1,6 @@
 package signals
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -46,32 +45,12 @@ type Options struct {
 	OutDir string
 }
 
-// readSignalsIgnore splits .signalsignore into plain excludes and '+'-prefixed
-// generated globs. An absent file yields nil slices and no error.
+// readSignalsIgnore resolves the scan's exclude and generated globs from
+// [scan] in the repo config, falling back to a legacy .signalsignore. See
+// config.ScanGlobs for the precedence rule.
 func readSignalsIgnore(root string) (excludeGlobs, generatedGlobs []string, err error) {
-	path := filepath.Join(root, ".signalsignore")
-	f, ferr := os.Open(path)
-	if ferr != nil {
-		if os.IsNotExist(ferr) {
-			return nil, nil, nil
-		}
-		return nil, nil, fmt.Errorf("read .signalsignore: %w", ferr)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.HasPrefix(line, "+") {
-			generatedGlobs = append(generatedGlobs, line[1:])
-		} else {
-			excludeGlobs = append(excludeGlobs, line)
-		}
-	}
-	return excludeGlobs, generatedGlobs, scanner.Err()
+	excludeGlobs, generatedGlobs, _, err = config.ScanGlobs(root)
+	return excludeGlobs, generatedGlobs, err
 }
 
 // Scan walks the repo at root, assembles the signals document, and writes it.

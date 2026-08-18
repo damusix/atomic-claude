@@ -17,6 +17,28 @@ Two sessions on one feature, a room between them, and you watching from a third 
 
 <SessionPlayer :session="BUS" />
 
+The whole example is one exchange. The `to` field decides whether `gui-api` acts or only notes, and a halt fails agent sends while the operator's `say` still lands:
+
+```mermaid
+sequenceDiagram
+    accTitle: A bus room exchange
+    accDescr: gui-fe sends an addressed message that gui-api acts on, then an FYI that gui-api only notes. The operator halts the room, gui-fe's next send fails with exit 7, and the operator's say still gets through.
+    participant fe as gui-fe (agent)
+    participant d as daemon
+    participant api as gui-api (agent)
+    participant op as operator (you)
+    fe->>d: send --to api "cart total is off"
+    d->>api: to:["gui-api"] — act on it
+    fe->>d: send "deploying to staging in 5"
+    d->>api: to:[] — note it, do not act
+    op->>d: halt checkout
+    fe--xd: send (exit 7 — room halted)
+    op->>d: say "read the diff first"
+    d->>api: envelope from the operator
+```
+
+The transcript behind each arrow follows.
+
 
 ### Set it up yourself
 
@@ -102,24 +124,32 @@ atomic bus say checkout "read the diff before you touch it"
 
 ## The room model
 
-A room is a named channel scoped to one piece of work. Sessions join a room under a display name, send and receive messages in it, and leave when done. Two sessions collaborating on a feature might join `checkout-refactor`; three sessions running an eval might join `eval-run-4`. Room names are free text, chosen by whoever joins first.
+A room is a named channel scoped to one piece of work: two sessions on a feature might join `checkout-refactor`, three running an eval might join `eval-run-4`. Names are free text, chosen by whoever joins first.
 
-Membership is per-room, not global: a session can hold different names in different rooms, and a room's roster only lists who has joined that specific room. `who <room>` lists the roster; `rooms` lists every room the daemon currently knows about, each with a member count.
+Membership is per-room rather than global, so a session can hold different names in different rooms and a roster lists only who joined that room. `who <room>` shows the roster; `rooms` lists every room the daemon knows, with a member count each.
 
-A room disappears on its own when its last member leaves — unless a `tail` or `recv` is still watching it, since dropping the room out from under a live subscriber would silently orphan it (a future publish would create a brand-new, empty room object no listener has ever attached to). A room created by a typo, or simply finished with, does not outlive the mistake. `atomic bus close <room>` is the explicit, operator-driven version of the same idea — see Closing below.
+A room disappears when its last member leaves, so one created by a typo does not outlive the mistake. The exception is a live `tail` or `recv`: dropping the room out from under a subscriber would orphan it silently, since the next publish would create a fresh empty room the listener was never attached to. `close` is the operator-driven version of the same teardown — see Closing.
 
 
 ## Position: the name is where a session runs
 
-A member's name is its position stacked with an optional role: `<realm>-<repo>-<as>`, resolved from cwd the same way `atomic where` reports it. `--as` is optional and supplies only the role suffix — never the whole name. Joining `taxgentic/gui` with no `--as` names you `taxgentic-gui`; adding `--as fe-main` names you `taxgentic-gui-fe-main`; a realm registered above the repo prepends its own basename too. Empty segments are omitted, and a segment equal to the one immediately before it is collapsed — a repo named `alpha` with no `--as` is `alpha`, not `alpha-alpha`. Outside any repo, `repo` falls back to cwd's own basename, so the name is never left blank. As before, a collision on the resulting name gets `<name>-2`.
+A member's name is its position stacked with an optional role, `<realm>-<repo>-<as>`, resolved from cwd the same way `atomic where` reports it. `--as` supplies only the role suffix, never the whole name:
 
-Every member also carries `repo` and `realm` — the repo-root basename, and (when the session sits inside a registered wiki realm) the realm-root basename, resolved once at join. `who` renders both as columns. There is no separate qualified display form: the name is already the stacked, qualified form.
+| Where you join | `--as` | Name |
+|---|---|---|
+| `taxgentic/gui` | — | `taxgentic-gui` |
+| `taxgentic/gui` | `fe-main` | `taxgentic-gui-fe-main` |
+| a repo named `alpha`, no realm | — | `alpha` (not `alpha-alpha`) |
 
-Both fields are reported by the joining client — the daemon has no cwd of its own to resolve them from — but every envelope's `from_repo`/`from_realm` are stamped from the roster entry at send time, the same server-side assignment `from`/`from_kind` already get (see Security below). A send request cannot claim a different position than the one it joined with.
+Empty segments are omitted and a segment equal to the one before it collapses, which is why `alpha` does not double. Outside any repo, the repo segment falls back to cwd's basename, so a name is never blank, and a collision on the result gets `-2`. Each member also carries `repo` and `realm` as columns in `who`; the name is already the qualified form, so there is no second display form.
+
+The joining client reports its own position, since the daemon has no cwd to resolve one from, but every envelope is stamped from the roster at send time — see Security.
 
 ### Addressing by a short fragment
 
-A fully stacked name is long to type exactly, so `--to` on `send` and `say` resolves in two passes: an exact name match wins first — always, even when a `-2` collision sibling would otherwise also match as a substring — and failing that, a unique suffix or substring against the room's current members resolves to that member's full name. `--to fe-main` reaches `taxgentic-gui-fe-main` when it's the only member containing that fragment. A fragment matching more than one member is refused with an error naming every candidate, never a silent delivery to one of them; a fragment matching no member passes through unresolved, which is what the unknown-addressee warning below still catches.
+A fully stacked name is long to type, so `--to` resolves in two passes: an exact name match wins first, even over a `-2` sibling that would also match as a substring; failing that, a unique suffix or substring against the room's current members resolves to the full name. `--to fe-main` reaches `taxgentic-gui-fe-main` when it is the only member containing that fragment.
+
+A fragment matching more than one member is an error naming every candidate, never a silent delivery to one of them. A fragment matching nobody passes through unresolved, which is what the unknown-addressee warning below catches.
 
 
 ## Addressed vs FYI
@@ -168,11 +198,9 @@ A message is a summary plus a pointer, not a transport for bulk text. Anything p
 atomic bus send auth-fix "can't get auth working; the documented contract is wrong. All 7 attempts and how each failed: /Users/me/proj/.claude/.scratchpad/auth-probe.md" --to be
 ```
 
-The path must be **absolute**. Members run in different repos, so a relative path resolves against the receiver's cwd and silently reads the wrong file or none. Everything on the bus runs as the same user, so any readable path works; `/tmp` and the scratchpad both suit throwaway handoff material that nobody maintains afterward.
+The path must be **absolute**. Members run in different repos, so a relative one resolves against the receiver's cwd and silently reads the wrong file or none. Everything on the bus runs as the same user, so any readable path works.
 
-This is a convention, not an enforced limit, and it exists because there is no safety net beneath it. Nothing truncates `text`. A 900 KB message is delivered whole and lands in the receiving session's context window in full; only past `MaxTextBytes` (1 MiB) does `send` refuse, and then it fails rather than trimming. A pointer costs the receiver one line until it decides the summary warrants opening the file.
-
-The reaction policy that agents follow when composing these messages lives in `context/skills/atomic-bus/SKILL.md`.
+This is a convention with no safety net under it, which is why it matters: a 900 KB message is delivered whole and lands in the receiving session's context window in full. A pointer costs the receiver one line until they decide the summary warrants opening the file. The reaction policy agents follow when composing these messages lives in `context/skills/atomic-bus/SKILL.md`.
 
 
 ## Session identity
@@ -191,26 +219,28 @@ A member's `kind` is either `agent` or `human`, assigned by the daemon and persi
 
 ## Liveness and pruning
 
-Every member carries `last_seen`, refreshed by any operation that session performs against the room (`join`, `send`) and by holding an open `recv`/`tail`/`chat` subscription. `atomic bus who <room>` reports each member's status as `live` or `stale` in its output (and as a `stale` boolean in `--json`): a member goes stale once it has had no recent activity and holds no open subscription. `last_seen` is persisted, not merely held in the daemon's memory, so a member dead for hours reads as stale immediately after a restart rather than being resurrected as freshly live — the daemon has no way to know a member's activity actually stopped hours ago if all it remembers is "now, because the daemon just started."
+Every member carries `last_seen`, refreshed by any operation it performs against the room and by holding an open `recv` / `tail` / `chat` subscription. `who` reports each member as `live` or `stale`; a member goes stale once it has had no recent activity and holds no open subscription. `last_seen` is persisted rather than held in memory, so a member dead for hours reads as stale immediately after a restart instead of being resurrected as freshly live.
 
-Nothing removes a stale member automatically. A quiet session is not a dead one, and evicting a live member would break addressing with no diagnostic — so staleness is only a signal until an operator acts on it. `atomic bus prune [<room>] [--json]` removes every member currently marked stale and reports which names it removed; a room with nothing stale to reap is a no-op.
+Nothing removes a stale member automatically. A quiet session is not a dead one, and evicting a live member would break addressing with no diagnostic, so staleness stays a signal until an operator acts on it. `atomic bus prune [<room>]` removes every member currently marked stale and names what it removed; a room with nothing stale is a no-op.
 
 
 ## The daemon lifecycle
 
-**Auto-spawn.** The first `join` (or any other verb) that can't reach a live daemon spawns one, detached, and waits for its socket to accept connections before proceeding. The whole probe-and-spawn sequence runs under one exclusive flock, so concurrent `join` calls racing from a cold start still produce exactly one daemon — the loser of the race blocks on the lock, wakes up once the winner's daemon is live, and finds its own probe already succeeding.
+**Auto-spawn.** The first verb that cannot reach a live daemon spawns one, detached, and waits for its socket before proceeding. The whole probe-and-spawn runs under one exclusive flock, so concurrent `join` calls racing from a cold start still produce exactly one daemon: the loser blocks on the lock and wakes to find its own probe already succeeding.
 
-**Explicit control — no idle shutdown.** No timer ever stops the daemon on its own; `atomic bus start | stop | restart` are the only ways it goes up or down.
+**Explicit control, no idle shutdown.** No timer ever stops the daemon; `start`, `stop`, and `restart` are the only ways it goes up or down.
 
-- `bus start` spawns the daemon if none is listening. Idempotent: a second `start` against an already-running, version-compatible daemon reports that and leaves it alone rather than spawning again.
-- `bus stop` sends the shutdown op to a running daemon. No daemon running is exit 0 with a plain message, not an error — the goal state "no daemon" is already reached.
-- `bus restart` is `stop` then `start`, and works whether or not a daemon is currently running. It is also the remedy a version-skew error names.
+| Verb | Behavior |
+|---|---|
+| `bus start` | Spawns if none is listening. Idempotent — a second `start` against a running, version-compatible daemon reports that and leaves it alone. |
+| `bus stop` | Shuts a running daemon down. No daemon running is exit 0 with a plain message, not an error: the goal state is already reached. |
+| `bus restart` | `stop` then `start`, whether or not one is running. The remedy a version-skew error names. |
 
-A client that reaches for the daemon between commands and finds it gone (crashed, or stopped by another process) still respawns it and retries once before surfacing an error, so a session that joined correctly does not come back to a `daemon unreachable` failure the next time it sends.
+A client that finds the daemon gone between commands — crashed, or stopped by another process — respawns it and retries once before surfacing an error, so a session that joined correctly does not hit `daemon unreachable` on its next send.
 
-`recv` is the one exception to "between commands": it holds a single long-lived subscription, so a restart happening *during* that subscription looks nothing like the gap `send`/`who`/etc. tolerate — the connection just drops. `recv` reconnects through the same path on its own and keeps delivering, so a `bus restart` mid-session (the documented remedy for version skew) never silently deafens a listening agent; if reconnecting genuinely fails, `recv` exits non-zero instead of exiting 0 on a stream that quietly stopped.
+`recv` is the exception, because it holds one long-lived subscription rather than reconnecting per command: a restart *during* it just drops the connection. `recv` reconnects on its own and keeps delivering, so the documented version-skew remedy never silently deafens a listening agent. If reconnecting genuinely fails it exits non-zero, rather than exiting 0 on a stream that quietly stopped.
 
-**Rehydration on restart.** The daemon has no memory of its own between processes; `~/.atomic/bus.json` does. At startup, before accepting any connection, the daemon reads that file and rebuilds the full roster — every room, every member, their `mode`, `kind`, and `last_seen` — plus any room's halt flag and reason, in one pass. This runs once at startup rather than as each session happens to run its next command, because the alternative silently drops any member who was idle across the restart: a peer addressing them by name would otherwise reach an empty room and never know why.
+**Rehydration on restart.** The daemon has no memory between processes; `~/.atomic/bus.json` does. Before accepting any connection it rebuilds the full roster from that file — every room and member, their `mode`, `kind`, and `last_seen`, plus each room's halt flag and reason. This happens at startup rather than lazily per session, because the lazy version silently drops anyone idle across the restart: a peer addressing them by name would reach an empty room and never learn why.
 
 
 ## Exit codes
@@ -243,13 +273,13 @@ These reach a room from outside the agent conversation, for a human watching or 
 | `atomic bus resume <room>` | Clear it. |
 | `atomic bus close <room>` | Publish a "room closed" envelope, evict every member, and drop the room. See Closing below. |
 
-**Halting.** `halt` is a stop signal, not a room-wide mute. Once a room is halted, an agent's `send` into it fails with exit `7` until `resume` clears the flag; `say` bypasses the flag unconditionally, so the operator can still explain what went wrong or give a new instruction while every agent is blocked from sending. The daemon enforces this by checking `kind` on the publish path itself — `say`'s human identity is never a parameter a request can claim, so no client can manufacture a halt bypass by asserting `kind: "human"` on a `send`.
+**Halting** is a stop signal, not a room-wide mute. An agent's `send` into a halted room fails with exit `7` until `resume` clears the flag, while `say` bypasses it unconditionally, so the operator can still explain what went wrong while every agent is blocked. The daemon checks `kind` on the publish path itself, so no client can manufacture a bypass by asserting `kind: "human"` on a `send` — see Security.
 
-Halt state survives a daemon restart and is visible without sending a probe message into the room: `atomic bus rooms`, `who <room>`, and `status` all report it, with the `--text` reason, so an operator who halts a room and walks away can still tell it is halted after the daemon comes back up.
+Halt state survives a restart and is visible without probing the room: `rooms`, `who`, and `status` all report it with the `--text` reason, so an operator who halts and walks away can still tell after the daemon comes back.
 
-**Closing.** `atomic bus close <room>` is a room's teardown, not merely a bulk `leave`: it publishes one final envelope (`text: "room closed"`, `closing: true`) so every subscriber learns why its stream ended rather than just seeing it stop, evicts the whole roster, and drops the room — including its persisted memberships and halt state, so a restart does not silently rebuild it. `recv` recognizes the `closing` envelope and ends its own stream cleanly instead of reconnecting (which would otherwise recreate the room the moment it resubscribed). The room log on disk is never touched — it is the durable record, and closing is a roster operation, not a history-deleting one.
+**Closing** is teardown, not a bulk `leave`. `close` publishes one final envelope (`closing: true`) so every subscriber learns why its stream ended rather than watching it stop, evicts the roster, and drops the room along with its persisted memberships and halt state, so a restart does not rebuild it. `recv` recognizes that envelope and ends cleanly instead of reconnecting, which would otherwise recreate the room the moment it resubscribed. The log on disk is untouched: closing is a roster operation, not a history-deleting one.
 
-**Every room's traffic is durable.** Regardless of whether anyone is watching, every published envelope appends to `~/.atomic/rooms/<room>.log` — the record of record, and the only history: `recv` and `tail` replay nothing, so this log is where past traffic lives. `atomic bus read <room> <msg-id>` fetches one message from it by id, complete and uncollapsed.
+**Every room's traffic is durable.** Whether or not anyone is watching, every published envelope appends to `~/.atomic/rooms/<room>.log`. Since `recv` and `tail` replay nothing, that log is the only history, and `atomic bus read <room> <msg-id>` fetches one message from it complete.
 
 
 ## Watching from the browser

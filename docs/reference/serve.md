@@ -34,88 +34,72 @@ The server shuts down cleanly on SIGINT. It prints the URL on start; under a wil
 The resolved scope reaches the client as `GET /api/status`'s `isRealmScope` field and `GET /api/nav`'s `scope` field, consumed by the Status page and the nav tree.
 
 
-## Architecture
-
-`atomic/internal/serve/frontend/` is a Bun-toolchained React + TypeScript workspace: Bun is the package manager, bundler, and test runner (`bun install`, `bun test`, `bun run build.ts`). The build output (`frontend/dist/`) is committed and embedded into the `atomic` binary via `go:embed` (`frontend_dist.go`) — `go build ./internal/serve/...` needs no Bun or Node invocation, and `make frontend` regenerates `dist/` from source with a `git diff --exit-code` drift gate (same pattern as the `context/commands/` and `context/agents/` render pipeline).
-
-The Go server exposes two kinds of routes:
-
-- **`/api/*`** — JSON endpoints the React app fetches: page content, rail data, nav tree, search, code-intel queries, status, external-link registry. Every response that carries pre-rendered HTML (markdown, chroma-highlighted source) names the field `html` (or `*Html`); everything else is plain data the client renders. One error envelope: non-200 status + `{"error": "<message>"}`.
-- **Carried endpoints** — `/graph/data`, `/code/graph/data`, `/code/graph/members`, `/events`, `/healthz` keep their pre-React paths and shapes unchanged; the cosmos.gl graph engine (`graph-core.js`, `system-graph.js`, `code-graph.js`, vendored `cosmos-graph.js`) is carried into `frontend/public/` and mounted from React via `window` contracts (`GraphCore`, `AtomicGraphUI`, `AtomicCodeExplorer`) rather than rewritten.
-
-Every other GET falls through to the embedded `index.html` SPA shell; React Router resolves the requested path client-side (`/page/<relpath>`, `/graph`, `/search`, `/status`, `/external`, `/code/schema`, and the `/` landing route). All fetches in the React app go through one shared `FetchEngine` instance (`@logosdx/fetch`, `utils/api`) — no bare `fetch` in components; resilience (retry, dedupe, caching) is engine configuration.
-
-Markdown rendering (goldmark + chroma + wikilink resolution) stays entirely server-side and single-sourced between the page body and the rail's edge data — `/api/page/*` and `/api/rail/*` resolve links identically. React never renders markdown or server-side content; it injects the HTML the API returns.
-
-
 ## The interface
 
 The UI is a single persistent shell — navigating never reloads it; only the focused content and its surrounding context change.
 
-- **Top bar** — a breadcrumb (`atomic › current page`; the page's own path segments render above the page body), a search trigger that opens the command-palette dialog (`⌘K`), a network-view button that routes to `/graph`, and a light/dark theme toggle.
-- **Left nav** — the collapsible folder tree (`GET /api/nav`), rendered as an Ark UI `TreeView`.
-- **Middle** — the focused page, or graph mode, addressed by React Router. The top-bar network-view button routes to `/graph`; graph mode itself holds the whole-realm docs graph and a per-repo code graph behind a nested Docs | Code toggle.
-- **Right rail** — four slots tracking the focused page: its YAML frontmatter properties, its local link graph, its outbound links, and its inbound links (backlinks).
-- **Code modal** — a source file opens in an Ark UI `Dialog` overlay: highlighted source on the left, code intelligence on the right.
+- **Top bar** — a breadcrumb, a search trigger (`⌘K`), a network-view button that routes to `/graph`, and a light/dark theme toggle.
+- **Left nav** — the collapsible folder tree.
+- **Middle** — the focused page, or graph mode, which holds the whole-realm docs graph and a per-repo code graph behind a nested Docs | Code toggle.
+- **Right rail** — four slots tracking the focused page: its frontmatter properties, its local link graph, its outbound links, and its backlinks.
+- **Code modal** — a source file opens as an overlay: highlighted source on the left, code intelligence on the right.
 
 ### Page view (the default)
 
-The middle pane renders the focused markdown page; the right rail shows that page's context. Navigating to another page updates the content, the breadcrumb, and all four rail slots via `GET /api/page/<relpath>` and `GET /api/rail/<relpath>`.
+The middle pane renders the focused markdown page; the right rail shows that page's context. Navigating to another page updates the content, the breadcrumb, and all four rail slots at once.
 
-Markdown renders server-side via [goldmark](https://github.com/yuin/goldmark) (GitHub Flavored Markdown) with [chroma](https://github.com/alecthomas/chroma) syntax highlighting, delivered to the client as HTML-in-JSON (`{html, title, relpath, hasMermaid, breadcrumb}`). Fenced ` ```mermaid ` blocks render client-side via vendored `mermaid.min.js`.
+Markdown is GitHub Flavored, rendered server-side with syntax highlighting. Fenced ` ```mermaid ` blocks render as diagrams.
 
-In-page links are resolved server-side against the realm root, not the browser's current URL. Three link forms are supported:
+In-page links are resolved against the realm root, not the browser's current URL. Three link forms are supported:
 
 - **Bundle-relative** (`/path/to/page.md`) — a leading slash is resolved against the served root (OKF §5.1 recommended form). When the target exists under root it becomes an in-shell navigable route, exactly like a relative link. This is how cross-links between OKF concept pages (`knowledge/`, `concerns/`) render.
 - **Relative** (`../concerns/x.md`, `./other.md`) — resolved from the source page's directory.
 - **Obsidian wikilinks** (`[[page]]`, `[[page|alias]]`) — resolved by nearest-then-alphabetical rule; kept for back-compat tolerance.
 
-In all three cases, resolved routes become `/page/<relpath>` for markdown pages or folders (React Router navigates in-shell, so clicking never reloads the app or loses your place), or opens the code modal for source files. External `http(s)` links open in a new tab; in-page `#anchor` links and any link that would escape the realm are left untouched. A link to a page that does not exist still routes through `/page/`, so it lands on the in-shell "not found" view rather than a full-page navigation to a dead URL.
+A markdown page or folder navigates in-shell, so clicking never reloads the app or loses your place; a source file opens the code modal instead. External `http(s)` links open in a new tab, and `#anchor` links or anything that would escape the realm are left untouched. A link to a page that does not exist still routes in-shell, landing on a "not found" view rather than a dead URL.
 
-### Right rail (`GET /api/rail/<page>`)
+### Right rail
 
-For the focused page, a single request returns four panels as JSON:
+Four panels track the focused page:
 
-- **Properties** — YAML frontmatter key-value pairs, rendered as a table at the top of the rail. Scalar values pass through as-is; array and object values are pretty-printed as JSON. The slot is hidden when no frontmatter is present. A frontmatter `resource:` key (or any property whose value is an `http(s)://` URL) is rendered as a clickable link — the OKF recommended form for surfacing an underlying asset or canonical source.
-- **This-page graph** — a depth-1 local link graph rendered as a compact Cytoscape mini-graph (data from `/graph/data?node=<page>&depth=1`). Nodes are colored by type, using the same hybrid resolver as the docs graph.
-- **OUT links** — outbound links the page contains, with broken / ambiguous / external annotations. Links to source files open the code modal.
-- **IN links** — backlinks; an orphan note appears when nothing links to the page.
+- **Properties** — frontmatter as a table, hidden when the page has none. A `resource:` key, or any property whose value is a URL, renders as a clickable link.
+- **This-page graph** — the page's depth-1 link neighborhood as a compact mini-graph, colored by type.
+- **OUT links** — outbound links, annotated broken / ambiguous / external. Links to source files open the code modal.
+- **IN links** — backlinks, with an orphan note when nothing links here.
 
-Links and backlinks come from `mdlink.ExtractLinks`, which parses markdown links `[text](path)` and Obsidian wikilinks `[[page]]` / `[[page|alias]]` (fenced code spans excluded). Wikilinks resolve by a nearest-then-alphabetical rule; ambiguous resolutions are surfaced.
+Links come from both markdown links `[text](path)` and Obsidian wikilinks `[[page]]` / `[[page|alias]]`, ignoring fenced code. A wikilink resolves nearest-then-alphabetical, and an ambiguous resolution is surfaced rather than silently picked.
 
 ### Graph mode
 
 The `[ page | system ]` toggle swaps the middle pane into graph mode and collapses the right rail. Graph mode holds two views behind a nested **Docs | Code** toggle: the whole-realm docs graph, and a per-repo code graph.
 
-**Docs graph.** The whole-realm graph, rendered by [cosmos.gl](https://cosmos.gl) (GPU simulation and GPU rendering, fed by `/graph/data`). The layout runs as a continuous physics simulation instead of a one-shot layout pass: it settles to rest and pauses on first open, and the settled positions are cached per realm, so reopening an unchanged graph replays the same layout instantly with no visible motion.
+Both views run on the same GPU-simulated engine, so everything below behaves identically in each; only the data differs.
 
-- Nodes are colored by OKF concept type. The type is resolved via a hybrid strategy: frontmatter `type:` (title-case values `Knowledge`, `Concern`, `Repo Summary` mapped to short lowercase classes) takes priority, then path-convention fallback (a `repos/` path segment → `repo`, `concerns/` → `concern`, `knowledge/` → `knowledge`; `bucket` comes only from frontmatter `type:`), then `page` as a default. External `http(s)` links get no nodes in the docs graph; the `external` class marks non-markdown provenance-injected file nodes.
-- Nodes render in **A-style**: a solid background with a colored glow ring. Colors are read from CSS custom properties at render time via the single-source `typeColors` module and track the active theme automatically.
-- Node labels render as a DOM overlay that fades in as you zoom in and fades out as you zoom out, so a dense graph stays readable from a distance. The hovered node's label always shows, regardless of zoom.
-- Node size scales with zoom: dots render at full size when zoomed in and shrink toward a 4px floor as you zoom out, so a fitted view of a dense graph reads as structure instead of a solid mass.
-- Interaction is **Shift-gated**. With no modifier the pointer is a camera: drag pans (even over dense clusters), scroll zooms, and a click on a node opens it. Holding **Shift** makes the graph itself interactive — hovering highlights a node's neighborhood and shows its preview card, and dragging moves the node (a local reheat: the dragged node follows the pointer, and release settles the simulation and saves the new position to the cache). A corner hint names the gesture.
-- **Shift-click pins.** The first Shift-click on a node pins its neighborhood highlight, which survives mouse-out and releasing Shift — useful for studying a node's relationships hands-free. A second Shift-click on the same node opens it. The pin clears on a background click, on pinning another node, or when the legend hides the pinned node's type.
-- A **type legend** appears below the graph. Each chip shows the type name and its count of visible nodes. Clicking a chip toggles that type's nodes on or off, so you can isolate concerns, or hide repos to see only knowledge pages and the edges between them.
-- Edges are drawn in three classes: markdown links, wikilinks, and fingerprint/provenance links (dashed). A provenance edge whose recorded fingerprint differs from the live content hash is drawn red, the drift signal from the `reflects:` / `sources:` chain.
+The layout is a continuous physics simulation, not a one-shot pass. It settles and pauses on first open, and the settled positions are cached, so reopening an unchanged graph replays the same layout instantly with no visible motion. The code graph's cache is keyed to that repo's index fingerprint, so re-indexing never replays a stale layout against fresh data.
 
-Shift-hovering a node shows a floating card near the pointer with a type chip, title, short description, and a snippet, taken from `title`, `description`, and `snippet` fields in the `/graph/data` JSON payload; it dismisses on pointer-leave. Opening a node (a plain click, or the second Shift-click on a pinned node) opens a modal over the dimmed graph, not a navigation away: the modal fetches the page's rendered HTML from `/api/page/<id>`, displays it inline, and offers an "Open full page →" button for when you want more context. The modal closes on Esc, the close button, or a click on the dimmed backdrop, and graph state is preserved throughout.
+**Interaction is Shift-gated.** With no modifier the pointer is a camera: drag pans, even over dense clusters, scroll zooms, and a click on a node opens it. Holding Shift makes the graph itself interactive, so hovering highlights a node's neighborhood and shows a preview card, and dragging moves the node and saves its new position. A corner hint names the gesture.
 
-**Code graph.** A per-repo view of the code-intel index, fetched from `GET /code/graph/data`: the repo's symbols as nodes, and every edge kind between them — `contains`, `calls`, and `imports` as the named styling tiers, everything else (references, writes, extends, ...) rendered as a tertiary tier. It shares the docs graph's cosmos.gl engine, so the same continuous physics, Shift-gated interaction (hover highlight, pin, drag), zoom-scaled node sizes, and settle-then-pause motion apply; only the data source and styling differ.
+- **Shift-click pins** a node's neighborhood highlight so it survives mouse-out and releasing Shift, which is what makes studying a node's relationships hands-free. A second Shift-click opens the node. The pin clears on a background click, on pinning another node, or when the legend hides that node's type.
+- **The legend filters.** Each chip names a type and its count of visible nodes, and clicking one toggles that type off. Hide repos to see only knowledge pages and the edges between them.
+- **Labels and sizes track zoom.** Labels fade in as you zoom in and out as you zoom out, and node size scales with how connected a node is, shrinking toward a floor as you pull back, so a fitted view of a dense graph reads as structure rather than a solid mass. A hovered node always shows its label.
 
-- Nodes are colored by kind (functions, types, modules, and so on), collapsed into a small set of visual groups with a filterable legend, the same interaction as the docs graph's type legend: click a chip to toggle a group on or off.
-- `contains` edges (a file containing its symbols) render fainter than `calls` and `imports`, so the structural skeleton doesn't drown out the relationships you actually care about.
-- Node size scales with how connected a symbol is, within the same size window the docs graph uses.
-- Shift-hovering a node shows its name, kind, and `file:line` in place of the docs graph's title, description, and snippet. Opening a node (plain click, or second Shift-click on a pinned node) opens the existing code-explorer view for that symbol, the same view reached from code search and the code modal, member-aware in realm scope.
-- In a wiki realm, a member picker next to the Docs | Code toggle lists the repos with a code index, and switching members swaps the graph to that repo. A single-repo or member-scoped server has only one repo to show, so no picker appears.
-- If the selected repo has no code index, the pane shows a message naming `atomic code index` as the fix, instead of an empty graph.
-- Positions are cached per repo, keyed to that repo's index fingerprint: re-indexing changes the fingerprint, so a stale layout is never replayed against fresh data, while reopening an unchanged index replays the cached layout with no visible motion.
-- One graph per repo; there is no merged, cross-repo code graph, the same federation-not-merging rule federated code search follows.
+What differs between the two:
 
-The selected view, and in a realm the selected member, are kept in the URL, so a link to a specific graph reopens the same one.
+| | Docs graph | Code graph |
+|---|---|---|
+| Nodes | pages, colored by concept type | symbols, colored by kind |
+| Edges | markdown links, wikilinks, provenance (dashed) | `contains` (faint), `calls`, `imports`, all others as one tier |
+| Shift-hover card | title, description, snippet | name, kind, `file:line` |
+| Opening a node | the page, inline over the dimmed graph | the code-explorer view for that symbol |
+| Scope | the whole realm at once | one repo, chosen with a member picker |
 
-**WebGL2 requirement.** Graph mode needs WebGL2 to run, in both the Docs and Code view. If the browser lacks it, the toggle shows a message naming the requirement instead of a blank pane or a stuck spinner. The rail mini-graph runs on Cytoscape and needs no WebGL2, so it works in any browser.
+A page's concept type comes from frontmatter `type:` first, then a path convention (`repos/`, `concerns/`, `knowledge/`), then `page` as the default. A provenance edge whose recorded fingerprint no longer matches the live content is drawn red — the drift signal from the `reflects:` / `sources:` chain.
 
-The rail mini-graph runs on the vendored `cytoscape.min.js`; graph mode runs on a separately vendored cosmos.gl bundle shared by both the Docs and Code views. Both are carried into `frontend/public/` and embedded via `go:embed` alongside the rest of `dist/`, with no runtime build step.
+Opening a docs node shows the page in a modal over the dimmed graph rather than navigating away, with an "Open full page →" button for when you want more context; graph state survives throughout. The selected view, and in a realm the selected member, live in the URL, so a link to a specific graph reopens that same one.
+
+There is one code graph per repo and no merged cross-repo graph, the same federation-not-merging boundary federated code search follows. A repo with no index shows a message naming `atomic code index` rather than an empty pane.
+
+**WebGL2 is required** for graph mode, in both views. Without it the toggle says so instead of showing a blank pane or a stuck spinner. The rail's mini-graph needs no WebGL2 and works in any browser.
 
 ### Code modal
 
@@ -126,41 +110,34 @@ Clicking a source-file link — in page content, in the rail, or in a search/cod
 
 Intel-pane drill actions push onto the modal's back-stack; Back pops the stack and re-syncs the source pane to the popped entry's file/line, deduping same-file hops (scroll-to-line only, no re-fetch). The modal closes on `Esc`, the close button, or a backdrop click, which clears the stack.
 
-### Search (command-palette dialog + `/search` page)
+### Search
 
-Search is an Ark UI `Combobox` dialog, not an inline dropdown. The top-bar trigger — or `⌘K` / `Ctrl K`, or `/` when the focus isn't a text field — opens a centered command palette holding the `md | code` toggle and a debounced live-results list. The toggle flips the source:
+`⌘K` (or `Ctrl K`, or `/` when focus is not a text field) opens a command palette with an `md | code` toggle:
 
-- **md** (`GET /api/search/md?q=`) — a literal, case-insensitive grep over the served markdown files. Results are `file:line` matches with a snippet; selecting one loads that page. The query is only ever a search substring, never a path.
-- **code** (`GET /api/code/search?q=`) — the federated symbol search (below). Selecting a result opens the code modal at that symbol's file.
+- **md** — a literal, case-insensitive search over the served markdown. Results are `file:line` matches with a snippet; selecting one loads that page. The query is only ever a substring, never a path.
+- **code** — symbol search across the code index. Selecting a result opens the code modal at that symbol's file.
 
-Pressing `Enter` (or "View all results") opens the dedicated **`/search?q=&src=`** page: a full, URL-addressable results view with `All | Markdown | Code` tabs (Ark UI `Tabs`) — quick-jump in the dialog, browse everything on the page. The dialog closes on `Esc` or a backdrop click.
+`Enter` opens the full `/search?q=&src=` page: URL-addressable, with `All | Markdown | Code` tabs. Use the palette to jump, the page to browse.
 
-The page **streams** results over Server-Sent Events (`GET /api/search/stream`): the markdown block arrives first (a fast local grep), then each realm member's code results stream in as that member's index query finishes. Members are searched **concurrently** — a bounded goroutine pool — so one large repo doesn't hold up the rest, and a terminal event clears the loading spinner. While anything is in flight a spinner shows; when a realm has no code index, the code section says so (`run atomic code index`) instead of sitting blank. An empty or missing `q` streams a single terminal `end` event with a 200 status — SSE has no mid-stream status channel.
+Results stream in rather than landing at once. The markdown block arrives first, then each realm member's code results as that member's index finishes, searched concurrently so one large repo does not hold up the rest. A realm with no code index says so and names `atomic code index` as the fix, instead of sitting blank.
 
-### Federated code search (`GET /api/code/search?q=…`)
+### Federated code search
 
-Resolves realm members, opens each member's index with `engine.NewWithDBPath`, calls `SearchNodes`, and groups results under `[key]` headers. A member with no index is skipped with a visible "not indexed" note rather than aborting other members. `only` and `exclude` query params filter the member set. In repo or member scope the search targets the single index.
+In realm scope, code search spans every member and groups results under `[key]` headers. A member with no index is skipped with a visible "not indexed" note rather than aborting the others, and `only` / `exclude` filter the member set. In repo or member scope it targets the single index.
 
-Members come from two sources, unioned: realm **federation** (a `<code-index>` block in CLAUDE.md plus per-member dbs at `<realm>/.atomic/<key>.db`) and per-member **self-indexes** — a member indexed the natural way, `cd <member> && atomic code index`, which writes `<member>/.claude/.atomic-index/atomic.db`. So code search (and the code modal) work in any wiki realm whose members were individually indexed, with no federation setup. Result links are prefixed with the member's realm-relative path so they resolve through the realm's code-file route. Members searched concurrently — see the streaming search above.
+Members come from two sources, unioned: realm federation (a `<code-index>` block in CLAUDE.md, with per-member dbs under `<realm>/.atomic/`) and per-member self-indexes, written by a plain `cd <member> && atomic code index`. Code search and the code modal therefore work in any realm whose members were indexed individually, with no federation setup at all.
 
-### Code intelligence routes
+### SQL schema view
 
-The code modal and code search build on the per-repo query routes under `/api/code/*`, each composing existing `engine` queries (no new analysis):
+For an index holding tables and views, `/code/schema` renders each with its columns, its foreign-key sources, and the routines that write to it. It is derived from the graph rather than computed on request, which is why there is no `atomic code schema` verb to run.
 
-- `GET /api/code/node` — node detail (signature, file:line, metadata) from `engine.GetNode`.
-- `GET /api/code/callers`, `GET /api/code/callees`, `GET /api/code/impact` — rendered as `{member, root, edges, nodes}` (`types.Subgraph`); edge kind shown (`calls / references / writes / contains`).
-- `GET /api/code/files` — the indexed file list.
-- `GET /api/code/file?path=` — the symbols defined in one file (`engine.GetNodesInFile`); the modal's intelligence pane.
-- `GET /api/code/schema` — for indexes containing `table` / `view` nodes: tables and views with their `column` children, FK sources from `references` edges, and a writers list from `writes` edges. Derived from graph nodes and edges — there is no `atomic code schema` verb.
-- `GET /code/graph/data`, `GET /code/graph/members` — the code graph's data export and member list; see Graph mode above.
+### External links
 
-### External-link registry (`GET /api/external`)
+The nav's External group lists every outbound `http(s)` URL across the realm: the URL, the pages that cite it, and a first-seen date (git history when available, file mtime otherwise).
 
-Lists every outbound `http(s)` URL across the realm: the URL, the source pages that cite it, and a first-seen date (git history when available, file mtime otherwise). Reachable from the nav External group.
+### Status
 
-### Status (`GET /api/status`)
-
-The realm-health view, reachable but no longer the landing page. Renders `wiki.Stale` / `wiki.CheckStaleness` (DRIFT / STALE / STALE bucket) plus aggregate code-index health (worst severity across member repos, naming only repos that need action). No new staleness computation — staleness also surfaces ambiently as badges in the nav. `/healthz` is a separate plain-text liveness probe.
+The realm-health view reports wiki staleness (DRIFT / STALE / STALE bucket) alongside code-index health, naming only the repos that need action. Staleness also shows ambiently as badges in the nav, so this page summarizes rather than being the only signal. `/healthz` is a separate plain-text liveness probe.
 
 
 ## Bus chat
@@ -195,24 +172,13 @@ Files written moments ago are held back for a short quiet window before they are
 Provenance hashing and the full graph JSON are warmed once in a background goroutine at startup and recomputed on demand when the realm fingerprint changes — never on the periodic check.
 
 
-## Theme and visual design
+## Theme and typography
 
-`atomic serve` ships with a light and dark theme, both derived from the same CSS custom-property set.
+The top-bar sun / moon button switches between a light theme (warm paper, charcoal text, amber accent) and a dark one (warm charcoal, off-white text, amber accent). Your choice persists; a first visit follows the OS setting. Switching retints every visible graph immediately, with no page reload.
 
-**Theme toggle.** The top-bar sun / moon button switches themes. Before any page content paints, an inline script (in `index.html`) reads the `atomic-theme` key from `localStorage` and falls back to the OS `prefers-color-scheme` media query. Toggling writes the choice back to `localStorage` and re-invokes every `typeColors`-derived consumer — the rail's Cytoscape stylesheet, the carried graph engine's retheme entry point, and the mermaid retheme effect — so every visible graph's colors update immediately without a page reload.
+Headings are set in Newsreader, UI text in Inter, and code in a monospace stack with ligatures disabled, so a sequence like `--` or `->` never visually collapses the characters around it. In the right rail, a page's `type` property renders as a chip in the same color that type carries in the graph.
 
-**Light theme.** Warm paper background, charcoal text, amber accent.
-
-**Dark theme.** Warm charcoal background, off-white text, amber accent.
-
-**Typography.** Newsreader (serif) for display headings; Inter for UI text; a monospace stack with ligatures explicitly disabled (`font-variant-ligatures: none; font-feature-settings: "calt" 0`) on all `code`, `pre`, `kbd`, and `samp` elements. This prevents programming-font contextual alternates (e.g. `calt`-ligated `--`, `->`, `===`) from collapsing adjacent characters visually.
-
-**Type chip.** The `type` property in the right-rail Properties slot renders as a small colored chip rather than plain text, matching the color used for that node type in the graph.
-
-
-## Static assets
-
-The React app's build output (`frontend/dist/`), including carried CSS and vendored JS, is embedded via `go:embed` and served from memory. No file dependency outside the binary, no runtime build step. One network exception: `index.html` loads the Newsreader, Inter, and JetBrains Mono webfonts from Google Fonts at runtime; without network access the UI falls back to system fonts.
+The whole UI is embedded in the binary and served from memory, so there is no runtime build step and no file dependency outside the binary. The one network call is for the webfonts; without network access the UI falls back to system fonts.
 
 
 ## Security

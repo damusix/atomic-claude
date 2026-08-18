@@ -68,7 +68,8 @@ then get to work
 
   /atomic-plan <desc> .................. design doc + checkpoint spec
     /gather-evidence <hypothesis> ...... chase the hunch through primary sources
-    /pressure-test ..................... attack the design before it's built
+    /pressure-test ..................... defend the design in dialogue before it's built
+    /challenge-swarm @spec.md .......... parallel expert lenses attack the written spec
   /subagent-implementation @spec.md .... implement → review loop; wikis refreshed
   /quick-fix <task> .................... same loop, no spec, for known-cause fixes
   /commit [push|pr|merge|squash] ....... ship from one verb
@@ -81,15 +82,15 @@ Fresh-context subagents drive the loop as a maker/checker split (Anthropic's eva
 
 Wikis are how Claude learns a codebase once instead of every session. Two scopes:
 
-- **Repo wiki**: `docs/wiki/` inside one repository. Build and framework signals, a domain map, cross-cutting notes.
+- **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes.
 - **Realm wiki**: a Karpathy-style knowledge base you compile with Claude instead of maintaining by hand. A folder holds your repos and the loose material around them; the `wiki/` beside them holds per-repo summaries, shared concerns, and knowledge pages synthesized from capture buckets.
 
 ```text
 ~/work/acme/       the realm: repos + the material around them
 ├─ CLAUDE.md       realm rules, loaded from any session inside
-├─ billing-api/    member repo, has its own wiki → linked
-├─ gateway/        member repo, no wiki → summarized
-├─ vendor-sdk/     member repo
+├─ billing-api/    repo · has its own wiki → linked
+├─ gateway/        repo · has its own wiki → linked
+├─ vendor-sdk/     repo · no wiki → summarized
 ├─ research/       capture bucket: findings you write
 ├─ raw/            capture bucket: PDFs, exports, pasted notes
 └─ wiki/           the map atomic compiles
@@ -101,7 +102,7 @@ Wikis are how Claude learns a codebase once instead of every session. Two scopes
 
 The scopes compose. A realm summarizes the repos under it without writing into them, and a member repo that keeps its own wiki is linked rather than re-summarized. Claude loads whichever scope the session sits in: a realm session sees the cross-repo picture, a repo session sees that repo's map. `atomic code index` layers a symbol graph onto either scope; at a realm root it indexes every member, and queries fan out across them.
 
-Two commands drive it. `/setup-wiki` audits a repo's conventions (ignore rules, docs layout, CLAUDE.md wiring) and proposes only what's missing. `/refresh-wiki` builds or refreshes the wiki at either scope: a deterministic scan captures the facts, an inference pass writes the summaries, and ship verbs mark the wiki dirty as the source tree changes, so a session-start nudge tells you when a refresh is due. → [wiki](docs/reference/wiki-workflow.md) · [knowledge base](docs/guides/knowledge-base.md) · [signals](docs/reference/signals-workflow.md)
+Two commands drive it. `/setup-wiki` audits a repo's conventions (ignore rules, docs layout, CLAUDE.md wiring) and proposes only what's missing. `/refresh-wiki` builds or refreshes the wiki at either scope: a deterministic scan captures the facts, an inference pass writes the summaries, and ship verbs mark the wiki dirty as the source tree changes, so a session-start nudge tells you when a refresh is due. → [realm wiki](docs/reference/realm-wiki.md) · [knowledge base](docs/guides/knowledge-base.md) · [repo wiki](docs/reference/repo-wiki.md)
 
 
 ## 💭 Contributing & feedback
@@ -118,8 +119,8 @@ Atomic Claude dogfoods itself: the root artifacts are both the live config and t
 | Skills | [docs/reference/skills.md](docs/reference/skills.md) |
 | Agents | [docs/reference/agents.md](docs/reference/agents.md) |
 | Output style | [docs/reference/output-style.md](docs/reference/output-style.md) |
-| Signals workflow | [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md) |
-| Wiki workflow | [docs/reference/wiki-workflow.md](docs/reference/wiki-workflow.md) |
+| Repo wiki | [docs/reference/repo-wiki.md](docs/reference/repo-wiki.md) |
+| Realm wiki | [docs/reference/realm-wiki.md](docs/reference/realm-wiki.md) |
 | Bus (inter-session messaging) | [docs/reference/bus.md](docs/reference/bus.md) |
 | REPL (persistent interpreter sessions) | [docs/reference/repl.md](docs/reference/repl.md) |
 | Code intelligence | [docs/reference/code-intel.md](docs/reference/code-intel.md) |

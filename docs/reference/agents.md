@@ -3,6 +3,27 @@
 Agents are specialized workers that run in a fresh context. The orchestrator dispatches them during `/subagent-implementation`, `/quick-fix`, and `/subagent-diagnose`, but you can also invoke them directly via the Agent tool. Two of [Anthropic's agent patterns](https://www.anthropic.com/engineering/building-effective-agents) are built in: orchestrator-workers (a parent breaks the task down and delegates to workers) and evaluator-optimizer (the implementer writes, a separate reviewer critiques).
 
 
+## Who dispatches whom
+
+Two orchestration trees cover every dispatch. The implement loop fans out per checkpoint, implementer then reviewer, with the investigator scoping surfaces, the auditor gating the whole delivery once at the end, and the strategist called in only when the loop is stuck. The wiki pipeline fans out per domain, one writer per domain with the same reviewer gating each page.
+
+```mermaid
+flowchart LR
+    accTitle: Agent dispatch topology
+    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer.
+    SI["/subagent-implementation"] --> INV["atomic-investigator"]
+    SI --> IMP["atomic-implementer"]
+    SI --> REV["atomic-reviewer"]
+    SI --> AUD["atomic-auditor"]
+    SI -.->|only when stuck| STR["atomic-strategist"]
+    RW["/refresh-wiki"] --> WI["atomic-wiki-inferrer"]
+    WI --> WW["atomic-wiki-writer"]
+    WI --> REV
+```
+
+`/quick-fix` and `/subagent-diagnose` reuse the implement loop's tree, `/autopilot` runs it end to end, and ship verbs dispatch the wiki-inferrer silently. `/atomic-plan` borrows the reviewer alone, in spec-mode.
+
+
 ## Code agents
 
 These write, review, and gate code.
@@ -36,18 +57,10 @@ These handle system-level tasks.
 
 ## Model and effort overrides
 
-Each agent's `model:` frontmatter defaults to its bundled tier (shown in the tables above). You can pin any installed atomic agent to a different model and reasoning effort via `atomic config agents`, which prompts interactively per agent and writes the choice to `config.toml [claude.agents]`.
+Each agent's model and effort default to the bundled tier shown in the tables above. `atomic config agents` pins either or both per agent: it prompts interactively, one agent at a time, and writes the choices to `config.toml`. Set one field, both, or neither; a blank answer keeps the bundled default for that field.
 
-```
-atomic config agents
-```
-
-For each agent, the prompt asks for:
-
-- a **model** (free text, blank = bundled default): a tier alias (`haiku`, `sonnet`, `opus`) or an exact Claude Code model id, e.g. `claude-opus-4-8`. No provider prefix (`anthropic/` etc.). Validation is lenient: any well-formed value is accepted and passed through to the frontmatter, and Claude Code resolves it at runtime.
-- an **effort** level: `low`, `medium`, `high`, `xhigh`, or `max`. Claude Code downgrades gracefully per model at runtime if a model doesn't support the requested level.
-
-Model and effort are independent. Set either one alone, both, or neither.
+- **model** — a tier alias (`haiku`, `sonnet`, `opus`) or an exact Claude Code model id such as `claude-opus-4-8`, with no provider prefix. Validation is lenient: any well-formed value passes through to the frontmatter, and Claude Code resolves it at runtime.
+- **effort** — `low`, `medium`, `high`, `xhigh`, or `max`. Claude Code downgrades per model at runtime when a model does not support the requested level.
 
 **Bundled defaults:**
 
@@ -61,35 +74,34 @@ Model and effort are independent. Set either one alone, both, or neither.
 | `atomic-auditor` | `claude-opus-5`, effort `max` |
 | `atomic-strategist` | unpinned, effort `xhigh` |
 
-`atomic-strategist` ships with no `model:` field on purpose, so the parent session or your own config decides whether a given question is worth opus or fable. Effort is the knob that survives an unpinned model.
+`atomic-strategist` ships with no `model:` field on purpose, so the parent session or your own config decides whether a given question is worth opus or fable. Effort is the knob that survives an unpinned model. (`fable` is forward-reserved and may not correspond to a live Claude Code model tier yet.)
 
-(`fable` is forward-reserved and may not correspond to a live Claude Code model tier yet.)
+### How an override travels
 
-**How it works.** Overrides are stored as nested `[claude.agents.<name>]` tables in `config.toml` (machine-owned, not hand-edited), each with optional `model` and `effort` fields, namespaced under the Claude Code harness so pi's own `[pi.agents.<name>]` overrides stay separate:
+1. **Config.** `atomic config agents` writes a nested table to `config.toml`, machine-owned and namespaced under the harness, so pi's own `[pi.agents.<name>]` overrides stay separate:
 
-```toml
-[claude.agents.atomic-implementer]
-model = "claude-opus-4-8"
-effort = "high"
-```
+    ```toml
+    [claude.agents.atomic-implementer]
+    model = "claude-opus-4-8"
+    effort = "high"
+    ```
 
-Nested tables are the only accepted shape. A scalar entry (`atomic-implementer = "opus"`) is a config parse error.
+2. **Install.** The installer patches `model:` and `effort:` into each agent file's frontmatter on every `atomic claude install` or `atomic claude update`, and `atomic config agents` re-patches the already-installed files the moment you save, no reinstall needed. Only the fields you set are applied. Both fields are re-derived from config on every install rather than baked into the file, so upgrades never clobber the choice.
 
-On every `atomic claude install` or `atomic claude update` the installer reads the map and patches `model:` and `effort:` in each agent file's frontmatter before writing it to `~/.claude/agents/`, applying only the fields that are set. An absent field leaves the bundled default for that field unchanged. Upgrades never clobber the choice because both fields are re-derived from config on every install, not baked into the installed file.
+3. **Drift check.** `atomic doctor` compares each installed agent's frontmatter against what your config would produce, inside the same install-integrity check that covers every artifact. A missing override reports WARN; `atomic doctor --fix` re-applies the patch.
 
-**Applied immediately.** `atomic config agents` no longer requires a separate reinstall: after saving, it re-patches your already-installed `~/.claude/agents/*.md` files with the new `model:`/`effort:` values. Running Claude Code sessions must be restarted to pick up the new frontmatter.
-
-This immediate re-patch only touches agent files that are already installed under the default `~/.claude` root; it never performs a first-time install. A custom `--target` install directory is not covered. Re-sync it by re-running `atomic claude install --target <dir>`.
-
-**Drift detection and repair.** `atomic doctor`'s install-integrity check compares each installed agent's frontmatter against what your `[claude.agents]` config would produce (the bundle patched with your `model`/`effort` overrides). An installed agent missing a configured override reports WARN, the same way any other install drift does. `atomic doctor --fix` re-applies the patch and clears it. This is not a separate check; it reuses the same install-integrity check that already covers every installed artifact.
-
-**Viewing active overrides.** Run `atomic config list`:
+`atomic config list` shows what is active; no override stored means no `claude.agents.*` lines:
 
 ```
 claude.agents.atomic-implementer.model = claude-opus-4-8
 claude.agents.atomic-reviewer.effort   = high
 ```
 
-No override stored → no `claude.agents.*` lines.
+### Edge cases
 
-**Note:** only bundled artifacts tracked by `[install.artifacts]` are patched. Agents you added manually to `~/.claude/agents/` are not touched.
+| Case | Behavior |
+|---|---|
+| scalar entry (`atomic-implementer = "opus"`) | config parse error; nested tables are the only accepted shape |
+| running Claude Code session | keeps the old frontmatter; restart to pick up the change |
+| custom `--target` install directory | not re-patched on save; re-run `atomic claude install --target <dir>` |
+| agents added manually to `~/.claude/agents/` | never patched; only bundled artifacts tracked by `[install.artifacts]` are |
