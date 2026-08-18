@@ -2,7 +2,7 @@
 
 `atomic repl` gives an agent a named, persistent Python or Node interpreter session it drives across separate Bash calls. `start` spawns it, `eval` runs code against it with state surviving between calls, and `stop` or an idle timeout ends it.
 
-Each session is a detached interpreter child running an embedded harness script that serves its own unix socket. The `atomic` binary is a stateless spawner and client with no process of its own, so killing `atomic` never kills the session. Localhost and Unix-only (macOS, Linux). There is no MCP exposure in v1: the CLI over Bash is the agent surface.
+Localhost and Unix-only (macOS, Linux). There is no MCP exposure in v1: the CLI over Bash is the agent surface.
 
 
 ## Why a session instead of a one-shot script
@@ -15,6 +15,27 @@ A one-shot `python3 -c '...'` re-imports every module and rebuilds every variabl
     atomic repl stop --name analysis
 
 The second `eval` sees `df` because the interpreter never restarted.
+
+
+## The session lifecycle
+
+Each session is a detached interpreter child running an embedded harness script that serves its own unix socket. The `atomic` binary is a stateless spawner and client with no process of its own, so killing `atomic` never kills the session.
+
+A session leaves Running three ways, and a verb that arrives after it left gets an exit code naming what it found:
+
+```mermaid
+stateDiagram-v2
+    accTitle: repl session lifecycle
+    accDescr: start creates a Running session. stop, the idle timeout, and an eval timeout kill all remove it cleanly. A crash leaves its socket files behind as a Dead session. start is the way back from either terminal state.
+    [*] --> Running: start
+    Running --> Running: eval (state survives) / reset (state cleared)
+    Running --> Gone: stop / idle timeout / eval timeout kill
+    Running --> Dead: crash, socket files left on disk
+    Gone --> Running: start
+    Dead --> Running: start
+```
+
+A verb against Gone exits 2 (not found), against Dead exits 5 (socket unreachable), and against a live harness whose wire version is older than the client exits 7; the remedy for 2 and 5 is `start`, and for 7 it is `stop` then `start`. The full code table is under Exit codes below.
 
 
 ## Scope: which sessions a call can see
@@ -32,14 +53,18 @@ Sockets and meta files live under `~/.atomic/repl/<scope-key>/`, where `<scope-k
 
     atomic repl start --name <s> --lang py|js [--env <file>] [--bin <path>] [--json]
 
-Spawns a detached harness and returns once its socket is live. A second `start` with the same `--name` while that session is still alive reports already-running instead of spawning a duplicate.
-
-`--lang` accepts `python`/`js`/`node`/`javascript` as aliases for the canonical `py`/`js`. When no usable interpreter resolves, `exec.LookPath` fails and no `--bin` override is given, or an explicit `--bin` does not resolve, `start` exits with the interpreter-unavailable code, naming the missing binary, before any spawn attempt.
-
-`--env <file>` merges a `KEY=VALUE` env file into the spawned session's environment. Its values never appear in `list` or `status` output, in either human or `--json` form.
+Spawns a detached harness and returns once its socket is live:
 
     atomic repl start --name scratch --lang js
     atomic repl start --name db-check --lang python --env .env --bin /usr/local/bin/python3.12
+
+`--lang` accepts `python`/`js`/`node`/`javascript` as aliases for the canonical `py`/`js`. `--env <file>` merges a `KEY=VALUE` env file into the spawned session's environment; its values never appear in `list` or `status` output, in either human or `--json` form.
+
+| Condition | Behavior |
+|---|---|
+| same `--name` already alive | reports already-running; no duplicate spawn |
+| interpreter not on `PATH`, no `--bin` given | exit 6 before any spawn, naming the missing binary |
+| explicit `--bin` does not resolve | exit 6 before any spawn |
 
 ### eval
 

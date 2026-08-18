@@ -43,7 +43,7 @@ Open a repo you work in and run two commands.
 
 `/refresh-wiki` is the step that stops the guessing. It walks the repo and writes a standing model of it to `docs/wiki/index.md` (with the deterministic scan at `docs/wiki/scan.md` and per-domain files beside it): the framework, the build and test and lint commands, the languages, and a map of which directories form which feature. Claude reads that model before it reads your code, so a new session knows your stack instead of inventing `npm` scripts that do not exist. Ship commands refresh the model as the repo changes, so you do not hand-maintain it.
 
-After this step, ask Claude something about the project. It answers from the signals model rather than from a guess.
+After this step, ask Claude something about the project. It answers from the wiki rather than from a guess.
 
 
 ## Step 3 — Run your first task
@@ -81,21 +81,13 @@ Start with the in-the-loop path while you build trust in the system, then reach 
 ## Step 4 — Index your code (optional)
 
 
-Signals give Claude a prose map of the repo. The code-intel engine gives it a precise one: a symbol graph of every definition, call, and import. Build it once from the repo root:
+The repo wiki gives Claude a prose map of the repo. The code-intel engine gives it a precise one: a symbol graph of every definition, call, and import. Build it once from the repo root:
 
 ```text
 atomic code index
 ```
 
-Once the index exists, the investigator, reviewer, and signals agents query the graph instead of grepping, and you can query it yourself from the terminal with no Claude involved. Indexing is opt-in and everything degrades to plain search when it is absent. See the [code intelligence reference](/reference/code-intel), including how to use it as a standalone CLI.
-
-
-## Running under another harness
-
-
-The binary's project-scoped verbs (repo init, signals, followups, reminders, code intelligence, doc scanning) also work under coding agents other than Claude Code. The repo-local state directory follows the agent that launched the command: Claude Code sessions use `.claude/`, pi agent sessions use `.pi/`, detected automatically from each agent's environment fingerprint. To pin it explicitly, set `ATOMIC_HARNESS=pi` in the agent's launcher, or `atomic config set harness.dir .pi` for plain-terminal use. The first `atomic repo init` from a pi session scaffolds `.pi/` fresh; nothing crosses between the two layouts. See [concepts](../reference/concepts.md) for the full resolution order.
-
-The Claude-specific pieces (the `~/.claude` artifact bundle, output style, hooks) stay Claude-only; other harnesses get the binary's deterministic layer, not the prompt artifacts.
+Once the index exists, the investigator, reviewer, and wiki agents query the graph instead of grepping, and you can query it yourself from the terminal with no Claude involved. Indexing is opt-in and everything degrades to plain search when it is absent. See the [code intelligence reference](/reference/code-intel), including how to use it as a standalone CLI.
 
 
 ## Keeping atomic current
@@ -107,21 +99,13 @@ One command updates both the binary and the bundle:
 atomic update
 ```
 
-This fetches the latest release, verifies its checksum, replaces the binary, refreshes the bundle (CLAUDE.md, agents, commands, skills, output styles, rules in `~/.claude/`), applies migrations, and finishes with a health check. Use `atomic update --check` to see whether an update exists without applying it, or `atomic update --skip-claude-update` to update only the binary.
-
-To refresh the bundle on its own, without touching the binary:
-
-```text
-atomic claude update
-```
-
-If you have edited your own `~/.claude/CLAUDE.md`, the update writes the new version to `~/.atomic/proposed/CLAUDE.md` and tells you to run `atomic prompt claude-merge` inside a subagent, which stages a merged result and preserves your changes. The full set of update flags and the merge flow are in the [install guide](/guides/install#updating).
+This fetches the latest release, verifies its checksum, replaces the binary, refreshes the bundle in `~/.claude/`, applies migrations, and finishes with a health check. The [install guide](/guides/install#updating) owns the rest: the update flags, the background staging that makes the swap near-instant, and the merge flow that protects a hand-edited `~/.claude/CLAUDE.md`.
 
 
 ## Where to go next
 
 
-- [Concepts](/reference/concepts) — the ideas behind signals, wikis, the lifecycle, and the output style.
+- [Concepts](/reference/concepts) — the ideas behind wikis, the lifecycle, and the output style.
 - [Workflow reference](/reference/workflow) — plan, implement, diagnose, and ship in detail.
 - [Commands](/reference/commands), [skills](/reference/skills), [agents](/reference/agents) — the full reference tables.
 - [Knowledge base guide](/guides/knowledge-base) — extend a folder of repos into a wiki that holds your non-code work too: tickets, research, and dumps.

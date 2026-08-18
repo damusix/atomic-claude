@@ -11,7 +11,8 @@ description: >
   carries a logic better than a paragraph does for a human reader and a model alike.
   Structure comes before sentences: a page answers what-is-this, how, where, what-bites,
   what-else, in that order. references/mermaid.md carries diagram type selection and the
-  rules that decide whether a block renders.
+  rules that decide whether a block renders; references/exemplar-*.md carry finished
+  page shapes to imitate per surface type.
   Invoked by /documentation and as callee by atomic-documentation. Auto-fires on
   "draft the README", "write the docs", "improve this prose", "edit the guide",
   "write the spec", "clean up this doc", "make this readable".
@@ -79,12 +80,23 @@ Not every document needs all five, and a surface with its own defined structure 
 | Mechanism first | Opens on how the thing operates and never says what it is for. The reader finishes and cannot say why it exists. | Write section 1 last, then move it to the top. |
 | Inventory sprawl | Facts land in discovery order under a heading loose enough to admit anything ("Notes", "Other", "worth knowing"). | Name the heading after the question it answers. If no heading fits a fact, the fact does not belong. |
 | Split by file type | One concern cut into parallel lists (code here, docs there, config elsewhere), so following one behavior means reading three lists and rejoining them mentally. | One table, grouped by responsibility. |
+| Caveat interleaving | Every statement of the happy path trails its failure modes, so three conditions braid into one clause chain and the reader solves a parse puzzle to learn the common case. | Write the success path clean, as one line or one transcript. Collect every caveat into one table after it, one row per condition. |
+
+**The opening contract.** Before the second `##` heading, the reader has seen three things: what the thing is, when to reach for it, and the thing itself — a worked transcript, a real invocation, or the one diagram that carries the model. For a tool the reader will drive, the strongest opener is a transcript; for a config surface or subsystem, the mental model plus its diagram. A page that defers all three past the first screen reads as an inventory, whatever its prose quality. `references/exemplar-reference-page.md` and `references/exemplar-tool-page.md` carry finished shapes to imitate.
 
 **Name the thing plainly, up front.** When a subject's name does not match its paths, its command, or its output, say so in section 1. A reader who cannot map the name to what they see on disk builds no model at all, and every later section pays for it.
 
 ## Core rules
 
-1. **Show the shape.** When the content has a shape, draw it. A reader follows a flow faster in a diagram than in a paragraph, and so does a model. This is a preference, not a gate: draw it when a picture explains better, write prose when prose explains better, and never add a diagram that only restates the sentence above it.
+1. **Show the shape.** When the content has a shape, draw it. A reader follows a flow faster in a diagram than in a paragraph, and so does a model. Draw it when a picture explains better, write prose when prose explains better, and never add a diagram that only restates the sentence above it — except at the three floors below, where the drawn form is required.
+
+    Floors trigger on the draft, not the plan: check what you wrote, not what you intended to write. These are the shapes a writer most reliably leaves trapped in prose.
+
+    | In your draft (a `docs/` file) | Required form |
+    |---|---|
+    | three or more sentences narrating one process with "then", "after", "once X, Y" | `flowchart`, or `sequenceDiagram` when parties exchange messages |
+    | an entity with three or more named states and rules about moving between them | `stateDiagram-v2` |
+    | two or more things compared along three or more shared attributes | table |
 
     | Content | Form | In `docs/` | In prompt artifacts |
     |---------|------|-----------|---------------------|
@@ -110,6 +122,12 @@ Not every document needs all five, and a surface with its own defined structure 
     Label nodes with the real identifier (`pruneDeleted`, `AuthGuard.verify()`), not a generic noun ("cleanup", "check auth"). A renamed symbol then turns up in grep; a vague label goes stale in silence. Encode distinctions in shape or line style, not color: `{diamond}` for a decision, `[(cylinder)]` for a store, `-.->` for async. Color encodes nothing, breaks on dark backgrounds, and fails colorblind readers.
 
     Before writing a Mermaid block into a `docs/` file, read `references/mermaid.md`: it picks the type from the reader's question and lists what breaks rendering. Identifier labels are the reason it matters here, since a bare `verify(token)` is a parse error and `verify("token")` is not.
+
+    **Diagrams belong to explanation and reference.** A concepts page or a design doc is where a claim about how something works earns a picture, and a reference page earns one for a data model or a type hierarchy. A how-to is ordered steps the reader is executing, not modeling, so it rarely wants one. A tutorial almost never does: a learner on rails does not need a map of the territory, and a diagram invites exactly the decision-making a tutorial exists to remove.
+
+    **Place it where it will be maintained.** A system map belongs in the README, exactly one; subsystem logic belongs in the page next to the code; why-it-is-built-this-way belongs in the design doc; what-changed belongs in the PR body. Commit the diagram with the code it describes. A diagram that lives somewhere the code change never touches drifts, because nothing forces it to move.
+
+    **Check that it parses before committing.** A Mermaid block with a syntax error renders as a raw fence or an error box, and neither is visible from the source. `npx -y @mermaid-js/mermaid-cli -i docs/page.md -o /tmp/out.md` extracts every block and reports each pass or fail. It pulls Chromium, so it is slow the first time; in a container running as root it needs `-p` with a puppeteer config setting `--no-sandbox`. It also writes sibling `.svg` files next to the output — delete them if you only wanted the check. Where `mmdc` is unavailable, re-read the gotcha list in `references/mermaid.md` against what you wrote, which is where most breakage comes from.
 
 2. **Active voice, named actor.** Every sentence has a subject doing something. Replace "the decision was made" with "the team decided" or, in docs, "we picked" or "use X". Never let inanimate things perform human verbs ("the complaint becomes a fix", "the architecture emerges").
 
@@ -167,6 +185,9 @@ Not every document needs all five, and a surface with its own defined structure 
 - A heading that admits anything ("Notes", "Other", "worth knowing")? Rename it after the question it answers, or redistribute its contents.
 - One concern split into parallel lists by file type? Merge into one table grouped by responsibility.
 - Content has a shape and no diagram? Consider drawing it. Diagram that only restates the prose? Cut it.
+- A process told across three or more then/after sentences, a three-state entity, or a three-attribute comparison still in prose? That is a floor, not a preference: draw it or table it.
+- Edge cases braided into happy-path sentences? Move them to one condition table after the clean path.
+- Second `##` heading reached before the reader has seen what it is, when to reach for it, and it running? Rework the opening.
 - Caption that names the diagram instead of stating its claim? Rewrite it as the claim.
 - A shape explained in prose that a picture would carry better? Draw it, however many diagrams the page already has.
 - Two diagrams with barely any text between them? Give the second its own section and its own claim, or cut it as a restatement.
@@ -245,5 +266,7 @@ Not every document needs all five, and a surface with its own defined structure 
 ## Reference files
 
 - `references/mermaid.md` — picking a diagram type from the reader's question, and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file.
+- `references/exemplar-reference-page.md` — the shape of a finished reference page for a config file, format, or subsystem. Read before writing a `docs/reference/` page a reader will use for lookup.
+- `references/exemplar-tool-page.md` — the shape of a finished tool reference: worked example first, then the model, then per-verb lookup. Read before writing a page for a CLI tool, daemon, or protocol.
 
 </constraints>

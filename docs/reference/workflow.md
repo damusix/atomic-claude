@@ -34,13 +34,9 @@ Before your first session in a new project, two commands teach Claude what it is
 /refresh-wiki
 ```
 
-`/setup-wiki` audits your repo for missing conventions (`.gitignore` entries, `docs/` layout, starter `CLAUDE.md`) and proposes only what is missing. `/refresh-wiki` scans the project and generates the [signals files](/reference/signals-workflow) that give Claude a map of your framework, build commands, and project structure.
+`/setup-wiki` audits the repo for missing conventions and proposes only what is absent; `/refresh-wiki` generates the [repo wiki](/reference/repo-wiki), the standing map Claude reads before your code. Run them once per repo; ship commands keep the wiki fresh after that.
 
-You only need to do this once per repo. Signals refresh automatically after that, because ship commands re-scan whenever source files change.
-
-For deeper structural queries, run `atomic code index` to build a symbol graph of the project. Once indexed, you can ask `atomic code explore "<question>"` for a one-shot context digest, and the implementation agents query the graph for callers and blast radius instead of grepping. This is also a one-time setup step. `atomic code sync` keeps the index current, and the implement loop (`/subagent-implementation`, `/autopilot`) and `/refresh-wiki` run it for you. See the [code-intel reference](/reference/code-intel).
-
-If you work across several repos in one realm, such as a folder of services, a set of libraries, or your client projects, a wiki gives Claude a map of how they relate, one level up from per-repo signals. Set one up with `/refresh-wiki`; see [wiki workflow](/reference/wiki-workflow).
+Two optional layers deepen the map. `atomic code index` builds a symbol graph the agents query for callers and blast radius ([code-intel](/reference/code-intel)), and a [realm wiki](/reference/realm-wiki) maps how a folder of repos relates, one level up. The [getting-started guide](/guides/getting-started) walks this setup step by step.
 
 
 ## 1. Plan
@@ -102,16 +98,41 @@ Three verbs run implementation. Pick by what you already have:
 
 Claude reads the approved spec and runs an autonomous implement-then-review loop, Anthropic's evaluator-optimizer pattern applied per checkpoint. A builder agent writes code (failing test first), a reviewer agent checks it against an objective gate (the tests), and each passing checkpoint gets committed automatically.
 
-One checkpoint through the loop, including the stuck path:
+One iteration, plus the once-per-task audit at the end. The implementer and the reviewer never talk to each other, and only the orchestrator writes the scratchpad — the agents read the brief and report back, which is why each can run fresh-context:
 
 ```mermaid
-flowchart LR
-    B["builder: failing test, then code"] --> RV["reviewer: check against tests"]
-    RV -->|pass| C["commit checkpoint"]
-    RV -->|changes requested| B
-    RV -.->|same failure survives 2 rounds| E["stop, surface a root-cause path"]
-    C --> N["next checkpoint"]
+sequenceDiagram
+    accTitle: One iteration of the implement-review loop, and the final audit
+    accDescr: The orchestrator writes the scratchpad files. It dispatches the implementer and the reviewer, each of which reads the brief and the spec and reports back. The orchestrator updates STATE, harvests non-blocking findings into FOLLOWUPS, commits on PASS or re-dispatches on CHANGES_REQUESTED, offers escalation to the user when stuck, and dispatches the auditor once when every checkpoint is green.
+    participant U as you
+    participant O as orchestrator
+    participant S as scratchpad (BRIEF · STATE · FOLLOWUPS)
+    participant I as implementer (fresh context)
+    participant R as reviewer (fresh context)
+    participant A as auditor (fresh context)
+    O->>S: write BRIEF — scope, spec path (once, at start)
+    O->>I: dispatch — this iteration's scope, prior findings
+    S-->>I: BRIEF + spec (read-only)
+    I-->>O: report — did, files touched, test signals
+    O->>R: dispatch — diff BASE..HEAD against the spec
+    S-->>R: BRIEF + spec (read-only)
+    R-->>O: findings + VERDICT
+    O->>S: update STATE, harvest non-blocking findings into FOLLOWUPS
+    alt PASS
+        O->>O: commit the iteration, atomic code sync
+    else CHANGES_REQUESTED
+        O->>I: next round, blocking findings as focus
+    end
+    opt same signal 2 rounds, or 6 iterations
+        O->>U: offer /pressure-test · strategist · continue
+    end
+    opt every checkpoint green
+        O->>A: audit the whole delivery — spec, commit range, STATE
+        A-->>O: PASS, or CHANGES_REQUESTED for one more round
+    end
 ```
+
+The audit runs exactly once per task, after the docs update and before the signals refresh. A `CHANGES_REQUESTED` verdict buys one more implementer-reviewer round against its findings, never a second audit, so finalize cannot loop. It gates what per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, and commit types that misstate user-visible impact.
 
 Non-blocking findings (risks, nits, questions) accumulate in a ledger that you review at the end, so nothing gets silently dropped. When the loop gets stuck, either the same failure surviving two rounds of fixes or the reviewer flagging error-swallowing patches that dodge the bug instead of fixing it, it stops grinding and surfaces a root-cause path: a pressure-test prompt or a read-only strategist analysis you can run, rather than piling on more suppression.
 
@@ -206,7 +227,7 @@ This is the stage that closes the loop. Shipping a feature teaches you something
 
 Claude Code already knows how to commit and push. The reason atomic-claude wraps those operations into its own commands is everything that happens around them:
 
-- **Signals refresh** — when source files changed, the command re-scans the project so Claude's map stays current
+- **Wiki refresh** — when source files changed, the command re-scans the project so Claude's map stays current
 - **Doc-impact check** — checks whether your change affects documentation and prompts you to update the relevant surfaces
 - **Commit message discipline** — messages are generated by the `atomic-git-discipline` skill in Conventional Commits format, drawn from the diff and any session reports
 - **Verification gate** — merge commands run `atomic-verify` before touching the base branch, re-running tests on the merged tip
@@ -216,9 +237,9 @@ Documentation is almost always an afterthought. These commands make it part of t
 
 ### What runs automatically
 
-Every `/commit` invocation runs the signals staleness check and doc-impact checks as part of the commit flow. Documentation surfaces are presented for review, and the commit message is synthesized from the diff. Signals are regenerated only when the check reports stale and the staged set is not docs-only; a fresh index (say, because the implement loop already refreshed it) makes the step a no-op. Escalation paths that touch the base branch (`merge`, `squash merge`) also run `atomic-verify` on the merged tip before finalizing.
+Every `/commit` invocation runs the wiki staleness check and doc-impact checks as part of the commit flow. Documentation surfaces are presented for review, and the commit message is synthesized from the diff. The wiki is regenerated only when the check reports stale and the staged set is not docs-only; a fresh index (say, because the implement loop already refreshed it) makes the step a no-op. Escalation paths that touch the base branch (`merge`, `squash merge`) also run `atomic-verify` on the merged tip before finalizing.
 
-| Path | Signals | Doc-impact | Commit msg | Verify |
+| Path | Wiki | Doc-impact | Commit msg | Verify |
 |------|:-------:|:----------:|:----------:|:------:|
 | commit (all paths) | ✓* | ✓ | ✓ | |
 | merge / squash merge | ✓* | ✓ | ✓ | ✓ |

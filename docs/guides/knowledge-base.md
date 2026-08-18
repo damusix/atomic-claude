@@ -1,7 +1,7 @@
 # Knowledge base
 
 
-Atomic documents code. A [wiki](/reference/wiki-workflow) compiles a folder of repositories into one map: it points at the repos that already have signals, summarizes the ones that do not, and writes up the concerns they share. That is the code side of a realm.
+Atomic documents code. A [wiki](/reference/realm-wiki) compiles a folder of repositories into one map: it points at the repos that already have their own wiki, summarizes the ones that do not, and writes up the concerns they share. That is the code side of a realm.
 
 Real work is not only code. A client engagement accumulates tickets, research you wrote chasing a problem, an email thread with the one detail that explains a bug, a PDF someone sent, a Slack export. This material is the knowledge side, and atomic manages it the same way it manages code. You drop the material into folders and register them as capture buckets; `/refresh-wiki` fingerprints what changed and synthesizes it into `wiki/knowledge/`. You provide the material and the conventions, atomic runs the pipeline.
 
@@ -23,15 +23,15 @@ A realm is a folder that holds repositories and the loose material around them. 
 ~/work/acme/                 the realm — not a git repo
 ├─ CLAUDE.md          realm rules, loaded from anywhere inside
 ├─ .mcp.json          ticket / tool servers for the whole realm
-├─ billing-api/       repo · signals → indexed
-├─ gateway/           repo · signals → indexed
-├─ vendor-sdk/        repo · no signals → summarized
+├─ billing-api/       repo · has its own wiki → indexed
+├─ gateway/           repo · has its own wiki → indexed
+├─ vendor-sdk/        repo · no wiki → summarized
 ├─ research/          capture bucket · findings you write
 ├─ raw/               capture bucket · unprocessed dumps
 ├─ history/           capture bucket · scraped / time-stamped captures
 └─ wiki/              the map atomic compiles — its own git repo
    ├─ index.md        member registry + <wiki-buckets> block
-   ├─ repos/          summaries of no-signals repos
+   ├─ repos/          summaries of repos without their own wiki
    ├─ concerns/       what cuts across repos
    ├─ knowledge/      digests synthesized from the buckets
    └─ .buckets/       SHA-256 manifests, one dir per bucket
@@ -126,10 +126,10 @@ No fingerprint script, no custom synthesis command. On first run in a realm with
 Everything in a realm is markdown in folders, so an Obsidian vault, any markdown server, or `atomic serve` renders it as a navigable graph. Three things make it click together:
 
 - An `index.md` in every surface, listing its contents with links. These are the entry points.
-- Cross-links written during synthesis. When a knowledge digest cites the research and the repo signals behind it, those become links you can follow.
+- Cross-links written during synthesis. When a knowledge digest cites the research and the repo wiki behind it, those become links you can follow.
 - `atomic wiki linkify`, which turns the path citations in repo summaries and concern docs into relative markdown links. `/refresh-wiki` runs it for you.
 
-`atomic serve` renders the realm read-only in the browser, colored by concept type, with federated code search across members. Open it and click from a concern, to the repo it touches, to the signals for that repo, to the research that explains a decision in it.
+`atomic serve` renders the realm read-only in the browser, colored by concept type, with federated code search across members. Open it and click from a concern, to the repo it touches, to that repo’s wiki, to the research that explains a decision in it.
 
 
 ## Where the line is
@@ -137,4 +137,4 @@ Everything in a realm is markdown in folders, so an Obsidian vault, any markdown
 
 Atomic owns the pipeline on both sides. On the code side, `/refresh-wiki` walks the realm, documents the repos, and keeps the summaries and concerns current. On the knowledge side, it fingerprints your capture buckets and synthesizes their changes into `wiki/knowledge/`.
 
-You own the material and the conventions: what goes in each bucket, the bucket's `index.md`, and the realm `CLAUDE.md`. Atomic writes only the `index.md` stub when you register a bucket and the manifests under `wiki/.buckets/`; the material you drop in is yours and untouched. The [wiki workflow reference](/reference/wiki-workflow) documents the full mechanism.
+You own the material and the conventions: what goes in each bucket, the bucket's `index.md`, and the realm `CLAUDE.md`. Atomic writes only the `index.md` stub when you register a bucket and the manifests under `wiki/.buckets/`; the material you drop in is yours and untouched. The [wiki workflow reference](/reference/realm-wiki) documents the full mechanism.

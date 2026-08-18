@@ -197,7 +197,7 @@ The session-start hook calls `CheckStaleness` with a 30-day threshold, a constan
 | [`docs/spec/wiki-deterministic-setup.md`](../spec/wiki-deterministic-setup.md) | The `atomic wiki init` verb. |
 | [`docs/spec/signals-wiki-linkify.md`](../spec/signals-wiki-linkify.md) | The linkify contract shared by `signals linkify` and `wiki linkify`. |
 | [`docs/design/wiki.md`](../design/wiki.md), [`docs/design/wiki-buckets.md`](../design/wiki-buckets.md), [`docs/design/bucket-doc-management.md`](../design/bucket-doc-management.md), [`docs/design/signals-wiki-unification.md`](../design/signals-wiki-unification.md) | Rationale and rejected alternatives behind the specs above. |
-| [`docs/reference/wiki-workflow.md`](../reference/wiki-workflow.md) | User-facing guide: realm mental model, disk layout, member states, bucket authoring, bucket-name rules. |
+| [`docs/reference/realm-wiki.md`](../reference/realm-wiki.md) | User-facing guide: realm mental model, disk layout, member states, bucket authoring, bucket-name rules. |
 | [`docs/reference/concepts.md`](../reference/concepts.md) | `## Wikis` section: signals versus wikis, the three member states, the nudge model. |
 
 

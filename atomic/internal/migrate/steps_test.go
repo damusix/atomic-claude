@@ -7,7 +7,24 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/migrate"
+	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 )
+
+// topRegistryVersion is the highest TargetVersion registered. Computed rather
+// than hardcoded because these tests assert Run's contract — it returns the
+// highest version it applied — not the version of any one step. A literal here
+// breaks every time a migration is added, which says nothing about the step
+// under test.
+func topRegistryVersion(t *testing.T) string {
+	t.Helper()
+	top := "0.0.0"
+	for _, m := range migrate.Registry {
+		if selfupdate.CompareSemver(m.TargetVersion, top) > 0 {
+			top = m.TargetVersion
+		}
+	}
+	return top
+}
 
 // makeOldLayout writes the pre-migration tree: .claude/project/{signals.md,
 // signals/domain.md, deterministic-signals.md} plus a CLAUDE.md carrying the
@@ -167,8 +184,8 @@ func TestRelocateSignalsMigratesOldLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if newVer != "1.0.0" {
-		t.Errorf("returned version: got %q, want %q", newVer, "1.0.0")
+	if want := topRegistryVersion(t); newVer != want {
+		t.Errorf("returned version: got %q, want %q", newVer, want)
 	}
 
 	indexData, err := os.ReadFile(filepath.Join(root, "docs", "wiki", "index.md"))
@@ -253,8 +270,8 @@ func TestRelocateSignalsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Run: %v", err)
 	}
-	if newVer != "1.0.0" {
-		t.Errorf("idempotent re-run changed version: got %q, want %q", newVer, "1.0.0")
+	if want := topRegistryVersion(t); newVer != want {
+		t.Errorf("idempotent re-run changed version: got %q, want %q", newVer, want)
 	}
 	data, _ := os.ReadFile(indexPath)
 	if string(data) != sentinel {
