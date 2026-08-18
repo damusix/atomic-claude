@@ -169,9 +169,11 @@ func assembleBody(root string, opts *Options) (string, error) {
 
 	var sb strings.Builder
 	sb.WriteString("# Deterministic signals\n")
-	sb.WriteString("\n## Tree\n\n")
+	// Fenced: the tree is box-drawing glyphs and column-aligned metadata, which a
+	// markdown renderer reflows into unreadable paragraphs unless it is preformatted.
+	sb.WriteString("\n## Tree\n\n```\n")
 	sb.WriteString(tree)
-	sb.WriteString("\n\n## Manifests\n\n")
+	sb.WriteString("\n```\n\n## Manifests\n\n")
 	sb.WriteString(manifests)
 	sb.WriteString("\n\n## Languages\n\n")
 	sb.WriteString(langs)

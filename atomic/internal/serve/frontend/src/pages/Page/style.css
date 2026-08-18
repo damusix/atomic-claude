@@ -147,15 +147,18 @@
   max-width: none;
 }
 
-/* No per-element measure cap: the frame width is the measure. Typographic
-   convention would hold running prose to ~75 characters, but these are dense
-   reference documents read at a screen rather than essays read at length,
-   and the wasted right-hand column cost more than the long line does. */
+/* The measure is per element, not per container — app.css's --md-measure caps
+   running text while tables, code blocks, and diagrams keep the whole frame.
+   Capping the container was what cost the wasted right-hand column; capping
+   only the prose does not, and a paragraph at the full 1088px runs about 140
+   characters, well past the ~45-90 a reader tracks without losing the line. */
 
 /* Long inline code (paths, flags) is the main cause of horizontal overflow in
-   these docs — let it wrap at path separators rather than push the column. */
+   these docs — let it wrap rather than push the column. `break-word` rather
+   than `anywhere`: break the run only when it would not otherwise fit, so a
+   chip that has room stays whole. */
 .page-body :not(pre) > code {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 /* Anchor targets land clear of the top edge. Aligning a heading flush with
@@ -182,22 +185,29 @@
   background: var(--paper-raised);
 }
 
+/* Full width, with no max-content floor. The floor is what let one prose cell
+   set the width of every column under it and push the table into a horizontal
+   scroll; without it the 300px cap in app.css shapes the distribution instead.
+   The cap binds while columns compete for width — with only two of them the
+   table still has to fill 100%, so the slack lands in the wider column. */
+/* Full width, and free to grow past it. The 300px cell cap in app.css bounds
+   what max-content can reach, so a table only outgrows the frame once it has
+   enough columns to need to — and then this box scrolls rather than crushing
+   them. Without the cap this floor is what let one prose cell run away. */
 .table-scroll table {
   width: 100%;
-  /* Cells size to their content and the container scrolls, rather than
-     columns crushing to fit — the failure mode that makes a wide table
-     unreadable rather than merely wide. */
   min-width: max-content;
   margin: 0;
   border-collapse: collapse;
 }
 
+/* No nowrap: headers wrap within the 10rem column cap set in app.css, rather
+   than widening the column past it. */
 .table-scroll th {
   position: sticky;
   top: 0;
   background: var(--paper-sunk);
   border-bottom: 1px solid var(--hairline-2);
-  white-space: nowrap;
 }
 
 .table-scroll td {
@@ -224,7 +234,15 @@
   line-height: 1.5;
 }
 
-.table-scroll td code {
+/* A path in a cell wraps rather than holding the column open past the cap, and
+   at that width it wraps often. Bordered chips cloned onto every fragment read
+   as several separate values, so in a cell the treatment drops to a tint —
+   sliced, not cloned, so one path stays one run. */
+.md-content .table-scroll td code {
   font-size: 12px;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+  border: 0;
+  padding: 0.1em 0.3em;
+  box-decoration-break: slice;
+  -webkit-box-decoration-break: slice;
 }

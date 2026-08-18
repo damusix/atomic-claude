@@ -121,8 +121,8 @@ Iter 2: atomic-reviewer (spec-mode) reads design + spec → reports gaps:
         - Contradictions between design and spec?
         - Body forward-only — no decision history, prior-version refs, or rejected-fork enumeration?
         - `## Approach` a one-line pointer to the design, not a copied Approaches/Recommendation table?
-        - Change tree present with A/M/D markers covering every checkpoint's files?
-        - Outline present — per-file named pieces with one-line responsibilities, hollow (or explicit `None — <reason>`)?
+        - Change tree present and fenced, with A/M/D markers covering every checkpoint's files?
+        - Outline present and fenced — per-file named pieces with one-line responsibilities, hollow (or explicit `None — <reason>`)?
         - Flows present as actor → step sequences (or explicit `None — <reason>`)?
 Iter 3+: builder applies feedback; reviewer re-checks.
 Terminate on VERDICT: PASS or hard-cap (5 iters; configurable via memory).
@@ -140,9 +140,9 @@ Use `.claude/.scratchpad/<YYYY-MM-DD>-spec-<topic>/` with `BRIEF.md` + `STATE.md
 - Checkpoints are cohesive slices, not line-by-line code.
 - Voice is evidence-backed, not prescriptive.
 - Body is forward-only — no decision history, prior-version references, or rejected-alternative enumeration; `## Approach` points to the design rather than copying its tables.
-- `## Change tree` present, one line per node, A/M/D markers covering every checkpoint's files.
-- `## Outline` present — per file, named pieces with a one-line responsibility each, no signatures or bodies (or explicit `None — <reason>`).
-- `## Flows` present as numbered actor → step sequences (or explicit `None — <reason>`).
+- `## Change tree` present and fenced, one line per node, A/M/D markers covering every checkpoint's files.
+- `## Outline` present and fenced — per file, named pieces with a one-line responsibility each, no signatures or bodies (or explicit `None — <reason>`).
+- `## Flows` present as numbered actor → step sequences in real markdown, not fenced (or explicit `None — <reason>`).
 - No contradictions between design and spec.
 - Risks table honestly enumerates likelihood + mitigation.
 

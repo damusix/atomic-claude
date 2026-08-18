@@ -24,6 +24,38 @@
     --amber-wash:   #fbf3e0;
     --amber-edge:   #ecd9aa;
 
+    /* Reading-surface text colors, split from the brand accent.
+       On this paper --amber measures 3.5:1 and --amber-bright 2.4:1, under the
+       4.5:1 WCAG 1.4.3 needs for body text, and --ink-faint measures 3.6:1.
+       Chrome keeps the brand values — a button or an indicator is a graphic at
+       a 3:1 threshold — while prose links and muted body text use these, at
+       5.3:1. Dark theme already clears the bar, so it aliases them back. */
+    --link:          #8a6212;
+    --link-hover:    #6f4d0d;
+    --ink-muted-aa:  #6f695f;
+
+    /* Text drawn on a diagram's categorical fill. One value for both themes,
+       because both themes' shade-1 fills are pale — the dark ramp is the light
+       ramp shifted lighter, not inverted — so this clears 4.5:1 on all eight
+       hues either way. It tracks the fill, not the page, which is why it is not
+       --ink. */
+    --ink-on-fill: #1a1712;
+
+    /* Code window. Deep ramp shades, because they sit on light paper. */
+    --cw-bg:     var(--paper-raised);
+    --cw-bar:    var(--paper-sunk);
+    --cw-edge:   var(--hairline-2);
+    --cw-ink:    var(--ink);
+    --cw-lang:   var(--ink-muted-aa);
+    --cw-gutter: var(--ink-ghost);
+    --cw-punc:   var(--ink-soft);
+    --cw-key:    var(--ramp-plum-4);
+    --cw-type:   var(--ramp-cyan-4);
+    --cw-fn:     var(--ramp-slate-4);
+    --cw-str:    var(--ramp-moss-4);
+    --cw-num:    var(--ramp-terra-4);
+    --cw-com:    var(--ramp-gray-3);
+
     /* ============================================================
        GRAPH PALETTE — 8-hue x 5-shade x 2-band ramp system
        (docs/spec/code-graph.md styling clause). BRIGHT band = code graph
@@ -233,6 +265,27 @@
     --amber-bright: #f5c860;
     --amber-wash:   #2c2410;
     --amber-edge:   #5a4a1f;
+
+    /* Dark theme measures 10.0:1 on --amber and 5.1:1 on --ink-faint, so the
+       reading-surface colors are the brand ones. */
+    --link:          var(--amber);
+    --link-hover:    var(--amber-bright);
+    --ink-muted-aa:  var(--ink-faint);
+
+    /* Code window. Bright ramp shades on the sunk surface. */
+    --cw-bg:     var(--paper-sunk);
+    --cw-bar:    var(--paper-raised);
+    --cw-edge:   var(--hairline-2);
+    --cw-ink:    var(--ink);
+    --cw-lang:   var(--ink-faint);
+    --cw-gutter: var(--ink-ghost);
+    --cw-punc:   var(--ink-soft);
+    --cw-key:    var(--ramp-plum-1);
+    --cw-type:   var(--ramp-cyan-1);
+    --cw-fn:     var(--ramp-slate-1);
+    --cw-str:    var(--ramp-moss-1);
+    --cw-num:    var(--ramp-terra-1);
+    --cw-com:    var(--ramp-gray-2);
 
     /* ============================================================
        GRAPH PALETTE — 8-hue x 5-shade x 2-band ramp system
@@ -468,6 +521,10 @@ code, pre, kbd, samp, .mono {
     font-size: 13px;
     font-variant-ligatures: none;
     font-feature-settings: "liga" 0, "clig" 0, "calt" 0, "ss01" 0;
+    /* The mono stack's members differ by ~6% in x-height, so which one
+       resolved visibly changed the optical size. Take the metric from
+       whichever is present and normalize the rest to it. */
+    font-size-adjust: from-font;
 }
 
 a { color: inherit; text-decoration: none; }
@@ -1313,10 +1370,23 @@ a:visited { color: var(--amber); }
     gap: 8px;
 }
 
-/* Markdown body */
+/* Markdown body.
+   The reading size is set once here so everything inside can size in `em` and
+   stay proportional. Before this, `p` and `li` each hard-coded 16px and every
+   other element — blockquote text, cells, pre — silently inherited the 15px
+   shell, which is why code and table text drifted out of ratio.
+
+   Two block rhythms, not eight: text blocks share one gap, figures (code,
+   tables, images, diagrams) share a wider one. */
 .md-content {
     max-width: 70ch;
+    font-size: 16px;
+    line-height: 1.7;
     color: var(--ink-soft);
+    --md-gap: 1.15em;
+    --md-gap-figure: 1.5em;
+    /* Running text stops before the frame; figures keep the full frame. */
+    --md-measure: 55em;
 }
 
 .md-content h1 {
@@ -1364,25 +1434,56 @@ a:visited { color: var(--amber); }
     margin: 28px 0 10px;
 }
 
-.md-content h4, .md-content h5, .md-content h6 {
+/* h4 sits at body size. Below it, a heading smaller than the text it heads
+   stops reading as a heading — the old rule put all three levels at 14px
+   uppercase, under the 16px prose, and made them indistinguishable from each
+   other. h5/h6 keep the uppercase treatment as the two sub-levels. */
+.md-content h4 {
+    font-family: var(--sans);
+    font-weight: 650;
+    font-size: 1em;
+    color: var(--ink);
+    margin: 1.75em 0 0.5em;
+}
+
+.md-content h5, .md-content h6 {
     font-family: var(--sans);
     font-weight: 600;
-    font-size: 14px;
+    font-size: 0.8125em;
     color: var(--ink);
-    margin: 20px 0 8px;
+    margin: 1.5em 0 0.5em;
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
 
 .md-content p {
-    font-size: 16px;
-    line-height: 1.72;
     color: var(--ink-soft);
-    margin-bottom: 18px;
+    margin: 0 0 var(--md-gap);
+}
+
+/* Bold marks the load-bearing term. Inheriting the body color left it
+   separated from its own paragraph by weight alone. */
+.md-content strong {
+    color: var(--ink);
+    font-weight: 650;
+}
+
+/* Headings even out their line lengths; body copy avoids one-word last lines.
+   Browsers cap `balance` at a handful of lines, so it stays cheap. */
+.md-content :is(h1, h2, h3, h4) { text-wrap: balance; }
+.md-content p { text-wrap: pretty; }
+
+/* The measure applies to running text only. Capping the container instead
+   would crush the tables, code blocks, and diagrams these docs are mostly
+   made of — which is the reason the container cap was dropped in the first
+   place. At the frame's full 1088px, a paragraph runs about 140 characters;
+   45-90 is the readable band. */
+.md-content :is(p, ul, ol, blockquote, dl) {
+    max-width: var(--md-measure);
 }
 
 .md-content a {
-    color: var(--amber);
+    color: var(--link);
     text-decoration: none;
     border-bottom: 1px solid var(--amber-edge);
     font-weight: 500;
@@ -1390,37 +1491,91 @@ a:visited { color: var(--amber); }
 }
 
 .md-content a:hover {
-    color: var(--amber-bright);
-    border-bottom-color: var(--amber-bright);
+    color: var(--link-hover);
+    border-bottom-color: var(--link-hover);
 }
 
-.md-content a:visited { color: var(--amber); }
+.md-content a:visited { color: var(--link); }
 
 .md-content ul, .md-content ol {
-    padding-left: 1.4em;
-    margin-bottom: 16px;
+    padding-left: 2em;
+    margin: 0 0 var(--md-gap);
 }
 
 .md-content li {
-    font-size: 16px;
-    line-height: 1.65;
     color: var(--ink-soft);
-    margin-bottom: 4px;
 }
 
+/* Spacing goes between items, not after every one, so a list does not carry
+   trailing space into the block gap below it. */
+.md-content li + li {
+    margin-top: 0.5em;
+}
+
+/* Numbered steps — the spec `## Flows` shape, and any procedure. The marker is
+   what a reader scans back to, so it gets a wider gutter than a bullet needs
+   and its own weight: at 1.4em a two-digit `10.` overhung the list box into
+   the gutter the h2 diamond occupies. Styling ::marker rather than a CSS
+   counter keeps the browser's own numbering, so a list that resumes at 7 still
+   says 7. Tabular figures keep 1 and 10 the same width, which is what holds
+   the number column's left edge straight. */
+.md-content ol > li::marker {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.md-content ul > li::marker {
+    color: var(--ink-ghost);
+}
+
+/* Sub-steps change symbol so a step and its sub-step do not both read "1.". */
+.md-content ol ol { list-style-type: lower-alpha; }
+.md-content ol ol ol { list-style-type: lower-roman; }
+
+/* A nested list continues under its parent's text, not under the marker. */
+.md-content li > ul, .md-content li > ol {
+    margin: 0.5em 0 0;
+}
+
+/* A markdown list goes "loose" — every item wrapped in <p> — as soon as one
+   item has a blank line around it. Without this the paragraph margin lands on
+   top of the item margin, so two lists that look identical in source render at
+   different rhythms. */
+.md-content li > p {
+    margin: 0 0 0.5em;
+}
+
+.md-content li > p:last-child {
+    margin-bottom: 0;
+}
+
+/* goldmark emits a bare <input type="checkbox"> and no class, so the item
+   keeps its bullet and renders as "• ☐ text". Spec success criteria are all
+   task lists, so this shows up on every spec page. */
+.md-content li:has(> input[type="checkbox"]) {
+    list-style: none;
+}
+
+.md-content li > input[type="checkbox"] {
+    margin: 0 0.4em 0.15em -1.4em;
+    vertical-align: middle;
+}
+
+/* No blanket italic: these callouts carry inline code and file paths, and a
+   long italic passage is the harder thing to read, not the easier one. */
 .md-content blockquote {
     border-left: 3px solid var(--amber-edge);
-    padding: 2px 0 2px 16px;
-    margin: 20px 0;
-    color: var(--ink-faint);
-    font-style: italic;
+    padding: 0.1em 0 0.1em 1em;
+    margin: var(--md-gap) 0;
+    color: var(--ink-soft);
 }
 
 .md-content hr {
     border: none;
     height: 1px;
     background: linear-gradient(90deg, var(--hairline-2), transparent);
-    margin: 32px 0;
+    margin: 2.5em 0;
 }
 
 .md-content table {
@@ -1430,13 +1585,26 @@ a:visited { color: var(--amber); }
     margin-bottom: 20px;
 }
 
+/* Pressure toward 300px, not a ceiling. In auto table layout a cell's
+   max-width is an input to the column algorithm rather than a bound, so the
+   result can exceed it: with four columns competing a prose column lands near
+   300, but a two-column table pinned to 100% has no competition and hands the
+   whole remainder to the wider column. That is the trade for tables that fill
+   the frame — a real ceiling needs the table sized to its columns instead.
+   Either way the content must be able to wrap, which is why the header and
+   cell-code nowrap rules are gone. */
+.md-content :is(th, td) {
+    max-width: 300px;
+    overflow-wrap: break-word;
+}
+
 .md-content th {
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 0.75em;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--ink-faint);
+    color: var(--ink-muted-aa);
     border-bottom: 2px solid var(--hairline-2);
     padding: 8px 12px;
     text-align: left;
@@ -1468,13 +1636,234 @@ pre {
     box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
+/* Code sizes relative to whatever it sits in, so an identifier inside a
+   heading or a table cell stays in proportion instead of holding at 13px and
+   becoming the smallest text on the page. tab-size matters here because these
+   blocks carry file trees, Go, and Makefiles.
+
+   A highlighted fence carries chroma's own inline colors; only the plain ones
+   (unlabeled fences and indented blocks) take the paper palette. */
+.md-content pre {
+    font-size: 0.875em;
+    line-height: 1.5;
+    tab-size: 4;
+    padding: 1em 1.15em;
+    margin: var(--md-gap-figure) 0;
+}
+
+/* Indented code blocks, the one kind that gets no window: goldmark renders
+   them with its default renderer, so they arrive without a language and
+   without chroma's classes. */
+.md-content pre:not([style]):not(.mermaid):not(.chroma) {
+    background: var(--paper-sunk);
+    color: var(--ink);
+}
+
+.md-content pre code {
+    font-size: inherit;
+}
+
 .md-content code:not(pre code) {
-    background: var(--paper-raised);
+    background: var(--paper-sunk);
     border: 1px solid var(--hairline-2);
     border-radius: 4px;
-    padding: 1px 6px;
-    font-size: 13px;
+    padding: 0.15em 0.4em;
+    font-size: 0.9em;
     color: var(--ink);
+    /* Long paths and flags do wrap. Without this the chip's padding and border
+       are drawn once around the whole run, so the fragment on the second line
+       has no left edge and the one on the first has no right edge. */
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
+/* ============================================================
+   MERMAID
+   ============================================================ */
+
+/* ER attribute rows. Mermaid 11.15 renders entities through the unified node
+   renderer, which derives the two alternating row fills from `background` by
+   lightness and ignores attributeBackgroundColorOdd/Even — so in dark mode the
+   rows come out near-white while the text stays light on light. The fills are
+   presentation attributes, which any CSS rule outranks. */
+.md-content pre.mermaid g.row-rect-odd > path {
+    fill: var(--paper-raised);
+}
+
+.md-content pre.mermaid g.row-rect-even > path {
+    fill: var(--paper-sunk);
+}
+
+/* Kanban column headers and journey labels are painted, not inherited:
+   mermaid colors them with `textColor`, which is --ink because that same
+   variable carries titles, legends and edge labels sitting on the page. On a
+   categorical fill --ink is the wrong end of the scale, so these two name it
+   back. Both splits are structural rather than by class name, because the
+   correct color depends on what the text sits on: kanban headers are under
+   g.sections while its cards (a dark surface, already right) are under
+   g.items; journey's section and task labels sit on fills while its legend
+   sits on the page. */
+.md-content pre.mermaid g.sections g.cluster-label :is(div, span, p),
+.md-content pre.mermaid :is(div.journey-section, div.task) :is(div, span, p) {
+    color: var(--ink-on-fill) !important;
+}
+
+/* The rules below name families that paint directly, or paint an SVG `fill`
+   that color inheritance cannot reach.
+
+   These are `!important` because mermaid scopes its own rules by the diagram's
+   generated id, so they carry id-level specificity that outranks any class
+   selector here. The ER rows above need no such thing: those fills are
+   presentation attributes, which any rule beats.
+
+   Packet carries no theme at all: 11.15 paints the rect #efefef and every label
+   #000 regardless of the palette, so in dark mode it is a slab of white. */
+.md-content pre.mermaid rect.packetBlock {
+    fill: var(--paper-raised) !important;
+    stroke: var(--hairline-2) !important;
+}
+
+.md-content pre.mermaid :is(text.packetLabel, text.packetByte, text.packetTitle) {
+    fill: var(--ink) !important;
+}
+
+/* ============================================================
+   CODE WINDOW — labeled fences
+   ============================================================ */
+
+/* A labeled fence renders as a titled window: bar, traffic lights, language,
+   numbered lines. The frame is what separates a quoted artifact from the page
+   around it, so a code block stops reading as a stray paste.
+
+   Every color the window uses is a --cw-* token defined per theme below, so
+   the surface can be re-pitched light or dark in one block without touching
+   any of the token rules. The syntax hues come from the existing 8-hue ramp
+   rather than a stock editor theme — that is what makes it this document's
+   code rather than someone else's editor. */
+.md-content .code-window {
+    margin: var(--md-gap-figure) 0;
+    border: 1px solid var(--cw-edge);
+    border-radius: 12px;
+    background: var(--cw-bg);
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.code-window-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 14px;
+    background: var(--cw-bar);
+    border-bottom: 1px solid var(--cw-edge);
+}
+
+/* One element, three lights: the dots carry no meaning and no interaction, so
+   they cost one box-shadow rather than three empty spans. */
+.code-window-dots {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #ff5f57;
+    box-shadow: 20px 0 0 #febc2e, 40px 0 0 #28c840;
+    margin-right: 40px;
+    flex: none;
+}
+
+.code-window-lang {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--cw-lang);
+}
+
+.md-content .code-window pre.chroma {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    color: var(--cw-ink);
+    padding: 14px 0;
+}
+
+/* Line numbers come from a counter, not from markup: chroma can emit them as
+   text, but then they land in the clipboard with the code. */
+.md-content .code-window pre.chroma code {
+    counter-reset: cw-line;
+    display: block;
+}
+
+.md-content .code-window .line {
+    counter-increment: cw-line;
+    display: block;
+    position: relative;
+    padding: 0 18px 0 3.6em;
+}
+
+.md-content .code-window .line::before {
+    content: counter(cw-line);
+    position: absolute;
+    left: 0;
+    width: 2.6em;
+    text-align: right;
+    color: var(--cw-gutter);
+    font-variant-numeric: tabular-nums;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Syntax tokens. Chroma's short class names, grouped by what they mean rather
+   than listed one per rule. Both chroma surfaces share the palette: the fence
+   window here, and the /api/file source view, which strips chroma's own <pre>
+   and rebuilds the lines as an anchored table. */
+:is(.code-window, .file-view) :is(.k, .kd, .kn, .kc, .kp, .kr, .ow) {
+    color: var(--cw-key);
+}
+
+:is(.code-window, .file-view) :is(.kt, .nc, .nn, .ni, .nt) {
+    color: var(--cw-type);
+}
+
+:is(.code-window, .file-view) :is(.nf, .nd, .ne, .na, .nb, .bp) {
+    color: var(--cw-fn);
+}
+
+:is(.code-window, .file-view) :is(.s, .s1, .s2, .sb, .sc, .sd, .se, .sh,
+                                  .si, .sx, .sr, .ss, .sa) {
+    color: var(--cw-str);
+}
+
+:is(.code-window, .file-view) :is(.m, .mb, .mf, .mh, .mi, .mo, .il) {
+    color: var(--cw-num);
+}
+
+:is(.code-window, .file-view) :is(.c, .c1, .cm, .cp, .cs, .cpf, .ch) {
+    color: var(--cw-com);
+    font-style: italic;
+}
+
+:is(.code-window, .file-view) :is(.o, .p) { color: var(--cw-punc); }
+
+:is(.code-window, .file-view) :is(.nv, .vc, .vg, .vi, .nx, .nl) {
+    color: var(--cw-ink);
+}
+
+:is(.code-window, .file-view) :is(.err, .gd) { color: #e5534b; }
+:is(.code-window, .file-view) .gi { color: var(--cw-str); }
+:is(.code-window, .file-view) .ge { font-style: italic; }
+:is(.code-window, .file-view) .gs { font-weight: 600; }
+
+/* A linked path is a link first. Signals linkify emits <a><code>path</code></a>,
+   and the chip's own color was overriding the link's, so a whole table of
+   linked paths read as plain code with nothing to say it was clickable. */
+.md-content a code:not(pre code) {
+    color: var(--link);
+}
+
+.md-content a:hover code:not(pre code) {
+    color: var(--link-hover);
 }
 
 /* Wikilink styles */
@@ -1556,13 +1945,125 @@ pre {
     color: transparent;
 }
 
+/* Not `inherit`. Inheriting hands the diagram the page's --ink-soft, and the
+   families that paint no label of their own (journey, mindmap, kanban column
+   headers) then draw that onto a pale categorical fill — 1.4:1 in dark mode.
+   Every family mermaid does paint sets its own color directly, and a painted
+   color beats an inherited one, so this reaches exactly the gap and nothing
+   else. See --ink-on-fill for why one value serves both themes. */
 .md-content pre.mermaid[data-processed="true"] {
+    color: var(--ink-on-fill);
+}
+
+/* Mermaid wraps a markdown label in <p>, which lands inside .md-content and so
+   gets the prose color — the page's --ink-soft — painted directly onto a
+   diagram fill. That is this stylesheet leaking into the diagram, not mermaid
+   ignoring a variable: mermaid's own <p> rule sets margin only. Hand the label
+   back to whatever the diagram decided. */
+.md-content pre.mermaid p {
     color: inherit;
 }
 
 .md-content pre.mermaid svg {
     max-width: 100%;
     height: auto;
+}
+
+/* Expand control. A diagram is usually the widest thing on the page, so it
+   gets a way to take the screen. Quiet until the block is hovered or the
+   button is focused, because it sits on top of the drawing. */
+.md-content pre.mermaid {
+    position: relative;
+}
+
+.mermaid-expand {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--hairline-2);
+    border-radius: 7px;
+    background: var(--paper-raised);
+    color: var(--ink-faint);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s, color 0.12s;
+}
+
+.md-content pre.mermaid:hover .mermaid-expand,
+.mermaid-expand:focus-visible {
+    opacity: 1;
+}
+
+.mermaid-expand:hover {
+    color: var(--ink);
+}
+
+/* Two corner brackets, drawn rather than shipped as an icon file. */
+.mermaid-expand::before,
+.mermaid-expand::after {
+    content: "";
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border: 1.5px solid currentColor;
+}
+
+.mermaid-expand::before {
+    top: 7px;
+    left: 7px;
+    border-right: 0;
+    border-bottom: 0;
+}
+
+.mermaid-expand::after {
+    right: 7px;
+    bottom: 7px;
+    border-left: 0;
+    border-top: 0;
+}
+
+/* Fullscreen paints its own black backdrop, so the block has to restate the
+   page surface and center what is now a small drawing in a large box. The
+   centered position is also the zoom's identity: clearing the transform is the
+   same as fitting to screen.
+
+   overflow: a transformed child still contributes scrollable overflow, so a
+   zoomed diagram would otherwise grow scrollbars inside the fullscreen box.
+   user-select and touch-action hand pointer drags to the pan handler instead
+   of to text selection and native scrolling. */
+.md-content pre.mermaid:fullscreen {
+    display: grid;
+    place-items: center;
+    padding: 32px;
+    background: var(--paper);
+    border-radius: 0;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    cursor: grab;
+}
+
+.md-content pre.mermaid:fullscreen.is-panning {
+    cursor: grabbing;
+}
+
+/* Focused on entry so the keyboard zoom lands without a click first; the ring
+   would frame the whole screen. */
+.md-content pre.mermaid:fullscreen:focus {
+    outline: none;
+}
+
+.md-content pre.mermaid:fullscreen svg {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+.md-content pre.mermaid:fullscreen .mermaid-expand {
+    opacity: 1;
 }
 
 /* ============================================================
