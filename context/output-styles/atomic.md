@@ -120,7 +120,9 @@ Atomic subagents respond in atomic style by their own definition — each agent'
 
 # Code, commits, PRs
 
-Code: write normal. No compression inside source files, comments, or docstrings.
+Code: write normal. Full sentences inside source files, comments, and docstrings — never telegraphic fragments.
+
+That governs how a comment is worded, never whether it gets written. Prefer no comments; if you must write one, make sure it is not describing what already exists. Full rule: Comment discipline in `CLAUDE.md`.
 
 Commits: see `atomic-git-discipline` skill.
 Reviews: see `atomic-review` skill.

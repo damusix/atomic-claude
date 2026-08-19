@@ -34,6 +34,24 @@ The server shuts down cleanly on SIGINT. It prints the URL on start; under a wil
 The resolved scope reaches the client as `GET /api/status`'s `isRealmScope` field and `GET /api/nav`'s `scope` field, consumed by the Status page and the nav tree.
 
 
+## What gets enumerated
+
+The nav tree, markdown search, the docs graph, and the change-detection fingerprint all walk the same tree and share one exclusion rule.
+
+Skipped: dot-directories, `node_modules`, `vendor`, `tmp`, and anything git ignores. `.claude` is the deliberate exception to the dot-directory rule — it holds servable project docs that wiki links cite across members, so skipping it would break valid links.
+
+Git-ignored is not on its own enough to skip, because a realm gitignores its member repositories: from the realm's point of view they carry their own history and are disposable, yet they are the very thing a realm exists to serve. So an ignored directory is still walked when it is a repository in its own right — when it holds a `.git` **directory**. What that leaves out is a second copy of content already reachable somewhere else:
+
+| Ignored path | `.git` entry | Enumerated |
+|---|---|---|
+| a realm's member repo | directory | yes — it is its own repository |
+| `.claude/worktrees/<branch>/` | file | no — a second checkout of the same repo |
+| `bin/`, build mirrors, caches | none | no |
+
+A linked worktree carries `.git` as a file pointing back at the repository it duplicates, which is what tells it apart from a member repo. Before this rule, a repo with eight worktrees showed every doc nine times in nav, search, and the graph.
+
+This governs enumeration only. An ignored file still renders when you navigate to it by path — it simply does not show up in a listing, a search result, or the graph.
+
 ## The interface
 
 The UI is a single persistent shell — navigating never reloads it; only the focused content and its surrounding context change.
@@ -142,13 +160,27 @@ The realm-health view reports wiki staleness (DRIFT / STALE / STALE bucket) alon
 
 ## Bus chat
 
-`/bus` operates `atomic bus` rooms from the browser: watch a room's traffic live, speak into it as the operator, and open the Claude Code session behind any member.
+`/bus` operates `atomic bus` rooms from the browser: watch a room's traffic live, speak into it as the operator, end a member's session, close a room, and open the Claude Code session behind any member. The page is titled **Message Bus**, because what it shows is a chat; `bus` alone named the transport rather than the thing on screen. The CLI verb and the Go package are still `bus`.
 
 The room list polls `GET /api/bus/rooms` and shows each room's member count and halted state. Opening a room backfills the transcript from the room's durable log (`GET /api/bus/log`), then follows a live `GET /api/bus/tail` Server-Sent Events stream, deduplicated by envelope id. Each message shows its sender, its kind, and either its addressees or `fyi` for a room-wide status message.
 
 The composer sends as a web member named by position, the same `<realm>-<repo>-web` naming `atomic where` reports, with `kind: human`, so halt blocks agents and never this member. Typing `@` opens a dropdown of the room's members; picking one, or completing a mention with a space, turns it into a removable chip. The textarea grows as you type. Enter sends, Shift+Enter inserts a newline. Halt and resume buttons set and clear the room's halt flag.
 
 Opening a channel with no daemon running starts one, the same auto-spawn `atomic bus join` triggers from a terminal. The read-only requests (`status`, `rooms`, `who`, `log`, `tail`) never spawn a daemon: with none running they report an empty or not-running state instead.
+
+### Ending a session, closing a room
+
+Two controls stop listeners rather than pause them, so both confirm first.
+
+The `×` on a member's chip (`POST /api/bus/end`) evicts that member: it delivers one closing envelope to that member's own stream, drops the membership, and closes the stream, which is what stops the agent's `Monitor`. The room and everyone else in it carry on. The operator's own chip carries no control — cutting your own listener from the page you are using has no use.
+
+**Close** (`POST /api/bus/close`) ends the room for everyone: every listener is closed and the room is dropped. Unlike halt, there is no resume — the room is gone, and reopening it means joining again.
+
+The eviction envelope reaches only the evicted member. `closing` is read as "the last envelope this stream will ever see", so delivering it to a peer that is staying would leave that peer primed to treat the next daemon restart as a shutdown and stop reconnecting. Peers learn of the departure from the roster. The room log still records the eviction, so it is auditable after the fact.
+
+That envelope alone cannot carry the guarantee, because it travels through the member's bounded channel — and the agent most likely to be evicted, one whose reader has stalled, is exactly the one whose buffer is full. The envelope would be dropped, `recv` would see a bare close, and it would reconnect. So the daemon also refuses a `recv` from an evicted session until it rejoins. Rejoining is the way back in.
+
+Both controls also clear the persisted roster in `~/.atomic/bus.json`, the same second step `atomic bus close` performs. Without it the daemon's next start replays that file and restores what was just removed: an evicted member would reappear in the roster with a dead listener, and a closed room would come back.
 
 ### Session rail
 

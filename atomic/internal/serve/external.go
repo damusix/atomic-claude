@@ -89,18 +89,19 @@ func BuildExternalRegistry(root string, dateFn FileDateFn) []ExternalEntry {
 	}
 	acc := make(map[string]*accumulator)
 
+	ignores := newGitIgnores(root)
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic serve /external: walk error at %s: %v\n", path, err)
 			return nil
 		}
 		if d.IsDir() {
-			if path != root && shouldSkipDir(d.Name()) {
+			if path != root && (shouldSkipDir(d.Name()) || ignores.skipDir(path)) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !strings.HasSuffix(d.Name(), ".md") || hiddenFile(d.Name()) {
+		if !strings.HasSuffix(d.Name(), ".md") || hiddenFile(d.Name()) || ignores.skipFile(path) {
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, path)

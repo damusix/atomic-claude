@@ -25,12 +25,22 @@ type Hub struct {
 
 	mu    sync.Mutex
 	rooms map[string]*Room
+
+	// Sessions EndSession removed, so a reconnecting recv is refused. On the Hub
+	// rather than the Room because evicting a room's last member drops the room,
+	// which would take the tombstone with it.
+	evicted map[string]struct{}
 }
 
 // NewHub creates a Hub whose room logs are written under home (RoomLogPath).
 // Its clock defaults to time.Now; see SetClock.
 func NewHub(home string) *Hub {
-	return &Hub{home: home, now: time.Now, rooms: map[string]*Room{}}
+	return &Hub{home: home, now: time.Now, rooms: map[string]*Room{}, evicted: map[string]struct{}{}}
+}
+
+// NUL cannot occur in a room or session name, so the join is unambiguous.
+func evictionKey(room, session string) string {
+	return room + "\x00" + session
 }
 
 // SetClock overrides Hub's time source so staleness tests can advance "now"
@@ -182,6 +192,8 @@ func (h *Hub) Join(room, name, mode, kind, session, repo, realm string) (string,
 	if prior, ok := r.bySession[session]; ok && prior != assigned {
 		delete(r.members, prior)
 	}
+
+	delete(h.evicted, evictionKey(room, session))
 
 	now := h.now()
 	r.members[assigned] = Member{Name: assigned, Kind: kind, Mode: mode, Session: session, Joined: now, LastSeen: now, Repo: repo, Realm: realm}
@@ -687,8 +699,93 @@ func (h *Hub) Close(room string) error {
 		close(sub.ch)
 	}
 
+	// Every listener is closed here, so the tombstones have nothing left to
+	// refuse; dropping them bounds the map by live rooms.
+	prefix := room + "\x00"
+	for key := range h.evicted {
+		if strings.HasPrefix(key, prefix) {
+			delete(h.evicted, key)
+		}
+	}
+
 	delete(h.rooms, room)
 	return nil
+}
+
+// EndSession removes one member and stops its listener. Leave cannot stand in:
+// it drops the membership but leaves the subscription open, so recv keeps
+// streaming and the Monitor never stops.
+//
+// The envelope carries Closing because recvDeliver reconnects on a bare close,
+// unable to tell an eviction from a daemon restart. It reaches only this
+// member's subscriptions for the same reason: Closing reads as "the last
+// envelope this stream will ever see", so fanning it out would prime every peer
+// to stop reconnecting after the next restart.
+//
+// Returns the evicted session id; Rehydrate would otherwise restore the member
+// from the persisted roster on the next daemon start.
+func (h *Hub) EndSession(room, name string) (string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	r, ok := h.getRoom(room)
+	if !ok {
+		return "", noRoomError(room)
+	}
+	m, ok := r.members[name]
+	if !ok {
+		return "", &Error{Code: ExitNotJoined, Msg: fmt.Sprintf("bus: room %q has no member %q", room, name)}
+	}
+
+	id, err := r.nextEnvelopeID()
+	if err != nil {
+		return "", err
+	}
+	env := Envelope{
+		ID:       id,
+		Room:     room,
+		From:     systemName,
+		FromKind: KindHuman,
+		To:       []string{name},
+		Ts:       h.now(),
+		Text:     "session ended by operator",
+		Closing:  true,
+	}
+	if err := Append(h.home, room, env); err != nil {
+		return "", fmt.Errorf("bus: append room log: %w", err)
+	}
+
+	delete(r.members, name)
+	delete(r.bySession, m.Session)
+	if m.Session != "" {
+		h.evicted[evictionKey(room, m.Session)] = struct{}{}
+	}
+
+	for subID, sub := range r.subs {
+		if sub.session == "" || sub.session != m.Session {
+			continue
+		}
+		trySend(sub.ch, env)
+		close(sub.ch)
+		delete(r.subs, subID)
+	}
+
+	h.dropIfEmpty(room, r)
+	return m.Session, nil
+}
+
+// SessionWasEvicted reports whether EndSession removed session and it has not
+// rejoined. This is what makes eviction hold when the closing envelope was
+// dropped by a full buffer.
+func (h *Hub) SessionWasEvicted(room, session string) bool {
+	if session == "" {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	_, evicted := h.evicted[evictionKey(room, session)]
+	return evicted
 }
 
 // SessionIsMember reports whether session holds a membership in room — the

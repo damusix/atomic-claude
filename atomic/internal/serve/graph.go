@@ -299,17 +299,18 @@ func BuildLinkGraph(root string) *Graph {
 	// CodeFile rather than broken.
 	var mdFiles []string
 	sourceFiles := make(map[string]bool)
+	ignores := newGitIgnores(root)
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if path != root && shouldSkipDir(d.Name()) {
+			if path != root && (shouldSkipDir(d.Name()) || ignores.skipDir(path)) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if hiddenFile(d.Name()) {
+		if hiddenFile(d.Name()) || ignores.skipFile(path) {
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, path)

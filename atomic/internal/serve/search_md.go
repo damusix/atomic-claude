@@ -43,6 +43,8 @@ func (h *mdSearchHandler) search(query string) ([]mdMatch, bool) {
 	var matches []mdMatch
 	truncated := false
 
+	ignores := newGitIgnores(h.navRoot)
+
 	// The walk's error return is the cap sentinel, not a failure.
 	_ = filepath.WalkDir(h.navRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -52,12 +54,12 @@ func (h *mdSearchHandler) search(query string) ([]mdMatch, bool) {
 			if path == h.navRoot {
 				return nil // never skip the root itself
 			}
-			if shouldSkipDir(d.Name()) {
+			if shouldSkipDir(d.Name()) || ignores.skipDir(path) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !strings.HasSuffix(d.Name(), ".md") || hiddenFile(d.Name()) {
+		if !strings.HasSuffix(d.Name(), ".md") || hiddenFile(d.Name()) || ignores.skipFile(path) {
 			return nil
 		}
 

@@ -11,7 +11,7 @@
 // is the dedup, mirroring the carried loadSource's currentSourcePath guard.
 // Intel pane fetches per back-stack entry's IntelTarget; drill actions push
 // a new entry.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
 import { Dialog } from "@ark-ui/react";
 import { attempt } from "@logosdx/utils";
@@ -34,6 +34,7 @@ import {
   type ApiSourceFileResponse,
   type IntelData,
 } from "./types";
+import { useFileSearch, useFocusOnFindKey } from "./useFileSearch";
 import "./style.css";
 
 function SourcePane({ entry }: { entry: StackEntry }) {
@@ -76,6 +77,11 @@ function SourcePane({ entry }: { entry: StackEntry }) {
     else containerRef.current.scrollTop = 0;
   }, [source, entry.line]);
 
+  // React compares this prop by identity, so a fresh object each render re-sets
+  // innerHTML and detaches find-in-file's Ranges. Same fix as Page.tsx.
+  const sourceHtml = source?.html ?? "";
+  const html = useMemo(() => ({ __html: sourceHtml }), [sourceHtml]);
+
   // Not `loading` — that class carries a spinner, and this is a settled
   // answer. A package node has no file to show and never will, so a spinner
   // beside it claims something is still on its way.
@@ -103,7 +109,7 @@ function SourcePane({ entry }: { entry: StackEntry }) {
     <div
       ref={containerRef}
       // eslint-disable-next-line react/no-danger -- server-rendered chroma HTML, same trust domain as the page body
-      dangerouslySetInnerHTML={{ __html: source.html }}
+      dangerouslySetInnerHTML={html}
     />
   );
 }
@@ -311,6 +317,16 @@ export function CodeModal() {
   const state = useSyncExternalStore(subscribe, getState, getState);
   const top = state.stack[state.stack.length - 1];
 
+  const sourceRef = useRef<HTMLDivElement | null>(null);
+  const findRef = useRef<HTMLInputElement | null>(null);
+  const [query, setQuery] = useState("");
+  const find = useFileSearch(sourceRef, query);
+  useFocusOnFindKey(findRef, state.open);
+
+  useEffect(() => {
+    setQuery("");
+  }, [top?.filePath]);
+
   useEffect(() => {
     installCodeExplorerGlobal();
   }, []);
@@ -333,12 +349,62 @@ export function CodeModal() {
         <Dialog.Content className="code-modal-box">
           <div className="code-modal-header">
             <Dialog.Title className="code-modal-title">{top?.title ?? ""}</Dialog.Title>
+            <div className="code-find">
+              <input
+                ref={findRef}
+                type="search"
+                className="code-find-input"
+                placeholder="Find in file…"
+                aria-label="Find in file"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    find.go(e.shiftKey ? -1 : 1);
+                  }
+                  // Esc clears the query rather than closing the modal.
+                  if (e.key === "Escape" && query !== "") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setQuery("");
+                  }
+                }}
+              />
+              {query.trim() === "" ? null : (
+                <>
+                  <span className="code-find-count" aria-live="polite">
+                    {find.total === 0 ? "no matches" : `${find.current}/${find.total}${find.truncated ? "+" : ""}`}
+                  </span>
+                  <button
+                    type="button"
+                    className="code-find-step"
+                    aria-label="Previous match"
+                    disabled={find.total === 0}
+                    onClick={() => find.go(-1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className="code-find-step"
+                    aria-label="Next match"
+                    disabled={find.total === 0}
+                    onClick={() => find.go(1)}
+                  >
+                    ↓
+                  </button>
+                </>
+              )}
+            </div>
             <Dialog.CloseTrigger className="code-modal-close" aria-label="Close">
               ✕
             </Dialog.CloseTrigger>
           </div>
           <div className="code-modal-body">
-            <div id="code-modal-source">{top ? <SourcePane entry={top} /> : null}</div>
+            <div id="code-modal-source" ref={sourceRef}>
+              {top ? <SourcePane entry={top} /> : null}
+            </div>
             <div id="code-modal-intel-pane">
               <button
                 type="button"
