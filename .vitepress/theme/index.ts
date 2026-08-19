@@ -4,6 +4,7 @@ import { useRoute } from 'vitepress'
 import SessionPlayer from './SessionPlayer.vue'
 import { SESSION } from './session-script'
 import { setupScrollAnimations } from './scroll-animate'
+import { setupMermaidZoom } from './mermaid-zoom'
 import '@fortawesome/fontawesome-free/css/solid.min.css'
 import './custom.css'
 
@@ -14,6 +15,7 @@ export default {
         // initial-hidden states (gated on `.ac-js`) apply before first paint.
         if (!import.meta.env.SSR) {
             document.documentElement.classList.add('ac-js')
+            setupMermaidZoom()
         }
     },
     Layout: {
