@@ -1,5 +1,16 @@
 # Changelog
 
+## [6.4.0](https://github.com/damusix/atomic-claude/compare/v6.3.0...v6.4.0) (2026-08-19)
+
+
+### Features
+
+* [scan] config, writing floors, docs overhaul ([b18e5ef](https://github.com/damusix/atomic-claude/commit/b18e5ef50e8ac001eeb4345b6271be7178748cca))
+* [scan] config, writing floors, docs overhaul ([a64ceb3](https://github.com/damusix/atomic-claude/commit/a64ceb313205cedc8f60a77d2890e71f0e0d08b5))
+* **serve:** find in file, Message Bus session controls, and a cleaner index ([3405c30](https://github.com/damusix/atomic-claude/commit/3405c3085ed2e2f5eda5b3711a6d06e7a583e49c))
+* **serve:** rework document rendering for legibility ([862c6d3](https://github.com/damusix/atomic-claude/commit/862c6d3348e51c0173a085d75f3d48b5e33e2636))
+* **serve:** rework document rendering for legibility ([1f7102f](https://github.com/damusix/atomic-claude/commit/1f7102f518a39b3819d67ac585d494aa0e3413bc))
+
 ## [6.3.0](https://github.com/damusix/atomic-claude/compare/v6.2.1...v6.3.0) (2026-08-17)
 
 
