@@ -700,3 +700,66 @@ html.dark {
         animation: none !important;
     }
 }
+
+/* Mermaid lightbox: click a rendered diagram to open it fullscreen. */
+.vp-doc .mermaid {
+    cursor: zoom-in;
+}
+
+.ac-mermaid-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    background: color-mix(in srgb, var(--vp-c-bg) 90%, transparent);
+    backdrop-filter: blur(4px);
+    cursor: grab;
+}
+
+.ac-mermaid-lightbox:active {
+    cursor: grabbing;
+}
+
+.ac-mermaid-lightbox-stage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+}
+
+.ac-mermaid-lightbox-stage svg {
+    display: block;
+}
+
+.ac-mermaid-lightbox-close {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--vp-c-divider);
+    background: var(--vp-c-bg-soft);
+    color: var(--vp-c-text-1);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.ac-mermaid-lightbox-close:hover {
+    border-color: var(--vp-c-brand-1);
+    color: var(--vp-c-brand-1);
+}
+
+.ac-mermaid-lightbox-hint {
+    position: fixed;
+    bottom: 16px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 12px;
+    color: var(--vp-c-text-3);
+    pointer-events: none;
+}
