@@ -159,17 +159,18 @@ func (s *snapshotStore) rebuild(entries map[string]fileManifestEntry, fp string)
 func (s *snapshotStore) fingerprint() (map[string]fileManifestEntry, string) {
 	now := time.Now()
 	entries := make(map[string]fileManifestEntry)
+	ignores := newGitIgnores(s.root)
 	_ = filepath.WalkDir(s.root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if path != s.root && shouldSkipDir(d.Name()) {
+			if path != s.root && (shouldSkipDir(d.Name()) || ignores.skipDir(path)) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if hiddenFile(d.Name()) {
+		if hiddenFile(d.Name()) || ignores.skipFile(path) {
 			return nil
 		}
 		rel, relErr := filepath.Rel(s.root, path)

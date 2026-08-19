@@ -34,6 +34,8 @@ function NodeLink({ node, member }: { node: ApiCodeNode; member: string }) {
     <button
       type="button"
       className="code-schema-link code-node-link"
+      // Native title, not a tooltip component: a busy schema renders hundreds.
+      title={node.name}
       onClick={() => openNode(node.id, member, { title: node.name, file: node.filePath, line: node.startLine })}
     >
       {node.name}

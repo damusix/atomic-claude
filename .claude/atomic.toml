@@ -1,3 +1,9 @@
 scope = "repo"
+
 [code]
-ignore = ["atomic/internal/serve/assets/vendor/**"]
+ignore = [
+    "atomic/internal/serve/frontend/dist/**",
+    # vendor/ only: the vanilla JS beside it is this repo's own.
+    "atomic/internal/serve/frontend/public/vendor/**",
+    "scripts/code-eval/fixtures/**",
+]

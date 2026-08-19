@@ -130,6 +130,10 @@ func (h *busAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleResume(w, r)
 	case route == "leave" && r.Method == http.MethodPost:
 		h.handleLeave(w, r)
+	case route == "close" && r.Method == http.MethodPost:
+		h.handleClose(w, r)
+	case route == "end" && r.Method == http.MethodPost:
+		h.handleEnd(w, r)
 	default:
 		writeAPIError(w, http.StatusNotFound, "unknown bus route")
 	}
@@ -483,6 +487,7 @@ func (h *busAPIHandler) handleSay(w http.ResponseWriter, r *http.Request) {
 type busRoomBody struct {
 	Room   string `json:"room"`
 	Reason string `json:"reason"`
+	Name   string `json:"name"`
 }
 
 func (h *busAPIHandler) handleHalt(w http.ResponseWriter, r *http.Request) {
@@ -522,6 +527,64 @@ func (h *busAPIHandler) handleLeave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeAPIJSON(w, map[string]bool{"left": true})
+}
+
+func (h *busAPIHandler) handleClose(w http.ResponseWriter, r *http.Request) {
+	var body busRoomBody
+	if !decodeBusBody(w, r, &body) || !requireRoom(w, body.Room) {
+		return
+	}
+	h.mu.Lock()
+	delete(h.joined, body.Room)
+	h.mu.Unlock()
+	if _, err := h.do(bus.Request{Op: bus.OpClose, Room: body.Room}); err != nil {
+		writeBusError(w, err)
+		return
+	}
+	// Rehydrate replays bus.json on the next daemon start, so a room left there
+	// comes back. `atomic bus close` does this same second half.
+	h.clearPersisted(body.Room, "")
+	writeAPIJSON(w, map[string]bool{"closed": true})
+}
+
+func (h *busAPIHandler) handleEnd(w http.ResponseWriter, r *http.Request) {
+	var body busRoomBody
+	if !decodeBusBody(w, r, &body) || !requireRoom(w, body.Room) {
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" {
+		writeAPIError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	resp, err := h.do(bus.Request{Op: bus.OpEnd, Room: body.Room, Name: body.Name})
+	if err != nil {
+		writeBusError(w, err)
+		return
+	}
+	// Same reason as close.
+	var payload struct {
+		Session string `json:"session"`
+	}
+	if jsonErr := json.Unmarshal(resp.Payload, &payload); jsonErr == nil && payload.Session != "" {
+		h.clearPersisted(body.Room, payload.Session)
+	}
+	writeAPIJSON(w, map[string]bool{"ended": true})
+}
+
+// clearPersisted drops a room from ~/.atomic/bus.json, or just one session's
+// membership of it. Failure is swallowed on purpose: the daemon has already
+// acted, so the cost is a stale entry Prune reaps, not a wrong response.
+func (h *busAPIHandler) clearPersisted(room, session string) {
+	st, err := bus.Load(h.home)
+	if err != nil {
+		return
+	}
+	if session == "" {
+		st.ClearRoom(room)
+	} else {
+		st.Leave(session, room)
+	}
+	_ = st.Save(h.home)
 }
 
 // decodeBusBody bounds the body so a request can never buffer unbounded input.

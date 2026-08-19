@@ -284,7 +284,11 @@ Halt state survives a restart and is visible without probing the room: `rooms`, 
 
 ## Watching from the browser
 
-`atomic serve` renders `/bus`, a page for watching and operating rooms without a terminal. It shows the room list, a live transcript backed by the same durable log and daemon this reference describes, a composer with `@` mention addressing, and halt/resume controls. Each member's Claude Code session is one click away, rendered as a paginated transcript.
+`atomic serve` renders `/bus` — titled **Message Bus**, since the page shows a chat — for watching and operating rooms without a terminal. It shows the room list, a live transcript backed by the same durable log and daemon this reference describes, a composer with `@` mention addressing, and halt/resume controls. Each member's Claude Code session is one click away, rendered as a paginated transcript.
+
+The page also carries the two controls that stop listeners rather than pause them: ending one member's session evicts that member and closes its stream, which is what stops its `Monitor`, leaving the room and its other members running; closing the room ends it for everyone, with no resume. Both are browser-only — there is no `atomic bus end` verb — and both confirm before acting.
+
+An evicted session's `recv` is refused until it rejoins, so the eviction holds even when the closing envelope could not be delivered. Both controls also clear the persisted roster, or the restored state would undo them on the daemon's next start. `docs/reference/serve.md` carries the mechanics.
 
 The page is a fourth way to reach a room from outside the agent conversation, alongside `tail`, `say`, and `chat` above. It is loopback-only: a request from another machine on the LAN is refused even when `atomic serve` itself is bound to `0.0.0.0`. See `docs/reference/serve.md`.
 

@@ -116,6 +116,8 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 		respond(enc, d.handlePrune(req))
 	case OpClose:
 		respond(enc, d.handleClose(req))
+	case OpEnd:
+		respond(enc, d.handleEnd(req))
 	case OpShutdown:
 		respond(enc, Response{OK: true})
 		d.triggerShutdown()
@@ -125,6 +127,16 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 		// naming nobody in this room sit in r.subs, ready to attach to whoever
 		// later joins under that name and permanently defeat their staleness
 		// check. A claim matching no current member is downgraded to anonymous.
+		//
+		// An evicted session is refused rather than downgraded: resubscribing
+		// anonymously would keep the listener the eviction exists to stop.
+		if d.hub.SessionWasEvicted(req.Room, req.Session) {
+			respond(enc, errorResponse(&Error{
+				Code: ExitNotJoined,
+				Msg:  fmt.Sprintf("bus: session was ended by an operator in room %q; rejoin before receiving", req.Room),
+			}))
+			return
+		}
 		session := req.Session
 		if session != "" && !d.hub.SessionIsMember(req.Room, session) {
 			session = ""
@@ -267,6 +279,22 @@ func (d *daemon) handleClose(req Request) Response {
 		return errorResponse(err)
 	}
 	return Response{OK: true}
+}
+
+// The payload carries the evicted session id so the caller can clear it from
+// ~/.atomic/bus.json, which Rehydrate would otherwise replay.
+func (d *daemon) handleEnd(req Request) Response {
+	session, err := d.hub.EndSession(req.Room, req.Name)
+	if err != nil {
+		return errorResponse(err)
+	}
+	payload, err := json.Marshal(struct {
+		Session string `json:"session"`
+	}{Session: session})
+	if err != nil {
+		return errorResponse(err)
+	}
+	return Response{OK: true, Payload: payload}
 }
 
 // handleSend's payload carries the full Envelope, not merely its id: --json

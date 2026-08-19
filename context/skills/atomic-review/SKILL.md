@@ -50,7 +50,13 @@ Flag complexity that can be deleted, not just bugs: hand-rolled logic the standa
 
 ## Comment noise
 
-Flag comments that narrate the next line or restate the diff ("changed X to use Y") as 🔵 nit — delete them. Flag a comment that contradicts or misdescribes the code, or a reviewer-addressed comment shipped into source ("fixed per review", "as requested"), as 🟡 risk — future readers trust the wrong one. Not a finding: idiomatic section comments in a file that already uses them, license headers, directive comments (`//go:embed`, `// eslint-disable`), or a genuine WHY comment (constraint, invariant, gotcha). Judgment call, not a regex lint.
+Prefer no comments, so a new one has to earn its line. Ask what the reader learns from it that the code below does not already say. If the answer is nothing, it is describing what already exists — 🔵 nit, delete it. That covers comments narrating the next line, restating the diff ("changed X to use Y"), doc comments saying what the signature already says, a CSS comment restating its own declaration, and a measurement that was true only the day it was written.
+
+Two things earn a comment: tribal knowledge (an external-system quirk, an ordering or units requirement, a constraint from outside the file, a landmine someone already stepped on) and why a thing exists at all — the decision, not the mechanics. Everything else goes.
+
+Flag a comment that contradicts or misdescribes the code, or a reviewer-addressed comment shipped into source ("fixed per review", "as requested"), as 🟡 risk — future readers trust the wrong one.
+
+What the rest of the file does is not a defense. A chatty file does not license another comment. Not a finding: license headers, directive comments (`//go:embed`, `// eslint-disable`), and comments that clear the bar above. Judgment call, not a regex lint.
 
 - `src/queue.ts:14: 🔵 nit: comment says "increment counter" above the increment. Delete, the line reads itself.`
 - `src/retry.ts:30: 🟡 risk: comment says "retries 3 times" but code retries 5. Fix the comment or the constant.`

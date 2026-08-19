@@ -199,7 +199,30 @@
   opacity: 0.45;
 }
 
-.bus-halt-btn {
+.bus-member-end {
+  margin-left: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.bus-member:hover .bus-member-end,
+.bus-member-end:focus-visible {
+  opacity: 0.7;
+}
+
+.bus-member-end:hover {
+  opacity: 1;
+  color: var(--badge-stale-ink);
+}
+
+.bus-halt-btn,
+.bus-close-btn {
   font: inherit;
   font-size: 0.78rem;
   padding: 3px 10px;
@@ -208,6 +231,11 @@
   background: var(--paper-raised);
   color: var(--ink);
   cursor: pointer;
+}
+
+.bus-close-btn {
+  margin-left: 6px;
+  color: var(--badge-stale-ink);
 }
 
 .bus-halted-banner {

@@ -237,6 +237,7 @@
   align-items: baseline;
   gap: 8px;
   margin-top: 6px;
+  min-width: 0;
   font-size: 12px;
 }
 
@@ -254,6 +255,20 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px 10px;
+  min-width: 0;
+}
+
+.code-schema-relation-nodes .code-schema-link {
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.code-schema-relation-more {
+  flex: none;
+  text-align: left;
 }
 
 /* ============================================================

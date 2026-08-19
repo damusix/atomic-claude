@@ -124,17 +124,18 @@ func walkMarkdownFiles(dir string) []string {
 // walkMarkdownFilesRecursive returns sorted *.md paths relative to dir.
 func walkMarkdownFilesRecursive(dir string) []string {
 	var results []string
+	ignores := newGitIgnores(dir)
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if path != dir && shouldSkipDir(d.Name()) {
+			if path != dir && (shouldSkipDir(d.Name()) || ignores.skipDir(path)) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !strings.HasSuffix(d.Name(), ".md") || hiddenFile(d.Name()) {
+		if !strings.HasSuffix(d.Name(), ".md") || hiddenFile(d.Name()) || ignores.skipFile(path) {
 			return nil
 		}
 		rel, relErr := filepath.Rel(dir, path)

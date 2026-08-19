@@ -1,7 +1,10 @@
 // Bus — /bus page: EXPERIMENT — web chat over the atomic bus daemon.
 // Watch any room's traffic (log backfill + SSE tail), open a channel (join
 // creates the room if absent), speak as the human operator with @fragment
-// addressing, and halt/resume a room. Backed by /api/bus/* (api_bus.go).
+// addressing, halt/resume a room, end one member's session, and close a room
+// outright. Backed by /api/bus/* (api_bus.go). The page is titled "Message
+// Bus" because what it shows is a chat; "bus" alone named the transport, not
+// the thing on screen. The CLI verb and the Go package stay `bus`.
 //
 // EventSource is exempt from the shared-FetchEngine rule (see
 // hooks/useLiveReload.ts) — it is not fetch-based.
@@ -176,7 +179,7 @@ export function Bus() {
     return (
       <div className="bus-page" data-route="bus">
         <div className="bus-empty">
-          <h2 className="bus-title">Bus chat is loopback-only</h2>
+          <h2 className="bus-title">Message Bus is loopback-only</h2>
           <p className="bus-hint">Available from the machine running atomic serve, not this connection.</p>
         </div>
       </div>
@@ -187,7 +190,7 @@ export function Bus() {
     <div className="bus-page" data-route="bus">
       <aside className="bus-sidebar">
         <div className="bus-sidebar-head">
-          <h2 className="bus-title">Bus</h2>
+          <h2 className="bus-title">Message Bus</h2>
           <span className={running ? "bus-daemon bus-daemon-up" : "bus-daemon bus-daemon-down"}>
             {running ? "daemon up" : "daemon down"}
           </span>
@@ -399,6 +402,22 @@ function RoomView({
     onRosterChange();
   }
 
+  // Cannot be undone from here: the agent has to rejoin. Halt is reversible.
+  async function endSession(name: string) {
+    if (!window.confirm(`End ${name}'s session? Their listener stops and they leave ${room}.`)) return;
+    await attempt(() => api.post("/bus/end", { room, name }));
+    refreshWho();
+    onRosterChange();
+  }
+
+  // Once closed the room is gone, not paused — there is no resume.
+  async function closeRoom() {
+    if (!window.confirm(`Close ${room} for everyone? Every listener stops and the room is dropped.`)) return;
+    await attempt(() => api.post("/bus/close", { room }));
+    refreshWho();
+    onRosterChange();
+  }
+
   return (
     <section className="bus-room-view">
       <header className="bus-room-head">
@@ -412,11 +431,25 @@ function RoomView({
               title={`${m.kind}${m.mode ? ` · ${m.mode}` : ""}${m.stale ? " · stale" : ""}`}
             >
               {m.name}
+              {m.name === selfName ? null : (
+                <button
+                  type="button"
+                  className="bus-member-end"
+                  aria-label={`End ${m.name}'s session`}
+                  title={`End ${m.name}'s session`}
+                  onClick={() => void endSession(m.name)}
+                >
+                  ×
+                </button>
+              )}
             </span>
           ))}
         </div>
         <button type="button" className="bus-halt-btn" onClick={() => void setHalt(!who?.halted)}>
           {who?.halted ? "Resume" : "Halt"}
+        </button>
+        <button type="button" className="bus-close-btn" onClick={() => void closeRoom()}>
+          Close
         </button>
       </header>
 

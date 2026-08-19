@@ -134,3 +134,73 @@
   font-size: 12px;
   font-style: italic;
 }
+
+/* ============================================================
+   FIND IN FILE
+   ============================================================ */
+
+.code-find {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.code-find-input {
+    width: 190px;
+    padding: 3px 8px;
+    border: 1px solid var(--hairline-2);
+    border-radius: 7px;
+    background: var(--paper-sunk);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.code-find-input::placeholder {
+    color: var(--ink-ghost);
+}
+
+.code-find-input:focus {
+    outline: none;
+    border-color: var(--amber-edge);
+}
+
+.code-find-count {
+    min-width: 7ch;
+    text-align: right;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.code-find-step {
+    padding: 1px 7px;
+    border: 1px solid var(--hairline-2);
+    border-radius: 6px;
+    background: var(--paper-sunk);
+    color: var(--ink-faint);
+    font-size: 12px;
+    line-height: 1.5;
+    cursor: pointer;
+}
+
+.code-find-step:hover:not(:disabled) {
+    color: var(--ink);
+    border-color: var(--amber-edge);
+}
+
+.code-find-step:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+::highlight(code-find) {
+    background-color: color-mix(in srgb, var(--amber) 26%, transparent);
+}
+
+::highlight(code-find-current) {
+    background-color: var(--amber);
+    color: var(--ink-on-fill);
+}

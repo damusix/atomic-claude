@@ -273,7 +273,7 @@ func TestProtocolWireShape_GoldenFieldsAndOps(t *testing.T) {
 
 	wantOps := []string{
 		OpPing, OpJoin, OpLeave, OpSend, OpSay, OpRecv, OpTail, OpWho, OpRooms,
-		OpHalt, OpResume, OpShutdown, OpPrune, OpClose,
+		OpHalt, OpResume, OpShutdown, OpPrune, OpClose, OpEnd,
 	}
 	gotOps := append([]string(nil), AllOps...)
 	sort.Strings(gotOps)
@@ -301,6 +301,7 @@ func TestProtocolWireShape_GoldenFieldsAndOps(t *testing.T) {
 // only returns once both move together.
 var protocolShapeHashes = map[int]string{
 	2: "f4bf0980c3ca8d8177280563a956e7fd9383a1c529123e2b5d6608f703b08144",
+	3: "7c94cc9ee4f5117a72a2208f96445ddf75b1fea73b548a986c8c8d6bb8edd3c7",
 }
 
 // wireShapeFields returns typ's json-tagged field names in declaration order,

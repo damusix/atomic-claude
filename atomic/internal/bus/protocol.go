@@ -13,7 +13,7 @@ import (
 // format the other side does not understand. Bump it whenever the wire shape
 // changes — TestProtocolWireShape_GoldenFieldsAndOps is what makes forgetting
 // fail a test instead of shipping silently.
-const ProtocolVersion = 2
+const ProtocolVersion = 3
 
 // Op names. AllOps below is the same list as a slice; keep both in sync —
 // TestProtocolWireShape_GoldenFieldsAndOps pins AllOps against a golden list.
@@ -32,13 +32,14 @@ const (
 	OpShutdown = "shutdown"
 	OpPrune    = "prune"
 	OpClose    = "close"
+	OpEnd      = "end"
 )
 
 // AllOps lists every Request.Op the daemon accepts. daemon.go's "unknown op"
 // error enumerates it, so this is production content, not a test fixture.
 var AllOps = []string{
 	OpPing, OpJoin, OpLeave, OpSend, OpSay, OpRecv, OpTail, OpWho, OpRooms,
-	OpHalt, OpResume, OpShutdown, OpPrune, OpClose,
+	OpHalt, OpResume, OpShutdown, OpPrune, OpClose, OpEnd,
 }
 
 // Request is a single client-to-daemon frame: an op plus whichever operand

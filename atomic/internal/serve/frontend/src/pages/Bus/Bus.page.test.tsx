@@ -31,7 +31,7 @@ describe("Bus page", () => {
 
     renderAt("/bus");
 
-    await waitFor(() => expect(screen.getByText("Bus chat is loopback-only")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Message Bus is loopback-only")).toBeInTheDocument());
     expect(screen.queryByPlaceholderText("open a channel…")).not.toBeInTheDocument();
   });
 });

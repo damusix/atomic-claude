@@ -54,7 +54,7 @@ const MODES: Mode[] = [
   {
     to: "/bus",
     icon: faComments,
-    label: "Bus",
+    label: "Message Bus",
     match: (p) => p === "/bus",
   },
 ];
