@@ -1,12 +1,12 @@
 ---
-description: Multi-lens design challenger. Reads a design/spec/plan, dispatches 4-6 isolated expert lenses (security, performance, future maintainer, API consumer, ops, tester, end user) as parallel subagents, then merges their findings into a contradiction map — where lenses conflict, where they independently agree, and what they all assumed. Post-design gate — follows /atomic-plan, precedes /subagent-implementation. Complements /pressure-test: that is dialogue with you; this attacks the written artifact.
+description: Multi-lens design challenger. Reads a design/spec/plan/proposal, profiles it (who can reach it, whose data, what being wrong costs), then seats 3-6 expert lenses from a ~30-lens catalog spanning engineering, data/ML, business, finance, communication, and delivery — each seated only with a cited stake, reflexive picks benched out loud. Lenses run as isolated parallel subagents; findings merge into a contradiction map — where lenses conflict, where they independently agree, and what they all assumed. Post-design gate — follows /atomic-plan, precedes /subagent-implementation. Complements /pressure-test: that is dialogue with you; this attacks the written artifact.
 argument-hint: "[<path-to.md> | @<path> | <topic-phrase>]"
 ---
 
 # /challenge-swarm
 
 
-Take an existing design, spec, or plan and subject it to independent expert scrutiny, then map where the experts disagree. Multiple genuinely independent perspectives surface holes any single review pass misses — and the *disagreements* between perspectives are the highest-value output, not the consensus. Mechanism adapted from Stanford's STORM (perspective-diverse, grounded multi-agent synthesis); the grounding corpus here is the codebase.
+Take an existing design, spec, or plan and subject it to independent expert scrutiny, then map where the experts disagree. Multiple genuinely independent perspectives surface holes any single review pass misses — and the *disagreements* between perspectives are the highest-value output, not the consensus. Mechanism adapted from Stanford's STORM (perspective-diverse, grounded multi-agent synthesis); the grounding corpus is the artifact's source material — the codebase, when there is one.
 
 
 This command does **not** produce a new design. The planning workflow already exists (`/atomic-plan`). The deliverable is a challenge report the user folds back into the design — surgical findings only, never a rewrite.
@@ -37,35 +37,117 @@ hunch → /gather-evidence → /pressure-test → /atomic-plan → /challenge-sw
 **Path safety.** Resolve the final absolute path. If it falls outside `git rev-parse --show-toplevel`, reject with the same one-line message and drop the token.
 
 
-The target is any written artifact worth challenging before code exists: a design doc, a spec, an implementation plan, an ADR.
+The target is any written artifact worth challenging before it gets acted on: a design doc, a spec, an implementation plan, an ADR — or a non-software artifact like a pricing proposal, an analysis plan, or a process change.
 
 
 <workflow>
 
-## Step 1 — Read, then select lenses
+## Step 1 — Profile the artifact, then seat lenses
 
 
-Read the target end-to-end and orient in the code it touches (project signals; `atomic code explore "<area>"` when an index is present, `sg`/grep otherwise) **before** selecting lenses — the roster follows from what the change actually touches, not from a fixed checklist.
+Read the target end-to-end and orient in the source material it touches (project signals; `atomic code explore "<area>"` when an index is present, `sg`/grep otherwise) **before** seating any lens — the roster follows from what the artifact actually puts at stake, not from its genre.
 
 
-Pick **4-6 lenses**:
+### Profile
 
 
-| Lens | Asks |
-|------|------|
-| **Security** | Trust boundaries crossed? Input validation? AuthZ gaps? Secrets handling? Injection/SSRF surface? |
-| **Performance** | Hot paths? N+1s? Payload sizes? What breaks at 10x load? What should be measured before assuming? |
-| **Maintainer in 2 years** | Will this make sense with zero context? Hidden coupling? Is the abstraction earning its complexity (YAGNI)? |
-| **API consumer** | Is the contract obvious? Breaking changes? Error semantics? Versioning/migration story? |
-| **On-call / ops** | How does it fail at 3am? Observability? Rollback path? Feature flags? Blast radius? |
-| **Tester** | What's untestable as designed? Edge cases the spec is silent on? Race conditions? What does "done" mean? |
-| **End user** | What does the user actually experience — latency, error messages, workflow changes, surprises? Include whenever the change is user-visible. |
+Answer these from the artifact and its source material, never from genre assumptions. When the artifact leaves an axis unsettled, ask the user in one `AskUserQuestion` batch instead of assuming — an unstated deployment model is a question, not a license to assume production.
 
 
-Add a bespoke lens when the domain demands one ("data migration safety" for schema changes, "compliance" for regulated data). Skip lenses with nothing at stake — a lens with no relevant surface produces filler, and filler buries the real findings.
+| # | Question | Gates |
+|---|----------|-------|
+| 1 | Who can reach the running thing — only the author, a team, customers, the internet? | security, privacy, on-call/ops |
+| 2 | Whose data flows through it — none, the author's own, other people's, regulated? | security, compliance/privacy |
+| 3 | Who consumes the output, and how often? | end user, UX, customer support, accessibility |
+| 4 | Is 10x load real or hypothetical? | performance |
+| 5 | How long must it live? | maintainer, trainer |
+| 6 | What does being wrong cost — annoyance, rework, money, legal exposure, safety? | tester depth, finance, legal |
+| 7 | Is money moving, measured, or promised? | accountant, unit economics, legal/contracts |
+| 8 | Is a claim being made from data or a model? | data analyst, statistician, ML engineer, LLM reliability |
+| 9 | Does a human process or external message change? | business analyst, process operator, marketer, editor |
 
 
-Print the chosen roster with a one-line reason per lens, then proceed. No confirmation gate — the user invoked the swarm; the printed roster is the audit trail.
+### Seat lenses
+
+
+Pick **3-6 lenses** from the catalog below (minimum 3 — the contradiction map needs triangulation). Rules:
+
+
+1. **Seat by citation.** A lens is seated only with one line citing the design section or source path where its stake lives — the same evidence bar its findings will have to meet. No citation → benched.
+2. **Bench the reflexive pick out loud.** When a lens is the genre's obvious choice but fails its gate, print the bench line: `security: benched — loopback-only, own data, no trust boundary`. A silent omission looks like an oversight; a printed bench is a decision.
+3. **The catalog is a menu, not a cage.** Add a bespoke lens when the domain demands one (a named domain expert for tax rules or lease terms, a single-regulation compliance lens) — same citation bar.
+
+
+Print the profile answers, the roster with its citations, and any bench lines, then proceed. No confirmation gate — the user invoked the swarm; the printed block is the audit trail.
+
+
+### Lens catalog
+
+
+A lens seats only when its **Seat when** condition holds in this artifact.
+
+
+**Engineering**
+
+| Lens | Asks | Seat when |
+|------|------|-----------|
+| **Security** | Trust boundaries crossed? Input validation? AuthZ gaps? Secrets handling? Injection/SSRF surface? | A boundary is crossed: untrusted input, other people's data, network exposure beyond loopback, secrets handled |
+| **Performance** | Hot paths? N+1s? Payload sizes? What breaks at 10x? What should be measured before assuming? | 10x is real: production traffic, large data, or a latency budget |
+| **Maintainer in 2 years** | Makes sense with zero context? Hidden coupling? Is the abstraction earning its complexity (YAGNI)? | Lifespan beyond throwaway |
+| **API consumer** | Is the contract obvious? Breaking changes? Error semantics? Versioning/migration story? | Someone else programs against the interface |
+| **On-call / ops** | How does it fail at 3am? Observability? Rollback path? Blast radius? | Runs unattended or serves people other than its operator |
+| **Tester** | What's untestable as designed? Edge cases the spec is silent on? Race conditions? What does "done" mean? | The artifact specifies software behavior |
+| **End user** | What does the user actually experience — latency, error messages, workflow changes, surprises? | The change is user-visible |
+| **UX / information design** | Hierarchy? Navigation? What does the eye find first? Is state legible? | The deliverable is a visual or interactive surface |
+| **Data-migration safety** | Reversible? Dual-write window? Backfill plan? Orphaned rows? | Existing data changes shape |
+| **Concurrency** | Shared state? Ordering? Idempotency? Partial failure? | Parallel actors touch shared state |
+| **Dependency auditor** | Weight? License? Maintenance risk? Supply chain? | A new dependency ships |
+| **Accessibility** | Keyboard? Contrast? Screen reader? Motion? | UI ships to users beyond the author |
+
+**Data & ML**
+
+| Lens | Asks | Seat when |
+|------|------|-----------|
+| **Data analyst** | Metric definitions? Denominators? Aggregation traps? Seasonality? | A number will drive a decision |
+| **Data engineer** | Idempotency? Backfill? Late/duplicate data? Schema evolution? | Data moves between systems on a schedule |
+| **Statistician** | Sample size? Leakage? Confounders? Causal vs correlational claims? | The artifact infers or predicts from data |
+| **ML engineer** | Train/serve skew? Eval integrity? Drift? Inference cost and latency? | A model ships |
+| **LLM reliability** | Prompt injection? Nondeterminism? Eval harness? Token cost? | An LLM sits in the loop |
+
+**Business & product**
+
+| Lens | Asks | Seat when |
+|------|------|-----------|
+| **Business analyst** | Requirements complete? Exception paths? Who does what? Process fit? | A human workflow changes |
+| **Product** | Solves the stated problem? Scope creep? Adoption risk? What is deliberately excluded? | Built for users beyond the author |
+| **Domain expert** (named) | The domain's landmines — tax rules, lease terms, medical coding | The domain has rules the team doesn't live in |
+| **Customer support** | What tickets does this generate? Self-service path? Error message quality? | Customers hit it and someone answers them |
+| **Sales / commercial** | Objections? Differentiation? Procurement blockers? | It has to be sold |
+
+**Finance & risk**
+
+| Lens | Asks | Seat when |
+|------|------|-----------|
+| **Accountant** | Audit trail? Reconciliation? Revenue recognition? Tax treatment? | Money is recorded, moved, or reported |
+| **Unit economics** | Per-unit cost? Margin? Pricing floor? Payback period? | Pricing or cost structure is being decided |
+| **Legal / contracts** | Obligations? Liability? IP? Termination terms? | A promise is made to an external party |
+| **Compliance / privacy** | Regulated data classes? Retention? Consent? Jurisdiction? | Regulated data or a regulated activity |
+
+**Communication & market**
+
+| Lens | Asks | Seat when |
+|------|------|-----------|
+| **Marketer** | Audience? Positioning? Channel fit? Proof over adjectives? | Something is announced or published |
+| **Editor** | Structure? Reading order? One idea per section? What can be cut? | The document itself is the product |
+| **Skeptical customer** | Why should I care? What's the catch? Switching cost? | Persuasion is the goal |
+
+**Operations & delivery**
+
+| Lens | Asks | Seat when |
+|------|------|-----------|
+| **Process operator** | Can someone who didn't build it run it on day 2? Handoffs? Recovery? | A recurring human process is created |
+| **Delivery** | Critical path? Dependency risk? Deadline realism? | A schedule commitment exists |
+| **Trainer** | Learnable? Documented? Ramp time? | Others must adopt a new way of working |
 
 
 ## Step 2 — Workspace, then dispatch in isolation
@@ -83,7 +165,7 @@ Communication runs through a workspace, not through shared context:
 ```
 
 
-Write `lens-instructions.md` verbatim from the block below, then one role file per lens. Dispatch **one `general-purpose` subagent per lens, all in a single message** so they run in parallel, and pass **`model: sonnet` on every dispatch** — the role file carries the specialization; a heavier tier may add insight, but it definitely adds cost. Use a different tier only when the user explicitly asks for one this run; never inherit the session model by omission — on a premium session tier (Opus, Fable) an unpinned dispatch multiplies spend across 4-6 agents.
+Write `lens-instructions.md` verbatim from the block below, then one role file per lens. Dispatch **one `general-purpose` subagent per lens, all in a single message** so they run in parallel, and pass **`model: sonnet` on every dispatch** — the role file carries the specialization; a heavier tier may add insight, but it definitely adds cost. Use a different tier only when the user explicitly asks for one this run; never inherit the session model by omission — on a premium session tier (Opus, Fable) an unpinned dispatch multiplies spend across 3-6 agents.
 
 
 The dispatch prompt is deliberately just pointers — identical for every lens except two paths:
@@ -93,7 +175,7 @@ The dispatch prompt is deliberately just pointers — identical for every lens e
 You are a design-review lens. In order:
 1. Read <workspace>/lens-instructions.md — your process and output contract.
 2. Read <workspace>/lenses/<lens>.md — your specific role.
-3. Read the design at <target> and the code paths your role file lists.
+3. Read the design at <target> and the source material your role file lists.
 Write your findings to <workspace>/findings/<lens>.md.
 Reply with ONE line only: <lens>: <N> findings, worst <severity>.
 ```
@@ -119,10 +201,10 @@ that merely echo each other are noise.
 ## Process
 
 1. Read your role file fully. It names your perspective, core questions, and
-   the code paths that matter to you.
+   the source material that matters to you.
 2. Read the target design end-to-end before forming any finding.
-3. Read the code paths your role file lists. Ground claims in the actual code —
-   a finding with file:line evidence outranks a hypothetical.
+3. Read the source material your role file lists. Ground claims in it —
+   a finding with file:line or document-section evidence outranks a hypothetical.
 4. Judge the design ONLY from your lens. General code-review commentary belongs
    to another lens; leave it.
 
@@ -161,13 +243,13 @@ Write to the findings path you were given, exactly this shape:
 perspective: <one-sentence persona>
 
 core questions:
-- <the lens-table questions, tuned to this design>
+- <the catalog questions, tuned to this design>
 
 bespoke focus:
 - <2-4 bullets naming the specific parts of THIS design this lens must interrogate>
 
-code paths:
-- <repo paths relevant to this lens>
+source material:
+- <repo paths, data files, docs, or prior art relevant to this lens>
 ```
 
 
@@ -235,7 +317,7 @@ On `5`, delete the workspace directory — scratchpad is throwaway working memor
 3. **Evidence per finding.** A finding that arrives without file:line, design-section, or reasoning-chain evidence gets cut at aggregation.
 4. **Filler dies at aggregation.** Dedupe, drop no-stake findings, keep the report shorter than the design.
 5. **Verify before asserting.** Contested checkable claims get resolved with tool calls before they appear in the map (same rule as `<investigate_before_answering>` in `CLAUDE.md`).
-6. **The roster is judgment, not a checklist.** 4-6 lenses that fit the change beat 7 that pad it.
+6. **The roster is judgment, not a checklist.** 3-6 lenses with cited stakes beat 7 that pad it — and a benched reflexive pick is printed, never silently dropped.
 7. **Sonnet, pinned.** Every lens dispatch passes `model: sonnet`. Only an explicit user request for a different tier overrides it — never the session model.
 
 
@@ -244,7 +326,7 @@ On `5`, delete the workspace directory — scratchpad is throwaway working memor
 
 - Does not write durable artifacts. The report lives in the conversation; the workspace is gitignored scratchpad, deleted at close-out.
 - Does not modify the target document or any code.
-- Does not auto-fire. Explicit invocation only — it spawns 4-6 subagents, which is never a surprise the user should discover.
+- Does not auto-fire. Explicit invocation only — it spawns 3-6 subagents, which is never a surprise the user should discover.
 - Is not dispatched by `/autopilot`. Human-invoked gate, like `/pressure-test`.
 - Does not replace `/pressure-test` — that is Socratic dialogue where you defend your thinking; this is a parallel attack on the written artifact.
 
