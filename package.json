@@ -15,5 +15,10 @@
         "vitepress": "2.0.0-alpha.17",
         "vitepress-plugin-mermaid": "^2.0.17",
         "vue": "^3.5.27"
+    },
+    "overrides": {
+        "vitepress-plugin-mermaid": {
+            "vitepress": "$vitepress"
+        }
     }
 }
