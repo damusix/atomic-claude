@@ -110,14 +110,14 @@ The `1h` boundary is inclusive: `1h` → `routine`. ISO dates are always `routin
 
     Capture the id from stdout (e.g. `r-7b21ef`).
 
-- **Fallback** (binary absent): generate an id (`r-` + 6 random hex chars):
+- **Fallback** (binary absent — `atomic where --json`'s `reminders` field is unreachable without it, so this writes to the legacy scratchpad-scoped reminders dir instead, the exact path `reminder.List` already unions and `atomic migrate` already relocates; if what you find on disk does not match this path, run `atomic migrate --show-log` for the change history): generate an id (`r-` + 6 random hex chars):
 
     ```bash
     id="r-$(openssl rand -hex 3)"
     mkdir -p .claude/.scratchpad/reminders/
     ```
 
-    Write `.claude/.scratchpad/reminders/<YYYY-MM-DD>-<slug>.md` where `<slug>` is the first 4 words of `<body>` joined with hyphens, lowercased:
+    Write `.claude/.scratchpad/reminders/<today's date, YYYY-MM-DD>-<slug>.md` where `<slug>` is the first 4 words of `<body>` joined with hyphens, lowercased:
 
     ```
     ---
@@ -143,8 +143,10 @@ In both cases, the cron/routine prompt is: `/follow-up due <id>`
 1. Rewrite `transport: none` in the reminder file's frontmatter via Bash `sed` (works for both binary and fallback paths):
 
     ```bash
-    sed -i '' 's/^transport: .*/transport: none/' .claude/.scratchpad/reminders/<file>
+    sed -i '' 's/^transport: .*/transport: none/' <reminders-dir>/<file>
     ```
+
+    `<reminders-dir>` is `atomic where --json`'s `reminders` field when the binary is present, else the `.claude/.scratchpad/reminders/` fallback dir above.
 
 2. Do **not** raise an error. Print:
 
@@ -178,7 +180,7 @@ reminder scheduled. id: r-7b21ef. fires: Thu 29 May 09:00 local. transport: rout
 - No state other than `due:` is ever rewritten after creation (snooze/reschedule rewrite `due:` via `atomic reminder set-due`; see `/follow-up`).
 - The `transport:` field in frontmatter reflects the actual scheduling outcome (`cron`, `routine`, or `none` on degradation).
 - The transport-specific schedule id (cron id, routine id) is **not** stored in the file. Claude finds it at action time by matching the prompt content (`/follow-up due <id>`) via `CronList` or routine listing.
-- Reminder storage is project-scoped (`.claude/.scratchpad/reminders/`). Gitignored. Persists across sessions on the same machine.
+- Reminder storage is project-scoped, at the `reminders` path `atomic where --json` reports. Persists across sessions and worktrees of the same clone. Paths come from `atomic scratchpad` / `atomic where --json`.
 - The slug in the filename is cosmetic. The `id` field in frontmatter is the canonical key.
 
 </constraints>

@@ -110,6 +110,10 @@ How long a named `atomic repl` interpreter session stays alive with no activity.
 
 Resolution order is repo, then user, then the `1h` built-in default. Set it here when the project's sessions are expensive to start; set it in `~/.atomic/config.toml` when it is your own preference.
 
+## State paths
+
+`.claude/atomic.toml` does not configure where scratchpad bundles, session reports, reminders, or archives live — those resolve per project, not per repo config, under `~/.atomic/<project-key>/`. Run `atomic where --json` to read them; see [conventions](/reference/conventions) for the layout.
+
 ## How the file is read
 
 Loading is lenient by design, because a config problem should never stop you working:

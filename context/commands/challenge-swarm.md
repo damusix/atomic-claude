@@ -157,13 +157,15 @@ Communication runs through a workspace, not through shared context:
 
 
 ```
-.claude/.scratchpad/<yyyy-mm-dd>-challenge-swarm-<slug>/
+$(atomic scratchpad new <slug> --purpose review)/
 ├── lens-instructions.md   shared process + output contract (verbatim block below)
 ├── lenses/
 │   └── <lens>.md          one role file per selected lens
 └── findings/              each lens writes its output here
 ```
 
+
+`atomic scratchpad new <slug> --purpose review` extends the same bundle a plan or implementation used for this slug, rather than opening a second one. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 
 Write `lens-instructions.md` verbatim from the block below, then one role file per lens. Dispatch **one `general-purpose` subagent per lens, all in a single message** so they run in parallel, and pass **`model: sonnet` on every dispatch** — the role file carries the specialization; a heavier tier may add insight, but it definitely adds cost. Use a different tier only when the user explicitly asks for one this run; never inherit the session model by omission — on a premium session tier (Opus, Fable) an unpinned dispatch multiplies spend across 3-6 agents.
 
@@ -299,11 +301,11 @@ Numbered offers, typed selection:
 2. add the missing lens — <name from the report>
 3. file as follow-ups   — atomic followups add --kind finding, one per accepted finding
 4. fold into the design — /atomic-plan @<target> to encode the decisions (spec-currency rule applies)
-5. done                 — delete the workspace
+5. done                 — stop here
 ```
 
 
-On `5`, delete the workspace directory — scratchpad is throwaway working memory. On `1`/`2`, dispatch only the named lens (same pointer prompt, same `model: sonnet`) and rebuild the map. On `3`/`4`, act, then re-offer.
+On `5`, stop — the bundle stays. It is retired only via `/git-cleanup` reaping its worktree/branch, or an explicit `atomic scratchpad archive <slug>`, never by this command. On `1`/`2`, dispatch only the named lens (same pointer prompt, same `model: sonnet`) and rebuild the map. On `3`/`4`, act, then re-offer.
 
 </workflow>
 
@@ -324,7 +326,7 @@ On `5`, delete the workspace directory — scratchpad is throwaway working memor
 ## What this command does not do
 
 
-- Does not write durable artifacts. The report lives in the conversation; the workspace is gitignored scratchpad, deleted at close-out.
+- Does not write durable artifacts. The report lives in the conversation; the workspace is gitignored scratchpad, retained at close-out.
 - Does not modify the target document or any code.
 - Does not auto-fire. Explicit invocation only — it spawns 3-6 subagents, which is never a surprise the user should discover.
 - Is not dispatched by `/autopilot`. Human-invoked gate, like `/pressure-test`.

@@ -2,9 +2,11 @@
 description: Multi-agent failure-investigation orchestrator. Parallel to /subagent-implementation — same scratchpad + investigator + builder/surgeon + reviewer + FOLLOWUPS pattern — but starts from a failure, not a spec. Two modes share one loop: ci (failed CI run is the brief seed) and bug (freeform symptom paragraph is the brief seed).
 ---
 
-You are the **orchestrator**. The user has invoked `/subagent-diagnose`. You will NOT implement the fix yourself. You drive a loop of fresh-context subagents until the failure is resolved, then archive the scratchpad and triage follow-ups.
+You are the **orchestrator**. The user has invoked `/subagent-diagnose`. You will NOT implement the fix yourself. You drive a loop of fresh-context subagents until the failure is resolved, then triage follow-ups. The scratchpad bundle stays — it is retired later, via `/git-cleanup` or an explicit `atomic scratchpad archive`, not by this command.
 
 Spec: `docs/spec/subagent-diagnose.md` — canonical contract. Read it if anything below is ambiguous.
+
+Scratchpad paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 
 <workflow>
 
@@ -32,7 +34,7 @@ Stop. Do not proceed until mode is valid.
 |------|--------|
 | 0.1 | Resolve argument to a run ID. If no arg given: `gh run list --status failure --branch <current-branch> --limit 1 --json databaseId,name,headSha,createdAt`. Refuse if no failed run found: `no failed run found on branch <branch>. provide a run-id, pr#, or workflow.yml as argument.` |
 | 0.2 | Capture into `BRIEF.md` source-pointer section: branch, head SHA, base SHA (`git merge-base HEAD origin/main`), workflow name, failed step name (from `gh run view <id> --json jobs`), failure timestamp, provider URL. |
-| 0.3 | Topic: `<YYYY-MM-DD>-diagnose-ci-<run-id>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. **Concurrent-run guard:** if `$SCRATCH` already exists, refuse: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise run `atomic repo init` if `command -v atomic` succeeds (guarantees the `.claude/` layout and ignore rules; skip silently otherwise), then `mkdir -p "$SCRATCH"`. |
+| 0.3 | Topic: `diagnose-ci-<run-id>` — the run id distinguishes the bundle, not a date. **Concurrent-run guard:** if `atomic scratchpad path "<topic>"` resolves, refuse: `scratchpad already exists for <topic>; atomic scratchpad archive it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise run `atomic repo init` if `command -v atomic` succeeds (guarantees the `.claude/` layout and ignore rules; skip silently otherwise), then `SCRATCH=$(atomic scratchpad new "<topic>" --purpose diagnose)`. |
 | 0.4 | Dispatch a `general-purpose` subagent (`model: haiku`, foreground, read-only) with this brief: `Fetch full logs for CI run <id>, failed step "<step-name>". Write to <SCRATCH>/CONTEXT.md. If logs exceed 64KB, truncate with footer: "[truncated, full log at <provider-url>]". Extract the primary failing assertion / panic / error line and append as a trailing YAML key: top_level_error: "<exact error string>"`. |
 | 0.5 | Read `CONTEXT.md`. Copy `top_level_error` value into `STATE.md` as `## Iteration 0 — baseline` entry: `top_level_error: <value>` + `normalized_hash: <sha256 of normalized string, first 12 chars>`. |
 
@@ -42,7 +44,7 @@ Stop. Do not proceed until mode is valid.
 
 | Step | Action |
 |------|--------|
-| 0.1 | Slug: kebab-case from first ~6 words of the symptom arg (e.g. `"user login fails with 500"` → `user-login-fails-with-500`). Topic: `<YYYY-MM-DD>-diagnose-bug-<slug>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. **Concurrent-run guard:** if `$SCRATCH` already exists, refuse: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise run `atomic repo init` if `command -v atomic` succeeds (guarantees the `.claude/` layout and ignore rules; skip silently otherwise), then `mkdir -p "$SCRATCH"`. |
+| 0.1 | Slug: kebab-case from first ~6 words of the symptom arg (e.g. `"user login fails with 500"` → `user-login-fails-with-500`). Topic: `diagnose-bug-<slug>` — no date. **Concurrent-run guard:** if `atomic scratchpad path "<topic>"` resolves, refuse: `scratchpad already exists for <topic>; atomic scratchpad archive it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise run `atomic repo init` if `command -v atomic` succeeds (guarantees the `.claude/` layout and ignore rules; skip silently otherwise), then `SCRATCH=$(atomic scratchpad new "<topic>" --purpose diagnose)`. |
 | 0.2 | Single `AskUserQuestion` block. For each of the four context fields not already answered by the symptom: **repro steps**, **expected vs actual behavior**, **environment fingerprint** (OS, runtime versions, branch, dirty/clean working tree), **what's been tried**. Skip fields the symptom paragraph already answers. |
 | 0.3 | Seed `CONTEXT.md` from `atomic template diagnose-context` and fill it — four stable headings (`## Repro`, `## Expected vs actual`, `## Environment`, `## Already tried`) plus the trailing YAML key `top_level_error:` — use a paste-able error string if the brief or answers contain one, else `<none — behavioral bug>`. |
 | 0.4 | Auto-capture: if suspected paths are inferable from the brief, run `git log --oneline -20 -- <paths>` and append output as `## Recent commits` to `CONTEXT.md`. Skip silently if no paths inferable. |
@@ -59,7 +61,7 @@ Stop. Do not proceed until mode is valid.
 | `$SCRATCH/FOLLOWUPS.md` | Non-blocking findings carried across iterations; dispositioned at Phase 4 |
 | `$SCRATCH/CONTEXT.md` | Phase 0 capture (logs for `ci`, repro + symptom map for `bug`) |
 
-`$SCRATCH` = `.claude/.scratchpad/<YYYY-MM-DD>-<mode-suffix>`.
+`$SCRATCH` is the bundle path `atomic scratchpad new "<topic>"` printed in Phase 0, where `<topic>` is `diagnose-ci-<run-id>` or `diagnose-bug-<slug>`.
 
 Seed `BRIEF.md`, `STATE.md`, and `FOLLOWUPS.md` from their embedded templates (`atomic template brief` / `state` / `followups`) — each template's guidance comment names the diagnose-mode variant (source-pointer brief section, iteration-0 baseline entry).
 
@@ -197,7 +199,7 @@ Topic dir includes mode + per-mode unique suffix (run-id for `ci`, slug for `bug
 |------|--------|
 | 4.1 | Push the fix commit if not yet pushed. Confirm with user first (per axiom 3 — push is visible to others). |
 | 4.2 | Dispatch a `general-purpose` subagent (`model: haiku`, `run_in_background: true`) with brief: `Watch CI for branch <branch> (commit <sha>) until terminal state. Report: run ID, conclusion (success/failure/cancelled/timed-out), failing step + 1-3 line error excerpt on failure. Cap at 10 minutes. Read-only — do not rerun or cancel.` |
-| 4.3 | Return control to user immediately. Print: archive path, fix commit SHA, background watcher launched. |
+| 4.3 | Return control to user immediately. Print: scratchpad path, fix commit SHA, background watcher launched. |
 | 4.4 | When watcher completes — do **not** auto-relaunch on failure. Surface the new failure ID and instruct user to re-invoke `/subagent-diagnose ci <new-run-id>`. Prevents infinite loops on flaky infrastructure. |
 
 ### `bug` mode
@@ -205,8 +207,8 @@ Topic dir includes mode + per-mode unique suffix (run-id for `ci`, slug for `bug
 | Step | Action |
 |------|--------|
 | 4.1 | Foreground orchestrator runs the repro from `CONTEXT.md ## Repro` against the committed fix. Shell-executable repros: run via Bash. Manual repros (UI, third-party service): prompt user to run and report result via `AskUserQuestion`. |
-| 4.2 | If repro passes (bug no longer reproduces): proceed to teardown (archive). |
-| 4.3 | If repro still fails: do **not** archive. Print: `fix landed in commit <sha> but repro still fails. scratchpad retained at <path>. reviewer signed PASS based on the regression test; the test may not match the real repro.` Then `AskUserQuestion`: continue iterating (Phase 2) / accept and archive / abort. |
+| 4.2 | If repro passes (bug no longer reproduces): proceed to teardown. |
+| 4.3 | If repro still fails: print `fix landed in commit <sha> but repro still fails. scratchpad retained at <path>. reviewer signed PASS based on the regression test; the test may not match the real repro.` Then `AskUserQuestion`: continue iterating (Phase 2) / accept and proceed / abort. |
 | 4.4 | No background dispatch. Bug verification is synchronous. |
 
 ### Shared teardown (both modes)
@@ -214,9 +216,8 @@ Topic dir includes mode + per-mode unique suffix (run-id for `ci`, slug for `bug
 After verification:
 
 1. **FOLLOWUPS disposition.** Present `FOLLOWUPS.md` ledger to user per-item (see § FOLLOWUPS handling).
-2. **Archive on success.** `mkdir -p .claude/.scratchpad/.archive/` then `mv "$SCRATCH" ".claude/.scratchpad/.archive/<topic>/"`. Verify: archive dir exists, original dir does not.
-3. **Retain on bail.** Do not archive. Leave `$SCRATCH` in place for resume inspection.
-4. **Report to user:** what was fixed, commit SHA(s), iterations run, signals verified, FOLLOWUPS dispositioned, what's left (if any).
+2. **`$SCRATCH` stays, on success or bail alike** — this command never retires a bundle. It is retired only via `/git-cleanup` reaping its worktree/branch, or an explicit `atomic scratchpad archive <topic>`.
+3. **Report to user:** what was fixed, commit SHA(s), iterations run, signals verified, FOLLOWUPS dispositioned, what's left (if any).
 
 Do NOT push, merge, or open a PR. User picks the ship verb when ready.
 
@@ -226,7 +227,7 @@ Do NOT push, merge, or open a PR. User picks the ship verb when ready.
 
 ## Rules
 
-- Orchestrator does NOT write implementation code. Only goal docs, state updates, commits per PASS, archive, and triage.
+- Orchestrator does NOT write implementation code. Only goal docs, state updates, commits per PASS, and triage.
 - Every subagent dispatch is fresh context. The scratchpad brief is the only handoff. Invest in it — a verbose brief is cheaper than a misaimed iteration.
 - Reviewer and implementer are separate agents. Never the same. Never combined.
 - Mode subcommand is required. Never proceed without a valid `ci` or `bug` mode.

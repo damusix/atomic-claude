@@ -18,6 +18,7 @@ import { events } from "../../utils/events";
 import { BusRail } from "./BusRail";
 import { Contents } from "./Contents";
 import { JsonValue } from "./JsonValue";
+import { PlansRail } from "./PlansRail";
 import { COLLAPSED_LIMIT, EdgeList, ExpandToggle } from "./EdgeList";
 import { backlinkView, countEdges, dedupeEdges, edgeKind, edgeMatches, pathKind } from "./edges";
 import { LinkFilters, type KindCount } from "./LinkFilters";
@@ -193,6 +194,14 @@ export function Rail() {
     return (
       <aside id="right-rail" aria-label="Rail">
         <SchemaRail />
+      </aside>
+    );
+  }
+
+  if (location.pathname.startsWith("/plans/")) {
+    return (
+      <aside id="right-rail" aria-label="Rail">
+        <PlansRail />
       </aside>
     );
   }

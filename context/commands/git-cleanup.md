@@ -127,6 +127,17 @@ For each remaining selected item, in the order the user picked them, apply the a
 MAIN_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
 cd "$MAIN_ROOT"
 
+# archive this worktree's scratchpad bundle(s) BEFORE removal — the worktree is the only
+# thing that attributes a bundle to this branch (meta.toml carries no branch field), so
+# once it's gone there's no way left to find what to archive
+if command -v atomic >/dev/null 2>&1; then
+  for slug in $(atomic scratchpad list --repo <path> --json | jq -r '.[].slug'); do
+    atomic scratchpad archive "$slug" --repo <path>
+  done
+else
+  echo "atomic not found — removing worktree without archiving any scratchpad bundles"
+fi
+
 git worktree remove <path>
 git branch -d <branch>            # or -D if user confirmed in step 7 for an unmerged branch
 git worktree prune                # self-heal any related stale state
@@ -137,6 +148,8 @@ git worktree prune                # self-heal any related stale state
 ```bash
 git branch -d <branch>            # or -D if user confirmed in step 7
 ```
+
+This branch has no worktree on disk, so there is no scratchpad bundle attribution — `meta.toml` carries no branch field, and the worktree was the only link. If the user knows a bundle belongs to this branch, tell them to run `atomic scratchpad archive <slug>` manually.
 
 ### `action=prune` (stale registration)
 
@@ -150,6 +163,30 @@ git worktree prune
 
 Same as the corresponding `remove` / `delete` — use `-D` instead of `-d` for branch deletion to force.
 
+## Step 8b — Reap session reports for gone branches
+
+No grace window — once a branch is gone there is no future commit to consume its report, unlike the 30-day staleness window above that protects a still-open branch.
+
+```bash
+if command -v atomic >/dev/null 2>&1; then
+  REPORTS_ROOT=$(atomic where --json | jq -r '.reports_root // empty')
+  if [ -n "$REPORTS_ROOT" ] && [ -d "$REPORTS_ROOT" ]; then
+    # Report directories are named with '/' flattened to '-' (feature/x -> feature-x),
+    # so flatten the live branch list the same way before comparing.
+    live=$(git branch -a --format='%(refname:short)' | sed 's|^origin/||; s|/|-|g' | sort -u)
+    for dir in "$REPORTS_ROOT"/*/; do
+      [ -d "$dir" ] || continue
+      name=$(basename "$dir")
+      printf '%s\n' "$live" | grep -qx "$name" || rm -rf "$dir"
+    done
+  fi
+else
+  echo "atomic not found — skipping session report reaping"
+fi
+```
+
+`REPORTS_ROOT` always comes from `atomic where --json`'s `reports_root` field — never construct `~/.atomic/<project-key>/reports/` by hand.
+
 </workflow>
 
 <output_format>
@@ -159,9 +196,11 @@ Same as the corresponding `remove` / `delete` — use `-D` instead of `-d` for b
 ```
 Cleaned up:
   ✓ [1] removed worktree .claude/worktrees/feat-x/, deleted branch feat-x
+        archived scratchpad bundle: feat-x
   ✓ [3] removed worktree .claude/worktrees/feat-z/, deleted branch feat-z (forced — was unmerged)
   ✓ [4] pruned stale registration .claude/worktrees/old/
   ✓ [5] deleted branch bugfix-old
+        no worktree — no bundle attribution; archive manually if one exists
 
 Skipped (you said no):
   • [6] spike-thing (gone upstream, you kept it)
@@ -169,6 +208,9 @@ Skipped (you said no):
 Not selected:
   • [2] .claude/worktrees/feat-y/ (dirty)
   • [7] experiment (flagged only)
+
+Reaped session reports (branch gone from git branch -a, no grace window):
+  ✓ old-topic-branch
 ```
 
 Delete `$SCRATCH` once done.
@@ -183,6 +225,8 @@ Delete `$SCRATCH` once done.
 - Never use `-D` (force-delete branch) without an explicit Yes from step 7. **Why:** `-D` discards commits that haven't been merged — data loss without an explicit user decision violates the destructive-ops confirm axiom.
 - Never run `git push --delete` against remote branches. Remote cleanup is out of scope for this command. **Why:** remote deletions affect the whole team and can't be undone locally; they belong to a separate, intentional workflow.
 - Always `cd` to the main repo root before `git worktree remove` — running it from inside the worktree being removed fails silently. **Why:** git refuses (or silently no-ops) worktree removal when the cwd is inside the target; the error surfaces only if you inspect the exit code, making the bug invisible.
+- Always archive a worktree's scratchpad bundle(s) before `git worktree remove`, never after. **Why:** the worktree is the only thing that attributes an uncommitted bundle to its branch — `meta.toml` carries no branch field — so once the worktree is gone there is nothing left to read and the bundle is lost, not merely unarchived.
+- Reap session reports for gone branches with no grace window, unlike the 30-day staleness threshold that governs worktree/branch candidates. **Why:** a report is why-context for its branch's next commit; once the branch is gone from `git branch -a` there is no future commit to consume it, and a reused branch name would otherwise inherit a stale predecessor's report as if it were its own.
 - Print every git command before running it. Atomic style — no narration. **Why:** destructive ops must be auditable; the user needs to see exactly what ran and in what order before trusting the result.
 - If any execution step errors, stop, report which item failed and why. Do not continue with remaining items until user says to. **Why:** partial cleanup can leave repo state inconsistent (e.g. worktree removed but branch still present); stopping on first failure keeps the remaining items predictable.
 - No commits during this command. No PRs. Just cleanup. **Why:** scope creep — cleanup is already destructive enough; mixing in commit or PR actions makes the command's effect surface unpredictable and harder to audit.

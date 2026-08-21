@@ -6,12 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
 
-// Mirrors the reminder package constant, so a path change breaks loudly here.
+// remindersPath mirrors reminder.Add's write target: the project-keyed home.
 func remindersPath(root string) string {
-	return filepath.Join(root, ".claude", ".scratchpad", "reminders")
+	return config.ProjectRemindersDir(root)
 }
 
 // Only due: may change; id, created, transport and body must survive SetDue.

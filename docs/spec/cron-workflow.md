@@ -25,19 +25,21 @@ Tracked fields: `id`, `created`, `due`, `transport`. No `status`. No `snooze_cou
 ## Storage
 
 
-- `.claude/.scratchpad/reminders/<YYYY-MM-DD>-<slug>.md`
+- `<reminders>/<YYYY-MM-DD>-<slug>.md`, where `<reminders>` is `atomic where --json`'s
+  `.reminders` field — `~/.atomic/<project-key>/reminders/`. The binary-absent fallback
+  is the legacy `.claude/.scratchpad/reminders/` directory and no other location.
 
 
-Gitignored. Persists across sessions on the same machine. Never travels with the repo.
+Outside the repository. Persists across sessions on the same machine. Never travels with the repo.
 
 
-**Scope is per-project.** The scratchpad is project-local, so reminders created in project A do not surface in project B. The session-start hook reads `$cwd/.claude/.scratchpad/reminders/`. Users who want cross-project reminders today have to create them in each project; a future user-global storage path (`~/.atomic/reminders/`) is an open follow-up.
+**Scope is per-clone, shared across worktrees.** `<project-key>` is derived from the clone's main checkout root, so every worktree of one clone resolves the same `.reminders` path — a reminder created from one worktree surfaces from any other worktree of the same clone. Reminders created in a different clone (a different project) do not surface here. The session-start hook resolves the path the same way, via `atomic where --json`.
 
 
 ### Scratchpad cleanup interaction
 
 
-The `/subagent-implementation` flow deletes `.claude/.scratchpad/<YYYY-MM-DD>-<task>/` on task completion. The `reminders/` subdirectory lives alongside, not inside, those task dirs. It is exempt from cleanup by path.
+Retiring an `atomic scratchpad` bundle (via `atomic scratchpad archive`, run by `/git-cleanup` or a ship-verb worktree cleanup) never touches reminders — they live outside the repository under the project-keyed home, not alongside scratchpad bundles.
 
 
 ## Commands
@@ -109,7 +111,7 @@ Two invocation modes:
 
 1. Detect binary.
     - **Binary present**: `atomic reminder list`. Output is indexed and includes a `transport` column.
-    - **Fallback**: `ls .claude/.scratchpad/reminders/*.md`, parse frontmatter fields (`id`, `created`, `transport`) via grep, build indexed list manually.
+    - **Fallback**: `ls <reminders>/*.md` against the legacy `.claude/.scratchpad/reminders/` directory, parse frontmatter fields (`id`, `created`, `transport`) via grep, build indexed list manually.
 2. Optionally enrich each entry with live schedule info — best-effort, skip silently if tools are unavailable:
     - **`cron` transport**: `CronList` → find entry whose prompt contains `/follow-up due <id>` → note next-fire time.
     - **`routine` transport**: query routine listing for matching prompt → note fire time if found.
@@ -281,7 +283,7 @@ Proposed actions when missing:
 - Cron firing across timezones — initial version uses local time. Travelers may see schedules shift; revisit if it bites.
 - Lookup-by-id ergonomics — the spec assumes the scheduled prompt `/follow-up due <id>` is findable by matching the prompt string (`CronList` for cron, routine listing for Routines). If either listing does not expose prompt content reliably, fall back to storing the transport id in the reminder file's frontmatter (`schedule_id` field) as a secondary index.
 - Reminders summary cap (default 10 on session-start) — configurable later via memory.
-- Cross-project / user-global reminders — current storage is project-scoped. Future: optional `--scope user` flag on `/remind-me` storing under `~/.atomic/reminders/`, surfaced by a user-level session-start hook.
+- ~~Cross-project / user-global reminders~~ — **closed.** Storage is now project-keyed and clone-scoped (`~/.atomic/<project-key>/reminders/`, shared across every worktree of one clone) rather than repo-local; see `docs/spec/serve-plans-page.md`. A genuinely cross-project (not just cross-worktree) view remains out of scope.
 - **Acknowledgement state.** v1 re-injects every past-due reminder at every session-start until the user runs `/follow-up` → `done`. If this becomes noisy, add an `acknowledged_at` frontmatter field set by `/follow-up` → `ack <index>` (new action) that suppresses hook re-injection for N hours/days. Deferred — wait for real-world annoyance before adding the gate.
 - **Routine cancellation semantics.** `/follow-up` → `done`/`snooze` for a routine-transport reminder needs a way to delete the underlying routine. The `schedule` skill's deletion contract may differ from `CronDelete`. Verify on first implementation; if listing/deletion is awkward, store the routine id in frontmatter (matches the prior `schedule_id` follow-up).
 
@@ -394,6 +396,14 @@ Ship verb to choose at handoff (`/squash-and-merge`, `/merge-to-main`, `/pr-only
 
 ## Change log
 
+
+### 2026-08-20 — Reminders relocate to the project-keyed state home
+
+**What changed:** Storage moves from `.claude/.scratchpad/reminders/<YYYY-MM-DD>-<slug>.md` to `<reminders>/<YYYY-MM-DD>-<slug>.md`, where `<reminders>` is `atomic where --json`'s `.reminders` field (`~/.atomic/<project-key>/reminders/`); the binary-absent fallback is the legacy `.claude/.scratchpad/reminders/` directory and no other location. Scope changes from per-project to per-clone, shared across every worktree of the same clone — closing the cross-project/user-global open follow-up this spec previously named (a genuinely cross-*project* view is still out of scope; this closes the cross-*worktree* gap). The Bare-flow fallback listing and the session-start hook's no-binary shell fallback both still reference the legacy directory, since that branch only runs when the binary is absent.
+
+**Why:** `docs/spec/serve-plans-page.md` relocates reminders (and session reports, and archived scratchpad bundles) to one project-keyed home shared across every worktree of a clone, resolved via the new `atomic where --json` fields.
+
+**Superseded:** the repo-local `.claude/.scratchpad/reminders/` path as reminders' only storage location; the "scope is per-project" claim and its accompanying "a future user-global storage path is an open follow-up" framing.
 
 ### 2026-05-30 — Session-start hook inlined (no wrapper script)
 

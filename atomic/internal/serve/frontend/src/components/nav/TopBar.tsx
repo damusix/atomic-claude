@@ -6,6 +6,8 @@ import { Fragment } from "react";
 import { Link, useLocation } from "react-router";
 import type { ConnState } from "../../hooks/useLiveReload";
 import { useApi } from "../../utils/api";
+import { bundleLocalPath } from "../../utils/plansApi";
+import { usePlansScope } from "../plans/usePlansScope";
 import { Tooltip } from "../ui";
 import type { NavResponse } from "./types";
 import "./style.css";
@@ -44,44 +46,64 @@ function ScopeChip() {
   );
 }
 
+interface Crumb {
+  label: string;
+  /** Absent on the leaf crumb — rendered as text, not a link. */
+  to?: string;
+}
+
+function pageCrumbs(pathname: string): Crumb[] {
+  const segments = pathname.replace(/^\/page\//, "").split("/").filter(Boolean);
+  if (segments.length === 0) return [{ label: "home" }];
+  return segments.map((segment, i) => ({
+    label: segment,
+    to: i === segments.length - 1 ? undefined : `/page/${segments.slice(0, i + 1).join("/")}`,
+  }));
+}
+
+// /plans/:slug/* has its own shape — plans » <slug> » <file label> — so the
+// generic /page/ directory-listing logic (which would emit "docs" and "spec"
+// as their own crumbs, 404ing against /page/plans/...) never runs here.
+function plansCrumbs(scope: ReturnType<typeof usePlansScope>): Crumb[] {
+  const { slug, relpath, plansHref, slugHref } = scope;
+  if (!slug) return [{ label: "plans" }];
+  if (!relpath) return [{ label: "plans", to: plansHref() }, { label: slug }];
+
+  const fileLabel = relpath.includes("/design/")
+    ? "design.md"
+    : relpath.includes("/spec/")
+      ? "spec.md"
+      : bundleLocalPath(relpath);
+
+  return [{ label: "plans", to: plansHref() }, { label: slug, to: slugHref(slug) }, { label: fileLabel }];
+}
+
 // The header breadcrumb shows the whole path, not just the leaf: with the
 // library behind a drawer, this is the only always-visible answer to "where
 // am I in the tree".
 function Breadcrumb() {
   const location = useLocation();
-  const segments = location.pathname.replace(/^\/page\//, "").split("/").filter(Boolean);
+  const scope = usePlansScope();
+  const crumbs = scope.isPlansRoute ? plansCrumbs(scope) : pageCrumbs(location.pathname);
 
   return (
     <nav className="breadcrumb" aria-label="Breadcrumb">
       <ScopeChip />
-      {segments.length === 0 ? (
-        <>
-          <span className="breadcrumb-sep">›</span>
-          <span className="breadcrumb-page">home</span>
-        </>
-      ) : (
+      {crumbs.map((crumb, i) => (
         // Fragments, not wrapper spans: .breadcrumb is a flex row whose gap
         // supplies the spacing, and a wrapper would collapse each separator
         // against its own label.
-        // Every segment but the last navigates to that directory's listing —
-        // this is the page's only breadcrumb, so it has to actually work.
-        segments.map((segment, i) => {
-          const last = i === segments.length - 1;
-          const path = segments.slice(0, i + 1).join("/");
-          return (
-            <Fragment key={`${segment}:${i}`}>
-              <span className="breadcrumb-sep">›</span>
-              {last ? (
-                <span className="breadcrumb-page">{segment}</span>
-              ) : (
-                <Link className="breadcrumb-folder" to={`/page/${path}`}>
-                  {segment}
-                </Link>
-              )}
-            </Fragment>
-          );
-        })
-      )}
+        <Fragment key={`${crumb.label}:${i}`}>
+          <span className="breadcrumb-sep">›</span>
+          {crumb.to ? (
+            <Link className="breadcrumb-folder" to={crumb.to}>
+              {crumb.label}
+            </Link>
+          ) : (
+            <span className="breadcrumb-page">{crumb.label}</span>
+          )}
+        </Fragment>
+      ))}
     </nav>
   );
 }

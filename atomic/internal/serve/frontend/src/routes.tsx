@@ -8,6 +8,8 @@ import { Bus } from "./pages/Bus/Bus";
 import { External } from "./pages/External";
 import { Graph } from "./pages/Graph/Graph";
 import { Page } from "./pages/Page/Page";
+import { Plans } from "./pages/Plans";
+import { PlansSlug } from "./pages/PlansSlug";
 import { NotFoundRoute, RouteErrorBoundary } from "./pages/RouteError";
 import { Schema } from "./pages/Schema";
 import { Search } from "./pages/Search";
@@ -25,6 +27,8 @@ export const routes: RouteObject[] = [
       { index: true, element: <Page /> },
       { path: "page/*", element: <Page /> },
       { path: "graph", element: <Graph /> },
+      { path: "plans", element: <Plans /> },
+      { path: "plans/:slug/*", element: <PlansSlug /> },
       { path: "bus", element: <Bus /> },
       { path: "search", element: <Search /> },
       { path: "status", element: <Status /> },

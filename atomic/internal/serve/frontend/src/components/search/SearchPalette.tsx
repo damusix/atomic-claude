@@ -16,8 +16,10 @@ import { attempt } from "@logosdx/utils";
 import { useNavigate } from "react-router";
 import { openNode } from "../code-modal/store";
 import { api } from "../../utils/api";
-import { codePaletteItems, mdPaletteItems, type PaletteItem } from "./searchItems";
+import { codePaletteItems, mdPaletteItems, planPaletteItems, type PaletteItem } from "./searchItems";
 import type { ApiCodeSearchResponse, ApiMdSearchResponse } from "./types";
+import { fetchPlans, type PlanRow } from "../../utils/plansApi";
+import { usePlansScope } from "../plans/usePlansScope";
 import "./style.css";
 
 const DEBOUNCE_MS = 200;
@@ -30,12 +32,14 @@ export function SearchPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const navigate = useNavigate();
-  const [source, setSource] = useState<"md" | "code">("md");
+  const { member, openSlug } = usePlansScope();
+  const [source, setSource] = useState<"md" | "code" | "plans">("md");
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [loading, setLoading] = useState(false);
   const [mdResults, setMdResults] = useState<ApiMdSearchResponse | null>(null);
   const [codeResults, setCodeResults] = useState<ApiCodeSearchResponse | null>(null);
+  const [planRows, setPlanRows] = useState<PlanRow[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Global shortcuts — mounted regardless of `open` so ⌘K/"/" work from
@@ -74,8 +78,25 @@ export function SearchPalette({
     return () => clearTimeout(t);
   }, [query]);
 
+  // Plans has no search endpoint — the full payload is fetched once (on
+  // first switch to the tab) and every query filters it client-side.
+  // Cached payload is scoped to a member — a scope switch invalidates it so
+  // the next "plans" tab open re-fetches under the new scope.
+  useEffect(() => {
+    setPlanRows(null);
+  }, [member]);
+
+  useEffect(() => {
+    if (source !== "plans" || planRows !== null) return;
+    void fetchPlans(member).then(setPlanRows);
+  }, [source, planRows, member]);
+
   useEffect(() => {
     let cancelled = false;
+    if (source === "plans") {
+      setLoading(false);
+      return;
+    }
     if (!debounced) {
       setMdResults(null);
       setCodeResults(null);
@@ -109,10 +130,11 @@ export function SearchPalette({
     };
   }, [debounced, source]);
 
-  const items = useMemo<PaletteItem[]>(
-    () => (source === "md" ? mdPaletteItems(mdResults) : codePaletteItems(codeResults)),
-    [source, mdResults, codeResults],
-  );
+  const items = useMemo<PaletteItem[]>(() => {
+    if (source === "md") return mdPaletteItems(mdResults);
+    if (source === "plans") return planPaletteItems(planRows, debounced);
+    return codePaletteItems(codeResults);
+  }, [source, mdResults, codeResults, planRows, debounced]);
 
   const collection = useMemo(
     () => createListCollection({ items, itemToValue: (i: PaletteItem) => i.id, itemToString: (i: PaletteItem) => i.label }),
@@ -136,12 +158,27 @@ export function SearchPalette({
       openNode(item.codeId, item.member, { title: item.label, file: item.filePath, line: item.startLine });
       return;
     }
+    if (item.kind === "plans" && item.slug) {
+      close();
+      openSlug(item.slug);
+      return;
+    }
     close();
   }
 
   function gotoSearchPage() {
     const q = query.trim();
     if (!q) return;
+    // The search page indexes md and code only; a plans query has nowhere to
+    // land there, so Enter opens the first filtered slug instead.
+    if (source === "plans") {
+      const first = items[0];
+      if (first?.slug) {
+        close();
+        openSlug(first.slug);
+      }
+      return;
+    }
     close();
     navigate(`/search?q=${encodeURIComponent(q)}&src=${source}`);
   }
@@ -199,6 +236,14 @@ export function SearchPalette({
               >
                 code
               </button>
+              <button
+                type="button"
+                className={`toggle-btn${source === "plans" ? " toggle-active" : ""}`}
+                aria-pressed={source === "plans"}
+                onClick={() => setSource("plans")}
+              >
+                plans
+              </button>
             </span>
           </div>
           {/* No Combobox.Positioner: the results render in normal flow inside
@@ -235,7 +280,7 @@ function SearchResultsBody({
   items,
   codeResults,
 }: {
-  source: "md" | "code";
+  source: "md" | "code" | "plans";
   debounced: string;
   loading: boolean;
   items: PaletteItem[];
@@ -244,7 +289,7 @@ function SearchResultsBody({
   if (!debounced) return <p className="md-search-empty">Type to search…</p>;
   if (loading) return <p className="loading search-loading">Searching…</p>;
 
-  if (source === "md") {
+  if (source === "md" || source === "plans") {
     if (!items.length) return <p className="md-search-empty">No results.</p>;
     return (
       <ul className="md-search-result-list">

@@ -33,7 +33,7 @@ Chosen approach: re-point the existing `internal/config` path helpers and add re
 - [ ] Machine with a legacy `~/.claude/.atomic/`: the first invocation of any verb renames it to `~/.atomic/` and leaves `~/.claude/.atomic` as a symlink to `~/.atomic`; a second invocation is a no-op; old `@~/.claude/.atomic/...` refs in installed CLAUDE.md files still resolve through the symlink.
 - [ ] Migration failure (e.g. cross-device rename falls back to copy; permission error) emits one stderr warning and the invoked verb still runs; nothing panics or exits non-zero because of migration alone.
 - [ ] `atomic config set harness.dir .pi` validates and persists; `get`/`list`/`unset` work; invalid values (`foo/bar`, `.`, `..`, empty) are rejected with the standard typo-suggesting error shape.
-- [ ] With `harness.dir = .pi`: `atomic repo init` scaffolds `.pi/.scratchpad`, `.pi/project`, writes the nested `.pi/.gitignore`, and ensures `.pi/.atomic-index/` and `.pi/worktrees/` are ignored; `atomic followups` reads/writes `.pi/project/followups/`; `atomic code index` writes `<root>/.pi/.atomic-index/atomic.db` and the MCP daemon + realm resolver agree; reminders live under `.pi/.scratchpad/reminders`; the repo config loads from `.pi/atomic.toml`; the signals tree skips `.pi/.scratchpad/` and `.pi/project/`.
+- [ ] With `harness.dir = .pi`: `atomic repo init` scaffolds `.pi/.scratchpad`, `.pi/project`, writes the nested `.pi/.gitignore`, and ensures `.pi/.atomic-index/` and `.pi/worktrees/` are ignored; `atomic followups` reads/writes `.pi/project/followups/`; `atomic code index` writes `<root>/.pi/.atomic-index/atomic.db` and the MCP daemon + realm resolver agree; reminders live under the project-keyed `~/.atomic/<project-key>/reminders/` (harness-independent — `harness.dir` no longer factors into the reminders path; see `docs/spec/serve-plans-page.md`), with the legacy `.pi/.scratchpad/reminders` directory still read until migrated; the repo config loads from `.pi/atomic.toml`; the signals tree skips `.pi/.scratchpad/` and `.pi/project/`.
 - [ ] Default behavior (`harness.dir` unset) is byte-identical to today: all repo-local paths resolve under `.claude/`.
 - [ ] Bundled `CLAUDE.md` carries `@~/.atomic/config.resolved.md` and `@~/.atomic/profile.md`; `atomic doctor` WARNs (with an `atomic claude install` hint) when the installed CLAUDE.md still carries the legacy refs.
 - [ ] `atomic doctor` migrate category flags an unmigrated or half-migrated legacy state dir (real `~/.claude/.atomic` dir still present).
@@ -155,6 +155,14 @@ M atomic/internal/embedded/**                    — regenerated via make render
 
 ## Change log
 
+
+### 2026-08-20 — Reminders move off the harness-scoped path
+
+**What changed:** The `harness.dir = .pi` success criterion no longer pins reminders under `.pi/.scratchpad/reminders`. They resolve under the project-keyed `~/.atomic/<project-key>/reminders/`, harness-independent — `harness.dir` no longer factors into the reminders path at all. The pre-relocation harness-scoped directory (`<harness.dir>/.scratchpad/reminders`) is read as a legacy fallback until a repo migrates.
+
+**Why:** `docs/spec/serve-plans-page.md` relocates reminders (and session reports, and archived scratchpad bundles) to one project-keyed home shared across every worktree of a clone; this spec's success criterion pinned the pre-relocation path as current truth.
+
+**Superseded:** "reminders live under `.pi/.scratchpad/reminders`" as an unqualified, current-truth statement of where reminders resolve under a non-default harness.
 
 ### 2026-07-16 — ATOMIC_HARNESS env + agent-fingerprint auto-detection
 

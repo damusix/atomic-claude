@@ -16,7 +16,7 @@ You orchestrate a retrospective audit. Subagents do the scanning (read-only). Yo
     ATOMIC_STATE="${HOME}/.atomic"
     RUNS_DIR="${ATOMIC_STATE}/retro-runs"
     LEARNINGS="${ATOMIC_STATE}/retro-learnings.md"
-    SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-retro"
+    SCRATCH="tmp/$(date +%Y-%m-%d)-retro"
     mkdir -p "$RUNS_DIR" "$SCRATCH"
     RUN_ID="$(date +%Y-%m-%d-%H%M%S)"
     ```

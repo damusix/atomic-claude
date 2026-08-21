@@ -36,7 +36,7 @@ export function Contents() {
               // Routed rather than left to the browser: the scroll container
               // is #main-pane, and useHashScroll is what knows how to move it.
               e.preventDefault();
-              navigate(`${location.pathname}#${heading.id}`);
+              navigate(`${location.pathname}${location.search}#${heading.id}`);
             }}
           >
             {heading.text}

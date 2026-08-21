@@ -67,7 +67,7 @@ This is the anti-loop mechanism. `Envelope.To` always marshals as `[]`, never `n
 | `to` is `[]`, sender is an agent | Note it. Do not act, do not reply. |
 | `to` names someone else, sender is an agent | Note it. Do not act. |
 
-Three reactive agents in a room where nothing is addressed will answer each other forever, and each turn costs tokens. Honoring `to` is what prevents that. The full policy, including the trust rules for peer messages, lives in [`skills/atomic-bus/SKILL.md`](../../skills/atomic-bus/SKILL.md).
+Three reactive agents in a room where nothing is addressed will answer each other forever, and each turn costs tokens. Honoring `to` is what prevents that. The full policy, including the trust rules for peer messages, lives in [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md).
 
 ### Verbs
 
@@ -116,13 +116,13 @@ The daemon sets `Response.Code`, and client-side failures resolved before a roun
 
 | Path | Role |
 |------|------|
-| [`skills/atomic-bus/SKILL.md`](../../skills/atomic-bus/SKILL.md) | Auto-fires on connect/join/message-another-session language. Owns the connect flow (join, then a Monitor on `recv`), the reaction policy, the trust posture for peer messages, and the truncated-notification recovery path. |
+| [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) | Auto-fires on connect/join/message-another-session language. Owns the connect flow (join, then a Monitor on `recv`), the reaction policy, the trust posture for peer messages, and the truncated-notification recovery path. |
 
 ### Go packages
 
 | Path | Role |
 |------|------|
-| [`atomic/internal/bus/protocol.go`](../../atomic/internal/bus/protocol.go) | Wire types (`Request`, `Response`, `Envelope`, `Member`, `RoomInfo`), `ProtocolVersion = 2`, the 14 op constants (`AllOps`), `ExitCode` constants, and the size limits `MaxTextBytes` / `MaxIdentifierBytes` / `MaxAddressees` / `MaxAddresseesBytes`. |
+| [`atomic/internal/bus/protocol.go`](../../atomic/internal/bus/protocol.go) | Wire types (`Request`, `Response`, `Envelope`, `Member`, `RoomInfo`), `ProtocolVersion = 3`, the 15 op constants (`AllOps`), `ExitCode` constants, and the size limits `MaxTextBytes` / `MaxIdentifierBytes` / `MaxAddressees` / `MaxAddresseesBytes`. |
 | [`atomic/internal/bus/paths.go`](../../atomic/internal/bus/paths.go) | `SocketPath`, `LockPath`, `StatePath`, `RoomLogPath`, `EnsureDirs`. Every path derives from `config.Dir(home)`. |
 | [`atomic/internal/bus/identity.go`](../../atomic/internal/bus/identity.go) | `SessionID` (reads `CLAUDE_CODE_SESSION_ID`, or `--session`); `State`, the per-session joined-room map persisted at `bus.json`. |
 | [`atomic/internal/bus/position.go`](../../atomic/internal/bus/position.go) | `resolvePosition` and `JoinIdentity` resolve a joining client's repo/realm via `where.Resolve`; `stackedName` builds the member name. |
@@ -133,7 +133,7 @@ The daemon sets `Response.Code`, and client-side failures resolved before a roun
 | [`atomic/internal/bus/action.go`](../../atomic/internal/bus/action.go) | `BusAction` verb dispatch, every `*Action` function, and the shared `parseFlags` / `dialDaemonRecovered` / `touchLastSeen` helpers. |
 | [`atomic/internal/bus/render.go`](../../atomic/internal/bus/render.go) | `TailLine`, `MemberTable`, `RoomTable`, `colourFor` (stable per-sender ANSI colour, off when not a tty). |
 | [`atomic/internal/bus/chat.go`](../../atomic/internal/bus/chat.go) | `Chat`: interactive client loop, pinned input line, `@name` / `/who` / `/rooms` / `/halt` / `/resume` / `/quit`. |
-| [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) | `buildBusCmd` registers `bus` and its 19 subcommands; `runBus` resolves home and cwd, then calls `bus.BusAction`. |
+| [`atomic/cmd/atomic/cmd_bus.go`](../../atomic/cmd/atomic/cmd_bus.go) | `buildBusCmd` registers `bus` and its 19 subcommands; `runBus` resolves home and cwd, then calls `bus.BusAction`. |
 | [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) | 19 `{"bus", "<verb>"}` entries mirroring the CLI surface, with args, flags, and descriptions. |
 
 ### Docs
@@ -176,5 +176,5 @@ The daemon sets `Response.Code`, and client-side failures resolved before a roun
 - **config domain, position resolution.** `position.go` calls `where.Resolve(cwd, claudeMDPath)`, reading the `<wikis>` registry from `<home>/.claude/CLAUDE.md`. A change to `where.Resolve`'s signature or to `RepoRoot` / `RealmScope` breaks member naming and position stamping.
 - **serve domain.** [`atomic/internal/serve/api_bus.go`](../../atomic/internal/serve/api_bus.go) imports `internal/bus` as an in-process Go package, not a CLI shell-out. It calls `JoinIdentity`, `RoomLogPath`, `Dial`, `EnsureDaemon`, the `Op*` and `Exit*` constants, and the wire types verbatim, so a signature change there breaks serve at compile time. Serve-side detail belongs to the serve domain file.
 - **doctor domain.** The 19 `{"bus", ...}` entries in `cliusage.go` feed the A1 artifact-citation lint. Add, rename, or remove a bus verb or flag without updating `cliusage.go` and A1 either flags a valid citation or misses an invalid one.
-- **bundle domain.** [`skills/atomic-bus/SKILL.md`](../../skills/atomic-bus/SKILL.md) is a bundle input; it must appear in the regenerated [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) output and in the discovery surfaces ([`CLAUDE.md`](../../CLAUDE.md), [`templates/commands/atomic-help.md`](../../templates/commands/atomic-help.md)).
-- **Top-level verb count.** `bus` is one of the 22 verbs `TestRootCmdExact22Verbs` in [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go) pins. Renaming or removing it fails that test.
+- **bundle domain.** [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) is a bundle input; it must appear in the regenerated [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) output and in the discovery surfaces ([`CLAUDE.md`](../../CLAUDE.md), [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md)).
+- **Top-level verb count.** `bus` is one of the 23 verbs `TestRootCmdExact23Verbs` in [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go) pins. Renaming or removing it fails that test.

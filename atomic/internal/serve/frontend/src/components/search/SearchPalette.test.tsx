@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { typeIntoCombobox } from "../../test/typeIntoCombobox";
+import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 import { ApiProvider } from "../../utils/api";
 import { SearchPalette } from "./SearchPalette";
 import type { ApiCodeSearchResponse, ApiMdSearchResponse } from "./types";
+import type { PlanRow } from "../../utils/plansApi";
 
 const MD_FIXTURE: ApiMdSearchResponse = {
   query: "auth",
@@ -19,6 +21,12 @@ const CODE_FIXTURE: ApiCodeSearchResponse = {
     { key: "cold", prefix: "cold", indexed: false, results: [] },
   ],
 };
+
+const PLANS_FIXTURE: PlanRow[] = [
+  { slug: "atomic-doctor", title: "atomic-doctor", description: "Verifies install and project-state coherence.", docs: [], bundles: [], dotCount: 0, dotMerged: false },
+  { slug: "serve-plans-page", title: "Plans page", description: "Browse plans in the serve UI.", docs: [], bundles: [], dotCount: 0, dotMerged: false },
+  { slug: "release-please-ci", title: "Release CI", description: "Fix broken release branches.", docs: [], bundles: [], dotCount: 0, dotMerged: false },
+];
 
 function mockFetchByUrl(handlers: Record<string, unknown>) {
   globalThis.fetch = mock(async (input: RequestInfo | URL) => {
@@ -72,7 +80,7 @@ describe("SearchPalette", () => {
     renderPalette(true);
 
     const input = screen.getByLabelText("Search");
-    await userEvent.type(input, "auth");
+    await typeIntoCombobox(input, "auth");
 
     // Immediately after typing, no fetch should have happened yet.
     expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -86,7 +94,7 @@ describe("SearchPalette", () => {
     renderPalette(true);
 
     const input = screen.getByLabelText("Search");
-    await userEvent.type(input, "auth");
+    await typeIntoCombobox(input, "auth");
     await waitFor(() => expect(screen.getByText("wiki/auth.md")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "code" }));
@@ -99,10 +107,71 @@ describe("SearchPalette", () => {
     const { onOpenChange } = renderPalette(true);
 
     const input = screen.getByLabelText("Search");
-    await userEvent.type(input, "auth");
+    await typeIntoCombobox(input, "auth");
     await waitFor(() => expect(screen.getByText("wiki/auth.md")).toBeInTheDocument());
 
     await userEvent.click(screen.getByText("wiki/auth.md"));
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  test("plans tab fetches /api/plans once and filters the held payload by query", async () => {
+    mockFetchByUrl({ "/api/plans": PLANS_FIXTURE });
+    renderPalette(true);
+
+    await userEvent.click(screen.getByRole("button", { name: "plans" }));
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+    const input = screen.getByLabelText("Search");
+    await typeIntoCombobox(input, "release");
+
+    await waitFor(() => expect(screen.getByText("Release CI")).toBeInTheDocument());
+    expect(screen.queryByText("atomic-doctor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Plans page")).not.toBeInTheDocument();
+    // Filtering is client-side against the payload already held — no
+    // second fetch fires as the query changes.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("selecting a plans result navigates to the slug and closes the palette", async () => {
+    mockFetchByUrl({ "/api/plans": PLANS_FIXTURE });
+    const { onOpenChange } = renderPalette(true);
+
+    await userEvent.click(screen.getByRole("button", { name: "plans" }));
+    const input = screen.getByLabelText("Search");
+    await typeIntoCombobox(input, "release");
+    await waitFor(() => expect(screen.getByText("Release CI")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByText("Release CI"));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  test("scoped plans fetch and navigate both carry ?member=", async () => {
+    mockFetchByUrl({ "/api/plans": PLANS_FIXTURE });
+    const router = createMemoryRouter(
+      [
+        { path: "/plans", element: <SearchPalette open={true} onOpenChange={() => {}} /> },
+        { path: "/plans/:slug", element: <div>opened</div> },
+      ],
+      { initialEntries: ["/plans?member=server"] },
+    );
+    render(
+      <ApiProvider>
+        <RouterProvider router={router} />
+      </ApiProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "plans" }));
+    const fetchMock = globalThis.fetch as unknown as { mock: { calls: [RequestInfo | URL][] } };
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
+    const calledUrl = fetchMock.mock.calls[0][0];
+    expect(typeof calledUrl === "string" ? calledUrl : calledUrl.toString()).toContain("member=server");
+
+    const input = screen.getByLabelText("Search");
+    await typeIntoCombobox(input, "release");
+    await waitFor(() => expect(screen.getByText("Release CI")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("Release CI"));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/plans/release-please-ci"));
+    expect(router.state.location.search).toBe("?member=server");
   });
 });

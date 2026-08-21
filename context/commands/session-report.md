@@ -19,7 +19,7 @@ Opt-in only. Does not auto-fire.
 1. **Determine branch scope key:**
     - `git branch --show-current`. If empty (detached HEAD), use `git rev-parse --short HEAD` and warn the user: `detached HEAD — report scoped to <sha> not a branch.`
 2. **Compute paths:**
-    - Dir: `.claude/.scratchpad/session-reports/<branch>/` (sanitize `/` in branch name to `-`).
+    - Dir: `atomic where --json`'s `reports` field — already branch-scoped, with the legacy fallback folded in. Never construct it by hand.
     - Filename: `<YYYY-MM-DD-HHMM>-<slug>.md`. Slug from `$ARGUMENTS` if provided; otherwise infer from the most prominent change in the working tree (one or two kebab-case words).
     - On filename collision (same minute + same slug): append `-2`, `-3`, etc.
 3. **Gather signal:**
@@ -28,7 +28,7 @@ Opt-in only. Does not auto-fire.
     - Recent conversation context — what was tried, what was rejected, what the user clarified mid-flight.
 4. **Write the report**: seed the computed path from the embedded template — `atomic template session-report > <path>` — then fill every `<angle-bracket>` placeholder (frontmatter + `## What changed` + `## Why` + optional `## Open threads`) and delete the guidance comment. If `atomic` is absent or the verb errors, stop: `document template unavailable (atomic template session-report failed) — install/update the atomic binary. cannot proceed.`
 
-5. **Report path** to the user: `wrote .claude/.scratchpad/session-reports/<branch>/<file>.md`.
+5. **Report path** to the user: `wrote <reports-dir>/<file>.md`, using the `reports` path from `atomic where --json`.
 
 </workflow>
 
@@ -42,7 +42,7 @@ Opt-in only. Does not auto-fire.
 
 Reports persist on disk until consumed by a successful commit on the same branch. Each report is consumed and deleted by the next successful ship-verb commit (see "Ship-verb integration" in `docs/spec/session-report.md`). Failed or aborted commits leave reports in place for the next attempt.
 
-If a branch is abandoned without a commit, the reports stay in `.claude/.scratchpad/session-reports/<branch>/` until `/git-cleanup` removes the branch (cleanup of the scratchpad subtree tracks the branch's lifecycle, not the reports'). Manual `rm -rf` is always safe — scratchpad is LLM-only working memory.
+If a branch is abandoned without a commit, `/git-cleanup` reaps its reports immediately — no grace window — as soon as the branch is gone from `git branch -a`, since a gone branch has no future commit left to consume them. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 
 ## Cross-references
 
@@ -57,7 +57,7 @@ If a branch is abandoned without a commit, the reports stay in `.claude/.scratch
 
 ## Rules
 
-- Never stage the report file. `.claude/.scratchpad/` is gitignored — staging would be a no-op and pollutes intent.
+- Never stage the report file. It lives outside the repository, under `~/.atomic/<project-key>/reports/<branch>/` — there is nothing to stage.
 - One report per invocation. If the user wants two slices of the same session captured separately, they call `/session-report` twice with different slug arguments.
 - No follow-up commits. The session report is consumed by the next commit on the branch; do not generate one of your own.
 

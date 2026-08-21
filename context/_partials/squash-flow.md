@@ -13,11 +13,11 @@
 <squash-steps>
 
 1. Gather subjects (oldest-first): `SUBJECTS=$(git log <base>..HEAD --format='%s' --reverse)`.
-2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir has `*.md` files, read them chronologically and pass as supplemental why-context alongside `SUBJECTS`.
+2. **Session reports** — resolve the report dir via `atomic where --json`'s `reports` field (never construct it). If it has `*.md` files, read them chronologically and pass as supplemental why-context alongside `SUBJECTS`. Paths come from `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 3. `git reset --soft $(git merge-base HEAD <base>)` — collapse all branch commits into the index.
 4. {{ template "doc-impact" . }}
 5. Invoke `atomic-git-discipline` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
-6. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. If the commit failed, leave them.
+6. **Clean up session reports** — on successful commit, delete the `reports`-resolved dir from step 2. If the commit failed, leave them.
 7. **Update implementation logs.** Find spec files with an `## Implementation log` section in the squashed diff:
     ```bash
     git show --name-only --pretty=format: HEAD | grep '^docs/spec/.*\.md$' | while read f; do

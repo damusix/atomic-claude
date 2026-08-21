@@ -41,7 +41,11 @@ Consolidate atomic-owned state under `~/.atomic/` and ship a TOML-backed config 
 ├── backups/<ts>/<relpath>   # claudeinstall pre-write backups
 ├── proposed/
 │   └── CLAUDE.md            # claudeinstall divergence merge target
-└── state.json               # machine-managed selfupdate state; atomic temp+rename; never hand-edited
+├── state.json               # machine-managed selfupdate state; atomic temp+rename; never hand-edited
+└── <project-key>/           # one entry per clone (main checkout root, flattened); see docs/spec/serve-plans-page.md
+    ├── reports/<branch>/    # /session-report output, resolved via `atomic where --json` .reports
+    ├── reminders/           # reminder files, resolved via `atomic where --json` .reminders
+    └── archive/<slug>/<created>/  # retired atomic scratchpad bundles
 ```
 
 Selfupdate stages a downloaded, checksum-verified release archive at a fixed XDG-style path, `~/.cache/atomic/staged/` (hardcoded; not resolved via `os.UserCacheDir()`). The directory is disposable, safe to delete anytime. `state.json`'s `staged` field is the sole authority on what is currently staged, not the file's mere presence on disk.
@@ -148,6 +152,12 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 
 ## Change log
 
+
+### 2026-08-20 — Layout gains the project-keyed state home
+
+**What changed:** The Layout tree gains `~/.atomic/<project-key>/`, one entry per clone (keyed by the main checkout root, path-separator flattened), holding `reports/<branch>/`, `reminders/`, and `archive/<slug>/<created>/`. These paths are resolved by `atomic where --json` and the `atomic scratchpad` verb, not read or written directly against this layout tree.
+
+**Why:** `docs/spec/serve-plans-page.md` relocates session reports, reminders, and archived scratchpad bundles from repo-local and harness-scoped paths to one project-keyed home under `~/.atomic/`, so every worktree of a clone agrees on the location; this spec's Layout section was the per-user state root reference and omitted the new home.
 
 ### 2026-08-09 — Add state.json + update.check/update.stage config keys
 

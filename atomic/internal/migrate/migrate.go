@@ -18,10 +18,19 @@ type Context struct {
 // Migration is one versioned step. Scope ("install", "repo") is a routing tag
 // reserved for future use. Up must be idempotent: it runs once per install,
 // but a crashed run replays it.
+//
+// Summary, Instructions, and Date are log metadata for `atomic migrate
+// --show-log`: FormatLog walks Registry directly and renders only the
+// entries carrying a non-empty Summary, so one list serves both execution
+// and the log — there is no parallel log registry to keep in sync.
 type Migration struct {
 	TargetVersion string
 	Scope         string
 	Up            func(*Context) error
+
+	Summary      string
+	Instructions string
+	Date         string // YYYY-MM-DD
 }
 
 // floor normalises an empty recorded version so every step runs on a
