@@ -16,7 +16,7 @@ self-contained HTML file and collects the user's pick as typed terminal codes, a
 ## Success criteria
 
 - [ ] `skills/atomic-visual-options/SKILL.md` exists with valid frontmatter (`name`, `description`); the description auto-fires on visual-option phrasing and states it is invoked by `/atomic-plan`.
-- [ ] SKILL.md defines all of: the see-it-over-read-it gate, the panel/code model (panels = dimensions, `A1`/`A2` codes), a self-contained HTML scaffold (inline styles, no external fetch, no client JS by default, `prefers-color-scheme`), the scratchpad output location, the typed code-selection grammar, iterate-by-overwrite, and recording chosen codes into the design doc.
+- [ ] SKILL.md defines all of: the see-it-over-read-it gate, the panel/code model (panels = dimensions, `A1`/`A2` codes), a self-contained HTML scaffold (inline styles, no external fetch, no client JS by default, `prefers-color-scheme`), the scratchpad output location (`$(atomic scratchpad path <topic>)/options.html`, resolved via the `atomic scratchpad` verb — no date prefix), the typed code-selection grammar, iterate-by-overwrite, and recording chosen codes into the design doc.
 - [ ] `/atomic-plan` (`templates/commands/atomic-plan.md`) invokes the skill just-in-time when a design question is visual; the rendered `commands/atomic-plan.md` matches the template.
 - [ ] `CLAUDE.md` registers the skill in the planning-workflow context.
 - [ ] `docs/reference/skills.md` lists the skill with its trigger phrases.
@@ -48,4 +48,10 @@ Render and bundle regeneration (`make render`, `make -C atomic bundle`) run at e
 
 ## Change log
 
-<!-- Populated on first amendment after approval. -->
+### 2026-08-20 — Output path via the scratchpad verb, no date prefix
+
+**What changed:** The scratchpad output location success criterion names the exact mechanism: `$(atomic scratchpad path <topic>)/options.html`, resolved via the `atomic scratchpad` verb rather than a hand-built path. `SKILL.md` already implements this shape.
+
+**Why:** `docs/spec/serve-plans-page.md` retires date-prefixed scratchpad directories in favor of slug-keyed bundles resolved through `atomic scratchpad`; this spec's success criterion was vague enough to predate that decision without contradicting it, so this entry makes the current mechanism explicit rather than leaving it implicit.
+
+**Superseded:** the bare phrase "the scratchpad output location" with no named mechanism.

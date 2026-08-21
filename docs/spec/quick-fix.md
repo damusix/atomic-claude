@@ -77,7 +77,7 @@ A. The primitives already support spec-less runs (both `_templates` prompts trea
       Scratchpad — same trio, seeded via atomic template brief|state|followups; loop base SHA recorded in STATE.md
       Loop — implementer (surgical ≤2 mechanical files, feature otherwise) → reviewer → triage → commit per green; cap 3
       Escape hatch — mid-loop exit conditions + handoff text naming /subagent-implementation and /atomic-plan
-      Finalize — atomic-verify gate, FOLLOWUPS dispositions, scratchpad deletion, report; ship left to /commit
+      Finalize — atomic-verify gate, FOLLOWUPS dispositions, report; ship left to /commit
 
     templates/commands/atomic-help.md
       lifecycle topic row — /quick-fix one-liner
@@ -102,7 +102,7 @@ Flow: quick fix, clean pass
 5. implementer dispatched with `{SPEC_PATH}` = `"no spec — inline brief in BRIEF.md"`
 6. reviewer verifies signals + brief compliance → `VERDICT: PASS`
 7. orchestrator commits via atomic-git-discipline, runs atomic-verify
-8. FOLLOWUPS surfaced for disposition; scratchpad deleted; report printed; user ships via `/commit`
+8. FOLLOWUPS surfaced for disposition; bundle retained in place; report printed; user ships via `/commit`
 
 Flow: escape hatch fires mid-loop
 
@@ -146,6 +146,14 @@ Flow: iteration cap
 **Why:** The prompt-templates-to-binary migration (see `docs/spec/document-templates.md` change log) removed `commands/_templates/` entirely; this spec's body still cited the old path.
 
 **Superseded:** the file-path references to `commands/_templates/implementer-prompt.md` / `reviewer-prompt.md`.
+
+### 2026-08-20 — Drop scratchpad deletion at finalize
+
+**What changed:** The Outline's Finalize step and the clean-pass Flow no longer delete the scratchpad bundle. `/quick-fix` already retained its bundle in practice; this removes the stale "scratchpad deletion" / "scratchpad deleted" language so the body agrees with that behavior.
+
+**Why:** `docs/spec/serve-plans-page.md` establishes that no command retires a bundle at close-out — retirement is `atomic scratchpad archive`, run by `/git-cleanup` or a ship-verb worktree cleanup. `/quick-fix` needed no behavior change, only the stale wording removed.
+
+**Superseded:** "Finalize — atomic-verify gate, FOLLOWUPS dispositions, scratchpad deletion, report"; "FOLLOWUPS surfaced for disposition; scratchpad deleted; report printed".
 
 ### 2026-07-11 — Correction: file-threshold criterion scoped to gates
 

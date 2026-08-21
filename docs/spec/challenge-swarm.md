@@ -19,7 +19,7 @@ Adapted from Stanford's STORM: perspective-diverse agents grounded in a corpus (
 - No auto-fire. Explicit invocation only — the command spawns 4-6 subagents, which must never be a surprise. It is a command, not a skill (axiom 5).
 - No `/autopilot` integration. Human-invoked gate, like `/pressure-test`.
 - No new agent type. Lenses run as `general-purpose` subagents; the role file is the specialization.
-- No durable artifacts. The report lives in the conversation; the workspace is gitignored scratchpad, deleted at close-out.
+- No durable artifacts. The report lives in the conversation; the workspace is a gitignored scratchpad bundle, never deleted by this command — retirement is `atomic scratchpad archive`, run by `/git-cleanup` or a ship-verb worktree cleanup when the worktree holding it is reaped.
 - No modification of the target document or any code.
 - No conflict resolution on the design owner's behalf, except where a contested claim is objectively checkable by tool call.
 
@@ -28,12 +28,12 @@ Adapted from Stanford's STORM: perspective-diverse agents grounded in a corpus (
 
 
 - `/challenge-swarm @<path.md>` reads the target, orients in the code it touches, selects 4-6 fitting lenses, and prints the roster with a one-line reason per lens before dispatch.
-- Workspace created at `.claude/.scratchpad/<yyyy-mm-dd>-challenge-swarm-<slug>/` containing `lens-instructions.md` (verbatim from the command's canonical block), one `lenses/<lens>.md` role file per selected lens, and a `findings/` directory.
+- Workspace created via `atomic scratchpad new <slug> --purpose review` — the same slug the design/spec-authoring plan used, so the challenge shares that plan's bundle — seeding `lenses/` and `findings/` per the purpose matrix; the command additionally writes `lens-instructions.md` (verbatim from its canonical block) and one `lenses/<lens>.md` role file per selected lens.
 - All lens subagents dispatched in a single message (parallel); the dispatch prompt is pointer-only and identical across lenses except the role-file path and findings path; every dispatch — including close-out lens reruns — passes `model: sonnet` unless the user explicitly requested a different tier this run.
 - No findings file is read until every lens has reported its one-line reply.
 - Report carries six sections in order: Verdict, Conflicts, Reinforced findings, Single-lens findings, Unexamined assumptions, Missing lens. Findings are severity-ordered and each carries evidence.
 - Contested claims that are objectively checkable are resolved by tool call (`atomic code` verbs, `sg`/grep, or a `tmp/` probe) before appearing in the map.
-- Close-out is a numbered typed-selection list (axiom 4); the workspace is deleted only on the explicit "done" pick.
+- Close-out is a numbered typed-selection list (axiom 4); the "done" pick ends the session without deleting or archiving the workspace — this command never retires a bundle.
 - Empty or ambiguous `$ARGUMENTS` resolves via numbered selection over design/spec files changed on the current branch; paths outside the git toplevel are rejected.
 - If subagents are unavailable, the command degrades to sequential self-run with the same workspace and the same no-reread-until-aggregation rule.
 
@@ -144,3 +144,12 @@ atomic/internal/embedded/**             M  bundle regen (make -C atomic bundle)
 **Why:** Issue #141 — the command's "mid-tier is sufficient" wording was a soft hint with a fall-through to the session model, so on a premium session (Opus, Fable) all 4-6 parallel lenses ran on the expensive session model.
 
 **Superseded:** Prior contract said lens agents "run on a mid-tier model" without a mechanism; the command allowed inheriting the session model when a tier override was unavailable.
+
+
+### 2026-08-20 — Workspace is a slug-keyed bundle, never deleted by this command
+
+**What changed:** The workspace moves from a dated `.claude/.scratchpad/<yyyy-mm-dd>-challenge-swarm-<slug>/` directory this command creates and deletes itself to a bundle created via `atomic scratchpad new <slug> --purpose review`, using the same slug the design/spec-authoring plan used so the challenge and the plan share one bundle. `--purpose review` seeds `lenses/` and `findings/`; the command still writes its own `lens-instructions.md` and per-lens role files into that bundle. Close-out's "done" pick ends the session without deleting or archiving anything — this command never retires a bundle.
+
+**Why:** `docs/spec/serve-plans-page.md` retires per-command scratchpad-path construction in favor of `atomic scratchpad new`/`path`, and retires close-out deletion in favor of `atomic scratchpad archive` run by `/git-cleanup` or a ship-verb worktree cleanup.
+
+**Superseded:** a dated, command-owned workspace directory; "the workspace is gitignored scratchpad, deleted at close-out"; "the workspace is deleted only on the explicit 'done' pick".

@@ -12,7 +12,7 @@ Grep finds text. It cannot answer who calls this, what breaks if I change it, or
 
 This domain answers them from a real graph. It parses a project's source into symbols, stores them in SQLite, resolves cross-file references into edges, and serves structural queries over the result. Consumers are the `atomic code` CLI verbs, an MCP server, agents that compose the `agent-code-intel` partial, and the `serve` domain's code-graph view.
 
-The index lives at `<projectRoot>/<harness.dir>/.atomic-index/atomic.db` (default `.claude/.atomic-index/atomic.db`), derived by `config.IndexDBPath` in [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go).
+The index lives at `<projectRoot>/<harness.dir>/.atomic-index/atomic.db` (default [`.claude/.atomic-index/atomic.db`](../../.claude/.atomic-index/atomic.db)), derived by `config.IndexDBPath` in [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go).
 
 ## How it works
 
@@ -98,7 +98,7 @@ Package mints, edge inserts, and ref deletes share one transaction per window, s
 
 **Repo-scoped ignore is exclude-only.** A committed [`.claude/atomic.toml`](../../.claude/atomic.toml) with `[code] ignore = [...]` filters files out of discovery. There is no negation syntax. A newly ignored file drops out of the list `filterIgnored` produces and is then reclaimed by the ordinary `pruneDeleted` path, so there is no separate ignore-prune step. A malformed TOML, invalid glob, or unknown key degrades to unfiltered indexing with a warning on stderr and never fails the run. This repo dogfoods it: [`.claude/atomic.toml`](../../.claude/atomic.toml) ignores `atomic/internal/serve/assets/vendor/**`.
 
-**Realm mode targets realm-owned databases.** At a realm root, `atomic code` fans out across members and each member's index lives at `<realm>/.atomic/<key>.db`, configured by `<realm>/.atomic/code.toml`. The member's own `.claude/.atomic-index/atomic.db` is not the destination, so an empty member-local db after a realm index is the design, not data loss.
+**Realm mode targets realm-owned databases.** At a realm root, `atomic code` fans out across members and each member's index lives at `<realm>/.atomic/<key>.db`, configured by `<realm>/.atomic/code.toml`. The member's own [`.claude/.atomic-index/atomic.db`](../../.claude/.atomic-index/atomic.db) is not the destination, so an empty member-local db after a realm index is the design, not data loss.
 
 ## Where it lives
 
@@ -182,7 +182,7 @@ validation/     tests only, no production code
 
 | Path | Role |
 |------|------|
-| [`templates/shared/agent-code-intel.md`](../../templates/shared/agent-code-intel.md) | The `agent-code-intel` partial: verb guidance, bounded-query rule, silent-degradation rule, realm fan-out. Composed into [`templates/agents/atomic-investigator.md`](../../templates/agents/atomic-investigator.md), `atomic-reviewer.md`, `atomic-auditor.md`, `atomic-wiki-inferrer.md`, and (via [`templates/shared/agent-implementer-workflow.md`](../../templates/shared/agent-implementer-workflow.md)) `atomic-implementer.md`. `atomic-strategist` carries its own narrower grounding rule instead. |
+| [`context/_partials/agent-code-intel.md`](../../context/_partials/agent-code-intel.md) | The `agent-code-intel` partial: verb guidance, bounded-query rule, silent-degradation rule, realm fan-out. Composed into [`context/agents/atomic-investigator.md`](../../context/agents/atomic-investigator.md), `atomic-reviewer.md`, `atomic-auditor.md`, `atomic-wiki-inferrer.md`, and (via [`context/_partials/agent-implementer-workflow.md`](../../context/_partials/agent-implementer-workflow.md)) `atomic-implementer.md`. `atomic-strategist` carries its own narrower grounding rule instead. |
 
 ### Docs
 
@@ -208,7 +208,7 @@ validation/     tests only, no production code
 | [`docs/spec/embedded-sql-extraction.md`](../spec/embedded-sql-extraction.md), [`docs/spec/embedded-sql-language-expansion.md`](../spec/embedded-sql-language-expansion.md) | SQL inside host-language string literals. The expansion spec holds the probed grammar node-kind table. |
 | [`docs/spec/sql-string-match.md`](../spec/sql-string-match.md), [`docs/design/sql-string-match.md`](../design/sql-string-match.md) | Matching identifier-shaped literals against indexed SQL names (C1 to C8). |
 | [`scripts/code-eval/`](../../scripts/code-eval) | Eval harness: `fetch-corpus.sh`, `run-eval.sh`, `embedded-sql-eval.sh`, and fixtures for embedded SQL, T-SQL lineage, and SQL string-match. |
-| [`atomic/cmd/embedded-sql-admission/`](../../atomic/cmd/embedded-sql-admission) | Standalone eval binary that reports which literals pass `IsSQLLiteral`. Not part of the [`atomic`](../../atomic) binary. |
+| [`atomic/internal/tools/embedded-sql-admission/`](../../atomic/internal/tools/embedded-sql-admission) | Standalone eval binary that reports which literals pass `IsSQLLiteral`. Not part of the [`atomic`](../../atomic) binary. |
 
 ## Constraints
 

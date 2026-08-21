@@ -40,6 +40,7 @@ describe("IconRail", () => {
     expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: "Graph" })).toHaveAttribute("href", "/graph");
     expect(screen.getByRole("link", { name: "Message Bus" })).toHaveAttribute("href", "/bus");
+    expect(screen.getByRole("link", { name: "Plans" })).toHaveAttribute("href", "/plans");
   });
 
   // Most repositories have no SQL, and a permanent mode that can only ever say

@@ -16,13 +16,13 @@ A versioned, replayable migration framework (`atomic/internal/migrate/`) backed 
 
 ## Success criteria
 
-- [ ] `atomic/internal/migrate/` compiles with `Migration{TargetVersion string, Scope string, Up func(ctx) error}` type and an ordered registry slice.
+- [ ] `atomic/internal/migrate/` compiles with `Migration{TargetVersion string, Scope string, Up func(ctx) error, Summary string, Instructions string, Date string}` type and an ordered registry slice. `Summary`, `Instructions`, and `Date` are log metadata carried on the migration itself rather than a parallel log registry — the same `Migration` value serves both step execution and `atomic migrate --show-log`.
 - [ ] `parseSemver`/`compare` reused from `internal/selfupdate/semver.go` (or promoted to an exported helper in that package); no duplicate implementation.
 - [ ] `internal/config` parses and writes `config.toml [install].version` and `[install.artifacts]` per-kind lists (`agents`, `commands`, `skills`, `output-styles`, `rules`).
 - [ ] `checks_config.go` validates config schema v2 (the two new `[install]` keys alongside existing `output.signals.max_depth` and `update.run_doctor`); invalid values are reported as a doctor finding.
 - [ ] `atomic claude install` writes `[install].version` (current binary version) and `[install.artifacts]` (what it copied) on completion.
 - [ ] `atomic update` auto-runs install-scope migration steps after artifact refresh (in `main.go:runUpdate`), in semver order, before exiting.
-- [ ] `atomic migrate` verb exists and is registered in `cliusage.go` with `--repo [path]` and `--realm [path]` flags; `atomic validate artifacts` passes (A1 linter).
+- [ ] `atomic migrate` verb exists and is registered in `cliusage.go` with `--repo [path]`, `--realm [path]`, and `--show-log [<since>]` flags; `atomic validate artifacts` passes (A1 linter). `--show-log` prints dated entries newest-first from the registry's log fields, optionally filtered to entries after a given version or date.
 - [ ] `atomic migrate` (no flags) runs install-scope steps against `~/.claude/`.
 - [ ] `atomic migrate --repo [path]` reads the `<wiki-schema>N</wiki-schema>` block from that repo's `docs/wiki/index.md` as the version anchor and runs repo-scope steps.
 - [ ] `atomic migrate --realm [path]` runs install-scope steps then prompts to migrate each atomic'd member repo (fan-out, one confirm per repo).
@@ -47,7 +47,7 @@ Ordered registry of idempotent `Migration` steps in a new `atomic/internal/migra
 | C1 | `migrate` package: `Migration` type, ordered registry, runner (read version → run steps > recorded → write version), semver reuse | `atomic/internal/migrate/` (new); `atomic/internal/selfupdate/semver.go` (export or add thin exported wrapper) | builder | 3–5 | runner applies only steps with `TargetVersion > recorded`; idempotent re-run changes nothing; semver compare matches `selfupdate` behavior |
 | C2 | Config schema v2: `[install]` table in `internal/config`; `checks_config.go` validation | `atomic/internal/config/` (extend schema); `atomic/internal/doctor/checks_config.go` | builder | 3–5 | `config.toml` with `[install].version` and `[install.artifacts]` round-trips; invalid keys reported; missing `[install]` (pre-framework install) is valid (not an error) |
 | C3 | Install-time manifest write + prune + `uninstall.go` scoping | `atomic/internal/claudeinstall/` (write manifest after copy; reuse `snapshot.go` file-walk helpers, keep distinct from uninstall snapshot); `atomic/internal/claudeinstall/uninstall.go` (consult `[install.artifacts]` to remove only atomic-installed files; batched confirm for prune) | builder | 4–6 | install writes `[install]`; prune batched-confirm lists only `install.artifacts` entries absent from current bundle; `uninstall` does not touch user-added files |
-| C4 | `atomic migrate` verb + first step registration + `runUpdate` hook | `atomic/cmd/atomic/main.go` (new `migrate` case; `runUpdate` calls runner after artifact refresh); `atomic/internal/cliusage/cliusage.go` (register `migrate` + `--repo`/`--realm`); `atomic/internal/migrate/steps.go` (first step: no-op if `docs/wiki/index.md` exists, else invoke B's relocation); `<wiki-schema>` block read/write in `docs/wiki/index.md` for repo-scope anchor | builder | 5–8 | `atomic migrate` runs with no flags (install-scope); `--repo` reads `<wiki-schema>` correctly; `--realm` prompts fan-out; first step is a no-op when target already exists; `atomic validate artifacts` passes A1 lint |
+| C4 | `atomic migrate` verb + first step registration + `runUpdate` hook | `atomic/cmd/atomic/main.go` (new `migrate` case; `runUpdate` calls runner after artifact refresh); `atomic/internal/cliusage/cliusage.go` (register `migrate` + `--repo`/`--realm`/`--show-log`); `atomic/internal/migrate/steps.go` (first step: no-op if `docs/wiki/index.md` exists, else invoke B's relocation); `<wiki-schema>` block read/write in `docs/wiki/index.md` for repo-scope anchor | builder | 5–8 | `atomic migrate` runs with no flags (install-scope); `--repo` reads `<wiki-schema>` correctly; `--realm` prompts fan-out; `--show-log [<since>]` prints dated entries newest-first; first step is a no-op when target already exists; `atomic validate artifacts` passes A1 lint |
 | C5 | Doctor drift check + help + docs | `atomic/internal/doctor/` (new install-version check: binary version > `[install].version` → emit nudge); `templates/commands/atomic-help.md` (maintenance/binary topic row for `migrate`); `docs/guides/install.md` (migration-on-update paragraph); `make render` + `make bundle` | builder | 4–6 | doctor reports drift when version mismatch; `/atomic-help` lists `atomic migrate`; install guide describes auto-migration on update |
 
 
@@ -64,4 +64,10 @@ Ordered registry of idempotent `Migration` steps in a new `atomic/internal/migra
 
 ## Change log
 
-(none)
+### 2026-08-20 — `Migration` gains log fields; `--show-log` flag
+
+**What changed:** `Migration` gains `Summary string`, `Instructions string`, and `Date string` — log metadata carried on the migration itself, not a parallel log registry. `atomic migrate` gains a `--show-log [<since>]` flag printing dated entries newest-first, optionally filtered to entries after a given version or date, by walking `migrate.Registry` and rendering only entries that carry log fields.
+
+**Why:** `docs/spec/serve-plans-page.md`'s migration checkpoint needs migration guidance queryable rather than living only inside artifact prose, and reuses this spec's `Migration` type and registry as the mechanism.
+
+**Superseded:** the bare `Migration{TargetVersion, Scope, Up}` struct with no log-metadata fields and no `--show-log` flag.

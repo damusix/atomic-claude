@@ -56,9 +56,25 @@ interesting-only nudge line when the position is non-trivial.
       top-level fields (not gated behind a flag).
 - [ ] `atomic where --json` emits the same information as machine-readable
       JSON.
+- [ ] `atomic where --json` additionally carries the current branch and four
+      project-keyed paths for this repo: `reports` (branch-scoped, folding in
+      the legacy-fallback ladder), `reports_root` (the parent `reports/`
+      directory, no branch applied), `reminders`, and `archive` — all
+      resolved via `atomic/internal/config`'s project-keyed state home (see
+      `docs/spec/serve-plans-page.md`). These fields are additive and nested
+      under their own key; every field the verb already emits keeps its
+      current name, shape, and value — `repo_root` in particular keeps both
+      its existing meaning (the checkout you are in) and its existing
+      resolution ladder.
 - [ ] The upward walk for repo-scope detection performs no `git` subprocess
       spawns — pure filesystem stats, matching the zero-git-spawn contract
-      already established in `wiki/staleness.go`.
+      already established in `wiki/staleness.go`. Branch resolution for the
+      new `branch` field holds the same contract: it reads `<gitdir>/HEAD`
+      directly (`<root>/.git/HEAD` for the main checkout,
+      `<path>/.git/worktrees/<name>/HEAD` for a worktree) rather than
+      spawning `git` — a `ref: refs/heads/<name>` line yields the branch
+      name, a bare SHA means detached HEAD and the label falls back to the
+      short SHA.
 - [ ] `atomic where` is registered in the root Cobra command, has a
       `cliusage.go` entry, and is covered by `TestDeriveCommandsGolden` (and
       the Cobra-metadata cross-check, if the verb's args/flags are asserted
@@ -115,7 +131,13 @@ one `atomic where` verb — see
 
 ## Change log
 
-<!-- empty on creation; first entry on first post-approval amendment -->
+### 2026-08-20 — `--json` gains branch and project-keyed state paths
+
+**What changed:** `atomic where --json` gains five fields: `branch` (read from `<gitdir>/HEAD` directly, no `git` spawn — same zero-git-spawn contract this verb already holds for repo-scope wiki detection), `reports`, `reports_root`, `reminders`, and `archive` (all resolved via the project-keyed state home). The additions are nested under their own key and every existing field keeps its current name, shape, and value.
+
+**Why:** `docs/spec/serve-plans-page.md` grows `atomic where` into the single verb prompt artifacts (`/session-report`, ship-verb partials) resolve project-keyed paths through, rather than each artifact constructing or branching on those paths itself.
+
+**Superseded:** no prior JSON field list existed in this spec's body to describe the addition against — the `--json` success criterion was general ("emits the same information as machine-readable JSON") and gains a companion bullet naming the new fields explicitly.
 
 ## Implementation log
 

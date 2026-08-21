@@ -271,6 +271,30 @@ var commands = []Command{
 		Description: "Delete a reminder",
 	},
 	{
+		Path:        []string{"scratchpad", "new"},
+		Args:        "<slug>",
+		Flags:       []string{"--purpose"},
+		Description: "Create or extend a slug's bundle",
+	},
+	{
+		Path:        []string{"scratchpad", "path"},
+		Args:        "<slug>",
+		Flags:       nil,
+		Description: "Print a slug's bundle path",
+	},
+	{
+		Path:        []string{"scratchpad", "list"},
+		Args:        "",
+		Flags:       []string{"--json", "--archived"},
+		Description: "List bundles (live, or --archived)",
+	},
+	{
+		Path:        []string{"scratchpad", "archive"},
+		Args:        "<slug>",
+		Flags:       nil,
+		Description: "Archive a slug's bundle",
+	},
+	{
 		Path:        []string{"signals", "scan"},
 		Args:        "",
 		Flags:       []string{"--out"},
@@ -585,7 +609,7 @@ var commands = []Command{
 	{
 		Path:        []string{"migrate"},
 		Args:        "",
-		Flags:       []string{"--repo", "--realm"},
+		Flags:       []string{"--repo", "--realm", "--show-log"},
 		Description: "Run versioned atomic migrations",
 	},
 	{

@@ -9,11 +9,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/where"
 )
+
+// TestMain sandboxes every test in this package under a temp $HOME, since
+// reminder.Add/List (which SessionStart drives) resolve their directory
+// relative to the real home via config.ProjectRemindersDir.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "hooks-test-home")
+	if err != nil {
+		panic(err)
+	}
+	restore := config.SetHomeDirForTest(home)
+	code := m.Run()
+	restore()
+	os.RemoveAll(home)
+	os.Exit(code)
+}
 
 // addReminderWithDate backdates a new reminder's frontmatter created date.
 func addReminderWithDate(t *testing.T, root, body string, daysAgo int) string {
@@ -25,7 +41,7 @@ func addReminderWithDate(t *testing.T, root, body string, daysAgo int) string {
 	if daysAgo == 0 {
 		return id
 	}
-	dir := filepath.Join(root, ".claude", ".scratchpad", "reminders")
+	dir := config.ProjectRemindersDir(root)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("addReminderWithDate: ReadDir: %v", err)
@@ -318,7 +334,7 @@ func addReminderWithDue(t *testing.T, root, body string, daysOffset int) string 
 // patchDueField rewrites a reminder's due: line, malformed values included.
 func patchDueField(t *testing.T, root, id, dueValue string) {
 	t.Helper()
-	dir := filepath.Join(root, ".claude", ".scratchpad", "reminders")
+	dir := config.ProjectRemindersDir(root)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("patchDueField: ReadDir: %v", err)

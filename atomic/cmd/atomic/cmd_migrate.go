@@ -32,23 +32,59 @@ func buildMigrateCmd() *cobra.Command {
 	}
 	c.Flags().String("repo", "", "run repo-scope migrations on this path")
 	c.Flags().String("realm", "", "run install-scope + repo fan-out under this realm root")
+	c.Flags().Bool("show-log", false, "print dated migration log entries, optionally since a version or date")
 	return c
 }
 
 // runMigrate routes by flag:
 //
-//	atomic migrate                  → install-scope steps against ~/.claude
-//	atomic migrate --repo <path>    → repo-scope steps on that repo
-//	atomic migrate --realm <path>   → install-scope + fan-out to member repos
+//	atomic migrate                          → install-scope steps against ~/.claude
+//	atomic migrate --repo <path>            → repo-scope steps on that repo
+//	atomic migrate --realm <path>           → install-scope + fan-out to member repos
+//	atomic migrate --show-log [<since>]     → print the migration log, newest first
 func runMigrate(args []string) {
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	cliutil.SetUsage(fs, "atomic migrate [--repo <path>] [--realm <path>]")
+	cliutil.SetUsage(fs, "atomic migrate [--repo <path>] [--realm <path>] [--show-log [<since>]]")
 	var repoPath string
 	var realmPath string
+	var showLog bool
 	fs.StringVar(&repoPath, "repo", "", "run repo-scope migrations on this path")
 	fs.StringVar(&realmPath, "realm", "", "run install-scope + repo fan-out under this realm root")
+	fs.BoolVar(&showLog, "show-log", false, "print dated migration log entries, optionally since a version or date")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
+	}
+	// The optional <since> is a bare positional following the bool flag
+	// (`--show-log 1.2.0`), not a `--show-log=1.2.0` value — Go's flag
+	// package leaves it in fs.Args() rather than attaching it to the bool.
+	// fs.Parse also stops consuming at the first positional, so a flag typed
+	// after <since> (`--show-log 1.2.0 --repo x`) never reaches repoPath —
+	// it lands unconsumed in fs.Args() instead of being silently dropped.
+	remaining := fs.Args()
+	var showLogSince string
+	if showLog && len(remaining) > 0 {
+		showLogSince = remaining[0]
+		remaining = remaining[1:]
+	}
+	if showLog {
+		// --show-log lists global log entries; a target repo or realm has no
+		// bearing on that, so the combination is rejected rather than one
+		// side winning silently.
+		if repoPath != "" || realmPath != "" || len(remaining) > 0 {
+			fmt.Fprintln(os.Stderr, "atomic migrate: --show-log cannot be combined with --repo or --realm")
+			os.Exit(2)
+		}
+		out, err := migrate.FormatLog(migrate.Registry, showLogSince)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic migrate: %v\n", err)
+			os.Exit(1)
+		}
+		if out == "" {
+			fmt.Println("atomic migrate: no log entries")
+			return
+		}
+		fmt.Print(out)
+		return
 	}
 
 	switch {

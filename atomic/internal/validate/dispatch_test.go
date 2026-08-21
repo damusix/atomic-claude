@@ -253,19 +253,30 @@ func TestPerfBudget(t *testing.T) {
 		t.Skipf("no .git found walking up from %s; skipping perf test", cwd)
 	}
 
-	start := time.Now()
-	code, out := runFromDir(t, root, []string{})
-	elapsed := time.Since(start)
+	// Best of three: the budget guards against rules accumulating cost, not
+	// against a CI runner that is mid-way through every other package's tests.
+	// One run on a loaded runner has measured 627ms for work that takes 50ms
+	// unloaded; three runs never all land on the same stall.
+	const runs = 3
+	var best time.Duration
+	for i := 0; i < runs; i++ {
+		start := time.Now()
+		code, out := runFromDir(t, root, []string{})
+		elapsed := time.Since(start)
 
-	if code != 0 && code != 1 {
-		t.Fatalf("unexpected exit code %d during perf test:\n%s", code, out)
+		if code != 0 && code != 1 {
+			t.Fatalf("unexpected exit code %d during perf test:\n%s", code, out)
+		}
+		if i == 0 || elapsed < best {
+			best = elapsed
+		}
+		t.Logf("whole-repo validate run %d: %v", i+1, elapsed)
 	}
 
 	const budget = 500 * time.Millisecond
-	if elapsed > budget {
-		t.Errorf("perf budget exceeded: whole-repo validate took %v (budget %v)", elapsed, budget)
+	if best > budget {
+		t.Errorf("perf budget exceeded: best of %d whole-repo validate runs took %v (budget %v)", runs, best, budget)
 	}
-	t.Logf("whole-repo validate elapsed: %v", elapsed)
 }
 
 // findRepoRootForTest duplicates the package-internal findRepoRoot because this

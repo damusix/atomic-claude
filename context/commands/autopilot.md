@@ -25,7 +25,7 @@ Autopilot runs unattended, so a mid-run permission prompt stalls the whole run w
 - **Experiments are quarantined, never deleted mid-run.** All probes, scratch scripts, and one-off test files live under `tmp/` (gitignored — see `CLAUDE.md`). Create `tmp/trash/` once at the start of the run (`mkdir -p tmp/trash`). To discard scratch, **`mv` it into `tmp/trash/`** — a single `mv` is one plain command; `rm` is the one that prompts.
 - **No `rm`, no command chaining, during the run.** Prefer one simple command per Bash call. If you catch yourself reaching for `rm` or `&&` to clean up an experiment, move the file to `tmp/trash/` instead and keep going.
 - **Brief the subagents.** Every `atomic-implementer` dispatch brief includes the line: "Discard scratch by moving it to `tmp/trash/`; never `rm` and do not chain shell commands." So subagents quarantine instead of deleting too.
-- **One deliberate deletion, at the very end.** Phase 6 removes `tmp/trash/` (and the task scratchpad) in a single `rm -rf` — the one place a deletion permission prompt is expected and harmless. If the user is not present to grant it, leave `tmp/trash/` in place: it is gitignored and never ships. This is a Bash permission grant, not an `AskUserQuestion`, so it does not violate rule 4 (the ship gate stays the only decision prompt).
+- **One deliberate deletion, at the very end.** Phase 6 removes `tmp/trash/` only, in a single `rm -rf` — the one place a deletion permission prompt is expected and harmless. The task scratchpad is not deleted; it is retired only via `atomic scratchpad archive <slug>`, driven by `/git-cleanup`. If the user is not present to grant the `tmp/trash/` deletion, leave it in place: it is gitignored and never ships. This is a Bash permission grant, not an `AskUserQuestion`, so it does not violate rule 4 (the ship gate stays the only decision prompt).
 
 </scratch_hygiene>
 
@@ -124,7 +124,7 @@ Execute the chosen ship verb (it owns message format via `atomic-git-discipline`
 
 Report: what shipped, the checkpoints + commit SHAs, what was verified, any strategist dispatches and what they found, judgment calls made mid-loop (from `STATE.md`), and the merge result.
 
-Then the single deliberate cleanup (scratch_hygiene): remove `tmp/trash/` and the task scratchpad in one `rm -rf`. This is the one place a deletion prompt is expected — let it prompt for permission. If permission is not granted (user away), leave both: they are gitignored and never ship.
+Then the single deliberate cleanup (scratch_hygiene): remove `tmp/trash/` only, in one `rm -rf`. This is the one place a deletion prompt is expected — let it prompt for permission. If permission is not granted (user away), leave it: it is gitignored and never ships. The task scratchpad stays — it is retired only via `atomic scratchpad archive <slug>`, driven by `/git-cleanup`, never by this phase.
 
 </workflow>
 
@@ -137,5 +137,6 @@ Then the single deliberate cleanup (scratch_hygiene): remove `tmp/trash/` and th
 - If a genuine blocker stops the run, halt and surface it — do not paper over it to keep going. Autonomy is not "ignore failures."
 - For a trivial task that needs no loop, you may still run a minimal single-checkpoint loop; do not bypass the reviewer.
 - Never `rm` or chain shell commands mid-run — both trigger permission prompts that stall the unattended run. Quarantine scratch in `tmp/trash/` and delete once at the very end (scratch_hygiene).
+- The task scratchpad's path comes from `atomic scratchpad` / `atomic where --json`, never a hand-built dir; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 
 </constraints>

@@ -55,3 +55,4 @@
 - 2026-07-26 scratchpad-deleted-by-test — "A go test deletes .claude/.scratchpad/<today>-* against the real repo" — *(closed 2026-07-26)*
 - 2026-07-26 install-output-style-f-2 — "huh PointerAccessor read-timing risk on huh upgrade" — *(closed 2026-07-26)*
 - 2026-07-29 bus-member-naming-convention — "Bus member naming: position-derived names once scope markers land" — *(closed 2026-07-29)*
+- 2026-08-21 serve-plans-page-f6-picker-test-flake — "VersionPicker type-ahead test flakes under full-suite load" — *(closed 2026-08-21)*

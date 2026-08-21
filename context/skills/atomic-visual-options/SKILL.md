@@ -53,11 +53,13 @@ Identify the decision dimensions. Each dimension becomes a **panel** (e.g. Layou
 
 ### 2. Write
 
-Write ONE self-contained HTML file to the scratchpad:
+Write ONE self-contained HTML file to the scratchpad bundle:
 
 ```
-.claude/.scratchpad/<YYYY-MM-DD>-<topic>/options.html
+$(atomic scratchpad path <topic>)/options.html
 ```
+
+Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 
 The file must satisfy these constraints:
 

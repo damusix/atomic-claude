@@ -136,7 +136,7 @@ func SetDue(repoRoot, id, iso string) error {
 		return fmt.Errorf("reminder: invalid due timestamp %q: must be RFC3339", iso)
 	}
 
-	path, meta, body, err := findByID(repoRoot, id)
+	path, meta, body, err := findWritableByID(repoRoot, id)
 	if err != nil {
 		return err
 	}
@@ -190,41 +190,21 @@ type Row struct {
 }
 
 // List returns all reminders sorted by created ascending then id ascending.
+// It always reads a true union of the project-keyed reminders directory and
+// the legacy pre-relocation directory while they differ, deduplicated by id
+// with the project-keyed copy winning — never conditioned on the
+// project-keyed directory being empty, so the first reminder written after
+// an upgrade does not make every pre-upgrade reminder disappear. Migration
+// is what ends the union, by moving the legacy directory away.
 func List(repoRoot string) ([]Row, error) {
-	dir := remindersDir(repoRoot)
-	entries, err := os.ReadDir(dir)
+	entries, err := unionEntries(repoRoot)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("reminder list: %w", err)
+		return nil, err
 	}
 
-	var rows []Row
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
-		}
-		meta, body, err := frontmatter.Parse(string(raw))
-		if err != nil {
-			continue
-		}
-		id, _ := meta["id"].(string)
-		created, _ := meta["created"].(string)
-		due, _ := meta["due"].(string)
-		transport, _ := meta["transport"].(string)
-		preview := firstNonEmpty(body)
-		rows = append(rows, Row{
-			ID:        id,
-			Created:   created,
-			Due:       due,
-			Transport: transport,
-			Preview:   preview,
-		})
+	rows := make([]Row, len(entries))
+	for i, e := range entries {
+		rows[i] = e.row()
 	}
 
 	sort.Slice(rows, func(i, j int) bool {
@@ -235,6 +215,91 @@ func List(repoRoot string) ([]Row, error) {
 	})
 
 	return rows, nil
+}
+
+// fileEntry is one parsed reminder file, with the path it was read from.
+type fileEntry struct {
+	path string
+	id   string
+	meta map[string]any
+	body string
+}
+
+func (e fileEntry) row() Row {
+	created, _ := e.meta["created"].(string)
+	due, _ := e.meta["due"].(string)
+	transport, _ := e.meta["transport"].(string)
+	return Row{
+		ID:        e.id,
+		Created:   created,
+		Due:       due,
+		Transport: transport,
+		Preview:   firstNonEmpty(e.body),
+	}
+}
+
+// unionEntries reads the project-keyed reminders directory and, while it
+// differs from the legacy pre-relocation directory, unions in every legacy
+// entry whose id is not already present in the project-keyed set.
+func unionEntries(repoRoot string) ([]fileEntry, error) {
+	dir := remindersDir(repoRoot)
+	entries, err := readEntries(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	legacyDir := config.RemindersDirLegacy(repoRoot)
+	if legacyDir == dir {
+		return entries, nil
+	}
+
+	legacyEntries, err := readEntries(legacyDir)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		seen[e.id] = true
+	}
+	for _, e := range legacyEntries {
+		if !seen[e.id] {
+			entries = append(entries, e)
+		}
+	}
+
+	return entries, nil
+}
+
+// readEntries reads every reminder file directly under dir, ignoring a
+// missing directory rather than erroring on it.
+func readEntries(dir string) ([]fileEntry, error) {
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reminder list: %w", err)
+	}
+
+	var entries []fileEntry
+	for _, e := range dirEntries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		meta, body, err := frontmatter.Parse(string(raw))
+		if err != nil {
+			continue
+		}
+		id, _ := meta["id"].(string)
+		entries = append(entries, fileEntry{path: p, id: id, meta: meta, body: body})
+	}
+	return entries, nil
 }
 
 // Show returns the body (frontmatter stripped) of the reminder with the given id.
@@ -248,7 +313,7 @@ func Show(repoRoot, id string) (string, error) {
 
 // Rm deletes the reminder file with the given id.
 func Rm(repoRoot, id string) error {
-	path, _, _, err := findByID(repoRoot, id)
+	path, _, _, err := findWritableByID(repoRoot, id)
 	if err != nil {
 		return err
 	}
@@ -258,33 +323,52 @@ func Rm(repoRoot, id string) error {
 	return nil
 }
 
-// findByID scans for the file whose frontmatter id matches; ids are not encoded
-// in the filename except on slug collision.
+// findByID resolves an id across the same union unionEntries reads, so an id
+// visible via List is always an id show can act on.
 func findByID(repoRoot, id string) (path string, meta map[string]any, body string, err error) {
-	dir := remindersDir(repoRoot)
-	entries, err := os.ReadDir(dir)
+	entries, err := unionEntries(repoRoot)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil, "", fmt.Errorf("reminder: no reminder with id %q", id)
-		}
 		return "", nil, "", fmt.Errorf("reminder: %w", err)
 	}
 
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
+		if e.id == id {
+			return e.path, e.meta, e.body, nil
 		}
-		p := filepath.Join(dir, e.Name())
-		raw, err := os.ReadFile(p)
+	}
+
+	return "", nil, "", fmt.Errorf("reminder: no reminder with id %q", id)
+}
+
+// findWritableByID resolves an id in the project-keyed reminders directory
+// only. It is the union's write-side counterpart: set-due and rm must not
+// mutate or delete a reminder that still lives in the legacy directory, so an
+// id found only there refuses with the migrate remedy instead of falling
+// through to a legacy path. Promotion-on-write was rejected — it can't fix
+// rm, since deleting a promoted copy would leave the legacy original to
+// reappear on the next list.
+func findWritableByID(repoRoot, id string) (path string, meta map[string]any, body string, err error) {
+	dir := remindersDir(repoRoot)
+	entries, err := readEntries(dir)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("reminder: %w", err)
+	}
+	for _, e := range entries {
+		if e.id == id {
+			return e.path, e.meta, e.body, nil
+		}
+	}
+
+	legacyDir := config.RemindersDirLegacy(repoRoot)
+	if legacyDir != dir {
+		legacyEntries, err := readEntries(legacyDir)
 		if err != nil {
-			continue
+			return "", nil, "", fmt.Errorf("reminder: %w", err)
 		}
-		m, b, err := frontmatter.Parse(string(raw))
-		if err != nil {
-			continue
-		}
-		if fid, _ := m["id"].(string); fid == id {
-			return p, m, b, nil
+		for _, e := range legacyEntries {
+			if e.id == id {
+				return "", nil, "", fmt.Errorf("reminder: %q is a pre-migration reminder and cannot be changed until it is migrated; run `atomic migrate --repo %s` first", id, repoRoot)
+			}
 		}
 	}
 

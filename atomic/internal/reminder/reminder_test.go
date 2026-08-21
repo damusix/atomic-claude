@@ -1,6 +1,7 @@
 package reminder_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +12,25 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
 
+// remindersDir mirrors reminder.Add's write target: the project-keyed home,
+// sandboxed under the TestMain-installed temp $HOME.
 func remindersDir(root string) string {
-	return filepath.Join(root, ".claude", ".scratchpad", "reminders")
+	return config.ProjectRemindersDir(root)
+}
+
+// TestMain sandboxes every test in this package under a temp $HOME, since
+// reminder.Add/List now resolve their directory relative to the real home
+// via config.ProjectRemindersDir rather than a path under root.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "reminder-test-home")
+	if err != nil {
+		panic(err)
+	}
+	restore := config.SetHomeDirForTest(home)
+	code := m.Run()
+	restore()
+	os.RemoveAll(home)
+	os.Exit(code)
 }
 
 func TestAdd_WritesFileWithCorrectFrontmatter(t *testing.T) {
@@ -51,9 +69,10 @@ func TestAdd_WritesFileWithCorrectFrontmatter(t *testing.T) {
 	}
 }
 
-// Add and List both go through config.RemindersDir, so a ".pi" harness moves
-// both the write and the read path.
-func TestAdd_UnderNonDefaultHarnessDir(t *testing.T) {
+// Add now writes to the project-keyed home, which is harness-independent —
+// unlike ScratchpadDir-derived paths, ProjectRemindersDir does not vary with
+// harness.dir. A ".pi" harness therefore no longer moves the write path.
+func TestAdd_IgnoresHarnessDir(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".pi")
 	defer restore()
 
@@ -63,7 +82,7 @@ func TestAdd_UnderNonDefaultHarnessDir(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	dir := filepath.Join(root, ".pi", ".scratchpad", "reminders")
+	dir := config.ProjectRemindersDir(root)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("ReadDir(%s): %v", dir, err)
@@ -72,8 +91,8 @@ func TestAdd_UnderNonDefaultHarnessDir(t *testing.T) {
 		t.Fatalf("expected 1 file under %s, got %d", dir, len(entries))
 	}
 
-	if _, err := os.Stat(filepath.Join(root, ".claude", ".scratchpad", "reminders")); !os.IsNotExist(err) {
-		t.Errorf(".claude/.scratchpad/reminders should not exist under a .pi harness, stat err=%v", err)
+	if _, err := os.Stat(filepath.Join(root, ".pi", ".scratchpad", "reminders")); !os.IsNotExist(err) {
+		t.Errorf(".pi/.scratchpad/reminders should not exist — reminders no longer live under the harness dir, stat err=%v", err)
 	}
 
 	rows, err := reminder.List(root)
@@ -82,6 +101,174 @@ func TestAdd_UnderNonDefaultHarnessDir(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].ID != id {
 		t.Errorf("List = %+v, want 1 row with id %q", rows, id)
+	}
+}
+
+// A reminder written before migration, under a legacy harness-scoped
+// directory, must still surface via List's union fallback — the compat
+// behavior TestAdd_UnderNonDefaultHarnessDir used to pin under the old
+// (now-retired) assumption that harness.dir moved the reminders path.
+func TestList_UnionsLegacyHarnessScopedReminders(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := t.TempDir()
+
+	legacyDir := config.RemindersDirLegacy(root)
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, legacyDir, "2026-05-16-legacy.md", "---\nid: r-leg\ncreated: 2026-05-16\n---\n\nLegacy under .pi\n")
+
+	rows, err := reminder.List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != "r-leg" {
+		t.Fatalf("List = %+v, want the legacy row surfaced via union", rows)
+	}
+}
+
+// The union is not conditioned on the project-keyed directory being empty:
+// a reminder written after migration (project-keyed non-empty) must not hide
+// a reminder still sitting in the legacy directory.
+func TestList_TrueUnion_BothDirsPopulated(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := t.TempDir()
+
+	legacyDir := config.RemindersDirLegacy(root)
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, legacyDir, "2026-05-16-legacy.md", "---\nid: r-leg\ncreated: 2026-05-16\n---\n\nLegacy under .pi\n")
+
+	// Project-keyed directory now non-empty via a normal Add.
+	newID, err := reminder.Add(root, "post-migration reminder")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	rows, err := reminder.List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("List = %+v, want 2 rows (legacy + project-keyed), got %d", rows, len(rows))
+	}
+	var sawLegacy, sawNew bool
+	for _, r := range rows {
+		if r.ID == "r-leg" {
+			sawLegacy = true
+		}
+		if r.ID == newID {
+			sawNew = true
+		}
+	}
+	if !sawLegacy {
+		t.Errorf("legacy reminder r-leg missing from union List = %+v", rows)
+	}
+	if !sawNew {
+		t.Errorf("new project-keyed reminder %q missing from union List = %+v", newID, rows)
+	}
+}
+
+// The same id present in both directories must appear exactly once, with the
+// project-keyed copy's content winning.
+func TestList_DedupeByID_ProjectKeyedWins(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := t.TempDir()
+
+	legacyDir := config.RemindersDirLegacy(root)
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, legacyDir, "2026-05-16-dup.md", "---\nid: r-dup\ncreated: 2026-05-16\n---\n\nLegacy copy\n")
+
+	projectDir := config.ProjectRemindersDir(root)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, projectDir, "2026-06-01-dup.md", "---\nid: r-dup\ncreated: 2026-06-01\n---\n\nProject-keyed copy\n")
+
+	rows, err := reminder.List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("List = %+v, want exactly 1 deduped row, got %d", rows, len(rows))
+	}
+	if rows[0].Created != "2026-06-01" {
+		t.Errorf("List[0].Created = %q, want project-keyed copy's %q", rows[0].Created, "2026-06-01")
+	}
+}
+
+// A legacy-only id (visible via List's union) must still be readable by
+// Show — reading a pre-migration reminder is the compatibility this window
+// exists for. SetDue/Rm are a different story: they must refuse rather than
+// mutate or delete the legacy file, since a legacy-only id has no
+// project-keyed copy to write to.
+func TestFindByID_ResolvesLegacyOnlyID(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := t.TempDir()
+
+	legacyDir := config.RemindersDirLegacy(root)
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fixtureName := "2026-05-16-legacy.md"
+	fixtureContent := "---\nid: r-leg\ncreated: 2026-05-16\n---\n\nLegacy under .pi\n"
+	writeFixture(t, legacyDir, fixtureName, fixtureContent)
+	fixturePath := filepath.Join(legacyDir, fixtureName)
+
+	body, err := reminder.Show(root, "r-leg")
+	if err != nil {
+		t.Fatalf("Show(legacy-only id): %v", err)
+	}
+	if !strings.Contains(body, "Legacy under .pi") {
+		t.Errorf("Show body = %q, want it to contain the legacy body", body)
+	}
+
+	before, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read legacy fixture before SetDue: %v", err)
+	}
+
+	err = reminder.SetDue(root, "r-leg", "2026-07-01T00:00:00Z")
+	if err == nil {
+		t.Fatalf("SetDue(legacy-only id) = nil error, want a refusal naming `atomic migrate --repo`")
+	}
+	if !strings.Contains(err.Error(), "atomic migrate --repo") {
+		t.Errorf("SetDue(legacy-only id) error = %q, want it to name `atomic migrate --repo` as the remedy", err.Error())
+	}
+
+	after, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read legacy fixture after refused SetDue: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("refused SetDue mutated the legacy file: before=%q after=%q", before, after)
+	}
+
+	err = reminder.Rm(root, "r-leg")
+	if err == nil {
+		t.Fatalf("Rm(legacy-only id) = nil error, want a refusal naming `atomic migrate --repo`")
+	}
+	if !strings.Contains(err.Error(), "atomic migrate --repo") {
+		t.Errorf("Rm(legacy-only id) error = %q, want it to name `atomic migrate --repo` as the remedy", err.Error())
+	}
+
+	afterRm, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("expected legacy file still present after refused Rm: %v", err)
+	}
+	if !bytes.Equal(before, afterRm) {
+		t.Errorf("refused Rm mutated the legacy file: before=%q after=%q", before, afterRm)
 	}
 }
 

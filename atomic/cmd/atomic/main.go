@@ -126,13 +126,15 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 
 	rootCmd.AddCommand(buildReminderCmd(repoOverride))
 
+	rootCmd.AddCommand(buildScratchpadCmd(repoOverride))
+
 	rootCmd.AddCommand(buildHooksCmd(repoOverride))
 
 	rootCmd.AddCommand(buildClaudeCmd())
 
 	rootCmd.AddCommand(buildDoctorCmd())
 
-	rootCmd.AddCommand(buildWhereCmd())
+	rootCmd.AddCommand(buildWhereCmd(repoOverride))
 
 	rootCmd.AddCommand(buildDockerCmd())
 

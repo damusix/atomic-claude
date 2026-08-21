@@ -134,7 +134,7 @@ Diff: package converted to ESM — tooling swapped, types added, node baseline r
 
 ## Supplemental input: session reports
 
-When the invoking ship verb passes session-report content (markdown files from `.claude/.scratchpad/session-reports/<branch>/`), treat it as **why-context** for the message. The diff still drives *what*; the reports drive *why*. Specifically:
+When the invoking ship verb passes session-report content — the report files the ship verb resolved via `atomic where --json` — treat it as **why-context** for the message. The diff still drives *what*; the reports drive *why*. Specifically:
 
 - Read the report bodies in chronological order.
 - Distill all "Why" sections into at most one sentence in the body. If the why doesn't survive compression to one sentence, it wasn't load-bearing.

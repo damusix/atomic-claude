@@ -128,12 +128,49 @@ Clicking a source-file link — in page content, in the rail, or in a search/cod
 
 Intel-pane drill actions push onto the modal's back-stack; Back pops the stack and re-syncs the source pane to the popped entry's file/line, deduping same-file hops (scroll-to-line only, no re-fetch). The modal closes on `Esc`, the close button, or a backdrop click, which clears the stack.
 
+### Plans
+
+The fifth `IconRail` mode, with no scope gate. `/plans` lists every slug's committed docs (`docs/design/<slug>.md`, `docs/spec/<slug>.md`) and its uncommitted scratchpad bundle, aggregated across every git worktree of the repo — a checkout elsewhere on disk still counts, since worktrees are enumerated with `git worktree list --porcelain` rather than a glob over the conventional path. In realm scope, a picker on the page's own title line — repo scope renders none — switches between one member's view at a time; there is no cross-member union.
+
+The two halves of a row collapse differently, because only one of them ever repeats identically. A committed doc dedups by content SHA: several worktrees holding byte-identical bytes render as one version, labelled by the checkout on the repository's default branch when one holds it, else by the most recently modified. A scratchpad bundle never dedups — one checkout, one bundle, attributed to the worktree that holds it, because nothing merges it.
+
+Opening a slug (`/plans/:slug/*`) renders one file in the middle pane; the right rail carries a version picker, a navigation over the bundle's parts (design, spec, brief, state, followups, findings, options — only the ones present), and the open file's own headings, mirroring how the right rail works for any other page.
+
+The version picker is a type-ahead over checkout names, not a tab strip — a repo with a dozen worktrees would wrap a tab strip into uselessness, and it renders nothing at all when a file has exactly one version. A picked name persists as you move between files and is re-resolved against each file's own version set. A bundle file that lives in only one checkout — a `findings/` note from a swarm run on another branch — still opens from any selection: it renders at its merged version, or its newest by mtime when it has neither, and the picker updates to name that checkout rather than the request being refused.
+
+Picking a version is a property of reading a file, not of viewing the list — there is no worktree selector above the row list and no page-level version control.
+
+```mermaid
+flowchart TB
+    accTitle: How the Plans page resolves a version when the sticky selection does not hold a file
+    accDescr: Opening a file whose selected checkout does not have it renders that file's default version instead of refusing, and moves the picker to name the checkout now on screen.
+    A["reader opens a file<br/>selected checkout = W"] --> B{"does W hold<br/>this file?"}
+    B -->|yes| C["render W's version<br/>picker still reads W"]
+    B -->|no| D["render this file's default:<br/>merged if it exists, else newest by mtime"]
+    D --> E["selection := that checkout<br/>picker updates to say so"]
+```
+
+Navigation always wins; the selection yields rather than blocks.
+
+A bundle file renders by its classified kind: `markdown` through the existing markdown pipeline, `html` (an `atomic-visual-options` artifact) inside a sandboxed `<iframe>` — never injected into the app's own document or stylesheet — and `file` as a download link with no inline preview.
+
+`⌘K` gains a third `source: "plans"` tab alongside `md` and `code`, filtering the already-fetched `/api/plans` payload by title and description client-side; there is no separate plans search endpoint.
+
+| Route | Serves |
+|-------|--------|
+| `GET /api/plans[?member=]` | One row per slug — the doc version sets and the attributed scratchpad bundle. No file content travels in this response. |
+| `GET /api/plans/page?worktree=<id>&path=<relpath>[&raw=1]` | A single doc or bundle file, resolved through a worktree id issued by the aggregator. Without `raw`, the same rendered HTML-in-JSON shape `/api/page` returns; with `raw=1`, the file's own content-type and raw bytes. |
+| `GET /api/plans/members` | The member list backing the realm picker — declared and wiki-scanned members, including one with no code index, plus the realm root itself. |
+
+Cross-worktree reads never widen `safeResolve`'s allowed-root set. The client sends an opaque worktree id and a relative path, never a filesystem path, so nothing in the request can influence which roots are reachable; an unknown or stale id is rejected. Every `raw=1` response carries `Content-Security-Policy: sandbox`, and its content-type is decided by the aggregator's classified `kind` alone — a sniff may narrow a non-HTML type further but is clamped before it can promote anything to `text/html` or an XML type, since the same origin also serves the unauthenticated `/api/bus/*` write routes.
+
 ### Search
 
-`⌘K` (or `Ctrl K`, or `/` when focus is not a text field) opens a command palette with an `md | code` toggle:
+`⌘K` (or `Ctrl K`, or `/` when focus is not a text field) opens a command palette with an `md | code | plans` toggle:
 
 - **md** — a literal, case-insensitive search over the served markdown. Results are `file:line` matches with a snippet; selecting one loads that page. The query is only ever a substring, never a path.
 - **code** — symbol search across the code index. Selecting a result opens the code modal at that symbol's file.
+- **plans** — a client-side filter over the slugs the Plans view already holds, by title, description, and slug. Selecting one opens that slug. There is no plans search endpoint; the tab exists so plans never pollute md or code results.
 
 `Enter` opens the full `/search?q=&src=` page: URL-addressable, with `All | Markdown | Code` tabs. Use the palette to jump, the page to browse.
 

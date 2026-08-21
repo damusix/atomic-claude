@@ -10,6 +10,7 @@ import {
   faDiagramProject,
   faDatabase,
   faComments,
+  faClipboardList,
   faCircleInfo,
   faSun,
   faMoon,
@@ -56,6 +57,12 @@ const MODES: Mode[] = [
     icon: faComments,
     label: "Message Bus",
     match: (p) => p === "/bus",
+  },
+  {
+    to: "/plans",
+    icon: faClipboardList,
+    label: "Plans",
+    match: (p) => p.startsWith("/plans"),
   },
 ];
 

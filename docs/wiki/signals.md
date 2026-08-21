@@ -70,11 +70,11 @@ signals: STALE — a fresh scan would change the deterministic snapshot (~N line
 
 | Path | Role |
 |------|------|
-| [`agents/atomic-wiki-inferrer.md`](../../agents/atomic-wiki-inferrer.md) | The orchestrator. Detects repo vs realm scope, loads the matching pipeline reference, sub-dispatches `atomic-wiki-writer` per domain and `atomic-reviewer` per domain file, then assembles the router. Writes nothing outside the active wiki root and the single `@-ref` target. |
-| [`agents/atomic-wiki-writer.md`](../../agents/atomic-wiki-writer.md) | Authors one domain page from source. Carries the `atomic-writing` skill in frontmatter rather than being asked to invoke it, and holds no `Agent` tool. |
-| [`commands/refresh-wiki.md`](../../commands/refresh-wiki.md) | `/refresh-wiki` — the only entry point, idempotent across first run and refresh. Repo scope runs R1-R8; realm scope runs a separate 13-step pipeline. |
-| [`skills/atomic-wiki/references/repo.md`](../../skills/atomic-wiki/references/repo.md) | The repo-scope pipeline the inferrer executes (Steps 1-9). The inferrer reads it from the installed path `~/.claude/skills/atomic-wiki/references/repo.md`, not from this repo. |
-| [`templates/shared/signals-gate.md`](../../templates/shared/signals-gate.md) | The `signals-gate` partial composed into ship verbs. Owns the docs-only guard and the `atomic signals stale` exit-code routing. |
+| [`context/agents/atomic-wiki-inferrer.md`](../../context/agents/atomic-wiki-inferrer.md) | The orchestrator. Detects repo vs realm scope, loads the matching pipeline reference, sub-dispatches `atomic-wiki-writer` per domain and `atomic-reviewer` per domain file, then assembles the router. Writes nothing outside the active wiki root and the single `@-ref` target. |
+| [`context/agents/atomic-wiki-writer.md`](../../context/agents/atomic-wiki-writer.md) | Authors one domain page from source. Carries the `atomic-writing` skill in frontmatter rather than being asked to invoke it, and holds no `Agent` tool. |
+| [`context/commands/refresh-wiki.md`](../../context/commands/refresh-wiki.md) | `/refresh-wiki` — the only entry point, idempotent across first run and refresh. Repo scope runs R1-R8; realm scope runs a separate 13-step pipeline. |
+| [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md) | The repo-scope pipeline the inferrer executes (Steps 1-9). The inferrer reads it from the installed path `~/.claude/skills/atomic-wiki/references/repo.md`, not from this repo. |
+| [`context/_partials/signals-gate.md`](../../context/_partials/signals-gate.md) | The `signals-gate` partial composed into ship verbs. Owns the docs-only guard and the `atomic signals stale` exit-code routing. |
 
 ### Go packages
 
@@ -120,7 +120,7 @@ signals: STALE — a fresh scan would change the deterministic snapshot (~N line
 
 **config** supplies `output.signals.max_depth` from `~/.atomic/config.toml`, and `config.ScratchpadDir` / `config.ProjectDir` feed the scan's skip prefixes, so a non-default `harness.dir` changes what the scan walks.
 
-**bundle** ships the inferrer, the command, and the `signals-gate` partial. Editing [`templates/shared/signals-gate.md`](../../templates/shared/signals-gate.md) requires `make render` then `make bundle`; editing [`agents/atomic-wiki-inferrer.md`](../../agents/atomic-wiki-inferrer.md) directly is overwritten, since it renders from [`templates/agents/`](../../templates/agents).
+**bundle** ships the inferrer, the command, and the `signals-gate` partial as source files directly under [`context/`](../../context) — [`context/agents/atomic-wiki-inferrer.md`](../../context/agents/atomic-wiki-inferrer.md), [`context/commands/refresh-wiki.md`](../../context/commands/refresh-wiki.md), [`context/_partials/signals-gate.md`](../../context/_partials/signals-gate.md). A single `make bundle` expands any `{{ template ... }}` directive into the embedded bundle; nothing is written back into [`context/`](../../context), so editing any of the three is editing the shipped source directly.
 
 **wiki** shares the inferrer. The same agent serves repo scope here and realm scope there, branching on dispatch args. The `signals-gate` partial calls `atomic wiki mark-dirty` after a refresh.
 

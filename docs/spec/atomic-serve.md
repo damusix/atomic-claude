@@ -324,8 +324,9 @@ React + TypeScript SPA. Full contract, checkpoints, and change log:
 `docs/spec/serve-react-frontend.md`; design deliberation: `docs/design/serve-react-frontend.md`.
 
 Current shape: the Go server exposes a JSON API under `/api/*` (page, file, rail, nav,
-search, code-intel, status, external) plus a handful of carried, unreshaped endpoints
-(`/graph/data`, `/code/graph/data`, `/code/graph/members`, `/events`, `/healthz`). Every
+search, code-intel, status, external, plans[?member=], plans/page, plans/members) plus a handful of
+carried, unreshaped endpoints (`/graph/data`, `/code/graph/data`, `/code/graph/members`,
+`/events`, `/healthz`). Every
 other GET falls back to the embedded `index.html`; React Router resolves the request
 client-side. `templates/layout.html`, the htmx vendor bundle, the OOB fragment handlers,
 and every pre-cutover HTML-fragment code path are deleted — not left dead alongside the
@@ -364,6 +365,12 @@ None.
 
 
 ## Change log
+
+### 2026-08-20 — `/api/*` enumeration gains the Plans routes
+
+**What changed:** The "React SPA frontend" section's `/api/*` enumeration adds `plans[?member=]` and `plans/page` alongside the existing page/file/rail/nav/search/code-intel/status/external routes.
+
+**Why:** `docs/spec/serve-plans-page.md` adds `GET /api/plans[?member=]` and `GET /api/plans/page` — the read-only Plans aggregator surface — to this server; the enumeration here is the current-shape reference other specs and agents read.
 
 ### 2026-08-08 — Read-only contract narrowed for bus chat
 

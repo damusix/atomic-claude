@@ -96,14 +96,15 @@ Use regex when searching for literal strings, log messages, comments, config val
 
 | Path | What | Lifecycle |
 |------|------|-----------|
-| `.claude/.scratchpad/<date>-<desc>/` | LLM working memory for the `/subagent-implementation` loop (`BRIEF.md`, `STATE.md`, `FOLLOWUPS.md`). Gitignored. | Deleted on task completion. |
-| `.claude/.scratchpad/session-reports/<branch>/` | `/session-report` why-context, read by the commit-message ship verbs. Gitignored. | Deleted after a successful commit. |
+| `.claude/.scratchpad/<slug>/` | One bundle per unit of work, created by `atomic scratchpad new <slug> --purpose <p>` (`meta.toml`, `BRIEF.md`, `STATE.md`, `FOLLOWUPS.md`, plus `findings/`, `options.html` as phases add them). Gitignored, worktree-local. | Retained after the phase; archived to the project-keyed home when its worktree is reaped (`/git-cleanup`, ship-verb cleanup) or by `atomic scratchpad archive <slug>`. |
+| `~/.atomic/<project-key>/reports/<branch>/` | `/session-report` why-context, read by the commit-message ship verbs. Resolved via `atomic where --json`'s `.reports`. | Deleted after the consuming commit; reaped by `/git-cleanup` once the branch is gone. |
 | `.claude/project/followups/<id>.md` | Committed, auto-loaded follow-up entries (`kind: finding` / `kind: plan`). Managed via `atomic followups …`; `INDEX.md` is the `@-ref`. | Closed entries collapse to `CLOSED.md`. |
 | `docs/design/<topic>.md` | Conceptual workspace (feature shape, rules, approaches). Written by `/atomic-plan` for non-trivial work. | Committed, human-facing. |
 | `docs/spec/<topic>.md` | Implementation contract derived from the design; canonical source for `/subagent-implementation`. | Committed; see `rules/specs/`. |
 | `.claude/worktrees/<branch>/` | Isolated branches created by the implement loop / autopilot via the worktree-setup partial — Claude Code's native worktree home (`EnterWorktree`, `claude --worktree`); ship verbs detect provenance once the branch lands on base. Gitignored via nested `.claude/.gitignore`. | Prompt to delete on merge or squash merge. |
 | `tmp/` | Ad-hoc experiments, scratch scripts, one-off tests. Gitignored. | Throwaway. |
-| `~/.atomic/` | Per-user state: `config.toml`, `profile.md` (auto-loaded), `state.json`, `backups/`, `proposed/CLAUDE.md`. Inspect resolved values with `atomic config list`. | Never committed. |
+| `~/.atomic/` | Per-user state: `config.toml`, `profile.md` (auto-loaded), `state.json`, `backups/`, `proposed/CLAUDE.md`, plus `<project-key>/{reports,reminders,archive}/` — one per clone, keyed off the main checkout root so every worktree agrees. `atomic where --json` prints the resolved paths; `atomic migrate --repo <path>` relocates pre-existing state; `atomic migrate --show-log` is the change history. | Never committed. |
+| `~/.atomic/<project-key>/reminders/` | Reminders for this project. Resolved via `atomic where --json`'s `.reminders`. Legacy `<scratchpad>/reminders/` still read until migrated. | Never committed. |
 
 
 ## Specs
