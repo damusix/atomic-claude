@@ -1,0 +1,309 @@
+/* components/plans — the Plans list: one row per slug, aggregated across
+   every worktree. No worktree/version control here — see PlansView.tsx. */
+
+/* Sticky: the filter is the only way through a long list, and it would
+   otherwise scroll off above wherever the reader has gotten to. */
+.plans-toolbar {
+    position: sticky;
+    /* Cancels #main-pane's top padding — a sticky offset is measured from the
+       scroll container's content box, so top:0 leaves a gap of rows scrolling
+       past above the bar. */
+    top: calc(-1 * var(--pane-pad-top, 0px));
+    z-index: 3;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin: 0 0 22px;
+    padding: 12px 0 14px;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--paper);
+}
+
+.plans-title-line {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+}
+
+.plans-filter-count {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+}
+
+.plans-filter-input {
+    min-width: 200px;
+    background: var(--paper-raised);
+    border: 1px solid var(--hairline-2);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-family: var(--sans);
+    font-size: 12.5px;
+    color: var(--ink);
+}
+
+.plans-filter-input:focus {
+    outline: none;
+    border-color: var(--amber-edge);
+}
+
+.plans-title-line h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    margin: 0;
+    color: var(--ink);
+}
+
+.plans-member-select {
+    background: var(--paper-raised);
+    border: 1px solid var(--hairline-2);
+    border-radius: 8px;
+    padding: 4px 9px;
+    font-family: var(--sans);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink);
+    cursor: pointer;
+}
+
+.plans-loading,
+.plans-empty {
+    color: var(--ink-faint);
+    font-size: 13.5px;
+}
+
+.plans-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.plans-row {
+    padding: 14px 4px;
+    border-bottom: 1px solid var(--hairline);
+    cursor: pointer;
+}
+
+.plans-row:first-child {
+    padding-top: 0;
+}
+
+.plans-row:hover .plans-row-title {
+    color: var(--amber);
+}
+
+.plans-row-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.plans-row-title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 17px;
+    color: var(--ink);
+    transition: color .12s;
+}
+
+.plans-row-slug {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+}
+
+.plans-row-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.plans-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    border: 1.5px solid var(--amber);
+    background: transparent;
+}
+
+.plans-dot[data-filled] {
+    background: var(--amber);
+}
+
+.plans-row-desc {
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+}
+
+.plans-row-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.plans-chip {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--ink-faint);
+    border: 1px solid var(--hairline-2);
+    border-radius: 4px;
+    padding: 1px 6px;
+}
+
+/* VersionPicker — right-rail type-ahead over a doc's checkout set. */
+.vpicker {
+    margin-bottom: 4px;
+}
+
+.vpick {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid var(--hairline-2);
+    border-radius: 6px;
+    background: var(--paper-sunk);
+    padding: 4px 7px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink);
+}
+
+.vpick-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink);
+}
+
+.vpick .cue {
+    color: var(--ink-ghost);
+    font-size: 10px;
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+.vmenu {
+    border: 1px solid var(--amber-edge);
+    border-radius: 6px;
+    background: var(--paper-raised);
+    margin-top: 3px;
+    overflow: hidden;
+}
+
+.vopt {
+    padding: 5px 7px;
+    border-bottom: 1px solid var(--hairline);
+    cursor: pointer;
+}
+
+.vopt:last-child {
+    border-bottom: none;
+}
+
+.vopt.on,
+.vopt[data-highlighted] {
+    background: var(--amber-wash);
+}
+
+.vname {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.vopt-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--amber-edge);
+    display: inline-block;
+    flex: none;
+}
+
+.vopt-dot[data-filled] {
+    background: var(--amber);
+}
+
+.vpath,
+.vmeta {
+    font-size: 9.5px;
+    color: var(--ink-ghost);
+    font-family: var(--mono);
+    margin-top: 1px;
+}
+
+.vempty {
+    padding: 6px 7px;
+    font-size: 11px;
+    color: var(--ink-ghost);
+}
+
+.badge {
+    font-size: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0 4px;
+    border-radius: 2px;
+    background: var(--amber);
+    color: var(--paper);
+    margin-left: 4px;
+}
+
+.badge.out {
+    background: transparent;
+    border: 1px solid var(--amber-edge);
+    color: var(--amber);
+}
+
+/* PlansRail — Bundle nav list, reused for docs + bundle files. */
+.bnav div {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    padding: 2px 0;
+    cursor: pointer;
+}
+
+.bnav div.on {
+    color: var(--amber);
+}
+
+.vpick-static {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink);
+    border: 1px solid var(--hairline-2);
+    border-radius: 6px;
+    background: var(--paper-sunk);
+    padding: 4px 7px;
+}
+
+.plans-slug-placeholder,
+.plans-slug-loading,
+.plans-slug-not-found {
+    color: var(--ink-faint);
+    font-size: 13.5px;
+}
+
+.plans-row-updated {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--ink-ghost);
+  margin-top: 2px;
+}

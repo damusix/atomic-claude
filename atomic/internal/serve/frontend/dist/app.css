@@ -2103,6 +2103,42 @@ body.mode-graph-view #main-pane {
    to grow. Pinning all four edges gives the percentage something to resolve
    against, and cosmos's observer then matches the buffer to the real box —
    which keeps hit-testing aligned, as stretching the CSS box alone would not. */
+/* A Plans html artifact fills the pane inside code-fence window chrome. The
+   window is pinned to the pane's edges (with a gutter) for the reason the
+   graph canvas is: #main-pane is a flex item with an auto height, so a
+   percentage height on the iframe would resolve to nothing and it would fall
+   back to its intrinsic 300x150. A column flex inside the window lets the bar
+   take its own height and the frame take the rest. The document inside the
+   frame scrolls itself, so the pane's scroll is off. */
+body.mode-plans-frame #main-pane {
+    padding: 0;
+    overflow: hidden;
+    position: relative;
+}
+body.mode-plans-frame .bundle-file-window {
+    position: absolute;
+    inset: 16px;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--cw-edge);
+    border-radius: 12px;
+    background: var(--cw-bg);
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+body.mode-plans-frame .bundle-file-window .code-window-bar {
+    flex: none;
+}
+body.mode-plans-frame .bundle-file-frame {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    border: 0;
+    display: block;
+    background: var(--paper);
+}
+
 body.mode-graph-view #system-cy,
 body.mode-graph-view #code-cy {
     position: absolute;

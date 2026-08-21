@@ -76,10 +76,10 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 | S1 | spec | File starts with `# <title>` at line 1. | FAIL |
 | S5 | spec | A `## Checkpoints` section whose table header carries `#`, `Checkpoint`, `Files/areas`, `Verifies` as an ordered subsequence. Extra columns are allowed. | FAIL |
 | S6 | spec | A `## Change log` section exists. Body may be empty. | FAIL |
-| C3 | config | Every `subagent_type: "name"` in `commands/*.md` prose resolves to `agents/<name>.md`, or is one of the built-ins `general-purpose`, `Explore`, `Plan`. | FAIL |
-| C5 | config | Every `@`-ref in the repo-root [`CLAUDE.md`](../../CLAUDE.md) resolves to a file. | FAIL |
-| C7 | config | No duplicate `name:` across `agents/*.md` frontmatter. | FAIL |
-| C9 | config | [`agents/`](../../agents), [`skills/`](../../skills), [`output-styles/`](../../output-styles) entries carry the [`atomic`](../../atomic) prefix. Without it they never bundle. | WARN |
+| C3 | config | Every `subagent_type: "name"` in `context/commands/*.md` prose resolves to `context/agents/<name>.md`, or is one of the built-ins `general-purpose`, `Explore`, `Plan`. | FAIL |
+| C5 | config | Every `@`-ref in [`context/CLAUDE.md`](../../context/CLAUDE.md) resolves to a file. | FAIL |
+| C7 | config | No duplicate `name:` across `context/agents/*.md` frontmatter. | FAIL |
+| C9 | config | [`context/agents/`](../../context/agents), [`context/skills/`](../../context/skills), [`context/output-styles/`](../../context/output-styles) entries carry the [`atomic`](../../atomic) prefix. Without it they never bundle. | WARN |
 | A1 | artifacts | Every `--flag` cited beside an `atomic <verb>` in an artifact's code spans and fenced blocks exists on that verb in the `cliusage` surface. | FAIL |
 | bundle | bundle | Generated mirror against the committed manifest. Capped at 5 findings plus an overflow line. | FAIL |
 
@@ -146,7 +146,7 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 - **One git subprocess per run.** `Run` resolves `Opts.RepoRoot` once and every check reads that field. A new check that shells out to `git rev-parse` on its own breaks the invariant pinned by `gitcallcount_internal_test.go`.
 - **`validate`'s summary always reports 0 PASS.** `summarize` counts findings, and only WARN and FAIL findings are ever emitted, so the PASS column can never be non-zero. It is not a count of files inspected.
 - **Two checks combine independent findings into one Result.** Check 9 appends a chronic update-failure detail to whatever the config-validity leg found, capped at WARN on its own. Check 12 concatenates version drift and legacy-state-dir details and takes the worse severity. Reading only the severity loses half the signal; read `Detail`.
-- **C5 scans the repo-root [`CLAUDE.md`](../../CLAUDE.md) only.** The local overlays are deliberately excluded: they are user-owned and routinely contain backtick spans that look like `@`-refs, such as scoped npm package paths. C5 also skips any `@` preceded by an email local-part character, since RE2 has no lookbehind and `reAtRef` is loose on the right of the `@`.
+- **C5 scans [`context/CLAUDE.md`](../../context/CLAUDE.md) only** (the bundle source that installs as every user's global contract), not the project-local root [`CLAUDE.md`](../../CLAUDE.md). The local overlays are deliberately excluded: they are user-owned and routinely contain backtick spans that look like `@`-refs, such as scoped npm package paths. C5 also skips any `@` preceded by an email local-part character, since RE2 has no lookbehind and `reAtRef` is loose on the right of the `@`.
 - **A1 prefers a false negative to a false positive.** A citation whose verb path resolves to nothing emits no finding at all, and the universal flags `--help`, `-h`, `--version`, `-v`, `--repo`, `--no-update-check` always pass. A1 catches wrong flags on known verbs, not unknown verbs.
 - **`cliusage`'s hardcoded slice is a fixture, not the runtime source.** `main` calls `SetRoot(rootCmd)` at startup, so production reads the live Cobra tree. Tests that never call `SetRoot` read the static slice, which is why the golden test is the thing keeping A1 honest.
 

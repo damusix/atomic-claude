@@ -51,15 +51,12 @@ The index lifecycle is orchestrator-owned. Subagents never trigger indexing. A m
 
 ## Phase 1 — Write brief to `$SCRATCH`
 
-Pick the working dir: `.claude/.scratchpad/<YYYY-MM-DD>-<topic>/`. Use today's date.
-
 ```bash
 command -v atomic >/dev/null 2>&1 && atomic repo init >/dev/null
-SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-<topic>"
-mkdir -p "$SCRATCH"
+SCRATCH=$(atomic scratchpad new "<topic>" --purpose implement)
 ```
 
-Run `atomic repo init` first if the `atomic` binary is present — it guarantees the `.claude/` layout and ignore rules (scratchpad + project dirs, nested `.claude/.gitignore`); skip silently otherwise.
+Run `atomic repo init` first if the `atomic` binary is present — it guarantees the `.claude/` layout and ignore rules (scratchpad + project dirs, nested `.claude/.gitignore`); skip silently otherwise. `atomic scratchpad new` creates or extends the topic's bundle and prints its path — paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 
 Write two files inside `$SCRATCH`:
 
@@ -244,7 +241,7 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
    3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort after the wiki inferrer returns.
    4. Stage `docs/wiki/*.md` (router, domain files, and `scan.md`). Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
 
-7. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage AND the implementation log is written. Other dated dirs from prior runs are not your concern.
+7. `$SCRATCH` stays — it is not deleted at finalize. A bundle is retired only via `atomic scratchpad archive <slug>`, driven by `/git-cleanup` reaping its worktree or branch, never by this command closing out.
 8. Report to the user: what shipped, which iterations + commit SHAs (including the signals refresh commit, if one was made), what was verified, what FOLLOWUPS were dispositioned, what's left (if anything). Mirror what you just wrote to the spec — they should match.
 
     **Documentation advisory.** If `## Documentation surfaces` exists in CLAUDE instructions and the implemented changes touch files matching any surface's "Covers" column, append to the next-steps suggestions:

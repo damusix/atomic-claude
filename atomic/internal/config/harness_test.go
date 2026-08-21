@@ -246,7 +246,7 @@ func TestRepoLocalHelpers_UnderNonDefaultHarnessDir(t *testing.T) {
 		{"IndexDBPath", IndexDBPath(root), filepath.Join(root, ".pi", ".atomic-index", "atomic.db")},
 		{"WorktreesDir", WorktreesDir(root), filepath.Join(root, ".pi", "worktrees")},
 		{"RepoConfigPath", RepoConfigPath(root), filepath.Join(root, ".pi", "atomic.toml")},
-		{"RemindersDir", RemindersDir(root), filepath.Join(root, ".pi", ".scratchpad", "reminders")},
+		{"RemindersDirLegacy", RemindersDirLegacy(root), filepath.Join(root, ".pi", ".scratchpad", "reminders")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -276,7 +276,7 @@ func TestRepoLocalHelpers_DefaultHarnessDir(t *testing.T) {
 		{"IndexDBPath", IndexDBPath(root), filepath.Join(root, ".claude", ".atomic-index", "atomic.db")},
 		{"WorktreesDir", WorktreesDir(root), filepath.Join(root, ".claude", "worktrees")},
 		{"RepoConfigPath", RepoConfigPath(root), filepath.Join(root, ".claude", "atomic.toml")},
-		{"RemindersDir", RemindersDir(root), filepath.Join(root, ".claude", ".scratchpad", "reminders")},
+		{"RemindersDirLegacy", RemindersDirLegacy(root), filepath.Join(root, ".claude", ".scratchpad", "reminders")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -54,6 +54,45 @@ describe("TopBar", () => {
     expect(document.querySelector(".breadcrumb-page")).toHaveTextContent("serve.md");
   });
 
+  test("plans slug route renders plans › slug › file, not a directory-listing split of the file path", () => {
+    render(
+      <MemoryRouter
+        initialEntries={["/plans/agents-effort-config/docs/spec/agents-effort-config.md?member=server&at=main"]}
+      >
+        <TopBar />
+      </MemoryRouter>,
+    );
+
+    const crumbs = [...document.querySelectorAll(".breadcrumb-folder")].map((e) => e.textContent);
+    expect(crumbs).toEqual(["plans", "agents-effort-config"]);
+    expect(document.querySelector(".breadcrumb-page")).toHaveTextContent("spec.md");
+  });
+
+  test("plans slug route links resolve to /plans and /plans/:slug, not /page/...", () => {
+    render(
+      <MemoryRouter initialEntries={["/plans/agents-effort-config/docs/spec/agents-effort-config.md?member=server&at=main"]}>
+        <TopBar />
+      </MemoryRouter>,
+    );
+
+    const links = [...document.querySelectorAll(".breadcrumb-folder")] as HTMLAnchorElement[];
+    expect(links.map((l) => l.getAttribute("href"))).toEqual([
+      "/plans?member=server",
+      "/plans/agents-effort-config?member=server&at=main",
+    ]);
+  });
+
+  test("bare /plans renders a single leaf crumb", () => {
+    render(
+      <MemoryRouter initialEntries={["/plans"]}>
+        <TopBar />
+      </MemoryRouter>,
+    );
+
+    expect(document.querySelectorAll(".breadcrumb-folder").length).toBe(0);
+    expect(document.querySelector(".breadcrumb-page")).toHaveTextContent("plans");
+  });
+
   // Modes and theme moved to components/nav/IconRail so a mode is switched in
   // exactly one place — the header must not grow a second control cluster.
   test("carries no view-mode or theme controls", () => {

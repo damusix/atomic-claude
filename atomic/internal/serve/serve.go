@@ -192,6 +192,18 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	mux.Handle("/api/status", NewAPIStatusHandler(healthOpts))
 	mux.Handle("/api/external", NewAPIExternalHandler(navRoot, GitOrMtimeDateFn, store))
 
+	plansRegistry := newPlansRegistry()
+	plansOpts := plansOptions{
+		Root:          navRoot,
+		ScopeRoot:     opts.TargetDir,
+		ClaudeMDPath:  opts.ClaudeMDPath,
+		WikiIndexPath: wikiIndexPath,
+		Registry:      plansRegistry,
+	}
+	mux.Handle("/api/plans", plansHandler(plansOpts))
+	mux.Handle("/api/plans/page", plansPageHandler(plansRegistry))
+	mux.Handle("/api/plans/members", plansMembersHandler(plansOpts))
+
 	// Web chat over the atomic bus daemon. See api_bus.go for why this narrows
 	// the read-only contract.
 	busHome := opts.Home

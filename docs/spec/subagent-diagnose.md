@@ -33,9 +33,9 @@ Naming aligned with `/subagent-implementation` to signal the orchestrator patter
 - [ ] Both modes converge into the shared engine loop with no per-mode branching after Phase 0. Verifiable: Phase 1–3 code path is identical regardless of mode flag.
 - [ ] Orchestrator classifies cohesion as `tight` or `loose` from the investigator's surface map, then dispatches `atomic-surgeon` (tight) or `atomic-builder` (loose). On surgeon-refusal (>2 files), falls back to builder.
 - [ ] Loop bails at min(memory-override-cap, 5) iterations or on three consecutive normalized-same failures; `STATE.md` records the bail reason.
-- [ ] On reviewer PASS, orchestrator commits fix + test, then `mv`s scratchpad into `.claude/.scratchpad/.archive/<topic>/`. Archive dir exists; original dir does not.
+- [ ] On reviewer PASS, orchestrator commits fix + test, then leaves the bundle in place. Retirement is `atomic scratchpad archive <slug>`, run by `/git-cleanup` or a ship-verb worktree cleanup when the worktree is reaped — not this command.
 - [ ] `ci`-mode Phase 4 dispatches `atomic-haiku` with `run_in_background: true` and surfaces watcher completion as a notification.
-- [ ] `bug`-mode Phase 4 runs the repro from `CONTEXT.md ## Repro` synchronously; on repro-still-fails, refuses to archive and prompts the user.
+- [ ] `bug`-mode Phase 4 runs the repro from `CONTEXT.md ## Repro` synchronously; on repro-still-fails, does not declare the run finished — prompts the user instead.
 - [ ] On bail, scratchpad retained in place; user gets iteration summary + final reviewer verdict.
 
 
@@ -66,7 +66,7 @@ First positional arg is the mode. Anything else is mode-specific. Refuse with us
 |------|--------|
 | 0.1 | Resolve argument to a failed run ID via provider CLI (e.g. `gh run list --status failure --limit 1` if no arg). Refuse if no failed run found. |
 | 0.2 | Capture branch, head SHA, base SHA, workflow name, failed step name, failure timestamp into `BRIEF.md` source-pointer section. |
-| 0.3 | Topic suffix: `diagnose-ci-<run-id>` (e.g. `2026-05-18-diagnose-ci-9821334512`). Per engine "Concurrent runs", refuse if dir exists. |
+| 0.3 | Slug: `diagnose-ci-<run-id>`. Per engine "Concurrent runs", refuse to extend if a live bundle already exists at that slug. |
 | 0.4 | Dispatch `atomic-haiku` (read-only) with brief: "fetch full logs for run `<id>`, step `<name>`. Write to `CONTEXT.md`, truncated at 64KB with `[truncated, full log at <provider-url>]` footer if exceeded. Extract failing assertion / panic / error line as `top_level_error:` trailing key." |
 | 0.5 | Orchestrator reads `CONTEXT.md`, copies `top_level_error` into `STATE.md` as iteration-0 baseline. |
 
@@ -76,7 +76,7 @@ First positional arg is the mode. Anything else is mode-specific. Refuse with us
 
 | Step | Action |
 |------|--------|
-| 0.1 | Slug derivation: kebab-case from first ~6 words of the brief. Topic suffix: `diagnose-bug-<slug>`. Refuse if dir exists. |
+| 0.1 | Slug derivation: kebab-case from first ~6 words of the brief, prefixed `diagnose-bug-<slug>`. Refuse to extend if a live bundle already exists at that slug. |
 | 0.2 | Single `AskUserQuestion` block prompts for the four context fields missing from the freeform brief: **repro steps**, **expected vs actual behavior**, **environment fingerprint** (OS, runtime versions, branch, dirty/clean working tree), **what's been tried**. Skip any field the brief already answers. |
 | 0.3 | Capture into `CONTEXT.md` under stable headings (`## Repro`, `## Expected vs actual`, `## Environment`, `## Already tried`). Plus a `top_level_error:` trailing key if the brief or one of the answers contains a paste-able error string; else `top_level_error: <none — behavioral bug>`. |
 | 0.4 | Auto-capture: `git log --oneline -20 -- <suspected paths from brief>` appended as `## Recent commits` (if suspected paths inferable). Skip silently if no paths inferable. |
@@ -88,13 +88,13 @@ First positional arg is the mode. Anything else is mode-specific. Refuse with us
 
 | Path | Contents |
 |------|----------|
-| `.claude/.scratchpad/<topic>/BRIEF.md` | Pointer to source, current iteration scope, reviewer feedback rollup |
-| `.claude/.scratchpad/<topic>/STATE.md` | Append-only iteration log (one entry per Phase 2→3 cycle) |
-| `.claude/.scratchpad/<topic>/FOLLOWUPS.md` | Non-blocking findings carried across iterations; dispositioned at finalize |
-| `.claude/.scratchpad/<topic>/CONTEXT.md` | Phase 0 capture (logs for `ci`, repro + symptom map for `bug`) |
+| `<bundle>/BRIEF.md` | Pointer to source, current iteration scope, reviewer feedback rollup |
+| `<bundle>/STATE.md` | Append-only iteration log (one entry per Phase 2→3 cycle) |
+| `<bundle>/FOLLOWUPS.md` | Non-blocking findings carried across iterations; dispositioned at finalize |
+| `<bundle>/CONTEXT.md` | Phase 0 capture (logs for `ci`, repro + symptom map for `bug`) |
 
 
-`<topic>` format: `<YYYY-MM-DD>-<mode-suffix>`. Suffix derivation is per-mode (see § Phase 0).
+`<bundle>` is `atomic scratchpad new <slug> --purpose diagnose`, where `<slug>` is the per-mode slug derived in § Phase 0 (`diagnose-ci-<run-id>` or `diagnose-bug-<slug>`) — no date prefix. `--purpose diagnose` seeds BRIEF/STATE/FOLLOWUPS/CONTEXT per the purpose matrix in `docs/spec/serve-plans-page.md`.
 
 
 ## Phases 1–4 (mode-agnostic)
@@ -144,8 +144,8 @@ Phase 0 and the Phase 4 verification body are mode-specific (above and below). P
 
 
 - Verification body is per-mode (see below).
-- On verified success: archive scratchpad to `.claude/.scratchpad/.archive/<topic>/` (gitignored). Do **not** delete.
-- On bail-out (hard stop hit, same-failure early-bail, user abort): retain scratchpad in place. Do not archive.
+- On verified success: leave the bundle in place. This command never archives or deletes it — retirement is `atomic scratchpad archive <slug>`, run by `/git-cleanup` or a ship-verb worktree cleanup when the worktree holding it is reaped.
+- On bail-out (hard stop hit, same-failure early-bail, user abort): retain bundle in place, same as the success path — there is no separate archived-vs-retained state for this command to track.
 - FOLLOWUPS disposition: present `FOLLOWUPS.md` ledger to user per-item; user picks per row from `close` / `defer` (promote to `.claude/project/followups.md`) / `convert-to-spec`. Same flow as `/subagent-implementation` Phase 3.
 
 
@@ -195,17 +195,17 @@ Two normalized strings equal → "same failure". Hash for compactness; store has
 ## Concurrent runs
 
 
-Topic dir includes the mode + a per-mode unique suffix (run-id for `ci`, slug for `bug`). If the topic dir already exists when the orchestrator goes to create it:
+The slug includes the mode + a per-mode unique suffix (run-id for `ci`, kebab-case symptom for `bug`). Before creating the bundle, the orchestrator runs `atomic scratchpad path <slug>` — `new` is additive, so it would silently extend a live diagnose run of the same slug rather than refuse, and this command needs the refusal:
 
 
-- Refuse. Print: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.`
-- Per axiom 3, no silent overwrite. `--resume` flag is YAGNI until a real second-hit forces the case.
+- If `atomic scratchpad path <slug>` succeeds (a bundle already exists), refuse: `diagnose run <slug> already in progress at <path>; pick a different symptom description or run id, or let the existing run finish.`
+- Per axiom 3, no silent overwrite of a live run. `--resume` flag is YAGNI until a real second-hit forces the case.
 
 
 ## Phase 4 verification (mode-specific)
 
 
-After scratchpad teardown and FOLLOWUPS disposition, **before** archiving:
+After FOLLOWUPS disposition, before the command hands control back to the user (the bundle itself is never archived here — see § Phase 4 — teardown):
 
 
 ### `ci` mode
@@ -215,7 +215,7 @@ After scratchpad teardown and FOLLOWUPS disposition, **before** archiving:
 |------|--------|
 | 4.1 | Push the fix commit if not yet pushed (orchestrator confirms with user per axiom 3 — push is visible to others). |
 | 4.2 | Dispatch `atomic-haiku` in background (`run_in_background: true`) with brief: "watch CI for branch `<branch>` until terminal. Report run ID + conclusion when done." |
-| 4.3 | Orchestrator returns control to user with: scratchpad archive path, fix commit SHA, background watcher ID. Notifies on watcher completion. |
+| 4.3 | Orchestrator returns control to user with: bundle path, fix commit SHA, background watcher ID. Notifies on watcher completion. |
 | 4.4 | If watcher reports failure: do **not** auto-relaunch. Surface the new failure ID and let the user re-invoke. Prevents infinite loops on infrastructurally flaky tests. |
 
 
@@ -225,8 +225,8 @@ After scratchpad teardown and FOLLOWUPS disposition, **before** archiving:
 | Step | Action |
 |------|--------|
 | 4.1 | Foreground orchestrator runs the repro steps from `CONTEXT.md ## Repro` one final time against the committed fix. Shell-executable repros run via Bash. Manual repros (UI, third-party service) prompt the user to run and report. |
-| 4.2 | If repro passes (bug no longer reproduces): proceed to archive scratchpad. |
-| 4.3 | If repro still fails: do **not** archive. Print: "fix landed in commit `<sha>` but repro still fails. Scratchpad retained at `<path>`. Reviewer signed PASS based on the regression test; the test may not match the real repro." Ask user: continue iterating (Phase 2), accept and archive, or abort. |
+| 4.2 | If repro passes (bug no longer reproduces): the run is done; the bundle stays in place (retirement is a later `/git-cleanup` / ship-verb / explicit `atomic scratchpad archive` concern, not this command's). |
+| 4.3 | If repro still fails: print "fix landed in commit `<sha>` but repro still fails. Bundle retained at `<path>`. Reviewer signed PASS based on the regression test; the test may not match the real repro." Ask user: continue iterating (Phase 2), accept and stop here, or abort. |
 | 4.4 | No background dispatch (unlike `ci` mode). Bug verification is synchronous. |
 
 
@@ -240,8 +240,8 @@ After scratchpad teardown and FOLLOWUPS disposition, **before** archiving:
 | 3 | `bug`-mode Phase 0 — slug + `AskUserQuestion` + auto `git log` | `commands/subagent-diagnose.md § bug Phase 0` | `CONTEXT.md` populated with four stable headings; auto `git log` capture when paths inferable |
 | 4 | Phase 1–3 loop integration via engine link | `commands/subagent-diagnose.md` — link to engine | Orchestrator classifies cohesion from investigator surface map; surgeon-vs-builder dispatched; surgeon-refusal falls back to builder; loop honors memory-override cap + normalized-same-failure bail |
 | 5 | `ci`-mode Phase 4 background re-watch | `commands/subagent-diagnose.md § ci Phase 4` | `atomic-haiku` runs `run_in_background: true`; command returns before terminal state; no auto-relaunch on failure |
-| 6 | `bug`-mode Phase 4 synchronous repro re-run | `commands/subagent-diagnose.md § bug Phase 4` | Shell repro auto-runs; manual repro prompts user; repro-still-fails branch refuses archive |
-| 7 | Scratchpad archive + bail-retention | engine-defined; verified by checkpoint 4 | `.claude/.scratchpad/.archive/<topic>/` exists on PASS; in-place retention on bail |
+| 6 | `bug`-mode Phase 4 synchronous repro re-run | `commands/subagent-diagnose.md § bug Phase 4` | Shell repro auto-runs; manual repro prompts user; repro-still-fails branch asks the user rather than declaring the run finished |
+| 7 | Bundle retention on PASS and on bail | engine-defined; verified by checkpoint 4 | bundle retained in place on both PASS and bail; command never archives or deletes it itself |
 | 8 | Wiring: `CLAUDE.md`, `README.md`, `commands/subagent-diagnose.md` | per `claude.local.md` invisible-feature checklist | grep finds `/subagent-diagnose` in all three surfaces |
 
 
@@ -253,7 +253,7 @@ After scratchpad teardown and FOLLOWUPS disposition, **before** archiving:
 | `ci` provider detection wrong → log fetch fails | medium | Reuse `/watch-ci` provider-detection logic; refuse with clear message if no provider matched in signals |
 | `ci` Phase 4 watcher hangs (CI cancelled, infra down, run >10m) | medium | `atomic-haiku` has its own ~10-min cap; on cap-hit the watcher reports `terminal: unknown` and exits. Orchestrator does not block on it. |
 | `bug` manual-repro prompt blocks long-running session | medium | Phase 4 is synchronous by design; user can abort. Document expected wait in command description. |
-| `bug` regression test passes but repro still fails (false PASS) | medium | Phase 4.3 explicitly handles this case — do not archive, prompt user. The test was the wrong abstraction. |
+| `bug` regression test passes but repro still fails (false PASS) | medium | Phase 4.3 explicitly handles this case — prompt user instead of declaring the run finished. The test was the wrong abstraction. |
 | Auto-relaunch loop on flaky CI tests | medium | Hard rule in `ci` Phase 4.4: never auto-relaunch on watcher-reported failure |
 | Skill / command boundary blurs vs `atomic-debug` (F-1 in followups) | low | Non-goals section enumerates the boundary; `atomic-debug` cross-link lands separately when F-1 resolves |
 | Engine evolves under this consumer | low | Engine file has its own `## Change log`; this spec is invalidated only on a breaking engine change, which would warrant amending this spec's body too |
@@ -301,4 +301,10 @@ No open follow-ups remain in the durable project ledger from this build.
 ## Change log
 
 
-<!-- Populated on first amendment after this spec is approved. Initial draft + v1 implementation log (2026-05-18) are not amendments. -->
+### 2026-08-20 — Slug-keyed bundles, no local archive namespace
+
+**What changed:** The scratchpad topic format drops the `<YYYY-MM-DD>-` prefix; both modes derive a plain slug (`diagnose-ci-<run-id>`, `diagnose-bug-<slug>`) passed to `atomic scratchpad new <slug> --purpose diagnose`. The concurrent-run guard now checks `atomic scratchpad path <slug>` before creating, since `new` is additive and would otherwise silently extend a live run rather than refuse it. Phase 4 teardown no longer moves the bundle to a local `.claude/.scratchpad/.archive/<topic>/` on PASS — the bundle is left in place on every path (success, bail, or repro-still-fails), and retirement is `atomic scratchpad archive <slug>`, run by `/git-cleanup` or a ship-verb worktree cleanup when the worktree holding it is reaped.
+
+**Why:** `docs/spec/serve-plans-page.md` introduces the `atomic scratchpad` verb and a project-keyed `~/.atomic/<project-key>/archive/` as the one archive namespace; a second, command-local `.claude/.scratchpad/.archive/` namespace duplicated it and was retired outright.
+
+**Superseded:** dated `<YYYY-MM-DD>-diagnose-*` topic directories; a refuse-if-exists guard fired at mode-parse time against directory presence; `mv` to a local `.archive/<topic>/` on PASS as this command's own retirement mechanism.

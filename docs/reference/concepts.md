@@ -232,7 +232,7 @@ The one place atomic does not defer to the harness is creating the worktree. It 
 ### Scratchpad
 
 
-`.claude/.scratchpad/<date>-<topic>/` is the loop's working memory — gitignored, written for the next subagent rather than for you. Three files, each with a different write discipline, because they answer different questions:
+`.claude/.scratchpad/<slug>/` is the loop's working memory — gitignored, written for the next subagent rather than for you, one bundle per slug rather than one per phase per date. `atomic scratchpad` owns it (`new`/`path`/`list`/`archive`); session reports, reminders, and archived bundles live outside the repo, under `~/.atomic/<project-key>/`, resolved via `atomic where --json`. See [conventions](/reference/conventions) for the full layout. Inside a bundle, three files carry a different write discipline, because they answer different questions:
 
 | File | Written | Holds |
 |------|---------|-------|
@@ -244,7 +244,7 @@ The one place atomic does not defer to the harness is creating the worktree. It 
 
 What is deliberately absent matters as much. There is no `GOAL.md`, `CONTEXT.md`, or `PLAN.md`, because the spec at `docs/spec/<topic>.md` already is those, and a second copy is a second thing to drift. Each file is seeded from `atomic template <name>` so its structure is copied rather than reconstructed from memory.
 
-At the end you triage the ledger. Deferring a finding promotes it to `.claude/project/followups/<id>.md`, which is committed and auto-loaded into later sessions, so it survives what happens next: the scratchpad is deleted when the task completes.
+At the end you triage the ledger. Deferring a finding promotes it to `.claude/project/followups/<id>.md`, which is committed and auto-loaded into later sessions. The bundle itself is not deleted when the task completes — it stays, as the audit trail for that slug, until its worktree is reaped or you archive it by hand.
 
 
 ### Subagents

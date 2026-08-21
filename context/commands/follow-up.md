@@ -6,6 +6,8 @@ Handle pending reminders and project follow-up entries. Three modes: bare (`/fol
 
 Spec: `docs/spec/cron-workflow.md § /follow-up`
 
+`<reminders-dir>` below is `atomic where --json`'s `reminders` field when the `atomic` binary is present, else the `.claude/.scratchpad/reminders/` fallback dir used when it is absent — the legacy path `reminder.List` already unions and `atomic migrate` already relocates. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
+
 ## Mode detection
 
 Inspect `$ARGUMENTS`:
@@ -115,7 +117,7 @@ For each index in the selection:
     - **`none`**: no schedule to cancel; skip to deletion.
 3. Delete the reminder:
     - Binary present: `atomic reminder rm <id>`
-    - Fallback: `Bash rm .claude/.scratchpad/reminders/<file>`
+    - Fallback: `Bash rm <reminders-dir>/<file>`
 4. Report: `[<index>] r-<id> — done.`
 
 #### `snooze <index> <duration>` and `reschedule <index> <when>`
@@ -142,7 +144,7 @@ Both verbs accept natural-language time expressions — same inference rules as 
 7. **Rewrite `transport:` in the file** via Bash `sed` to match the new transport (it may differ from the original):
 
     ```bash
-    sed -i '' 's/^transport: .*/transport: <new-transport>/' .claude/.scratchpad/reminders/<file>
+    sed -i '' 's/^transport: .*/transport: <new-transport>/' <reminders-dir>/<file>
     ```
 
     Apply this regardless of whether the transport changed — it ensures the file stays consistent with the actual scheduling outcome.
@@ -177,7 +179,7 @@ Claude wakes with this prompt when a reminder's cron or Routine fires.
 ### Step A — Load the reminder
 
 - Binary present: `atomic reminder show <id>`
-- Fallback: find `.claude/.scratchpad/reminders/*.md` where the `id:` frontmatter field matches `<id>`, then `Read` that file.
+- Fallback: find `<reminders-dir>/*.md` where the `id:` frontmatter field matches `<id>`, then `Read` that file.
 
 Also read the `transport:` field from frontmatter — needed for cancel operations.
 
@@ -209,13 +211,13 @@ After surfacing the body, wait. Detect intent from what the user types or does n
     3. Rewrite `transport:` in the file via Bash `sed` to match the new transport (may differ from original):
 
         ```bash
-        sed -i '' 's/^transport: .*/transport: <new-transport>/' .claude/.scratchpad/reminders/<file>
+        sed -i '' 's/^transport: .*/transport: <new-transport>/' <reminders-dir>/<file>
         ```
 
     4. Call `CronCreate` or `schedule` skill with `now + N`, prompt `/follow-up due <id>`. If unavailable, rewrite `transport: none` in the file via Bash `sed`:
 
         ```bash
-        sed -i '' 's/^transport: .*/transport: none/' .claude/.scratchpad/reminders/<file>
+        sed -i '' 's/^transport: .*/transport: none/' <reminders-dir>/<file>
         ```
 
         Then print the degradation message from `## Degraded mode` before continuing.
@@ -374,7 +376,7 @@ If scheduling tools (`CronList`, `CronDelete`, `CronCreate`, or the `schedule` s
 - The cron/routine lookup key is the prompt content containing the reminder id (`/follow-up due <id>`). Match this string when searching `CronList` results or routine listings.
 - Transport changes on snooze/reschedule are intentional: a reminder originally set for `1w` snoozed by `30m` correctly moves from routine to cron.
 - `atomic reminder set-due <id> <iso>` is the canonical way to rewrite `due:`. Bash `sed` is the fallback when the binary is absent.
-- Reminder storage is project-scoped (`.claude/.scratchpad/reminders/`). Gitignored.
+- Reminder storage is project-scoped, at the `reminders` path `atomic where --json` reports. Persists across sessions and worktrees of the same clone. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 - The `id` frontmatter field is the canonical key. Filenames are cosmetic.
 
 </constraints>

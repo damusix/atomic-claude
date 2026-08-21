@@ -31,6 +31,18 @@ function mockNav(navBody: unknown = { scope: "repo", groups: [] }) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (url.includes("/api/plans/members")) {
+      return new Response(JSON.stringify({ members: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url.includes("/api/plans")) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     if (url.includes("/api/page/")) {
       const relpath = decodeURIComponent(url.split("/api/page/")[1] ?? "");
       return new Response(
@@ -107,6 +119,7 @@ describe("App routing (Shell mount)", () => {
     window.CodeGraph = { mount: mock(() => {}), teardown: mock(() => {}), retheme: mock(() => {}) };
     for (const [path, marker] of [
       ["/graph", "graph"],
+      ["/plans", "plans"],
       ["/search", "search"],
       ["/status", "status"],
       ["/external", "external"],

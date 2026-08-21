@@ -40,15 +40,14 @@ test -f .claude/.atomic-index/atomic.db
 
 ## Scratchpad
 
-Derive a short kebab-case `<topic>` slug from the task. `$SCRATCH` = `.claude/.scratchpad/<YYYY-MM-DD>-<topic>/`.
+Derive a short kebab-case `<topic>` slug from the task.
 
 ```bash
 command -v atomic >/dev/null 2>&1 && atomic repo init >/dev/null
-SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-<topic>"
-mkdir -p "$SCRATCH"
+SCRATCH=$(atomic scratchpad new "<topic>" --purpose fix)
 ```
 
-Same trio as `/subagent-implementation`, and this command reuses the exact same `atomic prompt implementer` / `atomic prompt reviewer` briefs — the two command files are co-consumers of one scratchpad contract; a future shape change to either should update both.
+Same trio as `/subagent-implementation`, and this command reuses the exact same `atomic prompt implementer` / `atomic prompt reviewer` briefs — the two command files are co-consumers of one scratchpad contract; a future shape change to either should update both. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 
 ### `$SCRATCH/BRIEF.md`
 

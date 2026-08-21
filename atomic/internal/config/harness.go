@@ -126,7 +126,8 @@ func RepoConfigPath(root string) string {
 	return filepath.Join(root, harnessDir(), "atomic.toml")
 }
 
-// RemindersDir returns <root>/<harness.dir>/.scratchpad/reminders.
+// RemindersDir returns the project-keyed reminders directory. RemindersDirLegacy
+// resolves the pre-relocation path this used to return directly.
 func RemindersDir(root string) string {
-	return filepath.Join(ScratchpadDir(root), "reminders")
+	return ProjectRemindersDir(root)
 }

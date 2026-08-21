@@ -102,7 +102,7 @@ Storage only. The binary creates, lists, shows, and removes reminder files. Sche
 
 | Verb | Description |
 |------|-------------|
-| `add <text>` | Create a reminder file in `.claude/.scratchpad/reminders/`. Prints the assigned id. |
+| `add <text>` | Create a reminder file under the project-keyed reminders directory (`config.ProjectRemindersDir`; see `docs/spec/serve-plans-page.md`). Prints the assigned id. |
 | `list` | List all reminders. Output is indexed; each row shows `id`, `created`, first line of body. |
 | `show <id>` | Print the body of a single reminder. |
 | `rm <id>` | Delete a reminder file. |
@@ -216,7 +216,7 @@ All `atomic`-managed files use YAML frontmatter and are plain markdown.
 ### Reminder file
 
 
-Path: `.claude/.scratchpad/reminders/<YYYY-MM-DD>-<slug>.md`
+Path: `<config.ProjectRemindersDir(root)>/<YYYY-MM-DD>-<slug>.md` — `~/.atomic/<project-key>/reminders/<YYYY-MM-DD>-<slug>.md`. See `docs/spec/serve-plans-page.md`.
 
 
 ```markdown
@@ -708,6 +708,14 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 
 ## Change log
 
+
+### 2026-08-20 — `atomic reminder add` storage moves to the project-keyed home
+
+**What changed:** The `add <text>` verb description and the reminder file's path both point at `config.ProjectRemindersDir(root)` — `~/.atomic/<project-key>/reminders/` — instead of `.claude/.scratchpad/reminders/`.
+
+**Why:** `docs/spec/serve-plans-page.md` relocates reminders to one project-keyed home shared across every worktree of a clone.
+
+**Superseded:** `.claude/.scratchpad/reminders/` as the reminder storage path.
 
 ### 2026-07-16 — User state root relocated to ~/.atomic
 

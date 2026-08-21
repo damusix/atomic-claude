@@ -12,4 +12,10 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 // A concrete origin — utils/api's FetchEngine requires an absolute baseUrl
 // (it resolves "/api" against window.location.origin), and happy-dom's
 // default document location ("about:blank", origin "null") fails that.
-GlobalRegistrator.register({ url: "http://localhost:4000/" });
+// The html bundle kind renders an <iframe src=...>; without this, happy-dom
+// fetches that document over real HTTP (its own client, not globalThis.fetch,
+// so no test mock can intercept it) and logs ECONNREFUSED from every run.
+GlobalRegistrator.register({
+  url: "http://localhost:4000/",
+  settings: { disableIframePageLoading: true },
+});

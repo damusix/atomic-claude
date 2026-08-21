@@ -128,7 +128,7 @@ Iter 3+: builder applies feedback; reviewer re-checks.
 Terminate on VERDICT: PASS or hard-cap (5 iters; configurable via memory).
 ```
 
-Use `.claude/.scratchpad/<YYYY-MM-DD>-spec-<topic>/` with `BRIEF.md` + `STATE.md` + `FOLLOWUPS.md`, each seeded from its embedded template (`atomic template brief` / `state` / `followups`). Deleted on PASS. Reuses the same scratchpad shape as `/subagent-implementation` so contributors don't need a second mental model.
+Run `atomic scratchpad new <topic> --purpose plan` — it creates or extends the slug's bundle and seeds `BRIEF.md` + `STATE.md` + `FOLLOWUPS.md`. Reuses the same scratchpad shape as `/subagent-implementation` so contributors don't need a second mental model. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 
 **Spec-currency briefing.** In the builder dispatch (Iter 1 and every revision), explicitly tell the builder to follow `rules/specs/spec-currency.md` — the body must describe only the current decision, with history in `## Change log`. The rule auto-loads when the builder touches `docs/spec/**` or `docs/design/**`, but state it in the brief too so currency is not left to chance.
 
@@ -193,9 +193,9 @@ If `docs/spec/<topic>.md` already exists *and was previously approved* (committe
 ## Relationship to scratchpad
 
 `docs/spec/` and `docs/design/` are durable, curated, human-facing.
-`.claude/.scratchpad/<date>-<desc>/` is ephemeral working memory for `/subagent-implementation` — it points at the spec via `BRIEF.md` (current iteration scope + reviewer feedback) and logs progress in `STATE.md`. The spec stays canonical; scratchpad is throwaway.
+A scratchpad bundle (`atomic scratchpad new <topic> --purpose <p>`) is the working record for `/subagent-implementation` — it points at the spec via `BRIEF.md` (current iteration scope + reviewer feedback) and logs progress in `STATE.md`. The spec stays canonical; the bundle is retained after the phase ends, not deleted — it is retired only via `/git-cleanup` reaping its worktree, a ship-verb worktree cleanup, or an explicit `atomic scratchpad archive`.
 
-The spec loop also uses `.claude/.scratchpad/<date>-spec-<topic>/` during authoring. Same shape, deleted on PASS.
+The spec loop uses the same bundle, under `--purpose plan`.
 
 ## Spec voice
 

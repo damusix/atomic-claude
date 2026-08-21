@@ -373,6 +373,18 @@ var _ goldrenderer.NodeRenderer = (*linkRewriteRenderer)(nil)
 // safeResolve joins relPath onto root, rejecting absolute paths and any ..
 // escape. This is the containment guard for every path the server serves.
 func safeResolve(root, relPath string) (string, bool) {
+	return resolveContained(root, relPath)
+}
+
+// resolveContained resolves relPath under root, rejecting any path that
+// would escape it: no absolute path, no ".." segment after Clean, and the
+// joined result must stay under root after EvalSymlinks on both sides. The
+// one containment algorithm every root-scoped content route in this package
+// relies on — safeResolve's allowed root is render.go's single served root;
+// api_plans_page.go calls this directly under a worktree-issued root
+// instead, since widening safeResolve's root would relax it at every other
+// call site for the benefit of one surface.
+func resolveContained(root, relPath string) (string, bool) {
 	cleaned := filepath.Clean(relPath)
 	if filepath.IsAbs(cleaned) ||
 		cleaned == ".." ||
