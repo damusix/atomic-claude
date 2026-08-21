@@ -123,7 +123,7 @@ sequenceDiagram
     else CHANGES_REQUESTED
         O->>I: next round, blocking findings as focus
     end
-    opt same signal 2 rounds, or 6 iterations
+    opt same signal 2 rounds
         O->>U: offer /pressure-test · strategist · continue
     end
     opt every checkpoint green

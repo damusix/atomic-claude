@@ -73,7 +73,7 @@ stateDiagram-v2
 
 | Orchestrator | Cap | Early stop |
 |---|---|---|
-| `/subagent-implementation` | 6 iterations, then ask | Same blocking signal across 2 consecutive `CHANGES_REQUESTED` rounds surfaces `/pressure-test` and `atomic-strategist` and waits for the user |
+| `/subagent-implementation` | none | Same blocking signal across 2 consecutive `CHANGES_REQUESTED` rounds surfaces `/pressure-test` and `atomic-strategist` and waits for the user |
 | `/quick-fix` | 3 iterations, then ask | Escape hatch on approach fork, fuzzy criteria, an unforeseen contract choice, a shifted root cause, or implementer `BLOCKED` / `NEEDS_CONTEXT` |
 | `/subagent-diagnose` | `min(memory override, 5)` iterations | 3 consecutive iterations producing the same normalized top-level error |
 | `/atomic-plan` spec loop | 5 iterations | none |

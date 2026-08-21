@@ -82,10 +82,9 @@ That's it. No GOAL.md, no CONTEXT.md, no PLAN.md — the spec at `docs/spec/<top
 
 ## Phase 2 — Implement → Review → Commit loop
 
-Repeat until reviewer signs off or a stop condition fires. Two stop conditions:
+Repeat until reviewer signs off or the stop condition fires:
 
 - **Stuck-fix escalation** (Step C): after 2 consecutive `CHANGES_REQUESTED` rounds on the same blocking signal → surface `/pressure-test` and `atomic-strategist` RCA options; wait for user choice before looping.
-- **6-iteration soft-stop**: at 6 iterations regardless of signal state → ask user before continuing.
 
 ### Step A — Dispatch implementer (fresh context)
 
@@ -160,8 +159,6 @@ After each `CHANGES_REQUESTED`, compare the current iteration's blocking signal 
 6. If the user chooses `dispatch atomic-strategist` → dispatch `atomic-strategist` (read-only) with a prompt summarizing the task context, the repeated signal, and the last two iteration findings from `STATE.md`. Incorporate any strategic recommendation into the next `BRIEF.md` before looping. The strategist dispatch does NOT consume a loop iteration — it is a diagnosis step.
 
 This check is **reset** when the blocking signal changes (a different finding category blocks, or the checkpoint advances). It fires again only if the new signal stalls for two rounds.
-
-**6-iteration soft-stop.** When the iteration count reaches 6 (regardless of stuck status), pause and ask the user before continuing — use the same `AskUserQuestion` mechanic. The stuck escalation and the 6-iteration soft-stop are complementary: stuck fires early on repeated signals; the soft-stop is the outer bound. If the stuck escalation has already fired and the user chose to continue, that counts toward the 6-iteration total.
 
 After the stuck check (or if the signal changed and no escalation fires), loop back to Step A with the blocking findings (🔴, plus any 🟡 the orchestrator chooses to address now) as the implementer's focus. Anything not addressed next iteration stays in `FOLLOWUPS.md`.
 
