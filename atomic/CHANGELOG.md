@@ -1,5 +1,12 @@
 # Changelog
 
+## [6.5.0](https://github.com/damusix/atomic-claude/compare/v6.4.0...v6.5.0) (2026-08-21)
+
+
+### Features
+
+* atomic scratchpad verb, project-keyed state home, and the Plans surface ([7d9645f](https://github.com/damusix/atomic-claude/commit/7d9645f4362a0df288bf067040f5af6021258a97))
+
 ## [6.4.0](https://github.com/damusix/atomic-claude/compare/v6.3.0...v6.4.0) (2026-08-19)
 
 
