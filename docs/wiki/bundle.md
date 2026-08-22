@@ -69,12 +69,12 @@ agent-implementer-workflow ──> agent-search-tooling, agent-tdd-signals,
 
 | Agent source | Partials composed |
 |---------------|-------------------|
-| `atomic-implementer.md` | `agent-atomic-voice`, `agent-comment-discipline`, `agent-implementer-workflow`, `agent-shared-rules`, `agent-signals-output`, `agent-yagni` |
-| `atomic-reviewer.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-where`, `agent-yagni` |
+| `atomic-implementer.md` | `agent-atomic-voice`, `agent-comment-discipline`, `agent-implementer-workflow`, `agent-readability`, `agent-shared-rules`, `agent-signals-output`, `agent-yagni` |
+| `atomic-reviewer.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-comment-discipline`, `agent-readability`, `agent-where`, `agent-yagni` |
 | `atomic-investigator.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-search-tooling`, `agent-where` |
 | `atomic-wiki-inferrer.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-where` |
 | `atomic-wiki-writer.md` | `agent-atomic-voice`, `agent-code-intel` |
-| `atomic-auditor.md` | `agent-atomic-voice`, `agent-code-intel` |
+| `atomic-auditor.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-comment-discipline`, `agent-readability`, `agent-yagni` |
 | `atomic-strategist.md` | `agent-atomic-voice`, `agent-yagni` |
 
 | Command source | Partials composed |
