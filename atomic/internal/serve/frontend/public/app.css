@@ -2786,18 +2786,23 @@ body.mode-graph-view #code-cy {
 }
 
 .search-tab {
-    padding: 6px 14px;
-    font-size: 13px;
-    color: var(--ink-faint);
-    text-decoration: none;
+    margin-bottom: -1px;
+    padding: 6px 14px 8px;
+    border: 0;
     border-bottom: 2px solid transparent;
-    transition: color .12s;
+    background: transparent;
+    color: var(--ink-faint);
+    font-family: var(--sans);
+    font-size: 13px;
+    cursor: pointer;
+    transition: color .12s, border-color .12s;
 }
 
 .search-tab:hover { color: var(--ink); }
 
-.search-tab.active {
+.search-tab[data-selected] {
     color: var(--amber);
+    font-weight: 600;
     border-bottom-color: var(--amber);
 }
 
