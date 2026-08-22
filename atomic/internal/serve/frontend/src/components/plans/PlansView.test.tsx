@@ -50,6 +50,7 @@ const DESC_ROW: PlanRow = {
   bundles: [
     {
       worktreeId: "w2",
+      branch: "plans-page",
       purposes: ["plan"],
       status: "active",
       files: [

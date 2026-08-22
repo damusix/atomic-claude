@@ -45,14 +45,10 @@ export function PlansRail() {
 
   const doc = findDoc(row, activeRelpath);
   const docResolution = doc ? resolveDocVersion(doc, at) : null;
-  const bundleResolution = !doc ? resolveBundleFile(row, activeRelpath) : null;
+  const bundleResolution = !doc ? resolveBundleFile(row, activeRelpath, at) : null;
 
-  const navEntries: { key: string; label: string; relpath: string }[] = [
-    ...(row.docs ?? []).map((d) => ({ key: d.path, label: docLabel(d.path), relpath: d.path })),
-    ...(row.bundles ?? []).flatMap((b) =>
-      b.files.map((f) => ({ key: `${b.worktreeId}:${f.relpath}`, label: bundleLocalPath(f.relpath), relpath: f.relpath })),
-    ),
-  ];
+  const docEntries = (row.docs ?? []).map((d) => ({ key: d.path, label: docLabel(d.path), relpath: d.path }));
+  const bundles = row.bundles ?? [];
 
   return (
     <div className="rail-tabs plans-rail-tabs">
@@ -76,7 +72,7 @@ export function PlansRail() {
 
         <div className="rail-slot-label">Bundle</div>
         <div className="bnav">
-          {navEntries.map((entry) => (
+          {docEntries.map((entry) => (
             <div
               key={entry.key}
               className={entry.relpath === activeRelpath ? "on" : undefined}
@@ -88,6 +84,29 @@ export function PlansRail() {
               }}
             >
               {entry.label}
+            </div>
+          ))}
+          {bundles.map((bundle) => (
+            <div key={bundle.worktreeId} className="bnav-group">
+              {bundles.length > 1 && <div className="bnav-group-header">{bundle.branch}</div>}
+              {bundle.files.map((f) => (
+                <div
+                  key={f.relpath}
+                  className={
+                    f.relpath === activeRelpath && bundle.worktreeId === bundleResolution?.bundle.worktreeId
+                      ? "on"
+                      : undefined
+                  }
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openFile(f.relpath, { at: bundle.branch })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") openFile(f.relpath, { at: bundle.branch });
+                  }}
+                >
+                  {bundleLocalPath(f.relpath)}
+                </div>
+              ))}
             </div>
           ))}
         </div>
