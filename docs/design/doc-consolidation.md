@@ -42,14 +42,15 @@ flowchart LR
 
 
 - Goals:
-    - One file per shipped feature that passes the rebuild test: an agent reading only it, plus the code's language and runtime, reaches the same build.
+    - One living design doc per feature that passes the rebuild test: an agent reading only it, plus the code's language and runtime, reaches the same build.
     - Every retired file recoverable from a lineage table that names the commit which last held the whole family.
     - Design and spec files enter wiki inference with a contracted role, so diagrams and purpose cross into `docs/wiki/<domain>.md` and drift surfaces on every refresh.
     - Family membership walkable by code, not by prose grep.
 - Non-goals:
     - No third documentation surface. `docs/design/`, `docs/spec/`, `docs/wiki/` keep their roles.
     - The wiki does not absorb tradeoffs. A wiki page that argues is a second design doc that goes stale.
-    - No consolidation of work still in flight. A family with an `active` member stays as it is.
+    - No retirement of work in flight. An `active` spec re-parents to the consolidated design doc and continues; only `shipped` specs fold in.
+    - No end-of-life for the feature. The consolidated design doc is a normal design doc that keeps accepting amendments and new child specs.
     - No automatic consolidation. Detection is code; the write is a human-gated verb.
 
 
@@ -82,11 +83,20 @@ C and F.
 
 | File | Owns | Never carries |
 |------|------|---------------|
-| `docs/design/<feature>.md` | Problem, constraints, approaches weighed, the pick and why, decision diagrams, landmines, lineage table | Checkpoint tables, change trees, current-state claims the code can answer |
+| `docs/design/<feature>.md` | Problem, constraints, approaches weighed, the pick and why, decision diagrams, landmines, `## Lineage`, `## Change log` | Checkpoint tables, change trees, current-state claims the code can answer |
 | `docs/wiki/<domain>.md` | What it is now, current-architecture diagrams, code-verified facts | Tradeoffs, decision history |
-| `docs/spec/<feature>.md` | The contract while `status` is `draft` or `active` | Anything once `status: shipped` and the family is consolidated: the file is retired |
+| `docs/spec/<feature>.md` | The contract while `status` is `draft` or `active` | Anything once `status: shipped` and folded: the file is retired |
 
-A new amendment to a consolidated feature starts a fresh spec with `parent:` pointing at the family design doc. The child-of pattern already in use, now machine-readable.
+The consolidated design doc behaves exactly like any other design doc. It accepts amendments under `## Change log` (same entry template as `rules/specs/spec-currency.md`), and new work on the feature starts a fresh child spec with `parent:` pointing at it. Consolidation compacts history; it does not close the feature. A family consolidates as many times as it ships, and every round folds the newly shipped specs into the same file.
+
+Which members fold in on a round:
+
+```
+for each spec in family(root):
+    shipped  -> fold into docs/design/<root>.md, then retire
+    active   -> keep; set parent: docs/design/<root>.md
+    draft    -> keep; set parent: docs/design/<root>.md
+```
 
 ### The rebuild test governs content and length
 
@@ -135,21 +145,22 @@ Backfill of the 143 existing files is scriptable: `type` from the directory, `de
 
 ### Lineage and the freeze SHA
 
-The commit that last held the whole family is the parent of the retirement commit on the landed branch. The path is the durable key: a squash merge discards branch SHAs, a file path does not move.
+Each round has its own freeze: the parent of that round's retirement commit on the landed branch, the last commit that held every file folded in that round. The path is the durable key: a squash merge discards branch SHAs, a file path does not move.
 
 ```markdown
 ## Lineage
 
-Freeze: `a1b2c3d` (parent of the retirement commit). Recover any row with
-`git show a1b2c3d:<path>`, or without the SHA:
+Recover any row with `git show <freeze>:<path>`, or without the SHA:
 `git log -1 --diff-filter=D --format=%H -- <path>` and read its parent.
 
-| Retired file | Contributed | Recover |
-|--------------|-------------|---------|
-| `docs/spec/code-intel-query.md` | query core, part 4/5, appendix K | `git show a1b2c3d:docs/spec/code-intel-query.md` |
+| Round | Freeze | Retired file | Contributed |
+|-------|--------|--------------|-------------|
+| 2026-09-01 | `a1b2c3d` | `docs/spec/code-intel-query.md` | query core, part 4/5, appendix K |
+| 2026-09-01 | `a1b2c3d` | `docs/spec/code-intel-substrate.md` | schema, indexer, pragma order |
+| 2026-11-14 | `e5f6a7b` | `docs/spec/code-intel-package-nodes.md` | package nodes, import edges |
 ```
 
-The N-to-1 form of the spec-currency rename rule: the lineage table is the pointer, no stub files.
+Rows append; nothing is rewritten. The N-to-1 form of the spec-currency rename rule: the lineage table is the pointer, no stub files. The round also lands as a `## Change log` entry on the design doc naming what the fold changed in the body.
 
 ### Design and spec files get a role in wiki inference
 
@@ -167,7 +178,7 @@ Diagram ownership follows the owner-carries, sibling-points rule with one accept
 
 ### Detection is code, the write is gated
 
-`atomic validate spec` (or a `spec families` verb) lists candidates from frontmatter alone: family of three or more files, every member `shipped`, no open follow-up referencing a member, quiet for 30 days. The verb follows the `/git-cleanup` shape: scan, indexed report, the human picks, nothing destructive without confirmation.
+`atomic validate spec` (or a `spec families` verb) lists candidates from frontmatter alone: every spec with `status: shipped` that has not been folded, grouped by family root. No size threshold and no quiet period; a shipped spec is a dead contract the day it ships, and waiting for the rest of the family is what lets hundreds pile up. The report shows the active and draft members beside them so the human sees what re-parents. The verb follows the `/git-cleanup` shape: scan, indexed report, the human picks, nothing destructive without confirmation.
 
 ```mermaid
 flowchart LR
@@ -175,7 +186,7 @@ flowchart LR
     B --> C["writer subagent<br/>retired files + code + wiki page"]
     C --> D["reviewer<br/>every kept decision true in code<br/>every diagram node resolves"]
     D -->|"CHANGES_REQUESTED"| C
-    D -->|"PASS"| E["retire the family<br/>one docs commit"]
+    D -->|"PASS"| E["fold shipped specs, retire them<br/>re-parent active ones<br/>one docs commit"]
     E --> F["wiki writer for the domain<br/>dispatched directly"]
 ```
 
@@ -191,13 +202,14 @@ The last hop is direct because docs-only commits skip the signals gate, so `mark
 
 - `mdparse.IsATXOnly` (`atomic/internal/mdparse/mdparse.go:133`) treats a `---` under a non-empty line as a setext underline. A frontmatter closing fence after `description: x` is exactly that, so `atomic validate spec` fails every frontmattered spec until it strips the block first. `internal/frontmatter` is used by ten packages and not by `validate/spec.go`.
 - The spec template emitted by `atomic template` and `rules/specs/spec-currency.md` must carry the block, or fresh specs ship without it.
+- The design-doc template has no `## Lineage` or `## Change log` section and forbids improvised headers. Both become optional template sections, and the spec-currency rule's amendment discipline extends to design docs that carry a change log.
 - Feature PRs target `next`; record the freeze SHA after the retirement lands, or rely on the path-keyed recovery.
 
 
 ## Open questions
 
 
-- Partial families: `code-intel-engine.md` is an umbrella with two children added 2026-08-08. Proposed rule is consolidate only when every member is `shipped`; confirm that an umbrella with one active child waits.
+- Umbrella specs: `code-intel-engine.md` is `shipped` and carries the appendix A to O that its active children cite by letter. Folding it moves the appendix into the design doc; the children's citations must re-point in the same round, or the appendix gets folded last.
 - `/atomic-plan` lookup order after retirement: family design doc lineage table first, then `docs/spec/`. One line in the command, but it changes what the planner reads first.
 - Verb name: `/consolidate-docs <feature>` is the working name.
 - Whether `status` is stamped by finalize only, or also derived when every checkpoint row is checked, for specs written before stamping existed.
