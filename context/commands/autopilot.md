@@ -89,7 +89,7 @@ Invoke `/documentation` in authoring mode, scoped to the loop's range (`Loop bas
 
 Commit as `docs: <topic>`. If no surface matched the change, record that in `STATE.md` and move on.
 
-Then dispatch `atomic-auditor` once, read-only, over the same range. Pass it the spec, `range: <loop-base>..HEAD`, `STATE.md`, and the surfaces table. It is the only gate that reads the finished work as a whole, and the only one that never saw the loop that produced it.
+Then dispatch `atomic-auditor` once over the same range. Pass it the spec, `range: <loop-base>..HEAD`, `state: $SCRATCH/STATE.md`, `scratch: $SCRATCH`, and the surfaces table. It never edits the repo; findings land in `$SCRATCH/AUDIT.md` as well as the return value. It is the only gate that reads the finished work as a whole, and the only one that never saw the loop that produced it.
 
 `VERDICT: PASS` → continue to signals. `VERDICT: CHANGES_REQUESTED` → run **one** more implementer/reviewer iteration against its findings, re-run the suite, then continue. **Never re-audit.** A second audit pass is how an unattended run stops terminating.
 
