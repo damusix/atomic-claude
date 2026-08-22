@@ -4,13 +4,14 @@ const ROOM = 'atomic-demo';
 
 // Bus page: open the demo room (the tapes join the same fixed name), wait for the two agents (spawned by the
 // tapes alongside this scene) to start talking, greet each from the browser,
-// then hold on the live transcript. Narrower viewport: the two terminals
+// then hold on the live transcript. Played back at 2x. Narrower viewport: the two terminals
 // take the right 640px of the composed frame.
 export default {
   name: 'chat',
   viewport: { width: 1280, height: 1080 },
   tapes: ['agent-a.tape', 'agent-b.tape'],
   room: ROOM,
+  speed: 2,
   async run(page, { base }) {
     await page.goto(`${base}/bus`);
     await page.waitForSelector('.bus-new-room input');

@@ -2,11 +2,10 @@
 # answers agent-a, then answers whatever is addressed to it. Spawned by
 # run.mjs with DEMO_BIN / DEMO_ROOT in the environment; the Hide block
 # consumes them. Runs ~70s; run.mjs trims all three chat recordings to the
-# shortest.
+# shortest. Output path comes from vhs -o.
 #
-# Standalone: DEMO_BIN=bin/atomic DEMO_ROOT=~/projects/noorm vhs marketing/demo/tapes/agent-b.tape
+# Standalone: DEMO_BIN=bin/atomic DEMO_ROOT=~/projects/noorm vhs marketing/demo/tapes/agent-b.tape -o /tmp/agent-b.mp4
 
-Output out/agent-b.mp4
 
 Set Shell         "zsh"
 Set FontFamily    "JetBrains Mono"

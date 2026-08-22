@@ -75,7 +75,7 @@ export async function install(page) {
   await page.addInitScript(INIT);
 }
 
-export async function title(page, { kicker = '', heading, sub = '', hold = 1800 }) {
+export async function title(page, { kicker = '', heading, sub = '', hold = 1500 }) {
   await page.evaluate(INIT);
   await page.evaluate(([k, h, s]) => window.__demo.title(k, h, s), [kicker, heading, sub]);
   await page.waitForTimeout(hold);
@@ -85,7 +85,7 @@ export async function title(page, { kicker = '', heading, sub = '', hold = 1800 
 
 // Human-paced pointer travel. Playwright's mouse.move with steps interpolates
 // linearly; an ease curve reads as a hand, not a teleport.
-export async function glide(page, locator, { steps = 28, settle = 350 } = {}) {
+export async function glide(page, locator, { steps = 24, settle = 220 } = {}) {
   await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   if (!box) throw new Error('glide: target has no bounding box');
@@ -100,18 +100,19 @@ export async function glide(page, locator, { steps = 28, settle = 350 } = {}) {
   await page.waitForTimeout(settle);
 }
 
+// Down and up in one go: a held press lets outside-pointerdown dismissers
+// (the search palette) unmount the target before the click completes.
 export async function click(page, locator, opts = {}) {
   await glide(page, locator, opts);
-  await page.mouse.down();
-  await page.waitForTimeout(70);
-  await page.mouse.up();
-  await page.waitForTimeout(opts.after ?? 900);
+  const { x, y } = page.__demoPos;
+  await page.mouse.click(x, y);
+  await page.waitForTimeout(opts.after ?? 650);
 }
 
-export async function type(page, locator, text, { delay = 70, after = 900 } = {}) {
+export async function type(page, locator, text, { delay = 60, after = 700 } = {}) {
   await click(page, locator, { after: 250 });
   await page.keyboard.type(text, { delay });
   await page.waitForTimeout(after);
 }
 
-export const beat = (page, ms = 1400) => page.waitForTimeout(ms);
+export const beat = (page, ms = 1000) => page.waitForTimeout(ms);
