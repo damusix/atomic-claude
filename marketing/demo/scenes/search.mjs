@@ -1,6 +1,7 @@
 import { title, click, type, glide, beat } from '../lib/overlay.mjs';
 
 const QUERY = process.env.DEMO_SEARCH_QUERY ?? 'change';
+const MEMBER = process.env.DEMO_SEARCH_MEMBER ?? 'monorepo';
 
 // Command-K palette: one query across markdown, code symbols, and plans.
 // A code hit opens the code modal: find-in-file, then the symbol's callers
@@ -9,7 +10,9 @@ const QUERY = process.env.DEMO_SEARCH_QUERY ?? 'change';
 export default {
   name: 'search',
   async run(page, { base }) {
-    await page.goto(`${base}/`);
+    // The palette's plans tab is scoped by ?member= on the current URL; from
+    // the bare realm root it searches the empty local scope.
+    await page.goto(`${base}/page/${MEMBER}/docs/wiki/index.md?member=${MEMBER}`);
     await page.waitForSelector('#main-pane .page-body');
     await title(page, { kicker: 'Search', heading: 'One box: markdown, symbols, plans', sub: 'Command-K anywhere. Code hits open straight into the source.' });
     await beat(page, 500);
@@ -38,8 +41,8 @@ export default {
 
     await click(page, toggle('plans'), { after: 300 });
     await retype();
-    await results.locator('[role="option"], p.md-search-empty').first().waitFor({ timeout: 10_000 });
-    await beat(page, 1400);
+    await results.locator('[role="option"][data-value^="plans:"]').first().waitFor({ timeout: 10_000 });
+    await beat(page, 1600);
 
     await click(page, toggle('code'), { after: 300 });
     await retype();
