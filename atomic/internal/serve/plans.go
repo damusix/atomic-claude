@@ -340,12 +340,12 @@ func commonGitDir(checkouts []checkoutInfo, bareDir string) string {
 	return ""
 }
 
-// resolveWorktreeCommonGitDir follows a linked worktree's `.git` file (a
-// `gitdir: <path>` line) up to the enclosing `.git` directory it shares
-// with every other checkout of the clone — a worktree's own gitdir is a
-// private per-checkout subdirectory, not where refs/remotes or config live.
-func resolveWorktreeCommonGitDir(path string) (string, bool) {
-	raw, err := os.ReadFile(filepath.Join(path, ".git"))
+// gitdirTarget reads a checkout's `.git` file and resolves its `gitdir:
+// <path>` line to an absolute, cleaned path. Relative targets resolve
+// against checkoutPath. Returns false when the file is absent, unreadable,
+// or has no `gitdir:` line.
+func gitdirTarget(checkoutPath string) (string, bool) {
+	raw, err := os.ReadFile(filepath.Join(checkoutPath, ".git"))
 	if err != nil {
 		return "", false
 	}
@@ -361,9 +361,20 @@ func resolveWorktreeCommonGitDir(path string) (string, bool) {
 		return "", false
 	}
 	if !filepath.IsAbs(target) {
-		target = filepath.Join(path, target)
+		target = filepath.Join(checkoutPath, target)
 	}
-	target = filepath.Clean(target)
+	return filepath.Clean(target), true
+}
+
+// resolveWorktreeCommonGitDir follows a linked worktree's `.git` file (a
+// `gitdir: <path>` line) up to the enclosing `.git` directory it shares
+// with every other checkout of the clone — a worktree's own gitdir is a
+// private per-checkout subdirectory, not where refs/remotes or config live.
+func resolveWorktreeCommonGitDir(path string) (string, bool) {
+	target, ok := gitdirTarget(path)
+	if !ok {
+		return "", false
+	}
 	for dir := target; ; {
 		if filepath.Base(dir) == ".git" {
 			return dir, true
@@ -391,25 +402,11 @@ func checkoutGitIndexPath(path string) (string, bool) {
 	if info.IsDir() {
 		return filepath.Join(gitPath, "index"), true
 	}
-	raw, err := os.ReadFile(gitPath)
-	if err != nil {
+	target, ok := gitdirTarget(path)
+	if !ok {
 		return "", false
 	}
-	target := ""
-	for _, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(line)
-		if rest, ok := strings.CutPrefix(line, "gitdir:"); ok {
-			target = strings.TrimSpace(rest)
-			break
-		}
-	}
-	if target == "" {
-		return "", false
-	}
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(path, target)
-	}
-	return filepath.Join(filepath.Clean(target), "index"), true
+	return filepath.Join(target, "index"), true
 }
 
 // parseSymbolicRefBranch extracts the branch name from a symbolic-ref file's
