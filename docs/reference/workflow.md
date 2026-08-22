@@ -89,7 +89,7 @@ Three verbs run implementation. Pick by what you already have:
 | You have | Verb | What it skips |
 |----------|------|---------------|
 | An approved spec and multi-checkpoint work | `/subagent-implementation` | nothing |
-| A known cause and one obvious approach | `/quick-fix` | the spec, the worktree, the finalize step |
+| A known cause and one obvious approach | `/quick-fix` | the spec, the worktree, the finalize ceremony (audit kept) |
 | Enough trust to let it drive end to end | `/autopilot` | your approval gates |
 
 ```
@@ -147,7 +147,7 @@ If the project is indexed, the loop uses the code-intel graph throughout. It ind
 /quick-fix <task description>
 ```
 
-For a fix with a known cause and one obvious approach, `/quick-fix` skips the plan entirely. It runs the same implement-then-review loop as `/subagent-implementation`, minus the spec, the worktree, and the finalize ceremony, so a straightforward change lands faster. The moment the fix turns out less obvious than it looked, it stops and hands off to `/subagent-implementation` or `/atomic-plan` instead of grinding on a wrong assumption.
+For a fix with a known cause and one obvious approach, `/quick-fix` skips the plan entirely. It runs the same implement-then-review loop as `/subagent-implementation`, minus the spec, the worktree, and the finalize ceremony (the once-per-task audit stays), so a straightforward change lands faster. The moment the fix turns out less obvious than it looked, it stops and hands off to `/subagent-implementation` or `/atomic-plan` instead of grinding on a wrong assumption.
 
 
 ### Hands-off: /autopilot

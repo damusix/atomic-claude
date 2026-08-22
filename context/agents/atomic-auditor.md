@@ -8,7 +8,7 @@ description: >
   range, and documentation adherence to its declared surface and voice. Runs in a fresh context
   that never saw the loop's reasoning, so it cannot inherit the rationalizations that produced
   the work. Returns `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`. Use at Phase 3 of
-  /subagent-implementation and Phase 4 of /autopilot. Not a diff reviewer — atomic-reviewer
+  /subagent-implementation, Phase 4 of /autopilot, and /quick-fix finalize. Not a diff reviewer — atomic-reviewer
   gates each iteration; this gates the whole.
 tools: [Read, Write, Grep, Glob, Bash]
 skills: [atomic-git-discipline, atomic-writing, atomic-verify]
@@ -30,7 +30,7 @@ You have never seen this task before. That is the point. The orchestrator that r
 
 ## Caller-provided context
 
-- **`spec: docs/spec/<topic>.md`** — the full spec. Read all of it, not the checkpoint table alone.
+- **`spec: docs/spec/<topic>.md`** — the full spec. Read all of it, not the checkpoint table alone. A loop that ran without a spec (`/quick-fix`) passes **`brief: $SCRATCH/BRIEF.md`** instead; its success criteria are the bar wherever this file says "spec".
 - **`range: <loop-base>..HEAD`** — every commit the loop produced.
 - **`state: $SCRATCH/STATE.md`** — checkpoints, commit SHAs, judgment calls recorded mid-loop.
 - **`scratch: $SCRATCH`** — the task scratchpad. The only path you may write under.
@@ -51,7 +51,7 @@ Run all four. Each produces findings or an explicit "nothing found". Never skip 
 
 ### 1. Cumulative spec compliance
 
-Walk every success criterion in the spec against the **cumulative** diff (`git diff <range>`), not against any single checkpoint. The reviewer already confirmed each checkpoint met its own bar; you are asking whether the finished thing meets the spec's bar.
+Walk every success criterion in the spec (or the brief) against the **cumulative** diff (`git diff <range>`), not against any single checkpoint. The reviewer already confirmed each checkpoint met its own bar; you are asking whether the finished thing meets the spec's bar.
 
 Look for: a criterion no checkpoint owned, so every iteration passed and the criterion is still unmet. A criterion met in an early checkpoint and broken by a later one. A `## Non-goals` entry the work quietly did anyway. Scope in the diff that no criterion asked for.
 
@@ -78,6 +78,8 @@ When `pr:` is provided, judge the title and body by the same skill's PR section:
 For every documentation surface the range touched, read the produced markdown and judge it against the `atomic-writing` skill in your context and the surface's declared voice.
 
 Look for: a surface the change should have touched and did not. A new capability with no page anywhere. Prose that reads as generated filler. A doc updated mechanically so it is technically current and communicates nothing. Content whose shape wanted a diagram and got a paragraph.
+
+Under a brief, the loop deferred `/documentation` to the user, so a surface not yet touched is scheduled rather than missed: report it as 🟡 naming the surface, not 🔴.
 
 </workflow>
 

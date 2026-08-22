@@ -5,17 +5,20 @@ Agents are specialized workers that run in a fresh context. The orchestrator dis
 
 ## Who dispatches whom
 
-Two orchestration trees cover every dispatch. The implement loop fans out per checkpoint, implementer then reviewer, with the investigator scoping surfaces, the auditor gating the whole delivery once at the end, and the strategist called in only when the loop is stuck. The wiki pipeline fans out per domain, one writer per domain with the same reviewer gating each page.
+Two orchestration trees cover every dispatch. The implement loop fans out per checkpoint, implementer then reviewer, with the investigator scoping surfaces, the auditor gating the whole delivery once at the end, and the strategist called in only when the loop is stuck; `/quick-fix` drives the same implementer, reviewer, and auditor from a brief instead of a spec. The wiki pipeline fans out per domain, one writer per domain with the same reviewer gating each page.
 
 ```mermaid
 flowchart LR
     accTitle: Agent dispatch topology
-    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer.
+    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /quick-fix runs the same implementer, reviewer, and auditor without a spec. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer.
     SI["/subagent-implementation"] --> INV["atomic-investigator"]
     SI --> IMP["atomic-implementer"]
     SI --> REV["atomic-reviewer"]
     SI --> AUD["atomic-auditor"]
     SI -.->|only when stuck| STR["atomic-strategist"]
+    QF["/quick-fix"] --> IMP
+    QF --> REV
+    QF --> AUD
     RW["/refresh-wiki"] --> WI["atomic-wiki-inferrer"]
     WI --> WW["atomic-wiki-writer"]
     WI --> REV

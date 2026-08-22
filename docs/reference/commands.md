@@ -19,7 +19,7 @@ Commands are explicit actions you invoke with a slash. They never auto-fire — 
 |---------|-------------|
 | `/autopilot` | Run the whole lifecycle hands-off: plan, the implement-then-review loop, and ship, from a task description or an issue number. Fixes every reviewer finding as it goes, dispatches a read-only strategist for root-cause analysis when stuck, and asks just one thing — how to merge. Pass a merge verb (e.g. `/autopilot 29 commit squash merge`) to skip even that. |
 | `/subagent-implementation` | Run the implement-then-review loop from an approved spec. Creates an isolated worktree on request (asks if unspecified). Builder writes code, reviewer checks it, passing checkpoints get committed. |
-| `/quick-fix` | Run the implement-then-review loop without a spec, worktree, or finalize ceremony. For a fix with a known cause and one obvious approach; escalates to `/subagent-diagnose`, `/atomic-plan`, or `/subagent-implementation` if the assumption breaks. |
+| `/quick-fix` | Run the implement-then-review loop without a spec, worktree, or finalize ceremony; the once-per-task audit stays. For a fix with a known cause and one obvious approach; escalates to `/subagent-diagnose`, `/atomic-plan`, or `/subagent-implementation` if the assumption breaks. |
 | `/subagent-diagnose` | Investigate and fix a failure. `ci` mode starts from a failed CI run; `bug` mode starts from a description. Same loop as implementation. |
 
 
