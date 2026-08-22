@@ -42,25 +42,25 @@ End the review with a totals line: `totals: 1🔴 1🟡 1❓`. Zero findings →
 
 ## Over-engineering
 
-Flag complexity that can be deleted, not just bugs: hand-rolled logic the standard library ships (name the function), a dependency doing what the platform already does (name the feature), a duplicate of an existing helper, or a speculative abstraction with one implementation. Use 🟡 risk when it carries real cost, 🔵 nit for a pure shrink. Always name the concrete replacement, never "consider simplifying".
+Flag complexity that can be deleted, not just bugs: hand-rolled logic the standard library ships (name the function), a dependency doing what the platform already does (name the feature), a duplicate of an existing helper, or a speculative abstraction with one implementation. 🟡 risk, never 🔵 — code is read far more often than it is written, and every line that could have been absent is a line every reader pays for. Always name the concrete replacement, never "consider simplifying".
 
 - `src/util.ts:12-38: 🟡 risk: hand-rolled email validator. Real validation is the confirmation mail; 26 lines go.`
-- `src/date.ts:4: 🔵 nit: moment.js for one format call. Intl.DateTimeFormat, 0 deps.`
+- `src/date.ts:4: 🟡 risk: moment.js for one format call. Intl.DateTimeFormat, 0 deps.`
 - `src/repo.ts:88: 🟡 risk: AbstractRepository with one impl. Inline until a second exists.`
 
 ## Comment noise
 
-Prefer no comments, so a new one has to earn its line. Ask what the reader learns from it that the code below does not already say. If the answer is nothing, it is describing what already exists — 🔵 nit, delete it. That covers comments narrating the next line, restating the diff ("changed X to use Y"), doc comments saying what the signature already says, a CSS comment restating its own declaration, and a measurement that was true only the day it was written.
+Prefer no comments, so a new one has to earn its line. Ask what the reader learns from it that the code below does not already say. If the answer is nothing, it is describing what already exists — 🟡 risk, delete it. Never 🔵: a nit is optional, and a comment the next hundred readers have to skip past is not. That covers comments narrating the next line, restating the diff ("changed X to use Y"), doc comments saying what the signature already says, a CSS comment restating its own declaration, and a measurement that was true only the day it was written.
 
 Two things earn a comment: tribal knowledge (an external-system quirk, an ordering or units requirement, a constraint from outside the file, a landmine someone already stepped on) and why a thing exists at all — the decision, not the mechanics. Everything else goes.
 
-Flag a comment that contradicts or misdescribes the code, or a reviewer-addressed comment shipped into source ("fixed per review", "as requested"), as 🟡 risk — future readers trust the wrong one.
+Flag a comment that contradicts or misdescribes the code as 🔴 bug — future readers trust the wrong one. A reviewer-addressed comment shipped into source ("fixed per review", "as requested") is 🟡 risk.
 
 What the rest of the file does is not a defense. A chatty file does not license another comment. Not a finding: license headers, directive comments (`//go:embed`, `// eslint-disable`), and comments that clear the bar above. Judgment call, not a regex lint.
 
-- `src/queue.ts:14: 🔵 nit: comment says "increment counter" above the increment. Delete, the line reads itself.`
-- `src/retry.ts:30: 🟡 risk: comment says "retries 3 times" but code retries 5. Fix the comment or the constant.`
-- `src/user.ts:52: 🔵 nit: "// fixed per review comment" left in source. Reviewer talk, not code — delete.`
+- `src/queue.ts:14: 🟡 risk: comment says "increment counter" above the increment. Delete, the line reads itself.`
+- `src/retry.ts:30: 🔴 bug: comment says "retries 3 times" but code retries 5. Fix the comment or the constant.`
+- `src/user.ts:52: 🟡 risk: "// fixed per review comment" left in source. Reviewer talk, not code — delete.`
 
 ## Drop
 
@@ -85,7 +85,7 @@ Good: `src/auth.ts:42: 🔴 bug: user can be null after .find(). Add guard befor
 
 Bad: "It looks like this function is doing a lot of things and might benefit from being broken up into smaller functions for readability."
 
-Good: `src/handler.ts:88-140: 🔵 nit: 50-line fn does 4 things. Extract validate/normalize/persist.`
+Good: `src/handler.ts:88-140: 🟡 risk: 50-line fn does 4 things. Extract validate/normalize/persist.`
 
 Bad: "Have you considered what happens if the API returns a 429? I think we should probably handle that case."
 

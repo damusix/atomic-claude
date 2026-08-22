@@ -78,6 +78,7 @@ type bundleFile struct {
 // bundles in the row, each attributed to the checkout that holds it.
 type planBundle struct {
 	WorktreeID string       `json:"worktreeId"`
+	Branch     string       `json:"branch"`
 	Purposes   []string     `json:"purposes"`
 	Status     string       `json:"status"`
 	Files      []bundleFile `json:"files"`
@@ -171,6 +172,43 @@ var runGitWorktreeList = func(dir string) ([]byte, error) {
 	cmd := exec.Command("git", "worktree", "list", "--porcelain")
 	cmd.Dir = dir
 	return cmd.Output()
+}
+
+// runGitStatus reports docs/design and docs/spec's untracked and modified
+// state in dir via `git status --porcelain -z`. A package variable, like
+// runGitWorktreeList, so a test can count invocations or stub a failure.
+var runGitStatus = func(dir string) ([]byte, error) {
+	cmd := exec.Command("git", "status", "--porcelain", "-z", "--untracked-files=all", "--", "docs/design", "docs/spec")
+	cmd.Dir = dir
+	return cmd.Output()
+}
+
+// dirtyDocs returns the docs/design and docs/spec relpaths that are
+// untracked or modified in checkout dir — anything `git status` reports at
+// all, since a clean tracked file never appears in that output. ok is false
+// only when git itself failed; the caller must then treat every relpath in
+// that checkout as unmerged rather than risk labelling stale content "main".
+func dirtyDocs(dir string) (dirty map[string]bool, ok bool) {
+	out, err := runGitStatus(dir)
+	if err != nil {
+		return nil, false
+	}
+	dirty = map[string]bool{}
+	fields := strings.Split(string(out), "\x00")
+	for i := 0; i < len(fields); i++ {
+		entry := fields[i]
+		if len(entry) < 3 {
+			continue
+		}
+		status := entry[:2]
+		dirty[filepath.ToSlash(entry[3:])] = true
+		// A rename/copy entry's original path is the following NUL-delimited
+		// field, not a second docs relpath — skip it.
+		if status[0] == 'R' || status[0] == 'C' {
+			i++
+		}
+	}
+	return dirty, true
 }
 
 // worktrees enumerates a.root's checkouts via `git worktree list
@@ -302,12 +340,12 @@ func commonGitDir(checkouts []checkoutInfo, bareDir string) string {
 	return ""
 }
 
-// resolveWorktreeCommonGitDir follows a linked worktree's `.git` file (a
-// `gitdir: <path>` line) up to the enclosing `.git` directory it shares
-// with every other checkout of the clone — a worktree's own gitdir is a
-// private per-checkout subdirectory, not where refs/remotes or config live.
-func resolveWorktreeCommonGitDir(path string) (string, bool) {
-	raw, err := os.ReadFile(filepath.Join(path, ".git"))
+// gitdirTarget reads a checkout's `.git` file and resolves its `gitdir:
+// <path>` line to an absolute, cleaned path. Relative targets resolve
+// against checkoutPath. Returns false when the file is absent, unreadable,
+// or has no `gitdir:` line.
+func gitdirTarget(checkoutPath string) (string, bool) {
+	raw, err := os.ReadFile(filepath.Join(checkoutPath, ".git"))
 	if err != nil {
 		return "", false
 	}
@@ -323,9 +361,20 @@ func resolveWorktreeCommonGitDir(path string) (string, bool) {
 		return "", false
 	}
 	if !filepath.IsAbs(target) {
-		target = filepath.Join(path, target)
+		target = filepath.Join(checkoutPath, target)
 	}
-	target = filepath.Clean(target)
+	return filepath.Clean(target), true
+}
+
+// resolveWorktreeCommonGitDir follows a linked worktree's `.git` file (a
+// `gitdir: <path>` line) up to the enclosing `.git` directory it shares
+// with every other checkout of the clone — a worktree's own gitdir is a
+// private per-checkout subdirectory, not where refs/remotes or config live.
+func resolveWorktreeCommonGitDir(path string) (string, bool) {
+	target, ok := gitdirTarget(path)
+	if !ok {
+		return "", false
+	}
 	for dir := target; ; {
 		if filepath.Base(dir) == ".git" {
 			return dir, true
@@ -336,6 +385,28 @@ func resolveWorktreeCommonGitDir(path string) (string, bool) {
 		}
 		dir = parent
 	}
+}
+
+// checkoutGitIndexPath locates <checkout>/.git/index without spawning git.
+// A main checkout keeps `.git` as a directory holding the index directly; a
+// linked worktree keeps `.git` as a file naming its own private gitdir
+// (unlike resolveWorktreeCommonGitDir, this does NOT climb to the shared
+// common dir — a worktree's index lives under its own gitdir, not the one
+// every checkout shares).
+func checkoutGitIndexPath(path string) (string, bool) {
+	gitPath := filepath.Join(path, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return "", false
+	}
+	if info.IsDir() {
+		return filepath.Join(gitPath, "index"), true
+	}
+	target, ok := gitdirTarget(path)
+	if !ok {
+		return "", false
+	}
+	return filepath.Join(target, "index"), true
 }
 
 // parseSymbolicRefBranch extracts the branch name from a symbolic-ref file's
@@ -433,6 +504,18 @@ func (a *plansAggregator) build(checkouts []checkoutInfo) ([]planRow, map[string
 		dispPath, outside := checkoutDisplayPath(a.root, c.path)
 		created := checkoutCreated(c.path)
 
+		// Only the default-branch checkout can ever label a version "main",
+		// so only it needs a git status call — a non-default checkout's
+		// planCheckout.IsMain is already false via c.isMain.
+		var dirty map[string]bool
+		dirtyOK := true
+		if c.isMain {
+			dirty, dirtyOK = dirtyDocs(c.path)
+			if !dirtyOK {
+				warnings = append(warnings, fmt.Sprintf("plans: git status failed in %s; treating its docs as unmerged", dispPath))
+			}
+		}
+
 		for _, kind := range [2]string{"design", "spec"} {
 			dir := filepath.Join(c.path, "docs", kind)
 			entries, err := os.ReadDir(dir)
@@ -477,7 +560,7 @@ func (a *plansAggregator) build(checkouts []checkoutInfo) ([]planRow, map[string
 				}
 				shaCheckouts[key][sha] = append(shaCheckouts[key][sha], planCheckout{
 					ID: c.id, Branch: c.branch, Path: dispPath, OutsideRoot: outside,
-					IsMain: c.isMain, FileMtime: info.ModTime(), Created: created,
+					IsMain: c.isMain && dirtyOK && !dirty[relpath], FileMtime: info.ModTime(), Created: created,
 				})
 				if _, ok := shaContent[key][sha]; !ok {
 					shaContent[key][sha] = data
@@ -520,6 +603,7 @@ func (a *plansAggregator) build(checkouts []checkoutInfo) ([]planRow, map[string
 			}
 			bundlesBySlug[e.Slug] = append(bundlesBySlug[e.Slug], planBundle{
 				WorktreeID: c.id,
+				Branch:     c.branch,
 				Purposes:   e.Meta.Purposes,
 				Status:     e.Meta.Status,
 				Files:      bundleFilesFor(c.path, e.Path),
@@ -749,7 +833,9 @@ func classifyBundleFile(name string) string {
 }
 
 // fingerprint stat-fingerprints everything a rebuild would read: each
-// checkout's identity, its docs/design and docs/spec entries, and its
+// checkout's identity, its git index (so a `git add && git commit` — which
+// changes tracked-ness without touching a doc's working-file mtime — still
+// invalidates the cache), its docs/design and docs/spec entries, and its
 // scratchpad root — re-enumerating worktrees on every call (the caller,
 // rows(), already does this) so a worktree added since the last build
 // changes the fingerprint even before any file inside it is touched. A file
@@ -767,6 +853,12 @@ func (a *plansAggregator) fingerprint(checkouts []checkoutInfo) string {
 		h.Write([]byte{0})
 		h.Write([]byte(c.branch))
 		h.Write([]byte{'\n'})
+
+		if idxPath, ok := checkoutGitIndexPath(c.path); ok {
+			if info, err := os.Stat(idxPath); err == nil {
+				writeFingerprintEntry(h, ".git/index", info)
+			}
+		}
 
 		for _, kind := range [2]string{"design", "spec"} {
 			dir := filepath.Join(c.path, "docs", kind)

@@ -36,3 +36,6 @@ atomic/internal/codeintel/tsbinding/src/
 # before-hook, so no shipped binary depends on it being committed.
 atomic/internal/embedded/bundle/
 atomic/internal/embedded/manifest.go
+
+# demo video recordings (marketing/demo/run.mjs)
+marketing/demo/out/

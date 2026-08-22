@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { MemoryRouter } from "react-router";
 import type { PlanRow } from "../../utils/plansApi";
 import { PlansRail } from "./PlansRail";
@@ -75,5 +77,50 @@ describe("PlansRail", () => {
     expect(screen.queryByText("Links")).not.toBeInTheDocument();
     expect(screen.queryByText("Graph")).not.toBeInTheDocument();
     expect(screen.queryByText("Bundle", { selector: "button, [role=tab]" })).not.toBeInTheDocument();
+  });
+
+  // Two worktrees both mid-plan on the same slug produce two bundles that
+  // both hold BRIEF.md at the same worktree-relative relpath — the rail must
+  // render both, headed by branch, with only the ?at= selected one carrying
+  // the "on" highlight.
+  const BUNDLE_RELPATH = ".claude/.scratchpad/atomic-doctor/BRIEF.md";
+  const TWO_BUNDLE_ROW: PlanRow = {
+    ...ROW,
+    bundles: [
+      { worktreeId: "w-main", branch: "main", purposes: ["plan"], status: "active", files: [{ relpath: BUNDLE_RELPATH, kind: "markdown" }] },
+      { worktreeId: "w-feature", branch: "feature-x", purposes: ["implement"], status: "active", files: [{ relpath: BUNDLE_RELPATH, kind: "markdown" }] },
+    ],
+  };
+
+  test("two bundles holding the same relpath render two groups with branch headers; only the ?at= match is highlighted", async () => {
+    mockFetchByUrl({ "/plans": [TWO_BUNDLE_ROW] });
+    renderRail(`/plans/atomic-doctor/${BUNDLE_RELPATH}?at=feature-x`);
+
+    await waitFor(() => expect(screen.getByText("main")).toBeInTheDocument());
+    expect(screen.getByText("feature-x", { selector: ".bnav-group-header" })).toBeInTheDocument();
+    // Fixed by F-3: the picked bundle's own branch now drives the static
+    // Version display, no longer suppressed by an unresolved checkout.
+    expect(screen.getByText("feature-x", { selector: ".vpick-static" })).toBeInTheDocument();
+
+    const entries = screen.getAllByText("BRIEF.md");
+    expect(entries).toHaveLength(2);
+    const onEntries = entries.filter((el) => el.className.includes("on"));
+    expect(onEntries).toHaveLength(1);
+  });
+
+  test("clicking a bundle entry opens it at its own checkout's branch", async () => {
+    mockFetchByUrl({ "/plans": [TWO_BUNDLE_ROW] });
+    const router = createMemoryRouter(
+      [{ path: "/plans/:slug/*", element: <PlansRail /> }],
+      { initialEntries: [`/plans/atomic-doctor/${BUNDLE_RELPATH}`] },
+    );
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(screen.getByText("feature-x")).toBeInTheDocument());
+    const entries = screen.getAllByText("BRIEF.md");
+    await userEvent.click(entries[1]);
+
+    await waitFor(() => expect(router.state.location.search).toBe("?at=feature-x"));
+    expect(router.state.location.pathname).toBe(`/plans/atomic-doctor/${BUNDLE_RELPATH}`);
   });
 });

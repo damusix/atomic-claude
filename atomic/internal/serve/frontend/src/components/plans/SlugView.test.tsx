@@ -53,12 +53,47 @@ const ROW: PlanRow = {
   bundles: [
     {
       worktreeId: "w-plans-page",
+      branch: "plans-page",
       purposes: ["implement"],
       status: "active",
       files: [{ relpath: "findings/volatility.md", kind: "markdown" }],
     },
   ],
   dotCount: 2,
+  dotMerged: true,
+};
+
+// Bundle-only worktree: `w-standalone` never appears in any doc version's
+// checkouts (mid-implementation, no docs/design|spec written yet), so
+// findCheckoutById(row, "w-standalone") returns undefined.
+const ROW_BUNDLE_ONLY_WORKTREE: PlanRow = {
+  slug: "bundle-only",
+  title: "bundle-only",
+  description: "",
+  docs: [
+    {
+      path: "docs/spec/bundle-only.md",
+      versions: [
+        {
+          sha: "sha-main",
+          label: "main",
+          isMain: true,
+          mtime: "2026-08-19T00:00:00Z",
+          checkouts: [checkout({ id: "w-main", branch: "main" })],
+        },
+      ],
+    },
+  ],
+  bundles: [
+    {
+      worktreeId: "w-standalone",
+      branch: "standalone-wt",
+      purposes: ["implement"],
+      status: "active",
+      files: [{ relpath: ".claude/worktrees/standalone-wt/.claude/.scratchpad/bundle-only/BRIEF.md", kind: "markdown" }],
+    },
+  ],
+  dotCount: 1,
   dotMerged: true,
 };
 
@@ -149,6 +184,24 @@ describe("SlugView", () => {
     });
     const calledUrl = typeof rowsCall![0] === "string" ? (rowsCall![0] as string) : rowsCall![0].toString();
     expect(calledUrl).toContain("member=server");
+  });
+
+  test("a bundle file in a worktree holding no docs fetches by the bundle's own worktree id", async () => {
+    mockFetchByUrl({
+      "/plans/page": { html: "<h1 id='b'>B</h1><p>standalone content</p>", title: "BRIEF", relpath: ".claude/worktrees/standalone-wt/.claude/.scratchpad/bundle-only/BRIEF.md", hasMermaid: false, breadcrumb: [] },
+      "/plans": [ROW_BUNDLE_ONLY_WORKTREE],
+    });
+    renderSlug(
+      "/plans/bundle-only/.claude/worktrees/standalone-wt/.claude/.scratchpad/bundle-only/BRIEF.md?at=standalone-wt",
+    );
+
+    await waitFor(() => expect(screen.getByText("standalone content")).toBeInTheDocument());
+
+    const fetchMock = globalThis.fetch as unknown as { mock: { calls: [RequestInfo | URL][] } };
+    const pageCall = fetchMock.mock.calls.find(([input]) => (typeof input === "string" ? input : input.toString()).includes("/plans/page"));
+    expect(pageCall).toBeDefined();
+    const calledUrl = typeof pageCall![0] === "string" ? (pageCall![0] as string) : pageCall![0].toString();
+    expect(calledUrl).toContain("worktree=w-standalone");
   });
 
   test("a slug absent from the scoped rows renders a one-line scope message, not a blank pane", async () => {

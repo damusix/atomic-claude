@@ -72,7 +72,7 @@ Append-only iteration log. Seed from `atomic template state`. Before writing the
 
 ### `$SCRATCH/FOLLOWUPS.md`
 
-Ledger of non-blocking reviewer findings (🟡 risk / 🔵 nit / ❓ question) — anything that didn't block the iteration's PASS but is worth a deliberate decision before final ship. Append after every reviewer pass that returns findings; do NOT discard them just because the verdict was PASS.
+Ledger of non-blocking reviewer findings (🟡 risk that did not drive the verdict / 🔵 nit / ❓ question; readability 🟡 never lands here) — anything that didn't block the iteration's PASS but is worth a deliberate decision before final ship. Append after every reviewer pass that returns findings; do NOT discard them just because the verdict was PASS.
 
 Initialize on first iteration from `atomic template followups`.
 
@@ -82,10 +82,9 @@ That's it. No GOAL.md, no CONTEXT.md, no PLAN.md — the spec at `docs/spec/<top
 
 ## Phase 2 — Implement → Review → Commit loop
 
-Repeat until reviewer signs off or a stop condition fires. Two stop conditions:
+Repeat until reviewer signs off or the stop condition fires:
 
 - **Stuck-fix escalation** (Step C): after 2 consecutive `CHANGES_REQUESTED` rounds on the same blocking signal → surface `/pressure-test` and `atomic-strategist` RCA options; wait for user choice before looping.
-- **6-iteration soft-stop**: at 6 iterations regardless of signal state → ask user before continuing.
 
 ### Step A — Dispatch implementer (fresh context)
 
@@ -161,15 +160,13 @@ After each `CHANGES_REQUESTED`, compare the current iteration's blocking signal 
 
 This check is **reset** when the blocking signal changes (a different finding category blocks, or the checkpoint advances). It fires again only if the new signal stalls for two rounds.
 
-**6-iteration soft-stop.** When the iteration count reaches 6 (regardless of stuck status), pause and ask the user before continuing — use the same `AskUserQuestion` mechanic. The stuck escalation and the 6-iteration soft-stop are complementary: stuck fires early on repeated signals; the soft-stop is the outer bound. If the stuck escalation has already fired and the user chose to continue, that counts toward the 6-iteration total.
-
-After the stuck check (or if the signal changed and no escalation fires), loop back to Step A with the blocking findings (🔴, plus any 🟡 the orchestrator chooses to address now) as the implementer's focus. Anything not addressed next iteration stays in `FOLLOWUPS.md`.
+After the stuck check (or if the signal changed and no escalation fires), loop back to Step A with the blocking findings (🔴, every readability 🟡 — comment noise, over-engineering, repetition — and any other 🟡 the orchestrator chooses to address now) as the implementer's focus. Readability findings are never deferred to `FOLLOWUPS.md`; the reviewer keeps returning `CHANGES_REQUESTED` until they are gone. Anything not addressed next iteration stays in `FOLLOWUPS.md`.
 
 ### Step D — Commit the green iteration
 
 After each PASS, commit before the next iteration:
 
-1. Invoke `atomic-git-discipline` skill for message format.
+1. Start from the implementer's `## Commit` proposal — the reviewer already checked it against `atomic-git-discipline`. Invoke the skill yourself only if the proposal is missing.
 2. Stage only the files the implementer touched (explicit paths from the implementer's `## Did` section). No `-A`.
 3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
 4. Record the commit SHA in STATE.md under the iteration's `Commit:` line.
@@ -228,7 +225,7 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
     If the spec is dead (e.g. user decided not to ship the feature), still write the log with the status as `abandoned — <date>` and one line on why.
 
 4. Update repo documentation by invoking `/documentation` — it handles `README.md`, `CLAUDE.md`, `docs/spec/`, `docs/design/`.
-5. **Audit the finished work.** Dispatch `atomic-auditor` once, after docs are written and before the signals refresh. It is read-only and runs in a fresh context, so pass it everything: `spec: docs/spec/<topic>.md`, `range: <loop-base>..HEAD`, `state: $SCRATCH/STATE.md`, and the `## Documentation surfaces` table if the project has one.
+5. **Audit the finished work.** Dispatch `atomic-auditor` once, after docs are written and before the signals refresh. It runs in a fresh context, so pass it everything: `spec: docs/spec/<topic>.md`, `range: <loop-base>..HEAD`, `state: $SCRATCH/STATE.md`, `scratch: $SCRATCH`, and the `## Documentation surfaces` table if the project has one. It never edits the repo; when it finds anything it writes the report to `$SCRATCH/AUDIT.md` as well as returning it.
 
     It gates what per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, commit types that misstate user-visible impact, and documentation that is current but says nothing.
 

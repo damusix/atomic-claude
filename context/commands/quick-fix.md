@@ -1,8 +1,8 @@
 ---
-description: Run the implement→review subagent loop without the planning phase — for straightforward fixes with a known cause and one obvious approach, regardless of how many files the change spreads across. Skips the spec gate, worktree gate, and finalize ceremony that /subagent-implementation carries. Not for unknown root causes (/subagent-diagnose territory) or genuine uncertainty (/atomic-plan territory) — the fit gate and mid-loop escape hatch route there on uncertainty signals, never on file count.
+description: Run the implement→review subagent loop without the planning phase — for straightforward fixes with a known cause and one obvious approach, regardless of how many files the change spreads across. Skips the spec gate, worktree gate, and finalize ceremony (implementation log, docs, signals) that /subagent-implementation carries; keeps the once-per-task audit. Not for unknown root causes (/subagent-diagnose territory) or genuine uncertainty (/atomic-plan territory) — the fit gate and mid-loop escape hatch route there on uncertainty signals, never on file count.
 ---
 
-You are the **orchestrator**. The user has handed you a task whose cause is known and whose fix has one obvious shape. You will NOT implement it yourself — you drive the same fresh-context implement→review loop as `/subagent-implementation`, minus the spec gate, the worktree gate, and the finalize ceremony. Speed is the point: no spec authored, no worktree created, no implementation log, no docs/signals refresh at the end.
+You are the **orchestrator**. The user has handed you a task whose cause is known and whose fix has one obvious shape. You will NOT implement it yourself — you drive the same fresh-context implement→review loop as `/subagent-implementation`, minus the spec gate, the worktree gate, and the finalize ceremony. Speed is the point: no spec authored, no worktree created, no implementation log, no docs/signals refresh at the end. The audit stays: `atomic-auditor` reads the finished range once, because a fast loop is exactly where comment noise and a duplicated helper slip past per-iteration review.
 
 `$ARGUMENTS`: `<task description>`. If empty, refuse: `usage: /quick-fix <task description>`. Stop.
 
@@ -59,7 +59,7 @@ Seed via `atomic template state`. Before the first entry, capture `git rev-parse
 
 ### `$SCRATCH/FOLLOWUPS.md`
 
-Seed via `atomic template followups` on first iteration. Ledger of non-blocking reviewer findings (🟡 risk / 🔵 nit / ❓ question) — append after every reviewer pass, even on `PASS`.
+Seed via `atomic template followups` on first iteration. Ledger of non-blocking reviewer findings (🟡 risk that did not drive the verdict / 🔵 nit / ❓ question; readability 🟡 blocks and never lands here) — append after every reviewer pass, even on `PASS`.
 
 ## Loop — implement → review → commit
 
@@ -106,7 +106,7 @@ Build the prompt by running `atomic prompt implementer` and substituting:
 
 ### Commit per green iteration
 
-1. Invoke the `atomic-git-discipline` skill for message format.
+1. Start from the implementer's `## Commit` proposal — the reviewer already checked it against `atomic-git-discipline`. Invoke the skill yourself only if the proposal is missing.
 2. Stage only the files named in the implementer's `## Did` section — explicit paths, no `-A`.
 3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
 4. Record the commit SHA in `STATE.md`.
@@ -157,13 +157,16 @@ On fire:
 Once the reviewer says `PASS` and there's no more scope in the brief:
 
 1. Invoke the `atomic-verify` skill — the orchestrator re-runs the full signal suite itself; do not trust subagent claims at the finish line.
-2. Surface `FOLLOWUPS.md` to the user, per open `F-N` entry. Four dispositions, same as `/subagent-implementation`:
+2. **Audit the finished work.** Dispatch `atomic-auditor` once. There is no spec, so pass the brief in its place: `brief: $SCRATCH/BRIEF.md`, `range: <loop-base>..HEAD` (the SHA recorded in `STATE.md`), `state: $SCRATCH/STATE.md`, `scratch: $SCRATCH`, and the `## Documentation surfaces` table if the project has one. It never edits the repo; when it finds anything it writes the report to `$SCRATCH/AUDIT.md` as well as returning it.
+
+    `VERDICT: PASS` → continue. `VERDICT: CHANGES_REQUESTED` → run **one** more implementer/reviewer iteration against its findings, commit it, then continue regardless of what a second audit would say. **Dispatch the auditor exactly once per task.**
+3. Surface `FOLLOWUPS.md` to the user, per open `F-N` entry. Four dispositions, same as `/subagent-implementation`:
     - **`fix-now`** — run another iteration to address it.
     - **`defer`** — promote to `.claude/project/followups/<id>.md` via `atomic followups add` (see `/subagent-implementation`'s Phase 3 defer mechanics for the exact args and commit step).
     - **`issue`** — file as a tracked GitHub issue via `/report-issue`.
     - **`drop`** — discard; state the reason.
-3. Delete `$SCRATCH` — only after the user has dispositioned every `FOLLOWUPS.md` entry.
-4. Report to the user: what shipped, iteration + commit SHAs, what was verified, what `FOLLOWUPS.md` entries were dispositioned.
+4. Delete `$SCRATCH` — only after the user has dispositioned every `FOLLOWUPS.md` entry.
+5. Report to the user: what shipped, iteration + commit SHAs, what was verified, the audit verdict, what `FOLLOWUPS.md` entries were dispositioned.
 
 No implementation log, no `/documentation` dispatch, no signals refresh here — those belong to the finalize ceremony this command deliberately skips. Ship verbs' `signals-gate` covers ad-hoc commits; the user runs `/documentation` and `/commit` when ready.
 
@@ -173,7 +176,7 @@ No implementation log, no `/documentation` dispatch, no signals refresh here —
 
 ## Rules
 
-- Orchestrator does not implement. Only scratchpad writes, state updates, commits per `PASS`, final verify.
+- Orchestrator does not implement. Only scratchpad writes, state updates, commits per `PASS`, final verify, one audit dispatch.
 - Every subagent dispatch is fresh context. The brief in `BRIEF.md` is the only handoff.
 - Reviewer and implementer are always separate agents. Never combine roles.
 - No spec or design is ever written by this command. `{SPEC_PATH}` is always the literal string `"no spec — inline brief in BRIEF.md"`.

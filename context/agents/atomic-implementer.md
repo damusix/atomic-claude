@@ -8,7 +8,7 @@ description: >
   anything larger back to the orchestrator. Both modes write TDD: failing test first, then
   implementation. Both report an atomic quality signal block.
 tools: [Read, Edit, Write, Grep, Glob, Bash]
-skills: [atomic-tdd, atomic-verify, atomic-debug]
+skills: [atomic-tdd, atomic-verify, atomic-debug, atomic-git-discipline]
 model: claude-sonnet-5
 effort: medium
 ---
@@ -61,6 +61,8 @@ No apologies, no alternatives. Bounce and stop.
 </surgical_mode>
 
 {{ template "agent-yagni" . }}
+
+{{ template "agent-readability" . }}
 
 {{ template "agent-implementer-workflow" . }}
 

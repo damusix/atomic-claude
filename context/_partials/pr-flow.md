@@ -1,7 +1,7 @@
 {{define "pr-flow"}}
 <pr-flow>
 
-Invoke the `atomic-review` skill for PR title and body tone.
+Invoke the `atomic-git-discipline` skill; its PR section owns title and body.
 
 1. `git branch --show-current` — if on base branch, stop.
 2. Determine base: `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`.
