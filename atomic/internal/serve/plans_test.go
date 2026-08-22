@@ -852,6 +852,41 @@ func TestPlansAggregator_ModifiedMainDocNotMerged(t *testing.T) {
 	}
 }
 
+// A `git add && git commit` of a previously-untracked main doc changes its
+// tracked-ness without touching the working file's mtime — the stat-only
+// fingerprint must still notice, via the git index's own mtime, or the
+// cached rows keep reporting the just-committed doc as unmerged.
+func TestPlansAggregator_CommitOfUntrackedDocRefreshesMerged(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	main := setupMainRepo(t, root)
+
+	mtime := time.Now().Add(-1 * time.Hour)
+	writeDoc(t, main, "spec", "commit-refresh-slug", "# original\n\nBody.\n", mtime)
+
+	a := newTestAggregator(main)
+	rows, _, _ := a.rows()
+	row := findRow(t, rows, "commit-refresh-slug")
+	doc := findDoc(t, row, "docs/spec/commit-refresh-slug.md")
+	if len(doc.Versions) != 1 || doc.Versions[0].IsMain {
+		t.Fatalf("versions = %+v, want 1 version with IsMain=false before commit", doc.Versions)
+	}
+
+	commitDoc(t, main)
+	// commitDoc must not itself move the working file's mtime; re-apply it
+	// so the only signal that changed is the git index.
+	if err := os.Chtimes(filepath.Join(main, "docs", "spec", "commit-refresh-slug.md"), mtime, mtime); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	rows, _, _ = a.rows()
+	row = findRow(t, rows, "commit-refresh-slug")
+	doc = findDoc(t, row, "docs/spec/commit-refresh-slug.md")
+	if len(doc.Versions) != 1 || !doc.Versions[0].IsMain {
+		t.Errorf("versions after commit = %+v, want 1 version with IsMain=true", doc.Versions)
+	}
+}
+
 func findRow(t *testing.T, rows []planRow, slug string) planRow {
 	t.Helper()
 	for _, r := range rows {

@@ -271,8 +271,10 @@
     color: var(--amber);
 }
 
-/* PlansRail — Bundle nav list, reused for docs + bundle files. */
-.bnav div {
+/* PlansRail — Bundle nav list, reused for docs + bundle files. Scoped to the
+   clickable rows only — `.bnav-group` is a layout wrapper, not a row. */
+.bnav > div,
+.bnav .bnav-group > div:not(.bnav-group-header) {
     font-family: var(--mono);
     font-size: 11.5px;
     color: var(--ink-faint);
