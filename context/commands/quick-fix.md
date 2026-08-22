@@ -59,7 +59,7 @@ Seed via `atomic template state`. Before the first entry, capture `git rev-parse
 
 ### `$SCRATCH/FOLLOWUPS.md`
 
-Seed via `atomic template followups` on first iteration. Ledger of non-blocking reviewer findings (🟡 risk / 🔵 nit / ❓ question) — append after every reviewer pass, even on `PASS`.
+Seed via `atomic template followups` on first iteration. Ledger of non-blocking reviewer findings (🟡 risk that did not drive the verdict / 🔵 nit / ❓ question; readability 🟡 blocks and never lands here) — append after every reviewer pass, even on `PASS`.
 
 ## Loop — implement → review → commit
 
