@@ -85,7 +85,7 @@ An `atomic scratchpad` verb owns creation, lookup, listing, and archival of one 
 
 **Plans aggregator and API**
 
-- [ ] `GET /api/plans[?member=]` returns one row per slug: committed docs (`docs/design/<slug>.md`, `docs/spec/<slug>.md`) deduplicated by content SHA across worktrees, and the scratchpad bundle attributed to the one worktree holding it, never deduplicated — including any non-markdown bundle file, listed with a `kind` (`markdown` | `html` | `file`) and no content.
+- [ ] `GET /api/plans[?member=]` returns one row per slug: committed docs (`docs/design/<slug>.md`, `docs/spec/<slug>.md`) deduplicated by content SHA across worktrees, and the scratchpad bundle attributed to the one worktree holding it (each bundle carries that worktree's id **and branch name**, so the rail can label it and open its files without the worktree also holding a doc), never deduplicated — including any non-markdown bundle file, listed with a `kind` (`markdown` | `html` | `file`) and no content.
 - [ ] Worktrees are enumerated via `git worktree list --porcelain`; a `prunable` entry is dropped; a detached-HEAD entry is labeled by its short commit SHA in place of a branch name.
 - [ ] `raw=1`'s content-type is decided by the aggregator's `kind`, never by sniffing the bytes. `html` → `text/html`. Every other kind — `markdown`, `file`, and a committed doc — is served so a browser cannot execute it: `http.DetectContentType` may narrow a non-HTML type, but a sniff that lands on `text/html` or any XML type is clamped to `text/plain` (or `application/octet-stream` for `file`). The classification exists so a file named `notes.txt` whose bytes begin `<html><script>` stays inert; a sniff that overrides it defeats the classification it was meant to floor.
 - [ ] Every `raw=1` response carries `Content-Security-Policy: sandbox`. The iframe sandbox the page applies is the primary containment, but the URL is reachable by direct navigation and by a shared link, bypassing the iframe entirely — and the same origin serves unauthenticated write routes under `/api/bus/`. The header neuters script execution however the browser arrived.
@@ -103,7 +103,7 @@ An `atomic scratchpad` verb owns creation, lookup, listing, and archival of one 
 - [ ] `IconRail` gains a fifth "Plans" mode with no `requires` gate; its route renders a page listing rows from `/api/plans`.
 - [ ] The list is an aggregate and carries no checkout control — no worktree selector, no page-level version control. A row spans every checkout regardless of how many exist.
 - [ ] A slug row with no description collapses to a single line rather than leaving an empty gap (visual pick A2); a slug row with a description renders two lines, title above and description below. Beneath either, a row carrying a bundle renders one chip per part that exists — design, spec, brief, state, followups, findings, options — naming what is there and nothing that is not.
-- [ ] **The merged checkout is the one whose branch is the repository's default branch** — `refs/remotes/origin/HEAD` when a remote exists, else the branch `init.defaultBranch` names, else `main`, else `master`, resolved once per aggregator rebuild without spawning git (the symbolic-ref file under `.git/` is a one-line read). It is a claim about branch content, not worktree structure: the primary checkout may sit on a feature branch while a linked worktree holds `main`, and a bare-repository hub has no primary checkout at all. A version is `isMain` when its checkout set contains the merged checkout; a repository whose default branch is checked out nowhere marks no version merged, and the picker shows no filled dot rather than a wrong one. The `.git` directory-versus-file distinction decides only `created`, never `isMain`.
+- [ ] **The merged checkout is the one whose branch is the repository's default branch** — `refs/remotes/origin/HEAD` when a remote exists, else the branch `init.defaultBranch` names, else `main`, else `master`, resolved once per aggregator rebuild without spawning git (the symbolic-ref file under `.git/` is a one-line read). It is a claim about branch content, not worktree structure: the primary checkout may sit on a feature branch while a linked worktree holds `main`, and a bare-repository hub has no primary checkout at all. A version is `isMain` when its checkout set contains the merged checkout **and that checkout's copy of the file is tracked and unmodified there** — one `git status --porcelain -z -- docs/design docs/spec` per merged checkout, never per file; an untracked or modified doc in the merged checkout is a working copy, not merged content, and falls through to the newest-mtime rule like any other checkout's copy. A failed status call marks nothing merged and surfaces a warning; a repository whose default branch is checked out nowhere marks no version merged, and the picker shows no filled dot rather than a wrong one. The `.git` directory-versus-file distinction decides only `created`, never `isMain`.
 - [ ] A document version is one distinct content SHA holding a *set* of checkouts. It is labelled by the merged checkout when the set contains one and by the most recently modified otherwise, and it matches on every checkout name in its set when the picker filters — so typing a branch name finds the version that branch holds even when the entry is labelled with a different name.
 - [ ] Each version carries its representative label, its merged flag, and the full set of checkouts holding it; each checkout carries its opaque id, its branch name, its path rendered relative to the served root — absolute, and flagged, when it lies outside — the version file's mtime in that checkout, and that checkout's creation time when one is available. No secondary field is synthesized when its source is absent.
 - [ ] A checkout's creation time is the mtime of the `.git` **file** at its root, which git writes once at `git worktree add` and never rewrites. A main checkout has `.git` as a directory rather than a file and therefore reports no creation time — the same dir-versus-file distinction `<project-key>` resolution already relies on. Nothing falls back to the git admin directory's mtime, which git rewrites on ordinary ref updates and which would report today for a checkout made months ago.
@@ -399,8 +399,9 @@ atomic/internal/serve/plans.go
             bundle file's kind (markdown/html/file)
     labelFor — a version's representative name: the merged checkout when its set has
                one, else the checkout with the newest file mtime
-    fingerprint — stat-only pass over docs/design, docs/spec, and each worktree's
-                  scratchpad root
+    fingerprint — stat-only pass over docs/design, docs/spec, each worktree's
+                  scratchpad root, and each checkout's own git index file (so a
+                  commit of a previously untracked doc invalidates the cache)
     resolverFor — builds the current worktree-id -> root map consumed by api_plans_page.go
     extractMeta — title (first H1), description (## Goal paragraph -> first paragraph -> empty)
   planRow — one slug: title, description, docs (planDoc[] — design and spec versioned
@@ -610,6 +611,25 @@ atomic/internal/serve/frontend/src/utils/plansApi.ts
 
 
 ## Change log
+
+### 2026-08-22 — Merged requires tracked and clean; bundles carry their branch
+
+**What changed:** three criteria. A version is merged only when the default-branch checkout's copy
+of the file is tracked and unmodified there, decided by one `git status` per merged checkout. The
+row-cache fingerprint stats each checkout's git index file alongside the docs. Each bundle carries
+its checkout's branch, and the rail groups bundle files per bundle, keying highlight and open by
+(worktree, relpath) and opening a file at its own checkout.
+
+**Why:** a real repo held an untracked raw-template `docs/spec/<slug>.md` in the main checkout
+while a worktree held the committed, newer copy. Branch alone made the stub "merged": it won the
+row title (literally `<title>`), the default view, and the `MERGED` badge. The rail listed both
+worktrees' `BRIEF.md`/`STATE.md`/`FOLLOWUPS.md` with no label, highlighted both, and opened only
+the first — the real bundle was unreachable. Once merged-ness read the index, a stat-only
+fingerprint could no longer see a `git commit`, so the index file joined the fingerprint.
+
+**Superseded:** the merged criterion read "a version is `isMain` when its checkout set contains
+the merged checkout" with no condition on the file's own git state; bundles carried only a worktree
+id, and the frontend recovered a branch through that worktree's doc versions.
 
 ### 2026-08-20 — Correction: reports default to the new home, and `where --json` is flat
 
