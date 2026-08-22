@@ -53,6 +53,7 @@ const ROW: PlanRow = {
   bundles: [
     {
       worktreeId: "w-plans-page",
+      branch: "plans-page",
       purposes: ["implement"],
       status: "active",
       files: [{ relpath: "findings/volatility.md", kind: "markdown" }],
