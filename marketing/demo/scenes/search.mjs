@@ -46,7 +46,9 @@ export default {
 
     await click(page, toggle('code'), { after: 300 });
     await retype();
-    const hit = results.locator('[role="option"][data-value^="code:"]').first();
+    // A hit from the demo member: its index is the one prep.sh refreshes, so
+    // the modal is guaranteed source to show.
+    const hit = results.locator(`[role="option"][data-value^="code:${MEMBER}:"]`).first();
     await hit.waitFor({ timeout: 10_000 });
     await click(page, hit, { after: 500 });
     const code = page.locator('#code-modal.open');
