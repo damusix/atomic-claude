@@ -225,7 +225,7 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
     If the spec is dead (e.g. user decided not to ship the feature), still write the log with the status as `abandoned — <date>` and one line on why.
 
 4. Update repo documentation by invoking `/documentation` — it handles `README.md`, `CLAUDE.md`, `docs/spec/`, `docs/design/`.
-5. **Audit the finished work.** Dispatch `atomic-auditor` once, after docs are written and before the signals refresh. It is read-only and runs in a fresh context, so pass it everything: `spec: docs/spec/<topic>.md`, `range: <loop-base>..HEAD`, `state: $SCRATCH/STATE.md`, and the `## Documentation surfaces` table if the project has one.
+5. **Audit the finished work.** Dispatch `atomic-auditor` once, after docs are written and before the signals refresh. It runs in a fresh context, so pass it everything: `spec: docs/spec/<topic>.md`, `range: <loop-base>..HEAD`, `state: $SCRATCH/STATE.md`, `scratch: $SCRATCH`, and the `## Documentation surfaces` table if the project has one. It never edits the repo; when it finds anything it writes the report to `$SCRATCH/AUDIT.md` as well as returning it.
 
     It gates what per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, commit types that misstate user-visible impact, and documentation that is current but says nothing.
 
