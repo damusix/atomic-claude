@@ -49,10 +49,10 @@ atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
 ## Outline
 
 - `templates/agents/atomic-auditor.md`
-    - frontmatter — unpinned model, max effort, read tools plus Write, three preloaded skills
+    - frontmatter — unpinned model, max effort, read tools plus Write, three preloaded skills, composes `agent-yagni`, `agent-comment-discipline`, `agent-readability`
     - Scope boundaries — four refusals routing to reviewer, strategist, orchestrator
-    - Caller-provided context — spec, range, state, scratch, surfaces
-    - The four passes — cumulative compliance, coherence, commits, documentation
+    - Caller-provided context — spec, range, state, scratch, surfaces, optional pr
+    - The four passes — cumulative compliance, coherence (including readability accumulated across iterations), commits (and the PR title and body when `pr:` is given), documentation
     - Output format — four headers, totals, VERDICT; report also written to `$SCRATCH/AUDIT.md` when findings exist
     - Rules — no repo writes, cite location, judge the whole, one dispatch
 - `templates/commands/subagent-implementation.md`
@@ -67,7 +67,7 @@ atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
 
 1. Orchestrator confirms the suite is green.
 2. Orchestrator runs `/documentation`, writing new pages and updating stale ones.
-3. Orchestrator dispatches `atomic-auditor` with spec, range, state, scratch, surfaces.
+3. Orchestrator dispatches `atomic-auditor` with spec, range, state, scratch, surfaces, and `pr:` when a PR draft exists.
 4. Auditor runs four passes and returns findings plus a verdict; with any finding it first writes the same report to `$SCRATCH/AUDIT.md`.
 5. `PASS` → orchestrator continues to the signals refresh.
 6. `CHANGES_REQUESTED` → orchestrator runs one implementer/reviewer iteration against the findings, re-runs the suite, then continues to signals without re-auditing.
@@ -109,3 +109,9 @@ atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
 **Why:** the user picks the model per session; a hard pin in the artifact overrode that choice for the most expensive dispatch in the loop. Findings that the single fix iteration did not fully address had no home once the return value scrolled away.
 
 **Superseded:** `model: claude-opus-5` pinned; tools read-only with no write path at all.
+
+### 2026-08-21 — Readability in the coherence pass; PR bodies in the commit pass
+
+**What changed:** The agent composes `agent-yagni`, `agent-comment-discipline`, and the new `agent-readability` partial. Pass 2 reads the cumulative diff as prose and reports comment drift, repeated explanations, and YAGNI misses that only the whole exposes; these are exempt from the "visible inside one checkpoint" drop rule. Pass 3 judges a PR title and body when the caller passes `pr:`.
+
+**Why:** the reviewer sees one iteration at a time, so a comment that went stale by checkpoint 5, or the same why restated in four files, had no gate. Commit and PR discipline were split across two skills with no reader of the whole record.
