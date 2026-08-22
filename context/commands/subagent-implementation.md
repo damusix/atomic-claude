@@ -160,13 +160,13 @@ After each `CHANGES_REQUESTED`, compare the current iteration's blocking signal 
 
 This check is **reset** when the blocking signal changes (a different finding category blocks, or the checkpoint advances). It fires again only if the new signal stalls for two rounds.
 
-After the stuck check (or if the signal changed and no escalation fires), loop back to Step A with the blocking findings (🔴, plus any 🟡 the orchestrator chooses to address now) as the implementer's focus. Anything not addressed next iteration stays in `FOLLOWUPS.md`.
+After the stuck check (or if the signal changed and no escalation fires), loop back to Step A with the blocking findings (🔴, every readability 🟡 — comment noise, over-engineering, repetition — and any other 🟡 the orchestrator chooses to address now) as the implementer's focus. Readability findings are never deferred to `FOLLOWUPS.md`; the reviewer keeps returning `CHANGES_REQUESTED` until they are gone. Anything not addressed next iteration stays in `FOLLOWUPS.md`.
 
 ### Step D — Commit the green iteration
 
 After each PASS, commit before the next iteration:
 
-1. Invoke `atomic-git-discipline` skill for message format.
+1. Start from the implementer's `## Commit` proposal — the reviewer already checked it against `atomic-git-discipline`. Invoke the skill yourself only if the proposal is missing.
 2. Stage only the files the implementer touched (explicit paths from the implementer's `## Did` section). No `-A`.
 3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
 4. Record the commit SHA in STATE.md under the iteration's `Commit:` line.

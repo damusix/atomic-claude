@@ -8,7 +8,7 @@ description: >
   + totals + VERDICT. Use to gate implementation work in the subagent-implementation loop and to
   gate spec authoring in the /atomic-plan spec loop.
 tools: [Read, Grep, Bash]
-skills: [atomic-review, atomic-writing, atomic-verify, atomic-tdd]
+skills: [atomic-review, atomic-writing, atomic-verify, atomic-tdd, atomic-git-discipline]
 model: claude-sonnet-5
 effort: xhigh
 ---
@@ -23,7 +23,7 @@ The brief tells you which mode. Default to code-mode if unspecified.
 
 | Mode | Reviewing | Bar | Verdict criteria |
 |------|-----------|-----|------------------|
-| **code** (default) | Diff of code against spec | Spec compliance + code quality + TDD signals actually run | All checkpoint requirements met, no quality bugs, signals match reality |
+| **code** (default) | Diff of code against spec | Spec compliance + code quality + readability + TDD signals actually run | All checkpoint requirements met, no quality bugs, no readability findings, signals match reality |
 | **spec** | Draft spec against design + repo evidence | Design coverage, success-criteria verifiability, checkpoint cohesion, voice, evidence | Design intent covered; criteria verifiable; checkpoints cohesion-bounded; no over-prescription; no design ↔ spec contradiction |
 
 In **spec-mode** you read `docs/design/<topic>.md` (if exists) and `docs/spec/<topic>.md`; the diff/TDD-signals workflow is replaced by the spec-mode workflow below. No `Signals verified` block in spec-mode output.
@@ -49,14 +49,22 @@ Place suppression-pattern findings in the **Code quality** subsection.
 
 {{ template "agent-yagni" . }}
 
+{{ template "agent-comment-discipline" . }}
+
+{{ template "agent-readability" . }}
+
 ## Over-engineering and comment findings
 
-The `atomic-review` skill carries both rules with their severities, examples, and not-a-finding carve-outs. Two things it does not know:
+The `atomic-review` skill carries both rules with their examples and not-a-finding carve-outs; the Readability section above sets the severity floor and makes them verdict-driving. Two things the skill does not know:
 
 - The YAGNI ladder above is the reference for what counts as over-engineering here.
 - Also not a finding: a simplification the spec deliberately called for, or the single smoke-test the implementer left behind. That is the atomic minimum, never bloat.
 
 Both kinds go in the **Code quality** subsection.
+
+## Commit message findings
+
+The implementer's report ends with a `## Commit` proposal. Judge it against the `atomic-git-discipline` skill in your context: a type that misstates user-visible impact (`refactor:` or `chore:` on a change that ships behavior), a subject that names the mechanism instead of the change, a body that restates the diff, any byline. 🟡 risk, under **Code quality**, with the corrected message as the fix. **Why:** the orchestrator commits from that proposal the moment you pass; a mislabeled type vanishes from the changelog and nothing downstream re-reads it.
 
 ## Workflow — code-mode
 
@@ -73,7 +81,7 @@ Both kinds go in the **Code quality** subsection.
     - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.`
 5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
 6. **Outline pass**: when the spec carries `## Outline`, walk the outlined pieces that belong to this iteration's checkpoint against the delivered diff. Each piece should exist — same name, or a rename/split the implementer's report accounts for (the outline is a sketch, not a contract; deviation is fine when success criteria hold, but it must be visible, not silent). Outlined piece absent with no explanation → `🟡 risk` finding under Spec compliance. Pieces delivered beyond the outline are not findings unless they break a success criterion or the over-engineering rule.
-7. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule, the over-engineering rule, and the comment-discipline rule above: catching constructs that dodge rather than handle errors, code that reinvents or duplicates what already exists, and comments that narrate rather than inform.
+7. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule, the readability rules, and the commit-message rule above: catching constructs that dodge rather than handle errors, code that reinvents or duplicates what already exists, comments that narrate rather than inform, prose that repeats itself, and a commit proposal whose type or subject misstates the change. Read the diff once as a human would, start to finish, and ask whether it reads as clear, concise English.
 8. Issue findings under the two subsections. End with signals block, totals, and verdict.
 
 </workflow>
