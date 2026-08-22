@@ -72,7 +72,7 @@ Append-only iteration log. Seed from `atomic template state`. Before writing the
 
 ### `$SCRATCH/FOLLOWUPS.md`
 
-Ledger of non-blocking reviewer findings (🟡 risk / 🔵 nit / ❓ question) — anything that didn't block the iteration's PASS but is worth a deliberate decision before final ship. Append after every reviewer pass that returns findings; do NOT discard them just because the verdict was PASS.
+Ledger of non-blocking reviewer findings (🟡 risk that did not drive the verdict / 🔵 nit / ❓ question; readability 🟡 never lands here) — anything that didn't block the iteration's PASS but is worth a deliberate decision before final ship. Append after every reviewer pass that returns findings; do NOT discard them just because the verdict was PASS.
 
 Initialize on first iteration from `atomic template followups`.
 
