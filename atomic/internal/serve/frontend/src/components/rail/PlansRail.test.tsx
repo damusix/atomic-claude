@@ -97,7 +97,10 @@ describe("PlansRail", () => {
     renderRail(`/plans/atomic-doctor/${BUNDLE_RELPATH}?at=feature-x`);
 
     await waitFor(() => expect(screen.getByText("main")).toBeInTheDocument());
-    expect(screen.getByText("feature-x")).toBeInTheDocument();
+    expect(screen.getByText("feature-x", { selector: ".bnav-group-header" })).toBeInTheDocument();
+    // Fixed by F-3: the picked bundle's own branch now drives the static
+    // Version display, no longer suppressed by an unresolved checkout.
+    expect(screen.getByText("feature-x", { selector: ".vpick-static" })).toBeInTheDocument();
 
     const entries = screen.getAllByText("BRIEF.md");
     expect(entries).toHaveLength(2);

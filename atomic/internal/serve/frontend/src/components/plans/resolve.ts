@@ -17,7 +17,6 @@ export interface DocResolution {
 export interface BundleResolution {
   bundle: PlanBundle;
   file: BundleFile;
-  checkout?: PlanCheckout;
 }
 
 export function findDoc(row: PlanRow | null, relpath: string): PlanDoc | undefined {
@@ -42,16 +41,6 @@ export function resolveDocVersion(doc: PlanDoc, at: string | undefined): DocReso
   return { doc, version, checkout, held: Boolean(held) };
 }
 
-export function findCheckoutById(row: PlanRow | null, id: string): PlanCheckout | undefined {
-  for (const doc of row?.docs ?? []) {
-    for (const v of doc.versions) {
-      const c = v.checkouts.find((c) => c.id === id);
-      if (c) return c;
-    }
-  }
-  return undefined;
-}
-
 /**
  * Bundles never dedup across checkouts, so more than one bundle can hold the
  * same relpath (e.g. two worktrees both mid-plan on the same slug). `at`
@@ -68,5 +57,5 @@ export function resolveBundleFile(row: PlanRow | null, relpath: string, at?: str
   }
   const picked = (at ? matches.find((m) => m.bundle.branch === at) : undefined) ?? matches[0];
   if (!picked) return null;
-  return { bundle: picked.bundle, file: picked.file, checkout: findCheckoutById(row, picked.bundle.worktreeId) };
+  return { bundle: picked.bundle, file: picked.file };
 }
