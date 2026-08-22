@@ -52,11 +52,21 @@ export function findCheckoutById(row: PlanRow | null, id: string): PlanCheckout 
   return undefined;
 }
 
-export function resolveBundleFile(row: PlanRow | null, relpath: string): BundleResolution | null {
+/**
+ * Bundles never dedup across checkouts, so more than one bundle can hold the
+ * same relpath (e.g. two worktrees both mid-plan on the same slug). `at`
+ * follows the same sticky-selection rule a doc version uses: the bundle
+ * whose own branch matches `at` wins; otherwise the first bundle carrying
+ * the file, in row order.
+ */
+export function resolveBundleFile(row: PlanRow | null, relpath: string, at?: string): BundleResolution | null {
   if (!relpath) return null;
+  const matches: { bundle: PlanBundle; file: BundleFile }[] = [];
   for (const bundle of row?.bundles ?? []) {
     const file = bundle.files.find((f) => f.relpath === relpath);
-    if (file) return { bundle, file, checkout: findCheckoutById(row, bundle.worktreeId) };
+    if (file) matches.push({ bundle, file });
   }
-  return null;
+  const picked = (at ? matches.find((m) => m.bundle.branch === at) : undefined) ?? matches[0];
+  if (!picked) return null;
+  return { bundle: picked.bundle, file: picked.file, checkout: findCheckoutById(row, picked.bundle.worktreeId) };
 }

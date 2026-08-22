@@ -68,6 +68,17 @@ func writeDoc(t *testing.T, checkoutRoot, kind, slug, content string, mtime time
 	}
 }
 
+// commitDoc commits every doc writeDoc has written under checkoutRoot's
+// docs/ tree, so the fixture matches the real "merged" case: tracked,
+// unmodified content in the default-branch checkout. Runs after writeDoc's
+// Chtimes call, and git add/commit never rewrites the working file's mtime,
+// so the ordering a test set up survives.
+func commitDoc(t *testing.T, checkoutRoot string) {
+	t.Helper()
+	gitCmd(t, checkoutRoot, "add", "docs")
+	gitCmd(t, checkoutRoot, "commit", "-m", "docs")
+}
+
 func newTestAggregator(root string) *plansAggregator {
 	return newPlansAggregatorWithQuietWindow(root, 0)
 }
@@ -86,6 +97,7 @@ func TestPlansAggregator_ThreeCheckoutsSameBytesLabelledByMain(t *testing.T) {
 	content := "# my-feature\n\n## Goal\n\nDo the thing.\n"
 	now := time.Now()
 	writeDoc(t, main, "spec", "my-feature", content, now.Add(-3*time.Minute))
+	commitDoc(t, main)
 	writeDoc(t, wtA, "spec", "my-feature", content, now.Add(-2*time.Minute))
 	writeDoc(t, wtB, "spec", "my-feature", content, now.Add(-1*time.Minute))
 
@@ -155,6 +167,7 @@ func TestPlansAggregator_CreatedTimeFromGitFileNotMainDir(t *testing.T) {
 
 	content := "# doc\n\nBody.\n"
 	writeDoc(t, main, "design", "doc", content, time.Now())
+	commitDoc(t, main)
 	writeDoc(t, wt, "design", "doc", "different body\n", time.Now())
 
 	a := newTestAggregator(main)
@@ -392,6 +405,9 @@ func TestPlansAggregator_BundleFileKindClassification(t *testing.T) {
 	if len(row.Bundles) != 1 {
 		t.Fatalf("bundles = %+v, want 1", row.Bundles)
 	}
+	if row.Bundles[0].Branch != "main" {
+		t.Errorf("Bundles[0].Branch = %q, want %q", row.Bundles[0].Branch, "main")
+	}
 	// RelPath is worktree-relative so /api/plans/page can resolve it under
 	// the checkout root; key on the bundle-local suffix to keep this test
 	// about classification.
@@ -461,6 +477,7 @@ func TestPlansAggregator_MergedCheckoutIsDefaultBranchNotMainDir(t *testing.T) {
 	content := "# doc\n\nBody.\n"
 	writeDoc(t, main, "design", "merge-doc", content, time.Now())
 	writeDoc(t, wt, "design", "merge-doc", content, time.Now())
+	commitDoc(t, wt)
 
 	a := newTestAggregator(main)
 	rows, _, _ := a.rows()
@@ -504,6 +521,7 @@ func TestPlansAggregator_BareHubMarksWorktreeOnDefaultBranch(t *testing.T) {
 
 	content := "# hub-doc\n\nBody.\n"
 	writeDoc(t, wtMain, "design", "hub-doc", content, time.Now())
+	commitDoc(t, wtMain)
 	writeDoc(t, wtOther, "design", "hub-doc", content, time.Now())
 
 	a := newTestAggregator(bare)
@@ -639,6 +657,7 @@ func TestPlansAggregator_RowDotsCountSpecVersionsNotDesign(t *testing.T) {
 	writeDoc(t, main, "design", "dots-slug", "# design v1\n\nBody.\n", time.Now())
 
 	writeDoc(t, main, "spec", "dots-slug", "# spec v1\n\nBody.\n", time.Now())
+	commitDoc(t, main)
 	writeDoc(t, wtA, "spec", "dots-slug", "# spec v2\n\nBody.\n", time.Now())
 	writeDoc(t, wtB, "spec", "dots-slug", "# spec v3\n\nBody.\n", time.Now())
 
@@ -748,6 +767,88 @@ func TestPlansAggregator_RowsSortedByUpdatedAtDescSlugTiebreak(t *testing.T) {
 		if order[i] != want[i] {
 			t.Fatalf("order = %v, want %v", order, want)
 		}
+	}
+}
+
+// An untracked doc in the main checkout is never "merged" — it must not be
+// labelled main, and the row's Title must come from the linked worktree's
+// committed, newer bytes, not the untracked stub.
+func TestPlansAggregator_UntrackedMainDocNeverMerged(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	main := setupMainRepo(t, root)
+	wt := filepath.Join(main, ".claude", "worktrees", "wt-real")
+	gitCmd(t, main, "worktree", "add", wt, "-b", "feature-x")
+
+	now := time.Now()
+	writeDoc(t, main, "spec", "untracked-slug", "<slug>\n\nraw template stub\n", now.Add(-1*time.Hour))
+	writeDoc(t, wt, "spec", "untracked-slug", "# Real Title\n\n## Goal\n\nThe real content.\n", now)
+	commitDoc(t, wt)
+
+	a := newTestAggregator(main)
+	rows, _, _ := a.rows()
+
+	row := findRow(t, rows, "untracked-slug")
+	doc := findDoc(t, row, "docs/spec/untracked-slug.md")
+	if len(doc.Versions) != 2 {
+		t.Fatalf("versions = %+v, want 2 (different bytes)", doc.Versions)
+	}
+	for _, v := range doc.Versions {
+		if v.IsMain {
+			t.Errorf("version %+v IsMain = true, want false (neither checkout holds tracked-clean main content)", v)
+		}
+	}
+	if row.Title != "Real Title" {
+		t.Errorf("row.Title = %q, want %q (from the worktree's newest-mtime, committed version)", row.Title, "Real Title")
+	}
+}
+
+// A doc that IS committed and clean in the default-branch checkout is still
+// labelled main — the positive case, guarding the change didn't overcorrect.
+func TestPlansAggregator_CommittedMainDocStillMerged(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	main := setupMainRepo(t, root)
+
+	writeDoc(t, main, "spec", "clean-slug", "# clean\n\nBody.\n", time.Now())
+	commitDoc(t, main)
+
+	a := newTestAggregator(main)
+	rows, _, _ := a.rows()
+
+	row := findRow(t, rows, "clean-slug")
+	doc := findDoc(t, row, "docs/spec/clean-slug.md")
+	if len(doc.Versions) != 1 {
+		t.Fatalf("versions = %+v, want 1", doc.Versions)
+	}
+	v := doc.Versions[0]
+	if !v.IsMain || v.Label != "main" {
+		t.Errorf("version = %+v, want IsMain=true label=main", v)
+	}
+}
+
+// A doc that is tracked in the main checkout but modified in the working
+// tree is not "merged" either — only tracked-and-clean counts.
+func TestPlansAggregator_ModifiedMainDocNotMerged(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	main := setupMainRepo(t, root)
+
+	writeDoc(t, main, "spec", "modified-slug", "# original\n\nBody.\n", time.Now())
+	commitDoc(t, main)
+	writeDoc(t, main, "spec", "modified-slug", "# original\n\nModified body.\n", time.Now())
+
+	a := newTestAggregator(main)
+	rows, _, _ := a.rows()
+
+	row := findRow(t, rows, "modified-slug")
+	doc := findDoc(t, row, "docs/spec/modified-slug.md")
+	if len(doc.Versions) != 1 {
+		t.Fatalf("versions = %+v, want 1", doc.Versions)
+	}
+	v := doc.Versions[0]
+	if v.IsMain {
+		t.Errorf("version %+v IsMain = true, want false (working-tree modified, not clean)", v)
 	}
 }
 

@@ -40,7 +40,7 @@ export function SlugView() {
 
   const doc = row ? findDoc(row, activeRelpath) : undefined;
   const docResolution = doc ? resolveDocVersion(doc, at) : null;
-  const bundleResolution = row && !doc ? resolveBundleFile(row, activeRelpath) : null;
+  const bundleResolution = row && !doc ? resolveBundleFile(row, activeRelpath, at) : null;
 
   // No file segment yet (a row was just opened): land on the spec doc, else
   // the design doc, else whatever the row has.

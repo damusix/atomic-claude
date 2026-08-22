@@ -16,7 +16,7 @@ export interface PlansScope {
   /** True on /plans and /plans/…; false on /plans-anything-else and everywhere else. */
   isPlansRoute: boolean;
   openSlug(slug: string): void;
-  openFile(relpath: string, opts?: { replace?: boolean }): void;
+  openFile(relpath: string, opts?: { replace?: boolean; at?: string }): void;
   setAt(branch: string, opts?: { replace?: boolean }): void;
   setMember(key: string): void;
   /** "?member=…" (or "") for a link scoped to the current member. */
@@ -71,9 +71,15 @@ export function usePlansScope(): PlansScope {
     navigate(`/plans/${targetSlug}${scopedSearch()}`);
   }
 
-  function openFile(targetRelpath: string, opts?: { replace?: boolean }): void {
+  function openFile(targetRelpath: string, opts?: { replace?: boolean; at?: string }): void {
     if (!slug) return;
-    navigate(`/plans/${slug}/${targetRelpath}${location.search}`, { replace: opts?.replace });
+    let search = location.search;
+    if (opts?.at) {
+      const next = new URLSearchParams(searchParams);
+      next.set("at", opts.at);
+      search = `?${next.toString()}`;
+    }
+    navigate(`/plans/${slug}/${targetRelpath}${search}`, { replace: opts?.replace });
   }
 
   // Not setSearchParams — react-router's implementation navigates via
