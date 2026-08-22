@@ -20,6 +20,7 @@ A sixth subagent that gates the finished implementation once, in a context that 
 - [ ] Emits all four section headers every run, including when empty, so the orchestrator can grep them.
 - [ ] `/subagent-implementation` Phase 3 dispatches it after `/documentation` and before the signals refresh, capped at one dispatch.
 - [ ] `/autopilot` Phase 4 dispatches it after documentation and before signals, capped at one dispatch.
+- [ ] `/quick-fix` Finalize dispatches it after `atomic-verify` with `brief:` in place of `spec:`, capped at one dispatch; under a brief, an untouched documentation surface is 🟡, not 🔴.
 - [ ] `/atomic-help` reports 7 subagents and names the auditor in both the topic row and the tour listing.
 - [ ] `docs/reference/agents.md` carries an auditor row and the corrected model/effort defaults table.
 - [ ] `make render` and `make -C atomic bundle` are clean; `atomic validate` reports zero FAIL.
@@ -40,6 +41,7 @@ agents/
 templates/commands/
 ├── subagent-implementation.md ........ M  (Phase 3 step 5; steps 5-7 renumber to 6-8)
 ├── autopilot.md ...................... M  (Phase 4 audit step + authoring-mode docs step)
+├── quick-fix.md ...................... M  (Finalize audit step, brief: in place of spec:)
 └── atomic-help.md .................... M  (agents topic row + tour count 5 -> 6)
 docs/reference/agents.md .............. M  (auditor row, model/effort defaults)
 docs/spec/atomic-auditor.md ........... A  (this file)
@@ -60,10 +62,12 @@ atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
 - `templates/commands/autopilot.md`
     - Phase 4 documentation step — authoring mode, self-answered prompts
     - Phase 4 audit step — dispatch, verdict branch, never re-audit
+- `templates/commands/quick-fix.md`
+    - Finalize audit step — dispatch with brief:, verdict branch, one-dispatch cap
 
 ## Flows
 
-**Finalize, both commands.**
+**Finalize, `/subagent-implementation` and `/autopilot`.**
 
 1. Orchestrator confirms the suite is green.
 2. Orchestrator runs `/documentation`, writing new pages and updating stale ones.
@@ -71,6 +75,13 @@ atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
 4. Auditor runs four passes and returns findings plus a verdict; with any finding it first writes the same report to `$SCRATCH/AUDIT.md`.
 5. `PASS` → orchestrator continues to the signals refresh.
 6. `CHANGES_REQUESTED` → orchestrator runs one implementer/reviewer iteration against the findings, re-runs the suite, then continues to signals without re-auditing.
+
+**Finalize, `/quick-fix`.**
+
+1. Orchestrator runs `atomic-verify`.
+2. Orchestrator dispatches `atomic-auditor` with `brief: $SCRATCH/BRIEF.md`, range, state, scratch, surfaces.
+3. Auditor walks the brief's success criteria in pass 1 and reports untouched documentation surfaces as 🟡 in pass 4.
+4. `PASS` → `FOLLOWUPS.md` triage. `CHANGES_REQUESTED` → one implementer/reviewer iteration, commit, then triage without re-auditing.
 
 **Refusal.** Dispatched before the suite is green, or asked to fix, review one diff, or judge the approach: the auditor returns its `OUT OF SCOPE:` line and stops.
 
@@ -115,3 +126,9 @@ atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
 **What changed:** The agent composes `agent-yagni`, `agent-comment-discipline`, and the new `agent-readability` partial. Pass 2 reads the cumulative diff as prose and reports comment drift, repeated explanations, and YAGNI misses that only the whole exposes; these are exempt from the "visible inside one checkpoint" drop rule. Pass 3 judges a PR title and body when the caller passes `pr:`.
 
 **Why:** the reviewer sees one iteration at a time, so a comment that went stale by checkpoint 5, or the same why restated in four files, had no gate. Commit and PR discipline were split across two skills with no reader of the whole record.
+
+### 2026-08-21 — `/quick-fix` dispatches the auditor
+
+**What changed:** `/quick-fix` Finalize gains the audit step between `atomic-verify` and `FOLLOWUPS.md` triage, passing `brief: $SCRATCH/BRIEF.md` since no spec exists. The agent reads the brief's success criteria wherever it would read a spec's, and under a brief reports an untouched documentation surface as 🟡, because `/documentation` is deferred to the user by design.
+
+**Why:** the fast loop had no whole-delivery gate at all, and it is the loop where comment noise and a duplicated helper most often slip past per-iteration review.

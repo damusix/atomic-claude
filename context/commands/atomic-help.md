@@ -82,7 +82,7 @@ One-line pointer per topic. Group by category for scannability.
 | `pressure-test` | `/pressure-test [<topic> \| @<path>]` — Socratic challenger, no artifacts. Pre-approval gate. Complement: `/challenge-swarm` attacks the written design in parallel instead of dialogue. |
 | `challenge-swarm` / `swarm` | `/challenge-swarm [<path> \| @<path>]` — profiles the artifact, then seats 3-6 expert lenses with cited stakes from a ~30-lens catalog (engineering, data/ML, business, finance, communication, delivery); isolated parallel review, report is a contradiction map (conflicts / reinforced / unexamined assumptions). Post-design gate before `/subagent-implementation`. |
 | `implement` | `/subagent-implementation` reads spec, runs implement→review loop with `atomic-implementer`+`atomic-reviewer`, commits per green iteration. |
-| `quick-fix` | `/quick-fix <task>` — implement→review loop without the planning phase, spec gate, or finalize ceremony. For a known-cause fix with one obvious approach; escapes to `/subagent-diagnose`, `/atomic-plan`, or `/subagent-implementation` on uncertainty signals, never file count. |
+| `quick-fix` | `/quick-fix <task>` — implement→review loop without the planning phase, spec gate, or finalize ceremony (audit kept). For a known-cause fix with one obvious approach; escapes to `/subagent-diagnose`, `/atomic-plan`, or `/subagent-implementation` on uncertainty signals, never file count. |
 | `diagnose` | `/subagent-diagnose ci [run-id]` or `/subagent-diagnose bug "<symptom>"` — orchestrated failure investigation. Same loop as implementation. |
 | `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`. |
 | `ship` | Pick by intent — see `ship` matrix below. |
