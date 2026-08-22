@@ -55,7 +55,7 @@ export function SlugView() {
   // The yield: navigation always wins. When the resolved checkout doesn't
   // match the sticky selection, the URL moves to say where the reader is —
   // never the other way around.
-  const resolvedBranch = docResolution?.checkout.branch ?? bundleResolution?.checkout?.branch;
+  const resolvedBranch = docResolution?.checkout.branch ?? bundleResolution?.bundle.branch;
   useEffect(() => {
     if (!resolvedBranch || resolvedBranch === at) return;
     setAt(resolvedBranch, { replace: true });
@@ -64,7 +64,7 @@ export function SlugView() {
   const fetchWorktreeId = docResolution
     ? docResolution.checkout.id
     : bundleResolution && bundleResolution.file.kind === "markdown"
-      ? bundleResolution.checkout?.id
+      ? bundleResolution.bundle.worktreeId
       : undefined;
 
   useEffect(() => {
@@ -118,21 +118,21 @@ export function SlugView() {
     );
   }
 
-  if (bundleResolution && bundleResolution.file.kind === "html" && bundleResolution.checkout) {
+  if (bundleResolution && bundleResolution.file.kind === "html") {
     return (
       <BundleFileViewer
-        checkoutId={bundleResolution.checkout.id}
+        checkoutId={bundleResolution.bundle.worktreeId}
         relpath={bundleResolution.file.relpath}
         kind="html"
       />
     );
   }
 
-  if (bundleResolution && bundleResolution.file.kind === "file" && bundleResolution.checkout) {
+  if (bundleResolution && bundleResolution.file.kind === "file") {
     return (
       <div className="page-content-inner" data-route="plans-slug">
         <BundleFileViewer
-          checkoutId={bundleResolution.checkout.id}
+          checkoutId={bundleResolution.bundle.worktreeId}
           relpath={bundleResolution.file.relpath}
           kind="file"
         />

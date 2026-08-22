@@ -63,10 +63,10 @@ export function PlansRail() {
               setAt(checkout.branch);
             }}
           />
-        ) : bundleResolution?.checkout ? (
+        ) : bundleResolution ? (
           <>
             <div className="rail-slot-label">Version</div>
-            <div className="vpick-static">{bundleResolution.checkout.branch}</div>
+            <div className="vpick-static">{bundleResolution.bundle.branch}</div>
           </>
         ) : null}
 

@@ -376,6 +376,42 @@ func resolveWorktreeCommonGitDir(path string) (string, bool) {
 	}
 }
 
+// checkoutGitIndexPath locates <checkout>/.git/index without spawning git.
+// A main checkout keeps `.git` as a directory holding the index directly; a
+// linked worktree keeps `.git` as a file naming its own private gitdir
+// (unlike resolveWorktreeCommonGitDir, this does NOT climb to the shared
+// common dir — a worktree's index lives under its own gitdir, not the one
+// every checkout shares).
+func checkoutGitIndexPath(path string) (string, bool) {
+	gitPath := filepath.Join(path, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return "", false
+	}
+	if info.IsDir() {
+		return filepath.Join(gitPath, "index"), true
+	}
+	raw, err := os.ReadFile(gitPath)
+	if err != nil {
+		return "", false
+	}
+	target := ""
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "gitdir:"); ok {
+			target = strings.TrimSpace(rest)
+			break
+		}
+	}
+	if target == "" {
+		return "", false
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(path, target)
+	}
+	return filepath.Join(filepath.Clean(target), "index"), true
+}
+
 // parseSymbolicRefBranch extracts the branch name from a symbolic-ref file's
 // content — the shape `refs/remotes/origin/HEAD` carries.
 func parseSymbolicRefBranch(content string) (string, bool) {
@@ -800,7 +836,9 @@ func classifyBundleFile(name string) string {
 }
 
 // fingerprint stat-fingerprints everything a rebuild would read: each
-// checkout's identity, its docs/design and docs/spec entries, and its
+// checkout's identity, its git index (so a `git add && git commit` — which
+// changes tracked-ness without touching a doc's working-file mtime — still
+// invalidates the cache), its docs/design and docs/spec entries, and its
 // scratchpad root — re-enumerating worktrees on every call (the caller,
 // rows(), already does this) so a worktree added since the last build
 // changes the fingerprint even before any file inside it is touched. A file
@@ -818,6 +856,12 @@ func (a *plansAggregator) fingerprint(checkouts []checkoutInfo) string {
 		h.Write([]byte{0})
 		h.Write([]byte(c.branch))
 		h.Write([]byte{'\n'})
+
+		if idxPath, ok := checkoutGitIndexPath(c.path); ok {
+			if info, err := os.Stat(idxPath); err == nil {
+				writeFingerprintEntry(h, ".git/index", info)
+			}
+		}
 
 		for _, kind := range [2]string{"design", "spec"} {
 			dir := filepath.Join(c.path, "docs", kind)
