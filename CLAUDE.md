@@ -302,6 +302,9 @@ The landing page (`docs/index.md`) feature cards use **Font Awesome 7 Free (soli
 This repo uses [release-please](https://github.com/googleapis/release-please) to generate the changelog and tag releases. Its default `changelog-sections` config **filters out** several conventional-commit types. Anything filtered ships invisibly — it lands in `git log` but never appears in the release notes for `CHANGELOG.md` or the GitHub release body.
 
 
+**The package path in `release-please-config.json` must stay `"."`.** Release-please counts only commits that touch files under the package path. It was `"atomic"` for a long time and looked fine only because the embedded bundle mirror under `atomic/internal/embedded/` was committed, so every artifact commit touched `atomic/` as a side effect. Once that mirror became gitignored (2026-08-16), `feat:` commits to `context/`, `docs/`, or `marketing/` stopped counting and a release full of features was computed as a patch. The product is the whole repo — `context/` ships inside the binary — so the package is the repo root; `changelog-path` keeps the log at `atomic/CHANGELOG.md`.
+
+
 **Visible in changelog:** `feat:`, `fix:`, `perf:`. The `!` marker on any of these (e.g. `feat!:`, `fix!:`) also triggers a major version bump and adds a `BREAKING CHANGES` section.
 
 
