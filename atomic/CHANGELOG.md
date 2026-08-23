@@ -1,5 +1,26 @@
 # Changelog
 
+## [6.6.0](https://github.com/damusix/atomic-claude/compare/v6.5.0...v6.6.0) (2026-08-23)
+
+
+### Features
+
+* /quick-fix ends with the auditor ([47b05e6](https://github.com/damusix/atomic-claude/commit/47b05e67b50cf9d1fcdbd06ec4dff5a7ad304adb))
+* **marketing:** incremental demo scenes, search/external/about, cached graph ([7896113](https://github.com/damusix/atomic-claude/commit/78961132d7482669bf6bafc2f220b4acc2280bda))
+* readability is a defect class across implementer, reviewer, and auditor ([4489fcc](https://github.com/damusix/atomic-claude/commit/4489fcc3dded2a9e2a45de6a69756ad9091e6b63))
+* unpin the auditor's model and let it write findings to the scratchpad ([4b20d2d](https://github.com/damusix/atomic-claude/commit/4b20d2d449f887c24f734657b5de58ac306ba34f))
+
+
+### Bug Fixes
+
+* drop the 6-iteration soft-stop from the implement loop ([3552825](https://github.com/damusix/atomic-claude/commit/355282501bbbf60d13a406b69c2ba066b146ab40))
+* ledger wording — readability 🟡 is not a non-blocking category ([cc55136](https://github.com/damusix/atomic-claude/commit/cc5513637250a3f601c0ac2e6f8625a6c07f753d))
+* **marketing:** open the search scene inside a member so the plans tab has hits ([923e771](https://github.com/damusix/atomic-claude/commit/923e7713c00b0a6a9c0c307487ec514773a7ce35))
+* **release:** scope release-please to the repo root ([2afcbaf](https://github.com/damusix/atomic-claude/commit/2afcbaf8bd48b2d0a564e625dca15f7abf546276))
+* **serve:** plans cache sees commits, bundle fetch by own worktree ([0e0341d](https://github.com/damusix/atomic-claude/commit/0e0341d105ffcc79502c11a38c3a963abe5c6132))
+* **serve:** plans page merged-ness and bundle attribution ([3892819](https://github.com/damusix/atomic-claude/commit/38928191e5d3fa10c910c83e75f79622fdbde3b7))
+* **serve:** style the search page tabs for their Ark buttons ([2109671](https://github.com/damusix/atomic-claude/commit/21096716eebe84b80704c14b4a601717d6530d7d))
+
 ## [6.5.0](https://github.com/damusix/atomic-claude/compare/v6.4.0...v6.5.0) (2026-08-21)
 
 
