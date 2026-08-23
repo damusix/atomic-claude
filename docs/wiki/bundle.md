@@ -197,9 +197,8 @@ Both are gitignored; `git ls-files atomic/internal/embedded/` returns only [`bun
 | Stage | Fires when a staged path matches | Runs | Re-stages |
 |-------|----------------------------------|------|-----------|
 | 1 | `.claude/project/followups/*.md` except `INDEX.md` | `atomic followups render` | `INDEX.md` |
-| 2 | `atomic/internal/serve/frontend/**` outside `dist/` | `make frontend` | `frontend/dist/` |
 
-Neither stage belongs to this domain, and there is no render or bundle stage in the hook at all: [`.githooks/pre-commit`](../../.githooks/pre-commit) states directly that [`context/`](../../context) artifacts "are committed in source form and expanded straight into [`atomic/internal/embedded/`](../../atomic/internal/embedded), which is gitignored and rebuilt by `make -C atomic bundle`." Both stages degrade to a warning and continue when [`atomic`](../../atomic) or `bun` is missing.
+That stage does not belong to this domain, and there is no render, bundle, or frontend stage in the hook at all: [`.githooks/pre-commit`](../../.githooks/pre-commit) states directly that [`context/`](../../context) artifacts are committed in source form and expanded into [`atomic/internal/embedded/`](../../atomic/internal/embedded), and the serve frontend into `atomic/internal/serve/frontend/dist/`, both gitignored and rebuilt by `make -C atomic bundle|frontend`. The stage degrades to a warning and continues when [`atomic`](../../atomic) is missing.
 
 
 ## Coupling
