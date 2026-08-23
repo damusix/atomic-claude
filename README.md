@@ -29,11 +29,11 @@
 </p>
 
 <p align="center">
- <img src="./assets/atomic-serve.gif" alt="atomic serve: wiki, system graph, code explorer, and bus chat in the browser" />
+ <img src="./assets/atomic-serve.gif" alt="atomic serve tour: wiki docs, search, SQL schema, bus chat between two Claude agents, plans, and the code graph" />
 </p>
 
 <p align="center">
- <em><code>atomic serve</code>: the wiki, the system graph, the code explorer, and bus chat.</em>
+ <em><code>atomic serve</code>, the whole tour: wiki docs, search, SQL schema, two agents on the bus, plans, and the code graph.</em>
 </p>
 
 
