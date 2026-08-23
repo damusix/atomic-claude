@@ -39,7 +39,7 @@ features:
 
 ## See it run
 
-The wiki, the system graph, the code explorer, and bus chat, served from `atomic serve` on localhost.
+The full tour from `atomic serve` on localhost: wiki docs, command-K search, SQL schema, two agents on the bus, plans, the external-link registry, and the system and code graphs.
 
 <video src="/atomic-serve.mp4" autoplay loop muted playsinline style="width:100%;border-radius:8px;"></video>
 
