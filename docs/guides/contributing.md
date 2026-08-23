@@ -78,13 +78,13 @@ context/**  →  make bundle  →  atomic/internal/embedded/{bundle/**, manifest
 
 `atomic serve`'s browser UI is a React + TypeScript SPA in a Bun workspace at `atomic/internal/serve/frontend/`. Bun is the package manager, bundler, and test runner — no npm, Vite, or Jest. Conventions (LogosDX data layer, Ark UI primitives, component layout) live in `frontend/CLAUDE.md`.
 
-The built `dist/` is committed and embedded into the binary via `go:embed`, so `go build` never needs Bun. The pipeline:
+The built `dist/` is gitignored and embedded into the binary via `go:embed`, the same arrangement as the artifact bundle. `make build`, `make test`, and `make vet` run `make frontend` first, so building the binary needs Bun on the machine. The pipeline:
 
 ```
-frontend/src/**  →  make frontend  →  frontend/dist/**  →  go:embed
+frontend/src/**  →  make frontend  →  frontend/dist/**  (gitignored)  →  go:embed
 ```
 
-Run `bun test` from `frontend/` for the component suite. The pre-commit hook's frontend stage rebuilds `dist/` when frontend sources are staged; CI's "Verify frontend dist is committed" gate fails on drift, same pattern as render/bundle.
+Run `bun test` from `frontend/` for the component suite. Nothing rebuilds `dist/` at commit time and nothing checks it in CI beyond `bun run build.ts` succeeding — there is no committed copy to drift from.
 
 
 ## Shared partials

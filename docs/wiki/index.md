@@ -77,19 +77,15 @@ All commands run from [`atomic/`](../../atomic) (CI: `working-directory: ./atomi
 | Rebuild `atomic serve` frontend | `make -C atomic frontend` | [`atomic/Makefile`](../../atomic/Makefile) target `frontend` |
 | Release | `goreleaser release --clean` | [`.github/workflows/release.yml`](../../.github/workflows/release.yml) (on `v*` tag) |
 
-CI has no drift gate on the bundle: [`atomic/internal/embedded/`](../../atomic/internal/embedded) is gitignored, so "Generate bundle" in CI only has to make the package compile, not match a committed copy. The one drift gate that does exist is on the `atomic serve` frontend, since `frontend/dist/` is committed:
+CI has no drift gates: both [`atomic/internal/embedded/`](../../atomic/internal/embedded) and `atomic/internal/serve/frontend/dist/` are gitignored, so "Generate bundle and frontend" in CI only has to make the packages compile, not match a committed copy. The frontend job's `bun run build.ts` step proves the app builds and nothing more.
 
-```
-bun run build.ts -> git diff --exit-code -- atomic/internal/serve/frontend/dist
-```
-
-The CI test job installs Bun (`oven-sh/setup-bun@v2`, pinned `1.3.13`) and runs `bun install --frozen-lockfile` in [`atomic/internal/serve/frontend/`](../../atomic/internal/serve/frontend) before "Generate bundle" — `go generate ./...` also runs the Bun frontend build, via the `go:generate` directive in [`atomic/internal/serve/frontend_dist.go`](../../atomic/internal/serve/frontend_dist.go).
+The CI test job installs Bun (`oven-sh/setup-bun@v2`, pinned `1.3.13`) and runs `bun install --frozen-lockfile` in [`atomic/internal/serve/frontend/`](../../atomic/internal/serve/frontend) before that step — `go generate ./...` runs the Bun frontend build via the `go:generate` directive in [`atomic/internal/serve/frontend_dist.go`](../../atomic/internal/serve/frontend_dist.go).
 
 ## DevOps & CI
 
-- **CI**: GitHub Actions ([`.github/workflows/`](../../.github/workflows)). Four workflows — `ci.yml` (test, vet, fmt, frontend-dist drift gate), `docs.yml` (VitePress build and deploy), `release-please.yml` (changelog), `release.yml` (goreleaser on tag).
+- **CI**: GitHub Actions ([`.github/workflows/`](../../.github/workflows)). Four workflows — `ci.yml` (test, vet, fmt, frontend build + tests), `docs.yml` (VitePress build and deploy), `release-please.yml` (changelog), `release.yml` (goreleaser on tag).
 - **Release**: goreleaser builds `linux/darwin x amd64/arm64` with CGO disabled, version stamped from `internal/version` via ldflags; release-please owns the version bump and tag on push to main.
-- **Pre-commit hook** ([`.githooks/pre-commit`](../../.githooks/pre-commit)): two stages, each firing only when a staged path touches its own inputs — regenerate follow-ups `INDEX.md`, and rebuild `serve/frontend/dist`. Neither the bundle nor a rendered artifact copy is a pre-commit stage, since neither is committed. Install with `make hooks`.
+- **Pre-commit hook** ([`.githooks/pre-commit`](../../.githooks/pre-commit)): one stage, firing only when a follow-ups entry file is staged — regenerate follow-ups `INDEX.md`. Neither the bundle, a rendered artifact copy, nor `serve/frontend/dist` is a pre-commit stage, since none is committed. Install with `make hooks`.
 
 ## Language breakdown
 

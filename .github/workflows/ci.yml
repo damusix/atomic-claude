@@ -37,9 +37,10 @@ jobs:
         working-directory: ./atomic/internal/serve/frontend
         run: bun install --frozen-lockfile
 
-      # The bundle is gitignored, so there is no drift gate here — only the
-      # generation step that makes internal/embedded compile.
-      - name: Generate bundle
+      # The bundle and frontend/dist are both gitignored, so there is no drift
+      # gate here — only the generation step that makes internal/embedded and
+      # internal/serve compile.
+      - name: Generate bundle and frontend
         run: go generate ./...
 
       - name: Test
@@ -81,9 +82,7 @@ jobs:
       - name: Test
         run: bun test
 
+      # dist/ is gitignored, so this only proves the app builds — the test
+      # job's `go generate` produces the copy that gets embedded.
       - name: Build
         run: bun run build.ts
-
-      - name: Verify frontend dist is committed
-        working-directory: .
-        run: git diff --exit-code -- atomic/internal/serve/frontend/dist
