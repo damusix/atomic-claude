@@ -103,13 +103,13 @@ The `atomic` binary embeds `context/` at build time via `go:embed`. `go:embed` c
 **That mirror, and the `manifest.go` beside it, are gitignored.** They are outputs, not sources. Nothing that produces a shipped binary depends on them being in git: `make build`, `make test`, and `make vet` all declare the `bundle` target as a prerequisite; CI runs `go generate ./...`; goreleaser runs the same in its `before` hook. There is no bundle drift gate, because there is nothing committed to drift from.
 
 
-**How to regenerate.** From the repo root: `make -C atomic bundle`. Nothing to stage afterwards.
+**How to regenerate.** From the repo root: `make -C atomic bundle`. Nothing to stage afterwards. The `atomic serve` React app follows the same rule: `make -C atomic frontend` builds `atomic/internal/serve/frontend/dist/`, also gitignored, also a prerequisite of `build`/`test`/`vet`, also never staged.
 
 
-**Failure mode to recognize.** A bare `go build` or `go test` on a fresh clone, bypassing `make`, fails with `pattern bundle: no matching files found`. That is the mirror being absent, not a broken tree — run `make -C atomic bundle`.
+**Failure mode to recognize.** A bare `go build` or `go test` on a fresh clone, bypassing `make`, fails with `pattern bundle: no matching files found` (or `pattern all:frontend/dist: no matching files found`). That is the mirror or the frontend build being absent, not a broken tree — run `make -C atomic bundle frontend`.
 
 
-**Pre-commit hook.** `.githooks/pre-commit` (installed via `make hooks`, which sets `core.hooksPath=.githooks`) has two stages, each firing only when a staged path touches its own inputs: (1) `atomic followups render` when any followups entry file (other than INDEX.md) is staged, re-staging `INDEX.md` (degrades to WARN if `atomic` binary absent); (2) `make frontend` when `atomic/internal/serve/frontend/**` outside `dist/` is staged, re-staging `frontend/dist/`. There is no render or bundle stage — neither produces a committed file.
+**Pre-commit hook.** `.githooks/pre-commit` (installed via `make hooks`, which sets `core.hooksPath=.githooks`) has one stage: `atomic followups render` when any followups entry file (other than INDEX.md) is staged, re-staging `INDEX.md` (degrades to WARN if `atomic` binary absent). There is no render, bundle, or frontend stage — none of those produces a committed file.
 
 
 **`atomic hooks` vs git hooks — different systems.** `atomic hooks install` registers a Claude Code session-start hook (injects pending reminders into context). That has nothing to do with the build pipeline. Render parity is enforced by CI; the git pre-commit hook in `.githooks/` is the local convenience layer.
@@ -127,7 +127,7 @@ A command or agent source may compose a reusable block with `{{ template "<name>
 **Adding an artifact is one file.** `context/commands/<verb>.md` or `context/agents/<name>.md` — there is no second location to keep in sync, and no orphan rule, because there is no separate output to orphan.
 
 
-**Pipeline order.** One generation step: `make bundle` expands `context/` into `atomic/internal/embedded/`. Alongside it, `atomic followups render` regenerates `INDEX.md` and `make frontend` rebuilds `serve/frontend/dist`. CI has no render or bundle drift gate — neither output is committed.
+**Pipeline order.** Two generation steps, both gitignored outputs and both prerequisites of `make build|test|vet`: `make bundle` expands `context/` into `atomic/internal/embedded/`, and `make frontend` builds the `atomic serve` React app into `atomic/internal/serve/frontend/dist/`. `go generate ./...` runs both (CI and goreleaser use that form). Alongside them, `atomic followups render` regenerates `INDEX.md`, the one generated file that is committed. CI has no drift gate on the bundle or on `dist/`.
 
 
 </build_pipeline>

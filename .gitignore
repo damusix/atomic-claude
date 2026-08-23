@@ -39,3 +39,7 @@ atomic/internal/embedded/manifest.go
 
 # demo video recordings (marketing/demo/run.mjs)
 marketing/demo/out/
+
+# atomic serve frontend build output — rebuilt by `make -C atomic frontend`
+# (a prerequisite of build/test/vet) and by `go generate ./...` in CI and goreleaser.
+atomic/internal/serve/frontend/dist/

@@ -1,4 +1,4 @@
-.PHONY: bundle test build vet fmt tidy frontend
+.PHONY: bundle frontend test build vet fmt tidy
 
 # bundle: expand context/ into the embedded artifact bundle.
 # One step: shared partials from context/_partials/ are expanded on the way in,
@@ -9,17 +9,23 @@
 bundle:
 	go run ./internal/tools/bundle-mirror -repo ../ -outdir ./internal/embedded
 
-# test: run all tests. Depends on bundle — internal/embedded does not compile
-# until the mirror exists.
-test: bundle
+# frontend: build the atomic serve React app into internal/serve/frontend/dist.
+# The output is gitignored, like the bundle: go:embed in internal/serve needs
+# it on disk, so build/test/vet depend on it, but it is never committed.
+frontend:
+	cd internal/serve/frontend && bun install --frozen-lockfile && bun run build.ts
+
+# test: run all tests. Depends on bundle and frontend — internal/embedded and
+# internal/serve do not compile until their embedded trees exist.
+test: bundle frontend
 	go test ./...
 
-# build: compile the binary. Depends on bundle for the same reason as test.
-build: bundle
+# build: compile the binary. Same prerequisites as test.
+build: bundle frontend
 	go build -o ../bin/atomic ./cmd/atomic
 
-# vet: run go vet. Depends on bundle for the same reason as test.
-vet: bundle
+# vet: run go vet. Same prerequisites as test.
+vet: bundle frontend
 	go vet ./...
 
 # fmt: check formatting (print unformatted files).
@@ -29,8 +35,3 @@ fmt:
 # tidy: tidy module dependencies.
 tidy:
 	go mod tidy
-
-# frontend: build the atomic serve React app into internal/serve/frontend/dist.
-# Run this after editing anything under internal/serve/frontend/ (excl. dist/).
-frontend:
-	cd internal/serve/frontend && bun install --frozen-lockfile && bun run build.ts

@@ -280,7 +280,7 @@ Docs:
 
 **`code-graph.js`'s `KIND_GROUPS` table must track `AllNodeKinds`** in [`atomic/internal/codeintel/types/types.go`](../../atomic/internal/codeintel/types/types.go) (39 values, mapped to 8 visual groups). A kind missing from the table falls through to the `other` bucket instead of erroring, so a taxonomy gap is invisible until someone cross-checks the counts.
 
-**`public/` is copied verbatim into `dist/` by `build.ts`, and both are committed.** Editing `public/code-graph.js` without re-running `make -C atomic frontend` leaves the served copy stale. CI has a dedicated frontend job that runs `bun test`, rebuilds, and fails on `git diff --exit-code -- atomic/internal/serve/frontend/dist`.
+**`public/` is copied verbatim into `dist/` by `build.ts`; `public/` is committed, `dist/` is gitignored.** Editing `public/code-graph.js` without re-running `make -C atomic frontend` leaves the served copy stale in a binary you built earlier — `make build|test|vet` rebuild it first, a bare `go build` does not. CI has a dedicated frontend job that runs `bun test` and `bun run build.ts`; there is no committed copy to diff against.
 
 **The build disables identifier minification on purpose.** At this dependency-graph size the renamer's tie-breaker is non-deterministic, which would make the dist drift gate fail on identical input. Whitespace and syntax minification stay on.
 

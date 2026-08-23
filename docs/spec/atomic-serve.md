@@ -42,8 +42,8 @@ only what gets built.
       The resolved scope is shown in the UI header. A bare repo with a code index but no
       wiki is servable (code views + its `docs/`, no realm chrome).
 - [ ] **SC3** — The React SPA build output (`frontend/dist/`) — a Bun-toolchained React +
-      TypeScript workspace, package.json/tsconfig committed alongside it, `dist/` committed
-      and embedded via `go:embed` — is served from memory; no network fetch, no file
+      TypeScript workspace, package.json/tsconfig committed, `dist/` gitignored, built by
+      `make frontend` and embedded via `go:embed` — is served from memory; no network fetch, no file
       dependency outside the binary, no runtime Bun/Node invocation. Every non-API,
       non-static, non-carried-JS-endpoint GET falls back to the embedded `index.html`; React
       Router resolves the requested path client-side and renders the Obsidian shell — top bar
@@ -140,7 +140,7 @@ the rail mini-graph on Cytoscape.js (`concentric` layout), the system graph on c
 (GPU simulation + GPU rendering — `docs/spec/cosmos-system-graph.md`) — both carried into
 `frontend/public/` unchanged and mounted from React via `window` contracts (`GraphCore`,
 `AtomicGraphUI`, `AtomicCodeExplorer`); all assets embedded via `go:embed` from the
-committed `frontend/dist/` build; scope resolution shared with `atomic code` via
+gitignored, build-time `frontend/dist/`; scope resolution shared with `atomic code` via
 `realm.Resolve`. The middle-pane graph mode hosts two views behind a nested Docs | Code
 control — the whole-realm system graph above, and a per-repo code-intel symbol graph —
 sharing one cosmos.gl core (`graph-core.js`) with a docs profile (`system-graph.js`) and a
@@ -365,6 +365,14 @@ None.
 
 
 ## Change log
+
+### 2026-08-23 — `frontend/dist/` is gitignored build output
+
+**What changed:** SC3 and the approach summary no longer describe `frontend/dist/` as committed. It is built by `make frontend` (a prerequisite of `make build|test|vet`) or `go generate ./...`, gitignored, and embedded at build time — the same arrangement the artifact bundle moved to on 2026-08-16. The CI drift gate and the pre-commit rebuild stage are gone with it.
+
+**Why:** a committed `dist/` produced a multi-thousand-line diff on every frontend change and existed only to spare contributors a Bun install; with the bundle already gitignored and CI and goreleaser already running `go generate ./...` with Bun present, the committed copy was the only generated output still in git.
+
+**Superseded:** "`dist/` committed and embedded via `go:embed`" in SC3; "committed `frontend/dist/` build" in the approach summary.
 
 ### 2026-08-20 — `/api/*` enumeration gains the Plans routes
 

@@ -1,7 +1,7 @@
 // Production build: bundles src/main.tsx, copies the carried public/ assets,
-// and writes dist/index.html pointing at the bundled entry. Deterministic
-// output (fixed asset names, no content hashing) so `make frontend` produces
-// a byte-identical dist/ across runs — the drift gate depends on that.
+// and writes dist/index.html pointing at the bundled entry. dist/ is
+// gitignored; fixed asset names (no content hashing) keep the go:embed paths
+// and the served URLs stable across builds.
 import { cp, mkdir, rm } from "node:fs/promises";
 import { readFileSync, writeFileSync } from "node:fs";
 
