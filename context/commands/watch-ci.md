@@ -19,13 +19,13 @@ not a git repo. /watch-ci needs a versioned project with a CI provider.
 Check signals are available — the subagent uses them to identify the CI provider:
 
 ```bash
-test -f .claude/project/signals.md
+test -f docs/wiki/index.md
 ```
 
 If missing, warn (don't stop):
 
 ```
-note: no signals.md found. subagent will fall back to file-tree heuristics
+note: no docs/wiki/index.md found. subagent will fall back to file-tree heuristics
 (.github/, .gitlab-ci.yml, .circleci/, Jenkinsfile, etc.).
 suggest running /refresh-wiki after to improve future runs.
 ```
@@ -69,7 +69,7 @@ Invoke the `Agent` tool with:
     Target hint ($ARGUMENTS): "<verbatim args, or 'current branch' if empty>"
 
     Step 1 — identify the CI provider:
-      a. Read .claude/project/signals.md if it exists. The inferrer's schema
+      a. Read docs/wiki/index.md if it exists. The inferrer's schema
          includes a CI/CD section that names the provider and points at config files.
          Use it as the primary source of truth.
       b. If signals are absent or silent on CI, fall back to file-tree detection:
