@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	charmterm "github.com/charmbracelet/x/term"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
@@ -266,6 +267,8 @@ func runUpdate(args []string) {
 		os.Exit(1)
 	}
 
+	c.OnProgress = downloadProgressRenderer(os.Stdout, charmterm.IsTerminal(os.Stdout.Fd()))
+
 	home, _ := os.UserHomeDir()
 	if err := runUpdateApply(ctx, home, c, channel, version.Version, exe, force, time.Now, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic update: %v\n", err)
@@ -303,6 +306,31 @@ func runUpdate(args []string) {
 	}
 	if shouldRunPostUpdateDoctor(noDoctor, cfgRunDoctor) {
 		updatedoctor.Run(doctor.Run, os.Stdout)
+	}
+}
+
+// downloadProgressRenderer rewrites one status line in place as the archive
+// streams down. Nil off-TTY: without \r rewriting, every tick would print its
+// own line into redirected output.
+func downloadProgressRenderer(w io.Writer, isTTY bool) func(received, total int64) {
+	if !isTTY {
+		return nil
+	}
+	const mib = 1024 * 1024
+	done := false
+	return func(received, total int64) {
+		if done {
+			return
+		}
+		switch {
+		case total > 0 && received >= total:
+			done = true
+			fmt.Fprintf(w, "\rdownloaded %.1f MB (100%%)           \n", float64(total)/mib)
+		case total > 0:
+			fmt.Fprintf(w, "\rdownloading %.1f / %.1f MB (%d%%)   ", float64(received)/mib, float64(total)/mib, received*100/total)
+		default:
+			fmt.Fprintf(w, "\rdownloading %.1f MB   ", float64(received)/mib)
+		}
 	}
 }
 

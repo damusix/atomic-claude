@@ -17,12 +17,19 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
 const (
 	defaultBaseURL = "https://api.github.com/repos/damusix/atomic-claude"
 	lookupTimeout  = 10 * time.Second
+
+	// defaultStallTimeout aborts a download only when no bytes arrive for this
+	// long; a slow-but-moving stream never trips it.
+	defaultStallTimeout = 30 * time.Second
+
+	progressEmitBytes = 512 * 1024
 )
 
 // BannerWindow is the minimum interval between repeated update-available
@@ -57,6 +64,14 @@ type Client struct {
 	HTTPClient  *http.Client
 	BaseURL     string // default: defaultBaseURL
 	DownloadURL string // optional override for asset host base URL (tests only)
+
+	// OnProgress, when set, receives byte counts while a release archive
+	// streams down. total is the Content-Length, or equal to received on the
+	// final call when the server sent none. Checksum fetches never report.
+	OnProgress func(received, total int64)
+
+	// StallTimeout overrides the no-data abort window (default 30s).
+	StallTimeout time.Duration
 }
 
 func (c *Client) baseURL() string {
@@ -71,6 +86,16 @@ func (c *Client) httpClient() *http.Client {
 		return c.HTTPClient
 	}
 	return &http.Client{Timeout: lookupTimeout}
+}
+
+// downloadClient has no whole-request Timeout: http.Client.Timeout caps the
+// entire body read, which killed archive downloads on slow links at 10s. The
+// stall watchdog in download governs instead.
+func (c *Client) downloadClient() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return &http.Client{}
 }
 
 // Lookup fetches the latest GitHub release for channel ("stable" or
@@ -146,12 +171,12 @@ func (c *Client) Apply(ctx context.Context, rel Release, currentBinary string) e
 	defer os.RemoveAll(tmpDir)
 
 	archivePath := filepath.Join(tmpDir, assetName)
-	if err := c.download(ctx, archiveURL, archivePath); err != nil {
+	if err := c.download(ctx, archiveURL, archivePath, c.OnProgress); err != nil {
 		return fmt.Errorf("selfupdate: download archive: %w", err)
 	}
 
 	checksumPath := filepath.Join(tmpDir, checksumName)
-	if err := c.download(ctx, checksumURL, checksumPath); err != nil {
+	if err := c.download(ctx, checksumURL, checksumPath, nil); err != nil {
 		return fmt.Errorf("selfupdate: download checksums: %w", err)
 	}
 
@@ -218,7 +243,7 @@ func (c *Client) ApplyStaged(ctx context.Context, rel Release, stagedPath, curre
 	defer os.RemoveAll(tmpDir)
 
 	checksumPath := filepath.Join(tmpDir, checksumName)
-	if err := c.download(ctx, checksumURL, checksumPath); err != nil {
+	if err := c.download(ctx, checksumURL, checksumPath, nil); err != nil {
 		return fmt.Errorf("selfupdate: download checksums: %w", err)
 	}
 
@@ -320,12 +345,12 @@ func (c *Client) Stage(ctx context.Context, rel Release, stageDir string) (Stage
 	defer os.RemoveAll(tmpDir)
 
 	archivePath := filepath.Join(tmpDir, assetName)
-	if err := c.download(ctx, archiveURL, archivePath); err != nil {
+	if err := c.download(ctx, archiveURL, archivePath, c.OnProgress); err != nil {
 		return StagedInfo{}, fmt.Errorf("selfupdate: download archive: %w", err)
 	}
 
 	checksumPath := filepath.Join(tmpDir, checksumName)
-	if err := c.download(ctx, checksumURL, checksumPath); err != nil {
+	if err := c.download(ctx, checksumURL, checksumPath, nil); err != nil {
 		return StagedInfo{}, fmt.Errorf("selfupdate: download checksums: %w", err)
 	}
 
@@ -361,12 +386,15 @@ func (c *Client) assetURL(rel Release, name string) string {
 	return ""
 }
 
-func (c *Client) download(ctx context.Context, url, dst string) error {
+func (c *Client) download(ctx context.Context, url, dst string, onProgress func(received, total int64)) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.downloadClient().Do(req)
 	if err != nil {
 		return err
 	}
@@ -379,8 +407,55 @@ func (c *Client) download(ctx context.Context, url, dst string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
+
+	stall := c.StallTimeout
+	if stall <= 0 {
+		stall = defaultStallTimeout
+	}
+	var stalled atomic.Bool
+	watchdog := time.AfterFunc(stall, func() {
+		stalled.Store(true)
+		cancel()
+	})
+	defer watchdog.Stop()
+
+	total := resp.ContentLength
+	if total < 0 {
+		total = 0
+	}
+	var received, sinceEmit int64
+	buf := make([]byte, 64*1024)
+	for {
+		n, rerr := resp.Body.Read(buf)
+		if n > 0 {
+			watchdog.Reset(stall)
+			if _, werr := f.Write(buf[:n]); werr != nil {
+				return werr
+			}
+			received += int64(n)
+			sinceEmit += int64(n)
+			if onProgress != nil && sinceEmit >= progressEmitBytes {
+				sinceEmit = 0
+				onProgress(received, total)
+			}
+		}
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			if stalled.Load() {
+				return fmt.Errorf("download stalled: no data for %s", stall)
+			}
+			return rerr
+		}
+	}
+	if onProgress != nil {
+		if total <= 0 {
+			total = received
+		}
+		onProgress(received, total)
+	}
+	return nil
 }
 
 // verifySHA256 checks archivePath against its entry in a checksums file, whose
