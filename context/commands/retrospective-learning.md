@@ -57,7 +57,7 @@ Catalog every config-shaped file at BOTH installed (~/.claude) and project level
 Look for:
 
 - Global: ~/.claude/CLAUDE.md, ~/.claude/CLAUDE.local.md, ~/.claude/commands/, ~/.claude/agents/, ~/.claude/skills/, ~/.claude/output-styles/, ~/.claude/rules/, ~/.claude/settings.json, ~/.claude/settings.local.json, ~/.atomic/config.toml, ~/.atomic/profile.md
-- Project: ./CLAUDE.md, ./CLAUDE.local.md, .claude/commands/, .claude/agents/, .claude/skills/, .claude/settings.json, .claude/settings.local.json, .claude/project/signals.md, .claude/project/followups/INDEX.md, .claude/project/followups/*.md
+- Project: ./CLAUDE.md, ./CLAUDE.local.md, .claude/commands/, .claude/agents/, .claude/skills/, .claude/settings.json, .claude/settings.local.json, docs/wiki/index.md, .claude/project/followups/INDEX.md, .claude/project/followups/*.md
 - Memory: ~/.claude/projects/${PROJECT_SLUG}/memory/MEMORY.md and topic files
 
 For each artifact: path, one-line purpose, char count, line count.
@@ -223,9 +223,9 @@ if ! atomic docs stale 2>/dev/null; then
   echo "stale" > "$SCRATCH/docs-stale.txt"
 fi
 
-# Signals staleness — newest source artifact vs signals.md mtime
-SIGNALS_MTIME=$(stat -f %m .claude/project/signals.md 2>/dev/null || echo 0)
-NEWEST_SOURCE=$(find agents commands skills CLAUDE.md -type f -newer .claude/project/signals.md 2>/dev/null | head -1)
+# Signals staleness — newest source artifact vs docs/wiki/index.md mtime
+SIGNALS_MTIME=$(stat -f %m docs/wiki/index.md 2>/dev/null || echo 0)
+NEWEST_SOURCE=$(find agents commands skills CLAUDE.md -type f -newer docs/wiki/index.md 2>/dev/null | head -1)
 [ -n "$NEWEST_SOURCE" ] && echo "$NEWEST_SOURCE" > "$SCRATCH/signals-stale.txt"
 ```
 

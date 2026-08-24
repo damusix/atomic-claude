@@ -9,6 +9,18 @@ const gap: OutputLine = { kind: 'gap' }
 
 export const FLOW: SessionSlide[] = [
     {
+        id: 'setup',
+        label: 'setup',
+        command: '/setup-wiki',
+        output: [
+            { kind: 'say', text: 'Audit first, add only what is missing.' },
+            { kind: 'tool', text: 'Bash(atomic repo init)' },
+            { kind: 'out', text: '.gitignore · docs/ · CLAUDE.md' },
+            gap,
+            { kind: 'say', text: 'Nothing overwritten, nothing committed.', tone: 'ok' },
+        ],
+    },
+    {
         id: 'wiki',
         label: 'wiki',
         command: '/refresh-wiki',
