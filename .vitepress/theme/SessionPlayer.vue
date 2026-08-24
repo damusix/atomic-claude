@@ -217,7 +217,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .sp-term {
     width: 100%;
-    max-width: 500px;
+    max-width: 540px;
     margin-inline: auto;
     border: 1px solid var(--vp-c-border);
     border-radius: 12px;
@@ -357,7 +357,7 @@ onBeforeUnmount(() => {
 .sp-tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.7rem;
+    gap: 0.55rem;
 }
 .sp-tab {
     background: none;
