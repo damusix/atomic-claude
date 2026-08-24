@@ -9,15 +9,15 @@ const gap: OutputLine = { kind: 'gap' }
 
 export const FLOW: SessionSlide[] = [
     {
-        id: 'signals',
-        label: 'signals',
-        command: '/refresh-signals',
+        id: 'wiki',
+        label: 'wiki',
+        command: '/refresh-wiki',
         output: [
             { kind: 'say', text: 'Scanning the repo to build its map.' },
             { kind: 'tool', text: 'Bash(atomic signals scan)' },
             { kind: 'out', text: 'NestJS · Prisma · Jest · docs/' },
             gap,
-            { kind: 'say', text: 'Wrote signals.md — Claude reads it', tone: 'ok' },
+            { kind: 'say', text: 'Wrote docs/wiki/ — Claude reads it', tone: 'ok' },
             { kind: 'say', text: 'before your code, every session.', tone: 'ok' },
         ],
     },
@@ -86,7 +86,7 @@ export const FLOW: SessionSlide[] = [
         label: 'ship',
         command: '/commit pr',
         output: [
-            { kind: 'say', text: 'Refresh signals, check docs, open PR.' },
+            { kind: 'say', text: 'Refresh wiki, check docs, open PR.' },
             { kind: 'tool', text: 'Bash(atomic signals scan)' },
             { kind: 'out', text: '+ WebhooksController in the map' },
             { kind: 'say', text: 'New endpoint → API docs need a line.' },
