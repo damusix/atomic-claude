@@ -1,5 +1,14 @@
 # Changelog
 
+## [6.6.1](https://github.com/damusix/atomic-claude/compare/v6.6.0...v6.6.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* retire refresh-signals paths in shipped commands ([eb4b6af](https://github.com/damusix/atomic-claude/commit/eb4b6af5fd815516a3da38e262ec6e48c4ca8606))
+* **selfupdate:** download progress + stall abort ([ec12c32](https://github.com/damusix/atomic-claude/commit/ec12c32dfeb0681cfaf3124b8f597a6f8f8a156e))
+* **site:** keep nine player tabs on one line ([a8b9aa9](https://github.com/damusix/atomic-claude/commit/a8b9aa942ac76860d01f6ab7fbf19aeef41687e4))
+
 ## [6.6.0](https://github.com/damusix/atomic-claude/compare/v6.5.0...v6.6.0) (2026-08-23)
 
 
