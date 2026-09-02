@@ -148,7 +148,7 @@ On "No, skip": continue without creating.
 
 ### R8 — Report
 
-Print final state:
+Print final state, folding the agent's Step 9 one-line summary (card counts, any ignore-file edit) onto the `cards:` line:
 
 ```
 signals <refreshed | initialized>.
@@ -156,12 +156,16 @@ signals <refreshed | initialized>.
   scan (raw):    docs/wiki/scan.md
   index:         docs/wiki/index.md
   CLAUDE.md:     <updated with @-refs | unchanged (already wired) | not created (skipped)>
+  cards:         <P> emitted, <Q> deleted<ignore-edit>
 
 suggested next step:
-  git add docs/wiki/*.md
-  (and CLAUDE.md if modified)
+  git add -A docs/wiki/*.md
+  [ ! -d .claude/rules/wiki ] || git add -A .claude/rules/wiki/
+  (and CLAUDE.md and any amended ignore file if modified)
   then: /commit
 ```
+
+`<ignore-edit>` is empty when Step 9 reported no ignore-file change, or `, <path> amended for rules/wiki` when it did, appended to the same line, matching `skills/atomic-wiki/references/repo.md` Step 9.
 
 Use "initialized" if R2 found no existing signals; "refreshed" otherwise.
 

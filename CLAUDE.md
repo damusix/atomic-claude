@@ -28,7 +28,7 @@ Target macOS and Linux only. Drop Windows-specific review findings, Windows-only
 | `context/skills/*/SKILL.md` | Discipline skills. Copied to `~/.claude/skills/`. | `~/.claude/skills/` |
 | `context/output-styles/*.md` | Output style definitions. Copied to `~/.claude/output-styles/`. | `~/.claude/output-styles/` |
 | `context/rules/<topic>/*.md` | **Shipped** path-scoped topic rules. `paths:` frontmatter globs (e.g. `**/*.{ts,tsx}`, `docs/spec/**`) so the rule only loads when Claude touches a matching file — auto-loads into subagents too (verified). Currently: `typescript/`, `python/` (language style), `specs/spec-currency.md` (spec body-is-truth, globs `docs/spec/**` + `docs/design/**`). | `~/.claude/rules/` (via `atomic claude install`) |
-| `.claude/rules/<topic>/*.md` | **Repo-only** path-scoped rules — committed (gitignore-negated) but NOT bundled, so they never ship to users. `.claude/rules/authoring/` holds the contributor artifact-authoring references (`agent-config`, `prompting`, `claude-code-refs`, `axioms`) — glob the artifact sources (`context/**`) so they auto-load only when editing an artifact, instead of `@`-ref'ing every session. | Stays in repo; never installed. |
+| `.claude/rules/<topic>/*.md` | **Repo-only** path-scoped rules — committed (gitignore-negated) but NOT bundled, so they never ship to users. `.claude/rules/authoring/` holds the contributor artifact-authoring references (`agent-config`, `prompting`, `claude-code-refs`, `axioms`) — glob the artifact sources (`context/**`) so they auto-load only when editing an artifact, instead of `@`-ref'ing every session. `.claude/rules/wiki/<domain>.md` is `/refresh-wiki` output — one pointer card per wiki domain, pipeline-owned and regenerated every refresh; never hand-edit. | Stays in repo; never installed. |
 
 
 ## Reference docs
@@ -233,7 +233,7 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 | `docs/reference/commands.md` | command reference table | atomic-writing |
 | `docs/reference/agents.md` | agent reference table | atomic-writing |
 | `docs/reference/skills.md` | skills reference table | atomic-writing |
-| `docs/reference/repo-wiki.md` | repo-scope wiki: scan, infer, wire pipeline, steering, `.signalsignore` | atomic-writing |
+| `docs/reference/repo-wiki.md` | repo-scope wiki: scan, infer, wire pipeline, steering, `.signalsignore`, pointer rules | atomic-writing |
 | `docs/reference/code-intel.md` | code-intel engine: verbs, index, lifecycle, workflow integration | atomic-writing |
 | `docs/reference/output-style.md` | atomic output style reference | atomic-writing |
 | `docs/reference/concepts.md` | how atomic-claude fits together, the atomic binary, code intelligence flow | atomic-writing |

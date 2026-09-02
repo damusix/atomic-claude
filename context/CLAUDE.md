@@ -73,6 +73,9 @@ When retaining bulk of a file's content, shell tools beat Read+Write tool churn.
 - **Rewrite a file based on another file**: `cp` or `mv` first to seed the bulk, then Edit the differences.
 
 
+The trigger is repetition. One targeted change, or a handful of distinct ones, is a normal edit: use the Edit tool, which verifies each exact match and shows the diff. That holds even when a harness mode (auto mode's "prefer Bash for file changes") nudges toward shell tools; a `sed` or a script for a single edit adds quoting risk with no repetition to pay for it.
+
+
 Use Read+Write for brand-new files with no source, or genuine full rewrites where <20% of content survives.
 
 
@@ -105,6 +108,7 @@ Use regex when searching for literal strings, log messages, comments, config val
 | `tmp/` | Ad-hoc experiments, scratch scripts, one-off tests. Gitignored. | Throwaway. |
 | `~/.atomic/` | Per-user state: `config.toml`, `profile.md` (auto-loaded), `state.json`, `backups/`, `proposed/CLAUDE.md`, plus `<project-key>/{reports,reminders,archive}/` — one per clone, keyed off the main checkout root so every worktree agrees. `atomic where --json` prints the resolved paths; `atomic migrate --repo <path>` relocates pre-existing state; `atomic migrate --show-log` is the change history. | Never committed. |
 | `~/.atomic/<project-key>/reminders/` | Reminders for this project. Resolved via `atomic where --json`'s `.reminders`. Legacy `<scratchpad>/reminders/` still read until migrated. | Never committed. |
+| `.claude/rules/wiki/<domain>.md` | One path-scoped pointer card per wiki domain, emitted by a repo-scope `/refresh-wiki`. A `paths:` glob match injects the card into context on a touching session, pointing at the domain's wiki page and its contracts/reference/design docs. | Committed; pipeline-owned, regenerated every refresh. |
 
 
 ## Specs
@@ -130,6 +134,8 @@ Use regex when searching for literal strings, log messages, comments, config val
 **Cross-repo wiki.** `/refresh-wiki [root]` maintains a project-wiki — a separate git repo summarizing the member repos under a root, with synthesized cross-cutting concerns and capture buckets (loose notes / research / tickets, registered via `atomic wiki bucket add`). Bucket docs carry a six-key frontmatter contract (`title`, `type`, `description`, `tags`, `status`, `created`) that code indexes deterministically; `atomic wiki bucket doc|skill|index` scaffold a topic file, a per-bucket skill, and rebuild the bucket/realm listing regions. The wiki index path lives in a CLI-managed `<wikis>` block in `~/.claude/CLAUDE.md` that sits *outside* `<atomic>` and is never `@-ref`'d. Drift is caught automatically (ship-time `mark-dirty` + session-start nudge). Mechanics live in `/refresh-wiki`, the `atomic-wiki` skill, and `atomic wiki --help`.
 
 At repo scope, a committed `.claude/atomic.toml` controls what the scan sees: `[scan] ignore = [...]` drops a committed path from the tree entirely, `[scan] generated = [...]` keeps it but marks it so the inferrer skips its content. Same glob rules as `[code] ignore`. This replaces the legacy repo-root `.signalsignore`, which is still read when no `[scan]` table exists; `atomic update` (or `atomic migrate --repo <path>`) converts and removes it.
+
+A repo-scope refresh also emits one path-scoped pointer card per wiki domain under `.claude/rules/wiki/`. Touching any file in that domain injects a short card naming the domain page and its contracts, references, and design notes, so the map is one hop away and a behavior change or rename gets a doc-update nudge. Cards are pipeline-owned and regenerate every refresh.
 
 ## Inter-session messaging
 
