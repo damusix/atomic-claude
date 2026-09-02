@@ -29,7 +29,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 
 | Command | What it does |
 |---------|-------------|
-| `/commit` | Stage and commit, then ask how far to ship — or skip the prompt by passing a token: `push`, `pr`, `merge`, `squash`, or `squash merge`. With no pending changes and commits ahead of base, skips straight to the ship step. |
+| `/commit` | Stage and commit, then ask how far to ship — or skip the prompt by passing a token: `push`, `pr`, `merge`, `squash`, or `squash merge`. With no pending changes and commits ahead of base, skips straight to the ship step. Code Claude wrote directly, outside the implement loop, gets an `atomic-reviewer` pass before the commit lands. |
 | `/undo-commit` | Soft-undo the last commit. Refuses merge commits, initial commits, and already-pushed commits. |
 
 

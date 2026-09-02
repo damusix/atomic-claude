@@ -110,11 +110,15 @@ A CLAUDE.md is a markdown doc with `##` top-level sections. The merger classifie
 
 | Class | How to detect | How to merge |
 |-------|---------------|--------------|
-| **atomic-owned** | Section title appears in the proposed file with identical heading, OR section title matches an atomic-known list (`## Principles`, `## Bash over Read+Write`, `## Design axioms`, `## Where things live`, `## Subagents available for dispatch`, `## Workflow (canonical lifecycle)`) | Replace with the proposed version. |
+| **atomic-owned** | Section title appears in the proposed file with identical heading, OR section title matches an atomic-known list (`## Principles`, `## Shell tools for repetitive edits`, `## Design axioms`, `## Where things live`, `## Subagents available for dispatch`, `## Workflow (canonical lifecycle)`) | Replace with the proposed version. |
 | **user-only** | Section title appears in current but not proposed, and is not in the atomic-known list | Preserve verbatim. |
 | **atomic-new** | Section title appears in proposed but not current | Append to merged output in the order the proposed file dictates. |
 | **conflict** | Same section title in both, but the user has clearly edited inside an atomic-owned section (heuristic: more than 10% of non-whitespace bytes differ from the prior atomic baseline) | Flag in the report. Default action: use proposed, but note the override. The user can inspect and revert via the Open editor path. |
 
+
+**Retired titles.** A section atomic once owned and has since renamed must stay recognizable, or a legacy file keeps both the old section and its replacement. Current retired titles: `## Bash over Read+Write` → `## Shell tools for repetitive edits`. A retired title in the current file is atomic-owned, never user-only: drop it and take the proposed replacement. This list only matters on the migration path — a file with a parseable `<atomic>` block has the whole block replaced, so renames inside it need no mapping.
+
+A retired title is exempt from the conflict heuristic below, which compares same-titled sections and so can never fire across a rename. Report the drop under **Sections replaced**, naming the old title and its replacement, so a user who had edited the retired section can see what went and recover it from the backup.
 
 The merger does NOT need the prior atomic baseline to detect conflict perfectly — it can use a simpler heuristic: if a section is atomic-owned and the on-disk version differs from the proposed version, assume the user edited and flag it. The user makes the final call via the slash command's accept/edit/abort prompt.
 
@@ -139,7 +143,7 @@ Sections preserved (user-only):
 
 Sections replaced (atomic-owned, in-sync):
   - ## Principles
-  - ## Bash over Read+Write
+  - ## Shell tools for repetitive edits
   - ## Design axioms
 
 Sections added (atomic-new):
@@ -251,3 +255,12 @@ Built across 3 implementer iterations plus a docs/bundle catch-up on branch `ins
 **Why:** after a completed merge, user content outside the block made every whole-file SHA compare report drift — doctor flagged `drifted: CLAUDE.md` permanently and every update forced a slow LLM merge for a boundary code can draw itself (code-over-model principle).
 
 **Superseded:** prior contract: the binary never merges CLAUDE.md; any difference produced a proposed file requiring `/atomic-claude-merge`.
+
+
+### 2026-09-02 — Retired section titles in the merge taxonomy
+
+**What changed:** the atomic-known title list now names `## Shell tools for repetitive edits` in place of `## Bash over Read+Write`, and the section taxonomy gained a **Retired titles** paragraph mapping a renamed section's old title to its replacement, classifying the old title as atomic-owned so the migration path drops it.
+
+**Why:** `## Bash over Read+Write` was renamed in `context/CLAUDE.md`. Without a mapping, a legacy file with no `<atomic>` block classifies the old title as user-only and preserves it, leaving the user two sections of contradictory editing guidance.
+
+**Superseded:** the atomic-known list was a flat set of current titles with no notion of a former one, so a rename silently converted the old section into user-only content.

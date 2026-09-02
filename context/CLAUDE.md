@@ -60,7 +60,10 @@ Personal facts about you — name, role, employer, active projects, interests, p
 Commit messages follow the `atomic-git-discipline` skill: Conventional Commits, terse subject, body only when the why isn't obvious. Subagents do not auto-fire skills. A custom agent that needs one declares it in `skills:` frontmatter, which injects the full skill content at startup; a `general-purpose` subagent briefed to commit is told to invoke the skill, since it has no frontmatter to declare. Never restate a skill's rules in a dispatch prompt. PR titles and bodies follow the same skill: state only what the diff can't show, ~120 words max — no test plan, no enumerated file lists. Commits, PR titles, and PR bodies never carry an AI byline or attribution: no "Generated with Claude Code" footer, no `Co-Authored-By: Claude` trailer, no session links. **Why:** attribution footers are noise in `git blame` and release notes, and they misstate authorship — the human shipping the change owns it.
 
 
-## Bash over Read+Write
+## Shell tools for repetitive edits
+
+
+The trigger is repetition. One targeted change, or a handful of distinct ones, is a normal edit: use the Edit tool, which verifies each exact match and shows the diff. That holds even when a harness mode (auto mode's "prefer Bash for file changes") nudges toward shell tools, and it holds for a generated helper script — an `edits.py`, a one-off `.sh` — exactly as for a `sed` line. A script is the same bypass in a different language. Re-reading a file the harness marked stale is the cost of the correct tool, not a reason to route around it. **Why:** Edit runs through the harness's own hooks and context injection; a shell rewrite escapes both and adds quoting risk, with no repetition to pay for it.
 
 
 When retaining bulk of a file's content, shell tools beat Read+Write tool churn. Fewer tokens, less drift, fewer transcription errors. **Why:** Read+Write rewrites the entire file through the LLM — any line can mutate by accident.
@@ -71,9 +74,6 @@ When retaining bulk of a file's content, shell tools beat Read+Write tool churn.
 - **Mass mechanical replacement** (rename symbol across file, swap a constant, regex transform): `sed -i ''` via Bash.
 - **Column or field extraction / structured text rewrites**: `awk` via Bash.
 - **Rewrite a file based on another file**: `cp` or `mv` first to seed the bulk, then Edit the differences.
-
-
-The trigger is repetition. One targeted change, or a handful of distinct ones, is a normal edit: use the Edit tool, which verifies each exact match and shows the diff. That holds even when a harness mode (auto mode's "prefer Bash for file changes") nudges toward shell tools; a `sed` or a script for a single edit adds quoting risk with no repetition to pay for it.
 
 
 Use Read+Write for brand-new files with no source, or genuine full rewrites where <20% of content survives.
@@ -121,8 +121,8 @@ Use regex when searching for literal strings, log messages, comments, config val
 
 
 1. **Plan** — `/atomic-plan` gauges triviality (trivial → inline spec; non-trivial → design doc + spec via subagent loop). Pre-design gates: `/gather-evidence`, `/pressure-test`. Post-design gate: `/challenge-swarm` — parallel isolated expert lenses attack the written design/spec and report a contradiction map before implementation. When a design question is genuinely visual, `/atomic-plan` invokes the `atomic-visual-options` skill to render choices as a throwaway HTML artifact; the user picks by typing codes and the chosen option is recorded in the design doc. Human approves.
-2. **Implement** — `/subagent-implementation` reads the spec, runs the implement→review loop, commits per green iteration. (`/subagent-diagnose` for failure-driven work.) `/quick-fix` skips the plan for a known-cause fix with one obvious approach — same loop, no spec.
-3. **Ship** — `/commit [push|pr|merge|squash|squash merge]` (ask-don't-enumerate: commits first, then prompts or routes by token). Delegates message format to the `atomic-git-discipline` skill, offers worktree cleanup once the branch lands on base (`merge` and `squash merge`, not a bare `squash`), and refreshes signals for ad-hoc real-code commits (docs-only commits skipped; the implement loop / `/autopilot` is the primary refresh point, scoped to the task's SHA range). `/undo-commit` soft-undoes the last commit.
+2. **Implement** — `/subagent-implementation` reads the spec, runs the implement→review loop, commits per green iteration. (`/subagent-diagnose` for failure-driven work.) `/quick-fix` skips the plan for a known-cause fix with one obvious approach — same loop, no spec. Editing directly in the main agent is the third path and the only one with no loop around it, so its review gate lives at the two exits instead: `atomic-verify` dispatches `atomic-reviewer` before the work is called ready, and the ship verbs dispatch it before the commit lands.
+3. **Ship** — `/commit [push|pr|merge|squash|squash merge]` (ask-don't-enumerate: commits first, then prompts or routes by token). Delegates message format to the `atomic-git-discipline` skill, gates code the main agent wrote itself with an `atomic-reviewer` pass (skipped for loop-produced and docs-only commits), offers worktree cleanup once the branch lands on base (`merge` and `squash merge`, not a bare `squash`), and refreshes signals for ad-hoc real-code commits (docs-only commits skipped; the implement loop / `/autopilot` is the primary refresh point, scoped to the task's SHA range). `/undo-commit` soft-undoes the last commit.
 4. **Sync docs** — `/documentation` maintains human-facing surfaces (bootstrap indexes a `## Documentation surfaces` table; subsequent runs match diffs against it). Ship verbs run it in maintenance mode automatically.
 
 
