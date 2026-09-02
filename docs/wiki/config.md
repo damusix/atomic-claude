@@ -41,6 +41,7 @@ flowchart LR
 | `update.run_doctor` | user | bool | `true` | run doctor after `atomic update` |
 | `update.check` | user | bool | `true` | the hourly detached background version lookup |
 | `update.stage` | user | bool | `true` | once-per-version background download + checksum |
+| `update.channel` | user | string | empty (resolves to `stable`) | release channel every update path reads: background check, banner, `atomic update`, doctor's binary check |
 | `harness.dir` | user | string | [`.claude`](../../.claude) | the repo-local state-directory name |
 | `repl.idle_timeout` | user, repo | duration | `1h` | idle window before a REPL session self-terminates |
 | `code.ignore` | repo | []string | none | glob patterns excluded from the code-intel index |
@@ -153,13 +154,40 @@ flowchart TD
 
 `migrate.Run` sorts the registry ascending by semver and applies every step whose `TargetVersion` exceeds the recorded version, stopping at the first error. The one registered `repo`-scope step, `scratchpadRelocate`, does two things unconditionally: `relocateReportsAndReminders` moves the legacy `session-reports/` and `reminders/` trees file-by-file to the project-keyed home (a same-relative-path collision is left in place under the legacy tree and reported, never overwritten), then `redateScratchpadBundles` renames a `<YYYY-MM-DD>-<slug>` directory to `<slug>` only when both `docs/design/<slug>.md` and `docs/spec/<slug>.md` confirm the stripped name as a real slug — a name only one doc confirms, or that two dated directories both strip to, is reported and left untouched. `FormatLog` walks `migrate.Registry` directly and renders only the entries carrying a non-empty `Summary`, so one list serves both step execution and `--show-log`; there is no parallel log registry.
 
-### The self-update fast path
+### Release channels
 
-No [`atomic`](../../atomic) invocation touches the network itself. The banner renders from `state.json`, and `last_check` is stamped before the child spawns, so a crash between the two costs one skipped check rather than a spawn on every later invocation.
+`atomic update` moves along one of two channels, `ChannelStable` or `ChannelPrerelease` in [`atomic/internal/selfupdate/selfupdate.go`](../../atomic/internal/selfupdate/selfupdate.go), and every update path reads the same resolved channel: the background check, the banner, `atomic update` itself, and doctor's binary check (`checks_binary.go`, category 8).
+
+`resolveUpdateChannel` (`cmd_update.go`) resolves it by precedence, `--pre` first:
 
 ```mermaid
 flowchart TD
-    A["any atomic invocation"] --> B{"ShouldNotify, from<br/>state.json alone?"}
+    R["resolveUpdateChannel"] --> P{"--pre set?"}
+    P -->|"yes, --channel names<br/>a different channel"| ERR["error: conflict"]
+    P -->|"yes"| PRE["prerelease"]
+    P -->|no| C{"--channel explicit?"}
+    C -->|yes| CV["validated --channel value"]
+    C -->|no| CFG{"config.toml<br/>update.channel valid?"}
+    CFG -->|yes| CFGV["config value"]
+    CFG -->|"no / unreadable"| ST["stable"]
+```
+
+`--pre` never writes `config.toml`; it overrides the persisted channel for one invocation. `Lookup` picks a release from up to `lookupMaxPages` (5) pages of `lookupPerPage` (100) releases, one `fetchReleasePage` call per page, and paging continues past a page with no eligible entry so a run of prereleases can never bury the newest stable release out of a lower-numbered page's reach.
+
+| Channel | Eligible releases | Selection across pages | Why |
+|---------|-------------------|-------------------------|-----|
+| `stable` | non-draft, non-prerelease | highest semver (`compare`) | forward-only ladder; the list endpoint orders by commit date, not version, so an interleaved hotfix published after a higher release would otherwise win |
+| `prerelease` | non-draft, prerelease or full release | most recent `PublishedAt` (falls back to list order when unset or tied) | tracks the tip of the pre-release branch; a full stable release outranks every prerelease of its own core, so selecting by version would strand a prerelease user behind it |
+
+`ShouldInstall(channel, current, latest)` carries the same split into the install decision: stable is forward-only (`IsNewer`), prerelease installs any tag whose `DisplayVersion` differs from what is running, even a semver-lower one, since a `-next.N` cut after a stable release of the same core is code-newer but semver-lower.
+
+### The self-update fast path
+
+No [`atomic`](../../atomic) invocation touches the network itself. `selfupdateFastPath` loads `config.toml` for `update.channel` before computing the banner decision, because `ShouldNotify` is channel-aware; an unreadable config still banners, on stable. `last_check` is stamped before the child spawns, so a crash between the two costs one skipped check rather than a spawn on every later invocation.
+
+```mermaid
+flowchart TD
+    A["any atomic invocation"] -->|"load config for<br/>update.channel first"| B{"ShouldNotify(channel),<br/>from state.json?"}
     B -->|yes| BN["print banner,<br/>stamp last_notified"]
     B -->|no| G1
     BN --> G1{"verb is update,<br/>or --no-update-check?"}
@@ -280,8 +308,9 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | Path | Role |
 |------|------|
 | [`atomic/internal/selfupdate/state.go`](../../atomic/internal/selfupdate/state.go) | The `~/.atomic/state.json` shape and its atomic read/write. |
-| [`atomic/internal/selfupdate/selfupdate.go`](../../atomic/internal/selfupdate/selfupdate.go) | `Lookup`, `Apply`, `ApplyStaged`, `Stage`, `StageDir`, the lock primitives, `CompareSemver`/`IsValidSemver` (shared with `migrate`), the pure `IsNewer`/`ShouldNotify` decision helpers, and `download`'s stall watchdog + throttled `OnProgress` emission. |
-| [`atomic/cmd/atomic/cmd_update.go`](../../atomic/cmd/atomic/cmd_update.go) | `selfupdateFastPath` (banner + stamp-before-spawn), `runUpdateCheck`, `runUpdate`, `runUpdateApply`, `downloadProgressRenderer` (TTY-only `\r`-rewritten status line). |
+| [`atomic/internal/selfupdate/selfupdate.go`](../../atomic/internal/selfupdate/selfupdate.go) | `ChannelStable`/`ChannelPrerelease` consts, `ValidChannel`, paginated `Lookup` (`fetchReleasePage`, up to `lookupMaxPages` × `lookupPerPage`), `Apply`, `ApplyStaged`, `Stage`, `StageDir`, the lock primitives, the pure `IsNewer`/`ShouldInstall`/`ShouldNotify` decision helpers, and `download`'s stall watchdog + throttled `OnProgress` emission. |
+| [`atomic/internal/selfupdate/semver.go`](../../atomic/internal/selfupdate/semver.go) | `CompareSemver`/`IsValidSemver` (shared with `migrate`), and the semver §11.4 prerelease-identifier comparison: `comparePrerelease`/`compareIdentifier`/`numericIdentifier`. |
+| [`atomic/cmd/atomic/cmd_update.go`](../../atomic/cmd/atomic/cmd_update.go) | `selfupdateFastPath` (config-then-banner, stamp-before-spawn), `resolveUpdateChannel` (`--pre` > `--channel` > config > stable), `runUpdateCheck`, `runUpdate`, `runUpdateApply`, `downloadProgressRenderer` (TTY-only `\r`-rewritten status line). |
 | [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) | Calls `selfupdateFastPath` before Cobra dispatch, and root-command registration for every verb in this domain. |
 
 ### Embedded text
@@ -362,6 +391,12 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 
 **A download times out on silence, never on duration.** `downloadClient()` sets no `http.Client.Timeout`, unlike `httpClient()`'s 10s `lookupTimeout`; only the per-read stall watchdog (`StallTimeout`, default 30s) governs abort, so a multi-minute archive transfer on a slow link is never killed by an overall deadline. Only an archive download reports progress: `Client.Apply` and `Client.Stage` pass `c.OnProgress` to `download`, but every checksum-file fetch passes `nil`.
 
+**`Lookup` pages before it gives up.** Paging stops only when a page returns fewer than `lookupPerPage` (100) releases or an eligible release is found; a run of prereleases pushing the newest stable release past page one no longer strands the stable channel, since the loop keeps paging (up to `lookupMaxPages`, 5) instead of settling for the first page's best match. Exhausting every page with zero eligible releases errors, naming how many were skipped for an unparseable tag.
+
+**`ShouldNotify` and `Client.Check` take an explicit `channel` argument, not just current/latest.** `resolveUpdateChannel`'s precedence is `--pre` (errors on conflict with an explicit `--channel` naming a different channel) > `--channel` > `config.toml`'s `update.channel` > `stable`. `checks_binary.go` (doctor, category 8) resolves the same channel independently via `config.Load` before calling `Client.Check`, so a machine tracking prereleases is never told it is on the latest stable release.
+
+**Prerelease identifiers compare by semver §11.4, not raw string order.** `comparePrerelease`/`compareIdentifier`/`numericIdentifier` in [`atomic/internal/selfupdate/semver.go`](../../atomic/internal/selfupdate/semver.go) split a prerelease tag on `.` and compare each dot-identifier numerically when all-digit, lexically otherwise, so `next.10` ranks above `next.2` — a raw string compare would rank it below. `CompareSemver` (shared with `migrate`) and `IsNewer` both go through this.
+
 **`atomic repo init` is append-only and never commits.** Of its seven guarantees, two create a directory (`.scratchpad/`, [`.claude/project/`](../../.claude/project), no git involved), four answer "is this already ignored" by running `git check-ignore -q` against a nonexistent probe path (falling back to a literal line scan when git is absent or the root is not a work tree), and the last writes the scope marker. Existing ignore content is never rewritten or reordered. Guarantee 5 (root `tmp/`) is the only ignore rule not nested under `harness.dir`. The scope-marker guarantee returns an error rather than an `Action` on a conflicting existing value, so `Init` fails and the caller surfaces it.
 
 **Follow-up plans are exempt from staleness.** `kind` defaults to `finding` when absent. `--severity` is required for findings and optional for plans, `isStale` returns false unconditionally for plans, and `ListEntries --stale` excludes them. `INDEX.md` renders the plans bucket first, then severity buckets. The pre-commit hook re-renders `INDEX.md` when entry files are staged.
@@ -384,6 +419,7 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | Direction | Contract |
 |-----------|----------|
 | → doctor | `checks_config.go` (category 9) imports both `config` and `selfupdate`: it validates `config.toml` and folds a non-empty `state.json` `last_result` into the same Result as a chronic-failure warning. A schema change to `Config` or to `UpdateState` lands here. |
+| → doctor | `checks_binary.go` (category 8) resolves the configured `update.channel` via `config.Load` before calling `Client.Check` (`binaryChannelFn`), so the binary self-check reports against the channel the user is tracking; an unreadable or invalid config falls back to stable. |
 | → doctor | `checks_repo_config.go` (category 13) imports `LoadRepoConfig`, `RepoConfigPath`, `ValidScope`, `NewIgnoreMatcher`, and `ValidateIdleTimeout`. It also reads `wiki.ReadWikiIndexPaths` to warn when `scope = "repo"` contradicts a `<wikis>`-registered realm root at the same path. |
 | → doctor | `checks_followups.go` and `checks_profile.go` resolve their targets through `config.FollowupsDir` / `config.ProfilePath`, so their detail strings stay correct under a non-default `harness.dir`. |
 | → doctor | `updatedoctor` reads `update.run_doctor`. Doctor also nudges "run `atomic migrate`" when the binary version exceeds `config.toml [install].version`. |

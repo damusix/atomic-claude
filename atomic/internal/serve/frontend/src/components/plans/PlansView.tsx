@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchPlanMembers, fetchPlans, type PlanRow, type PlansMember, bundleLocalPath, formatDate } from "../../utils/plansApi";
 import { filterPlanRows } from "../search/searchItems";
+import { memberLabel, useCurrentMember } from "../../utils/memberStore";
 import { usePlansScope } from "./usePlansScope";
 import "./style.css";
 
@@ -13,10 +14,6 @@ function isEditableTarget(el: Element | null): boolean {
   if (!el) return false;
   const tag = el.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || (el instanceof HTMLElement && el.isContentEditable);
-}
-
-function memberLabel(m: PlansMember): string {
-  return m.prefix || "(local)";
 }
 
 // Chips name only the parts a row actually carries — never invented from
@@ -74,7 +71,8 @@ function PlanRowView({ row, onOpen }: { row: PlanRow; onOpen: (slug: string) => 
 }
 
 export function PlansView() {
-  const { member, openSlug, setMember } = usePlansScope();
+  const { openSlug } = usePlansScope();
+  const { member, ready, realmName, setMember } = useCurrentMember();
   const [members, setMembers] = useState<PlansMember[]>([]);
   const [rows, setRows] = useState<PlanRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,6 +113,7 @@ export function PlansView() {
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
     setLoading(true);
     void fetchPlans(member).then((r) => {
@@ -126,7 +125,7 @@ export function PlansView() {
     return () => {
       cancelled = true;
     };
-  }, [member]);
+  }, [member, ready]);
 
   const filteredRows = filterPlanRows(rows, query);
 
@@ -144,12 +143,12 @@ export function PlansView() {
             <select
               className="plans-member-select"
               aria-label="Repo"
-              value={member ?? ""}
+              value={member}
               onChange={(e) => setMember(e.target.value)}
             >
               {members.map((m) => (
-                <option key={m.key} value={m.key}>
-                  {memberLabel(m)}
+                <option key={m.prefix} value={m.prefix}>
+                  {memberLabel(m.prefix, realmName)}
                 </option>
               ))}
             </select>

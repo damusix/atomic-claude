@@ -3,7 +3,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 import type { PlanRow } from "../../utils/plansApi";
+import { __resetForTest } from "../../utils/memberStore";
 import { PlansView } from "./PlansView";
+
+const NAV_FIXTURE = { scope: "realm", name: "acme", branch: "", groups: [] };
+
+function seedMemberCookie(member: string) {
+  document.cookie = `atomic-member=${encodeURIComponent(JSON.stringify({ "realm:acme": member }))}; path=/`;
+}
 
 function checkout(id: string, branch: string): PlanRow["docs"][number]["versions"][number]["checkouts"][number] {
   return {
@@ -51,6 +58,8 @@ const DESC_ROW: PlanRow = {
     {
       worktreeId: "w2",
       branch: "plans-page",
+      path: "api",
+      outsideRoot: false,
       purposes: ["plan"],
       status: "active",
       files: [
@@ -97,9 +106,10 @@ const NULL_ARRAYS_ROW = {
 } as unknown as PlanRow;
 
 function mockFetchByUrl(handlers: Record<string, unknown>) {
+  const withNav = { "/nav": NAV_FIXTURE, ...handlers };
   globalThis.fetch = mock(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    for (const [match, body] of Object.entries(handlers)) {
+    for (const [match, body] of Object.entries(withNav)) {
       if (url.includes(match)) {
         return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -121,6 +131,8 @@ describe("PlansView", () => {
     mock.restore();
     // @ts-expect-error — test-only global cleanup
     delete globalThis.fetch;
+    __resetForTest();
+    document.cookie = "atomic-member=; path=/; max-age=0";
   });
 
   test("no description collapses the row to one line", async () => {
@@ -206,7 +218,7 @@ describe("PlansView", () => {
         members: [
           { key: "", prefix: "" },
           { key: "atomic", prefix: "atomic" },
-          { key: "taxgentic", prefix: "taxgentic" },
+          { key: "acme", prefix: "acme" },
         ],
       },
       "/plans": [NO_DESC_ROW],
@@ -227,6 +239,22 @@ describe("PlansView", () => {
       });
       expect(calledWithMember).toBe(true);
     });
+  });
+
+  test("the empty-prefix member renders the realm's name from the store", async () => {
+    mockFetchByUrl({
+      "/plans/members": {
+        members: [
+          { key: "", prefix: "" },
+          { key: "atomic", prefix: "atomic" },
+        ],
+      },
+      "/plans": [NO_DESC_ROW],
+    });
+    renderPlans();
+
+    const select = await screen.findByLabelText("Repo");
+    expect(select.querySelector("option[value='']")).toHaveTextContent("acme");
   });
 
   test("a row whose docs/bundles are null (Go's nil-slice JSON) renders without crashing", async () => {
@@ -254,9 +282,10 @@ describe("PlansView", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/plans/no-desc-plan"));
   });
 
-  test("row click carries ?member= into the slug route", async () => {
+  test("row click navigates to /plans/<slug> with no search, even with a stored member", async () => {
+    seedMemberCookie("api");
     mockFetchByUrl({
-      "/plans/members": { members: [{ key: "", prefix: "" }, { key: "server", prefix: "server" }] },
+      "/plans/members": { members: [{ key: "", prefix: "" }, { key: "api", prefix: "api" }] },
       "/plans": [NO_DESC_ROW],
     });
     const router = createMemoryRouter(
@@ -264,7 +293,7 @@ describe("PlansView", () => {
         { path: "/plans", element: <PlansView /> },
         { path: "/plans/:slug", element: <div>opened: {"{slug}"}</div> },
       ],
-      { initialEntries: ["/plans?member=server"] },
+      { initialEntries: ["/plans"] },
     );
     render(<RouterProvider router={router} />);
 
@@ -272,7 +301,7 @@ describe("PlansView", () => {
     await userEvent.click(row);
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/plans/no-desc-plan"));
-    expect(router.state.location.search).toBe("?member=server");
+    expect(router.state.location.search).toBe("");
   });
 
   describe("filter", () => {

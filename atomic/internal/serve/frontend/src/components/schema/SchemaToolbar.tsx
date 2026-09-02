@@ -1,12 +1,8 @@
 // SchemaToolbar — member picker, filter, and the rebuild control.
 import { faArrowsRotate, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { FaGlyph } from "../ui";
-import type { GraphMember } from "../../utils/graphEngineAdapter";
+import { pickerLabel, type GraphMember } from "../../utils/graphEngineAdapter";
 import { useReindex } from "../../hooks/useReindex";
-
-function memberLabel(m: GraphMember): string {
-  return (m.prefix || "(local)") + (m.indexed ? "" : " — not indexed");
-}
 
 const REINDEX_LABEL: Record<string, string> = {
   idle: "Reindex",
@@ -19,6 +15,7 @@ export function SchemaToolbar({
   members,
   member,
   setMember,
+  realmName,
   query,
   setQuery,
   onReindexed,
@@ -28,6 +25,7 @@ export function SchemaToolbar({
   members: GraphMember[];
   member: string;
   setMember: (m: string) => void;
+  realmName: string;
   query: string;
   setQuery: (q: string) => void;
   onReindexed: () => void;
@@ -53,7 +51,7 @@ export function SchemaToolbar({
             >
               {members.map((m) => (
                 <option key={m.prefix} value={m.prefix}>
-                  {memberLabel(m)}
+                  {pickerLabel(m, realmName)}
                 </option>
               ))}
             </select>

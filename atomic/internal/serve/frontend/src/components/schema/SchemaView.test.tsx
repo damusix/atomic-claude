@@ -4,7 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { ApiProvider } from "../../utils/api";
 import { events } from "../../utils/events";
+import { __resetForTest } from "../../utils/memberStore";
 import { SchemaView } from "./SchemaView";
+
+const NAV_FIXTURE = { scope: "realm", name: "acme", branch: "", groups: [] };
+
+function seedMemberCookie(member: string) {
+  document.cookie = `atomic-member=${encodeURIComponent(JSON.stringify({ "realm:acme": member }))}; path=/`;
+}
 
 function requestURL(input: RequestInfo | URL): string {
   return typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -15,11 +22,13 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 // routes[urlSubstring] -> response body (or a function of the URL, for
-// tests that need per-member schema payloads keyed on ?member=).
+// tests that need per-member schema payloads keyed on ?member=). "/nav" is
+// always stubbed so the member store resolves without each test wiring it.
 function mockFetch(routes: Record<string, unknown | ((url: string) => unknown)>, missingStatus = 500) {
+  const withNav = { "/nav": NAV_FIXTURE, ...routes };
   globalThis.fetch = mock(async (input: RequestInfo | URL) => {
     const url = requestURL(input);
-    for (const [needle, body] of Object.entries(routes)) {
+    for (const [needle, body] of Object.entries(withNav)) {
       if (url.includes(needle)) {
         const resolved = typeof body === "function" ? (body as (u: string) => unknown)(url) : body;
         return jsonResponse(resolved);
@@ -45,6 +54,8 @@ describe("SchemaView", () => {
     mock.restore();
     // @ts-expect-error — test-only global cleanup
     delete globalThis.fetch;
+    __resetForTest();
+    document.cookie = "atomic-member=; path=/; max-age=0";
   });
 
   test("renders tables with columns, FK sources, and writers; no member picker for a single member", async () => {
@@ -187,7 +198,60 @@ describe("SchemaView", () => {
     renderSchema();
 
     await waitFor(() => expect(screen.getByText("alpha_table")).toBeInTheDocument());
-    expect(screen.getByLabelText("Code member")).toBeInTheDocument();
+    const select = screen.getByLabelText("Code member");
+    expect(select).toBeInTheDocument();
+
+    await userEvent.selectOptions(select, "beta");
+
+    await waitFor(() => expect(screen.getByText("beta_table")).toBeInTheDocument());
+    expect(document.cookie).toContain(encodeURIComponent(JSON.stringify({ "realm:acme": "beta" })));
+  });
+
+  test("the empty-prefix member renders the realm's name from the store", async () => {
+    mockFetch({
+      "/code/graph/members": {
+        members: [
+          { prefix: "", indexed: true },
+          { prefix: "atomic", indexed: true },
+        ],
+      },
+      "/code/schema": { tables: [] },
+    });
+
+    renderSchema();
+
+    const select = await screen.findByLabelText("Code member");
+    expect(select.querySelector("option[value='']")).toHaveTextContent("acme");
+  });
+
+  test("a stored member absent from Schema's member list renders the first member and leaves the cookie unchanged", async () => {
+    seedMemberCookie("bogus");
+    mockFetch({
+      "/code/graph/members": {
+        members: [
+          { prefix: "alpha", indexed: true },
+          { prefix: "beta", indexed: true },
+        ],
+      },
+      "/code/schema": (url: string) => {
+        const member = new URL(url).searchParams.get("member");
+        return {
+          tables: [
+            {
+              node: { id: `tbl-${member}`, name: `${member}_table`, kind: "table", filePath: "s.sql", startLine: 1 },
+              columns: [],
+              fkSources: [],
+              writers: [],
+            },
+          ],
+        };
+      },
+    });
+
+    renderSchema();
+
+    await waitFor(() => expect(screen.getByText("alpha_table")).toBeInTheDocument());
+    expect(document.cookie).toContain(encodeURIComponent(JSON.stringify({ "realm:acme": "bogus" })));
   });
 
   // The rail index is published from here, and the fetch hook holds `data`

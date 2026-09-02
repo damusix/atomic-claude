@@ -104,6 +104,12 @@ Same discipline, higher stakes. A PR body is read by people who weren't in the s
 - Local and process detail does not exist for the reader. Branch and worktree names, rebases, squashes, force-pushes, iteration or checkpoint counts, regenerated build outputs, scratchpad paths, "as discussed earlier" — none of it is visible in the repo a reviewer opens, and none of it changes their judgment. They see a diff and a body, not the session that produced them.
 - Every cross-reference must resolve for a stranger. Link it or cut it: `#123`, a full URL, or a repo-relative path that exists on the default branch once merged. A bare mention ("see the design doc", "per the spec", "as the other session found") is a dead end for anyone who wasn't there. A pointer to a local path, a scratchpad file, or an unmerged branch is worse — it reads as actionable and isn't.
 
+**Screenshots, when the change has a rendered surface:**
+
+- A change a reviewer would otherwise have to run to see — a UI, a docs-site page, terminal output — carries a screenshot of the new state; a fix carries a before and after pair. A change with no rendered surface carries none.
+- One line per image, after the prose, referencing the local file with a caption: `![Plans on the realm root](tmp/shots/plans-root.png)`. The caption says what the reader is looking at, not what changed.
+- The invoking ship verb uploads each file with `gh pr create --attach '<path>#<caption>'` (GitHub CLI 2.99.0 or newer) and rewrites the path into a hosted `user-attachments` URL. This skill names the files and writes the captions; it never uploads.
+
 **Omit from PR bodies:**
 
 - Test plans, "How to verify", reproduction steps — CI runs the tests, reviewers read them in the diff
@@ -153,6 +159,6 @@ They sit alongside other trailers like `Co-authored-by:` and `Closes #N`. Do not
 
 ## Boundaries
 
-Generates the commit message or PR title and body only. Does not run `git commit`, does not stage files, does not amend, does not push, does not call `gh pr create`, does not read or delete session-report files (that is the invoking ship verb's job). Output the text as a code block ready to paste.
+Generates the commit message or PR title and body only, including the screenshot lines a visual change needs. Does not run `git commit`, does not stage files, does not amend, does not push, does not call `gh pr create`, does not upload screenshots, does not read or delete session-report files (that is the invoking ship verb's job). Output the text as a code block ready to paste.
 
 </constraints>

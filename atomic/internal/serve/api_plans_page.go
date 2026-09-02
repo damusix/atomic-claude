@@ -91,11 +91,17 @@ func plansPageHandler(registry *plansRegistry) http.Handler {
 		if raw {
 			kind := classifyBundleFile(filepath.Base(relPath))
 			w.Header().Set("Content-Type", plansContentType(kind, data))
-			// The iframe sandbox the page applies is the primary
-			// containment, but this URL is reachable by direct navigation
-			// or a shared link, bypassing the iframe — and the same origin
-			// serves unauthenticated /api/bus/ write routes.
-			w.Header().Set("Content-Security-Policy", "sandbox")
+			// This URL is reachable by direct navigation or a shared link,
+			// bypassing the page's iframe sandbox, so the response repeats
+			// whatever sandbox the frame applies. Kind html allows scripts:
+			// the frame's opaque origin keeps them from the app's cookies
+			// and storage, and origin_guard.go is what now stops a script
+			// in that frame from reaching the write routes on this origin.
+			csp := "sandbox"
+			if kind == "html" {
+				csp = "sandbox allow-scripts"
+			}
+			w.Header().Set("Content-Security-Policy", csp)
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(data)
 			return

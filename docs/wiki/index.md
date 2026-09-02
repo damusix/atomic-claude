@@ -4,7 +4,7 @@ description: Repo-local project wiki for atomic-claude — framework signals and
 ---
 
 <wiki-type>repo</wiki-type>
-<scan-sha>88be9840708924fae38536f2c0d76f9b0de4f2d9</scan-sha>
+<scan-sha>5b562e9af484dfdce0949a4863b6d7de10888905</scan-sha>
 <wiki-schema>1</wiki-schema>
 
 # Project signals
@@ -91,15 +91,15 @@ The CI test job installs Bun (`oven-sh/setup-bun@v2`, pinned `1.3.13`) and runs 
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Go | 179476 | 597 | 59% |
-| Markdown | 49347 | 335 | 16% |
-| TypeScript | 45419 | 296 | 15% |
+| Go | 180772 | 602 | 59% |
+| Markdown | 49979 | 338 | 16% |
+| TypeScript | 46327 | 300 | 15% |
 | JavaScript | 10670 | 20 | 3% |
-| CSS | 7791 | 15 | 2% |
-| JSON | 3843 | 12 | 1% |
+| CSS | 7801 | 15 | 2% |
+| JSON | 3863 | 14 | 1% |
 | Shell | 928 | 8 | 0% |
 | Vue | 782 | 3 | 0% |
-| YAML | 516 | 10 | 0% |
+| YAML | 530 | 10 | 0% |
 | Python | 329 | 2 | 0% |
 
 Counts come from `atomic signals scan`, which writes the full per-file substrate to [`docs/wiki/scan.md`](scan.md). C sources (`tsbinding/src/`) are vendored on demand rather than committed, so they do not appear here.

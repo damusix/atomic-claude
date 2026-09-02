@@ -11,12 +11,15 @@ import { BundleFileViewer } from "./BundleFileViewer";
 import type { PageResponse } from "../../pages/Page/types";
 import { emitPageHeadings, type PageHeading } from "../../utils/events";
 import { mountMermaid } from "../../utils/mermaid";
+import { useCurrentMember } from "../../utils/memberStore";
+import { clearOnScreen, setOnScreen } from "../../utils/planViewStore";
 import { findDoc, resolveBundleFile, resolveDocVersion } from "./resolve";
 import { usePlansScope } from "./usePlansScope";
 import "./style.css";
 
 export function SlugView() {
-  const { slug = "", relpath, at, member, openFile, setAt } = usePlansScope();
+  const { slug = "", relpath, at, openFile, setAt } = usePlansScope();
+  const { member, ready } = useCurrentMember();
   const activeRelpath = relpath ?? "";
 
   const [row, setRow] = useState<PlanRow | null>(null);
@@ -25,6 +28,7 @@ export function SlugView() {
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
     setRowLoading(true);
     void fetchPlans(member).then((rows) => {
@@ -36,7 +40,7 @@ export function SlugView() {
     return () => {
       cancelled = true;
     };
-  }, [slug, member]);
+  }, [slug, member, ready]);
 
   const doc = row ? findDoc(row, activeRelpath) : undefined;
   const docResolution = doc ? resolveDocVersion(doc, at) : null;
@@ -60,6 +64,18 @@ export function SlugView() {
     if (!resolvedBranch || resolvedBranch === at) return;
     setAt(resolvedBranch, { replace: true });
   }, [resolvedBranch, at, setAt]);
+
+  const onScreenPath = docResolution?.checkout.path ?? bundleResolution?.bundle.path;
+  const onScreenOutsideRoot = docResolution?.checkout.outsideRoot ?? bundleResolution?.bundle.outsideRoot;
+  useEffect(() => {
+    if (onScreenPath === undefined || onScreenOutsideRoot === undefined) {
+      clearOnScreen();
+      return;
+    }
+    setOnScreen({ branch: resolvedBranch ?? "", path: onScreenPath, outsideRoot: onScreenOutsideRoot });
+  }, [resolvedBranch, onScreenPath, onScreenOutsideRoot]);
+
+  useEffect(() => clearOnScreen, []);
 
   const fetchWorktreeId = docResolution
     ? docResolution.checkout.id

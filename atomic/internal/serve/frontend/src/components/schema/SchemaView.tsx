@@ -7,12 +7,13 @@
 // names open the code modal via the store.ts openNode seam, mirroring
 // codeexplorer.go's renderTableSchema drill-down links.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link } from "react-router";
 import { openNode } from "../code-modal/store";
 import type { ApiCodeNode } from "../code-modal/types";
 import { useApi } from "../../utils/api";
 import { emitSchemaIndex } from "../../utils/events";
 import { fetchGraphMembers, resolveMember, type GraphMember } from "../../utils/graphEngineAdapter";
+import { useCurrentMember } from "../../utils/memberStore";
 import { columnViews, constraintLabel, keyViews } from "./columns";
 import { groupTables, tableMatches, type SchemaGroup, type SchemaSection } from "./grouping";
 import { SchemaToolbar } from "./SchemaToolbar";
@@ -24,10 +25,6 @@ function nodeMatches(name: string, query: string): boolean {
   return !query || name.toLowerCase().includes(query.toLowerCase());
 }
 import "./style.css";
-
-function memberLabel(m: GraphMember): string {
-  return (m.prefix || "(local)") + (m.indexed ? "" : " — not indexed");
-}
 
 function NodeLink({ node, member }: { node: ApiCodeNode; member: string }) {
   return (
@@ -251,43 +248,42 @@ function DirSection({ section, member }: { section: SchemaSection; member: strin
 }
 
 export function SchemaView() {
-  // Member lives in the URL, as it does on the graph route — otherwise the
-  // page always opens on whichever member sorts first and a link to a
-  // specific one cannot be shared or bookmarked.
-  const [searchParams, setSearchParams] = useSearchParams();
-  const memberParam = searchParams.get("member") ?? "";
+  const { member, ready, realmName, setMember } = useCurrentMember();
   const [members, setMembers] = useState<GraphMember[]>([]);
-  const [member, setMember] = useState(memberParam);
   // Fetching /code/schema before the member list resolves 500s at a realm
   // root (no realm-level index) — hold the data fetch until membership is
   // known, then fetch per-member (or memberless in bare-repo scope).
   const [membersResolved, setMembersResolved] = useState(false);
 
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
     void fetchGraphMembers().then((fetched) => {
       if (cancelled) return;
       setMembers(fetched);
-      setMember((prev) => resolveMember(fetched, prev || memberParam));
       setMembersResolved(true);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [ready]);
 
-  function selectMember(next: string) {
-    setMember(next);
-    setSearchParams((prev) => {
-      const params = new URLSearchParams(prev);
-      params.set("member", next);
-      return params;
-    });
-  }
+  // resolveMember only picks the render/fetch fallback here — a member
+  // missing from this page's own list is never written back to the store,
+  // so the pick survives a detour through Schema (see
+  // docs/spec/serve-realm-ux.md "Flow: a page cannot honour the member").
+  const resolvedMember = resolveMember(members, member);
+  const path = resolvedMember ? `/code/schema?member=${encodeURIComponent(resolvedMember)}` : "/code/schema";
 
-  const path = member ? `/code/schema?member=${encodeURIComponent(member)}` : "/code/schema";
   return membersResolved ? (
-    <SchemaData key={path} path={path} members={members} member={member} setMember={selectMember} />
+    <SchemaData
+      key={path}
+      path={path}
+      members={members}
+      member={resolvedMember}
+      setMember={setMember}
+      realmName={realmName}
+    />
   ) : (
     <div className="page-content-inner code-schema" data-route="schema">
       <h2 className="code-schema-title">SQL Schema</h2>
@@ -301,11 +297,13 @@ function SchemaData({
   members,
   member,
   setMember,
+  realmName,
 }: {
   path: string;
   members: GraphMember[];
   member: string;
   setMember: (m: string) => void;
+  realmName: string;
 }) {
   const { data, loading, failure, refetch } = useApi().get<ApiCodeSchemaResponse>(path);
   const [query, setQuery] = useState("");
@@ -401,6 +399,7 @@ function SchemaData({
           members={members}
           member={member}
           setMember={setMember}
+          realmName={realmName}
           query={query}
           setQuery={setQuery}
           onReindexed={refetch}

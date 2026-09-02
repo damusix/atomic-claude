@@ -12,7 +12,10 @@ Map:
   - docs/wiki/serve.md
 Contracts:
   - docs/spec/atomic-serve.md
+  - docs/spec/serve-realm-ux.md
 References:
   - docs/reference/serve.md
+Designs:
+  - docs/design/serve-realm-ux.md
 
 Consult the map before changing behavior here. Behavior changes stale the pages above. Renames or removals stale mentions beyond them: grep the old name across docs/ before shipping.

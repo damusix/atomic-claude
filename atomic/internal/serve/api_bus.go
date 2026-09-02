@@ -119,20 +119,44 @@ func (h *busAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case route == "tail" && r.Method == http.MethodGet:
 		h.handleTail(w, r)
 	case route == "join" && r.Method == http.MethodPost:
+		if rejectCrossOrigin(w, r) {
+			return
+		}
 		h.handleJoin(w, r)
 	case route == "send" && r.Method == http.MethodPost:
+		if rejectCrossOrigin(w, r) {
+			return
+		}
 		h.handleSend(w, r)
 	case route == "say" && r.Method == http.MethodPost:
+		if rejectCrossOrigin(w, r) {
+			return
+		}
 		h.handleSay(w, r)
 	case route == "halt" && r.Method == http.MethodPost:
+		if rejectCrossOrigin(w, r) {
+			return
+		}
 		h.handleHalt(w, r)
 	case route == "resume" && r.Method == http.MethodPost:
+		if rejectCrossOrigin(w, r) {
+			return
+		}
 		h.handleResume(w, r)
 	case route == "leave" && r.Method == http.MethodPost:
+		if rejectCrossOrigin(w, r) {
+			return
+		}
 		h.handleLeave(w, r)
 	case route == "close" && r.Method == http.MethodPost:
+		if rejectCrossOrigin(w, r) {
+			return
+		}
 		h.handleClose(w, r)
 	case route == "end" && r.Method == http.MethodPost:
+		if rejectCrossOrigin(w, r) {
+			return
+		}
 		h.handleEnd(w, r)
 	default:
 		writeAPIError(w, http.StatusNotFound, "unknown bus route")

@@ -429,7 +429,7 @@ Picked from two rendered side-by-sides (`atomic-visual-options`, throwaway). The
 | **B3** | One dot per version, filled = merged | Encodes count and which version is merged in a single glyph |
 | **D1** | One list of slugs | The design/spec split becomes structure inside a row rather than a split between sections |
 
-The realm repo picker sits on the title line — the top bar already states position, so the page does not repeat it. It appears only in realm scope, listing the members plus the realm root.
+The realm repo picker sits on the title line — the top bar already states position, so the page does not repeat it. It appears only in realm scope, listing the members plus the realm root, which wears the realm's name. The pick is held by the browser and shared with Graph and Schema; see `docs/design/serve-realm-ux.md`.
 
 Rejected outright: a worktree selector above the list, and any page-level version control. See the aggregate rule above.
 
@@ -461,7 +461,7 @@ The name will not always resolve, and the rule for that case is the whole point.
 flowchart TB
     A["reader opens a file<br/>selected worktree = W"] --> B{"does W hold<br/>this file?"}
     B -->|yes| C["render W's version<br/>picker still reads W"]
-    B -->|no| D["render this file's default:<br/>merged if it exists, else newest by mtime"]
+    B -->|no| D["render this file's default:<br/>newest by mtime"]
     D --> E["selection := that checkout<br/>picker updates to say so"]
 ```
 

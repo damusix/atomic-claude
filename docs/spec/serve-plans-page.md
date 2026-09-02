@@ -86,7 +86,7 @@ An `atomic scratchpad` verb owns creation, lookup, listing, and archival of one 
 **Plans aggregator and API**
 
 - [ ] `GET /api/plans[?member=]` returns one row per slug: committed docs (`docs/design/<slug>.md`, `docs/spec/<slug>.md`) deduplicated by content SHA across worktrees, and the scratchpad bundle attributed to the one worktree holding it (each bundle carries that worktree's id **and branch name**, so the rail can label it and open its files without the worktree also holding a doc), never deduplicated — including any non-markdown bundle file, listed with a `kind` (`markdown` | `html` | `file`) and no content.
-- [ ] Worktrees are enumerated via `git worktree list --porcelain`; a `prunable` entry is dropped; a detached-HEAD entry is labeled by its short commit SHA in place of a branch name.
+- [ ] Worktrees are enumerated via `git worktree list --porcelain`; a `prunable` entry is dropped; a detached-HEAD entry is labeled by its short commit SHA in place of a branch name. A root where that command fails because the root is not a git repository is aggregated as its own single checkout: id derived from its resolved path, empty branch, never merged, no creation time.
 - [ ] `raw=1`'s content-type is decided by the aggregator's `kind`, never by sniffing the bytes. `html` → `text/html`. Every other kind — `markdown`, `file`, and a committed doc — is served so a browser cannot execute it: `http.DetectContentType` may narrow a non-HTML type, but a sniff that lands on `text/html` or any XML type is clamped to `text/plain` (or `application/octet-stream` for `file`). The classification exists so a file named `notes.txt` whose bytes begin `<html><script>` stays inert; a sniff that overrides it defeats the classification it was meant to floor.
 - [ ] Every `raw=1` response carries `Content-Security-Policy: sandbox`. The iframe sandbox the page applies is the primary containment, but the URL is reachable by direct navigation and by a shared link, bypassing the iframe entirely — and the same origin serves unauthenticated write routes under `/api/bus/`. The header neuters script execution however the browser arrived.
 - [ ] A worktree id is stable across rebuilds for as long as that checkout exists at that path — derived from the resolved checkout path, never from its position in the enumeration — so removing one worktree can only make its own id vanish, never reassign it to a neighbour. A client holding a stale `/api/plans` response gets a rejection for a removed checkout, not another checkout's content.
@@ -94,7 +94,7 @@ An `atomic scratchpad` verb owns creation, lookup, listing, and archival of one 
 - [ ] `GET /api/plans/page?worktree=<id>&path=<relpath>&raw=1` resolves a committed doc or bundle file through that id-keyed resolver, including a file that lives outside the served root. Without `raw`, it responds with the same rendered HTML-in-JSON shape `/api/page` returns — used for markdown docs and the bundle-file kind `markdown`. With `raw=1`, it responds with the file's own content-type and raw bytes — used for kind `html` (served as `text/html`, for the sandboxed iframe) and kind `file` (served for download). An unknown or stale id is rejected in either mode.
 - [ ] The five existing walkers (nav, markdown search, docs graph, external-link scan, fingerprint), `gitIgnores`, and every existing `safeResolve` call site are unmodified by this work.
 - [ ] In realm scope, `/api/plans` accepts `?member=<key>` and aggregates exactly one repo's worktrees — the same result serving from inside that repo would give. There is no all-members aggregate view; the picker switches between repos, it does not union them.
-- [ ] The Plans member list is built for plans, not borrowed from the code graph, and differs from `discoverCodeMembers()` in two ways that each hide a repo otherwise: **the realm root is itself an entry**, because it is a git repo with its own `docs/design`, `docs/spec`, and scratchpad, and `realmCodeMembers()` never lists it (`atomic/internal/serve/code_members.go:103-116` builds only from declared and wiki-scanned members, and the branch that returns the served root — `:95-96` — fires only outside a realm); and **a member with no code index still appears**, since `:126-129` drops an unindexed wiki member as "noise, not a member", which is right for a symbol graph and wrong for a repo full of plans.
+- [ ] The Plans member list is built for plans, not borrowed from the code graph, and differs from `discoverCodeMembers()` in two ways that each hide a repo otherwise: **the realm root is itself an entry**, whether or not it is a git repository, since it has its own `docs/design`, `docs/spec`, and scratchpad, and `realmCodeMembers()` never lists it (`atomic/internal/serve/code_members.go:103-116` builds only from declared and wiki-scanned members, and the branch that returns the served root — `:95-96` — fires only outside a realm); and **a member with no code index still appears**, since `:126-129` drops an unindexed wiki member as "noise, not a member", which is right for a symbol graph and wrong for a repo full of plans.
 - [ ] The member picker renders only in realm scope, on the page's title line — the top bar already states position, so the page does not restate it. Repo scope renders no picker at all.
 - [ ] A member entry a reader picks resolves to that repo's own root, so its worktrees, its `<project-key>`, and therefore its reports, reminders, and archive are that repo's — never the realm's. A realm of N member repos has N+1 pickable entries and N+1 distinct project keys.
 
@@ -110,7 +110,7 @@ An `atomic scratchpad` verb owns creation, lookup, listing, and archival of one 
 - [ ] A row's dots count the versions of its **spec** document when one exists, else its design document — one document's version set, never a union or a sum across the two. The filled dot is that document's merged version. The two documents are versioned independently and the rail shows each one's own picker when the row is opened; the list needs one number per row and the spec is the implementation contract, so it is the one the list reports.
 - [ ] An opened slug renders one file in the middle pane; the right rail carries the version picker, the bundle's parts, and the file's own headings. A doc with exactly one version renders no picker.
 - [ ] The version picker is a type-ahead, not a tab strip. Each entry carries the version's label, the relative path to that checkout — absolute and marked when the checkout lives outside the served root — and created/last-updated timestamps; each secondary line is omitted rather than faked when the checkout cannot supply it. A filled dot marks the merged version.
-- [ ] The selected checkout name persists across files and is re-resolved against each file's own versions. A file the selection does not resolve against still opens — at its merged version, or the newest by mtime when it has none — and the selection moves to the checkout that holds what is now on screen. The picker never names a checkout whose content is not being displayed.
+- [ ] The selected checkout name persists across files and is re-resolved against each file's own versions. A file the selection does not resolve against still opens, at its newest version by mtime, and the selection moves to the checkout that holds what is now on screen. The picker never names a checkout whose content is not being displayed.
 - [ ] The rail lists what the row aggregates, never what the current selection contains, so a bundle file living in exactly one checkout is listed and openable from any selection.
 - [ ] Selecting a version renders that checkout's content via `/api/plans/page` — no content field travels in `/api/plans`.
 - [ ] A bundle file with `kind: "html"` fetches `/api/plans/page` with `raw=1` and renders the response inside a sandboxed `<iframe>` — never injected into the app document; a bundle file with `kind: "file"` fetches with `raw=1` and renders as a link/download affordance, not an inline preview; a bundle file with `kind: "markdown"` fetches without `raw` and renders through the existing markdown pipeline.
@@ -392,7 +392,7 @@ atomic/internal/migrate/steps_scratchpad.go
 
 atomic/internal/serve/plans.go
   plansAggregator — enumerates worktrees, builds the per-slug row set, caches by fingerprint
-    worktrees — `git worktree list --porcelain` parse; drop prunable, label detached HEAD
+    worktrees — `git worktree list --porcelain` parse; drop prunable, label detached HEAD; a non-git root is its own single checkout
     build — group docs/design + docs/spec by relpath then content SHA into versions,
             each holding every checkout that carries those bytes; attribute each
             worktree's scratchpad bundle to itself via scratchpad.List; classify each
@@ -507,7 +507,7 @@ atomic/internal/serve/frontend/src/utils/plansApi.ts
 2. `PlansView` calls `fetchPlans()` → `GET /api/plans`, with no checkout control of its own
 3. `plansHandler` resolves the repo root, asks `plansAggregator` for the current build
 4. `plansAggregator` checks its stat-fingerprint (docs/design, docs/spec, and every worktree's scratchpad root); on a match, returns the cached row set
-5. On drift, it re-enumerates worktrees via `git worktree list --porcelain` (dropping prunable entries, labeling any detached-HEAD checkout by short SHA), groups `docs/design/**` + `docs/spec/**` by relpath then content SHA into versions (each holding every checkout carrying those bytes, labelled by the merged checkout or else the newest, sorted newest mtime first), attributes each worktree's scratchpad bundle to that one worktree via `scratchpad.List` (classifying each bundle file's kind), and rebuilds the worktree-id resolver map consumed by `/api/plans/page`
+5. On drift, it re-enumerates worktrees via `git worktree list --porcelain` (dropping prunable entries, labeling any detached-HEAD checkout by short SHA), or uses the root itself as the one checkout when that command fails because the root is not a git repository, then groups `docs/design/**` + `docs/spec/**` by relpath then content SHA into versions (each holding every checkout carrying those bytes, labelled by the merged checkout or else the newest, sorted newest mtime first), attributes each worktree's scratchpad bundle to that one worktree via `scratchpad.List` (classifying each bundle file's kind), and rebuilds the worktree-id resolver map consumed by `/api/plans/page`
 6. Response renders as rows: one per slug, a two-line title/description that collapses to one line when the description is empty (A2), one dot per distinct version with the merged one filled, and bundle status/purposes/files when a bundle exists
 
 **Flow: navigating to a file the selection does not hold**
@@ -515,7 +515,7 @@ atomic/internal/serve/frontend/src/utils/plansApi.ts
 1. Reader has checkout `W` selected and clicks a rail entry — another doc, or a bundle file such as `findings/<lens>.md`
 2. `SlugView` looks for a version of the clicked file whose checkout set contains `W`
 3. On a match, it renders that version and the picker still reads `W`
-4. On no match — the normal case for a bundle file, which lives in exactly one checkout — it renders the file's merged version, or its newest by mtime when it has none, and sets the sticky selection to that file's checkout
+4. On no match — the normal case for a bundle file, which lives in exactly one checkout — it renders the file's newest version by mtime and sets the sticky selection to that file's checkout
 5. The picker re-renders naming the checkout now on screen; navigation is never refused and no rail entry is disabled
 
 **Flow: opening a version**
@@ -775,6 +775,14 @@ user happens to write their first reminder.
 directory is absent or empty", and `findByID` read the project-keyed directory alone, so a
 legacy-only reminder could be listed but not shown, edited, or removed.
 
+
+### 2026-09-02 — Non-git roots aggregate; the default version is the newest
+
+**What changed:** A root where `git worktree list --porcelain` fails is its own single checkout (empty branch, never merged, no creation time), so a realm root that is a plain directory still yields rows. A file with no held selection opens at its newest version by mtime. The realm-root member entry no longer depends on the root being a repository. Bundles carry `path` and `outsideRoot`. The rest of the change is contracted in `docs/spec/serve-realm-ux.md`.
+
+**Why:** On a realm whose root is not a git repository, the realm entry rendered "No plans found" while the root held ten docs. A reader mid-work wants the version being worked on rather than the merged one.
+
+**Superseded:** the realm-root entry was justified by "it is a git repo"; the no-hold default was the merged version, else the newest.
 
 ## Implementation log
 

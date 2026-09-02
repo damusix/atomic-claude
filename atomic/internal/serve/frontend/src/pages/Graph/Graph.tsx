@@ -1,8 +1,10 @@
-// Graph route ("/graph?view=&member="): Docs|Code switcher + member picker,
-// mounting the carried cosmos.gl engine via utils/graphEngineAdapter. Ported
-// from system-graph.js's renderGraphPane()/mountCodeView()/enterGraphMode()
-// shell-orchestration (htmx-era DOM rebuilds, not part of the carried
-// engine) — see docs/spec/serve-react-frontend.md's "Flow: graph-mode mount".
+// Graph route ("/graph?view="): Docs|Code switcher + member picker. The
+// member is held by the store (utils/memberStore), not the URL — only `view`
+// stays in the URL. Mounting the carried cosmos.gl engine via
+// utils/graphEngineAdapter. Ported from system-graph.js's
+// renderGraphPane()/mountCodeView()/enterGraphMode() shell-orchestration
+// (htmx-era DOM rebuilds, not part of the carried engine) — see
+// docs/spec/serve-react-frontend.md's "Flow: graph-mode mount".
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
@@ -10,22 +12,20 @@ import {
   type GraphMember,
   type GraphView,
   mountGraph,
+  pickerLabel,
   resolveMember,
   teardownGraph,
 } from "../../utils/graphEngineAdapter";
+import { useCurrentMember } from "../../utils/memberStore";
 import { GraphLayoutToggle } from "./GraphLayoutToggle";
 import { GraphReindex } from "./GraphReindex";
 import { GraphSearch } from "./GraphSearch";
 import "./style.css";
 
-function memberLabel(m: GraphMember): string {
-  return (m.prefix || "(local)") + (m.indexed ? "" : " — not indexed");
-}
-
 export function Graph() {
   const [searchParams, setSearchParams] = useSearchParams();
   const view: GraphView = searchParams.get("view") === "code" ? "code" : "docs";
-  const memberParam = searchParams.get("member") ?? "";
+  const { member, ready, realmName, setMember } = useCurrentMember();
   const [members, setMembers] = useState<GraphMember[]>([]);
   // Bumped when a rebuild finishes. It is part of the mount key, so the graph
   // remounts against the new index rather than continuing to draw the old one.
@@ -57,6 +57,7 @@ export function Graph() {
   // container too; reusing one DOM node across a switch would make every
   // mount after the first a silent no-op.
   useEffect(() => {
+    if (!ready) return;
     const container = containerRef.current;
     if (!container) return;
     let cancelled = false;
@@ -67,20 +68,11 @@ export function Graph() {
         if (cancelled) return;
         setMembers(fetched);
 
-        const resolved = resolveMember(fetched, memberParam);
-        if (resolved !== memberParam) {
-          setSearchParams(
-            (prev) => {
-              const next = new URLSearchParams(prev);
-              next.set("view", "code");
-              if (resolved) next.set("member", resolved);
-              else next.delete("member");
-              return next;
-            },
-            { replace: true },
-          );
-          return; // effect re-runs once the corrected params land
-        }
+        // resolveMember only picks the render/mount fallback here — a member
+        // missing from this page's own list is never written back to the
+        // store, so the pick survives a detour through Graph (see
+        // docs/spec/serve-realm-ux.md "Flow: a page cannot honour the member").
+        const resolved = resolveMember(fetched, member);
         await mountGraph(container, "code", resolved || undefined);
       } else {
         setMembers([]);
@@ -97,7 +89,9 @@ export function Graph() {
     // gives React a fresh DOM node, but without re-running this the engine is
     // never mounted into it and the pane goes blank after a rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, memberParam, reindexNonce]);
+  }, [view, member, ready, reindexNonce]);
+
+  const resolvedMember = resolveMember(members, member);
 
   function switchView(next: GraphView) {
     if (next === view) return;
@@ -105,16 +99,6 @@ export function Graph() {
       const params = new URLSearchParams(prev);
       if (next === "code") params.set("view", "code");
       else params.delete("view");
-      params.delete("member");
-      return params;
-    });
-  }
-
-  function switchMember(prefix: string) {
-    setSearchParams((prev) => {
-      const params = new URLSearchParams(prev);
-      params.set("view", "code");
-      params.set("member", prefix);
       return params;
     });
   }
@@ -142,20 +126,20 @@ export function Graph() {
             Code
           </button>
         </span>
-        <GraphLayoutToggle resetKey={`${view}:${memberParam}:${reindexNonce}`} />
-        <GraphSearch resetKey={`${view}:${memberParam}:${reindexNonce}`} />
+        <GraphLayoutToggle resetKey={`${view}:${resolvedMember}:${reindexNonce}`} />
+        <GraphSearch resetKey={`${view}:${resolvedMember}:${reindexNonce}`} />
         <span id="graph-member-picker-slot">
           {view === "code" && members.length > 1 && (
             <select
               id="graph-member-select"
               className="graph-member-select"
               aria-label="Code member"
-              value={memberParam}
-              onChange={(e) => switchMember(e.target.value)}
+              value={resolvedMember}
+              onChange={(e) => setMember(e.target.value)}
             >
               {members.map((m) => (
                 <option key={m.prefix} value={m.prefix}>
-                  {memberLabel(m)}
+                  {pickerLabel(m, realmName)}
                 </option>
               ))}
             </select>
@@ -165,11 +149,11 @@ export function Graph() {
             from the code index, so rebuilding the index would change nothing
             a reader can see there. */}
         {view === "code" ? (
-          <GraphReindex member={memberParam} onReindexed={() => setReindexNonce((n) => n + 1)} />
+          <GraphReindex member={resolvedMember} onReindexed={() => setReindexNonce((n) => n + 1)} />
         ) : null}
       </div>
       <div
-        key={`${view}:${memberParam}:${reindexNonce}`}
+        key={`${view}:${member}:${reindexNonce}`}
         ref={containerRef}
         id={view === "code" ? "code-cy" : "system-cy"}
         data-code-graph={view === "code" ? "" : undefined}

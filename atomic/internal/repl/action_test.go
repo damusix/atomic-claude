@@ -110,6 +110,33 @@ func seedDeadSession(t *testing.T, home, scopeRoot, name string, meta Meta) Sess
 	return Session{SocketPath: sockPath, MetaPath: metaPath, Meta: meta}
 }
 
+// seedSocketlessSession writes a meta file and no socket at all — the window a
+// `stop` opens between acking the shutdown and the harness finishing the removal
+// of its own files. findSession succeeds here; the dial that follows does not.
+func seedSocketlessSession(t *testing.T, home, scopeRoot, name string, meta Meta) Session {
+	t.Helper()
+
+	sockPath, err := SocketPath(home, scopeRoot, name)
+	if err != nil {
+		t.Fatalf("SocketPath: %v", err)
+	}
+	metaPath, err := MetaPath(home, scopeRoot, name)
+	if err != nil {
+		t.Fatalf("MetaPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(sockPath), 0o700); err != nil {
+		t.Fatalf("mkdir session dir: %v", err)
+	}
+
+	meta.Name = name
+	meta.Socket = sockPath
+	meta.Root = scopeRoot
+	if err := meta.Save(metaPath); err != nil {
+		t.Fatalf("save meta: %v", err)
+	}
+	return Session{SocketPath: sockPath, MetaPath: metaPath, Meta: meta}
+}
+
 // captureStderr redirects os.Stderr for fn and returns what was written. Every
 // action here writes errors straight to os.Stderr, so asserting on that needs a
 // real fd swap, not an injected io.Writer.
@@ -443,6 +470,59 @@ func TestDeadSessionRemedy_NamesReplStart(t *testing.T) {
 			}
 			if !strings.Contains(stderr, "atomic repl start") {
 				t.Errorf("stderr = %q, want it to name `atomic repl start`", stderr)
+			}
+		})
+	}
+}
+
+// A socket can be gone while its meta is still on disk: `stop` returns on the
+// harness's shutdown ack, and the harness clears socket and meta afterwards. A
+// verb landing in that window finds the meta and dials nothing, so the error
+// arrives from Dial rather than findSession. It must still read exactly like a
+// name that was never started — that byte-identical reading is the promise
+// notFoundError exists to keep, and the remedy is the part a reader acts on.
+func TestNotFoundAfterSocketVanishes_ReadsLikeNeverStarted(t *testing.T) {
+	root := "/repo"
+
+	seeded := shortTempDir(t)
+	seedSocketlessSession(t, seeded, root, "s", Meta{Lang: LangPython})
+	// A home where "s" was never started at all, for the comparison.
+	empty := shortTempDir(t)
+
+	var out bytes.Buffer
+	run := func(verb, home string) int {
+		switch verb {
+		case "eval":
+			return evalAction([]string{"--name", "s", "1"}, home, []string{root}, nil, &out)
+		case "status":
+			return statusAction([]string{"--name", "s"}, home, []string{root}, &out)
+		case "reset":
+			return resetAction([]string{"--name", "s"}, home, []string{root}, &out)
+		default:
+			return stopAction([]string{"--name", "s"}, home, []string{root}, &out)
+		}
+	}
+
+	for _, verb := range []string{"eval", "status", "reset", "stop"} {
+		t.Run(verb, func(t *testing.T) {
+			out.Reset()
+			var code int
+			stderr := captureStderr(t, func() { code = run(verb, seeded) })
+
+			out.Reset()
+			neverStarted := captureStderr(t, func() { run(verb, empty) })
+
+			if code != int(ExitNotFound) {
+				t.Errorf("exit = %d, want %d", code, ExitNotFound)
+			}
+			if !strings.Contains(stderr, "atomic repl start") {
+				t.Errorf("stderr = %q, want it to name `atomic repl start`", stderr)
+			}
+			if strings.Contains(stderr, ".sock") {
+				t.Errorf("stderr = %q, want no socket path — it leaks an internal detail the remedy replaces", stderr)
+			}
+			if stderr != neverStarted {
+				t.Errorf("stderr = %q, want it byte-identical to the never-started reading %q", stderr, neverStarted)
 			}
 		})
 	}

@@ -50,8 +50,8 @@ flowchart LR
 | `GET /api/code/{node,callers,callees,impact,files,schema,file}` | Code-explorer JSON, backing the code modal and SQL schema view |
 | `GET /api/status` | Realm health: wiki staleness plus code-index health |
 | `GET /api/external` | External-link registry with first-seen dates |
-| `GET /api/plans[?member=<key>]` | One row per plan slug, aggregated across every git worktree of the target repo (realm root or a named member) |
-| `GET /api/plans/page?worktree=<id>&path=<relpath>[&raw=1]` | One committed doc or bundle file, resolved by worktree id rather than the served root. `raw=1` streams the file's own bytes with `Content-Security-Policy: sandbox` |
+| `GET /api/plans[?member=<key>]` | One row per plan slug, aggregated across every git worktree of the target repo (realm root or a named member). `<key>` matches a member's `Prefix` first, its `Key` second — `findPlansMember` (`api_plans.go`) |
+| `GET /api/plans/page?worktree=<id>&path=<relpath>[&raw=1]` | One committed doc or bundle file, resolved by worktree id rather than the served root. `raw=1` streams the file's own bytes with `Content-Security-Policy: sandbox` (`sandbox allow-scripts` for an `.html`/`.htm` file) |
 | `GET /api/plans/members` | Every repo Plans can aggregate — empty outside realm scope, where the page renders no picker |
 | `GET /api/bus/*` | Bus chat facade, loopback-only (routes below) |
 | `GET /events` | Live-reload SSE, `{fp, changed}` |
@@ -69,7 +69,7 @@ Bus routes, all under `/api/bus/`:
 
 ### Security model
 
-Three guards, each at a different layer:
+Four guards, each at a different layer:
 
 | Guard | Where | Rejects |
 |-------|-------|---------|
@@ -77,8 +77,11 @@ Three guards, each at a different layer:
 | `safeResolve` (`render.go`) | page, rail, file | a path escaping the served root |
 | `requireRoom` | bus room names | a name that would escape `RoomLogPath` |
 | `resolvePlansPath` (`api_plans_page.go`) | plans page and raw-file reads | a path escaping a worktree-issued root, or an unregistered worktree id |
+| `rejectCrossOrigin` (`origin_guard.go`) | every `/api/bus/*` POST route, `/api/reindex` POST | a request whose `Origin` or `Sec-Fetch-Site` header does not match the server's own origin |
 
 **Read-only, and the one hole in it.** `isLoopbackPeer` parses `r.RemoteAddr` with `net.SplitHostPort` and `net.ParseIP(...).IsLoopback()`, never a header, so `--host 0.0.0.0` extends browsing to the LAN but never bus send or halt. It also cannot see through a reverse proxy that terminates LAN traffic locally, which is outside the gate's threat model rather than a gap in it. Unparseable addresses fail closed.
+
+**`rejectCrossOrigin` replaces containment the iframe sandbox used to provide.** Once a bundle-mock HTML file's iframe can run scripts (see the Plans section below), a script served from this origin could otherwise POST straight to the loopback-gated bus and reindex routes. An opaque-origin document — what a sandboxed frame produces — sends `Origin: null`, which never equals the server's own `scheme://host`, so `rejectCrossOrigin` refuses it with `403`. It checks `Origin` first, falling back to `Sec-Fetch-Site` when `Origin` is absent; either header naming a different origin is rejected.
 
 **Path traversal is rejected at the handler**, not by the filesystem. `safeResolve` and `resolvePlansPath` both delegate to `render.go`'s `resolveContained`, but against different allowed roots: `safeResolve` is fixed to the single served root at every existing call site (`api_handlers.go`, `context_handler.go`, `graph.go`); `resolvePlansPath` calls `resolveContained` directly against whichever worktree root the plans registry resolved the request's `worktree` id to, since a worktree can sit anywhere on disk. `requireRoom` is the equivalent guard for bus room names, which get spliced into a filesystem path.
 
@@ -124,11 +127,23 @@ Two checkouts editing the same bytes read as one version with two checkouts list
 
 `resolveDefaultBranch` (`plans.go`) decides which checkout's version counts as merged — `refs/remotes/origin/HEAD`, else `init.defaultBranch` from the shared git config, else `main` when some checkout holds it, else `master` — with no `git` subprocess beyond the one `worktree list` call. `checkoutID` derives each worktree's opaque id as the first 12 hex characters of `sha256(resolved checkout path)`, re-issued by `resolverFor` on every aggregator rebuild and never accepted from a client; `plansRegistry.resolveWorktree` looks an id up against the one aggregator that issued it and confirms it is still current before resolving.
 
+**A root with no `.git` aggregates as one branchless checkout.** `plansAggregator.worktrees` used to return `nil` when `runGitWorktreeList` failed, dropping every row for a realm root that is not itself a git repository. It now falls back to a single `checkoutInfo{id: checkoutID(root), path: root, branch: "", isMain: false}`, so a bare non-git root still surfaces its docs and bundles instead of an empty Plans page.
+
+**`planBundle` carries `Path` and `OutsideRoot`** alongside `WorktreeID`/`Branch`. `checkoutDisplayPath(root, path)` renders a checkout's path relative to `root` when it lies inside it, or returns the absolute path with `OutsideRoot: true` when it doesn't — reusing `walk.go`'s symlink-resolved comparison so a root that resolves differently across mount points (macOS `/var` vs `/private/var`) never flags an in-root worktree as outside.
+
+**A doc version's default is the newest by mtime, with no merged-branch preference.** `resolve.ts`'s `resolveDocVersion` used to fall back to `mergedOrNewest` (the default-branch version if one existed, else newest); it now always falls back to `newestByMtime` when `at` holds no match, so the reader lands on whichever checkout touched the file last rather than the merged one.
+
 A row's title and description come from `extractMeta` reading the representative version's content (the merged version when one exists, else the newest) — the first heading for the title, the `## Goal` paragraph for the description, falling back to the document's first body paragraph. A bundle's `meta.toml` `description` field is never used for a row's display text; it is provenance only. The dot picker's count and merged state come from one document's version set — the spec doc's when present, else the design doc's — never a union of both.
 
-Bundle files render by classification, never by client-supplied extension: `.md`/`.markdown` fetches through `/api/plans/page` and renders server-side, identically to a committed doc; `.html`/`.htm` renders through `BundleFileViewer`'s `HtmlWindow`, the same code-fence window chrome (dots bar, filename caption) a markdown code block gets, filling the pane via a `mode-plans-frame` body class rather than the prose measure — everything else is never fetched into the React tree, the client points a download link straight at `/api/plans/page?...&raw=1`. Every raw fetch, whichever kind requested it, gets `Content-Security-Policy: sandbox` on the response.
+Bundle files render by classification, never by client-supplied extension: `.md`/`.markdown` fetches through `/api/plans/page` and renders server-side, identically to a committed doc; `.html`/`.htm` renders through `BundleFileViewer`'s `HtmlWindow`, the same code-fence window chrome (dots bar, filename caption) a markdown code block gets, filling the pane via a `mode-plans-frame` body class rather than the prose measure, in an `iframe` with `sandbox="allow-scripts"` so a bundle mock (e.g. an `atomic-visual-options` HTML fixture) can run its own scripts — everything else is never fetched into the React tree, the client points a download link straight at `/api/plans/page?...&raw=1`. Every raw fetch gets `Content-Security-Policy: sandbox` on the response, except an `.html`/`.htm` fetch, which gets `sandbox allow-scripts` to match the iframe; the frame's opaque origin keeps a running script from the app's cookies and storage, and `rejectCrossOrigin` (Security model, above) is what now stops that script from reaching the write routes on this origin.
 
-**`usePlansScope` is the one place Plans code reads or writes `?member=`, `?at=`, and the `/plans/:slug/*` route.** Before it existed, five call sites each re-derived the same state from their own `useSearchParams`/`useLocation` calls and assembled their own `/plans` URLs, which is how they drifted. Every consumer now either reads a field (`member`, `at`, `slug`, `relpath`, `isPlansRoute`) or calls a writer (`openSlug`, `openFile`, `setAt`, `setMember`) — never `react-router` directly. `setAt` and `setMember` navigate through `{ pathname, search, hash }` rather than `setSearchParams`, because `setSearchParams`'s `"?" + params` form drops a heading anchor open at the time of the write.
+**`usePlansScope` is the one place Plans code reads or writes `?at=` and the `/plans/:slug/*` route.** Before it existed, five call sites each re-derived the same state from their own `useSearchParams`/`useLocation` calls and assembled their own `/plans` URLs, which is how they drifted. Every consumer now either reads a field (`at`, `slug`, `relpath`, `isPlansRoute`) or calls a writer (`openSlug`, `openFile`, `setAt`) — never `react-router` directly. `setAt` navigates through `{ pathname, search, hash }` rather than `setSearchParams`, because `setSearchParams`'s `"?" + params` form drops a heading anchor open at the time of the write. Which member is selected is no longer a URL concern — `usePlansScope` dropped `member`/`setMember`/`scopedSearch` entirely; `plansHref` and `slugHref` no longer carry a member query param.
+
+**`utils/memberStore.ts` is the one module-level store for the reader's picked member**, cookie-backed (`atomic-member`, one JSON map keyed `<scope>:<name>` so a realm pick and a repo pick never collide) rather than URL-carried, so the selection survives a reload without living in every page's query string. `useCurrentMember()` (`useSyncExternalStore`, same pattern as `components/code-modal/store.ts`) resolves the scope identity from one `GET /nav` per page load; `ready` is false until that resolves, and Graph and Schema both hold their member-scoped fetch on `!ready` rather than fetching against an empty member and refetching once identity lands. `memberLabel(prefix, realmName)` renders the empty prefix (the realm root or bare-repo scope) as the realm's own name instead of blank; `graphEngineAdapter.ts`'s `pickerLabel(m, realmName)` composes it with the `— not indexed` suffix for the Graph and Schema member `<select>`s, replacing the two near-identical `memberLabel` helpers those files used to define locally.
+
+**Graph and Schema both read `member` from the store, not `?member=`.** `Graph.tsx`'s effect used to correct a stale or unresolvable `?member=` by rewriting the URL and re-running on the next pass; now `resolveMember(fetched, member)` picks the render/fetch fallback locally and never writes it back to the store, so a member missing from one page's own list doesn't leak into another page's pick. `SchemaView.tsx` follows the same shape (`resolveMember` computed inline, `setMember` from the store passed straight to `SchemaToolbar`). The `/graph` URL now carries only `?view=`.
+
+**The top bar names the checkout on screen.** `TopBar.tsx`'s `provenanceLabel` reads `utils/planViewStore.ts`'s `useOnScreenCheckout()` — a second module-level `useSyncExternalStore` store, set by `SlugView` to `{branch, path, outsideRoot}` for whichever checkout resolved onto the page — and renders `<branch> · <path>` after the breadcrumb's file crumb, gated on `scope.slug` (not `isPlansRoute`, which also holds on bare `/plans` and would show the outgoing slug's provenance for a frame during unmount). The plans breadcrumb itself (`plansCrumbs`) inserts a member crumb between "plans" and the slug only when `member.scope === "realm"`, labeled through the same `memberLabel`.
 
 Reading a slug is two panes agreeing on one resolution. `SlugView` owns the sticky `?at=` query parameter, naming a checkout's branch, through `usePlansScope`'s `setAt`; `PlansRail` (mounted separately in the shell's aside) computes the identical resolution read-only through `components/plans/resolve.ts`'s `resolveDocVersion`, so the body and the rail's version picker can never show different versions. When the resolved checkout's branch does not match `at` — no selection yet, or the requested branch has no version for a newly opened file — `SlugView` rewrites the URL to match rather than blocking on it: navigation always wins over the sticky preference.
 
@@ -211,7 +226,8 @@ Go, all in [`atomic/internal/serve/`](../../atomic/internal/serve):
 | `plans.go` | `plansAggregator` — the worktree enumeration, content-SHA version grouping, bundle collection, `rowUpdatedAt` (newest mtime across a row's doc versions and bundle files, rows sorted descending with a slug tiebreak), and the stat-only fingerprint cache the Plans surface reads from |
 | `api_plans.go` | `/api/plans` and `/api/plans/members`; `plansRegistry` sharing one `plansAggregator` per root and indexing worktree ids across every aggregator built |
 | `api_plans_page.go` | `/api/plans/page`; `resolvePlansPath`, `plansContentType`'s HTML/XML-sniff clamp for `raw=1` responses |
-| `api_bus.go` | `/api/bus/*` handler: loopback gate, dial-vs-ensure split, `requireRoom`, `writeBusError` |
+| `api_bus.go` | `/api/bus/*` handler: loopback gate, dial-vs-ensure split, `requireRoom`, `writeBusError`, `rejectCrossOrigin` on every POST route |
+| `origin_guard.go` | `rejectCrossOrigin` — the same-origin check every bus POST route and the reindex POST route call before touching daemon or index state |
 | `api_bus_transcript.go` | `/api/bus/sessions` and `/api/bus/transcript` |
 | `frontend_dist.go` | `//go:embed all:frontend/dist` and `//go:generate bun run --cwd frontend build.ts` |
 
@@ -228,11 +244,13 @@ Frontend, all under [`atomic/internal/serve/frontend/`](../../atomic/internal/se
 | `src/components/` | `nav`, `rail`, `search`, `code-modal`, `schema`, `plans`, and generic `ui` primitives |
 | `src/components/plans/PlansView.tsx` | The `/plans` list: sticky toolbar, one row per slug with `updatedAt`, ⌘F-captured client-side filter (`filterPlanRows`), member picker, `chipsFor` (design/spec/brief/state/followups/findings/options chips from what a row actually carries) |
 | `src/components/plans/SlugView.tsx` | The opened slug: owns the sticky `?at=` write and its yield via `usePlansScope`, fetches the active doc or bundle file, mounts mermaid, emits page headings for the rail's Contents tab |
-| `src/components/plans/usePlansScope.ts` | The one hook that reads and writes `?member=`, `?at=`, and the `/plans/:slug/*` route; every other Plans component reads its fields or calls its writers instead of `react-router` directly |
+| `src/components/plans/usePlansScope.ts` | The one hook that reads and writes `?at=` and the `/plans/:slug/*` route (member selection lives in `utils/memberStore.ts`, not here); every other Plans component reads its fields or calls its writers instead of `react-router` directly |
 | `src/components/plans/VersionPicker.tsx` | Right-rail type-ahead over a doc's version set (Ark `Combobox`), hidden when a doc has one version |
 | `src/components/plans/BundleFileViewer.tsx` | Renders a bundle file by kind: markdown through the page fetch, html through `HtmlWindow`'s code-fence chrome (`mode-plans-frame`), file through a raw-URL download link |
 | `src/components/plans/resolve.ts` | `resolveDocVersion`, `resolveBundleFile`, `findDoc`, `findCheckoutById` — the one resolution algorithm `SlugView` and `PlansRail` both call, so they cannot compute different answers |
 | `src/components/rail/PlansRail.tsx` | Right rail for an opened slug: version picker, the row's docs + bundle files as nav entries, active file's headings — mounted outside `SlugView`'s route subtree, re-derives slug/path from the URL itself |
+| `src/utils/memberStore.ts` | Module-level, cookie-backed store (`atomic-member`) for the reader's picked member; `useCurrentMember`, `setMember`, `memberLabel` |
+| `src/utils/planViewStore.ts` | Module-level store for the checkout `SlugView` currently has on screen; `useOnScreenCheckout`, read by `TopBar` for provenance |
 | `src/components/nav/IconRail.tsx` | The five mode icons (Docs, Graph, Schema, Message Bus, Plans) routed below the Browse toggle |
 | `src/components/search/SearchPalette.tsx`, `searchItems.ts` | Cmd-K palette; a `plans` source tab fetches the full `/api/plans` payload once and filters client-side (`planPaletteItems`, built on `filterPlanRows`, the same filter `PlansView`'s toolbar uses), since Plans has no search endpoint |
 | `src/hooks/useLiveReload.ts` | `EventSource('/events')` to a `realm.changed` observer event; `shouldRefetchPage` decides page and rail refetch |
@@ -269,6 +287,7 @@ Docs:
 | [`docs/spec/cosmos-system-graph.md`](../spec/cosmos-system-graph.md), [`docs/design/cosmos-system-graph.md`](../design/cosmos-system-graph.md) | The cosmos.gl rendering contract both graph views delegate to |
 | [`docs/spec/code-graph.md`](../spec/code-graph.md), [`docs/design/code-graph.md`](../design/code-graph.md) | The code graph view: granularity, palette, layout cache, member picker |
 | [`docs/spec/serve-plans-page.md`](../spec/serve-plans-page.md), [`docs/design/serve-plans-page.md`](../design/serve-plans-page.md) | The Plans surface: aggregation model, worktree-id containment, `atomic scratchpad` and project-keyed state paths it shares a spec with |
+| [`docs/spec/serve-realm-ux.md`](../spec/serve-realm-ux.md), [`docs/design/serve-realm-ux.md`](../design/serve-realm-ux.md) | The member store, on-screen-checkout provenance, and non-git-root plan aggregation |
 
 
 ## Constraints

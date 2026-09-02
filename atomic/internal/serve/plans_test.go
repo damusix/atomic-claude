@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -433,6 +434,38 @@ func TestPlansAggregator_BundleFileKindClassification(t *testing.T) {
 	}
 	if _, ok := kinds["meta.toml"]; ok {
 		t.Errorf("meta.toml listed as a bundle file, want it excluded")
+	}
+}
+
+// A scratchpad bundle worked on inside a linked worktree carries that
+// worktree's own display path, not the primary checkout's.
+func TestPlansAggregator_LinkedWorktreeBundlePathMatchesCheckout(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	main := setupMainRepo(t, root)
+	wt := filepath.Join(main, ".claude", "worktrees", "wt-bundle")
+	gitCmd(t, main, "worktree", "add", wt, "-b", "bundle-branch")
+
+	restoreHome := config.SetHomeDirForTest(t.TempDir())
+	defer restoreHome()
+
+	if _, _, err := scratchpad.New(wt, "wt-slug", "plan"); err != nil {
+		t.Fatalf("scratchpad.New: %v", err)
+	}
+
+	a := newTestAggregator(main)
+	rows, _, _ := a.rows()
+
+	row := findRow(t, rows, "wt-slug")
+	if len(row.Bundles) != 1 {
+		t.Fatalf("bundles = %+v, want exactly 1", row.Bundles)
+	}
+	wantPath, wantOutside := checkoutDisplayPath(main, wt)
+	if row.Bundles[0].Path != wantPath {
+		t.Errorf("Bundles[0].Path = %q, want %q", row.Bundles[0].Path, wantPath)
+	}
+	if row.Bundles[0].OutsideRoot != wantOutside {
+		t.Errorf("Bundles[0].OutsideRoot = %v, want %v", row.Bundles[0].OutsideRoot, wantOutside)
 	}
 }
 
@@ -884,6 +917,97 @@ func TestPlansAggregator_CommitOfUntrackedDocRefreshesMerged(t *testing.T) {
 	doc = findDoc(t, row, "docs/spec/commit-refresh-slug.md")
 	if len(doc.Versions) != 1 || !doc.Versions[0].IsMain {
 		t.Errorf("versions after commit = %+v, want 1 version with IsMain=true", doc.Versions)
+	}
+}
+
+// A root that is not a git repository at all — no .git anywhere — still
+// aggregates its docs and scratchpad bundle as one checkout, rather than
+// producing no rows.
+func TestPlansAggregator_NonGitRootIsOneCheckout(t *testing.T) {
+	root := t.TempDir()
+
+	restoreHome := config.SetHomeDirForTest(t.TempDir())
+	defer restoreHome()
+
+	if _, _, err := scratchpad.New(root, "x", "plan"); err != nil {
+		t.Fatalf("scratchpad.New: %v", err)
+	}
+
+	a := newTestAggregator(root)
+	rows, _, _ := a.rows()
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v, want exactly 1", rows)
+	}
+
+	row := findRow(t, rows, "x")
+	if len(row.Docs) != 2 {
+		t.Fatalf("docs = %+v, want 2 (design + spec)", row.Docs)
+	}
+	wantID := checkoutID(root)
+	dispPath, _ := checkoutDisplayPath(root, root)
+	for _, doc := range row.Docs {
+		if len(doc.Versions) != 1 {
+			t.Fatalf("doc %q versions = %+v, want exactly 1", doc.Path, doc.Versions)
+		}
+		v := doc.Versions[0]
+		if v.Label != "" || v.IsMain {
+			t.Errorf("doc %q version = %+v, want Label=\"\" IsMain=false", doc.Path, v)
+		}
+		if len(v.Checkouts) != 1 {
+			t.Fatalf("doc %q checkouts = %+v, want exactly 1", doc.Path, v.Checkouts)
+		}
+		c := v.Checkouts[0]
+		if c.ID != wantID {
+			t.Errorf("checkout ID = %q, want %q", c.ID, wantID)
+		}
+		if c.Branch != "" {
+			t.Errorf("checkout Branch = %q, want \"\"", c.Branch)
+		}
+		if c.Created != nil {
+			t.Errorf("checkout Created = %v, want nil", c.Created)
+		}
+	}
+
+	if len(row.Bundles) != 1 {
+		t.Fatalf("bundles = %+v, want exactly 1", row.Bundles)
+	}
+	if row.Bundles[0].Path != dispPath {
+		t.Errorf("bundle Path = %q, want %q", row.Bundles[0].Path, dispPath)
+	}
+	if row.Bundles[0].OutsideRoot {
+		t.Errorf("bundle OutsideRoot = true, want false")
+	}
+}
+
+// A `git worktree list --porcelain` failure — the enumeration command
+// erroring inside a real git checkout — takes the same single-checkout path
+// as a root with no .git at all.
+func TestPlansAggregator_GitWorktreeListFailureIsOneCheckout(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	main := setupMainRepo(t, root)
+	writeDoc(t, main, "design", "y", "# y\n\nBody.\n", time.Now())
+
+	orig := runGitWorktreeList
+	runGitWorktreeList = func(dir string) ([]byte, error) {
+		return nil, fmt.Errorf("boom")
+	}
+	t.Cleanup(func() { runGitWorktreeList = orig })
+
+	a := newTestAggregator(main)
+	rows, _, _ := a.rows()
+
+	row := findRow(t, rows, "y")
+	doc := findDoc(t, row, "docs/design/y.md")
+	if len(doc.Versions) != 1 || len(doc.Versions[0].Checkouts) != 1 {
+		t.Fatalf("doc = %+v, want exactly 1 checkout", doc)
+	}
+	c := doc.Versions[0].Checkouts[0]
+	if c.ID != checkoutID(main) {
+		t.Errorf("checkout ID = %q, want %q", c.ID, checkoutID(main))
+	}
+	if c.Branch != "" {
+		t.Errorf("checkout Branch = %q, want \"\"", c.Branch)
 	}
 }
 

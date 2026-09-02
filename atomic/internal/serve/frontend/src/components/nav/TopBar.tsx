@@ -6,7 +6,9 @@ import { Fragment } from "react";
 import { Link, useLocation } from "react-router";
 import type { ConnState } from "../../hooks/useLiveReload";
 import { useApi } from "../../utils/api";
+import { memberLabel, useCurrentMember, type CurrentMember } from "../../utils/memberStore";
 import { bundleLocalPath } from "../../utils/plansApi";
+import { useOnScreenCheckout } from "../../utils/planViewStore";
 import { usePlansScope } from "../plans/usePlansScope";
 import { Tooltip } from "../ui";
 import type { NavResponse } from "./types";
@@ -64,10 +66,16 @@ function pageCrumbs(pathname: string): Crumb[] {
 // /plans/:slug/* has its own shape — plans » <slug> » <file label> — so the
 // generic /page/ directory-listing logic (which would emit "docs" and "spec"
 // as their own crumbs, 404ing against /page/plans/...) never runs here.
-function plansCrumbs(scope: ReturnType<typeof usePlansScope>): Crumb[] {
+function plansCrumbs(scope: ReturnType<typeof usePlansScope>, member: CurrentMember): Crumb[] {
   const { slug, relpath, plansHref, slugHref } = scope;
   if (!slug) return [{ label: "plans" }];
-  if (!relpath) return [{ label: "plans", to: plansHref() }, { label: slug }];
+
+  const crumbs: Crumb[] = [{ label: "plans", to: plansHref() }];
+  if (member.scope === "realm") {
+    crumbs.push({ label: memberLabel(member.member, member.realmName), to: plansHref() });
+  }
+
+  if (!relpath) return [...crumbs, { label: slug }];
 
   const fileLabel = relpath.includes("/design/")
     ? "design.md"
@@ -75,7 +83,18 @@ function plansCrumbs(scope: ReturnType<typeof usePlansScope>): Crumb[] {
       ? "spec.md"
       : bundleLocalPath(relpath);
 
-  return [{ label: "plans", to: plansHref() }, { label: slug, to: slugHref(slug) }, { label: fileLabel }];
+  return [...crumbs, { label: slug, to: slugHref(slug) }, { label: fileLabel }];
+}
+
+// A muted `<branch> · <path>` after the file crumb, naming the checkout the
+// slug view has resolved on screen — see docs/design/serve-realm-ux.md
+// "The top bar says where the file lives". Gated on scope.slug, not
+// isPlansRoute: isPlansRoute is also true on bare /plans, so on navigating
+// there it could still show the outgoing slug's provenance for a frame
+// while SlugView's unmount cleanup races the route change.
+function provenanceLabel(scope: ReturnType<typeof usePlansScope>, onScreen: ReturnType<typeof useOnScreenCheckout>): string | null {
+  if (!scope.slug || !onScreen) return null;
+  return onScreen.branch ? `${onScreen.branch} · ${onScreen.path}` : onScreen.path;
 }
 
 // The header breadcrumb shows the whole path, not just the leaf: with the
@@ -84,7 +103,10 @@ function plansCrumbs(scope: ReturnType<typeof usePlansScope>): Crumb[] {
 function Breadcrumb() {
   const location = useLocation();
   const scope = usePlansScope();
-  const crumbs = scope.isPlansRoute ? plansCrumbs(scope) : pageCrumbs(location.pathname);
+  const member = useCurrentMember();
+  const onScreen = useOnScreenCheckout();
+  const crumbs = scope.isPlansRoute ? plansCrumbs(scope, member) : pageCrumbs(location.pathname);
+  const provenance = provenanceLabel(scope, onScreen);
 
   return (
     <nav className="breadcrumb" aria-label="Breadcrumb">
@@ -104,6 +126,13 @@ function Breadcrumb() {
           )}
         </Fragment>
       ))}
+      {provenance ? (
+        <Tooltip label={`Checkout: ${provenance}`} placement="bottom">
+          <span className="breadcrumb-provenance" aria-label={`Checkout: ${provenance}`} tabIndex={0}>
+            {provenance}
+          </span>
+        </Tooltip>
+      ) : null}
     </nav>
   );
 }
