@@ -79,22 +79,45 @@ To skip the artifact refresh, pass `--skip-claude-update` and run it yourself wh
 atomic claude update
 ```
 
-Five useful flags for `atomic update`:
+Six useful flags for `atomic update`:
 
 - `--check` — just check if an update is available, do not download
-- `--channel prerelease` — track release candidates instead of stable
+- `--pre` — install the newest pre-release; shorthand for `--channel prerelease`
+- `--channel <stable|prerelease>` — the long form of the same choice
 - `--no-doctor` — skip the post-update health check
 - `--skip-claude-update` — replace the binary only, skip the artifact refresh
 - `--force` — take over an update lock held by another process; never skips checksum verification
 
 `atomic update` refuses to run if another update looks to be in progress, unless that lock is more than 10 minutes old (then it is assumed abandoned and taken over automatically). `--force` is the manual override for a lock you know is stale.
 
-Two config keys control the background check that makes updates fast; both default to `true`:
+
+### Pre-releases
+
+
+Every merge into the `next` branch can cut a pre-release, tagged `X.Y.Z-next.N`. `atomic update --pre` installs the newest one.
+
+The pre-release channel **tracks the tip** of `next` rather than climbing a version ladder. It installs whatever the newest pre-release is, including one numbered below what you are running: once `6.7.0` ships stable, the pre-releases that follow it are still `6.7.0-next.N`, and refusing them would leave you stranded on stable. The stable channel only ever moves forward, and never sees a pre-release at all.
+
+To stay on pre-releases without typing the flag each time:
+
+```bash
+atomic config set update.channel prerelease   # background check, banner, doctor and update all follow
+atomic config unset update.channel            # back to stable
+```
+
+`--pre` is a one-shot override and never writes config, so a machine pinned to pre-releases can still take a single stable update with `--channel stable`.
+
+Downgrading off the channel is manual: set the channel back to stable, then reinstall the version you want with the install script.
+
+Three config keys control the update machinery:
 
 ```bash
 atomic config set update.check false   # stop the hourly background version check entirely
 atomic config set update.stage false   # keep checking for updates, but never pre-download
+atomic config set update.channel prerelease   # track pre-releases instead of stable
 ```
+
+`update.check` and `update.stage` default to `true`; `update.channel` defaults to `stable`.
 
 The last check time, what's staged, and whether an update is in progress all live in the machine-managed `~/.atomic/state.json`. You never need to edit it by hand.
 

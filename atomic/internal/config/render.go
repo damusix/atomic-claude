@@ -1,6 +1,10 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
+)
 
 // Resolved returns a flat dotted-key to resolved-value map, filling in built-in
 // defaults for zero-value fields.
@@ -41,7 +45,14 @@ func Resolved(cfg *Config) map[string]string {
 	if idleTimeoutVal == "" {
 		idleTimeoutVal = replIdleTimeoutDefault
 	}
+	// An empty channel means unset — display the channel every update path
+	// falls back to.
+	channelVal := cfg.Update.Channel
+	if channelVal == "" {
+		channelVal = selfupdate.ChannelStable
+	}
 	return map[string]string{
+		"update.channel":           channelVal,
 		"output.signals.max_depth": fmt.Sprintf("%d", maxDepth),
 		"update.run_doctor":        fmt.Sprintf("%t", runDoctor),
 		"update.check":             fmt.Sprintf("%t", updateCheck),

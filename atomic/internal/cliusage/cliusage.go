@@ -327,7 +327,7 @@ var commands = []Command{
 	{
 		Path:        []string{"update"},
 		Args:        "",
-		Flags:       []string{"--check", "--channel", "--no-doctor", "--skip-claude-update", "--force"},
+		Flags:       []string{"--check", "--channel", "--pre", "--no-doctor", "--skip-claude-update", "--force"},
 		Description: "Self-update the atomic binary, then refresh ~/.claude artifacts",
 	},
 	{

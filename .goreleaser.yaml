@@ -32,6 +32,14 @@ checksum:
   name_template: "checksums.txt"
   algorithm: sha256
 
+# A -next.N tag must reach GitHub flagged as a prerelease: the stable update
+# channel filters on that flag alone, and the default of false would hand every
+# stable user a pre-release build. make_latest keeps releases/latest — which
+# install.sh reads — pointing at the newest full release.
+release:
+  prerelease: auto
+  make_latest: "{{ not .Prerelease }}"
+
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
