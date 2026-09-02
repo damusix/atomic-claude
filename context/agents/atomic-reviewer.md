@@ -5,8 +5,9 @@ description: >
   verifies TDD signals were actually run. Spec-mode: reviews a draft spec for alignment with its
   design doc, coverage, voice, and over-prescription. One line per finding, severity-tagged, no
   praise, no scope creep. Output: `path:line: <emoji> severity: problem. fix.` + signals (code-mode)
-  + totals + VERDICT. Use to gate implementation work in the subagent-implementation loop and to
-  gate spec authoring in the /atomic-plan spec loop.
+  + totals + VERDICT. Use to gate implementation work in the subagent-implementation loop, to
+  gate spec authoring in the /atomic-plan spec loop, and — dispatched by the ship verbs' review
+  gate — to gate code the main agent wrote directly, outside any loop, before its commit lands.
 tools: [Read, Grep, Bash]
 skills: [atomic-review, atomic-writing, atomic-verify, atomic-tdd, atomic-git-discipline]
 model: claude-sonnet-5

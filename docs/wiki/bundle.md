@@ -58,10 +58,10 @@ Inclusion is decided by pure predicates in [`atomic/internal/bundlespec/bundlesp
 Editing a partial reaches further than its own consumers, because partials nest:
 
 ```
-commit-flow  ──> doc-impact, signals-gate
+commit-flow  ──> review-gate, doc-impact, signals-gate
 merge-flow   ──> base-resolution, signals-gate, worktree-cleanup-prompt,
                  merge-flow-preflight, merge-flow-steps
-squash-flow  ──> base-resolution, doc-impact, signals-gate,
+squash-flow  ──> base-resolution, review-gate, doc-impact, signals-gate,
                  squash-flow-preflight, squash-flow-steps
 agent-implementer-workflow ──> agent-search-tooling, agent-tdd-signals,
                                agent-code-intel, agent-where

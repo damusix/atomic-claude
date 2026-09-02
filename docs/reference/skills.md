@@ -5,12 +5,12 @@ Skills fire automatically when Claude encounters matching phrases in conversatio
 
 ## Discipline
 
-These enforce good engineering habits without you having to ask. Together, `atomic-tdd` and `atomic-verify` are the loop's objective gate: a test that passes or fails, not a second opinion. That is the difference between a loop that catches its own mistakes and one that talks itself into "done".
+These enforce good engineering habits without you having to ask. Together, `atomic-tdd` and `atomic-verify` are the loop's objective gate: a test that passes or fails, not a second opinion. That is the difference between a loop that catches its own mistakes and one that talks itself into "done". Outside the loop, where Claude edits code directly and no reviewer is watching, `atomic-verify` restores the second opinion the loop has by default: it dispatches `atomic-reviewer` on the diff before the work can be called ready.
 
 | Skill | Fires when you say... | What it does |
 |-------|----------------------|-------------|
 | `atomic-tdd` | "let's implement X", "add feature Y", "fix bug Z" | Writes a failing test before touching production code. |
-| `atomic-verify` | "done", "fixed", "passing", "ready to merge" | Runs verification before letting Claude claim completion. No evidence, no claim. |
+| `atomic-verify` | "done", "fixed", "passing", "ready to merge" | Runs verification before letting Claude claim completion. No evidence, no claim. On code Claude wrote directly, outside the implement loop, verification includes an `atomic-reviewer` pass. |
 | `atomic-debug` | pastes an error, "broken", "doesn't work", "failing" | Drives hypothesis-driven debugging instead of symptom-patching. |
 
 

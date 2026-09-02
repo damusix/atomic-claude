@@ -12,7 +12,7 @@ tags: [agents, artifacts, lifecycle]
 
 A long task run in one context degrades. The model accumulates its own reasoning, stops seeing earlier choices as choices, and reviews its own work against the rationalizations that produced it.
 
-This domain is the lifecycle a change moves through and the machinery that keeps that from happening: each step runs in a fresh context, and a gate sits between them. Orchestrator commands never write code themselves. Each dispatches fresh-context subagents, parses their verdicts, and commits between rounds. No Go package implements any of it; the whole domain is prompt artifacts under [`context/commands/`](../../context/commands), [`context/agents/`](../../context/agents), [`context/skills/`](../../context/skills), and [`context/_partials/`](../../context/_partials).
+This domain is the lifecycle a change moves through and the machinery that keeps that from happening: each step runs in a fresh context, and a gate sits between them. Orchestrator commands never write code themselves. Each dispatches fresh-context subagents, parses their verdicts, and commits between rounds. When the main agent edits code directly instead of dispatching an orchestrator, the same reviewer still gates it, just without a loop around it — see "Direct edits" below. No Go package implements any of it; the whole domain is prompt artifacts under [`context/commands/`](../../context/commands), [`context/agents/`](../../context/agents), [`context/skills/`](../../context/skills), and [`context/_partials/`](../../context/_partials).
 
 
 ## How it works
@@ -79,6 +79,26 @@ stateDiagram-v2
 | Repetition | The same logic, explanation, or name-with-a-twist in two places; comments, docstrings, messages, or docs that don't read as plain, concise English |
 
 Escalates to 🔴 when a comment misdescribes the code, or when the same readability finding comes back on the same file across iterations. Step C in `/subagent-implementation` and the loop in `/quick-fix` fold every readability 🟡 into the next iteration's focus alongside blocking 🔴 findings — it is the one 🟡 tier that never reaches `FOLLOWUPS.md`, in every loop this engine drives.
+
+### Direct edits: reviewer-gated without a loop
+
+Editing code directly in the main agent, with no `atomic-implementer` dispatch, is the third implementation path, alongside the subagent loop and `/quick-fix`. It has no loop to gate each iteration, so the reviewer is dispatched at two exits instead of one.
+
+```mermaid
+flowchart LR
+    E["Main agent edits code<br/>(no atomic-implementer)"] --> V{"atomic-verify:<br/>claiming ready?"}
+    V -->|yes| R1["atomic-reviewer"]
+    R1 -->|0 unaddressed 🔴| Ready["claim ready"]
+    R1 -->|🔴 findings| E
+    E --> S["git add"]
+    S --> G{"review-gate:<br/>loop-produced,<br/>already reviewed,<br/>or docs-only?"}
+    G -->|no| R2["atomic-reviewer"]
+    G -->|yes| Commit["commit"]
+    R2 -->|PASS| Commit
+    R2 -->|🔴 bug| E
+```
+
+[`context/skills/atomic-verify/SKILL.md`](../../context/skills/atomic-verify) blocks a "ready" claim on code written this way until `atomic-reviewer` reports 0 unaddressed 🔴 findings on the diff. [`context/_partials/review-gate.md`](../../context/_partials/review-gate.md), composed into `commit-flow` and `squash-flow-steps` as the step before `doc-impact`, dispatches `atomic-reviewer` on the staged diff before the commit lands and acts on the verdict: 🔴 blocks and must be fixed and re-staged, 🟡 needs a fix or a one-line justification, 🔵 is mentioned, never blocking.
 
 ### Commit message: drafted once, checked once, committed unchanged
 
@@ -168,7 +188,7 @@ Docs are written before the signals refresh so a new page exists when the scan r
 | Path | Role |
 |---|---|
 | [`context/agents/atomic-implementer.md`](../../context/agents/atomic-implementer.md) | Writes the code. `mode: feature` is cohesion-bounded, any file count; `mode: surgical` hard-caps at 2 non-test files and bounces anything larger. Both write TDD and report `## Did` / `## Tests` / `## Signals` / `## Failed` / `## Commit`, the last a proposed Conventional Commits message. Composes `agent-readability`, so its own comment noise or over-engineering is a self-check before the reviewer ever sees the diff. |
-| [`context/agents/atomic-reviewer.md`](../../context/agents/atomic-reviewer.md) | Gates each iteration. Code-mode diffs against the spec, verifies TDD signals actually ran, checks the implementer's `## Commit` proposal against `atomic-git-discipline`, and gates readability at a 🟡 floor; spec-mode reviews a draft spec against its design. Ends with `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`, no third option. |
+| [`context/agents/atomic-reviewer.md`](../../context/agents/atomic-reviewer.md) | Gates each iteration. Code-mode diffs against the spec, verifies TDD signals actually ran, checks the implementer's `## Commit` proposal against `atomic-git-discipline`, and gates readability at a 🟡 floor; spec-mode reviews a draft spec against its design. Ends with `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`, no third option. Also dispatched outside any loop: `atomic-verify`'s readiness check and the ship verbs' review gate both call it on code the main agent wrote directly. |
 | [`context/agents/atomic-auditor.md`](../../context/agents/atomic-auditor.md) | Gates the whole task once, after the loop goes green. Four passes: cumulative spec compliance, cross-iteration coherence (now including comment drift and repetition accumulated across iterations, exempt from the single-checkpoint drop rule), commit soundness (plus a PR title/body judgment when an optional `pr:` path is passed), documentation adherence. Never edits the repo; findings also written to `$SCRATCH/AUDIT.md`. Fresh context. |
 | [`context/agents/atomic-investigator.md`](../../context/agents/atomic-investigator.md) | Read-only locator. Returns a `file:line — what` table, no prose. Haiku-backed at `effort: low`, so it is cheap enough to dispatch by default. |
 | [`context/agents/atomic-strategist.md`](../../context/agents/atomic-strategist.md) | Read-only "is this the right approach?" reasoning at `effort: xhigh`. Dispatched only when the loop is stuck. |
@@ -178,7 +198,7 @@ Docs are written before the signals refresh so a new page exists when the scan r
 | Path | Role |
 |---|---|
 | [`context/skills/atomic-tdd/`](../../context/skills/atomic-tdd) | Failing test before production code. Owns writing or changing code once the cause is known. |
-| [`context/skills/atomic-verify/`](../../context/skills/atomic-verify) | No completion claim without a verification command run in this turn. Invoked explicitly at every finalize. |
+| [`context/skills/atomic-verify/`](../../context/skills/atomic-verify) | No completion claim without a verification command run in this turn. Invoked explicitly at every finalize. Claiming code the main agent wrote itself is ready requires dispatching `atomic-reviewer` on the diff first, with 0 unaddressed 🔴 findings — skipped only when every changed path is documentation. |
 | [`context/skills/atomic-git-discipline/`](../../context/skills/atomic-git-discipline) | Conventional Commits messages and PR bodies. Every ship path delegates message format here; session-report content passed in as why-context is resolved by the invoking ship verb via `atomic where --json`, not by this skill. Composed into `atomic-implementer` (drafts the `## Commit` proposal) and `atomic-reviewer` (checks it); `pr-flow` now invokes this skill directly for PR title and body tone, not `atomic-review`. |
 | [`context/skills/atomic-review/`](../../context/skills/atomic-review) | One-line-per-finding review comments. Over-engineering and comment noise both floor at 🟡 risk, never 🔵; a comment that misdescribes the code is 🔴 bug. No longer supplies PR tone. |
 | [`context/skills/atomic-debug/`](../../context/skills/atomic-debug) | Hypothesis-driven diagnosis of an unknown root cause. Complements `/subagent-diagnose`. |
@@ -192,8 +212,9 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 |---|---|
 | [`context/_partials/worktree-setup.md`](../../context/_partials/worktree-setup.md) | The whole worktree gate: isolation detection, branch resolution, spec carry-forward, `git worktree add`, `EnterWorktree`, setup and baseline test detection. Composed into `subagent-implementation` and `autopilot`. |
 | [`context/_partials/agent-where.md`](../../context/_partials/agent-where.md) | The `atomic where --json` orientation call: repo-scope wiki, realm position, code-index scope, plus the project-keyed `reports`, `reports_root`, `reminders`, and `archive` paths every workflow artifact resolves from rather than hand-building. |
-| [`context/_partials/commit-flow.md`](../../context/_partials/commit-flow.md) | Stage, doc-impact, signals-gate, commit, session-report cleanup — the report dir is resolved via `agent-where`'s `reports` field, never constructed. |
+| [`context/_partials/commit-flow.md`](../../context/_partials/commit-flow.md) | Stage, review-gate, doc-impact, signals-gate, commit, session-report cleanup — the report dir is resolved via `agent-where`'s `reports` field, never constructed. |
 | [`context/_partials/push-flow.md`](../../context/_partials/push-flow.md), `pr-flow.md`, `merge-flow.md`, `squash-flow.md` | The four escalation paths `/commit` routes into. |
+| [`context/_partials/review-gate.md`](../../context/_partials/review-gate.md) | Already-reviewed guard (skips loop-produced diffs and a change this same gate already reviewed earlier in the flow), docs-only guard, then dispatches `atomic-reviewer` in code mode on the staged diff and acts on the verdict before the commit. Composed into `commit-flow` (step 4) and `squash-flow-steps` (step 4), both immediately before `doc-impact`. |
 | [`context/_partials/doc-impact.md`](../../context/_partials/doc-impact.md) | Matches the staged diff against the `## Documentation surfaces` table, walks each match with Yes / Later / Remind / Skip. |
 | [`context/_partials/signals-gate.md`](../../context/_partials/signals-gate.md) | Docs-only guard, `atomic signals stale`, silent `atomic-wiki-inferrer` dispatch, `atomic wiki mark-dirty`. |
 | [`context/_partials/worktree-cleanup-prompt.md`](../../context/_partials/worktree-cleanup-prompt.md) | Offers to remove a linked worktree after a merge. Archives the worktree's scratchpad bundle(s) via `atomic scratchpad list`/`archive` before `git worktree remove`, so a bundle isn't destroyed unarchived; falls back to removal without archiving, with a printed notice, when [`atomic`](../../atomic) is absent. Composed into `merge-flow` only. |
@@ -235,6 +256,8 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 **A readability finding always blocks, whatever tier it would carry elsewhere.** Comment noise, over-engineering, or repetition sits at a 🟡 risk floor via [`context/_partials/agent-readability.md`](../../context/_partials/agent-readability.md); the reviewer will not `PASS` while one is open, and it is the one 🟡-tier finding that never lands in `FOLLOWUPS.md`. A `/quick-fix` run pinned at its 3-iteration cap by a recurring readability finding is working as designed, not stuck.
 
 **The auditor is dispatched exactly once per task.** A `CHANGES_REQUESTED` verdict earns one more implementer and reviewer iteration, then the run continues regardless of what a second audit would say. Re-auditing turns finalize into an unbounded loop, which never terminates under `/autopilot`.
+
+**The review gate runs once per change, not once per step.** [`context/_partials/review-gate.md`](../../context/_partials/review-gate.md) skips when the staged work already came from a loop that dispatches `atomic-reviewer` per iteration (`/subagent-implementation`, `/quick-fix`, `/autopilot`, `/subagent-diagnose`), when this same gate already reviewed the change earlier in the flow (a squash reviewing what commit-time already reviewed), or when every staged path is documentation, by the same test the signals gate uses. Without the guard, a squash of already-reviewed commits would re-review the identical diff.
 
 **Worktree cleanup fires on `merge` and `squash merge`, not on plain `squash`.** `worktree-cleanup-prompt` is composed into `merge-flow` only, so a branch squashed without merging leaves its worktree in place, and its scratchpad bundle un-archived.
 
@@ -287,7 +310,7 @@ Config also owns the paths this domain writes to: `.claude/.scratchpad/<slug>/` 
 Contracts that change in lockstep:
 
 - The YAGNI ladder in [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) is kept verbatim identical to the ladder in [`context/CLAUDE.md`](../../context/CLAUDE.md)'s Principles block. [`context/CLAUDE.md`](../../context/CLAUDE.md) is copied byte-for-byte (not expanded) into the bundle, so that duplication is manual.
-- The ship verbs must agree on message format, worktree detection, and the signals gate. Changing one path's behavior on a shared concern means changing all of them.
+- The ship verbs must agree on message format, worktree detection, the review gate, and the signals gate. Changing one path's behavior on a shared concern means changing all of them.
 - A new command, agent, or skill needs a row in the `/atomic-help` topic table before it is done.
 - `agent-readability.md`'s severity floor is kept in step with `atomic-review`'s over-engineering and comment-noise sections — both were raised from 🔵/mixed to a 🟡 floor together (commit `4489fcc`).
 - Every artifact citing a hand-built scratchpad, report, reminder, or archive path instead of resolving it through `atomic scratchpad` or `atomic where --json` is a regression against the same fix applied across eleven commands and two skills in this range.
