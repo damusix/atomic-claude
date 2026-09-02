@@ -93,7 +93,13 @@ Always include body for: breaking changes, security fixes, data migrations, anyt
 
 Same discipline, higher stakes. A PR body is read by people who weren't in the session — often maintainers with no context — so its length is a cost every reviewer pays, and a long body buries the two sentences they actually needed.
 
-**Title:** imperative, ≤70 chars, no trailing period. No `<type>:` prefix unless the project uses one.
+**Title:** imperative, ≤70 chars, no trailing period.
+
+The `<type>:` prefix is not cosmetic — on a squash merge the title *becomes* the commit subject on the base branch, and it is the only line a changelog generator reads. A prose title on a squash-merged PR ships the work invisibly: the branch's own conventional commits survive only as body bullets, which release-please and its siblings do not parse for a type. Nothing fails; the release just comes out empty.
+
+So the prefix is required whenever the project uses Conventional Commits and the PR may be squash-merged — which is any project whose merge button you do not control. Pick the type by the same user-visible-impact rule as a commit subject, and apply it to the whole PR: highest impact wins, `feat:` for new behavior, `fix!:` for anything removed or renamed. Only when the project does not use Conventional Commits at all does the title go bare.
+
+A merge-commit merge is the exception that hides this: it keeps every commit on the branch, so release-please reads them directly and the title never matters. Do not let a repo's merge-commit history convince you the title is free — the next merge may be a squash.
 
 **Body — state only what the diff can't show:**
 
