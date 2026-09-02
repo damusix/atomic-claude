@@ -84,7 +84,7 @@ Each phase's working state lives in one `atomic scratchpad` bundle per task — 
 
 Wikis are how Claude learns a codebase once instead of every session. Two scopes:
 
-- **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes.
+- **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes. Plus one pointer card per domain under `.claude/rules/wiki/`, injected whenever Claude touches a file in that domain.
 - **Realm wiki**: a Karpathy-style knowledge base you compile with Claude instead of maintaining by hand. A folder holds your repos and the loose material around them; the `wiki/` beside them holds per-repo summaries, shared concerns, and knowledge pages synthesized from capture buckets.
 
 ```text

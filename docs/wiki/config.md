@@ -174,6 +174,26 @@ flowchart TD
 
 Gate 1 is what stops the child re-spawning a grandchild: the child's own invocation carries the `update` verb, so it returns before reaching the spawn.
 
+### Download progress and stall abort
+
+`Client.download` reads the response body in 64KiB chunks and resets a `time.AfterFunc` watchdog on every non-empty read. The watchdog fires only after `StallTimeout` (default `defaultStallTimeout`, 30s) passes with zero bytes, canceling the request's own context, so a slow-but-moving multi-minute transfer never trips it. That watchdog is the reason `downloadClient()` carries no `http.Client.Timeout` at all: the shared `httpClient()` used for `Lookup` keeps the 10s `lookupTimeout`, but that same cap applied to an archive body read used to abort any download slower than 10 seconds outright. Every `progressEmitBytes` (512 KiB) accumulated since the last tick calls `onProgress(received, total)`, and the loop calls it once more after `io.EOF`, substituting `received` for `total` when the server sent no `Content-Length`. Only the archive fetch inside `Client.Apply` and `Client.Stage` forwards `c.OnProgress`; every checksum-file `download` call passes `nil` and never reports.
+
+```mermaid
+flowchart TD
+    D["Client.download: 64KiB Read loop"] -->|"n>0"| RST["watchdog.Reset(StallTimeout)"]
+    RST --> ACC{"sinceEmit >= progressEmitBytes?"}
+    ACC -->|yes| EM["onProgress(received, total)"]
+    ACC -->|no| D
+    EM --> D
+    D -->|"AfterFunc fires,<br/>StallTimeout idle"| ST["stalled.Store(true); cancel(ctx)"]
+    ST --> ERR["Read returns ctx error →<br/>'download stalled: no data for Ns'"]
+    D -->|"io.EOF"| FIN["final onProgress(received, total)<br/>total = received when unset"]
+```
+
+A download aborts only on sustained silence, never on total elapsed time, and the emitted progress reaches nothing unless a caller wires an observer.
+
+`runUpdate` is the only caller that wires one: `c.OnProgress = downloadProgressRenderer(os.Stdout, charmterm.IsTerminal(os.Stdout.Fd()))`, evaluated after the `--check` branch has already returned, so the foreground apply path gets a renderer and the `--check`-only path does not. `downloadProgressRenderer` itself returns `nil` off a TTY, since its `\r`-rewritten status line would otherwise print a new line on every tick into redirected output; on a TTY it rewrites one line in place, prints a trailing `\n` on the 100% tick, and goes quiet after. `runUpdateCheck`'s background staging call to `c.Stage` never assigns `OnProgress`, so an auto-spawned `atomic update --check` that also stages a release prints nothing regardless of TTY.
+
 ### Scope discovery
 
 `FindScopeRoot` walks past `.git` boundaries, because a realm root sits above its member repos, so the walk runs to the filesystem root. It takes the first marker of the *requested* kind and continues past a missing file, a parse error, an invalid value, or a marker naming the other kind. Discovery degrades; it never fails, which is why it returns no error.
@@ -260,8 +280,8 @@ Gate 1 is what stops the child re-spawning a grandchild: the child's own invocat
 | Path | Role |
 |------|------|
 | [`atomic/internal/selfupdate/state.go`](../../atomic/internal/selfupdate/state.go) | The `~/.atomic/state.json` shape and its atomic read/write. |
-| [`atomic/internal/selfupdate/selfupdate.go`](../../atomic/internal/selfupdate/selfupdate.go) | `Lookup`, `Apply`, `ApplyStaged`, `Stage`, `StageDir`, the lock primitives, `CompareSemver`/`IsValidSemver` (shared with `migrate`), and the pure `IsNewer`/`ShouldNotify` decision helpers. |
-| [`atomic/cmd/atomic/cmd_update.go`](../../atomic/cmd/atomic/cmd_update.go) | `selfupdateFastPath` (banner + stamp-before-spawn), `runUpdateCheck`, `runUpdate`, `runUpdateApply`. |
+| [`atomic/internal/selfupdate/selfupdate.go`](../../atomic/internal/selfupdate/selfupdate.go) | `Lookup`, `Apply`, `ApplyStaged`, `Stage`, `StageDir`, the lock primitives, `CompareSemver`/`IsValidSemver` (shared with `migrate`), the pure `IsNewer`/`ShouldNotify` decision helpers, and `download`'s stall watchdog + throttled `OnProgress` emission. |
+| [`atomic/cmd/atomic/cmd_update.go`](../../atomic/cmd/atomic/cmd_update.go) | `selfupdateFastPath` (banner + stamp-before-spawn), `runUpdateCheck`, `runUpdate`, `runUpdateApply`, `downloadProgressRenderer` (TTY-only `\r`-rewritten status line). |
 | [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) | Calls `selfupdateFastPath` before Cobra dispatch, and root-command registration for every verb in this domain. |
 
 ### Embedded text
@@ -339,6 +359,8 @@ Gate 1 is what stops the child re-spawning a grandchild: the child's own invocat
 **The `--__background-check` marker is stripped from argv before any flag parser sees it**, so it never appears in `--help` or `cliusage` and `atomic validate artifacts` cannot flag a citation of it.
 
 **Lock rules differ by caller.** Background staging uses `AcquireLock` / `ReleaseLock`, where release is fenced on the caller's own `ownedSince` token so a newer holder's lock is never clobbered. Foreground `atomic update` uses `AcquireOrTakeoverLock`: a lock younger than `StaleLockAfter` (10 minutes) is refused with its age named, older is taken over, and `--force` bypasses the age check only. `--force` never touches checksum verification. `ApplyStaged` re-derives the expected checksum from a fresh `Lookup` and never trusts the staged record's own recorded hash.
+
+**A download times out on silence, never on duration.** `downloadClient()` sets no `http.Client.Timeout`, unlike `httpClient()`'s 10s `lookupTimeout`; only the per-read stall watchdog (`StallTimeout`, default 30s) governs abort, so a multi-minute archive transfer on a slow link is never killed by an overall deadline. Only an archive download reports progress: `Client.Apply` and `Client.Stage` pass `c.OnProgress` to `download`, but every checksum-file fetch passes `nil`.
 
 **`atomic repo init` is append-only and never commits.** Of its seven guarantees, two create a directory (`.scratchpad/`, [`.claude/project/`](../../.claude/project), no git involved), four answer "is this already ignored" by running `git check-ignore -q` against a nonexistent probe path (falling back to a literal line scan when git is absent or the root is not a work tree), and the last writes the scope marker. Existing ignore content is never rewritten or reordered. Guarantee 5 (root `tmp/`) is the only ignore rule not nested under `harness.dir`. The scope-marker guarantee returns an error rather than an `Action` on a conflicting existing value, so `Init` fails and the caller surfaces it.
 

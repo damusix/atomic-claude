@@ -44,6 +44,7 @@ Which verb to reach for:
 | A branch you want reviewed once, no loop | `/review-branch` |
 | Nothing to shipped, unattended | `/autopilot` |
 | Ship it | `/commit [push \| pr \| merge \| squash \| squash merge]` |
+| CI needs unattended watching outside the loop | `/watch-ci` |
 | Lost | `/atomic-help` |
 
 ### The loop
@@ -69,6 +70,33 @@ stateDiagram-v2
 
 **Nothing the reviewer finds is dropped silently.** Non-blocking 🟡 risk, 🔵 nit, and ❓ question findings are harvested into `FOLLOWUPS.md` even on a `PASS`, and every entry gets an explicit disposition at finalize: `fix-now`, `defer`, `issue`, or `drop`. `/autopilot` is the exception, and inverts it: every finding is fixed in-iteration, so its `FOLLOWUPS.md` ends empty.
 
+**Readability is a defect class, and it skips the ledger in every loop, not just `/autopilot`.** The shared `agent-readability.md` partial, composed into `atomic-implementer`, `atomic-reviewer`, and `atomic-auditor`, floors three findings at 🟡 risk and makes any one of them enough to drive `CHANGES_REQUESTED`:
+
+| Defect | What triggers a finding |
+|---|---|
+| Comment noise | A comment that restates the lines under it, narrates the diff, or carries process residue |
+| Over-engineering | Code the YAGNI ladder would have stopped: a helper the codebase already has, a one-use abstraction, a dependency for what the platform does, a general solution where the spec asked for one case |
+| Repetition | The same logic, explanation, or name-with-a-twist in two places; comments, docstrings, messages, or docs that don't read as plain, concise English |
+
+Escalates to 🔴 when a comment misdescribes the code, or when the same readability finding comes back on the same file across iterations. Step C in `/subagent-implementation` and the loop in `/quick-fix` fold every readability 🟡 into the next iteration's focus alongside blocking 🔴 findings — it is the one 🟡 tier that never reaches `FOLLOWUPS.md`, in every loop this engine drives.
+
+### Commit message: drafted once, checked once, committed unchanged
+
+The message is written by the agent that knows why the change is shaped this way, not reconstructed downstream from the diff.
+
+```mermaid
+sequenceDiagram
+    participant I as atomic-implementer
+    participant R as atomic-reviewer
+    participant O as Orchestrator
+    I->>R: diff plus a Commit proposal
+    R->>R: check type, subject, body against atomic-git-discipline
+    R-->>O: VERDICT PASS, Commit proposal
+    O->>O: commit from the proposal verbatim
+```
+
+The implementer's report ends with a `## Commit` section in `atomic-git-discipline` format; the reviewer flags a misstated type or a diff-restating body as 🟡 risk under Code quality before passing. `/subagent-implementation` Step D and `/quick-fix`'s commit step start from that proposal and invoke the skill directly only when the proposal is missing.
+
 ### Caps and stop conditions
 
 | Orchestrator | Cap | Early stop |
@@ -77,7 +105,7 @@ stateDiagram-v2
 | `/quick-fix` | 3 iterations, then ask | Escape hatch on approach fork, fuzzy criteria, an unforeseen contract choice, a shifted root cause, or implementer `BLOCKED` / `NEEDS_CONTEXT` |
 | `/subagent-diagnose` | `min(memory override, 5)` iterations | 3 consecutive iterations producing the same normalized top-level error |
 | `/atomic-plan` spec loop | 5 iterations | none |
-| `/autopilot` | Inherits the loop's 6 | Stuck auto-dispatches `atomic-strategist` instead of asking, because the strategist never writes |
+| `/autopilot` | none | Stuck auto-dispatches `atomic-strategist` instead of asking, because the strategist never writes |
 
 **`/quick-fix` routes out on uncertainty, never on file count.** An unknown root cause goes to `/subagent-diagnose`; multiple viable approaches, fuzzy success criteria, or an architectural or contract choice goes to `/atomic-plan`; implementer `BLOCKED` or `NEEDS_CONTEXT` fires the hatch unconditionally. The surgical-versus-feature agent choice inside the loop is cohesion fit, not a scope cap.
 
@@ -114,7 +142,7 @@ Docs are written before the signals refresh so a new page exists when the scan r
 
 | Path | Role |
 |---|---|
-| [`context/commands/gather-evidence.md`](../../context/commands/gather-evidence.md) | Chases a hypothesis through primary sources; returns `SUPPORTED` / `UNSUPPORTED` / `MIXED` / `INCONCLUSIVE` with a cited trail. Tier rule: community-level-only evidence caps the verdict at `MIXED`. |
+| [`context/commands/gather-evidence.md`](../../context/commands/gather-evidence.md) | Chases a hypothesis through primary sources; returns `SUPPORTED` / `UNSUPPORTED` / `MIXED` / `INCONCLUSIVE` with a cited trail. Tier rule: community-level-only evidence caps the verdict at `MIXED` or `INCONCLUSIVE`. |
 | [`context/commands/pressure-test.md`](../../context/commands/pressure-test.md) | Socratic challenger session. Questions only, no code, no agents, no artifacts. |
 | [`context/commands/atomic-plan.md`](../../context/commands/atomic-plan.md) | Triviality gate (trivial / borderline / non-trivial), then design doc plus spec. Non-trivial runs a spec-authoring subagent loop capped at 5 iterations. Its scratchpad bundle is opened via `atomic scratchpad new <topic> --purpose plan`. |
 | [`context/commands/challenge-swarm.md`](../../context/commands/challenge-swarm.md) | Profiles the target artifact against nine stake questions, seats 3-6 cited lenses from a ~30-lens catalog, dispatches them in isolation, merges findings into a contradiction map. Report-only, never edits the target. |
@@ -123,6 +151,7 @@ Docs are written before the signals refresh so a new page exists when the scan r
 | [`context/commands/subagent-diagnose.md`](../../context/commands/subagent-diagnose.md) | Failure-driven loop. `ci` mode seeds from a failed GitHub Actions run, `bug` mode from a freeform symptom. Topic slugs no longer carry a date prefix (`diagnose-ci-<run-id>`, `diagnose-bug-<slug>`) since `atomic scratchpad` owns bundle identity. |
 | [`context/commands/autopilot.md`](../../context/commands/autopilot.md) | Runs plan to loop to ship unattended. The merge method is the only human decision. Phase 6 deletes `tmp/trash/` only; the task's scratchpad bundle is left for later retirement. |
 | [`context/commands/review-branch.md`](../../context/commands/review-branch.md) | One `atomic-reviewer` pass over `<base>..HEAD`. Pre-flight before `/commit pr` or `/commit merge`. |
+| [`context/commands/watch-ci.md`](../../context/commands/watch-ci.md) | Dispatches a background, Haiku-backed `general-purpose` subagent to poll CI to a terminal state and report back; provider detection (GitHub Actions, GitLab CI, CircleCI, etc.) lives in the subagent, sourced from [`docs/wiki/index.md`](index.md) first, file-tree heuristics second. Read-only, never reruns or cancels a workflow. Returns immediately. |
 | [`context/commands/commit.md`](../../context/commands/commit.md) | The single ship verb. Escalation tokens `push`, `pr`, `merge`, `squash`, `squash merge`; no token commits then prompts. |
 | [`context/commands/undo-commit.md`](../../context/commands/undo-commit.md) | Soft-resets the last commit. Refuses on merge commits, the initial commit, and an already-pushed HEAD. |
 | [`context/commands/session-report.md`](../../context/commands/session-report.md) | Writes branch-scoped why-context to the `reports` path `atomic where --json` reports (`~/.atomic/<project-key>/reports/<branch>/`, outside the repository). Read by `/commit`, deleted after a successful commit. |
@@ -138,9 +167,9 @@ Docs are written before the signals refresh so a new page exists when the scan r
 
 | Path | Role |
 |---|---|
-| [`context/agents/atomic-implementer.md`](../../context/agents/atomic-implementer.md) | Writes the code. `mode: feature` is cohesion-bounded, any file count; `mode: surgical` hard-caps at 2 non-test files and bounces anything larger. Both write TDD and report `## Did` / `## Tests` / `## Signals` / `## Failed`. |
-| [`context/agents/atomic-reviewer.md`](../../context/agents/atomic-reviewer.md) | Gates each iteration. Code-mode diffs against the spec and verifies TDD signals actually ran; spec-mode reviews a draft spec against its design. Ends with `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`, no third option. |
-| [`context/agents/atomic-auditor.md`](../../context/agents/atomic-auditor.md) | Gates the whole task once, after the loop goes green. Four passes: cumulative spec compliance, cross-iteration coherence, commit soundness, documentation adherence. Never edits the repo; findings also written to `$SCRATCH/AUDIT.md`. Fresh context. |
+| [`context/agents/atomic-implementer.md`](../../context/agents/atomic-implementer.md) | Writes the code. `mode: feature` is cohesion-bounded, any file count; `mode: surgical` hard-caps at 2 non-test files and bounces anything larger. Both write TDD and report `## Did` / `## Tests` / `## Signals` / `## Failed` / `## Commit`, the last a proposed Conventional Commits message. Composes `agent-readability`, so its own comment noise or over-engineering is a self-check before the reviewer ever sees the diff. |
+| [`context/agents/atomic-reviewer.md`](../../context/agents/atomic-reviewer.md) | Gates each iteration. Code-mode diffs against the spec, verifies TDD signals actually ran, checks the implementer's `## Commit` proposal against `atomic-git-discipline`, and gates readability at a 🟡 floor; spec-mode reviews a draft spec against its design. Ends with `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`, no third option. |
+| [`context/agents/atomic-auditor.md`](../../context/agents/atomic-auditor.md) | Gates the whole task once, after the loop goes green. Four passes: cumulative spec compliance, cross-iteration coherence (now including comment drift and repetition accumulated across iterations, exempt from the single-checkpoint drop rule), commit soundness (plus a PR title/body judgment when an optional `pr:` path is passed), documentation adherence. Never edits the repo; findings also written to `$SCRATCH/AUDIT.md`. Fresh context. |
 | [`context/agents/atomic-investigator.md`](../../context/agents/atomic-investigator.md) | Read-only locator. Returns a `file:line — what` table, no prose. Haiku-backed at `effort: low`, so it is cheap enough to dispatch by default. |
 | [`context/agents/atomic-strategist.md`](../../context/agents/atomic-strategist.md) | Read-only "is this the right approach?" reasoning at `effort: xhigh`. Dispatched only when the loop is stuck. |
 
@@ -150,8 +179,8 @@ Docs are written before the signals refresh so a new page exists when the scan r
 |---|---|
 | [`context/skills/atomic-tdd/`](../../context/skills/atomic-tdd) | Failing test before production code. Owns writing or changing code once the cause is known. |
 | [`context/skills/atomic-verify/`](../../context/skills/atomic-verify) | No completion claim without a verification command run in this turn. Invoked explicitly at every finalize. |
-| [`context/skills/atomic-git-discipline/`](../../context/skills/atomic-git-discipline) | Conventional Commits messages and PR bodies. Every ship path delegates message format here; session-report content passed in as why-context is resolved by the invoking ship verb via `atomic where --json`, not by this skill. |
-| [`context/skills/atomic-review/`](../../context/skills/atomic-review) | One-line-per-finding review comments. Supplies PR title and body tone on the `/commit pr` path. |
+| [`context/skills/atomic-git-discipline/`](../../context/skills/atomic-git-discipline) | Conventional Commits messages and PR bodies. Every ship path delegates message format here; session-report content passed in as why-context is resolved by the invoking ship verb via `atomic where --json`, not by this skill. Composed into `atomic-implementer` (drafts the `## Commit` proposal) and `atomic-reviewer` (checks it); `pr-flow` now invokes this skill directly for PR title and body tone, not `atomic-review`. |
+| [`context/skills/atomic-review/`](../../context/skills/atomic-review) | One-line-per-finding review comments. Over-engineering and comment noise both floor at 🟡 risk, never 🔵; a comment that misdescribes the code is 🔴 bug. No longer supplies PR tone. |
 | [`context/skills/atomic-debug/`](../../context/skills/atomic-debug) | Hypothesis-driven diagnosis of an unknown root cause. Complements `/subagent-diagnose`. |
 | [`context/skills/atomic-visual-options/`](../../context/skills/atomic-visual-options) | Renders 2 to 4 variants per decision dimension as a throwaway HTML file at `$(atomic scratchpad path <topic>)/options.html`; the user picks by typing codes. Invoked by `/atomic-plan` when a design question is genuinely visual. |
 
@@ -172,6 +201,8 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 | [`context/_partials/report-issue-privacy.md`](../../context/_partials/report-issue-privacy.md) | PII and secret redaction plus a preview-and-confirm gate, composed into both issue commands. |
 | [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) | The 7-rung simplicity ladder, composed into `atomic-implementer`, `atomic-reviewer`, and `atomic-strategist`. |
 | [`context/_partials/agent-implementer-workflow.md`](../../context/_partials/agent-implementer-workflow.md) | The entire `<workflow>` block for `atomic-implementer`; itself composes `agent-search-tooling`, `agent-tdd-signals`, `agent-code-intel`, `agent-where`. |
+| [`context/_partials/agent-readability.md`](../../context/_partials/agent-readability.md) | Comment noise, over-engineering, and repetition floored at 🟡 risk (never 🔵) and made verdict-driving; escalates to 🔴 on a misdescribing comment or a repeat finding across iterations. Composed into `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`. |
+| [`context/_partials/agent-signals-output.md`](../../context/_partials/agent-signals-output.md) | The implementer's report skeleton — `## Did` / `## Tests` / `## Signals` / `## Failed` / `## Commit`, the last a proposed Conventional Commits message the orchestrator commits from directly. |
 
 ### Docs
 
@@ -190,7 +221,7 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 | [`docs/spec/challenge-swarm.md`](../spec/challenge-swarm.md) | Lens roster, workspace layout, isolated dispatch, contradiction-map aggregation. |
 | [`docs/spec/document-templates.md`](../spec/document-templates.md), [`docs/design/document-templates.md`](../design/document-templates.md) | The `atomic template <name>` verb these commands seed from. |
 | [`docs/spec/session-report.md`](../spec/session-report.md), [`docs/spec/setup-wiki.md`](../spec/setup-wiki.md) | Contracts for those two commands. |
-| [`docs/spec/comment-discipline.md`](../spec/comment-discipline.md) | Comment rules the implementer and reviewer both enforce. |
+| [`docs/spec/comment-discipline.md`](../spec/comment-discipline.md) | Comment rules the implementer, reviewer, and auditor all enforce, floored at 🟡 risk by `agent-readability.md`. |
 | [`docs/spec/visual-options.md`](../spec/visual-options.md), [`docs/design/visual-options.md`](../design/visual-options.md) | Contract and rationale for the visual-options skill. |
 
 
@@ -199,7 +230,9 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 
 **The spec body is read verbatim by subagents.** `/subagent-implementation`'s currency gate exists because the `BRIEF.md` points fresh agents straight at `docs/spec/<topic>.md`. If a decision in the conversation superseded any part of that body, rewrite the body before dispatching. The test: could a fresh subagent reading only the spec body build something a later decision already cut? Papering over it in the brief does not work.
 
-**Every spec body carries `## Change tree`, `## Outline`, and `## Flows`.** The change tree marks files `A` / `M` / `D`; the outline names the pieces per file as `name — responsibility`, one level of nesting, no signatures; flows are numbered actor-to-step sequences. `## Outline` is what `atomic-reviewer` walks the delivered diff against in its outline pass. An empty section is written `None — <reason>`, never omitted.
+**Every spec body carries `## Change tree`, `## Outline`, and `## Flows`.** The change tree marks files `A` / `M` / `D`; the outline names the pieces per file as `name — responsibility`, one level of nesting, no signatures; flows are numbered actor-to-step sequences. `## Outline` is what `atomic-reviewer` walks the delivered diff against in its outline pass; an omitted or empty section makes that pass silently no-op instead of failing loud. An empty section is written `None — <reason>`, never omitted.
+
+**A readability finding always blocks, whatever tier it would carry elsewhere.** Comment noise, over-engineering, or repetition sits at a 🟡 risk floor via [`context/_partials/agent-readability.md`](../../context/_partials/agent-readability.md); the reviewer will not `PASS` while one is open, and it is the one 🟡-tier finding that never lands in `FOLLOWUPS.md`. A `/quick-fix` run pinned at its 3-iteration cap by a recurring readability finding is working as designed, not stuck.
 
 **The auditor is dispatched exactly once per task.** A `CHANGES_REQUESTED` verdict earns one more implementer and reviewer iteration, then the run continues regardless of what a second audit would say. Re-auditing turns finalize into an unbounded loop, which never terminates under `/autopilot`.
 
@@ -256,4 +289,5 @@ Contracts that change in lockstep:
 - The YAGNI ladder in [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) is kept verbatim identical to the ladder in [`context/CLAUDE.md`](../../context/CLAUDE.md)'s Principles block. [`context/CLAUDE.md`](../../context/CLAUDE.md) is copied byte-for-byte (not expanded) into the bundle, so that duplication is manual.
 - The ship verbs must agree on message format, worktree detection, and the signals gate. Changing one path's behavior on a shared concern means changing all of them.
 - A new command, agent, or skill needs a row in the `/atomic-help` topic table before it is done.
+- `agent-readability.md`'s severity floor is kept in step with `atomic-review`'s over-engineering and comment-noise sections — both were raised from 🔵/mixed to a 🟡 floor together (commit `4489fcc`).
 - Every artifact citing a hand-built scratchpad, report, reminder, or archive path instead of resolving it through `atomic scratchpad` or `atomic where --json` is a regression against the same fix applied across eleven commands and two skills in this range.

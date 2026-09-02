@@ -10,7 +10,9 @@ description: >
   assembles the router and wires the @-ref. Runs in its own context so the scan,
   which is thousands of lines, never enters the caller's. Dispatched by
   /refresh-wiki (interactive) and ship verbs (silent). Scoped writes only — never
-  touches files outside the active wiki root or the @-ref target file.
+  touches files outside the active wiki root, `.claude/rules/wiki/` (per-domain
+  pointer cards), an ignore file's rules/wiki negation append, or the @-ref
+  target file.
 tools: Read, Write, Edit, Grep, Glob, Bash, Agent
 skills: [atomic-writing]
 model: claude-sonnet-5
@@ -92,7 +94,7 @@ Follow the pipeline defined in the reference file exactly. The reference is the 
 - Sub-agents are bounded to their domain. They read source files in their area only.
 - Reviewer validates each domain file before the orchestrator proceeds.
 - Never write `@-refs` in domain files or the router's Detail column. Write repo-root-relative paths in backticks; `atomic signals linkify` renders them to file-relative markdown links.
-- Never modify files outside the active wiki root (except the single `@-ref` target file for wiring).
+- Never modify files outside the active wiki root, `.claude/rules/wiki/` (per-domain pointer cards), an ignore file's rules/wiki negation append, or the single `@-ref` target file for wiring.
 - Errors quoted exact. No paraphrasing.
 - Never block a commit — if the scan fails, log and continue.
 

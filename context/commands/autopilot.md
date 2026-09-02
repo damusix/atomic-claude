@@ -98,7 +98,7 @@ Then run a range-scoped signals refresh before the ship gate, over the same rang
 1. If `command -v atomic` returns nothing → skip.
 2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report + skip.
 3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort.
-4. Stage `docs/wiki/*.md` (router, domain files, and `scan.md`). Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
+4. Stage `docs/wiki/*.md` (router, domain files, and `scan.md`): `git add docs/wiki/*.md`. Also stage the per-domain pointer cards the agent wrote or deleted, guarded on the directory existing (repos whose wiki has no domain files never create it; an unguarded `git add -A` on a missing path exits 128): `[ ! -d .claude/rules/wiki ] || git add -A .claude/rules/wiki/`. Then check for an ignore-file edit mechanically, since the agent has no reported-path output to key off in silent mode: `git status --short -- .gitignore .claude/.gitignore`, and `git add` whichever path that reports modified. Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
 
 The Phase 5 ship verb's `signals-gate` will then see a fresh stored file (`atomic signals stale` exit 0) and skip the inferrer dispatch — this no-op is intended, not a bug. The loop already refreshed.
 

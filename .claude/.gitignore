@@ -12,6 +12,8 @@
 /rules/*
 !/rules/authoring/
 !/rules/authoring/**
+!/rules/wiki/
+!/rules/wiki/**
 !/settings.local.json
 /.atomic-index/
 /worktrees/
