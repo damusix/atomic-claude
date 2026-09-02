@@ -11,12 +11,12 @@ Relocate per-repo signals storage from `.claude/project/signals*` to `docs/wiki/
 
 
 - No migration of existing `.claude/project/signals*` installs. Detecting the old layout and moving files is Workstream C (migration framework + `atomic migrate --repo`).
-- No rename of `atomic-signals-inferrer` → `atomic-wiki-inferrer` and no folding of `refresh-signals` into `refresh-wiki`. Those are Workstream D.
+- No agent rename and no refresh-command folding. Workstream D's scope (shipped; see `docs/design/signals-wiki-unification.md`).
 - No `atomic migrate` binary verb, migration runner, or `config.toml [install]` changes. That is Workstream C.
 - No `<wiki-schema>` migration runner. B writes the initial `<wiki-schema>1</wiki-schema>` block; C implements the runner that reads it across versions.
 - No realm-wiki storage change. `<root>/wiki/` (separate repo) is unchanged.
 - No `<scan-sha>`-driven drift-scope or full-vs-incremental logic changes beyond block creation. That is Workstream E.
-- No new `atomic-wiki` skill-router or `atomic-wiki-inferrer` dispatch architecture. Workstream D.
+- No new `atomic-wiki` skill-router or inferrer dispatch architecture. Workstream D's scope (shipped).
 - No Cobra migration. Workstream A.
 
 
@@ -70,6 +70,15 @@ Path constants, file-writing targets, doctor checks, inferrer agent template, an
 
 
 ## Change log
+
+
+### 2026-09-01 — Correction: Workstream D described as pending
+
+**What changed:** Two Non-goals bullets presented the inferrer rename (`atomic-signals-inferrer` → `atomic-wiki-inferrer`) and the refresh-command folding as future Workstream D work. Reworded to mark D as shipped and point at `docs/design/signals-wiki-unification.md` for the record.
+
+**Why:** The stale present-tense framing led a session to cite the pre-rename agent as still existing. Body-is-current-truth violation, not a scope change.
+
+**Superseded:** "Those are Workstream D" as a pending-work claim; D shipped with the rename and the `/refresh-wiki` fold.
 
 
 ### 2026-07-09 — commit `docs/wiki/scan.md` (issue #126)

@@ -18,14 +18,14 @@ Add to the agent's **Caller-provided context** list:
 > - **`changed_range: <from-sha>..<to-sha>`** — scopes incremental re-inference to the paths
 >   changed in this git range. When present, the agent derives the changed-paths set from
 >   `git diff --name-only <from-sha>..<to-sha>` unioned with uncommitted changes
->   (`git diff --name-only <from-sha>`), instead of the `deterministic-signals.prev.md` vs
->   `deterministic-signals.md` diff. The deterministic scan (Step 1) still runs whole-repo;
+>   (`git diff --name-only <from-sha>`), instead of the `tmp/.scan.prev.md` vs `docs/wiki/scan.md`
+>   diff. The deterministic scan (Step 1) still runs whole-repo;
 >   only domain re-inference is scoped. Absent → unchanged behavior (prev/current snapshot
 >   diff drives incremental mode).
 
 Wire it into the **Incremental vs full mode → Incremental** section: step 1's changed-paths
 source becomes "the `changed_range` git diff when the caller supplied one, else the prev/current
-`deterministic-signals.md` diff." No other incremental logic changes. `changed_range` is
+`docs/wiki/scan.md` diff." No other incremental logic changes. `changed_range` is
 ignored in wiki-output and bucket-synthesis modes (those have their own pipelines).
 
 ### C2 — Commit-time gate skips docs-only commits (partial: `signals-gate`)
@@ -61,8 +61,8 @@ refreshed: a fresh stored signals file returns exit 0.
   2. `atomic signals stale` exit 0 → skip (nothing material changed). Exit 2 → report + skip.
   3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and
      `changed_range: <loop-base>..HEAD` (HEAD after docs commits). Run `atomic wiki mark-dirty`
-     best-effort. Stage `.claude/project/deterministic-signals.md` + `.claude/project/signals.md`
-     (and any `.claude/project/signals/**`).
+     best-effort. Stage `docs/wiki/scan.md`, `docs/wiki/index.md`, and any other
+     `docs/wiki/*.md` domain files the refresh wrote.
   4. Commit as a dedicated `chore(signals): refresh after <topic>` commit. Record the SHA in
      `STATE.md`.
 
@@ -157,6 +157,18 @@ the `atomic signals stale` check rather than being treated as all-docs — preve
 post-merge or post-squash defense-in-depth gate from short-circuiting to a skip when nothing
 is staged.
 
+### 2026-09-02 — Correction: paths updated to the docs/wiki/ relocation
+
+**What changed:** Replaced `.claude/project/deterministic-signals.md`, `.claude/project/signals.md`,
+and `.claude/project/signals/**` references with `docs/wiki/scan.md`, `docs/wiki/index.md`, and
+`docs/wiki/*.md`. Replaced `deterministic-signals.prev.md` / `deterministic-signals.md` diff
+references with the `tmp/.scan.prev.md` vs `docs/wiki/scan.md` diff.
+
+**Why:** The signals storage relocation from `.claude/project/` to `docs/wiki/`, shipped in
+`docs/spec/wiki-storage-relocation.md`, landed after this spec was written; the old paths no longer
+exist on disk (verified: `.claude/project/signals.md` and `.claude/project/deterministic-signals.md`
+are absent from the tree), so a fresh reader would build against a stale layout.
+
 ## Implementation log
 
 ### Shipped — 2026-06-29
@@ -182,5 +194,7 @@ Commits (chronological):
   worktree, the finalize refresh regenerates throwaway worktree signals. Pre-existing limitation
   of signals-in-worktree (the prior ship-verb refresh had the same edge), orthogonal to the
   timing change. For this run, main's signals are refreshed post-merge instead.
+- Path note: `.claude/project/signals.md` above named the pre-relocation storage location; the
+  2026-09-02 Correction entry moved this spec's live paths to `docs/wiki/scan.md`.
 
 **Deferred items still open:** none.

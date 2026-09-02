@@ -236,7 +236,7 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
    1. If `command -v atomic` returns nothing → skip.
    2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report the error and skip.
    3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort after the wiki inferrer returns.
-   4. Stage `docs/wiki/*.md` (router, domain files, and `scan.md`). Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
+   4. Stage `docs/wiki/*.md` (router, domain files, and `scan.md`): `git add docs/wiki/*.md`. Also stage the per-domain pointer cards the agent wrote or deleted, guarded on the directory existing (repos whose wiki has no domain files never create it; an unguarded `git add -A` on a missing path exits 128): `[ ! -d .claude/rules/wiki ] || git add -A .claude/rules/wiki/`. Then check for an ignore-file edit mechanically, since the agent has no reported-path output to key off in silent mode: `git status --short -- .gitignore .claude/.gitignore`, and `git add` whichever path that reports modified. Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
 
 7. `$SCRATCH` stays — it is not deleted at finalize. A bundle is retired only via `atomic scratchpad archive <slug>`, driven by `/git-cleanup` reaping its worktree or branch, never by this command closing out.
 8. Report to the user: what shipped, which iterations + commit SHAs (including the signals refresh commit, if one was made), what was verified, what FOLLOWUPS were dispositioned, what's left (if anything). Mirror what you just wrote to the spec — they should match.
