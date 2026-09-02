@@ -321,6 +321,8 @@ This repo uses [release-please](https://github.com/googleapis/release-please) to
 - Non-user-visible cleanup (lint, formatting, doc-only updates that don't ship) → `chore:` / `style:` / `docs:` as appropriate, accept invisibility
 
 
+**On a squash merge the PR title is the commit, so it carries the type.** Merging with `--merge` keeps every commit on the branch and release-please reads their subjects, which is why this repo's history of merge-commit PRs never had to think about titles. `gh pr merge --squash` inverts it: the PR title becomes the only subject on `next`, and the branch's own `feat:`/`fix:` lines survive only as body bullets that release-please does not parse. A prose title there ships the whole PR invisibly — no failure, no warning, just a release that omits it. PR #235 landed that way and contributed nothing to `6.7.0-next.1`; the repair was a force-push of `next` to rewrite the subject. Before squash-merging, check the title and `gh pr edit --title` it into Conventional Commit form.
+
 **When bundling many concerns into one commit, the type applies to the whole commit.** A single commit that adds a feature AND breaks a contract AND does cleanup must be labeled by the highest-impact concern. Default: if the commit removes/renames anything user-touchable, use `fix!:`. If it adds new behavior without breaking anything, use `feat:`. Never `refactor:` for a commit that ships new commands, new agents, or new skills — that work disappears from the changelog.
 
 

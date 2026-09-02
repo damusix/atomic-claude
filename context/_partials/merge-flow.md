@@ -27,6 +27,8 @@
 
     **Remote path** (PR open):
     1. `gh pr merge <PR#> --merge --delete-branch` — server-side merge, auto-closes the PR, removes remote branch.
+
+        `--merge` keeps every commit on the branch, so a changelog generator reads their subjects and the PR title never matters. **`--squash` inverts that**: the title becomes the sole commit subject on the base branch and the branch's own conventional subjects survive only as body bullets, which release-please does not parse for a type. Before any `--squash`, check the title — `gh pr view <PR#> --json title -q .title` — and if it lacks the prefix the base branch's history uses, fix it first with `gh pr edit <PR#> --title '<type>(<scope>): <subject>'`. After the squash it takes a force-push of the base branch to correct, which is the one repair the flow otherwise refuses.
     2. `git checkout <base>` then `git pull` to fast-forward local base.
     3. Record `MERGE_SHA=$(git rev-parse HEAD)`.
 
