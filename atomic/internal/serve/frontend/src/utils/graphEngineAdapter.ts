@@ -18,6 +18,7 @@
 import { attempt } from "@logosdx/utils";
 import { api } from "./api";
 import { loadScript } from "./loadScript";
+import { memberLabel } from "./memberStore";
 
 export type GraphView = "docs" | "code";
 
@@ -90,6 +91,10 @@ export function resolveMember(members: GraphMember[], requested: string): string
     return members[0]?.prefix ?? "";
   }
   return requested;
+}
+
+export function pickerLabel(m: GraphMember, realmName: string): string {
+  return memberLabel(m.prefix, realmName) + (m.indexed ? "" : " — not indexed");
 }
 
 // mountGraph loads the engine (idempotent) then delegates to the matching

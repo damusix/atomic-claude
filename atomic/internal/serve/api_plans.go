@@ -131,6 +131,11 @@ func plansHandler(opts plansOptions) http.Handler {
 
 func findPlansMember(members []codeMember, key string) (codeMember, bool) {
 	for _, m := range members {
+		if m.Prefix == key {
+			return m, true
+		}
+	}
+	for _, m := range members {
 		if m.Key == key {
 			return m, true
 		}

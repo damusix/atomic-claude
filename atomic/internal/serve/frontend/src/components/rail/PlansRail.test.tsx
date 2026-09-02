@@ -4,7 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { MemoryRouter } from "react-router";
 import type { PlanRow } from "../../utils/plansApi";
+import { __resetForTest } from "../../utils/memberStore";
 import { PlansRail } from "./PlansRail";
+
+const NAV_FIXTURE = { scope: "realm", name: "acme", branch: "", groups: [] };
+
+function seedMemberCookie(member: string) {
+  document.cookie = `atomic-member=${encodeURIComponent(JSON.stringify({ "realm:acme": member }))}; path=/`;
+}
 
 const ROW: PlanRow = {
   slug: "atomic-doctor",
@@ -30,9 +37,10 @@ const ROW: PlanRow = {
 };
 
 function mockFetchByUrl(handlers: Record<string, unknown>) {
+  const withNav = { "/nav": NAV_FIXTURE, ...handlers };
   globalThis.fetch = mock(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    for (const [match, body] of Object.entries(handlers)) {
+    for (const [match, body] of Object.entries(withNav)) {
       if (url.includes(match)) {
         return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -54,18 +62,31 @@ describe("PlansRail", () => {
     mock.restore();
     // @ts-expect-error — test-only global cleanup
     delete globalThis.fetch;
+    __resetForTest();
+    document.cookie = "atomic-member=; path=/; max-age=0";
   });
 
-  test("carries ?member= into its own /api/plans fetch", async () => {
+  test("carries the store's member into its own /api/plans fetch", async () => {
+    seedMemberCookie("api");
     mockFetchByUrl({ "/plans": [ROW] });
-    renderRail("/plans/atomic-doctor/docs/spec/atomic-doctor.md?member=server");
+    renderRail("/plans/atomic-doctor/docs/spec/atomic-doctor.md");
 
     await waitFor(() => expect(screen.getByText("spec.md")).toBeInTheDocument());
 
     const fetchMock = globalThis.fetch as unknown as { mock: { calls: [RequestInfo | URL][] } };
-    const calledUrl = fetchMock.mock.calls[0][0];
-    const url = typeof calledUrl === "string" ? calledUrl : calledUrl.toString();
-    expect(url).toContain("member=server");
+    const plansCall = fetchMock.mock.calls.find(([input]) => {
+      const url = typeof input === "string" ? input : input.toString();
+      return url.includes("/plans") && !url.includes("/nav");
+    });
+    const url = typeof plansCall![0] === "string" ? (plansCall![0] as string) : plansCall![0].toString();
+    expect(url).toContain("member=api");
+  });
+
+  test("holds its own fetch until the member store is ready", async () => {
+    mockFetchByUrl({ "/plans": [ROW] });
+    renderRail("/plans/atomic-doctor/docs/spec/atomic-doctor.md");
+
+    await waitFor(() => expect(screen.getByText("spec.md")).toBeInTheDocument());
   });
 
   test("renders no Links or Graph tabs", async () => {
@@ -87,8 +108,8 @@ describe("PlansRail", () => {
   const TWO_BUNDLE_ROW: PlanRow = {
     ...ROW,
     bundles: [
-      { worktreeId: "w-main", branch: "main", purposes: ["plan"], status: "active", files: [{ relpath: BUNDLE_RELPATH, kind: "markdown" }] },
-      { worktreeId: "w-feature", branch: "feature-x", purposes: ["implement"], status: "active", files: [{ relpath: BUNDLE_RELPATH, kind: "markdown" }] },
+      { worktreeId: "w-main", branch: "main", path: ".", outsideRoot: false, purposes: ["plan"], status: "active", files: [{ relpath: BUNDLE_RELPATH, kind: "markdown" }] },
+      { worktreeId: "w-feature", branch: "feature-x", path: ".claude/worktrees/feature-x", outsideRoot: false, purposes: ["implement"], status: "active", files: [{ relpath: BUNDLE_RELPATH, kind: "markdown" }] },
     ],
   };
 

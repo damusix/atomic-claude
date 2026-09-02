@@ -140,6 +140,52 @@ func TestPlansHandler_MemberWithNoCodeIndexAppears(t *testing.T) {
 	findRow(t, rows, "member-slug")
 }
 
+// A declared member's config key and its realm-relative prefix diverge
+// whenever the path has a directory component (slugKey dedupes the key from
+// the path's base name). The store sends the prefix; ?member= must still
+// resolve for a client sending the old key.
+func TestPlansHandler_MemberResolvesByPrefixWithKeyFallback(t *testing.T) {
+	requireGit(t)
+	realmRoot := t.TempDir()
+	claudeMD := filepath.Join(realmRoot, "CLAUDE.md")
+	writeFile(t, filepath.Join(realmRoot, "wiki", "index.md"), "# wiki\n")
+	writeFile(t, claudeMD, "# CLAUDE.md\n\n<wikis>\n- "+filepath.Join(realmRoot, "wiki", "index.md")+"\n</wikis>\n")
+
+	memberDir := filepath.Join(realmRoot, "repos", "api")
+	if err := os.MkdirAll(memberDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", memberDir, err)
+	}
+	gitCmd(t, memberDir, "init", "-b", "main")
+	gitCmd(t, memberDir, "commit", "--allow-empty", "-m", "init")
+	writeDoc(t, memberDir, "spec", "api-slug", "# api-slug\n\n## Goal\n\napi work.\n", time.Now().Add(-time.Minute))
+
+	writeFile(t, filepath.Join(realmRoot, ".atomic", "code.toml"), "[[member]]\nkey = \"api\"\npath = \"repos/api\"\nexclude = false\n")
+
+	gitCmd(t, realmRoot, "init", "-b", "main")
+	gitCmd(t, realmRoot, "commit", "--allow-empty", "-m", "init")
+
+	h := plansHandler(plansOptions{
+		Root:         realmRoot,
+		ScopeRoot:    realmRoot,
+		ClaudeMDPath: claudeMD,
+		Registry:     newPlansRegistry(),
+	})
+
+	for _, member := range []string{"repos/api", "api"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/plans?member="+member, nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("member=%s: status = %d, want 200; body=%s", member, rr.Code, rr.Body.String())
+		}
+		var rows []planRow
+		if err := json.Unmarshal(rr.Body.Bytes(), &rows); err != nil {
+			t.Fatalf("member=%s: unmarshal: %v; body=%s", member, err, rr.Body.String())
+		}
+		findRow(t, rows, "api-slug")
+	}
+}
+
 // A page request for an id owned by one of three already-built aggregators
 // spawns `git worktree list` once — resolving through that aggregator's own
 // map — never once per aggregator in the registry.
@@ -358,6 +404,28 @@ func TestPlansMembers_ProjectKeysDisjoint(t *testing.T) {
 	if rootKey == aKey || rootKey == bKey || aKey == bKey {
 		t.Errorf("project keys not pairwise distinct: root=%q member-a=%q member-b=%q", rootKey, aKey, bKey)
 	}
+}
+
+// A realm root with no .git anywhere (git worktree list fails there) still
+// serves rows for it as the default ?member=-absent target.
+func TestPlansHandler_NonGitRealmRootStillReturnsRows(t *testing.T) {
+	realmRoot := t.TempDir()
+	writeDoc(t, realmRoot, "spec", "y", "# y\n\n## Goal\n\nRoot work.\n", time.Now().Add(-time.Minute))
+
+	h := plansHandler(plansOptions{Root: realmRoot, Registry: newPlansRegistry()})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/plans", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var rows []planRow
+	if err := json.Unmarshal(rr.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("unmarshal: %v; body=%s", err, rr.Body.String())
+	}
+	findRow(t, rows, "y")
 }
 
 func TestPlansMembersHandler_ExposesKeysNotPaths(t *testing.T) {

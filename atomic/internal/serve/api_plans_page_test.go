@@ -238,9 +238,10 @@ func TestPlansPageHandler_RawFileKindNeverSniffedToHTML(t *testing.T) {
 	}
 }
 
-// Every raw=1 response — html, markdown, and file kinds — carries a
-// response-level sandbox CSP, since the URL is reachable by direct
-// navigation and shared link, bypassing the page's iframe sandbox entirely.
+// Every raw=1 response — markdown and file kinds — carries a response-level
+// sandbox CSP, since the URL is reachable by direct navigation and shared
+// link, bypassing the page's iframe sandbox entirely. Kind html's CSP
+// differs (allow-scripts) and is covered by RawCSPPerKind below.
 func TestPlansPageHandler_RawResponsesCarrySandboxCSP(t *testing.T) {
 	requireGit(t)
 	root := t.TempDir()
@@ -251,9 +252,6 @@ func TestPlansPageHandler_RawResponsesCarrySandboxCSP(t *testing.T) {
 	bundle, _, err := scratchpad.New(main, "csp-slug", "plan")
 	if err != nil {
 		t.Fatalf("scratchpad.New: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(bundle.Root, "options.html"), []byte("<html></html>"), 0o644); err != nil {
-		t.Fatalf("write options.html: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(bundle.Root, "notes.txt"), []byte("plain text"), 0o644); err != nil {
 		t.Fatalf("write notes.txt: %v", err)
@@ -272,7 +270,6 @@ func TestPlansPageHandler_RawResponsesCarrySandboxCSP(t *testing.T) {
 
 	h := plansPageHandler(reg)
 	for _, relPath := range []string{
-		".claude/.scratchpad/csp-slug/options.html",
 		".claude/.scratchpad/csp-slug/notes.txt",
 		".claude/.scratchpad/csp-slug/BRIEF.md",
 	} {
@@ -282,6 +279,58 @@ func TestPlansPageHandler_RawResponsesCarrySandboxCSP(t *testing.T) {
 		}
 		if csp := rr.Header().Get("Content-Security-Policy"); csp != "sandbox" {
 			t.Errorf("path=%q: Content-Security-Policy = %q, want %q", relPath, csp, "sandbox")
+		}
+	}
+}
+
+// Kind html carries "sandbox allow-scripts" — the frame's iframe now runs
+// its own scripts — while every other kind keeps the bare "sandbox" that
+// blocks them.
+func TestPlansPageHandler_RawCSPPerKind(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	main := setupMainRepo(t, root)
+	restoreHome := config.SetHomeDirForTest(t.TempDir())
+	defer restoreHome()
+
+	bundle, _, err := scratchpad.New(main, "csp-kind-slug", "plan")
+	if err != nil {
+		t.Fatalf("scratchpad.New: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle.Root, "mock.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatalf("write mock.html: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle.Root, "notes.md"), []byte("# notes\n"), 0o644); err != nil {
+		t.Fatalf("write notes.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle.Root, "icon.png"), []byte("not-a-real-png"), 0o644); err != nil {
+		t.Fatalf("write icon.png: %v", err)
+	}
+
+	reg := newPlansRegistry()
+	rows := plansRows(t, reg, main)
+	row := findRow(t, rows, "csp-kind-slug")
+	if len(row.Bundles) != 1 {
+		t.Fatalf("bundles = %+v, want 1", row.Bundles)
+	}
+	worktreeID := row.Bundles[0].WorktreeID
+
+	h := plansPageHandler(reg)
+	cases := []struct {
+		relPath string
+		want    string
+	}{
+		{".claude/.scratchpad/csp-kind-slug/mock.html", "sandbox allow-scripts"},
+		{".claude/.scratchpad/csp-kind-slug/notes.md", "sandbox"},
+		{".claude/.scratchpad/csp-kind-slug/icon.png", "sandbox"},
+	}
+	for _, tc := range cases {
+		rr := plansPageRequest(t, h, worktreeID, tc.relPath, true)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("path=%q: status = %d, want 200; body=%s", tc.relPath, rr.Code, rr.Body.String())
+		}
+		if csp := rr.Header().Get("Content-Security-Policy"); csp != tc.want {
+			t.Errorf("path=%q: Content-Security-Policy = %q, want %q", tc.relPath, csp, tc.want)
 		}
 	}
 }

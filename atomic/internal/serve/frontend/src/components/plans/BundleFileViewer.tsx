@@ -1,9 +1,11 @@
 // BundleFileViewer — renders a bundle file by kind. `html` and `file` are
-// sourced by URL (`src=`/`href=`) rather than fetched into the React tree:
-// the server already sets `Content-Security-Policy: sandbox` on raw
-// responses (CP11), and keeping the bytes out of React means an
-// atomic-visual-options HTML fixture — deliberately offline, inline CSS, no
-// scripts, not written against the app's own stylesheet — never touches it.
+// sourced by URL (`src=`/`href=`) rather than fetched into the React tree,
+// keeping the bytes out of React so an atomic-visual-options HTML fixture —
+// deliberately offline, inline CSS, not written against the app's own
+// stylesheet — never touches it. The `html` iframe runs its own scripts
+// (`sandbox="allow-scripts"`); the frame's opaque origin keeps them from the
+// app's cookies and storage, and origin_guard.go on the server is what
+// stops a script running there from reaching the write routes.
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { fetchPlanPage } from "../../utils/plansApi";
 import type { PageResponse } from "../../pages/Page/types";
@@ -87,7 +89,7 @@ function HtmlWindow({ src, relpath }: { src: string; relpath: string }) {
         <span className="code-window-dots" aria-hidden="true" />
         <span className="code-window-lang">{filename(relpath)}</span>
       </figcaption>
-      <iframe className="bundle-file-frame" sandbox="" src={src} title={relpath} />
+      <iframe className="bundle-file-frame" sandbox="allow-scripts" src={src} title={relpath} />
     </figure>
   );
 }

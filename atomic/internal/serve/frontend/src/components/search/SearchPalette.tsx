@@ -19,6 +19,7 @@ import { api } from "../../utils/api";
 import { codePaletteItems, mdPaletteItems, planPaletteItems, type PaletteItem } from "./searchItems";
 import type { ApiCodeSearchResponse, ApiMdSearchResponse } from "./types";
 import { fetchPlans, type PlanRow } from "../../utils/plansApi";
+import { useCurrentMember } from "../../utils/memberStore";
 import { usePlansScope } from "../plans/usePlansScope";
 import "./style.css";
 
@@ -32,7 +33,8 @@ export function SearchPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const navigate = useNavigate();
-  const { member, openSlug } = usePlansScope();
+  const { openSlug } = usePlansScope();
+  const { member, ready } = useCurrentMember();
   const [source, setSource] = useState<"md" | "code" | "plans">("md");
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -87,9 +89,9 @@ export function SearchPalette({
   }, [member]);
 
   useEffect(() => {
-    if (source !== "plans" || planRows !== null) return;
+    if (source !== "plans" || planRows !== null || !ready) return;
     void fetchPlans(member).then(setPlanRows);
-  }, [source, planRows, member]);
+  }, [source, planRows, member, ready]);
 
   useEffect(() => {
     let cancelled = false;

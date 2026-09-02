@@ -136,6 +136,9 @@ func (h *reindexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusMethodNotAllowed, "use GET for status or POST to start")
 		return
 	}
+	if rejectCrossOrigin(w, r) {
+		return
+	}
 
 	projectRoot, dbPath := h.realmRoot, h.localDBPath()
 	if m, ok := memberByPrefix(h.members(), member); ok {

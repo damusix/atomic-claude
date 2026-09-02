@@ -81,6 +81,26 @@ func TestReindex_RefusedOffLoopback(t *testing.T) {
 	}
 }
 
+// A POST carrying Origin: null — what a sandboxed bundle mock sends — must
+// be refused before a job starts, the same containment origin_guard.go adds
+// to every bus write route.
+func TestReindex_CrossOriginRefused(t *testing.T) {
+	h := reindexHandlerFor(t, &fakeCodeEngine{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/code/index?member=", nil)
+	req.RemoteAddr = "127.0.0.1:5000"
+	req.Header.Set("Origin", "null")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 for Origin: null", rec.Code)
+	}
+	if got := statusOf(t, h); got != "idle" {
+		t.Errorf("state after refused POST = %q, want idle — no job should have started", got)
+	}
+}
+
 func TestReindex_StartsAndReportsCompletion(t *testing.T) {
 	eng := &blockingIndexEngine{fakeCodeEngine: &fakeCodeEngine{}, release: make(chan struct{})}
 	h := reindexHandlerFor(t, eng)

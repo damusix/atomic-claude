@@ -34,7 +34,7 @@ describe("BundleFileViewer", () => {
 
     const iframe = screen.getByTitle("options.html") as HTMLIFrameElement;
     expect(iframe.tagName).toBe("IFRAME");
-    expect(iframe.getAttribute("sandbox")).toBe("");
+    expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
     expect(iframe.getAttribute("src")).toContain("raw=1");
     expect(iframe.getAttribute("src")).toContain("worktree=w-main");
     expect(iframe.getAttribute("src")).toContain("path=options.html");

@@ -77,11 +77,13 @@ type bundleFile struct {
 // dedup across checkouts — a slug worked on in two worktrees at once is two
 // bundles in the row, each attributed to the checkout that holds it.
 type planBundle struct {
-	WorktreeID string       `json:"worktreeId"`
-	Branch     string       `json:"branch"`
-	Purposes   []string     `json:"purposes"`
-	Status     string       `json:"status"`
-	Files      []bundleFile `json:"files"`
+	WorktreeID  string       `json:"worktreeId"`
+	Branch      string       `json:"branch"`
+	Path        string       `json:"path"`
+	OutsideRoot bool         `json:"outsideRoot"`
+	Purposes    []string     `json:"purposes"`
+	Status      string       `json:"status"`
+	Files       []bundleFile `json:"files"`
 }
 
 // planRow is one slug, aggregated across every checkout: its committed docs
@@ -221,7 +223,10 @@ func dirtyDocs(dir string) (dirty map[string]bool, ok bool) {
 func (a *plansAggregator) worktrees() []checkoutInfo {
 	out, err := runGitWorktreeList(a.root)
 	if err != nil {
-		return nil
+		// A root with no .git (a realm root that is not itself a repository)
+		// still has docs and bundles worth aggregating; use it as its own
+		// single checkout instead of producing no rows.
+		return []checkoutInfo{{id: checkoutID(a.root), path: a.root, branch: "", isMain: false}}
 	}
 	checkouts, bareDir := parseWorktreePorcelain(string(out))
 	defaultBranch := resolveDefaultBranch(checkouts, bareDir)
@@ -591,6 +596,7 @@ func (a *plansAggregator) build(checkouts []checkoutInfo) ([]planRow, map[string
 	var bundleSlugOrder []string
 	seenBundleSlug := map[string]bool{}
 	for _, c := range checkouts {
+		dispPath, outside := checkoutDisplayPath(a.root, c.path)
 		entries, warns, err := scratchpad.List(config.ScratchpadDir(c.path))
 		warnings = append(warnings, warns...)
 		if err != nil {
@@ -602,11 +608,13 @@ func (a *plansAggregator) build(checkouts []checkoutInfo) ([]planRow, map[string
 				bundleSlugOrder = append(bundleSlugOrder, e.Slug)
 			}
 			bundlesBySlug[e.Slug] = append(bundlesBySlug[e.Slug], planBundle{
-				WorktreeID: c.id,
-				Branch:     c.branch,
-				Purposes:   e.Meta.Purposes,
-				Status:     e.Meta.Status,
-				Files:      bundleFilesFor(c.path, e.Path),
+				WorktreeID:  c.id,
+				Branch:      c.branch,
+				Path:        dispPath,
+				OutsideRoot: outside,
+				Purposes:    e.Meta.Purposes,
+				Status:      e.Meta.Status,
+				Files:       bundleFilesFor(c.path, e.Path),
 			})
 		}
 	}

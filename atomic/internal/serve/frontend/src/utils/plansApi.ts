@@ -37,6 +37,8 @@ export interface BundleFile {
 export interface PlanBundle {
   worktreeId: string;
   branch: string;
+  path: string;
+  outsideRoot: boolean;
   purposes: string[];
   status: string;
   files: BundleFile[];
