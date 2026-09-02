@@ -58,7 +58,15 @@ func selfupdateFastPath(home, verb, current string, noUpdateCheck bool, w io.Wri
 	state := selfupdate.LoadState(statePath)
 	nowVal := now()
 
-	if selfupdate.ShouldNotify(current, state.Update.LatestVersion, state.Update.LastNotified, nowVal) {
+	// The banner's install decision is channel-dependent, so the config is read
+	// before it. An unreadable config still banners, on stable.
+	cfg, _, err := config.Load(config.TOMLPath(home))
+	channel := selfupdate.ChannelStable
+	if err == nil && cfg.Update.Channel != "" {
+		channel = cfg.Update.Channel
+	}
+
+	if selfupdate.ShouldNotify(channel, current, state.Update.LatestVersion, state.Update.LastNotified, nowVal) {
 		// latest_version is stored pre-stripped; stripping again only guards a
 		// legacy or hand-edited state.json.
 		fmt.Fprintf(w, "update available: %s (current: %s). run: atomic update\n", selfupdate.DisplayVersion(state.Update.LatestVersion), current)
@@ -72,7 +80,6 @@ func selfupdateFastPath(home, verb, current string, noUpdateCheck bool, w io.Wri
 	if verb == "update" || noUpdateCheck {
 		return
 	}
-	cfg, _, err := config.Load(config.TOMLPath(home))
 	if err != nil || !cfg.Update.Check {
 		return
 	}
@@ -130,6 +137,7 @@ func buildUpdateCmd() *cobra.Command {
 	}
 	c.Flags().Bool("check", false, "only check if update available; do not apply")
 	c.Flags().String("channel", "stable", "release channel: stable or prerelease")
+	c.Flags().Bool("pre", false, "shorthand for --channel prerelease")
 	c.Flags().Bool("no-doctor", false, "skip post-update doctor self-check")
 	c.Flags().Bool("skip-claude-update", false, "skip the ~/.claude artifact refresh after binary swap")
 	c.Flags().Bool("force", false, "bypass the update lock; never weakens checksum verification")
@@ -214,23 +222,63 @@ func runUpdateCheck(ctx context.Context, home string, background bool, c *selfup
 	return newer, tag, lookupErr
 }
 
+// resolveUpdateChannel applies the channel precedence: an explicit --pre or
+// --channel, then update.channel from config, then stable. --pre never writes
+// config, so it stays a one-shot override of a persisted channel.
+func resolveUpdateChannel(home string, fs *flag.FlagSet, channel string, pre bool) (string, error) {
+	explicit := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+
+	switch {
+	case pre && explicit["channel"] && channel != selfupdate.ChannelPrerelease:
+		return "", fmt.Errorf("--pre conflicts with --channel %s", channel)
+	case pre:
+		return selfupdate.ChannelPrerelease, nil
+	case explicit["channel"]:
+		if !selfupdate.ValidChannel(channel) {
+			return "", fmt.Errorf("--channel %q is not one of: prerelease, stable", channel)
+		}
+		return channel, nil
+	}
+	if home == "" {
+		return selfupdate.ChannelStable, nil
+	}
+	// A config that fails to load or carries an invalid channel falls back to
+	// stable rather than blocking the update.
+	cfg, _, err := config.Load(config.TOMLPath(home))
+	if err != nil || !selfupdate.ValidChannel(cfg.Update.Channel) {
+		return selfupdate.ChannelStable, nil
+	}
+	return cfg.Update.Channel, nil
+}
+
 func runUpdate(args []string) {
 	// Stripped before flag parsing so it never surfaces as an unknown flag.
 	background, args := stripBackgroundCheckMarker(args)
 
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
-	cliutil.SetUsage(fs, "atomic update [--check] [--channel stable|prerelease] [--no-doctor] [--skip-claude-update] [--force]")
+	cliutil.SetUsage(fs, "atomic update [--check] [--pre | --channel stable|prerelease] [--no-doctor] [--skip-claude-update] [--force]")
 	var check bool
 	var channel string
+	var pre bool
 	var noDoctor bool
 	var skipClaudeUpdate bool
 	var force bool
 	fs.BoolVar(&check, "check", false, "only check if an update is available; do not apply")
 	fs.StringVar(&channel, "channel", "stable", "release channel: stable or prerelease")
+	fs.BoolVar(&pre, "pre", false, "shorthand for --channel prerelease")
 	fs.BoolVar(&noDoctor, "no-doctor", false, "skip post-update doctor self-check")
 	fs.BoolVar(&skipClaudeUpdate, "skip-claude-update", false, "skip the ~/.claude artifact refresh after the binary swap")
 	fs.BoolVar(&force, "force", false, "bypass the update lock; never weakens checksum verification")
 	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+
+	// An unresolvable home degrades to a raw run with no state or config I/O.
+	home, _ := os.UserHomeDir()
+	channel, err := resolveUpdateChannel(home, fs, channel, pre)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic update: %v\n", err)
 		os.Exit(2)
 	}
 
@@ -239,8 +287,6 @@ func runUpdate(args []string) {
 	ctx := context.Background()
 
 	if check {
-		// An unresolvable home degrades to a raw check with no state I/O.
-		home, _ := os.UserHomeDir()
 		newer, tag, err := runUpdateCheck(ctx, home, background, c, channel, version.Version, time.Now, os.Stderr)
 		if err != nil {
 			// Exit 2 for a hard error, distinct from the exit-1 "available" signal.
@@ -269,7 +315,6 @@ func runUpdate(args []string) {
 
 	c.OnProgress = downloadProgressRenderer(os.Stdout, charmterm.IsTerminal(os.Stdout.Fd()))
 
-	home, _ := os.UserHomeDir()
 	if err := runUpdateApply(ctx, home, c, channel, version.Version, exe, force, time.Now, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic update: %v\n", err)
 		os.Exit(1)
@@ -382,7 +427,7 @@ func runUpdateApply(ctx context.Context, home string, c *selfupdate.Client, chan
 		return err
 	}
 
-	if !selfupdate.IsNewer(currentVersion, rel.TagName) {
+	if !selfupdate.ShouldInstall(channel, currentVersion, rel.TagName) {
 		writeState(releaseLock(nil))
 		fmt.Fprintf(w, "atomic is up to date (%s)\n", selfupdate.DisplayVersion(rel.TagName))
 		return nil

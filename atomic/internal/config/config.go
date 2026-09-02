@@ -41,6 +41,7 @@ var knownKeys = []string{
 	"update.run_doctor",
 	"update.check",
 	"update.stage",
+	"update.channel",
 	"harness.dir",
 	"repl.idle_timeout",
 }
@@ -113,6 +114,11 @@ type updateSection struct {
 	// Stage gates once-only background staging of a newer release binary. User
 	// config only.
 	Stage bool `toml:"stage"`
+	// Channel selects the release channel every update path reads: the
+	// background check, the banner, `atomic update`, and doctor's binary check.
+	// Empty means unset and resolves to selfupdate.ChannelStable; `atomic
+	// update --pre` overrides it for one invocation without writing here.
+	Channel string `toml:"channel,omitempty"`
 }
 
 // harnessSection is the [harness] TOML table.
@@ -374,6 +380,10 @@ func Validate(cfg *Config) error {
 			return err
 		}
 	}
+	// Empty channel means unset and resolves to stable.
+	if cfg.Update.Channel != "" && !selfupdate.ValidChannel(cfg.Update.Channel) {
+		return fmt.Errorf("config: update.channel %q is not one of: prerelease, stable", cfg.Update.Channel)
+	}
 	return nil
 }
 
@@ -481,6 +491,11 @@ func Set(cfg *Config, dottedKey, value string) error {
 			return err
 		}
 		cfg.Repl.IdleTimeout = value
+	case "update.channel":
+		if !selfupdate.ValidChannel(value) {
+			return fmt.Errorf("config: update.channel %q is not one of: prerelease, stable", value)
+		}
+		cfg.Update.Channel = value
 	}
 	return nil
 }
@@ -517,6 +532,8 @@ func Unset(cfg *Config, dottedKey string) error {
 		cfg.Harness.Dir = harnessDirDefault
 	case "repl.idle_timeout":
 		cfg.Repl.IdleTimeout = ""
+	case "update.channel":
+		cfg.Update.Channel = ""
 	}
 	return nil
 }

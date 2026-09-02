@@ -260,7 +260,14 @@ func latestKnownVersion() (string, bool) {
 	if latest == "" {
 		return "", false
 	}
-	return latest, selfupdate.IsNewer(version.Version, latest)
+	// latest_version is recorded under whichever channel is configured, so the
+	// availability answer has to be read under the same one: on the prerelease
+	// channel a fresher tip is routinely semver-lower than what is running.
+	channel := selfupdate.ChannelStable
+	if cfg, _, err := config.Load(config.TOMLPath(home)); err == nil && selfupdate.ValidChannel(cfg.Update.Channel) {
+		channel = cfg.Update.Channel
+	}
+	return latest, selfupdate.ShouldInstall(channel, version.Version, latest)
 }
 
 // NewAPIStatusHandler serves GET /api/status.

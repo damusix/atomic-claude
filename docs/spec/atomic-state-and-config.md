@@ -86,9 +86,12 @@ dir = ".claude"              # single non-empty path segment; repo-local state-d
 ```
 
 
-Current keys: `output.signals.max_depth`, `update.run_doctor`, `update.check`, `update.stage`, `harness.dir`. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
+Current keys: `output.signals.max_depth`, `update.run_doctor`, `update.check`, `update.stage`, `update.channel`, `harness.dir`. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
 
 `update.check` and `update.stage` (bool, default `true`) gate the two halves of the detached background-update child described in [`selfupdate-state.md`](./selfupdate-state.md): `update.check` enables the hourly GitHub lookup that any invoked verb may spawn; `update.stage` enables that child's once-per-version download-and-checksum-verify into `~/.cache/atomic/staged/`. Both are user-level only — no repo-scoped equivalent.
+
+`update.channel` (string, default `stable`; valid `stable`, `prerelease`) selects the release channel every update path reads: the background check, the banner, `atomic update`, and doctor's binary check. Stored empty means unset and resolves to `stable`. `atomic update --pre` (or `--channel`) overrides it for one invocation and never writes it back, so a pinned machine can still take a single update from the other channel. A stored value outside the enum fails `Validate`; the update paths fall back to `stable` rather than blocking on it. User-level only — no repo-scoped equivalent.
+
 
 `harness.dir` (string, default `.claude`) names the repo-local state-directory every repo-scoped `atomic` verb resolves against — `<repo>/<harness.dir>/.scratchpad`, `<repo>/<harness.dir>/project`, `<repo>/<harness.dir>/.atomic-index`, `<repo>/<harness.dir>/atomic.toml`, `<repo>/<harness.dir>/worktrees` — decoupling those paths from Claude Code's `.claude` convention (e.g. `atomic config set harness.dir .pi` for a `pi` harness). It is unrelated to the `~/.atomic` user-state root above: `~/.atomic` is fixed and not configurable (see Non-goals). Validation: **write (`set`)** rejects empty, `.`, `..`, and any value containing `/` — same shape as every other write-time rejection in this schema. **Read (load)** goes one step further than the generic unknown-key leniency described below: a stored value that fails that same shape check (e.g. hand-edited to `..`) is not merely warned about — the resolver silently falls back to the built-in default, because an unvalidated value would otherwise reach `filepath.Join` unguarded in every repo-local path helper.
 
@@ -151,6 +154,17 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 
 
 ## Change log
+
+
+### 2026-09-02 — Add update.channel config key
+
+**What changed:** Schema v1 gains `update.channel` (string, default `stable`, valid `stable` / `prerelease`), selecting the release channel for the background check, the update banner, `atomic update`, and doctor's binary check. Previously every one of those was pinned to `stable` in code, so `--channel prerelease` applied only to the one foreground invocation that carried it and a machine tracking pre-releases was still told it was on the latest stable release.
+
+| Key | Type | Default | Valid values |
+|-----|------|---------|--------------|
+| `update.channel` | string | `stable` | `stable`, `prerelease` |
+
+**Why:** `atomic update --pre` installs pre-releases cut from the `next` branch. Without a persisted channel the flag reaches only the foreground path, leaving the banner and doctor reporting against a channel the user is not on.
 
 
 ### 2026-08-20 — Layout gains the project-keyed state home

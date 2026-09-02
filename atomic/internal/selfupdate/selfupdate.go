@@ -30,7 +30,25 @@ const (
 	defaultStallTimeout = 30 * time.Second
 
 	progressEmitBytes = 512 * 1024
+
+	// lookupPerPage is GitHub's maximum page size. The default of 30 let a run
+	// of prereleases push the newest stable release off the first page, which
+	// would strand the stable channel with "no suitable release found".
+	lookupPerPage  = 100
+	lookupMaxPages = 5
 )
+
+// Release channels. Stable takes only full releases and only ever moves
+// forward. Prerelease tracks the tip of the pre-release branch.
+const (
+	ChannelStable     = "stable"
+	ChannelPrerelease = "prerelease"
+)
+
+// ValidChannel reports whether s names a release channel.
+func ValidChannel(s string) bool {
+	return s == ChannelStable || s == ChannelPrerelease
+}
 
 // BannerWindow is the minimum interval between repeated update-available
 // banners for the same running version. The parent fast path renders the
@@ -51,6 +69,10 @@ type Release struct {
 	Prerelease bool    `json:"prerelease"`
 	Draft      bool    `json:"draft"`
 	Assets     []Asset `json:"assets"`
+	// PublishedAt orders the prerelease channel. The list endpoint sorts by
+	// created_at, which is the tag's commit date, so it is not a reliable
+	// stand-in for when a release actually went out.
+	PublishedAt time.Time `json:"published_at"`
 }
 
 // Asset is a downloadable artifact attached to a release.
@@ -98,13 +120,83 @@ func (c *Client) downloadClient() *http.Client {
 	return &http.Client{}
 }
 
-// Lookup fetches the latest GitHub release for channel ("stable" or
-// "prerelease"). token is an optional GitHub personal access token.
+// eligible reports whether r is a candidate on channel. The stable channel
+// takes only full releases; the prerelease channel takes either, so a stable
+// release still graduates a prerelease user.
+func eligible(r Release, channel string) bool {
+	if r.Draft {
+		return false
+	}
+	return channel == ChannelPrerelease || !r.Prerelease
+}
+
+// Lookup fetches the GitHub release each channel considers current. token is an
+// optional GitHub personal access token.
+//
+// The two channels select differently because they mean different things.
+// Stable is a forward-only ladder, so it takes the highest version: the list
+// endpoint orders by commit date rather than version, and an interleaved hotfix
+// published after a higher release would otherwise win. Prerelease tracks the
+// tip of the pre-release branch, so it takes the most recently published
+// release — selecting by version there would pin it to the newest full release
+// forever, since a full release outranks every prerelease of the same core, and
+// that is the stranding the channel exists to avoid.
+//
+// Paging continues past a page with no eligible entry so a run of prereleases
+// can never bury the newest stable release out of reach of the stable channel.
 func (c *Client) Lookup(ctx context.Context, channel, token string) (Release, error) {
-	url := c.baseURL() + "/releases"
+	var (
+		best        Release
+		bestVer     semver
+		found       bool
+		unparseable int
+	)
+	tracking := channel == ChannelPrerelease
+	for page := 1; page <= lookupMaxPages; page++ {
+		releases, err := c.fetchReleasePage(ctx, page, token)
+		if err != nil {
+			return Release{}, err
+		}
+		for _, r := range releases {
+			if !eligible(r, channel) {
+				continue
+			}
+			if tracking {
+				// Strictly-after keeps the earliest-listed release on ties,
+				// which is GitHub's own recency order when published_at is
+				// absent or equal.
+				if !found || r.PublishedAt.After(best.PublishedAt) {
+					best, found = r, true
+				}
+				continue
+			}
+			v, err := parseSemver(r.TagName)
+			if err != nil {
+				unparseable++
+				continue
+			}
+			if !found || v.compare(bestVer) > 0 {
+				best, bestVer, found = r, v, true
+			}
+		}
+		if found || len(releases) < lookupPerPage {
+			break
+		}
+	}
+	if !found {
+		if unparseable > 0 {
+			return Release{}, fmt.Errorf("selfupdate: no suitable release found for channel %q (%d eligible release(s) skipped: unparseable tag)", channel, unparseable)
+		}
+		return Release{}, fmt.Errorf("selfupdate: no suitable release found for channel %q", channel)
+	}
+	return best, nil
+}
+
+func (c *Client) fetchReleasePage(ctx context.Context, page int, token string) ([]Release, error) {
+	url := fmt.Sprintf("%s/releases?per_page=%d&page=%d", c.baseURL(), lookupPerPage, page)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return Release{}, fmt.Errorf("selfupdate: build request: %w", err)
+		return nil, fmt.Errorf("selfupdate: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	if token != "" {
@@ -113,29 +205,19 @@ func (c *Client) Lookup(ctx context.Context, channel, token string) (Release, er
 
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
-		return Release{}, fmt.Errorf("selfupdate: lookup: %w", err)
+		return nil, fmt.Errorf("selfupdate: lookup: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return Release{}, fmt.Errorf("selfupdate: lookup: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("selfupdate: lookup: HTTP %d", resp.StatusCode)
 	}
 
 	var releases []Release
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		return Release{}, fmt.Errorf("selfupdate: parse releases: %w", err)
+		return nil, fmt.Errorf("selfupdate: parse releases: %w", err)
 	}
-
-	for _, r := range releases {
-		if r.Draft {
-			continue
-		}
-		if channel != "prerelease" && r.Prerelease {
-			continue
-		}
-		return r, nil
-	}
-	return Release{}, fmt.Errorf("selfupdate: no suitable release found for channel %q", channel)
+	return releases, nil
 }
 
 // Apply downloads the release asset for the current OS/arch, verifies its
@@ -595,18 +677,14 @@ func writeFile(dst string, src io.Reader, mode os.FileMode) error {
 	return err
 }
 
-// Check reports whether an update is available, with the latest tag.
+// Check reports whether an update is available on channel, with the latest tag.
 func (c *Client) Check(ctx context.Context, channel, currentVersion string) (bool, string, error) {
 	token := os.Getenv("GITHUB_TOKEN")
 	rel, err := c.Lookup(ctx, channel, token)
 	if err != nil {
 		return false, "", err
 	}
-	newer, err := newerThan(currentVersion, rel.TagName)
-	if err != nil {
-		return false, displayVersion(rel.TagName), err
-	}
-	return newer, displayVersion(rel.TagName), nil
+	return ShouldInstall(channel, currentVersion, rel.TagName), displayVersion(rel.TagName), nil
 }
 
 // IsNewer reports whether latest is a newer semver than current. A malformed or
@@ -622,10 +700,27 @@ func IsNewer(current, latest string) bool {
 	return newer
 }
 
+// ShouldInstall reports whether latest warrants replacing current on channel.
+//
+// Stable only ever moves forward. Prerelease tracks the tip of the pre-release
+// branch, so it also accepts a tag that is semver-lower than what is running: a
+// prerelease cut after a stable release of the same core carries newer code
+// with a lower version, and a forward-only gate would leave the channel dark
+// until the core advanced again.
+func ShouldInstall(channel, current, latest string) bool {
+	if latest == "" {
+		return false
+	}
+	if channel == ChannelPrerelease {
+		return displayVersion(latest) != displayVersion(current)
+	}
+	return IsNewer(current, latest)
+}
+
 // ShouldNotify reports whether to render the update-available banner: latest is
-// newer, and lastNotified is zero or older than BannerWindow.
-func ShouldNotify(current, latest string, lastNotified, now time.Time) bool {
-	if !IsNewer(current, latest) {
+// installable on channel, and lastNotified is zero or older than BannerWindow.
+func ShouldNotify(channel, current, latest string, lastNotified, now time.Time) bool {
+	if !ShouldInstall(channel, current, latest) {
 		return false
 	}
 	return lastNotified.IsZero() || now.Sub(lastNotified) >= BannerWindow

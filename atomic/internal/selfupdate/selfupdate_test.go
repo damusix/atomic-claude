@@ -537,8 +537,8 @@ func TestShouldNotify(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := ShouldNotify(tc.current, tc.latest, tc.lastNotified, now); got != tc.want {
-				t.Errorf("ShouldNotify(%q, %q, %v, now) = %v, want %v", tc.current, tc.latest, tc.lastNotified, got, tc.want)
+			if got := ShouldNotify(ChannelStable, tc.current, tc.latest, tc.lastNotified, now); got != tc.want {
+				t.Errorf("ShouldNotify(stable, %q, %q, %v, now) = %v, want %v", tc.current, tc.latest, tc.lastNotified, got, tc.want)
 			}
 		})
 	}

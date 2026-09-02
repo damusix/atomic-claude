@@ -63,8 +63,58 @@ func (a semver) compare(b semver) int {
 	case a.prerelease == "" && b.prerelease != "":
 		return 1
 	default:
-		return strings.Compare(a.prerelease, b.prerelease)
+		return comparePrerelease(a.prerelease, b.prerelease)
 	}
+}
+
+// comparePrerelease orders two non-empty prerelease strings by semver §11.4:
+// dot-separated identifiers left to right, all-digit identifiers numerically,
+// the rest lexically, numeric ranking below alphanumeric, and a longer
+// identifier list ranking above an otherwise-equal shorter one. Comparing the
+// raw strings instead would order "next.10" below "next.2".
+func comparePrerelease(a, b string) int {
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		if c := compareIdentifier(as[i], bs[i]); c != 0 {
+			return c
+		}
+	}
+	return cmpInt(len(as), len(bs))
+}
+
+func compareIdentifier(a, b string) int {
+	an, aNumeric := numericIdentifier(a)
+	bn, bNumeric := numericIdentifier(b)
+	switch {
+	case aNumeric && bNumeric:
+		return cmpInt(an, bn)
+	case aNumeric:
+		return -1
+	case bNumeric:
+		return 1
+	default:
+		return strings.Compare(a, b)
+	}
+}
+
+// numericIdentifier reports whether s is an all-digit identifier, with its
+// value. One too large for int is reported as non-numeric so it falls through
+// to a lexical comparison rather than overflowing.
+func numericIdentifier(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func cmpInt(a, b int) int {
