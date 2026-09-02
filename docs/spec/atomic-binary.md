@@ -145,7 +145,8 @@ Self-update the binary. Foreground check (not the background lookup other comman
 |-------------|-------------|
 | (default) | Check GitHub Releases for the latest tag. If newer than `--version`, download the matching archive + checksum, verify SHA256, replace the running binary in place atomically (download to temp, then `rename`). On success: the artifact bundle is refreshed automatically by re-execing the new binary as `claude update --no-update-check` (with `--no-hooks` appended when no session-start hook is registered, preserving the user's hook choice), then the post-update doctor runs (see `docs/spec/atomic-update-doctor.md`). |
 | `--check` | Only check, don't apply. Exit 0 if up-to-date, exit 1 if a newer version is available (prints `update available: ...` to stdout), exit 2 on a hard error such as a network or parse failure (stderr explains). Follows the check-family exit convention — exit 1 is the "update available" signal, not an error. |
-| `--channel <stable\|prerelease>` | Default `stable` (only non-prerelease tags). `prerelease` includes RC/beta tags. |
+| `--channel <stable\|prerelease>` | Release channel. Precedence: this flag, then `update.channel` in `~/.atomic/config.toml`, then `stable`. `stable` considers only non-prerelease tags and only ever moves forward. `prerelease` considers both and tracks the tip: it installs any tag differing from the running one, including a lower-numbered pre-release cut after a stable release of the same core. An unknown value exits 2. |
+| `--pre` | Shorthand for `--channel prerelease`. A one-shot override that never writes config. Combined with an explicit `--channel stable`, exits 2 rather than silently preferring one. |
 | `--no-doctor` | Skip the post-update doctor self-check. |
 | `--skip-claude-update` | Skip the post-swap `~/.claude` artifact refresh; binary swap only. |
 
@@ -707,6 +708,15 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 
 
 ## Change log
+
+
+### 2026-09-02 — `atomic update` gains `--pre`; the prerelease channel tracks the tip
+
+**What changed:** `atomic update` gains `--pre`, shorthand for `--channel prerelease`. The `--channel` row gains the resolution order — flag, then `update.channel` in `~/.atomic/config.toml`, then `stable` — and rejects an unknown value with exit 2, as does `--pre` combined with an explicit `--channel stable`. The prerelease channel is now defined as a tracking channel: it selects the most recently published eligible release and installs any tag differing from the running one, including a semver-lower one. The stable channel is unchanged in meaning and still selects the highest version.
+
+**Why:** the `next` branch publishes `X.Y.Z-next.N` pre-releases. Release-please's prerelease strategy bumps only the prerelease counter while patch is 0, so the pre-releases following a stable release of the same core carry a lower version than it. A forward-only channel — whether the gate is in the install decision or in the release selection — pins itself to that stable release and never surfaces another pre-release.
+
+**Superseded:** `--channel` previously read "Default `stable` (only non-prerelease tags). `prerelease` includes RC/beta tags", describing the channel as a filter over the same forward-only comparison, with no config fallback and no defined behavior for an unknown value.
 
 
 ### 2026-08-20 — `atomic reminder add` storage moves to the project-keyed home
