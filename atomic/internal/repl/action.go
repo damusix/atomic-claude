@@ -170,6 +170,23 @@ func deadSessionError(err error) error {
 	return fmt.Errorf("%w; run `atomic repl start` to replace it", err)
 }
 
+// dialError renders an error from a dial that findSession already approved, where
+// two of them need text the raw error cannot carry.
+//
+// Not-found here is not a name nobody started: the meta was on disk a moment ago.
+// It is the window `stop` opens by returning on the harness's shutdown ack while
+// the harness is still removing its own socket and meta. Dial reports that as the
+// socket path with no remedy, so it is rebuilt through notFoundError — the
+// session is gone either way, and the reader is owed the same sentence.
+//
+// Dead sessions keep the replace-it remedy they already had.
+func dialError(err error, name string) error {
+	if errors.Is(err, ErrSessionNotFound) {
+		return notFoundError(name)
+	}
+	return deadSessionError(err)
+}
+
 // sessionView is the shape list and status share: enough to find a session and
 // judge whether it can still be used. There is deliberately no --env field —
 // Meta carries none either — so there is nowhere for a secret to leak.
@@ -476,7 +493,7 @@ func evalAction(args []string, home string, scopeRoots []string, stdin io.Reader
 
 	resp, err := Eval(sess, code, EvalOptions{Timeout: timeout})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic repl eval: %v\n", deadSessionError(err))
+		fmt.Fprintf(os.Stderr, "atomic repl eval: %v\n", dialError(err, name))
 		return int(exitCodeForErr(err))
 	}
 
@@ -653,7 +670,7 @@ func statusAction(args []string, home string, scopeRoots []string, out io.Writer
 
 	client, err := Dial(sess.SocketPath, 0)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic repl status: %v\n", deadSessionError(err))
+		fmt.Fprintf(os.Stderr, "atomic repl status: %v\n", dialError(err, name))
 		return int(exitCodeForErr(err))
 	}
 	client.Close()
@@ -698,7 +715,7 @@ func resetAction(args []string, home string, scopeRoots []string, out io.Writer)
 
 	client, err := Dial(sess.SocketPath, 0)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic repl reset: %v\n", deadSessionError(err))
+		fmt.Fprintf(os.Stderr, "atomic repl reset: %v\n", dialError(err, name))
 		return int(exitCodeForErr(err))
 	}
 	defer client.Close()
@@ -749,7 +766,7 @@ func stopAction(args []string, home string, scopeRoots []string, out io.Writer) 
 
 	client, err := Dial(sess.SocketPath, 0)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic repl stop: %v\n", deadSessionError(err))
+		fmt.Fprintf(os.Stderr, "atomic repl stop: %v\n", dialError(err, name))
 		return int(exitCodeForErr(err))
 	}
 	defer client.Close()
