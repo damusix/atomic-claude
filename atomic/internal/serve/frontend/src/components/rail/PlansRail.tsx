@@ -9,6 +9,7 @@
 // but never writes `?at=` — SlugView owns that write so the two can't race.
 import { useEffect, useState } from "react";
 import { fetchPlans, type PlanRow, bundleLocalPath } from "../../utils/plansApi";
+import { useCurrentMember } from "../../utils/memberStore";
 import { Contents } from "./Contents";
 import { findDoc, resolveBundleFile, resolveDocVersion } from "../plans/resolve";
 import { VersionPicker } from "../plans/VersionPicker";
@@ -26,12 +27,14 @@ function docLabel(path: string): string {
 }
 
 export function PlansRail() {
-  const { slug = "", relpath, at, member, openFile, setAt } = usePlansScope();
+  const { slug = "", relpath, at, openFile, setAt } = usePlansScope();
+  const { member, ready } = useCurrentMember();
   const activeRelpath = relpath ?? "";
 
   const [row, setRow] = useState<PlanRow | null>(null);
 
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
     void fetchPlans(member).then((rows) => {
       if (!cancelled) setRow(rows.find((r) => r.slug === slug) ?? null);
@@ -39,7 +42,7 @@ export function PlansRail() {
     return () => {
       cancelled = true;
     };
-  }, [slug, member]);
+  }, [slug, member, ready]);
 
   if (!row) return null;
 

@@ -1,13 +1,13 @@
-// usePlansScope — the one place Plans code reads ?member=/?at=/the /plans/:slug
-// route and the one place it writes them. Every consumer used to re-derive
-// this from its own useSearchParams/useLocation call and assemble its own
-// /plans URL; that let five sites drift out of sync. This hook is the single
+// usePlansScope — the one place Plans code reads ?at=/the /plans/:slug route
+// and the one place it writes them. Every consumer used to re-derive this
+// from its own useSearchParams/useLocation call and assemble its own /plans
+// URL; that let five sites drift out of sync. This hook is the single
 // source, so a consumer either reads its fields or calls one of its writers —
-// never react-router directly.
+// never react-router directly. Which member is selected lives in
+// utils/memberStore, not here — it is not a URL concern.
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 export interface PlansScope {
-  member: string | undefined;
   at: string | undefined;
   /** The opened slug, from the /plans/:slug route — undefined on bare /plans. */
   slug: string | undefined;
@@ -18,9 +18,6 @@ export interface PlansScope {
   openSlug(slug: string): void;
   openFile(relpath: string, opts?: { replace?: boolean; at?: string }): void;
   setAt(branch: string, opts?: { replace?: boolean }): void;
-  setMember(key: string): void;
-  /** "?member=…" (or "") for a link scoped to the current member. */
-  scopedSearch(): string;
   plansHref(): string;
   slugHref(slug: string): string;
 }
@@ -43,32 +40,23 @@ export function usePlansScope(): PlansScope {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const member = searchParams.get("member") ?? undefined;
   const at = searchParams.get("at") ?? undefined;
   const isPlansRoute = isPlansPath(location.pathname);
   const { slug, relpath } = parsePlansPath(location.pathname);
 
-  function scopedSearch(): string {
-    return member ? `?${new URLSearchParams({ member }).toString()}` : "";
-  }
-
   function plansHref(): string {
-    return `/plans${scopedSearch()}`;
+    return "/plans";
   }
 
   // Keeps ?at= where openSlug drops it: this is the breadcrumb back to the
   // slug the reader is already in, so the version they are reading stays
   // selected. openSlug targets a different slug, whose versions are its own.
   function slugHref(targetSlug: string): string {
-    const params = new URLSearchParams();
-    if (member) params.set("member", member);
-    if (at) params.set("at", at);
-    const qs = params.toString();
-    return `/plans/${targetSlug}${qs ? `?${qs}` : ""}`;
+    return `/plans/${targetSlug}${at ? `?at=${encodeURIComponent(at)}` : ""}`;
   }
 
   function openSlug(targetSlug: string): void {
-    navigate(`/plans/${targetSlug}${scopedSearch()}`);
+    navigate(`/plans/${targetSlug}`);
   }
 
   function openFile(targetRelpath: string, opts?: { replace?: boolean; at?: string }): void {
@@ -94,14 +82,5 @@ export function usePlansScope(): PlansScope {
     );
   }
 
-  function setMember(key: string): void {
-    const next = new URLSearchParams(searchParams);
-    if (key) next.set("member", key);
-    else next.delete("member");
-    next.delete("at");
-    const qs = next.toString();
-    navigate({ pathname: location.pathname, search: qs ? `?${qs}` : "", hash: location.hash });
-  }
-
-  return { member, at, slug, relpath, isPlansRoute, openSlug, openFile, setAt, setMember, scopedSearch, plansHref, slugHref };
+  return { at, slug, relpath, isPlansRoute, openSlug, openFile, setAt, plansHref, slugHref };
 }

@@ -4,9 +4,26 @@ import userEvent from "@testing-library/user-event";
 import { typeIntoCombobox } from "../../test/typeIntoCombobox";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 import { ApiProvider } from "../../utils/api";
+import { __resetForTest } from "../../utils/memberStore";
 import { SearchPalette } from "./SearchPalette";
 import type { ApiCodeSearchResponse, ApiMdSearchResponse } from "./types";
 import type { PlanRow } from "../../utils/plansApi";
+
+const NAV_FIXTURE = { scope: "realm", name: "acme", branch: "", groups: [] };
+
+function seedMemberCookie(member: string) {
+  document.cookie = `atomic-member=${encodeURIComponent(JSON.stringify({ "realm:acme": member }))}; path=/`;
+}
+
+// Every mount also triggers the member store's own GET /nav — call counts
+// on the search/plans fetches are asserted net of that background request.
+function nonNavCallCount(): number {
+  const calls = (globalThis.fetch as unknown as { mock: { calls: [RequestInfo | URL][] } }).mock.calls;
+  return calls.filter(([input]) => {
+    const url = typeof input === "string" ? input : input.toString();
+    return !url.includes("/nav");
+  }).length;
+}
 
 const MD_FIXTURE: ApiMdSearchResponse = {
   query: "auth",
@@ -29,9 +46,10 @@ const PLANS_FIXTURE: PlanRow[] = [
 ];
 
 function mockFetchByUrl(handlers: Record<string, unknown>) {
+  const withNav = { "/nav": NAV_FIXTURE, ...handlers };
   globalThis.fetch = mock(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    for (const [match, body] of Object.entries(handlers)) {
+    for (const [match, body] of Object.entries(withNav)) {
       if (url.includes(match)) {
         return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -55,21 +73,28 @@ function renderPalette(open = true) {
 describe("SearchPalette", () => {
   afterEach(() => {
     mock.restore();
+    // @ts-expect-error — test-only global cleanup
+    delete globalThis.fetch;
+    __resetForTest();
+    document.cookie = "atomic-member=; path=/; max-age=0";
   });
 
   test("⌘K opens the palette", async () => {
+    mockFetchByUrl({});
     const { onOpenChange } = renderPalette(false);
     await userEvent.keyboard("{Meta>}k{/Meta}");
     expect(onOpenChange).toHaveBeenCalledWith(true);
   });
 
   test("Escape closes an open palette", async () => {
+    mockFetchByUrl({});
     const { onOpenChange } = renderPalette(true);
     await userEvent.keyboard("{Escape}");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   test("'/' opens the palette when focus isn't in a text field", async () => {
+    mockFetchByUrl({});
     const { onOpenChange } = renderPalette(false);
     await userEvent.keyboard("/");
     expect(onOpenChange).toHaveBeenCalledWith(true);
@@ -82,11 +107,11 @@ describe("SearchPalette", () => {
     const input = screen.getByLabelText("Search");
     await typeIntoCombobox(input, "auth");
 
-    // Immediately after typing, no fetch should have happened yet.
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    // Immediately after typing, no search fetch should have happened yet.
+    expect(nonNavCallCount()).toBe(0);
 
     await waitFor(() => expect(screen.getByText("wiki/auth.md")).toBeInTheDocument(), { timeout: 2000 });
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(nonNavCallCount()).toBe(1);
   });
 
   test("md|code toggle switches the fetch target", async () => {
@@ -119,7 +144,7 @@ describe("SearchPalette", () => {
     renderPalette(true);
 
     await userEvent.click(screen.getByRole("button", { name: "plans" }));
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(nonNavCallCount()).toBe(1));
 
     const input = screen.getByLabelText("Search");
     await typeIntoCombobox(input, "release");
@@ -129,7 +154,7 @@ describe("SearchPalette", () => {
     expect(screen.queryByText("Plans page")).not.toBeInTheDocument();
     // Filtering is client-side against the payload already held — no
     // second fetch fires as the query changes.
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(nonNavCallCount()).toBe(1);
   });
 
   test("selecting a plans result navigates to the slug and closes the palette", async () => {
@@ -145,14 +170,15 @@ describe("SearchPalette", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  test("scoped plans fetch and navigate both carry ?member=", async () => {
+  test("the stored member's plans fetch carries member=, navigate carries no search", async () => {
+    seedMemberCookie("api");
     mockFetchByUrl({ "/api/plans": PLANS_FIXTURE });
     const router = createMemoryRouter(
       [
         { path: "/plans", element: <SearchPalette open={true} onOpenChange={() => {}} /> },
         { path: "/plans/:slug", element: <div>opened</div> },
       ],
-      { initialEntries: ["/plans?member=server"] },
+      { initialEntries: ["/plans"] },
     );
     render(
       <ApiProvider>
@@ -162,9 +188,15 @@ describe("SearchPalette", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "plans" }));
     const fetchMock = globalThis.fetch as unknown as { mock: { calls: [RequestInfo | URL][] } };
-    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
-    const calledUrl = fetchMock.mock.calls[0][0];
-    expect(typeof calledUrl === "string" ? calledUrl : calledUrl.toString()).toContain("member=server");
+    await waitFor(() => {
+      const plansCall = fetchMock.mock.calls.find(([input]) => {
+        const url = typeof input === "string" ? input : input.toString();
+        return url.includes("/plans") && !url.includes("/nav");
+      });
+      expect(plansCall).toBeDefined();
+      const url = typeof plansCall![0] === "string" ? (plansCall![0] as string) : plansCall![0].toString();
+      expect(url).toContain("member=api");
+    });
 
     const input = screen.getByLabelText("Search");
     await typeIntoCombobox(input, "release");
@@ -172,6 +204,6 @@ describe("SearchPalette", () => {
     await userEvent.click(screen.getByText("Release CI"));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/plans/release-please-ci"));
-    expect(router.state.location.search).toBe("?member=server");
+    expect(router.state.location.search).toBe("");
   });
 });

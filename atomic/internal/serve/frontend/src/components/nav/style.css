@@ -320,6 +320,16 @@
   color: var(--amber);
 }
 
+/* Provenance segment — names the checkout of the plan file on screen. */
+.breadcrumb-provenance {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ============================================================
    BRAND MARK — glow breathes while the stream is live
    ============================================================ */

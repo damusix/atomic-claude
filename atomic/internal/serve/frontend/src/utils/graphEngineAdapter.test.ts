@@ -5,6 +5,7 @@ import {
   fetchGraphMembers,
   type GraphMember,
   mountGraph,
+  pickerLabel,
   resolveMember,
   rethemeGraph,
   teardownGraph,
@@ -145,5 +146,17 @@ describe("graphEngineAdapter", () => {
     globalThis.fetch = mock(() => Promise.reject(new Error("network down"))) as unknown as typeof fetch;
     const members = await fetchGraphMembers();
     expect(members).toEqual([]);
+  });
+
+  test("pickerLabel appends the not-indexed suffix for an unindexed member", () => {
+    expect(pickerLabel({ prefix: "alpha", indexed: false }, "acme")).toBe("alpha — not indexed");
+  });
+
+  test("pickerLabel renders the bare prefix for an indexed member", () => {
+    expect(pickerLabel({ prefix: "alpha", indexed: true }, "acme")).toBe("alpha");
+  });
+
+  test("pickerLabel renders the realm name for an empty prefix", () => {
+    expect(pickerLabel({ prefix: "", indexed: true }, "acme")).toBe("acme");
   });
 });

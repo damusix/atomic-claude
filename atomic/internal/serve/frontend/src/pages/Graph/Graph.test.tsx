@@ -4,7 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { __resetGraphEngineLoadedForTest } from "../../utils/graphEngineAdapter";
 import { __resetLoadScriptCacheForTest } from "../../utils/loadScript";
+import { __resetForTest } from "../../utils/memberStore";
 import { Graph } from "./Graph";
+
+const NAV_FIXTURE = { scope: "realm", name: "acme", branch: "", groups: [] };
+
+function seedMemberCookie(member: string) {
+  document.cookie = `atomic-member=${encodeURIComponent(JSON.stringify({ "realm:acme": member }))}; path=/`;
+}
 
 // Stubs the same way graphEngineAdapter.test.ts / loadScript.test.ts do —
 // happy-dom throws on real script-file loading.
@@ -33,12 +40,21 @@ function stubGraphEngine() {
   return { systemMount, systemTeardown, codeMount, codeTeardown };
 }
 
+function mockFetchByUrl(handlers: Record<string, unknown>) {
+  const withNav = { "/nav": NAV_FIXTURE, ...handlers };
+  globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    for (const [match, body] of Object.entries(withNav)) {
+      if (url.includes(match)) {
+        return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    return new Response(JSON.stringify({ error: "unexpected path" }), { status: 404 });
+  }) as unknown as typeof fetch;
+}
+
 function stubMembersFetch(members: Array<{ prefix: string; indexed: boolean }>) {
-  globalThis.fetch = mock(() =>
-    Promise.resolve(
-      new Response(JSON.stringify({ members }), { status: 200, headers: { "Content-Type": "application/json" } }),
-    ),
-  ) as unknown as typeof fetch;
+  mockFetchByUrl({ "/code/graph/members": { members } });
 }
 
 function renderAt(path: string) {
@@ -56,11 +72,14 @@ describe("Graph route", () => {
     delete window.CodeGraph;
     // @ts-expect-error — test-only global cleanup
     delete globalThis.fetch;
+    __resetForTest();
+    document.cookie = "atomic-member=; path=/; max-age=0";
   });
 
   test("defaults to the docs view and mounts window.SystemGraph", async () => {
     const restoreScripts = stubScriptLoad();
     const engine = stubGraphEngine();
+    mockFetchByUrl({});
     renderAt("/graph");
 
     await waitFor(() => expect(engine.systemMount).toHaveBeenCalledTimes(1));
@@ -78,6 +97,7 @@ describe("Graph route", () => {
   test("claims the full-pane layout while open and gives it back on leave", async () => {
     const restoreScripts = stubScriptLoad();
     const engine = stubGraphEngine();
+    mockFetchByUrl({});
     const { unmount } = renderAt("/graph");
 
     // Asserted before the engine has finished mounting: the layout must be
@@ -102,9 +122,10 @@ describe("Graph route", () => {
     restoreScripts();
   });
 
-  test("shows the member picker for a realm with several members and mounts the resolved member", async () => {
+  test("shows the member picker for a realm with several members and mounts the store's member", async () => {
     const restoreScripts = stubScriptLoad();
     const engine = stubGraphEngine();
+    seedMemberCookie("alpha");
     stubMembersFetch([
       { prefix: "alpha", indexed: true },
       { prefix: "beta", indexed: false },
@@ -119,18 +140,37 @@ describe("Graph route", () => {
     restoreScripts();
   });
 
-  test("an unrecognized ?member= among several falls back to the first member and rewrites the URL", async () => {
+  test("a stored member absent from Graph's member list renders the first member and leaves the cookie unchanged", async () => {
     const restoreScripts = stubScriptLoad();
     const engine = stubGraphEngine();
+    seedMemberCookie("bogus");
     stubMembersFetch([
       { prefix: "alpha", indexed: true },
       { prefix: "beta", indexed: false },
     ]);
-    const { router } = renderAt("/graph?view=code&member=bogus");
+    renderAt("/graph?view=code");
 
     await waitFor(() => expect(engine.codeMount).toHaveBeenCalledTimes(1));
     expect(engine.codeMount).toHaveBeenCalledWith(expect.anything(), "alpha");
-    expect(router.state.location.search).toContain("member=alpha");
+    expect(document.cookie).toContain(encodeURIComponent(JSON.stringify({ "realm:acme": "bogus" })));
+    const [mounted] = engine.codeMount.mock.calls[0] as unknown as [HTMLElement];
+    expect(mounted).toBe(document.getElementById("code-cy") as HTMLElement);
+    expect(mounted.isConnected).toBe(true);
+    restoreScripts();
+  });
+
+  test("the empty-prefix member renders the realm's name from the store", async () => {
+    const restoreScripts = stubScriptLoad();
+    const engine = stubGraphEngine();
+    stubMembersFetch([
+      { prefix: "", indexed: true },
+      { prefix: "atomic", indexed: true },
+    ]);
+    renderAt("/graph?view=code");
+
+    await waitFor(() => expect(engine.codeMount).toHaveBeenCalledTimes(1));
+    const select = await screen.findByLabelText("Code member");
+    expect(select.querySelector("option[value='']")).toHaveTextContent("acme");
     restoreScripts();
   });
 
@@ -147,6 +187,24 @@ describe("Graph route", () => {
 
     await waitFor(() => expect(engine.codeTeardown).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(engine.systemMount).toHaveBeenCalledTimes(1));
+    restoreScripts();
+  });
+
+  test("picking a member in the picker calls the store's setMember", async () => {
+    const restoreScripts = stubScriptLoad();
+    const engine = stubGraphEngine();
+    stubMembersFetch([
+      { prefix: "alpha", indexed: true },
+      { prefix: "beta", indexed: false },
+    ]);
+    const user = userEvent.setup();
+    renderAt("/graph?view=code");
+
+    const picker = await screen.findByLabelText("Code member");
+    await user.selectOptions(picker, "beta");
+
+    await waitFor(() => expect(engine.codeMount).toHaveBeenLastCalledWith(expect.anything(), "beta"));
+    expect(document.cookie).toContain(encodeURIComponent(JSON.stringify({ "realm:acme": "beta" })));
     restoreScripts();
   });
 });
