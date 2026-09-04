@@ -74,6 +74,11 @@ then get to work
   /quick-fix <task> .................... same loop, no spec, for known-cause fixes
   /commit [push|pr|merge|squash] ....... ship from one verb
   /autopilot <task|issue#> ............. all of it unattended; you pick the merge
+
+clean up what's already there
+
+  /deslop [<path>] ..................... audit standing code for slop → report you read
+  /deslop apply <ids|tier> ............. fix what you accepted, behind a green baseline
 ```
 
 Fresh-context subagents drive the loop as a maker/checker split (Anthropic's evaluator-optimizer pattern): the implementer writes a failing test before any code, the reviewer re-runs tests and gates the diff against the spec, and work commits per green checkpoint. → [workflow](docs/reference/workflow.md)

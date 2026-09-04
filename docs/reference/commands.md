@@ -37,7 +37,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 
 | Command | What it does |
 |---------|-------------|
-| `/review-branch` | One-shot code review of the current branch against base. No orchestration loop, no spec required. |
+| `/review-branch` | One-shot code review of the current branch against base. No orchestration loop, no spec required. Reviews a diff; for code nobody is changing, see `/deslop` under Maintenance. |
 | `/documentation` | Keep project docs in sync with code changes. First run bootstraps: scans for markdown files, you pick which to track as indexed surfaces. Subsequent runs match diffs against tracked surfaces and walk you through each (edit, skip, later, remind). Ship verbs run the same check automatically during commit flow. |
 
 
@@ -53,6 +53,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 
 | Command | What it does |
 |---------|-------------|
+| `/deslop` | Audit the codebase as it stands — not a diff — for accumulated slop: comment noise, AI-tell prose in shipped docs, one-use abstractions, hand-rolled stdlib, duplicate helpers, dead code, swallowed errors, and drift from the repo's own stated conventions. Fans out read-only `atomic-deslopper` agents sharded by wiki domain, then writes an indexed report into a scratchpad bundle and stops. `/deslop apply <ids or tier>` is a separate invocation that fixes accepted findings through the surgical implementer behind a green test baseline, committing per batch and stopping on the first regression. Every finding carries a safety tier; the `report-only` tier — public API, dynamic references, generated files — is never auto-fixed. |
 | `/git-cleanup` | Scan for stale worktrees, branches, and optionally remote tracking refs. Shows a report and asks before deleting anything. |
 | `/watch-ci` | Spawn a background agent to monitor CI for the current branch. Reports back when it finishes. |
 | `/remind-me` | Schedule a reminder (e.g. `/remind-me 2h check deploy`). Fires via cron for durations under an hour, via Routines for an hour or more; degrades to a file-only reminder surfaced at session start when neither is available. |
