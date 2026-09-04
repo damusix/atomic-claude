@@ -84,7 +84,7 @@ One-line pointer per topic. Group by category for scannability.
 | `implement` | `/subagent-implementation` reads spec, runs implement→review loop with `atomic-implementer`+`atomic-reviewer`, commits per green iteration. |
 | `quick-fix` | `/quick-fix <task>` — implement→review loop without the planning phase, spec gate, or finalize ceremony (audit kept). For a known-cause fix with one obvious approach; escapes to `/subagent-diagnose`, `/atomic-plan`, or `/subagent-implementation` on uncertainty signals, never file count. |
 | `diagnose` | `/subagent-diagnose ci [run-id]` or `/subagent-diagnose bug "<symptom>"` — orchestrated failure investigation. Same loop as implementation. |
-| `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`, and `/commit` dispatches it automatically on code the main agent wrote itself — the third implementation path, the one with no loop around it. |
+| `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`, and `/commit` dispatches it automatically on code the main agent wrote itself — the third implementation path, the one with no loop around it. All three are diff-scoped; for standing code nobody is changing, `/deslop`. |
 | `ship` | Pick by intent — see `ship` matrix below. |
 | `docs` | `/documentation` syncs README/CLAUDE.md/spec/design after significant changes. Auto-fires on ship verbs in maintenance mode. |
 
@@ -111,7 +111,8 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `cleanup` | `/git-cleanup` (stale worktrees / branches — dispatches a read-only scan via `atomic prompt git-cleanup`, presents indexed report, you confirm). `/undo-commit` (soft-undo HEAD, refuses if pushed). |
+| `cleanup` | `/git-cleanup` (stale worktrees / branches — dispatches a read-only scan via `atomic prompt git-cleanup`, presents indexed report, you confirm). `/undo-commit` (soft-undo HEAD, refuses if pushed). Cleaning up *code* rather than git state is `/deslop`. |
+| `deslop` / `slop` | `/deslop [<path>]` — audits the codebase **as it stands**, not a diff: comment noise, AI-tell doc prose, speculative abstraction, reinvented stdlib, duplicate helpers, dead code, swallowed errors, convention drift. Fans out read-only `atomic-deslopper` agents sharded by wiki domain, writes an indexed report to a scratchpad bundle, and stops. `/deslop apply <ids\|tier>` is a separate gated pass that fixes accepted findings through the surgical implementer behind a green baseline. Every finding carries a safety tier; `report-only` (public API, dynamic refs, generated files) is never auto-fixed. |
 | `doctor` | `atomic doctor [--fix]` runs integrity checks. `atomic validate` lints spec / config / bundle / artifacts. |
 | `update` | `atomic update [--check]` self-updates binary, auto-refreshes `~/.claude` artifacts, auto-runs install-scope migration steps, then runs doctor (`--skip-claude-update` skips the refresh). `--pre` installs the newest pre-release cut from the `next` branch; `atomic config set update.channel prerelease` makes that the default for the background check, banner and doctor too. When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge proposed `~/.claude/CLAUDE.md`. `atomic migrate` runs migration steps manually: bare = install scope (`~/.claude/`), `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos; `--show-log [<since>]` prints its dated change history, filtered by version or date. |
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns background Haiku to watch CI. |
@@ -264,6 +265,8 @@ atomic wiki bucket doc|skill|index  doc: scaffold a topic file (--router for a s
 atomic signals linkify          render signals path citations as navigable relative md links (inferrer runs it)
 atomic wiki linkify --root        same for wiki summaries/concerns/knowledge/index (/refresh-wiki runs it post-stamp)
 /refresh-wiki [root]              incremental wiki refresh — re-authors stale/pending repos + synthesizes capture buckets
+/deslop [<path>]                  audit standing code for slop (sharded read-only fan-out) → report in a scratchpad
+/deslop apply <ids|tier>          fix accepted findings behind a green baseline; report-only tier never auto-fixed
 atomic prompt claude-merge        emit claude-merge brief for use inside a subagent (migration: file has no <atomic> block)
 /git-cleanup                      stale worktrees / branches (reports, you confirm)
 /undo-commit                      soft-undo HEAD (refuses if pushed)
