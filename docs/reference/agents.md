@@ -5,12 +5,12 @@ Agents are specialized workers that run in a fresh context. The orchestrator dis
 
 ## Who dispatches whom
 
-Two orchestration trees cover every dispatch. The implement loop fans out per checkpoint, implementer then reviewer, with the investigator scoping surfaces, the auditor gating the whole delivery once at the end, and the strategist called in only when the loop is stuck; `/quick-fix` drives the same implementer, reviewer, and auditor from a brief instead of a spec. The wiki pipeline fans out per domain, one writer per domain with the same reviewer gating each page.
+Three orchestration trees cover every dispatch. The implement loop fans out per checkpoint, implementer then reviewer, with the investigator scoping surfaces, the auditor gating the whole delivery once at the end, and the strategist called in only when the loop is stuck; `/quick-fix` drives the same implementer, reviewer, and auditor from a brief instead of a spec. The wiki pipeline fans out per domain, one writer per domain with the same reviewer gating each page. The deslop pass fans out per shard, one read-only auditor per wiki domain, and its second phase hands accepted findings back to the same implementer.
 
 ```mermaid
 flowchart LR
     accTitle: Agent dispatch topology
-    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /quick-fix runs the same implementer, reviewer, and auditor without a spec. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer.
+    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /quick-fix runs the same implementer, reviewer, and auditor without a spec. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer. /deslop fans out one deslopper per shard, and /deslop apply drives the implementer.
     SI["/subagent-implementation"] --> INV["atomic-investigator"]
     SI --> IMP["atomic-implementer"]
     SI --> REV["atomic-reviewer"]
@@ -22,9 +22,11 @@ flowchart LR
     RW["/refresh-wiki"] --> WI["atomic-wiki-inferrer"]
     WI --> WW["atomic-wiki-writer"]
     WI --> REV
+    DS["/deslop"] -->|one per shard| DSL["atomic-deslopper"]
+    DSA["/deslop apply"] --> IMP
 ```
 
-`/quick-fix` and `/subagent-diagnose` reuse the implement loop's tree, `/autopilot` runs it end to end, and ship verbs dispatch the wiki-inferrer silently. `/atomic-plan` borrows the reviewer alone, in spec-mode.
+`/quick-fix` and `/subagent-diagnose` reuse the implement loop's tree, `/autopilot` runs it end to end, and ship verbs dispatch the wiki-inferrer silently. `/atomic-plan` borrows the reviewer alone, in spec-mode. `/deslop` is the only tree whose two halves are separate invocations: the audit never reaches the implementer without a human accepting findings first.
 
 
 ## Code agents
@@ -46,6 +48,7 @@ These read code but never write it.
 |-------|-------------|-------|
 | `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." When an index is present, leads with `atomic code explore` for broad scoping (one natural-language query returns the relevant symbols, files, and relationships), then uses `atomic code search/callers/callees/impact` for targeted follow-up; falls back to `sg`/`grep` otherwise. Returns a file:line table with no speculation. | Haiku, `low` effort |
 | `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. Dispatched for root-cause analysis when the implement→review loop gets stuck on the same failure. | caller's choice, `xhigh` effort |
+| `atomic-deslopper` | Audits one shard of a standing codebase — a wiki domain or a directory, never a diff. Sweeps eight slop categories, each bound to a rule atomic already carries, so a suspicion with no rule behind it is dropped rather than reported. Proves dead code through the symbol graph plus a literal sweep for dynamic references, and assigns every finding a safety tier that decides whether it may ever be auto-fixed. Its one write is a findings file inside the scratchpad bundle; it runs no mutating command, because siblings audit the same working tree in parallel. Dispatched one per shard by `/deslop`. | Sonnet, `high` effort |
 
 
 ## Infrastructure agents
