@@ -184,7 +184,7 @@ No implementation log, no `/documentation` dispatch, no signals refresh here —
 - No numeric file-count threshold gates scope or triggers the escape hatch anywhere in this command. The surgical-vs-feature agent choice in the Loop section is cohesion-fit selection, not a scope cap.
 - If the implementer reports `BLOCKED`/`NEEDS_CONTEXT`, the escape hatch fires unconditionally — never loop past it silently.
 - Subagent prompts and document skeletons both come from the binary (`atomic prompt implementer|reviewer`; `atomic template brief|state|followups`). If either verb fails, stop: `implementer/reviewer prompt unavailable (atomic prompt <name> failed) — install/update the atomic binary. cannot proceed.` — rather than inlining prompts or improvising structure.
-- This command and `/subagent-implementation` are co-consumers of the same `atomic prompt implementer` / `atomic prompt reviewer` briefs and the same scratchpad trio contract — a shape change to either should update both command files.
+- This command and `/subagent-implementation` are co-consumers of the same `atomic prompt implementer` / `atomic prompt reviewer` briefs and the same scratchpad trio contract — a shape change to either should update both command files. `/implement` shares the reviewer brief and the trio but has no implementer dispatch, so a change to those two surfaces reaches it as well.
 - Do not push, merge, or open a PR. Ship is `/commit`.
 
 </constraints>
