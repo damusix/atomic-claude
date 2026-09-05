@@ -36,6 +36,7 @@ Map:
   - docs/wiki/workflow.md
 Contracts:
   - docs/spec/atomic-plan.md
+  - docs/spec/implement.md
 References:
   - docs/reference/workflow.md
 
