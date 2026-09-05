@@ -263,5 +263,6 @@ Do NOT push, merge, or open a PR. The user picks how to ship (`/commit pr`, `/co
 - If the same blocking signal repeats across two consecutive `CHANGES_REQUESTED` rounds, the stuck-fix escalation in Step C fires automatically — surface `/pressure-test` and `atomic-strategist` RCA options to the user. Do not silently loop again without surfacing this.
 - Subagent output is the tool result. Summarize it to the user in 1-3 lines per iteration; don't dump full transcripts.
 - Subagent prompts and document skeletons both come from the binary (`atomic prompt implementer|reviewer`; `atomic template brief|state|followups|implementation-log`). If either verb fails, the loop can't start — surface that error rather than inlining prompts or improvising document structure.
+- This command, `/quick-fix`, and `/implement` are co-consumers of the same `atomic prompt reviewer` brief and the same scratchpad trio contract — a shape change to any of them should update all three command files.
 
 </constraints>

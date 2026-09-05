@@ -71,6 +71,7 @@ then get to work
     /pressure-test ..................... defend the design in dialogue before it's built
     /challenge-swarm @spec.md .......... parallel expert lenses attack the written spec
   /subagent-implementation @spec.md .... implement → review loop; wikis refreshed
+  /implement ........................... Claude writes it here, reviewer per checkpoint
   /quick-fix <task> .................... same loop, no spec, for known-cause fixes
   /commit [push|pr|merge|squash] ....... ship from one verb
   /autopilot <task|issue#> ............. all of it unattended; you pick the merge
