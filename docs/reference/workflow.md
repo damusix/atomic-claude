@@ -84,11 +84,12 @@ The report lives in the conversation; fold accepted findings back through `/atom
 
 ## 2. Implement
 
-Three verbs run implementation. Pick by what you already have:
+Four verbs run implementation. Pick by what you already have:
 
 | You have | Verb | What it skips |
 |----------|------|---------------|
 | An approved spec and multi-checkpoint work | `/subagent-implementation` | nothing |
+| The context already loaded in this conversation | `/implement` | the subagent dispatch — Claude writes the code itself |
 | A known cause and one obvious approach | `/quick-fix` | the spec, the worktree, the finalize ceremony (audit kept) |
 | Enough trust to let it drive end to end | `/autopilot` | your approval gates |
 
@@ -139,6 +140,19 @@ The audit runs exactly once per task, after the docs update and before the signa
 Non-blocking findings (risks, nits, questions) accumulate in a ledger that you review at the end, so nothing gets silently dropped. When the loop gets stuck, either the same failure surviving two rounds of fixes or the reviewer flagging error-swallowing patches that dodge the bug instead of fixing it, it stops grinding and surfaces a root-cause path: a pressure-test prompt or a read-only strategist analysis you can run, rather than piling on more suppression.
 
 If the project is indexed, the loop uses the code-intel graph throughout. It indexes the project at the start of the task, the investigator leads with `atomic code explore` to scope each surface, the reviewer checks blast radius with `atomic code impact`, and the orchestrator runs `atomic code sync` after each committed checkpoint so the graph reflects the latest code. When no index is present the agents fall back to plain search, so the loop runs either way.
+
+
+### Keep the context: /implement
+
+```
+/implement [<task description>] [auditor | strategist | reviewer]
+```
+
+Sometimes the context that matters is already in the conversation. You read the files together, settled the approach, and watched the test fail. Dispatching a fresh-context subagent at that point throws all of it away and pays to rebuild it, so `/implement` keeps the work here: Claude writes the code itself, with the same checkpoint discipline and commit-per-green rhythm as the subagent loop.
+
+What that structure gives up is the independent reader, so `/implement` buys it back explicitly. Checkpoints are declared before any code is written, and `atomic-reviewer` is dispatched after each one, never batched to the end. Red findings and readability findings are fixed before the checkpoint commits. At the end, a range-scoped signals refresh runs and one strong final gate reads the whole delivery in a fresh context, chosen by you: `atomic-auditor` for cumulative compliance and coherence, `atomic-strategist` for whether the approach was right, or `atomic-reviewer` for line-level correctness across the range.
+
+The fit gate is what keeps this from becoming the default. If the context is not already loaded, or the work is large enough that implementing it inline would crowd out the very context that made this the right verb, it hands off to `/subagent-implementation` before writing a line. The same handoff fires mid-task if the context runs thin.
 
 
 ### Skip planning: /quick-fix
@@ -240,7 +254,7 @@ Documentation is almost always an afterthought. These commands make it part of t
 
 ### What runs automatically
 
-Every `/commit` invocation runs the review gate, the wiki staleness check, and doc-impact checks as part of the commit flow. The review gate dispatches `atomic-reviewer` on the staged diff and reports its findings before the commit message is written; it skips a docs-only commit, and it skips work that came out of `/subagent-implementation`, `/quick-fix`, `/autopilot`, or `/subagent-diagnose`, which review every iteration already. Documentation surfaces are presented for review, and the commit message is synthesized from the diff. The wiki is regenerated only when the check reports stale and the staged set is not docs-only; a fresh index (say, because the implement loop already refreshed it) makes the step a no-op. Escalation paths that touch the base branch (`merge`, `squash merge`) also run `atomic-verify` on the merged tip before finalizing.
+Every `/commit` invocation runs the review gate, the wiki staleness check, and doc-impact checks as part of the commit flow. The review gate dispatches `atomic-reviewer` on the staged diff and reports its findings before the commit message is written; it skips a docs-only commit, and it skips work that came out of `/implement`, `/subagent-implementation`, `/quick-fix`, `/autopilot`, or `/subagent-diagnose`, which review every checkpoint or iteration already. Documentation surfaces are presented for review, and the commit message is synthesized from the diff. The wiki is regenerated only when the check reports stale and the staged set is not docs-only; a fresh index (say, because the implement loop already refreshed it) makes the step a no-op. Escalation paths that touch the base branch (`merge`, `squash merge`) also run `atomic-verify` on the merged tip before finalizing.
 
 | Path | Wiki | Review | Doc-impact | Commit msg | Verify |
 |------|:-------:|:------:|:----------:|:----------:|:------:|
