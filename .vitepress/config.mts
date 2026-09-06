@@ -117,6 +117,10 @@ export default withMermaid(defineConfig({
     description: 'Code graphs, wikis, and research-backed agentic coding. Deterministic tools for nondeterministic workflows, in one opinionated Claude Code config.',
     srcDir: 'docs',
     base: '/',
+    lastUpdated: true,
+    sitemap: {
+        hostname: 'https://atomic.alonso.network',
+    },
     // Internal contract docs — kept in-repo for contributors, excluded from the public site.
     srcExclude: ['spec/**', 'design/**', 'wiki/**'],
     head: [
