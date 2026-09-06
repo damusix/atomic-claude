@@ -264,3 +264,5 @@ Built across 3 implementer iterations plus a docs/bundle catch-up on branch `ins
 **Why:** `## Bash over Read+Write` was renamed in `context/CLAUDE.md`. Without a mapping, a legacy file with no `<atomic>` block classifies the old title as user-only and preserves it, leaving the user two sections of contradictory editing guidance.
 
 **Superseded:** the atomic-known list was a flat set of current titles with no notion of a former one, so a rename silently converted the old section into user-only content.
+
+- 2026-09-06 — **Change:** the global contract was condensed and several `<atomic>` sections were renamed or folded. Retired titles for the migration path: `## Shell tools for repetitive edits` and `## ast-grep over regex grep` → `## Editing and searching files`; `## Workflow (canonical lifecycle)` → `## Workflow`; `## Inter-session messaging`, `## Persistent REPL sessions`, `## Code-intel engine`, and `## Atomic binary subcommands` → `## Atomic binary`; `## Specs` folded into the `## Where things live` table. Files carrying a parseable `<atomic>` block are unaffected.

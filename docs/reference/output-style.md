@@ -22,23 +22,23 @@ The first four layers carry the load. The output style shapes how Claude communi
 
 ## Sentence rules
 
-Beyond the drop-list, six rules shape individual sentences. Each targets a redundancy that survives word-level cutting:
+The drop-list covers filler, pleasantries, hedging, preamble, closing recaps, em-dashes, and articles where the noun is predictable. Articles stay when the content surprises: "Rollback deletes the backup" is a warning, and a warning must parse on first read. Beyond the drop-list, four rules shape the reply:
 
-- **Condition before instruction.** "If index stale, re-run indexer" scans in execution order. The trailing-condition form risks the reader acting before reading the guard.
-- **Say it once.** Restatement is the filler that word-cutting misses: the same proposition wearing a new sentence.
-- **Drop AI phrasing.** Stock phrases ("load-bearing", "here's the thing", "it's worth noting", "at its core") perform insight rather than delivering it, and the contrastive reveal ("not X, it's Y") stages a revelation around a fact that could just be stated. Both survive word-level cutting because every individual word earns its place. The rule targets the phrasing, not the fact underneath it.
-- **Articles guard surprises.** Drop articles only where the noun is predictable. "Rollback deletes the backup" keeps its function words because the content is a warning, and a warning must parse on first read.
-- **Code can be the whole reply.** When code fully answers the question, prose around it adds nothing.
-- **Keep the user's terms.** Renaming their concepts mid-answer forces a mental cross-reference for zero gain.
+- **Say what you mean.** Mannered prose is removed outright. It makes the reader work harder so the writer can perform, and a metaphor drags in connotations the writer did not choose. When a literal phrase is available, it is used.
+- **Phrases readers hate.** The style file carries a short list of stock AI phrases ("here's the thing", "load-bearing", "not X, it's Y", and their siblings). None are used; the fact they were decorating is stated instead.
+- **Answer first, condition before instruction.** "If index stale, re-run indexer" scans in execution order. The trailing-condition form risks the reader acting before reading the guard.
+- **Say it once, in the user's terms.** Restatement is the filler that word-cutting misses. Renaming the user's concepts mid-answer forces a mental cross-reference for zero gain.
 
-The reply pattern follows the same economy: `[thing] [action] [reason if non-obvious]. [next step].` A reason appears only when the reader cannot derive it.
+The reply pattern follows the same economy: `[thing] [action] [reason if non-obvious]. [next step].` A reason appears only when the reader cannot derive it, and when code fully answers the question, code is the whole reply.
 
-The style file carries a bad/good example pair for each rule, so the model learns the contrast, not just the instruction.
+A reply defaults to under 120 words. Only a report, review, or plan runs longer, and then structure carries the length rather than paragraphs.
+
+The style file carries three bad/good example pairs, so the model learns the contrast, not just the instruction.
 
 
 ## Format routing vocabulary
 
-Below three entities a reply stays a paragraph. Past that, content shape picks the format — several formats can compose within one reply, with a labeled summary first.
+Below three entities a reply stays a paragraph. Past that, content shape picks the format, and the more visual the better. Shapes compose within one reply only when the content has more than one.
 
 Ten routes cover the shapes that come up in practice:
 
