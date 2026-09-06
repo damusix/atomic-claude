@@ -254,11 +254,7 @@ code, kbd, samp, pre {
    ───────────────────────────────────────────── */
 :root {
     --vp-nav-bg-color: color-mix(in oklab, var(--vp-c-bg) 60%, transparent);
-}
-
-.VPNavBar {
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    --vp-nav-backdrop-filter: blur(8px);
 }
 
 .VPNavBar .divider {
