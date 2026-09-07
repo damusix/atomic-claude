@@ -53,7 +53,7 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 - [ ] Symlinks are resolved and deduped during tree walk (this repo's `scripts/link-local.sh` symlinks `.claude/` ↔ root dirs — must not double-count or loop).
 - [ ] Canonical casing: `CLAUDE.md` (uppercase), `claude.local.md` (lowercase per existing repo). C5 resolution is case-sensitive. Document and FAIL on the wrong case.
 - [ ] Test coverage: each v1 rule has at least one PASS and one FAIL fixture in `atomic/internal/validate/testdata/`.
-- [ ] Soft perf budget: `atomic validate` on this repo completes in **<500ms** on a modern machine. Future rule additions fit within this envelope.
+- [ ] Soft perf budget: `atomic validate` on this repo completes in **<500ms** on a modern machine, the budget the test asserts locally. Future rule additions fit within this envelope. On CI the test asserts **<3s** instead, because a shared runner measures the same work an order of magnitude slower and the tighter number reports the runner rather than the rules.
 - [ ] CI integration is real: `.github/workflows/ci.yml` runs `atomic validate` and the step fails on exit 1.
 
 
@@ -240,7 +240,7 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 | 5 | Spec validator (S0, S1, S5, S6) using `mdparse` | `atomic/internal/validate/spec.go`, `testdata/spec/{pass,fail}/*.md` | Per-rule PASS+FAIL fixture; `validate spec` on real `docs/spec/*.md` passes |
 | 6 | Config validator (C1, C3, C5, C7, C9). Project-root via `.git` walk-up treating it as **file OR directory** (worktree case). Case-sensitive ref resolution | `atomic/internal/validate/config.go`, `testdata/config/*` | Synthetic repo fixtures per rule; `validate config` clean on this repo; worktree-from-`.worktrees/<branch>/` resolves to worktree root; case-mismatch `claude.local.md` vs `Claude.Local.md` → FAIL |
 | 7 | Output formatters: human, `--json` (with `schema_version: 1`), `--suggest` structural templates only | `atomic/internal/validate/output.go` | Golden-file tests per format; `--suggest` never emits name strings from existing artifacts |
-| 8 | Path-aware dispatch + whole-repo run + perf gate | `atomic/internal/validate/dispatch.go` | `atomic validate <mixed paths>` routes correctly; `atomic validate` on this repo completes in <500ms (measured by test) |
+| 8 | Path-aware dispatch + whole-repo run + perf gate | `atomic/internal/validate/dispatch.go` | `atomic validate <mixed paths>` routes correctly; `atomic validate` on this repo completes in <500ms locally, <3s on CI (measured by test) |
 | 9 | Wire into `CLAUDE.md` (subcommand listing), `CLAUDE.md`, `README.md`, signals refresh, **and `.github/workflows/ci.yml`** as a real CI step | `CLAUDE.md`, `CLAUDE.md`, `README.md`, `.github/workflows/ci.yml` | Cross-artifact checklist green; CI fails on a synthetic broken `@-ref`; `atomic validate` clean on this repo's tip |
 
 
@@ -256,7 +256,7 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 | R5 | Config validator FAILs on legitimate in-flight artifacts during PR review | med | Resolve names against working tree only; never read `~/.claude/`. C9 stays WARN. Project-root via `.git` walk-up treating `.git` as **directory OR file** (in a git worktree, `.git` is a file pointing at the main repo's worktree dir — hand-rolled walk-up logic must handle both) |
 | R6 | Symlink loops or double-counting in `manifestcheck` tree walk — `scripts/link-local.sh` symlinks `.claude/` ↔ root dirs in this repo | high | Resolve symlinks via `filepath.EvalSymlinks` and dedupe by realpath before comparison. Test fixture must include a symlinked dir to prevent regression |
 | R7 | Case sensitivity differences between macOS (insensitive) and Linux/CI (sensitive) cause silent breakage | med | Canonical casing pinned: `CLAUDE.md` (upper), `claude.local.md` (lower). C5 ref resolution is byte-exact, case-sensitive. Wrong case → FAIL. Document the canonical set in spec and `CLAUDE.md` |
-| R8 | Perf regression as rules accumulate | low | <500ms soft budget on this repo, asserted in checkpoint 8 test. New rules must demonstrate they fit |
+| R8 | Perf regression as rules accumulate | low | <500ms soft budget locally and <3s on CI, asserted in checkpoint 8 test. New rules must demonstrate they fit |
 
 
 ## Change log
@@ -350,3 +350,12 @@ Closed during the build (dropped from ledger; commits cover them): F-1 (flag-aft
 **Why:** `atomic code … --format json` class of authoring bug — wrong flags in artifacts fail silently at author time and surface only when a user runs the example. Catches this at CI/author time. Conservative scanner: citations in bare prose are ignored; unresolved verb-paths emit nothing (false-negatives favored over false-positives).
 
 **Added to body:** `## Subcommands (v1)` table row for `artifacts`; `### Artifact validator (rule A1)` section; package layout rows for `artifacts.go` and `cliusage/`.
+
+
+### 2026-09-06 — perf budget scales on CI
+
+**What changed:** the checkpoint-8 perf test asserts <500ms on a developer machine and <3s when the `CI` env var is set. Body updated in three places: the success-criteria bullet, the checkpoint-8 row, and risk R8.
+
+**Why:** the single 500ms budget failed 5 of 40 CI runs across 4 branches and blocked a release PR. Recorded CI timings were 575-750ms across all three of the best-of-three runs, against the same work measuring 37ms locally, so a shared runner is uniformly slower rather than spiky and the best-of-three guard could not help. The loose CI budget still catches the order-of-magnitude regression the gate exists for.
+
+**Superseded:** one 500ms budget asserted on every machine.

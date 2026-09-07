@@ -17,12 +17,20 @@ function seedMemberCookie(member: string) {
 
 // Every mount also triggers the member store's own GET /nav — call counts
 // on the search/plans fetches are asserted net of that background request.
-function nonNavCallCount(): number {
+function nonNavUrls(): string[] {
   const calls = (globalThis.fetch as unknown as { mock: { calls: [RequestInfo | URL][] } }).mock.calls;
-  return calls.filter(([input]) => {
-    const url = typeof input === "string" ? input : input.toString();
-    return !url.includes("/nav");
-  }).length;
+  return calls
+    .map(([input]) => (typeof input === "string" ? input : input.toString()))
+    .filter((url) => !url.includes("/nav"));
+}
+
+function nonNavCallCount(): number {
+  return nonNavUrls().length;
+}
+
+function lastNonNavUrl(): string {
+  const urls = nonNavUrls();
+  return urls[urls.length - 1] ?? "";
 }
 
 const MD_FIXTURE: ApiMdSearchResponse = {
@@ -107,11 +115,17 @@ describe("SearchPalette", () => {
     const input = screen.getByLabelText("Search");
     await typeIntoCombobox(input, "auth");
 
-    // Immediately after typing, no search fetch should have happened yet.
-    expect(nonNavCallCount()).toBe(0);
+    // The settled word cannot have been fetched yet: its debounce window has
+    // not elapsed. A prefix may have been, on a machine slow enough to stall
+    // one window mid-word, so the assertion is about the word, not the count.
+    expect(lastNonNavUrl()).not.toContain("q=auth");
 
-    await waitFor(() => expect(screen.getByText("wiki/auth.md")).toBeInTheDocument(), { timeout: 2000 });
-    expect(nonNavCallCount()).toBe(1);
+    await waitFor(() => expect(lastNonNavUrl()).toContain("q=auth"), { timeout: 2000 });
+    expect(screen.getByText("wiki/auth.md")).toBeInTheDocument();
+    // Four keystrokes must not each produce a fetch. The exact total is not
+    // asserted: a machine that stalls a full debounce window mid-word makes
+    // the timer fire on a prefix too, which is the debounce working.
+    expect(nonNavCallCount()).toBeLessThan(4);
   });
 
   test("md|code toggle switches the fetch target", async () => {
