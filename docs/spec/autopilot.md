@@ -4,7 +4,7 @@
 
 A command that takes a unit of work (task description or GitHub issue number)
 from nothing to shipped with **one** human decision — how to merge. It codifies
-the autonomous lifecycle: plan → the `/subagent-implementation` loop → ship.
+the autonomous lifecycle: plan → the shared implement→review loop → ship.
 
 ## Non-goals
 
@@ -17,22 +17,22 @@ the autonomous lifecycle: plan → the `/subagent-implementation` loop → ship.
 These are the contract; they override the interactive defaults because invoking
 `/autopilot` is the user's opt-in to autonomy.
 
-1. **Always uses the `/subagent-implementation` loop.** No inline implementation by the orchestrator.
-2. **Every reviewer finding addressed in-iteration.** Blocking and non-blocking. The scratchpad `FOLLOWUPS.md` ends empty — nothing deferred to a Phase 3 triage (there is no interactive triage here).
+1. **Always uses the shared implement→review loop** (the `implement-loop` partial, the same text `/subagent-implementation` composes). No inline implementation by the orchestrator.
+2. **Every reviewer finding addressed in-iteration.** Blocking and non-blocking. The scratchpad `FOLLOWUPS.md` ends empty; the finalize has no follow-ups step.
 3. **Auto-dispatching `atomic-strategist` is allowed.** On stuck-fix escalation, dispatch the strategist (read-only RCA) instead of surfacing-and-waiting; feed findings back through the builder loop. Safe because the strategist never writes.
 4. **Always asks how to merge — and only that.** The single interactive gate. Skipped if a merge-verb was passed in `$ARGUMENTS`.
 5. **Currency-clean spec before every dispatch.** Per the `CLAUDE.md` planning rule — the spec body is current truth, nothing that could divert a fresh subagent.
 
 ## Success criteria
 
-- [ ] `templates/commands/autopilot.md` exists and renders to `commands/autopilot.md`; frontmatter `description` names the five behaviors and the input shape (`<task | issue#> [merge-verb]`).
-- [ ] Phases: resolve input (issue# → `gh issue view`) → plan (autonomous, no approval gate, currency-clean spec) → worktree → `/subagent-implementation` loop with the three overrides → verify → ship gate → summary.
-- [ ] The body states each of the five behaviors and *why each override is safe* (strategist read-only; merge gate = the axiom-3 confirm).
+- [ ] `context/commands/autopilot.md` composes the `worktree-setup`, `implement-loop`, and `loop-finalize` partials; its frontmatter `description` names the input shape (`<task | issue#> [merge-verb]`) and the single merge question.
+- [ ] Sections: policy table (Worktree `auto`, Stuck `auto`, Non-blockers `fix-all`, Finalize verify, docs, audit, log, signals, report; Ship) → scratch hygiene → resolve input (issue# → `gh issue view`) → plan (autonomous, no approval gate, currency-clean spec) → worktree → loop → finalize → ship gate → report.
+- [ ] The five behaviors are stated once, as policy table values and constraints; the strategist runs read-only and the merge gate is the one confirmation.
 - [ ] The ship gate uses `AskUserQuestion` with the ship-verb options, and is skipped when a merge-verb is supplied in `$ARGUMENTS`.
 - [ ] A genuine blocker halts the run and surfaces — autonomy is not "ignore failures".
-- [ ] Scratch hygiene: the body forbids `rm` and chained shell commands mid-run (both trigger permission prompts that stall an unattended run); experiments are quarantined to `tmp/trash/` (gitignored) and the dispatch briefs carry the same instruction; Phase 6 does one `rm -rf tmp/trash` + scratchpad cleanup at the end (the single expected deletion prompt), degrading to "leave it" if permission is not granted.
+- [ ] Scratch hygiene: the body forbids `rm` and chained shell commands mid-run (both trigger permission prompts that stall an unattended run); experiments are quarantined to `tmp/trash/` (gitignored) and the dispatch briefs carry the same instruction; the Ship section does one `rm -rf tmp/trash` at the end (the single expected deletion prompt), degrading to "leave it" if permission is not granted; the task scratchpad is retained for `/git-cleanup`.
 - [ ] Registered on every discovery surface: `CLAUDE.md` Workflow section, `/atomic-help` (topic row + tour), `docs/reference/commands.md`. Cross-references `/subagent-implementation`, `atomic-strategist`, and the ship verbs.
-- [ ] `make render` + `make bundle` parity clean; `/atomic-help` MISSING-scan returns zero; signals refreshed.
+- [ ] `make -C atomic bundle` resolves every partial directive; `/atomic-help` MISSING-scan returns zero.
 
 ## Approaches
 
@@ -56,20 +56,28 @@ ship) — `/autopilot` codifies it.
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| 1 | Author `templates/commands/autopilot.md` (phases + five behaviors + safety rationale + ship gate) — atomic-builder, ~1 file | `templates/commands/autopilot.md` | Renders; body covers every success-criterion bullet about behavior |
-| 2 | Discovery wiring: `CLAUDE.md` Workflow, `/atomic-help` topic + tour, `docs/reference/commands.md`, cross-refs — atomic-builder, ~3 files | `CLAUDE.md`, `templates/commands/atomic-help.md`, `docs/reference/commands.md` | `make render` clean; `/atomic-help` MISSING-scan zero; cross-ref grep |
-| 3 | Render + bundle + signals refresh — atomic-surgeon | `commands/`, `atomic/internal/embedded/**`, `.claude/project/signals*` | `make bundle` parity clean; `atomic doctor` no new WARN/FAIL |
+| 1 | Author `context/commands/autopilot.md` (policy table, scratch hygiene, resolve, plan, ship; loop and finalize from the shared partials) — atomic-implementer, ~1 file | `context/commands/autopilot.md` | Bundles; body covers every success-criterion bullet about behavior |
+| 2 | Discovery wiring: `CLAUDE.md` Workflow, `/atomic-help` topic + tour, `docs/reference/commands.md`, cross-refs — atomic-implementer, ~3 files | `context/CLAUDE.md`, `context/commands/atomic-help.md`, `docs/reference/commands.md` | `make -C atomic bundle` exit 0; `/atomic-help` MISSING-scan zero; cross-ref grep |
+| 3 | Bundle + signals refresh — atomic-implementer (mode: surgical) | `docs/wiki/` | `make -C atomic bundle` exit 0; `atomic doctor` no new WARN/FAIL |
 
 ## Risks
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
-| Autonomy hides a failure (run "succeeds" while skipping a broken step) | med | Phase 4 runs the full suite via `atomic-verify`; a genuine blocker halts and surfaces; constraint "autonomy is not ignore failures" |
+| Autonomy hides a failure (run "succeeds" while skipping a broken step) | med | The finalize verify step runs the full suite via `atomic-verify`; a genuine blocker halts and surfaces; constraint "autonomy is not ignore failures" |
 | Strategist auto-dispatch surprises a cost-sensitive user | low | Read-only + documented in the description; the user opted in by invoking `/autopilot`; a future `--no-strategist` is a clean follow-up if needed |
-| Override semantics drift from the loop they wrap | med | The body references `/subagent-implementation` as the engine rather than restating it; only the three overrides are stated locally |
-| Currency-clean rule not actually enforced mid-run | med | Rule 5 + the loop's own currency gate (added with #29's sibling planning work) both require re-verifying the spec body before each dispatch |
+| Override semantics drift from the loop they wrap | low | The body composes the same `implement-loop` partial the other verbs use; the overrides are policy table values the partial branches on |
+| Currency-clean rule not actually enforced mid-run | med | The Plan section's currency sentence and the loop's spec check both require re-verifying the spec body before each dispatch |
 
 ## Change log
+
+### 2026-09-06 — Compose from shared loop partials
+
+**What changed:** The command is a policy table plus its own sections (scratch hygiene, resolve, plan, ship), composed with the `worktree-setup`, `implement-loop`, and `loop-finalize` partials. The five behaviors are policy table values (`Stuck: auto`, `Non-blockers: fix-all`, `Ship`) and constraints, stated once. The task scratchpad is retained at the end; only `tmp/trash/` is deleted.
+
+**Why:** `docs/design/implement-loop-consolidation.md`: the body referenced `/subagent-implementation` as the loop without loading it, and restated the five behaviors three times.
+
+**Superseded:** "run the loop exactly as `/subagent-implementation` defines it" with three locally stated overrides; Phase 6 scratchpad cleanup.
 
 ### 2026-06-07 — Scratch hygiene: quarantine instead of delete
 

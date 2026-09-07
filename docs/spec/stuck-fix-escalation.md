@@ -18,13 +18,13 @@ never auto-invoked. Closes GitHub issue #29.
 
 ## Success criteria
 
-- [ ] `/subagent-implementation` Step C (triage) tracks the failing signal across iterations and, after **2 consecutive `CHANGES_REQUESTED` rounds on the same checkpoint with an unchanged failing signal** (or the same finding repeating twice), surfaces a **stuck-fix escalation** block: a copyable `/pressure-test @<spec>` line AND an offer to dispatch `atomic-strategist` (opus, read-only) for cross-cutting RCA. It is a loop **default**, not opt-in.
+- [ ] The implement loop's Triage step (shared `implement-loop` partial, composed by `/subagent-implementation`, `/quick-fix`, `/implement`, and `/autopilot`) tracks the failing signal across iterations and, after **2 consecutive `CHANGES_REQUESTED` rounds on the same checkpoint with an unchanged failing signal** (or the same finding repeating twice), surfaces a **stuck-fix escalation** block: a copyable `/pressure-test @<spec>` line AND an offer to dispatch `atomic-strategist` (opus, read-only) for cross-cutting RCA. It is a loop **default**, not opt-in.
 - [ ] The escalation is **surfaced, never auto-invoked** — the orchestrator prints it and waits; it does not auto-dispatch the strategist (axiom 3). The spec/STATE wording states this explicitly.
 - [ ] `atomic-reviewer` emits a **suppression-pattern finding** when a diff adds error-catching constructs (try/catch, `?.`/null-guards added solely to dodge an error, `.catch(() => …)` swallows, empty catch, broad `except`) **without** accompanying investigation (no new logging/instrumentation, no new test exercising the failure, no evidence the root cause was examined). Severity 🟡 by default; 🔴 when it is the Nth such suppression on the same error across iterations.
-- [ ] The shared `reviewer-prompt` template carries the suppression check so dispatched reviewers apply it.
+- [ ] The suppression check is stated in `context/agents/atomic-reviewer.md` alone; `atomic prompt reviewer` carries only per-dispatch variables.
 - [ ] `/subagent-diagnose`'s existing same-failure bail gains the same escalation surface: on bail it offers `/pressure-test` + `atomic-strategist` RCA, rather than only stopping.
 - [ ] Both behaviors are documented as loop defaults wherever the loop's contract is described; no contradiction introduced with the existing iteration-cap / repeat-finding prose (reconcile, don't duplicate).
-- [ ] `make render` + `make bundle` parity clean; `/atomic-help` MISSING-scan zero; `go test ./...`, `go vet`, `gofmt -l` clean; `atomic doctor` no new WARN/FAIL.
+- [ ] `make -C atomic bundle` exit 0; `/atomic-help` MISSING-scan zero; `go test ./...`, `go vet`, `gofmt -l` clean; `atomic doctor` no new WARN/FAIL.
 
 ## Approaches
 
@@ -49,9 +49,9 @@ as its dispatch trigger — this wires the caller that was missing.
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| 1 | Stuck-fix escalator: add a "Stuck-fix escalation" trigger to `/subagent-implementation` Step C (track failing signal across iterations; after 2 same-signal `CHANGES_REQUESTED` rounds → surface copyable `/pressure-test` + `atomic-strategist` RCA offer, never auto-dispatch). Reconcile with the existing repeat-finding prose. Extend `/subagent-diagnose` same-failure bail to surface the same RCA options. — atomic-builder, ~2 files | `templates/commands/subagent-implementation.md`, `templates/commands/subagent-diagnose.md` | The trigger, threshold, surfaced-not-auto-invoked rule, and both runnable options are present; no contradiction with existing repeat-finding text; diagnose bail offers RCA |
-| 2 | Suppression-pattern awareness: add a suppression finding rule to `atomic-reviewer` (flag error-catching-without-investigation; 🟡 default, 🔴 on repeat) and to the shared reviewer prompt so dispatched reviewers apply it — atomic-builder, ~2 files | `templates/agents/atomic-reviewer.md`, `atomic/internal/coldprompt/briefs/reviewer.md` (served via `atomic prompt reviewer`) | Reviewer + reviewer prompt both describe the suppression check with severity rule; consistent with existing severity tiers |
-| 3 | Regenerate render + bundle; wire discovery if the loop contract changed (CLAUDE.md note / `/atomic-help` if needed); verify — atomic-surgeon | `commands/`, `agents/`, `atomic/internal/embedded/**`, `CLAUDE.md`/`templates/commands/atomic-help.md` if needed | `make render`+`make bundle` parity clean; `/atomic-help` MISSING-scan zero; `go test ./...` + `atomic doctor` no new WARN/FAIL |
+| 1 | Stuck-fix escalator: add a "Stuck-fix escalation" trigger to the implement loop's Triage step (track failing signal across iterations; after 2 same-signal `CHANGES_REQUESTED` rounds → surface copyable `/pressure-test` + `atomic-strategist` RCA offer, never auto-dispatch). Reconcile with the existing repeat-finding prose. Extend `/subagent-diagnose` same-failure bail to surface the same RCA options. — atomic-implementer, ~2 files | `context/_partials/implement-loop.md`, `context/commands/subagent-diagnose.md` | The trigger, threshold, surfaced-not-auto-invoked rule, and both runnable options are present; no contradiction with existing repeat-finding text; diagnose bail offers RCA |
+| 2 | Suppression-pattern awareness: add a suppression finding rule to `atomic-reviewer` (flag error-catching-without-investigation; 🟡 default, 🔴 on repeat) — atomic-implementer, ~1 file | `context/agents/atomic-reviewer.md` | Reviewer describes the suppression check with its severity rule; consistent with existing severity tiers |
+| 3 | Bundle; wire discovery if the loop contract changed (CLAUDE.md note / `/atomic-help` if needed); verify — atomic-implementer (mode: surgical) | `context/commands/`, `context/agents/`, `context/CLAUDE.md` / `context/commands/atomic-help.md` if needed | `make -C atomic bundle` exit 0; `/atomic-help` MISSING-scan zero; `go test ./...` + `atomic doctor` no new WARN/FAIL |
 
 ## Risks
 
@@ -80,6 +80,14 @@ Built in a worktree (`stuck-fix-escalation`) across 2 checkpoints of
 **Deferred items still open:** none — every reviewer finding (4 in CP1, 3 in CP2) was folded in-iteration via surgical passes.
 
 ## Change log
+
+### 2026-09-06 — Escalation lives in the shared loop partial; reviewer brief no longer restates the suppression rule
+
+**What changed:** The stuck check is the Triage step of the `implement-loop` partial, composed by every implementation verb, rather than a Step C in `/subagent-implementation`. The suppression-pattern rule is stated in `context/agents/atomic-reviewer.md` alone; `atomic prompt reviewer` carries only per-dispatch variables.
+
+**Why:** `docs/design/implement-loop-consolidation.md`: the loop text moved into partials, and the reviewer brief duplicated the agent file.
+
+**Superseded:** "`/subagent-implementation` Step C" as the location of the check; the reviewer brief as a second statement of the suppression rule.
 
 ### 2026-08-10 — Correct CP2's stale reviewer-prompt path
 

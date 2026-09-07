@@ -10,7 +10,7 @@ Three orchestration trees cover every dispatch. The implement loop fans out per 
 ```mermaid
 flowchart LR
     accTitle: Agent dispatch topology
-    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /quick-fix runs the same implementer, reviewer, and auditor without a spec. /implement dispatches no implementer at all, driving the reviewer once per checkpoint and one final gate you choose. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer. /deslop fans out one deslopper per shard, and /deslop apply drives the implementer.
+    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /quick-fix runs the same implementer, reviewer, and auditor without a spec. /implement dispatches no implementer at all, driving the reviewer once per checkpoint and the auditor once at the end. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer. /deslop fans out one deslopper per shard, and /deslop apply drives the implementer.
     SI["/subagent-implementation"] --> INV["atomic-investigator"]
     SI --> IMP["atomic-implementer"]
     SI --> REV["atomic-reviewer"]
@@ -20,8 +20,7 @@ flowchart LR
     QF --> REV
     QF --> AUD
     IM["/implement"] -->|per checkpoint| REV
-    IM -.->|final gate, you pick one| AUD
-    IM -.->|final gate, you pick one| STR
+    IM --> AUD
     RW["/refresh-wiki"] --> WI["atomic-wiki-inferrer"]
     WI --> WW["atomic-wiki-writer"]
     WI --> REV
@@ -29,7 +28,7 @@ flowchart LR
     DSA["/deslop apply"] --> IMP
 ```
 
-`/quick-fix` and `/subagent-diagnose` reuse the implement loop's tree, `/autopilot` runs it end to end, and ship verbs dispatch the wiki-inferrer silently. `/implement` is the one implementation verb with no implementer dispatch: the main agent writes the code, so the reviewer runs per checkpoint and the final gate is whichever of the auditor, strategist, or reviewer you pick. `/atomic-plan` borrows the reviewer alone, in spec-mode. `/deslop` is the only tree whose two halves are separate invocations: the audit never reaches the implementer without a human accepting findings first.
+`/quick-fix` and `/subagent-diagnose` reuse the implement loop's tree, `/autopilot` runs it end to end, and ship verbs dispatch the wiki-inferrer silently. `/implement` is the one implementation verb with no implementer dispatch: the main agent writes the code, so the reviewer runs per checkpoint and the auditor once at the end, as in the loop. `/atomic-plan` borrows the reviewer alone, in spec-mode. `/deslop` is the only tree whose two halves are separate invocations: the audit never reaches the implementer without a human accepting findings first.
 
 
 ## Code agents

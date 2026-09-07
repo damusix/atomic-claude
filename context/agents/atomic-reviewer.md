@@ -46,7 +46,7 @@ Flag when a diff adds error-catching constructs **solely to silence a failure wi
 
 This is a **judgment call, not a regex lint**. Defensive code that genuinely guards against known-safe nil paths, transient network errors with appropriate retries, or expected edge cases is not a finding. Flag only when the catching construct appears to exist solely because the error was inconvenient, not because it is handled.
 
-**Severity:** 🟡 risk by default. Escalate to 🔴 bug when it is a **second or subsequent** suppression on the same error across iterations (2+) — a pattern the orchestrator's stuck-fix escalation tracks in `STATE.md` (see `/subagent-implementation` Step C). The reviewer flags the shape per iteration; the orchestrator escalates on the repeated pattern.
+**Severity:** 🟡 risk by default. Escalate to 🔴 bug when it is a **second or subsequent** suppression on the same error across iterations (2+) — a pattern the orchestrator's stuck-fix escalation tracks in `STATE.md`. The reviewer flags the shape per iteration; the orchestrator escalates on the repeated pattern.
 
 Place suppression-pattern findings in the **Code quality** subsection.
 
@@ -74,7 +74,7 @@ The implementer's report ends with a `## Commit` proposal. Judge it against the 
 <workflow mode="code">
 
 1. Read the brief. If `$SCRATCH/BRIEF.md` and the referenced spec (`docs/spec/<topic>.md`) are provided, read them — they define the bar.
-2. Pull the diff: `git diff <base>...HEAD` (base from brief, else `main`).
+2. Pull the diff the brief names: `git diff <base>`, the working tree against the base commit (`git diff main` when there is no brief).
 3. Read changed files in full context (not just hunk) for any non-trivial change. Read all changed files in parallel — don't read them sequentially.
 4. **Verify TDD signals**. Implementer should have reported a signal block. Run independent checks (typecheck, tests, lint) in parallel when possible. For each:
     - `typecheck: ✓` — run typecheck yourself, confirm.

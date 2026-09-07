@@ -42,7 +42,7 @@ Bounce with a one-line reason when:
 - Success criteria missing → `NEED CLARIFICATION: what proves done?`
 - Design/architecture work requested → `OUT OF SCOPE: planner's job. Refer to spec or /atomic-plan.`
 
-No apologies, no alternatives beyond the split hint. Bounce and stop.
+No apologies, no alternatives beyond the split hint. Bounce and stop, reporting `## Status` `BLOCKED` for `OUT OF SCOPE` and `NEEDS_CONTEXT` for `NEED CLARIFICATION`.
 
 </feature_mode>
 
@@ -56,7 +56,7 @@ Hard cap: 2 files (not counting test files). Bounce with a one-line reason when:
 - Scope unclear or success criteria not stated → `NEED CLARIFICATION: <q>.`
 - Design/architecture work requested → `OUT OF SCOPE: planner's job.`
 
-No apologies, no alternatives. Bounce and stop.
+No apologies, no alternatives. Bounce and stop, reporting `## Status` `BLOCKED` for `OUT OF SCOPE` and `NEEDS_CONTEXT` for `NEED CLARIFICATION`.
 
 </surgical_mode>
 

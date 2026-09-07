@@ -114,20 +114,20 @@ Evidence for the mechanics:
 ```
 context/_partials/
 ├── implement-loop.md     index, scratchpad trio, implement (dispatch or inline),
-│                         review, triage, stuck check, commit per green      3.7k
+│                         review, triage, stuck check, commit per green      4.1k
 ├── loop-finalize.md      verify, docs, audit, follow-ups, log, signals, report,
-│                         each step run when the policy names it             2.3k
-├── handoff.md            one routing table, checked at entry and mid-loop   0.8k
+│                         each step run when the policy names it             2.6k
+├── handoff.md            one routing table, checked at entry and mid-loop   0.7k
 └── worktree-setup.md     detect → ask|auto|none → create → EnterWorktree   1.2k with `atomic worktree new`; 5.6k as today
 
 context/commands/
-├── subagent-implementation.md   policy table + Understand + Spec             1.7k
-├── quick-fix.md                 policy table + Surface                       1.1k
-├── implement.md                 policy table + Checkpoints                   1.7k
-└── autopilot.md                 policy table + Scratch hygiene + Resolve + Plan + Ship   2.6k
+├── subagent-implementation.md   policy table + Understand + Spec             1.9k
+├── quick-fix.md                 policy table + Surface                       1.4k
+├── implement.md                 policy table + Checkpoints                   2.1k
+└── autopilot.md                 policy table + Scratch hygiene + Resolve + Plan + Ship   3.0k
 ```
 
-Sizes are from the samples in this document. The commands keep the `<workflow>` and `<constraints>` wrappers the authoring rules ask for; the samples omit them to stay short.
+Sizes are the delivered files. The commands keep the `<workflow>` wrapper the authoring rules ask for, and a `<constraints>` block only where a rule is not already stated above it (`/quick-fix`'s no-spec rule).
 
 What each command keeps as its own text, and what moves into the partials:
 
@@ -160,7 +160,7 @@ Also removed: the `≥3 files` bar in `subagent-implementation.md:27`. The entry
 `atomic prompt implementer` and `atomic prompt reviewer` shrink to the per-dispatch variables plus the one constraint the agent file lacks (the scratch path is orchestrator-owned). Three agent-side edits keep every instruction the long briefs stated:
 
 - `agent-signals-output` gains a `## Status` line (`DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT`) so the implementer's report includes both the commit proposal and the status the orchestrator triages on, in one format.
-- `atomic-implementer.md` scope-guard bounces use `NEEDS_CONTEXT: <question>` and `BLOCKED: <reason>` instead of `NEED CLARIFICATION:` and `OUT OF SCOPE:`, so the report vocabulary and the triage vocabulary are the same words.
+- `atomic-implementer.md` scope-guard bounces keep `OUT OF SCOPE:` and `NEED CLARIFICATION:` (the refusal vocabulary every agent shares, and what `/subagent-diagnose` triages on) and end with `## Status` `BLOCKED` or `NEEDS_CONTEXT`, so the orchestrator triages on one line in every report.
 - The `general-purpose` fallback in the dispatch heuristic is dropped. Feature mode accepts any file count, so "neither fits" has no definition, and a generic agent would need the long brief this change removes.
 
 
@@ -171,12 +171,12 @@ Measured on the samples below. Rendered means after partial expansion, which is 
 
 | Surface | Today | Proposed | Note |
 |---------|------:|---------:|------|
-| Family source (4 commands + worktree partial) | 72.8k | 15.0k | commands 7.1k, partials 7.9k |
-| `/subagent-implementation` rendered | 27.6k | 9.6k | 14.0k with today's worktree partial |
-| `/implement` rendered | 21.6k | 9.7k | 14.1k with today's worktree partial |
-| `/autopilot` rendered | 21.6k | 9.7k | 14.2k with today's worktree partial |
-| `/quick-fix` rendered | 13.3k | 7.8k | no worktree |
-| `atomic prompt reviewer` | 5,605 | 305 | per dispatch |
+| Family source (4 commands + worktree partial) | 72.8k | 21.4k | commands 8.4k, new partials 7.4k, worktree partial 5.6k as today |
+| `/subagent-implementation` rendered | 27.6k | 14.7k | 10.2k once the worktree partial shrinks |
+| `/implement` rendered | 21.6k | 14.9k | 10.4k once the worktree partial shrinks |
+| `/autopilot` rendered | 21.6k | 15.1k | 10.6k once the worktree partial shrinks |
+| `/quick-fix` rendered | 13.3k | 8.5k | no worktree |
+| `atomic prompt reviewer` | 5,605 | 346 | per dispatch |
 | `atomic prompt implementer` | 3,466 | 372 | per dispatch |
 | Stuck check | 31 lines | 7 lines | `subagent-implementation.md:131-161` → `implement-loop` Triage |
 | Fit gate + escape hatch + handoff | ~45 lines × 2 commands | 12 lines × 1 partial | |
@@ -184,7 +184,7 @@ Measured on the samples below. Rendered means after partial expansion, which is 
 | Signals refresh | 8 lines × 3 | 1 step × 1 | |
 | Code-intel check | 5 lines × 4 | 1 line × 1 | |
 
-The rendered totals fall from 84.1k to 36.8k. The per-dispatch saving is about 8.4k chars per iteration (two briefs), loaded on every iteration of every run.
+The rendered totals fall from 84.1k to 53.2k with today's worktree partial, and to 39.7k once it shrinks. The per-dispatch saving is about 8.4k chars per iteration (two briefs), loaded on every iteration of every run.
 
 
 ### CLI verbs to add later
@@ -203,386 +203,18 @@ Four blocks are deterministic procedures written as instructions to the model. E
 ## Samples
 
 
-The files as they would be committed, in the prompt-artifact voice: instruct plainly, cut rationale that only defends the instruction.
-
-
-### `context/_partials/handoff.md`
-
-
-Replaces the fit gate, the escape hatch, and the handoff block in `/quick-fix` and `/implement`.
-
-```markdown
-{{- define "handoff" -}}
-<handoff>
-
-## Hand off
-
-Check these at entry, and again whenever an implementer report or a reviewer finding surfaces one. On a match: name the signal in one line, print the handoff, keep `$SCRATCH` (its `STATE.md` records the work so far), stop.
-
-| Signal | Handoff |
-|--------|---------|
-| Root cause unknown, or it shifted mid-loop | `/subagent-diagnose <task>` |
-| Two viable approaches, or success criteria still open | `/atomic-plan <task>` |
-| A new public API, schema migration, or cross-service contract is implied | `/atomic-plan <task>` |
-| Implementer reports `BLOCKED` or `NEEDS_CONTEXT` | surface the report to the user |
-
-The policy table may add rows. No row counts files.
-
-</handoff>
-{{- end -}}
-```
-
-
-### `context/_partials/implement-loop.md`
-
-
-The shared loop. `Writer` and `Stuck` are the two settings it reads from the policy table.
-
-```markdown
-{{- define "implement-loop" -}}
-<implement-loop>
-
-## Index
-
-`test -f .claude/.atomic-index/atomic.db` → present: `atomic code sync`; absent: `atomic code index` after a one-line notice. Skip silently when `atomic` is missing or errors. The loop never blocks on the index.
-
-## Scratchpad
-
-Derive a kebab-case `<topic>` from the spec filename or the task.
-
-    command -v atomic >/dev/null 2>&1 && atomic repo init >/dev/null
-    SCRATCH=$(atomic scratchpad new "<topic>" --purpose <implement|fix>)
-
-Seed three files from `atomic template brief|state|followups`; fill every `<placeholder>`, delete the guidance comment.
-
-| File | Rule |
-|------|------|
-| `BRIEF.md` | This iteration's scope, success criteria, and reviewer feedback. Overwrite each iteration. Without a spec the `**Spec:**` line reads `no spec — inline brief in BRIEF.md`. |
-| `STATE.md` | `Loop base SHA: $(git rev-parse HEAD)` before the first entry. One `## Iteration N` per cycle; never rewrite a prior entry. |
-| `FOLLOWUPS.md` | Non-blocking findings (🟡 that did not drive the verdict, 🔵, ❓) as `F-N`, numbered across severities. Append after every reviewer pass, PASS included. Readability 🟡 is never recorded here; it blocks the iteration. |
-
-If `atomic prompt` or `atomic template` fails, stop and report the error. Never inline a prompt or improvise a skeleton.
-
-## Iterate
-
-One iteration per checkpoint. Checkpoints come from the spec's table when one exists, else from the brief. Repeat until the reviewer passes the last one.
-
-### Implement
-
-Writer `atomic-implementer` → dispatch it (`subagent_type: "atomic-implementer"`), fresh context. Mode `surgical` when the iteration touches at most 2 non-test files and is mechanically obvious, else `feature`. Prompt from `atomic prompt implementer`, substituting `{SCRATCH_PATH}`, `{SPEC_PATH}`, `{MODE}`, `{ITERATION_SCOPE}`, `{REVIEWER_FEEDBACK}` (`N/A — first iteration` on the first), `{BASE_SHA}` = HEAD now.
-
-Writer `main agent` → write the checkpoint yourself under the `atomic-tdd` skill, run the project's signals, record the commands and results in `STATE.md`. Stay inside the checkpoint.
-
-### Review
-
-Dispatch `atomic-reviewer` (`subagent_type: "atomic-reviewer"`), fresh context, code mode. Prompt from `atomic prompt reviewer`, substituting `{SCRATCH_PATH}`, `{SPEC_PATH}`, `{BASE_SHA}`, `{HEAD_SHA}`. Attach the implementer's report, or say `main agent wrote this`.
-
-### Triage
-
-1. Read the `VERDICT:` line. Append the iteration to `STATE.md`: built, findings, next focus.
-2. Harvest non-blocking findings into `FOLLOWUPS.md`.
-3. `PASS` → Commit. `CHANGES_REQUESTED` → stuck check, then loop with every 🔴 and every readability 🟡 as the next focus. Readability findings are fixed, never deferred.
-
-**Stuck check.** Two consecutive `CHANGES_REQUESTED` on the same underlying blocking signal (same root failure, however the reviewer phrases it):
-
-- Stuck `ask` → `AskUserQuestion`: continue / `/pressure-test @docs/spec/<topic>.md` / dispatch `atomic-strategist` (read-only RCA). Record the choice in `STATE.md`. A strategist run feeds the next `BRIEF.md` and is not an iteration.
-- Stuck `auto` → dispatch `atomic-strategist` without asking; fold its findings into the next `BRIEF.md`.
-
-The check resets when the blocking signal changes.
-
-### Commit
-
-1. Message: the implementer's `## Commit` proposal (the reviewer already checked it), else the `atomic-git-discipline` skill.
-2. Stage the touched files by explicit path. No `-A`.
-3. Commit via HEREDOC. Record the SHA in `STATE.md`.
-4. `atomic code sync` when the index exists; skip silently on error.
-
-Skip only when the iteration produced no diff, and say so in `STATE.md`.
-
-</implement-loop>
-{{- end -}}
-```
-
-
-### `context/_partials/loop-finalize.md`
-
-
-Seven steps in one fixed order. The policy's `Finalize` row names which run. The order puts docs before the audit so the auditor's documentation pass has something to read, and follow-ups before the log so the log can record deferrals.
-
-```markdown
-{{- define "loop-finalize" -}}
-<loop-finalize>
-
-## Finalize
-
-Once, after the last checkpoint passes. Run the steps the policy's Finalize row names, in this order; skip the rest.
-
-1. **Verify.** Invoke `atomic-verify` and run the full suite yourself. When `docs/spec/**`, `docs/design/**`, or a bundled artifact changed, also run `atomic validate spec` and `atomic validate config` (skip when `atomic` is absent).
-2. **Docs.** Invoke `/documentation`. A hands-off run answers every surface prompt `Yes` and records what it touched in `STATE.md`. Commit as `docs: <topic>`.
-3. **Audit.** Dispatch `atomic-auditor` once with `spec:` (or `brief: $SCRATCH/BRIEF.md`), `range: <loop-base>..HEAD`, `state: $SCRATCH/STATE.md`, `scratch: $SCRATCH`, and the `## Documentation surfaces` table when the project has one. `CHANGES_REQUESTED` → one implement→review→commit iteration against its findings, then continue. Never a second audit.
-4. **Follow-ups.** For every open `F-N` in `FOLLOWUPS.md`, ask the user: `fix-now` (one more iteration), `defer`, `issue` (`/report-issue`), or `drop` (state why). `defer` runs `printf '%s' "<body>" | atomic followups add --id <topic>-F-<N> --title "<title>" --severity <risk|nit|question> --origin "<spec or brief>, iter <N> reviewer" --file "<path:line>" --body -` and commits `docs(followups): defer <id>`. Skipped when the ledger is empty.
-5. **Log.** When a spec exists, append `## Implementation log` to it from `atomic template implementation-log`: SHAs from `STATE.md`, deferrals from step 4.
-6. **Signals.** `atomic signals stale`: exit 0 → skip; exit 2 → report and skip; exit 1 → dispatch `atomic-wiki-inferrer` (`mode: silent`, `first_run: false`, `changed_range: <loop-base>..HEAD`), then `atomic wiki mark-dirty` best-effort, stage `docs/wiki/*.md`, `[ ! -d .claude/rules/wiki ] || git add -A .claude/rules/wiki/`, and any modified `.gitignore` or `.claude/.gitignore`, commit `chore(signals): refresh after <topic>`, record the SHA.
-7. **Report.** What shipped, iterations with SHAs, what was verified and how, the audit verdict, follow-up dispositions, what is left.
-
-`$SCRATCH` stays; `/git-cleanup` archives it. Do not push, merge, or open a PR unless the policy's Ship row says so.
-
-</loop-finalize>
-{{- end -}}
-```
-
-
-### `context/commands/quick-fix.md`
-
-
-Whole file. 1.1k source; 7.8k rendered.
-
-```markdown
----
-description: Implement→review subagent loop with no planning phase, for a fix whose cause is known and whose shape is obvious, however many files it touches. No spec, no worktree, no docs or signals at the end; one audit. Routes to /subagent-diagnose on an unknown cause and to /atomic-plan on an open approach or contract choice.
----
-
-You orchestrate; you do not write the code. `$ARGUMENTS`: `<task description>`. Empty → `usage: /quick-fix <task description>`, stop.
-
-## Policy
-
-| Setting | Value |
-|------|-------|
-| Writer | `atomic-implementer` |
-| Entry | hand-off table |
-| Worktree | none, work in place |
-| Stuck | ask |
-| Non-blockers | ledger |
-| Finalize | verify, audit, follow-ups, report |
-| Scratchpad purpose | `fix` |
-| Ship | no |
-
-{{ template "handoff" . }}
-
-## Surface
-
-When the task does not name exact files, dispatch `atomic-investigator` with the suspected area (lead with `atomic code explore "<area>"` when an index exists). Its `file:line` table is the scope; do not repeat the search here.
-
-{{ template "implement-loop" . }}
-
-{{ template "loop-finalize" . }}
-```
-
-
-### `context/commands/subagent-implementation.md`
-
-
-Whole file. 1.7k source; 9.6k rendered with the shrunk worktree partial.
-
-```markdown
----
-description: Orchestrate the implement→review subagent loop from an approved spec. Fresh-context implementer and reviewer per checkpoint, commit per green iteration, then verify, document, audit, and refresh signals over the task's range.
----
-
-You orchestrate; you do not write the code. Fresh-context subagents do, and the scratchpad brief is their only handoff.
-
-## Policy
-
-| Setting | Value |
-|------|-------|
-| Writer | `atomic-implementer` |
-| Entry | hand-off table, plus: no spec and the work is more than a small obvious change → `/atomic-plan` first |
-| Worktree | ask (skip the question when the work is small) |
-| Stuck | ask |
-| Non-blockers | ledger |
-| Finalize | verify, docs, audit, follow-ups, log, signals, report |
-| Scratchpad purpose | `implement` |
-| Ship | no |
-
-{{ template "handoff" . }}
-
-## Understand
-
-Dispatch `atomic-investigator` to map the surface (files, call sites, tests, conventions) unless the task names exact files. Lead it with `atomic code explore "<area>"` when an index exists. Read only what its `file:line` table says you need for scoping; do not implement.
-
-## Spec
-
-Topic slug from the task. `docs/spec/<topic>.md` exists → it is the brief's source and its checkpoint table is the loop. Its body must be current before any dispatch: a decision in this conversation that superseded part of it is fixed in the spec, never worked around in the brief.
-
-No spec and the work is small and obvious → say `no spec; proceeding inline` and continue with a one-checkpoint brief. Otherwise → hand off to `/atomic-plan`.
-
-{{ template "worktree-setup" . }}
-
-{{ template "implement-loop" . }}
-
-{{ template "loop-finalize" . }}
-```
-
-
-### `context/commands/implement.md`
-
-
-Whole file. 1.7k source; 9.7k rendered.
-
-```markdown
----
-description: Implement in the main agent, with atomic-reviewer gating every checkpoint. For work whose context is already in this conversation, where a fresh subagent would have to re-read what you have already read. Same checkpoints, commit-per-green, and finalize as /subagent-implementation; you write the code.
----
-
-You write the code here. The reviewer dispatch after each checkpoint is the only independent review the work gets; it is never skipped, batched to the end, or replaced by your own suite run.
-
-`$ARGUMENTS`: `[<task>]`. Empty is normal; the task is already in the conversation.
-
-## Policy
-
-| Setting | Value |
-|------|-------|
-| Writer | main agent |
-| Entry | hand-off table, plus: the context is not already here (cold start, resumed session, unread surface), or the work would crowd it out → `/subagent-implementation` |
-| Worktree | ask, only when the tree is clean; otherwise say `dirty tree, staying in place` |
-| Stuck | ask |
-| Non-blockers | ledger |
-| Finalize | verify, docs, audit, follow-ups, log, signals, report |
-| Scratchpad purpose | `implement` |
-| Ship | no |
-
-{{ template "handoff" . }}
-
-## Checkpoints
-
-Declare them before writing code and state the list to the user. A spec's checkpoint table is the list (fix its body first when this conversation superseded it). Without a spec, split the task into checkpoints, one logical change each, however many files. More than six means the work belongs in `/subagent-implementation`. Mid-loop, little remaining context or a checkpoint list that has grown past the declaration → hand off to `/subagent-implementation` (`STATE.md` records the checkpoints and SHAs).
-
-{{ template "worktree-setup" . }}
-
-{{ template "implement-loop" . }}
-
-{{ template "loop-finalize" . }}
-```
-
-
-### `context/commands/autopilot.md`
-
-
-Whole file. 2.6k source; 9.7k rendered. The five rules become the policy table's `Stuck`, `Non-blockers`, and `Ship` rows plus the Plan section's currency sentence; they are not restated.
-
-```markdown
----
-description: Autonomous delivery: plan, run the implement→review loop, ship. Takes a task or a GitHub issue number and an optional merge verb. Asks one question, how to merge, and only when the verb was not given.
----
-
-You run the whole lifecycle without input, except how to merge. `$ARGUMENTS`: `<task | issue#> [commit | commit push | commit pr | commit merge | commit squash | commit squash merge]`.
-
-## Policy
-
-| Setting | Value |
-|------|-------|
-| Writer | `atomic-implementer` |
-| Entry | none; you plan it |
-| Worktree | auto |
-| Stuck | auto |
-| Non-blockers | fix-all: every 🟡 and 🔵 goes into the next dispatch; the ledger ends empty |
-| Finalize | verify, docs, audit, log, signals, report |
-| Scratchpad purpose | `implement` |
-| Ship | the merge verb from `$ARGUMENTS`, else ask once |
-
-The ship gate is the only `AskUserQuestion` in the run. Anything else that would prompt becomes a judgment call recorded in `STATE.md`; a true blocker halts and surfaces.
-
-## Scratch hygiene
-
-`rm` and chained commands (`&&`, `;`) trigger permission prompts that stall an unattended run. `mkdir -p tmp/trash` once; move scratch there instead of deleting; one command per Bash call. Every implementer brief includes: `Discard scratch by moving it to tmp/trash/; never rm; do not chain shell commands.` The report step deletes `tmp/trash/` in one `rm -rf`, the one expected prompt; if permission is not granted, leave it (gitignored).
-
-## Resolve
-
-Bare `N` or `#N` → `gh issue view N --json title,body,labels` is the task. Derive the topic slug. Note the merge verb.
-
-## Plan
-
-Follow `/atomic-plan`'s discipline with no approval gate: trivial → inline spec; otherwise `docs/design/<topic>.md` and `docs/spec/<topic>.md`. Verify assumptions against primary sources now; you cannot ask later. The spec body stays current before every dispatch: revise it and log the change; leave no superseded content.
-
-{{ template "worktree-setup" . }}
-
-{{ template "implement-loop" . }}
-
-{{ template "loop-finalize" . }}
-
-## Ship
-
-Run the merge verb from `$ARGUMENTS`. Without one, ask:
-
-    <topic> is built, reviewed, and green. How should it ship?
-    /commit | /commit push | /commit squash merge | /commit merge | /commit pr
-
-The ship verb handles message format, worktree cleanup (auto-confirm on `merge` and `squash merge`), and its own signals gate, which sees a fresh signals file and does nothing.
-
-Extend the finalize report with strategist dispatches and their findings, judgment calls from `STATE.md`, and the merge result. Then `rm -rf tmp/trash`. `$SCRATCH` stays for `/git-cleanup`.
-```
-
-
-### `atomic prompt reviewer` and `atomic prompt implementer`
-
-
-The briefs after shortening (`atomic/internal/coldprompt/briefs/reviewer.md` and `implementer.md`). Everything removed is already in the agent file or its skills; `{MODE}` replaces the "include `mode:` in the prompt" instruction the commands give today.
-
-```markdown
-Code-mode review of one iteration.
-
-- Brief: `{SCRATCH_PATH}/BRIEF.md`
-- Spec: `{SPEC_PATH}` (skip when the file does not exist)
-- Diff: `git diff {BASE_SHA}...{HEAD_SHA}`
-- Implementer report: below, or `main agent wrote this`
-
-`{SCRATCH_PATH}` is orchestrator-owned; write nothing there. Findings only.
-```
-
-```markdown
-Implement one iteration in `{MODE}` mode.
-
-- Brief: `{SCRATCH_PATH}/BRIEF.md`, read first
-- Spec: `{SPEC_PATH}` (skip when the file does not exist)
-- History: `{SCRATCH_PATH}/STATE.md`, skim
-- Scope: {ITERATION_SCOPE}
-- Reviewer feedback to address: {REVIEWER_FEEDBACK}
-- Base SHA: `{BASE_SHA}`
-
-`{SCRATCH_PATH}` is orchestrator-owned; write nothing there. Do not commit.
-```
-
-The one-line change to `agent-signals-output` that lets the implementer brief drop its `## Status` section:
-
-```diff
- ## Commit
-
- <type>(<scope>): <subject>
-
- <body only when the why is not visible in the diff>
-+
-+## Status
-+
-+DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
-```
-
-
-### `context/_partials/worktree-setup.md` with `atomic worktree new`
-
-
-Depends on the `atomic worktree new` verb from the table above. Without it, today's partial stays and the three rendered sizes above rise by 4.4k.
-
-```markdown
-{{- define "worktree-setup" -}}
-<worktree-setup>
-
-## Worktree
-
-`git rev-parse --git-dir` differs from `git rev-parse --git-common-dir` and `git rev-parse --show-superproject-working-tree` is empty → already isolated; say so and continue in place.
-
-Otherwise, per the policy's Worktree row: `none` → skip this section; `ask` → `AskUserQuestion` (new branch in `.claude/worktrees/<branch>/`, or work in place); `auto` → proceed.
-
-Branch name: the topic slug, matching `^[a-z0-9][a-z0-9/-]*$`. An uncommitted `docs/spec/<topic>.md` or `docs/design/<topic>.md` is committed first (ask in `ask` mode) so the branch includes it.
-
-    atomic worktree new <branch>
-
-The verb refuses an existing branch, runs `atomic repo init`, creates `.claude/worktrees/<branch>` on a new branch from HEAD, runs the detected package-manager setup and baseline test command, and prints `Worktree / Branch / Setup / Baseline`. A sandbox or permission error prints `working in place`; continue without it. Baseline failures: `ask` mode asks whether to proceed; `auto` mode records them in `STATE.md`.
-
-Then call `EnterWorktree` with `path: .claude/worktrees/<branch>`.
-
-</worktree-setup>
-{{- end -}}
-```
+The delivered files are the reference. During review this section held draft text; keeping a copy here would be a second source of truth for the next partial edit to desynchronise.
+
+| File | What it is |
+|------|------------|
+| `context/_partials/handoff.md` | The routing table, checked at entry and mid-loop. |
+| `context/_partials/implement-loop.md` | Index, scratchpad trio, implement (dispatch or main agent), review, triage with the stuck check, commit per green. |
+| `context/_partials/loop-finalize.md` | The seven finalize steps, each run when the policy names it. |
+| `context/commands/quick-fix.md`, `subagent-implementation.md`, `implement.md`, `autopilot.md` | A policy table, the sections only that command needs, and the partial includes. |
+| `atomic/internal/coldprompt/briefs/reviewer.md`, `implementer.md` | The dispatch briefs: per-dispatch variables plus the scratch-path constraint. |
+| `context/_partials/agent-signals-output.md` | The implementer's output format, ending in a `## Status` line. |
+
+Not built yet: `worktree-setup` on top of `atomic worktree new` (the first verb in the table above). The partial keeps its current 5.6k form until that verb exists.
 
 
 ## What the samples drop
@@ -617,12 +249,13 @@ Text in today's files that the samples do not include, listed so each can be kep
 | Someone reads the policy table as documentation and skips the partials | low | The policy table is the first `##`; the partials follow under their own headings in the rendered file, which is what the model reads. |
 
 
-## Open questions
+## Resolved questions
 
 
-- Unification 1: does `/quick-fix` lose the three-iteration cap in favor of the same-signal check, or keep both?
-- Unification 2: `atomic-auditor` always in `/implement`, or keep the three-way pick?
-- Unifications 3 and 4: retain the scratchpad and build a cold index in `/quick-fix`?
-- Drop the `general-purpose` fallback, or keep it with a long-form brief variant?
-- Keep any row from "What the samples drop"? The `/documentation` authoring-mode clauses and the advisory line for `/quick-fix` are the two with a reason to keep.
-- Follow-on verbs in this change or after? The partials do not depend on them; `worktree-setup` is the one whose size does.
+- `/quick-fix` runs the same-signal stuck check; the three-iteration cap is gone.
+- `atomic-auditor` is the final gate in `/implement`; the three-way pick is gone.
+- `/quick-fix` retains its scratchpad and builds a cold index.
+- The `general-purpose` fallback is gone.
+- Kept from "What the samples drop": the `/documentation` authoring-mode clause and the `/quick-fix` advisory line.
+- The CLI verbs are a separate change; `worktree-setup` is unchanged until then.
+- The implementer's bounce vocabulary is kept; the `## Status` line is the triage signal (see Shorter briefs).
