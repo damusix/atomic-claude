@@ -8,8 +8,8 @@ An `/implement` command runs the implementation phase in the main agent rather t
 through fresh-context subagents, for work whose context is already in the
 conversation. It keeps the checkpoint discipline and commit-per-green rhythm of
 `/subagent-implementation`, dispatches `atomic-reviewer` after every checkpoint to
-supply the independent read the main agent cannot give itself, and finalizes with a
-range-scoped signals refresh plus one strong final gate the user chooses.
+supply the independent review the main agent cannot give itself, and finalizes the
+way the subagent loop does: docs, one `atomic-auditor` pass, a range-scoped signals refresh.
 
 
 ## Non-goals
@@ -29,8 +29,7 @@ range-scoped signals refresh plus one strong final gate the user chooses.
 
 
 - [ ] `/implement` with no arguments works — the task comes from the conversation, not from `$ARGUMENTS`.
-- [ ] A trailing `auditor` / `strategist` / `reviewer` token selects the final gate and skips its prompt.
-- [ ] The fit gate exits to `/subagent-implementation` when the context is not already loaded or the work would not fit in it, to `/subagent-diagnose` on an unknown root cause, and to `/atomic-plan` on multiple viable approaches or fuzzy criteria.
+- [ ] The hand-off table (shared `handoff` partial) plus the command's own Entry row exits to `/subagent-implementation` when the context is not already loaded or the work would not fit in it, to `/subagent-diagnose` on an unknown root cause, and to `/atomic-plan` on multiple viable approaches, open criteria, or an implied contract choice.
 - [ ] Checkpoints are declared and stated to the user before any code is written; a spec's checkpoint table is used when one exists.
 - [ ] `atomic-reviewer` is dispatched once per checkpoint, never batched to the end, and never replaced by the main agent's own suite run.
 - [ ] A checkpoint commits only on `VERDICT: PASS`; 🔴 findings and readability 🟡 findings are fixed before the commit rather than deferred to `FOLLOWUPS.md`.
@@ -38,27 +37,26 @@ range-scoped signals refresh plus one strong final gate the user chooses.
 - [ ] The worktree gate runs only when the working tree is clean, and states the skip in one line when it is dirty.
 - [ ] The scratchpad trio (`BRIEF.md`, `STATE.md`, `FOLLOWUPS.md`) is written from `atomic template` verbs, and `BRIEF.md` is refreshed per checkpoint so the reviewer prompt's Step 1 read resolves.
 - [ ] `STATE.md` records the loop base SHA before the first checkpoint entry, and a commit SHA per green checkpoint.
-- [ ] The final gate is dispatched exactly once, with `range: <loop-base>..HEAD`, `state:`, `scratch:`, and the spec or brief path.
-- [ ] Only `atomic-auditor` and `atomic-reviewer` are read for a `VERDICT:` line. A `strategist` pick is read as a recommendation, matching that agent's own scope boundary, which refuses PASS/CHANGES_REQUESTED gating.
+- [ ] `atomic-auditor` is dispatched exactly once, with `range: <loop-base>..HEAD`, `state:`, `scratch:`, and the spec or brief path.
 - [ ] `atomic-verify`'s reviewer-dispatch exclusion list and `atomic-reviewer`'s own description both name `/implement`.
-- [ ] The signals refresh runs after the final gate, gated on `atomic signals stale` exit 1, scoped to `<loop-base>..HEAD`.
+- [ ] The signals refresh runs after the audit, gated on `atomic signals stale` exit 1, scoped to `<loop-base>..HEAD`.
 - [ ] The command never pushes, merges, or opens a PR.
 - [ ] `/commit`'s `review-gate` skips a change produced by `/implement`, since every checkpoint already met a reviewer.
 - [ ] `/implement` appears in `/atomic-help`'s lifecycle topic table and in tour stage 2.
 - [ ] `/implement` appears in `docs/reference/commands.md`, `docs/reference/workflow.md`, `docs/reference/agents.md`'s dispatch tree, and the README command list.
-- [ ] `make -C atomic bundle` succeeds with the new command present, resolving its `worktree-setup` directive.
+- [ ] `make -C atomic bundle` succeeds with the command present, resolving its `handoff`, `worktree-setup`, `implement-loop`, and `loop-finalize` directives.
 
 
 ## Approach
 
 
-A single-agent loop with the same skeleton as `/subagent-implementation` and one
-role collapsed: the orchestrator and the implementer are the same context. Because
-that removes the structural separation the subagent loop relies on, the reviewer
-dispatch is promoted from an emergent property of the loop to an explicit,
-non-optional step after each checkpoint. The final gate is user-selected because
-the three candidate agents answer different questions about finished work, and the
-main agent has enough context to know which one this task needs.
+A single-agent loop composed from the same partials as `/subagent-implementation`
+(`handoff`, `worktree-setup`, `implement-loop`, `loop-finalize`) with one role
+collapsed: the orchestrator and the implementer are the same context. Because that
+removes the structural separation the subagent loop relies on, the reviewer dispatch
+is an explicit, non-optional step after each checkpoint, stated in the loop partial's
+`Writer: main agent` branch. The command's own text is its policy table and the
+checkpoint declaration. Design: `docs/design/implement-loop-consolidation.md`.
 
 
 ## Change tree
@@ -74,10 +72,8 @@ context/
 ├── skills/
 │   └── atomic-verify/SKILL.md ...... M  (gate exclusion list names /implement)
 └── commands/
-    ├── implement.md ................ A  (new)
-    ├── atomic-help.md .............. M  (lifecycle row, tour stage 2, review row)
-    ├── quick-fix.md ................ M  (co-consumer note)
-    └── subagent-implementation.md .. M  (co-consumer note)
+    ├── implement.md ................ A  (new; composes handoff, worktree-setup, implement-loop, loop-finalize)
+    └── atomic-help.md .............. M  (lifecycle row, tour stage 2, review row)
 docs/
 ├── spec/implement.md ............... A  (this file)
 └── reference/
@@ -93,8 +89,8 @@ README.md ........................... M
 
 | # | Checkpoint | Files/areas | Est. files | Verifies |
 |---|------------|-------------|------------|----------|
-| 1 | Write the `/implement` command: fit gate, checkpoint declaration, per-checkpoint reviewer dispatch, escape hatch, finalize with user-selected gate and range-scoped signals refresh | `context/commands/implement.md` | 1 | `make -C atomic bundle` resolves the `worktree-setup` directive |
-| 2 | Wire the cross-artifact contracts: review-gate guard, sibling co-consumer notes, global contract workflow entry, and the two agent-facing surfaces that decide whether a redundant reviewer fires — `atomic-verify`'s exclusion list and `atomic-reviewer`'s description | `context/_partials/review-gate.md`, `context/commands/{quick-fix,subagent-implementation}.md`, `context/CLAUDE.md`, `context/skills/atomic-verify/SKILL.md`, `context/agents/atomic-reviewer.md` | 6 | bundle succeeds; no surface instructs a second reviewer pass on work `/implement` already gated |
+| 1 | Write the `/implement` command: policy table, Entry row, checkpoint declaration; the loop and finalize come from the shared partials | `context/commands/implement.md` | 1 | `make -C atomic bundle` resolves every partial directive |
+| 2 | Wire the cross-artifact contracts: review-gate guard, global contract workflow entry, and the two agent-facing surfaces that decide whether a redundant reviewer fires — `atomic-verify`'s exclusion list and `atomic-reviewer`'s description | `context/_partials/review-gate.md`, `context/CLAUDE.md`, `context/skills/atomic-verify/SKILL.md`, `context/agents/atomic-reviewer.md` | 4 | bundle succeeds; no surface instructs a second reviewer pass on work `/implement` already gated |
 | 3 | Register across discovery surfaces: help router row and tour stage, reference tables, README | `context/commands/atomic-help.md`, `docs/reference/{commands,workflow,agents}.md`, `README.md` | ~6 | the help-router verification loop in root `CLAUDE.md` prints zero `MISSING:` lines |
 
 
@@ -103,16 +99,20 @@ README.md ........................... M
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| The verb becomes the default because it feels faster, and work with no loaded context runs without the loop's benefits | high | The fit gate's first two EXIT rows test for loaded context specifically, and the description leads with the precondition rather than the speed |
+| The verb becomes the default because it feels faster, and work with no loaded context runs without the loop's benefits | high | The policy table's Entry row tests for loaded context specifically, and the description leads with the precondition rather than the speed |
 | The main agent skips the reviewer dispatch, judging its own suite run sufficient | high | Non-optional in the workflow and restated as a rule with its why; "your own suite run is evidence, not review" |
-| Implementing inline exhausts the context that made this the right verb, mid-task | med | Escape hatch's first signal is thin remaining context, handing off with `STATE.md` intact |
+| Implementing inline exhausts the context that made this the right verb, mid-task | med | The Checkpoints section's mid-loop hand-off fires on little remaining context, with `STATE.md` intact |
 | Checkpoints get discovered while writing, so the reviewer fires once at the end | med | Declaration is a separate step before implementation and is stated to the user |
 | Entering a worktree mid-flow strands uncommitted work in the source tree | med | The worktree gate runs only on a clean tree |
 | `/commit` re-reviews work every checkpoint already reviewed | low | The `review-gate` already-reviewed guard names `/implement` alongside the other loops |
-| The three final-gate choices blur and the user picks arbitrarily | low | Each row states what that agent catches that the others do not, and what it returns |
-| A `strategist` pick stalls finalize on a refusal, since that agent gates nothing | med | The choice table marks it as returning a recommendation, and the verdict parse is scoped to the two agents that emit one |
 
 
 ## Change log
 
-<!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+### 2026-09-06 — Compose from shared loop partials; auditor is the final gate
+
+**What changed:** The command is a policy table plus its Checkpoints section, composed with the `handoff`, `worktree-setup`, `implement-loop`, and `loop-finalize` partials. The fit gate and escape hatch are the shared hand-off table plus one Entry row. The final gate is `atomic-auditor`, always; the `$ARGUMENTS` agent token is gone.
+
+**Why:** `docs/design/implement-loop-consolidation.md`: the four implementation commands restated one loop, and the three-way final-gate pick added a prompt and a parsing caveat the other verbs did not have.
+
+**Superseded:** a user-selected final gate (`auditor` / `strategist` / `reviewer`) chosen by a trailing `$ARGUMENTS` token or an `AskUserQuestion`; a command-local fit gate and escape hatch.

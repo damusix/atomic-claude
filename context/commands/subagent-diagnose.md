@@ -95,11 +95,12 @@ Build the implementer prompt by running `atomic prompt implementer` and substitu
 |-------------|-------|
 | `{SCRATCH_PATH}` | Absolute path to `$SCRATCH` |
 | `{SPEC_PATH}` | `"no spec — brief is BRIEF.md + CONTEXT.md"` |
+| `{MODE}` | `surgical` or `feature` per the cohesion classification |
 | `{ITERATION_SCOPE}` | This iteration's scope (fix the failure described in CONTEXT.md; failing test first) |
 | `{REVIEWER_FEEDBACK}` | Findings from STATE.md (or `"N/A — first iteration"`) |
 | `{BASE_SHA}` | `git rev-parse HEAD` before this iteration |
 
-Dispatch via `Agent` tool with `subagent_type: "atomic-implementer"` and include `mode: surgical` or `mode: feature` in the prompt per the cohesion classification.
+Dispatch via `Agent` tool with `subagent_type: "atomic-implementer"`.
 
 TDD discipline applies: failing test that reproduces the bug must be written first, then the fix. The agent's signal block is the evidence.
 
@@ -119,7 +120,6 @@ Build the reviewer prompt by running `atomic prompt reviewer` and substituting:
 | `{SCRATCH_PATH}` | Absolute path to `$SCRATCH` |
 | `{SPEC_PATH}` | `"no spec — brief is BRIEF.md + CONTEXT.md"` |
 | `{BASE_SHA}` | HEAD before this iteration's implementer ran |
-| `{HEAD_SHA}` | `git rev-parse HEAD` after implementer's work |
 
 Dispatch `subagent_type: "atomic-reviewer"`.
 

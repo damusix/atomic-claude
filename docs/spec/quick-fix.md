@@ -23,12 +23,12 @@ A `/quick-fix <task>` slash command that runs the subagent implement→review lo
 
 
 - [ ] `/quick-fix <task>` runs the implement→review loop with the same scratchpad trio (`BRIEF.md`, `STATE.md`, `FOLLOWUPS.md`) and the same `atomic prompt implementer` / `atomic prompt reviewer` briefs as `/subagent-implementation`, with `{SPEC_PATH}` substituted as `"no spec — inline brief in BRIEF.md"`. No spec file is required or created.
-- [ ] The command's fit gate and mid-loop escape hatch trigger on uncertainty signals only (multiple viable approaches, fuzzy success criteria, architectural/contract choice, root-cause shift) — never on file count. The command text contains no numeric file threshold as a scope gate or exit condition; the surgical-vs-feature mode-selection heuristic (mirroring `/subagent-implementation` Step A) is agent choice, not a scope cap.
-- [ ] On escape, the command stops, names the signal that fired, and prints a handoff to `/subagent-implementation` (noting its inline path may still apply) or `/atomic-plan`, retaining the scratchpad for the handoff.
-- [ ] Iteration cap is 3; at cap without PASS, the user is asked (continue / escalate / stop) via `AskUserQuestion`.
+- [ ] The hand-off table (shared `handoff` partial) fires at entry and mid-loop on uncertainty signals only (multiple viable approaches, open success criteria, architectural/contract choice, root-cause shift) — never on file count. No numeric file threshold gates scope or exits anywhere in the composed command; the surgical-vs-feature mode choice in the shared `implement-loop` partial is agent selection, not a scope cap.
+- [ ] On a hand-off, the command stops, names the signal that fired, prints the handoff verb, and retains the scratchpad.
+- [ ] Two consecutive `CHANGES_REQUESTED` rounds on the same blocking signal surface the stuck choice (continue / `/pressure-test` / `atomic-strategist`), the same check the other implementation verbs run. There is no iteration cap.
 - [ ] Each green iteration commits via the `atomic-git-discipline` skill; the final gate invokes the `atomic-verify` skill (orchestrator re-runs signals itself).
 - [ ] Open `FOLLOWUPS.md` findings are surfaced at the end with the same four dispositions as `/subagent-implementation` (fix-now / defer / issue / drop).
-- [ ] `make render` produces `commands/quick-fix.md` from the template; `make -C atomic bundle` regenerated in the same commit; the help-router verification loop reports zero `MISSING:` lines.
+- [ ] `make -C atomic bundle` resolves the command's `handoff`, `implement-loop`, and `loop-finalize` directives; the help-router verification loop reports zero `MISSING:` lines.
 - [ ] `/quick-fix` appears in the `/atomic-help` topic tables + tour Stage 2, `CLAUDE.md` Workflow step 2, `README.md`, and `docs/reference/commands.md`.
 
 
@@ -51,15 +51,10 @@ A. The primitives already support spec-less runs (both `_templates` prompts trea
 ## Change tree
 
 
-    templates/commands/
-    └── quick-fix.md ............... A  (command source: fit gate, loop, escape hatch, finalize)
-    commands/
-    └── quick-fix.md ............... A  (rendered output — make render)
-    templates/commands/
+    context/commands/
+    ├── quick-fix.md ............... A  (policy table + Surface; composes handoff, implement-loop, loop-finalize)
     └── atomic-help.md ............. M  (lifecycle topic row + tour Stage 2 + command count)
-    commands/
-    └── atomic-help.md ............. M  (rendered)
-    CLAUDE.md ...................... M  (Workflow step 2: quick-fix as the no-plan implement path)
+    context/CLAUDE.md .............. M  (Workflow step 2: quick-fix as the no-plan implement path)
     README.md ...................... M  (commands table row)
     docs/reference/commands.md ..... M  (row)
     docs/reference/workflow.md ..... M  (implement-stage mention)
@@ -69,17 +64,15 @@ A. The primitives already support spec-less runs (both `_templates` prompts trea
 ## Outline
 
 
-    templates/commands/quick-fix.md
+    context/commands/quick-fix.md
       frontmatter description — trigger surface: straightforward fix, known cause, skip planning
-      Fit gate — hold/exit signal table (uncertainty-based; explicitly cohesion-bounded, no file counts)
-      Phase 0 — optional atomic-investigator dispatch; skip when the task names exact files
-      Code-intel — warm index → atomic code sync; cold → proceed degraded (no index build; speed is the point)
-      Scratchpad — same trio, seeded via atomic template brief|state|followups; loop base SHA recorded in STATE.md
-      Loop — implementer (surgical ≤2 mechanical files, feature otherwise) → reviewer → triage → commit per green; cap 3
-      Escape hatch — mid-loop exit conditions + handoff text naming /subagent-implementation and /atomic-plan
-      Finalize — atomic-verify gate, FOLLOWUPS dispositions, report; ship left to /commit
+      Policy table — Writer atomic-implementer; Entry hand-off table; Worktree none; Stuck ask; Non-blockers ledger; Finalize verify, audit, follow-ups, report; Scratchpad purpose fix
+      handoff partial — routing table, checked at entry and mid-loop
+      Surface — optional atomic-investigator dispatch; skip when the task names exact files
+      implement-loop partial — index (sync or build), scratchpad trio, implementer (surgical or feature) → reviewer → triage → commit per green; stuck check
+      loop-finalize partial — verify, audit, follow-ups, report; docs, log, and signals skipped by policy; ship left to /commit
 
-    templates/commands/atomic-help.md
+    context/commands/atomic-help.md
       lifecycle topic row — /quick-fix one-liner
       tour Stage 2 — implement verbs gain quick-fix; command count bump
 
@@ -96,25 +89,25 @@ A. The primitives already support spec-less runs (both `_templates` prompts trea
 Flow: quick fix, clean pass
 
 1. user runs `/quick-fix <task>`
-2. orchestrator gauges fit against the hold/exit table; on exit signal, prints the handoff and stops before any dispatch
+2. orchestrator checks the hand-off table; on a match, prints the handoff and stops before any dispatch
 3. optional investigator maps the surface (skipped when files are named)
 4. scratchpad trio written; `BRIEF.md` carries the inline brief (task, success criteria, scope)
 5. implementer dispatched with `{SPEC_PATH}` = `"no spec — inline brief in BRIEF.md"`
 6. reviewer verifies signals + brief compliance → `VERDICT: PASS`
-7. orchestrator commits via atomic-git-discipline, runs atomic-verify
+7. orchestrator commits via atomic-git-discipline, runs atomic-verify, dispatches atomic-auditor once
 8. FOLLOWUPS surfaced for disposition; bundle retained in place; report printed; user ships via `/commit`
 
-Flow: escape hatch fires mid-loop
+Flow: hand-off fires mid-loop
 
-1. implementer reports `BLOCKED`/`NEEDS_CONTEXT`, or a reviewer round reveals an exit signal (approach fork, criteria dispute, contract choice, shifted root cause)
+1. implementer reports `BLOCKED`/`NEEDS_CONTEXT`, or a reviewer round reveals a hand-off signal (approach fork, criteria dispute, contract choice, shifted root cause)
 2. orchestrator stops the loop and names the signal
-3. handoff printed: `/subagent-implementation <task>` (inline path may still apply) or `/atomic-plan <task>` if genuinely non-trivial
+3. handoff printed: `/subagent-diagnose <task>` or `/atomic-plan <task>`, or the implementer's report surfaced to the user
 4. scratchpad retained — `BRIEF.md`/`STATE.md` carry the context into the next verb
 
-Flow: iteration cap
+Flow: stuck
 
-1. 3 iterations without PASS
-2. `AskUserQuestion`: continue / escalate to `/subagent-implementation` / stop
+1. two consecutive `CHANGES_REQUESTED` rounds on the same blocking signal
+2. `AskUserQuestion`: continue / `/pressure-test` / dispatch `atomic-strategist`
 
 
 ## Checkpoints
@@ -122,8 +115,8 @@ Flow: iteration cap
 
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|-------------|-------|------------|----------|
-| 1 | Author command template, render, bundle | `templates/commands/quick-fix.md`, `commands/quick-fix.md`, `atomic/internal/embedded/` | atomic-implementer (mode: feature) | ~3 + bundle | `make render` exits 0 (orphan rule satisfied); `make -C atomic bundle && git diff --exit-code` after regen |
-| 2 | Wire discovery surfaces, re-render, re-bundle | `templates/commands/atomic-help.md`, `commands/atomic-help.md`, `CLAUDE.md`, `README.md`, `docs/reference/commands.md`, `docs/reference/workflow.md`, `atomic/internal/embedded/` | atomic-implementer (mode: feature) | ~7 + bundle | help-router `MISSING:` loop prints nothing; grep for `/quick-fix` hits every wired surface |
+| 1 | Author the command and bundle | `context/commands/quick-fix.md` | atomic-implementer (mode: feature) | 1 | `make -C atomic bundle` exits 0 with every partial directive resolved |
+| 2 | Wire discovery surfaces | `context/commands/atomic-help.md`, `context/CLAUDE.md`, `README.md`, `docs/reference/commands.md`, `docs/reference/workflow.md` | atomic-implementer (mode: feature) | ~5 | help-router `MISSING:` loop prints nothing; grep for `/quick-fix` hits every wired surface |
 
 
 ## Risks
@@ -131,13 +124,21 @@ Flow: iteration cap
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| Symmetry drift: a later change to `_templates` prompts or scratchpad shape updates `/subagent-implementation` but not `/quick-fix` | med | Both command files carry a one-line cross-reference naming the other as a co-consumer of `_templates` and the scratchpad contract |
-| Users reach for `/quick-fix` on non-trivial work | med | Fit gate up front + mid-loop escape hatch; handoff text names the right verb, and the reviewer's fresh-context pass is a natural tripwire |
+| Symmetry drift between `/quick-fix` and `/subagent-implementation` | low | Both compose the same `implement-loop` and `loop-finalize` partials; a shape change reaches both at build time |
+| Users reach for `/quick-fix` on non-trivial work | med | Hand-off table at entry and mid-loop names the right verb, and the reviewer's fresh-context pass is a natural tripwire |
 | A future `_templates` edit makes `{SPEC_PATH}` mandatory, breaking the spec-less path | low | Success criterion pins the substitution value; both templates currently state "skip if file doesn't exist" |
-| Escape-hatch judgment is fuzzy in practice (orchestrator grinds instead of exiting) | med | Exit signals enumerated concretely in the command text; `BLOCKED`/`NEEDS_CONTEXT` from the implementer force the stop unconditionally |
+| Hand-off judgment is fuzzy in practice (orchestrator grinds instead of exiting) | med | Signals enumerated concretely in the shared `handoff` table; `BLOCKED`/`NEEDS_CONTEXT` from the implementer force the stop unconditionally |
 
 
 ## Change log
+
+### 2026-09-06 — Compose from shared loop partials; same-signal stuck check replaces the cap
+
+**What changed:** The command is a policy table plus a Surface section, composed with the `handoff`, `implement-loop`, and `loop-finalize` partials. The fit gate and escape hatch are the shared hand-off table. Stuck handling is the same-signal check the other implementation verbs run. A cold code-intel index is built, not degraded around. The Outline, Flows, and Risks describe the composed command.
+
+**Why:** `docs/design/implement-loop-consolidation.md`: the four implementation commands restated one loop; the cap, the degrade, and the scratchpad deletion (already removed from this body on 2026-08-20 but still present in the command text) differed from the siblings without a policy reason.
+
+**Superseded:** a command-local fit gate and escape hatch; the 3-iteration cap with its continue / escalate / stop question; cold index → proceed degraded; the co-consumer cross-reference as the drift mitigation.
 
 ### 2026-08-10 — Correction: prompt source moved to the binary
 

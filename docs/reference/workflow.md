@@ -93,6 +93,8 @@ Four verbs run implementation. Pick by what you already have:
 | A known cause and one obvious approach | `/quick-fix` | the spec, the worktree, the finalize ceremony (audit kept) |
 | Enough trust to let it drive end to end | `/autopilot` | your approval gates |
 
+All four run the same loop and finalize. What differs is the policy table at the top of each command: who writes the code, what happens when stuck, which finalize steps run.
+
 ```
 /subagent-implementation
 ```
@@ -115,7 +117,7 @@ sequenceDiagram
     O->>I: dispatch — this iteration's scope, prior findings
     S-->>I: BRIEF + spec (read-only)
     I-->>O: report — did, files touched, test signals
-    O->>R: dispatch — diff BASE..HEAD against the spec
+    O->>R: dispatch — diff working tree vs BASE against the spec
     S-->>R: BRIEF + spec (read-only)
     R-->>O: findings + VERDICT
     O->>S: update STATE, harvest non-blocking findings into FOLLOWUPS
@@ -145,14 +147,14 @@ If the project is indexed, the loop uses the code-intel graph throughout. It ind
 ### Keep the context: /implement
 
 ```
-/implement [<task description>] [auditor | strategist | reviewer]
+/implement [<task description>]
 ```
 
 Sometimes the context that matters is already in the conversation. You read the files together, settled the approach, and watched the test fail. Dispatching a fresh-context subagent at that point throws all of it away and pays to rebuild it, so `/implement` keeps the work here: Claude writes the code itself, with the same checkpoint discipline and commit-per-green rhythm as the subagent loop.
 
-What that structure gives up is the independent reader, so `/implement` buys it back explicitly. Checkpoints are declared before any code is written, and `atomic-reviewer` is dispatched after each one, never batched to the end. Red findings and readability findings are fixed before the checkpoint commits. At the end, a range-scoped signals refresh runs and one strong final gate reads the whole delivery in a fresh context, chosen by you: `atomic-auditor` for cumulative compliance and coherence, `atomic-strategist` for whether the approach was right, or `atomic-reviewer` for line-level correctness across the range.
+What that structure gives up is the independent reader, so `/implement` adds it back as an explicit step. Checkpoints are declared before any code is written, and `atomic-reviewer` is dispatched after each one, never batched to the end. Red findings and readability findings are fixed before the checkpoint commits. The finalize is the loop's: docs, one `atomic-auditor` pass over the whole delivery in a fresh context, and a range-scoped signals refresh.
 
-The fit gate is what keeps this from becoming the default. If the context is not already loaded, or the work is large enough that implementing it inline would crowd out the very context that made this the right verb, it hands off to `/subagent-implementation` before writing a line. The same handoff fires mid-task if the context runs thin.
+The Entry row of its policy table is what keeps this from becoming the default. If the context is not already loaded, or the work is large enough that implementing it inline would crowd out the context that made this the right verb, it hands off to `/subagent-implementation` before writing a line. The same handoff fires mid-task when little context remains.
 
 
 ### Skip planning: /quick-fix
@@ -161,7 +163,7 @@ The fit gate is what keeps this from becoming the default. If the context is not
 /quick-fix <task description>
 ```
 
-For a fix with a known cause and one obvious approach, `/quick-fix` skips the plan entirely. It runs the same implement-then-review loop as `/subagent-implementation`, minus the spec, the worktree, and the finalize ceremony (the once-per-task audit stays), so a straightforward change lands faster. The moment the fix turns out less obvious than it looked, it stops and hands off to `/subagent-implementation` or `/atomic-plan` instead of grinding on a wrong assumption.
+For a fix with a known cause and one obvious approach, `/quick-fix` skips the plan entirely. It runs the same implement-then-review loop as `/subagent-implementation`, minus the spec, the worktree, and the finalize ceremony (the once-per-task audit stays), so a straightforward change lands faster. The moment the fix turns out less obvious than it looked, it stops and hands off to `/subagent-diagnose` or `/atomic-plan` instead of grinding on a wrong assumption.
 
 
 ### Hands-off: /autopilot

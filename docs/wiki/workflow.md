@@ -54,7 +54,7 @@ Which verb to reach for:
 
 ### The loop
 
-The same engine drives `/subagent-implementation`, `/quick-fix`, `/subagent-diagnose`, and `/autopilot`; `/implement` runs a collapsed variant of it, covered in its own subsection below. It cannot spin quietly: a blocking signal that survives two rounds routes to a human rather than to another iteration.
+The same shared `implement-loop` and `loop-finalize` partials drive `/subagent-implementation`, `/quick-fix`, and `/autopilot`; `/implement` composes the same two partials as a collapsed variant, covered in its own subsection below. `/subagent-diagnose` is not part of this composition — it runs its own hand-written Phase 0-4 flow with a different stuck check (3 consecutive iterations producing the same normalized top-level error, not 2 rounds of the same blocking signal) and a different cap (`min(memory override, 5)` iterations, not none). Every loop that does compose the shared partials cannot spin quietly: a blocking signal that survives two rounds routes to a human rather than to another iteration.
 
 ```mermaid
 stateDiagram-v2
@@ -83,7 +83,7 @@ stateDiagram-v2
 | Over-engineering | Code the YAGNI ladder would have stopped: a helper the codebase already has, a one-use abstraction, a dependency for what the platform does, a general solution where the spec asked for one case |
 | Repetition | The same logic, explanation, or name-with-a-twist in two places; comments, docstrings, messages, or docs that don't read as plain, concise English |
 
-Escalates to 🔴 when a comment misdescribes the code, or when the same readability finding comes back on the same file across iterations. Step C in `/subagent-implementation`, the loop in `/quick-fix`, and `/implement`'s per-checkpoint triage all fold every readability 🟡 into the next round's focus alongside blocking 🔴 findings — it is the one 🟡 tier that never reaches `FOLLOWUPS.md`, in every loop this engine (or its `/implement` variant) drives.
+Escalates to 🔴 when a comment misdescribes the code, or when the same readability finding comes back on the same file across iterations. The Triage step of the shared `implement-loop` partial — composed by `/subagent-implementation`, `/quick-fix`, `/autopilot`, and `/implement`'s per-checkpoint loop — folds every readability 🟡 into the next round's focus alongside blocking 🔴 findings; it is the one 🟡 tier that never reaches `FOLLOWUPS.md`, in every loop that composes this partial (or its `/implement` variant). `/subagent-diagnose` dispatches the same `atomic-implementer`/`atomic-reviewer` pair, so the floor still applies there, enforced by the agents rather than by this partial.
 
 ### `/implement`: the fit gate before any code is written
 
@@ -124,15 +124,7 @@ stateDiagram-v2
 
 A checkpoint only reaches Review after its own Verify passes, and only reaches Commit on a reviewer `PASS` — every 🔴 and every readability 🟡 is fixed before the re-dispatch, never deferred to `FOLLOWUPS.md`. The stuck check is the same 2-round rule as the engine above: `continue`, `/pressure-test`, or `atomic-strategist`, decided by the user.
 
-Finalize picks one final gate, dispatched exactly once over `<loop-base>..HEAD`:
-
-| Choice | Agent | What it catches | Returns |
-|--------|-------|-----------------|---------|
-| `auditor` (recommended) | `atomic-auditor` | cumulative spec compliance, cross-checkpoint coherence, commit-message soundness, doc adherence | a verdict |
-| `reviewer` | `atomic-reviewer` | line-level correctness across the full range in one pass | a verdict |
-| `strategist` | `atomic-strategist` | whether the approach was right at all, and what it assumed | a recommendation, no verdict |
-
-Only the auditor and the reviewer are read for a `VERDICT:` line; the strategist refuses PASS/CHANGES_REQUESTED by its own scope boundary, so its output is read and acted on selectively, never parsed for a gate. The signals refresh runs after this gate, so the one fix round it can produce is already inside the scanned range.
+Finalize dispatches `atomic-auditor` exactly once, over `<loop-base>..HEAD`, via the shared `loop-finalize` partial `/implement` composes — the same finalize step `/subagent-implementation`, `/quick-fix`, and `/autopilot` run, not a separate three-way pick. The strategist stays available earlier, as the stuck-check option when two rounds repeat the same blocking signal, never as a finalize gate. A `CHANGES_REQUESTED` verdict from the auditor earns one more implement→review→commit iteration against its findings, then finalize continues regardless of what a second audit would say. The signals refresh runs after this gate, so the one fix round it can produce is already inside the scanned range.
 
 ### Ad-hoc direct edits: reviewer-gated without a loop
 
@@ -169,7 +161,7 @@ sequenceDiagram
     O->>O: commit from the proposal verbatim
 ```
 
-The implementer's report ends with a `## Commit` section in `atomic-git-discipline` format; the reviewer flags a misstated type or a diff-restating body as 🟡 risk under Code quality before passing. `/subagent-implementation` Step D and `/quick-fix`'s commit step start from that proposal and invoke the skill directly only when the proposal is missing. `/implement` has no implementer report to draft from — the main agent is the implementer — so its per-checkpoint commit step invokes `atomic-git-discipline` directly every time.
+The implementer's report ends with a `## Commit` section in `atomic-git-discipline` format; the reviewer flags a misstated type or a diff-restating body as 🟡 risk under Code quality before passing. The shared `implement-loop` partial's Commit step — composed by `/subagent-implementation` and `/quick-fix` — starts from that proposal and invokes the skill directly only when the proposal is missing. `/implement` has no implementer report to draft from — the main agent is the implementer — so its per-checkpoint commit step invokes `atomic-git-discipline` directly every time.
 
 ### Caps and stop conditions
 
@@ -177,7 +169,7 @@ The implementer's report ends with a `## Commit` section in `atomic-git-discipli
 |---|---|---|
 | `/subagent-implementation` | none | Same blocking signal across 2 consecutive `CHANGES_REQUESTED` rounds surfaces `/pressure-test` and `atomic-strategist` and waits for the user |
 | `/implement` | none | Same blocking signal across 2 consecutive `CHANGES_REQUESTED` rounds on one checkpoint surfaces continue / `/pressure-test` / `atomic-strategist` and waits for the user |
-| `/quick-fix` | 3 iterations, then ask | Escape hatch on approach fork, fuzzy criteria, an unforeseen contract choice, a shifted root cause, or implementer `BLOCKED` / `NEEDS_CONTEXT` |
+| `/quick-fix` | none | Same blocking signal across 2 consecutive `CHANGES_REQUESTED` rounds surfaces continue / `/pressure-test` / `atomic-strategist` and waits for the user; hand-off fires on approach fork, fuzzy criteria, an unforeseen contract choice, a shifted root cause, or implementer `BLOCKED` / `NEEDS_CONTEXT` |
 | `/subagent-diagnose` | `min(memory override, 5)` iterations | 3 consecutive iterations producing the same normalized top-level error |
 | `/atomic-plan` spec loop | 5 iterations | none |
 | `/autopilot` | none | Stuck auto-dispatches `atomic-strategist` instead of asking, because the strategist never writes |
@@ -204,10 +196,10 @@ The workspace for the run is a scratchpad bundle at `$(atomic scratchpad new <sl
 Finalize order is fixed, and each step depends on the one before it:
 
 ```
-atomic-verify → FOLLOWUPS triage → implementation log → /documentation → atomic-auditor → signals refresh → report to user
+atomic-verify → /documentation → atomic-auditor → FOLLOWUPS triage → implementation log → signals refresh → report to user
 ```
 
-Docs are written before the signals refresh so a new page exists when the scan runs. `doc-impact` runs before `signals-gate` inside `/commit` for the same reason. The scratchpad bundle is not deleted at this step — `/subagent-implementation`, `/subagent-diagnose`, `/implement`, and `/autopilot` all leave it in place; it is retired later, out of band, by `/git-cleanup` or an explicit `atomic scratchpad archive <slug>`. `/quick-fix` is the exception: its own finalize step 3 deletes `$SCRATCH` on the success path, once every `FOLLOWUPS.md` entry has a disposition. It still retains the bundle on the escape hatch and the iteration-cap stop, since both hand the run back to a human or to `/subagent-implementation` with context intact.
+Docs are written before the signals refresh so a new page exists when the scan runs. `doc-impact` runs before `signals-gate` inside `/commit` for the same reason. The scratchpad bundle is not deleted at this step — `/subagent-implementation`, `/quick-fix`, `/subagent-diagnose`, `/implement`, and `/autopilot` all leave it in place, whether the run succeeded or was bailed; it is retired later, out of band, by `/git-cleanup` or an explicit `atomic scratchpad archive <slug>`.
 
 
 ## Where it lives
@@ -222,7 +214,7 @@ Docs are written before the signals refresh so a new page exists when the scan r
 | [`context/commands/atomic-plan.md`](../../context/commands/atomic-plan.md) | Triviality gate (trivial / borderline / non-trivial), then design doc plus spec. Non-trivial runs a spec-authoring subagent loop capped at 5 iterations. Its scratchpad bundle is opened via `atomic scratchpad new <topic> --purpose plan`. |
 | [`context/commands/challenge-swarm.md`](../../context/commands/challenge-swarm.md) | Profiles the target artifact against nine stake questions, seats 3-6 cited lenses from a ~30-lens catalog, dispatches them in isolation, merges findings into a contradiction map. Report-only, never edits the target. |
 | [`context/commands/subagent-implementation.md`](../../context/commands/subagent-implementation.md) | The full loop: investigator, spec gate, worktree gate, implement to review to commit, then the finalize ceremony. |
-| [`context/commands/implement.md`](../../context/commands/implement.md) | Fit-gated main-agent implementation for work whose context is already in the conversation. Checkpoints are declared up front; `atomic-reviewer` is dispatched after each one, never batched to the end; a checkpoint commits only on `VERDICT: PASS`. Finalizes with a range-scoped signals refresh and a user-picked final gate (`atomic-auditor`, `atomic-strategist`, or `atomic-reviewer`). Never pushes, merges, or opens a PR. |
+| [`context/commands/implement.md`](../../context/commands/implement.md) | Fit-gated main-agent implementation for work whose context is already in the conversation. Checkpoints are declared up front; `atomic-reviewer` is dispatched after each one, never batched to the end; a checkpoint commits only on `VERDICT: PASS`. Finalizes with the shared loop-finalize sequence: one `atomic-auditor` pass over `<loop-base>..HEAD`, then a range-scoped signals refresh. Never pushes, merges, or opens a PR. |
 | [`context/commands/quick-fix.md`](../../context/commands/quick-fix.md) | The same loop minus the spec gate, worktree gate, and finalize ceremony; keeps the once-per-task audit. Fit gate at entry, escape hatch mid-loop. |
 | [`context/commands/subagent-diagnose.md`](../../context/commands/subagent-diagnose.md) | Failure-driven loop. `ci` mode seeds from a failed GitHub Actions run, `bug` mode from a freeform symptom. Topic slugs no longer carry a date prefix (`diagnose-ci-<run-id>`, `diagnose-bug-<slug>`) since `atomic scratchpad` owns bundle identity. |
 | [`context/commands/autopilot.md`](../../context/commands/autopilot.md) | Runs plan to loop to ship unattended. The merge method is the only human decision. Phase 6 deletes `tmp/trash/` only; the task's scratchpad bundle is left for later retirement. |
@@ -243,11 +235,11 @@ Docs are written before the signals refresh so a new page exists when the scan r
 
 | Path | Role |
 |---|---|
-| [`context/agents/atomic-implementer.md`](../../context/agents/atomic-implementer.md) | Writes the code. `mode: feature` is cohesion-bounded, any file count; `mode: surgical` hard-caps at 2 non-test files and bounces anything larger. Both write TDD and report `## Did` / `## Tests` / `## Signals` / `## Failed` / `## Commit`, the last a proposed Conventional Commits message. Composes `agent-readability`, so its own comment noise or over-engineering is a self-check before the reviewer ever sees the diff. |
+| [`context/agents/atomic-implementer.md`](../../context/agents/atomic-implementer.md) | Writes the code. `mode: feature` is cohesion-bounded, any file count; `mode: surgical` hard-caps at 2 non-test files and bounces anything larger. Both write TDD and report `## Did` / `## Tests` / `## Signals` / `## Failed` / `## Commit` / `## Status`, the `## Commit` section a proposed Conventional Commits message and `## Status` one of `DONE` / `DONE_WITH_CONCERNS` / `BLOCKED` / `NEEDS_CONTEXT`. Composes `agent-readability`, so its own comment noise or over-engineering is a self-check before the reviewer ever sees the diff. |
 | [`context/agents/atomic-reviewer.md`](../../context/agents/atomic-reviewer.md) | Gates each iteration. Code-mode diffs against the spec, verifies TDD signals actually ran, checks the implementer's `## Commit` proposal against `atomic-git-discipline`, and gates readability at a 🟡 floor; spec-mode reviews a draft spec against its design. Ends with `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`, no third option. Also dispatched once per checkpoint by `/implement`, where it is the only independent read the main-agent-written code gets, and outside any loop by `atomic-verify`'s readiness check and the ship verbs' review gate, both on code written ad-hoc. |
-| [`context/agents/atomic-auditor.md`](../../context/agents/atomic-auditor.md) | Gates the whole task once, after the loop goes green. Four passes: cumulative spec compliance, cross-iteration coherence (now including comment drift and repetition accumulated across iterations, exempt from the single-checkpoint drop rule), commit soundness (plus a PR title/body judgment when an optional `pr:` path is passed), documentation adherence. Never edits the repo; findings also written to `$SCRATCH/AUDIT.md`. Fresh context. Also selectable as `/implement`'s final gate over the delivered range. |
+| [`context/agents/atomic-auditor.md`](../../context/agents/atomic-auditor.md) | Gates the whole task once, after the loop goes green. Four passes: cumulative spec compliance, cross-iteration coherence (now including comment drift and repetition accumulated across iterations, exempt from the single-checkpoint drop rule), commit soundness (plus a PR title/body judgment when an optional `pr:` path is passed), documentation adherence. Never edits the repo; findings also written to `$SCRATCH/AUDIT.md`. Fresh context. Also dispatched, unconditionally, as `/implement`'s final gate over the delivered range. |
 | [`context/agents/atomic-investigator.md`](../../context/agents/atomic-investigator.md) | Read-only locator. Returns a `file:line — what` table, no prose. Haiku-backed at `effort: low`, so it is cheap enough to dispatch by default. |
-| [`context/agents/atomic-strategist.md`](../../context/agents/atomic-strategist.md) | Read-only "is this the right approach?" reasoning at `effort: xhigh`. Dispatched when the loop is stuck, or as `/implement`'s optional final gate — never parsed for a `VERDICT:` line there, since it refuses PASS/CHANGES_REQUESTED by its own scope boundary. |
+| [`context/agents/atomic-strategist.md`](../../context/agents/atomic-strategist.md) | Read-only "is this the right approach?" reasoning at `effort: xhigh`. Dispatched when the loop is stuck (same blocking signal, 2 consecutive `CHANGES_REQUESTED` rounds) — across every loop this engine drives, including `/implement`'s per-checkpoint stuck check. Never a finalize gate; its output is never parsed for a `VERDICT:` line. |
 
 ### Skills
 
@@ -267,6 +259,9 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 | Path | Role |
 |---|---|
 | [`context/_partials/worktree-setup.md`](../../context/_partials/worktree-setup.md) | The whole worktree gate: isolation detection, branch resolution, spec carry-forward, `git worktree add`, `EnterWorktree`, setup and baseline test detection. Composed into `subagent-implementation`, `autopilot`, and `/implement` (run only when the working tree is clean). |
+| [`context/_partials/handoff.md`](../../context/_partials/handoff.md) | The shared hand-off table, checked at entry and whenever an implementer report or a reviewer finding surfaces a signal (unknown or shifted root cause, two viable approaches, an implied public API/schema/cross-service contract, implementer `BLOCKED`/`NEEDS_CONTEXT`); on a match, names the signal, prints the target verb, keeps `$SCRATCH`, and stops. Composed into `/subagent-implementation`, `/quick-fix`, and `/implement`. |
+| [`context/_partials/implement-loop.md`](../../context/_partials/implement-loop.md) | The shared implement to review loop: code-index sync, scratchpad-trio seeding from `atomic template`, per-checkpoint Implement / Review / Triage / Commit, and the same-blocking-signal stuck check. Composed into `/subagent-implementation`, `/quick-fix`, `/autopilot`, and `/implement`. `/subagent-diagnose` is not a consumer — it runs its own Phase-based flow. |
+| [`context/_partials/loop-finalize.md`](../../context/_partials/loop-finalize.md) | The shared finalize sequence: verify, docs, one `atomic-auditor` dispatch over `<loop-base>..HEAD`, follow-up dispositions, implementation log, signals refresh, report, run once after the last checkpoint passes, skipping whatever the policy table's Finalize row omits. `$SCRATCH` stays; `/git-cleanup` archives it. Composed into `/subagent-implementation`, `/quick-fix`, `/autopilot`, and `/implement`. `/subagent-diagnose` is not a consumer — it runs its own Phase-based flow. |
 | [`context/_partials/agent-where.md`](../../context/_partials/agent-where.md) | The `atomic where --json` orientation call: repo-scope wiki, realm position, code-index scope, plus the project-keyed `reports`, `reports_root`, `reminders`, and `archive` paths every workflow artifact resolves from rather than hand-building. |
 | [`context/_partials/commit-flow.md`](../../context/_partials/commit-flow.md) | Stage, review-gate, doc-impact, signals-gate, commit, session-report cleanup — the report dir is resolved via `agent-where`'s `reports` field, never constructed. |
 | [`context/_partials/push-flow.md`](../../context/_partials/push-flow.md), `pr-flow.md`, `merge-flow.md`, `squash-flow.md` | The four escalation paths `/commit` routes into. |
@@ -279,7 +274,7 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 | [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) | The 7-rung simplicity ladder, composed into `atomic-implementer`, `atomic-reviewer`, and `atomic-strategist`. |
 | [`context/_partials/agent-implementer-workflow.md`](../../context/_partials/agent-implementer-workflow.md) | The entire `<workflow>` block for `atomic-implementer`; itself composes `agent-search-tooling`, `agent-tdd-signals`, `agent-code-intel`, `agent-where`. |
 | [`context/_partials/agent-readability.md`](../../context/_partials/agent-readability.md) | Comment noise, over-engineering, and repetition floored at 🟡 risk (never 🔵) and made verdict-driving; escalates to 🔴 on a misdescribing comment or a repeat finding across iterations. Composed into `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`. |
-| [`context/_partials/agent-signals-output.md`](../../context/_partials/agent-signals-output.md) | The implementer's report skeleton — `## Did` / `## Tests` / `## Signals` / `## Failed` / `## Commit`, the last a proposed Conventional Commits message the orchestrator commits from directly. |
+| [`context/_partials/agent-signals-output.md`](../../context/_partials/agent-signals-output.md) | The implementer's report skeleton — `## Did` / `## Tests` / `## Signals` / `## Failed` / `## Commit` / `## Status`, the `## Commit` section a proposed Conventional Commits message the orchestrator commits from directly, and `## Status` (`DONE` / `DONE_WITH_CONCERNS` / `BLOCKED` / `NEEDS_CONTEXT`) the line the orchestrator triages on. |
 
 ### Docs
 
@@ -290,8 +285,8 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 | [`docs/spec/atomic-plan.md`](../spec/atomic-plan.md) | Contract for the triviality gate, design and spec split, and the spec-authoring loop. |
 | [`docs/spec/spec-change-tree-flows.md`](../spec/spec-change-tree-flows.md) | Why every spec body carries `## Change tree`, `## Outline`, and `## Flows`. |
 | [`docs/spec/subagent-diagnose.md`](../spec/subagent-diagnose.md), [`docs/design/diagnose-orchestrators.md`](../design/diagnose-orchestrators.md) | Contract and rationale for the two diagnose modes. |
-| [`docs/spec/implement.md`](../spec/implement.md) | Contract for the fit gate, checkpoint declaration, per-checkpoint reviewer dispatch, the reviewer-brief and scratchpad-trio contract `/implement` co-consumes with `/subagent-implementation` and `/quick-fix`, and the range-scoped signals refresh plus user-picked final gate at finalize. |
-| [`docs/spec/quick-fix.md`](../spec/quick-fix.md) | Fit-gate and escape-hatch signals, the no-file-threshold constraint, prompt-reuse contract, 3-iteration cap. |
+| [`docs/spec/implement.md`](../spec/implement.md) | Contract for the fit gate, checkpoint declaration, per-checkpoint reviewer dispatch, the reviewer-brief and scratchpad-trio contract `/implement` co-consumes with `/subagent-implementation` and `/quick-fix`, and the single `atomic-auditor` final gate plus range-scoped signals refresh at finalize. |
+| [`docs/spec/quick-fix.md`](../spec/quick-fix.md) | Hand-off table signals, the no-file-threshold constraint, the shared-partial composition, the same-blocking-signal stuck check in place of an iteration cap. |
 | [`docs/spec/autopilot.md`](../spec/autopilot.md) | The five autonomous overrides. |
 | [`docs/spec/atomic-auditor.md`](../spec/atomic-auditor.md) | The four audit passes and the once-per-task dispatch rule. |
 | [`docs/spec/stuck-fix-escalation.md`](../spec/stuck-fix-escalation.md), [`docs/design/stuck-fix-escalation.md`](../design/stuck-fix-escalation.md) | Stuck-fix escalation and reviewer suppression-pattern awareness. |
@@ -310,9 +305,9 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 
 **Every spec body carries `## Change tree`, `## Outline`, and `## Flows`.** The change tree marks files `A` / `M` / `D`; the outline names the pieces per file as `name — responsibility`, one level of nesting, no signatures; flows are numbered actor-to-step sequences. `## Outline` is what `atomic-reviewer` walks the delivered diff against in its outline pass; an omitted or empty section makes that pass silently no-op instead of failing loud. An empty section is written `None — <reason>`, never omitted.
 
-**A readability finding always blocks, whatever tier it would carry elsewhere.** Comment noise, over-engineering, or repetition sits at a 🟡 risk floor via [`context/_partials/agent-readability.md`](../../context/_partials/agent-readability.md); the reviewer will not `PASS` while one is open, and it is the one 🟡-tier finding that never lands in `FOLLOWUPS.md`. A `/quick-fix` run pinned at its 3-iteration cap by a recurring readability finding is working as designed, not stuck.
+**A readability finding always blocks, whatever tier it would carry elsewhere.** Comment noise, over-engineering, or repetition sits at a 🟡 risk floor via [`context/_partials/agent-readability.md`](../../context/_partials/agent-readability.md); the reviewer will not `PASS` while one is open, and it is the one 🟡-tier finding that never lands in `FOLLOWUPS.md`. A `/quick-fix` run that keeps re-triggering the same-blocking-signal stuck check on a recurring readability finding is working as designed, not stuck.
 
-**The auditor is dispatched exactly once per task.** A `CHANGES_REQUESTED` verdict earns one more implementer and reviewer iteration, then the run continues regardless of what a second audit would say. Re-auditing turns finalize into an unbounded loop, which never terminates under `/autopilot`. `/implement`'s final gate carries the same once-only rule regardless of which of the three agents is picked.
+**The auditor is dispatched exactly once per task.** A `CHANGES_REQUESTED` verdict earns one more implementer and reviewer iteration, then the run continues regardless of what a second audit would say. Re-auditing turns finalize into an unbounded loop, which never terminates under `/autopilot`. `/implement`'s final gate is the same single `atomic-auditor` dispatch, not a separate choice among agents.
 
 **The review gate runs once per change, not once per step.** [`context/_partials/review-gate.md`](../../context/_partials/review-gate.md) skips when the staged work already came from a loop or checkpointed command that dispatches `atomic-reviewer` per iteration or per checkpoint (`/implement`, `/subagent-implementation`, `/quick-fix`, `/autopilot`, `/subagent-diagnose`), when this same gate already reviewed the change earlier in the flow (a squash reviewing what commit-time already reviewed), or when every staged path is documentation, by the same test the signals gate uses. Without the guard, a squash of already-reviewed commits would re-review the identical diff.
 

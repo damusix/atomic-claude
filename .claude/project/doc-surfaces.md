@@ -1,6 +1,6 @@
 # Doc surfaces
 
-last-scanned: 2026-09-02T08:50:29Z
+last-scanned: 2026-09-06T22:05:45Z
 
 - README.md [🌟 Features, 🚀 Usage, 💭 Contributing & feedback]
 - docs/credits.md — Credits [Inspirations, caveman, superpowers]
@@ -26,6 +26,7 @@ last-scanned: 2026-09-02T08:50:29Z
 - docs/design/comment-discipline.md — Comment discipline across artifacts [Problem, Rules (the discipline itself), Placement decision]
 - docs/design/configurable-state-paths.md — Configurable state paths (v6) [Shape of the change, Decisions, Resolver shape]
 - docs/design/cosmos-system-graph.md — Cosmos system graph [Problem, Goals / Non-goals, Approaches (engine)]
+- docs/design/deslop.md — /deslop: auditing a standing codebase against atomic conventions [Problem, Goals / Non-goals, What counts as slop]
 - docs/design/diagnose-orchestrators.md — Diagnose orchestrator (/subagent-diagnose) [Problem, Goals / Non-goals, Shared substrate]
 - docs/design/doc-consolidation.md — Design and spec consolidation [type: Designdescription: Retire a shipped spec/design family into one rebuild-record design doc per feature, and give design and spec files a contracted role in wiki inference.domain: docs-metastatus: draft, Problem, Goals / Non-goals]
 - docs/design/document-templates.md — Document templates: embedded fill-in skeletons for coordinated workflow documents [Problem, Goals / Non-goals, Approaches]
@@ -34,6 +35,7 @@ last-scanned: 2026-09-02T08:50:29Z
 - docs/design/embedded-sql-language-expansion.md — Embedded SQL language expansion [Problem, Goals / Non-goals, The seam (current state)]
 - docs/design/followup-hardening.md — Followup hardening batch (pre-expansion) [Problem, Goals / Non-goals, Findings and fixes]
 - docs/design/graphignore.md — Graphignore: repo-scoped ignore globs for the code-intel index [Problem, Goals / Non-goals, Approaches]
+- docs/design/implement-loop-consolidation.md — Implement-loop consolidation [Problem, Goals / Non-goals, The shared loop and its settings]
 - docs/design/legible-output.md — Design: format routing in the atomic output style [Problem, Constraint that shapes everything, Pattern verdicts (user-approved)]
 - docs/design/okf-alignment.md — OKF alignment for wiki + serve [Problem, Scope (decided with user), Goals / Non-goals]
 - docs/design/repo-init.md — Design: atomic repo init — deterministic .claude/ scaffolding [Problem, Shape, Key decisions]
@@ -60,6 +62,7 @@ last-scanned: 2026-09-02T08:50:29Z
 - docs/design/verify-gate-validate.md — Design: atomic validate in the verify gate [Problem, Decision, Non-goals]
 - docs/design/visual-options.md — Visual options for planning [Problem, Goals / Non-goals, The panel / code model]
 - docs/design/wiki-buckets.md — Wiki capture buckets [Problem, Goals / Non-goals, Concepts]
+- docs/design/wiki-pointer-rules.md — Wiki pointer rules [Problem, Goals / Non-goals, Approaches]
 - docs/design/wiki.md — Project wikis [Problem, Goal / Non-goals, Concept]
 - docs/guides/code-intel-mcp.md — Code-intel MCP setup [Prerequisites, Register the MCP server, Available tools]
 - docs/guides/contributing.md — Contributing [Setup, Day-to-day workflow, Git hooks]
@@ -78,7 +81,7 @@ last-scanned: 2026-09-02T08:50:29Z
 - docs/reference/output-style.md — Output style [Where the behavior actually comes from, Sentence rules, Format routing vocabulary]
 - docs/reference/realm-wiki.md — Realm wiki [Setting one up, What a wiki looks like, Repo states]
 - docs/reference/repl.md — atomic repl [Why a session instead of a one-shot script, The session lifecycle, Scope: which sessions a call can see]
-- docs/reference/repo-wiki.md — Repo wiki [The pipeline, Steering the inferrer, Excluding files from the scan]
+- docs/reference/repo-wiki.md — Repo wiki [The pipeline, Pointer rules, Steering the inferrer]
 - docs/reference/serve.md — atomic serve [Usage, Scope resolution, What gets enumerated]
 - docs/reference/skills.md — Skills [Discipline, Workflow, Awareness]
 - docs/reference/workflow.md — Workflow [0. Set up your repo, 1. Plan, 2. Implement]
@@ -123,6 +126,7 @@ last-scanned: 2026-09-02T08:50:29Z
 - docs/spec/configurable-state-paths.md — Configurable state paths (v6) [Goal, Approach, Non-goals]
 - docs/spec/cosmos-system-graph.md — Cosmos system graph [Goal, Non-goals, Success criteria]
 - docs/spec/cron-workflow.md — Spec: cron workflow (reminders) [Model, Storage, Commands]
+- docs/spec/deslop.md — /deslop: standing-codebase convention audit [Goal, Non-goals, Success criteria]
 - docs/spec/doc-frontmatter.md — Doc frontmatter contract [Goal, Non-goals, Success criteria]
 - docs/spec/docker-eval-environment.md — Docker eval environment [Goal, Non-goals, Success criteria]
 - docs/spec/document-templates.md — Document templates [Goal, Non-goals, Success criteria]
@@ -135,6 +139,7 @@ last-scanned: 2026-09-02T08:50:29Z
 - docs/spec/follow-ups-folder.md — Follow-ups folder + TTL [Goal, Non-goals, Success criteria]
 - docs/spec/followup-hardening.md — Followup hardening batch (pre-expansion) [Goal, Non-goals, Success criteria]
 - docs/spec/graphignore.md — Graphignore: repo-scoped ignore globs for the code-intel index [Goal, Non-goals, Success criteria]
+- docs/spec/implement.md — /implement: main-agent implementation with a per-checkpoint reviewer gate [Goal, Non-goals, Success criteria]
 - docs/spec/install-workflow.md — Spec: install workflow (CLAUDE.md merge) [Artifacts to build, Trigger, /atomic-claude-merge command]
 - docs/spec/legible-output.md — Spec: format routing in the atomic output style [Checkpoints, Checkpoint 1 contract, Success criteria]
 - docs/spec/okf-alignment.md — OKF alignment for wiki + serve [Goal, Non-goals, Success criteria]
@@ -174,6 +179,7 @@ last-scanned: 2026-09-02T08:50:29Z
 - docs/spec/wiki-buckets.md — Wiki capture buckets [Goal, Non-goals, Concepts]
 - docs/spec/wiki-deterministic-setup.md — Deterministic wiki scaffold verb (Workstream G) [Goal, Non-goals, Success criteria]
 - docs/spec/wiki-drift-scope.md — Spec: wiki drift scope (workstream E) [Goal, Non-goals, Success criteria]
+- docs/spec/wiki-pointer-rules.md — Wiki pointer rules [Goal, Non-goals, Success criteria]
 - docs/spec/wiki-stale-summary-resolution.md — Spec: wiki stale summary repo resolution [Problem, Shape matrix, Approach]
 - docs/spec/wiki-storage-relocation.md — Wiki storage relocation (Workstream B) [Goal, Non-goals, Success criteria]
 - docs/spec/wiki-unify-commands.md — Workstream D: Unify commands, agent, and skill [Goal, Non-goals, Success criteria]
