@@ -80,7 +80,9 @@ agent-implementer-workflow ──> agent-search-tooling, agent-tdd-signals,
 | Command source | Partials composed |
 |-----------------|-------------------|
 | `commit.md` | `commit-flow`, `push-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `git-safety` |
-| `autopilot.md`, `subagent-implementation.md` | `worktree-setup` |
+| `subagent-implementation.md`, `implement.md` | `handoff`, `worktree-setup`, `implement-loop`, `loop-finalize` |
+| `autopilot.md` | `worktree-setup`, `implement-loop`, `loop-finalize` |
+| `quick-fix.md` | `handoff`, `implement-loop`, `loop-finalize` |
 | `report-issue.md`, `report-issue-with-atomic.md` | `report-issue-privacy` |
 
 Every other command source is self-contained.
