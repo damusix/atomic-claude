@@ -29,7 +29,10 @@ const (
 	// long; a slow-but-moving stream never trips it.
 	defaultStallTimeout = 30 * time.Second
 
-	progressEmitBytes = 512 * 1024
+	// progressEmitInterval paces the status line by wall clock rather than by
+	// bytes, so a slow link still shows movement and a fast one does not flood
+	// the terminal with redraws.
+	progressEmitInterval = 100 * time.Millisecond
 
 	// lookupPerPage is GitHub's maximum page size. The default of 30 let a run
 	// of prereleases push the newest stable release off the first page, which
@@ -94,6 +97,9 @@ type Client struct {
 
 	// StallTimeout overrides the no-data abort window (default 30s).
 	StallTimeout time.Duration
+
+	// ProgressInterval overrides how often OnProgress fires (default 100ms).
+	ProgressInterval time.Duration
 }
 
 func (c *Client) baseURL() string {
@@ -505,7 +511,13 @@ func (c *Client) download(ctx context.Context, url, dst string, onProgress func(
 	if total < 0 {
 		total = 0
 	}
-	var received, sinceEmit int64
+	emitEvery := c.ProgressInterval
+	if emitEvery <= 0 {
+		emitEvery = progressEmitInterval
+	}
+
+	var received int64
+	lastEmit := time.Now()
 	buf := make([]byte, 64*1024)
 	for {
 		n, rerr := resp.Body.Read(buf)
@@ -515,9 +527,8 @@ func (c *Client) download(ctx context.Context, url, dst string, onProgress func(
 				return werr
 			}
 			received += int64(n)
-			sinceEmit += int64(n)
-			if onProgress != nil && sinceEmit >= progressEmitBytes {
-				sinceEmit = 0
+			if onProgress != nil && time.Since(lastEmit) >= emitEvery {
+				lastEmit = time.Now()
 				onProgress(received, total)
 			}
 		}
