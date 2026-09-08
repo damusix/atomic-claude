@@ -19,7 +19,7 @@ func TestCheckHooks_Installed_Pass(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
 
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestCheckHooks_LegacyRegistration_Warn(t *testing.T) {
 func TestCheckHooks_PassDetailMentionsInstalled(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 

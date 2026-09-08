@@ -12,51 +12,52 @@ import (
 	"github.com/tailscale/hujson"
 )
 
-// registerInSettings is idempotent.
-func registerInSettings(sfPath, command string) error {
+// registerInSettings is idempotent. skipped mirrors writeSettingsHujson's own
+// signal: a read-only target left untouched rather than an error.
+func registerInSettings(sfPath, command string) (skipped bool, err error) {
 	settings, ast, _, err := readSettingsHujson(sfPath)
 	if err != nil {
-		return malformedSettingsError(sfPath, command)
+		return false, malformedSettingsError(sfPath, command)
 	}
 
 	if hasRegistration(settings, command) {
-		return nil
+		return false, nil
 	}
 
 	// A missing file leaves ast.Value nil.
 	if ast.Value == nil {
 		ast, err = hujson.Parse([]byte("{}"))
 		if err != nil {
-			return fmt.Errorf("hooks: build empty settings: %w", err)
+			return false, fmt.Errorf("hooks: build empty settings: %w", err)
 		}
 	}
 
 	if err := astRegisterSessionStart(&ast, command); err != nil {
-		return err
+		return false, err
 	}
 
 	return writeSettingsHujson(sfPath, ast)
 }
 
-func unregisterFromSettings(sfPath, command string) error {
+func unregisterFromSettings(sfPath, command string) (skipped bool, err error) {
 	settings, ast, _, err := readSettingsHujson(sfPath)
 	if err != nil {
-		return malformedSettingsError(sfPath, command)
+		return false, malformedSettingsError(sfPath, command)
 	}
 	if ast.Value == nil {
-		return nil
+		return false, nil
 	}
 
 	hooksMap, ok := settings["hooks"].(map[string]any)
 	if !ok {
-		return nil
+		return false, nil
 	}
 	if _, ok := hooksMap["SessionStart"]; !ok {
-		return nil
+		return false, nil
 	}
 
 	if err := astUnregisterSessionStart(&ast, command); err != nil {
-		return err
+		return false, err
 	}
 
 	return writeSettingsHujson(sfPath, ast)
@@ -97,18 +98,86 @@ func readSettingsHujson(sfPath string) (map[string]any, hujson.Value, []byte, er
 	return settings, ast, raw, nil
 }
 
-func writeSettingsHujson(sfPath string, ast hujson.Value) error {
+// writeSettingsHujson writes ast to sfPath via temp file + rename, so a
+// concurrent reader (Claude Code's own settings watcher) never observes a
+// partial file. skipped reports a read-only target left untouched rather
+// than an error, so callers can stay silent instead of failing the caller's
+// own operation.
+func writeSettingsHujson(sfPath string, ast hujson.Value) (skipped bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(sfPath), 0o755); err != nil {
-		return fmt.Errorf("hooks: mkdir for settings.json: %w", err)
+		return false, fmt.Errorf("hooks: mkdir for settings.json: %w", err)
 	}
+
+	resolved, mode, writable, err := resolveSettingsTarget(sfPath)
+	if err != nil {
+		return false, err
+	}
+	if !writable {
+		return true, nil
+	}
+
 	out := ast.Pack()
 	if len(out) > 0 && out[len(out)-1] != '\n' {
 		out = append(out, '\n')
 	}
-	if err := os.WriteFile(sfPath, out, 0o644); err != nil {
-		return fmt.Errorf("hooks: write settings.json: %w", err)
+
+	// Same directory as the resolved target (not sfPath) so a symlinked
+	// settings.json is followed rather than replaced by the rename.
+	tmp, err := os.CreateTemp(filepath.Dir(resolved), ".settings-*.json.tmp")
+	if err != nil {
+		return false, fmt.Errorf("hooks: create temp settings file: %w", err)
 	}
-	return nil
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write(out); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return false, fmt.Errorf("hooks: write temp settings file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return false, fmt.Errorf("hooks: close temp settings file: %w", err)
+	}
+	if err := os.Chmod(tmpName, mode); err != nil {
+		os.Remove(tmpName)
+		return false, fmt.Errorf("hooks: chmod temp settings file: %w", err)
+	}
+	if err := os.Rename(tmpName, resolved); err != nil {
+		os.Remove(tmpName)
+		return false, fmt.Errorf("hooks: rename to settings.json: %w", err)
+	}
+	return false, nil
+}
+
+// resolveSettingsTarget follows sfPath through any symlink (a dotfiles-repo
+// settings.json is common), reports the existing file's mode for
+// preservation, and probes writability so a read-only target is skipped
+// rather than clobbered by a rename that only needs directory permission.
+func resolveSettingsTarget(sfPath string) (resolved string, mode os.FileMode, writable bool, err error) {
+	resolved = sfPath
+	if r, evalErr := filepath.EvalSymlinks(sfPath); evalErr == nil {
+		resolved = r
+	} else if !os.IsNotExist(evalErr) {
+		return "", 0, false, fmt.Errorf("hooks: resolve settings.json path: %w", evalErr)
+	}
+
+	mode = os.FileMode(0o644)
+	if fi, statErr := os.Stat(resolved); statErr == nil {
+		mode = fi.Mode().Perm()
+	}
+
+	f, openErr := os.OpenFile(resolved, os.O_WRONLY, 0)
+	if openErr != nil {
+		if os.IsNotExist(openErr) {
+			return resolved, mode, true, nil
+		}
+		if os.IsPermission(openErr) {
+			return resolved, mode, false, nil
+		}
+		return "", 0, false, fmt.Errorf("hooks: probe settings.json writability: %w", openErr)
+	}
+	f.Close()
+	return resolved, mode, true, nil
 }
 
 // astRegisterSessionStart creates the hooks key and SessionStart array as needed.

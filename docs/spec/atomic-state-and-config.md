@@ -86,7 +86,7 @@ dir = ".claude"              # single non-empty path segment; repo-local state-d
 ```
 
 
-Current keys: `output.signals.max_depth`, `update.run_doctor`, `update.check`, `update.stage`, `update.channel`, `harness.dir`. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
+Current keys: `output.signals.max_depth`, `update.run_doctor`, `update.check`, `update.stage`, `update.channel`, `harness.dir`, `output_style.seed`. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
 
 `update.check` and `update.stage` (bool, default `true`) gate the two halves of the detached background-update child described in [`selfupdate-state.md`](./selfupdate-state.md): `update.check` enables the hourly GitHub lookup that any invoked verb may spawn; `update.stage` enables that child's once-per-version download-and-checksum-verify into `~/.cache/atomic/staged/`. Both are user-level only — no repo-scoped equivalent.
 
@@ -154,6 +154,17 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 
 
 ## Change log
+
+
+### 2026-09-08 — Add output_style.seed config key
+
+**What changed:** Schema gains `output_style.seed` (bool, default `true`), gating whether `atomic claude install`, `atomic claude update`, and the session-start hook seed `outputStyle: "Atomic"` into the user-level Claude Code settings file.
+
+| Key | Type | Default | Valid values |
+|-----|------|---------|--------------|
+| `output_style.seed` | bool | `true` | `true`, `false` |
+
+**Why:** `docs/spec/output-style-seed.md` — the seed needs a persisted opt-out, since the session-start trigger is deliberately ungated and re-seeds a deleted key on every session.
 
 
 ### 2026-09-02 — Add update.channel config key

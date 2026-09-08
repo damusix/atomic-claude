@@ -85,8 +85,13 @@ func runClaudeInstall(targetDir, home, verb string, dryRun, noHooks bool) (insta
 	}
 
 	scopeRoot := filepath.Dir(targetDir)
-	if err := hooks.Install(scopeRoot, scopeRoot); err != nil {
+	skipped, err := hooks.Install(scopeRoot, scopeRoot)
+	if err != nil {
 		result.HooksError = err
+		return result, nil
+	}
+	if skipped {
+		result.HooksError = fmt.Errorf("settings.json is read-only")
 		return result, nil
 	}
 	result.HooksInstalled = true
@@ -113,18 +118,15 @@ func runClaudeUninstall(targetDir, home string, out *os.File) (string, error) {
 	return claudeinstall.GenerateUninstallPrompt(targetDir, home, plan), nil
 }
 
-// printPostInstallHint covers what install cannot automate: output style
-// activation, which Claude Code requires the user to opt into, and per-repo
-// signals initialization.
+// printPostInstallHint covers what install cannot automate: per-repo signals
+// initialization. Output style is seeded during install itself.
 func printPostInstallHint(verb string) {
 	if verb != "install" {
 		return
 	}
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "next steps:")
-	fmt.Fprintln(os.Stderr, "  1. open claude code and run /config → output style → Atomic")
-	fmt.Fprintln(os.Stderr, "     (claude code requires explicit user opt-in for output styles)")
-	fmt.Fprintln(os.Stderr, "  2. in each repo where you want project signals, run /refresh-wiki")
+	fmt.Fprintln(os.Stderr, "  1. in each repo where you want project signals, run /refresh-wiki")
 }
 
 func runClaude(args []string) {

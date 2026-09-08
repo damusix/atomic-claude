@@ -113,7 +113,7 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `cleanup` | `/git-cleanup` (stale worktrees / branches — dispatches a read-only scan via `atomic prompt git-cleanup`, presents indexed report, you confirm). `/undo-commit` (soft-undo HEAD, refuses if pushed). Cleaning up *code* rather than git state is `/deslop`. |
 | `deslop` / `slop` | `/deslop [<path>]` — audits the codebase **as it stands**, not a diff: comment noise, AI-tell doc prose, speculative abstraction, reinvented stdlib, duplicate helpers, dead code, swallowed errors, convention drift. Fans out read-only `atomic-deslopper` agents sharded by wiki domain, writes an indexed report to a scratchpad bundle, and stops. `/deslop apply <ids\|tier>` is a separate gated pass that fixes accepted findings through the surgical implementer behind a green baseline. Every finding carries a safety tier; `report-only` (public API, dynamic refs, generated files) is never auto-fixed. |
-| `doctor` | `atomic doctor [--fix]` runs integrity checks. `atomic validate` lints spec / config / bundle / artifacts. |
+| `doctor` | `atomic doctor [--fix]` runs integrity checks, including category 14 `output-style`, which reports which settings file sets `outputStyle` and flags a project-level value as a possible override. `atomic validate` lints spec / config / bundle / artifacts. |
 | `update` | `atomic update [--check]` self-updates binary, auto-refreshes `~/.claude` artifacts, auto-runs install-scope migration steps, then runs doctor (`--skip-claude-update` skips the refresh). `--pre` installs the newest pre-release cut from the `next` branch; `atomic config set update.channel prerelease` makes that the default for the background check, banner and doctor too. When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge proposed `~/.claude/CLAUDE.md`. `atomic migrate` runs migration steps manually: bare = install scope (`~/.claude/`), `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos; `--show-log [<since>]` prints its dated change history, filtered by version or date. |
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns background Haiku to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
@@ -125,7 +125,7 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `agents` | 7 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration; `atomic-auditor` gates the finished whole once, in a fresh context; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `~/.claude/agents/` or `docs/reference/agents.md`. |
 | `skills` | 10 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-git-discipline`, `atomic-documentation`, `atomic-writing`, `atomic-wiki`, `atomic-visual-options`, `atomic-bus`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
-| `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
+| `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Seeded automatically at install and every session start; `/config` → Output style overrides per project; `atomic config set output_style.seed false` opts out. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
 | `binary` / `cli` | Print the **Binary subcommands** section below. Do not recite the verb list from memory — `atomic --help` generates it from `cliusage`, so it cannot drift; a recited copy can. |
 
@@ -247,7 +247,7 @@ Prompt: continue to maintenance / explain one of these / exit tour.
 **Stage 4 — Maintenance and utilities.**
 
 ```
-atomic doctor [--fix]             integrity checks over install, hooks, signals, refs, ..., profile, code-index, migrate
+atomic doctor [--fix]             integrity checks over install, hooks, signals, refs, ..., profile, code-index, migrate, output-style
 atomic validate                   lint spec / config / bundle / artifact-CLI-citation parity
 atomic update [--check] [--pre]   self-update binary (--pre tracks next-branch pre-releases), auto-runs install-scope migrations, runs doctor after
 atomic migrate [--repo|--realm|--show-log]   run versioned migration steps: bare = ~/.claude/, --repo = one project, --realm = fan-out across all atomic'd repos; --show-log [<since>] prints dated change history

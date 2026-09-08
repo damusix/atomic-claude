@@ -13,7 +13,7 @@ func TestCheckHooks_ResolvesHomeScopeRoot(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := hooks.Install(home, home); err != nil {
+	if _, err := hooks.Install(home, home); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
