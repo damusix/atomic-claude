@@ -18,15 +18,24 @@ type progressCall struct {
 }
 
 func TestDownloadEmitsThrottledProgressAndFinalTotal(t *testing.T) {
-	payload := make([]byte, 2*1024*1024)
+	chunk := make([]byte, 512*1024)
+	const chunks = 4
+	// The throttle is wall-clock, so the server has to pace itself for a
+	// mid-download emit to be possible at all.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", fmt.Sprint(len(payload)))
-		w.Write(payload)
+		w.Header().Set("Content-Length", fmt.Sprint(chunks*len(chunk)))
+		for i := 0; i < chunks; i++ {
+			w.Write(chunk)
+			w.(http.Flusher).Flush()
+			time.Sleep(20 * time.Millisecond)
+		}
 	}))
 	defer srv.Close()
 
+	wantSize := int64(chunks * len(chunk))
+
 	var calls []progressCall
-	c := &Client{}
+	c := &Client{ProgressInterval: 10 * time.Millisecond}
 	dst := filepath.Join(t.TempDir(), "asset")
 	err := c.download(context.Background(), srv.URL, dst, func(received, total int64) {
 		calls = append(calls, progressCall{received, total})
@@ -43,7 +52,7 @@ func TestDownloadEmitsThrottledProgressAndFinalTotal(t *testing.T) {
 		}
 	}
 	last := calls[len(calls)-1]
-	if last.received != int64(len(payload)) || last.total != int64(len(payload)) {
+	if last.received != wantSize || last.total != wantSize {
 		t.Fatalf("final emit should report the full size, got %+v", last)
 	}
 }
