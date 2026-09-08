@@ -342,6 +342,34 @@ func unlinkStaleSocket(home string) error {
 	return nil
 }
 
+// staleSocketProbeTimeout bounds RecoverSocket's dial: long enough that a
+// live daemon under load still answers, short enough that a caller starting
+// up is not left waiting on a socket nothing will ever accept on.
+const staleSocketProbeTimeout = 200 * time.Millisecond
+
+// RecoverSocket clears a stale socket file at SocketPath(home) before a
+// caller binds a fresh listener there — the probe-then-remove step
+// EnsureDaemon already does ahead of every spawn, exported for a caller
+// (`atomic bus gateway`) that binds the listener itself instead of spawning
+// a daemon through EnsureDaemon. Without it, a process that owned the
+// socket and exited without closing it — an OOM-killed container is the
+// documented case in docs/guides/bus-hosting.md — leaves the file behind,
+// and a bare net.Listen("unix", …) against it fails "address already in
+// use" on every later start until someone removes it by hand.
+//
+// It dials first: if something answers, the socket is live, not stale, and
+// this returns an error naming `atomic bus stop` rather than stealing it
+// out from under a running daemon or gateway.
+func RecoverSocket(home string) error {
+	addr := SocketPath(home)
+	conn, err := net.DialTimeout("unix", addr, staleSocketProbeTimeout)
+	if err == nil {
+		conn.Close()
+		return fmt.Errorf("bus: %s is already in use by a running daemon or gateway; stop it first with `atomic bus stop`", addr)
+	}
+	return unlinkStaleSocket(home)
+}
+
 // spawnAndWaitForSocket calls e.Spawn, then polls the socket until it accepts a
 // connection or e.SpawnWait elapses — the bounded wait that keeps EnsureDaemon
 // from reaching connectAndVerify before the daemon has bound its listener.

@@ -68,9 +68,13 @@ can stop the exchange with `atomic bus halt`.
 - [ ] `atomic bus start | stop | restart` control the daemon explicitly. `start` is idempotent,
       `restart` is the version-skew remedy, and no timer ever stops the daemon on its own.
 - [ ] A client that finds the daemon gone respawns it and retries once before surfacing exit 6.
-- [ ] A restarted daemon rehydrates the **whole** roster from `~/.atomic/bus.json` at startup, not
-      one session at a time as each happens to run a command. A member who has been idle across
-      the restart is still present in `who` and still addressable.
+- [ ] A restarted daemon rehydrates the **whole** roster from `~/.atomic/bus-roster.json`, a file
+      only the daemon writes, at startup, not one session at a time as each happens to run a
+      command. A member who has been idle across the restart is still present in `who` and still
+      addressable.
+- [ ] A room name containing `/`, `\`, `..`, or a control character is refused on `Join`, on
+      `Subscribe` (`tail`), and on `Rehydrate`, not just on the client-side verbs that already
+      guarded it.
 - [ ] `mode` and `kind` survive a daemon restart — an `observe` member does not silently come back
       as `participate`.
 - [ ] `send --to <name>` warns on stderr when no such member is in the room. An addressed message
@@ -112,8 +116,8 @@ can stop the exchange with `atomic bus halt`.
       the worst failure this feature can produce — the session is deaf and nothing says so.
 - [ ] `halt` survives a daemon restart, and halt state is visible in `rooms`, `who`, and `status`
       with the reason. An operator who halts a room and walks away can tell it is still halted.
-- [ ] `last_seen` persists in `bus.json` and is restored, not restamped. A member dead for hours
-      reads as stale immediately after a restart and `prune` can reach it.
+- [ ] `last_seen` persists in `bus-roster.json` and is restored, not restamped. A member dead for
+      hours reads as stale immediately after a restart and `prune` can reach it.
 - [ ] `ProtocolVersion` is bumped whenever the wire shape changes, enforced by a golden test over
       the request/response/envelope/member field names and the op list, so the skew handshake
       cannot silently go inert.
@@ -136,14 +140,15 @@ atomic/internal/bus/
 ├── protocol.go ............ A  (Request, Response, Envelope, Member, AllOps, ProtocolVersion,
 │                                 protocolShapeHashes-pinned wire shape)
 ├── protocol_test.go ....... A
-├── paths.go ............... A  (SocketPath, LockPath, StatePath, RoomLogPath)
-├── identity.go ............ A  (SessionID, State load/save, TouchLastSeen, SetHalted, ClearRoom)
+├── paths.go ............... A  (SocketPath, LockPath, StatePath, RoomLogPath, RosterPath)
+├── identity.go ............ A  (SessionID, State load/save, LoadRoster/SaveRoster, TouchLastSeen,
+│                                 SetHalted, ClearRoom)
 ├── identity_test.go ....... A
 ├── client.go .............. A  (Dial, Do, EnsureDaemon, Subscribe)
 ├── client_test.go ......... A
 ├── daemon.go .............. A  (Serve, connection loop, explicit shutdown, handleClose/handlePrune)
 ├── daemon_test.go ......... A
-├── room.go ................ A  (Room, Hub, roster, halt, Close, dropIfEmpty)
+├── room.go ................ A  (Room, Hub, roster, halt, Close, dropIfEmpty, validRoomName)
 ├── room_test.go ........... A
 ├── roomlog.go ............. A  (Append, ReadEnvelope)
 ├── action.go .............. A  (BusAction verb dispatch, closeAction, readAction, recv reconnect)
@@ -182,13 +187,16 @@ atomic/internal/bus/protocol.go
   ExitCode constants — Ok, Usage, Hard, NotJoined, NameTaken, NoRoom, Unreachable, Halted
 
 atomic/internal/bus/paths.go
-  SocketPath, LockPath, StatePath, RoomLogPath — resolve under ~/.atomic
+  SocketPath, LockPath, StatePath, RoomLogPath, RosterPath — resolve under ~/.atomic
   EnsureDirs — create ~/.atomic/rooms with 0700
 
 atomic/internal/bus/identity.go
   SessionID — read CLAUDE_CODE_SESSION_ID, error when absent
-  State     — per-session joined rooms, persisted at ~/.atomic/bus.json
+  State     — per-session joined rooms, persisted at ~/.atomic/bus.json (client) or
+              ~/.atomic/bus-roster.json (daemon, via LoadRoster/SaveRoster — a second file so the
+              CLI and serve's unlocked bus.json writers never race the daemon's own)
     Load, Save, Join, Leave, LastRoom
+    LoadRoster, SaveRoster — the daemon-owned roster and halt state, RosterPath
     TouchLastSeen — persist a room's LastSeen on a successful send/recv
     SetHalted     — persist/clear a room's halt flag and reason
     ClearRoom     — drop a closed room's persisted membership and halt state, every session
@@ -219,11 +227,14 @@ atomic/internal/bus/room.go
     Close       — publish the closing envelope, evict every member, drop the room
     dropIfEmpty — remove a room with no members and no live subscribers (caller holds h.mu)
     Subscribe — register a live channel for recv/tail/chat
-    Rehydrate — restore the roster from persisted state at daemon startup
+    Rehydrate — restore the roster from RosterPath at daemon startup
   Room — roster, halt flag, subscribers
+  validRoomName — rejects `/`, `\`, `..`, and control characters before a room name reaches
+    RoomLogPath; checked by Join, Subscribe, and Rehydrate, not Join alone
 
 atomic/internal/bus/roomlog.go
-  Append — one JSON line per envelope, 0600; the durable record of a room
+  Append — one JSON line per envelope, 0600; the durable record of a room; refuses a path-shaped
+    room name itself, a second guard behind validRoomName rather than the only one
   ReadEnvelope — one envelope by id from a room's log; os.ErrNotExist when
     the room has never had traffic
 
@@ -338,6 +349,28 @@ Flow: daemon lifecycle
 
 
 ## Change log
+
+### 2026-09-08 — hardening for the network gateway: `ProtocolVersion` 4, a daemon-owned roster file, the room-name guard closed
+
+**What changed:** `ProtocolVersion` bumped to 4 (adds `OpRead` to the wire shape; `OpEnd` had
+already shipped under version 3). The daemon now persists its roster and halt state to its own
+`~/.atomic/bus-roster.json` via `LoadRoster`/`SaveRoster`, rather than reading and writing the
+CLI's `bus.json`. Two success criteria and the `paths.go`/`identity.go` Outline entries updated to
+name the new file, since `bus.json` already had two unlocked writers (the CLI and `serve`) and a
+third would have raced silently. `validRoomName` (rejecting `/`, `\`, `..`, and control characters)
+is now checked by `Join`, `Subscribe`, and `Rehydrate`; previously only `Join` did, so a `tail` or
+a rehydrate-on-restart could still reach a path-shaped room name. `roomlog.go`'s `Append` keeps its
+own guard as a second check, not the only one.
+
+**Why:** `docs/design/atomic-bus-network.md` needed all three to front the daemon safely: a wire
+version that changes with the wire shape, a roster file the daemon alone writes so a host restart
+does not race the CLI, and a room-name guard closed on every path that reaches `getOrCreateRoom`,
+not just the one a person is most likely to call first. `docs/spec/atomic-bus-network.md` checkpoint
+2 implemented and tested all three; this entry brings the parent spec's body current with what
+shipped.
+
+**Superseded:** `ProtocolVersion` fixed at 3; roster and halt state rehydrated from the client-owned
+`~/.atomic/bus.json`; the room-name guard present only on `Join`.
 
 ### 2026-08-08 — `atomic bus read <room> <msg-id>`: full-text recovery from the room log
 

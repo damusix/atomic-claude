@@ -1031,3 +1031,265 @@ func TestServe_Say_IgnoresClientSuppliedIdentity(t *testing.T) {
 		t.Errorf("FromKind = %q, want %q: the daemon honored a client-supplied kind", payload.Envelope.FromKind, KindHuman)
 	}
 }
+
+// --- wire-level room-name guard: join and tail both reach getOrCreateRoom ---
+
+func TestServe_Join_InvalidRoomNameRejected(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+
+	resp := dialAndDo(t, ln.Addr().String(), Request{Op: OpJoin, Room: "../escape", Name: "backend", Kind: KindAgent, Session: "sess-1"})
+	if resp.OK {
+		t.Fatal("expected a path-shaped room name to fail join")
+	}
+	if resp.Code != ExitUsage {
+		t.Fatalf("Code = %d, want ExitUsage (%d)", resp.Code, ExitUsage)
+	}
+}
+
+func TestServe_Tail_InvalidRoomNameRejected(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+
+	conn, err := net.DialTimeout("unix", ln.Addr().String(), wireTimeout)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	if err := json.NewEncoder(conn).Encode(Request{Op: OpTail, Rooms: []string{"../escape"}}); err != nil {
+		t.Fatalf("encode request: %v", err)
+	}
+	line := readLineBounded(t, bufio.NewReader(conn), wireTimeout)
+	if !line.ok {
+		t.Fatal("timed out waiting for a response")
+	}
+	var resp Response
+	if err := json.Unmarshal(line.data, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.OK {
+		t.Fatal("expected a path-shaped room name to fail tail")
+	}
+}
+
+// --- read op: recover a message by id over the wire, the drop marker's escape
+// hatch a remote client cannot reach by opening the room log as a file ---
+
+func TestServe_Read_ReturnsEnvelopeByID(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+	addr := ln.Addr().String()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: KindAgent, Session: "sess-fe"}); !resp.OK {
+		t.Fatalf("join: %s", resp.Error)
+	}
+	sendResp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-fe", Text: "recoverable"})
+	if !sendResp.OK {
+		t.Fatalf("send: %s", sendResp.Error)
+	}
+	var sent struct {
+		Envelope Envelope `json:"envelope"`
+	}
+	if err := json.Unmarshal(sendResp.Payload, &sent); err != nil {
+		t.Fatalf("decode send payload: %v", err)
+	}
+
+	readResp := dialAndDo(t, addr, Request{Op: OpRead, Room: "potato", ID: sent.Envelope.ID})
+	if !readResp.OK {
+		t.Fatalf("read: %s", readResp.Error)
+	}
+	var got struct {
+		Envelope Envelope `json:"envelope"`
+	}
+	if err := json.Unmarshal(readResp.Payload, &got); err != nil {
+		t.Fatalf("decode read payload: %v", err)
+	}
+	if got.Envelope.Text != "recoverable" {
+		t.Fatalf("read Text = %q, want %q", got.Envelope.Text, "recoverable")
+	}
+}
+
+func TestServe_Read_UnknownIDReturnsError(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+	addr := ln.Addr().String()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: KindAgent, Session: "sess-fe"}); !resp.OK {
+		t.Fatalf("join: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-fe", Text: "hi"}); !resp.OK {
+		t.Fatalf("send: %s", resp.Error)
+	}
+
+	resp := dialAndDo(t, addr, Request{Op: OpRead, Room: "potato", ID: "m-missing"})
+	if resp.OK {
+		t.Fatal("expected an unknown message id to fail")
+	}
+}
+
+func TestServe_Read_InvalidRoomNameRejected(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+
+	resp := dialAndDo(t, ln.Addr().String(), Request{Op: OpRead, Room: "../escape", ID: "m-1"})
+	if resp.OK {
+		t.Fatal("expected a path-shaped room name to fail read")
+	}
+	if resp.Code != ExitUsage {
+		t.Fatalf("Code = %d, want ExitUsage (%d)", resp.Code, ExitUsage)
+	}
+}
+
+// --- roster persistence: RosterPath survives a daemon restart, criterion the
+// live bug fixes (Rehydrate used to read only bus.json, which nothing writes on
+// a hosted daemon) ---
+
+// A restarted daemon rehydrates roster and halt state from its own file, and a
+// reconnecting recv resumes as the named member rather than anonymous: SkipSelf
+// only has an effect once SessionIsMember recognizes the claimed session as a
+// current member instead of downgrading it to "".
+func TestServe_Restart_PreservesRosterAndHaltViaRosterFile(t *testing.T) {
+	home := t.TempDir()
+
+	ln1 := testListener(t)
+	hub1 := NewHub(home)
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	done1 := make(chan error, 1)
+	go func() { done1 <- Serve(ctx1, ln1, hub1, nil) }()
+
+	addr1 := ln1.Addr().String()
+	if resp := dialAndDo(t, addr1, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: KindAgent, Session: "sess-fe"}); !resp.OK {
+		t.Fatalf("join: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr1, Request{Op: OpHalt, Room: "potato", Text: "investigating"}); !resp.OK {
+		t.Fatalf("halt: %s", resp.Error)
+	}
+
+	cancel1()
+	select {
+	case <-done1:
+	case <-time.After(wireTimeout):
+		t.Fatal("first Serve did not exit within the bounded wait")
+	}
+
+	// Restart: a fresh Hub over the same home, on a fresh socket.
+	ln2 := testListener(t)
+	hub2 := NewHub(home)
+	startServe(t, ln2, hub2)
+	addr2 := ln2.Addr().String()
+
+	whoResp := dialAndDo(t, addr2, Request{Op: OpWho, Room: "potato"})
+	if !whoResp.OK {
+		t.Fatalf("who after restart: %s", whoResp.Error)
+	}
+	var who whoJSON
+	if err := json.Unmarshal(whoResp.Payload, &who); err != nil {
+		t.Fatalf("decode who payload: %v", err)
+	}
+	if !who.Halted || who.HaltReason != "investigating" {
+		t.Fatalf("who.Halted = %v reason %q, want halted with reason %q", who.Halted, who.HaltReason, "investigating")
+	}
+	if len(who.Members) != 1 || who.Members[0].Name != "frontend" || who.Members[0].Session != "sess-fe" {
+		t.Fatalf("who.Members = %+v, want one member named frontend with session sess-fe", who.Members)
+	}
+
+	if resp := dialAndDo(t, addr2, Request{Op: OpResume, Room: "potato"}); !resp.OK {
+		t.Fatalf("resume: %s", resp.Error)
+	}
+
+	subConn, r := dialSubscribe(t, addr2, Request{Op: OpRecv, Room: "potato", Session: "sess-fe", SkipSelf: true})
+	defer subConn.Close()
+
+	if resp := dialAndDo(t, addr2, Request{Op: OpSend, Room: "potato", Session: "sess-fe", Text: "own message"}); !resp.OK {
+		t.Fatalf("send own: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr2, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-be"}); !resp.OK {
+		t.Fatalf("join backend: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr2, Request{Op: OpSend, Room: "potato", Session: "sess-be", Text: "from backend"}); !resp.OK {
+		t.Fatalf("send from backend: %s", resp.Error)
+	}
+
+	env, ok := readEnvelopeBounded(t, r)
+	if !ok {
+		t.Fatal("timed out waiting for an envelope")
+	}
+	if env.Text != "from backend" {
+		t.Fatalf("first delivered envelope = %q, want the backend's message — the session's own send should have been skipped, which only happens once it resumed as a named member rather than anonymous", env.Text)
+	}
+}
+
+// The roster file is membership authority, but persistRoster only writes it
+// on a roster or halt mutation, so its LastSeen can be hours behind bus.json,
+// which action.go's touchLastSeen keeps fresh on every send. rehydrateOnStartup
+// must raise LastSeen to bus.json's value for a member the roster already has.
+func TestRehydrateOnStartup_TouchesLastSeenFromBusJSONForExistingMember(t *testing.T) {
+	home := t.TempDir()
+	joined := time.Now().Add(-time.Hour)
+	stale := time.Now().Add(-45 * time.Minute)
+	fresh := time.Now().Add(-time.Minute)
+
+	roster := &State{Sessions: map[string]*sessionState{
+		"sess-1": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: joined, LastSeen: stale},
+		}},
+	}}
+	if err := roster.SaveRoster(home); err != nil {
+		t.Fatalf("SaveRoster: %v", err)
+	}
+
+	busJSON := &State{Sessions: map[string]*sessionState{
+		"sess-1": {
+			Rooms:    map[string]roomMembership{"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: joined, LastSeen: fresh}},
+			LastRoom: "potato",
+		},
+	}}
+	if err := busJSON.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	hub := NewHub(home)
+	rehydrateOnStartup(hub)
+
+	members, err := hub.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 || !members[0].LastSeen.Equal(fresh) {
+		t.Fatalf("members = %+v, want LastSeen %v (bus.json's fresher value)", members, fresh)
+	}
+}
+
+// A membership present only in bus.json — never in the roster — must not
+// come back through the touch-only pass: the roster file alone decides who
+// is a member.
+func TestRehydrateOnStartup_BusJSONOnlyMembershipStaysAbsent(t *testing.T) {
+	home := t.TempDir()
+
+	roster := &State{Sessions: map[string]*sessionState{}}
+	if err := roster.SaveRoster(home); err != nil {
+		t.Fatalf("SaveRoster: %v", err)
+	}
+
+	busJSON := &State{Sessions: map[string]*sessionState{
+		"sess-ghost": {
+			Rooms:    map[string]roomMembership{"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: time.Now(), LastSeen: time.Now()}},
+			LastRoom: "potato",
+		},
+	}}
+	if err := busJSON.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	hub := NewHub(home)
+	rehydrateOnStartup(hub)
+
+	if _, err := hub.Who("potato"); err == nil {
+		t.Fatal("expected potato to not exist — a bus.json-only membership must not be resurrected by the touch-only pass")
+	}
+}
