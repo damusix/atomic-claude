@@ -204,12 +204,12 @@ Gate 1 is what stops the child re-spawning a grandchild: the child's own invocat
 
 ### Download progress and stall abort
 
-`Client.download` reads the response body in 64KiB chunks and resets a `time.AfterFunc` watchdog on every non-empty read. The watchdog fires only after `StallTimeout` (default `defaultStallTimeout`, 30s) passes with zero bytes, canceling the request's own context, so a slow-but-moving multi-minute transfer never trips it. That watchdog is the reason `downloadClient()` carries no `http.Client.Timeout` at all: the shared `httpClient()` used for `Lookup` keeps the 10s `lookupTimeout`, but that same cap applied to an archive body read used to abort any download slower than 10 seconds outright. Every `progressEmitBytes` (512 KiB) accumulated since the last tick calls `onProgress(received, total)`, and the loop calls it once more after `io.EOF`, substituting `received` for `total` when the server sent no `Content-Length`. Only the archive fetch inside `Client.Apply` and `Client.Stage` forwards `c.OnProgress`; every checksum-file `download` call passes `nil` and never reports.
+`Client.download` reads the response body in 64KiB chunks and resets a `time.AfterFunc` watchdog on every non-empty read. The watchdog fires only after `StallTimeout` (default `defaultStallTimeout`, 30s) passes with zero bytes, canceling the request's own context, so a slow-but-moving multi-minute transfer never trips it. That watchdog is the reason `downloadClient()` carries no `http.Client.Timeout` at all: the shared `httpClient()` used for `Lookup` keeps the 10s `lookupTimeout`, but that same cap applied to an archive body read used to abort any download slower than 10 seconds outright. A read that lands at least `ProgressInterval` (default `progressEmitInterval`, 100ms) after the last tick calls `onProgress(received, total)`, and the loop calls it once more after `io.EOF`, substituting `received` for `total` when the server sent no `Content-Length`. Only the archive fetch inside `Client.Apply` and `Client.Stage` forwards `c.OnProgress`; every checksum-file `download` call passes `nil` and never reports.
 
 ```mermaid
 flowchart TD
     D["Client.download: 64KiB Read loop"] -->|"n>0"| RST["watchdog.Reset(StallTimeout)"]
-    RST --> ACC{"sinceEmit >= progressEmitBytes?"}
+    RST --> ACC{"since last emit >= ProgressInterval?"}
     ACC -->|yes| EM["onProgress(received, total)"]
     ACC -->|no| D
     EM --> D
