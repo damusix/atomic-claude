@@ -76,6 +76,7 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 11 | `code-index`    | `<projectRoot>/.claude/.atomic-index/atomic.db` freshness check. **Absence is normal — the index is opt-in — and reports PASS (informational).** DB present + mtime older than `--stale-days` (default 7) → WARN with `run 'atomic code sync'`. DB present + fresh → PASS with age detail. **Never FAIL.** | WARN |
 | 12 | `migrate`       | Combines two conditions into one Result (combined-detail style, as `config` does): (a) version drift — `[install].version` in `~/.atomic/config.toml` older than the running binary → WARN naming the pending migration, `Remediation: atomic migrate`; (b) legacy state dir — `~/.claude/.atomic` still a real directory (not the compat symlink left by a completed migration) → WARN naming the path and that migration runs automatically on any `atomic` verb invocation. Severity is the worst of the two; detail concatenates whichever condition(s) fired. Neither firing → PASS. | WARN |
 | 13 | `repo-config`   | `<projectRoot>/.claude/atomic.toml` validation via `config.LoadRepoConfig` + `config.NewIgnoreMatcher`. **Absence is normal — the file is optional — and reports PASS (informational).** Parse errors, unknown keys, invalid `[code] ignore` glob patterns, an invalid top-level `scope` value, and an invalid `[repl] idle_timeout` (unparseable, or zero/negative — see `config.ValidateIdleTimeout`) each report WARN with detail naming the offending value. A valid file reports PASS naming the active ignore-pattern count and, when present, the declared `scope` (e.g. `scope=repo`). The dispatcher additionally WARNs when `scope = "repo"` while the root is also registered as a realm root in the `<wikis>` block — two mechanisms making incompatible claims about one directory; an empty/uninjected CLAUDE.md path skips this sub-check. **Never FAIL** — a malformed or invalid repo config only degrades code-intel indexing/discovery to unfiltered or fallback, it never blocks the repo. | WARN |
+| 14 | `output-style`  | Reads `outputStyle` from the install target's `settings.json` (user level). Absent with `output_style.seed` enabled → WARN, repairable. Absent with seeding disabled → WARN saying so, **not** repairable. Set to `"Atomic"` with `output-styles/atomic.md` missing from the target → WARN naming the missing file, not repairable by seeding. Any other present value → PASS reporting it, qualified as not verified against an installed style file, since a style's `name:` is not its filename. Either way, `outputStyle` found in the current repo's `.claude/settings.json` or `.claude/settings.local.json` is appended to the detail as a possible override, naming the file; that scan is skipped when the repo's `.claude` resolves to the install target itself, so running from `$HOME` never reports the user-level file as its own override. **Never computes an effective/precedence value** — reports per-file contents only, since Claude Code's file-placement rules aren't documented well enough to replicate. | WARN |
 
 
 Category short-names are stable: editing/removing one is a spec amendment (`Removed:` log entry).
@@ -197,6 +198,7 @@ Per-item confirm (axiom 3). Each repair idempotent. Print every shell command be
 | 6 | `followups` | **Cannot auto-fix.** Print malformed entries with line numbers; refuse to edit (content authorship is human). |
 | 7 | `memory`    | **Cannot auto-fix.** Print orphan refs; refuse to delete (user-authored). |
 | 8 | `binary`    | Print: `atomic update` to update. |
+| 14 | `output-style` | Seed the user-level `outputStyle` key via `hooks.SeedOutputStyle` (never a project file), and only when the check reports the warning genuinely fixable. `output_style.seed = false` and a missing style file are reported **cannot auto-fix** up front, so no repair is offered and no write is attempted. |
 
 
 Skill-required and content-authored repairs degrade to printed instructions. This is the acceptable boundary: the CLI cannot dispatch a Claude skill, and cannot rewrite human authorship.
@@ -291,6 +293,17 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 
 **Superseded:** the 2026-05-20 entry above describes the drift comparison and the `--fix` re-render as current behavior; both are removed.
 
+### 2026-09-08 — Add output-style check category
+
+**What changed:** New check category 14 (`output-style`) reads the user-level `outputStyle` key from the install target's `settings.json`. Absent with seeding enabled → WARN, repairable. Absent with `output_style.seed = false`, or set to `"Atomic"` while the style file is missing → WARN reported as **cannot auto-fix**, since seeding cannot resolve either. Any other present value → PASS, qualified as not verified against an installed style file. Any `outputStyle` found in the current repo's `.claude/settings.json` or `.claude/settings.local.json` is appended to the detail as a possible override, naming the file — never a computed effective value. `--fix` seeds the user level only, via `hooks.SeedOutputStyle`, and only for the repairable case.
+
+**Why:** `docs/spec/output-style-seed.md` — most sessions default to the stock output style because the user-level key is never set; doctor is the diagnostic that answers "what output style will I actually get, and which file decided that" without the user grepping settings files by hand.
+
+### 2026-09-08 — Correction: category 14 skips a self-referential override scan
+
+**What changed:** The catalog row now states that the project-level scan is skipped when the repo's `.claude` resolves to the install target itself.
+
+**Correction:** running `atomic doctor` from `$HOME` reported the user-level `settings.json` as a possible override of itself, since `repoRoot` and the install target named the same file. Found by the final audit hand-driving the binary; the check tests missed it because they inject the two roots as distinct temp directories.
 
 ## Implementation log
 

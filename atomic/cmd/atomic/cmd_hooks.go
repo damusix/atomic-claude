@@ -107,11 +107,16 @@ func runHooks(args []string, repoOverride string) {
 			os.Exit(1)
 		}
 
-		if err := hooks.Install(root, scopeRoot); err != nil {
+		skipped, err := hooks.Install(root, scopeRoot)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "hooks installed (scope=%s)\n", scope)
+		if skipped {
+			fmt.Fprintf(os.Stderr, "warning: settings.json is read-only; hooks not installed (scope=%s, non-fatal)\n", scope)
+		} else {
+			fmt.Fprintf(os.Stderr, "hooks installed (scope=%s)\n", scope)
+		}
 
 	case "uninstall":
 		fs := flag.NewFlagSet("hooks uninstall", flag.ContinueOnError)
@@ -134,11 +139,16 @@ func runHooks(args []string, repoOverride string) {
 			os.Exit(1)
 		}
 
-		if err := hooks.Uninstall(root, scopeRoot); err != nil {
+		skipped, err := hooks.Uninstall(root, scopeRoot)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "hooks uninstalled (scope=%s)\n", scope)
+		if skipped {
+			fmt.Fprintf(os.Stderr, "warning: settings.json is read-only; hooks not uninstalled (scope=%s, non-fatal)\n", scope)
+		} else {
+			fmt.Fprintf(os.Stderr, "hooks uninstalled (scope=%s)\n", scope)
+		}
 
 	default:
 		fmt.Fprintf(os.Stderr, "atomic hooks: unknown verb %q\n", verb)

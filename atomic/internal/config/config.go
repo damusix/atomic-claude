@@ -19,6 +19,9 @@ const replIdleTimeoutDefault = "1h"
 // runDoctorDefault is the built-in default for update.run_doctor.
 const runDoctorDefault = true
 
+// outputStyleSeedDefault is the built-in default for output_style.seed.
+const outputStyleSeedDefault = true
+
 // updateCheckDefault is the built-in default for update.check.
 const updateCheckDefault = true
 
@@ -44,6 +47,7 @@ var knownKeys = []string{
 	"update.channel",
 	"harness.dir",
 	"repl.idle_timeout",
+	"output_style.seed",
 }
 
 // knownSchemaKeys is every recognized dotted key across all schema versions — a
@@ -126,6 +130,11 @@ type harnessSection struct {
 	Dir string `toml:"dir"`
 }
 
+// outputStyleSection is the [output_style] TOML table.
+type outputStyleSection struct {
+	Seed bool `toml:"seed"`
+}
+
 // installArtifactsSection lists, per artifact kind, the file names the last
 // `atomic claude install` copied.
 type installArtifactsSection struct {
@@ -167,9 +176,10 @@ type claudeSection struct {
 // Config is the parsed and defaulted configuration. Fields track explicit set
 // values; zero values mean "use built-in default".
 type Config struct {
-	Output  outputSection  `toml:"output"`
-	Update  updateSection  `toml:"update"`
-	Harness harnessSection `toml:"harness"`
+	Output      outputSection      `toml:"output"`
+	Update      updateSection      `toml:"update"`
+	Harness     harnessSection     `toml:"harness"`
+	OutputStyle outputStyleSection `toml:"output_style"`
 	// Pi preserves the opaque [pi] tree so unrelated writes do not discard Pi
 	// agent overrides. ResolvePiAgents does the semantic validation.
 	Pi map[string]any `toml:"pi,omitempty"`
@@ -196,7 +206,8 @@ func Default() *Config {
 			Check:     updateCheckDefault,
 			Stage:     updateStageDefault,
 		},
-		Harness: harnessSection{Dir: harnessDirDefault},
+		Harness:     harnessSection{Dir: harnessDirDefault},
+		OutputStyle: outputStyleSection{Seed: outputStyleSeedDefault},
 	}
 }
 
@@ -239,6 +250,16 @@ func Load(path string) (*Config, []Warning, error) {
 		}
 	}
 
+	// Same explicit-presence backfill as run_doctor.
+	outputStyleSeedExplicit := false
+	if outputStyleRaw, ok := rawMap["output_style"]; ok {
+		if outputStyleTable, ok := outputStyleRaw.(map[string]any); ok {
+			if _, ok := outputStyleTable["seed"]; ok {
+				outputStyleSeedExplicit = true
+			}
+		}
+	}
+
 	// Same for the int: 0 is indistinguishable from "absent" after decode.
 	signalsMaxDepthExplicit := false
 	if outputRaw, ok := rawMap["output"]; ok {
@@ -270,6 +291,9 @@ func Load(path string) (*Config, []Warning, error) {
 	}
 	if !updateStageExplicit {
 		cfg.Update.Stage = updateStageDefault
+	}
+	if !outputStyleSeedExplicit {
+		cfg.OutputStyle.Seed = outputStyleSeedDefault
 	}
 	// An explicit max_depth decodes as-is, even 0 or negative; Validate catches
 	// that. Only an absent key is backfilled.
@@ -481,6 +505,15 @@ func Set(cfg *Config, dottedKey, value string) error {
 		default:
 			return fmt.Errorf("config: update.stage %q is not one of: false, true", value)
 		}
+	case "output_style.seed":
+		switch value {
+		case "true":
+			cfg.OutputStyle.Seed = true
+		case "false":
+			cfg.OutputStyle.Seed = false
+		default:
+			return fmt.Errorf("config: output_style.seed %q is not one of: false, true", value)
+		}
 	case "harness.dir":
 		if err := validateHarnessDir(value); err != nil {
 			return err
@@ -528,6 +561,8 @@ func Unset(cfg *Config, dottedKey string) error {
 		cfg.Update.Check = updateCheckDefault
 	case "update.stage":
 		cfg.Update.Stage = updateStageDefault
+	case "output_style.seed":
+		cfg.OutputStyle.Seed = outputStyleSeedDefault
 	case "harness.dir":
 		cfg.Harness.Dir = harnessDirDefault
 	case "repl.idle_timeout":

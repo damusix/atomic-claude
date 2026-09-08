@@ -19,8 +19,11 @@ Map:
 Contracts:
   - docs/spec/artifact-templates.md
   - docs/spec/install-workflow.md
+  - docs/spec/output-style-seed.md
 Guides:
   - docs/guides/contributing.md
   - docs/guides/install.md
+Designs:
+  - docs/design/output-style-seed.md
 
 Consult the map before changing behavior here. Behavior changes stale the pages above. Renames or removals stale mentions beyond them: grep the old name across docs/ before shipping.

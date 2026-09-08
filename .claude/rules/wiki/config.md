@@ -24,7 +24,10 @@ Map:
   - docs/wiki/config.md
 Contracts:
   - docs/spec/atomic-state-and-config.md
+  - docs/spec/output-style-seed.md
 References:
   - docs/reference/conventions.md
+Designs:
+  - docs/design/output-style-seed.md
 
 Consult the map before changing behavior here. Behavior changes stale the pages above. Renames or removals stale mentions beyond them: grep the old name across docs/ before shipping.

@@ -33,6 +33,10 @@ func Resolved(cfg *Config) map[string]string {
 	if !updateStage && zeroValueConfig {
 		updateStage = updateStageDefault
 	}
+	outputStyleSeed := cfg.OutputStyle.Seed
+	if !outputStyleSeed && zeroValueConfig {
+		outputStyleSeed = outputStyleSeedDefault
+	}
 	// An empty harness.dir is never a valid explicit value, so it unambiguously
 	// means "use default".
 	harnessDirVal := cfg.Harness.Dir
@@ -57,6 +61,7 @@ func Resolved(cfg *Config) map[string]string {
 		"update.run_doctor":        fmt.Sprintf("%t", runDoctor),
 		"update.check":             fmt.Sprintf("%t", updateCheck),
 		"update.stage":             fmt.Sprintf("%t", updateStage),
+		"output_style.seed":        fmt.Sprintf("%t", outputStyleSeed),
 		"harness.dir":              harnessDirVal,
 		"repl.idle_timeout":        idleTimeoutVal,
 	}
