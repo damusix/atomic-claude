@@ -49,4 +49,23 @@ describe("BusRail", () => {
     expect(screen.getByText("sess-b").closest("button")).toBeNull();
     expect(screen.getByText("no transcript")).toBeInTheDocument();
   });
+
+  test("a remote room's sessions come from that room's host, not the local room of the same name", async () => {
+    const urls: string[] = [];
+    globalThis.fetch = mock(async (input: unknown) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ sessions: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    render(
+      <MemoryRouter initialEntries={["/bus?room=checkout&host=gw"]}>
+        <BusRail />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(urls.some((u) => u.includes("/bus/sessions?room=checkout&host=gw"))).toBe(true));
+  });
 });

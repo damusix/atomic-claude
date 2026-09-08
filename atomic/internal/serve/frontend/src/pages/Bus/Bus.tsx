@@ -19,6 +19,9 @@ interface BusRoomInfo {
   members: number;
   halted?: boolean;
   halt_reason?: string;
+  // Empty for a local room; set to the [bus.remotes] name otherwise. Two
+  // rooms sharing a name on different buses are distinguished only by this.
+  host?: string;
 }
 
 interface BusRoomsResponse {
@@ -109,6 +112,7 @@ function formatTime(ts: number): string {
 export function Bus() {
   const [params, setParams] = useSearchParams();
   const room = params.get("room") ?? "";
+  const host = params.get("host") ?? "";
 
   const [status, setStatus] = useState<BusStatusResponse | null>(null);
   const [rooms, setRooms] = useState<BusRoomInfo[]>([]);
@@ -151,14 +155,18 @@ export function Bus() {
     return () => clearInterval(id);
   }, [refreshRooms, loopbackBlocked]);
 
-  function openRoom(name: string) {
+  function openRoom(name: string, roomHost: string) {
     setParams((prev) => {
       const p = new URLSearchParams(prev);
       p.set("room", name);
+      if (roomHost) p.set("host", roomHost);
+      else p.delete("host");
       return p;
     });
   }
 
+  // The "open a channel" form always creates a local room — picking a
+  // remote target has no UI here yet.
   async function joinRoom(name: string) {
     setJoinError(null);
     const [res, err] = await attempt(() => api.post<{ name: string }>("/bus/join", { room: name }));
@@ -172,7 +180,7 @@ export function Bus() {
     }
     setNewRoom("");
     refreshRooms();
-    openRoom(name);
+    openRoom(name, "");
   }
 
   if (loopbackBlocked) {
@@ -201,21 +209,26 @@ export function Bus() {
           </p>
         ) : null}
         <ul className="bus-room-list">
-          {rooms.map((r) => (
-            <li key={r.name}>
-              <button
-                type="button"
-                className={r.name === room ? "bus-room bus-room-active" : "bus-room"}
-                onClick={() => openRoom(r.name)}
-              >
-                <span className="bus-room-name">{r.name}</span>
-                <span className="bus-room-meta">
-                  {r.halted ? <span className="bus-halt-chip">halted</span> : null}
-                  {r.members}
-                </span>
-              </button>
-            </li>
-          ))}
+          {rooms.map((r) => {
+            const rHost = r.host ?? "";
+            const active = r.name === room && rHost === host;
+            return (
+              <li key={`${rHost}:${r.name}`}>
+                <button
+                  type="button"
+                  className={active ? "bus-room bus-room-active" : "bus-room"}
+                  onClick={() => openRoom(r.name, rHost)}
+                >
+                  <span className="bus-room-name">{r.name}</span>
+                  <span className="bus-room-meta">
+                    {rHost ? <span className="bus-host-chip">{rHost}</span> : null}
+                    {r.halted ? <span className="bus-halt-chip">halted</span> : null}
+                    {r.members}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
           {rooms.length === 0 ? <li className="bus-room-empty">no rooms</li> : null}
         </ul>
         <form
@@ -240,7 +253,13 @@ export function Bus() {
       </aside>
 
       {room ? (
-        <RoomView key={room} room={room} selfName={status?.name ?? ""} onRosterChange={refreshRooms} />
+        <RoomView
+          key={`${host}:${room}`}
+          room={room}
+          host={host}
+          selfName={status?.name ?? ""}
+          onRosterChange={refreshRooms}
+        />
       ) : (
         <div className="bus-empty">
           <p>Pick a room, or open a channel to start one.</p>
@@ -255,13 +274,20 @@ export function Bus() {
 
 function RoomView({
   room,
+  host,
   selfName,
   onRosterChange,
 }: {
   room: string;
+  host: string;
   selfName: string;
   onRosterChange: () => void;
 }) {
+  // hostParam / hostQuery carry the room's host on every request that names
+  // it, so serve routes to the right bus per call (there is no server-side
+  // memory of which room lives where).
+  const hostParam = host ? { host } : {};
+  const hostQuery = host ? `&host=${encodeURIComponent(host)}` : "";
   const [envelopes, setEnvelopes] = useState<BusEnvelope[]>([]);
   const [who, setWho] = useState<BusWhoResponse | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -283,12 +309,12 @@ function RoomView({
   }, []);
 
   const refreshWho = useCallback(() => {
-    void attempt(() => api.get<BusWhoResponse>(`/bus/who?room=${encodeURIComponent(room)}`)).then(
-      ([res, err]) => {
-        if (!err && res?.ok && res.data) setWho(res.data);
-      },
-    );
-  }, [room]);
+    void attempt(() =>
+      api.get<BusWhoResponse>(`/bus/who?room=${encodeURIComponent(room)}${hostQuery}`),
+    ).then(([res, err]) => {
+      if (!err && res?.ok && res.data) setWho(res.data);
+    });
+  }, [room, hostQuery]);
 
   // Backfill from the durable room log, then attach the live tail — only
   // once backfill settles (success or failure), so a live envelope can
@@ -301,7 +327,7 @@ function RoomView({
 
     function openTail() {
       if (cancelled || typeof EventSource === "undefined") return;
-      source = new EventSource(`/api/bus/tail?room=${encodeURIComponent(room)}`);
+      source = new EventSource(`/api/bus/tail?room=${encodeURIComponent(room)}${hostQuery}`);
       source.onmessage = (msgEvt) => {
         let env: BusEnvelope;
         try {
@@ -317,12 +343,12 @@ function RoomView({
       };
     }
 
-    void attempt(() => api.get<BusLogResponse>(`/bus/log?room=${encodeURIComponent(room)}&n=200`)).then(
-      ([res, err]) => {
-        if (!err && res?.ok && res.data) appendEnvelopes(res.data.envelopes);
-        openTail();
-      },
-    );
+    void attempt(() =>
+      api.get<BusLogResponse>(`/bus/log?room=${encodeURIComponent(room)}&n=200${hostQuery}`),
+    ).then(([res, err]) => {
+      if (!err && res?.ok && res.data) appendEnvelopes(res.data.envelopes);
+      openTail();
+    });
     refreshWho();
     const whoTimer = setInterval(refreshWho, 7000);
 
@@ -331,7 +357,7 @@ function RoomView({
       clearInterval(whoTimer);
       source?.close();
     };
-  }, [room, appendEnvelopes, refreshWho]);
+  }, [room, hostQuery, appendEnvelopes, refreshWho]);
 
   // Follow the transcript while the operator is at the bottom; scrolling
   // up parks the view and new traffic stops moving it (the jump button
@@ -374,7 +400,7 @@ function RoomView({
     if (!text.trim()) return false;
     setNote(null);
     const [res, err] = await attempt(() =>
-      api.post<BusSendResponse>("/bus/send", { room, text, to }),
+      api.post<BusSendResponse>("/bus/send", { room, text, to, ...hostParam }),
     );
     if (err) {
       setNote("send failed — bus unreachable");
@@ -396,7 +422,7 @@ function RoomView({
 
   async function setHalt(halt: boolean) {
     const path = halt ? "/bus/halt" : "/bus/resume";
-    const body = halt ? { room, reason: "halted from serve" } : { room };
+    const body = halt ? { room, reason: "halted from serve", ...hostParam } : { room, ...hostParam };
     await attempt(() => api.post(path, body));
     refreshWho();
     onRosterChange();
@@ -405,7 +431,7 @@ function RoomView({
   // Cannot be undone from here: the agent has to rejoin. Halt is reversible.
   async function endSession(name: string) {
     if (!window.confirm(`End ${name}'s session? Their listener stops and they leave ${room}.`)) return;
-    await attempt(() => api.post("/bus/end", { room, name }));
+    await attempt(() => api.post("/bus/end", { room, name, ...hostParam }));
     refreshWho();
     onRosterChange();
   }
@@ -413,7 +439,7 @@ function RoomView({
   // Once closed the room is gone, not paused — there is no resume.
   async function closeRoom() {
     if (!window.confirm(`Close ${room} for everyone? Every listener stops and the room is dropped.`)) return;
-    await attempt(() => api.post("/bus/close", { room }));
+    await attempt(() => api.post("/bus/close", { room, ...hostParam }));
     refreshWho();
     onRosterChange();
   }

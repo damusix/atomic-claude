@@ -80,7 +80,8 @@ func (h *busAPIHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
 	if !requireRoom(w, room) {
 		return
 	}
-	resp, err := h.do(bus.Request{Op: bus.OpWho, Room: room})
+	host := r.URL.Query().Get("host")
+	resp, err := h.do(host, bus.Request{Op: bus.OpWho, Room: room})
 	if err != nil {
 		writeBusError(w, err)
 		return
@@ -99,10 +100,13 @@ func (h *busAPIHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
 			Name: m.Name, Kind: m.Kind, Session: m.Session,
 			Stale: m.Stale, Repo: m.Repo, Realm: m.Realm,
 		}
-		if path, stat, ferr := findSessionTranscript(h.home, m.Session); ferr == nil && path != "" {
-			info.Transcript = busSessionTranscript{
-				Found: true, Path: path,
-				MtimeUnix: stat.ModTime().Unix(), SizeBytes: stat.Size(),
+		// A remote member's transcript is on its own machine's disk, never this one's.
+		if host == "" {
+			if path, stat, ferr := findSessionTranscript(h.home, m.Session); ferr == nil && path != "" {
+				info.Transcript = busSessionTranscript{
+					Found: true, Path: path,
+					MtimeUnix: stat.ModTime().Unix(), SizeBytes: stat.Size(),
+				}
 			}
 		}
 		out.Sessions = append(out.Sessions, info)

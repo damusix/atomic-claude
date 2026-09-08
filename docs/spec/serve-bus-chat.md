@@ -22,8 +22,15 @@ to the LAN.
 
 Serve API (`atomic/internal/serve/api_bus.go`, `api_bus_transcript.go`):
 
-- [ ] `GET /api/bus/{status,rooms,who,log,tail}` are Dial-only: with no daemon they degrade
-      (`running:false` / empty / 503 for tail) and never spawn one.
+- [ ] `GET /api/bus/status` is local-Dial-only: with no daemon it degrades (`running:false`) and
+      never spawns one. `GET /api/bus/rooms` fans out across the local daemon and every configured
+      `[bus.remotes]` entry, tagging each room with the host it came from; a remote that fails to
+      answer is silently skipped. `GET /api/bus/who` takes a `host` query param and, when set,
+      answers from that remote instead of the local daemon. None of the three ever spawns a local
+      daemon on a remote's failure. For a remote room, `log` and `tail` route through the same
+      gateway a CLI `--host` call would use instead of opening a local socket or file: `handleTail`
+      over the remote `Stream`; `handleLog` has no bulk-history wire op to reach for, so a remote
+      room's backlog is always empty by design and the SSE tail fills it live.
 - [ ] `POST /api/bus/join` and the join-if-needed path inside `POST /api/bus/send` go through
       the EnsureDaemon seam (spawn-capable); send retries once through a fresh join when a
       cached membership went stale (`ExitNotJoined`).
@@ -104,6 +111,36 @@ adversarial review of the whole feature diff against this spec.
 | Room log growth makes backfill slow | Backfill reads the whole log but caps parsed output at n; acceptable for local logs. Revisit with tail-seek if real logs reach tens of MB. |
 
 ## Change log
+
+### 2026-09-08 — `rooms` and `who` also route to a remote gateway; `log`'s remote branch is dead
+
+**What changed:** the criterion describing `status`/`rooms`/`who` as uniformly local-Dial-only was
+a patch on stale text that never accounted for checkpoint 6: `handleRooms` fans out across every
+configured `[bus.remotes]` entry and `handleWho` takes a `host` query param, both routing to
+`bus.DoRemote`. `handleLog`'s id-qualified `OpRead` branch was also removed: the frontend never
+sends `id`, so it was unreachable — a remote room's backlog is empty by design.
+
+**Why:** the previous amendment brought `tail` and `log`'s remote path current but left
+`status`/`rooms`/`who` describing pre-checkpoint-6 behavior, and never noticed `handleLog`'s branch
+had no caller.
+
+**Superseded:** `GET /api/bus/{status,rooms,who}` described as uniformly local-Dial-only; `log`
+described as recovering one envelope by id over a remote gateway.
+
+### 2026-09-08 — `tail` and `log` route to a remote gateway for a remote room
+
+**What changed:** `handleTail` and `handleLog` are no longer purely local: for a room joined on a
+configured `[bus.remotes]` host, `handleTail` opens the remote `Stream` instead of dialing the local
+socket, and `handleLog` calls `OpRead` over the gateway instead of reading the local room-log file.
+A remote target still never spawns a local daemon, matching the existing rule for every other route.
+
+**Why:** `docs/spec/atomic-bus-network.md` checkpoint 6 extended `/bus` to remote rooms so the
+browser can watch and recover a room hosted on another machine, not only ones on the local daemon.
+This spec's success criterion described `log` and `tail` as unconditionally Dial-only, which was
+true before the gateway existed and is no longer true for a remote room.
+
+**Superseded:** `GET /api/bus/{status,rooms,who,log,tail}` described as uniformly Dial-only with no
+remote path.
 
 ### 2026-08-10 — Transcript modal: newest-first + layering/layout fixes
 

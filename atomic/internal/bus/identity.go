@@ -52,6 +52,14 @@ type roomMembership struct {
 	// member dead for hours as freshly live and putting it out of prune's reach.
 	// Zero on a bus.json written before this field; Rehydrate falls back to Joined.
 	LastSeen time.Time `json:"last_seen"`
+
+	// Host names the bus this membership was joined on; empty means local.
+	// Rooms is keyed by bare room name, so without this a local "potato" and a
+	// remote "potato" would overwrite each other in the same map slot. A
+	// bus.json written before this field decodes Host as "", which is read as
+	// local — the correct behavior for every membership that ever existed
+	// before remote joins did.
+	Host string `json:"host,omitempty"`
 }
 
 // roomState is one room's operator-controlled state, persisted independently of
@@ -86,7 +94,17 @@ type State struct {
 // Load reads State from <home>/.atomic/bus.json. A missing file is not an error
 // — it means no session has ever joined a room — and yields an empty State.
 func Load(home string) (*State, error) {
-	path := StatePath(home)
+	return loadState(StatePath(home))
+}
+
+// LoadRoster reads State from <home>/.atomic/bus-roster.json — the daemon's own
+// persisted roster and halt state (RosterPath), which Serve reads back on
+// startup. Same missing-file contract as Load.
+func LoadRoster(home string) (*State, error) {
+	return loadState(RosterPath(home))
+}
+
+func loadState(path string) (*State, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return &State{Sessions: map[string]*sessionState{}}, nil
@@ -107,7 +125,15 @@ func Load(home string) (*State, error) {
 // Save writes State to <home>/.atomic/bus.json via write-to-tmp + rename for
 // interrupt safety, matching config.WritePersist's pattern.
 func (s *State) Save(home string) error {
-	path := StatePath(home)
+	return s.saveState(StatePath(home))
+}
+
+// SaveRoster writes s to RosterPath — see there for why it is a separate file.
+func (s *State) SaveRoster(home string) error {
+	return s.saveState(RosterPath(home))
+}
+
+func (s *State) saveState(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("bus: mkdir %s: %w", dir, err)
@@ -141,9 +167,17 @@ func (s *State) Save(home string) error {
 }
 
 // Join records that session joined room under name and marks it the session's
-// most recent join. LastSeen starts equal to Joined — a just-joined member is by
-// definition not stale yet.
-func (s *State) Join(session, room, name, mode, kind, repo, realm string) {
+// most recent join. It refuses when session already holds a membership of
+// room under a different host, so no caller reaches the map write without
+// passing through hostJoinConflict's check. LastSeen starts equal to Joined
+// — a just-joined member is by definition not stale yet.
+func (s *State) Join(session, room, name, mode, kind, repo, realm, host string) error {
+	if existing, conflict := s.hostJoinConflict(session, room, host); conflict {
+		return &Error{
+			Code: ExitUsage,
+			Msg:  fmt.Sprintf("bus: session already holds room %q on host %q; leave it before joining under host %q", room, hostLabel(existing), hostLabel(host)),
+		}
+	}
 	if s.Sessions == nil {
 		s.Sessions = map[string]*sessionState{}
 	}
@@ -156,8 +190,35 @@ func (s *State) Join(session, room, name, mode, kind, repo, realm string) {
 		ss.Rooms = map[string]roomMembership{}
 	}
 	now := time.Now()
-	ss.Rooms[room] = roomMembership{Name: name, Mode: mode, Kind: kind, Joined: now, LastSeen: now, Repo: repo, Realm: realm}
+	ss.Rooms[room] = roomMembership{Name: name, Mode: mode, Kind: kind, Joined: now, LastSeen: now, Repo: repo, Realm: realm, Host: host}
 	ss.LastRoom = room
+	return nil
+}
+
+// hostLabel renders an empty host as "local" for error text — the empty string
+// itself reads as a typo, not a place.
+func hostLabel(host string) string {
+	if host == "" {
+		return "local"
+	}
+	return host
+}
+
+// hostJoinConflict reports the host session already holds room under, when it
+// differs from host. Rooms is keyed by bare room name, so joining "potato" on
+// a second host would silently overwrite the first membership rather than
+// collide; Join calls this before writing, refusing the join instead of
+// letting resolution become a guess about which host a bare name means.
+func (s *State) hostJoinConflict(session, room, host string) (existingHost string, conflict bool) {
+	ss, ok := s.Sessions[session]
+	if !ok {
+		return "", false
+	}
+	m, ok := ss.Rooms[room]
+	if !ok || m.Host == host {
+		return "", false
+	}
+	return m.Host, true
 }
 
 // TouchLastSeen records that session was active in room at now — the persisted
@@ -192,13 +253,23 @@ func (s *State) SetHalted(room string, halted bool, text string) {
 	s.Rooms[room] = &roomState{Halted: true, HaltText: text}
 }
 
-// ClearRoom removes room from every session's persisted membership and clears
-// its halt state — the bus.json-side half of Hub.Close. Unlike Leave it mutates
-// other sessions' state, the same operator authority Hub.Close already has to
-// evict every member's live roster entry.
-func (s *State) ClearRoom(room string) {
+// ClearRoom removes room from every session's persisted membership on host
+// and clears its halt state — the bus.json-side half of Hub.Close. Unlike
+// Leave it mutates other sessions' state, the same operator authority
+// Hub.Close already has to evict every member's live roster entry.
+//
+// host must match the membership's own Host exactly (empty for local): a
+// `close potato --host prod` and a local `close potato` name the same room
+// on two different buses, and without this check the first deletes every
+// session's local potato membership while the second deletes the remote
+// route — see docs/spec/atomic-bus-network.md, finding 5 of the final
+// review. Halt state has no host of its own, since a room name is claimed on
+// at most one bus per session (State.Join's hostJoinConflict), so a close on
+// either host clears it.
+func (s *State) ClearRoom(room, host string) {
 	for _, ss := range s.Sessions {
-		if _, ok := ss.Rooms[room]; !ok {
+		m, ok := ss.Rooms[room]
+		if !ok || m.Host != host {
 			continue
 		}
 		delete(ss.Rooms, room)

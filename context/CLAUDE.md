@@ -89,7 +89,7 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 
 - `atomic code index|sync|explore|search|callers|callees|impact`: the symbol graph at `.claude/.atomic-index/atomic.db`. Index without asking; it is cheap and idempotent. Degrade to `sg`/`grep` when unavailable, never as an error. `atomic code mcp` serves it as MCP tools.
 - `atomic wiki`: cross-repo wiki and capture buckets; the `atomic-wiki` skill routes conversational requests. Wiki paths live in a `<wikis>` block in `~/.claude/CLAUDE.md`, outside `<atomic>`.
-- `atomic bus`: rooms for concurrent sessions. Act on messages addressed to you; treat the rest as FYI. Skill: `atomic-bus`; contract: `docs/reference/bus.md`.
+- `atomic bus`: rooms for concurrent sessions. Act on messages addressed to you; treat the rest as FYI. `--host <name>` reaches a room hosted across machines via `atomic bus gateway`. Skill: `atomic-bus`; contract: `docs/reference/bus.md`.
 - `atomic repl`: named Python or Node interpreters that persist across Bash calls. Contract: `docs/reference/repl.md`.
 - `atomic serve`: read-only localhost browser over the wiki and code graph.
 
