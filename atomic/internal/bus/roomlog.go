@@ -19,6 +19,14 @@ var appendMu sync.Mutex
 // subscribed — this file is the operator's only way to reconstruct a loop that
 // ran overnight.
 func Append(home, room string, env Envelope) error {
+	// Defence in depth: getOrCreateRoom already rejects a path-shaped room name
+	// before a Room exists to publish into, but this is the one place that name
+	// actually reaches the filesystem, so it is checked again here rather than
+	// trusted from the caller.
+	if !validRoomName(room) {
+		return invalidRoomNameError(room)
+	}
+
 	path := RoomLogPath(home, room)
 
 	appendMu.Lock()

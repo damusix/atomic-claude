@@ -27,43 +27,43 @@ var commands = []Command{
 	{
 		Path:        []string{"bus", "join"},
 		Args:        "<room>",
-		Flags:       []string{"--as", "--mode", "--kind", "--session"},
+		Flags:       []string{"--as", "--mode", "--kind", "--session", "--host"},
 		Description: "Join a room under a name; auto-spawns the daemon",
 	},
 	{
 		Path:        []string{"bus", "leave"},
 		Args:        "[<room>]",
-		Flags:       []string{"--session"},
+		Flags:       []string{"--session", "--host"},
 		Description: "Leave a room (default: the session's last-joined room)",
 	},
 	{
 		Path:        []string{"bus", "send"},
 		Args:        "<room> <text>",
-		Flags:       []string{"--to", "--reply-to", "--session", "--json"},
+		Flags:       []string{"--to", "--reply-to", "--session", "--host", "--json"},
 		Description: "Send a message; text \"-\" reads stdin",
 	},
 	{
 		Path:        []string{"bus", "recv"},
 		Args:        "<room>",
-		Flags:       []string{"--json", "--session"},
+		Flags:       []string{"--json", "--session", "--host"},
 		Description: "Receive messages; streams JSON envelopes until SIGTERM",
 	},
 	{
 		Path:        []string{"bus", "who"},
 		Args:        "[<room>]",
-		Flags:       []string{"--json"},
+		Flags:       []string{"--json", "--host"},
 		Description: "List a room's members (default: the session's last-joined room)",
 	},
 	{
 		Path:        []string{"bus", "rooms"},
 		Args:        "",
-		Flags:       []string{"--json"},
+		Flags:       []string{"--json", "--host"},
 		Description: "List every room the daemon knows about",
 	},
 	{
 		Path:        []string{"bus", "status"},
 		Args:        "",
-		Flags:       []string{"--json", "--session"},
+		Flags:       []string{"--json", "--session", "--host"},
 		Description: "Report this session's joined rooms and the daemon's state",
 	},
 	{
@@ -105,7 +105,7 @@ var commands = []Command{
 	{
 		Path:        []string{"bus", "read"},
 		Args:        "<room> <msg-id>",
-		Flags:       []string{"--json"},
+		Flags:       []string{"--json", "--host", "--session"},
 		Description: "Print one message's full text from the room log; no daemon needed",
 	},
 	{
@@ -133,10 +133,28 @@ var commands = []Command{
 		Description: "Publish a closing envelope, evict every member, and drop the room; owner-requested, no session required",
 	},
 	{
+		Path:        []string{"bus", "end"},
+		Args:        "<room> <name>",
+		Flags:       nil,
+		Description: "Evict one member and stop its listener; driven from the serve UI",
+	},
+	{
 		Path:        []string{"bus", "chat"},
 		Args:        "<room>",
 		Flags:       []string{"--as", "--session"},
 		Description: "Interactive client: joins as a human member; @name, /who, /rooms, /halt, /resume, /quit",
+	},
+	{
+		Path:        []string{"bus", "gateway", "enroll"},
+		Args:        "<name>",
+		Flags:       []string{"--tls-cert"},
+		Description: "Generate a key for <name> and print a pasteable [bus.remotes] TOML block, once, with the host's scheme matching --tls-cert",
+	},
+	{
+		Path:        []string{"bus", "gateway", "revoke"},
+		Args:        "<name>",
+		Flags:       nil,
+		Description: "Delete an enrolled machine's key; the gateway notices on its next lookup",
 	},
 	{
 		Path:        []string{"claude", "install"},

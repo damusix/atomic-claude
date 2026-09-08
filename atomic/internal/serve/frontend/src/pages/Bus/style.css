@@ -114,6 +114,13 @@
   padding: 0 4px;
 }
 
+.bus-host-chip {
+  color: var(--ink-faint);
+  background: var(--paper-sunk);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
 .bus-room-empty {
   color: var(--ink-faint);
   font-size: 0.8rem;

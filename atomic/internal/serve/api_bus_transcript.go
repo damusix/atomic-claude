@@ -80,7 +80,9 @@ func (h *busAPIHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
 	if !requireRoom(w, room) {
 		return
 	}
-	resp, err := h.do(bus.Request{Op: bus.OpWho, Room: room})
+	// Local-only: this correlates a member to a .jsonl transcript on this
+	// machine's disk, which a remote member's session never has.
+	resp, err := h.do("", bus.Request{Op: bus.OpWho, Room: room})
 	if err != nil {
 		writeBusError(w, err)
 		return

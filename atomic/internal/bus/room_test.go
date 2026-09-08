@@ -783,7 +783,7 @@ func TestHub_Leave_LastMemberWithLiveSubscriberDoesNotDropTheRoom(t *testing.T) 
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	dropped, err := h.Leave("potato", "sess-1")
@@ -863,7 +863,7 @@ func TestHub_Rooms_EmptyRoomWithLiveSubscriberStillListedWithZeroMembers(t *test
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	if _, err := h.Leave("potato", "sess-1"); err != nil {
@@ -1047,7 +1047,7 @@ func TestHub_Publish_SlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 	// A subscriber channel nobody ever reads from.
 	deadCh := make(chan Envelope) // unbuffered on purpose: any blocking
 	// send here would hang forever without the non-blocking fanOut.
-	unsub := h.Subscribe("potato", deadCh, "", false)
+	unsub, _ := h.Subscribe("potato", deadCh, "", false)
 	defer unsub()
 
 	done := make(chan struct{})
@@ -1147,7 +1147,7 @@ func TestHub_Subscribe_ReceivesEnvelopePublishedAfterSubscribing(t *testing.T) {
 	}
 
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	if _, err := h.Publish("potato", "sess-1", []string{"backend"}, "", "hello"); err != nil {
@@ -1176,7 +1176,7 @@ func TestHub_Subscribe_PriorTrafficNotDelivered_OnlyFuturePublishesArrive(t *tes
 	}
 
 	ch := make(chan Envelope, 4)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	select {
@@ -1202,7 +1202,7 @@ func TestHub_Subscribe_TailNeverJoinsRoster(t *testing.T) {
 	h := NewHub(t.TempDir())
 
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	members, err := h.Who("potato")
@@ -1221,7 +1221,7 @@ func TestHub_Subscribe_UnsubscribeStopsDelivery(t *testing.T) {
 	}
 
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	unsub()
 
 	if _, err := h.Publish("potato", "sess-1", nil, "", "after unsubscribe"); err != nil {
@@ -1248,7 +1248,7 @@ func TestHub_FanOut_DropMarkerPrecedesNextDeliveryAfterOverflow(t *testing.T) {
 
 	// A tiny buffer makes the overflow arithmetic exact and the test fast.
 	ch := make(chan Envelope, 2)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	if _, err := h.Publish("potato", "sess-1", nil, "", "one"); err != nil {
@@ -1402,7 +1402,7 @@ func TestHub_Halt_PublishesControlEnvelopeVisibleToSubscribers(t *testing.T) {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	if err := h.Halt("potato", "stop, wrong approach"); err != nil {
@@ -1472,6 +1472,16 @@ func TestAppend_RoundTrip(t *testing.T) {
 	}
 }
 
+// Every existing case reaches Append's own room-name guard through the Hub;
+// this is the direct call, proving the guard holds regardless of caller.
+func TestAppend_PathShapedRoomNameRejected(t *testing.T) {
+	home := t.TempDir()
+	env := Envelope{ID: "1", Room: "../escape", From: "frontend", FromKind: "agent", Text: "hi", Ts: time.Now()}
+
+	err := Append(home, "../escape", env)
+	mustError(t, err, ExitUsage)
+}
+
 // A message right at the limit Publish admits must always read back intact.
 func TestAppend_MessageAtMaxTextBytesRoundTrips(t *testing.T) {
 	home := t.TempDir()
@@ -1499,12 +1509,13 @@ func TestAppend_MessageAtMaxTextBytesRoundTrips(t *testing.T) {
 // The fill byte is 0x01, not a letter: a plain ASCII byte marshals to itself, so
 // a same-length fill would only prove maximum length round-trips. 0x01 has no
 // short JSON escape, so it marshals to the full 6-byte \u0001 — the worst-case
-// escaped size a Publish-admitted envelope can reach on disk.
+// escaped size a Publish-admitted envelope can reach on disk. Room uses "<"
+// instead: 0x01 is a control character validRoomName rejects.
 func TestAppend_EnvelopeAtEveryMetadataLimitRoundTrips(t *testing.T) {
 	home := t.TempDir()
 
 	const escaping = "\x01"
-	room := strings.Repeat(escaping, MaxIdentifierBytes)
+	room := strings.Repeat("<", MaxIdentifierBytes)
 	from := strings.Repeat(escaping, MaxIdentifierBytes)
 	replyTo := strings.Repeat(escaping, MaxIdentifierBytes)
 	text := strings.Repeat(escaping, MaxTextBytes)
@@ -1713,7 +1724,7 @@ func TestHub_Subscribe_SkipSelf_DoesNotReceiveOwnPublish(t *testing.T) {
 	}
 
 	ch := make(chan Envelope, 4)
-	unsub := h.Subscribe("potato", ch, "sess-1", true)
+	unsub, _ := h.Subscribe("potato", ch, "sess-1", true)
 	defer unsub()
 
 	if _, err := h.Publish("potato", "sess-1", nil, "", "my own message"); err != nil {
@@ -1740,7 +1751,7 @@ func TestHub_Subscribe_SkipSelfFalse_StillReceivesOwnPublish(t *testing.T) {
 	}
 
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "sess-1", false)
+	unsub, _ := h.Subscribe("potato", ch, "sess-1", false)
 	defer unsub()
 
 	if _, err := h.Publish("potato", "sess-1", nil, "", "my own message"); err != nil {
@@ -1763,7 +1774,7 @@ func TestHub_Subscribe_SkipSelf_OperatorPublishAlwaysDelivered(t *testing.T) {
 	}
 
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "sess-1", true)
+	unsub, _ := h.Subscribe("potato", ch, "sess-1", true)
 	defer unsub()
 
 	if _, err := h.PublishAsOperator("potato", nil, "", "operator speaking"); err != nil {
@@ -1786,7 +1797,7 @@ func TestHub_Resume_EmptyText_PublishesDefaultBody(t *testing.T) {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 2)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	if err := h.Halt("potato", "stop"); err != nil {
@@ -1810,7 +1821,7 @@ func TestHub_Resume_ExplicitText_Preserved(t *testing.T) {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 2)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	if err := h.Halt("potato", "stop"); err != nil {
@@ -1835,7 +1846,7 @@ func TestHub_Halt_EmptyText_StaysEmpty(t *testing.T) {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "", false)
+	unsub, _ := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	if err := h.Halt("potato", ""); err != nil {
@@ -1924,7 +1935,7 @@ func TestHub_Who_LiveSubscription_NeverStale_RegardlessOfThreshold(t *testing.T)
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "sess-1", true)
+	unsub, _ := h.Subscribe("potato", ch, "sess-1", true)
 	defer unsub()
 
 	clock.Advance(staleThreshold * 10)
@@ -1976,7 +1987,9 @@ func TestHub_Rehydrate_MemberNotImmediatelyStale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	st.Join("sess-1", "potato", "backend", "normal", "agent", "", "")
+	if err := st.Join("sess-1", "potato", "backend", "normal", "agent", "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
 	if err := st.Save(home); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -2046,6 +2059,34 @@ func TestHub_Rehydrate_ZeroLastSeenFallsBackToJoined(t *testing.T) {
 	}
 	if members[0].Stale {
 		t.Fatal("expected a recent Joined fallback to read as fresh, not stale")
+	}
+}
+
+// A second Rehydrate carrying a stale LastSeen must not clobber a fresher one
+// already in the Hub.
+func TestHub_Rehydrate_NeverMovesLastSeenBackwards(t *testing.T) {
+	joined := time.Now().Add(-time.Hour)
+	newer := time.Now().Add(-time.Minute)
+	older := time.Now().Add(-3 * time.Hour)
+
+	h := NewHub(t.TempDir())
+	h.Rehydrate(&State{Sessions: map[string]*sessionState{
+		"sess-1": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: joined, LastSeen: newer},
+		}},
+	}})
+	h.Rehydrate(&State{Sessions: map[string]*sessionState{
+		"sess-1": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: joined, LastSeen: older},
+		}},
+	}})
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 || !members[0].LastSeen.Equal(newer) {
+		t.Fatalf("members = %+v, want LastSeen still %v (the newer value)", members, newer)
 	}
 }
 
@@ -2178,7 +2219,7 @@ func TestHub_Close_TerminatesLiveSubscribersStream(t *testing.T) {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch, "sess-1", false)
+	unsub, _ := h.Subscribe("potato", ch, "sess-1", false)
 	defer unsub()
 
 	if err := h.Close("potato"); err != nil {
@@ -2283,4 +2324,149 @@ func TestHub_Prune_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 	h := NewHub(t.TempDir())
 	_, err := h.Prune("nonexistent")
 	mustError(t, err, ExitNoRoom)
+}
+
+// --- Room-name guard: a room name reaches RoomLogPath via filepath.Join, so a
+// path-shaped name must never reach getOrCreateRoom, whichever entry point it
+// comes from (join, tail, or a name read off disk at rehydrate). ---
+
+func invalidRoomNames() []string {
+	return []string{
+		"../escape",
+		"a/b",
+		`a\b`,
+		"foo/../../etc",
+		"nul\x00room",
+		"tab\troom",
+		"newline\nroom",
+		"del\x7froom",
+	}
+}
+
+func TestHub_Join_PathShapedRoomNameRejected(t *testing.T) {
+	for _, name := range invalidRoomNames() {
+		t.Run(name, func(t *testing.T) {
+			h := NewHub(t.TempDir())
+			_, err := h.Join(name, "backend", "normal", "agent", "sess-1", "", "")
+			mustError(t, err, ExitUsage)
+			if rooms := h.Rooms(); len(rooms) != 0 {
+				t.Fatalf("expected no room created by a rejected Join, got %v", rooms)
+			}
+		})
+	}
+}
+
+func TestHub_Subscribe_PathShapedRoomNameRejected(t *testing.T) {
+	for _, name := range invalidRoomNames() {
+		t.Run(name, func(t *testing.T) {
+			h := NewHub(t.TempDir())
+			ch := make(chan Envelope, 1)
+			_, err := h.Subscribe(name, ch, "", false)
+			mustError(t, err, ExitUsage)
+			if rooms := h.Rooms(); len(rooms) != 0 {
+				t.Fatalf("expected no room created by a rejected Subscribe (tail), got %v", rooms)
+			}
+		})
+	}
+}
+
+// A room name read off disk at Rehydrate is skipped rather than propagating an
+// error there is nowhere to report — Rehydrate has no caller waiting on one.
+func TestHub_Rehydrate_PathShapedRoomNameFromDiskSkipped(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{
+		"sess-1": {Rooms: map[string]roomMembership{
+			"../escape": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: time.Now()},
+		}},
+	}}
+
+	h := NewHub(t.TempDir())
+	h.Rehydrate(st)
+
+	if rooms := h.Rooms(); len(rooms) != 0 {
+		t.Fatalf("expected a path-shaped room read off disk to be skipped, got %v", rooms)
+	}
+}
+
+func TestHub_Rehydrate_PathShapedHaltedRoomFromDiskSkipped(t *testing.T) {
+	st := &State{Rooms: map[string]*roomState{
+		"../escape": {Halted: true, HaltText: "stop"},
+	}}
+
+	h := NewHub(t.TempDir())
+	h.Rehydrate(st)
+
+	if rooms := h.Rooms(); len(rooms) != 0 {
+		t.Fatalf("expected a path-shaped halted room read off disk to be skipped, got %v", rooms)
+	}
+}
+
+// --- Session id length cap: Join already caps room and name; session is
+// client-supplied too and, under a gateway, its client half is
+// attacker-controlled. ---
+
+func TestHub_Join_OverLongSessionRejected(t *testing.T) {
+	h := NewHub(t.TempDir())
+	overlong := strings.Repeat("s", MaxIdentifierBytes+1)
+
+	_, err := h.Join("potato", "backend", "normal", "agent", overlong, "", "")
+	busErr := mustError(t, err, ExitUsage)
+	if !strings.Contains(busErr.Msg, strconv.Itoa(MaxIdentifierBytes)) {
+		t.Errorf("error message %q does not name the %d-byte limit", busErr.Msg, MaxIdentifierBytes)
+	}
+	if rooms := h.Rooms(); len(rooms) != 0 {
+		t.Fatalf("expected no room created by a rejected Join, got %v", rooms)
+	}
+}
+
+// --- Snapshot: what the daemon persists to RosterPath on a roster or halt
+// mutation, and what Rehydrate reads back. ---
+
+func TestHub_Snapshot_CapturesMembersAndHaltState(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "frontend", "participate", KindAgent, "sess-fe", "atomic-claude", "myrealm"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := h.Halt("potato", "investigating"); err != nil {
+		t.Fatalf("Halt: %v", err)
+	}
+
+	st := h.snapshot()
+
+	m, ok := st.Sessions["sess-fe"]
+	if !ok {
+		t.Fatal("expected sess-fe in the snapshot")
+	}
+	membership, ok := m.Rooms["potato"]
+	if !ok {
+		t.Fatal("expected potato in sess-fe's rooms")
+	}
+	if membership.Name != "frontend" || membership.Kind != KindAgent || membership.Repo != "atomic-claude" || membership.Realm != "myrealm" {
+		t.Fatalf("membership = %+v, unexpected", membership)
+	}
+	if membership.Host != "" {
+		t.Fatalf("Host = %q, want empty — snapshot reflects only this daemon's own local view", membership.Host)
+	}
+	rs, ok := st.Rooms["potato"]
+	if !ok || !rs.Halted || rs.HaltText != "investigating" {
+		t.Fatalf("Rooms[potato] = %+v, want halted with reason %q", rs, "investigating")
+	}
+}
+
+func TestHub_Snapshot_RoundTripsThroughRehydrate(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "frontend", "participate", KindAgent, "sess-fe", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	st := h.snapshot()
+
+	restored := NewHub(t.TempDir())
+	restored.Rehydrate(st)
+
+	members, err := restored.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 || members[0].Name != "frontend" {
+		t.Fatalf("members = %+v, want one member named frontend", members)
+	}
 }

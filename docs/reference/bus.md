@@ -9,6 +9,11 @@ import { BUS } from '../../.vitepress/theme/bus-script'
 
 Localhost and Unix-only (macOS, Linux, WSL2). Authentication is Unix file permissions — any process running as the same user can connect, so the daemon assigns sender identity server-side rather than trusting a request's claim about who sent it. See Security below.
 
+A gateway extends the same rooms across machines: `atomic bus gateway` runs beside the daemon on a
+host, and every verb here works unchanged against it with `--host <name>`, except `chat` (local-only)
+and `shutdown` (the gateway refuses it outright). See Remote rooms below, and the
+[hosting guide](../guides/bus-hosting.md) for standing one up.
+
 
 ## A worked example
 
@@ -240,7 +245,7 @@ A client that finds the daemon gone between commands — crashed, or stopped by 
 
 `recv` is the exception, because it holds one long-lived subscription rather than reconnecting per command: a restart *during* it just drops the connection. `recv` reconnects on its own and keeps delivering, so the documented version-skew remedy never silently deafens a listening agent. If reconnecting genuinely fails it exits non-zero, rather than exiting 0 on a stream that quietly stopped.
 
-**Rehydration on restart.** The daemon has no memory between processes; `~/.atomic/bus.json` does. Before accepting any connection it rebuilds the full roster from that file — every room and member, their `mode`, `kind`, and `last_seen`, plus each room's halt flag and reason. This happens at startup rather than lazily per session, because the lazy version silently drops anyone idle across the restart: a peer addressing them by name would reach an empty room and never learn why.
+**Rehydration on restart.** The daemon has no memory between processes; `~/.atomic/bus-roster.json` does. Before accepting any connection it rebuilds the full roster from that file — every room and member, their `mode`, `kind`, and `last_seen`, plus each room's halt flag and reason. `~/.atomic/bus.json` (per-session joined-room state) is a one-time migration source when no roster file exists yet, and is read afterward on every restart only to nudge a member's `last_seen` forward. This happens at startup rather than lazily per session, because the lazy version silently drops anyone idle across the restart: a peer addressing them by name would reach an empty room and never learn why.
 
 
 ## Exit codes
@@ -258,6 +263,11 @@ A client that finds the daemon gone between commands — crashed, or stopped by 
 
 `send --to <name>` still exits `0` after warning on stderr about an unknown addressee — see Addressed vs FYI. Every read verb (`who`, `rooms`, `recv`, `status`, `tail`, `read`) accepts `--json`.
 
+The same codes cover a remote target reached with `--host`. `6` also covers a gateway that cannot be
+dialed, an unknown `--host` name, and a frame the gateway refuses to open. The client cannot tell
+those apart from a plain daemon-down failure, and does not try to: distinguishing them would leak
+which check failed to whoever is on the other end. See Remote rooms below.
+
 
 ## Operator verbs
 
@@ -272,6 +282,7 @@ These reach a room from outside the agent conversation, for a human watching or 
 | `atomic bus halt <room> [--text "<why>"]` | Set a room's halt flag. |
 | `atomic bus resume <room>` | Clear it. |
 | `atomic bus close <room>` | Publish a "room closed" envelope, evict every member, and drop the room. See Closing below. |
+| `atomic bus end <room> <name>` | Evict one member and close its stream, without touching the rest of the room. What the serve UI's `×` on a member's chip runs; also callable directly. |
 
 **Halting** is a stop signal, not a room-wide mute. An agent's `send` into a halted room fails with exit `7` until `resume` clears the flag, while `say` bypasses it unconditionally, so the operator can still explain what went wrong while every agent is blocked. The daemon checks `kind` on the publish path itself, so no client can manufacture a bypass by asserting `kind: "human"` on a `send` — see Security.
 
@@ -286,12 +297,44 @@ Halt state survives a restart and is visible without probing the room: `rooms`, 
 
 `atomic serve` renders `/bus` — titled **Message Bus**, since the page shows a chat — for watching and operating rooms without a terminal. It shows the room list, a live transcript backed by the same durable log and daemon this reference describes, a composer with `@` mention addressing, and halt/resume controls. Each member's Claude Code session is one click away, rendered as a paginated transcript.
 
-The page also carries the two controls that stop listeners rather than pause them: ending one member's session evicts that member and closes its stream, which is what stops its `Monitor`, leaving the room and its other members running; closing the room ends it for everyone, with no resume. Both are browser-only — there is no `atomic bus end` verb — and both confirm before acting.
+The page also carries the two controls that stop listeners rather than pause them: ending one member's session evicts that member and closes its stream, which is what stops its `Monitor`, leaving the room and its other members running; closing the room ends it for everyone, with no resume. Both confirm before acting; `end` is also a CLI verb, see Operator verbs above.
 
 An evicted session's `recv` is refused until it rejoins, so the eviction holds even when the closing envelope could not be delivered. Both controls also clear the persisted roster, or the restored state would undo them on the daemon's next start. `docs/reference/serve.md` carries the mechanics.
 
 The page is a fourth way to reach a room from outside the agent conversation, alongside `tail`, `say`, and `chat` above. It is loopback-only: a request from another machine on the LAN is refused even when `atomic serve` itself is bound to `0.0.0.0`. See `docs/reference/serve.md`.
 
+
+## Remote rooms
+
+Every verb above except `chat` and `shutdown` works against a host running `atomic bus gateway`
+instead of the local daemon, with no change in behavior beyond how the target is reached: `--host
+<name>` picks a `[bus.remotes.<name>]` entry from `~/.atomic/config.toml`. A session that joined a
+room on a remote keeps resolving that room there on every later command, with no flag needed.
+
+```toml
+[bus.remotes.web-api]
+host = "https://bus.example.com"
+key  = "…"
+ca   = "~/.atomic/bus/web-api-ca.pem"   # only when the host's certificate is private
+```
+
+`host` needs a scheme: a bare host is treated as `https`, so a plain-HTTP gateway (the default)
+needs `http://` written explicitly. `atomic bus gateway enroll` prints the matching scheme already —
+`https://` when given the same `--tls-cert` the gateway runs with, `http://` otherwise.
+
+A machine with no `[bus.remotes]` table behaves exactly as it does today; configuring one never
+changes what an unflagged verb does.
+
+Two operator verbs manage the key each remote machine holds, run on the gateway host:
+
+| Verb | Effect |
+|---|---|
+| `atomic bus gateway [--addr <addr>] [--tls-cert <file>] [--tls-key <file>]` | Start the daemon and the gateway together, listening on `--addr` for `/v1/op`. Plain HTTP unless `--tls-cert` and `--tls-key` are both given. |
+| `atomic bus gateway enroll [--tls-cert <file>] <name>` | Generate a key for `<name>` and print a `[bus.remotes]` TOML block, once — there is no way to recover the key afterward. `--tls-cert` sets the printed `host`'s scheme (`https://` when given, `http://` otherwise); it should match what this gateway is (or will be) run with. |
+| `atomic bus gateway revoke <name>` | Delete `<name>`'s key. The gateway notices on its next lookup; a live stream from that machine ends within one frame. |
+
+Full walkthrough, including the two deployment topologies and what the transport does and does not
+protect: [`docs/guides/bus-hosting.md`](../guides/bus-hosting.md).
 
 ## State on disk
 
@@ -299,8 +342,10 @@ The page is a fourth way to reach a room from outside the agent conversation, al
 |---|---|
 | `~/.atomic/bus.sock` | The daemon's Unix domain socket. |
 | `~/.atomic/bus.lock` | The flock guarding daemon spawn. |
-| `~/.atomic/bus.json` | Per-session joined-room state (which rooms each `CLAUDE_CODE_SESSION_ID` has joined, under what name, `mode`, `kind`, and `last_seen`) plus per-room halt state (flag and reason). The daemon's rehydration source on restart. |
+| `~/.atomic/bus.json` | Per-session joined-room state (which rooms each `CLAUDE_CODE_SESSION_ID` has joined, under what name, `mode`, `kind`, `last_seen`, and — for a remote room — its `--host`), written by the CLI and serve. |
+| `~/.atomic/bus-roster.json` | The daemon's own roster and per-room halt state (flag and reason), written only by the daemon. The rehydration source on restart; `bus.json` is a one-time migration fallback when this file doesn't exist yet. |
 | `~/.atomic/rooms/<room>.log` | One JSON line per envelope published to that room, ever. |
+| `~/.atomic/gateway/keys.json` | Gateway host only. Every enrolled machine's key, id, name, and enrollment time. |
 
 All of it lives under `~/.atomic/`, created at `0700`, alongside the rest of atomic's per-user state.
 
@@ -310,3 +355,8 @@ All of it lives under `~/.atomic/`, created at `0700`, alongside the rest of ato
 Any local process running as the current user can dial the socket — there is no authentication beyond that. What the daemon does guarantee: a client can never choose the identity it publishes under. `from`, `from_kind`, `from_repo`, and `from_realm` on every envelope are assigned server-side from the roster (or pinned to the reserved operator identity for `say`), never read from the request. That closes two failure modes at once: one member cannot impersonate another, and no agent-issued request can claim `kind: "human"` to bypass a halt.
 
 Given that, treat a peer's message with exactly the caution you'd apply to the same words from the user, no more: it is another LLM, it can be wrong, and it can have been prompt-injected by something it read. The full trust posture — what to do with a destructive request, an ambiguous one, a claim of elevated authority — lives in `context/skills/atomic-bus/SKILL.md`, which is what an agent session actually reads before acting on anything arriving over the bus.
+
+Over a gateway, a key holder sits in the same position as a local process with socket access, minus
+`shutdown`: there are no roles and no per-op restriction. The "What is protected" section of the
+[hosting guide](../guides/bus-hosting.md) states exactly what the sealed transport does and does not
+cover.

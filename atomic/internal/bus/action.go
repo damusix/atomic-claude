@@ -16,6 +16,8 @@ import (
 	"time"
 
 	charmterm "github.com/charmbracelet/x/term"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bus/remote"
 )
 
 // BusAction is the exported entry point for `atomic bus`. home and cwd are
@@ -24,7 +26,7 @@ import (
 // against a temp dir.
 func BusAction(args []string, home, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|read|halt|resume|prune|close|chat> [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|read|halt|resume|prune|close|end|chat> [flags]")
 		return int(ExitUsage)
 	}
 
@@ -66,6 +68,8 @@ func BusAction(args []string, home, cwd string, out io.Writer) int {
 		return pruneAction(rest, home, out)
 	case "close":
 		return closeAction(rest, home, out)
+	case "end":
+		return endAction(rest, home, out)
 	case "chat":
 		return chatAction(rest, home, cwd, out)
 	default:
@@ -214,6 +218,112 @@ func doWithRecovery(home string, req Request) (Response, error) {
 	return client.Do(req)
 }
 
+// resolveHost picks the bus a verb should reach, per
+// docs/design/atomic-bus-network.md, "Local versus remote": an explicit
+// --host wins outright; otherwise a room this session already holds on a
+// remote keeps resolving there, since State.Join refuses a second host for a
+// room name already joined; otherwise the local socket. Every fallback here
+// (no session, no membership, a bus.json that fails to load) resolves to
+// local rather than erroring, matching "no [bus.remotes] table" behaving
+// exactly as the bus always has.
+func resolveHost(home, session, room, hostFlag string) string {
+	if hostFlag != "" {
+		return hostFlag
+	}
+	if session == "" {
+		return ""
+	}
+	st, err := Load(home)
+	if err != nil {
+		return ""
+	}
+	ss, ok := st.Sessions[session]
+	if !ok {
+		return ""
+	}
+	m, ok := ss.Rooms[room]
+	if !ok {
+		return ""
+	}
+	return m.Host
+}
+
+// sessionIDOrEmpty resolves the current session for resolveHost's fallback
+// branch, swallowing SessionID's "not a live session" error rather than
+// failing the caller: a verb with no --host and no session context simply
+// has nothing to look a remote membership up under, and stays local.
+func sessionIDOrEmpty(override string) string {
+	id, err := SessionID(override)
+	if err != nil {
+		return ""
+	}
+	return id
+}
+
+// DoRemote marshals req, seals and sends it to hostName's gateway, and
+// unmarshals the answer back into a Response — the remote counterpart of
+// Client.Do, deliberately independent of dialDaemonRecovered and
+// recoveryEnsurer so a remote call can never reach EnsureDaemon: a broken
+// dial here must never spawn a local daemon and quietly split the bus.
+// Exported so internal/serve's busAPIHandler shares this instead of
+// reimplementing it against the same Request/Response types.
+func DoRemote(home, hostName string, req Request) (Response, error) {
+	return doRemote(home, hostName, req, 0)
+}
+
+// DoRemoteTimeout is DoRemote with the round trip bounded to timeout instead
+// of remote.Client's general default — for a caller fanning out across
+// several remotes at once, where one unreachable host must not hold up the
+// others. See internal/serve/api_bus.go's handleRooms.
+func DoRemoteTimeout(home, hostName string, req Request, timeout time.Duration) (Response, error) {
+	return doRemote(home, hostName, req, timeout)
+}
+
+func doRemote(home, hostName string, req Request, timeout time.Duration) (Response, error) {
+	remotes, err := remote.Remotes(home)
+	if err != nil {
+		return Response{}, &Error{Code: ExitHard, Msg: fmt.Sprintf("bus: read remotes config: %v", err)}
+	}
+	cfg, ok := remotes[hostName]
+	if !ok {
+		return Response{}, &Error{Code: ExitUsage, Msg: fmt.Sprintf("bus: unknown remote %q; check [bus.remotes] in ~/.atomic/config.toml", hostName)}
+	}
+	client, err := remote.NewClient(cfg)
+	if err != nil {
+		return Response{}, &Error{Code: ExitHard, Msg: fmt.Sprintf("bus: %v", err)}
+	}
+	if timeout > 0 {
+		client.SetDoTimeout(timeout)
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return Response{}, &Error{Code: ExitHard, Msg: fmt.Sprintf("bus: encode request: %v", err)}
+	}
+	plaintext, err := client.Do(body)
+	if err != nil {
+		return Response{}, &Error{Code: ExitUnreachable, Msg: fmt.Sprintf("bus: remote %q: %v", hostName, err)}
+	}
+	var resp Response
+	if err := json.Unmarshal(plaintext, &resp); err != nil {
+		return Response{}, &Error{Code: ExitHard, Msg: fmt.Sprintf("bus: decode remote response: %v", err)}
+	}
+	if !resp.OK {
+		return resp, responseError(resp)
+	}
+	return resp, nil
+}
+
+// doOnHost resolves room's bus via resolveHost(home, session, room, hostFlag)
+// and routes req there: DoRemote for a resolved host, else doWithRecovery
+// against the local daemon. Shared by every room-scoped verb that grew
+// --host, so resolution precedence lives in exactly one place.
+func doOnHost(home, session, room, hostFlag string, req Request) (Response, error) {
+	if h := resolveHost(home, session, room, hostFlag); h != "" {
+		return DoRemote(home, h, req)
+	}
+	return doWithRecovery(home, req)
+}
+
 // touchLastSeen best-effort persists that session was active in room — the
 // disk-side half of Hub.Publish's in-memory LastSeen refresh. A failure here
 // is not a command failure: the message was already delivered, and losing this
@@ -241,15 +351,16 @@ func touchLastSeen(home, session, room string, now time.Time) {
 // Position is resolved regardless, since Member.Repo/Realm are recorded on
 // every join.
 func joinAction(args []string, home, cwd string, out io.Writer) int {
-	const usage = "Usage: atomic bus join <room> [--as <role>] [--mode participate|observe] [--kind agent|human] [--session <id>]\n"
+	const usage = "Usage: atomic bus join <room> [--as <role>] [--mode participate|observe] [--kind agent|human] [--session <id>] [--host <name>]\n"
 
 	fs := flag.NewFlagSet("bus-join", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	var as, mode, kind, session string
+	var as, mode, kind, session, host string
 	fs.StringVar(&as, "as", "", "role suffix on the derived position name (optional)")
 	fs.StringVar(&mode, "mode", "participate", "participate or observe")
 	fs.StringVar(&kind, "kind", KindAgent, "agent or human")
 	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&host, "host", "", "join on this remote instead of the local daemon (see [bus.remotes] in ~/.atomic/config.toml)")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -282,20 +393,33 @@ func joinAction(args []string, home, cwd string, out io.Writer) int {
 	}
 	name := pos.name(as)
 
-	// Through the recoveryEnsurer seam, never the package-level EnsureDaemon:
-	// the bare call bypasses the injection point, so a test exercising join
-	// reaches the real spawnServe, which re-execs the test binary — a fork bomb.
-	client, err := recoveryEnsurer().EnsureDaemon(home)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
-		return exitFromErr(err)
-	}
-	defer client.Close()
+	req := Request{Op: OpJoin, Room: room, Name: name, Mode: mode, Kind: kind, Session: sessionID, Repo: pos.repo, Realm: pos.realm}
+	var resp Response
+	if host != "" {
+		// A remote target skips EnsureDaemon entirely: a failed remote dial
+		// must never spawn a local daemon, or a broken connection quietly
+		// splits the bus (see DoRemote's own doc comment).
+		resp, err = DoRemote(home, host, req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
+			return exitFromErr(err)
+		}
+	} else {
+		// Through the recoveryEnsurer seam, never the package-level EnsureDaemon:
+		// the bare call bypasses the injection point, so a test exercising join
+		// reaches the real spawnServe, which re-execs the test binary — a fork bomb.
+		client, cerr := recoveryEnsurer().EnsureDaemon(home)
+		if cerr != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", cerr)
+			return exitFromErr(cerr)
+		}
+		defer client.Close()
 
-	resp, err := client.Do(Request{Op: OpJoin, Room: room, Name: name, Mode: mode, Kind: kind, Session: sessionID, Repo: pos.repo, Realm: pos.realm})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
-		return exitFromErr(err)
+		resp, err = client.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
+			return exitFromErr(err)
+		}
 	}
 
 	var payload struct {
@@ -311,7 +435,10 @@ func joinAction(args []string, home, cwd string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
 		return int(ExitHard)
 	}
-	st.Join(sessionID, room, payload.Name, mode, kind, pos.repo, pos.realm)
+	if err := st.Join(sessionID, room, payload.Name, mode, kind, pos.repo, pos.realm, host); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
+		return exitFromErr(err)
+	}
 	if err := st.Save(home); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
 		return int(ExitHard)
@@ -329,12 +456,13 @@ func joinAction(args []string, home, cwd string, out io.Writer) int {
 // to the session's last-joined room; leaving clears local state for that room
 // only.
 func leaveAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus leave [<room>] [--session <id>]\n"
+	const usage = "Usage: atomic bus leave [<room>] [--session <id>] [--host <name>]\n"
 
 	fs := flag.NewFlagSet("bus-leave", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	var session string
+	var session, host string
 	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&host, "host", "", "leave on this remote (default: the host this room was joined on, see [bus.remotes])")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -366,7 +494,7 @@ func leaveAction(args []string, home string, out io.Writer) int {
 		return exitFromErr(err)
 	}
 
-	resp, err := doWithRecovery(home, Request{Op: OpLeave, Room: room, Session: sessionID})
+	resp, err := doOnHost(home, sessionID, room, host, Request{Op: OpLeave, Room: room, Session: sessionID})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus leave: %v\n", err)
 		return exitFromErr(err)
@@ -395,15 +523,16 @@ func leaveAction(args []string, home string, out io.Writer) int {
 
 // sendAction implements `atomic bus send <room> <text>`.
 func sendAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus send <room> <text> [--to <name>,...] [--reply-to <msg-id>] [--session <id>] [--json]\n"
+	const usage = "Usage: atomic bus send <room> <text> [--to <name>,...] [--reply-to <msg-id>] [--session <id>] [--host <name>] [--json]\n"
 
 	fs := flag.NewFlagSet("bus-send", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	var to, replyTo, session string
+	var to, replyTo, session, host string
 	var jsonOut bool
 	fs.StringVar(&to, "to", "", "comma-separated addressee names (omitted means FYI to the whole room)")
 	fs.StringVar(&replyTo, "reply-to", "", "id of the message being replied to")
 	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&host, "host", "", "send on this remote (default: the host this room was joined on, see [bus.remotes])")
 	fs.BoolVar(&jsonOut, "json", false, "emit the full envelope as JSON (captures the id for --reply-to)")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
@@ -427,7 +556,7 @@ func sendAction(args []string, home string, out io.Writer) int {
 		return exitFromErr(err)
 	}
 
-	resp, err := doWithRecovery(home, Request{Op: OpSend, Room: room, Session: sessionID, To: parseTo(to), ReplyTo: replyTo, Text: text})
+	resp, err := doOnHost(home, sessionID, room, host, Request{Op: OpSend, Room: room, Session: sessionID, To: parseTo(to), ReplyTo: replyTo, Text: text})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus send: %v\n", err)
 		return exitFromErr(err)
@@ -499,14 +628,15 @@ func parseTo(to string) []string {
 // agent a wasted prompt per message it sends. No resolvable session fails
 // exactly like send/leave/join rather than silently degrading that suppression.
 func recvAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus recv <room> [--session <id>] [--json]\n"
+	const usage = "Usage: atomic bus recv <room> [--session <id>] [--host <name>] [--json]\n"
 
 	fs := flag.NewFlagSet("bus-recv", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var jsonOut bool
-	var session string
+	var session, host string
 	fs.BoolVar(&jsonOut, "json", false, "no-op: recv always streams one JSON envelope per line")
 	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&host, "host", "", "receive from this remote (default: the host this room was joined on, see [bus.remotes])")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -523,12 +653,88 @@ func recvAction(args []string, home string, out io.Writer) int {
 		return exitFromErr(err)
 	}
 
+	if resolvedHost := resolveHost(home, sessionID, room, host); resolvedHost != "" {
+		return recvRemoteStream(home, resolvedHost, room, sessionID, out)
+	}
+
 	client, err := dialDaemonRecovered(home)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
 		return exitFromErr(err)
 	}
 	return recvStream(client, home, room, sessionID, out)
+}
+
+// recvRemoteStream is recv --host's counterpart to recvStream. remote.Client's
+// Stream already reconnects under backoff on any fault — a gap, a repeat, a
+// bad sequence, a dropped connection — so unlike recvStream there is no local
+// reconnect loop to drive; only ctx cancellation (SIGTERM/SIGINT) ends it.
+//
+// Every sealed line the gateway forwards is probed via remote.ProbeHandshake
+// before being treated as an Envelope: the subscribe handshake's own
+// confirmation frame precedes the Envelope stream once per connection,
+// including once per Stream reconnect, so a position-based "first frame"
+// check would misread the leading frame of every reconnect as an Envelope.
+func recvRemoteStream(home, hostName, room, sessionID string, out io.Writer) int {
+	remotes, err := remote.Remotes(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
+		return int(ExitHard)
+	}
+	cfg, ok := remotes[hostName]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "atomic bus recv: unknown remote %q; check [bus.remotes] in ~/.atomic/config.toml\n", hostName)
+		return int(ExitUsage)
+	}
+	client, err := remote.NewClient(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
+		return int(ExitHard)
+	}
+
+	body, err := json.Marshal(Request{Op: OpRecv, Room: room, Session: sessionID, SkipSelf: true})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
+		return int(ExitHard)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	frames, errc := client.Stream(ctx, body)
+	enc := json.NewEncoder(out)
+	for frame := range frames {
+		if isHandshake, ok := remote.ProbeHandshake(frame); isHandshake {
+			if !ok {
+				var resp Response
+				_ = json.Unmarshal(frame, &resp)
+				fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", responseError(resp))
+				return exitFromErr(responseError(resp))
+			}
+			continue
+		}
+		var env Envelope
+		if err := json.Unmarshal(frame, &env); err != nil {
+			continue
+		}
+		if env.Closing {
+			return int(ExitOK)
+		}
+		if err := enc.Encode(env); err != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
+			return int(ExitHard)
+		}
+	}
+
+	select {
+	case err := <-errc:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
+			return int(ExitHard)
+		}
+	default:
+	}
+	return int(ExitOK)
 }
 
 // recvStream is the Monitor path: one JSON envelope per line, flushed per line
@@ -652,12 +858,14 @@ func recvDeliver(ctx context.Context, ch <-chan Envelope, enc *json.Encoder) (re
 // needs no session identity, so an operator can inspect any room from outside a
 // live Claude Code session.
 func whoAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus who [<room>] [--json]\n"
+	const usage = "Usage: atomic bus who [<room>] [--host <name>] [--json]\n"
 
 	fs := flag.NewFlagSet("bus-who", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var jsonOut bool
+	var host string
 	fs.BoolVar(&jsonOut, "json", false, "emit JSON")
+	fs.StringVar(&host, "host", "", "list this remote's room (default: the host this room was joined on, see [bus.remotes])")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -677,14 +885,7 @@ func whoAction(args []string, home string, out io.Writer) int {
 		return exitFromErr(err)
 	}
 
-	client, err := dialDaemonRecovered(home)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus who: %v\n", err)
-		return exitFromErr(err)
-	}
-	defer client.Close()
-
-	resp, err := client.Do(Request{Op: OpWho, Room: room})
+	resp, err := doOnHost(home, sessionIDOrEmpty(""), room, host, Request{Op: OpWho, Room: room})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus who: %v\n", err)
 		return exitFromErr(err)
@@ -744,12 +945,14 @@ func resolveOptionalRoom(home, explicit string) (string, error) {
 
 // roomsAction implements `atomic bus rooms [--json]`.
 func roomsAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus rooms [--json]\n"
+	const usage = "Usage: atomic bus rooms [--host <name>] [--json]\n"
 
 	fs := flag.NewFlagSet("bus-rooms", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var jsonOut bool
+	var host string
 	fs.BoolVar(&jsonOut, "json", false, "emit JSON")
+	fs.StringVar(&host, "host", "", "list this remote's rooms instead of the local daemon's (see [bus.remotes])")
 	if err := fs.Parse(args); err != nil {
 		return int(ExitUsage)
 	}
@@ -758,14 +961,18 @@ func roomsAction(args []string, home string, out io.Writer) int {
 		return int(ExitUsage)
 	}
 
-	client, err := dialDaemonRecovered(home)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus rooms: %v\n", err)
-		return exitFromErr(err)
+	var resp Response
+	var err error
+	if host != "" {
+		resp, err = DoRemote(home, host, Request{Op: OpRooms})
+	} else {
+		var client *Client
+		client, err = dialDaemonRecovered(home)
+		if err == nil {
+			defer client.Close()
+			resp, err = client.Do(Request{Op: OpRooms})
+		}
 	}
-	defer client.Close()
-
-	resp, err := client.Do(Request{Op: OpRooms})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus rooms: %v\n", err)
 		return exitFromErr(err)
@@ -823,14 +1030,15 @@ type joinedRoomStatus struct {
 // the daemon's own reachability and identity. Unlike join it never spawns — an
 // unreachable daemon is what status is for reporting, not a condition to fix.
 func statusAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus status [--session <id>] [--json]\n"
+	const usage = "Usage: atomic bus status [--session <id>] [--host <name>] [--json]\n"
 
 	fs := flag.NewFlagSet("bus-status", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var jsonOut bool
-	var session string
+	var session, host string
 	fs.BoolVar(&jsonOut, "json", false, "emit JSON")
 	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&host, "host", "", "report this remote's reachability instead of the local daemon (see [bus.remotes])")
 	if err := fs.Parse(args); err != nil {
 		return int(ExitUsage)
 	}
@@ -853,7 +1061,35 @@ func statusAction(args []string, home string, out io.Writer) int {
 
 	status := busStatus{Session: sessionID, Daemon: "not running", Rooms: joinedRooms(st, sessionID)}
 
-	if client, derr := dialDaemon(home); derr == nil {
+	fetchRooms := func() (Response, error) { return DoRemote(home, host, Request{Op: OpRooms}) }
+	if host == "" {
+		fetchRooms = func() (Response, error) {
+			client, derr := dialDaemon(home)
+			if derr != nil {
+				return Response{}, derr
+			}
+			defer client.Close()
+			return client.Do(Request{Op: OpRooms})
+		}
+	}
+
+	if host != "" {
+		resp, perr := DoRemote(home, host, Request{Op: OpPing})
+		if perr == nil {
+			var payload struct {
+				Version int `json:"version"`
+				Pid     int `json:"pid"`
+			}
+			if json.Unmarshal(resp.Payload, &payload) == nil {
+				status.Daemon = "running"
+				status.Version = payload.Version
+				status.Pid = payload.Pid
+				status.Rooms = annotateHalted(fetchRooms, status.Rooms)
+			}
+		} else {
+			status.Daemon = "unreachable"
+		}
+	} else if client, derr := dialDaemon(home); derr == nil {
 		resp, perr := client.Do(Request{Op: OpPing})
 		client.Close()
 		if perr == nil {
@@ -865,7 +1101,7 @@ func statusAction(args []string, home string, out io.Writer) int {
 				status.Daemon = "running"
 				status.Version = payload.Version
 				status.Pid = payload.Pid
-				status.Rooms = annotateHalted(home, status.Rooms)
+				status.Rooms = annotateHalted(fetchRooms, status.Rooms)
 			}
 		} else {
 			status.Daemon = "unreachable"
@@ -896,14 +1132,8 @@ func statusAction(args []string, home string, out io.Writer) int {
 // connection and OpPing's payload carries no per-room data. Best-effort: any
 // failure leaves rooms exactly as passed in, since status's primary job is
 // reporting reachability, not halt state.
-func annotateHalted(home string, rooms []joinedRoomStatus) []joinedRoomStatus {
-	client, err := dialDaemon(home)
-	if err != nil {
-		return rooms
-	}
-	defer client.Close()
-
-	resp, err := client.Do(Request{Op: OpRooms})
+func annotateHalted(fetchRooms func() (Response, error), rooms []joinedRoomStatus) []joinedRoomStatus {
+	resp, err := fetchRooms()
 	if err != nil {
 		return rooms
 	}
@@ -982,15 +1212,6 @@ func serveAction(args []string, home string, out io.Writer) int {
 	defer stop()
 
 	hub := NewHub(home)
-	// A restarted daemon must come back with the whole persisted roster, not
-	// rebuild it one session at a time as each runs a command. This runs before
-	// Serve's accept loop starts. A missing bus.json is not an error; a malformed
-	// one degrades to an empty roster rather than blocking startup.
-	if st, err := Load(home); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus serve: warning: could not load %s, starting with an empty roster: %v\n", StatePath(home), err)
-	} else {
-		hub.Rehydrate(st)
-	}
 
 	// Serve returns nil on a wire shutdown and context.Canceled on our own
 	// signal-driven ctx — both are a clean stop, not a failure to report.
@@ -1129,12 +1350,13 @@ func waitForSocketGone(home string, timeout time.Duration) {
 // (Hub.Publish); this only sends the wire op, and needs no session identity
 // since an operator can halt a room they are not in.
 func haltAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus halt <room> [--text <reason>]\n"
+	const usage = "Usage: atomic bus halt <room> [--text <reason>] [--host <name>]\n"
 
 	fs := flag.NewFlagSet("bus-halt", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	var text string
+	var text, host string
 	fs.StringVar(&text, "text", "", "reason broadcast with the halt")
+	fs.StringVar(&host, "host", "", "halt on this remote (default: the host this room was joined on, see [bus.remotes])")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -1145,22 +1367,20 @@ func haltAction(args []string, home string, out io.Writer) int {
 	}
 	room := positional[0]
 
-	client, err := dialDaemonRecovered(home)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus halt: %v\n", err)
-		return exitFromErr(err)
-	}
-	defer client.Close()
-
-	if _, err := client.Do(Request{Op: OpHalt, Room: room, Text: text}); err != nil {
+	resolvedHost := resolveHost(home, sessionIDOrEmpty(""), room, host)
+	if _, err := doOnHost(home, sessionIDOrEmpty(""), room, host, Request{Op: OpHalt, Room: room, Text: text}); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus halt: %v\n", err)
 		return exitFromErr(err)
 	}
 
-	if err := persistHalted(home, room, true, text); err != nil {
-		// The halt already succeeded against the daemon; only durability
-		// across a restart is at risk, so this is a warning, not a failure.
-		fmt.Fprintf(os.Stderr, "atomic bus halt: warning: halt succeeded but was not persisted (a daemon restart would lose it): %v\n", err)
+	// bus.json persists only this machine's own rooms; a remote room's halt
+	// state is the remote daemon's own record to keep.
+	if resolvedHost == "" {
+		if err := persistHalted(home, room, true, text); err != nil {
+			// The halt already succeeded against the daemon; only durability
+			// across a restart is at risk, so this is a warning, not a failure.
+			fmt.Fprintf(os.Stderr, "atomic bus halt: warning: halt succeeded but was not persisted (a daemon restart would lose it): %v\n", err)
+		}
 	}
 
 	fmt.Fprintf(out, "halted %s\n", room)
@@ -1180,33 +1400,32 @@ func persistHalted(home, room string, halted bool, text string) error {
 
 // resumeAction implements `atomic bus resume <room>`.
 func resumeAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus resume <room>\n"
+	const usage = "Usage: atomic bus resume <room> [--host <name>]\n"
 
 	fs := flag.NewFlagSet("bus-resume", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	var host string
+	fs.StringVar(&host, "host", "", "resume on this remote (default: the host this room was joined on, see [bus.remotes])")
+	positional, err := parseFlags(fs, args)
+	if err != nil {
 		return int(ExitUsage)
 	}
-	if fs.NArg() != 1 {
+	if len(positional) != 1 {
 		fmt.Fprint(os.Stderr, usage)
 		return int(ExitUsage)
 	}
-	room := fs.Arg(0)
+	room := positional[0]
 
-	client, err := dialDaemonRecovered(home)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus resume: %v\n", err)
-		return exitFromErr(err)
-	}
-	defer client.Close()
-
-	if _, err := client.Do(Request{Op: OpResume, Room: room}); err != nil {
+	resolvedHost := resolveHost(home, sessionIDOrEmpty(""), room, host)
+	if _, err := doOnHost(home, sessionIDOrEmpty(""), room, host, Request{Op: OpResume, Room: room}); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus resume: %v\n", err)
 		return exitFromErr(err)
 	}
 
-	if err := persistHalted(home, room, false, ""); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus resume: warning: resume succeeded but the cleared halt state was not persisted: %v\n", err)
+	if resolvedHost == "" {
+		if err := persistHalted(home, room, false, ""); err != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus resume: warning: resume succeeded but the cleared halt state was not persisted: %v\n", err)
+		}
 	}
 
 	fmt.Fprintf(out, "resumed %s\n", room)
@@ -1220,12 +1439,14 @@ func resumeAction(args []string, home string, out io.Writer) int {
 // a dead one, and evicting a live member breaks addressing with no diagnostic.
 // A missing room defaults to the session's last-joined room, same as who.
 func pruneAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus prune [<room>] [--json]\n"
+	const usage = "Usage: atomic bus prune [<room>] [--json] [--host <name>]\n"
 
 	fs := flag.NewFlagSet("bus-prune", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var jsonOut bool
+	var host string
 	fs.BoolVar(&jsonOut, "json", false, "emit JSON")
+	fs.StringVar(&host, "host", "", "prune on this remote (default: the host this room was joined on, see [bus.remotes])")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -1245,14 +1466,7 @@ func pruneAction(args []string, home string, out io.Writer) int {
 		return exitFromErr(err)
 	}
 
-	client, err := dialDaemonRecovered(home)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus prune: %v\n", err)
-		return exitFromErr(err)
-	}
-	defer client.Close()
-
-	resp, err := client.Do(Request{Op: OpPrune, Room: room})
+	resp, err := doOnHost(home, sessionIDOrEmpty(""), room, host, Request{Op: OpPrune, Room: room})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus prune: %v\n", err)
 		return exitFromErr(err)
@@ -1283,37 +1497,38 @@ func pruneAction(args []string, home string, out io.Writer) int {
 // clears its memberships and halt state from bus.json so a restart does not
 // rebuild it — the local half Hub.Close cannot do, bus.json being client-side.
 func closeAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus close <room>\n"
+	const usage = "Usage: atomic bus close <room> [--host <name>]\n"
 
 	fs := flag.NewFlagSet("bus-close", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	var host string
+	fs.StringVar(&host, "host", "", "close on this remote (default: the host this room was joined on, see [bus.remotes])")
+	positional, err := parseFlags(fs, args)
+	if err != nil {
 		return int(ExitUsage)
 	}
-	if fs.NArg() != 1 {
+	if len(positional) != 1 {
 		fmt.Fprint(os.Stderr, usage)
 		return int(ExitUsage)
 	}
-	room := fs.Arg(0)
+	room := positional[0]
+	session := sessionIDOrEmpty("")
+	resolvedHost := resolveHost(home, session, room, host)
 
-	client, err := dialDaemonRecovered(home)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus close: %v\n", err)
-		return exitFromErr(err)
-	}
-	defer client.Close()
-
-	if _, err := client.Do(Request{Op: OpClose, Room: room}); err != nil {
+	if _, err := doOnHost(home, session, room, host, Request{Op: OpClose, Room: room}); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus close: %v\n", err)
 		return exitFromErr(err)
 	}
 
+	// ClearRoom drops every session's membership of room on resolvedHost —
+	// the same bus the close above actually reached — so a same-named room
+	// on a different host is untouched. See identity.go, ClearRoom.
 	st, err := Load(home)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus close: %v\n", err)
 		return int(ExitHard)
 	}
-	st.ClearRoom(room)
+	st.ClearRoom(room, resolvedHost)
 	if err := st.Save(home); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus close: %v\n", err)
 		return int(ExitHard)
@@ -1323,18 +1538,63 @@ func closeAction(args []string, home string, out io.Writer) int {
 	return int(ExitOK)
 }
 
+// --- end ---
+
+// endAction implements `atomic bus end <room> <name>`, CLI parity for the
+// same OpEnd the serve UI drives. Best-effort clears the evicted session's
+// local membership too: on the machine that runs both the ended session and
+// this command they share one bus.json, so leaving it in place would have
+// Rehydrate resurrect the membership on the next daemon restart.
+func endAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus end <room> <name> [--host <name>]\n"
+
+	fs := flag.NewFlagSet("bus-end", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var host string
+	fs.StringVar(&host, "host", "", "end on this remote (default: the host this room was joined on, see [bus.remotes])")
+	positional, err := parseFlags(fs, args)
+	if err != nil {
+		return int(ExitUsage)
+	}
+	if len(positional) != 2 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+	room, name := positional[0], positional[1]
+
+	resp, err := doOnHost(home, sessionIDOrEmpty(""), room, host, Request{Op: OpEnd, Room: room, Name: name})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus end: %v\n", err)
+		return exitFromErr(err)
+	}
+
+	var payload struct {
+		Session string `json:"session"`
+	}
+	if err := json.Unmarshal(resp.Payload, &payload); err == nil && payload.Session != "" {
+		if st, lerr := Load(home); lerr == nil {
+			st.Leave(payload.Session, room)
+			_ = st.Save(home)
+		}
+	}
+
+	fmt.Fprintf(out, "ended %s in %s\n", name, room)
+	return int(ExitOK)
+}
+
 // --- say ---
 
 // sayAction implements `atomic bus say <room> <text>`. Publishes via
 // Hub.PublishAsOperator, which needs no prior join and passes even into a
 // halted room — the asymmetry that makes halt useful for an operator.
 func sayAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus say <room> <text> [--to <name>,...]\n"
+	const usage = "Usage: atomic bus say <room> <text> [--to <name>,...] [--host <name>]\n"
 
 	fs := flag.NewFlagSet("bus-say", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	var to string
+	var to, host string
 	fs.StringVar(&to, "to", "", "comma-separated addressee names (omitted means FYI to the whole room)")
+	fs.StringVar(&host, "host", "", "say on this remote (default: the host this room was joined on, see [bus.remotes])")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -1351,17 +1611,10 @@ func sayAction(args []string, home string, out io.Writer) int {
 		return int(ExitHard)
 	}
 
-	client, err := dialDaemonRecovered(home)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus say: %v\n", err)
-		return exitFromErr(err)
-	}
-	defer client.Close()
-
 	// No Name or Kind: the daemon pins the operator identity and ignores both on
 	// OpSay. Sending them would imply the client gets a say in who it publishes
 	// as, which is exactly the trust the daemon must not extend.
-	resp, err := client.Do(Request{Op: OpSay, Room: room, To: parseTo(to), Text: text})
+	resp, err := doOnHost(home, sessionIDOrEmpty(""), room, host, Request{Op: OpSay, Room: room, To: parseTo(to), Text: text})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus say: %v\n", err)
 		return exitFromErr(err)
@@ -1454,16 +1707,17 @@ func resolveTailRooms(home, explicit string, allRoomsFlag bool) (rooms []string,
 // can watch one room at once. Like recv it delivers only what is published
 // after it subscribes; there is no --since.
 func tailAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus tail [<room>] [--all-rooms] [--json] [--only-addressed] [--from <name>]\n"
+	const usage = "Usage: atomic bus tail [<room>] [--all-rooms] [--json] [--only-addressed] [--from <name>] [--host <name>]\n"
 
 	fs := flag.NewFlagSet("bus-tail", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var allRoomsFlag, jsonOut, onlyAddressed bool
-	var from string
+	var from, host string
 	fs.BoolVar(&allRoomsFlag, "all-rooms", false, "interleave every room, prefixed per line")
 	fs.BoolVar(&jsonOut, "json", false, "emit JSONL instead of rendered lines")
 	fs.BoolVar(&onlyAddressed, "only-addressed", false, "show only messages with an explicit addressee")
 	fs.StringVar(&from, "from", "", "show only messages from this sender")
+	fs.StringVar(&host, "host", "", "tail this remote instead of the local daemon (default: the host this room was joined on, see [bus.remotes])")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -1481,6 +1735,22 @@ func tailAction(args []string, home string, out io.Writer) int {
 		return int(ExitUsage)
 	}
 
+	colour := isTerminalWriter(out)
+	width := terminalWidth(out)
+
+	resolvedHost := host
+	if resolvedHost == "" && explicitRoom != "" {
+		resolvedHost = resolveHost(home, sessionIDOrEmpty(""), explicitRoom, "")
+	}
+	if resolvedHost != "" {
+		rooms, roomPrefix, err := resolveTailRoomsRemote(home, resolvedHost, explicitRoom, allRoomsFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
+			return exitFromErr(err)
+		}
+		return tailRemoteStream(home, resolvedHost, rooms, onlyAddressed, from, jsonOut, colour, roomPrefix, width, out)
+	}
+
 	rooms, roomPrefix, err := resolveTailRooms(home, explicitRoom, allRoomsFlag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
@@ -1493,9 +1763,115 @@ func tailAction(args []string, home string, out io.Writer) int {
 		return exitFromErr(err)
 	}
 
-	colour := isTerminalWriter(out)
-	width := terminalWidth(out)
 	return tailStream(client, rooms, onlyAddressed, from, jsonOut, colour, roomPrefix, home, width, out)
+}
+
+// resolveTailRoomsRemote is resolveTailRooms's --host counterpart: an
+// explicit room subscribes there, unprefixed; otherwise every room on
+// hostName is queried via OpRooms, under the same all-or-explicit ambiguity
+// rule.
+func resolveTailRoomsRemote(home, hostName, explicit string, allRoomsFlag bool) (rooms []string, roomPrefix bool, err error) {
+	if explicit != "" {
+		return []string{explicit}, false, nil
+	}
+
+	resp, err := DoRemote(home, hostName, Request{Op: OpRooms})
+	if err != nil {
+		return nil, false, err
+	}
+	var payload struct {
+		Rooms []RoomInfo `json:"rooms"`
+	}
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		return nil, false, fmt.Errorf("bus: parse rooms response: %w", err)
+	}
+	names := make([]string, len(payload.Rooms))
+	for i, r := range payload.Rooms {
+		names[i] = r.Name
+	}
+
+	if !allRoomsFlag && len(names) != 1 {
+		return nil, false, &Error{Code: ExitUsage, Msg: "bus: tail needs a room, or --all-rooms to watch every room"}
+	}
+	return names, true, nil
+}
+
+// tailRemoteStream is tailAction's --host counterpart to tailStream, sharing
+// remote.ProbeHandshake with recvRemoteStream to skip the subscribe
+// handshake's confirmation frame rather than render it as an envelope.
+// remote.Client's Stream already reconnects under backoff on any fault, so
+// there is no local reconnect loop to drive either; only ctx cancellation
+// ends it.
+func tailRemoteStream(home, hostName string, rooms []string, onlyAddressed bool, from string, jsonOut, colour, roomPrefix bool, width int, out io.Writer) int {
+	remotes, err := remote.Remotes(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
+		return int(ExitHard)
+	}
+	cfg, ok := remotes[hostName]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "atomic bus tail: unknown remote %q; check [bus.remotes] in ~/.atomic/config.toml\n", hostName)
+		return int(ExitUsage)
+	}
+	client, err := remote.NewClient(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
+		return int(ExitHard)
+	}
+
+	body, err := json.Marshal(Request{Op: OpTail, Rooms: rooms})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
+		return int(ExitHard)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	frames, errc := client.Stream(ctx, body)
+	enc := json.NewEncoder(out)
+	for frame := range frames {
+		if isHandshake, ok := remote.ProbeHandshake(frame); isHandshake {
+			if !ok {
+				var resp Response
+				_ = json.Unmarshal(frame, &resp)
+				fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", responseError(resp))
+				return exitFromErr(responseError(resp))
+			}
+			continue
+		}
+		var env Envelope
+		if err := json.Unmarshal(frame, &env); err != nil {
+			continue
+		}
+		if env.Closing {
+			continue
+		}
+		if onlyAddressed && len(env.To) == 0 {
+			continue
+		}
+		if from != "" && env.From != from {
+			continue
+		}
+		if jsonOut {
+			if err := enc.Encode(env); err != nil {
+				fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
+				return int(ExitHard)
+			}
+			continue
+		}
+		fmt.Fprintln(out, TailLine(env, home, width, colour, roomPrefix))
+	}
+
+	select {
+	case err := <-errc:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
+			return int(ExitHard)
+		}
+	default:
+	}
+	return int(ExitOK)
 }
 
 // tailStream is tailAction's subscription loop, factored out so tests can drive
@@ -1543,16 +1919,22 @@ func tailStream(client *Client, rooms []string, onlyAddressed bool, from string,
 }
 
 // readAction implements `atomic bus read <room> <msg-id>`: fetch one full
-// envelope from the durable log. A pure log read — no daemon round trip, works
-// with the daemon down. The recovery verb for a consumer whose notification
-// layer truncated a message; the log line always carries the complete text.
+// envelope from the durable log. With no --host it is a pure log read — no
+// daemon round trip, works with the daemon down — the recovery verb for a
+// consumer whose notification layer truncated a message; the log line always
+// carries the complete text. --host (or a room this session joined on a
+// remote) instead answers over OpRead through that gateway, since a remote
+// room's log lives on a machine this process cannot open a file on.
 func readAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus read <room> <msg-id> [--json]\n"
+	const usage = "Usage: atomic bus read <room> <msg-id> [--json] [--host <name>] [--session <id>]\n"
 
 	fs := flag.NewFlagSet("bus-read", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var jsonOut bool
+	var host, session string
 	fs.BoolVar(&jsonOut, "json", false, "emit the raw envelope JSON")
+	fs.StringVar(&host, "host", "", "read from this remote (see [bus.remotes] in ~/.atomic/config.toml) instead of the local room log")
+	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (used only to resolve --host precedence)")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -1563,24 +1945,42 @@ func readAction(args []string, home string, out io.Writer) int {
 	}
 	room, id := positional[0], positional[1]
 	// Room names are free text on the wire, but this verb splices one into a
-	// filesystem path — reject anything path-shaped.
+	// filesystem path on the local path — reject anything path-shaped.
 	if room == "" || strings.ContainsAny(room, `/\`) || strings.Contains(room, "..") {
 		fmt.Fprintf(os.Stderr, "atomic bus read: invalid room name %q\n", room)
 		return int(ExitUsage)
 	}
 
-	env, found, err := ReadEnvelope(home, room, id)
-	if err != nil {
-		if os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "atomic bus read: no log for room %q\n", room)
-			return int(ExitNoRoom)
+	var env Envelope
+	if resolvedHost := resolveHost(home, sessionIDOrEmpty(session), room, host); resolvedHost != "" {
+		resp, err := DoRemote(home, resolvedHost, Request{Op: OpRead, Room: room, ID: id})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus read: %v\n", err)
+			return exitFromErr(err)
 		}
-		fmt.Fprintf(os.Stderr, "atomic bus read: %v\n", err)
-		return int(ExitHard)
-	}
-	if !found {
-		fmt.Fprintf(os.Stderr, "atomic bus read: no message %q in room %q\n", id, room)
-		return int(ExitHard)
+		var payload struct {
+			Envelope Envelope `json:"envelope"`
+		}
+		if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus read: parse remote response: %v\n", err)
+			return int(ExitHard)
+		}
+		env = payload.Envelope
+	} else {
+		e, found, ferr := ReadEnvelope(home, room, id)
+		if ferr != nil {
+			if os.IsNotExist(ferr) {
+				fmt.Fprintf(os.Stderr, "atomic bus read: no log for room %q\n", room)
+				return int(ExitNoRoom)
+			}
+			fmt.Fprintf(os.Stderr, "atomic bus read: %v\n", ferr)
+			return int(ExitHard)
+		}
+		if !found {
+			fmt.Fprintf(os.Stderr, "atomic bus read: no message %q in room %q\n", id, room)
+			return int(ExitHard)
+		}
+		env = e
 	}
 
 	if jsonOut {
@@ -1611,9 +2011,11 @@ func readAction(args []string, home string, out io.Writer) int {
 // against a raw-mode stdin and the daemon's live subscription. --as defaults to
 // $USER — chat's identity is the operator's own username, not the repo it is
 // run from — while position (repo/realm) is still resolved and recorded, same
-// as join.
+// as join. Local-only: unlike every other verb it has no --host, since an
+// interactive raw-mode session against a remote gateway is not something this
+// verb attempts.
 func chatAction(args []string, home, cwd string, out io.Writer) int {
-	const usage = "Usage: atomic bus chat <room> [--as <name>] [--session <id>]\n"
+	const usage = "Usage: atomic bus chat <room> [--as <name>] [--session <id>] (local only, no --host)\n"
 
 	fs := flag.NewFlagSet("bus-chat", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -1677,7 +2079,10 @@ func chatAction(args []string, home, cwd string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
 		return int(ExitHard)
 	}
-	st.Join(sessionID, room, name, "participate", KindHuman, pos.repo, pos.realm)
+	if err := st.Join(sessionID, room, name, "participate", KindHuman, pos.repo, pos.realm, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
+		return exitFromErr(err)
+	}
 	if err := st.Save(home); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
 		return int(ExitHard)
