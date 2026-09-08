@@ -42,7 +42,14 @@ func applyHooksRepair() error {
 		return fmt.Errorf("resolve cwd: %w", err)
 	}
 	repoRoot := gitToplevel(cwd)
-	return hooks.Install(repoRoot, home)
+	skipped, err := hooks.Install(repoRoot, home)
+	if err != nil {
+		return err
+	}
+	if skipped {
+		return fmt.Errorf("settings.json is read-only; hooks not installed")
+	}
+	return nil
 }
 
 func defaultInstallRepair(out io.Writer) error {
@@ -82,6 +89,33 @@ func applyFollowupsRenderRepair(out io.Writer) error {
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("atomic followups render: %w", err)
+	}
+	return nil
+}
+
+// defaultOutputStyleRepair seeds the user-level outputStyle key, mirroring
+// `atomic claude install`'s trigger. It never writes a project settings file.
+func defaultOutputStyleRepair(out io.Writer) error {
+	fmt.Fprintln(out, "$ seed user-level outputStyle")
+	target, err := resolveClaudeHome()
+	if err != nil {
+		return err
+	}
+	home, err := resolveHome()
+	if err != nil {
+		return err
+	}
+	scopeRoot := filepath.Dir(target)
+	wrote, err := hooks.SeedOutputStyle(scopeRoot, target, home)
+	if err != nil {
+		return err
+	}
+	if !wrote {
+		// repairPlan gates output-style as fixable only when a write is
+		// actually possible; reaching here means the state changed out from
+		// under the check (key added, flag flipped) between plan and apply.
+		fmt.Fprintln(out, "  no-op: output_style.seed is disabled, key already set, or style file not installed")
+		return errNonFixable
 	}
 	return nil
 }

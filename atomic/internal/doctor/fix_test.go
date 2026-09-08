@@ -47,6 +47,7 @@ func nopRepairer() doctor.Repairer {
 		HooksFn:           func(io.Writer) error { return nil },
 		ManifestFn:        func(io.Writer) error { return nil },
 		FollowupsRenderFn: func(io.Writer) error { return nil },
+		OutputStyleFn:     func(io.Writer) error { return nil },
 		HomeFn:            func() (string, error) { return os.TempDir(), nil },
 		IsRepoDevFn:       func() (bool, error) { return true, nil },
 		RepoRootFn:        func() string { return os.TempDir() },
@@ -167,6 +168,82 @@ func TestRepair_Binary_NonFixable(t *testing.T) {
 	output := out.String()
 	if !strings.Contains(output, "atomic update") {
 		t.Errorf("expected 'atomic update' instruction in output, got:\n%s", output)
+	}
+}
+
+// -- output-style repair --
+
+func TestRepair_OutputStyle_Yes(t *testing.T) {
+	called := false
+	rp := nopRepairer()
+	rp.OutputStyleFn = func(out io.Writer) error { called = true; return nil }
+
+	results := []doctor.Result{
+		makeResult(14, "output-style", doctor.WARN, "output style not set at user level"),
+	}
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+
+	if !called {
+		t.Error("output-style repair fn not called on Yes")
+	}
+	if summary.Applied != 1 {
+		t.Errorf("Applied = %d, want 1", summary.Applied)
+	}
+}
+
+func TestRepair_OutputStyle_SeedDisabled_NonFixable(t *testing.T) {
+	called := false
+	rp := nopRepairer()
+	rp.OutputStyleFn = func(out io.Writer) error { called = true; return nil }
+
+	results := []doctor.Result{
+		makeResult(14, "output-style", doctor.WARN,
+			"output style not set at user level; seeding is disabled (output_style.seed = false)"),
+	}
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+
+	if called {
+		t.Error("output-style repair fn called despite a non-fixable WARN")
+	}
+	if summary.Applied != 0 {
+		t.Errorf("Applied = %d, want 0", summary.Applied)
+	}
+	if summary.NonFixable != 1 {
+		t.Errorf("NonFixable = %d, want 1", summary.NonFixable)
+	}
+	if strings.Contains(sb.String(), "✓ fixed") {
+		t.Errorf("output claims fixed, got:\n%s", sb.String())
+	}
+}
+
+func TestRepair_OutputStyle_StyleFileMissing_NonFixable(t *testing.T) {
+	called := false
+	rp := nopRepairer()
+	rp.OutputStyleFn = func(out io.Writer) error { called = true; return nil }
+
+	results := []doctor.Result{
+		makeResult(14, "output-style", doctor.WARN,
+			`output style set to "Atomic" but output-styles/atomic.md is not installed`),
+	}
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+
+	if called {
+		t.Error("output-style repair fn called for a missing-style-file WARN")
+	}
+	if summary.Applied != 0 {
+		t.Errorf("Applied = %d, want 0", summary.Applied)
+	}
+	if summary.NonFixable != 1 {
+		t.Errorf("NonFixable = %d, want 1", summary.NonFixable)
+	}
+	if strings.Contains(sb.String(), "✓ fixed") {
+		t.Errorf("output claims fixed, got:\n%s", sb.String())
 	}
 }
 

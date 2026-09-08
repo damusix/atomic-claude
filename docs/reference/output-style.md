@@ -58,15 +58,17 @@ Ten routes cover the shapes that come up in practice:
 Three caps keep the vocabulary from sprawling. Aligned columns must sit inside a fence — markdown collapses whitespace, so unfenced alignment breaks on render. A reply keeps to one symbol vocabulary: the system already uses 🔴🟡🔵 for findings, so `[OK]/[WARN]/[FAIL]` tags would duplicate that taxonomy. Box-drawing cards are cut outright — their borders break on wrap, they cost tokens, and a heading already does the job a bordered card would.
 
 
-## How to activate it
+## How it gets activated
 
-1. Run `/config` in any Claude Code session
-2. Select **Output style**
-3. Pick **Atomic**
+`atomic claude install` and `atomic claude update` seed `"outputStyle": "Atomic"` into `~/.claude/settings.json` when that key is absent, and the session-start hook does the same on every session. A fresh machine ends up on Atomic with no action. The seed never overwrites an existing value.
 
-This writes `"outputStyle": "Atomic"` to your project's `.claude/settings.local.json`. For global scope, add the same key to `~/.claude/settings.json` directly.
+Only a user-level install seeds. `atomic claude install --target ./.claude` writes nothing, because that settings file is committed and the style is a personal choice; pick it there with `/config` instead.
 
-Restart Claude Code (or start a new session) for the change to take effect.
+`/config` → **Output style** still overrides per project, writing `.claude/settings.local.json`, which wins over the user-level value. `outputStyle` is read once at session start, so a change takes effect on the next session or after `/clear`.
+
+To opt out, run `atomic config set output_style.seed false`. **Deleting the `outputStyle` key is not an opt-out.** The session-start hook re-seeds it on the next session, so the flag is the only way to stop it.
+
+`atomic doctor` (category 14) reports what each settings file contains and flags a project-level `outputStyle` as a possible override. It does not compute an effective style, because Claude Code's own file-placement precedence is not documented well enough to replicate.
 
 
 ## Safety always wins

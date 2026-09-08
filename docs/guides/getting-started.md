@@ -15,18 +15,16 @@ Too lazy to read? Totally understand...
 ```
 
 
-## Step 1 — Turn on the output style
+## Step 1 — Check the output style
 
 
-This is the one piece that needs no project setup and changes every reply. Open any Claude Code session and run:
+This is the one piece that needs no project setup and changes every reply, and install already turned it on. `atomic claude install` seeds `"outputStyle": "Atomic"` into `~/.claude/settings.json`, so every project without its own override starts on Atomic. Replies lose the filler and lead with the answer.
 
-```text
-/config
-```
+Confirm it took by asking any question and watching the shape of the reply: short, structured, no preamble. `atomic doctor` reports the same thing without opening a session.
 
-Select **Output style**, then pick **Atomic**. Replies lose the filler and start leading with the answer. Nothing else has to be true for this to work, and it applies to every repo you open.
+The style is read once at session start, so if you installed mid-session, open a new one or run `/clear`.
 
-You can confirm it took by asking any question and watching the shape of the reply: short, structured, no preamble.
+To use a different style in one project, run `/config`, select **Output style**, and pick another. That writes `.claude/settings.local.json` for that project only, and the seed never overwrites it. To stop the seeding entirely, run `atomic config set output_style.seed false`. Deleting the key does not work, because the session-start hook writes it back.
 
 
 ## Step 2 — Set up a repo

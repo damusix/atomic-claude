@@ -18,6 +18,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
+	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 )
 
@@ -268,6 +269,72 @@ func populateProfile(home string, clock Clock) {
 	_, _ = ProfileRefresh(home, today, profile.DefaultRefreshDays)
 }
 
+const outputStyleOptOutHint = "atomic config set output_style.seed false"
+
+// seedOutputStyleForInstall wires hooks.SeedOutputStyle into installOrUpdate.
+// A write, a benign skip, and a read/parse failure are all non-fatal here —
+// a malformed settings.json must never abort an artifact install. Only a
+// user-level install seeds, per docs/spec/output-style-seed.md's Non-goal 1.
+func seedOutputStyleForInstall(targetDir, home string, manifest []embedded.Artifact, dryRun bool, out io.Writer) {
+	if !manifestHasOutputStyle(manifest) {
+		return
+	}
+	if !isUserLevelTarget(targetDir, home) {
+		return
+	}
+
+	if dryRun {
+		planOutputStyleSeed(home, out)
+		return
+	}
+
+	wrote, err := hooks.SeedOutputStyle(home, targetDir, home)
+	if err != nil {
+		fmt.Fprintf(out, "warning: could not seed output style (non-fatal): %v\n", err)
+		return
+	}
+	if wrote {
+		fmt.Fprintf(out, "Seeded output style %q for new sessions. Opt out with: %s\n", hooks.OutputStyleName, outputStyleOptOutHint)
+	}
+}
+
+func isUserLevelTarget(targetDir, home string) bool {
+	return hooks.SameDir(targetDir, filepath.Join(home, ".claude"))
+}
+
+// manifestHasOutputStyle mirrors hooks.SeedOutputStyle's own on-disk guard,
+// but against the manifest — the bundle isn't written yet under --dry-run,
+// so the disk check the real seed uses would wrongly suppress it.
+func manifestHasOutputStyle(manifest []embedded.Artifact) bool {
+	for _, a := range manifest {
+		if a.Target == hooks.OutputStyleRelPath {
+			return true
+		}
+	}
+	return false
+}
+
+// planOutputStyleSeed reports the write --dry-run would make, without making
+// it. The style-file guard is the manifest check the caller already ran; the
+// flag and the settings key still gate against the real settings file, since
+// both are readable without the bundle being on disk.
+func planOutputStyleSeed(home string, out io.Writer) {
+	if !hooks.SeedEnabled(home) {
+		return
+	}
+
+	sfPath := hooks.SettingsPath(home)
+	_, present, err := hooks.ReadOutputStyle(sfPath)
+	if err != nil {
+		fmt.Fprintf(out, "warning: could not read settings.json to plan output style seed: %v\n", err)
+		return
+	}
+	if present {
+		return
+	}
+	fmt.Fprintf(out, "Would seed output style %q for new sessions. Opt out with: %s\n", hooks.OutputStyleName, outputStyleOptOutHint)
+}
+
 func applyAction(targetDir, home string, fa *FileAction, dryRun bool, backupTimestamp string, agentOverrides map[string]config.AgentOverride) error {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(fa.Artifact.Target))
 
@@ -395,6 +462,12 @@ func installOrUpdate(targetDir, home string, dryRun bool, clock Clock, out io.Wr
 	if err := Apply(targetDir, home, plan, dryRun, clock); err != nil {
 		return nil, err
 	}
+
+	// After Apply, so the style file the guard looks for is on disk. Branches on
+	// dryRun internally: a dry run reports the intended seed against the manifest
+	// and writes nothing.
+	seedOutputStyleForInstall(targetDir, home, manifest, dryRun, out)
+
 	if !dryRun {
 		// Deliberately not inside Apply: profile.md is user data, and a bare Apply
 		// (dry-run or a future Apply-only path) must never create it.

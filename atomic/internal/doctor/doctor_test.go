@@ -9,8 +9,8 @@ import (
 
 func TestRegistryCount(t *testing.T) {
 	cats := doctor.Categories()
-	if len(cats) != 13 {
-		t.Fatalf("registry len = %d, want 13", len(cats))
+	if len(cats) != 14 {
+		t.Fatalf("registry len = %d, want 14", len(cats))
 	}
 
 	for i, c := range cats {
@@ -36,6 +36,7 @@ func TestRegistryCategoryNames(t *testing.T) {
 		"code-index",
 		"migrate",
 		"repo-config",
+		"output-style",
 	}
 	cats := doctor.Categories()
 	for i, want := range wantNames {
@@ -60,6 +61,7 @@ func TestRegistryCategorySeverities(t *testing.T) {
 		doctor.WARN, // 11 code-index
 		doctor.WARN, // 12 migrate
 		doctor.WARN, // 13 repo-config
+		doctor.WARN, // 14 output-style
 	}
 	cats := doctor.Categories()
 	for i, want := range wantSeverities {
@@ -87,15 +89,18 @@ func TestRunFiltersByOnly(t *testing.T) {
 }
 
 func TestRunFiltersBySkip(t *testing.T) {
+	// Category 14 (output-style) reads $HOME/.claude/settings.json; sandbox
+	// so this whole-registry test never touches the developer's real config.
+	t.Setenv("HOME", t.TempDir())
 	opts := doctor.Opts{Skip: []int{2, 4, 6, 8}, StaleDays: 7}
 	results, err := doctor.Run(opts)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(results) != 9 {
-		t.Fatalf("Run returned %d results, want 9", len(results))
+	if len(results) != 10 {
+		t.Fatalf("Run returned %d results, want 10", len(results))
 	}
-	wantIndices := []int{1, 3, 5, 7, 9, 10, 11, 12, 13}
+	wantIndices := []int{1, 3, 5, 7, 9, 10, 11, 12, 13, 14}
 	for i, want := range wantIndices {
 		if results[i].Index != want {
 			t.Errorf("results[%d].Index = %d, want %d", i, results[i].Index, want)
@@ -213,9 +218,9 @@ func TestFlagParsingRejectsUnknownCategory(t *testing.T) {
 }
 
 func TestFlagParsingRejectsOutOfRangeIndex(t *testing.T) {
-	_, err := doctor.ParseFlags([]string{"--only", "14"})
+	_, err := doctor.ParseFlags([]string{"--only", "15"})
 	if err == nil {
-		t.Fatal("expected error for out-of-range index 14, got nil")
+		t.Fatal("expected error for out-of-range index 15, got nil")
 	}
 
 	_, err = doctor.ParseFlags([]string{"--only", "0"})

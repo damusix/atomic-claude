@@ -45,7 +45,7 @@ The full tour from `atomic serve` on localhost: wiki docs, command-K search, SQL
 
 ## Run your first grounded loop
 
-The next step is your own repo. Turn on the output style, index your code, and hand the loop a real task, from install to a first merged change.
+The next step is your own repo. Index your code and hand the loop a real task, from install to a first merged change. Install sets the output style up for you.
 
 <div class="home-cta">
 

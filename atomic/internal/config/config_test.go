@@ -398,6 +398,9 @@ func TestResolvedZeroValueConfig(t *testing.T) {
 	if m["update.stage"] != "true" {
 		t.Errorf("Resolved(&Config{}) update.stage = %q, want \"true\"", m["update.stage"])
 	}
+	if m["output_style.seed"] != "true" {
+		t.Errorf("Resolved(&Config{}) output_style.seed = %q, want \"true\"", m["output_style.seed"])
+	}
 }
 
 func TestUpdateRunDoctorTrueRoundTrip(t *testing.T) {
@@ -483,6 +486,153 @@ func TestGetUpdateRunDoctor(t *testing.T) {
 		t.Fatal(err)
 	}
 	v, err = Get(cfg, "update.run_doctor")
+	if err != nil {
+		t.Fatalf("Get after Set false: %v", err)
+	}
+	if v != "false" {
+		t.Errorf("after Set false, Get = %q, want \"false\"", v)
+	}
+}
+
+func TestOutputStyleSeedDefault(t *testing.T) {
+	cfg := Default()
+	if !cfg.OutputStyle.Seed {
+		t.Error("Default() should set OutputStyle.Seed = true")
+	}
+}
+
+func TestOutputStyleSeedAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[output.signals]\nmax_depth = 3\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if !cfg.OutputStyle.Seed {
+		t.Error("absent output_style.seed should default to true")
+	}
+}
+
+func TestOutputStyleSeedExplicitFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[output_style]\nseed = false\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.OutputStyle.Seed {
+		t.Error("explicit output_style.seed = false should be false, not true")
+	}
+}
+
+func TestOutputStyleSeedExplicitTrue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[output_style]\nseed = true\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.OutputStyle.Seed {
+		t.Error("explicit output_style.seed = true should be true")
+	}
+}
+
+func TestOutputStyleSeedRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	if err := Set(cfg, "output_style.seed", "false"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if loaded.OutputStyle.Seed {
+		t.Error("persisted output_style.seed=false should load as false")
+	}
+}
+
+func TestSetOutputStyleSeedBadValue(t *testing.T) {
+	cfg := Default()
+	err := Set(cfg, "output_style.seed", "yes")
+	if err == nil {
+		t.Fatal("expected error for invalid value 'yes'")
+	}
+	if !strings.Contains(err.Error(), "true") || !strings.Contains(err.Error(), "false") {
+		t.Errorf("error should mention allowed values: %v", err)
+	}
+}
+
+func TestSetOutputStyleSeedFalse(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "output_style.seed", "false"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if cfg.OutputStyle.Seed {
+		t.Error("Set false should set Seed = false")
+	}
+}
+
+func TestUnsetOutputStyleSeed(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "output_style.seed", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unset(cfg, "output_style.seed"); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OutputStyle.Seed {
+		t.Error("after Unset, output_style.seed should be true (default)")
+	}
+}
+
+func TestGetOutputStyleSeed(t *testing.T) {
+	cfg := Default()
+	v, err := Get(cfg, "output_style.seed")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if v != "true" {
+		t.Errorf("default output_style.seed Get = %q, want \"true\"", v)
+	}
+
+	if err := Set(cfg, "output_style.seed", "false"); err != nil {
+		t.Fatal(err)
+	}
+	v, err = Get(cfg, "output_style.seed")
 	if err != nil {
 		t.Fatalf("Get after Set false: %v", err)
 	}

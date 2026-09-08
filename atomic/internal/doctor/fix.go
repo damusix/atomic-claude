@@ -40,6 +40,7 @@ type Repairer struct {
 	HooksFn           func(io.Writer) error
 	ManifestFn        func(io.Writer) error
 	FollowupsRenderFn func(io.Writer) error
+	OutputStyleFn     func(io.Writer) error
 	HomeFn            func() (string, error)
 	IsRepoDevFn       func() (bool, error)
 	RepoRootFn        func() string
@@ -52,6 +53,7 @@ func DefaultRepairer() Repairer {
 		HooksFn:           defaultHooksRepair,
 		ManifestFn:        defaultManifestRepair,
 		FollowupsRenderFn: defaultFollowupsRenderRepair,
+		OutputStyleFn:     defaultOutputStyleRepair,
 		HomeFn:            resolveHome,
 		IsRepoDevFn:       defaultIsRepoDev,
 		RepoRootFn:        defaultRepoRoot,
@@ -186,6 +188,15 @@ func repairPlan(r Result) (plan string, fixable bool) {
 		return "cannot auto-fix — edit config.toml or run `atomic config unset <key>`", false
 	case "profile":
 		return "run `atomic claude install` to create the profile stub; @-ref insertion is bundle-source-driven and updates with `atomic claude install/update`", false
+	case "output-style":
+		switch {
+		case strings.Contains(r.Detail, "seeding is disabled"):
+			return "cannot auto-fix — output_style.seed is disabled; run `atomic config set output_style.seed true` to enable", false
+		case strings.Contains(r.Detail, "is not installed"):
+			return "cannot auto-fix — run `atomic claude update` to reinstall the style", false
+		default:
+			return "seed the user-level outputStyle key", true
+		}
 	default:
 		return "cannot auto-fix — unknown category", false
 	}
@@ -228,6 +239,11 @@ func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, err
 		// Unreachable while repairPlan reports profile as non-fixable; erroring
 		// keeps a future fixable=true from silently no-opping.
 		return "", fmt.Errorf("profile repair not yet implemented — run 'atomic claude install' instead")
+	case "output-style":
+		if err := rp.OutputStyleFn(out); err != nil {
+			return "", err
+		}
+		return "seeded user-level outputStyle", nil
 	default:
 		return "", fmt.Errorf("no repair for %q", r.Name)
 	}

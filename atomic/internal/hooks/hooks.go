@@ -33,6 +33,28 @@ func refreshProfile(now time.Time) {
 	_, _ = ProfileRefresh(home, today, profile.DefaultRefreshDays)
 }
 
+// DefaultSeedOutputStyle lets a test restore SeedOutputStyleFn to production
+// behavior by name.
+var DefaultSeedOutputStyle = SeedOutputStyle
+
+// SeedOutputStyleFn is a test seam over SeedOutputStyle so SessionStart tests
+// don't touch the developer's real ~/.claude/settings.json.
+var SeedOutputStyleFn = DefaultSeedOutputStyle
+
+// seedOutputStyleSilent mirrors refreshProfile's shape: resolve home, bail on
+// error, swallow everything else. Ungated by design — there is no "seeded
+// once" marker, so a deleted key is re-seeded next session; the documented
+// opt-out is `atomic config set output_style.seed false`. A --target install
+// elsewhere simply fails the style-file guard here and no-ops.
+func seedOutputStyleSilent() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	targetDir := filepath.Join(home, ".claude")
+	_, _ = SeedOutputStyleFn(home, targetDir, home)
+}
+
 // WikiCheckStalenessFn takes raw func types rather than wiki.ExecRunner so test
 // function literals assign without a cast.
 type WikiCheckStalenessFn func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error)
@@ -131,6 +153,7 @@ const (
 // surface. now is the reference time for relative date formatting.
 func SessionStart(repoRoot string, now time.Time) (string, error) {
 	refreshProfile(now)
+	seedOutputStyleSilent()
 
 	wikiNudges := checkWikiStaleness(now)
 
@@ -194,6 +217,7 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 // SessionStartText is SessionStart without the JSON envelope.
 func SessionStartText(repoRoot string, now time.Time) (string, error) {
 	refreshProfile(now)
+	seedOutputStyleSilent()
 
 	wikiNudges := checkWikiStaleness(now)
 	whereNudges := checkWherePosition(repoRoot)
@@ -346,52 +370,95 @@ func legacyScriptPath(scopeRoot string) string {
 	return filepath.Join(scopeRoot, legacyHooksSubdir, legacyScriptName)
 }
 
-func settingsPath(scopeRoot string) string {
+// SettingsPath resolves a scope root to its settings.json. Exported so
+// claudeinstall does not rebuild the literal a third time.
+func SettingsPath(scopeRoot string) string {
 	return filepath.Join(scopeRoot, settingsRelPath)
+}
+
+// SameDir reports whether two paths name the same directory. Callers ask this
+// to decide whether to skip work, so a false negative is silent and costly.
+//
+// Two things defeat a plain string compare, and both are routine: a $HOME or
+// temp dir that is itself a symlink (the norm on macOS), and a relative path
+// such as `--target .claude`. A directory that does not exist yet cannot be
+// resolved at all, which is the common case on a first install, so resolution
+// falls back to the parent.
+func SameDir(a, b string) bool {
+	return resolveDir(a) == resolveDir(b)
+}
+
+// resolveDir returns the most-resolved absolute form of path it can reach,
+// degrading one step at a time rather than giving up.
+func resolveDir(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	// The leaf may not exist yet; resolving the parent still catches a
+	// symlinked ancestor.
+	parent, base := filepath.Split(abs)
+	if resolved, err := filepath.EvalSymlinks(filepath.Clean(parent)); err == nil {
+		return filepath.Join(resolved, base)
+	}
+	return abs
 }
 
 // Install registers the inline command under scopeRoot; repoRoot is unused here.
 // Any older wrapper-script registration is removed first so the hook cannot
-// double-fire. Idempotent.
-func Install(repoRoot, scopeRoot string) error {
-	sfPath := settingsPath(scopeRoot)
+// double-fire. Idempotent. skipped reports a read-only settings.json left
+// untouched, so a caller can tell that from a genuine success.
+func Install(repoRoot, scopeRoot string) (skipped bool, err error) {
+	sfPath := SettingsPath(scopeRoot)
 
-	if err := migrateLegacy(sfPath, scopeRoot); err != nil {
-		return err
+	if skipped, err := migrateLegacy(sfPath, scopeRoot); err != nil || skipped {
+		return skipped, err
 	}
 
 	return registerInSettings(sfPath, sessionStartCommand)
 }
 
 // Uninstall removes the registration and any lingering legacy wrapper script.
-func Uninstall(repoRoot, scopeRoot string) error {
+// skipped reports a read-only settings.json left untouched.
+func Uninstall(repoRoot, scopeRoot string) (skipped bool, err error) {
 	if err := os.Remove(legacyScriptPath(scopeRoot)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("hooks uninstall: remove legacy script: %w", err)
+		return false, fmt.Errorf("hooks uninstall: remove legacy script: %w", err)
 	}
 
-	sfPath := settingsPath(scopeRoot)
+	sfPath := SettingsPath(scopeRoot)
 	if _, err := os.Stat(sfPath); os.IsNotExist(err) {
-		return nil
+		return false, nil
 	}
 
-	if err := unregisterFromSettings(sfPath, sessionStartCommand); err != nil {
-		return err
+	if skipped, err := unregisterFromSettings(sfPath, sessionStartCommand); err != nil || skipped {
+		return skipped, err
 	}
-	return unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot))
+	if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil || skipped {
+		return skipped, err
+	}
+
+	// This uninstall never deletes the style file itself, so the key is removed
+	// only once the file it names is already gone. See the "Remove on uninstall"
+	// flow in docs/spec/output-style-seed.md.
+	_, skipped, err = RemoveOutputStyleIfAtomic(scopeRoot)
+	return skipped, err
 }
 
 // migrateLegacy is a no-op when no wrapper-script install exists. A malformed
 // settings.json errors, so Install refuses to proceed.
-func migrateLegacy(sfPath, scopeRoot string) error {
+func migrateLegacy(sfPath, scopeRoot string) (skipped bool, err error) {
 	if _, err := os.Stat(sfPath); err == nil {
-		if err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil {
-			return err
+		if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil || skipped {
+			return skipped, err
 		}
 	}
 	if err := os.Remove(legacyScriptPath(scopeRoot)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("hooks install: remove legacy script: %w", err)
+		return false, fmt.Errorf("hooks install: remove legacy script: %w", err)
 	}
-	return nil
+	return false, nil
 }
 
 func hasRegistration(settings map[string]any, command string) bool {
@@ -429,7 +496,7 @@ func hasRegistration(settings map[string]any, command string) bool {
 // drifted means the hook still fires but through a legacy wrapper-script (or a
 // half-migrated pair), and `atomic hooks install` should be re-run.
 func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
-	sfPath := settingsPath(scopeRoot)
+	sfPath := SettingsPath(scopeRoot)
 	settings, _, _, readErr := readSettingsHujson(sfPath)
 	if readErr != nil {
 		return false, false, readErr

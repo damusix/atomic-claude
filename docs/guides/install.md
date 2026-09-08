@@ -33,26 +33,20 @@ atomic claude install
 
 This also registers the session-start hook by default; pass `--no-hooks` to skip it (see "After installing").
 
-That is it. Verify the install with `atomic doctor`, which runs integrity checks and names anything missing. Then activate the output style with `/config` → **Output style** → **Atomic** in any Claude Code session.
+That is it. Install seeds the Atomic output style into `~/.claude/settings.json` automatically. Verify with `atomic doctor`, which runs integrity checks, names anything missing, and confirms the seeded style.
 
-For a project-scoped install instead of global: `atomic claude install --target ./.claude`.
+For a project-scoped install instead of global: `atomic claude install --target ./.claude`. That route deliberately does not seed the output style, since the file it would write is committed and the choice is personal. Pick the style yourself with `/config` → **Output style** → **Atomic**, which writes the gitignored `.claude/settings.local.json`.
 
 
 ## After installing
 
-The installer prints two manual steps it cannot automate:
+The installer prints one manual step it cannot automate:
 
-1. **Activate the output style** — run `/config` in Claude Code, select **Output style**, pick **Atomic**
-
-    ![The /config screen with Output style highlighted](/img/output-style-config.png)
-
-    ![The output style picker with Atomic selected](/img/output-style-picker.png)
-
-2. **Scan your repos** — run `/refresh-wiki` in each repo. It builds the repo wiki, Claude's standing map of that repo's framework, commands, and layout
+1. **Scan your repos** — run `/refresh-wiki` in each repo. It builds the repo wiki, Claude's standing map of that repo's framework, commands, and layout
 
 A few optional steps go further:
 
-- **Check the session-start hook.** `atomic claude install` already registered a Claude Code session-start hook that refreshes your profile, injects pending reminders, and nudges you when a wiki falls stale. Some managed or enterprise setups disable hooks; if yours does, remove it with `atomic hooks uninstall`, or install with `atomic claude install --no-hooks` next time. To add the hook later (or after removing it), run `atomic hooks install`; the scope defaults to your user config, and `--scope project` limits it to one repo.
+- **Check the session-start hook.** `atomic claude install` already registered a Claude Code session-start hook that refreshes your profile, injects pending reminders, nudges you when a wiki falls stale, and re-seeds the output style if the key is ever missing. Some managed or enterprise setups disable hooks; if yours does, remove it with `atomic hooks uninstall`, which leaves your seeded output style alone as long as the style file itself is still installed, or install with `atomic claude install --no-hooks` next time. To add the hook later (or after removing it), run `atomic hooks install`; the scope defaults to your user config, and `--scope project` limits it to one repo.
 - **Map related repos with a wiki.** If you work across a folder of services, libraries, or client projects, run `/refresh-wiki` to build a cross-repo wiki. It summarizes each member repo and writes up the concerns they share, so Claude can reason about a whole realm of projects rather than one repo at a time. See the [wiki workflow](/reference/realm-wiki).
 - **Index a project's symbols.** Run `atomic code index` in a project to build a symbol graph of it. Once indexed, `atomic code explore "<question>"` returns a context digest of the relevant symbols and call edges in one query, and the implementation agents use the graph for blast-radius checks and domain clustering. Indexing is opt-in and degrades to plain search when absent; see the [code-intel reference](/reference/code-intel).
 

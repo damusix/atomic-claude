@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 )
@@ -652,5 +654,213 @@ func TestBackupTimestampUsesRunStart(t *testing.T) {
 		if ts != "2026-05-16T18-32-11Z" {
 			t.Errorf("expected timestamp 2026-05-16T18-32-11Z, got %q", ts)
 		}
+	}
+}
+
+// outputStyleSandbox lays out target as <home>/.claude, so scopeRoot
+// (filepath.Dir(target), matching cmd_claude.go's production wiring) stays
+// contained under the test's own t.TempDir() instead of escaping it.
+func outputStyleSandbox(t *testing.T) (target, home string) {
+	t.Helper()
+	home = t.TempDir()
+	return filepath.Join(home, ".claude"), home
+}
+
+func readOutputStyleKey(t *testing.T, home string) (value string, present bool) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if os.IsNotExist(err) {
+		return "", false
+	}
+	if err != nil {
+		t.Fatalf("read settings.json: %v", err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatalf("unmarshal settings.json: %v", err)
+	}
+	v, ok := settings["outputStyle"]
+	if !ok {
+		return "", false
+	}
+	s, _ := v.(string)
+	return s, true
+}
+
+func TestInstall_SeedsOutputStyle_AnnouncesOnce(t *testing.T) {
+	target, home := outputStyleSandbox(t)
+	var out bytes.Buffer
+
+	if _, err := claudeinstall.InstallWithOutput(target, home, false, fixedClock, &out); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	value, present := readOutputStyleKey(t, home)
+	if !present || value != "Atomic" {
+		t.Fatalf("outputStyle = (%q, %v), want (Atomic, true)", value, present)
+	}
+	if strings.Count(out.String(), "Seeded output style") != 1 {
+		t.Errorf("expected exactly one seed announcement, got:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "atomic config set output_style.seed false") {
+		t.Errorf("announcement missing opt-out verb: %q", out.String())
+	}
+}
+
+func TestInstall_SecondRun_SeedIsNoOpAndSilent(t *testing.T) {
+	target, home := outputStyleSandbox(t)
+
+	if _, err := claudeinstall.InstallWithOutput(target, home, false, fixedClock, &bytes.Buffer{}); err != nil {
+		t.Fatalf("first Install: %v", err)
+	}
+
+	// Control: the first install actually wrote the key, so the second run's
+	// silence proves no-op-on-repeat rather than the seed never firing at all.
+	if value, present := readOutputStyleKey(t, home); !present || value != "Atomic" {
+		t.Fatalf("first install: outputStyle = (%q, %v), want (Atomic, true)", value, present)
+	}
+
+	var out bytes.Buffer
+	if _, err := claudeinstall.InstallWithOutput(target, home, false, fixedClock, &out); err != nil {
+		t.Fatalf("second Install: %v", err)
+	}
+
+	if strings.Contains(out.String(), "output style") {
+		t.Errorf("second install should be silent about the seed, got:\n%s", out.String())
+	}
+}
+
+func TestInstall_ExistingOutputStyle_LeftUntouchedAndSilent(t *testing.T) {
+	target, home := outputStyleSandbox(t)
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(`{"outputStyle": "Explanatory"}`), 0o644); err != nil {
+		t.Fatalf("write settings.json: %v", err)
+	}
+
+	// Control: the same seed writes into a sibling sandbox with no preexisting
+	// key, so the untouched value below proves the guard, not dead wiring.
+	controlTarget, controlHome := outputStyleSandbox(t)
+	if _, err := claudeinstall.InstallWithOutput(controlTarget, controlHome, false, fixedClock, &bytes.Buffer{}); err != nil {
+		t.Fatalf("control Install: %v", err)
+	}
+	if value, present := readOutputStyleKey(t, controlHome); !present || value != "Atomic" {
+		t.Fatalf("control: outputStyle = (%q, %v), want (Atomic, true)", value, present)
+	}
+
+	var out bytes.Buffer
+	if _, err := claudeinstall.InstallWithOutput(target, home, false, fixedClock, &out); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	value, present := readOutputStyleKey(t, home)
+	if !present || value != "Explanatory" {
+		t.Errorf("outputStyle = (%q, %v), want (Explanatory, true) — install must not overwrite", value, present)
+	}
+	if strings.Contains(out.String(), "output style") {
+		t.Errorf("install should be silent when outputStyle is already set, got:\n%s", out.String())
+	}
+}
+
+func TestInstall_SeedDisabled_SuppressesWriteAndAnnouncement(t *testing.T) {
+	target, home := outputStyleSandbox(t)
+	if err := os.MkdirAll(filepath.Dir(config.TOMLPath(home)), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(config.TOMLPath(home), []byte("[output_style]\nseed = false\n"), 0o644); err != nil {
+		t.Fatalf("write config.toml: %v", err)
+	}
+
+	// Control: with the flag left at its default (enabled), the seed writes
+	// into a sibling sandbox — so the absence below proves the flag, not
+	// dead wiring.
+	controlTarget, controlHome := outputStyleSandbox(t)
+	if _, err := claudeinstall.InstallWithOutput(controlTarget, controlHome, false, fixedClock, &bytes.Buffer{}); err != nil {
+		t.Fatalf("control Install: %v", err)
+	}
+	if value, present := readOutputStyleKey(t, controlHome); !present || value != "Atomic" {
+		t.Fatalf("control: outputStyle = (%q, %v), want (Atomic, true)", value, present)
+	}
+
+	var out bytes.Buffer
+	if _, err := claudeinstall.InstallWithOutput(target, home, false, fixedClock, &out); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if _, present := readOutputStyleKey(t, home); present {
+		t.Error("outputStyle should not be written when output_style.seed = false")
+	}
+	if strings.Contains(out.String(), "output style") {
+		t.Errorf("install should be silent when the seed flag is disabled, got:\n%s", out.String())
+	}
+}
+
+func TestInstall_DryRun_PlansSeedWithoutWriting(t *testing.T) {
+	target, home := outputStyleSandbox(t)
+	var out bytes.Buffer
+
+	if _, err := claudeinstall.InstallWithOutput(target, home, true /* dryRun */, fixedClock, &out); err != nil {
+		t.Fatalf("Install dry-run: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Would seed output style") {
+		t.Errorf("dry-run should report the intended seed, got:\n%s", out.String())
+	}
+	if _, present := readOutputStyleKey(t, home); present {
+		t.Error("dry-run must not write the outputStyle key")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); !os.IsNotExist(err) {
+		t.Error("dry-run must not create settings.json")
+	}
+}
+
+func TestInstall_MalformedSettings_WarnsAndStillInstalls(t *testing.T) {
+	target, home := outputStyleSandbox(t)
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(settingsPath, []byte("{not json"), 0o644); err != nil {
+		t.Fatalf("write malformed settings.json: %v", err)
+	}
+
+	var out bytes.Buffer
+	plan, err := claudeinstall.InstallWithOutput(target, home, false, fixedClock, &out)
+	if err != nil {
+		t.Fatalf("Install must not fail on a malformed settings.json: %v", err)
+	}
+	if countKind(plan, claudeinstall.ActionInstalled) == 0 {
+		t.Error("artifact install should still proceed despite the malformed settings.json")
+	}
+	if !strings.Contains(out.String(), "warning") {
+		t.Errorf("expected a warning about the malformed settings.json, got:\n%s", out.String())
+	}
+}
+
+// TestInstall_TargetElsewhere_SeedsNothing reproduces a --target install
+// (e.g. `atomic claude install --target ./.claude`) where the target is not
+// the user-level ~/.claude. Non-goal 1 in docs/spec/output-style-seed.md
+// forbids writing outputStyle into any project-scoped settings.json; home's
+// own settings.json must also stay untouched, since the seed's job is the
+// user level specifically, not "wherever this install happened to point".
+func TestInstall_TargetElsewhere_SeedsNothing(t *testing.T) {
+	home := t.TempDir()
+	projectTarget := filepath.Join(t.TempDir(), ".claude")
+	var out bytes.Buffer
+
+	if _, err := claudeinstall.InstallWithOutput(projectTarget, home, false, fixedClock, &out); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if _, present := readOutputStyleKey(t, filepath.Dir(projectTarget)); present {
+		t.Error("outputStyle must not be written into the project-scoped settings.json")
+	}
+	if _, present := readOutputStyleKey(t, home); present {
+		t.Error("outputStyle must not be written into the user-level settings.json for a non-user-level target")
+	}
+	if strings.Contains(out.String(), "output style") {
+		t.Errorf("a --target install elsewhere must not announce a seed, got:\n%s", out.String())
 	}
 }

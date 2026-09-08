@@ -99,6 +99,10 @@ Every other command source is self-contained.
 
 `install` and `update` share one code path, `installOrUpdate` in [`atomic/internal/claudeinstall/install.go`](../../atomic/internal/claudeinstall/install.go). Both take a write-once pre-install snapshot, plan, apply, create `~/.atomic/profile.md` if absent, offer to prune stale artifacts, then record what was installed in `[install.artifacts]`.
 
+Right after `Apply` returns, `installOrUpdate` calls `seedOutputStyleForInstall(targetDir, home, manifest, dryRun, out)` (after `Apply`, so the style file the seed guard checks for is already on disk). Seeding fires only when `manifestHasOutputStyle` finds the output-style artifact in the manifest itself (not on disk, since `--dry-run` writes nothing) and `isUserLevelTarget` confirms `targetDir` is `~/.claude` via `hooks.SameDir`; a custom `--target` install never seeds. Under `--dry-run`, `planOutputStyleSeed` reports what would be seeded by checking `hooks.SeedEnabled` and the current `settings.json` state, without writing. A seed failure (malformed `settings.json`) prints as a non-fatal warning and never aborts the install.
+
+[`atomic/cmd/atomic/cmd_claude.go`](../../atomic/cmd/atomic/cmd_claude.go)'s `runClaudeInstall` calls `hooks.Install(scopeRoot, scopeRoot)` after `claudeinstall.Install`/`Update` returns, to register the session-start hook. `hooks.Install` returns a `skipped bool` alongside its error; when `skipped` is true (a read-only `settings.json`), `runClaudeInstall` sets `result.HooksError = fmt.Errorf("settings.json is read-only")` instead of reporting success. `printPostInstallHint`'s next-steps message no longer tells the user to open Claude Code and pick the output style manually under `/config`, since `seedOutputStyleForInstall` now does that during install; the hint keeps only the `/refresh-wiki` signals reminder.
+
 ### The per-artifact install decision
 
 [`CLAUDE.md`](../../CLAUDE.md) is the one artifact never overwritten wholesale, because a user's own content lives in the same file.
@@ -168,6 +172,7 @@ Both are gitignored; `git ls-files atomic/internal/embedded/` returns only [`bun
 | [`atomic/internal/claudeinstall/manifest.go`](../../atomic/internal/claudeinstall/manifest.go) | Stale-artifact pruning and the `[install]` config manifest. |
 | [`atomic/internal/claudeinstall/snapshot.go`](../../atomic/internal/claudeinstall/snapshot.go) | Write-once pre-install snapshot, the input to uninstall. |
 | [`atomic/internal/claudeinstall/uninstall.go`](../../atomic/internal/claudeinstall/uninstall.go) | `BuildUninstallPlan`, `GenerateUninstallPrompt`. |
+| [`atomic/cmd/atomic/cmd_claude.go`](../../atomic/cmd/atomic/cmd_claude.go) | `atomic claude install\|update\|diff\|list\|uninstall` dispatch. `runClaudeInstall` wires the session-start hook and surfaces a read-only `settings.json` as `HooksError`; `printPostInstallHint` prints the post-install next steps. |
 | [`atomic/internal/manifestcheck/manifestcheck.go`](../../atomic/internal/manifestcheck/manifestcheck.go) | `Compare` re-runs `bundlemirror.Enumerate` against the live [`context/`](../../context) tree and diffs it against the binary's baked-in `embedded.Manifest()` — a staleness check, not a git-commit-drift check, since neither side is committed. |
 
 ### Docs
@@ -179,6 +184,7 @@ Both are gitignored; `git ls-files atomic/internal/embedded/` returns only [`bun
 | [`docs/spec/atomic-binary.md`](../spec/atomic-binary.md) | Master spec for every [`atomic`](../../atomic) CLI verb, including the `claude` family. |
 | [`docs/spec/uninstall.md`](../spec/uninstall.md), [`docs/design/uninstall.md`](../design/uninstall.md) | `atomic claude uninstall`: snapshot, restore plan, LLM merge of modified files. |
 | [`docs/spec/artifact-consolidation.md`](../spec/artifact-consolidation.md) | Why the artifact surface is shaped as it is: ship-verb family collapse, cold ops moved to binary-emitted prompts. |
+| [`docs/spec/output-style-seed.md`](../spec/output-style-seed.md), [`docs/design/output-style-seed.md`](../design/output-style-seed.md) | Why install seeds the user-level `outputStyle` key, the non-goals (never a project file, never an overwrite), and the root-cause investigation behind seeding it at all. |
 | [`docs/guides/contributing.md`](../guides/contributing.md) | Contributor workflow, build pipeline, testing. |
 | [`docs/guides/install.md`](../guides/install.md) | User-facing install walkthrough. |
 
@@ -202,14 +208,18 @@ Both are gitignored; `git ls-files atomic/internal/embedded/` returns only [`bun
 
 That stage does not belong to this domain, and there is no render, bundle, or frontend stage in the hook at all: [`.githooks/pre-commit`](../../.githooks/pre-commit) states directly that [`context/`](../../context) artifacts are committed in source form and expanded into [`atomic/internal/embedded/`](../../atomic/internal/embedded), and the serve frontend into `atomic/internal/serve/frontend/dist/`, both gitignored and rebuilt by `make -C atomic bundle|frontend`. The stage degrades to a warning and continues when [`atomic`](../../atomic) is missing.
 
+**Output-style seeding only fires for a user-level install target, never `--target`.** `isUserLevelTarget` compares `targetDir` against `home/.claude` with `hooks.SameDir`; a project-scoped install (`atomic claude install --target ./.claude`) never seeds, because the style file it would write is committed and the choice is a personal one.
+
 
 ## Coupling
 
 
 - **config** — install writes into two roots that must not be confused. Artifacts go to `targetDir` (default `~/.claude`, overridable with `--target`); everything atomic owns resolves through [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go) under `~/.atomic` (`config.toml`, `backups/`, `proposed/CLAUDE.md`, `profile.md`, `pre-install/`). The config domain owns those helpers; this domain calls them. Spec: [`docs/spec/configurable-state-paths.md`](../spec/configurable-state-paths.md).
 - **config** — `atomic config agents` writes `[claude.agents.<name>]` overrides, then calls `ReapplyAgents` through the `ApplyAgentsHook` package variable. `internal/config` cannot import `internal/claudeinstall` without a cycle, so [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go), the only package importing both, wires the hook in `init()`. `ReapplyAgents` resolves its target via `ResolveTarget("~/.claude")`, so an install made with a custom `--target` is invisible to that verb.
+- **config** — `seedOutputStyleForInstall` in [`atomic/internal/claudeinstall/install.go`](../../atomic/internal/claudeinstall/install.go) calls `hooks.SeedOutputStyle` and `hooks.SameDir` from [`atomic/internal/hooks/`](../../atomic/internal/hooks), the config domain's package. `hooks.SeedOutputStyle` owns the `outputStyle` key write to `~/.claude/settings.json`; this domain only decides when to call it (manifest carries the artifact, target is user-level).
 - **doctor** — [`atomic/internal/manifestcheck/manifestcheck.go`](../../atomic/internal/manifestcheck/manifestcheck.go) calls `bundlemirror.Enumerate` and compares the result against the binary's embedded `Manifest()`. Doctor's manifest check and `atomic validate` both consume it. The check is repo-dev only and SKIPs outside the atomic-claude repo. Changing a `bundlespec` predicate changes what both report.
 - **doctor** — doctor's install check calls `claudeinstall.Diff` to find drift between the embedded bundle and `~/.claude`: an absent artifact is FAIL, a differing one is WARN, and `atomic doctor --fix` repairs it.
+- **doctor** — doctor's category 14 check ([`atomic/internal/doctor/checks_output_style.go`](../../atomic/internal/doctor/checks_output_style.go)) reads the same `outputStyle` key this domain's install path writes via `hooks.SeedOutputStyle`, and warns when it is absent or names an uninstalled style. `atomic doctor --fix` re-seeds it through the same `hooks` primitives.
 - **doctor, config** — install creates `~/.atomic/profile.md` on first run via [`atomic/internal/profile`](../../atomic/internal/profile) and prints `ProfileNudge`. Profile content and its freshness window belong to those domains.
 - **workflow** — every ship verb and orchestrator command lives in [`context/commands/`](../../context/commands). Changing a ship-verb flow means editing [`context/_partials/commit-flow.md`](../../context/_partials/commit-flow.md) and its siblings, not a single command file, because the partials fan out to every command in the family.
 - **docs-meta** — [`context/CLAUDE.md`](../../context/CLAUDE.md) is both the bundle input and, per the root [`CLAUDE.md`](../../CLAUDE.md), a separate file from this repo's own project instructions: [`context/CLAUDE.md`](../../context/CLAUDE.md) installs as every user's `~/.claude/CLAUDE.md`, while the root [`CLAUDE.md`](../../CLAUDE.md) never installs. A change to [`context/CLAUDE.md`](../../context/CLAUDE.md) reaches every user on their next update.

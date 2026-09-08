@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -18,15 +19,22 @@ import (
 
 // TestMain sandboxes every test in this package under a temp $HOME, since
 // reminder.Add/List (which SessionStart drives) resolve their directory
-// relative to the real home via config.ProjectRemindersDir.
+// relative to the real home via config.ProjectRemindersDir. The real $HOME
+// env var is overridden too, since os.UserHomeDir() (what seedOutputStyleSilent
+// and refreshProfile both resolve against) reads it directly — without this,
+// a machine with atomic-claude already installed would have SessionStart
+// tests write into its real ~/.claude/settings.json.
 func TestMain(m *testing.M) {
 	home, err := os.MkdirTemp("", "hooks-test-home")
 	if err != nil {
 		panic(err)
 	}
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", home)
 	restore := config.SetHomeDirForTest(home)
 	code := m.Run()
 	restore()
+	os.Setenv("HOME", origHome)
 	os.RemoveAll(home)
 	os.Exit(code)
 }
@@ -649,7 +657,7 @@ func TestSessionStart_SystemMessage_Pluralization(t *testing.T) {
 func TestInstall_EmptyDir_RegistersInlineCommand(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -705,7 +713,7 @@ func TestInstall_ExistingUnrelatedKeys_Preserved(t *testing.T) {
 	initial := `{"theme": "dark", "hooks": {"PreToolUse": [{"matcher": ".*", "hooks": [{"type": "command", "command": "echo hi"}]}]}}`
 	os.WriteFile(settingsPath, []byte(initial), 0o644)
 
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -728,10 +736,10 @@ func TestInstall_ExistingUnrelatedKeys_Preserved(t *testing.T) {
 func TestInstall_Idempotent(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("second Install: %v", err)
 	}
 
@@ -755,7 +763,7 @@ func TestInstall_ExistingSessionStartElsewhere_Appends(t *testing.T) {
 	initial := `{"hooks": {"SessionStart": [{"matcher": ".*", "hooks": [{"type": "command", "command": "/other/hook.sh"}]}]}}`
 	os.WriteFile(settingsPath, []byte(initial), 0o644)
 
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -777,7 +785,7 @@ func TestInstall_MalformedSettings_Refuses(t *testing.T) {
 	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
 	os.WriteFile(settingsPath, []byte("{ not valid json "), 0o644)
 
-	err := hooks.Install(repoRoot, scopeRoot)
+	_, err := hooks.Install(repoRoot, scopeRoot)
 	if err == nil {
 		t.Fatal("expected error for malformed settings.json, got nil")
 	}
@@ -790,7 +798,7 @@ func TestInstall_MalformedSettings_Refuses(t *testing.T) {
 
 func TestInstall_ScopeProject_WritesUnderClaudeDir(t *testing.T) {
 	projectRoot := t.TempDir()
-	if err := hooks.Install(projectRoot, projectRoot); err != nil {
+	if _, err := hooks.Install(projectRoot, projectRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 	settingsPath := filepath.Join(projectRoot, ".claude", "settings.json")
@@ -820,7 +828,7 @@ func TestInstall_JWCCSettingsPreservesCommentsAndTrailingCommas(t *testing.T) {
 `
 	os.WriteFile(settingsPath, []byte(jwcc), 0o644)
 
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install on JWCC settings: %v", err)
 	}
 
@@ -841,7 +849,7 @@ func TestInstall_JWCCSettingsPreservesCommentsAndTrailingCommas(t *testing.T) {
 		t.Errorf("install did not add SessionStart to JWCC settings:\n%s", raw)
 	}
 
-	if err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Uninstall on JWCC settings: %v", err)
 	}
 
@@ -859,7 +867,7 @@ func TestUninstall_RemovesRegistration(t *testing.T) {
 	repoRoot := t.TempDir()
 	hooks.Install(repoRoot, scopeRoot)
 
-	if err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 
@@ -885,7 +893,7 @@ func TestUninstall_RemovesLegacyScriptFile(t *testing.T) {
 	siblingPath := filepath.Join(hooksDir, "other.sh")
 	os.WriteFile(siblingPath, []byte("#!/bin/bash\necho other\n"), 0o755)
 
-	if err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 
@@ -918,8 +926,66 @@ func TestUninstall_DropsHooksKeyWhenEmpty(t *testing.T) {
 func TestUninstall_NoScript_NoError(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
-	if err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Uninstall without prior install: %v", err)
+	}
+}
+
+func TestUninstall_RemovesOutputStyleWhenAtomic(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
+	os.WriteFile(settingsPath, []byte(`{"outputStyle": "Atomic"}`), 0o644)
+
+	if _, err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	raw, _ := os.ReadFile(settingsPath)
+	var settings map[string]any
+	json.Unmarshal(raw, &settings)
+	if _, present := settings["outputStyle"]; present {
+		t.Errorf("outputStyle should be removed after uninstall, got: %s", raw)
+	}
+}
+
+func TestUninstall_LeavesNonAtomicOutputStyle(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
+	os.WriteFile(settingsPath, []byte(`{"outputStyle": "Explanatory"}`), 0o644)
+
+	if _, err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	raw, _ := os.ReadFile(settingsPath)
+	var settings map[string]any
+	json.Unmarshal(raw, &settings)
+	if settings["outputStyle"] != "Explanatory" {
+		t.Errorf("outputStyle should be left untouched, got: %v", settings["outputStyle"])
+	}
+
+	// Control: the same Uninstall call removes an exact "Atomic" value, so
+	// this test proves the guard discriminates by value rather than passing
+	// because nothing about outputStyle is wired at all.
+	controlRoot := t.TempDir()
+	controlSettings := filepath.Join(controlRoot, ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(controlSettings), 0o755)
+	os.WriteFile(controlSettings, []byte(`{"outputStyle": "Atomic"}`), 0o644)
+
+	if _, err := hooks.Uninstall(repoRoot, controlRoot); err != nil {
+		t.Fatalf("Uninstall (control): %v", err)
+	}
+	controlRaw, _ := os.ReadFile(controlSettings)
+	var controlSettingsMap map[string]any
+	json.Unmarshal(controlRaw, &controlSettingsMap)
+	if _, present := controlSettingsMap["outputStyle"]; present {
+		t.Errorf("control: outputStyle should be removed when exactly Atomic, got: %v", controlSettingsMap["outputStyle"])
 	}
 }
 
@@ -935,7 +1001,7 @@ func TestUninstall_PreservesOtherRegistrations(t *testing.T) {
 	os.MkdirAll(filepath.Dir(scriptPath), 0o755)
 	os.WriteFile(scriptPath, []byte("#!/usr/bin/env bash\nexec atomic hooks session-start\n"), 0o755)
 
-	if err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 
@@ -958,7 +1024,7 @@ func TestUninstall_PreservesOtherRegistrations(t *testing.T) {
 func TestIsInstalled_AfterInstall_InstalledNotDrifted(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -1061,7 +1127,7 @@ func TestInstall_MigratesLegacyRegistration(t *testing.T) {
 	os.MkdirAll(filepath.Dir(legacyPath), 0o755)
 	os.WriteFile(legacyPath, []byte("#!/usr/bin/env bash\nexec atomic hooks session-start\n"), 0o755)
 
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -1168,6 +1234,142 @@ func TestSessionStart_ProfileRefreshError_NeverBlocks(t *testing.T) {
 		t.Fatal("expected reminder output even when refresh fails")
 	}
 	if !strings.Contains(out, "must still surface despite refresh error") {
+		t.Errorf("reminder text missing from output: %q", out)
+	}
+}
+
+func TestSessionStart_SeedOutputStyleCalled(t *testing.T) {
+	stubNoWherePosition(t)
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	var gotScopeRoot, gotTargetDir, gotHome string
+	hooks.SeedOutputStyleFn = func(scopeRoot, targetDir, home string) (bool, error) {
+		gotScopeRoot, gotTargetDir, gotHome = scopeRoot, targetDir, home
+		return false, nil
+	}
+	t.Cleanup(func() { hooks.SeedOutputStyleFn = hooks.DefaultSeedOutputStyle })
+
+	if _, err := hooks.SessionStart(root, now); err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir: %v", err)
+	}
+	if gotScopeRoot != home || gotHome != home {
+		t.Errorf("seed called with scopeRoot=%q home=%q, want both %q", gotScopeRoot, gotHome, home)
+	}
+	wantTarget := filepath.Join(home, ".claude")
+	if gotTargetDir != wantTarget {
+		t.Errorf("seed called with targetDir=%q, want %q", gotTargetDir, wantTarget)
+	}
+}
+
+func TestSessionStartText_SeedOutputStyleCalled(t *testing.T) {
+	stubNoWherePosition(t)
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	called := false
+	hooks.SeedOutputStyleFn = func(scopeRoot, targetDir, home string) (bool, error) {
+		called = true
+		return false, nil
+	}
+	t.Cleanup(func() { hooks.SeedOutputStyleFn = hooks.DefaultSeedOutputStyle })
+
+	if _, err := hooks.SessionStartText(root, now); err != nil {
+		t.Fatalf("SessionStartText: %v", err)
+	}
+	if !called {
+		t.Error("seedOutputStyleSilent seam was not called by SessionStartText")
+	}
+}
+
+// The seed is silent: it contributes nothing to the payload, whether the
+// style file is installed and the key gets written or not.
+func TestSessionStart_SeedOutputStyle_PayloadUnaffected(t *testing.T) {
+	stubNoWikiStaleness(t)
+	stubNoWherePosition(t)
+	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	now := time.Now().UTC()
+	addReminderWithDate(t, root, "seed must not alter the payload", 0)
+
+	outBefore, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart (style not installed): %v", err)
+	}
+
+	styleDir := filepath.Join(home, ".claude", "output-styles")
+	if err := os.MkdirAll(styleDir, 0o755); err != nil {
+		t.Fatalf("mkdir output-styles: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(styleDir, "atomic.md"), []byte("---\nname: Atomic\n---\n"), 0o644); err != nil {
+		t.Fatalf("write atomic.md: %v", err)
+	}
+
+	outAfter, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart (style installed): %v", err)
+	}
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	raw, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("expected settings.json seeded: %v", err)
+	}
+	if !strings.Contains(string(raw), `"outputStyle"`) || !strings.Contains(string(raw), "Atomic") {
+		t.Errorf("settings.json missing seeded outputStyle: %s", raw)
+	}
+
+	if outBefore != outAfter {
+		t.Errorf("payload changed once seeded:\nbefore: %s\nafter:  %s", outBefore, outAfter)
+	}
+}
+
+// A malformed settings.json must never block SessionStart, even when the
+// style is installed and the seed would otherwise write to it.
+func TestSessionStart_SeedOutputStyle_MalformedSettings_NeverBlocks(t *testing.T) {
+	stubNoWikiStaleness(t)
+	stubNoWherePosition(t)
+	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	now := time.Now().UTC()
+	addReminderWithDate(t, root, "must still surface despite malformed settings", 0)
+
+	claudeDir := filepath.Join(home, ".claude")
+	styleDir := filepath.Join(claudeDir, "output-styles")
+	if err := os.MkdirAll(styleDir, 0o755); err != nil {
+		t.Fatalf("mkdir output-styles: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(styleDir, "atomic.md"), []byte("---\nname: Atomic\n---\n"), 0o644); err != nil {
+		t.Fatalf("write atomic.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatalf("write malformed settings.json: %v", err)
+	}
+
+	// Control: prove the seed is actually reached (and its error swallowed)
+	// rather than never invoked in the first place.
+	called := false
+	hooks.SeedOutputStyleFn = func(scopeRoot, targetDir, home string) (bool, error) {
+		called = true
+		return hooks.DefaultSeedOutputStyle(scopeRoot, targetDir, home)
+	}
+	t.Cleanup(func() { hooks.SeedOutputStyleFn = hooks.DefaultSeedOutputStyle })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart returned error despite malformed settings.json: %v", err)
+	}
+	if !called {
+		t.Error("expected the seed to be attempted against the malformed settings file")
+	}
+	if !strings.Contains(out, "must still surface despite malformed settings") {
 		t.Errorf("reminder text missing from output: %q", out)
 	}
 }
@@ -1507,6 +1709,104 @@ func TestSessionStart_WhereError_NeverBlocks(t *testing.T) {
 	}
 }
 
+// TestInstall_ReadOnlySettings_ReportsSkippedNotSuccess reproduces the
+// regression where a read-only settings.json made Install report success
+// (nil error) while writing nothing and registering no SessionStart hook.
+func TestInstall_ReadOnlySettings_ReportsSkippedNotSuccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only permission semantics differ on windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permission checks")
+	}
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	original := []byte(`{"theme":"dark"}` + "\n")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, original, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(settingsPath, 0o644) })
+
+	skipped, err := hooks.Install(repoRoot, scopeRoot)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !skipped {
+		t.Fatal("expected skipped=true for a read-only settings.json")
+	}
+	raw, readErr := os.ReadFile(settingsPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(raw) != string(original) {
+		t.Errorf("read-only settings.json was modified: got %q, want %q", raw, original)
+	}
+
+	installed, _, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed {
+		t.Error("SessionStart must not be registered when the write was skipped")
+	}
+}
+
+// TestUninstall_ReadOnlySettings_ReportsSkippedNotSuccess mirrors the Install
+// case for the uninstall path.
+func TestUninstall_ReadOnlySettings_ReportsSkippedNotSuccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only permission semantics differ on windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permission checks")
+	}
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("setup Install: %v", err)
+	}
+
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	before, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(settingsPath, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(settingsPath, 0o644) })
+
+	skipped, err := hooks.Uninstall(repoRoot, scopeRoot)
+	if err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	if !skipped {
+		t.Fatal("expected skipped=true for a read-only settings.json")
+	}
+
+	after, readErr := os.ReadFile(settingsPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(after) != string(before) {
+		t.Errorf("read-only settings.json was modified: got %q, want %q", after, before)
+	}
+
+	installed, _, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !installed {
+		t.Error("SessionStart registration should still be present since the write was skipped")
+	}
+}
+
 func TestUninstall_MalformedSettings_Refuses(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
@@ -1515,7 +1815,7 @@ func TestUninstall_MalformedSettings_Refuses(t *testing.T) {
 	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
 	os.WriteFile(settingsPath, []byte("{ broken"), 0o644)
 
-	err := hooks.Uninstall(repoRoot, scopeRoot)
+	_, err := hooks.Uninstall(repoRoot, scopeRoot)
 	if err == nil {
 		t.Fatal("expected error for malformed settings.json, got nil")
 	}
