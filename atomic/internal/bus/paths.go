@@ -25,6 +25,15 @@ func StatePath(home string) string {
 	return filepath.Join(config.Dir(home), "bus.json")
 }
 
+// RosterPath returns <home>/.atomic/bus-roster.json — the daemon's own record
+// of its roster and per-room halt state, written only by the daemon itself.
+// Separate from bus.json (StatePath) because Load/Save there take no lock: the
+// CLI and serve already race each other over that file with a plain
+// load-modify-save, and a daemon writer would be a third.
+func RosterPath(home string) string {
+	return filepath.Join(config.Dir(home), "bus-roster.json")
+}
+
 // RoomLogPath returns <home>/.atomic/rooms/<room>.log — the durable append-only
 // record of a room's traffic. There is no replay buffer; this file is the only
 // history.

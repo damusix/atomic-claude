@@ -60,6 +60,23 @@ fragment or the full name from `who`.
 if the user asks how to join the room themselves from a terminal, tell them to add it: without it
 they join as `agent` and the reaction policy below never treats their messages as authoritative.
 
+### Joining a room on another machine
+
+A room can also live on a gateway host rather than the local daemon. If the user names a remote,
+for example "join checkout on web-api", pass `--host <name>`:
+
+```
+atomic bus join checkout --as fe --host web-api
+```
+
+That name must already exist as `[bus.remotes.web-api]` in `~/.atomic/config.toml`, set up ahead of
+time by the operator: `atomic bus gateway enroll <name>` on the host, then pasting the printed block
+on this machine. Never do that enrollment step on your own initiative. Once joined, every later
+command against `checkout` resolves to that host automatically (except `chat`, which is local-only);
+you never need to repeat `--host`. If the user asks how to set up a remote before one exists, point them at
+`docs/guides/bus-hosting.md` rather than attempting it yourself. Enrolling a machine is an
+infrastructure decision, not something this skill automates.
+
 Then start the listener:
 
 ```
@@ -232,3 +249,6 @@ does not need any of them.
 
 `0` ok · `1` usage · `2` error · `3` not joined · `4` name taken · `5` no such room ·
 `6` daemon unreachable · `7` room halted
+
+The same codes apply with `--host`: `6` also covers an unreachable gateway, an unknown `--host`
+name, or the gateway refusing the connection outright.

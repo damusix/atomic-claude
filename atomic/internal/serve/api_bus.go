@@ -20,12 +20,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bus"
+	"github.com/damusix/atomic-claude/atomic/internal/bus/remote"
 )
 
 // BusAPIOptions configures NewAPIBusHandler.
@@ -163,9 +165,15 @@ func (h *busAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// do runs one request Dial-only: a daemon that is not running is reported,
-// never spawned.
-func (h *busAPIHandler) do(req bus.Request) (bus.Response, error) {
+// do runs one request against host, or Dial-only against the local socket
+// when host is empty: a daemon that is not running is reported, never
+// spawned. host comes from the caller's own request (query param or JSON
+// body field) — serve persists no per-room membership the way the CLI's
+// bus.json does, so every call names its own target.
+func (h *busAPIHandler) do(host string, req bus.Request) (bus.Response, error) {
+	if host != "" {
+		return bus.DoRemote(h.home, host, req)
+	}
 	client, err := bus.Dial(h.home, h.dialTimeout)
 	if err != nil {
 		return bus.Response{}, err
@@ -174,8 +182,14 @@ func (h *busAPIHandler) do(req bus.Request) (bus.Response, error) {
 	return client.Do(req)
 }
 
-// doEnsure spawns the daemon first if none is live; only join and send use it.
-func (h *busAPIHandler) doEnsure(req bus.Request) (bus.Response, error) {
+// doEnsure spawns the daemon first if none is live; only join and send use
+// it. A remote host skips EnsureDaemon entirely — a failed remote dial must
+// never spawn a local daemon and quietly split the bus, matching
+// bus/action.go's joinAction and sendAction.
+func (h *busAPIHandler) doEnsure(host string, req bus.Request) (bus.Response, error) {
+	if host != "" {
+		return bus.DoRemote(h.home, host, req)
+	}
 	client, err := h.ensureDaemon(h.home)
 	if err != nil {
 		return bus.Response{}, err
@@ -218,34 +232,88 @@ func (h *busAPIHandler) handleStatus(w http.ResponseWriter) {
 	if name, repo, realm, err := bus.JoinIdentity(h.home, h.targetDir, "web"); err == nil {
 		resp.Name, resp.Repo, resp.Realm = name, repo, realm
 	}
-	if _, err := h.do(bus.Request{Op: bus.OpPing}); err == nil {
+	if _, err := h.do("", bus.Request{Op: bus.OpPing}); err == nil {
 		resp.Running = true
 	}
 	writeAPIJSON(w, resp)
 }
 
-type busRoomsResponse struct {
-	Running bool           `json:"running"`
-	Rooms   []bus.RoomInfo `json:"rooms"`
+// busRoomEntry adds the host discriminator to bus.RoomInfo: local and
+// remote rooms share one list, so two rooms named "potato" on different
+// buses need Host to tell them apart. Host is empty for a local room.
+type busRoomEntry struct {
+	bus.RoomInfo
+	Host string `json:"host,omitempty"`
 }
 
+type busRoomsResponse struct {
+	Running bool           `json:"running"`
+	Rooms   []busRoomEntry `json:"rooms"`
+}
+
+// handleRooms fans out across the local daemon and every configured remote,
+// tagging each room with the host it came from. Running reflects only the
+// local daemon, matching the "daemon up/down" badge it feeds; a machine with
+// no [bus.remotes] table iterates zero remotes and returns exactly what it
+// always has.
 func (h *busAPIHandler) handleRooms(w http.ResponseWriter) {
-	resp, err := h.do(bus.Request{Op: bus.OpRooms})
-	if err != nil {
-		writeAPIJSON(w, busRoomsResponse{Running: false, Rooms: []bus.RoomInfo{}})
-		return
+	rooms := []busRoomEntry{}
+	running := false
+
+	if resp, err := h.do("", bus.Request{Op: bus.OpRooms}); err == nil {
+		running = true
+		var payload struct {
+			Rooms []bus.RoomInfo `json:"rooms"`
+		}
+		if json.Unmarshal(resp.Payload, &payload) == nil {
+			for _, r := range payload.Rooms {
+				rooms = append(rooms, busRoomEntry{RoomInfo: r})
+			}
+		}
 	}
-	var payload struct {
-		Rooms []bus.RoomInfo `json:"rooms"`
+
+	if remotes, err := remote.Remotes(h.home); err == nil {
+		names := make([]string, 0, len(remotes))
+		for name := range remotes {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		// Fanned out concurrently under h.dialTimeout each, rather than one
+		// remote at a time under remote.Client's general default: the
+		// frontend polls this route every 4 seconds, and a sequential fan-out
+		// bounded only by that default made one unreachable remote stack
+		// every later poll behind it.
+		byName := make([][]busRoomEntry, len(names))
+		var wg sync.WaitGroup
+		for i, name := range names {
+			wg.Add(1)
+			go func(i int, name string) {
+				defer wg.Done()
+				resp, err := bus.DoRemoteTimeout(h.home, name, bus.Request{Op: bus.OpRooms}, h.dialTimeout)
+				if err != nil {
+					return
+				}
+				var payload struct {
+					Rooms []bus.RoomInfo `json:"rooms"`
+				}
+				if json.Unmarshal(resp.Payload, &payload) != nil {
+					return
+				}
+				entries := make([]busRoomEntry, 0, len(payload.Rooms))
+				for _, r := range payload.Rooms {
+					entries = append(entries, busRoomEntry{RoomInfo: r, Host: name})
+				}
+				byName[i] = entries
+			}(i, name)
+		}
+		wg.Wait()
+		for _, entries := range byName {
+			rooms = append(rooms, entries...)
+		}
 	}
-	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "parse rooms payload: "+err.Error())
-		return
-	}
-	if payload.Rooms == nil {
-		payload.Rooms = []bus.RoomInfo{}
-	}
-	writeAPIJSON(w, busRoomsResponse{Running: true, Rooms: payload.Rooms})
+
+	writeAPIJSON(w, busRoomsResponse{Running: running, Rooms: rooms})
 }
 
 type busWhoResponse struct {
@@ -259,7 +327,7 @@ func (h *busAPIHandler) handleWho(w http.ResponseWriter, r *http.Request) {
 	if !requireRoom(w, room) {
 		return
 	}
-	resp, err := h.do(bus.Request{Op: bus.OpWho, Room: room})
+	resp, err := h.do(r.URL.Query().Get("host"), bus.Request{Op: bus.OpWho, Room: room})
 	if err != nil {
 		writeBusError(w, err)
 		return
@@ -282,11 +350,24 @@ type busLogResponse struct {
 // maxLogLineBytes is a body plus headroom for the envelope's metadata.
 const maxLogLineBytes = bus.MaxTextBytes + 64*1024
 
+// handleLog backfills a room's transcript. A remote room has no log file on
+// this machine, and the wire protocol carries no bulk-history op (OpTail is
+// live-only, OpRead answers one id at a time) — see
+// docs/design/atomic-bus-network.md, "Local versus remote". So a remote
+// request returns an empty backlog by design and lets the SSE tail fill the
+// transcript live. A local room is untouched: still the direct file read.
 func (h *busAPIHandler) handleLog(w http.ResponseWriter, r *http.Request) {
 	room := r.URL.Query().Get("room")
 	if !requireRoom(w, room) {
 		return
 	}
+	host := r.URL.Query().Get("host")
+
+	if host != "" {
+		writeAPIJSON(w, busLogResponse{Envelopes: []bus.Envelope{}})
+		return
+	}
+
 	n := 200
 	if raw := r.URL.Query().Get("n"); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 1000 {
@@ -344,6 +425,11 @@ func (h *busAPIHandler) handleTail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if host := r.URL.Query().Get("host"); host != "" {
+		h.handleTailRemote(w, r, flusher, host, room)
+		return
+	}
+
 	client, err := bus.Dial(h.home, h.dialTimeout)
 	if err != nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "bus daemon not running")
@@ -382,8 +468,56 @@ func (h *busAPIHandler) handleTail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleTailRemote is handleTail's counterpart to bus/action.go's
+// recvRemoteStream: remote.Client.Stream already reconnects under backoff on
+// any fault, so there is no local reconnect loop to drive, only ctx
+// cancellation (the browser closing the EventSource) to watch for. Every
+// sealed line is checked with remote.ProbeHandshake before being forwarded —
+// the subscribe handshake's own confirmation frame precedes the Envelope
+// stream once per connection, including once per Stream reconnect, so
+// forwarding it verbatim would render a fake envelope.
+func (h *busAPIHandler) handleTailRemote(w http.ResponseWriter, r *http.Request, flusher http.Flusher, host, room string) {
+	remotes, err := remote.Remotes(h.home)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "read remotes config: "+err.Error())
+		return
+	}
+	cfg, ok := remotes[host]
+	if !ok {
+		writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("unknown remote %q", host))
+		return
+	}
+	client, err := remote.NewClient(cfg)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	body, err := json.Marshal(bus.Request{Op: bus.OpTail, Rooms: []string{room}})
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	frames, _ := client.Stream(r.Context(), body)
+	for frame := range frames {
+		if isHandshake, _ := remote.ProbeHandshake(frame); isHandshake {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", frame); err != nil {
+			return
+		}
+		flusher.Flush()
+	}
+}
+
 type busJoinBody struct {
 	Room string `json:"room"`
+	Host string `json:"host,omitempty"`
 }
 
 func (h *busAPIHandler) handleJoin(w http.ResponseWriter, r *http.Request) {
@@ -391,7 +525,7 @@ func (h *busAPIHandler) handleJoin(w http.ResponseWriter, r *http.Request) {
 	if !decodeBusBody(w, r, &body) || !requireRoom(w, body.Room) {
 		return
 	}
-	name, err := h.join(body.Room)
+	name, err := h.join(body.Room, body.Host)
 	if err != nil {
 		writeBusError(w, err)
 		return
@@ -400,12 +534,12 @@ func (h *busAPIHandler) handleJoin(w http.ResponseWriter, r *http.Request) {
 }
 
 // join joins room, creating it if absent, and caches the assigned name.
-func (h *busAPIHandler) join(room string) (string, error) {
+func (h *busAPIHandler) join(room, host string) (string, error) {
 	name, repo, realm, err := bus.JoinIdentity(h.home, h.targetDir, "web")
 	if err != nil {
 		return "", err
 	}
-	resp, err := h.doEnsure(bus.Request{
+	resp, err := h.doEnsure(host, bus.Request{
 		Op: bus.OpJoin, Room: room, Name: name, Mode: "participate",
 		Kind: bus.KindHuman, Session: h.session, Repo: repo, Realm: realm,
 	})
@@ -429,6 +563,7 @@ type busSendBody struct {
 	Text    string   `json:"text"`
 	To      []string `json:"to"`
 	ReplyTo string   `json:"reply_to"`
+	Host    string   `json:"host,omitempty"`
 }
 
 type busSendResponse struct {
@@ -455,21 +590,21 @@ func (h *busAPIHandler) handleSend(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 	if !alreadyJoined {
 		var err error
-		if name, err = h.join(body.Room); err != nil {
+		if name, err = h.join(body.Room, body.Host); err != nil {
 			writeBusError(w, err)
 			return
 		}
 	}
 
 	req := bus.Request{Op: bus.OpSend, Room: body.Room, Session: h.session, To: body.To, ReplyTo: body.ReplyTo, Text: body.Text}
-	resp, err := h.doEnsure(req)
+	resp, err := h.doEnsure(body.Host, req)
 	var busErr *bus.Error
 	if err != nil && alreadyJoined && errors.As(err, &busErr) && busErr.Code == bus.ExitNotJoined {
 		h.mu.Lock()
 		delete(h.joined, body.Room)
 		h.mu.Unlock()
-		if name, err = h.join(body.Room); err == nil {
-			resp, err = h.doEnsure(req)
+		if name, err = h.join(body.Room, body.Host); err == nil {
+			resp, err = h.doEnsure(body.Host, req)
 		}
 	}
 	if err != nil {
@@ -495,7 +630,7 @@ func (h *busAPIHandler) handleSay(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "missing text")
 		return
 	}
-	resp, err := h.do(bus.Request{Op: bus.OpSay, Room: body.Room, To: body.To, Text: body.Text})
+	resp, err := h.do(body.Host, bus.Request{Op: bus.OpSay, Room: body.Room, To: body.To, Text: body.Text})
 	if err != nil {
 		writeBusError(w, err)
 		return
@@ -512,6 +647,7 @@ type busRoomBody struct {
 	Room   string `json:"room"`
 	Reason string `json:"reason"`
 	Name   string `json:"name"`
+	Host   string `json:"host,omitempty"`
 }
 
 func (h *busAPIHandler) handleHalt(w http.ResponseWriter, r *http.Request) {
@@ -519,7 +655,7 @@ func (h *busAPIHandler) handleHalt(w http.ResponseWriter, r *http.Request) {
 	if !decodeBusBody(w, r, &body) || !requireRoom(w, body.Room) {
 		return
 	}
-	if _, err := h.do(bus.Request{Op: bus.OpHalt, Room: body.Room, Text: body.Reason}); err != nil {
+	if _, err := h.do(body.Host, bus.Request{Op: bus.OpHalt, Room: body.Room, Text: body.Reason}); err != nil {
 		writeBusError(w, err)
 		return
 	}
@@ -531,7 +667,7 @@ func (h *busAPIHandler) handleResume(w http.ResponseWriter, r *http.Request) {
 	if !decodeBusBody(w, r, &body) || !requireRoom(w, body.Room) {
 		return
 	}
-	if _, err := h.do(bus.Request{Op: bus.OpResume, Room: body.Room}); err != nil {
+	if _, err := h.do(body.Host, bus.Request{Op: bus.OpResume, Room: body.Room}); err != nil {
 		writeBusError(w, err)
 		return
 	}
@@ -546,7 +682,7 @@ func (h *busAPIHandler) handleLeave(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	delete(h.joined, body.Room)
 	h.mu.Unlock()
-	if _, err := h.do(bus.Request{Op: bus.OpLeave, Room: body.Room, Session: h.session}); err != nil {
+	if _, err := h.do(body.Host, bus.Request{Op: bus.OpLeave, Room: body.Room, Session: h.session}); err != nil {
 		writeBusError(w, err)
 		return
 	}
@@ -561,13 +697,13 @@ func (h *busAPIHandler) handleClose(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	delete(h.joined, body.Room)
 	h.mu.Unlock()
-	if _, err := h.do(bus.Request{Op: bus.OpClose, Room: body.Room}); err != nil {
+	if _, err := h.do(body.Host, bus.Request{Op: bus.OpClose, Room: body.Room}); err != nil {
 		writeBusError(w, err)
 		return
 	}
 	// Rehydrate replays bus.json on the next daemon start, so a room left there
 	// comes back. `atomic bus close` does this same second half.
-	h.clearPersisted(body.Room, "")
+	h.clearPersisted(body.Room, "", body.Host)
 	writeAPIJSON(w, map[string]bool{"closed": true})
 }
 
@@ -580,7 +716,7 @@ func (h *busAPIHandler) handleEnd(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	resp, err := h.do(bus.Request{Op: bus.OpEnd, Room: body.Room, Name: body.Name})
+	resp, err := h.do(body.Host, bus.Request{Op: bus.OpEnd, Room: body.Room, Name: body.Name})
 	if err != nil {
 		writeBusError(w, err)
 		return
@@ -590,21 +726,24 @@ func (h *busAPIHandler) handleEnd(w http.ResponseWriter, r *http.Request) {
 		Session string `json:"session"`
 	}
 	if jsonErr := json.Unmarshal(resp.Payload, &payload); jsonErr == nil && payload.Session != "" {
-		h.clearPersisted(body.Room, payload.Session)
+		h.clearPersisted(body.Room, payload.Session, body.Host)
 	}
 	writeAPIJSON(w, map[string]bool{"ended": true})
 }
 
 // clearPersisted drops a room from ~/.atomic/bus.json, or just one session's
-// membership of it. Failure is swallowed on purpose: the daemon has already
-// acted, so the cost is a stale entry Prune reaps, not a wrong response.
-func (h *busAPIHandler) clearPersisted(room, session string) {
+// membership of it. host is the same value body.Host carried to h.do — the
+// bus the close or end actually reached — so a same-named room on a
+// different host is untouched; see identity.go, ClearRoom. Failure is
+// swallowed on purpose: the daemon has already acted, so the cost is a stale
+// entry Prune reaps, not a wrong response.
+func (h *busAPIHandler) clearPersisted(room, session, host string) {
 	st, err := bus.Load(h.home)
 	if err != nil {
 		return
 	}
 	if session == "" {
-		st.ClearRoom(room)
+		st.ClearRoom(room, host)
 	} else {
 		st.Leave(session, room)
 	}

@@ -13,7 +13,7 @@ import (
 // format the other side does not understand. Bump it whenever the wire shape
 // changes — TestProtocolWireShape_GoldenFieldsAndOps is what makes forgetting
 // fail a test instead of shipping silently.
-const ProtocolVersion = 3
+const ProtocolVersion = 4
 
 // Op names. AllOps below is the same list as a slice; keep both in sync —
 // TestProtocolWireShape_GoldenFieldsAndOps pins AllOps against a golden list.
@@ -33,13 +33,14 @@ const (
 	OpPrune    = "prune"
 	OpClose    = "close"
 	OpEnd      = "end"
+	OpRead     = "read"
 )
 
 // AllOps lists every Request.Op the daemon accepts. daemon.go's "unknown op"
 // error enumerates it, so this is production content, not a test fixture.
 var AllOps = []string{
 	OpPing, OpJoin, OpLeave, OpSend, OpSay, OpRecv, OpTail, OpWho, OpRooms,
-	OpHalt, OpResume, OpShutdown, OpPrune, OpClose, OpEnd,
+	OpHalt, OpResume, OpShutdown, OpPrune, OpClose, OpEnd, OpRead,
 }
 
 // Request is a single client-to-daemon frame: an op plus whichever operand
@@ -47,6 +48,11 @@ var AllOps = []string{
 // since the daemon's op switch already discriminates which fields apply.
 type Request struct {
 	Op string `json:"op"`
+
+	// ID names a target envelope for OpRead — the message id a subscriber's drop
+	// marker pointed at, recovered by id rather than by re-opening the room log
+	// as a file, which a remote client has no access to.
+	ID string `json:"id,omitempty"`
 
 	Room    string   `json:"room,omitempty"`
 	Rooms   []string `json:"rooms,omitempty"`
@@ -97,8 +103,11 @@ type Response struct {
 // line can never grow unbounded.
 const MaxTextBytes = 1024 * 1024
 
-// MaxIdentifierBytes bounds Room, a member's assigned Name, and ReplyTo — the
-// string metadata roomlog.go's scanner budget must hold alongside Text. See
+// MaxIdentifierBytes bounds Room, a member's assigned Name, ReplyTo, and Session
+// — the string metadata roomlog.go's scanner budget must hold alongside Text.
+// Session is capped here too because under a gateway it is
+// "<key_id>/<client session>", and the client half is attacker-supplied; the
+// daemon should not depend on a gateway being in front of it to bound it. See
 // roomlog.go's scannerMaxLineBytes.
 const MaxIdentifierBytes = 128
 
