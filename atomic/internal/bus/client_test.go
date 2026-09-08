@@ -37,11 +37,9 @@ func testCwd(t *testing.T) string {
 
 // startTestDaemon binds a real listener at SocketPath(home) and runs Serve
 // against it for the life of the test. Like daemon_test.go's startServe, but on
-// the fixed production path since EnsureDaemon dials exactly that. It also
-// mirrors serveAction's rehydrate-before-serve step, so a test using this as its
-// Ensurer.Spawn exercises the same whole-roster-comes-back behavior production
-// gets — a bare NewHub(home) would silently reintroduce the per-session recovery
-// gap this replaced.
+// the fixed production path since EnsureDaemon dials exactly that. Serve
+// itself rehydrates before accepting connections, so a test using this as its
+// Ensurer.Spawn exercises the same restart behavior production gets.
 func startTestDaemon(t *testing.T, home string) error {
 	t.Helper()
 
@@ -50,9 +48,6 @@ func startTestDaemon(t *testing.T, home string) error {
 		return err
 	}
 	hub := NewHub(home)
-	if st, err := Load(home); err == nil {
-		hub.Rehydrate(st)
-	}
 	startServe(t, ln, hub)
 	return nil
 }
@@ -475,6 +470,50 @@ func TestEnsureDaemon_StaleSocket_UnlinkedRespawnedConnected_SpawnOnce(t *testin
 	resp, err := client.Do(Request{Op: OpPing})
 	if err != nil || !resp.OK {
 		t.Fatalf("ping on the returned client failed: err=%v resp=%+v", err, resp)
+	}
+}
+
+// TestRecoverSocket_StaleFile_RemovedListenSucceeds proves finding 3 of the
+// final review: `atomic bus gateway` binds SocketPath directly with no
+// stale-socket recovery, so a file left behind by a crashed process (an
+// OOM-killed container is the documented case) makes net.Listen fail
+// "address already in use" forever. RecoverSocket clears it first.
+func TestRecoverSocket_StaleFile_RemovedListenSucceeds(t *testing.T) {
+	home := testBusHome(t)
+	leaveStaleSocket(t, home)
+
+	if err := RecoverSocket(home); err != nil {
+		t.Fatalf("RecoverSocket: %v", err)
+	}
+
+	ln, err := net.Listen("unix", SocketPath(home))
+	if err != nil {
+		t.Fatalf("net.Listen after RecoverSocket: %v", err)
+	}
+	ln.Close()
+}
+
+// TestRecoverSocket_LiveDaemon_RefusesToStealTheSocket proves RecoverSocket
+// probes before removing: a socket something is actually listening on is not
+// stale, and stealing it out from under a running daemon would be worse than
+// the bug it fixes.
+func TestRecoverSocket_LiveDaemon_RefusesToStealTheSocket(t *testing.T) {
+	home := testBusHome(t)
+	if err := EnsureDirs(home); err != nil {
+		t.Fatalf("EnsureDirs: %v", err)
+	}
+	ln, err := net.Listen("unix", SocketPath(home))
+	if err != nil {
+		t.Fatalf("bind live socket: %v", err)
+	}
+	defer ln.Close()
+
+	err = RecoverSocket(home)
+	if err == nil {
+		t.Fatal("RecoverSocket: want an error against a live listener, got nil")
+	}
+	if !strings.Contains(err.Error(), "bus stop") {
+		t.Fatalf("err = %q, want it to name `atomic bus stop`", err)
 	}
 }
 

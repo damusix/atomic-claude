@@ -3,6 +3,7 @@ package bus
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -58,6 +59,75 @@ func TestBusAction_Chat_MissingRoom_ExitUsage(t *testing.T) {
 	code := BusAction([]string{"chat"}, t.TempDir(), t.TempDir(), &out)
 	if code != int(ExitUsage) {
 		t.Errorf("BusAction(%q) exit code = %d, want %d (ExitUsage, missing <room>)", "chat", code, ExitUsage)
+	}
+}
+
+// stubDaemonListener answers every request at SocketPath(home) with a fixed
+// OK reply — a ping gets the real ProtocolVersion so joinAction's
+// EnsureDaemon verification passes without spawning a real daemon, and every
+// other op gets a join-shaped payload, enough for join, leave, and prune to
+// each complete. It exists so the roster-file rule can be checked against the
+// CLI verbs directly rather than against a daemon that merely hasn't written a
+// roster file yet.
+func stubDaemonListener(t *testing.T, home string) {
+	t.Helper()
+	if err := EnsureDirs(home); err != nil {
+		t.Fatalf("EnsureDirs: %v", err)
+	}
+	ln, err := net.Listen("unix", SocketPath(home))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				var req Request
+				if err := json.NewDecoder(c).Decode(&req); err != nil {
+					return
+				}
+				payload := []byte(`{"name":"x"}`)
+				if req.Op == OpPing {
+					payload, _ = json.Marshal(struct {
+						Version int `json:"version"`
+					}{Version: ProtocolVersion})
+				}
+				_ = json.NewEncoder(c).Encode(Response{OK: true, Payload: payload})
+			}(conn)
+		}
+	}()
+}
+
+// No CLI verb writes the daemon's own roster file; only persistRoster does,
+// on the daemon side, after a roster or halt mutation. join, leave, and prune
+// each mutate bus.json but must leave RosterPath untouched throughout.
+func TestJoinLeavePruneActions_NeverWriteRosterPath(t *testing.T) {
+	home := testBusHome(t)
+	// Without this the stub failing to answer a ping falls through to
+	// spawnServe, which re-execs the test binary.
+	swapRecoveryEnsurer(t, func(string) error { return fmt.Errorf("no spawn in this test") })
+	stubDaemonListener(t, home)
+	cwd := testCwd(t)
+
+	var out bytes.Buffer
+	if code := joinAction([]string{"potato", "--session", "sess-1"}, home, cwd, &out); code != int(ExitOK) {
+		t.Fatalf("joinAction exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	if code := leaveAction([]string{"potato", "--session", "sess-1"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("leaveAction exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	if code := pruneAction([]string{"potato"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("pruneAction exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+
+	if _, err := os.Stat(RosterPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("RosterPath = %v after join, leave, and prune, want absent", err)
 	}
 }
 
@@ -1448,9 +1518,6 @@ func mustStartTestDaemonWithClock(t *testing.T, home string, now func() time.Tim
 	}
 	hub := NewHub(home)
 	hub.SetClock(now)
-	if st, err := Load(home); err == nil {
-		hub.Rehydrate(st)
-	}
 	startServe(t, ln, hub)
 }
 
@@ -2089,6 +2156,67 @@ func TestServeAction_MalformedBusJSON_DegradesToEmptyRosterAndStillServes(t *tes
 		}
 	case <-time.After(wireTimeout):
 		t.Fatal("serveAction did not exit after --stop")
+	}
+}
+
+// Once the daemon's own roster file exists it is authoritative on its own: a
+// membership that lives only in bus.json — because pruneAction evicted it from
+// the roster but never touches bus.json — must not come back on restart.
+func TestServeAction_RosterPresent_BusJSONOnlyMembershipDoesNotComeBack(t *testing.T) {
+	home := testBusHome(t)
+	if err := EnsureDirs(home); err != nil {
+		t.Fatalf("EnsureDirs: %v", err)
+	}
+
+	bst := &State{Sessions: map[string]*sessionState{
+		"sess-ghost": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: time.Now(), LastSeen: time.Now()},
+		}},
+	}}
+	if err := bst.Save(home); err != nil {
+		t.Fatalf("save bus.json: %v", err)
+	}
+	if err := (&State{Sessions: map[string]*sessionState{}}).SaveRoster(home); err != nil {
+		t.Fatalf("save roster: %v", err)
+	}
+
+	serveDone := make(chan int, 1)
+	go func() {
+		var out bytes.Buffer
+		serveDone <- serveAction(nil, home, &out)
+	}()
+	t.Cleanup(func() {
+		var discard bytes.Buffer
+		stopAction(nil, home, &discard)
+	})
+
+	deadline := time.Now().Add(wireTimeout)
+	for {
+		conn, err := net.DialTimeout("unix", SocketPath(home), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("daemon did not start listening within %s: %v", wireTimeout, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	resp := dialAndDo(t, SocketPath(home), Request{Op: OpRooms})
+	if !resp.OK {
+		t.Fatalf("rooms: %s", resp.Error)
+	}
+	var payload struct {
+		Rooms []RoomInfo `json:"rooms"`
+	}
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, r := range payload.Rooms {
+		if r.Name == "potato" {
+			t.Fatalf("rooms = %+v, want no potato room — its only membership lived in bus.json, absent from the roster file", payload.Rooms)
+		}
 	}
 }
 
@@ -3236,5 +3364,166 @@ func TestChatAction_JoinsRunsQuit_EndToEnd(t *testing.T) {
 	}
 	if _, ok := st.LastRoom("sess-operator"); ok {
 		t.Fatal("expected LastRoom cleared after /quit's leave")
+	}
+}
+
+// --- end ---
+
+func TestEndAction_StopsListenerAndClearsLocalMembership(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	t.Setenv(sessionEnvVar, "sess-bob")
+	cwd := testCwd(t)
+	name := filepath.Base(cwd) + "-bob"
+
+	var discard bytes.Buffer
+	if code := joinAction([]string{"potato", "--as", "bob"}, home, cwd, &discard); code != int(ExitOK) {
+		t.Fatalf("join exit code = %d", code)
+	}
+
+	subClient, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+	defer subClient.Close()
+	ch, err := subClient.Subscribe(Request{Op: OpRecv, Room: "potato", Session: "sess-bob"})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	var out bytes.Buffer
+	code := endAction([]string{"potato", name}, home, &out)
+	if code != int(ExitOK) {
+		t.Fatalf("end exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	wantOut := fmt.Sprintf("ended %s in potato\n", name)
+	if got := out.String(); got != wantOut {
+		t.Fatalf("output = %q, want %q", got, wantOut)
+	}
+
+	// EndSession delivers a closing envelope to this subscription before
+	// closing it, so drain up to two receives before the channel closes.
+	closed := false
+	for i := 0; i < 2 && !closed; i++ {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				closed = true
+			}
+		case <-time.After(wireTimeout):
+			t.Fatal("listener did not stop after end")
+		}
+	}
+	if !closed {
+		t.Fatal("subscription channel never closed after end")
+	}
+
+	st, err := Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := st.LastRoom("sess-bob"); ok {
+		t.Fatal("expected end to clear the evicted session's local membership")
+	}
+}
+
+func TestEndAction_UnknownMember_ExitNotJoined(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	if resp := dialAndDo(t, SocketPath(home), Request{Op: OpJoin, Room: "potato", Name: "seed", Kind: KindAgent, Session: "sess-seed"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	var out bytes.Buffer
+	code := endAction([]string{"potato", "ghost"}, home, &out)
+	if code != int(ExitNotJoined) {
+		t.Fatalf("exit code = %d, want %d (ExitNotJoined)", code, ExitNotJoined)
+	}
+}
+
+func TestEndAction_MissingArgs_ExitUsage(t *testing.T) {
+	var out bytes.Buffer
+	code := endAction([]string{"potato"}, t.TempDir(), &out)
+	if code != int(ExitUsage) {
+		t.Fatalf("exit code = %d, want %d (ExitUsage)", code, ExitUsage)
+	}
+}
+
+// --- routing precedence (docs/design/atomic-bus-network.md, "Local versus remote") ---
+
+func TestResolveHost_ExplicitFlagWinsOutright(t *testing.T) {
+	home := testBusHome(t)
+	if got := resolveHost(home, "sess-1", "potato", "prod"); got != "prod" {
+		t.Fatalf("resolveHost = %q, want %q", got, "prod")
+	}
+}
+
+func TestResolveHost_FallsBackToSessionsRemoteMembership(t *testing.T) {
+	home := testBusHome(t)
+	st, err := Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := st.Join("sess-2", "potato", "bob", "participate", KindAgent, "", "", "prod"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := st.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if got := resolveHost(home, "sess-2", "potato", ""); got != "prod" {
+		t.Fatalf("resolveHost = %q, want %q", got, "prod")
+	}
+}
+
+func TestResolveHost_NoFlagNoMembership_ResolvesLocal(t *testing.T) {
+	home := testBusHome(t)
+	if got := resolveHost(home, "sess-3", "potato", ""); got != "" {
+		t.Fatalf("resolveHost = %q, want empty (local)", got)
+	}
+}
+
+// writeRemotesConfig writes a [bus.remotes.<name>] table under home, matching
+// the shape gateway.Store.Enroll prints for a caller to paste in.
+func writeRemotesConfig(t *testing.T, home, name, host string, key []byte) {
+	t.Helper()
+	dir := filepath.Join(home, ".atomic")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	toml := fmt.Sprintf("[bus.remotes.%s]\nhost = %q\nkey  = %q\n", name, host, hex.EncodeToString(key))
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(toml), 0o600); err != nil {
+		t.Fatalf("write config.toml: %v", err)
+	}
+}
+
+// TestReadAction_HostDialFails_NeverSpawnsADaemon proves criterion 3: a
+// remote target whose dial fails must never reach EnsureDaemon, or a broken
+// connection would quietly start a second, local bus.
+func TestReadAction_HostDialFails_NeverSpawnsADaemon(t *testing.T) {
+	home := testBusHome(t)
+	if err := EnsureDirs(home); err != nil {
+		t.Fatalf("EnsureDirs: %v", err)
+	}
+	writeRemotesConfig(t, home, "deadremote", "127.0.0.1:1", make([]byte, 32))
+
+	orig := recoveryEnsurer
+	recoveryEnsurer = func() Ensurer {
+		return Ensurer{
+			Spawn: func(string) error {
+				t.Fatal("a failed remote dial must never spawn a daemon")
+				return nil
+			},
+			DialTimeout:  defaultDialTimeout,
+			SpawnWait:    defaultSpawnWait,
+			PollInterval: defaultPollInterval,
+		}
+	}
+	t.Cleanup(func() { recoveryEnsurer = orig })
+
+	var out bytes.Buffer
+	code := readAction([]string{"potato", "msg-1", "--host", "deadremote"}, home, &out)
+	if code == int(ExitOK) {
+		t.Fatalf("expected a failure reading from an unreachable remote, got exit 0: %s", out.String())
 	}
 }

@@ -2,6 +2,7 @@ package bus
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +78,9 @@ func TestState_SaveLoadRoundTrip_RealFileOnDisk(t *testing.T) {
 	home := t.TempDir()
 
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
+	if err := st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
 
 	if err := st.Save(home); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -109,7 +112,9 @@ func TestState_Join_PersistsRepoAndRealmAcrossSaveLoad(t *testing.T) {
 	home := t.TempDir()
 
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "backend", "participate", KindAgent, "atomic-claude", "myrealm")
+	if err := st.Join("sess-1", "potato", "backend", "participate", KindAgent, "atomic-claude", "myrealm", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
 	if err := st.Save(home); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -129,8 +134,12 @@ func TestState_Join_PersistsRepoAndRealmAcrossSaveLoad(t *testing.T) {
 
 func TestState_LastRoom_ReturnsMostRecentJoin(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
-	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "")
+	if err := st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
 
 	room, ok := st.LastRoom("sess-1")
 	if !ok {
@@ -154,8 +163,12 @@ func TestState_LastRoom_UnjoinedSessionReturnsFalse(t *testing.T) {
 // still has a sensible default.
 func TestState_Leave_RecomputesLastRoomFromRemaining(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
-	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "") // becomes LastRoom
+	if err := st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	} // becomes LastRoom
 
 	st.Leave("sess-1", "carrot")
 
@@ -170,7 +183,9 @@ func TestState_Leave_RecomputesLastRoomFromRemaining(t *testing.T) {
 
 func TestState_Leave_LastRoomUnsetWhenNoRoomsRemain(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
+	if err := st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
 
 	st.Leave("sess-1", "potato")
 
@@ -181,7 +196,9 @@ func TestState_Leave_LastRoomUnsetWhenNoRoomsRemain(t *testing.T) {
 
 func TestState_ResolveRoom(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
+	if err := st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
 
 	t.Run("explicit room wins over last joined", func(t *testing.T) {
 		room, err := st.ResolveRoom("sess-1", "carrot")
@@ -245,7 +262,9 @@ func TestEnsureDirs_CreatesRoomsDirAtRestrictivePerms(t *testing.T) {
 // so Join must never leave it zero.
 func TestState_Join_StampsLastSeenEqualToJoined(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
+	if err := st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
 
 	m := st.Sessions["sess-1"].Rooms["potato"]
 	if m.LastSeen.IsZero() {
@@ -261,7 +280,9 @@ func TestState_Join_StampsLastSeenEqualToJoined(t *testing.T) {
 // restore rather than "now".
 func TestState_TouchLastSeen_UpdatesExistingMembership(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
+	if err := st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
 	joinedAt := st.Sessions["sess-1"].Rooms["potato"].LastSeen
 
 	later := joinedAt.Add(time.Hour)
@@ -283,7 +304,9 @@ func TestState_TouchLastSeen_UnknownMembershipReturnsFalse(t *testing.T) {
 		t.Fatal("expected false for a session with no membership in the room")
 	}
 
-	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "")
+	if err := st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
 	if ok := st.TouchLastSeen("sess-1", "potato", time.Now()); ok {
 		t.Fatal("expected false for a room this session never joined")
 	}
@@ -294,7 +317,9 @@ func TestState_TouchLastSeen_UnknownMembershipReturnsFalse(t *testing.T) {
 func TestState_LastSeen_SurvivesSaveLoadRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "backend", "participate", KindAgent, "", "")
+	if err := st.Join("sess-1", "potato", "backend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
 	staleTime := time.Now().Add(-3 * time.Hour).Truncate(time.Second)
 	st.TouchLastSeen("sess-1", "potato", staleTime)
 
@@ -352,12 +377,18 @@ func TestState_Halted_SurvivesSaveLoadRoundTrip(t *testing.T) {
 // entries too, unlike Leave, which is scoped to the calling session.
 func TestState_ClearRoom_RemovesEveryonesMembershipAndHaltState(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-fe", "potato", "frontend", "participate", KindAgent, "", "")
-	st.Join("sess-be", "potato", "backend", "participate", KindAgent, "", "")
-	st.Join("sess-fe", "carrot", "frontend", "participate", KindAgent, "", "") // becomes sess-fe's LastRoom
+	if err := st.Join("sess-fe", "potato", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := st.Join("sess-be", "potato", "backend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := st.Join("sess-fe", "carrot", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	} // becomes sess-fe's LastRoom
 	st.SetHalted("potato", true, "operator halted this room")
 
-	st.ClearRoom("potato")
+	st.ClearRoom("potato", "")
 
 	if _, ok := st.Sessions["sess-fe"].Rooms["potato"]; ok {
 		t.Error("sess-fe's potato membership survived ClearRoom")
@@ -374,14 +405,49 @@ func TestState_ClearRoom_RemovesEveryonesMembershipAndHaltState(t *testing.T) {
 	}
 }
 
+// TestState_ClearRoom_HostScoped_LeavesTheOtherHostsMembershipIntact proves
+// finding 5 of the final review: `close potato --host prod` must not delete
+// a local `potato` membership of the same name, and a local `close potato`
+// must not delete the remote route. Before the fix, ClearRoom ignored Host
+// entirely and deleted whichever membership existed regardless of which bus
+// the close actually reached.
+func TestState_ClearRoom_HostScoped_LeavesTheOtherHostsMembershipIntact(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{}}
+	if err := st.Join("sess-fe", "potato", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join local: %v", err)
+	}
+	if err := st.Join("sess-be", "potato", "backend", "participate", KindAgent, "", "", "prod"); err != nil {
+		t.Fatalf("Join on prod: %v", err)
+	}
+
+	st.ClearRoom("potato", "prod")
+
+	if _, ok := st.Sessions["sess-fe"].Rooms["potato"]; !ok {
+		t.Error("ClearRoom(potato, prod) deleted the local potato membership — it should be host-scoped")
+	}
+	if _, ok := st.Sessions["sess-be"].Rooms["potato"]; ok {
+		t.Error("ClearRoom(potato, prod) left the prod potato membership in place")
+	}
+
+	st.ClearRoom("potato", "")
+
+	if _, ok := st.Sessions["sess-fe"].Rooms["potato"]; ok {
+		t.Error("ClearRoom(potato, \"\") left the local potato membership in place")
+	}
+}
+
 // Mirrors Leave's LastRoom recompute: a session whose most recent room is closed
 // by someone else still needs a sensible --room-less default.
 func TestState_ClearRoom_RecomputesLastRoomWhenCleared(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
-	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "") // becomes LastRoom
+	if err := st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	} // becomes LastRoom
 
-	st.ClearRoom("carrot")
+	st.ClearRoom("carrot", "")
 
 	room, ok := st.LastRoom("sess-1")
 	if !ok || room != "potato" {
@@ -401,11 +467,160 @@ func TestPathHelpers_ResolveUnderAtomicHome(t *testing.T) {
 		{"SocketPath", SocketPath(home), filepath.Join(root, "bus.sock")},
 		{"LockPath", LockPath(home), filepath.Join(root, "bus.lock")},
 		{"StatePath", StatePath(home), filepath.Join(root, "bus.json")},
+		{"RosterPath", RosterPath(home), filepath.Join(root, "bus-roster.json")},
 		{"RoomLogPath", RoomLogPath(home, "potato"), filepath.Join(root, "rooms", "potato.log")},
 	}
 	for _, tc := range cases {
 		if tc.got != tc.want {
 			t.Errorf("%s = %q, want %q", tc.name, tc.got, tc.want)
 		}
+	}
+}
+
+// --- roster persistence: the daemon's own file, separate from bus.json ---
+
+func TestLoadRoster_MissingFileYieldsEmptyState(t *testing.T) {
+	home := t.TempDir()
+
+	st, err := LoadRoster(home)
+	if err != nil {
+		t.Fatalf("LoadRoster: %v", err)
+	}
+	if len(st.Sessions) != 0 {
+		t.Fatalf("expected no sessions in a freshly created roster, got %d", len(st.Sessions))
+	}
+}
+
+func TestSaveRoster_LoadRoster_RoundTrip_RealFileOnDisk(t *testing.T) {
+	home := t.TempDir()
+
+	st := &State{Sessions: map[string]*sessionState{
+		"sess-fe": {Rooms: map[string]roomMembership{
+			"potato": {Name: "frontend", Mode: "participate", Kind: KindAgent, Joined: time.Now(), LastSeen: time.Now()},
+		}},
+	}, Rooms: map[string]*roomState{
+		"potato": {Halted: true, HaltText: "investigating"},
+	}}
+
+	if err := st.SaveRoster(home); err != nil {
+		t.Fatalf("SaveRoster: %v", err)
+	}
+
+	wantPath := filepath.Join(home, ".atomic", "bus-roster.json")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("expected roster file at %s: %v", wantPath, err)
+	}
+	// bus.json itself must be untouched — the whole reason for a separate file.
+	if _, err := os.Stat(StatePath(home)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("SaveRoster must not touch bus.json, stat = %v", err)
+	}
+
+	reloaded, err := LoadRoster(home)
+	if err != nil {
+		t.Fatalf("LoadRoster: %v", err)
+	}
+	m := reloaded.Sessions["sess-fe"].Rooms["potato"]
+	if m.Name != "frontend" {
+		t.Errorf("Name = %q, want %q", m.Name, "frontend")
+	}
+	rs := reloaded.Rooms["potato"]
+	if rs == nil || !rs.Halted || rs.HaltText != "investigating" {
+		t.Fatalf("Rooms[potato] = %+v, want halted with reason %q", rs, "investigating")
+	}
+}
+
+// --- Host: a membership records which bus it was joined on, so a bare room
+// name colliding between a local and a remote join is refused rather than
+// silently overwriting the map slot ---
+
+func TestRoomMembership_MissingHostFieldDecodesAsLocal(t *testing.T) {
+	// A bus.json written before Host existed — no "host" key at all.
+	raw := []byte(`{"sessions":{"sess-1":{"rooms":{"potato":{"name":"backend","joined":"2026-01-01T00:00:00Z","last_seen":"2026-01-01T00:00:00Z"}}}}}`)
+
+	var st State
+	if err := json.Unmarshal(raw, &st); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	m := st.Sessions["sess-1"].Rooms["potato"]
+	if m.Host != "" {
+		t.Fatalf("Host = %q, want empty (read as local) for a pre-existing bus.json entry", m.Host)
+	}
+}
+
+// Criterion 13: a session that joined a room on one host is refused a join
+// of the same room name under a different host — hostJoinConflict is a
+// helper, this exercises the refusal through Join itself, the path a real
+// client takes.
+func TestState_Join_RefusesDifferentHostForSameRoomName(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{}}
+	if err := st.Join("sess-1", "potato", "backend", "participate", KindAgent, "", "", "prod"); err != nil {
+		t.Fatalf("Join(host=prod): %v", err)
+	}
+
+	err := st.Join("sess-1", "potato", "backend", "participate", KindAgent, "", "", "")
+	var busErr *Error
+	if !errors.As(err, &busErr) || busErr.Code != ExitUsage {
+		t.Fatalf("Join(host=\"\") after a prod join = %v, want an *Error with ExitUsage", err)
+	}
+	if got := st.Sessions["sess-1"].Rooms["potato"].Host; got != "prod" {
+		t.Fatalf("Host after the refused join = %q, want %q (unchanged)", got, "prod")
+	}
+
+	// The reverse: already local, now attempting a remote join of the same name.
+	st2 := &State{Sessions: map[string]*sessionState{}}
+	if err := st2.Join("sess-1", "potato", "backend", "participate", KindAgent, "", "", ""); err != nil {
+		t.Fatalf("Join(host=\"\"): %v", err)
+	}
+	err = st2.Join("sess-1", "potato", "backend", "participate", KindAgent, "", "", "prod")
+	if !errors.As(err, &busErr) || busErr.Code != ExitUsage {
+		t.Fatalf("Join(host=prod) after a local join = %v, want an *Error with ExitUsage", err)
+	}
+	if got := st2.Sessions["sess-1"].Rooms["potato"].Host; got != "" {
+		t.Fatalf("Host after the refused join = %q, want empty (unchanged)", got)
+	}
+}
+
+func TestState_hostJoinConflict_DifferentHostConflicts(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{
+		"sess-1": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Host: "prod"},
+		}},
+	}}
+
+	existing, conflict := st.hostJoinConflict("sess-1", "potato", "")
+	if !conflict {
+		t.Fatal("expected a local join to conflict with an existing remote membership of the same room name")
+	}
+	if existing != "prod" {
+		t.Fatalf("existingHost = %q, want %q", existing, "prod")
+	}
+
+	// The reverse: already local, now attempting a remote join under the same name.
+	existing, conflict = st.hostJoinConflict("sess-1", "potato", "staging")
+	if !conflict {
+		t.Fatal("expected a remote join to conflict too, symmetrically")
+	}
+	if existing != "prod" {
+		t.Fatalf("existingHost = %q, want %q", existing, "prod")
+	}
+}
+
+func TestState_hostJoinConflict_SameHostNoConflict(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{
+		"sess-1": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Host: "prod"},
+		}},
+	}}
+
+	if _, conflict := st.hostJoinConflict("sess-1", "potato", "prod"); conflict {
+		t.Fatal("re-asserting the same host must not conflict with itself")
+	}
+}
+
+func TestState_hostJoinConflict_NoPriorMembershipNoConflict(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{}}
+
+	if _, conflict := st.hostJoinConflict("sess-1", "potato", "prod"); conflict {
+		t.Fatal("a session with no prior membership of this room must never conflict")
 	}
 }

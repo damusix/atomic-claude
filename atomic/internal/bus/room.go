@@ -81,9 +81,33 @@ type subscriber struct {
 	skipSelf bool
 }
 
+// validRoomName reports whether name is safe to splice into RoomLogPath via
+// filepath.Join. Join checks length only; Subscribe and Rehydrate both reach
+// getOrCreateRoom without passing through Join at all, so the guard has to sit
+// here rather than there. NUL is rejected alongside the rest of the control
+// range because evictionKey assumes it cannot appear in a room or session name.
+func validRoomName(name string) bool {
+	if strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		return false
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func invalidRoomNameError(name string) error {
+	return &Error{Code: ExitUsage, Msg: fmt.Sprintf("bus: room name %q is invalid (no /, \\, .., or control characters)", name)}
+}
+
 // getOrCreateRoom returns the named room, creating it on first touch. Caller
 // must hold h.mu.
-func (h *Hub) getOrCreateRoom(name string) *Room {
+func (h *Hub) getOrCreateRoom(name string) (*Room, error) {
+	if !validRoomName(name) {
+		return nil, invalidRoomNameError(name)
+	}
 	r, ok := h.rooms[name]
 	if !ok {
 		r = &Room{
@@ -94,7 +118,7 @@ func (h *Hub) getOrCreateRoom(name string) *Room {
 		}
 		h.rooms[name] = r
 	}
-	return r
+	return r, nil
 }
 
 // getRoom returns the named room without creating it. Caller must hold h.mu.
@@ -163,6 +187,12 @@ func (h *Hub) Join(room, name, mode, kind, session, repo, realm string) (string,
 			Msg:  fmt.Sprintf("bus: name is %d bytes, over the %d-byte limit (MaxIdentifierBytes)", len(name), MaxIdentifierBytes),
 		}
 	}
+	if len(session) > MaxIdentifierBytes {
+		return "", &Error{
+			Code: ExitUsage,
+			Msg:  fmt.Sprintf("bus: session id is %d bytes, over the %d-byte limit (MaxIdentifierBytes)", len(session), MaxIdentifierBytes),
+		}
+	}
 	if reservedNames[name] {
 		return "", &Error{
 			Code: ExitUsage,
@@ -176,7 +206,10 @@ func (h *Hub) Join(room, name, mode, kind, session, repo, realm string) (string,
 		}
 	}
 
-	r := h.getOrCreateRoom(room)
+	r, err := h.getOrCreateRoom(room)
+	if err != nil {
+		return "", err
+	}
 
 	assigned := name
 	if !r.nameAvailableTo(assigned, session) {
@@ -208,8 +241,9 @@ func (r *Room) nameAvailableTo(candidate, session string) bool {
 	return !taken || m.Session == session
 }
 
-// Rehydrate rebuilds the whole roster from ~/.atomic/bus.json at Serve startup,
-// so a member idle across a restart stays present and addressable — the
+// Rehydrate rebuilds the whole roster at Serve startup from RosterPath, with
+// bus.json as a one-time fallback for a home with no roster file yet, so a
+// member idle across a restart stays present and addressable — the
 // per-client re-registration it replaced could only restore a session that ran
 // a command.
 //
@@ -222,6 +256,13 @@ func (h *Hub) Rehydrate(st *State) {
 
 	for session, ss := range st.Sessions {
 		for room, m := range ss.Rooms {
+			// A membership carrying a host is a remote room this session joined
+			// through a gateway, recorded here only because bus.json is shared
+			// client state. Restoring it into a local Hub would resurrect it as a
+			// phantom local member.
+			if m.Host != "" {
+				continue
+			}
 			kind := m.Kind
 			if kind == "" {
 				kind = KindAgent
@@ -238,7 +279,18 @@ func (h *Hub) Rehydrate(st *State) {
 			if lastSeen.IsZero() {
 				lastSeen = m.Joined
 			}
-			r := h.getOrCreateRoom(room)
+			// A name read off disk gets one more chance to have gone bad since it
+			// was written; skip it rather than propagate an error Rehydrate has no
+			// caller to report to.
+			r, err := h.getOrCreateRoom(room)
+			if err != nil {
+				continue
+			}
+			// A member already present when Rehydrate runs must never have its
+			// LastSeen moved backwards by a call carrying an older value.
+			if existing, ok := r.members[m.Name]; ok && existing.LastSeen.After(lastSeen) {
+				lastSeen = existing.LastSeen
+			}
 			r.members[m.Name] = Member{Name: m.Name, Kind: kind, Mode: mode, Session: session, Joined: m.Joined, LastSeen: lastSeen, Repo: m.Repo, Realm: m.Realm}
 			r.bySession[session] = m.Name
 		}
@@ -250,10 +302,78 @@ func (h *Hub) Rehydrate(st *State) {
 		if rs == nil || !rs.Halted {
 			continue
 		}
-		r := h.getOrCreateRoom(room)
+		r, err := h.getOrCreateRoom(room)
+		if err != nil {
+			continue
+		}
 		r.halted = true
 		r.haltReason = rs.HaltText
 	}
+}
+
+// touchLastSeen raises LastSeen for every (session, room) pair st records
+// that is already a member of the hub, to the later of the two values. It
+// never creates a room and never adds a member, so a bus.json membership the
+// roster does not carry cannot come back this way. See rehydrateOnStartup for
+// why the two sources disagree on freshness.
+func (h *Hub) touchLastSeen(st *State) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for session, ss := range st.Sessions {
+		for room, m := range ss.Rooms {
+			if m.Host != "" {
+				continue
+			}
+			r, ok := h.getRoom(room)
+			if !ok {
+				continue
+			}
+			name, ok := r.bySession[session]
+			if !ok || name != m.Name {
+				continue
+			}
+			existing, ok := r.members[name]
+			if !ok || !m.LastSeen.After(existing.LastSeen) {
+				continue
+			}
+			existing.LastSeen = m.LastSeen
+			r.members[name] = existing
+		}
+	}
+}
+
+// snapshot builds a State reflecting exactly the Hub's current membership and
+// halt state — what the daemon persists to RosterPath after a roster or halt
+// mutation, and what a restart reads back via Rehydrate. Every entry it
+// produces is local by construction: the Hub itself has no notion of Host, so
+// nothing snapshot writes is ever skipped by Rehydrate's host check.
+func (h *Hub) snapshot() *State {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	st := &State{Sessions: map[string]*sessionState{}}
+	for room, r := range h.rooms {
+		for session, name := range r.bySession {
+			m := r.members[name]
+			ss, ok := st.Sessions[session]
+			if !ok {
+				ss = &sessionState{Rooms: map[string]roomMembership{}}
+				st.Sessions[session] = ss
+			}
+			ss.Rooms[room] = roomMembership{
+				Name: m.Name, Mode: m.Mode, Kind: m.Kind,
+				Joined: m.Joined, LastSeen: m.LastSeen, Repo: m.Repo, Realm: m.Realm,
+			}
+		}
+		if r.halted {
+			if st.Rooms == nil {
+				st.Rooms = map[string]*roomState{}
+			}
+			st.Rooms[room] = &roomState{Halted: true, HaltText: r.haltReason}
+		}
+	}
+	return st
 }
 
 // UnknownAddressees reports which entries of to are not currently members of
@@ -818,10 +938,15 @@ func (h *Hub) SessionIsMember(room, session string) bool {
 // is what downgrades an unowned claim to "" before it reaches here. skipSelf,
 // meaningful only when session is set, opts the subscription out of its own
 // session's publishes. The returned func removes the subscription and must be
-// called exactly once.
-func (h *Hub) Subscribe(room string, ch chan<- Envelope, session string, skipSelf bool) func() {
+// called exactly once. Returns an error when room fails validRoomName — tail
+// reaches getOrCreateRoom without passing through Join's own guard.
+func (h *Hub) Subscribe(room string, ch chan<- Envelope, session string, skipSelf bool) (func(), error) {
 	h.mu.Lock()
-	r := h.getOrCreateRoom(room)
+	r, err := h.getOrCreateRoom(room)
+	if err != nil {
+		h.mu.Unlock()
+		return nil, err
+	}
 	id := r.subSeq
 	r.subSeq++
 	r.subs[id] = &subscriber{ch: ch, session: session, skipSelf: skipSelf}
@@ -831,7 +956,7 @@ func (h *Hub) Subscribe(room string, ch chan<- Envelope, session string, skipSel
 		h.mu.Lock()
 		delete(r.subs, id)
 		h.mu.Unlock()
-	}
+	}, nil
 }
 
 // --- Room internals. All of the following assume h.mu is already held. ---

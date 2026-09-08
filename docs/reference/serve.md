@@ -221,11 +221,24 @@ The eviction envelope reaches only the evicted member. `closing` is read as "the
 
 That envelope alone cannot carry the guarantee, because it travels through the member's bounded channel — and the agent most likely to be evicted, one whose reader has stalled, is exactly the one whose buffer is full. The envelope would be dropped, `recv` would see a bare close, and it would reconnect. So the daemon also refuses a `recv` from an evicted session until it rejoins. Rejoining is the way back in.
 
-Both controls also clear the persisted roster in `~/.atomic/bus.json`, the same second step `atomic bus close` performs. Without it the daemon's next start replays that file and restores what was just removed: an evicted member would reappear in the roster with a dead listener, and a closed room would come back.
+The daemon persists its own roster to `~/.atomic/bus-roster.json` after both ops, so a restart does not replay what was just removed: an evicted member would otherwise reappear with a dead listener, and a closed room would otherwise come back. serve also clears the affected membership from `~/.atomic/bus.json`, the per-session client-side state `atomic bus close` and `end` clean up the same way, so a stale `--host` route or `resume`/`prune` target doesn't outlive the room.
 
 ### Session rail
 
 The right rail on `/bus` lists the room's members, each with its `kind` and staleness, plus a chip for its Claude Code session when one is found. Sessions are located by globbing `~/.claude/projects/*/<session-id>.jsonl`. Clicking a chip opens the transcript in a paginated modal, rendered as markdown through the same server-side pipeline as realm pages. The parser tolerates the drift of an internal, unversioned `.jsonl` format: unknown line types are skipped, and long blocks are truncated rather than breaking the render.
+
+### Remote rooms
+
+When `~/.atomic/config.toml` carries a `[bus.remotes]` table (see the
+[hosting guide](../guides/bus-hosting.md)), the room list fans out across every configured remote
+alongside the local daemon, in one list tagged by host. Every routing path resolves a remote room
+through the same gateway a CLI `--host` call would use: the one-shot ops, `handleTail`'s SSE stream,
+and `handleRooms`'s fan-out. `handleLog` is the exception: there is no bulk-history wire op (`OpTail`
+is live-only, `OpRead` answers one id at a time), so a remote room's backlog is always empty and the
+SSE tail fills the transcript live instead. A room named `checkout` on `web-api` and a local room also
+named `checkout` stay distinct in the list and in the URL. Server-Sent Events to the browser are
+unchanged either way; only the socket underneath the SSE route switches between a local Unix dial and
+a sealed remote stream.
 
 ### Loopback only
 

@@ -21,6 +21,10 @@ type daemon struct {
 
 	shutdown chan struct{}
 	shutOnce sync.Once
+
+	// rosterMu orders persistRoster's snapshot-then-save pairs: os.CreateTemp
+	// keeps one write untorn but does not order two concurrent writers.
+	rosterMu sync.Mutex
 }
 
 // Serve accepts connections on ln and dispatches each one's op against hub
@@ -36,6 +40,8 @@ func Serve(ctx context.Context, ln net.Listener, hub *Hub, now func() time.Time)
 		now = time.Now
 	}
 
+	rehydrateOnStartup(hub)
+
 	d := &daemon{
 		hub:       hub,
 		ln:        ln,
@@ -45,6 +51,44 @@ func Serve(ctx context.Context, ln net.Listener, hub *Hub, now func() time.Time)
 		shutdown:  make(chan struct{}),
 	}
 	return d.run(ctx)
+}
+
+// rehydrateOnStartup restores hub's roster and halt state before Serve's
+// accept loop starts. The roster file, once the daemon has ever written one,
+// is sole authority on who is a member: unioning it with bus.json would
+// resurrect a membership pruneAction evicted from the roster, since
+// pruneAction never touches bus.json. bus.json is still read afterward to
+// touch LastSeen forward for members the roster already has, since
+// persistRoster only writes on a roster or halt mutation while bus.json
+// stays fresh on every send. When no roster file exists yet, bus.json is the
+// one-time migration source instead, and rehydrateOnStartup writes the
+// roster file immediately so the fallback runs exactly once per home.
+// Either file missing is not an error; a malformed one is reported the same
+// way a bad bus.json is, rather than coming up silently empty.
+func rehydrateOnStartup(hub *Hub) {
+	rosterPath := RosterPath(hub.home)
+	if _, err := os.Stat(rosterPath); err == nil {
+		st, err := LoadRoster(hub.home)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus serve: warning: could not load %s, starting with an empty roster: %v\n", rosterPath, err)
+			return
+		}
+		hub.Rehydrate(st)
+		if bst, err := Load(hub.home); err == nil {
+			hub.touchLastSeen(bst)
+		}
+		return
+	}
+
+	st, err := Load(hub.home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus serve: warning: could not load %s, starting with an empty roster: %v\n", StatePath(hub.home), err)
+		return
+	}
+	hub.Rehydrate(st)
+	if err := hub.snapshot().SaveRoster(hub.home); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus serve: warning: could not save %s after migrating from %s: %v\n", rosterPath, StatePath(hub.home), err)
+	}
 }
 
 func (d *daemon) run(ctx context.Context) error {
@@ -118,6 +162,8 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 		respond(enc, d.handleClose(req))
 	case OpEnd:
 		respond(enc, d.handleEnd(req))
+	case OpRead:
+		respond(enc, d.handleRead(req))
 	case OpShutdown:
 		respond(enc, Response{OK: true})
 		d.triggerShutdown()
@@ -163,7 +209,15 @@ func (d *daemon) subscribe(ctx context.Context, conn net.Conn, enc *json.Encoder
 	ch := make(chan Envelope, subscriberBuffer)
 	unsubs := make([]func(), 0, len(rooms))
 	for _, room := range rooms {
-		unsubs = append(unsubs, d.hub.Subscribe(room, ch, session, skipSelf))
+		unsub, err := d.hub.Subscribe(room, ch, session, skipSelf)
+		if err != nil {
+			for _, u := range unsubs {
+				u()
+			}
+			respond(enc, errorResponse(err))
+			return
+		}
+		unsubs = append(unsubs, unsub)
 	}
 	defer func() {
 		for _, u := range unsubs {
@@ -253,6 +307,7 @@ func (d *daemon) handleJoin(req Request) Response {
 	if err != nil {
 		return errorResponse(err)
 	}
+	d.persistRoster()
 	payload, _ := json.Marshal(struct {
 		Name string `json:"name"`
 	}{Name: name})
@@ -266,6 +321,7 @@ func (d *daemon) handleLeave(req Request) Response {
 	if err != nil {
 		return errorResponse(err)
 	}
+	d.persistRoster()
 	payload, _ := json.Marshal(struct {
 		RoomDropped bool `json:"room_dropped,omitempty"`
 	}{RoomDropped: dropped})
@@ -278,6 +334,7 @@ func (d *daemon) handleClose(req Request) Response {
 	if err := d.hub.Close(req.Room); err != nil {
 		return errorResponse(err)
 	}
+	d.persistRoster()
 	return Response{OK: true}
 }
 
@@ -288,12 +345,36 @@ func (d *daemon) handleEnd(req Request) Response {
 	if err != nil {
 		return errorResponse(err)
 	}
+	d.persistRoster()
 	payload, err := json.Marshal(struct {
 		Session string `json:"session"`
 	}{Session: session})
 	if err != nil {
 		return errorResponse(err)
 	}
+	return Response{OK: true, Payload: payload}
+}
+
+// handleRead answers OpRead: the envelope a drop marker pointed at, recovered
+// by id from the room log rather than by opening it as a file — which a remote
+// client reached through a gateway has no access to.
+func (d *daemon) handleRead(req Request) Response {
+	if !validRoomName(req.Room) {
+		return errorResponse(invalidRoomNameError(req.Room))
+	}
+	env, found, err := ReadEnvelope(d.hub.home, req.Room, req.ID)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return errorResponse(noRoomError(req.Room))
+		}
+		return errorResponse(err)
+	}
+	if !found {
+		return errorResponse(&Error{Code: ExitHard, Msg: fmt.Sprintf("bus: no message %q in room %q", req.ID, req.Room)})
+	}
+	payload, _ := json.Marshal(struct {
+		Envelope Envelope `json:"envelope"`
+	}{Envelope: env})
 	return Response{OK: true, Payload: payload}
 }
 
@@ -368,6 +449,7 @@ func (d *daemon) handleHalt(req Request) Response {
 	if err := d.hub.Halt(req.Room, req.Text); err != nil {
 		return errorResponse(err)
 	}
+	d.persistRoster()
 	return Response{OK: true}
 }
 
@@ -375,6 +457,7 @@ func (d *daemon) handleResume(req Request) Response {
 	if err := d.hub.Resume(req.Room, req.Text); err != nil {
 		return errorResponse(err)
 	}
+	d.persistRoster()
 	return Response{OK: true}
 }
 
@@ -385,8 +468,22 @@ func (d *daemon) handlePrune(req Request) Response {
 	if err != nil {
 		return errorResponse(err)
 	}
+	if len(removed) > 0 {
+		d.persistRoster()
+	}
 	payload, _ := json.Marshal(struct {
 		Removed []string `json:"removed"`
 	}{Removed: removed})
 	return Response{OK: true, Payload: payload}
+}
+
+// persistRoster writes the Hub's current roster and halt state to its own
+// RosterPath file, so a restart's Serve rehydrates from it. Called after every
+// roster or halt mutation, never on Publish — that would put a file write on
+// the fan-out path. Best-effort: a write failure here must not fail an
+// operation that already succeeded against the in-memory Hub.
+func (d *daemon) persistRoster() {
+	d.rosterMu.Lock()
+	defer d.rosterMu.Unlock()
+	_ = d.hub.snapshot().SaveRoster(d.hub.home)
 }
