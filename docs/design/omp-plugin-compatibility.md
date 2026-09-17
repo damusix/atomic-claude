@@ -26,7 +26,7 @@ flowchart LR
     R --> CX["Codex AGENTS.md"]
 ```
 
-The existing system already supplies reusable mechanics. `bundlemirror` enumerates and hashes rendered artifacts (`atomic/internal/bundlemirror/mirror.go:27-150`), `claudeinstall` separates planning from application and compares exact bytes (`atomic/internal/claudeinstall/install.go:116-240`), the wiki package rejects malformed managed regions (`atomic/internal/wiki/registry.go:17-42`), and config path helpers keep user state under `~/.atomic` (`atomic/internal/config/paths.go:8-52`). The design extends those invariants rather than preserving Claude as the common denominator.
+The existing system already supplies reusable mechanics. `artifacts.Load` enumerates the canonical corpus and hashes rendered artifacts (`atomic/internal/artifacts/catalog.go`), `claudeinstall` separates planning from application and compares exact bytes (`atomic/internal/claudeinstall/install.go:116-240`), the wiki package rejects malformed managed regions (`atomic/internal/wiki/registry.go:17-42`), and config path helpers keep user state under `~/.atomic` (`atomic/internal/config/paths.go:8-52`). The design extends those invariants rather than preserving Claude as the common denominator.
 
 
 ## Goals / Non-goals

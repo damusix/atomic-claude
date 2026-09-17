@@ -141,12 +141,12 @@ func runC3(repoRoot string) ([]Finding, error) {
 	return findings, nil
 }
 
-// runC5 checks that every @-ref in CLAUDE.md resolves. Project-local overlays
-// are skipped: they are user-owned and may carry @-ref-shaped text such as npm
-// scoped package names.
+// runC5 checks that every @-ref in the authored global contract resolves.
+// Project-local overlays are skipped: they are user-owned and may carry
+// @-ref-shaped text such as npm scoped package names.
 func runC5(repoRoot string) ([]Finding, error) {
 	candidates := []string{
-		filepath.Join(bundlespec.SourceRoot(repoRoot), "CLAUDE.md"),
+		filepath.Join(bundlespec.SourceRoot(repoRoot), bundlespec.GlobalSteering.Source),
 	}
 
 	var findings []Finding

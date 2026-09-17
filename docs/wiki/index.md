@@ -11,13 +11,13 @@ description: Repo-local project wiki for atomic-claude — framework signals and
 
 ## What this repo is
 
-A Claude Code configuration — commands, agents, skills, rules, and an output style — plus the [`atomic`](../../atomic) Go CLI that renders, packages, and installs it. The markdown artifacts are the product; the binary is how they ship and how they stay healthy.
+A Claude Code configuration — a global contract, commands, agents, skills, rules, and an output style — plus the [`atomic`](../../atomic) Go CLI that renders, packages, and installs it. The markdown artifacts are the product; the binary is how they ship and how they stay healthy.
 
 Everything installable is committed source under [`context/`](../../context). One step turns it into a running install: `make bundle` expands [`context/`](../../context) (substituting any `{{ template "<name>" . }}` reference to [`context/_partials/`](../../context/_partials) along the way) straight into the Go binary's embedded filesystem, and `atomic claude install` copies that filesystem into `~/.claude/`.
 
 ```mermaid
 flowchart LR
-    CTX["context/<br/>commands, agents, skills,<br/>rules, output-styles, CLAUDE.md"] -->|make bundle| EMB["atomic/internal/embedded/<br/>go:embed"]
+    CTX["context/<br/>commands, agents, skills,<br/>rules, output-styles, AGENTS.md"] -->|make bundle| EMB["atomic/internal/embedded/<br/>go:embed"]
     EMB --> BIN["atomic binary"]
     BIN -->|atomic claude install| H["~/.claude/"]
 ```

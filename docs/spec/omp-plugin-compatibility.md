@@ -112,7 +112,7 @@ repository steering
 └── docs/wiki/CLAUDE.md ...................... M  (nested @AGENTS.md loader)
 
 atomic/internal/
-├── artifacts/ ............................... A  (canonical rendering, identity, projection digests)
+├── artifacts/ ............................... A  (canonical corpus enumeration, rendering, identity, projection digests)
 │   └── tests and testdata ................... A  (deterministic render and golden projections)
 ├── harness/
 │   ├── harness.go ........................... A  (adapter contract and registry)
@@ -128,7 +128,7 @@ atomic/internal/
 │   └── tests and testdata ................... A  (overlap, containment, collision, rename, and deletion fixtures)
 ├── runtimeproof/ ............................ A  (isolated harness scenario runner)
 ├── bundlespec/bundlespec.go ................. M  (AGENTS.md and canonical steering inclusion)
-├── bundlemirror/mirror.go ................... M  (canonical enumeration and projections)
+├── bundlemirror/mirror.go ................... M  (Claude-native target mapping from the canonical corpus)
 ├── claudeinstall/ ........................... M  (legacy adoption and Claude adapter internals)
 ├── config/ .................................. M  (state.dir, adoption records, mutable-state paths)
 ├── hooks/ ................................... M  (maintenance, collection, formatting, Claude delivery)
@@ -290,7 +290,7 @@ atomic/internal/bundlespec/bundlespec.go
   SteeringSource — canonical global AGENTS.md source, direct Claude global projection, and repository/realm loader inclusion
 
 atomic/internal/bundlemirror/mirror.go
-  Enumerate — one rendered corpus for adapter projections
+  Enumerate — maps the canonical corpus to Claude-native targets
 
 atomic/internal/profile/
   Profile delivery — authoritative profile state and native generation tracking
@@ -614,4 +614,12 @@ atomic/CHANGELOG.md
 **Why:** The prior lifecycle architecture covered verified adoption but not incomplete legacy installs, interrupted v2 operations, orphan resources, concurrent lifecycle commands, damaged recovery evidence, or old binaries writing after migration.
 
 **Superseded:** Replaced generic legacy adoption with explicit classification and per-resource ownership decisions. Replaced unspecified migration serialization and compatibility with one global lock, versioned state schemas, and conservative conflict handling.
+
+### 2026-09-17 — Corpus enumeration owned by `artifacts.Load`
+
+**What changed:** CP2A enumerates the canonical corpus in `artifacts.Load` and renders it once; `bundlemirror` now maps that already-rendered corpus to Claude-native targets rather than walking `context/` itself. The change tree and outline name the `artifacts/` package as the enumerator and describe `bundlemirror.Enumerate` as the Claude target mapping.
+
+**Why:** The cutover moved partial expansion and enumeration ahead of projection, so a design or spec that still named `bundlemirror` as the corpus enumerator described the pre-cutover pipeline.
+
+**Superseded:** `bundlemirror` was the sole corpus enumerator, reading and rendering each matching file during its walk; enumeration and rendering now happen once in `artifacts.Load`, and `bundlemirror` consumes the result.
 
