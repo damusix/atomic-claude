@@ -216,8 +216,39 @@ func LoadJournal(path string) (*Journal, error) {
 
 // JournalPaths lists the journal files in dir, oldest-first by creation time
 // with the file name breaking ties, so recovery always replays in a stable
-// order.
+// order. An unreadable journal is refused: recovery must never silently skip
+// one that could own native bytes.
 func JournalPaths(dir string) ([]string, error) {
+	entries, err := journalEntries(dir)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.err != nil {
+			return nil, e.err
+		}
+		paths = append(paths, e.path)
+	}
+	return paths, nil
+}
+
+// journalEntry is one journal-directory entry: its path and the loaded journal,
+// which is nil when the file could not be read. Recovery refuses that error
+// because it cannot replay a journal it cannot parse; classification records
+// the path as evidence instead, because an unreadable journal could still own
+// native bytes.
+type journalEntry struct {
+	path   string
+	loaded *Journal
+	err    error
+}
+
+// journalEntries lists dir's journal files in replay order: oldest-first by
+// creation time, with the path breaking ties. An entry that carries no readable
+// creation time sorts before the readable ones, and the read error is returned
+// on the entry rather than aborting the listing.
+func journalEntries(dir string) ([]journalEntry, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -225,31 +256,29 @@ func JournalPaths(dir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("installstate: read journals dir %s: %w", dir, err)
 	}
-	type dated struct {
-		path    string
-		created time.Time
-	}
-	var found []dated
+	var found []journalEntry
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
 		j, err := LoadJournal(path)
-		if err != nil {
-			return nil, err
-		}
-		found = append(found, dated{path: path, created: j.Created})
+		found = append(found, journalEntry{path: path, loaded: j, err: err})
 	}
 	sort.Slice(found, func(i, k int) bool {
-		if !found[i].created.Equal(found[k].created) {
-			return found[i].created.Before(found[k].created)
+		ci, ck := journalCreated(found[i]), journalCreated(found[k])
+		if !ci.Equal(ck) {
+			return ci.Before(ck)
 		}
 		return found[i].path < found[k].path
 	})
-	paths := make([]string, 0, len(found))
-	for _, f := range found {
-		paths = append(paths, f.path)
+	return found, nil
+}
+
+// journalCreated returns an entry's creation time, zero for an unreadable one.
+func journalCreated(e journalEntry) time.Time {
+	if e.loaded == nil {
+		return time.Time{}
 	}
-	return paths, nil
+	return e.loaded.Created
 }

@@ -2,92 +2,30 @@ package harness
 
 import "github.com/damusix/atomic-claude/atomic/internal/managedfile"
 
-// Evidence is the observed basis for an ownership claim. Only two bases prove
-// ownership: bytes that match the selected binary's embedded generation
-// exactly, and a resource that carries exactly one parseable Atomic block. A
-// resource name, a legacy config path, and a legacy version string prove
-// nothing.
-type Evidence string
-
-const (
-	// EvidenceSelection means the observed bytes match the selected
-	// generation's exact embedded bytes.
-	EvidenceSelection Evidence = "selection-bytes"
-	// EvidenceBlock means the resource carries exactly one parseable Atomic
-	// block. The block is independently verifiable because migration can
-	// preserve and replace only that region.
-	EvidenceBlock Evidence = "managed-block"
-	// EvidenceMissing means the resource is listed but absent. That is drift to
-	// be recreated after convergence is accepted, never ownership.
-	EvidenceMissing Evidence = "missing"
-	// EvidenceUnowned means nothing verifiable was found. The bytes are
-	// preserved and a per-resource replace-or-leave-unowned decision is needed.
-	EvidenceUnowned Evidence = "unowned"
-	// EvidenceConflict means the evidence is ambiguous or malformed and blocks
-	// automatic adoption.
-	EvidenceConflict Evidence = "conflict"
+// Ownership evidence is judged by managedfile, the layer that owns observations
+// and managed blocks, and re-exported here because it is part of the adapter
+// contract: an adapter produces the claims, and only an approved plan may
+// commit what they prove.
+type (
+	// Evidence is the observed basis for an ownership claim.
+	Evidence = managedfile.Evidence
+	// Claim is one resource a caller asserts a target owns.
+	Claim = managedfile.Claim
+	// Assessment is the verdict for one claim against the current native bytes.
+	Assessment = managedfile.Assessment
 )
 
-// Claim is one resource a caller asserts a target owns. ID names the physical
-// resource; SelectedDigest is the digest of the exact bytes the selected binary
-// would write and is empty for a claim whose evidence is its own managed block.
-type Claim struct {
-	ID   string           `json:"id"`
-	Kind managedfile.Kind `json:"kind"`
-	Path string           `json:"path"`
-	// SelectedDigest is the selected generation's expected digest. An empty
-	// digest proves nothing, so a block claim uses block evidence instead.
-	SelectedDigest string `json:"selected_digest,omitempty"`
-}
+// Evidence bases, re-exported for the adapter contract.
+const (
+	EvidenceSelection = managedfile.EvidenceSelection
+	EvidenceBlock     = managedfile.EvidenceBlock
+	EvidenceMissing   = managedfile.EvidenceMissing
+	EvidenceUnowned   = managedfile.EvidenceUnowned
+	EvidenceConflict  = managedfile.EvidenceConflict
+)
 
-// Assessment is the verdict for one claim against the current native bytes. It
-// records evidence, not a claim: only an approved enrollment plan may commit
-// what it found, so a pre-plan check and an approved plan read the same verdict
-// and differ only in whether ownership is established.
-type Assessment struct {
-	Claim    Claim                   `json:"claim"`
-	Evidence Evidence                `json:"evidence"`
-	Observed managedfile.Observation `json:"observed"`
-	// Owned is true only for selection-bytes and managed-block evidence.
-	Owned bool `json:"owned"`
-}
-
-// Assess judges one claim against the current native bytes, read-only. It
-// reports the evidence it found and never claims ownership from a name: a
-// resource that is absent, different, or unreadable stays unowned.
-func Assess(c Claim) (Assessment, error) {
-	obs, err := managedfile.Observe(c.Path, c.Kind)
-	if err != nil {
-		return Assessment{}, err
-	}
-	a := Assessment{Claim: c, Observed: obs}
-	switch {
-	case !obs.Exists():
-		a.Evidence = EvidenceMissing
-	case obs.Conflict != managedfile.ConflictNone:
-		a.Evidence = EvidenceConflict
-	case c.Kind == managedfile.KindBlock:
-		a.Evidence, a.Owned = EvidenceBlock, true
-		if c.SelectedDigest != "" && obs.Digest == c.SelectedDigest {
-			a.Evidence = EvidenceSelection
-		}
-	case c.SelectedDigest != "" && obs.Digest == c.SelectedDigest:
-		a.Evidence, a.Owned = EvidenceSelection, true
-	default:
-		a.Evidence = EvidenceUnowned
-	}
-	return a, nil
-}
+// Assess judges one claim against the current native bytes, read-only.
+func Assess(c Claim) (Assessment, error) { return managedfile.Assess(c) }
 
 // AssessAll judges every claim in order.
-func AssessAll(claims []Claim) ([]Assessment, error) {
-	out := make([]Assessment, 0, len(claims))
-	for _, c := range claims {
-		a, err := Assess(c)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, nil
-}
+func AssessAll(claims []Claim) ([]Assessment, error) { return managedfile.AssessAll(claims) }

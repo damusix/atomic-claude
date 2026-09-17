@@ -1,7 +1,8 @@
 // Package harness owns the adapter contract every supported coding harness
 // implements, the registry that resolves one concrete adapter per kind, the
-// target model enrollment records, and the ownership-evidence rules that decide
-// whether a native resource may be claimed.
+// target model enrollment records, and the ownership-evidence contract that
+// decides whether a native resource may be claimed. The evidence rule itself is
+// judged by managedfile, beside the observations and managed blocks it reads.
 //
 // Discovery is read-only. Scanning for instances reports candidates and shared
 // visibility and creates no enrollment, ledger, journal, or adoption state; a
