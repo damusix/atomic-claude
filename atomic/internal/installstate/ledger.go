@@ -32,7 +32,10 @@ type Row struct {
 // last-applied authority at ~/.atomic/install/ledger.json.
 type Ledger struct {
 	Header
-	Rows []Row `json:"rows"`
+	// Targets holds one record per enrolled instance. Rows hold one ownership
+	// record per target and resource.
+	Targets []TargetRecord `json:"targets,omitempty"`
+	Rows    []Row          `json:"rows"`
 }
 
 // LoadLedger reads the ledger at path. A missing ledger is an empty ledger

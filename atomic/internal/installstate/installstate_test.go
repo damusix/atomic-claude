@@ -197,6 +197,65 @@ func TestLedgerRoundTripAndUpsert(t *testing.T) {
 	}
 }
 
+func TestLedgerTargetRecordsSurviveRowWrites(t *testing.T) {
+	home := newHome(t)
+	path := config.LedgerPath(home)
+
+	ledger, err := LoadLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := TargetRecord{
+		Harness:    "claude",
+		Instance:   "/home/u/.claude",
+		NativeRoot: "/home/u/.claude",
+		Status:     "enrolled",
+	}
+	if !ledger.UpsertTarget(record) {
+		t.Error("first target upsert reported no change")
+	}
+	if ledger.UpsertTarget(record) {
+		t.Error("identical target upsert reported a change")
+	}
+	record.Status = "stale"
+	if !ledger.UpsertTarget(record) {
+		t.Error("changed target upsert reported no change")
+	}
+	if len(ledger.Targets) != 1 {
+		t.Fatalf("targets = %d, want 1", len(ledger.Targets))
+	}
+	if err := ledger.Save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := LoadLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, ok := reloaded.FindTarget("claude", "/home/u/.claude")
+	if !ok || found.Status != "stale" || found.NativeRoot != "/home/u/.claude" {
+		t.Errorf("reloaded target = %+v (ok=%v)", found, ok)
+	}
+	if _, ok := reloaded.FindTarget("omp", "/home/u/.omp/agent"); ok {
+		t.Error("unregistered target reported as enrolled")
+	}
+
+	// A row write must not disturb target enrollment.
+	if !reloaded.Upsert(Row{Target: "claude:/home/u/.claude", Resource: "CLAUDE.md"}) {
+		t.Error("row upsert reported no change")
+	}
+	if err := reloaded.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	after, err := LoadLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := after.FindTarget("claude", "/home/u/.claude"); !ok {
+		t.Error("target record lost after a row write")
+	}
+}
+
 func TestJournalProgressIsAppendOnlyAndOrdered(t *testing.T) {
 	j := NewJournal("op-1", time.Date(2026, 9, 16, 10, 0, 0, 0, time.UTC))
 	if got := j.State("unit-a"); got != StatePlanned {
@@ -1118,6 +1177,97 @@ func TestRetentionAndCleanupPreserveUnresolvedOperationalState(t *testing.T) {
 	}
 	if len(onDisk.Rows) != 1 || onDisk.Rows[0] != referencedRow {
 		t.Errorf("ledger on disk after cleanup = %+v, want only the referenced row", onDisk.Rows)
+	}
+}
+
+func TestCleanupDropsTargetsNothingReferences(t *testing.T) {
+	home := newHome(t)
+
+	// One unresolved operation names a target directly, and mutates a second
+	// resource with no target at all. The untargeted mutation keeps every
+	// ownership row for its resource, so a retained row — not the journal — is
+	// what keeps that target enrolled.
+	namedTarget := TargetRecord{Harness: "claude", Instance: "default", NativeRoot: filepath.Join(home, ".claude"), Status: "enrolled"}
+	rowKeptTarget := TargetRecord{Harness: "claude", Instance: "secondary", NativeRoot: filepath.Join(home, ".claude-alt"), Status: "enrolled"}
+	unresolved := NewJournal("op-unresolved", time.Now().UTC())
+	unresolved.Mutations = []Mutation{
+		{Unit: "named", Resource: "named-resource", Target: namedTarget.Key(), Kind: managedfile.KindBlock, Path: filepath.Join(home, ".claude", "CLAUDE.md"), Intended: "sha256:named"},
+		{Unit: "untargeted", Resource: "untargeted-resource", Kind: managedfile.KindBlock, Path: filepath.Join(home, ".claude-alt", "CLAUDE.md"), Intended: "sha256:untargeted"},
+	}
+	if err := WriteJournal(config.JournalPath(home, "op-unresolved"), unresolved); err != nil {
+		t.Fatal(err)
+	}
+
+	// A completed operation owns nothing: its journal is consumed state, so its
+	// row and target record are removable.
+	consumedTarget := TargetRecord{Harness: "omp", Instance: "done", NativeRoot: filepath.Join(home, ".omp", "agent"), Status: "enrolled"}
+	completed := NewJournal("op-complete", time.Now().UTC())
+	completed.Completed = true
+	completed.Mutations = []Mutation{
+		{Unit: "done", Resource: "done-resource", Target: consumedTarget.Key(), Kind: managedfile.KindBlock, Path: filepath.Join(home, ".omp", "agent", "AGENTS.md"), Intended: "sha256:done"},
+	}
+	if err := WriteJournal(config.JournalPath(home, "op-complete"), completed); err != nil {
+		t.Fatal(err)
+	}
+
+	ledger, err := LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range []TargetRecord{namedTarget, rowKeptTarget, consumedTarget} {
+		ledger.UpsertTarget(record)
+	}
+	ledger.Upsert(Row{Target: namedTarget.Key(), Resource: "named-resource"})
+	ledger.Upsert(Row{Target: rowKeptTarget.Key(), Resource: "untargeted-resource"})
+	ledger.Upsert(Row{Target: consumedTarget.Key(), Resource: "done-resource"})
+	if err := ledger.Save(config.LedgerPath(home)); err != nil {
+		t.Fatal(err)
+	}
+
+	retention, err := ComputeRetention(config.JournalsDir(home), ledger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retention.Targets) != 1 || retention.Targets[0] != namedTarget.Key() {
+		t.Errorf("retained targets = %v, want only %s", retention.Targets, namedTarget.Key())
+	}
+	if !retention.KeepsTarget(namedTarget) {
+		t.Error("target named by an unresolved journal is not retained")
+	}
+	if retention.KeepsTarget(rowKeptTarget) {
+		t.Error("target kept only by an ownership row reports a journal reference")
+	}
+
+	result, err := Cleanup(home, ledger, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.RemovedTargets) != 1 || result.RemovedTargets[0] != consumedTarget {
+		t.Errorf("removed targets = %+v, want only %+v", result.RemovedTargets, consumedTarget)
+	}
+	if _, ok := ledger.FindTarget(consumedTarget.Harness, consumedTarget.Instance); ok {
+		t.Error("the completed operation's target record survived cleanup")
+	}
+	for _, record := range []TargetRecord{namedTarget, rowKeptTarget} {
+		if _, ok := ledger.FindTarget(record.Harness, record.Instance); !ok {
+			t.Errorf("target %s was dropped while still referenced", record.Key())
+		}
+	}
+
+	onDisk, err := LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(onDisk.Targets) != 2 {
+		t.Errorf("targets on disk after cleanup = %+v, want the two referenced targets", onDisk.Targets)
+	}
+	if _, ok := onDisk.FindTarget(consumedTarget.Harness, consumedTarget.Instance); ok {
+		t.Error("the completed operation's target record survived on disk")
+	}
+	for _, record := range []TargetRecord{namedTarget, rowKeptTarget} {
+		if _, ok := onDisk.FindTarget(record.Harness, record.Instance); !ok {
+			t.Errorf("target %s was dropped from disk while still referenced", record.Key())
+		}
 	}
 }
 

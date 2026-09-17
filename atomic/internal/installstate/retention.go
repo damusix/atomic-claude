@@ -16,13 +16,15 @@ func transactionsRootFor(home string) string { return config.TransactionsDir(hom
 
 // Retention is the operational state a full uninstall must preserve because an
 // unresolved journal still references it: the journal itself, the transaction
-// backups it can still restore from, the state selections it depends on, and
-// the ledger rows it has yet to commit.
+// backups it can still restore from, the state selections it depends on, the
+// ledger rows it has yet to commit, and the targets those rows record.
 type Retention struct {
 	Journals   []string `json:"journals"`
 	Backups    []string `json:"backups"`
 	Selections []string `json:"selections,omitempty"`
 	Rows       []Row    `json:"rows,omitempty"`
+	// Targets holds the target keys unresolved journals still mutate.
+	Targets []string `json:"targets,omitempty"`
 }
 
 // ComputeRetention reads the journals directory and returns everything an
@@ -46,13 +48,16 @@ func ComputeRetention(journalsDir string, led *Ledger) (Retention, error) {
 		ret.Journals = append(ret.Journals, path)
 		ret.Selections = dedupe(append(ret.Selections, j.SelectionDependencies...))
 		backups := append([]string{}, ret.Backups...)
+		targets := make([]string, 0, len(j.Mutations))
 		for _, m := range j.Mutations {
 			backups = append(backups, m.Backup)
+			targets = append(targets, m.Target)
 		}
 		for _, b := range j.Backups {
 			backups = append(backups, b.Path)
 		}
 		ret.Backups = dedupe(backups)
+		ret.Targets = dedupe(append(ret.Targets, targets...))
 		if led == nil {
 			continue
 		}
@@ -102,6 +107,30 @@ func (r Retention) KeepsRow(row Row) bool {
 	return false
 }
 
+// KeepsTarget reports whether an unresolved journal still mutates the enrolled
+// target. Cleanup also keeps a target a retained ownership row names, which it
+// matches from the retained rows rather than from here.
+func (r Retention) KeepsTarget(record TargetRecord) bool {
+	key := record.Key()
+	for _, ref := range r.Targets {
+		if ref == key {
+			return true
+		}
+	}
+	return false
+}
+
+// rowsNameTarget reports whether any row still names record.
+func rowsNameTarget(rows []Row, record TargetRecord) bool {
+	key := record.Key()
+	for _, row := range rows {
+		if row.Target == key {
+			return true
+		}
+	}
+	return false
+}
+
 func (r Retention) references() []string {
 	refs := make([]string, 0, len(r.Journals)+len(r.Backups)+len(r.Selections))
 	refs = append(refs, r.Journals...)
@@ -124,9 +153,10 @@ func journalReferencesRow(j *Journal, row Row) bool {
 
 // CleanupResult records what Cleanup removed.
 type CleanupResult struct {
-	RemovedJournals     []string `json:"removed_journals,omitempty"`
-	RemovedTransactions []string `json:"removed_transactions,omitempty"`
-	RemovedRows         []Row    `json:"removed_rows,omitempty"`
+	RemovedJournals     []string       `json:"removed_journals,omitempty"`
+	RemovedTransactions []string       `json:"removed_transactions,omitempty"`
+	RemovedRows         []Row          `json:"removed_rows,omitempty"`
+	RemovedTargets      []TargetRecord `json:"removed_targets,omitempty"`
 }
 
 // CleanupOperation removes the operational state of one consumed operation: its
@@ -177,13 +207,14 @@ func CleanupOperation(home, operationID string) (CleanupResult, error) {
 }
 
 // Cleanup is the full-uninstall path: it removes completed journals, the
-// transaction directories of operations whose journal completed, and ledger
-// rows no unresolved journal references. Unresolved journals, their referenced
-// transaction backups, referenced ledger rows, and referenced selections
-// survive. A transaction directory with no journal at all is orphaned v2
-// evidence and is never auto-deleted. Backups under ~/.atomic/backups are user
-// recovery history and are untouched. Post-recovery cleanup is
-// CleanupOperation, which never drops a ledger row.
+// transaction directories of operations whose journal completed, ledger rows no
+// unresolved journal references, and target records no retained row and no
+// unresolved journal references. Unresolved journals, their referenced
+// transaction backups, referenced ledger rows and their targets, and referenced
+// selections survive. A transaction directory with no journal at all is
+// orphaned v2 evidence and is never auto-deleted. Backups under ~/.atomic/backups
+// are user recovery history and are untouched. Post-recovery cleanup is
+// CleanupOperation, which never drops a ledger row or a target record.
 //
 // A completed operation's transaction directory is removed before its journal,
 // so a failed directory removal cannot strand a journal-less orphan.
@@ -258,6 +289,25 @@ func Cleanup(home string, led *Ledger, now time.Time) (CleanupResult, error) {
 	}
 	if len(result.RemovedRows) > 0 {
 		led.Rows = kept
+	}
+
+	// A target record is an enrollment claim. Once no retained row names it and
+	// no unresolved journal still mutates it, its resources are gone and the
+	// record would keep the ledger reporting an enrollment that no longer
+	// exists.
+	keptTargets := led.Targets[:0:0]
+	for _, record := range led.Targets {
+		if ret.KeepsTarget(record) || rowsNameTarget(kept, record) {
+			keptTargets = append(keptTargets, record)
+			continue
+		}
+		result.RemovedTargets = append(result.RemovedTargets, record)
+	}
+	if len(result.RemovedTargets) > 0 {
+		led.Targets = keptTargets
+	}
+
+	if len(result.RemovedRows) > 0 || len(result.RemovedTargets) > 0 {
 		if err := led.Save(config.LedgerPath(home)); err != nil {
 			return result, err
 		}
