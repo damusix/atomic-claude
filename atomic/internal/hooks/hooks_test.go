@@ -15,6 +15,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/where"
+	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
 // TestMain sandboxes every test in this package under a temp $HOME, since
@@ -1822,5 +1823,41 @@ func TestUninstall_MalformedSettings_Refuses(t *testing.T) {
 	raw, _ := os.ReadFile(settingsPath)
 	if string(raw) != "{ broken" {
 		t.Errorf("malformed settings.json was modified")
+	}
+}
+
+// Session-start wiki staleness reads the authoritative ~/.atomic/wikis.md even
+// when no CLAUDE.md projection exists at all — the registry is harness-neutral.
+func TestSessionStart_WikiNudgesFromRegistryAuthority(t *testing.T) {
+	stubNoWherePosition(t)
+	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	now := time.Now().UTC()
+
+	orig := hooks.ProfileRefresh
+	hooks.ProfileRefresh = func(string, string, int) (bool, error) { return false, nil }
+	t.Cleanup(func() { hooks.ProfileRefresh = orig })
+
+	addReminderWithDate(t, root, "existing reminder", 0)
+
+	wikiDir := filepath.Join(t.TempDir(), "realm", "wiki")
+	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	indexPath := filepath.Join(wikiDir, "index.md")
+	if err := os.WriteFile(indexPath, []byte("<wiki-scan root=\"/r\" generated=\"2000-01-01\">\n</wiki-scan>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := wiki.NewWikiRegistry(home).Add(indexPath); err != nil {
+		t.Fatalf("register authority: %v", err)
+	}
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if !strings.Contains(out, indexPath) {
+		t.Errorf("authority-registered wiki missing from session output: %q", out)
 	}
 }

@@ -43,6 +43,24 @@ func ProfilePath(home string) string {
 	return filepath.Join(Dir(home), "profile.md")
 }
 
+// WikisPath returns ~/.atomic/wikis.md — the authoritative wiki registry. The
+// <wikis> block in an installed CLAUDE.md is a derived projection of this file.
+func WikisPath(home string) string {
+	return filepath.Join(Dir(home), "wikis.md")
+}
+
+// PackagesDir returns ~/.atomic/packages — the root of Atomic-owned generated
+// harness packages.
+func PackagesDir(home string) string {
+	return filepath.Join(Dir(home), "packages")
+}
+
+// PackageRoot returns ~/.atomic/packages/<harness>/atomic — one generated
+// harness package's published directory.
+func PackageRoot(home, harness string) string {
+	return filepath.Join(PackagesDir(home), harness, "atomic")
+}
+
 // ProfileRelPath returns profile.md's home-relative path with forward slashes,
 // matching how pre-install manifests store it. Compare against manifest entries
 // through this, never a hardcoded string.

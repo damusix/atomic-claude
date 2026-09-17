@@ -46,6 +46,7 @@ var knownKeys = []string{
 	"update.stage",
 	"update.channel",
 	"harness.dir",
+	"state.dir",
 	"repl.idle_timeout",
 	"output_style.seed",
 }
@@ -125,9 +126,18 @@ type updateSection struct {
 	Channel string `toml:"channel,omitempty"`
 }
 
-// harnessSection is the [harness] TOML table.
+// harnessSection is the [harness] TOML table. Legacy: state.dir supersedes it,
+// and a non-default value supplies migration evidence while state.dir is unset.
 type harnessSection struct {
 	Dir string `toml:"dir"`
+}
+
+// stateSection is the [state] TOML table.
+type stateSection struct {
+	// Dir is one safe path segment naming the repository-state directory under
+	// each repository root. Empty means unset: the neutral ladder then falls back
+	// to legacy harness.dir evidence, then to `.claude`.
+	Dir string `toml:"dir,omitempty"`
 }
 
 // outputStyleSection is the [output_style] TOML table.
@@ -179,6 +189,7 @@ type Config struct {
 	Output      outputSection      `toml:"output"`
 	Update      updateSection      `toml:"update"`
 	Harness     harnessSection     `toml:"harness"`
+	State       stateSection       `toml:"state,omitempty"`
 	OutputStyle outputStyleSection `toml:"output_style"`
 	// Pi preserves the opaque [pi] tree so unrelated writes do not discard Pi
 	// agent overrides. ResolvePiAgents does the semantic validation.
@@ -386,6 +397,12 @@ func Validate(cfg *Config) error {
 	if err := validateHarnessDir(cfg.Harness.Dir); err != nil {
 		return err
 	}
+	// Empty state.dir means unset — the neutral ladder falls through.
+	if cfg.State.Dir != "" {
+		if err := ValidateStateDirSegment(cfg.State.Dir); err != nil {
+			return err
+		}
+	}
 	// An empty install.version is valid — it means no [install] table yet.
 	if cfg.Install.Version != "" && !selfupdate.IsValidSemver(cfg.Install.Version) {
 		return fmt.Errorf("config: install.version %q is not a valid semver string (e.g. \"1.2.0\")", cfg.Install.Version)
@@ -519,6 +536,11 @@ func Set(cfg *Config, dottedKey, value string) error {
 			return err
 		}
 		cfg.Harness.Dir = value
+	case "state.dir":
+		if err := ValidateStateDirSegment(value); err != nil {
+			return err
+		}
+		cfg.State.Dir = value
 	case "repl.idle_timeout":
 		if _, err := ValidateIdleTimeout(value); err != nil {
 			return err
@@ -565,6 +587,8 @@ func Unset(cfg *Config, dottedKey string) error {
 		cfg.OutputStyle.Seed = outputStyleSeedDefault
 	case "harness.dir":
 		cfg.Harness.Dir = harnessDirDefault
+	case "state.dir":
+		cfg.State.Dir = ""
 	case "repl.idle_timeout":
 		cfg.Repl.IdleTimeout = ""
 	case "update.channel":

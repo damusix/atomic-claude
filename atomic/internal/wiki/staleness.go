@@ -1,7 +1,9 @@
 package wiki
 
-// Staleness nudges for registered wikis, driven by the <wikis> block in
-// <claudeHome>/CLAUDE.md.
+// Staleness nudges for registered wikis, driven by the authoritative
+// ~/.atomic/wikis.md registry (the <wikis> block in <claudeHome>/CLAUDE.md is
+// read only as a fallback — before adoption, or for a non-conventional install
+// root).
 //
 // Hard contract: zero git spawns. This runs at session start, where a
 // subprocess per registered wiki would be felt. Path comparisons use
@@ -21,6 +23,10 @@ type ExecRunner func(name string, args ...string) error
 
 // ReadWikiIndexPaths returns the registered index.md paths, or nothing at all
 // when the file or block is absent. Those cases are never errors.
+//
+// Tags count only as whole lines, matching every writer in this package, so the
+// shipped <atomic> block's prose mentioning a `<wikis>` block inline cannot open
+// the registry early and hand the bullets that follow it to the caller.
 func ReadWikiIndexPaths(claudeMDPath string) ([]string, error) {
 	data, err := os.ReadFile(claudeMDPath)
 	if err != nil {
@@ -30,27 +36,15 @@ func ReadWikiIndexPaths(claudeMDPath string) ([]string, error) {
 		return nil, fmt.Errorf("wiki registry read: %w", err)
 	}
 
-	content := string(data)
-	openIdx := strings.Index(content, wikisMarkerOpen)
-	if openIdx == -1 {
-		return nil, nil
-	}
-	closeIdx := strings.Index(content[openIdx:], wikisMarkerClose)
-	if closeIdx == -1 {
-		return nil, nil
-	}
-
-	blockContent := content[openIdx+len(wikisMarkerOpen) : openIdx+closeIdx]
+	_, _, blockContent := findBareLineBlock(string(data), wikisMarkerOpen, wikisMarkerClose)
 
 	var paths []string
 	for _, line := range strings.Split(blockContent, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || !strings.HasPrefix(line, "- ") {
+		if !strings.HasPrefix(line, "- ") {
 			continue
 		}
-		p := strings.TrimPrefix(line, "- ")
-		p = strings.TrimSpace(p)
-		if p != "" {
+		if p := strings.TrimSpace(strings.TrimPrefix(line, "- ")); p != "" {
 			paths = append(paths, p)
 		}
 	}
@@ -64,7 +58,7 @@ func CheckStaleness(claudeHome string, thresholdDays int, runner ExecRunner, clo
 	_ = runner
 
 	claudeMDPath := filepath.Join(claudeHome, "CLAUDE.md")
-	indexPaths, err := ReadWikiIndexPaths(claudeMDPath)
+	indexPaths, err := RegisteredIndexPaths(claudeMDPath)
 	if err != nil {
 		return nil, nil
 	}
@@ -143,7 +137,7 @@ func extractGeneratedDate(content string) string {
 // root, and does nothing otherwise.
 func MarkDirty(claudeHome, cwd string) error {
 	claudeMDPath := filepath.Join(claudeHome, "CLAUDE.md")
-	indexPaths, err := ReadWikiIndexPaths(claudeMDPath)
+	indexPaths, err := RegisteredIndexPaths(claudeMDPath)
 	if err != nil || len(indexPaths) == 0 {
 		return nil
 	}
