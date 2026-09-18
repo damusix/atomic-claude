@@ -67,6 +67,22 @@ agent-implementer-workflow ──> agent-search-tooling, agent-tdd-signals,
                                agent-code-intel, agent-where
 ```
 
+Every `agent-*` partial is a pure fragment — one `{{ define }}` block, no conditionals, no variant-passing — and owns exactly one concern. Optional sub-fragments are their own micro-partials, so a consumer pulls in only what it needs.
+
+| Partial | Owns | Nests | Consumed by |
+|---------|------|-------|-------------|
+| `agent-atomic-voice` | The orchestrator-facing reply contract: findings only, no preamble or recap. | — | all eight agents |
+| `agent-code-intel` | When and how to query the `atomic code` symbol graph, degrading to literal search. | — | reviewer, investigator, wiki-inferrer, wiki-writer, auditor, deslopper; implementer (via workflow) |
+| `agent-comment-discipline` | The bar a comment must clear to earn its place. | — | implementer, reviewer, auditor, deslopper |
+| `agent-implementer-workflow` | The implementer's read → reflect → code-intel → reuse → TDD → self-check loop. | `agent-search-tooling`, `agent-tdd-signals`, `agent-code-intel`, `agent-where` | implementer |
+| `agent-readability` | Readability as a defect class: comment noise, over-engineering, repetition. | — | implementer, reviewer, auditor |
+| `agent-search-tooling` | Choosing a search tier: code-intel, then `sg`, then literal text. | — | investigator, deslopper; implementer (via workflow) |
+| `agent-shared-rules` | Cross-agent discipline: match file style, leave git state untouched, quote errors exactly. | — | implementer |
+| `agent-signals-output` | The report shape: Did / Tests / Signals / Failed / Commit / Status. | — | implementer |
+| `agent-tdd-signals` | TDD-first, and which quality signals to run. | — | implementer (via workflow) |
+| `agent-where` | Position orientation via `atomic where` across the repo, realm, and code-index axes. | — | reviewer, investigator, wiki-inferrer; implementer (via workflow) |
+| `agent-yagni` | The Simplicity-first (YAGNI) ladder. | — | implementer, reviewer, auditor, strategist, deslopper |
+
 | Agent source | Partials composed |
 |---------------|-------------------|
 | `atomic-implementer.md` | `agent-atomic-voice`, `agent-comment-discipline`, `agent-implementer-workflow`, `agent-readability`, `agent-shared-rules`, `agent-signals-output`, `agent-yagni` |
@@ -226,4 +242,4 @@ That stage does not belong to this domain, and there is no render, bundle, or fr
 - **doctor, config** — install creates `~/.atomic/profile.md` on first run via [`atomic/internal/profile`](../../atomic/internal/profile) and prints `ProfileNudge`. Profile content and its freshness window belong to those domains.
 - **workflow** — every ship verb and orchestrator command lives in [`context/commands/`](../../context/commands). Changing a ship-verb flow means editing [`context/_partials/commit-flow.md`](../../context/_partials/commit-flow.md) and its siblings, not a single command file, because the partials fan out to every command in the family.
 - **docs-meta** — [`context/AGENTS.md`](../../context/AGENTS.md) is both the bundle input and, per the root [`CLAUDE.md`](../../CLAUDE.md), a separate file from this repo's own project instructions: the Claude adapter renders it as every user's `~/.claude/CLAUDE.md`, while the root [`CLAUDE.md`](../../CLAUDE.md) never installs. A change to [`context/AGENTS.md`](../../context/AGENTS.md) reaches every user on their next update.
-- **Lockstep contract** — [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) and the "Simplicity first (YAGNI)" ladder in [`context/AGENTS.md`](../../context/AGENTS.md)'s `<principles>` block carry the same seven steps verbatim. Nothing enforces the match. Edit both together.
+- **Lockstep contract** — [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) and the "Simplicity first (YAGNI)" ladder in [`context/AGENTS.md`](../../context/AGENTS.md)'s `<principles>` block carry the same nine steps verbatim. Nothing enforces the match. Edit both together.
