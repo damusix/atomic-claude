@@ -35,7 +35,7 @@ Stop. Do not proceed until mode is valid.
 | 0.1 | Resolve argument to a run ID. If no arg given: `gh run list --status failure --branch <current-branch> --limit 1 --json databaseId,name,headSha,createdAt`. Refuse if no failed run found: `no failed run found on branch <branch>. provide a run-id, pr#, or workflow.yml as argument.` |
 | 0.2 | Capture into `BRIEF.md` source-pointer section: branch, head SHA, base SHA (`git merge-base HEAD origin/main`), workflow name, failed step name (from `gh run view <id> --json jobs`), failure timestamp, provider URL. |
 | 0.3 | Topic: `diagnose-ci-<run-id>` — the run id distinguishes the bundle, not a date. **Concurrent-run guard:** if `atomic scratchpad path "<topic>"` resolves, refuse: `scratchpad already exists for <topic>; atomic scratchpad archive it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise run `atomic repo init` if `command -v atomic` succeeds (guarantees the `.claude/` layout and ignore rules; skip silently otherwise), then `SCRATCH=$(atomic scratchpad new "<topic>" --purpose diagnose)`. |
-| 0.4 | Dispatch a `general-purpose` subagent (`model: haiku`, foreground, read-only) with this brief: `Fetch full logs for CI run <id>, failed step "<step-name>". Write to <SCRATCH>/CONTEXT.md. If logs exceed 64KB, truncate with footer: "[truncated, full log at <provider-url>]". Extract the primary failing assertion / panic / error line and append as a trailing YAML key: top_level_error: "<exact error string>"`. |
+| 0.4 | Dispatch an isolated read-only subagent (foreground, economical reasoning tier) with this brief: `Fetch full logs for CI run <id>, failed step "<step-name>". Write to <SCRATCH>/CONTEXT.md. If logs exceed 64KB, truncate with footer: "[truncated, full log at <provider-url>]". Extract the primary failing assertion / panic / error line and append as a trailing YAML key: top_level_error: "<exact error string>"`. |
 | 0.5 | Read `CONTEXT.md`. Copy `top_level_error` value into `STATE.md` as `## Iteration 0 — baseline` entry: `top_level_error: <value>` + `normalized_hash: <sha256 of normalized string, first 12 chars>`. |
 
 ---
@@ -45,7 +45,7 @@ Stop. Do not proceed until mode is valid.
 | Step | Action |
 |------|--------|
 | 0.1 | Slug: kebab-case from first ~6 words of the symptom arg (e.g. `"user login fails with 500"` → `user-login-fails-with-500`). Topic: `diagnose-bug-<slug>` — no date. **Concurrent-run guard:** if `atomic scratchpad path "<topic>"` resolves, refuse: `scratchpad already exists for <topic>; atomic scratchpad archive it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise run `atomic repo init` if `command -v atomic` succeeds (guarantees the `.claude/` layout and ignore rules; skip silently otherwise), then `SCRATCH=$(atomic scratchpad new "<topic>" --purpose diagnose)`. |
-| 0.2 | Single `AskUserQuestion` block. For each of the four context fields not already answered by the symptom: **repro steps**, **expected vs actual behavior**, **environment fingerprint** (OS, runtime versions, branch, dirty/clean working tree), **what's been tried**. Skip fields the symptom paragraph already answers. |
+| 0.2 | Single batched question block. For each of the four context fields not already answered by the symptom: **repro steps**, **expected vs actual behavior**, **environment fingerprint** (OS, runtime versions, branch, dirty/clean working tree), **what's been tried**. Skip fields the symptom paragraph already answers. |
 | 0.3 | Seed `CONTEXT.md` from `atomic template diagnose-context` and fill it — four stable headings (`## Repro`, `## Expected vs actual`, `## Environment`, `## Already tried`) plus the trailing YAML key `top_level_error:` — use a paste-able error string if the brief or answers contain one, else `<none — behavioral bug>`. |
 | 0.4 | Auto-capture: if suspected paths are inferable from the brief, run `git log --oneline -20 -- <paths>` and append output as `## Recent commits` to `CONTEXT.md`. Skip silently if no paths inferable. |
 | 0.5 | Write `BRIEF.md` source-pointer section pointing at `CONTEXT.md`. The brief is canonical — no external spec exists. |
@@ -73,7 +73,7 @@ Write the full `BRIEF.md` before dispatching (refreshed each iteration — orche
 
 Dispatch:
 
-- `subagent_type: "atomic-investigator"`
+- Agent: `atomic-investigator`
 - Prompt: `Read $SCRATCH/BRIEF.md and $SCRATCH/CONTEXT.md. Map the suspect surface — files, call sites, functions, test coverage. Return a file:line — what table as your output.` When a code-intel index is warm, seed the brief with the failing symbol or top-level error from `CONTEXT.md` and tell the investigator to lead with `atomic code explore "<that failure context>"` to scope the failure neighborhood in one shot, plus `atomic code callers <failing-fn>` for blast radius, before grepping cold.
 
 Orchestrator appends the investigator's output to `BRIEF.md` as `## Phase 1 — surface map`.
@@ -100,7 +100,7 @@ Build the implementer prompt by running `atomic prompt implementer` and substitu
 | `{REVIEWER_FEEDBACK}` | Findings from STATE.md (or `"N/A — first iteration"`) |
 | `{BASE_SHA}` | `git rev-parse HEAD` before this iteration |
 
-Dispatch via `Agent` tool with `subagent_type: "atomic-implementer"`.
+Dispatch `atomic-implementer`.
 
 TDD discipline applies: failing test that reproduces the bug must be written first, then the fix. The agent's signal block is the evidence.
 
@@ -121,7 +121,7 @@ Build the reviewer prompt by running `atomic prompt reviewer` and substituting:
 | `{SPEC_PATH}` | `"no spec — brief is BRIEF.md + CONTEXT.md"` |
 | `{BASE_SHA}` | HEAD before this iteration's implementer ran |
 
-Dispatch `subagent_type: "atomic-reviewer"`.
+Dispatch `atomic-reviewer`.
 
 Reviewer emits `## Spec compliance` + `## Code quality` + signals block + exactly one of `VERDICT: PASS` / `VERDICT: CHANGES_REQUESTED`.
 
@@ -155,7 +155,7 @@ Option A — pressure-test the approach:
   /pressure-test @$SCRATCH/CONTEXT.md   (primary — the captured failure context is the input)
   or, if a spec exists for the affected area: /pressure-test @docs/spec/<topic>.md
 
-Option B — dispatch atomic-strategist (high effort, read-only) for cross-cutting RCA:
+Option B — dispatch atomic-strategist (read-only, deep reasoning) for cross-cutting RCA:
   "Dispatch atomic-strategist: review $SCRATCH/CONTEXT.md, $SCRATCH/STATE.md, and
    the last three reviewer verdicts. Identify whether the failure has a root cause
    the current approach cannot reach, and recommend a revised approach."
@@ -163,7 +163,7 @@ Option B — dispatch atomic-strategist (high effort, read-only) for cross-cutti
 Option C — abort and retain scratchpad for manual inspection.
 ```
 
-Then `AskUserQuestion` with three choices: `dispatch atomic-strategist`, `run /pressure-test`, `abort`. Never auto-dispatch either option — the user opts in (axiom 3: the pass is expensive; `/pressure-test` may mutate the spec).
+Then ask the user with three choices: `dispatch atomic-strategist`, `run /pressure-test`, `abort`. Never auto-dispatch either option — the user opts in (axiom 3: the pass is expensive; `/pressure-test` may mutate the spec).
 
 ### Same-failure normalization
 
@@ -198,7 +198,7 @@ Topic dir includes mode + per-mode unique suffix (run-id for `ci`, slug for `bug
 | Step | Action |
 |------|--------|
 | 4.1 | Push the fix commit if not yet pushed. Confirm with user first (per axiom 3 — push is visible to others). |
-| 4.2 | Dispatch a `general-purpose` subagent (`model: haiku`, `run_in_background: true`) with brief: `Watch CI for branch <branch> (commit <sha>) until terminal state. Report: run ID, conclusion (success/failure/cancelled/timed-out), failing step + 1-3 line error excerpt on failure. Cap at 10 minutes. Read-only — do not rerun or cancel.` |
+| 4.2 | Dispatch an isolated subagent in the background (economical reasoning tier) with brief: `Watch CI for branch <branch> (commit <sha>) until terminal state. Report: run ID, conclusion (success/failure/cancelled/timed-out), failing step + 1-3 line error excerpt on failure. Cap at 10 minutes. Read-only — do not rerun or cancel.` |
 | 4.3 | Return control to user immediately. Print: scratchpad path, fix commit SHA, background watcher launched. |
 | 4.4 | When watcher completes — do **not** auto-relaunch on failure. Surface the new failure ID and instruct user to re-invoke `/subagent-diagnose ci <new-run-id>`. Prevents infinite loops on flaky infrastructure. |
 
@@ -206,9 +206,9 @@ Topic dir includes mode + per-mode unique suffix (run-id for `ci`, slug for `bug
 
 | Step | Action |
 |------|--------|
-| 4.1 | Foreground orchestrator runs the repro from `CONTEXT.md ## Repro` against the committed fix. Shell-executable repros: run via Bash. Manual repros (UI, third-party service): prompt user to run and report result via `AskUserQuestion`. |
+| 4.1 | Foreground orchestrator runs the repro from `CONTEXT.md ## Repro` against the committed fix. Shell-executable repros: run via a shell command. Manual repros (UI, third-party service): ask the user to run it and report the result. |
 | 4.2 | If repro passes (bug no longer reproduces): proceed to teardown. |
-| 4.3 | If repro still fails: print `fix landed in commit <sha> but repro still fails. scratchpad retained at <path>. reviewer signed PASS based on the regression test; the test may not match the real repro.` Then `AskUserQuestion`: continue iterating (Phase 2) / accept and proceed / abort. |
+| 4.3 | If repro still fails: print `fix landed in commit <sha> but repro still fails. scratchpad retained at <path>. reviewer signed PASS based on the regression test; the test may not match the real repro.` Then ask the user: continue iterating (Phase 2) / accept and proceed / abort. |
 | 4.4 | No background dispatch. Bug verification is synchronous. |
 
 ### Shared teardown (both modes)

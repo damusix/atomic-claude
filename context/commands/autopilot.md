@@ -19,7 +19,7 @@ You run the whole lifecycle without input, except how to merge. `$ARGUMENTS`: `<
 | Scratchpad purpose | `implement` |
 | Ship | the merge verb from `$ARGUMENTS`, else ask once |
 
-The ship gate is the only `AskUserQuestion` in the run. Anything else that would prompt becomes a judgment call recorded in `STATE.md`; a true blocker halts and surfaces.
+The ship gate is the only interactive question in the run. Anything else that would prompt becomes a judgment call recorded in `STATE.md`; a true blocker halts and surfaces.
 
 ## Scratch hygiene
 
