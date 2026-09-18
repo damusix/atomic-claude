@@ -97,13 +97,12 @@ func extractLineLinks(line string, lineNum int) []Link {
 			if closeBracket != -1 {
 				afterBracket := i + 1 + closeBracket + 1
 				if afterBracket < n && line[afterBracket] == '(' {
-					closeParen := strings.IndexByte(line[afterBracket+1:], ')')
-					if closeParen != -1 {
+					if target, destLen, ok := parseDestination(line[afterBracket+1:]); ok {
 						text := line[i+1 : i+1+closeBracket]
-						target := line[afterBracket+1 : afterBracket+1+closeParen]
+						end := afterBracket + 1 + destLen
 						// ![...](...) is an image, not a link.
 						if i > 0 && line[i-1] == '!' {
-							i = afterBracket + 1 + closeParen + 1
+							i = end
 							continue
 						}
 						results = append(results, Link{
@@ -112,7 +111,7 @@ func extractLineLinks(line string, lineNum int) []Link {
 							Kind:   MarkdownLink,
 							Line:   lineNum,
 						})
-						i = afterBracket + 1 + closeParen + 1
+						i = end
 						continue
 					}
 				}
