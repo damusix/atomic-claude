@@ -1,19 +1,7 @@
 ---
 name: atomic-documentation
-description: >
-  Diff-driven documentation surface classifier. Given a diff (staged, branch, or
-  range), reads the project's indexed ## Documentation surfaces table from its
-  instruction files, matches the diff against it, and emits a structured list of
-  proposed edits. Two modes: maintenance (commit flow — stale/incomplete only,
-  never suggests new pages) and authoring (/documentation explicit — full
-  discovery, gap detection, content generation). Auto-fires on "doc this change",
-  "what surfaces does this touch", "doc impact for this diff", "what needs
-  documenting". Also invoked by /documentation (authoring mode) and by ship verbs
-  (maintenance mode, between stage and signals).
-  Boundary: for raw prose drafting (README intro, guide narrative), atomic-writing owns.
-  This skill owns diff-driven surface impact and content generation for stale/incomplete docs.
+description: 'Diff-driven documentation surface classifier. Given a diff (staged, branch, or range), reads the project''s indexed ## Documentation surfaces table from its instruction files, matches the diff against it, and emits a structured list of proposed edits. Two modes: maintenance (commit flow — stale/incomplete only, never suggests new pages) and authoring (/documentation explicit — full discovery, gap detection, content generation). Auto-fires on "doc this change", "what surfaces does this touch", "doc impact for this diff", "what needs documenting". Also invoked by /documentation (authoring mode) and by ship verbs (maintenance mode, between stage and signals). Boundary: for raw prose drafting (README intro, guide narrative), atomic-writing owns. This skill owns diff-driven surface impact and content generation for stale/incomplete docs.'
 ---
-
 <trigger>
 
 Auto-fires on: "doc this change", "what surfaces does this touch", "doc impact for this diff", "what needs documenting".

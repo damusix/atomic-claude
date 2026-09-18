@@ -284,7 +284,7 @@ Code changes break docs silently: an endpoint renamed, a config field gone, a di
 
 | Mode | When | Does |
 |------|------|------|
-| Bootstrap | first run | Scans for markdown; you pick which surfaces to track into a `## Documentation surfaces` table in `CLAUDE.md` |
+| Bootstrap | first run | Scans for markdown; you pick which surfaces to track into a `## Documentation surfaces` table in the project's instructions |
 | Authoring | `/documentation` | Compares recent changes against tracked surfaces and walks the stale ones with you |
 | Maintenance | every ship verb | Same check on the staged diff, silent unless something is stale |
 

@@ -15,7 +15,7 @@ description: >
 - "open a PR", "PR description", "PR body", writing `gh pr create --body`
 - Staging changes for commit
 - Ship verbs delegating message format
-- Read directly by subagents briefed to create a commit or open a PR (per `CLAUDE.md` Commits & PRs — subagents can't auto-fire skills)
+- Read directly by subagents briefed to create a commit or open a PR (per the global contract's Commits & PRs section — subagents can't auto-fire skills)
 
 </trigger>
 

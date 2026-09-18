@@ -19,9 +19,10 @@ const (
 	StatusUnsupported CapabilityStatus = "unsupported"
 )
 
-// Role names one rule-delivery role an adapter consumes, so no adapter assumes
-// a product API name. A missing or failed role produces unsupported behavior
-// instead of stranding installation.
+// Role names one native surface role an adapter consumes, so no adapter assumes
+// a product API name — neither a rule-delivery role nor a skill-projection
+// surface. A missing or failed role produces unsupported behavior instead of
+// stranding installation.
 type Role string
 
 const (
@@ -39,6 +40,18 @@ const (
 	// RoleDeterministicDeny is the result that blocks one exact machine
 	// predicate on an event the harness mediates.
 	RoleDeterministicDeny Role = "deterministic-deny"
+	// RoleSkillDiscovery is the native surface that discovers a skill manifest
+	// and surfaces its name and description as a trigger.
+	RoleSkillDiscovery Role = "skill-discovery"
+	// RoleSkillMetadata is the native surface that carries skill metadata
+	// beyond the portable name/description pair.
+	RoleSkillMetadata Role = "skill-metadata"
+	// RoleSkillReferences is the native surface that resolves a skill's
+	// referenced files beside its manifest.
+	RoleSkillReferences Role = "skill-references"
+	// RoleSkillDisablement is the native surface that honors a user-disabled
+	// skill or referenced file.
+	RoleSkillDisablement Role = "skill-disablement"
 )
 
 // Capability is one CP0 row: the tested native surface, how far it is proven,

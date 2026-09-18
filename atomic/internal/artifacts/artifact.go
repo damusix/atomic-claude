@@ -145,6 +145,23 @@ func AgentBody(a Artifact) ([]byte, error) {
 	if a.Kind != KindAgent {
 		return nil, fmt.Errorf("artifacts: %s is not an agent", a.ID)
 	}
+	return instructionBody(a)
+}
+
+// SkillBody returns a canonical skill manifest's instruction body: its rendered
+// bytes with the portable frontmatter excluded and the result normalized to
+// exactly one trailing newline. A target that carries name and description as
+// its own native fields preserves this body byte-for-byte.
+func SkillBody(a Artifact) ([]byte, error) {
+	if a.Kind != KindSkill {
+		return nil, fmt.Errorf("artifacts: %s is not a skill", a.ID)
+	}
+	return instructionBody(a)
+}
+
+// instructionBody strips an artifact's frontmatter and normalizes the result to
+// exactly one trailing newline.
+func instructionBody(a Artifact) ([]byte, error) {
 	_, body, err := frontmatter.Parse(string(a.Body))
 	if err != nil {
 		return nil, fmt.Errorf("artifacts: %s frontmatter: %w", a.ID, err)

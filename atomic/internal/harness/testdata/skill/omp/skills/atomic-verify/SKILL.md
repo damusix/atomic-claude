@@ -1,12 +1,7 @@
 ---
 name: atomic-verify
-description: >
-  Evidence-before-claim gate. Auto-triggers when the assistant is about to claim "done", "fixed",
-  "passing", "complete", "ready to merge", "looks good", "should work", "should pass",
-  "green", or any synonym. Iron rule: no completion claim without a fresh verification
-  command run in this turn. Explicit invocation: /atomic-verify.
+description: 'Evidence-before-claim gate. Auto-triggers when the assistant is about to claim "done", "fixed", "passing", "complete", "ready to merge", "looks good", "should work", "should pass", "green", or any synonym. Iron rule: no completion claim without a fresh verification command run in this turn. Explicit invocation: /atomic-verify.'
 ---
-
 Verify before claim. No claim without fresh evidence in this turn.
 
 <trigger>
