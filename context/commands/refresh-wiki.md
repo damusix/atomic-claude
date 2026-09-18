@@ -27,7 +27,7 @@ Specifically: if no `[root]` was supplied and the cwd is inside a git repo, this
 
 Continue to the **Realm scope** steps.
 
-**Ambiguous** — cwd is a git repo AND a sibling `wiki/` directory exists (repo + `wiki/` co-located). Ask via `AskUserQuestion`:
+**Ambiguous** — cwd is a git repo AND a sibling `wiki/` directory exists (repo + `wiki/` co-located). Ask the user in one batched question block:
 
 ```
 This directory is a git repo and has a wiki/ sibling. Which scope?
@@ -85,9 +85,9 @@ Set `first_run=true`. Continue to R3.
 atomic wiki init --scope repo
 ```
 
-This is idempotent: it writes `docs/wiki/CLAUDE.md` with the default scaffold if the file does not exist, and no-ops silently if it already exists. On creation the command prints `created <path>` on stdout — relay that line, followed by `(edit to steer the inferrer).`
+This is idempotent: it writes the wiki steering scaffold if it does not exist, and no-ops silently if it already does. On creation the command prints `created <path>` on stdout — relay that line, followed by `(edit to steer the inferrer).`
 
-If the file already exists (no output from the command), read its contents for the dispatch prompt.
+The scaffold's canonical home is the wiki steering pair: the shared `docs/wiki/AGENTS.md`, with the `CLAUDE.md` loader beside it. Read whichever the command created — the shared file where present, otherwise the loader beside it — for the dispatch prompt.
 
 ### R4 — Code-intel index lifecycle
 
@@ -101,38 +101,38 @@ A missing index (binary absent, or a failed index/sync) never blocks the refresh
 
 ### R5 — Dispatch agent
 
-Dispatch the `atomic-wiki-inferrer` agent via the `Agent` tool. Build the prompt:
+Dispatch `atomic-wiki-inferrer`, fresh context. Prompt:
 
 ```
 mode: interactive
 first_run: <true if R2 found no existing signals, false otherwise>
 
 <steering>
-<contents of docs/wiki/CLAUDE.md, if it exists and is not all comments>
+<contents of the wiki steering file, if it exists and is not all comments>
 </steering>
 ```
 
-Wait for the agent to complete. The agent reads `skills/atomic-wiki/references/repo.md` and executes the full repo-scope pipeline (scan → infer → write `docs/wiki/` files → linkify → wire `@-ref`).
+Wait for the agent to complete. The agent reads the `atomic-wiki` skill's `references/repo.md` and executes the full repo-scope pipeline (scan → infer → write `docs/wiki/` files → linkify → wire the steering reference).
 
 ### R6 — Surface concerns
 
-If the agent returned a `## Concerns` table (judgment observations found during inference), present them to the user as a numbered list. Ask via `AskUserQuestion`: "The signals scan found N potential issues. Create follow-ups for any?" with options:
+If the agent returned a `## Concerns` table (judgment observations found during inference), present them to the user as a numbered list and ask, in one batched question block: "The signals scan found N potential issues. Create follow-ups for any?" with options:
 
 - "All" — create follow-ups for every concern via `atomic followups add`
 - "Pick" — print the indexed list, accept space/comma-separated indices, create only those
 - "Skip" — discard, no follow-ups created
 
-### R7 — No CLAUDE.md at all
+### R7 — No project steering file at all
 
-If no `CLAUDE.md` exists after the agent runs (the agent could not wire the `@-ref`), ask via `AskUserQuestion`:
+If no project steering file exists after the agent runs (the agent could not wire the `@-ref`), ask the user:
 
 ```
-No CLAUDE.md found. Create a starter with signals @-ref?
-- Yes (writes minimal starter with @-ref)
+No project steering file found. Create a starter with the signals reference?
+- Yes (writes a minimal shared steering file with the @-ref)
 - No, skip
 ```
 
-On "Yes": write a minimal `CLAUDE.md` at repo root containing only:
+On "Yes": write a minimal shared steering file (`AGENTS.md`) at repo root containing only:
 
 ```markdown
 <atomic-signals>
@@ -155,17 +155,17 @@ signals <refreshed | initialized>.
 
   scan (raw):    docs/wiki/scan.md
   index:         docs/wiki/index.md
-  CLAUDE.md:     <updated with @-refs | unchanged (already wired) | not created (skipped)>
+  steering:      <updated with the @-ref | unchanged (already wired) | not created (skipped)>
   cards:         <P> emitted, <Q> deleted<ignore-edit>
 
 suggested next step:
   git add -A docs/wiki/*.md
-  [ ! -d .claude/rules/wiki ] || git add -A .claude/rules/wiki/
-  (and CLAUDE.md and any amended ignore file if modified)
+  [ ! -d <state-root>/rules/wiki ] || git add -A <state-root>/rules/wiki/
+  (and the steering file and any amended ignore file if modified)
   then: /commit
 ```
 
-`<ignore-edit>` is empty when Step 9 reported no ignore-file change, or `, <path> amended for rules/wiki` when it did, appended to the same line, matching `skills/atomic-wiki/references/repo.md` Step 9.
+`<ignore-edit>` is empty when Step 9 reported no ignore-file change, or `, <path> amended for rules/wiki` when it did, appended to the same line, matching the `atomic-wiki` skill's `references/repo.md` Step 9.
 
 Use "initialized" if R2 found no existing signals; "refreshed" otherwise.
 
@@ -243,7 +243,7 @@ For each bucket name, run:
 atomic wiki bucket add --root <resolved-root> <name>
 ```
 
-`bucket add` creates the bucket folder, the manifest dir (`wiki/.buckets/<name>/`), registers a `<bucket name="<name>" path="<abs-path>"/>` entry in the `<wiki-buckets>` block in `wiki/index.md`, and writes the `## Capture surfaces` section (with `<!-- describe what this bucket is for -->` placeholder) to the realm `CLAUDE.md`.
+`bucket add` creates the bucket folder, the manifest dir (`wiki/.buckets/<name>/`), registers a `<bucket name="<name>" path="<abs-path>"/>` entry in the `<wiki-buckets>` block in `wiki/index.md`, and writes the `## Capture surfaces` section (with `<!-- describe what this bucket is for -->` placeholder) to the realm's shared steering file (`AGENTS.md`, with the `CLAUDE.md` loader beside it).
 
 **On blank/skip input** (user presses Enter or types nothing): record the decline by writing a `<wiki-buckets declined="true"></wiki-buckets>` block into `wiki/index.md`. Use an Edit to insert the block after the last line of content (or append if file ends without a trailing newline). This prevents the offer from re-firing on future runs.
 
@@ -251,7 +251,7 @@ atomic wiki bucket add --root <resolved-root> <name>
 
 If new buckets were just created in Step 3, ask the user what each bucket is for (or infer from their Step 3 answers if they described purpose while naming). Then:
 
-1. Replace the `<!-- describe what this bucket is for -->` placeholder in the realm `CLAUDE.md` `## Capture surfaces` section for each bucket.
+1. Replace the `<!-- describe what this bucket is for -->` placeholder in the realm's shared steering file (`AGENTS.md`) `## Capture surfaces` section for each bucket.
 2. Write the bucket's `index.md` purpose line and update the `## Conventions` block to describe naming and content conventions for that bucket.
 
 Code writes structure; the model writes meaning. A bucket whose placeholder survives this step (user declined to describe it) is flagged in the Step 11 disposition output as `PLACEHOLDER (unfilled)` — it is not a blocker for the rest of the run.
@@ -336,16 +336,14 @@ test -f <member-repo-path>/.claude/.atomic-index/atomic.db
 
 Code-intel grounding is best-effort per repo. A repo without an index still gets summarized via heuristics — absence of an index is never a blocker for the wiki refresh.
 
-Dispatch `atomic-wiki-inferrer` in wiki-output mode:
+Dispatch `atomic-wiki-inferrer`, fresh context, in wiki-output mode. Prompt:
 
 ```
-subagent_type: "atomic-wiki-inferrer"
-prompt:
-  target_repo: <abs-path-to-repo>
-  wiki_dir: <abs-path-to-wiki-root>
+target_repo: <abs-path-to-repo>
+wiki_dir: <abs-path-to-wiki-root>
 ```
 
-Wait for the agent to complete. The inferrer reads `skills/atomic-wiki/references/realm.md` and executes the wiki-output pipeline (W1-W7). It writes EITHER a single file `<wiki-root>/repos/<repo-name>.md` (small repo) OR multiple files under `<wiki-root>/repos/<repo-name>/<domain>.md` (large repo, domain-split). Check which shape was produced.
+Wait for the agent to complete. The inferrer reads the `atomic-wiki` skill's `references/realm.md` and executes the wiki-output pipeline (W1-W7). It writes EITHER a single file `<wiki-root>/repos/<repo-name>.md` (small repo) OR multiple files under `<wiki-root>/repos/<repo-name>/<domain>.md` (large repo, domain-split). Check which shape was produced.
 
 After the agent returns, stamp each summary file the inferrer produced for that repo:
 
@@ -395,17 +393,15 @@ atomic wiki bucket diff --root <resolved-root> <name>
 - Exit 1 → diff is non-empty → proceed to synthesis.
 - Exit 2 (hard error) → surface verbatim, mark bucket synthesis failed for this bucket, continue to the next.
 
-**8b — Dispatch inferrer for synthesis (judgment).** For each bucket with a non-empty diff, dispatch `atomic-wiki-inferrer` in bucket-synthesis mode:
+**8b — Dispatch inferrer for synthesis (judgment).** For each bucket with a non-empty diff, dispatch `atomic-wiki-inferrer`, fresh context, in bucket-synthesis mode. Prompt:
 
 ```
-subagent_type: "atomic-wiki-inferrer"
-prompt:
-  bucket_name: <name>
-  bucket_path: <abs-path-to-bucket-folder>
-  wiki_dir: <abs-path-to-wiki-root>
+bucket_name: <name>
+bucket_path: <abs-path-to-bucket-folder>
+wiki_dir: <abs-path-to-wiki-root>
 ```
 
-The inferrer reads `skills/atomic-wiki/references/realm.md` and executes the bucket-synthesis pipeline (B1-B5). It reads the bucket's `index.md` (conventions context) and the new/changed files from the diff as content context, and writes or updates `wiki/knowledge/<topic>.md` page(s). It reports back the pages it wrote and the source files that contributed to each page.
+The inferrer reads the `atomic-wiki` skill's `references/realm.md` and executes the bucket-synthesis pipeline (B1-B5). It reads the bucket's `index.md` (conventions context) and the new/changed files from the diff as content context, and writes or updates `wiki/knowledge/<topic>.md` page(s). It reports back the pages it wrote and the source files that contributed to each page.
 
 If the inferrer returns a partial-args error, surface it verbatim and mark synthesis failed for this bucket.
 

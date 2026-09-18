@@ -29,7 +29,7 @@ Read `docs/wiki/scan.md` end-to-end.
 
 Steering directives, when present, are provided by the caller in the dispatch prompt inside a `<steering>` block. If a `<steering>` block is present, treat its content as ground truth — steering wins over what the deterministic scan implies. If no `<steering>` block is in the prompt, proceed with pure inference.
 
-Naming continuity check: read existing `docs/wiki/*.md` domain filenames (excluding `index.md`, `scan.md`, and `CLAUDE.md`). For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
+Naming continuity check: read existing `docs/wiki/*.md` domain filenames (excluding `index.md`, `scan.md`, and the wiki steering file). For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
 
 ### Step 2b — Compute scope
 
@@ -59,7 +59,7 @@ Skip `[generated]` entries when partitioning — generated files do not drive do
 
 ### Step 4 — Dispatch sub-agents per domain
 
-For each domain that needs writing or updating, dispatch one `atomic-wiki-writer`. Name that type explicitly on every dispatch: omitting `subagent_type` falls back to `general-purpose`, which declares no `skills:` frontmatter, so the page contract and the voice rules would reach it as a request rather than as loaded context.
+For each domain that needs writing or updating, dispatch one `atomic-wiki-writer`. Dispatch each by its stable identity, fresh context, and never leave the agent to a default — an implicitly chosen agent carries none of the wiki contract, so the page contract and the voice rules would reach it as a request rather than as loaded context.
 
 ```
 Dispatch sub-agent (atomic-wiki-writer):
@@ -70,7 +70,7 @@ Source paths in this domain: <list from deterministic tree>
 </source_paths>
 
 <steering>
-<include steering directives here if docs/wiki/CLAUDE.md was provided by the caller>
+<include steering directives here if the wiki steering file was provided by the caller>
 </steering>
 
 <instructions>
@@ -80,7 +80,7 @@ Source paths in this domain: <list from deterministic tree>
 - Write a domain file conforming to the domain file schema below.
 - Invoke the `atomic-writing` skill and follow it. It governs three things here, not one: the page's reading order, when a shape gets drawn instead of written, and the sentence-level voice.
 - Draw every shape the domain has. A pipeline, a lifecycle, and a request path are three claims and three diagrams, each with its own `###` sub-heading and a caption stating what it claims. There is no cap. Leaving a shape in prose is the failure to avoid, not drawing too many.
-- Before writing any Mermaid block, read `~/.claude/skills/atomic-writing/references/mermaid.md` — it picks the diagram type from the reader's question and lists what breaks rendering. Identifier labels are why it matters: a bare `verify(token)` is a parse error, `verify("token")` is not.
+- Before writing any Mermaid block, read the `atomic-writing` skill's Mermaid reference (`mermaid.md`, in that skill's own references directory) — it picks the diagram type from the reader's question and lists what breaks rendering. Identifier labels are why it matters: a bare `verify(token)` is a parse error, `verify("token")` is not.
 - Draw from the source you read, never from prose someone already wrote about it. A diagram inherits any error in the paragraph it was copied from.
 - Output only the file content. Do not summarize your process.
 </instructions>
@@ -217,9 +217,9 @@ Then write the router body (see **Router shape** below) starting with `# Project
 
 ### Step 7b — Emit wiki pointer rules
 
-After `docs/wiki/index.md` is assembled, emit one path-scoped pointer card per domain to `.claude/rules/wiki/<domain>.md`. A Claude Code `paths:` glob match injects the card into context whenever a session touches that domain, so the session gets a link to the domain's wiki page without loading wiki content by default.
+After `docs/wiki/index.md` is assembled, emit one path-scoped pointer card per domain to `<state-root>/rules/wiki/<domain>.md`, where `<state-root>` is the selected repository-state root (`.claude` by default). These are the canonical wiki-producer rule records: each card is parsed through the `rules` package as `rules/wiki/<domain>.md` with identity `wiki:<project-key>:<domain>`, and the harness's native `paths:` glob match injects it into context whenever a session touches that domain, so the session gets a link to the domain's wiki page without loading wiki content by default.
 
-**Scope.** Bootstrap (`.claude/rules/wiki/` absent, or holds no cards): first run Step 3's domain partition for every router-table domain (classification only, no writer dispatch), giving each domain a disjoint `<source_paths>` block to derive its card's globs from, then emit a card for every domain regardless of `scope`. No fallback to the Start-here directory or any other approximation; a domain with no `<source_paths>` after the partition is a pipeline error to report, not a guess. Otherwise (cards already exist): `scope: full` emits every domain's card; `scope: incremental` emits only the cards of domains re-dispatched this run, leaving a non-re-dispatched domain's card and `paths:` untouched until its next re-dispatch. In all cases, delete any card whose domain is absent from the current router table.
+**Scope.** Bootstrap (`<state-root>/rules/wiki/` absent, or holds no cards): first run Step 3's domain partition for every router-table domain (classification only, no writer dispatch), giving each domain a disjoint `<source_paths>` block to derive its card's globs from, then emit a card for every domain regardless of `scope`. No fallback to the Start-here directory or any other approximation; a domain with no `<source_paths>` after the partition is a pipeline error to report, not a guess. Otherwise (cards already exist): `scope: full` emits every domain's card; `scope: incremental` emits only the cards of domains re-dispatched this run, leaving a non-re-dispatched domain's card and `paths:` untouched until its next re-dispatch. In all cases, delete any card whose domain is absent from the current router table.
 
 **Card contract.** One file per domain, wholly pipeline-owned:
 
@@ -231,7 +231,7 @@ paths:
   - "context/agents/atomic-wiki-inferrer.md"
 ---
 
-Domain: signals. Scan, infer, and wire the project context Claude loads each session.
+Domain: signals. Scan, infer, and wire the project context the harness loads each session.
 
 Map:
   - docs/wiki/signals.md
@@ -251,25 +251,26 @@ Consult the map before changing behavior here. Behavior changes stale the pages 
 - **Closing line**: fixed literal, one physical line, verbatim: `Consult the map before changing behavior here. Behavior changes stale the pages above. Renames or removals stale mentions beyond them: grep the old name across docs/ before shipping.`
 - **Body budget**: at most twelve links, across the seven category blocks — 24 lines after frontmatter at the ceiling. The body is a fixed five-line skeleton (leading blank, domain line, blank, blank, closing line) plus one label line per non-empty category and one line per link, so a card's length is `5 + categories + links`. Nesting spends lines rather than characters, so the budget counts links while the injected token cost stays roughly what the same links cost comma-separated. A domain needing more than twelve links is over-coupled: cut the weakest rather than growing the card. Every body line is deterministic: an unchanged domain regenerates a byte-identical card, so a ship commit carries no wording churn.
 
-**Ignore-file probe.** Before writing, run `git check-ignore -v .claude/rules/wiki`. If it reports a match, append `!/rules/wiki/` and `!/rules/wiki/**` to the ignore file the probe names as the matched source. Once the negation lands, the probe reports "not ignored" on future runs and the append is skipped.
+**Ignore-file probe.** Before writing, run `git check-ignore -v <state-root>/rules/wiki`. If it reports a match, append `!/rules/wiki/` and `!/rules/wiki/**` to the ignore file the probe names as the matched source. Once the negation lands, the probe reports "not ignored" on future runs and the append is skipped.
 
 **Report.** In interactive mode, name the ignore-file edit (if any) in the Step 9 summary alongside cards emitted and cards deleted. In silent mode, produce no output, consistent with Step 9's existing rule.
 
 ### Step 8 — Ensure @-ref is wired
 
-Only `docs/wiki/index.md` is `@-ref`'d — it is the compact router that every session needs. `docs/wiki/scan.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. `docs/wiki/CLAUDE.md` (steering) is also NOT `@-ref`'d — it lazy-loads as nested memory whenever Claude reads a file under `docs/wiki/`.
+Only `docs/wiki/index.md` is `@-ref`'d — it is the compact router that every session needs. `docs/wiki/scan.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. The wiki steering file is also NOT `@-ref`'d — it lazy-loads as nested memory whenever the harness reads a file under `docs/wiki/`.
 
 Check, in order, for `@docs/wiki/index.md` in any of:
 
-- `claude.local.md` / `CLAUDE.local.md` (project-local, gitignored — preferred when present)
-- `CLAUDE.md` (committed project instructions)
+- a project-local override steering file (gitignored — preferred when present)
+- the shared project steering `AGENTS.md`
+- the native `CLAUDE.md` loader alongside it
 
 If the ref is found in ANY of those files, the wiring is already done — skip this step entirely.
 
 If no file contains the ref:
 
-- If `claude.local.md` or `CLAUDE.local.md` exists, append the block to whichever exists (prefer `claude.local.md`).
-- Else, append to `CLAUDE.md` (create it only if it does not exist and the repo has `docs/wiki/`).
+- If a project-local override steering file exists, append the block to it (preferred).
+- Else, append to the shared project steering `AGENTS.md` (create it only if it does not exist and the repo has `docs/wiki/`).
 
 **Placement:** position the `@-ref` block BEFORE behavioral rules/instructions in the target file. Signals are reference data (facts about the codebase), not instructions.
 
@@ -297,11 +298,11 @@ After all signals files are written and reviewed, run:
 atomic signals linkify
 ```
 
-This renders every repo-root-relative backtick path citation that resolves on disk (in `docs/wiki/index.md` and every `docs/wiki/*.md` domain file, excluding `docs/wiki/scan.md` and `docs/wiki/CLAUDE.md`) into a file-relative markdown link `[`path`](relpath)`. Base = repo root. It is idempotent — re-running produces a byte-identical file. Fenced code blocks are never touched, and a `[text](path)` link is not an @-ref.
+This renders every repo-root-relative backtick path citation that resolves on disk (in `docs/wiki/index.md` and every `docs/wiki/*.md` domain file, excluding `docs/wiki/scan.md` and the wiki steering file) into a file-relative markdown link `[`path`](relpath)`. Base = repo root. It is idempotent — re-running produces a byte-identical file. Fenced code blocks are never touched, and a `[text](path)` link is not an @-ref.
 
 Run this in **both** interactive and silent modes. (Realm wiki-output mode does NOT run it — `/refresh-wiki` runs `atomic wiki linkify` post-stamp instead.)
 
-### Step 8c — Bootstrap docs/wiki/CLAUDE.md (first run only)
+### Step 8c — Bootstrap the wiki steering scaffold (first run only)
 
 Run:
 
@@ -309,7 +310,7 @@ Run:
 atomic wiki init --scope repo
 ```
 
-This is idempotent: it writes `docs/wiki/CLAUDE.md` with OKF frontmatter and the commented steering scaffold if the file does not exist, and no-ops silently if it already exists. On creation the command prints `created <path>` on stdout.
+This is idempotent: it writes the wiki steering scaffold with OKF frontmatter and the commented steering content if it does not exist, and no-ops silently if it already exists. Its canonical home is the wiki steering pair — the shared `docs/wiki/AGENTS.md` and the `CLAUDE.md` loader beside it. On creation the command prints `created <path>` on stdout.
 
 ### Step 9 — Report (interactive only)
 
@@ -517,8 +518,9 @@ Entries in `docs/wiki/scan.md` marked `[generated]` must be skipped by sub-agent
 
 ```
 docs/wiki/
-├── index.md          # router + orientation, @-ref'd from project CLAUDE.md or CLAUDE.local.md
-├── CLAUDE.md         # steering, OKF type: Steering; created on first run if absent
+├── index.md          # router + orientation, @-ref'd from the project steering pair
+├── AGENTS.md         # steering, OKF type: Steering; created on first run if absent
+├── CLAUDE.md         # thin native loader for AGENTS.md
 ├── scan.md           # deterministic substrate, NOT @-ref'd; committed with each refresh
 ├── auth.md           # domain file, OKF type: Domain
 ├── billing.md        # domain file, OKF type: Domain
@@ -534,9 +536,9 @@ Outputs:
 
 - `docs/wiki/index.md` — router + frontloaded orientation, always written.
 - `docs/wiki/<domain>.md` — per-domain detail files (OKF type: Domain).
-- `docs/wiki/CLAUDE.md` — steering file, written on first run if absent (OKF type: Steering).
+- `docs/wiki/AGENTS.md` — shared steering file, written on first run if absent (OKF type: Steering), with the thin `docs/wiki/CLAUDE.md` loader beside it.
 
-Plus the `@-ref` wiring target (one of `claude.local.md`, `CLAUDE.local.md`, or `CLAUDE.md`).
+Plus the `@-ref` wiring target (a project-local override steering file, the shared project steering `AGENTS.md`, or the native `CLAUDE.md` loader alongside it).
 
 The deterministic substrate (`docs/wiki/scan.md`) is written by the scan step. Never rewrite it manually.
 
@@ -547,6 +549,6 @@ The deterministic substrate (`docs/wiki/scan.md`) is written by the scan step. N
 - Sub-agents read source files in their area. Read actual source files to verify structure — tree filenames alone are insufficient. **Why:** directory names and file extensions don't reveal internal structure; only reading the code does.
 - Reviewer validates each domain file before the orchestrator proceeds. **Why:** sub-agents can hallucinate or misread scope; reviewer is the correctness gate before content is committed to signals.
 - Never write `@-refs` in domain files or the router's Detail column — write repo-root-relative paths in backticks; `atomic signals linkify` renders them to file-relative markdown links (a `[text](path)` link is not an `@-ref`). **Why:** `@-refs` are eager and transitive — they load the referenced file into every session that reads signals, defeating the lazy-load budget model; relative links are inert until explicitly `Read`.
-- Never modify files outside `docs/wiki/`, `.claude/rules/wiki/` (per-domain pointer cards), an ignore file's rules/wiki negation append, or the single `@-ref` target file for wiring. **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
+- Never modify files outside `docs/wiki/`, `<state-root>/rules/wiki/` (per-domain pointer cards), an ignore file's rules/wiki negation append, or the single `@-ref` target file for wiring. **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
 - Errors quoted exact. No paraphrasing. **Why:** paraphrased errors lose the exact token needed to `grep` for the root cause.
 - Never block a commit — if the scan fails, log and continue. **Why:** signals are supplemental context, not a build gate.
