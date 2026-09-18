@@ -143,7 +143,7 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 **`<wiki-scan>` block.** Literal `<wiki-scan ...>` / `</wiki-scan>` boundary. Open attrs `root`, `generated` (injected clock — no wall-clock reads). One `<repo .../>` per member: `path`, `status`, optional `signals`/`summary`. No fingerprints. Target `wiki/index.md`; idempotent in-place; content outside untouched. `generated` doubles as the neglect baseline read by the hook.
 
-**`<wikis>` block.** `~/.claude/CLAUDE.md`, literal `<wikis>`/`</wikis>`. One `- <abs index.md path>` per wiki. Present → add iff absent (dedup by normalized path = `filepath.Abs` then `filepath.Clean`, no symlink resolution); absent → append after `</atomic>` (or EOF); file absent → create. `<atomic>` never touched.
+**`<wikis>` block.** `~/.claude/CLAUDE.md`, literal `<wikis>`/`</wikis>`, each tag alone on its line. Every reader and the writer match the tags as whole lines only, because the installed `<atomic>` block names `<wikis>` inline in prose before the real block. One `- <abs index.md path>` per wiki. Present → add iff absent (dedup by normalized path = `filepath.Abs` then `filepath.Clean`, no symlink resolution); absent → append after `</atomic>` (or EOF); file absent → create. `<atomic>` never touched.
 
 **`atomic signals scan --out <dir>`.** Writes the deterministic substrate to `<dir>` instead of `<root>/.claude/project/`. With `--out`, the scanned repo is never written to. Without it, unchanged.
 
@@ -176,6 +176,14 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 ## Change log
 
+
+### 2026-09-18 — `<wikis>` reader matches whole-line tags
+
+**What changed:** The `<wikis>` block contract now states that readers match the tags as whole lines, as the writer already did. `ReadWikiIndexPaths`, which backs `mark-dirty`, `CheckStaleness`, `atomic where`, the doctor, and the code-intel realm resolver, now uses the same line-anchored parser as `RegisterWiki`.
+
+**Why:** Issue #263. The reader took the first substring match of `<wikis>`, which is the prose mention inside the installed `<atomic>` block. Every bullet between that line and the real `</wikis>` became a registry entry. `` `atomic serve`: ... `` has no `/`, so `filepath.Abs` resolved it against the process cwd, and `mark-dirty` treated cwd as a wiki directory and its parent as the realm root. Every ship verb then wrote `.dirty` into whatever repo it ran in and returned before reaching the real entries, so registered wikis were never marked.
+
+**Correction:** The CP9 implementation-log line below says `<wikis>` detection was hardened. Only the writer was; the reader kept the substring scan until this change.
 
 ### 2026-08-16 — Page authoring moves from `general-purpose` to `atomic-wiki-writer`
 
