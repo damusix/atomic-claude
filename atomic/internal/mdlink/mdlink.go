@@ -170,10 +170,24 @@ func linkifyLine(line, fileDir, baseDir string, ignored map[string]bool) string 
 			if closePos != -1 {
 				afterClose := pos + 1 + closePos + 1 // position after the closing backtick
 				if afterClose < len(line) && afterClose+1 < len(line) && line[afterClose] == ']' && line[afterClose+1] == '(' {
-					closeLink := strings.IndexByte(line[afterClose+2:], ')')
-					if closeLink != -1 {
+					destStart := afterClose + 2
+
+					// Earlier releases wrote paths with spaces or parentheses
+					// bare, which does not parse as a link; rewrite those.
+					token := line[pos+1 : pos+1+closePos]
+					if rel, ok := resolveRel(token, fileDir, baseDir, ignored); ok {
+						if dest, ok := linkDestination(rel); ok && dest != rel && strings.HasPrefix(line[destStart:], rel+")") {
+							sb.WriteString(line[i:destStart])
+							sb.WriteString(dest)
+							sb.WriteString(")")
+							i = destStart + len(rel) + 1
+							continue
+						}
+					}
+
+					if _, n, ok := parseDestination(line[destStart:]); ok {
 						// Already a link — copy verbatim.
-						end := afterClose + 2 + closeLink + 1
+						end := destStart + n
 						sb.WriteString(line[i:end])
 						i = end
 						continue
@@ -192,40 +206,73 @@ func linkifyLine(line, fileDir, baseDir string, ignored map[string]bool) string 
 
 		token := line[pos+1 : pos+1+closePos]
 		end := pos + 1 + closePos + 1 // position after closing backtick
+		i = end
 
-		if isDegenerate(token) || isSkipped(token) || ignored[token] {
-			sb.WriteString("`")
-			sb.WriteString(token)
-			sb.WriteString("`")
-			i = end
-			continue
+		rel, ok := resolveRel(token, fileDir, baseDir, ignored)
+		var dest string
+		if ok {
+			dest, ok = linkDestination(rel)
 		}
-
-		resolved := filepath.Join(baseDir, token)
-		if _, err := os.Stat(resolved); err != nil {
+		if !ok {
 			sb.WriteString("`")
 			sb.WriteString(token)
 			sb.WriteString("`")
-			i = end
-			continue
-		}
-
-		rel, err := filepath.Rel(fileDir, resolved)
-		if err != nil {
-			sb.WriteString("`")
-			sb.WriteString(token)
-			sb.WriteString("`")
-			i = end
 			continue
 		}
 
 		sb.WriteString("[`")
 		sb.WriteString(token)
 		sb.WriteString("`](")
-		sb.WriteString(rel)
+		sb.WriteString(dest)
 		sb.WriteString(")")
-		i = end
 	}
 
 	return sb.String()
+}
+
+// resolveRel returns token's path relative to fileDir, or false when the token
+// must stay plain text.
+func resolveRel(token, fileDir, baseDir string, ignored map[string]bool) (string, bool) {
+	if isDegenerate(token) || isSkipped(token) || ignored[token] {
+		return "", false
+	}
+	resolved := filepath.Join(baseDir, token)
+	if _, err := os.Stat(resolved); err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(fileDir, resolved)
+	if err != nil {
+		return "", false
+	}
+	return rel, true
+}
+
+// linkDestination writes rel as a CommonMark link destination. A bare one ends
+// at the first space and must balance its parentheses, so a path with either
+// goes in angle brackets. Those cannot hold a raw < or >, so such a path is
+// reported unlinkable.
+func linkDestination(rel string) (string, bool) {
+	if !strings.ContainsAny(rel, " \t()") {
+		return rel, true
+	}
+	if strings.ContainsAny(rel, "<>") {
+		return "", false
+	}
+	return "<" + rel + ">", true
+}
+
+// parseDestination reads the destination that starts s, which begins just past
+// a link's opening parenthesis. It returns the destination without angle
+// brackets and the byte count through the closing parenthesis.
+func parseDestination(s string) (dest string, n int, ok bool) {
+	if strings.HasPrefix(s, "<") {
+		if end := strings.Index(s, ">)"); end != -1 {
+			return s[1:end], end + 2, true
+		}
+	}
+	end := strings.IndexByte(s, ')')
+	if end == -1 {
+		return "", 0, false
+	}
+	return s[:end], end + 1, true
 }
