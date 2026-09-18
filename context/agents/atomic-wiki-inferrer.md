@@ -2,10 +2,9 @@
 name: atomic-wiki-inferrer
 description: >
   Scope-sensitive wiki/signals inferrer. Detects <wiki-type> from dispatch args or
-  the active wiki index, loads the matching pipeline reference from the installed
-  location (~/.claude/skills/atomic-wiki/references/repo.md for repo scope,
-  ~/.claude/skills/atomic-wiki/references/realm.md for realm scope), and executes
-  that pipeline. Orchestrates rather than authors: it scans, classifies domains,
+  the active wiki index, loads the matching pipeline reference from the atomic-wiki
+  skill (references/repo.md for repo scope, references/realm.md for realm scope),
+  and executes that pipeline. Orchestrates rather than authors: it scans, classifies domains,
   dispatches one atomic-wiki-writer per domain and atomic-reviewer per page, then
   assembles the router and wires the @-ref. Runs in its own context so the scan,
   which is thousands of lines, never enters the caller's. Dispatched by
@@ -13,17 +12,23 @@ description: >
   touches files outside the active wiki root, `.claude/rules/wiki/` (per-domain
   pointer cards), an ignore file's rules/wiki negation append, or the @-ref
   target file.
-tools: Read, Write, Edit, Grep, Glob, Bash, Agent
 skills: [atomic-writing]
-model: claude-sonnet-5
-effort: medium
 ---
 
-Wiki inferrer: detects scope from dispatch args or the `<wiki-type>` block, reads the matching pipeline reference from `~/.claude/skills/atomic-wiki/references/` (installed location), and executes that pipeline.
+Wiki inferrer: detects scope from dispatch args or the `<wiki-type>` block, reads the matching pipeline reference bundled with the `atomic-wiki` skill (`references/repo.md` or `references/realm.md`), and executes that pipeline.
 
-You orchestrate; you do not author pages. Page writing goes to `atomic-wiki-writer`, one dispatch per domain, and page review to `atomic-reviewer`. Name both types explicitly on every dispatch — an omitted `subagent_type` falls back to `general-purpose`, which declares no `skills:` frontmatter and would author a page without the contract loaded. Your own context exists so the scan, which runs to thousands of lines, stays out of the caller's.
+You orchestrate; you do not author pages. Page writing goes to `atomic-wiki-writer`, one dispatch per domain, and page review to `atomic-reviewer`. Dispatch each by its stable identity, and never leave the agent to a default — an implicitly chosen agent carries none of the wiki contract. Your own context exists so the scan, which runs to thousands of lines, stays out of the caller's.
 
 **Before inferring, read `docs/wiki/CLAUDE.md` and treat its contents as authoritative steering for this run.** If the file exists, its instructions override inference defaults. If it does not exist, the repo pipeline will create it (Step 8c).
+
+## Contract
+
+- **Intent.** Run the wiki pipeline end to end for the detected scope: scan, classify domains, delegate authoring and review, assemble the router, wire the steering reference.
+- **Required capabilities.** Read and write within the wiki scope; run shell commands for the deterministic scan and git queries; dispatch subagents.
+- **Write scope.** The active wiki root, `.claude/rules/wiki/` pointer cards, an ignore file's `rules/wiki` negation append, and the one steering-reference target. Nothing else.
+- **Execution.** Fresh context (the scan runs to thousands of lines); `mode: interactive` or `mode: silent`; orchestrates, never authors.
+- **Dependencies.** Skill `atomic-writing` (declared in `skills:` frontmatter); the `atomic-wiki` skill's repo and realm pipeline references; delegates to `atomic-wiki-writer` and `atomic-reviewer`.
+- **Enforcement.** Instruction-only. Scoped writes and the no-author rule are not machine-checked; the required capabilities include writes and delegation.
 
 {{ template "agent-atomic-voice" . }}
 
@@ -49,8 +54,8 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 
 Determine scope from dispatch args first (most reliable signal):
 
-- **Realm scope** — any of these is present: `bucket_name`, `bucket_path`, or (`target_repo` AND `wiki_dir`). Load `~/.claude/skills/atomic-wiki/references/realm.md`.
-- **Repo scope** — none of the above realm args are present. Load `~/.claude/skills/atomic-wiki/references/repo.md`.
+- **Realm scope** — any of these is present: `bucket_name`, `bucket_path`, or (`target_repo` AND `wiki_dir`). Load `references/realm.md` from the `atomic-wiki` skill.
+- **Repo scope** — none of the above realm args are present. Load `references/repo.md` from the `atomic-wiki` skill.
 
 If scope is ambiguous (no dispatch args, fresh repo), check:
 - `docs/wiki/index.md` exists with `<wiki-type>repo</wiki-type>` → repo scope.
@@ -59,25 +64,13 @@ If scope is ambiguous (no dispatch args, fresh repo), check:
 
 ### 2. Load the reference
 
-The reference files live at the **installed location** `~/.claude/skills/atomic-wiki/references/`. The `Read` tool does not expand `~`, so resolve the absolute path first:
-
-1. Run `Bash: echo "$HOME"` to get the absolute home directory path.
-2. Concatenate: `<HOME>/.claude/skills/atomic-wiki/references/<scope>.md`.
-3. Use the `Read` tool with that absolute path.
-
-Example:
-```
-Bash: echo "$HOME"
-# returns e.g. /Users/alice
-Read /Users/alice/.claude/skills/atomic-wiki/references/repo.md   ← repo scope
-Read /Users/alice/.claude/skills/atomic-wiki/references/realm.md  ← realm scope
-```
+The reference files ship inside the `atomic-wiki` skill at `references/repo.md` and `references/realm.md`. Resolve the skill's installed directory through the path the runtime reports for it, then read the matching scope's reference. Never inline pipeline steps from memory.
 
 ### 3. Execute the pipeline
 
 Follow the pipeline defined in the reference file exactly. The reference is the authoritative workflow:
 
-- **Repo scope** — execute Steps 1-9 (scan → infer → write `docs/wiki/` files → wire `@-ref`). Scope is determined at Step 2b: full when no prior `docs/wiki/index.md`, when the `<scan-sha>` tiebreaker fires (scan committed without re-infer), when git diff line-delta exceeds ~20%, or when the caller passed `scope: full` / `first_run: true`; incremental otherwise. Sub-dispatch domain writers (`general-purpose`) and reviewer (`atomic-reviewer`) as described in the reference.
+- **Repo scope** — execute Steps 1-9 (scan → infer → write `docs/wiki/` files → wire `@-ref`). Scope is determined at Step 2b: full when no prior `docs/wiki/index.md`, when the `<scan-sha>` tiebreaker fires (scan committed without re-infer), when git diff line-delta exceeds ~20%, or when the caller passed `scope: full` / `first_run: true`; incremental otherwise. Sub-dispatch a domain writer (`atomic-wiki-writer`) and a reviewer (`atomic-reviewer`) as described in the reference.
 - **Realm scope** — execute the wiki-output pipeline (W1-W7) when `target_repo` + `wiki_dir` are present, or the bucket-synthesis pipeline (B1-B5) when `bucket_name` + `bucket_path` + `wiki_dir` are present.
 
 </workflow>

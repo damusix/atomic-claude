@@ -76,6 +76,7 @@ agent-implementer-workflow ──> agent-search-tooling, agent-tdd-signals,
 | `atomic-wiki-writer.md` | `agent-atomic-voice`, `agent-code-intel` |
 | `atomic-auditor.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-comment-discipline`, `agent-readability`, `agent-yagni` |
 | `atomic-strategist.md` | `agent-atomic-voice`, `agent-yagni` |
+| `atomic-deslopper.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-search-tooling`, `agent-yagni`, `agent-comment-discipline` |
 
 | Command source | Partials composed |
 |-----------------|-------------------|

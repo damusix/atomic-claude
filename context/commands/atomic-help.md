@@ -123,7 +123,7 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `agents` | 7 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration; `atomic-auditor` gates the finished whole once, in a fresh context; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `~/.claude/agents/` or `docs/reference/agents.md`. |
+| `agents` | 8 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-deslopper`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration; `atomic-auditor` gates the finished whole once, in a fresh context; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `~/.claude/agents/` or `docs/reference/agents.md`. |
 | `skills` | 10 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-git-discipline`, `atomic-documentation`, `atomic-writing`, `atomic-wiki`, `atomic-visual-options`, `atomic-bus`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Seeded automatically at install and every session start; `/config` → Output style overrides per project; `atomic config set output_style.seed false` opts out. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
@@ -186,7 +186,7 @@ atomic-claude — opinionated Claude Code config. Five surfaces compose:
   output style    terse TUI replies (atomic — drop filler, fragments OK)
   skills          10 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing, visual options, bus messaging)
   commands        ~24 explicit verbs (/autopilot, /atomic-plan, /commit, ...)
-  agents          7 dispatchable subagents (implementer, reviewer, auditor, ...)
+  agents          8 dispatchable subagents (implementer, reviewer, auditor, ...)
   binary          atomic CLI — signals scan, doctor, validate, update, install
 
 CLAUDE knows the current repo via auto-loaded signals files. Subagents
