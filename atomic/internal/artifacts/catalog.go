@@ -209,10 +209,18 @@ func parseSemantics(kind Kind, source []byte) Semantics {
 	return sem
 }
 
-// Get returns the artifact with the given canonical ID.
+// Get returns the artifact with the given canonical ID. A catalog built by Load
+// carries its index; a catalog assembled directly still resolves by identity.
 func (c *Catalog) Get(id string) (Artifact, bool) {
-	a, ok := c.byID[id]
-	return a, ok
+	if a, ok := c.byID[id]; ok {
+		return a, true
+	}
+	for _, a := range c.Artifacts {
+		if a.ID == id {
+			return a, true
+		}
+	}
+	return Artifact{}, false
 }
 
 // OfKind returns every artifact of one kind, in corpus order.
@@ -241,15 +249,34 @@ func (c *Catalog) Validate() error {
 		seen[a.ID] = true
 	}
 	for _, a := range c.Artifacts {
-		for _, req := range a.Semantics.Requires {
-			if !seen[req] {
-				return fmt.Errorf("artifacts: %s requires unknown artifact %s", a.ID, req)
-			}
+		if err := c.validateRequires(a); err != nil {
+			return err
 		}
 	}
 	for _, a := range c.Artifacts {
 		if a.Semantics.Malformed {
 			return fmt.Errorf("artifacts: %s carries frontmatter that is not valid YAML", a.ID)
+		}
+	}
+	return nil
+}
+
+// ValidateAgent rejects a canonical agent whose declared dependency does not
+// resolve in the corpus. A projection calls it before rendering, so an agent
+// missing a required skill or command fails loudly instead of shipping with a
+// silent hole.
+func (c *Catalog) ValidateAgent(a Artifact) error {
+	if a.Kind != KindAgent {
+		return fmt.Errorf("artifacts: %s is not an agent", a.ID)
+	}
+	return c.validateRequires(a)
+}
+
+// validateRequires resolves every declared dependency by stable identity.
+func (c *Catalog) validateRequires(a Artifact) error {
+	for _, req := range a.Semantics.Requires {
+		if _, ok := c.Get(req); !ok {
+			return fmt.Errorf("artifacts: %s requires unknown artifact %s", a.ID, req)
 		}
 	}
 	return nil

@@ -47,12 +47,13 @@ func (r *Renderer) ClaudeGlobal() (Projection, error) {
 		return Projection{}, err
 	}
 	return Projection{
-		Artifact: steering.ID,
-		Target:   TargetClaude,
-		Path:     bundlespec.GlobalSteering.ClaudeTarget,
-		Bytes:    steering.Body,
-		Delivery: DeliveryDirect,
-		Digest:   ProjectionDigest(steering.Body),
+		Artifact:    steering.ID,
+		Target:      TargetClaude,
+		Path:        bundlespec.GlobalSteering.ClaudeTarget,
+		Bytes:       steering.Body,
+		Delivery:    DeliveryDirect,
+		Enforcement: EnforcementUnsupported,
+		Digest:      ProjectionDigest(steering.Body),
 	}, nil
 }
 
@@ -62,18 +63,20 @@ func (r *Renderer) ClaudeGlobal() (Projection, error) {
 // loads once whether the scope is a repository root or a nested wiki.
 func (r *Renderer) LoaderPair(dir string, guidance []byte) ([]Projection, error) {
 	source := Projection{
-		Target:   TargetClaude,
-		Path:     scopedPath(dir, bundlespec.ScopeSteering.Source),
-		Bytes:    terminate(guidance),
-		Delivery: DeliveryShared,
+		Target:      TargetClaude,
+		Path:        scopedPath(dir, bundlespec.ScopeSteering.Source),
+		Bytes:       terminate(guidance),
+		Delivery:    DeliveryShared,
+		Enforcement: EnforcementUnsupported,
 	}
 	source.Digest = ProjectionDigest(source.Bytes)
 
 	loader := Projection{
-		Target:   TargetClaude,
-		Path:     scopedPath(dir, bundlespec.ScopeSteering.ClaudeTarget),
-		Bytes:    []byte(bundlespec.ScopeSteering.LoaderBody()),
-		Delivery: DeliveryLoader,
+		Target:      TargetClaude,
+		Path:        scopedPath(dir, bundlespec.ScopeSteering.ClaudeTarget),
+		Bytes:       []byte(bundlespec.ScopeSteering.LoaderBody()),
+		Delivery:    DeliveryLoader,
+		Enforcement: EnforcementUnsupported,
 	}
 	loader.Digest = ProjectionDigest(loader.Bytes)
 
@@ -110,12 +113,13 @@ func (r *Renderer) OMPSteering() (Projection, error) {
 	composed = append(composed, styleBytes...)
 
 	return Projection{
-		Artifact: steering.ID,
-		Target:   TargetOMP,
-		Path:     bundlespec.ScopeSteering.Source,
-		Bytes:    composed,
-		Delivery: DeliveryComposed,
-		Digest:   ProjectionDigest(composed),
+		Artifact:    steering.ID,
+		Target:      TargetOMP,
+		Path:        bundlespec.ScopeSteering.Source,
+		Bytes:       composed,
+		Delivery:    DeliveryComposed,
+		Enforcement: EnforcementUnsupported,
+		Digest:      ProjectionDigest(composed),
 	}, nil
 }
 

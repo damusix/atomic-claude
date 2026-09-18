@@ -7,8 +7,11 @@
 package artifacts
 
 import (
+	"fmt"
 	"path/filepath"
+	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
 
@@ -50,6 +53,26 @@ const (
 	DeliveryComposed Delivery = "composed"
 )
 
+// EnforcementTier is the strongest native guarantee a projection can claim for
+// the behavior it carries. A target that has no proven capability row is
+// unsupported: the content is instruction-only and never reads as a native
+// boundary.
+type EnforcementTier string
+
+const (
+	// EnforcementNativeScope: the target delivers the behavior through a proven
+	// native surface with no Atomic runtime involvement.
+	EnforcementNativeScope EnforcementTier = "native-scope"
+	// EnforcementHookRequired: Atomic deterministically supplies the behavior
+	// before an operation, but the prose remains model guidance.
+	EnforcementHookRequired EnforcementTier = "hook-required"
+	// EnforcementDenyEnforced: an Atomic hook blocks an operation on an exact
+	// machine predicate.
+	EnforcementDenyEnforced EnforcementTier = "deny-enforced"
+	// EnforcementUnsupported: no native guarantee is proven.
+	EnforcementUnsupported EnforcementTier = "unsupported"
+)
+
 // Semantics is the portable metadata an adapter reads instead of re-parsing an
 // artifact: identity, description, and the canonical artifacts this one
 // depends on.
@@ -89,6 +112,14 @@ type Projection struct {
 	Path     string
 	Bytes    []byte
 	Delivery Delivery
+	// Enforcement is the strongest native guarantee the target's capability
+	// record proves for this projection.
+	Enforcement EnforcementTier
+	// Unsupported lists, by stable identity, the canonical fields this
+	// projection could not carry natively. A degraded projection reports what it
+	// dropped instead of implying the target supports it; empty means the
+	// projection carries every canonical field.
+	Unsupported []string
 	// Digest is the digest of Bytes.
 	Digest string
 }
@@ -103,6 +134,22 @@ func ProjectionDigest(data []byte) string {
 // skills: metadata resolves to.
 func SkillID(name string) string {
 	return string(KindSkill) + ":skills/" + name + "/SKILL.md"
+}
+
+// AgentBody returns a canonical agent's instruction body: its rendered bytes
+// with the portable frontmatter excluded and the result normalized to exactly
+// one trailing newline. Native metadata travels as the target's own fields, so
+// every projection preserves this body and Codex's developer_instructions
+// round-trips it byte-for-byte.
+func AgentBody(a Artifact) ([]byte, error) {
+	if a.Kind != KindAgent {
+		return nil, fmt.Errorf("artifacts: %s is not an agent", a.ID)
+	}
+	_, body, err := frontmatter.Parse(string(a.Body))
+	if err != nil {
+		return nil, fmt.Errorf("artifacts: %s frontmatter: %w", a.ID, err)
+	}
+	return terminate([]byte(strings.TrimLeft(body, "\n"))), nil
 }
 
 // scopedPath joins a target-native directory with a file name, treating an
