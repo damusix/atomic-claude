@@ -81,7 +81,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 |--------|----------------|-----------|
 | `atomic code` | Build and query the symbol graph — where a symbol is defined, what calls it, what breaks if it changes. Also serves the graph over MCP. | [Code intelligence](/reference/code-intel) |
 | `atomic wiki` | Scan and maintain the cross-repo wiki, and register capture buckets that feed its knowledge layer. | [Wiki workflow](/reference/realm-wiki) |
-| `atomic bus` | Message between concurrent Claude Code sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
+| `atomic bus` | Message between concurrent agent sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
 | `atomic repl` | Drive a named Python or Node interpreter session that survives across separate Bash calls. | [REPL](/reference/repl) |
 | `atomic serve` | Serve the wiki and code graph as a browsable site. Read-only, localhost by default. | [Serve](/reference/serve) |
 | `atomic scratchpad` | Create, look up, list, and archive slug-keyed work bundles — the shared shape behind every implement-loop scratchpad. | [Conventions](/reference/conventions) |

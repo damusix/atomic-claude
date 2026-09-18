@@ -321,10 +321,25 @@ func TestSkill_CodexHasNoProjector(t *testing.T) {
 	}
 }
 
-// The same corpus renders the same bytes and digests every run.
+// The same corpus renders the same bytes, digests, reference gaps, and runtime
+// classification every run.
 func TestSkill_Deterministic(t *testing.T) {
 	first := loadSkillCorpus(t)
 	second := loadSkillCorpus(t)
+
+	for _, target := range []artifacts.Target{artifacts.TargetClaude, artifacts.TargetOMP} {
+		one, err := ProjectSkills(first, target, SkillPolicy{}, matrixFor(target))
+		if err != nil {
+			t.Fatalf("ProjectSkills(%s): %v", target, err)
+		}
+		two, err := ProjectSkills(second, target, SkillPolicy{}, matrixFor(target))
+		if err != nil {
+			t.Fatalf("ProjectSkills(%s, second): %v", target, err)
+		}
+		if !slices.Equal(one.Reference, two.Reference) || !slices.Equal(one.Runtime, two.Runtime) {
+			t.Errorf("%s report is not stable across runs:\n%+v\n%+v", target, one, two)
+		}
+	}
 
 	for _, a := range first.OfKind(artifacts.KindSkill) {
 		other, ok := second.Get(a.ID)
@@ -350,10 +365,126 @@ func TestSkill_Deterministic(t *testing.T) {
 	}
 }
 
+// A nested reference — one a referenced file declares deeper in the tree —
+// resolves against its own directory, and an unresolved one gaps at its source.
+func TestSkill_NestedReferencesResolve(t *testing.T) {
+	manifest := skillArtifact("atomic-example", "SKILL.md",
+		"---\nname: atomic-example\ndescription: Fixture.\n---\nRead `references/guide.md`.\n")
+	guide := skillArtifact("atomic-example", "references/guide.md",
+		"# Guide\n\nRead `./deep.md`.\n")
+	deep := skillArtifact("atomic-example", "references/deep.md", "# Deep\n")
+
+	cat := &artifacts.Catalog{Artifacts: []artifacts.Artifact{manifest, guide, deep}}
+	report, err := ProjectSkills(cat, artifacts.TargetOMP, SkillPolicy{}, OMPCapabilities())
+	if err != nil {
+		t.Fatalf("ProjectSkills: %v", err)
+	}
+	if len(report.Reference) != 0 {
+		t.Fatalf("nested reference gaps = %v, want none", report.Reference)
+	}
+
+	cat = &artifacts.Catalog{Artifacts: []artifacts.Artifact{manifest, guide}}
+	report, err = ProjectSkills(cat, artifacts.TargetOMP, SkillPolicy{}, OMPCapabilities())
+	if err != nil {
+		t.Fatalf("ProjectSkills (missing nested): %v", err)
+	}
+	want := SkillReferenceGap{
+		Skill: "atomic-example",
+		File:  "skills/atomic-example/references/guide.md",
+		Ref:   "references/deep.md",
+	}
+	if len(report.Reference) != 1 || report.Reference[0] != want {
+		t.Errorf("nested reference gaps = %+v, want [%+v]", report.Reference, want)
+	}
+}
+
+// The runtime-oriented instructions in the ported skills are classified, not
+// assumed: the portable skills name only the atomic binary or a canonical
+// agent, and atomic-bus's background-delivery instruction — whose delivery
+// depends on harness output injection no CP0 row proves — is reported as a gap
+// rather than shipped as if it resolved.
+func TestSkill_RuntimeInstructionsClassified(t *testing.T) {
+	cat := loadSkillCorpus(t)
+	report, err := ProjectSkills(cat, artifacts.TargetOMP, SkillPolicy{}, OMPCapabilities())
+	if err != nil {
+		t.Fatalf("ProjectSkills: %v", err)
+	}
+
+	bySkill := map[string][]SkillRuntimeUse{}
+	for _, use := range report.Runtime {
+		bySkill[use.Skill] = append(bySkill[use.Skill], use)
+	}
+
+	for _, name := range []string{"atomic-writing", "atomic-debug", "atomic-tdd"} {
+		for _, use := range bySkill[name] {
+			if use.Surface == SkillRuntimeHarness {
+				t.Errorf("%s carries a harness runtime token: %+v", name, use)
+			}
+		}
+	}
+	busHarness := 0
+	for _, use := range bySkill["atomic-bus"] {
+		if use.Surface != SkillRuntimeHarness {
+			continue
+		}
+		busHarness++
+		want := SkillRuntimeUse{
+			Skill:   "atomic-bus",
+			File:    "skills/atomic-bus/SKILL.md",
+			Surface: SkillRuntimeHarness,
+			Name:    "harness background delivery",
+		}
+		if use != want {
+			t.Errorf("atomic-bus harness gap = %+v, want %+v", use, want)
+		}
+	}
+	if busHarness != 1 {
+		t.Errorf("atomic-bus harness gaps = %d, want exactly 1", busHarness)
+	}
+	for _, name := range []string{"atomic-bus", "atomic-debug"} {
+		if !usesCarry(bySkill[name], SkillRuntimeBinary, "") {
+			t.Errorf("%s classifies no atomic-binary runtime instruction: %v", name, bySkill[name])
+		}
+	}
+	if !usesCarry(bySkill["atomic-debug"], SkillRuntimeAgent, "atomic-investigator") {
+		t.Errorf("atomic-debug does not classify its investigator dispatch: %v", bySkill["atomic-debug"])
+	}
+}
+
+// A runtime instruction that names a harness tool is reported as a gap, never
+// shipped as if it resolved.
+func TestSkill_HarnessRuntimeTokenIsGap(t *testing.T) {
+	manifest := skillArtifact("atomic-example", "SKILL.md",
+		"---\nname: atomic-example\ndescription: Fixture.\n---\nThen start the listener:\n\n```\nMonitor(command=\"atomic bus recv r\")\n```\n")
+	cat := &artifacts.Catalog{Artifacts: []artifacts.Artifact{manifest}}
+
+	report, err := ProjectSkills(cat, artifacts.TargetOMP, SkillPolicy{}, OMPCapabilities())
+	if err != nil {
+		t.Fatalf("ProjectSkills: %v", err)
+	}
+	if !usesCarry(report.Runtime, SkillRuntimeHarness, "harness tool call") {
+		t.Errorf("harness tool call not classified as a gap: %v", report.Runtime)
+	}
+	if !usesCarry(report.Runtime, SkillRuntimeBinary, "atomic bus") {
+		t.Errorf("portable atomic invocation not classified: %v", report.Runtime)
+	}
+}
+
+// usesCarry reports whether uses holds a use of the given surface and, when
+// name is non-empty, the given name.
+func usesCarry(uses []SkillRuntimeUse, surface SkillRuntimeSurface, name string) bool {
+	for _, use := range uses {
+		if use.Surface == surface && (name == "" || use.Name == name) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSkill_GoldenProjections(t *testing.T) {
 	cat := loadSkillCorpus(t)
 
-	for _, name := range []string{"atomic-verify", "atomic-documentation"} {
+	for _, name := range []string{"atomic-verify", "atomic-documentation", "atomic-writing", "atomic-debug"} {
 		a, ok := cat.Get(artifacts.SkillID(name))
 		if !ok {
 			t.Fatalf("skill %s missing from the corpus", name)
@@ -383,6 +514,30 @@ func TestSkill_GoldenProjections(t *testing.T) {
 				t.Errorf("golden %s digest = %q, projection digest = %q", golden, got, projection.Digest)
 			}
 		}
+	}
+
+	// atomic-writing's largest reference ships byte-identical beside its
+	// manifest under both target layouts, so a nested reference resolves to the
+	// same bytes it does in the canonical tree.
+	ref, ok := cat.Get("skill:skills/atomic-writing/references/mermaid.md")
+	if !ok {
+		t.Fatal("atomic-writing reference missing from the corpus")
+	}
+	for _, target := range []struct {
+		name   string
+		render func(artifacts.Artifact) (artifacts.Projection, error)
+	}{
+		{"claude", ClaudeSkill},
+		{"omp", OMPSkill},
+	} {
+		projection, err := target.render(ref)
+		if err != nil {
+			t.Fatalf("%s reference projection: %v", target.name, err)
+		}
+		if string(projection.Bytes) != string(ref.Body) {
+			t.Errorf("%s reference projection is not the canonical bytes", target.name)
+		}
+		checkSkillGolden(t, target.name+"/skills/atomic-writing/references/mermaid.md", projection.Bytes)
 	}
 }
 

@@ -1,6 +1,6 @@
 ---
 type: Domain
-description: Inter-session messaging between concurrent Claude Code sessions over named rooms, via a per-user Unix-socket daemon.
+description: Inter-session messaging between concurrent agent sessions over named rooms, via a per-user Unix-socket daemon.
 tags: [messaging, daemon, cli]
 ---
 
@@ -8,7 +8,7 @@ tags: [messaging, daemon, cli]
 
 ## What it does
 
-Two Claude Code sessions on one machine cannot see each other. Anything one learns reaches the other only by the human retyping it, so parallel work on the same repo either duplicates effort or collides.
+Two agent sessions on one machine cannot see each other. Anything one learns reaches the other only by the human retyping it, so parallel work on the same repo either duplicates effort or collides.
 
 `atomic bus` gives them a channel. One per-user daemon behind a Unix domain socket at `~/.atomic/bus.sock` speaks newline-delimited JSON; sessions join named rooms under a name and publish envelopes that the daemon fans out to every live subscriber. The daemon auto-spawns on first need and runs until stopped; there is no idle timer.
 
@@ -116,7 +116,7 @@ The daemon sets `Response.Code`, and client-side failures resolved before a roun
 
 | Path | Role |
 |------|------|
-| [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) | Auto-fires on connect/join/message-another-session language. Owns the connect flow (join, then a Monitor on `recv`), the reaction policy, the trust posture for peer messages, and the truncated-notification recovery path. |
+| [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) | Auto-fires on connect/join/message-another-session language. Owns the connect flow (join, then a persistent `recv` listener), the reaction policy, the trust posture for peer messages, and the truncated-notification recovery path. |
 
 ### Go packages
 

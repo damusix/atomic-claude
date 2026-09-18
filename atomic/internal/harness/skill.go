@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
+	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
@@ -214,11 +215,37 @@ func SkillCollisions(projections []artifacts.Projection) []SkillCollision {
 	return out
 }
 
-// SkillReferenceGap reports a relative reference a manifest declares that the
-// shipped skill tree cannot resolve.
+// SkillReferenceGap reports a relative reference a shipped skill file declares
+// that the skill tree cannot resolve. The gap names the declaring file, so a
+// nested reference deeper than one level is reported at its source.
 type SkillReferenceGap struct {
 	Skill string `json:"skill"`
+	File  string `json:"file"`
 	Ref   string `json:"ref"`
+}
+
+// SkillRuntimeSurface is the surface a runtime-oriented instruction drives.
+type SkillRuntimeSurface string
+
+const (
+	// SkillRuntimeBinary is the atomic binary surface (atomic bus, atomic repl,
+	// atomic code, ...), portable to any harness that carries the binary.
+	SkillRuntimeBinary SkillRuntimeSurface = "atomic-binary"
+	// SkillRuntimeAgent is a canonical agent dispatch, portable by identity.
+	SkillRuntimeAgent SkillRuntimeSurface = "agent-dispatch"
+	// SkillRuntimeHarness is a harness-specific tool or runtime primitive, a
+	// wire token no other target resolves. It is the explicit gap.
+	SkillRuntimeHarness SkillRuntimeSurface = "harness-tool"
+)
+
+// SkillRuntimeUse is one runtime-oriented instruction a shipped skill file
+// carries, classified by the surface it drives. A harness-tool use is a gap the
+// projection reports instead of letting the wire token ship as if it resolved.
+type SkillRuntimeUse struct {
+	Skill   string              `json:"skill"`
+	File    string              `json:"file"`
+	Surface SkillRuntimeSurface `json:"surface"`
+	Name    string              `json:"name"`
 }
 
 // SkillFile pairs a canonical identity with its native projection.
@@ -235,14 +262,18 @@ type SkillReport struct {
 	Disabled   []string            `json:"disabled,omitempty"`
 	Collisions []SkillCollision    `json:"collisions,omitempty"`
 	Reference  []SkillReferenceGap `json:"reference_gaps,omitempty"`
+	Runtime    []SkillRuntimeUse   `json:"runtime,omitempty"`
 	Gaps       []Capability        `json:"gaps,omitempty"`
 }
 
 // ProjectSkills renders the canonical skill corpus for one target. A
-// user-disabled skill ships nothing and is reported disabled; a manifest's
-// relative references must resolve inside its shipped skill tree or they are
-// reported as gaps; two native files mapping to one path are reported as a
-// collision; every skill surface without a CP0 row is an explicit gap.
+// user-disabled skill ships nothing and is reported disabled; every relative
+// reference any shipped file declares — a manifest's or a nested reference's —
+// must resolve inside its shipped skill tree or it is reported as a gap; each
+// shipped file's runtime-oriented instructions are classified by surface, so a
+// harness-specific wire token is an explicit gap rather than a silent ship;
+// two native files mapping to one path are reported as a collision; every skill
+// surface without a CP0 row is an explicit gap.
 func ProjectSkills(cat *artifacts.Catalog, target artifacts.Target, policy SkillPolicy, m CapabilityMatrix) (SkillReport, error) {
 	project, err := skillProjector(target)
 	if err != nil {
@@ -250,6 +281,7 @@ func ProjectSkills(cat *artifacts.Catalog, target artifacts.Target, policy Skill
 	}
 
 	report := SkillReport{Target: target, Gaps: SkillGaps(m)}
+	agents := canonicalAgents(cat)
 	var projections []artifacts.Projection
 
 	for _, manifest := range cat.OfKind(artifacts.KindSkill) {
@@ -280,6 +312,7 @@ func ProjectSkills(cat *artifacts.Catalog, target artifacts.Target, policy Skill
 		if err := add(manifest); err != nil {
 			return SkillReport{}, err
 		}
+		files := []artifacts.Artifact{manifest}
 		for _, ref := range skillReferences(cat, manifest) {
 			if policy.disabled(ref.ID) {
 				report.Disabled = append(report.Disabled, ref.ID)
@@ -288,12 +321,16 @@ func ProjectSkills(cat *artifacts.Catalog, target artifacts.Target, policy Skill
 			if err := add(ref); err != nil {
 				return SkillReport{}, err
 			}
+			files = append(files, ref)
 		}
 
-		for _, ref := range declaredSkillRefs(string(manifest.Body)) {
-			if !shipped["skills/"+name+"/"+path.Clean(ref)] {
-				report.Reference = append(report.Reference, SkillReferenceGap{Skill: name, Ref: ref})
+		for _, file := range files {
+			for _, ref := range declaredSkillRefs(file.Source, string(file.Body)) {
+				if !shipped["skills/"+name+"/"+ref] {
+					report.Reference = append(report.Reference, SkillReferenceGap{Skill: name, File: file.Source, Ref: ref})
+				}
 			}
+			report.Runtime = append(report.Runtime, runtimeUses(name, file, agents)...)
 		}
 	}
 
@@ -331,15 +368,19 @@ func skillReferences(cat *artifacts.Catalog, manifest artifacts.Artifact) []arti
 	return out
 }
 
-// skillRef matches a relative reference a manifest declares: a markdown link
-// target or a backticked path (the form the authored skills use).
+// skillRef matches a relative reference a shipped skill file declares: a
+// markdown link target or a backticked path (the form the authored skills use).
 var skillRef = regexp.MustCompile("\\]\\(([^)\\s]+)\\)|`([^`\\n]+)`")
 
-// declaredSkillRefs returns the relative references a manifest declares, in
-// source order and deduplicated. Only targets that point into the skill
-// directory itself — references/... or ./... — are references to shipped
-// files; a project path like docs/page.md is content, not a skill reference.
-func declaredSkillRefs(body string) []string {
+// declaredSkillRefs returns the relative references one shipped skill file
+// declares, in source order and deduplicated, resolved to skill-relative paths
+// against the declaring file's directory. Only the `references/...` and `./...`
+// forms count as shipped skill references; a project path such as
+// docs/page.md is content. Resolution makes a nested reference — a reference
+// declared by a referenced file deeper in the tree — resolve exactly as a
+// manifest's does.
+func declaredSkillRefs(source, body string) []string {
+	dir := skillRelativeDir(source)
 	var out []string
 	seen := map[string]bool{}
 	add := func(target string) {
@@ -350,11 +391,15 @@ func declaredSkillRefs(body string) []string {
 		if i := strings.IndexByte(target, '#'); i >= 0 {
 			target = target[:i]
 		}
-		if target == "" || strings.HasSuffix(target, "/") || seen[target] {
+		if target == "" || strings.HasSuffix(target, "/") {
 			return
 		}
-		seen[target] = true
-		out = append(out, target)
+		resolved := path.Clean(path.Join(dir, target))
+		if resolved == "." || strings.HasPrefix(resolved, "..") || seen[resolved] {
+			return
+		}
+		seen[resolved] = true
+		out = append(out, resolved)
 	}
 	for _, m := range skillRef.FindAllStringSubmatch(body, -1) {
 		if m[1] != "" {
@@ -362,6 +407,93 @@ func declaredSkillRefs(body string) []string {
 			continue
 		}
 		add(m[2])
+	}
+	return out
+}
+
+// skillRelativeDir returns the directory a shipped skill file lives in,
+// relative to its skill root: "" for the manifest, "references" for a file one
+// level down, "references/nested" for one deeper.
+func skillRelativeDir(source string) string {
+	segments := strings.Split(source, "/")
+	if len(segments) < 3 {
+		return ""
+	}
+	rel := strings.Join(segments[2:], "/")
+	if dir := path.Dir(rel); dir != "." {
+		return dir
+	}
+	return ""
+}
+
+// harnessRuntimePatterns are the harness-specific runtime markers a portable
+// skill file must not carry: a backticked harness tool name, a tool-call shape,
+// an installed Claude state path, a model/effort selection, or an instruction
+// whose delivery depends on harness background output injection. The list is
+// deliberately literal so prose cannot trip it.
+var harnessRuntimePatterns = []struct {
+	name    string
+	pattern *regexp.Regexp
+}{
+	{"harness tool name", regexp.MustCompile("`(?:Bash|Read|Write|Edit|Glob|Grep|Task|Monitor|WebFetch|WebSearch|TodoWrite|SlashCommand|NotebookEdit|AskUserQuestion|BashOutput|KillShell)`")},
+	{"harness tool call", regexp.MustCompile(`\b(?:Monitor|Task|TodoWrite|WebFetch|WebSearch)\(`)},
+	{"TaskStop", regexp.MustCompile("`?TaskStop`?")},
+	{"subagent_type", regexp.MustCompile("subagent_type")},
+	{"claude state path", regexp.MustCompile(`~?/?\.claude/`)},
+	{"model or effort selection", regexp.MustCompile(`(?i)\b(?:haiku|sonnet|opus)\b|model:|effort:`)},
+	{"harness background delivery", regexp.MustCompile(`(?i)persistent background command|streams its output into this session`)},
+}
+
+// atomicRuntimeVerb matches an atomic binary invocation in a skill body.
+var atomicRuntimeVerb = regexp.MustCompile(`\batomic ([a-z][a-z-]*)`)
+
+// backtickedAtomic matches a backticked canonical agent identity.
+var backtickedAtomic = regexp.MustCompile("`(atomic-[a-z0-9-]+)`")
+
+// canonicalAgents returns the canonical agent names in the corpus, the portable
+// identities a runtime instruction may dispatch.
+func canonicalAgents(cat *artifacts.Catalog) map[string]bool {
+	names := map[string]bool{}
+	for _, a := range cat.OfKind(artifacts.KindAgent) {
+		if a.Semantics.Name != "" {
+			names[a.Semantics.Name] = true
+		}
+	}
+	return names
+}
+
+// runtimeUses classifies the runtime-oriented instructions one shipped skill
+// file carries, in source order and deduplicated by surface and name. A
+// harness-tool use is the gap a projection reports; an atomic-binary invocation
+// or a canonical agent dispatch is portable and reported as such.
+func runtimeUses(name string, file artifacts.Artifact, agents map[string]bool) []SkillRuntimeUse {
+	text := string(file.Body)
+	verbs := cliusage.TopLevelVerbs()
+	var out []SkillRuntimeUse
+	seen := map[string]bool{}
+	add := func(surface SkillRuntimeSurface, token string) {
+		key := string(surface) + "\x00" + token
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, SkillRuntimeUse{Skill: name, File: file.Source, Surface: surface, Name: token})
+	}
+
+	for _, t := range harnessRuntimePatterns {
+		if t.pattern.MatchString(text) {
+			add(SkillRuntimeHarness, t.name)
+		}
+	}
+	for _, m := range atomicRuntimeVerb.FindAllStringSubmatch(text, -1) {
+		if verbs[m[1]] {
+			add(SkillRuntimeBinary, "atomic "+m[1])
+		}
+	}
+	for _, m := range backtickedAtomic.FindAllStringSubmatch(text, -1) {
+		if agents[m[1]] {
+			add(SkillRuntimeAgent, m[1])
+		}
 	}
 	return out
 }

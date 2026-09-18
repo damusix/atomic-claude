@@ -1,7 +1,7 @@
 ---
 name: atomic-bus
 description: >
-  Peer messaging between concurrent Claude Code sessions over named rooms.
+  Peer messaging between concurrent agent sessions over named rooms.
   Fires when the user wants this session to talk to another running session:
   "join the bus", "connect to the bus", "join room <name>", "message the
   backend session", "tell the other session to ...", "delegate this to the
@@ -9,9 +9,9 @@ description: >
   other agent", "who else is on the bus", "what rooms are open", "watch the
   room", "halt the room", "stop the agents". Also fires when the user asks to
   work alongside a session they have open in another terminal. Wraps the
-  `atomic bus` CLI: join, then a Monitor on `recv` so peer messages
-  arrive as prompts. Carries the reaction policy that decides when an arriving
-  message is an instruction to act on and when it is only news.
+  `atomic bus` CLI: join, then a persistent listener on `recv` so peer
+  messages arrive as prompts. Carries the reaction policy that decides when
+  an arriving message is an instruction to act on and when it is only news.
 ---
 
 <trigger>
@@ -26,14 +26,14 @@ Auto-fires on:
 
 </trigger>
 
-Connects this session to other Claude Code sessions on the same machine. Rooms scope a
+Connects this session to other agent sessions on the same machine. Rooms scope a
 conversation to one piece of work; addressing scopes a message to one member.
 
 Requires the `atomic` binary. If it is absent, say so and stop — there is no fallback.
 
 ## Connecting
 
-Two steps, in order. `join` registers the identity; the Monitor is what actually delivers.
+Two steps, in order. `join` registers the identity; the listener is what actually delivers.
 
 ```
 atomic bus join <room> [--as <name>] [--kind agent|human]
@@ -60,30 +60,26 @@ fragment or the full name from `who`.
 if the user asks how to join the room themselves from a terminal, tell them to add it: without it
 they join as `agent` and the reaction policy below never treats their messages as authoritative.
 
-Then start the listener:
+Then start the listener as a persistent background command that streams its output into this
+session:
 
 ```
-Monitor(
-  command="atomic bus recv <room>",
-  description="bus messages in <room>",
-  persistent=true,
-  timeout_ms=3600000
-)
+atomic bus recv <room>
 ```
 
 `recv` always streams — there is no one-shot mode and no `--follow` flag to remember. Each stdout
-line is one JSON envelope for a message published *after* this Monitor starts; nothing sent before
-it started is ever replayed, so `join` alone (without this Monitor) is enough if this session only
-needs to talk, but it will never hear anything without a live `recv`.
+line is one JSON envelope for a message published *after* this listener starts; nothing sent before
+it started is ever replayed, so `join` alone (without a live listener) is enough if this session only
+needs to talk, but it will never hear anything without one.
 
 `recv` survives a daemon restart on its own — it reconnects automatically and keeps delivering, so
-you never need to notice a `bus restart` happened or re-arm the Monitor because of one. If the
-daemon is genuinely unreachable (not just mid-restart), the Monitor's command exits non-zero and you
-see that as a failed tool call — treat it like any other tool failure, not as "the room went quiet."
+you never need to notice a `bus restart` happened or re-arm the listener because of one. If the
+daemon is genuinely unreachable (not just mid-restart), the listener's command exits non-zero and you
+see that as a failed call — treat it like any other failure, not as "the room went quiet."
 
 ### Truncated notifications
 
-The harness caps how much of each Monitor event it injects into context — a long envelope arrives
+The harness caps how much of each listener event it injects into context — a long envelope arrives
 ending in `(truncated)`. That is a display cap on the notification, not message loss: the wire
 delivers everything under 1 MiB whole, and the room log holds the full text. Before acting on a
 message that arrived truncated, recover it by id:
@@ -163,7 +159,7 @@ each attempt failed, a proposed contract, a long trace, an investigation writeup
 markdown file, and the message says what you found and where to read the rest:
 
 ```
-atomic bus send auth-fix "can't get auth working; the documented contract is wrong. All 7 attempts and how each failed: /Users/me/proj/.claude/.scratchpad/auth-probe.md" --to be
+atomic bus send auth-fix "can't get auth working; the documented contract is wrong. All 7 attempts and how each failed: /Users/me/proj/tmp/auth-probe.md" --to be
 ```
 
 Three rules:
@@ -207,8 +203,8 @@ operator halted the room because something was going wrong; they will `resume` w
 
 `--json` on every read verb; parse that rather than the table.
 
-To stop listening, `TaskStop` the Monitor. To leave the room entirely, `leave` as well — the
-Monitor and the membership are independent.
+To stop listening, end the background listener. To leave the room entirely, `leave` as well — the
+listener and the membership are independent.
 
 ## For the operator, not for you
 

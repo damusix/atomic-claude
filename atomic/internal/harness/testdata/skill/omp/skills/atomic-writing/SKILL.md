@@ -1,23 +1,7 @@
 ---
 name: atomic-writing
-description: >
-  One voice for every file the repo ships: README, docs/guides/, docs/reference/,
-  docs/spec/, docs/design/, docs/research/, docs/wiki/, AGENTS.md, and the prompt
-  artifacts under commands/, agents/, skills/, rules/, and output-styles/. Clear,
-  direct, technical, and visual wherever the content has a shape. No marketing
-  language, no AI-tell phrases, no em dashes in prose, no throat-clearing. The voice
-  is constant; length is set by what the surface has to carry. Prefer a diagram,
-  table, or tree over a paragraph when the content has a shape, because a drawn flow
-  carries a logic better than a paragraph does for a human reader and a model alike.
-  Structure comes before sentences: a page answers what-is-this, how, where, what-bites,
-  what-else, in that order. references/mermaid.md carries diagram type selection and the
-  rules that decide whether a block renders; references/exemplar-*.md carry finished
-  page shapes to imitate per surface type.
-  Invoked by /documentation and as callee by atomic-documentation. Auto-fires on
-  "draft the README", "write the docs", "improve this prose", "edit the guide",
-  "write the spec", "clean up this doc", "make this readable".
+description: 'One voice for every file the repo ships: README, docs/guides/, docs/reference/, docs/spec/, docs/design/, docs/research/, docs/wiki/, AGENTS.md, and the prompt artifacts under commands/, agents/, skills/, rules/, and output-styles/. Clear, direct, technical, and visual wherever the content has a shape. No marketing language, no AI-tell phrases, no em dashes in prose, no throat-clearing. The voice is constant; length is set by what the surface has to carry. Prefer a diagram, table, or tree over a paragraph when the content has a shape, because a drawn flow carries a logic better than a paragraph does for a human reader and a model alike. Structure comes before sentences: a page answers what-is-this, how, where, what-bites, what-else, in that order. references/mermaid.md carries diagram type selection and the rules that decide whether a block renders; references/exemplar-*.md carry finished page shapes to imitate per surface type. Invoked by /documentation and as callee by atomic-documentation. Auto-fires on "draft the README", "write the docs", "improve this prose", "edit the guide", "write the spec", "clean up this doc", "make this readable".'
 ---
-
 <trigger>
 
 - "draft the README", "write the docs", "improve this prose", "edit the guide"
