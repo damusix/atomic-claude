@@ -461,6 +461,75 @@ func TestReadWikiIndexPaths_ReadsAllEntries(t *testing.T) {
 	}
 }
 
+// installedCLAUDEMD mirrors the shipped ~/.claude/CLAUDE.md: the <atomic> block
+// names the <wikis> block in prose before the real block, and the bullets
+// between them are not registry entries.
+func installedCLAUDEMD(indexPath string) string {
+	return "<atomic>\n" +
+		"- `atomic wiki`: Wiki paths live in a `<wikis>` block in `~/.claude/CLAUDE.md`, outside `<atomic>`.\n" +
+		"- `atomic serve`: read-only localhost browser over the wiki and code graph.\n" +
+		"</atomic>\n\n" +
+		"<wikis>\n- " + indexPath + "\n</wikis>\n"
+}
+
+func TestReadWikiIndexPaths_IgnoresInlineMention(t *testing.T) {
+	tmp := t.TempDir()
+	claudeMD := filepath.Join(tmp, "CLAUDE.md")
+	indexPath := "/home/user/realm/wiki/index.md"
+	if err := os.WriteFile(claudeMD, []byte(installedCLAUDEMD(indexPath)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths, err := ReadWikiIndexPaths(claudeMD)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(paths) != 1 || paths[0] != indexPath {
+		t.Fatalf("want only the registered entry %q, got %v", indexPath, paths)
+	}
+}
+
+// Every ship verb runs mark-dirty, so a prose bullet misread as a relative
+// index path would drop .dirty into whatever repo the user is in and never
+// mark the real wiki.
+func TestMarkDirty_InlineMentionMarksRegisteredWikiOnly(t *testing.T) {
+	tmp := t.TempDir()
+	claudeHome := filepath.Join(tmp, "claude")
+	root := filepath.Join(tmp, "realm")
+	wikiDir := filepath.Join(root, "wiki")
+	for _, d := range []string{claudeHome, wikiDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	indexPath := filepath.Join(wikiDir, "index.md")
+	claudeMD := filepath.Join(claudeHome, "CLAUDE.md")
+	if err := os.WriteFile(claudeMD, []byte(installedCLAUDEMD(indexPath)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	elsewhere := filepath.Join(tmp, "unrelated")
+	member := filepath.Join(root, "member", "docs")
+	for _, d := range []string{elsewhere, member} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// The CLI passes its own working directory, and a relative entry
+		// resolves against the process cwd, so the two must match here.
+		t.Chdir(d)
+		if err := MarkDirty(claudeHome, d); err != nil {
+			t.Fatalf("MarkDirty(%s): %v", d, err)
+		}
+		if _, err := os.Lstat(filepath.Join(d, ".dirty")); err == nil {
+			t.Errorf(".dirty written into cwd %s", d)
+		}
+	}
+
+	if _, err := os.Lstat(filepath.Join(wikiDir, ".dirty")); err != nil {
+		t.Fatalf("registered wiki not marked from a member cwd: %v", err)
+	}
+}
+
 // TestReadWikiIndexPaths_EmptyWhenNoBlock returns empty slice (no error) when
 // block is absent.
 func TestReadWikiIndexPaths_EmptyWhenNoBlock(t *testing.T) {
