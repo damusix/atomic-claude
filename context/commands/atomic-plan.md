@@ -46,7 +46,7 @@ One consolidated block covering: goal, success criteria, non-goals, constraints 
 
 ### Ground (non-trivial only)
 
-Before drafting, dispatch `atomic-investigator` (haiku, read-only) when checkpoints will touch unfamiliar code. Brief it with the surface area to map; expect a `file:line — what` table back. This grounds checkpoint paths in reality instead of guessing.
+Before drafting, dispatch `atomic-investigator` (read-only) when checkpoints will touch unfamiliar code. Brief it with the surface area to map; expect a `file:line — what` table back. This grounds checkpoint paths in reality instead of guessing.
 
 **Code-intel awareness.** The investigator now carries the `agent-code-intel` partial (CP1). When a code-intel index is present in the project, the investigator's structural map is grounded in the real call/import graph rather than filename guesses — brief it to lead with `atomic code explore "<surface-area query>"` (one shot returns the relevant symbols, files, and relationships), then drill with the targeted verbs (`search`/`callers`/`callees`/`impact`); the result returned here is the same compact `file:line` digest. The planner receives that digest and works from it. The planner does NOT run `atomic code` queries itself — all graph exploration stays in the disposable investigator thread. **Why:** `atomic code` queries are bounded within the investigator's throwaway context; flooding the main planner context with graph output defeats the token budget the delegation is meant to protect.
 
@@ -74,7 +74,7 @@ Brainstorm 3-5 approaches. Capture in a table:
 
 Then a `## Recommendation` with the chosen approach and rationale referencing evidence (file:line, signals snapshot, prior decisions). Hedged recommendations are a signal — surface `/pressure-test` at handoff.
 
-**Optional `atomic-strategist` dispatch** (high effort, read-only): when the tradeoff is genuinely hard, multiple approaches survive scrutiny, or blast radius spans ≥2 subsystems. Strategist returns a recommendation with explicit confidence + hidden assumptions named. Don't dispatch for clear-cut calls — a max-effort pass is expensive.
+**Optional `atomic-strategist` dispatch** (read-only): when the tradeoff is genuinely hard, multiple approaches survive scrutiny, or blast radius spans ≥2 subsystems. Strategist returns a recommendation with explicit confidence + hidden assumptions named. Don't dispatch for clear-cut calls — a deep reasoning pass is expensive.
 
 ### Write design (non-trivial only)
 
@@ -104,7 +104,7 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
 
 **Spec structure:** seed the file from the embedded template — `atomic template spec > docs/spec/<topic>.md` — then fill every `<angle-bracket>` placeholder and delete the guidance comments as you fill, except the one under `## Change log`, which stays until the first post-approval amendment. The template is the structural contract: Goal, Non-goals, Success criteria, Approach (one-line design pointer, or full Approaches + Recommendation for a trivial inline spec with no design), Change tree, Outline, Flows, Checkpoints, Risks, Change log. Its guidance comments carry the per-section fill rules with examples — same sections, same order, no improvised headers.
 
-The `## Change log` section ships **empty** on creation. Drafting and refinement turns before approval are not amendments — the spec is being born. The first real entry happens later, when an *approved* spec is changed. See "Specs: the body is current truth, the change log is history" in `CLAUDE.md`.
+The `## Change log` section ships **empty** on creation. Drafting and refinement turns before approval are not amendments — the spec is being born. The first real entry happens later, when an *approved* spec is changed. See "Specs: the body is current truth, the change log is history" in the spec-currency rule (`rules/specs/spec-currency.md`).
 
 ### Spec loop (non-trivial only)
 
@@ -184,7 +184,7 @@ Both lines are copy-paste runnable.
 
 ## Amending an existing spec
 
-If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite — but do **keep the body current**. Apply the rule from `CLAUDE.md` ("Specs: the body is current truth, the change log is history"): **rewrite every affected body section to the new decision** AND add a dated `## Change log` entry recording what changed and why (with a `Superseded:` line for the prior contract). If the file lacks a `## Change log` section, add one before amending.
+If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite — but do **keep the body current**. Apply the spec-currency rule (`rules/specs/spec-currency.md`, "Specs: the body is current truth, the change log is history"): **rewrite every affected body section to the new decision** AND add a dated `## Change log` entry recording what changed and why (with a `Superseded:` line for the prior contract). If the file lacks a `## Change log` section, add one before amending.
 
 **This matters because the spec is read verbatim by fresh-context subagents in `/subagent-implementation`.** Superseded content left in the body — an old checkpoint, a dropped success criterion, a cut feature still described as in-scope — gets handed to a subagent that builds it. When a decision supersedes part of the plan, the whole affected part of the spec changes; the change log records *that* it changed, it does not excuse leaving the stale text in place. Rejected approaches move to the design doc, never a lingering spec section. The test before handing a spec to the loop: could a subagent reading only the body build something the latest decision already cut? If yes, the body isn't done.
 
