@@ -3,7 +3,7 @@ Check whether the staged changes affect any indexed documentation surfaces.
 
 **Step 1 — find the surfaces table.**
 
-Look for a `## Documentation surfaces` section in the CLAUDE instructions already loaded in context (search `CLAUDE.md`, `claude.local.md`, or any `@`-included file). If no such section exists, print exactly:
+Look for a `## Documentation surfaces` section in the steering files already loaded in context (the repo's own steering file — its `AGENTS.md`, or the `CLAUDE.md` loader beside it — plus any file it includes). If no such section exists, print exactly:
 
 ```
 no documentation surfaces indexed. run /documentation to set up.
@@ -51,7 +51,7 @@ Wait for the user's response per surface before continuing to the next.
 
   Use the first 6 characters of the HEAD commit SHA as `<short-hash>`. If `atomic` binary is absent, print the follow-up details as plain text and continue.
 
-- **Remind** — prompt: `When should I remind you? (e.g. "after the PR", "tomorrow", "end of week")`. Accept natural-language input and invoke `/remind-me <timing> update <path> — <reason>`. Continue without blocking if `CronCreate` is unavailable.
+- **Remind** — prompt: `When should I remind you? (e.g. "after the PR", "tomorrow", "end of week")`. Accept natural-language input and invoke `/remind-me <timing> update <path> — <reason>`. Continue without blocking if no scheduling capability is available.
 
 - **Skip** — no action, no record.
 
