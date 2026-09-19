@@ -117,7 +117,7 @@ One-line pointer per topic. Group by category for scannability.
 | `update` | `atomic update [--check]` self-updates binary, auto-refreshes `~/.claude` artifacts, auto-runs install-scope migration steps, then runs doctor (`--skip-claude-update` skips the refresh). `--pre` installs the newest pre-release cut from the `next` branch; `atomic config set update.channel prerelease` makes that the default for the background check, banner and doctor too. When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge proposed `~/.claude/CLAUDE.md`. `atomic migrate` runs migration steps manually: bare = install scope (`~/.claude/`), `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos; `--show-log [<since>]` prints its dated change history, filtered by version or date. |
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns background Haiku to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
-| `improve` / `retrospective` / `audit` | `/retrospective-learning [<targeted feedback>]` — session retrospective. Mines `.jsonl` session history + current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. |
+| `improve` / `retrospective` / `audit` | `/retrospective-learning [<targeted feedback>]` — session retrospective. Mines session history and the current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. |
 
 **Reference**
 

@@ -4,7 +4,7 @@ description: Capture what changed this session and why, scoped to the current br
 
 ## When to use
 
-Long-running branch spanning multiple Claude Code sessions. The eventual commit (or squash) needs the *why* behind the work, but `git diff` alone loses that. Run `/session-report` at the end of a session to capture intent for the future commit-message synthesis.
+Long-running branch spanning multiple sessions. The eventual commit (or squash) needs the *why* behind the work, but `git diff` alone loses that. Run `/session-report` at the end of a session to capture intent for the future commit-message synthesis.
 
 Opt-in only. Does not auto-fire.
 
@@ -36,7 +36,7 @@ Opt-in only. Does not auto-fire.
 
 ## Voice
 
-`atomic-writing` voice at the length budget it gives a short-lived state file: bullets and short paragraphs, no narrative. Not atomic output style, which governs Claude's replies rather than file contents. Internal context that the commit-message synthesis will read.
+`atomic-writing` voice at the length budget it gives a short-lived state file: bullets and short paragraphs, no narrative. Not atomic output style, which governs the assistant's replies rather than file contents. Internal context that the commit-message synthesis will read.
 
 ## Lifecycle
 

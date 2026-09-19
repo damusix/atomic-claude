@@ -1,5 +1,5 @@
 ---
-description: Schedule a reminder. Creates a reminder file and schedules it via cron (< 1h) or Routines (>= 1h). Degrades silently to file-only when scheduling tools are unavailable.
+description: Schedule a reminder. Creates a reminder file and schedules it via a session-scoped one-shot scheduler (< 1h) or a durable scheduler (>= 1h). Degrades silently to file-only when the scheduling surface is unavailable.
 ---
 
 Schedule a reminder that fires at a future time. The user speaks naturally; you infer when it should fire.
@@ -93,12 +93,12 @@ Format `due` as ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`) for storage and scheduling
 
 ### Step 3 — Pick transport
 
-| Duration | Transport | Scheduling tool |
-|----------|-----------|-----------------|
-| `< 1h` | `cron` | `CronCreate` (session-only) |
-| `>= 1h` | `routine` | `schedule` skill / Routines (cloud-durable) |
+| Duration | Transport | Scheduling surface |
+|----------|-----------|--------------------|
+| `< 1h` | `cron` | session-scoped one-shot scheduler |
+| `>= 1h` | `routine` | durable scheduler (survives the session) |
 
-The `1h` boundary is inclusive: `1h` → `routine`. ISO dates are always `routine`.
+The `1h` boundary is inclusive: `1h` → `routine`. ISO dates are always `routine`. The harness's scheduling surface owns the concrete tool names; when neither transport is available, degrade to `none` (see below).
 
 ### Step 4 — Store the reminder
 
@@ -134,13 +134,13 @@ The `1h` boundary is inclusive: `1h` → `routine`. ISO dates are always `routin
 
 In both cases, the cron/routine prompt is: `/follow-up due <id>`
 
-- **`cron` transport**: call `CronCreate` with a one-shot trigger at `due` and the prompt above.
+- **`cron` transport**: create a one-shot session schedule at `due` with the prompt above.
 
-- **`routine` transport**: invoke the `schedule` skill with the same trigger time and prompt. Capture the routine id if returned.
+- **`routine` transport**: invoke the harness's durable-schedule surface with the same trigger time and prompt. Capture the returned schedule id if any.
 
-**Transport unavailable → silent degradation.** If `CronCreate` is not loaded, or the `schedule` skill / Routines auth is not configured:
+**Transport unavailable → silent degradation.** If the session scheduler is unavailable, or the durable scheduler is not configured:
 
-1. Rewrite `transport: none` in the reminder file's frontmatter via Bash `sed` (works for both binary and fallback paths):
+1. Rewrite `transport: none` in the reminder file's frontmatter via shell `sed` (works for both binary and fallback paths):
 
     ```bash
     sed -i '' 's/^transport: .*/transport: none/' <reminders-dir>/<file>
@@ -151,10 +151,10 @@ In both cases, the cron/routine prompt is: `/follow-up due <id>`
 2. Do **not** raise an error. Print:
 
     ```
-    reminder stored. id: <id>. transport unavailable — will surface via session-start hook when past due (<human-readable due>).
+    reminder stored. id: <id>. transport unavailable — will surface via session-start injection when past due (<human-readable due>).
     ```
 
-    Then exit. The session-start hook will re-surface the reminder once past-due.
+    Then exit. The session-start injection will re-surface the reminder once past-due.
 
 ### Step 6 — Confirm to the user
 
@@ -179,7 +179,7 @@ reminder scheduled. id: r-7b21ef. fires: Thu 29 May 09:00 local. transport: rout
 - The reminder file is always written before scheduling is attempted. A failed or unavailable transport never loses the reminder body.
 - No state other than `due:` is ever rewritten after creation (snooze/reschedule rewrite `due:` via `atomic reminder set-due`; see `/follow-up`).
 - The `transport:` field in frontmatter reflects the actual scheduling outcome (`cron`, `routine`, or `none` on degradation).
-- The transport-specific schedule id (cron id, routine id) is **not** stored in the file. Claude finds it at action time by matching the prompt content (`/follow-up due <id>`) via `CronList` or routine listing.
+- The transport-specific schedule id (session-schedule id or durable-schedule id) is **not** stored in the file. The session finds it at action time by matching the prompt content (`/follow-up due <id>`) through the harness's schedule listing.
 - Reminder storage is project-scoped, at the `reminders` path `atomic where --json` reports. Persists across sessions and worktrees of the same clone. Paths come from `atomic scratchpad` / `atomic where --json`.
 - The slug in the filename is cosmetic. The `id` field in frontmatter is the canonical key.
 
