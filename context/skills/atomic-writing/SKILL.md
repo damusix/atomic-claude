@@ -181,7 +181,7 @@ Not every document needs all five, and a surface with its own defined structure 
 
 ## Structural tells
 
-Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `docs/research/`, and the prose in `docs/reference/`. Skip `docs/spec/` and `docs/wiki/`, and lookup tables on any page. `references/structural-tells.md` has the evidence behind each check and a two-pass reading procedure; read it before an editing pass on a prose page.
+Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `docs/research/`, and the prose in `docs/reference/`. Skip `docs/spec/` and `docs/wiki/`, and lookup tables on any page.
 
 - Metaphor that returns after a heading? Keep one comparison in one sentence; cut the returns.
 - Closing line that states what the section proved? Cut it.
@@ -191,6 +191,8 @@ Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `doc
 - Same register from first line to last? Quote the page's transcript or error string. Do not roughen prose on purpose.
 - Consecutive sentences opening the same way? Vary the openers.
 - Sentence over 30 words, or an aside nested inside a clause? Split it, and move the aside to its own sentence. A short parenthetical that replaces an em dash (rule 7) stays.
+
+Read the page twice. The first read covers the first five checks. The second covers the last three on three sampled paragraphs: count sentences over 30 words, look for repeated openers, and check whether the register changes.
 
 ## Quick checklist before saving
 
@@ -280,7 +282,6 @@ Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `doc
 ## Reference files
 
 - `references/mermaid.md` — picking a diagram type from the reader's question, and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file.
-- `references/structural-tells.md` — the StoryScope evidence behind each `Structural tells` check, and a two-pass reading procedure. Read before an editing pass on a prose page.
 - `references/exemplar-reference-page.md` — the shape of a finished reference page for a config file, format, or subsystem. Read before writing a `docs/reference/` page a reader will use for lookup.
 - `references/exemplar-tool-page.md` — the shape of a finished tool reference: worked example first, then the model, then per-verb lookup. Read before writing a page for a CLI tool, daemon, or protocol.
 
