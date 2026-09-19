@@ -25,21 +25,30 @@ The `atomic` CLI is a single Go binary that backs the cron and signals workflows
 
 ```
 atomic-claude/                       # repo root (this repo)
+├── context/                         # the authored corpus: AGENTS.md, agents/, commands/,
+│                                    #   skills/, output-styles/, rules/, _partials/
 ├── atomic/                          # Go module root
 │   ├── go.mod                       # module: github.com/damusix/atomic-claude/atomic
-│   ├── cmd/atomic/main.go           # CLI entry — wires subcommands
+│   ├── cmd/atomic/                  # Cobra verb tree + one cmd_<verb>.go per verb family
 │   ├── internal/
-│   │   ├── repoctx/                 # resolves repo root, .claude/ paths
-│   │   ├── frontmatter/             # parse + emit YAML frontmatter
-│   │   ├── ids/                     # slug + short-id generation
+│   │   ├── artifacts/               # canonical corpus enumeration (artifacts.Load) + projections
+│   │   ├── bundlespec/              # bundle inclusion predicates + steering source descriptors
+│   │   ├── bundlemirror/            # maps the canonical corpus to Claude-native targets at build
+│   │   ├── embedded/                # go:embed of the generated bundle
+│   │   ├── claudeinstall/           # Claude-only bundle install: install/update/list/diff/uninstall
+│   │   ├── harness/                 # harness discovery + the Claude and OMP adapters
+│   │   ├── install/                 # lifecycle engine: plan/apply/converge, lock, journals
+│   │   ├── installstate/            # enrollment ledger, journals, transaction records
+│   │   ├── rules/                   # RuleRecord/RuleInstance, matching, enforcement tiers
+│   │   ├── config/                  # config.toml + ~/.atomic paths, state-location ladder
+│   │   ├── doctor/                  # integrity checks (23 stable categories)
+│   │   ├── selfupdate/              # release lookup, staged swap, update lock/state
 │   │   ├── signals/                 # scanners (tree, manifests, languages)
 │   │   ├── reminder/                # reminder storage: add/list/show/rm
-│   │   ├── hooks/                   # hook-output rendering
-│   │   ├── claudeinstall/           # write embedded artifacts to ~/.claude/, backups, diff
-│   │   ├── embedded/                # go:embed of CLAUDE.md, agents/, commands/, skills/, output-styles/
-│   │   └── selfupdate/              # GitHub release lookup, async check, replace-in-place
-│   ├── pkg/                         # exported helpers if any are needed externally
-│   └── testdata/                    # fixtures for scanner + parser tests
+│   │   ├── hooks/                   # hook-output rendering + settings.json registration
+│   │   ├── repoctx/ frontmatter/ ids/  # repo root, frontmatter parse/emit, id generation
+│   │   └── ...
+│   └── ...
 ├── .github/workflows/release.yml    # goreleaser pipeline
 ├── install.sh                       # one-line installer for end users
 └── ...
@@ -52,17 +61,18 @@ Module path: `github.com/damusix/atomic-claude/atomic`. The `atomic/` subdirecto
 ## CLI surface
 
 
-All commands accept global flags:
+Global flags, honored from any position in argv before the verb's own parse:
 
 
-- `--repo <path>` — repo root override (default: detect from `cwd` via `git rev-parse --show-toplevel`).
-- `--json` — emit machine-readable JSON instead of human prose.
-- `--quiet` / `-q` — suppress non-error output.
-- `--version` — print version + git sha.
+- `--repo <path>` — repo root override (default: detect from `cwd` via git).
+- `--version` / `-v` — print `atomic <version> (<commit>)` and exit.
 - `--no-update-check` — suppress the background self-update check for this invocation.
 
 
-On every command invocation (except `--no-update-check` and `atomic update` itself), the binary fires an asynchronous GitHub Releases lookup. If a newer version is available and the local cache says we haven't notified the user in the last 24h, a one-line banner is appended to stderr after the command's primary output: `update available: vX.Y.Z (current: vA.B.C). run: atomic update`. The cache lives at `~/.cache/atomic/update.json`. The lookup never blocks the foreground command — if it has not completed by the time the foreground work finishes, the banner is skipped for this invocation.
+Machine-readable output is not a global flag: verbs that support it take their own `--json`.
+
+
+The invoked process performs no network I/O for version checking. It renders the update-available banner from `~/.atomic/state.json` — printed to stderr at most once per 24h — and, unless the verb is `atomic update` or `--no-update-check` was passed, it may spawn a detached `atomic update --check` child to refresh that state, capped at one lookup per hour. The child does the GitHub call; if it is gated off (`update.check = false`) or still in flight, the banner simply reflects the last recorded state. Full cadence and lock rules: `docs/spec/selfupdate-state.md`.
 
 
 ### Exit code convention
@@ -124,15 +134,74 @@ Hook registration matters because Claude Code only fires hooks listed in `settin
 ### `atomic claude`
 
 
-Installs / updates the atomic-claude artifact bundle (CLAUDE.md, agents, commands, skills, output-styles) into the user's `~/.claude/` directory. Artifact content is embedded in the binary at build time via Go's `embed` package, so a single binary install delivers a versioned, self-contained artifact set with no network or repo clone required.
+The Claude-only artifact-bundle path: install / update / list / diff / uninstall of the embedded corpus into a Claude artifact root. Artifact content is embedded in the binary at build time, so a single binary install delivers a versioned, self-contained artifact set with no network or repo clone required. The default root comes from the Claude adapter's `DefaultConfigDir(home)`, so `CLAUDE_CONFIG_DIR` relocates it exactly as the generic lifecycle verbs resolve it; `--target <dir>` overrides for a project-scoped install. This path is independent of the multi-harness install engine below — it never enrolls a target, and it is not what `atomic update` converges.
 
 
 | Verb | Description |
 |------|-------------|
-| `install [--dry-run] [--target ~/.claude]` | First-time install. Writes embedded artifacts to `~/.claude/`. Refuses to touch any non-atomic-prefixed file. For an existing `~/.claude/CLAUDE.md`, applies block-aware handling: replaces a stale `<atomic>` block in place, or — when the file has no parseable block — writes the proposed version to `~/.atomic/proposed/CLAUDE.md` for `/atomic-claude-merge` (see [CLAUDE.md handling](#claudemd-handling)). |
-| `update [--dry-run] [--target ~/.claude]` | Refresh an existing install. Diff every embedded artifact against its on-disk counterpart, back up changed files to `~/.atomic/backups/<ISO-timestamp>/`, then overwrite. Same `CLAUDE.md` handling as `install`. |
-| `list` | Print the artifact manifest embedded in this binary version: one row per artifact (kind, name, sha256). Useful for diffing against `~/.claude` state. |
-| `diff` | Show, per artifact, whether the on-disk file matches, differs, or is absent. Read-only. Pairs with `--dry-run` for safety review. |
+| `install [--dry-run] [--target <dir>] [--no-hooks]` | First-time install. Writes embedded artifacts to the target root and registers the session-start hook unless `--no-hooks`. Refuses to touch any file outside the bundle manifest. For an existing `CLAUDE.md`, applies block-aware handling: replaces a stale `<atomic>` block in place, or — when the file has no parseable block — writes the proposed version to `~/.atomic/proposed/CLAUDE.md` for the `atomic prompt claude-merge` cold-op (see [CLAUDE.md handling](#claudemd-handling)). |
+| `update [--dry-run] [--target <dir>] [--no-hooks]` | Refresh an existing install. Diff every embedded artifact against its on-disk counterpart, back up changed files to `~/.atomic/backups/<ISO-timestamp>/`, then overwrite. Same `CLAUDE.md` handling as `install`. |
+| `list` | Print the artifact manifest embedded in this binary version: one row per artifact (kind, name, sha256). Useful for diffing against the target state. |
+| `diff [--target <dir>]` | Show, per artifact, whether the on-disk file matches, differs, or is absent. Read-only. Pairs with `--dry-run` for safety review. |
+| `uninstall [--target <dir>]` | Emit a markdown prompt that a Claude Code session executes against the write-once pre-install snapshot. The binary emits the plan; it does not delete files itself. |
+
+
+### `atomic install`
+
+
+Converges Atomic into explicitly selected harness instances and enrolls them. It never discovers-then-installs: a harness must be named with `--harness`, or `--all` must be passed.
+
+
+```
+atomic install [--harness claude|omp] [--instance <root> | --all] [--replace | --leave-unowned] [--dry-run] [--yes] [--json]
+```
+
+
+`--replace` and `--leave-unowned` are the batched decision for unowned older-version artifacts the selected generation cannot prove; they are mutually exclusive. `--dry-run` reports the plan and writes nothing. `--yes` approves the printed plan without prompting. A blocked target reports its blockers and exits non-zero.
+
+
+### `atomic harness`
+
+
+The lifecycle surface over enrolled targets. Discovery is read-only and never enrolls; only `atomic install`, `atomic harness enroll`, and `atomic harness adopt` create enrollment.
+
+
+| Verb | Description |
+|------|-------------|
+| `list [--json]` | List discovered and enrolled instances, marking each `discovered` or `enrolled`. |
+| `status [<target-key>] [--json]` | Report enrolled target and shared-resource state, plus retained unresolved journals. |
+| `enroll <claude\|omp> [--instance <root>] [--replace\|--leave-unowned] [--dry-run] [--yes] [--json]` | Explicitly enroll a harness instance and converge it. |
+| `adopt [claude] [--instance <root>] [--replace\|--leave-unowned] [--acknowledge-snapshot] [--dry-run] [--yes] [--json]` | Adopt a verified legacy Claude install into the ledger. |
+| `repair [--harness <kind>] [--instance <root>] [--dry-run] [--yes] [--json]` | Reconverge already-enrolled targets. |
+| `diff [--harness <kind>] [--instance <root>] [--json]` | Report each enrolled resource's native difference from the selected generation. Read-only. |
+| `uninstall <target-key> [--dry-run] [--yes] [--json]` | Remove one enrolled target. |
+| `uninstall --all [--dry-run] [--yes] [--json]` | Remove every enrolled target, then completed operational and adoption state. |
+| `rules status [--json]` | Report rule tier, source/projection digests, coverage, and conflict state per target. |
+| `rules sync [--dry-run] [--yes] [--json]` | Converge rule and steering projections for enrolled targets. |
+
+
+Shared lifecycle invariants — held by every mutation, never by discovery:
+
+- One advisory lifecycle lock is held for the operation.
+- Unresolved journals are recovered oldest-first before any planning.
+- The target is re-observed before the plan is built, so the plan reflects current bytes.
+- A plan that cannot be decided reports `blocked` and mutates nothing.
+
+Uninstall retention, target selection, and the legacy-migration state machine are the multi-harness spec's contract — see `docs/spec/omp-plugin-compatibility.md`. Do not restate them here.
+
+
+### `atomic state`
+
+
+Manages the harness-neutral repository-state selection.
+
+
+| Verb | Description |
+|------|-------------|
+| `adopt [--dir <segment\|absolute>] [--clear] [--dry-run] [--json]` | Select this repository's state root. With no flags it adopts the single unambiguous populated candidate; `--dir` selects one explicitly; `--clear` drops the persisted selection so the neutral ladder decides again. `--clear` and `--dir` are mutually exclusive. |
+
+
+Resolution itself follows the repository-state ladder (process-only `ATOMIC_STATE_DIR`, then the persisted selection record, then the user `state.dir`, then the built-in fallback) — contract in `docs/spec/omp-plugin-compatibility.md`.
 
 
 ### `atomic update`
@@ -143,18 +212,19 @@ Self-update the binary. Foreground check (not the background lookup other comman
 
 | Verb / flag | Description |
 |-------------|-------------|
-| (default) | Check GitHub Releases for the latest tag. If newer than `--version`, download the matching archive + checksum, verify SHA256, replace the running binary in place atomically (download to temp, then `rename`). On success: the artifact bundle is refreshed automatically by re-execing the new binary as `claude update --no-update-check` (with `--no-hooks` appended when no session-start hook is registered, preserving the user's hook choice), then the post-update doctor runs (see `docs/spec/atomic-update-doctor.md`). |
-| `--check` | Only check, don't apply. Exit 0 if up-to-date, exit 1 if a newer version is available (prints `update available: ...` to stdout), exit 2 on a hard error such as a network or parse failure (stderr explains). Follows the check-family exit convention — exit 1 is the "update available" signal, not an error. |
+| (default) | Check GitHub Releases for the latest tag. If newer than the running version, download the matching archive + checksum, verify SHA256, then replace the running binary in place atomically. When the swap replaced the running binary, this process still embeds the pre-swap corpus and refuses every convergence path: it re-execs the replacement as `atomic update --__target-converge`, carrying `--skip-claude-update` and `--no-doctor` through. The replacement re-acquires the lifecycle lock, recovers unresolved journals oldest-first, and converges enrolled targets with its own embedded generation, then runs migrations and the post-update doctor (see `docs/spec/atomic-update-doctor.md`). When nothing was swapped — already current — the same process converges enrolled targets in place. A normal update never lets the stale process publish its corpus. |
+| `--check` | Only check, don't apply. Read-only: it downloads nothing and touches no target. Exit 0 if up-to-date, exit 1 if a newer version is available (prints `update available: ...` to stdout), exit 2 on a hard error such as a network or parse failure (stderr explains). Follows the check-family exit convention — exit 1 is the "update available" signal, not an error. |
 | `--channel <stable\|prerelease>` | Release channel. Precedence: this flag, then `update.channel` in `~/.atomic/config.toml`, then `stable`. `stable` considers only non-prerelease tags and only ever moves forward. `prerelease` considers both and tracks the tip: it installs any tag differing from the running one, including a lower-numbered pre-release cut after a stable release of the same core. An unknown value exits 2. |
 | `--pre` | Shorthand for `--channel prerelease`. A one-shot override that never writes config. Combined with an explicit `--channel stable`, exits 2 rather than silently preferring one. |
 | `--no-doctor` | Skip the post-update doctor self-check. |
-| `--skip-claude-update` | Skip the post-swap `~/.claude` artifact refresh; binary swap only. |
+| `--skip-claude-update` | Skip the post-swap enrolled-target convergence; binary swap only. |
+| `--force` | Bypass the update lock (e.g. a lock left by an abandoned run). Never weakens checksum verification. |
 
 
 ### `atomic doctor`
 
 
-Integrity check for the atomic-claude install and current project state. Runs eight deterministic checks and reports PASS / WARN / FAIL / SKIP per category. Non-zero exit on FAIL for CI gating. Opt-in repair via `--fix`. Full contract: `docs/spec/atomic-doctor.md`.
+Integrity check for the atomic-claude install, the enrolled harness targets, and current project state. Runs 23 stable-category checks and reports PASS / WARN / FAIL / SKIP per category. Non-zero exit on FAIL for CI gating. Opt-in repair via `--fix`. Full contract: `docs/spec/atomic-doctor.md`.
 
 
 ```
@@ -164,7 +234,7 @@ atomic doctor [--fix] [--json] [--only <cat[,cat...]>] [--skip <cat[,cat...]>] [
 
 | Flag | Effect |
 |------|--------|
-| `--fix` | Per-item confirm prompt before applying any repair. Implies interactive. |
+| `--fix` | Per-item confirm prompt before applying any repair. Implies interactive. Ledger-managed repairs route through the install engine's converge planner (`install.Steps.Converge` with `EnrolledOnly`): it takes the lifecycle lock, recovers unresolved journals oldest-first, re-observes, and converges only already-enrolled targets. Report-only categories are non-fixable and are counted, never auto-repaired. |
 | `--json` | Emit machine-readable result to stdout (schema_version 1). Suppresses human output. `--fix` + `--json` is a usage error (exit 2). |
 | `--only` | Comma-separated category indices (`1,3`) or names (`install,signals`). |
 | `--skip` | Same syntax as `--only`. Skip listed categories. |
@@ -176,7 +246,7 @@ Check categories (indices stable; never renumber):
 
 
 | # | Name | Fail severity |
-|---|------|---------------|
+|---|------|---------|
 | 1 | `install` | WARN drift / FAIL missing |
 | 2 | `hooks` | WARN |
 | 3 | `signals` | WARN |
@@ -185,6 +255,24 @@ Check categories (indices stable; never renumber):
 | 6 | `followups` | WARN |
 | 7 | `memory` | WARN |
 | 8 | `binary` | WARN |
+| 9 | `config` | WARN |
+| 10 | `profile` | WARN |
+| 11 | `code-index` | WARN |
+| 12 | `migrate` | WARN |
+| 13 | `repo-config` | WARN |
+| 14 | `output-style` | WARN |
+| 15 | `targets` | WARN — enrolled targets reported against read-only discovery; a disagreement between the ledger and native registration is the defect |
+| 16 | `resources` | WARN — every ledger-owned physical resource, its consumers, and the unenrolled instances that can merely see it |
+| 17 | `journals` | WARN — unresolved lifecycle journals |
+| 18 | `capabilities` | WARN — rule/hook capability gaps per target |
+| 19 | `rules` | WARN — rule tier, digests, coverage, conflicts |
+| 20 | `trust` | WARN — disabled or untrusted native hook/enforcement state |
+| 21 | `staleness` | WARN — materializations behind the selected generation |
+| 22 | `conflicts` | WARN — divergent or ambiguous ownership evidence |
+| 23 | `shadowing` | WARN — effective-content shadowing across scopes |
+
+
+Categories 9–14 predate the multi-harness lifecycle; 15–23 were appended with it. Indices are stable: never renumber, only append. The third column is each category's default severity (and for 15–23, what it reports); an individual result may override it.
 
 
 Exit codes: 0 = all PASS/WARN/SKIP (also: `~/.claude/` absent — short-circuit); 1 = any FAIL; 2 = usage error.
@@ -193,19 +281,24 @@ Exit codes: 0 = all PASS/WARN/SKIP (also: `~/.claude/` absent — short-circuit)
 ### Invocation responsibility
 
 
-`atomic claude install` and `atomic claude update` are *always run by the user explicitly*. The binary never auto-runs them. Drift between the binary's embedded bundle and the on-disk `~/.claude/` is the user's call to resolve, on their schedule.
+`atomic claude install` and `atomic claude update` are *always run by the user explicitly*; the binary never auto-runs this standalone Claude-only path. Drift between the embedded bundle and the target is the user's call to resolve, on their schedule.
+
+`install.sh` installs the binary and stops. It invokes no install verb. The user's next step is an explicit `atomic install` (multi-harness; enrolls and converges the named target) or, for the Claude-only bundle path, `atomic claude install`.
+
+`atomic update` is the one automatic convergence point, and only for targets already enrolled: after a swap the replacement binary converges them with its own embedded generation, and an already-current run converges them in place. Neither `atomic update` nor discovery ever enrolls a target.
 
 
 | Scenario | What user does |
 |----------|----------------|
-| First-time setup | After `install.sh` finishes, user runs `atomic claude install` themselves. |
-| Refresh after `atomic update` | If user wants the artifact bundle synced to the new binary, they run `atomic claude update` themselves. |
-| Second machine | User runs `atomic claude install` directly. |
-| Project-scoped install | User runs `atomic claude install --target ./.claude`. |
-| Forced re-sync | `atomic claude update`. |
+| First-time setup | After `install.sh` finishes, the user runs `atomic install --harness claude` (enrolls and converges) or the Claude-only `atomic claude install`. |
+| Refresh an enrolled target after `atomic update` | Automatic — the replacement binary converges already-enrolled targets. |
+| Refresh the Claude-only bundle path | The user runs `atomic claude update` themselves. |
+| Second machine | Same as first-time setup. |
+| Project-scoped Claude install | `atomic claude install --target ./.claude`. |
+| Forced re-sync of an enrolled target | `atomic harness repair`. |
 
 
-`install.sh` prints next-step instructions but does not invoke `atomic claude install`. `atomic update` prints a hint that the bundle may be out of sync but does not invoke `atomic claude update`. No auto-chains anywhere.
+`install.sh` prints next-step instructions but invokes nothing. `atomic update` never runs `atomic claude install`. No auto-chains beyond `atomic update`'s enrolled-target convergence.
 
 
 ## File conventions
@@ -280,19 +373,26 @@ The signals file is committed (or staged) per the signals workflow. The `atomic 
 ### Embedding
 
 
-At build time, the contents of `agents/`, `commands/`, `skills/`, `output-styles/`, and the root `CLAUDE.md` (renamed to `CLAUDE.md` on install) are pulled into the binary via Go's `embed` package. The bundle is keyed by atomic-claude release tag; `atomic --version` reports both the binary version and the bundle commit sha so users can verify what was installed.
+At build time `artifacts.Load` enumerates `context/` once into the canonical corpus (identity `<kind>:<source>`, rendered body, source digest), expanding any `{{ template "<name>" . }}` directive against `context/_partials/` exactly once. `bundlemirror` maps that corpus to Claude-native targets and writes the generated bundle plus `manifest.go`; `//go:embed bundle` compiles the tree into the binary. `atomic <version> (<commit>)` reports what was built — there is no separate bundle-commit field.
 
 
-Inclusion rules (per directory, explicit allowlist via bundle manifest at build time):
+Inclusion is decided by pure `bundlespec` predicates over the canonical corpus, not a hand-maintained allowlist:
 
 
-- `agents/` — only `atomic-*.md` (e.g. `atomic-builder.md`, `atomic-claude-merger.md`).
-- `skills/` — only `atomic-*/SKILL.md` directories (e.g. `atomic-tdd/`, `atomic-documentation/`).
-- `output-styles/` — only `atomic*.md` (e.g. `atomic.md`).
-- `commands/` — explicit allowlist by name, NOT by prefix. Includes both atomic-prefixed (`atomic-plan.md`, `atomic-claude-merge.md`) and verb-named (`setup-wiki.md`, `commit-only.md`, `merge-to-main.md`, `git-cleanup.md`, `worktree-start.md`, etc.). The full list is committed in `atomic/internal/embedded/manifest.go` and updated when commands are added or removed.
-- `.claude/rules/**/*.md` — path-scoped topic rules grouped by language or topic (e.g. `typescript/`, `python/`). Each rule file declares `paths:` globs in its frontmatter so Claude only loads it when touching matching filetypes. Whole directory is included as-is; bundle manifest enumerates each file.
-- `CLAUDE.md` at the atomic-claude repo root → installed as `~/.claude/CLAUDE.md`.
-- Excluded: `claude.local.md`, `tmp/**`, `docs/**`, `.claude/.scratchpad/**`, `.claude/docs/**` (project-local design docs), `atomic/**` (the Go module itself), `.worktrees/**`.
+| Kind | Rule |
+|------|------|
+| agent | `context/agents/atomic-*.md`, files only |
+| skill | `context/skills/atomic-*/` containing `SKILL.md`, whole subtree |
+| output-style | `context/output-styles/atomic*.md` |
+| command | `context/commands/**/*.md`, recursive, no allowlist |
+| rule | `context/rules/**/*.md` |
+| steering | `context/AGENTS.md`, exact name — the sole authored global contract |
+
+
+`context/_partials/*.md` is a template pool, never itself a bundle target. A new file matching an existing rule is picked up with no Go change; a new artifact *kind* needs a predicate plus a walk and a target mapping. Canonical corpus and target-projection contract: `docs/wiki/bundle.md`.
+
+
+The authored global contract is `context/AGENTS.md`. Under Milestone A the Claude adapter projects it directly into `~/.claude/CLAUDE.md` — it never creates a user-level `AGENTS.md` and installs no global loader. Repository and realm scopes instead use the loader pair: authored `AGENTS.md` plus an adjacent thin `CLAUDE.md` whose body is exactly `@AGENTS.md`. That projection is the multi-harness spec's contract — see `docs/spec/omp-plugin-compatibility.md`; this spec only consumes it. There is no dedicated merger agent and no merge slash command: the cold-op that merges a divergent global file is `atomic prompt claude-merge`.
 
 
 ### Install / update semantics
@@ -303,15 +403,15 @@ Targets (relative to `--target`, default `~/.claude`):
 
 | Source (in bundle) | Target |
 |--------------------|--------|
-| `CLAUDE.md` | `CLAUDE.md` |
+| `CLAUDE.md` (the Claude projection of `AGENTS.md`) | `CLAUDE.md` |
 | `agents/atomic-*.md` | `agents/atomic-*.md` |
-| `commands/*.md` | `commands/*.md` |
+| `commands/**/*.md` | `commands/**/*.md` |
 | `skills/atomic-*/SKILL.md` | `skills/atomic-*/SKILL.md` |
 | `output-styles/atomic.md` | `output-styles/atomic.md` |
-| `.claude/rules/<lang>/*.md` | `rules/<lang>/*.md` |
+| `rules/<lang>/*.md` | `rules/<lang>/*.md` |
 
 
-The `.claude/` source prefix is stripped during install — rule files live at `~/.claude/rules/...` on the target side, matching Claude Code's expected layout.
+Sources are already Claude-native: `bundlemirror` stripped the `context/` prefix (and the `claude-md` install kind) at build time, so rule files land at `<target>/rules/...`, matching Claude Code's expected layout.
 
 
 Per-file flow:
@@ -351,10 +451,10 @@ Per-file flow:
       old: ~/.claude/CLAUDE.md
       new: ~/.atomic/proposed/CLAUDE.md
 
-    Run /atomic-claude-merge inside any Claude Code session when you're ready to merge.
+    in a Claude Code session, run `atomic prompt claude-merge` to merge your config.
     Or inspect manually:  diff ~/.claude/CLAUDE.md ~/.atomic/proposed/CLAUDE.md
     ```
-3. User runs `/atomic-claude-merge` themselves, on their own schedule. The slash command (installed by `atomic claude install` into `~/.claude/commands/`) dispatches the `atomic-claude-merger` agent, which reads both files, produces a merged version, presents a diff, asks for confirmation, then writes the result and removes the proposed file. See [`install-workflow.md`](./install-workflow.md) for the slash-command spec.
+3. User runs `atomic prompt claude-merge` themselves, on their own schedule. The cold-op brief (embedded in the binary at `atomic/internal/coldprompt/briefs/claude-merge.md`) walks a Claude Code session through reading both files and producing a merged report, staging at the explicit `## Staging gate` — it does NOT ask the user to accept, apply, or remove the proposed file. The user's interactive session (the dispatcher) presents the report, requires explicit acceptance, and applies the staging file only on accept; the binary never spawns Claude, never edits `CLAUDE.md` itself, and never removes `~/.atomic/proposed/CLAUDE.md` (that removal is the dispatcher's explicit action). See [`install-workflow.md`](./install-workflow.md).
 
 
 First-time install (no existing `CLAUDE.md`):
@@ -371,7 +471,7 @@ The binary never spawns Claude. Three reasons:
 
 - The user dictates *when* a global config change applies. Binary-spawning-editor flows are surprising and cross tool boundaries.
 - The merge step can be deferred — user might want to inspect the proposed file first, or schedule it for a quiet moment.
-- Destructive-ops axiom: the merge slash command has its own Accept/Show/Edit/Abort gate. The right place for explicit confirmation is at the merge, not at launch.
+- Destructive-ops axiom: the `atomic prompt claude-merge` cold-op has its own confirmation gate. The right place for explicit confirmation is at the merge, not at launch.
 
 
 ### Backups
@@ -411,7 +511,7 @@ Unchanged (5):
 Needs review (1):
   ⚠ ~/.claude/CLAUDE.md
     proposed at ~/.atomic/proposed/CLAUDE.md
-    next step: run /atomic-claude-merge inside any Claude Code session
+    next step: in a Claude Code session, run `atomic prompt claude-merge`
 ```
 
 
@@ -427,39 +527,24 @@ Source: GitHub Releases API for `damusix/atomic-claude`. Authenticated only if `
 ### Foreground vs background
 
 
-- **Foreground** (`atomic update`): block on the lookup, perform the download + verify + replace synchronously.
-- **Background** (every other invocation, unless `--no-update-check` or `atomic update`): goroutine fires the lookup, writes the result to `~/.cache/atomic/update.json` (`{checked_at, latest_version, current_version}`), and the main thread checks that file on exit to decide whether to print the banner. If the goroutine has not finished by exit-time, the banner is suppressed for this run.
+- **Foreground** (`atomic update`): block on the lookup, perform the download + verify + swap synchronously, then own post-swap convergence. No banner is involved.
+- **Background** (any other invocation, unless `--no-update-check` is set or the verb is `update`): the process renders the banner from `~/.atomic/state.json` and, at most once per hour, spawns a detached `atomic update --check` child. The child performs the GitHub lookup and writes the result back to state; the parent performs no network I/O and never blocks on the child. The banner prints at most once per 24h.
 
 
-### Cache schema
+### State
 
 
-`~/.cache/atomic/update.json`:
-
-
-```json
-{
-  "checked_at": "2026-05-16T18:32:11Z",
-  "current_version": "0.1.0",
-  "latest_version": "0.1.1",
-  "notified_at": "2026-05-15T09:00:00Z"
-}
-```
-
-
-Banner is printed at most once per 24h (`now - notified_at > 24h`). Each print updates `notified_at`. Suppresses banner spam.
+`~/.atomic/state.json` holds one `update` block: `last_check`, `updating`, `update_started_at`, `updated_at`, `last_notified`, `latest_version`, `stage_attempted_for`, `last_result`, and `staged{version,path,sha256}`. `atomic` is its only writer, atomically via temp+rename; it is never hand-edited. The staged archive lives under a fixed, disposable `~/.cache/atomic/staged/`, and the `staged` field — not the file's mere presence — is the authority on what is staged. Full schema, spawn cadence, and lock-acquisition rules: `docs/spec/selfupdate-state.md`; the `update.check` / `update.stage` / `update.channel` config gates: `docs/spec/atomic-state-and-config.md`.
 
 
 ### Replace flow (foreground)
 
 
-1. Resolve latest release.
-2. Pick the asset matching `<os>_<arch>`.
-3. Download archive + `checksums.txt` to `${TMPDIR}/atomic-update-<sha>/`.
-4. Verify SHA256.
-5. Extract.
-6. `os.Rename(newBinary, currentBinary)` — atomic on POSIX. On error (cross-device or permission), print the error and a `sudo install <new> <current>` hint.
-7. Print: `updated atomic vX.Y.Z → vA.B.C.`
+1. Resolve the latest release for the channel — a fresh lookup; the state's cached `latest_version` is never trusted for a swap.
+2. If an archive matching the tag is already staged and its checksum re-verifies, swap from it. Otherwise pick the asset matching `<os>_<arch>`, download archive + `checksums.txt`, and verify SHA256.
+3. `os.Rename(newBinary, currentBinary)` — atomic on POSIX, against the symlink-resolved running binary. On error (cross-device or permission), print the error and a `sudo install <new> <current>` hint.
+4. Print: `updated atomic <old> → <new>.`
+5. Convergence: when the swap replaced the running binary, this process still embeds the pre-swap corpus, so it re-execs the replacement as `atomic update --__target-converge` and the replacement owns convergence with its own generation. When nothing was swapped, this process converges enrolled targets in place. See `### atomic update`.
 
 
 ### Rollback
@@ -541,7 +626,7 @@ Each build produces `atomic_<version>_<os>_<arch>.tar.gz` (or `.zip` on Windows)
 ### Release flow
 
 
-1. Bump version in `atomic/internal/version.go` (or use ldflags injection — pick one and stick).
+1. Bump version in `atomic/internal/version/` (or use ldflags injection — pick one and stick).
 2. Update `CHANGELOG.md` (Keep-a-Changelog format).
 3. Tag: `git tag -s v0.1.0 -m "v0.1.0"`. Signed tags preferred.
 4. Push tag: `git push origin v0.1.0`.
@@ -574,12 +659,17 @@ The script:
     ```
     atomic v0.1.0 installed at ~/.local/bin/atomic.
 
-    To install the atomic-claude artifact bundle (CLAUDE.md, agents, commands, skills, output-styles)
-    into ~/.claude/, run:
+    To install the artifact bundle (CLAUDE.md, agents, commands, skills,
+    output-styles, rules) into ~/.claude/ and register the session-start hook,
+    run:
 
         atomic claude install
 
-    To install only signals / reminders helpers without touching ~/.claude/, skip the above.
+    That command sets up the output style and prints next steps for
+    initializing project signals. Pass --no-hooks to skip hook registration.
+
+    To install only signals / reminders helpers without touching ~/.claude/,
+    skip the above.
     ```
 
 
@@ -612,9 +702,9 @@ Or via `make build` at repo root.
 ## Testing
 
 
-- **Unit tests** in each `internal/<domain>/` package. Use Go's standard `testing` package; no test framework.
-- **Golden-file tests** for frontmatter parser, scanner output, and hook rendering. Fixtures under `atomic/testdata/`.
-- **CLI integration tests** under `atomic/internal/cmd_test.go` exercise the full argv → stdout/file path via `t.TempDir()`.
+- **Unit tests** in each `atomic/internal/<domain>/` package. Use Go's standard `testing` package; no test framework.
+- **Golden-file tests** for frontmatter parsing, scanner output, and hook rendering; fixtures live in that package's `testdata/` (e.g. `atomic/internal/signals/testdata/`).
+- **CLI integration tests** under `atomic/cmd/atomic/` exercise the verb tree end to end via `t.TempDir()` and injected seams.
 - **No mocks** for filesystem; use real temp dirs. Only network and time get faked (the latter via injected clock).
 - Coverage target: 80% on `internal/`. `cmd/atomic/main.go` is wiring — coverage there is incidental.
 
@@ -634,6 +724,9 @@ Or via `make build` at repo root.
 | CP-8 | Tag v0.1.0, verify pipeline, smoke-test install script + `atomic claude install` + `atomic update` on macOS + linux | | Manual smoke test |
 
 
+The checkpoint rows above and the `## Implementation log` below are the v0.1.0 build record. Where a row names work a later decision changed or removed — the `claude`/`update` internals, the CLAUDE.md proposed-file path as the only path, doctor's category count — the body and the change log are authoritative. The rows stay as the build record; do not treat them as work to do.
+
+
 ## Success criteria
 
 
@@ -643,10 +736,12 @@ Or via `make build` at repo root.
 - `atomic hooks session-start` emits non-empty output when reminders exist, empty output when none.
 - `atomic claude install` into an empty `~/.claude` writes all bundled artifacts and `CLAUDE.md`; rerunning is a no-op (all `unchanged`).
 - `atomic claude update` against an existing install where one atomic artifact has been hand-edited backs that file up under `~/.atomic/backups/<timestamp>/` and overwrites with the bundled version.
-- `atomic claude update` against an existing `~/.claude/CLAUDE.md` writes `.atomic/proposed/CLAUDE.md` and prints the merge instruction; it never overwrites `CLAUDE.md` directly.
+- `atomic claude update` against an existing `CLAUDE.md` replaces a stale `<atomic>` block in place and preserves everything outside it; a file with no parseable block writes `~/.atomic/proposed/CLAUDE.md` and prints the `atomic prompt claude-merge` instruction instead.
 - `atomic claude install --dry-run` makes no filesystem changes; output enumerates would-be actions.
+- `atomic harness list` reports discovered and enrolled instances without enrolling anything; only `atomic install`, `atomic harness enroll`, and `atomic harness adopt` change enrollment.
+- `atomic update` converges only already-enrolled targets; after a swap it does so in the replacement binary's process, never the stale one.
 - `atomic update --check` against a current binary exits 0; against a stale binary exits 1 and prints the available version.
-- Background update check fires on every command invocation, never blocks the foreground, and prints the banner at most once per 24h.
+- The background version check never blocks the foreground, performs its lookup in a detached child at most once per hour, and prints the banner at most once per 24h.
 - A goreleaser run produces archives for all matrix targets; `install.sh` successfully installs `atomic` on macOS arm64 from a published release.
 
 
@@ -708,6 +803,15 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 
 
 ## Change log
+
+
+### 2026-09-19 — Milestone A lifecycle surface, corpus projection, update convergence, 23-category doctor
+
+**What changed:** The body now describes the Milestone A CLI surface. New sections document `atomic install`, the `atomic harness` verb family (`list|status|enroll|adopt|repair|diff|uninstall|rules status|rules sync`), and `atomic state adopt`, with their shared invariants: read-only discovery never enrolls; every mutation holds one advisory lifecycle lock, recovers unresolved journals oldest-first, and re-observes before planning. `atomic claude` is repositioned as the standalone Claude-only bundle path (install/update/list/diff/uninstall), resolving its default root through the Claude adapter's `DefaultConfigDir` so `CLAUDE_CONFIG_DIR` applies. Bundling is now stated as `artifacts.Load` enumerating `context/` into the canonical corpus, filtered by `bundlespec` predicates and projected by `bundlemirror`; the authored global contract is `context/AGENTS.md` projected directly to `~/.claude/CLAUDE.md`, with the `AGENTS.md` + thin `CLAUDE.md` loader pair for repository/realm scopes. `atomic update` re-execs the replacement as `atomic update --__target-converge` to own post-swap convergence with its own embedded generation; already-current runs converge in place, `--check` is read-only, and `--skip-claude-update` skips convergence. `atomic doctor` is documented as 23 stable categories (15–23 appended), with `--fix` routed through the install engine's `Converge(EnrolledOnly)` planner. The repository-layout tree, testing paths, global flags, background-check mechanism, and success criteria were corrected to match the code.
+
+**Why:** Milestone A moved global steering to `context/AGENTS.md`, added the multi-harness lifecycle for Claude and OMP, changed the update re-exec mechanism, and appended nine doctor categories. The body still described the v0.1.0 Claude-only surface, so a fresh reader would have built removed or superseded behavior.
+
+**Superseded:** The body described a Claude-only CLI with no `install`/`harness`/`state` verbs; global steering authored at the repo-root `CLAUDE.md` and installed as `~/.claude/CLAUDE.md` with no `context/AGENTS.md` source; inclusion by a hand-maintained command allowlist in `embedded/manifest.go`; the CLAUDE.md merge path as a `/atomic-claude-merge` command dispatching an `atomic-claude-merger` agent; post-update artifact refresh by re-execing `claude update --no-update-check`; a background update check as an in-process goroutine over `~/.cache/atomic/update.json`; and `atomic doctor` as eight categories.
 
 
 ### 2026-09-02 — `atomic update` gains `--pre`; the prerelease channel tracks the tip

@@ -3,13 +3,16 @@
 ## Goal
 
 A new `atomic where [--json]` top-level verb reports, in one call, a cwd's
-position across three independent axes: repo-scope wiki presence
+position across four independent axes: repo root (the nearest `scope="repo"`
+marker, else the nearest `.git` ancestor, else cwd), repo-scope wiki presence
 (`docs/wiki/index.md` found by walking up to the nearest `.git`), realm-scope
-position (none / root / member / orphaned, relative to any `<wikis>`-registered
-realm), and code-index scope (reusing `codeintel/realm.Resolve` unmodified).
-The report composes all three side by side rather than collapsing them into
-one enum, so the composite case — a realm member that also carries its own
-repo-scope wiki — is visible.
+position (none / root / member / orphaned, relative to any realm registered in
+the `~/.atomic/wikis.md` authority — the `<wikis>` block installed in a
+harness's global file is a derived projection, see
+`docs/spec/omp-plugin-compatibility.md`), and code-index scope (reusing
+`codeintel/realm.Resolve` unmodified). The report composes all four side by
+side rather than collapsing them into one enum, so the composite case — a realm
+member that also carries its own repo-scope wiki — is visible.
 
 Agents get a documented convention to run `atomic where` for orientation
 before wiki/realm-scoped work, and the session-start hook surfaces one
@@ -21,8 +24,8 @@ interesting-only nudge line when the position is non-trivial.
   A third private copy inside the new package is acceptable.
 - No caching or daemon layer — detection is a handful of stat calls per
   invocation.
-- No change to the `<wikis>` registry format or to `codeintel/realm`'s
-  existing `Scope` semantics — both are consumed as-is.
+- No change to the `~/.atomic/wikis.md` registry format or to
+  `codeintel/realm`'s existing `Scope` semantics — both are consumed as-is.
 - No interactive prompts, no write operations — `atomic where` is a read-only
   reporting verb.
 - No watch/live mode.
@@ -37,16 +40,21 @@ interesting-only nudge line when the position is non-trivial.
 
 ## Success criteria
 
+- [ ] `atomic where` run from inside a git repository resolves repo root as
+      the nearest `scope="repo"` marker, else the nearest `.git` ancestor,
+      else cwd, and reports which of the three sources decided it.
 - [ ] `atomic where` run from a plain repo with no `docs/wiki/`, no realm
-      registration, and no code index reports all three axes as absent/none.
+      registration, and no code index reports repo-scope wiki = not found,
+      realm scope = none, and code-index scope = none alongside the resolved
+      repo root.
 - [ ] `atomic where` run from a repo with `docs/wiki/index.md` present (at
       cwd or an ancestor, stopping at the first `.git` boundary) reports
       repo-scope wiki found, with the resolved path.
 - [ ] `atomic where` run from a directory that is a realm root (per the
-      `<wikis>` registry) reports realm scope = root; run from inside a
-      registered member's subtree reports realm scope = member; run from
-      inside a realm root but outside any registered member reports realm
-      scope = orphaned.
+      `~/.atomic/wikis.md` authority) reports realm scope = root; run from
+      inside a registered member's subtree reports realm scope = member; run
+      from inside a realm root but outside any registered member reports
+      realm scope = orphaned.
 - [ ] `atomic where` run from a directory that is simultaneously a realm
       member and carries its own `docs/wiki/index.md` reports both facts
       together — composite state is visible in one invocation, not hidden by
@@ -60,16 +68,21 @@ interesting-only nudge line when the position is non-trivial.
       project-keyed paths for this repo: `reports` (branch-scoped, folding in
       the legacy-fallback ladder), `reports_root` (the parent `reports/`
       directory, no branch applied), `reminders`, and `archive` — all
-      resolved via `atomic/internal/config`'s project-keyed state home (see
-      `docs/spec/serve-plans-page.md`). These fields are additive and nested
-      under their own key; every field the verb already emits keeps its
-      current name, shape, and value — `repo_root` in particular keeps both
-      its existing meaning (the checkout you are in) and its existing
-      resolution ladder.
-- [ ] The upward walk for repo-scope detection performs no `git` subprocess
-      spawns — pure filesystem stats, matching the zero-git-spawn contract
-      already established in `wiki/staleness.go`. Branch resolution for the
-      new `branch` field holds the same contract: it reads `<gitdir>/HEAD`
+      resolved through the neutral repository-state ladder (`ATOMIC_STATE_DIR`,
+      then the persisted selection record, then the user `state.dir`, then the
+      built-in `.claude` fallback), never through a harness fingerprint — see
+      `docs/spec/serve-plans-page.md` and
+      `docs/spec/omp-plugin-compatibility.md`. `branch` and `reports` are
+      omitted when `repo_root` holds no readable `.git`/HEAD; the other three
+      always resolve. These fields are additive and nested under their own
+      key; every field the verb already emits keeps its current name, shape,
+      and value — `repo_root` in particular keeps both its existing meaning
+      (the checkout you are in) and its existing resolution ladder.
+- [ ] Every detector performs no `git` subprocess spawns — pure filesystem
+      stats and file reads, matching the zero-git-spawn contract already
+      established in `wiki/staleness.go`. That covers the repo-root walk, the
+      repo-scope wiki walk, realm detection, code-index scope, and branch
+      resolution. Branch resolution for the `branch` field reads `<gitdir>/HEAD`
       directly (`<root>/.git/HEAD` for the main checkout,
       `<path>/.git/worktrees/<name>/HEAD` for a worktree) rather than
       spawning `git` — a `ref: refs/heads/<name>` line yields the branch
@@ -83,41 +96,45 @@ interesting-only nudge line when the position is non-trivial.
       resolved position is not the plain no-wiki/no-realm case, and appends
       nothing when it is — matching the hook's existing silent-unless-relevant
       behavior (see `wikiNudges` / `buildBody` precedent).
-- [ ] A shared agent-prompt partial documents the convention: agents run
+- [ ] A shared agent-prompt partial (`context/_partials/agent-where.md`)
+      documents the convention: agents run
       `atomic where` for orientation before wiki/realm-scoped work, with
       graceful degradation when the binary is absent — mirroring
       `agent-code-intel`'s existing "lead with `atomic code explore`"
       convention. Composed into the same agents that already receive
       `agent-code-intel` (or a documented subset, if scope differs).
-- [ ] `templates/commands/atomic-help.md`'s `binary`/`cli` topic row mentions
+- [ ] `context/commands/atomic-help.md`'s `binary`/`cli` topic row mentions
       `atomic where [--json]`.
-- [ ] `templates/commands/atomic-help.md`'s Stage 4 tour block (the maintenance
+- [ ] `context/commands/atomic-help.md`'s Stage 4 tour block (the maintenance
       code fence) lists `atomic where [--json]` alongside the other read-only
       orientation/maintenance verbs already there (`atomic doctor`, `atomic
       code explore`, `atomic wiki stale`, `atomic profile refresh`), matching
       their existing per-verb line shape (verb + one-line description).
 - [ ] The MISSING-scan verification
-      (`for cmd in commands/*.md; do verb=$(basename "$cmd" .md); [ "$verb" = "atomic-help" ] && continue; grep -q "/$verb" templates/commands/atomic-help.md || echo "MISSING: /$verb"; done`)
+      (`for cmd in context/commands/*.md; do verb=$(basename "$cmd" .md); [ "$verb" = "atomic-help" ] && continue; grep -q "/$verb" context/commands/atomic-help.md || echo "MISSING: /$verb"; done`)
       returns zero lines — `atomic where` is a binary verb, not a slash
       command, so it is exempt from this scan by construction, but the scan
       must still pass after this work lands.
-- [ ] `go test ./...`, `go vet ./...`, `gofmt -l .` clean under `atomic/`.
-- [ ] `make render && git diff --exit-code` clean; `make -C atomic bundle && git diff --exit-code` clean.
+- [ ] `make -C atomic bundle` succeeds and `go test ./...`, `go vet ./...`,
+      `gofmt -l .` are clean under `atomic/` (the bundle is a gitignored build
+      artifact, so there is no drift gate to run).
 
 ## Approach
 
-New `internal/where` package composing three existing/new detectors behind
+New `internal/where` package composing four existing/new detectors behind
 one `atomic where` verb — see
 [docs/design/atomic-where.md](../design/atomic-where.md) § Recommendation
 (Approach A).
 
 ## Checkpoints
 
+> Checkpoint rows are the build record; do not treat them as work to do — see the change log. Checkpoint 1's package description predates the repo-root axis: the verb now reports four axes (repo root, repo-scope wiki, realm scope, code-index scope), and realm detection reads the `~/.atomic/wikis.md` authority, treating any harness-global registry block as a derived projection. Checkpoint 3's source paths appear at their current `context/` locations.
+
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|-------------|-------|------------|----------|
 | 1 | `internal/where` package (new git-boundary upward walk for repo-scope wiki detection, reuse of `wiki.ReadWikiIndexPaths` for realm roots + `wiki.ReadScanMembers` for realm member paths — the wiki's own `<wiki-scan>` registry, distinct from `codeintel/realm`'s separate `code.toml`, which code-index scope reads via `realm.Resolve` unmodified — plus a local `isUnder` copy, for realm-scope root/member/orphaned/none, reuse of `codeintel/realm.Resolve` unmodified for code-index scope, one composed report type) + `atomic where [--json]` CLI verb, Cobra registration mirroring `buildDoctorCmd()` (`atomic/cmd/atomic/main.go:760-779`), `cliusage.go` entry (top-level single-token `Path`, pattern at `atomic/internal/cliusage/cliusage.go:110` `["doctor"]` / `:380` `["serve"]`), `main_test.go` golden-fixture wiring (`atomic/cmd/atomic/main_test.go:149-171` `TestDeriveCommandsGolden`, `:80-124` `cp3WantMeta`), package tests | new `atomic/internal/where/` (detector + tests), `atomic/cmd/atomic/main.go` (`buildWhereCmd()` + registration alongside `main.go:186-218`), `atomic/internal/cliusage/cliusage.go`, `atomic/cmd/atomic/main_test.go` | atomic-implementer (feature) | 6 | All repo-scope/realm-scope/composite/code-index/`--json` success criteria; zero-git-spawn constraint; `go test ./...`, `go vet`, `gofmt -l` clean; `TestDeriveCommandsGolden` passes |
 | 2 | Session-start hook integration: one new orientation-nudge source, interesting-only suppression | `atomic/internal/hooks/hooks.go` (`buildBody`, `:100-160` `SessionStart`, `:165-175` `SessionStartText` — new nudge source alongside `checkWikiStaleness` at `:62-75`), new/extended hook test coverage | atomic-implementer (surgical) | 2-3 | Nudge appears only for non-trivial position, matching `wikiNudges` precedent; existing hook tests still pass |
-| 3 | Agent-prompt convention (shared partial telling agents to run `atomic where` for orientation, mirroring `templates/shared/agent-code-intel.md`) + `/atomic-help` `binary`/`cli` topic-row mention + render/bundle regen | `templates/shared/agent-code-intel.md` or a new `templates/shared/agent-where.md` partial + the agent templates composing it (grep `agent-code-intel` across `templates/agents/` and `templates/shared/` for the full current composition set — includes at least `templates/agents/atomic-reviewer.md:160`, `atomic-investigator.md:21`, `atomic-wiki-inferrer.md:77`, and `atomic-implementer.md` indirectly via `templates/shared/agent-implementer-workflow.md:14`), `templates/commands/atomic-help.md` (`binary`/`cli` topic row, ~line 125, and Stage 4 tour block, ~line 211-231), rendered `commands/atomic-help.md` + `agents/*.md` (via `make render`), `atomic/internal/embedded/bundle/**` (via `make -C atomic bundle`) | atomic-implementer (feature) | 5-6 | Agent partial success criterion; topic-row success criterion; Stage 4 tour-line success criterion; MISSING-scan zero lines; `make render` + `make -C atomic bundle` parity clean |
+| 3 | Agent-prompt convention (shared partial telling agents to run `atomic where` for orientation, mirroring `context/_partials/agent-code-intel.md`) + `/atomic-help` `binary`/`cli` topic-row mention + bundle regen | `context/_partials/agent-code-intel.md` or a new `context/_partials/agent-where.md` partial + the agents composing it (grep `agent-code-intel` across `context/agents/` and `context/_partials/` for the full current composition set — includes at least `context/agents/atomic-reviewer.md:160`, `atomic-investigator.md:21`, `atomic-wiki-inferrer.md:77`, and `atomic-implementer.md` indirectly via `context/_partials/agent-implementer-workflow.md:14`), `context/commands/atomic-help.md` (`binary`/`cli` topic row, ~line 125, and Stage 4 tour block, ~line 211-231), `atomic/internal/embedded/bundle/**` (via `make -C atomic bundle`) | atomic-implementer (feature) | 5-6 | Agent partial success criterion; topic-row success criterion; Stage 4 tour-line success criterion; MISSING-scan zero lines; `make -C atomic bundle` succeeds |
 
 ## Risks
 
@@ -138,6 +155,14 @@ one `atomic where` verb — see
 **Why:** `docs/spec/serve-plans-page.md` grows `atomic where` into the single verb prompt artifacts (`/session-report`, ship-verb partials) resolve project-keyed paths through, rather than each artifact constructing or branching on those paths itself.
 
 **Superseded:** no prior JSON field list existed in this spec's body to describe the addition against — the `--json` success criterion was general ("emits the same information as machine-readable JSON") and gains a companion bullet naming the new fields explicitly.
+
+### 2026-09-19 — Four axes and the wikis.md authority
+
+**What changed:** The body states four orthogonal axes — repo root, repo-scope wiki, realm scope, and code-index scope — with a success criterion for the repo-root ladder (`scope="repo"` marker, else nearest `.git` ancestor, else cwd). Realm detection reads the `~/.atomic/wikis.md` authority, and the harness-global `<wikis>` block is described as a derived projection. The `--json` criterion names the neutral repository-state ladder (`ATOMIC_STATE_DIR`, the persisted selection record, `state.dir`, the built-in `.claude` fallback) that resolves `reports`/`reports_root`/`reminders`/`archive`, rules out a harness fingerprint, and records that `branch`/`reports` are omitted without a readable `.git`/HEAD. The zero-`git`-subprocess criterion covers every detector; help-wiring references point at `context/commands/atomic-help.md` and the shipped `context/_partials/agent-where.md`; the build-clean criterion drops the retired `make render` drift gate for the gitignored bundle.
+
+**Why:** Milestone A made `~/.atomic/wikis.md` the registry authority and moved the authored corpus to `context/`; the body still described three axes, a `.claude`-local `<wikis>` registry, and a render pipeline that no longer exists. See `docs/spec/omp-plugin-compatibility.md`.
+
+**Superseded:** The body previously reported three axes (repo-scope wiki, realm scope, code-index scope) and omitted repo root; it sourced realm roots from a `<wikis>` block and hedged the `--json` path resolution as "the project-keyed state home" without naming its ladder.
 
 ## Implementation log
 
