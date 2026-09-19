@@ -41,6 +41,7 @@ type Store struct {
 	size    int64
 	loaded  bool
 	records map[string]Record // by id
+	pinned  *Record
 }
 
 // NewStore returns a Store backed by the keys.json at path. The file need
@@ -105,12 +106,24 @@ func (s *Store) Revoke(name string) error {
 	return s.save()
 }
 
+// Pin makes Lookup accept key under name for the life of this Store; it is
+// never written to keys.json and Revoke does not remove it.
+func (s *Store) Pin(name string, key []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pinned = &Record{ID: keyID(key), Key: append([]byte(nil), key...), Name: name}
+}
+
 // Lookup returns the record for keyID, re-reading keys.json first if it has
-// changed since the last read.
+// changed since the last read. A pinned key is checked before the file, so a
+// corrupt keys.json cannot lock it out.
 func (s *Store) Lookup(keyID string) (Record, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.pinned != nil && s.pinned.ID == keyID {
+		return cloneRecord(*s.pinned), true, nil
+	}
 	if err := s.reload(); err != nil {
 		return Record{}, false, err
 	}

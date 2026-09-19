@@ -134,6 +134,56 @@ func TestStore_Revoke_DeletesTheRecord(t *testing.T) {
 	}
 }
 
+// The operator rotates a pinned key by restarting with a different one, so a
+// copy written to keys.json would keep the old key valid after the rotation.
+func TestStore_Pin_LookupFindsKey_NothingWritten(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keys.json")
+	s := NewStore(path)
+	key := bytes.Repeat([]byte{7}, 32)
+
+	s.Pin("ATOMIC_BUS_KEY", key)
+
+	got, ok, err := s.Lookup(keyID(key))
+	if err != nil || !ok {
+		t.Fatalf("Lookup of the pinned key: ok=%v err=%v", ok, err)
+	}
+	if !bytes.Equal(got.Key, key) || got.Name != "ATOMIC_BUS_KEY" {
+		t.Fatalf("Lookup = {Name:%q Key:%x}, want the pinned record", got.Name, got.Key)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("Pin wrote keys.json (stat err = %v); a pinned key must stay in memory", err)
+	}
+}
+
+func TestStore_Pin_IndependentOfKeysJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keys.json")
+	s := NewStore(path)
+	key := bytes.Repeat([]byte{9}, 32)
+	s.Pin("ATOMIC_BUS_KEY", key)
+
+	enrolled, err := s.Enroll("web-api")
+	if err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+	if _, ok, err := s.Lookup(enrolled.ID); err != nil || !ok {
+		t.Fatalf("enrolled key not found beside the pinned one: ok=%v err=%v", ok, err)
+	}
+
+	if err := s.Revoke("web-api"); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if _, ok, err := s.Lookup(keyID(key)); err != nil || !ok {
+		t.Fatalf("Revoke of an enrolled name removed the pinned key: ok=%v err=%v", ok, err)
+	}
+
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatalf("corrupt keys.json: %v", err)
+	}
+	if _, ok, err := s.Lookup(keyID(key)); err != nil || !ok {
+		t.Fatalf("a corrupt keys.json locked out the pinned key: ok=%v err=%v", ok, err)
+	}
+}
+
 // Enroll and Revoke run as separate processes from the gateway's own lookup
 // path — each holds its own Store over the same file — so a change one makes
 // must reach the other's next Lookup without a restart.

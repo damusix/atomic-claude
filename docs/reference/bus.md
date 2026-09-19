@@ -330,7 +330,7 @@ Two operator verbs manage the key each remote machine holds, run on the gateway 
 
 | Verb | Effect |
 |---|---|
-| `atomic bus gateway [--addr <addr>] [--tls-cert <file>] [--tls-key <file>]` | Start the daemon and the gateway together, listening on `--addr` for `/v1/op`. Plain HTTP unless `--tls-cert` and `--tls-key` are both given. |
+| `atomic bus gateway [--addr <addr>] [--tls-cert <file>] [--tls-key <file>]` | Start the daemon and the gateway together, listening on `--addr` for `/v1/op`. Plain HTTP unless `--tls-cert` and `--tls-key` are both given. With `ATOMIC_BUS_KEY` set to 64 hex characters, the gateway also admits that key alongside every enrolled key; any other value refuses to start. |
 | `atomic bus gateway enroll [--tls-cert <file>] <name>` | Generate a key for `<name>` and print a `[bus.remotes]` TOML block, once — there is no way to recover the key afterward. `--tls-cert` sets the printed `host`'s scheme (`https://` when given, `http://` otherwise); it should match what this gateway is (or will be) run with. A `<name>` that already has a key is refused; to rotate, enroll a new name and revoke the old one. |
 | `atomic bus gateway revoke <name>` | Delete `<name>`'s key. The gateway notices on its next lookup; a live stream from that machine ends within one frame. |
 
@@ -346,7 +346,7 @@ protect: [`docs/guides/bus-hosting.md`](../guides/bus-hosting.md).
 | `~/.atomic/bus.json` | Per-session joined-room state (which rooms each `CLAUDE_CODE_SESSION_ID` has joined, under what name, `mode`, `kind`, `last_seen`, and — for a remote room — its `--host`), written by the CLI and serve. |
 | `~/.atomic/bus-roster.json` | The daemon's own roster and per-room halt state (flag and reason), written only by the daemon. The rehydration source on restart; `bus.json` is a one-time migration fallback when this file doesn't exist yet. |
 | `~/.atomic/rooms/<room>.log` | One JSON line per envelope published to that room, ever. |
-| `~/.atomic/gateway/keys.json` | Gateway host only. Every enrolled machine's key, id, name, and enrollment time. |
+| `~/.atomic/gateway/keys.json` | Gateway host only. Every enrolled machine's key, id, name, and enrollment time. The `ATOMIC_BUS_KEY` key is never written here. |
 
 All of it lives under `~/.atomic/`, created at `0700`, alongside the rest of atomic's per-user state.
 
