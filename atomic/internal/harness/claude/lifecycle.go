@@ -7,6 +7,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
@@ -92,7 +93,38 @@ func (a *Adapter) converge(home string, t harness.Target, p harness.Plan) (harne
 	if err != nil {
 		return harness.Convergence{Target: t}, err
 	}
+	if err := applyClaudeSettings(home, t.NativeRoot); err != nil {
+		return harness.Convergence{Target: t}, err
+	}
 	return harness.Convergence{Target: t, Status: harness.StatusConverged}, nil
+}
+
+// applyClaudeSettings runs the two narrow Claude settings mutations
+// convergence owns: the inline SessionStart registration and the outputStyle
+// seed. Both reuse the JWCC-preserving hooks helpers, so a user's own settings
+// survive byte for byte and only a missing adapter default is added —
+// registration is a no-op when the hook is already present, and the seed only
+// writes when the style file is installed, seeding is enabled, and the key is
+// unset. A read-only settings.json is left untouched rather than failing an
+// otherwise-complete converge; a malformed one is the only hard error.
+//
+// Settings resolve from the target's own config directory, never from its
+// parent: the two coincide for the default ~/.claude, but a root named anything
+// else (CLAUDE_CONFIG_DIR=~/.config/claude, --instance ~/.claude-work) would
+// otherwise write a sibling `<parent>/.claude/settings.json` Claude never reads
+// — and, for ~/.claude-work, the default target's own settings file.
+func applyClaudeSettings(home, configDir string) error {
+	skipped, err := hooks.InstallInDir(configDir)
+	if err != nil {
+		return fmt.Errorf("claude: register session-start hook: %w", err)
+	}
+	if skipped {
+		return nil
+	}
+	if _, err := hooks.SeedOutputStyleInDir(configDir, configDir, home); err != nil {
+		return fmt.Errorf("claude: seed output style: %w", err)
+	}
+	return nil
 }
 
 // assess reports the ownership verdict for every Claude claim, read-only.

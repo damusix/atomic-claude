@@ -12,10 +12,17 @@ import (
 //
 // The scope root is $HOME, not ~/.claude: hooks.IsInstalled appends
 // ".claude/settings.json" itself, so passing ~/.claude doubles the segment.
-func checkHooks(_ Opts) Result {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve home: %v", err)}
+func checkHooks(opts Opts) Result {
+	if claudeHomeMissing(opts) {
+		return Result{Severity: SKIP, Detail: "no Claude home; session-start hook not applicable"}
+	}
+	home := opts.Home
+	if home == "" {
+		resolved, err := os.UserHomeDir()
+		if err != nil {
+			return Result{Severity: WARN, Detail: fmt.Sprintf("resolve home: %v", err)}
+		}
+		home = resolved
 	}
 	return RunCheckHooksWith(home)
 }

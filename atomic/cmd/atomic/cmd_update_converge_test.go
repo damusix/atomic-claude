@@ -14,6 +14,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
+	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/install"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
@@ -473,5 +474,65 @@ func TestUpdateConvergenceBlocksOnLifecycleLock(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("convergence did not finish after the lifecycle lock was released")
+	}
+}
+
+// TestEnrollConvergenceRegistersHookAndSeedsOutputStyle closes the gap the
+// enrollment verbs claimed but no converge path performed: `atomic install
+// --harness claude` (and `harness enroll`) must register the SessionStart hook
+// and seed the outputStyle key. It drives the production enroll entry, proves
+// both settings mutations land, that the user's own keys survive, and that a
+// reconvergence is byte-identical rather than duplicating the hook or
+// re-seeding.
+func TestEnrollConvergenceRegistersHookAndSeedsOutputStyle(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	root := filepath.Join(home, ".claude")
+	settingsPath := filepath.Join(root, "settings.json")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	userSettings := "{\n  \"permissions\": {\"allow\": [\"Bash(ls:*)\"]}\n}\n"
+	if err := os.WriteFile(settingsPath, []byte(userSettings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	enrollClaudeTarget(t, home)
+
+	installed, drifted, err := hooks.IsInstalled(home)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if !installed || drifted {
+		t.Fatalf("session-start hook installed=%v drifted=%v, want true/false", installed, drifted)
+	}
+	value, present, err := hooks.ReadOutputStyle(settingsPath)
+	if err != nil {
+		t.Fatalf("ReadOutputStyle: %v", err)
+	}
+	if !present || value != hooks.OutputStyleName {
+		t.Fatalf("outputStyle = %q present=%v, want %q", value, present, hooks.OutputStyleName)
+	}
+
+	raw, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"Bash(ls:*)"`) {
+		t.Fatalf("user setting did not survive convergence: %s", raw)
+	}
+
+	before := string(raw)
+	steps := install.DefaultSteps(home)
+	steps.AssumeYes = true
+	if _, err := steps.Converge(install.ConvergeRequest{Selection: install.Selection{Kind: harness.KindClaude}}); err != nil {
+		t.Fatalf("reconverge: %v", err)
+	}
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != before {
+		t.Fatalf("reconvergence rewrote settings.json:\nbefore %s\nafter  %s", before, after)
 	}
 }

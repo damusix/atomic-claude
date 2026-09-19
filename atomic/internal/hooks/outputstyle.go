@@ -29,11 +29,18 @@ const outputStyleKey = "outputStyle"
 // target) returns wrote == false with a nil error; a malformed settings.json
 // is the only error path.
 func SeedOutputStyle(scopeRoot, targetDir, home string) (wrote bool, err error) {
+	return SeedOutputStyleInDir(configDirForScope(scopeRoot), targetDir, home)
+}
+
+// SeedOutputStyleInDir seeds an explicit Claude config directory's settings
+// file. The enrolled root is the only settings file it can reach, so seeding a
+// custom-named target never writes into the default target beside it.
+func SeedOutputStyleInDir(configDir, targetDir, home string) (wrote bool, err error) {
 	if !StyleInstalled(targetDir) || !SeedEnabled(home) {
 		return false, nil
 	}
 
-	sfPath := SettingsPath(scopeRoot)
+	sfPath := SettingsPathInDir(configDir)
 	settings, ast, _, err := readSettingsHujson(sfPath)
 	if err != nil {
 		return false, err
@@ -85,8 +92,14 @@ func ReadOutputStyle(sfPath string) (value string, present bool, err error) {
 // value, an absent key, an absent settings file, or an installed style
 // file is a no-op that writes nothing.
 func RemoveOutputStyleIfAtomic(scopeRoot string) (removed bool, skipped bool, err error) {
-	sfPath := SettingsPath(scopeRoot)
-	if StyleInstalled(filepath.Dir(sfPath)) {
+	return RemoveOutputStyleIfAtomicInDir(configDirForScope(scopeRoot))
+}
+
+// RemoveOutputStyleIfAtomicInDir removes the key from an explicit Claude config
+// directory's settings file.
+func RemoveOutputStyleIfAtomicInDir(configDir string) (removed bool, skipped bool, err error) {
+	sfPath := SettingsPathInDir(configDir)
+	if StyleInstalled(configDir) {
 		return false, false, nil
 	}
 

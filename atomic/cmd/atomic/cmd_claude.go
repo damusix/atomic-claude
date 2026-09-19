@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
@@ -85,8 +84,7 @@ func runClaudeInstall(targetDir, home, verb string, dryRun, noHooks bool) (insta
 		return result, nil
 	}
 
-	scopeRoot := filepath.Dir(targetDir)
-	skipped, err := hooks.Install(scopeRoot, scopeRoot)
+	skipped, err := hooks.InstallInDir(targetDir)
 	if err != nil {
 		result.HooksError = err
 		return result, nil

@@ -140,13 +140,13 @@ const (
 
 	// The pre-inline wrapper script older installs registered. Retained only so
 	// Install can migrate it away and Uninstall can clean it up.
-	legacyScriptName  = "session-start-reminders.sh"
-	legacyHooksSubdir = ".claude/hooks"
+	legacyScriptName = "session-start-reminders.sh"
+	hooksSubdir      = "hooks"
 
-	settingsRelPath = ".claude/settings.json"
-	maxReminders    = 10
-	previewMaxLen   = 80
-	oldThresholdDay = 14
+	settingsFileName = "settings.json"
+	maxReminders     = 10
+	previewMaxLen    = 80
+	oldThresholdDay  = 14
 )
 
 // SessionStart returns the JSON hook payload, or "" when there is nothing to
@@ -366,14 +366,30 @@ func truncate(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "…"
 }
 
-func legacyScriptPath(scopeRoot string) string {
-	return filepath.Join(scopeRoot, legacyHooksSubdir, legacyScriptName)
+// configDirForScope is the Claude config directory a scope root owns: the
+// `.claude` directory under a project root, or under $HOME for the user scope.
+// It is the physical root that holds settings.json, agents/, commands/, and so
+// on — not a name to be re-derived from a target path.
+func configDirForScope(scopeRoot string) string {
+	return filepath.Join(scopeRoot, ".claude")
+}
+
+func legacyScriptPath(configDir string) string {
+	return filepath.Join(configDir, hooksSubdir, legacyScriptName)
 }
 
 // SettingsPath resolves a scope root to its settings.json. Exported so
 // claudeinstall does not rebuild the literal a third time.
 func SettingsPath(scopeRoot string) string {
-	return filepath.Join(scopeRoot, settingsRelPath)
+	return SettingsPathInDir(configDirForScope(scopeRoot))
+}
+
+// SettingsPathInDir resolves a Claude config directory to the settings file it
+// owns. It appends nothing, so a root whose name is not literally `.claude` —
+// a CLAUDE_CONFIG_DIR or `--instance` target — resolves its own settings.json
+// rather than a sibling `.claude` directory beside it.
+func SettingsPathInDir(configDir string) string {
+	return filepath.Join(configDir, settingsFileName)
 }
 
 // SameDir reports whether two paths name the same directory. Callers ask this
@@ -407,14 +423,23 @@ func resolveDir(path string) string {
 	return abs
 }
 
-// Install registers the inline command under scopeRoot; repoRoot is unused here.
-// Any older wrapper-script registration is removed first so the hook cannot
-// double-fire. Idempotent. skipped reports a read-only settings.json left
-// untouched, so a caller can tell that from a genuine success.
+// Install registers the inline command under scopeRoot's config directory;
+// repoRoot is unused here. Any older wrapper-script registration is removed
+// first so the hook cannot double-fire. Idempotent. skipped reports a read-only
+// settings.json left untouched, so a caller can tell that from a genuine
+// success.
 func Install(repoRoot, scopeRoot string) (skipped bool, err error) {
-	sfPath := SettingsPath(scopeRoot)
+	return InstallInDir(configDirForScope(scopeRoot))
+}
 
-	if skipped, err := migrateLegacy(sfPath, scopeRoot); err != nil || skipped {
+// InstallInDir registers the inline command in an explicit Claude config
+// directory's settings.json. The enrolled root is the only settings file it can
+// reach, so converging a custom-named target (CLAUDE_CONFIG_DIR, `--instance`)
+// never writes into the default target beside it.
+func InstallInDir(configDir string) (skipped bool, err error) {
+	sfPath := SettingsPathInDir(configDir)
+
+	if skipped, err := migrateLegacy(sfPath, configDir); err != nil || skipped {
 		return skipped, err
 	}
 
@@ -424,11 +449,17 @@ func Install(repoRoot, scopeRoot string) (skipped bool, err error) {
 // Uninstall removes the registration and any lingering legacy wrapper script.
 // skipped reports a read-only settings.json left untouched.
 func Uninstall(repoRoot, scopeRoot string) (skipped bool, err error) {
-	if err := os.Remove(legacyScriptPath(scopeRoot)); err != nil && !os.IsNotExist(err) {
+	return UninstallInDir(configDirForScope(scopeRoot))
+}
+
+// UninstallInDir removes the registration from an explicit Claude config
+// directory, reaching only that root's settings.json.
+func UninstallInDir(configDir string) (skipped bool, err error) {
+	if err := os.Remove(legacyScriptPath(configDir)); err != nil && !os.IsNotExist(err) {
 		return false, fmt.Errorf("hooks uninstall: remove legacy script: %w", err)
 	}
 
-	sfPath := SettingsPath(scopeRoot)
+	sfPath := SettingsPathInDir(configDir)
 	if _, err := os.Stat(sfPath); os.IsNotExist(err) {
 		return false, nil
 	}
@@ -436,26 +467,26 @@ func Uninstall(repoRoot, scopeRoot string) (skipped bool, err error) {
 	if skipped, err := unregisterFromSettings(sfPath, sessionStartCommand); err != nil || skipped {
 		return skipped, err
 	}
-	if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil || skipped {
+	if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(configDir)); err != nil || skipped {
 		return skipped, err
 	}
 
 	// This uninstall never deletes the style file itself, so the key is removed
 	// only once the file it names is already gone. See the "Remove on uninstall"
 	// flow in docs/spec/output-style-seed.md.
-	_, skipped, err = RemoveOutputStyleIfAtomic(scopeRoot)
+	_, skipped, err = RemoveOutputStyleIfAtomicInDir(configDir)
 	return skipped, err
 }
 
 // migrateLegacy is a no-op when no wrapper-script install exists. A malformed
 // settings.json errors, so Install refuses to proceed.
-func migrateLegacy(sfPath, scopeRoot string) (skipped bool, err error) {
+func migrateLegacy(sfPath, configDir string) (skipped bool, err error) {
 	if _, err := os.Stat(sfPath); err == nil {
-		if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil || skipped {
+		if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(configDir)); err != nil || skipped {
 			return skipped, err
 		}
 	}
-	if err := os.Remove(legacyScriptPath(scopeRoot)); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(legacyScriptPath(configDir)); err != nil && !os.IsNotExist(err) {
 		return false, fmt.Errorf("hooks install: remove legacy script: %w", err)
 	}
 	return false, nil
@@ -492,18 +523,24 @@ func hasRegistration(settings map[string]any, command string) bool {
 	return false
 }
 
-// IsInstalled reports registration state in scopeRoot/.claude/settings.json.
+// IsInstalled reports registration state in scopeRoot's config directory.
 // drifted means the hook still fires but through a legacy wrapper-script (or a
 // half-migrated pair), and `atomic hooks install` should be re-run.
 func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
-	sfPath := SettingsPath(scopeRoot)
+	return IsInstalledInDir(configDirForScope(scopeRoot))
+}
+
+// IsInstalledInDir reports registration state in an explicit Claude config
+// directory's settings.json.
+func IsInstalledInDir(configDir string) (installed bool, drifted bool, err error) {
+	sfPath := SettingsPathInDir(configDir)
 	settings, _, _, readErr := readSettingsHujson(sfPath)
 	if readErr != nil {
 		return false, false, readErr
 	}
 
 	inline := hasRegistration(settings, sessionStartCommand)
-	legacy := hasRegistration(settings, legacyScriptPath(scopeRoot))
+	legacy := hasRegistration(settings, legacyScriptPath(configDir))
 
 	switch {
 	case inline && !legacy:

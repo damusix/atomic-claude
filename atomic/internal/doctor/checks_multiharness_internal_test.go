@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -410,4 +411,160 @@ func fileDigest(t *testing.T, path string) string {
 // hasFinding reports whether detail contains sub.
 func hasFinding(detail, sub string) bool {
 	return strings.Contains(detail, sub)
+}
+
+// TestShortCircuitLiftsForEnrolledTargets proves the missing-Claude-home gate
+// yields as soon as the ledger records any enrolled target, Claude or not, so
+// an OMP-only home still runs the harness categories.
+func TestShortCircuitLiftsForEnrolledTargets(t *testing.T) {
+	home := t.TempDir()
+	if !ClaudeHomeMissing(home) {
+		t.Fatal("fixture home unexpectedly carries a Claude home")
+	}
+	if !ShortCircuit(home) {
+		t.Error("no enrolled target and no Claude home must short-circuit")
+	}
+
+	root := filepath.Join(home, ".omp")
+	saveLedger(t, home, []installstate.TargetRecord{
+		{Harness: string(harness.KindOMP), Instance: root, NativeRoot: root, Status: string(harness.StatusConverged)},
+	}, nil)
+	if !HasEnrolledTargets(home) {
+		t.Error("HasEnrolledTargets did not observe the enrolled OMP target")
+	}
+	if ShortCircuit(home) {
+		t.Error("an enrolled OMP target must lift the missing-Claude-home gate")
+	}
+}
+
+// TestShortCircuitLiftsOnUnreadableLedger proves a ledger doctor cannot read is
+// never mistaken for an empty one. The damaged categories must run and report
+// the read failure instead of short-circuiting to "atomic-claude not installed"
+// and exiting 0 over them.
+func TestShortCircuitLiftsOnUnreadableLedger(t *testing.T) {
+	cases := []struct {
+		name          string
+		rootSensitive bool
+		write         func(t *testing.T, path string)
+	}{
+		{"undecodable", false, func(t *testing.T, path string) {
+			if err := os.WriteFile(path, []byte("{ \"targets\": [ oops"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"newer schema", false, func(t *testing.T, path string) {
+			header := installstate.NewHeader()
+			header.SchemaVersion = installstate.SchemaVersion + 1
+			data, err := json.Marshal(installstate.Ledger{Header: header})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"unreadable", true, func(t *testing.T, path string) {
+			// Valid JSON, written unreadable: the failure must be permissions,
+			// not syntax.
+			data, err := json.Marshal(installstate.Ledger{Header: installstate.NewHeader()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0o000); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.rootSensitive && os.Getuid() == 0 {
+				t.Skip("running as root: chmod 000 does not restrict access")
+			}
+			home := t.TempDir()
+			if !ClaudeHomeMissing(home) {
+				t.Fatal("fixture home unexpectedly carries a Claude home")
+			}
+			path := config.LedgerPath(home)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			tc.write(t, path)
+
+			if !HasEnrolledTargets(home) {
+				t.Error("a ledger that cannot be read must count as enrolled evidence")
+			}
+			if ShortCircuit(home) {
+				t.Error("a ledger that cannot be read must lift the missing-Claude-home gate")
+			}
+
+			withStatusSteps(t, func(h string) install.Steps {
+				return stepsWith(h, fakeAdapter{kind: harness.KindOMP})
+			})
+			results, err := RunWith(Opts{Home: home, RepoRoot: home, Only: []int{15}}, false)
+			if err != nil {
+				t.Fatalf("RunWith: %v", err)
+			}
+			if len(results) != 1 {
+				t.Fatalf("results = %+v, want category 15 only", results)
+			}
+			if got := results[0]; got.Severity != WARN || !strings.Contains(got.Detail, "unavailable") {
+				t.Errorf("category 15 = %+v, want WARN reporting the unreadable ledger", got)
+			}
+		})
+	}
+}
+
+// TestClaudeScopedCategoriesSkipWithoutClaudeHome proves the categories that
+// read ~/.claude report SKIP rather than a false WARN once the gate has been
+// lifted for another harness.
+func TestClaudeScopedCategoriesSkipWithoutClaudeHome(t *testing.T) {
+	home := t.TempDir()
+	for _, c := range []struct {
+		name string
+		run  func(Opts) Result
+	}{
+		{"hooks", checkHooks},
+		{"profile", checkProfile},
+		{"output-style", checkOutputStyle},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if r := c.run(Opts{Home: home}); r.Severity != SKIP {
+				t.Errorf("%s = %+v, want SKIP without a Claude home", c.name, r)
+			}
+		})
+	}
+}
+
+// TestDoctorRunsHarnessCategoriesOnOMPOnlyHome drives the selection doctor
+// makes after the gate lifts: the lifecycle category runs against an OMP-only
+// ledger while the Claude-scoped categories skip.
+func TestDoctorRunsHarnessCategoriesOnOMPOnlyHome(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".omp")
+	saveLedger(t, home, []installstate.TargetRecord{
+		{Harness: string(harness.KindOMP), Instance: root, NativeRoot: root, Status: string(harness.StatusConverged)},
+	}, nil)
+	withStatusSteps(t, func(h string) install.Steps {
+		return stepsWith(h, fakeAdapter{kind: harness.KindOMP, instances: []harness.Instance{
+			{Kind: harness.KindOMP, ID: root, NativeRoot: root, Home: h},
+		}})
+	})
+
+	results, err := RunWith(Opts{Home: home, RepoRoot: home, Only: []int{2, 10, 14, 15}}, false)
+	if err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+	got := map[int]Severity{}
+	for _, r := range results {
+		got[r.Index] = r.Severity
+	}
+	for _, idx := range []int{2, 10, 14} {
+		if got[idx] != SKIP {
+			t.Errorf("category %d = %q, want SKIP on a home without ~/.claude", idx, got[idx])
+		}
+	}
+	if _, ok := got[15]; !ok {
+		t.Errorf("category 15 did not run on an OMP-only enrolled home: %+v", results)
+	}
 }

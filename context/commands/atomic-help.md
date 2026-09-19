@@ -98,7 +98,10 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `setup` / `install` | First-run flow: `/setup-wiki` audits conventions, then `/refresh-wiki` generates project context. |
+| `setup` / `onboard` | First-run repo flow: `/setup-wiki` audits conventions, then `/refresh-wiki` generates project context. |
+| `install` / `harness` / `enroll` | `atomic install --harness <claude\|omp> --instance <root>` enrolls one harness instance and converges it; `atomic harness list` marks each instance `discovered` or `enrolled`, `status [<target-key>]` reports a target and its shared resources, `adopt [claude]` imports a verified legacy Claude install into the ledger, `repair` reconverges already-enrolled targets, `diff` reports native drift read-only. Nothing enrolls implicitly — a harness must be named, or `--all` passed. Reference: `docs/guides/install.md`. |
+| `state` / `state-root` | `atomic state adopt [--dir <segment\|absolute>] [--clear]` selects this repository's state root (`.claude`, `.omp`, …) and persists the choice per clone; `atomic where` reports cwd's four orientation axes (repo root, repo-scope wiki, realm scope, code-index scope), and `atomic where --json` adds the project-keyed report, reminders, and archive paths. |
+| `uninstall` / `remove` | `atomic harness uninstall <target-key>` removes one enrolled target; `--all` removes every target, then completed operational and adoption state, while `config.toml`, `profile.md`, `wikis.md`, and backups survive. The Claude-only `atomic claude uninstall` snapshot route remains. |
 | `signals` | `/refresh-wiki` — idempotent, initializes or refreshes. The implement loop / `/autopilot` refreshes at finalize (scoped to the task's SHA range); ship verbs are the ad-hoc fallback and skip docs-only commits. A repo-scope refresh also emits one path-scoped pointer card per domain to `<state-root>/rules/wiki/<domain>.md`. |
 | `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, synthesizes capture-bucket material into `wiki/knowledge/` pages, refreshes only stale artifacts, commits the wiki (its git history is the changelog). Run `atomic wiki scan` first to scaffold. Use `atomic wiki bucket add/list/diff/promote` to manage capture folders. `atomic-wiki` skill is the conversational entry point — fires on "I want a place for notes/tickets", "add a bucket", "what does my wiki know", "is my wiki stale". |
 | `worktree` | Worktree creation is built into the implement loop — `/subagent-implementation` and `/autopilot` both offer (or auto-create) `.claude/worktrees/<branch>/` via the `worktree-setup` shared partial (the harness's worktree-entry capability opens the same directory). Cleanup via `/git-cleanup`. |
@@ -113,8 +116,8 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `cleanup` | `/git-cleanup` (stale worktrees / branches — dispatches a read-only scan via `atomic prompt git-cleanup`, presents indexed report, you confirm). `/undo-commit` (soft-undo HEAD, refuses if pushed). Cleaning up *code* rather than git state is `/deslop`. |
 | `deslop` / `slop` | `/deslop [<path>]` — audits the codebase **as it stands**, not a diff: comment noise, AI-tell doc prose, speculative abstraction, reinvented stdlib, duplicate helpers, dead code, swallowed errors, convention drift. Fans out read-only `atomic-deslopper` agents sharded by wiki domain, writes an indexed report to a scratchpad bundle, and stops. `/deslop apply <ids\|tier>` is a separate gated pass that fixes accepted findings through the surgical implementer behind a green baseline. Every finding carries a safety tier; `report-only` (public API, dynamic refs, generated files) is never auto-fixed. |
-| `doctor` | `atomic doctor [--fix]` runs integrity checks, including category 14 `output-style`, which reports which settings file sets `outputStyle` and flags a project-level value as a possible override. `atomic validate` lints spec / config / bundle / artifacts / canonical-corpus projections. |
-| `update` | `atomic update [--check]` self-updates binary, auto-refreshes the installed harness artifacts, auto-runs install-scope migration steps, then runs doctor (`--skip-claude-update` skips the refresh). `--pre` installs the newest pre-release cut from the `next` branch; `atomic config set update.channel prerelease` makes that the default for the background check, banner and doctor too. When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge the proposed global steering file. `atomic migrate` runs migration steps manually: bare = install scope, `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos; `--show-log [<since>]` prints its dated change history, filtered by version or date. |
+| `doctor` | `atomic doctor [--fix]` runs 23 integrity checks. 1-14 cover install, hooks, signals, refs, manifest, followups, memory, binary, config, profile, code-index, migrate, repo-config, and output-style. 15-23 were appended with multi-harness support: enrolled targets, shared resources, unresolved journals, capability gaps, rule tier/digests/coverage, trust, staleness, conflicts, shadowing. Ledger-managed repairs route through the install engine's converge planner. `atomic validate` lints spec / config / bundle / artifacts / canonical-corpus projections. |
+| `update` | `atomic update [--check]` self-updates the binary, then converges already-enrolled harness targets with the replacement binary's embedded generation, auto-runs install-scope migration steps, and runs doctor (`--skip-claude-update` skips the convergence). It never enrolls a target — first-time setup is `atomic install --harness <claude\|omp>`. `--pre` installs the newest pre-release cut from the `next` branch; `atomic config set update.channel prerelease` makes that the default for the background check, banner and doctor too. When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge the proposed global steering file. `atomic migrate` runs migration steps manually: bare = install scope, `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos; `--show-log [<since>]` prints its dated change history, filtered by version or dat…
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns a background subagent on the economical reasoning tier to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
 | `improve` / `retrospective` / `audit` | `/retrospective-learning [<targeted feedback>]` — session retrospective. Mines session history and the current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. |
@@ -142,7 +145,9 @@ Run them rather than reciting. What they cannot tell the user is which verb fits
 
 | Job | Verb | Detail |
 |-----|------|--------|
-| Install or restore harness artifacts | `claude install`, `update`, `uninstall` | `docs/guides/install.md` |
+| Install or restore harness artifacts | `install`, `harness enroll\|adopt\|repair\|uninstall`, `claude install`, `update` | `docs/guides/install.md` |
+| Inspect or enroll a harness target | `harness list`, `harness status`, `harness rules status`, `harness rules sync` | `docs/reference/commands.md` |
+| Pick this repo's state root | `state adopt` | `docs/reference/conventions.md` |
 | Understand how code fits together | `code` — lead with `explore` | `docs/reference/code-intel.md` |
 | Maintain project or cross-repo context | `wiki`, `signals` | `docs/reference/repo-wiki.md`, `docs/reference/realm-wiki.md` |
 | Talk to another running agent session | `bus` | `docs/reference/bus.md` |
@@ -187,7 +192,7 @@ atomic-claude — opinionated agent config. Five surfaces compose:
   skills          10 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing, visual options, bus messaging)
   commands        ~24 explicit verbs (/autopilot, /atomic-plan, /commit, ...)
   agents          8 dispatchable subagents (implementer, reviewer, auditor, ...)
-  binary          atomic CLI — signals scan, doctor, validate, update, install
+  binary          atomic CLI — enroll/install harness targets, signals scan, doctor, validate, update
 
 The agent knows the current repo via auto-loaded signals files. Subagents
 run in fresh contexts so the implement→review loop can resume across sessions.
@@ -225,11 +230,15 @@ docs/wiki/scan.md                     raw scan output — NOT @-ref'd
 .claude/.atomic-index/atomic.db       code-intel symbol graph (gitignored; built with `atomic code index`)
 .claude/.scratchpad/<slug>/           implement→review working memory (gitignored)
 ~/.atomic/<project-key>/{reports,reminders,archive}/  project-keyed home, one per clone (atomic where --json)
+~/.atomic/<project-key>/state-location.json  persisted repo-state root selection (atomic state adopt)
+~/.atomic/install/ledger.json         enrolled targets + owned resources (atomic harness status)
+~/.atomic/install/{journals,transactions}/   in-flight lifecycle operations, recovered oldest-first
 .claude/project/followups/            committed follow-up entries with INDEX.md
 .claude/worktrees/<branch>/           isolated branches (gitignored)
 docs/design/<topic>.md                conceptual workspace (committed)
 docs/spec/<topic>.md                  implementation contract (committed; body kept current, changes logged)
-harness global steering file          <wikis> block: registered wiki index paths (CLI-managed, outside the <atomic> block)
+harness global steering file          renders context/AGENTS.md; the <wikis> block there is a derived
+                                      projection of the ~/.atomic/wikis.md registry
 
 wiki layout:
   wiki/repos/         summaries of no-signals repos
@@ -247,9 +256,13 @@ Prompt: continue to maintenance / explain one of these / exit tour.
 **Stage 4 — Maintenance and utilities.**
 
 ```
-atomic doctor [--fix]             integrity checks over install, hooks, signals, refs, ..., profile, code-index, migrate, output-style
+atomic install --harness <claude|omp>  enroll + converge one harness instance (--all for every discovered; --dry-run and --yes to preview and approve)
+atomic harness list|status|enroll|adopt|repair|diff|uninstall  target lifecycle; adopt imports a verified legacy Claude install
+atomic harness rules status|sync  per-target rule tier, digests, coverage, and conflict state
+atomic state adopt [--dir|--clear]  select this repo's state root on the harness-neutral ladder
+atomic doctor [--fix]             23 integrity checks: install, hooks, signals, refs, ..., output-style, plus targets/resources/journals/capabilities/rules/trust/staleness/conflicts/shadowing
 atomic validate                   lint spec / config / bundle / artifact-CLI-citation parity / canonical-corpus projections
-atomic update [--check] [--pre]   self-update binary (--pre tracks next-branch pre-releases), auto-runs install-scope migrations, runs doctor after
+atomic update [--check] [--pre]   self-update binary, converge already-enrolled targets with the replacement generation, auto-runs install-scope migrations, runs doctor after
 atomic migrate [--repo|--realm|--show-log]   run versioned migration steps: bare = install scope, --repo = one project, --realm = fan-out across all atomic'd repos; --show-log [<since>] prints dated change history
 atomic scratchpad new|path|list|archive   slug-keyed bundle lifecycle: create/extend, locate, enumerate, retire
 atomic profile refresh            re-detect dev tooling + shell, rewrite ## Environment block

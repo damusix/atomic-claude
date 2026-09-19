@@ -275,7 +275,7 @@ Check categories (indices stable; never renumber):
 Categories 9–14 predate the multi-harness lifecycle; 15–23 were appended with it. Indices are stable: never renumber, only append. The third column is each category's default severity (and for 15–23, what it reports); an individual result may override it.
 
 
-Exit codes: 0 = all PASS/WARN/SKIP (also: `~/.claude/` absent — short-circuit); 1 = any FAIL; 2 = usage error.
+Exit codes: 0 = all PASS/WARN/SKIP (also: `~/.claude/` absent *and* no target enrolled — short-circuit); 1 = any FAIL; 2 = usage error.
 
 
 ### Invocation responsibility
@@ -804,6 +804,14 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 
 ## Change log
 
+
+### 2026-09-19 — Correction: doctor's missing-Claude-home short-circuit is conditional
+
+**What changed:** The `atomic doctor` exit-code summary now qualifies its parenthetical: exit 0 on `~/.claude/` absent applies only when the install ledger enrolls no target. An enrolled target — an OMP-only home included — runs the categories instead.
+
+**Correction:** The body's one-line summary still described the unconditional gate. `docs/spec/atomic-doctor.md` owns the full contract and was corrected in the same change; this summary followed it. Found by the CP7E re-review.
+
+**Superseded:** The parenthetical read "`~/.claude/` absent — short-circuit" with no enrollment condition.
 
 ### 2026-09-19 — Milestone A lifecycle surface, corpus projection, update convergence, 23-category doctor
 

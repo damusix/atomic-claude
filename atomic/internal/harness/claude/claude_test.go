@@ -12,6 +12,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 )
 
@@ -335,5 +336,106 @@ func TestEnrollVerifiedClaudeTargetEndToEnd(t *testing.T) {
 		if row.Target != selectedInstance.Target().Key() {
 			t.Errorf("row target = %q", row.Target)
 		}
+	}
+}
+
+// TestConvergeWritesSettingsUnderCustomNamedRoot proves a Claude target whose
+// root is not literally named `.claude` still owns its settings mutations.
+// Resolving settings from the root's parent writes `<parent>/.claude/
+// settings.json` — never read by Claude, and for a root like ~/.claude-work a
+// mutation of the user's default target. Each root below is the shape the
+// reported defect took: a config dir nested under `.config`, and an instance
+// directory sitting beside the default target.
+func TestConvergeWritesSettingsUnderCustomNamedRoot(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		root    func(home string) string
+		sibling string // parent-relative path a pre-fix write would create
+	}{
+		{"nested config dir", func(home string) string { return filepath.Join(home, ".config", "claude") }, ".config/.claude"},
+		{"instance beside default", func(home string) string { return filepath.Join(home, ".claude-work") }, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := newHome(t)
+			customRoot := tc.root(home)
+			t.Setenv(ConfigDirEnv, customRoot)
+
+			// A default target discovery also reports, and that converging the
+			// custom root must not touch.
+			defaultSettingsPath := filepath.Join(home, ".claude", "settings.json")
+			writeFile(t, defaultSettingsPath, "{\"model\":\"sonnet\"}\n")
+			before, err := os.ReadFile(defaultSettingsPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			adapter := New()
+			instances, err := adapter.Discover(home)
+			if err != nil {
+				t.Fatalf("discover: %v", err)
+			}
+			var selected harness.Instance
+			for _, inst := range instances {
+				if inst.NativeRoot == customRoot {
+					selected = inst
+				}
+			}
+			if selected.NativeRoot != customRoot {
+				t.Fatalf("discovery did not report the configured root: %+v", instances)
+			}
+
+			root := selected.NativeRoot
+			claims := append([]harness.Claim{SteeringClaim(root)}, SelectionClaims(root)...)
+			if _, err := harness.Enroll(home, harness.EnrollmentRequest{
+				Target:   selected.Target(),
+				Claims:   claims,
+				Approved: true,
+			}); err != nil {
+				t.Fatalf("enroll: %v", err)
+			}
+
+			life := adapter.Lifecycle(home)
+			target := selected.Target()
+			plan, err := life.Project(target, harness.PlanRequest{BatchDecision: installstate.DecisionReplace})
+			if err != nil {
+				t.Fatalf("project: %v", err)
+			}
+			if len(plan.Blockers) > 0 {
+				t.Fatalf("unexpected blockers: %v", plan.Blockers)
+			}
+			if _, err := life.Converge(target, plan); err != nil {
+				t.Fatalf("converge: %v", err)
+			}
+
+			// Both settings mutations landed in the custom root's own
+			// settings.json.
+			installed, drifted, err := hooks.IsInstalledInDir(root)
+			if err != nil {
+				t.Fatalf("IsInstalled: %v", err)
+			}
+			if !installed || drifted {
+				t.Errorf("hook state = installed:%v drifted:%v, want a clean registration", installed, drifted)
+			}
+			style, present, err := hooks.ReadOutputStyle(filepath.Join(root, "settings.json"))
+			if err != nil {
+				t.Fatalf("read outputStyle: %v", err)
+			}
+			if !present || style != hooks.OutputStyleName {
+				t.Errorf("outputStyle = %q present=%v, want %q", style, present, hooks.OutputStyleName)
+			}
+
+			if tc.sibling != "" {
+				if _, err := os.Stat(filepath.Join(home, tc.sibling)); !os.IsNotExist(err) {
+					t.Errorf("stray %s written beside the custom root: %v", tc.sibling, err)
+				}
+			}
+			after, err := os.ReadFile(defaultSettingsPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Errorf("default target settings mutated: %q", after)
+			}
+		})
 	}
 }

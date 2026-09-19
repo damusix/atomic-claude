@@ -28,7 +28,7 @@ Design source: `docs/design/atomic-doctor.md`.
 - [ ] `--json` emits a stable schema (versioned via `schema_version`) for CI consumers.
 - [ ] `--fix` prompts per item (axiom 3); no batched silent mutations.
 - [ ] `--only <cat>` / `--skip <cat>` accept category indices or canonical short names.
-- [ ] Missing `~/.claude/` short-circuits to exit 0 with one informational line; no FAIL cascade.
+- [ ] A missing `~/.claude/` short-circuits to exit 0 with one informational line **only when the ledger enrolls no target**; an enrolled target — an OMP-only home included — runs the categories, with the Claude-scoped ones reporting `SKIP` instead of a false finding.
 - [ ] Repo-dev-only checks (manifest parity) are omitted entirely (no result row, no `SKIP`) when not in the atomic-claude repo, unless explicitly requested via `--only`.
 - [ ] All checks deterministic — no LLM judgment, pure Go.
 - [ ] `go test ./atomic/internal/doctor/...` covers each check + each repair with table-driven cases.
@@ -175,7 +175,12 @@ Bumping `schema_version` is a spec amendment.
 ## Missing `~/.claude/`
 
 
-Short-circuit before running any check:
+The missing-Claude-home gate is conditional. Doctor short-circuits — before running any check — only when `~/.claude/` is absent **and** the install ledger enrolls no target. An OMP-only home has no `~/.claude` but still owns lifecycle state, so a non-empty ledger lifts the gate and the categories run; the Claude-scoped ones report `SKIP` rather than a false finding (`install` when the target directory is absent, plus `hooks`, `profile`, and `output-style`, which read the Claude home directly).
+
+
+A ledger doctor cannot read — unreadable, undecodable, or refused as a newer schema — also lifts the gate: that read failure is the defect the multi-harness categories exist to report, and short-circuiting it to "not installed" would swallow it. Those categories then report the unreadable state themselves.
+
+Short-circuit output, when the gate holds:
 
 
 ```
@@ -220,7 +225,7 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 
 | Code | Meaning |
 |------|---------|
-| 0 | All PASS or only WARN/SKIP. Also: `~/.claude/` missing (short-circuit). |
+| 0 | All PASS or only WARN/SKIP. Also: `~/.claude/` missing *and* no target enrolled (short-circuit). |
 | 1 | One or more FAIL. |
 | 2 | Doctor itself errored (cannot read state, conflicting flags, missing required dependency). |
 
@@ -337,6 +342,16 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 **F-4 adjudicated:** session-baseline belongs to the rule-delivery surface, not the session layer alone — the Codex projection delivers bounded rule context through its proven session-baseline event. `harness.RuleGaps` now includes `RoleSessionBaseline`, so a harness whose baseline is unproven (Claude's is partial, Codex's unproven) reports it as a gap, while OMP's proven baseline drops out. Pinned by `TestRuleGapsIncludesSessionBaseline`.
 
 **Why:** CP7C of `docs/spec/omp-plugin-compatibility.md` — `atomic doctor` must report target instances, shared resources, unfinished journals, capability gaps, stale materializations, deliberate disablement or untrusted hooks, effective-content shadowing, and uncovered rule operations independently, and any ledger-managed `--fix` must use the global lock, oldest-first recovery, and the common planner rather than a second repair path.
+
+### 2026-09-19 — Correction: the missing-Claude-home short-circuit is conditional, and an unreadable ledger lifts it
+
+**What changed:** The missing-Claude-home gate is now stated as the conditional rule the code implements. Doctor short-circuits only when `~/.claude/` is absent *and* the ledger enrolls no target; the short-circuit message and `--json` contract for that empty case are unchanged, and the exit-code row now says so. An enrolled target — an OMP-only home included — runs the categories, with the Claude-scoped ones reporting `SKIP` rather than a false finding.
+
+`HasEnrolledTargets` no longer collapses a ledger load/validation error into "nothing enrolled". A ledger that is unreadable, undecodable, or refused as a newer schema also lifts the gate, so the multi-harness categories run and report the read failure through their existing unavailability detail — the same report shape they emit for any unreadable lifecycle state.
+
+**Correction:** The body described a gate the code had already made conditional (`ClaudeHomeMissing && !HasEnrolledTargets`), and said nothing about unreadable ledgers while `HasEnrolledTargets` returned false on any load error. Found by the CP7E re-review; pinned by `TestShortCircuitLiftsOnUnreadableLedger` (damaged, newer-schema, and permission-denied ledgers) alongside the existing `TestShortCircuitLiftsForEnrolledTargets` and `TestDoctorRunsHarnessCategoriesOnOMPOnlyHome`.
+
+**Superseded:** Prior body stated "Missing `~/.claude/` short-circuits to exit 0 with one informational line" as unconditional and documented only the empty-ledger output; a load or validation error on the ledger read as an absent one.
 
 ## Implementation log
 

@@ -109,8 +109,7 @@ func defaultOutputStyleRepair(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	scopeRoot := filepath.Dir(target)
-	wrote, err := hooks.SeedOutputStyle(scopeRoot, target, home)
+	wrote, err := hooks.SeedOutputStyleInDir(target, target, home)
 	if err != nil {
 		return err
 	}

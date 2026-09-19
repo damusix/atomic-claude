@@ -44,7 +44,7 @@ func runDoctor(args []string) {
 		os.Exit(2)
 	}
 
-	if doctor.ClaudeHomeMissing(home) {
+	if doctor.ShortCircuit(home) {
 		msg := doctor.MissingHomeMessage()
 		if opts.JSON {
 			data, jerr := doctor.FormatJSONMissingHome(msg)

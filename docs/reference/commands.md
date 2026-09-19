@@ -79,12 +79,14 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 
 | Family | What it covers | Reference |
 |--------|----------------|-----------|
+| `atomic install` · `atomic harness` | Enroll a harness instance and converge it. `atomic harness list\|status\|enroll\|adopt\|repair\|diff\|uninstall` covers the target lifecycle; `atomic harness rules status\|sync` covers per-target rule delivery. Enrollment is explicit — discovery never enrolls. | [Install](/guides/install) |
+| `atomic state` | Select this repository's state root (`atomic state adopt [--dir\|--clear]`) on the harness-neutral resolution ladder. | [Conventions](/reference/conventions) |
 | `atomic code` | Build and query the symbol graph — where a symbol is defined, what calls it, what breaks if it changes. Also serves the graph over MCP. | [Code intelligence](/reference/code-intel) |
 | `atomic wiki` | Scan and maintain the cross-repo wiki, and register capture buckets that feed its knowledge layer. | [Wiki workflow](/reference/realm-wiki) |
 | `atomic bus` | Message between concurrent agent sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
 | `atomic repl` | Drive a named Python or Node interpreter session that survives across separate Bash calls. | [REPL](/reference/repl) |
 | `atomic serve` | Serve the wiki and code graph as a browsable site. Read-only, localhost by default. | [Serve](/reference/serve) |
 | `atomic scratchpad` | Create, look up, list, and archive slug-keyed work bundles — the shared shape behind every implement-loop scratchpad. | [Conventions](/reference/conventions) |
-| `atomic doctor` · `validate` · `update` · `migrate` | Check the install, lint spec / config / bundle / artifact citations / canonical-corpus projections, self-update against a verified checksum, apply versioned migrations. | [Install](/guides/install) |
+| `atomic doctor` · `validate` · `update` · `migrate` | Check the install and every enrolled target (23 categories), lint spec / config / bundle / artifact citations / canonical-corpus projections, self-update against a verified checksum and reconverge enrolled targets, apply versioned migrations. | [Install](/guides/install) |
 
 Run `atomic --help` for the full family list.

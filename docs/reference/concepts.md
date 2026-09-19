@@ -32,30 +32,36 @@ Each tab is one concept below.
 | `atomic code` | Builds and queries the symbol graph |
 | `atomic wiki` | Scaffolds, scans, and staleness-checks repo and realm wikis |
 | `atomic repo init`, `atomic template <name>` | Creates the harness layout once, idempotently; emits the fill-in skeleton for each workflow document so structure is copied, never reconstructed from memory |
-| `atomic update`, `doctor`, `validate` | Swaps the binary against a verified checksum; checks the install |
+| `atomic install`, `atomic harness` | Enrolls a harness instance and converges its native surface; `list\|status\|enroll\|adopt\|repair\|diff\|uninstall` is the target lifecycle, `rules status\|sync` the rule surface |
+| `atomic state adopt` | Selects this repository's state root on the harness-neutral ladder |
+| `atomic update`, `doctor`, `validate` | Swaps the binary against a verified checksum, reconverges enrolled targets; checks the install and every target |
 | `atomic config`, `followups`, `profile` | User config, per-agent model and effort overrides, follow-up entries, the user profile |
 
 Everything below is produced by this binary or grounded by what it produces. `atomic --help` lists the full surface.
 
 
-## Harness detection and state paths
+## Harnesses, steering, and state paths
 
 
-::: warning Experimental
-Running atomic under a coding agent other than Claude Code is a work in progress. Detection works; the non-Claude experience is not yet complete or stable.
-:::
+Atomic ships one authored corpus: `context/AGENTS.md` as the global contract, plus commands, agents, skills, and rules. A **native adapter** projects that corpus into a harness's own surface. Enrollment is explicit — `atomic install --harness <claude|omp>` or `atomic harness enroll` — and discovery (`atomic harness list`) never enrolls. The ledger at `~/.atomic/install/ledger.json` records what each enrolled target owns; `atomic update` reconverges already-enrolled targets with the replacement binary's embedded generation and never enrolls a new one.
 
-Per-user state (config, profile, backups) lives at `~/.atomic/`. Repo-local state (scratchpad, project files, code index, worktrees) lives under one dot-directory per repo, chosen by asking which coding agent launched the binary. First match wins:
+| Harness | Global steering | Native artifacts | Rules |
+|---------|-----------------|------------------|-------|
+| **Claude Code** | Direct rendered `~/.claude/CLAUDE.md` block (no user-level `AGENTS.md`) | agents, commands, skills, output styles, unconditional rules | path-scoped delivery not yet proven for `2.1.273`, so scoped rules stay `unsupported` |
+| **OMP** | Import-free profile `AGENTS.md` (Atomic steering + output-style body) | generated package of commands, agents, skills | native cards published where the capability record proves delivery; static scope is advisory today |
 
-| Signal | Set by | Resolves to |
-|--------|--------|-------------|
-| `ATOMIC_HARNESS=<name>` | you, in an agent's launcher | `.<name>/` |
-| `PI_CODING_AGENT=true` | the pi agent, for its shell commands | `.pi/` |
-| `CLAUDECODE=1` | Claude Code | `.claude/` |
-| `harness.dir` | `atomic config set harness.dir .pi` | that value |
-| nothing | — | `.claude/` |
+Repository and nested-realm steering is a **loader pair**: authored guidance in `AGENTS.md` plus an adjacent thin `CLAUDE.md` whose managed block is `@AGENTS.md`. Under another harness the same `AGENTS.md` guidance is delivered natively. The capability record behind each projection is versioned in [`docs/research/harness-capability-matrix.md`](../research/harness-capability-matrix.md); a missing capability row is reported `unsupported`, never assumed.
 
-`ATOMIC_HARNESS` sits on top because it is the durable contract and the tiebreak when one agent launches another. A machine running both Claude Code and a pi agent needs no configuration: each agent's sessions use their own layout and neither creates the other's directory.
+Per-user state (config, profile, wikis registry, install ledger, backups) lives at `~/.atomic/`. Repo-local state (scratchpad, project files, code index, worktrees) resolves through a **harness-neutral ladder**, so one repo resolves the same root whatever harness runs it:
+
+| Rung | Source | Notes |
+|------|--------|-------|
+| 1 | process-only `ATOMIC_STATE_DIR` | never rewrites the persisted selection |
+| 2 | `~/.atomic/<project-key>/state-location.json` | persisted per-clone selection, shared by every worktree |
+| 3 | user `state.dir` | a non-default legacy `harness.dir` supplies migration evidence only while `state.dir` is unset |
+| 4 | built-in `.claude` | fallback |
+
+No rung consults a harness fingerprint. `ATOMIC_HARNESS` is retired and is never an alias: while it is set, resolution refuses with instructions to unset it or use `ATOMIC_STATE_DIR` / `state.dir`. `atomic state adopt` selects a root; `atomic where` reports cwd's four orientation axes — repo root, repo-scope wiki, realm scope, and code-index scope — not which rung answered.
 
 
 ## Code intelligence
@@ -81,8 +87,8 @@ A wiki is a generated knowledge graph for a tree of code: context curated once a
 
 | Scope | Root | Maps | Steered by |
 |-------|------|------|------------|
-| **repo** | `docs/wiki/` inside the repository | one project: framework, commands, domain map | `docs/wiki/CLAUDE.md` |
-| **realm** | `<root>/wiki/`, its own git repo | a folder of repositories: what each is, what cuts across them | `<root>/CLAUDE.md` |
+| **repo** | `docs/wiki/` inside the repository | one project: framework, commands, domain map | `docs/wiki/AGENTS.md` (+ `CLAUDE.md` loader) |
+| **realm** | `<root>/wiki/`, its own git repo | a folder of repositories: what each is, what cuts across them | `<root>/AGENTS.md` (+ `CLAUDE.md` loader) |
 
 They compose. A realm summarizes the repos under it without writing into them, and a member repo with its own wiki is linked rather than re-summarized.
 
@@ -97,13 +103,13 @@ A hand-written `CLAUDE.md` drifts: you swap Jest for Vitest and forget. A repo w
 | `docs/wiki/scan.md` | deterministic facts: tree, manifests, languages (written by `atomic signals scan`, a name kept from before the two scopes were unified) | on demand by the inferrer, never `@`-ref'd |
 | `docs/wiki/index.md` | inferred meaning: framework, commands, domain map, links to per-domain pages | every session, before Claude reads your code |
 
-On a monorepo or unconventional layout inference guesses wrong. `docs/wiki/CLAUDE.md` is the correction: Claude Code loads a directory's `CLAUDE.md` whenever it reads a file there, which is exactly when the inferrer is working. Write "treat `src/billing/` and `src/payments/` as one domain" and it wins over the scan. See [repo wiki](/reference/repo-wiki).
+On a monorepo or unconventional layout inference guesses wrong. `docs/wiki/AGENTS.md` is the correction (a thin `CLAUDE.md` beside it carries the `@AGENTS.md` import for Claude Code): the harness loads a directory's steering whenever it reads a file there, which is exactly when the inferrer is working. Write "treat `src/billing/` and `src/payments/` as one domain" and it wins over the scan. See [repo wiki](/reference/repo-wiki).
 
 
 ### Realm scope
 
 
-A realm wiki maps how a folder of repos relate: shared libraries, contracts one repo owns and another consumes, patterns duplicated across services. It is a git-initialized knowledge base at `<root>/wiki/`, registered in a `<wikis>` block in `~/.claude/CLAUDE.md` so every session in any repo knows it exists.
+A realm wiki maps how a folder of repos relate: shared libraries, contracts one repo owns and another consumes, patterns duplicated across services. It is a git-initialized knowledge base at `<root>/wiki/`, registered in the authoritative `~/.atomic/wikis.md`, which is projected into the harness global file's `<wikis>` block so every session in any repo knows it exists.
 
 | Verb | Does |
 |------|------|
@@ -112,7 +118,7 @@ A realm wiki maps how a folder of repos relate: shared libraries, contracts one 
 | `atomic wiki stale` | Report membership drift and stale content |
 | `atomic serve` | Browse the realm as a navigable graph in the browser |
 
-A `CLAUDE.md` at the realm root steers all of it, again through the harness: Claude Code walks up the directory tree loading every `CLAUDE.md` it finds, and the walk crosses repo boundaries. Rules that span repos go there once and reach every session inside the realm.
+An `AGENTS.md` at the realm root steers all of it (with a thin `CLAUDE.md` loader beside it for Claude Code), again through the harness: Claude Code walks up the directory tree loading every `CLAUDE.md` it finds, and the walk crosses repo boundaries. Rules that span repos go there once and reach every session inside the realm.
 
 
 ### Scope resolution

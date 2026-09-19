@@ -1,6 +1,6 @@
 ---
 type: Domain
-description: User state at ~/.atomic, the project-keyed state home, scratchpad bundles, repo-scoped atomic.toml, hooks, reminders, follow-ups, migration, self-update.
+description: User state at ~/.atomic, the project-keyed state home, scratchpad bundles, repo-scoped atomic.toml, the enrollment ledger, harness-neutral state selection, hooks, reminders, follow-ups, migration, self-update.
 tags: [state, cli]
 ---
 
@@ -10,22 +10,23 @@ tags: [state, cli]
 ## What it does
 
 
-A conversation is not a place to keep a value that has to survive it. A preference, an install manifest, a scheduled reminder, a slug-keyed scratchpad bundle, and a record of what version is staged all need somewhere durable, and the repo-local directory they live beside cannot be a constant, because the harness that owns it varies ([`.claude`](../../.claude) for Claude Code, `.pi` for Pi).
+A conversation is not a place to keep a value that has to survive it. A preference, an install ledger, a scheduled reminder, a slug-keyed scratchpad bundle, and a record of what version is staged all need somewhere durable, and the repo-local directory they live beside is harness-neutral: it resolves through one ladder rather than a per-harness fingerprint.
 
-This domain owns every value that persists between sessions and every path those values resolve to. Two config files carry the schema: `~/.atomic/config.toml` at user scope, and `<repo>/<harness.dir>/atomic.toml` at repo scope. It also owns the repo-local directory layout (`atomic repo init`), the project-keyed state home outside the repo (`~/.atomic/<project-key>/`), the `atomic scratchpad` bundle lifecycle, the session-start hook, reminders, follow-up entries, versioned migrations, self-update state, and the cold-op briefs and document skeletons compiled into the binary.
+This domain owns every value that persists between sessions and every path those values resolve to. Two config files carry the schema: `~/.atomic/config.toml` at user scope, and `<repo>/<state-root>/atomic.toml` at repo scope. It also owns the repo-local directory layout (`atomic repo init`), the harness-neutral repository-state selection (`atomic state adopt`), the enrollment ledger and lifecycle journals under `~/.atomic/install/`, the project-keyed state home outside the repo (`~/.atomic/<project-key>/`), the `atomic scratchpad` bundle lifecycle, the session-start hook, reminders, follow-up entries, versioned migrations, self-update state, and the cold-op briefs and document skeletons compiled into the binary.
 
 
 ## How it works
 
 
-The repo config's own path depends on the user config, because `harness.dir` names the directory it lives in.
+The repo config's own path depends on the resolved repository-state root, which is chosen harness-neutrally rather than by a harness fingerprint.
 
 ```mermaid
 flowchart LR
-    ENV["ATOMIC_HARNESS<br/>PI_CODING_AGENT<br/>CLAUDECODE"] --> HD
-    UC["~/.atomic/config.toml<br/>harness.dir"] --> HD["harness.dir<br/>resolved once per process"]
+    ENV["ATOMIC_STATE_DIR<br/>(process-only)"] --> HD
+    REC["&lt;project-key&gt;/state-location.json<br/>persisted selection"] --> HD
+    UC["~/.atomic/config.toml<br/>state.dir (legacy harness.dir evidence)"] --> HD["repository-state root<br/>resolved harness-neutrally"]
     HD --> RL[".scratchpad/ · project/<br/>.atomic-index/ · worktrees/<br/>atomic.toml"]
-    RL --> RC["repo config<br/>&lt;repo&gt;/&lt;harness.dir&gt;/atomic.toml"]
+    RL --> RC["repo config<br/>&lt;repo&gt;/&lt;state-root&gt;/atomic.toml"]
     RC --> SC["scope = repo|realm<br/>→ repoctx, where, doctor"]
     RC --> IG["[code] ignore<br/>→ code-intel indexer"]
     RC --> RT["[repl] idle_timeout<br/>→ atomic repl"]
@@ -42,7 +43,8 @@ flowchart LR
 | `update.check` | user | bool | `true` | the hourly detached background version lookup |
 | `update.stage` | user | bool | `true` | once-per-version background download + checksum |
 | `update.channel` | user | string | empty (resolves to `stable`) | release channel every update path reads: background check, banner, `atomic update`, doctor's binary check |
-| `harness.dir` | user | string | [`.claude`](../../.claude) | the repo-local state-directory name |
+| `state.dir` | user | string | `.claude` | the repo-local state-directory name; one safe path segment. Named `harness.dir` before Milestone A |
+| `harness.dir` | user | string | [`.claude`](../../.claude) | **legacy** — migration evidence only while `state.dir` is unset; not a rung of its own |
 | `repl.idle_timeout` | user, repo | duration | `1h` | idle window before a REPL session self-terminates |
 | `code.ignore` | repo | []string | none | glob patterns excluded from the code-intel index |
 | `output_style.seed` | user | bool | `true` | whether install/update/session-start seed `outputStyle: "Atomic"` into user-level `settings.json` |
@@ -56,39 +58,55 @@ Machine-written tables, not user-settable via `atomic config set`: `[install]` (
 ~/.atomic/
 ├── config.toml            user config (only source of truth)
 ├── state.json             machine-managed self-update state
-├── profile.md             user profile, @-ref'd from CLAUDE.md
+├── wikis.md               authoritative realm registry (harness <wikis> block is a projection)
+├── profile.md             user profile, @-ref'd from the harness global file
 ├── backups/<ts>/          pre-write backups from claude install/update
 ├── pre-install/           write-once snapshot for claude uninstall
 ├── proposed/CLAUDE.md     merge target when installed CLAUDE.md diverges
+├── install/
+│   ├── ledger.json        enrolled targets + owned physical resources
+│   ├── operation.lock      advisory lifecycle lock (one mutation at a time)
+│   ├── journals/<op>.json  intended mutations + commit-unit progress
+│   └── transactions/<op>/{stage,backup}/  publication state
 └── <project-key>/         one entry per clone (main checkout root, flattened)
+    ├── state-location.json    persisted repository-state selection (shared by worktrees)
     ├── reports/<branch>/      /session-report output
     ├── reminders/             reminder files
     └── archive/<slug>/<created>/  retired scratchpad bundles
 
 ~/.cache/atomic/staged/    downloaded release archive awaiting swap
 
-<repo>/<harness.dir>/      default .claude
+<repo>/<state-root>/      default .claude
 ├── atomic.toml            repo config
 ├── .scratchpad/<slug>/    scratchpad bundle: meta.toml + purpose-seeded files
 ├── project/followups/     entries + INDEX.md + CLOSED.md
 ├── .atomic-index/         code-intel SQLite db
+├── rules/wiki/            repository-generated path-scoped rule cards
 └── worktrees/
 ```
 
-Every path under `~/.atomic/` derives from `config.Dir(home)` in [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go). Every repo-local path derives from `harnessDir()` in [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go). Neither file calls `os.UserHomeDir` from a helper; the caller injects `home` so tests use a temp dir.
+Every path under `~/.atomic/` derives from `config.Dir(home)` in [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go). Every repo-local path derives from the resolved state root via `config.ResolveStateLocation` in [`atomic/internal/config/`](../../atomic/internal/config). Neither calls `os.UserHomeDir` from a helper; the caller injects `home` so tests use a temp dir.
 
-### Resolving `harness.dir`
+### Resolving the repository-state root
 
-`harnessDir()` is a `sync.Once` cache over a five-rung ladder, most specific first:
+`config.ResolveStateLocation` walks one harness-neutral ladder, most specific first — no rung consults a harness fingerprint:
 
-```
-ATOMIC_HARNESS env  ->  PI_CODING_AGENT=="true"  ->  CLAUDECODE=="1"  ->  config harness.dir  ->  .claude
-(name, leading dot      (.pi)                        (.claude)
- tolerated; invalid
- falls through)
-```
+| # | Rung | Notes |
+|---|------|-------|
+| 1 | process-only `ATOMIC_STATE_DIR` | never rewrites the persisted selection |
+| 2 | `~/.atomic/<project-key>/state-location.json` | persisted per-clone selection, shared by every worktree |
+| 3 | user `state.dir` | a non-default legacy `harness.dir` supplies migration evidence only while `state.dir` is unset |
+| 4 | built-in `.claude` | fallback |
 
-Rung 2 precedes rung 3 deliberately: a Pi agent launched inside Claude Code exposes both fingerprints.
+The retired `ATOMIC_HARNESS` variable is never an alias: while it is set, resolution refuses with instructions to unset it or use `ATOMIC_STATE_DIR` / `state.dir`. A relative rung value must be one safe path segment (`ValidateStateDirSegment` rejects empty, `.`, `..`, and `/`); a selection record may hold an absolute directory, used as-is.
+
+`atomic state adopt [--dir <segment|absolute>] [--clear] [--dry-run] [--json]` selects the root. With no flags it scans the plausible repository-local directory names for Atomic state signatures — an empty or harness-only directory is not a candidate — then adopts the one unambiguous populated root in place; zero writes nothing, and two or more refuse until `--dir` names one. `PersistStateSelection` writes and fsyncs the record bytes and their parent directory before resolution switches, so a crash cannot leave resolution pointing at a root the record does not name.
+
+### The enrollment ledger and lifecycle state
+
+Under Milestone A the harness installs are no longer a single manifest: each enrolled target is a row in `~/.atomic/install/ledger.json`, recording the physical resources it owns, the consumers that depend on them, and the generation each applied. Every mutation (install, enroll, adopt, repair, uninstall, `doctor --fix`) takes the one advisory lock at `~/.atomic/install/operation.lock`, recovers unresolved journals oldest-first, then re-observes the target before planning; a plan that cannot be decided reports `blocked` and changes nothing. `--dry-run` opens no lock and writes nothing — it previews journals read-only and reports `blocked_on_recovery` when a journal cannot resolve to one safe result.
+
+Uninstall preserves user data (`config.toml`, `profile.md`, `wikis.md`, backups) and retains unresolved journals plus the backups, ledger rows, and state-location records those journals reference until recovery completes. `installstate.Classifier` names the pre-adoption states — `absent`, `legacy-complete`, `legacy-partial`, `v2-clean`, `v2-in-flight`, `v2-orphaned`, `mixed`. Contract: [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md).
 
 ### Resolving the project-keyed state home
 
@@ -285,6 +303,16 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | [`atomic/internal/config/agents.go`](../../atomic/internal/config/agents.go) | The `huh` model-Input + effort-Select form behind `atomic config agents`, `applyAgentOverrides` merge, `AgentTierSelector` test seam. |
 | [`atomic/internal/config/pi_agent.go`](../../atomic/internal/config/pi_agent.go) | `ResolvePiAgents(globalPath, repoPath)` merges `[pi.agents.<name>]` from user and repo into a diagnostics envelope. Separate schema from Claude's. |
 
+### Repository-state selection and install ledger
+
+| Path | Role |
+|------|------|
+| [`atomic/internal/config/projectstate.go`](../../atomic/internal/config/projectstate.go) | `ProjectStateDir`, `mainCheckoutRoot`, `resolveSymlinks`, `projectKey`, the `state-location.json` record (`PersistStateSelection` / read / clear), `ReportsRoot`/`ReportsDir`/`ReportsDirLegacy`, `ProjectRemindersDir`/`RemindersDirLegacy`, `ArchiveDir`, `BranchFromHEAD`. |
+| [`atomic/cmd/atomic/cmd_state.go`](../../atomic/cmd/atomic/cmd_state.go) | `atomic state adopt [--dir\|--clear] [--dry-run] [--json]` dispatch and its discovery/decision seams. |
+| [`atomic/internal/installstate/`](../../atomic/internal/installstate) | `Lock` (one advisory lifecycle lock), `Schema` (writer/reader versioning), `Ledger` (`ledger.json` targets + resources + generations), `Journal`/`Transaction` (intended mutations, backups, commit-unit progress), `Classifier` (the seven migration states), `Recovery` (oldest-first), `LegacyAdoption` (selected-generation evidence, preserved snapshot, one-time mutable-data import). |
+| [`atomic/internal/install/install.go`](../../atomic/internal/install/install.go) | The converge engine: `Steps`, `Selection`, `Converge`, `EnrolledOnly`, `RulesStatus`. Builds the Claude + OMP adapter registry; the lifecycle verbs and ledger-managed `doctor --fix` share it. |
+| [`atomic/cmd/atomic/cmd_install.go`](../../atomic/cmd/atomic/cmd_install.go), [`cmd_harness.go`](../../atomic/cmd/atomic/cmd_harness.go) | `atomic install` and the `atomic harness list\|status\|enroll\|adopt\|repair\|diff\|uninstall\|rules` family: flag parsing, JSON output, and non-zero exit on a blocked target. |
+
 ### Identity resolution
 
 | Path | Role |
@@ -330,7 +358,9 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | [`docs/spec/atomic-state-and-config.md`](../spec/atomic-state-and-config.md) | Config schema, `~/.atomic/` layout including `<project-key>/`, `state.json` field table, precedence, validation policy. |
 | [`docs/spec/output-style-seed.md`](../spec/output-style-seed.md) | The `output_style.seed` key, the install/update/session-start seed triggers, the atomic settings write, and the style-file-guarded uninstall removal. |
 | [`docs/design/output-style-seed.md`](../design/output-style-seed.md) | Why the seed is user-level only, never a `--target` install, and why it carries no "seeded once" marker. |
-| [`docs/spec/configurable-state-paths.md`](../spec/configurable-state-paths.md) | The `harness.dir` key and the consumer sweep that threads it through every repo-local path. |
+| [`docs/spec/configurable-state-paths.md`](../spec/configurable-state-paths.md) | The legacy `harness.dir` key and the consumer sweep that threaded it through every repo-local path. Superseded by the neutral ladder in `atomic-state-and-config.md`. |
+| [`docs/spec/atomic-state-and-config.md`](../spec/atomic-state-and-config.md) | Current state contract: `state.dir`, the resolution ladder, the per-clone selection record, and the `~/.atomic/wikis.md` authority. |
+| [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md) | Enrollment ledger, journals, recovery, adoption, and the lifecycle lock. |
 | [`docs/design/configurable-state-paths.md`](../design/configurable-state-paths.md) | Why `~/.atomic` is fixed (bootstrap cycle), why migration keeps a compat symlink, why `harness.dir` has no per-repo override. |
 | [`docs/spec/serve-plans-page.md`](../spec/serve-plans-page.md) | Canonical spec for `atomic scratchpad`, the project-keyed state home, `mainCheckoutRoot`/`projectKey` derivation, and the migration log fields — shares scope with the (separate) `atomic serve` "Plans" surface, out of this domain. |
 | [`docs/spec/atomic-migrate-framework.md`](../spec/atomic-migrate-framework.md) | The `Migration` type, registry, `--repo`/`--realm`/`--show-log` flags, and the install/repo version-anchor split. |
@@ -357,9 +387,9 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 ## Constraints
 
 
-**`harness.dir` resolves once per process and never per call.** Tests must use `SetHarnessDirForTest(dir)`, which bypasses the `Once` and `os.UserHomeDir` entirely and returns a restore func. Rewriting `config.toml` mid-process will not change the resolved value.
+**The repository-state root is cached per repository root for the process lifetime.** `repositoryStateDir` is the no-error form repo-local path helpers call, and it caches by root; `ResolveStateLocation` is the per-call form for callers with an error channel and refuses while the retired `ATOMIC_HARNESS` is set. Tests use `SetHarnessDirForTest(dir)`, which bypasses the cache and `os.UserHomeDir` entirely and returns a restore func. Rewriting `config.toml` mid-process will not change a cached value.
 
-**`harness.dir` is validated twice, and the read path is the stricter of the two in effect.** `Set` rejects empty, `.`, `..`, and any value containing `/`. `Load` re-applies the same shape check but falls back to the default instead of erroring, because an unvalidated value would otherwise reach `filepath.Join` unguarded in the repo-local helpers.
+**The `state.dir` key is validated twice, and the read path is the stricter of the two in effect.** `Set` rejects empty, `.`, `..`, and any value containing `/`. `Load` re-applies the same shape check but falls back to the default instead of erroring, because an unvalidated value would otherwise reach `filepath.Join` unguarded in the repo-local helpers.
 
 **`scope` is the only top-level scalar in the repo schema.** Every other top-level key names a table, so `checkUnknownRepoKeys` carries a separate `repoKnownTopLevelLeaves` set for it. Adding another top-level scalar means adding it there, or it warns as unknown.
 

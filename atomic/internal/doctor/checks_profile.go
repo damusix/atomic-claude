@@ -29,10 +29,17 @@ const profileStaleDays = 30
 // profile.md exists, its @-ref is present in a candidate file, the lastcheck
 // stamp is within profileStaleDays, and no candidate carries legacyProfileRef.
 // Any failed leg WARNs — an unwired profile is degraded, not broken.
-func checkProfile(_ Opts) Result {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("could not determine home dir: %v", err)}
+func checkProfile(opts Opts) Result {
+	if claudeHomeMissing(opts) {
+		return Result{Severity: SKIP, Detail: "no Claude home; profile wiring not applicable"}
+	}
+	home := opts.Home
+	if home == "" {
+		resolved, err := os.UserHomeDir()
+		if err != nil {
+			return Result{Severity: WARN, Detail: fmt.Sprintf("could not determine home dir: %v", err)}
+		}
+		home = resolved
 	}
 	return RunCheckProfileWith(home)
 }

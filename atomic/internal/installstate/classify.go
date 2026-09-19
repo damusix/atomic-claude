@@ -439,20 +439,21 @@ func inventoryV2(home string) (V2Inventory, error) {
 }
 
 // inventorySettings reads the Claude settings, hook registration, and output
-// style evidence read-only.
+// style evidence read-only. nativeRoot is the Claude config directory itself,
+// so settings resolve from it directly rather than from a sibling `.claude`.
 func inventorySettings(nativeRoot string) (SettingsInventory, error) {
 	var inv SettingsInventory
 	if nativeRoot == "" {
 		return inv, nil
 	}
-	sfPath := hooks.SettingsPath(nativeRoot)
+	sfPath := hooks.SettingsPathInDir(nativeRoot)
 	inv.Present = exists(sfPath)
 	if inv.Present {
 		if _, present, err := hooks.ReadOutputStyle(sfPath); err == nil {
 			inv.OutputStyle = present
 		}
 	}
-	installed, drifted, err := hooks.IsInstalled(nativeRoot)
+	installed, drifted, err := hooks.IsInstalledInDir(nativeRoot)
 	if err == nil {
 		inv.HooksInstalled, inv.HooksDrifted = installed, drifted
 	}

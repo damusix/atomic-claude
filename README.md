@@ -42,6 +42,7 @@
 | Feature | What it does |
 |---|---|
 | **Repo-aware sessions** | One scan builds a standing map of your codebase that Claude reads before your code, so it stops inventing `npm` scripts. |
+| **Multi-harness install** | One authored corpus projects into Claude Code and Oh My Pi (OMP) through native adapters. Enroll a harness explicitly; `atomic update` reconverges the ones already enrolled. |
 | **Code graph** | A tree-sitter symbol graph across 31 languages and 23 web frameworks answers callers, call sites, and blast radius, no compiler required. |
 | **SQL in the graph** | Procedures, views, foreign keys, and lineage across Postgres, MySQL, T-SQL, and Snowflake, plus dbt models and macros, read from `.sql` files with no database connection. |
 | **Autopilot** | `/autopilot` takes an issue to a merged PR: plans, tests first, reviews its own diff, ships. Your only decision is how to merge. |
@@ -55,6 +56,16 @@
 ## 🚀 Usage
 
 Everything below is opt-in and composes into one lifecycle. Lost? `/atomic-help` reads your git state and names one next command; `/atomic-help tour` walks the whole system.
+
+### Install and harnesses
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
+atomic install --harness claude      # enroll + converge Claude Code
+atomic install --harness omp         # enroll + converge Oh My Pi (OMP)
+```
+
+Atomic ships one authored corpus — `context/AGENTS.md` plus commands, agents, skills, and rules — and projects it into a harness through a native adapter. Claude Code receives a direct global `CLAUDE.md`, repository and realm `AGENTS.md` loader pairs, native artifacts, and path-scoped rules. OMP receives an import-free profile `AGENTS.md`, a generated package, and native rule cards where its capability record proves delivery. Enrollment is explicit: `atomic harness list` marks each instance discovered or enrolled, `atomic harness status` reports one target and the shared resources it consumes, `atomic harness repair` reconverges it, and `atomic update` never enrolls a target on its own. → [install guide](docs/guides/install.md)
 
 ### The workflow
 
@@ -90,12 +101,12 @@ Each phase's working state lives in one `atomic scratchpad` bundle per task — 
 
 Wikis are how Claude learns a codebase once instead of every session. Two scopes:
 
-- **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes. Plus one pointer card per domain under `.claude/rules/wiki/`, injected whenever Claude touches a file in that domain.
+- **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes. Plus one pointer card per domain under `<state-root>/rules/wiki/` (default `.claude/rules/wiki/`), injected whenever Claude touches a file in that domain.
 - **Realm wiki**: a Karpathy-style knowledge base you compile with Claude instead of maintaining by hand. A folder holds your repos and the loose material around them; the `wiki/` beside them holds per-repo summaries, shared concerns, and knowledge pages synthesized from capture buckets.
 
 ```text
 ~/work/acme/       the realm: repos + the material around them
-├─ CLAUDE.md       realm rules, loaded from any session inside
+├─ AGENTS.md       realm rules (plus a thin CLAUDE.md loader) — loaded from any session inside
 ├─ billing-api/    repo · has its own wiki → linked
 ├─ gateway/        repo · has its own wiki → linked
 ├─ vendor-sdk/     repo · no wiki → summarized

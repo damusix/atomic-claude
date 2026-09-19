@@ -15,6 +15,9 @@ import (
 // style, since Claude Code's per-repo file-placement rules aren't documented
 // well enough to replicate.
 func checkOutputStyle(opts Opts) Result {
+	if claudeHomeMissing(opts) {
+		return Result{Severity: SKIP, Detail: "no Claude home; output-style seed not applicable"}
+	}
 	target, err := claudeinstall.ResolveTarget("~/.claude")
 	if err != nil {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve target: %v", err)}
