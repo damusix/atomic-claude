@@ -126,10 +126,10 @@ func RuleGaps(m CapabilityMatrix) []Capability {
 	return out
 }
 
-// ruleEvidence derives the shared projection evidence from a capability record.
+// RuleEvidence derives the shared projection evidence from a capability record.
 // A role that is partial or unsupported is false, so unproven behavior can never
 // read as support.
-func ruleEvidence(m CapabilityMatrix) rules.Evidence {
+func RuleEvidence(m CapabilityMatrix) rules.Evidence {
 	return rules.Evidence{
 		StaticScope:   m.Supports(RoleStaticScope),
 		PreOperation:  m.Supports(RolePreOperationTargets),
@@ -167,7 +167,7 @@ func ProjectClaudeRules(sources []RuleSource, m CapabilityMatrix) (ClaudeRuleRep
 	copy(ordered, sources)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Record.ID < ordered[j].Record.ID })
 
-	ev := ruleEvidence(m)
+	ev := RuleEvidence(m)
 	report := ClaudeRuleReport{
 		Target:   artifacts.TargetClaude,
 		Ordering: RuleOrderingRecordID,

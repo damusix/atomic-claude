@@ -107,8 +107,8 @@ func MigrateScope(req ScopeRequest) (ScopeResult, error) {
 		return result, err
 	}
 
-	guidanceBlock := blockDocument(req.Scope.Guidance)
-	loaderBlock := blockDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))
+	guidanceBlock := managedfile.BlockDocument(req.Scope.Guidance)
+	loaderBlock := managedfile.BlockDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))
 
 	agentsIntended, agentsKind, err := mergeOwned(agentsPath, agents, agentsShape, guidanceBlock)
 	if err != nil {
@@ -294,12 +294,6 @@ func unownedProse(data []byte, s fileShape) []byte {
 	}
 	out := append([]byte{}, data[:start]...)
 	return append(out, data[end:]...)
-}
-
-// blockDocument wraps a body in one Atomic managed block.
-func blockDocument(body []byte) []byte {
-	inner := strings.TrimRight(string(body), "\n")
-	return []byte(managedfile.BlockOpen + "\n" + inner + "\n" + managedfile.BlockClose + "\n")
 }
 
 // verifyEffective re-reads both files and proves the pair delivers the intended

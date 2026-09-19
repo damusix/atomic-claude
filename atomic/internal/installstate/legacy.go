@@ -458,6 +458,15 @@ func unitFor(id string) (string, error) {
 	return unit, nil
 }
 
+// RecoverJournals reconciles every unresolved journal oldest-first. It returns
+// the decisions it made; a conflict decision means the caller must refuse to
+// plan rather than mutate around bytes recovery could not reconcile. It is the
+// entry point an adapter's lifecycle operation runs before planning any
+// mutation, and it acquires no lock of its own: the operation holds one.
+func RecoverJournals(home string) ([]RecoveryAction, error) {
+	return recoverAll(home)
+}
+
 // recoverAll reconciles every unresolved journal oldest-first. It returns the
 // decisions it made; a conflict decision stops the caller from planning.
 func recoverAll(home string) ([]RecoveryAction, error) {

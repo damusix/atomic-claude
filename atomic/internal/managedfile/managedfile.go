@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 )
 
 // BlockOpen and BlockClose bound Atomic-owned content inside a user file.
@@ -91,6 +92,15 @@ func ReplaceBlock(content, replacement []byte) ([]byte, error) {
 // appended block, because the latter's boundary cannot be guessed.
 func HasBlockTags(content []byte) bool {
 	return bytes.Contains(content, []byte(BlockOpen)) || bytes.Contains(content, []byte(BlockClose))
+}
+
+// BlockDocument wraps body in one Atomic managed block, normalizing the body's
+// trailing newlines so the document carries exactly one. It is the form a
+// caller publishes when it owns only the block's content and the surrounding
+// file belongs to the user.
+func BlockDocument(body []byte) []byte {
+	inner := strings.TrimRight(string(body), "\n")
+	return []byte(BlockOpen + "\n" + inner + "\n" + BlockClose + "\n")
 }
 
 // AppendBlock returns content with block appended as a new trailing region,

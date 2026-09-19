@@ -110,19 +110,34 @@ func Load(repoRoot string) (*Catalog, error) {
 		return nil, fmt.Errorf("walk rules: %w", err)
 	}
 
-	sort.Slice(cat.Artifacts, func(i, j int) bool {
-		if cat.Artifacts[i].Kind != cat.Artifacts[j].Kind {
-			return cat.Artifacts[i].Kind < cat.Artifacts[j].Kind
+	if err := cat.index(); err != nil {
+		return nil, err
+	}
+	return cat, nil
+}
+
+// index orders the corpus by kind then source and keys it by canonical
+// identity, refusing a resource that carries none or that collides with
+// another.
+func (c *Catalog) index() error {
+	sort.Slice(c.Artifacts, func(i, j int) bool {
+		if c.Artifacts[i].Kind != c.Artifacts[j].Kind {
+			return c.Artifacts[i].Kind < c.Artifacts[j].Kind
 		}
-		return cat.Artifacts[i].Source < cat.Artifacts[j].Source
+		return c.Artifacts[i].Source < c.Artifacts[j].Source
 	})
 
-	cat.byID = make(map[string]Artifact, len(cat.Artifacts))
-	for _, a := range cat.Artifacts {
-		cat.byID[a.ID] = a
+	c.byID = make(map[string]Artifact, len(c.Artifacts))
+	for _, a := range c.Artifacts {
+		if a.ID == "" {
+			return fmt.Errorf("artifacts: %s carries no canonical identity", a.Source)
+		}
+		if _, ok := c.byID[a.ID]; ok {
+			return fmt.Errorf("artifacts: duplicate identity %s", a.ID)
+		}
+		c.byID[a.ID] = a
 	}
-
-	return cat, nil
+	return nil
 }
 
 // walk adds every matching file under contextRoot/dir, recursively.
@@ -207,6 +222,22 @@ func parseSemantics(kind Kind, source []byte) Semantics {
 		sem.Requires = append(sem.Requires, SkillID(name))
 	}
 	return sem
+}
+
+// NewCatalog builds a catalog from already-rendered artifacts, parsing each
+// one's portable semantics from its own bytes and indexing it by identity. A
+// caller that carries its corpus outside a checkout — the embedded bundle —
+// uses this instead of Load, which reads a source tree.
+func NewCatalog(entries []Artifact) (*Catalog, error) {
+	cat := &Catalog{Artifacts: make([]Artifact, 0, len(entries))}
+	for _, a := range entries {
+		a.Semantics = parseSemantics(a.Kind, a.Body)
+		cat.Artifacts = append(cat.Artifacts, a)
+	}
+	if err := cat.index(); err != nil {
+		return nil, err
+	}
+	return cat, nil
 }
 
 // Get returns the artifact with the given canonical ID. A catalog built by Load

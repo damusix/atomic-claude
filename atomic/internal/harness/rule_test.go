@@ -188,7 +188,7 @@ func TestProjectClaudeRules_TierMatchesClaudeCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProjectClaudeRules: %v", err)
 	}
-	ev := ruleEvidence(caps)
+	ev := RuleEvidence(caps)
 	for _, got := range report.Rules {
 		rec, ok := byID[got.RecordID]
 		if !ok {

@@ -134,3 +134,35 @@ func TestValidate_RejectsDuplicateIdentity(t *testing.T) {
 		t.Fatal("Validate accepted a duplicate identity")
 	}
 }
+
+// NewCatalog is the entry point for a corpus already carried as bytes — the
+// embedded bundle — so it indexes it and parses its semantics from those bytes.
+func TestNewCatalog_IndexesRenderedArtifacts(t *testing.T) {
+	cat, err := NewCatalog([]Artifact{
+		{ID: "command:commands/b.md", Kind: KindCommand, Source: "commands/b.md", Body: []byte("---\ndescription: B\n---\n\nBody.\n")},
+		{ID: "command:commands/a.md", Kind: KindCommand, Source: "commands/a.md", Body: []byte("---\ndescription: A\n---\n\nBody.\n")},
+	})
+	if err != nil {
+		t.Fatalf("NewCatalog: %v", err)
+	}
+	if got := []string{cat.Artifacts[0].Source, cat.Artifacts[1].Source}; got[0] != "commands/a.md" || got[1] != "commands/b.md" {
+		t.Errorf("corpus order = %v, want kind-then-source order", got)
+	}
+	a, ok := cat.Get("command:commands/a.md")
+	if !ok || a.Semantics.Description != "A" {
+		t.Errorf("Get = %+v, %v; want parsed semantics for the rendered bytes", a, ok)
+	}
+}
+
+func TestNewCatalog_RefusesAnIdentityItCannotRecord(t *testing.T) {
+	if _, err := NewCatalog([]Artifact{{ID: "command:commands/a.md", Kind: KindCommand, Source: "commands/a.md"}}); err != nil {
+		t.Fatalf("unique identity refused: %v", err)
+	}
+	if _, err := NewCatalog([]Artifact{{Kind: KindCommand, Source: "commands/a.md"}}); err == nil {
+		t.Error("NewCatalog accepted an artifact with no identity")
+	}
+	dup := Artifact{ID: "command:commands/a.md", Kind: KindCommand, Source: "commands/a.md"}
+	if _, err := NewCatalog([]Artifact{dup, dup}); err == nil {
+		t.Error("NewCatalog accepted a duplicate identity")
+	}
+}

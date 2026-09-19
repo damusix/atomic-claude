@@ -52,6 +52,11 @@ const (
 	// RoleSkillDisablement is the native surface that honors a user-disabled
 	// skill or referenced file.
 	RoleSkillDisablement Role = "skill-disablement"
+	// RoleModelDefaults is the native surface that carries an adapter-written
+	// model or reasoning default for a semantic role. A role default may be
+	// written only where the surface and its precedence against existing user
+	// settings are proven, and never with a concrete provider ID.
+	RoleModelDefaults Role = "model-defaults"
 )
 
 // Capability is one CP0 row: the tested native surface, how far it is proven,
@@ -206,6 +211,13 @@ func OMPCapabilities() CapabilityMatrix {
 				Native:     "tool_call block result",
 				Limitation: "proven only for one exact intercepted bash call; coverage for other commands and tools is unsupported",
 				Evidence:   "omp.deny, omp.role.deterministic-deny; replay target run-omp-deny-probe.sh",
+			},
+			RoleModelDefaults: {
+				Role:       RoleModelDefaults,
+				Status:     StatusUnsupported,
+				Native:     "agent config.yml",
+				Limitation: "the replay setup wrote defaultModel into the agent config, but every exercised session selected a different provider and model, so neither honoring that default nor its precedence against an existing user setting was observed; role names were seen only as CLI flags",
+				Evidence:   "replay target omp-config-path locates the agent root; the config write and the default's effect have no replay target",
 			},
 		},
 	}

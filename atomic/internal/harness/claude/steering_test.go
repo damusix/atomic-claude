@@ -72,11 +72,11 @@ func TestMigrateScopeCreatesLoaderPair(t *testing.T) {
 	}
 
 	agents := readScopeFile(t, filepath.Join(repo, "AGENTS.md"))
-	if !managedfile.BlocksEqual([]byte(agents), blockDocument([]byte(scopeGuidance))) {
+	if !managedfile.BlocksEqual([]byte(agents), managedfile.BlockDocument([]byte(scopeGuidance))) {
 		t.Errorf("AGENTS.md block = %q", agents)
 	}
 	claude := readScopeFile(t, filepath.Join(repo, "CLAUDE.md"))
-	if !managedfile.BlocksEqual([]byte(claude), blockDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))) {
+	if !managedfile.BlocksEqual([]byte(claude), managedfile.BlockDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))) {
 		t.Errorf("CLAUDE.md block = %q, want the adjacent loader", claude)
 	}
 	if !strings.Contains(claude, "@AGENTS.md") {
@@ -136,7 +136,7 @@ func TestMigrateScopePreservesUnownedProseAndRelativeRefs(t *testing.T) {
 	if strings.Contains(before, managedfile.BlockOpen) {
 		t.Fatalf("fixture unexpectedly carries a block")
 	}
-	if !managedfile.BlocksEqual([]byte(claude), blockDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))) {
+	if !managedfile.BlocksEqual([]byte(claude), managedfile.BlockDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))) {
 		t.Errorf("CLAUDE.md block is not the loader: %q", claude)
 	}
 	// The reference resolves from the directory it always did.
@@ -148,7 +148,7 @@ func TestMigrateScopePreservesUnownedProseAndRelativeRefs(t *testing.T) {
 	if !strings.Contains(agents, "# Shared agent guidance") {
 		t.Errorf("AGENTS.md lost its pre-existing shared prose:\n%s", agents)
 	}
-	if !managedfile.BlocksEqual([]byte(agents), blockDocument([]byte(scopeGuidance))) {
+	if !managedfile.BlocksEqual([]byte(agents), managedfile.BlockDocument([]byte(scopeGuidance))) {
 		t.Errorf("AGENTS.md block is not the guidance: %q", agents)
 	}
 }
@@ -170,7 +170,7 @@ func TestMigrateScopeRelocatesApprovedProse(t *testing.T) {
 	}
 
 	claude := readScopeFile(t, filepath.Join(repo, "CLAUDE.md"))
-	if !managedfile.BlocksEqual([]byte(claude), blockDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))) {
+	if !managedfile.BlocksEqual([]byte(claude), managedfile.BlockDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))) {
 		t.Errorf("relocated CLAUDE.md should be the loader alone: %q", claude)
 	}
 	if strings.Contains(claude, "Repo notes") {
@@ -340,7 +340,7 @@ func TestMigrateScopeRealmPairs(t *testing.T) {
 
 	for _, dir := range []string{realm, filepath.Join(realm, "wiki")} {
 		claude := readScopeFile(t, filepath.Join(dir, "CLAUDE.md"))
-		if !managedfile.BlocksEqual([]byte(claude), blockDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))) {
+		if !managedfile.BlocksEqual([]byte(claude), managedfile.BlockDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))) {
 			t.Errorf("%s CLAUDE.md is not a loader: %q", dir, claude)
 		}
 		agents := readScopeFile(t, filepath.Join(dir, "AGENTS.md"))
