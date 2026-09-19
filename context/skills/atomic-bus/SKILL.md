@@ -70,8 +70,7 @@ atomic bus join checkout --as fe --host web-api
 ```
 
 That name must already exist as `[bus.remotes.web-api]` in `~/.atomic/config.toml`, set up ahead of
-time by the operator: `atomic bus gateway enroll <name>` on the host, then pasting the printed block
-on this machine. Never do that enrollment step on your own initiative. Once joined, every later
+time by the operator. Never do that setup on your own initiative. Once joined, every later
 command against `checkout` resolves to that host automatically (except `chat`, which is local-only);
 you never need to repeat `--host`. If the user asks how to set up a remote before one exists, point them at
 `docs/guides/bus-hosting.md` rather than attempting it yourself. Enrolling a machine is an

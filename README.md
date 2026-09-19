@@ -46,7 +46,7 @@
 | **SQL in the graph** | Procedures, views, foreign keys, and lineage across Postgres, MySQL, T-SQL, and Snowflake, plus dbt models and macros, read from `.sql` files with no database connection. |
 | **Autopilot** | `/autopilot` takes an issue to a merged PR: plans, tests first, reviews its own diff, ships. Your only decision is how to merge. |
 | **Self-sharpening config** | `/retrospective-learning` mines your corrections for friction and edits its own skills and rules, only with your say-so. |
-| **Inter-session bus** | Concurrent Claude Code sessions message each other over named rooms: delegate work to a peer session, watch or halt a room as the operator. `atomic bus gateway` hosts rooms across machines behind sealed, per-machine keys. |
+| **Inter-session bus** | Concurrent Claude Code sessions message each other over named rooms: delegate work to a peer session, watch or halt a room as the operator. `atomic bus gateway` hosts rooms across machines behind sealed keys. |
 | **Persistent REPLs** | Named Python and Node interpreter sessions hold state across separate Bash calls, so agents stop re-running setup code to get back to where they were. |
 | **Structured replies** | Tables, trees, and ASCII flows replace walls of prose when they explain faster. |
 | **Incremental adoption** | One install; every layer is optional, from clearer replies up to full autopilot. |

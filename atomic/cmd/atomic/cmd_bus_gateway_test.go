@@ -286,6 +286,48 @@ func TestGatewayAction_StaleSocket_RecoversAndServes(t *testing.T) {
 	}
 }
 
+func TestGatewayAction_KeyFromEnv_ClientReachesWithoutEnroll(t *testing.T) {
+	home := testBusDispatchHome(t)
+	key := bytes.Repeat([]byte{0xab}, 32)
+	t.Setenv("ATOMIC_BUS_KEY", hex.EncodeToString(key))
+
+	var out, errOut syncBuffer
+	go func() {
+		gatewayAction([]string{"--addr", "127.0.0.1:0"}, home, &out, &errOut)
+	}()
+
+	addr := waitForListeningAddr(t, &out, &errOut)
+
+	c, err := remote.NewClient(remote.RemoteConfig{Name: "shared", Host: "http://" + addr, Key: key})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if _, err := c.Do([]byte(`{"op":"ping"}`)); err != nil {
+		t.Fatalf("Do with the ATOMIC_BUS_KEY key: %v, stderr: %s", err, errOut.String())
+	}
+	if _, err := os.Stat(gatewayKeysPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("keys.json exists (stat err = %v); the env key must not be persisted", err)
+	}
+}
+
+// A malformed key must stop the start rather than run a gateway that admits
+// nobody the operator configured.
+func TestGatewayAction_MalformedEnvKey_ExitUsage(t *testing.T) {
+	for _, v := range []string{"not-hex", "abcd", strings.Repeat("ab", 33)} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("ATOMIC_BUS_KEY", v)
+			var out, errOut bytes.Buffer
+			code := gatewayAction([]string{"--addr", "127.0.0.1:0"}, t.TempDir(), &out, &errOut)
+			if code != int(bus.ExitUsage) {
+				t.Fatalf("exit code = %d, want %d, stderr: %s", code, bus.ExitUsage, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), "ATOMIC_BUS_KEY") {
+				t.Fatalf("stderr does not name ATOMIC_BUS_KEY: %q", errOut.String())
+			}
+		})
+	}
+}
+
 func waitForListeningAddr(t *testing.T, out, errOut *syncBuffer) string {
 	t.Helper()
 	deadline := time.After(5 * time.Second)

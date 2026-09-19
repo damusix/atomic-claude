@@ -71,6 +71,12 @@ threat model does not contain. `halt`, `say`, `close`, `tail` and `end` all work
 `shutdown` is the one refusal, because it ends the daemon for every member and the operator has
 shell on the host anyway. It costs one branch.
 
+An operator can also start the gateway with `ATOMIC_BUS_KEY` and give that one key to every machine,
+which suits a fleet provisioned from configuration. It is an environment variable rather than a flag
+because argv is readable by every user on the host. The cost is the per-machine property: every holder
+shares one key id, so no single machine can be revoked, and rotation means restarting the gateway and
+updating every client.
+
 The consequence to be aware of: any enrolled machine can `say`, and `from_kind: "human"` wins the
 reaction policy unconditionally, so any enrolled machine can speak with the identity every agent
 obeys without question. That follows from issuing the key, and it is why keys are issued

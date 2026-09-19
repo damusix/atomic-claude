@@ -81,8 +81,8 @@ room's log. Mount one volume there and the gateway survives a restart with nothi
 ## Enroll a machine
 
 
-Enrollment is one command on the host and one paste on the client. There is no shared secret typed
-by a person; the gateway generates the key.
+Enrollment is one command on the host and one paste on the client, and the gateway generates the
+key. To choose one key yourself and give it to every machine instead, see "Share one key" below.
 
 ```mermaid
 sequenceDiagram
@@ -137,6 +137,74 @@ Paste that block on the second machine with its table renamed from `[bus.remotes
 The key is printed exactly once. If you lose it, enroll a new name; there is no way to recover a key
 from the store afterward. `enroll` refuses a name that already has a key, because `revoke` removes
 every key under a name. To rotate a key, enroll a new name, paste its block, then revoke the old one.
+
+
+## Share one key
+
+
+To give every machine one key instead of enrolling each, for example a fleet provisioned from
+configuration, start the gateway with `ATOMIC_BUS_KEY` set to 32 random bytes in hex:
+
+```bash
+export ATOMIC_BUS_KEY=$(openssl rand -hex 32)
+atomic bus gateway --addr :8443
+```
+
+Every client gets the same block:
+
+```toml
+[bus.remotes.web-api]
+host = "http://bus.example.com:8443"
+key  = "<the same 64 hex characters>"
+```
+
+Sharing trades away per-machine control:
+
+| | Enrolled keys | `ATOMIC_BUS_KEY` |
+|---|---|---|
+| Issued by | the gateway, one per machine | you, one for every machine |
+| Cut off one machine | `atomic bus gateway revoke <name>` | not possible; rotate for everyone |
+| Rotate | enroll a new name, then revoke the old one | restart the gateway with a new value, then update every client |
+
+
+## Run it in a container
+
+
+This Dockerfile installs the latest release, checks it against the release checksums, and runs the
+gateway as a non-root user with its state on one volume:
+
+```dockerfile
+FROM alpine:3.22 AS fetch
+ARG TARGETARCH
+WORKDIR /tmp/atomic
+RUN set -eu; \
+    base="https://github.com/damusix/atomic-claude/releases/latest/download"; \
+    wget -q "$base/checksums.txt"; \
+    archive=$(grep -o "atomic_.*_linux_${TARGETARCH}\.tar\.gz" checksums.txt); \
+    wget -q "$base/$archive"; \
+    grep "  ${archive}\$" checksums.txt | sha256sum -c -; \
+    tar -xzf "$archive" atomic
+
+FROM alpine:3.22
+RUN adduser -D -h /home/atomic atomic
+COPY --from=fetch /tmp/atomic/atomic /usr/local/bin/atomic
+USER atomic
+RUN mkdir -m 0700 /home/atomic/.atomic
+VOLUME /home/atomic/.atomic
+EXPOSE 8443
+CMD ["atomic", "bus", "gateway", "--addr", ":8443"]
+```
+
+Build it and run it with a shared key:
+
+```bash
+export ATOMIC_BUS_KEY=$(openssl rand -hex 32)
+docker build -t atomic-bus .
+docker run -d --name atomic-bus -p 8443:8443 -v atomic-bus:/home/atomic/.atomic -e ATOMIC_BUS_KEY atomic-bus
+```
+
+Give each client the block from "Share one key" with that value. To enroll machines instead, leave
+`ATOMIC_BUS_KEY` out and run `docker exec atomic-bus atomic bus gateway enroll <name>`.
 
 
 ## Join from two machines
