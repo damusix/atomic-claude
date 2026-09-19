@@ -17,6 +17,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/omp"
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 	"github.com/damusix/atomic-claude/atomic/internal/rules"
 	"github.com/pelletier/go-toml/v2"
@@ -442,11 +443,17 @@ func commandProjection(a artifacts.Artifact) (artifacts.Projection, error) {
 	}, nil
 }
 
-// checkRules projects the authored rule corpus into Claude's native rule tree
-// twice and audits identity, digests, metadata, and tier. The projection
-// verifies each record's source digest itself; the gate pins determinism and
-// the CP0 tier ceiling.
+// checkRules projects the authored rule corpus into each target's native rule
+// tree twice and audits identity, digests, metadata, and tier. Each projection
+// verifies its own source digests; the gate pins determinism and the CP0 tier
+// ceiling for every target that ships rules.
 func (g *projGate) checkRules() {
+	g.checkClaudeRules()
+	g.checkOMPRules()
+}
+
+// checkClaudeRules audits the Claude-native rule projection.
+func (g *projGate) checkClaudeRules() {
 	sources, err := shippedRuleSources(g.root)
 	if err != nil {
 		g.fail(ruleRenderFailure, "context/rules", "load shipped rules: %v", err)
@@ -495,6 +502,60 @@ func (g *projGate) checkRules() {
 			} else if role != "" {
 				g.fail(ruleTier, path, "%s: rule projection claims %q but CP0 role %q is not supported", r.RecordID, r.Tier, role)
 			}
+		}
+	}
+}
+
+// checkOMPRules audits the OMP-native rule projection. OMP 18.1.18 proved a
+// pre-operation event but no context return, so no record may claim native
+// scope or a hook-required tier; a projection that did would be an overclaim
+// the shared tier-role map catches.
+func (g *projGate) checkOMPRules() {
+	matrix := harness.OMPCapabilities()
+	report, err := omp.ProjectShippedRules(g.cat, matrix)
+	if err != nil {
+		g.fail(ruleRenderFailure, "context/rules", "project OMP rules: %v", err)
+		return
+	}
+	again, err := omp.ProjectShippedRules(g.cat, matrix)
+	if err != nil {
+		g.fail(ruleRenderFailure, "context/rules", "re-project OMP rules: %v", err)
+		return
+	}
+	if len(report.Rules) == 0 {
+		g.fail(ruleRenderFailure, "context/rules", "the shipped rule corpus is empty")
+		return
+	}
+	if len(again.Rules) != len(report.Rules) {
+		g.fail(ruleDeterminism, "context/rules", "OMP rule projection is not deterministic (%d != %d rules)", len(report.Rules), len(again.Rules))
+	}
+
+	for i, r := range report.Rules {
+		path := r.Source
+		if got := managedfile.Digest(r.Bytes); got != r.SourceDigest {
+			g.fail(ruleIdentity, path, "%s: projected bytes digest %s does not match source digest %s", r.RecordID, got, r.SourceDigest)
+		}
+		if r.Digest == "" || r.Digest != artifacts.ProjectionDigest(r.Bytes) {
+			g.fail(ruleDeterminism, path, "%s: projection digest %q does not match its bytes", r.RecordID, r.Digest)
+		}
+		if i < len(again.Rules) && (again.Rules[i].Digest != r.Digest || string(again.Rules[i].Bytes) != string(r.Bytes)) {
+			g.fail(ruleDeterminism, path, "%s: OMP rule projection is not deterministic", r.RecordID)
+		}
+		for _, key := range nativeMetadataKeys(artifacts.TargetOMP, r.Bytes) {
+			if isUserPolicyKey(key) {
+				g.fail(ruleMetadata, path, "%s: rule projection carries native metadata key %q, which user model policy owns", r.RecordID, key)
+			}
+		}
+		if r.Tier != artifacts.EnforcementUnsupported {
+			role, known := g.unprovenTierRole(r.Tier, artifacts.TargetOMP)
+			if !known {
+				g.fail(ruleTier, path, "%s: rule projection claims unknown enforcement tier %q", r.RecordID, r.Tier)
+			} else if role != "" {
+				g.fail(ruleTier, path, "%s: rule projection claims %q but CP0 role %q is not supported", r.RecordID, r.Tier, role)
+			}
+		}
+		if r.Tier == artifacts.EnforcementUnsupported && (len(r.Scope) != 0 || r.Delivery != rules.RuntimeNone) {
+			g.fail(ruleTier, path, "%s: unsupported rule projection still claims scope %v / delivery %q", r.RecordID, r.Scope, r.Delivery)
 		}
 	}
 }

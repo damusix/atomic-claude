@@ -44,6 +44,12 @@ type PackageFile struct {
 	Unsupported []string `json:"unsupported,omitempty"`
 	// Tier is the enforcement tier the CP0 record proves for this file.
 	Tier artifacts.EnforcementTier `json:"tier"`
+	// Scope is the CP0-selected native scope mapping. It is empty whenever no
+	// proven role maps the file, which is every shipped rule for OMP 18.1.18.
+	Scope []rules.ScopeField `json:"scope,omitempty"`
+	// Delivery is how OMP would supply a matched rule body at runtime. It is
+	// empty for every non-rule file.
+	Delivery rules.RuntimeDelivery `json:"delivery,omitempty"`
 	// Digest is the digest of Bytes.
 	Digest string `json:"digest"`
 }
@@ -219,33 +225,32 @@ func (p *Package) addSkills(cat *artifacts.Catalog, m harness.CapabilityMatrix) 
 	return nil
 }
 
-// addRules ships every actual path-scoped rule into the package. Steering and
-// output styles are never rules, so only context/rules/** enters this surface.
-// The record is parsed and validated for its canonical identity and digest, and
-// the tier comes from the shared selector: OMP proves a pre-operation event but
-// not a context return, so a shipped rule carries no native scope claim.
+// addRules ships every actual path-scoped rule into the package through the
+// shared OMP projection, so the package and the offline projection gate agree
+// byte for byte on what OMP receives. Steering and output styles are never
+// rules, so only context/rules/** enters this surface. OMP proved a
+// pre-operation event but no context return, so no record claims a native scope
+// or a hook-required tier: the body ships, the tier records unsupported, and a
+// missing capability row is reported rather than failing the package.
 func (p *Package) addRules(cat *artifacts.Catalog, m harness.CapabilityMatrix) error {
-	evidence := harness.RuleEvidence(m)
-	var records []rules.RuleRecord
-	for _, a := range cat.OfKind(artifacts.KindRule) {
-		record, err := rules.ParseShipped(a.Source, a.Body)
-		if err != nil {
-			return fmt.Errorf("omp: parse %s: %w", a.ID, err)
-		}
-		projection := rules.Select(record, artifacts.TargetOMP, evidence)
-		p.Files = append(p.Files, PackageFile{
-			Path:   a.Source,
-			Bytes:  a.Body,
-			Source: a.ID,
-			Tier:   projection.Tier,
-			Digest: artifacts.ProjectionDigest(a.Body),
-		})
-		records = append(records, record)
+	report, err := ProjectShippedRules(cat, m)
+	if err != nil {
+		return err
 	}
-	if len(records) > 0 {
-		if err := rules.Validate(records); err != nil {
-			return err
-		}
+	identity := make(map[string]string)
+	for _, a := range cat.OfKind(artifacts.KindRule) {
+		identity[a.Source] = a.ID
+	}
+	for _, rule := range report.Rules {
+		p.Files = append(p.Files, PackageFile{
+			Path:     rule.Source,
+			Bytes:    rule.Bytes,
+			Source:   identity[rule.Source],
+			Tier:     rule.Tier,
+			Scope:    rule.Scope,
+			Delivery: rule.Delivery,
+			Digest:   rule.Digest,
+		})
 	}
 	return nil
 }

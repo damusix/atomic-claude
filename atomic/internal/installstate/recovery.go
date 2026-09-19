@@ -381,10 +381,10 @@ func restoreBackup(rec managedfile.BackupRecord, kind managedfile.Kind) error {
 		if err := os.MkdirAll(filepath.Dir(rec.Source), 0o755); err != nil {
 			return fmt.Errorf("installstate: mkdir %s: %w", filepath.Dir(rec.Source), err)
 		}
-		if err := os.Rename(rec.Path, rec.Source); err != nil {
+		if err := managedfile.MoveTree(rec.Path, rec.Source); err != nil {
 			return fmt.Errorf("installstate: restore tree %s: %w", rec.Source, err)
 		}
-		return managedfile.FsyncDir(filepath.Dir(rec.Source))
+		return nil
 	}
 	return managedfile.RestoreBackup(rec)
 }

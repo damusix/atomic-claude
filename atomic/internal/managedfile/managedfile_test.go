@@ -468,6 +468,99 @@ func TestPublishDirRollsBackWhenStagedMoveFails(t *testing.T) {
 	}
 }
 
+// forceCrossDevice makes every device probe report a filesystem boundary, so a
+// test can exercise the cross-filesystem publication path on one physical
+// volume. It restores the probe when the test ends.
+func forceCrossDevice(t *testing.T) {
+	t.Helper()
+	previous := sameDevice
+	sameDevice = func(a, b string) (bool, error) { return false, nil }
+	t.Cleanup(func() { sameDevice = previous })
+}
+
+// TestPublishDirAcrossFilesystemsCopiesAndPublishes is the regression for a
+// repository-local destination published from a HOME-rooted staging root: the
+// staged tree cannot be renamed across filesystems, so it is copied onto the
+// destination's filesystem and published, and a replacement copies the
+// displaced tree into the durable transaction backup.
+func TestPublishDirAcrossFilesystemsCopiesAndPublishes(t *testing.T) {
+	parent := t.TempDir()
+	stage := filepath.Join(parent, "stage")
+	dest := filepath.Join(parent, "rules", "atomic-wiki")
+	backupDir := filepath.Join(parent, "tx", "backup")
+	if err := os.MkdirAll(stage, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "typescript.md"), []byte("# TS\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wantDigest, _, err := TreeDigest(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	forceCrossDevice(t)
+
+	pub, err := PublishDir(stage, dest, backupDir)
+	if err != nil {
+		t.Fatalf("cross-filesystem publication: %v", err)
+	}
+	if !pub.First || pub.Backup != "" || pub.Digest != wantDigest {
+		t.Fatalf("publication = %+v, want first with digest %s", pub, wantDigest)
+	}
+	if data, err := os.ReadFile(filepath.Join(dest, "typescript.md")); err != nil || string(data) != "# TS\n" {
+		t.Fatalf("published card = %q %v", data, err)
+	}
+
+	if err := os.WriteFile(filepath.Join(stage, "typescript.md"), []byte("# TS v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newDigest, _, err := TreeDigest(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err = PublishDir(stage, dest, backupDir)
+	if err != nil {
+		t.Fatalf("cross-filesystem replacement: %v", err)
+	}
+	if pub.First || pub.Backup != filepath.Join(backupDir, "atomic-wiki") || pub.Digest != newDigest {
+		t.Fatalf("replacement = %+v", pub)
+	}
+	if data, err := os.ReadFile(filepath.Join(pub.Backup, "typescript.md")); err != nil || string(data) != "# TS\n" {
+		t.Errorf("displaced tree not backed up across filesystems: %q %v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dest, "typescript.md")); err != nil || string(data) != "# TS v2\n" {
+		t.Errorf("replacement not published: %q %v", data, err)
+	}
+}
+
+// TestMoveTreeAcrossFilesystemsRestoresFromCopy proves a transaction tree
+// backup captured on another filesystem still restores: the move copies the
+// tree and removes the source where a rename cannot cross.
+func TestMoveTreeAcrossFilesystemsRestoresFromCopy(t *testing.T) {
+	parent := t.TempDir()
+	src := filepath.Join(parent, "backup", "atomic-wiki")
+	dst := filepath.Join(parent, "rules", "atomic-wiki")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "typescript.md"), []byte("# TS\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	forceCrossDevice(t)
+
+	if err := MoveTree(src, dst); err != nil {
+		t.Fatalf("cross-filesystem move: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dst, "typescript.md")); err != nil || string(data) != "# TS\n" {
+		t.Fatalf("restored tree = %q %v", data, err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Errorf("move source lingered: %v", err)
+	}
+}
+
 func TestBackupFileRecordsRetentionMetadataAndRestores(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "CLAUDE.md")

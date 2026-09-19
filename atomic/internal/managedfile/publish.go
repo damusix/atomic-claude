@@ -2,6 +2,7 @@ package managedfile
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -83,6 +84,13 @@ type Publication struct {
 // tree into backupDir and then stages into place; if the second rename fails,
 // the displaced tree is moved back before the error is returned, so the
 // destination is never left absent by a failed replacement.
+//
+// The staging root can sit on another filesystem — a repository-local
+// destination is published from the HOME-rooted transaction stage — where a
+// rename out of staging cannot cross. That case copies the staged tree onto the
+// destination's filesystem and publishes it with the same rename, and copies
+// the displaced tree into the transaction backup, so the journaled backup
+// record stays a durable pre-mutation copy.
 func PublishDir(stageDir, destDir, backupDir string) (Publication, error) {
 	if _, err := os.Stat(stageDir); err != nil {
 		return Publication{}, fmt.Errorf("managedfile: staging %s: %w", stageDir, err)
@@ -97,13 +105,14 @@ func PublishDir(stageDir, destDir, backupDir string) (Publication, error) {
 	if err != nil {
 		return Publication{}, err
 	}
-	if !same {
-		return Publication{}, fmt.Errorf("managedfile: staging %s and destination %s are on different filesystems; publication must be one rename", stageDir, destDir)
-	}
 
 	digest, _, err := TreeDigest(stageDir)
 	if err != nil {
 		return Publication{}, err
+	}
+
+	if !same {
+		return publishDirCopy(stageDir, destDir, backupDir, digest)
 	}
 
 	switch _, statErr := os.Stat(destDir); {
@@ -153,6 +162,162 @@ func PublishDir(stageDir, destDir, backupDir string) (Publication, error) {
 	return Publication{Backup: backup, Digest: digest}, nil
 }
 
+// publishDirCopy is PublishDir's cross-filesystem path: it copies the staged
+// tree beside the destination and publishes the copy with a same-filesystem
+// rename, so the destination never observes a half-copied tree. A replacement
+// first copies the displaced tree into the transaction backup and removes the
+// original; if the staged copy cannot be published, the backup is copied back,
+// so a failed replacement never leaves the destination absent.
+func publishDirCopy(stageDir, destDir, backupDir, digest string) (Publication, error) {
+	parent := filepath.Dir(destDir)
+
+	backup := ""
+	displaced := false
+	switch _, statErr := os.Stat(destDir); {
+	case statErr == nil:
+		if backupDir == "" {
+			return Publication{}, fmt.Errorf("managedfile: replacing %s needs a transaction backup directory", destDir)
+		}
+		if err := os.MkdirAll(backupDir, 0o755); err != nil {
+			return Publication{}, fmt.Errorf("managedfile: mkdir %s: %w", backupDir, err)
+		}
+		backup = filepath.Join(backupDir, filepath.Base(destDir))
+		if _, err := os.Stat(backup); err == nil {
+			return Publication{}, fmt.Errorf("managedfile: transaction backup %s already exists", backup)
+		} else if !os.IsNotExist(err) {
+			return Publication{}, fmt.Errorf("managedfile: stat %s: %w", backup, err)
+		}
+		if err := copyTree(destDir, backup); err != nil {
+			return Publication{}, fmt.Errorf("managedfile: back up current %s: %w", destDir, err)
+		}
+		if err := FsyncDir(backupDir); err != nil {
+			return Publication{}, fmt.Errorf("managedfile: sync %s: %w", backupDir, err)
+		}
+		if err := os.RemoveAll(destDir); err != nil {
+			return Publication{}, fmt.Errorf("managedfile: remove displaced %s: %w", destDir, err)
+		}
+		displaced = true
+	case os.IsNotExist(statErr):
+	default:
+		return Publication{}, fmt.Errorf("managedfile: stat %s: %w", destDir, statErr)
+	}
+
+	tmp, err := os.MkdirTemp(parent, "."+filepath.Base(destDir)+".staging-")
+	if err != nil {
+		return Publication{}, restoreDisplaced(displaced, backup, destDir, fmt.Errorf("managedfile: stage beside %s: %w", destDir, err))
+	}
+	if err := copyTree(stageDir, tmp); err != nil {
+		os.RemoveAll(tmp)
+		return Publication{}, restoreDisplaced(displaced, backup, destDir, fmt.Errorf("managedfile: publish %s: %w", destDir, err))
+	}
+	if err := renameDir(tmp, destDir); err != nil {
+		os.RemoveAll(tmp)
+		return Publication{}, restoreDisplaced(displaced, backup, destDir, fmt.Errorf("managedfile: publish %s: %w", destDir, err))
+	}
+	if err := FsyncDir(parent); err != nil {
+		return Publication{}, fmt.Errorf("managedfile: sync %s: %w", parent, err)
+	}
+	if displaced {
+		return Publication{Backup: backup, Digest: digest}, nil
+	}
+	return Publication{First: true, Digest: digest}, nil
+}
+
+// restoreDisplaced copies a replacement's backup back over the destination
+// after a failed cross-filesystem publication. A first publication displaced
+// nothing, so the cause is returned unchanged.
+func restoreDisplaced(displaced bool, backup, destDir string, cause error) error {
+	if !displaced {
+		return cause
+	}
+	if err := copyTree(backup, destDir); err != nil {
+		return fmt.Errorf("%w; rollback to %s failed: %v", cause, destDir, err)
+	}
+	if err := FsyncDir(filepath.Dir(destDir)); err != nil {
+		return fmt.Errorf("%w; rollback to %s failed: %v", cause, destDir, err)
+	}
+	return fmt.Errorf("%w; displaced tree restored", cause)
+}
+
+// copyTree copies the tree at src into dest, which may exist as a directory,
+// preserving every entry's type and mode. Files go through WriteFileAtomic and
+// directories are fsynced bottom-up, so the copy is as durable as the rename it
+// stands in for.
+func copyTree(src, dest string) error {
+	var dirs []string
+	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, rel)
+		switch {
+		case d.Type()&os.ModeSymlink != 0:
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, target)
+		case d.IsDir():
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(target, info.Mode().Perm()); err != nil {
+				return err
+			}
+			dirs = append(dirs, target)
+			return nil
+		default:
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			return WriteFileAtomic(target, data, info.Mode().Perm())
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("managedfile: copy tree %s: %w", dest, err)
+	}
+	for i := len(dirs) - 1; i >= 0; i-- {
+		if err := FsyncDir(dirs[i]); err != nil {
+			return fmt.Errorf("managedfile: sync %s: %w", dirs[i], err)
+		}
+	}
+	return nil
+}
+
+// MoveTree moves the tree at src to dest, which must not exist. A same-device
+// move is one rename; a cross-device move copies the tree and removes the
+// source, so a transaction backup captured on another filesystem still
+// restores.
+func MoveTree(src, dest string) error {
+	same, err := sameDevice(filepath.Dir(dest), src)
+	if err != nil {
+		return err
+	}
+	if same {
+		if err := os.Rename(src, dest); err != nil {
+			return fmt.Errorf("managedfile: move tree %s: %w", dest, err)
+		}
+		return FsyncDir(filepath.Dir(dest))
+	}
+	if err := copyTree(src, dest); err != nil {
+		return fmt.Errorf("managedfile: move tree %s: %w", dest, err)
+	}
+	if err := os.RemoveAll(src); err != nil {
+		return fmt.Errorf("managedfile: move tree %s: remove source %s: %w", dest, src, err)
+	}
+	return FsyncDir(filepath.Dir(dest))
+}
+
 // FsyncDir flushes a directory entry so a rename or create is durable.
 func FsyncDir(dir string) error {
 	f, err := os.Open(dir)
@@ -193,8 +358,10 @@ func resolveFileTarget(path string) (resolved string, mode os.FileMode, writable
 	return resolved, mode, true, nil
 }
 
-// sameDevice reports whether two paths resolve to one filesystem device.
-func sameDevice(a, b string) (bool, error) {
+// sameDevice reports whether two paths resolve to one filesystem device. It is
+// a variable so a test can prove the cross-filesystem publication path on one
+// physical volume; production never reassigns it.
+var sameDevice = func(a, b string) (bool, error) {
 	devA, err := deviceOf(a)
 	if err != nil {
 		return false, err

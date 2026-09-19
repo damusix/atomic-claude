@@ -1,14 +1,17 @@
 // Package omp adopts the OMP harness to the common adapter contract: it
 // discovers native profile roots through the CP0-proven `omp config path`
 // command, generates the shared Atomic package and the profile-owned steering
-// block, and enrolls a profile through the shared transaction engine.
+// block, publishes repository wiki cards into the native project rule
+// directory, and enrolls a profile through the shared transaction engine.
 //
 // Every native claim is gated by the CP0 capability record. OMP 18.1.18 proved
 // extension discovery under an agent root, the steering files a profile loads,
 // a session-baseline event, a pre-operation event with structured targets, and
 // one exact deny result. It never registered a package, so package
-// installation, shared-package visibility, project scope, and cleanup remain
-// unsupported and are reported rather than assumed.
+// installation, shared-package visibility, project installation scope, and
+// cleanup remain unsupported and are reported rather than assumed. A rule in
+// the native `.omp/rules/` project directory never delivered its scoped body, so
+// rule scope is reported unsupported while the bodies still ship.
 package omp
 
 import (
