@@ -74,11 +74,8 @@ func (a *Adapter) Kind() harness.Kind { return harness.KindOMP }
 // Capabilities returns the CP0 record for OMP 18.1.18.
 func (a *Adapter) Capabilities() harness.CapabilityMatrix { return harness.OMPCapabilities() }
 
-// Lifecycle returns the generic lifecycle hook points. This checkpoint wires
-// none: enrollment is driven through the adapter's own entry points, and the
-// CLI cutover is where the hooks are bound, so an unwired hook reports
-// ErrUnsupported rather than pretending to have run.
-func (a *Adapter) Lifecycle() harness.Lifecycle { return harness.Lifecycle{} }
+// Lifecycle is implemented in lifecycle.go, where the projection, enrollment,
+// verification, and removal seams are bound for one home.
 
 // corpus loads the canonical corpus through the adapter's seam.
 func (a *Adapter) corpus() (*artifacts.Catalog, error) {

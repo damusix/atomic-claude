@@ -225,8 +225,8 @@ func TestRootCmdExact23Verbs(t *testing.T) {
 
 	want := []string{
 		"bus", "claude", "code", "config", "docker", "docs", "doctor",
-		"followups", "hooks", "migrate", "profile", "prompt", "reminder",
-		"repl", "repo", "scratchpad", "serve", "signals", "template", "update", "validate", "where", "wiki",
+		"followups", "harness", "hooks", "install", "migrate", "profile", "prompt", "reminder",
+		"repl", "repo", "scratchpad", "serve", "signals", "state", "template", "update", "validate", "where", "wiki",
 	}
 
 	var visible []string

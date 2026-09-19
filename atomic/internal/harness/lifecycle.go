@@ -1,18 +1,38 @@
 package harness
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
+)
 
 // PlanRequest asks an adapter to compute the projection plan for one target.
 type PlanRequest struct {
 	// Generation identifies the rendered generation the plan publishes.
 	Generation string
+	// BatchDecision is the caller's replace-or-leave-unowned choice for
+	// resources the selected generation cannot prove ownership of. Empty leaves
+	// such a plan blocked, because guessing would either overwrite unknown bytes
+	// or strand a resource the user expected Atomic to adopt.
+	BatchDecision installstate.Decision
 }
 
-// Plan is one target's projection plan: the resources it would write and the
-// ownership claims those bytes establish.
+// Plan is one target's projection plan: the resources it would write, the
+// ownership claims those bytes establish, and every observation that forbids
+// applying it. Blockers are reported, never worked around: a plan with any
+// blocker must not be converged.
 type Plan struct {
-	Target Target  `json:"target"`
-	Claims []Claim `json:"claims,omitempty"`
+	Target     Target   `json:"target"`
+	Generation string   `json:"generation,omitempty"`
+	Claims     []Claim  `json:"claims,omitempty"`
+	Blockers   []string `json:"blockers,omitempty"`
+	// BatchDecision is the caller's choice for resources the selected
+	// generation cannot prove ownership of. It is empty until the caller
+	// decides, which is what leaves such a plan blocked.
+	BatchDecision installstate.Decision `json:"batch_decision,omitempty"`
+	// Converged reports that the target already holds this generation, so
+	// convergence would write nothing.
+	Converged bool `json:"converged,omitempty"`
 }
 
 // Convergence is one target's convergence outcome.
@@ -23,10 +43,19 @@ type Convergence struct {
 
 // Removal is the outcome of removing one target's resources. Retained names
 // resources kept because another enrolled consumer still depends on them.
+//
+// A dry run populates Recovery with the unresolved journals a real removal
+// would reconcile first, and Blockers with anything that forbids a decidable
+// plan. An applied removal leaves both empty: recovery has already run.
 type Removal struct {
 	Target   Target   `json:"target"`
 	Removed  []string `json:"removed,omitempty"`
 	Retained []string `json:"retained,omitempty"`
+	// Recovery previews unresolved journals in memory. It is never a mutation.
+	Recovery []installstate.RecoverySimulation `json:"recovery,omitempty"`
+	// Blockers names the observations that forbid a decidable plan, including a
+	// journal that cannot be simulated to one safe result.
+	Blockers []string `json:"blockers,omitempty"`
 }
 
 // Lifecycle is the set of hook points a concrete adapter supplies: projection,

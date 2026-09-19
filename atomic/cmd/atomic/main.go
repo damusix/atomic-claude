@@ -132,6 +132,12 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 
 	rootCmd.AddCommand(buildClaudeCmd())
 
+	rootCmd.AddCommand(buildInstallCmd())
+
+	rootCmd.AddCommand(buildHarnessCmd())
+
+	rootCmd.AddCommand(buildStateCmd(repoOverride))
+
 	rootCmd.AddCommand(buildDoctorCmd())
 
 	rootCmd.AddCommand(buildWhereCmd(repoOverride))

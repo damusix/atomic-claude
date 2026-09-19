@@ -82,10 +82,16 @@ func (r *Registry) Discover(home string) ([]Instance, error) {
 	return out, nil
 }
 
-// Select discovers instances and returns the one sel names, refusing an
-// ambiguous selection instead of guessing.
+// Select discovers sel's kind and returns the one instance it names, refusing an
+// ambiguous selection instead of guessing. It probes only the requested kind:
+// discovering a harness the caller never asked about would run that harness's
+// native probe for nothing.
 func (r *Registry) Select(home string, sel Selector) (Instance, error) {
-	instances, err := r.Discover(home)
+	a, ok := r.adapters[sel.Kind]
+	if !ok {
+		return Instance{}, fmt.Errorf("harness: no adapter registered for %s", sel.Kind)
+	}
+	instances, err := a.Discover(home)
 	if err != nil {
 		return Instance{}, err
 	}

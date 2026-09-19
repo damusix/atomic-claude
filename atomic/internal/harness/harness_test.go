@@ -70,7 +70,7 @@ func (f *fakeAdapter) Discover(home string) ([]Instance, error) {
 
 func (f *fakeAdapter) Capabilities() CapabilityMatrix { return ClaudeCapabilities() }
 
-func (f *fakeAdapter) Lifecycle() Lifecycle { return Lifecycle{} }
+func (f *fakeAdapter) Lifecycle(string) Lifecycle { return Lifecycle{} }
 
 func TestRegistryRefusesDuplicateAndUnknownAdapters(t *testing.T) {
 	if _, err := NewRegistry(&fakeAdapter{kind: KindClaude}); err != nil {

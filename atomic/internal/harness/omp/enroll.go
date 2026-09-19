@@ -2,7 +2,6 @@ package omp
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -286,7 +285,7 @@ func (a *Adapter) finish(home string, result EnrollResult) (EnrollResult, error)
 	if err != nil {
 		instances = nil
 	}
-	result.Resources = resourcesFor(ledger, instances, PackageResource(home))
+	result.Resources = harness.Resources(ledger, instances, harness.SharedRoots(home))
 	return result, nil
 }
 
@@ -366,87 +365,5 @@ func (a *Adapter) Resources(home string) ([]harness.Resource, error) {
 	if err != nil {
 		return nil, err
 	}
-	return resourcesFor(ledger, instances, PackageResource(home)), nil
-}
-
-// resourcesFor merges ledger rows and discovered instances into one record per
-// physical resource. A resource under the shared package root is visible to
-// every discovered profile; a profile-owned resource is visible only to the
-// profile whose root holds it.
-func resourcesFor(ledger *installstate.Ledger, instances []harness.Instance, packageRoot string) []harness.Resource {
-	byID := map[string]*harness.Resource{}
-	var order []string
-	for _, row := range ledger.Rows {
-		r, ok := byID[row.Resource]
-		if !ok {
-			r = &harness.Resource{
-				ID:   row.Resource,
-				Kind: row.Applied.Kind,
-				Path: row.Applied.Path,
-			}
-			byID[row.Resource] = r
-			order = append(order, row.Resource)
-		}
-		if r.Owner == "" {
-			r.Owner = row.Target
-		}
-		r.Consumers = appendUnique(r.Consumers, row.Target)
-	}
-
-	for _, id := range order {
-		r := byID[id]
-		shared := underDir(r.Path, packageRoot)
-		for _, inst := range instances {
-			if !inst.Exists {
-				continue
-			}
-			key := harness.Target{Kind: inst.Kind, Instance: inst.ID}.Key()
-			if contains(r.Consumers, key) {
-				continue
-			}
-			if shared || underDir(r.Path, inst.NativeRoot) {
-				r.VisibleTo = appendUnique(r.VisibleTo, key)
-			}
-		}
-	}
-
-	out := make([]harness.Resource, 0, len(order))
-	for _, id := range order {
-		r := byID[id]
-		sort.Strings(r.Consumers)
-		sort.Strings(r.VisibleTo)
-		out = append(out, *r)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
-}
-
-// underDir reports whether path is directory dir itself or lies inside it.
-func underDir(path, dir string) bool {
-	if path == "" || dir == "" {
-		return false
-	}
-	rel, err := filepath.Rel(dir, path)
-	if err != nil {
-		return false
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
-}
-
-// appendUnique appends value when it is not already present.
-func appendUnique(list []string, value string) []string {
-	if contains(list, value) {
-		return list
-	}
-	return append(list, value)
-}
-
-// contains reports whether list holds value.
-func contains(list []string, value string) bool {
-	for _, item := range list {
-		if item == value {
-			return true
-		}
-	}
-	return false
+	return harness.Resources(ledger, instances, harness.SharedRoots(home)), nil
 }

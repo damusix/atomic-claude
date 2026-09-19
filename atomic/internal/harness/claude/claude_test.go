@@ -102,11 +102,20 @@ func TestAdapterReportsClaudeKindAndCP0Capabilities(t *testing.T) {
 	if caps.Supports(harness.RoleStaticScope) {
 		t.Error("adapter claims a static-scope surface CP0 never proved")
 	}
-	// This checkpoint wires no lifecycle hook; an unwired hook must report
-	// unsupported rather than pretend to have run.
-	target := harness.Target{Kind: harness.KindClaude, Instance: "/x", NativeRoot: "/x"}
-	if _, err := a.Lifecycle().Verify(target); !errors.Is(err, harness.ErrUnsupported) {
-		t.Errorf("unwired verify error = %v, want ErrUnsupported", err)
+	// The lifecycle cutover binds every hook: a target must project the selected
+	// generation's claims rather than report an unwired surface.
+	home := newHome(t)
+	root := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := harness.Target{Kind: harness.KindClaude, Instance: root, NativeRoot: root}
+	plan, err := a.Lifecycle(home).Project(target, harness.PlanRequest{})
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	if len(plan.Claims) == 0 || plan.Generation == "" {
+		t.Errorf("project plan = %+v, want claims and a generation", plan)
 	}
 }
 

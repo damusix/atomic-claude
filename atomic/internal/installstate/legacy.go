@@ -158,7 +158,7 @@ func PlanAdoption(req AdoptionRequest) (AdoptionPlan, error) {
 	plan := buildPlan(req, c)
 
 	if len(c.V2.Journals) > 0 {
-		sims, blocked, err := simulateRecoveries(req.Home)
+		sims, _, blocked, err := SimulateRecoveries(req.Home)
 		if err != nil {
 			return AdoptionPlan{}, err
 		}
@@ -235,7 +235,11 @@ func Adopt(req AdoptionRequest) (AdoptionResult, error) {
 		return result, fmt.Errorf("%w: %s", ErrAdoptionRefused, strings.Join(plan.Blockers, "; "))
 	}
 	if plan.Status == StatusConverged {
-		return result, nil
+		// Already converged is still an adoption: the operation ran to record the
+		// target and the ownership its verified bytes prove. Without the rows the
+		// next classification would read the target as legacy evidence all over
+		// again, and status, repair, and uninstall would have nothing to act on.
+		return result, recordVerifiedOwnership(req, plan)
 	}
 
 	guard, err := adoptStateRoot(req)
@@ -251,7 +255,11 @@ func Adopt(req AdoptionRequest) (AdoptionResult, error) {
 		}
 		return result, err
 	}
-	return result, nil
+	// Resources the plan did not have to write still carry verified ownership —
+	// bytes already matching the selected generation, or a parseable block the
+	// journal never had to publish. Recording them completes the adoption; it is
+	// a no-op for the units applyAdoption already committed.
+	return result, recordVerifiedOwnership(req, plan)
 }
 
 // planAfterRecovery classifies the state after recovery has run and builds a
@@ -317,6 +325,12 @@ func applyAdoption(req AdoptionRequest, plan AdoptionPlan, operationID string, g
 		}
 		result.Applied = append(result.Applied, m.Path)
 	}
+	// The enrollment record rides in the same durable ledger write as the rows
+	// verification just authorized: an adopted target is enrolled, and a target
+	// without a record is invisible to status, repair, and uninstall.
+	if record, ok := enrollmentRecord(req.Target, req.NativeRoot); ok {
+		tx.Ledger.UpsertTarget(record)
+	}
 	if err := tx.Complete(); err != nil {
 		return err
 	}
@@ -324,6 +338,70 @@ func applyAdoption(req AdoptionRequest, plan AdoptionPlan, operationID string, g
 		result.JournalPath = ""
 	}
 	return nil
+}
+
+// recordVerifiedOwnership writes the enrollment record and the ownership rows
+// for every resource an adoption did not have to mutate: bytes already matching
+// the selected generation, or a parseable block the journal never published. The
+// digests are re-observed, so a row can only record bytes that verify now. It is
+// the converged-path counterpart to applyAdoption, and a no-op for units the
+// journal already committed.
+func recordVerifiedOwnership(req AdoptionRequest, plan AdoptionPlan) error {
+	ledger, err := LoadLedger(config.LedgerPath(req.Home))
+	if err != nil {
+		return err
+	}
+	changed := false
+	for _, res := range plan.Resources {
+		if res.Evidence != managedfile.EvidenceSelection && res.Evidence != managedfile.EvidenceBlock {
+			continue
+		}
+		obs, err := managedfile.Observe(res.Path, res.Kind)
+		if err != nil {
+			return err
+		}
+		if obs.Digest == "" {
+			continue
+		}
+		if ledger.Upsert(Row{
+			Target:     req.Target,
+			Resource:   res.ID,
+			Consumer:   consumerOf(req),
+			Generation: req.Generation,
+			Tier:       req.Tier,
+			Applied:    AppliedValue{Path: res.Path, Kind: res.Kind, Digest: obs.Digest},
+		}) {
+			changed = true
+		}
+	}
+	if record, ok := enrollmentRecord(req.Target, req.NativeRoot); ok && ledger.UpsertTarget(record) {
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return ledger.Save(config.LedgerPath(req.Home))
+}
+
+// consumerOf is the consumer a row records: the explicit consumer when the
+// caller named one, else the target itself, which is what an enrolled instance
+// consumes.
+func consumerOf(req AdoptionRequest) string {
+	if req.Consumer != "" {
+		return req.Consumer
+	}
+	return req.Target
+}
+
+// enrollmentRecord maps a target key and native root onto the ledger's enrolled
+// record. It is the one place installstate spells the "harness:instance" pair
+// apart, which is why it lives beside the ledger that owns the format.
+func enrollmentRecord(key, nativeRoot string) (TargetRecord, bool) {
+	harness, instance, ok := strings.Cut(key, ":")
+	if !ok || harness == "" || instance == "" {
+		return TargetRecord{}, false
+	}
+	return TargetRecord{Harness: harness, Instance: instance, NativeRoot: nativeRoot, Status: "converged"}, true
 }
 
 // buildPlan derives the per-resource plan and blockers from one classification.
@@ -349,14 +427,22 @@ func buildPlan(req AdoptionRequest, c Classification) AdoptionPlan {
 		plan.Blockers = append(plan.Blockers, "legacy and v2 ownership evidence overlap or disagree")
 	}
 
-	switch c.Legacy.Snapshot.State {
-	case claudeinstall.SnapshotCorrupt:
-		if !req.AcknowledgeSnapshot {
-			plan.Blockers = append(plan.Blockers, "the legacy pre-install snapshot is corrupt; acknowledge that restoration evidence is unusable before adoption")
-		}
-	case claudeinstall.SnapshotMissing:
-		if !req.AcknowledgeSnapshot {
-			plan.Blockers = append(plan.Blockers, "no historical restoration evidence exists; acknowledge that limit before adoption")
+	// The snapshot guards a legacy restoration, so it is decisive only while a
+	// legacy state governs: a fresh install has nothing to restore, and a v2
+	// install has already migrated. The managed block a v2 install writes is
+	// itself legacy-shaped evidence, so the classification — not the raw
+	// inventory — decides whether the limit applies.
+	switch c.State {
+	case StateLegacyComplete, StateLegacyPartial, StateMixed:
+		switch c.Legacy.Snapshot.State {
+		case claudeinstall.SnapshotCorrupt:
+			if !req.AcknowledgeSnapshot {
+				plan.Blockers = append(plan.Blockers, "the legacy pre-install snapshot is corrupt; acknowledge that restoration evidence is unusable before adoption")
+			}
+		case claudeinstall.SnapshotMissing:
+			if !req.AcknowledgeSnapshot {
+				plan.Blockers = append(plan.Blockers, "no historical restoration evidence exists; acknowledge that limit before adoption")
+			}
 		}
 	}
 
@@ -503,26 +589,37 @@ func recoverAll(home string) ([]RecoveryAction, error) {
 	return actions, nil
 }
 
-// simulateRecoveries previews every unresolved journal in memory. It opens no
+// SimulateRecoveries previews every unresolved journal in memory. It opens no
 // lock and neutralizes every write seam, so the filesystem stays byte-identical.
-func simulateRecoveries(home string) ([]RecoverySimulation, bool, error) {
+// It is the dry-run counterpart of RecoverJournals: blocked reports that a
+// journal cannot be reconciled to one safe result, which is what a plan reports
+// as blocked_on_recovery.
+//
+// The returned ledger is the simulated post-recovery view: the rows the
+// simulated decisions would commit, threaded in memory and never saved. A
+// caller that offers an advisory plan plans against that view, so applied bytes
+// the journal proves but the ledger has not yet recorded are visible exactly as
+// a real recovery would make them.
+func SimulateRecoveries(home string) ([]RecoverySimulation, *Ledger, bool, error) {
 	paths, err := JournalPaths(config.JournalsDir(home))
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
+	}
+	// One ledger carries every journal's simulated commit forward: real recovery
+	// saves after each journal, so a later journal observes the earlier rows.
+	ledger, err := LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		return nil, nil, false, err
 	}
 	var sims []RecoverySimulation
 	blocked := false
 	for _, path := range paths {
 		j, err := LoadJournal(path)
 		if err != nil {
-			return nil, false, err
+			return nil, nil, false, err
 		}
 		if j.Completed {
 			continue
-		}
-		ledger, err := LoadLedger(config.LedgerPath(home))
-		if err != nil {
-			return nil, false, err
 		}
 		r := NewRecovery(home, j, ledger)
 		r.LedgerPath = ""
@@ -530,7 +627,7 @@ func simulateRecoveries(home string) ([]RecoverySimulation, bool, error) {
 		r.RemoveStaging = func(string) error { return nil }
 		res, err := r.Recover()
 		if err != nil {
-			return nil, false, err
+			return nil, nil, false, err
 		}
 		sim := RecoverySimulation{Journal: path, Actions: res.Actions, Conflicts: res.Conflicts}
 		sims = append(sims, sim)
@@ -538,7 +635,7 @@ func simulateRecoveries(home string) ([]RecoverySimulation, bool, error) {
 			blocked = true
 		}
 	}
-	return sims, blocked, nil
+	return sims, ledger, blocked, nil
 }
 
 // selectionGuard remembers the state-root selection a failed adoption must

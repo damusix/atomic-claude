@@ -111,11 +111,21 @@ func TestAdapterReportsOMPKindAndCP0Capabilities(t *testing.T) {
 	if caps.Root.DefaultDir != DefaultAgentDir {
 		t.Errorf("adapter default root %q disagrees with the CP0 row %q", DefaultAgentDir, caps.Root.DefaultDir)
 	}
-	// Enrollment is driven through the adapter's own entry points; an unwired
-	// generic hook must report unsupported rather than pretend to have run.
-	target := harness.Target{Kind: harness.KindOMP, Instance: "/x", NativeRoot: "/x"}
-	if _, err := a.Lifecycle().Verify(target); !errors.Is(err, harness.ErrUnsupported) {
-		t.Errorf("unwired verify error = %v, want ErrUnsupported", err)
+	// The lifecycle cutover binds every hook: a profile target must project the
+	// shared package and steering claims rather than report an unwired surface.
+	home := newHome(t)
+	root := filepath.Join(home, ".omp", "agent")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	adapter := newAdapter(t, map[string]string{"": root})
+	target := harness.Target{Kind: harness.KindOMP, Instance: root, NativeRoot: root}
+	plan, err := adapter.Lifecycle(home).Project(target, harness.PlanRequest{})
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	if len(plan.Claims) != 2 || plan.Generation == "" {
+		t.Errorf("project plan = %+v, want the package and steering claims", plan)
 	}
 }
 
@@ -859,4 +869,16 @@ func TestEmbeddedCorpusLoadsSelectedGeneration(t *testing.T) {
 	if _, err := BuildPackage(cat, harness.OMPCapabilities()); err != nil {
 		t.Fatalf("build package from embedded corpus: %v", err)
 	}
+}
+
+// contains reports whether list holds value. It lives here because the
+// production helper it replaced moved to the harness package with the resource
+// merge.
+func contains(list []string, value string) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }

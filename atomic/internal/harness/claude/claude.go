@@ -50,11 +50,8 @@ func (a *Adapter) Kind() harness.Kind { return harness.KindClaude }
 // Capabilities returns the CP0 record for Claude Code 2.1.273.
 func (a *Adapter) Capabilities() harness.CapabilityMatrix { return harness.ClaudeCapabilities() }
 
-// Lifecycle returns the Claude hook points. This checkpoint wires none: the
-// projection, migration, and removal surfaces land with the steering, migration,
-// and lifecycle checkpoints, and an unwired hook reports ErrUnsupported rather
-// than pretending to have run.
-func (a *Adapter) Lifecycle() harness.Lifecycle { return harness.Lifecycle{} }
+// Lifecycle is implemented in lifecycle.go, where the projection, migration, and
+// removal seams are bound for one home.
 
 // Discover reports every Claude configuration root visible from home: the
 // configured root, and the default <home>/.claude when it exists and differs

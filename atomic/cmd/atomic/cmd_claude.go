@@ -8,6 +8,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/spf13/cobra"
 )
@@ -118,6 +119,17 @@ func runClaudeUninstall(targetDir, home string, out *os.File) (string, error) {
 	return claudeinstall.GenerateUninstallPrompt(targetDir, home, plan), nil
 }
 
+// resolveClaudeTarget maps --target onto the Claude artifact root. The default
+// root comes from the Claude adapter, so CLAUDE_CONFIG_DIR relocates it exactly
+// as the generic lifecycle verbs resolve it; an explicit path still goes through
+// claudeinstall's tilde handling.
+func resolveClaudeTarget(target, home string) (string, error) {
+	if target == "" || target == "~/.claude" {
+		return claude.DefaultConfigDir(home), nil
+	}
+	return claudeinstall.ResolveTarget(target)
+}
+
 // printPostInstallHint covers what install cannot automate: per-repo signals
 // initialization. Output style is seeded during install itself.
 func printPostInstallHint(verb string) {
@@ -151,14 +163,14 @@ func runClaude(args []string) {
 			os.Exit(2)
 		}
 
-		targetDir, err := claudeinstall.ResolveTarget(target)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
-			os.Exit(1)
-		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude %s: resolve home dir: %v\n", verb, err)
+			os.Exit(1)
+		}
+		targetDir, err := resolveClaudeTarget(target, home)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
 			os.Exit(1)
 		}
 
@@ -198,14 +210,14 @@ func runClaude(args []string) {
 			os.Exit(2)
 		}
 
-		targetDir, err := claudeinstall.ResolveTarget(target)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic claude diff: %v\n", err)
-			os.Exit(1)
-		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude diff: resolve home dir: %v\n", err)
+			os.Exit(1)
+		}
+		targetDir, err := resolveClaudeTarget(target, home)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude diff: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -227,14 +239,14 @@ func runClaude(args []string) {
 			os.Exit(2)
 		}
 
-		targetDir, err := claudeinstall.ResolveTarget(target)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic claude uninstall: %v\n", err)
-			os.Exit(1)
-		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude uninstall: resolve home dir: %v\n", err)
+			os.Exit(1)
+		}
+		targetDir, err := resolveClaudeTarget(target, home)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude uninstall: %v\n", err)
 			os.Exit(1)
 		}
 

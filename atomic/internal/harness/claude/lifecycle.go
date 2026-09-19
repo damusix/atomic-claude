@@ -1,0 +1,116 @@
+package claude
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
+	"github.com/damusix/atomic-claude/atomic/internal/embedded"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
+)
+
+// Tier is the enforcement tier a Claude projection carries. No CP0 role proved a
+// native scoped-rule surface for the tested version, so every Claude resource is
+// reported instruction-only and nothing reads as a native boundary.
+const Tier = artifacts.EnforcementUnsupported
+
+// Generation is the selected binary's Claude generation identity: one line per
+// embedded artifact, target and digest. It changes whenever the shipped corpus
+// changes, which is what makes a converged target's row comparable.
+func Generation() string {
+	manifest := embedded.Manifest()
+	parts := make([]string, 0, len(manifest))
+	for _, a := range manifest {
+		parts = append(parts, a.Target+"\x00"+a.SHA256)
+	}
+	return managedfile.Digest([]byte(strings.Join(parts, "\n") + "\n"))
+}
+
+// Lifecycle binds the Claude projection, convergence, verification, and removal
+// seams for one home. Convergence runs the CP1D migration engine, which owns the
+// lifecycle lock, oldest-first recovery, staging, verification-before-ledger, and
+// the one-time mutable import; this file only translates the generic plan.
+func (a *Adapter) Lifecycle(home string) harness.Lifecycle {
+	return harness.Lifecycle{
+		ProjectFn: func(t harness.Target, req harness.PlanRequest) (harness.Plan, error) {
+			return a.project(home, t, req)
+		},
+		ConvergeFn: func(t harness.Target, p harness.Plan) (harness.Convergence, error) {
+			return a.converge(home, t, p)
+		},
+		VerifyFn: func(t harness.Target) ([]harness.Assessment, error) {
+			return a.assess(home, t)
+		},
+		RemoveFn: func(t harness.Target) (harness.Removal, error) {
+			return harness.RemoveTargetResources(home, t)
+		},
+	}
+}
+
+// project builds the read-only plan for one Claude target from the migration
+// engine, so a legacy, partial, or mixed state reports its blockers instead of
+// being converged around.
+func (a *Adapter) project(home string, t harness.Target, req harness.PlanRequest) (harness.Plan, error) {
+	if t.NativeRoot == "" {
+		return harness.Plan{}, fmt.Errorf("claude: project %s: no native root", t.Key())
+	}
+	plan, err := PlanMigration(MigrationRequest{
+		Home:          home,
+		NativeRoot:    t.NativeRoot,
+		Target:        t.Key(),
+		Generation:    Generation(),
+		Tier:          string(Tier),
+		BatchDecision: req.BatchDecision,
+	})
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	return harness.Plan{
+		Target:        t,
+		Generation:    Generation(),
+		Claims:        GlobalClaims(t.NativeRoot),
+		Blockers:      plan.Blockers,
+		BatchDecision: req.BatchDecision,
+		Converged:     plan.Status == installstate.StatusConverged,
+	}, nil
+}
+
+// converge applies the plan through the migration engine and maps the outcome
+// onto the shared convergence vocabulary.
+func (a *Adapter) converge(home string, t harness.Target, p harness.Plan) (harness.Convergence, error) {
+	_, err := Migrate(MigrationRequest{
+		Home:          home,
+		NativeRoot:    t.NativeRoot,
+		Target:        t.Key(),
+		Consumer:      t.Key(),
+		Generation:    p.Generation,
+		Tier:          string(Tier),
+		BatchDecision: p.BatchDecision,
+	})
+	if err != nil {
+		return harness.Convergence{Target: t}, err
+	}
+	return harness.Convergence{Target: t, Status: harness.StatusConverged}, nil
+}
+
+// assess reports the ownership verdict for every Claude claim, read-only.
+func (a *Adapter) assess(home string, t harness.Target) ([]harness.Assessment, error) {
+	if t.NativeRoot == "" {
+		return nil, fmt.Errorf("claude: assess %s: no native root", t.Key())
+	}
+	c, err := installstate.Classify(installstate.ClassifyRequest{
+		Home:       home,
+		NativeRoot: t.NativeRoot,
+		Claims:     GlobalClaims(t.NativeRoot),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]harness.Assessment, 0, len(c.Resources))
+	for _, r := range c.Resources {
+		out = append(out, r.Assessment)
+	}
+	return out, nil
+}

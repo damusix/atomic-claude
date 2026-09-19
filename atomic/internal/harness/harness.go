@@ -80,8 +80,10 @@ type Adapter interface {
 	// harness version.
 	Capabilities() CapabilityMatrix
 	// Lifecycle returns the projection, convergence, verification, and removal
-	// hook points this adapter supplies.
-	Lifecycle() Lifecycle
+	// hook points this adapter supplies for one home. Home is the root atomic
+	// state lives under, so a hook can reach the ledger without the caller
+	// threading it through every call.
+	Lifecycle(home string) Lifecycle
 }
 
 // Errors every adapter shares. A caller can distinguish a refused ambiguity,
