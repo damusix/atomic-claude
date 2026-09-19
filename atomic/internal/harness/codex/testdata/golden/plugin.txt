@@ -1,0 +1,25 @@
+generation 37a88035be323e265533289cf9b889bbb4816f29a158b2a38890e320aa8fdced
+.agents/plugins/marketplace.json cd1d617be8d749bdd98d84a7555a9437870496c93536c4c3eb2dc24da0c863de unsupported
+plugins/atomic/.codex-plugin/plugin.json 2e97c08c8685126029a7caf2e70c8f96539f90dd7cadbc49e6697a5b062c26d7 unsupported
+plugins/atomic/agents/atomic-example.toml 45e09c5db49799c8467994a3bea4375ad0321ac6210da34c410b5a3f09e0038a unsupported
+plugins/atomic/matcher.mjs 21b2f5e924c2a7dedd612aa5bc2c251793a56fb5a770ef7f2046238ce8366e6b unsupported
+plugins/atomic/rules/index.json 29b0005b4248faf3bcac2d7604c602fc36bba2a43a7b6dc1e4462283b7845b17 unsupported
+plugins/atomic/rules/typescript/style.md 516f954957f1c2b9da1d26a44795a4d2d470ab395b2813b4bdadc274a3401a13 unsupported
+plugins/atomic/skills/atomic-example/SKILL.md c234c63418811d827b0a3707657cea3112f8f5aa82fecaf4b3c08046be2000c2 unsupported
+gap skill-discovery unsupported
+gap skill-metadata unsupported
+gap skill-references unsupported
+gap skill-disablement unsupported
+gap session-baseline unsupported
+gap static-scoped-rule unsupported
+gap pre-operation-targets unsupported
+gap context-return unsupported
+gap deterministic-deny unsupported
+unproven plugin-hook trust and changed-definition re-review
+unproven deliberate hook disablement and config precedence
+unproven registration cardinality and collisions
+unproven instruction and payload size limits
+unproven hosted-tool and specialized-tool bypasses
+unproven plugin removal and cleanup
+steering native AGENTS.md instruction materialization
+hooks withheld 5

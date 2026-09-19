@@ -35,6 +35,22 @@ type RuleSource struct {
 	Bytes  []byte
 }
 
+// ShippedRuleSources pairs every canonical path-scoped rule with its authored
+// bytes. Each adapter's rule projection and runtime delivery consume the same
+// pairs, so a rule cannot ship in one and be missing from the other.
+func ShippedRuleSources(cat *artifacts.Catalog) ([]RuleSource, error) {
+	ofKind := cat.OfKind(artifacts.KindRule)
+	sources := make([]RuleSource, 0, len(ofKind))
+	for _, a := range ofKind {
+		record, err := rules.ParseShipped(a.Source, a.Body)
+		if err != nil {
+			return nil, fmt.Errorf("harness: parse %s: %w", a.ID, err)
+		}
+		sources = append(sources, RuleSource{Record: record, Bytes: a.Body})
+	}
+	return sources, nil
+}
+
 // RuleOrderingRecordID is the deterministic identity order the projections are
 // materialized in: ascending canonical RecordID. It is Atomic's declared
 // generation order, not native precedence — CP0 measured Claude membership and

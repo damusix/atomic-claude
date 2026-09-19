@@ -1,4 +1,4 @@
-package omp
+package codex
 
 import (
 	"fmt"
@@ -9,9 +9,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
 
-// Lifecycle binds the OMP projection, convergence, verification, and removal
-// seams for one home. Converge runs the profile enrollment engine, which owns
-// the lifecycle lock, oldest-first recovery, staging, verification-before-ledger,
+// Lifecycle binds the Codex projection, convergence, verification, and removal
+// seams for one home. Converge runs the enrollment engine, which owns the
+// lifecycle lock, oldest-first recovery, staging, verification-before-ledger,
 // and the shared-generation refusal; this file only translates the plan.
 func (a *Adapter) Lifecycle(home string) harness.Lifecycle {
 	return harness.Lifecycle{
@@ -30,48 +30,34 @@ func (a *Adapter) Lifecycle(home string) harness.Lifecycle {
 	}
 }
 
-// project builds the read-only plan for one OMP profile: the shared package and
-// profile steering claims, the generation the selected binary publishes, and
-// every blocker — an incompatible shared generation or an ambiguous block — that
-// forbids mutation.
+// project builds the read-only plan for one Codex home: the shared plugin-tree
+// claim, the generation the selected binary publishes, and every blocker — an
+// incompatible shared generation or a conflicted tree observation — that forbids
+// mutation.
 func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 	if t.NativeRoot == "" {
-		return harness.Plan{}, fmt.Errorf("omp: project %s: %w", t.Key(), harness.ErrUnsupported)
+		return harness.Plan{}, fmt.Errorf("codex: project %s: %w", t.Key(), harness.ErrUnsupported)
 	}
 	cat, err := a.corpus()
 	if err != nil {
 		return harness.Plan{}, err
 	}
-	pkg, err := BuildPackage(cat, a.Capabilities())
+	plugin, err := BuildPlugin(cat, a.Capabilities())
 	if err != nil {
 		return harness.Plan{}, err
 	}
-	block, err := SteeringBlock(cat)
-	if err != nil {
-		return harness.Plan{}, err
-	}
-	treeDigest, err := pkg.TreeDigest()
-	if err != nil {
-		return harness.Plan{}, err
-	}
-	blockDigest, err := SteeringDigest(block)
+	treeDigest, err := plugin.TreeDigest()
 	if err != nil {
 		return harness.Plan{}, err
 	}
 
-	plan := harness.Plan{Target: t, Generation: pkg.Generation, Converged: true}
-	desired := map[string]string{
-		PackageResource(home):          treeDigest,
-		SteeringResource(t.NativeRoot): blockDigest,
-	}
-	claims, err := a.Claims(home, t.NativeRoot)
+	plan := harness.Plan{Target: t, Generation: plugin.Generation, Converged: true}
+	claims, err := a.Claims(home)
 	if err != nil {
 		return harness.Plan{}, err
 	}
 	for i := range claims {
-		if digest, ok := desired[claims[i].ID]; ok {
-			claims[i].SelectedDigest = digest
-		}
+		claims[i].SelectedDigest = treeDigest
 		plan.Claims = append(plan.Claims, claims[i])
 	}
 
@@ -85,7 +71,7 @@ func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 			plan.Converged = false
 			continue
 		}
-		if want := desired[claim.ID]; want == "" || obs.Digest != want {
+		if obs.Digest != treeDigest {
 			plan.Converged = false
 		}
 	}
@@ -94,27 +80,27 @@ func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 	if err != nil {
 		return harness.Plan{}, err
 	}
-	if err := harness.EnsureSharedGeneration(ledger, "omp", t.Key(), PackageResource(home), "package", pkg.Generation); err != nil {
+	if err := harness.EnsureSharedGeneration(ledger, "codex", t.Key(), PackageResource(home), "plugin tree", plugin.Generation); err != nil {
 		plan.Blockers = append(plan.Blockers, err.Error())
 	}
 	return plan, nil
 }
 
-// converge applies the OMP plan through the enrollment engine.
+// converge applies the Codex plan through the enrollment engine.
 func (a *Adapter) converge(home string, t harness.Target) (harness.Convergence, error) {
-	result, err := a.Enroll(EnrollRequest{Home: home, Profile: Profile{Root: t.NativeRoot}})
+	result, err := a.Enroll(EnrollRequest{Home: home, Root: t.NativeRoot})
 	if err != nil {
 		return harness.Convergence{Target: t}, err
 	}
 	return harness.Convergence{Target: t, Status: result.Status}, nil
 }
 
-// assess reports the ownership verdict for every OMP claim, read-only.
+// assess reports the ownership verdict for every Codex claim, read-only.
 func (a *Adapter) assess(home string, t harness.Target) ([]harness.Assessment, error) {
 	if t.NativeRoot == "" {
-		return nil, fmt.Errorf("omp: assess %s: %w", t.Key(), harness.ErrUnsupported)
+		return nil, fmt.Errorf("codex: assess %s: %w", t.Key(), harness.ErrUnsupported)
 	}
-	claims, err := a.Claims(home, t.NativeRoot)
+	claims, err := a.Claims(home)
 	if err != nil {
 		return nil, err
 	}

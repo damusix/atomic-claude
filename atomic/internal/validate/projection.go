@@ -359,7 +359,7 @@ func agentProjector(target artifacts.Target) func(*artifacts.Catalog, artifacts.
 // can tell a reported gap from a silent leak.
 func (g *projGate) skillReports() map[artifacts.Target]map[string]map[string]bool {
 	reports := make(map[artifacts.Target]map[string]map[string]bool, 2)
-	for _, target := range []artifacts.Target{artifacts.TargetClaude, artifacts.TargetOMP} {
+	for _, target := range []artifacts.Target{artifacts.TargetClaude, artifacts.TargetOMP, artifacts.TargetCodex} {
 		report, err := harness.ProjectSkills(g.cat, target, harness.SkillPolicy{}, matrixFor(target))
 		if err != nil {
 			g.fail(ruleRenderFailure, "skills", "project %s skill corpus: %v", target, err)
@@ -387,31 +387,40 @@ func (g *projGate) checkSkills(reports map[artifacts.Target]map[string]map[strin
 	for _, a := range g.cat.OfKind(artifacts.KindSkill) {
 		g.audit(a, artifacts.TargetClaude, harness.ClaudeSkill, reports[artifacts.TargetClaude][a.ID])
 		g.audit(a, artifacts.TargetOMP, harness.OMPSkill, reports[artifacts.TargetOMP][a.ID])
+		g.audit(a, artifacts.TargetCodex, harness.CodexSkill, reports[artifacts.TargetCodex][a.ID])
 		g.checkSkillDrops(a)
 	}
 }
 
-// checkSkillDrops requires an OMP skill manifest to report every canonical
-// frontmatter key it cannot carry natively. A referenced file has no metadata
-// contract of its own, so only a manifest is checked.
+// checkSkillDrops requires an OMP or Codex skill manifest to report every
+// canonical frontmatter key it cannot carry natively. A referenced file has no
+// metadata contract of its own, so only a manifest is checked.
 func (g *projGate) checkSkillDrops(a artifacts.Artifact) {
 	if !harness.SkillManifest(a) {
 		return
-	}
-	p, err := harness.OMPSkill(a)
-	if err != nil {
-		return // already reported by audit
 	}
 	kvs, _, err := frontmatter.ParseOrdered(string(a.Body))
 	if err != nil {
 		return
 	}
-	for _, kv := range kvs {
-		if kv.Key == "name" || kv.Key == "description" {
-			continue
+	for _, tc := range []struct {
+		project func(artifacts.Artifact) (artifacts.Projection, error)
+		label   string
+	}{
+		{harness.OMPSkill, "OMP"},
+		{harness.CodexSkill, "Codex"},
+	} {
+		p, err := tc.project(a)
+		if err != nil {
+			continue // already reported by audit
 		}
-		if !containsString(p.Unsupported, kv.Key) {
-			g.fail(ruleTier, a.Source, "%s: OMP projection drops canonical metadata key %q without reporting it unsupported", a.ID, kv.Key)
+		for _, kv := range kvs {
+			if kv.Key == "name" || kv.Key == "description" {
+				continue
+			}
+			if !containsString(p.Unsupported, kv.Key) {
+				g.fail(ruleTier, a.Source, "%s: %s projection drops canonical metadata key %q without reporting it unsupported", a.ID, tc.label, kv.Key)
+			}
 		}
 	}
 }

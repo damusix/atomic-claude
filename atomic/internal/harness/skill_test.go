@@ -27,7 +27,7 @@ func loadSkillCorpus(t *testing.T) *artifacts.Catalog {
 func TestSkill_CanonicalCorpusProjectsCleanly(t *testing.T) {
 	cat := loadSkillCorpus(t)
 
-	for _, target := range []artifacts.Target{artifacts.TargetClaude, artifacts.TargetOMP} {
+	for _, target := range []artifacts.Target{artifacts.TargetClaude, artifacts.TargetOMP, artifacts.TargetCodex} {
 		report, err := ProjectSkills(cat, target, SkillPolicy{}, matrixFor(target))
 		if err != nil {
 			t.Fatalf("ProjectSkills(%s): %v", target, err)
@@ -93,7 +93,21 @@ func TestSkill_AllCanonicalSkillsProject(t *testing.T) {
 				t.Errorf("OMP projection reports unsupported metadata %v for a portable manifest", omp.Unsupported)
 			}
 
-			for _, p := range []artifacts.Projection{claude, omp} {
+			codex, err := CodexSkill(a)
+			if err != nil {
+				t.Fatalf("CodexSkill: %v", err)
+			}
+			if codex.Target != artifacts.TargetCodex || codex.Path != a.Source {
+				t.Errorf("Codex projection = %s %s, want codex %s", codex.Target, codex.Path, a.Source)
+			}
+			if codex.Enforcement != artifacts.EnforcementUnsupported {
+				t.Errorf("Codex enforcement = %q, want unsupported", codex.Enforcement)
+			}
+			if len(codex.Unsupported) != 0 {
+				t.Errorf("Codex projection reports unsupported metadata %v for a portable manifest", codex.Unsupported)
+			}
+
+			for _, p := range []artifacts.Projection{claude, omp, codex} {
 				if p.Digest != artifacts.ProjectionDigest(p.Bytes) {
 					t.Errorf("%s %s digest is not the digest of its bytes", p.Target, p.Path)
 				}
@@ -312,12 +326,46 @@ func TestSkill_GapsReportUnprovenSurfaces(t *testing.T) {
 	}
 }
 
-// Codex skill installation is a later milestone: the target reports no
-// projector rather than an invented one.
-func TestSkill_CodexHasNoProjector(t *testing.T) {
-	cat := &artifacts.Catalog{}
-	if _, err := ProjectSkills(cat, artifacts.TargetCodex, SkillPolicy{}, CodexCapabilities()); err == nil {
-		t.Fatal("ProjectSkills accepted a target with no skill projector")
+// Codex shares OMP's portable manifest pair, so a Codex manifest carries the
+// name and description as its own frontmatter, preserves the canonical
+// instruction body byte-for-byte, and reports every other canonical metadata key
+// unsupported. Codex proved no skill surface, so the bytes ship against explicit
+// gaps rather than an implied native claim.
+func TestSkill_CodexSharesPortableProjection(t *testing.T) {
+	manifest := skillArtifact("atomic-extra", "SKILL.md",
+		"---\nname: atomic-extra\ndescription: Fixture skill.\nallowed-tools: Read\n---\nBody.\n")
+
+	proj, err := CodexSkill(manifest)
+	if err != nil {
+		t.Fatalf("CodexSkill: %v", err)
+	}
+	if proj.Target != artifacts.TargetCodex {
+		t.Errorf("target = %s, want codex", proj.Target)
+	}
+	if !slices.Contains(proj.Unsupported, "allowed-tools") {
+		t.Errorf("Codex unsupported metadata = %v, want it to include allowed-tools", proj.Unsupported)
+	}
+	meta, body, err := frontmatter.Parse(string(proj.Bytes))
+	if err != nil {
+		t.Fatalf("parse Codex projection: %v", err)
+	}
+	if meta["name"] != "atomic-extra" || meta["description"] != "Fixture skill." {
+		t.Errorf("Codex metadata = %v, want the portable pair", meta)
+	}
+	if _, ok := meta["allowed-tools"]; ok {
+		t.Error("Codex projection carries an unproven metadata key")
+	}
+	want, err := artifacts.SkillBody(manifest)
+	if err != nil {
+		t.Fatalf("SkillBody: %v", err)
+	}
+	if body != string(want) {
+		t.Errorf("Codex projection lost the canonical body:\n--- got ---\n%s\n--- want ---\n%s", body, want)
+	}
+
+	gaps := SkillGaps(CodexCapabilities())
+	if len(gaps) != len(skillRoles) {
+		t.Errorf("Codex skill gaps = %d, want %d", len(gaps), len(skillRoles))
 	}
 }
 
@@ -327,7 +375,7 @@ func TestSkill_Deterministic(t *testing.T) {
 	first := loadSkillCorpus(t)
 	second := loadSkillCorpus(t)
 
-	for _, target := range []artifacts.Target{artifacts.TargetClaude, artifacts.TargetOMP} {
+	for _, target := range []artifacts.Target{artifacts.TargetClaude, artifacts.TargetOMP, artifacts.TargetCodex} {
 		one, err := ProjectSkills(first, target, SkillPolicy{}, matrixFor(target))
 		if err != nil {
 			t.Fatalf("ProjectSkills(%s): %v", target, err)
@@ -586,8 +634,12 @@ func skillArtifact(dir, rel, body string) artifacts.Artifact {
 
 // matrixFor resolves the capability record a test target projects against.
 func matrixFor(target artifacts.Target) CapabilityMatrix {
-	if target == artifacts.TargetOMP {
+	switch target {
+	case artifacts.TargetOMP:
 		return OMPCapabilities()
+	case artifacts.TargetCodex:
+		return CodexCapabilities()
+	default:
+		return ClaudeCapabilities()
 	}
-	return ClaudeCapabilities()
 }

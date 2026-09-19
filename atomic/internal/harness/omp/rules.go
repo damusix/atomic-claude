@@ -99,16 +99,7 @@ func ProjectShippedRules(cat *artifacts.Catalog, m harness.CapabilityMatrix) (Sh
 // bytes. The rule projection and the runtime delivery consume the same pairs, so
 // a rule cannot ship in one and be missing from the other.
 func ShippedRuleSources(cat *artifacts.Catalog) ([]harness.RuleSource, error) {
-	artifactsOfKind := cat.OfKind(artifacts.KindRule)
-	sources := make([]harness.RuleSource, 0, len(artifactsOfKind))
-	for _, a := range artifactsOfKind {
-		record, err := rules.ParseShipped(a.Source, a.Body)
-		if err != nil {
-			return nil, fmt.Errorf("omp: parse %s: %w", a.ID, err)
-		}
-		sources = append(sources, harness.RuleSource{Record: record, Bytes: a.Body})
-	}
-	return sources, nil
+	return harness.ShippedRuleSources(cat)
 }
 
 func projectShippedRules(sources []harness.RuleSource, m harness.CapabilityMatrix) (ShippedRuleReport, error) {

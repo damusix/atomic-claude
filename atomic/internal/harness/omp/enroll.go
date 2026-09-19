@@ -2,8 +2,6 @@ package omp
 
 import (
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
@@ -151,7 +149,7 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 		return result, err
 	}
 
-	if err := ensureCompatible(ledger, target.Key(), PackageResource(req.Home), pkg.Generation); err != nil {
+	if err := harness.EnsureSharedGeneration(ledger, "omp", target.Key(), PackageResource(req.Home), "package", pkg.Generation); err != nil {
 		return result, err
 	}
 
@@ -289,36 +287,8 @@ func (a *Adapter) finish(home string, result EnrollResult) (EnrollResult, error)
 	return result, nil
 }
 
-// ensureCompatible refuses when another enrolled profile's recorded generation
-// of the shared package is not the one this plan publishes. One physical
-// package cannot hold two generations, so a plan that moves it must move every
-// consumer with it; converging one profile while another records a different
-// generation would leave that profile's ledger row describing bytes that are no
-// longer there. The refusal happens before any mutation — no staging, journal,
-// backup, or native write precedes it — and names both targets so the operator
-// converges the shared package as one operation.
-func ensureCompatible(ledger *installstate.Ledger, target, resource, generation string) error {
-	var others []string
-	for _, row := range ledger.Rows {
-		if row.Resource != resource || row.Target == target {
-			continue
-		}
-		if row.Generation == generation {
-			continue
-		}
-		want := row.Generation
-		if want == "" {
-			want = "an unrecorded generation"
-		}
-		others = append(others, fmt.Sprintf("%s requires %s", row.Target, want))
-	}
-	if len(others) == 0 {
-		return nil
-	}
-	sort.Strings(others)
-	return fmt.Errorf("omp: shared package %s: %s requires generation %s, but %s; convergence refuses before package mutation",
-		resource, target, generation, strings.Join(others, ", "))
-}
+// The shared-package generation refusal lives in harness.EnsureSharedGeneration,
+// so every adapter that publishes a shared physical resource applies one rule.
 
 // Claims returns the ownership claims the selected generation makes for one
 // profile: the shared package tree and the profile-owned steering block. It

@@ -80,12 +80,28 @@ func ClaudeSkill(a artifacts.Artifact) (artifacts.Projection, error) {
 	}, nil
 }
 
-// OMPSkill renders a canonical skill file into OMP's package tree. A manifest
-// becomes the canonical body with only the portable name/description
-// frontmatter; every other canonical metadata key is reported unsupported
-// because OMP has no skill-metadata row. A referenced file ships unchanged
-// beside its manifest, so relative references keep their meaning.
+// OMPSkill renders a canonical skill file into OMP's package tree.
 func OMPSkill(a artifacts.Artifact) (artifacts.Projection, error) {
+	return nativeSkill(a, artifacts.TargetOMP)
+}
+
+// CodexSkill renders a canonical skill file into the Codex plugin tree. Codex
+// discovers SKILL.md with the same portable name/description pair OMP carries,
+// so the projection is shared: the manifest becomes the canonical body with
+// only those two fields, every other canonical metadata key is reported
+// unsupported, and a referenced file ships unchanged beside its manifest. No
+// CP0 Codex skill row exists, so the bytes ship and every skill surface is
+// reported as a gap.
+func CodexSkill(a artifacts.Artifact) (artifacts.Projection, error) {
+	return nativeSkill(a, artifacts.TargetCodex)
+}
+
+// nativeSkill renders a canonical skill file for a target whose manifest
+// frontmatter is the portable name/description pair, so OMP and Codex share one
+// projection rather than two hand-kept copies. A manifest becomes the canonical
+// body with only the portable fields; a referenced file ships unchanged beside
+// its manifest, so relative references keep their meaning.
+func nativeSkill(a artifacts.Artifact, target artifacts.Target) (artifacts.Projection, error) {
 	if err := checkedSkill(a); err != nil {
 		return artifacts.Projection{}, err
 	}
@@ -93,7 +109,7 @@ func OMPSkill(a artifacts.Artifact) (artifacts.Projection, error) {
 	if !SkillManifest(a) {
 		return artifacts.Projection{
 			Artifact:    a.ID,
-			Target:      artifacts.TargetOMP,
+			Target:      target,
 			Path:        a.Source,
 			Bytes:       a.Body,
 			Delivery:    artifacts.DeliveryDirect,
@@ -108,7 +124,7 @@ func OMPSkill(a artifacts.Artifact) (artifacts.Projection, error) {
 	}
 	kvs, _, err := frontmatter.ParseOrdered(string(a.Body))
 	if err != nil {
-		return artifacts.Projection{}, fmt.Errorf("harness: project %s for OMP: %w", a.ID, err)
+		return artifacts.Projection{}, fmt.Errorf("harness: project %s for %s: %w", a.ID, target, err)
 	}
 
 	fields := []frontmatter.KV{{Key: "name", Value: a.Semantics.Name}}
@@ -124,12 +140,12 @@ func OMPSkill(a artifacts.Artifact) (artifacts.Projection, error) {
 
 	doc, err := frontmatter.EmitOrdered(fields, string(body))
 	if err != nil {
-		return artifacts.Projection{}, fmt.Errorf("harness: project %s for OMP: %w", a.ID, err)
+		return artifacts.Projection{}, fmt.Errorf("harness: project %s for %s: %w", a.ID, target, err)
 	}
 
 	return artifacts.Projection{
 		Artifact:    a.ID,
-		Target:      artifacts.TargetOMP,
+		Target:      target,
 		Path:        a.Source,
 		Bytes:       []byte(doc),
 		Delivery:    artifacts.DeliveryDirect,
@@ -338,15 +354,17 @@ func ProjectSkills(cat *artifacts.Catalog, target artifacts.Target, policy Skill
 	return report, nil
 }
 
-// skillProjector resolves the per-target skill projection function. Codex skill
-// installation is a later milestone, so it reports no projector rather than an
-// invented one.
+// skillProjector resolves the per-target skill projection function. Codex
+// shares OMP's portable manifest pair, so it projects through the same native
+// skill path; the target's capability record still decides what may be claimed.
 func skillProjector(target artifacts.Target) (func(artifacts.Artifact) (artifacts.Projection, error), error) {
 	switch target {
 	case artifacts.TargetClaude:
 		return ClaudeSkill, nil
 	case artifacts.TargetOMP:
 		return OMPSkill, nil
+	case artifacts.TargetCodex:
+		return CodexSkill, nil
 	}
 	return nil, fmt.Errorf("harness: no skill projection for target %q", target)
 }

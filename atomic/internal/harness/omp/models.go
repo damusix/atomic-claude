@@ -1,8 +1,6 @@
 package omp
 
 import (
-	"regexp"
-
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 )
 
@@ -66,12 +64,8 @@ func RoleDefaults(m harness.CapabilityMatrix, prefs []RolePreference) (defaults 
 	return defaults, nil
 }
 
-// providerPattern matches a concrete provider or model identifier. Package
+// ProviderID reports whether s names a concrete provider or model. Package
 // generation rejects any generated file whose rendered bytes match it, so a
-// provider choice cannot enter Atomic's output.
-var providerPattern = regexp.MustCompile(`\b(?:openai|anthropic|google|azure|bedrock|vertex|ollama)/|\b(?:gpt|claude|gemini|llama|mistral|qwen|deepseek)-[0-9]`)
-
-// ProviderID reports whether s names a concrete provider or model. A caller
-// that wants a specific model sets it in its own native configuration; Atomic
-// stores preferences, never provider choices.
-func ProviderID(s string) bool { return providerPattern.MatchString(s) }
+// provider choice cannot enter Atomic's output. The check is shared with every
+// adapter, so one pattern decides the sweep for all of them.
+func ProviderID(s string) bool { return harness.ProviderID(s) }
