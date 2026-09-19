@@ -2,6 +2,7 @@ package harness
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -81,6 +82,33 @@ func TestRegistryRefusesDuplicateAndUnknownAdapters(t *testing.T) {
 	}
 	if _, err := NewRegistry(&fakeAdapter{kind: "vim"}); err == nil {
 		t.Error("unknown adapter kind accepted")
+	}
+}
+
+// TestRegistryDiscoverSkipsUnsupportedKind proves a kind that cannot resolve
+// its native root contributes no instance to a broad walk and is not an error,
+// while naming that kind still reports the refusal. A whole-machine scan must
+// not fail because one harness declined to guess at a root.
+func TestRegistryDiscoverSkipsUnsupportedKind(t *testing.T) {
+	home := t.TempDir()
+	claude := &fakeAdapter{kind: KindClaude, instances: []Instance{{Kind: KindClaude, ID: "/a", NativeRoot: "/a"}}}
+	codex := &fakeAdapter{kind: KindCodex, discover: func(string) ([]Instance, error) {
+		return nil, fmt.Errorf("codex: set the relocation variable: %w", ErrUnsupported)
+	}}
+	reg, err := NewRegistry(claude, codex)
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+
+	instances, err := reg.Discover(home)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	if len(instances) != 1 || instances[0].Kind != KindClaude {
+		t.Fatalf("discover = %+v, want only the resolvable kind", instances)
+	}
+	if _, err := reg.Select(home, Selector{Kind: KindCodex}); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("select error = %v, want the adapter's ErrUnsupported refusal", err)
 	}
 }
 

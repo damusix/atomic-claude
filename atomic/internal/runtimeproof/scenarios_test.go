@@ -1,8 +1,10 @@
-// CP8A scenario matrix: the end-to-end proof of Milestone A over isolated
-// Claude and OMP homes. Each scenario drives a production engine — the install
-// lifecycle engine, the installstate migration engine, the doctor fix loop, or
-// the real harness adapters — against a home it created itself, and records one
-// evidence entry naming the spec success criterion it asserts.
+// Scenario matrix harness: the end-to-end proof runs of this package. Each
+// scenario drives a production engine — the install lifecycle engine, the
+// installstate migration engine, the doctor fix loop, or the real harness
+// adapters — against a home it created itself, and records one evidence entry
+// naming the spec success criterion it asserts. The matrix covers Milestone A
+// (CP8A: Claude and OMP homes) and Milestone B (CP8B: Codex and mixed homes),
+// plus the CP6A/CP6B guidance rows that share this recorder.
 //
 // The recorder is deliberately boring: one JSON file per scenario under
 // .claude/.scratchpad/omp-plugin-compatibility/runtime/ (override with
@@ -129,7 +131,7 @@ func persistScenario(t *testing.T, ev ScenarioEvidence) {
 	t.Helper()
 	root := cp8aEvidence.root
 	if root == "" {
-		t.Logf("CP8A %s: no evidence root resolvable; record kept in-process only", ev.Scenario)
+		t.Logf("scenario %s: no evidence root resolvable; record kept in-process only", ev.Scenario)
 	} else if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Errorf("create evidence root: %v", err)
 	} else if data, err := json.MarshalIndent(ev, "", "  "); err != nil {
@@ -219,7 +221,7 @@ func writeEvidenceIndex() {
 		Failed    int                `json:"failed"`
 		Skipped   int                `json:"skipped"`
 		Scenarios []ScenarioEvidence `json:"scenarios"`
-	}{Schema: "cp8a-scenario-matrix/1", Count: len(records), Scenarios: records}
+	}{Schema: "runtimeproof-scenario-matrix/1", Count: len(records), Scenarios: records}
 	for _, r := range records {
 		switch r.Status {
 		case "pass":
