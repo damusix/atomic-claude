@@ -36,12 +36,12 @@ atomic-claude/                       # repo root (this repo)
 │   │   ├── bundlemirror/            # maps the canonical corpus to Claude-native targets at build
 │   │   ├── embedded/                # go:embed of the generated bundle
 │   │   ├── claudeinstall/           # Claude-only bundle install: install/update/list/diff/uninstall
-│   │   ├── harness/                 # harness discovery + the Claude and OMP adapters
+│   │   ├── harness/                 # harness discovery + the Claude, OMP, and Codex adapters
 │   │   ├── install/                 # lifecycle engine: plan/apply/converge, lock, journals
 │   │   ├── installstate/            # enrollment ledger, journals, transaction records
 │   │   ├── rules/                   # RuleRecord/RuleInstance, matching, enforcement tiers
 │   │   ├── config/                  # config.toml + ~/.atomic paths, state-location ladder
-│   │   ├── doctor/                  # integrity checks (23 stable categories)
+│   │   ├── doctor/                  # integrity checks (24 stable categories)
 │   │   ├── selfupdate/              # release lookup, staged swap, update lock/state
 │   │   ├── signals/                 # scanners (tree, manifests, languages)
 │   │   ├── reminder/                # reminder storage: add/list/show/rm
@@ -153,11 +153,13 @@ Converges Atomic into explicitly selected harness instances and enrolls them. It
 
 
 ```
-atomic install [--harness claude|omp] [--instance <root> | --all] [--replace | --leave-unowned] [--dry-run] [--yes] [--json]
+atomic install [--harness claude|omp|codex] [--instance <root> | --all] [--replace | --leave-unowned] [--dry-run] [--yes] [--json]
 ```
 
 
 `--replace` and `--leave-unowned` are the batched decision for unowned older-version artifacts the selected generation cannot prove; they are mutually exclusive. `--dry-run` reports the plan and writes nothing. `--yes` approves the printed plan without prompting. A blocked target reports its blockers and exits non-zero.
+
+A harness whose native root the adapter will not guess at is reported unsupported rather than defaulted: Codex's only CP0-observed root is the `CODEX_HOME` variable, so an unset variable contributes no discovered instance to a broad walk and is an explicit refusal when Codex is named.
 
 
 ### `atomic harness`
@@ -170,7 +172,7 @@ The lifecycle surface over enrolled targets. Discovery is read-only and never en
 |------|-------------|
 | `list [--json]` | List discovered and enrolled instances, marking each `discovered` or `enrolled`. |
 | `status [<target-key>] [--json]` | Report enrolled target and shared-resource state, plus retained unresolved journals. |
-| `enroll <claude\|omp> [--instance <root>] [--replace\|--leave-unowned] [--dry-run] [--yes] [--json]` | Explicitly enroll a harness instance and converge it. |
+| `enroll <claude\|omp\|codex> [--instance <root>] [--replace\|--leave-unowned] [--dry-run] [--yes] [--json]` | Explicitly enroll a harness instance and converge it. |
 | `adopt [claude] [--instance <root>] [--replace\|--leave-unowned] [--acknowledge-snapshot] [--dry-run] [--yes] [--json]` | Adopt a verified legacy Claude install into the ledger. |
 | `repair [--harness <kind>] [--instance <root>] [--dry-run] [--yes] [--json]` | Reconverge already-enrolled targets. |
 | `diff [--harness <kind>] [--instance <root>] [--json]` | Report each enrolled resource's native difference from the selected generation. Read-only. |
@@ -224,7 +226,7 @@ Self-update the binary. Foreground check (not the background lookup other comman
 ### `atomic doctor`
 
 
-Integrity check for the atomic-claude install, the enrolled harness targets, and current project state. Runs 23 stable-category checks and reports PASS / WARN / FAIL / SKIP per category. Non-zero exit on FAIL for CI gating. Opt-in repair via `--fix`. Full contract: `docs/spec/atomic-doctor.md`.
+Integrity check for the atomic-claude install, the enrolled harness targets, and current project state. Runs 24 stable-category checks and reports PASS / WARN / FAIL / SKIP per category. Non-zero exit on FAIL for CI gating. Opt-in repair via `--fix`. Full contract: `docs/spec/atomic-doctor.md`.
 
 
 ```
@@ -270,9 +272,10 @@ Check categories (indices stable; never renumber):
 | 21 | `staleness` | WARN — materializations behind the selected generation |
 | 22 | `conflicts` | WARN — divergent or ambiguous ownership evidence |
 | 23 | `shadowing` | WARN — effective-content shadowing across scopes |
+| 24 | `codex` | WARN — the Codex native surfaces CP0 could not prove (trust, disablement, coverage, payload, child, last proof) plus the observed registration row, reported per discovered or enrolled `CODEX_HOME` |
 
 
-Categories 9–14 predate the multi-harness lifecycle; 15–23 were appended with it. Indices are stable: never renumber, only append. The third column is each category's default severity (and for 15–23, what it reports); an individual result may override it.
+Categories 9–14 predate the multi-harness lifecycle and 15–23 were appended with it; 24 appends with Milestone B's Codex surfaces. Indices are stable: never renumber, only append. The third column is each category's default severity (and for 15–24, what it reports); an individual result may override it.
 
 
 Exit codes: 0 = all PASS/WARN/SKIP (also: `~/.claude/` absent *and* no target enrolled — short-circuit); 1 = any FAIL; 2 = usage error.
@@ -804,6 +807,14 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 
 ## Change log
 
+
+### 2026-09-19 — Codex joins the harness surface and appends doctor category 24
+
+**What changed:** The lifecycle surface now names three harnesses where it named two: `atomic install --harness <claude|omp|codex>`, `atomic harness enroll <claude|omp|codex>`, and `atomic harness repair|diff --harness <kind>` accept `codex`, which enrolls, reports, repairs, diffs, and uninstalls through the same generic engine as Claude and OMP. A new paragraph states the root-resolution rule that makes Codex discoverable without a guessed default: the only CP0-observed root is the `CODEX_HOME` variable, so an unset variable contributes no discovered instance to a broad walk and is an explicit refusal when Codex is named. The `harness/` tree comment names the Codex adapter beside the Claude and OMP ones. Doctor's category table gains row 24 (`codex`), which reports the Codex native surfaces CP0 could not prove plus the observed registration row; the count references move from 23 to 24.
+
+**Why:** CP7F completes Codex lifecycle discovery. The binary's documented surface stopped at Claude and OMP, so a reader would not know Codex enrolls through the same verbs, where its native root comes from, or that doctor reports its unproven surfaces rather than implying parity.
+
+**Superseded:** The body named two harnesses, stated no root-resolution rule for a variable-relocated adapter, and listed 23 doctor categories.
 
 ### 2026-09-19 — Correction: doctor's missing-Claude-home short-circuit is conditional
 

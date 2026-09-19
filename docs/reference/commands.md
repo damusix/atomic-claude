@@ -87,6 +87,6 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | `atomic repl` | Drive a named Python or Node interpreter session that survives across separate Bash calls. | [REPL](/reference/repl) |
 | `atomic serve` | Serve the wiki and code graph as a browsable site. Read-only, localhost by default. | [Serve](/reference/serve) |
 | `atomic scratchpad` | Create, look up, list, and archive slug-keyed work bundles — the shared shape behind every implement-loop scratchpad. | [Conventions](/reference/conventions) |
-| `atomic doctor` · `validate` · `update` · `migrate` | Check the install and every enrolled target (23 categories), lint spec / config / bundle / artifact citations / canonical-corpus projections, self-update against a verified checksum and reconverge enrolled targets, apply versioned migrations. | [Install](/guides/install) |
+| `atomic doctor` · `validate` · `update` · `migrate` | Check the install and every enrolled target (24 categories), lint spec / config / bundle / artifact citations / canonical-corpus projections, self-update against a verified checksum and reconverge enrolled targets, apply versioned migrations. | [Install](/guides/install) |
 
 Run `atomic --help` for the full family list.

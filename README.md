@@ -42,7 +42,7 @@
 | Feature | What it does |
 |---|---|
 | **Repo-aware sessions** | One scan builds a standing map of your codebase that Claude reads before your code, so it stops inventing `npm` scripts. |
-| **Multi-harness install** | One authored corpus projects into Claude Code and Oh My Pi (OMP) through native adapters. Enroll a harness explicitly; `atomic update` reconverges the ones already enrolled. |
+| **Multi-harness install** | One authored corpus projects into Claude Code, Oh My Pi (OMP), and Codex CLI through native adapters. Enroll a harness explicitly; `atomic update` reconverges the ones already enrolled. |
 | **Code graph** | A tree-sitter symbol graph across 31 languages and 23 web frameworks answers callers, call sites, and blast radius, no compiler required. |
 | **SQL in the graph** | Procedures, views, foreign keys, and lineage across Postgres, MySQL, T-SQL, and Snowflake, plus dbt models and macros, read from `.sql` files with no database connection. |
 | **Autopilot** | `/autopilot` takes an issue to a merged PR: plans, tests first, reviews its own diff, ships. Your only decision is how to merge. |
@@ -63,9 +63,10 @@ Everything below is opt-in and composes into one lifecycle. Lost? `/atomic-help`
 curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
 atomic install --harness claude      # enroll + converge Claude Code
 atomic install --harness omp         # enroll + converge Oh My Pi (OMP)
+CODEX_HOME=~/.codex atomic install --harness codex   # enroll + converge Codex CLI
 ```
 
-Atomic ships one authored corpus — `context/AGENTS.md` plus commands, agents, skills, and rules — and projects it into a harness through a native adapter. Claude Code receives a direct global `CLAUDE.md`, repository and realm `AGENTS.md` loader pairs, native artifacts, and path-scoped rules. OMP receives an import-free profile `AGENTS.md`, a generated package, and native rule cards where its capability record proves delivery. Enrollment is explicit: `atomic harness list` marks each instance discovered or enrolled, `atomic harness status` reports one target and the shared resources it consumes, `atomic harness repair` reconverges it, and `atomic update` never enrolls a target on its own. → [install guide](docs/guides/install.md)
+Atomic ships one authored corpus — `context/AGENTS.md` plus commands, agents, skills, and rules — and projects it into a harness through a native adapter. Claude Code receives a direct global `CLAUDE.md`, repository and realm `AGENTS.md` loader pairs, native artifacts, and path-scoped rules. OMP receives an import-free profile `AGENTS.md`, a generated package, and native rule cards where its capability record proves delivery. Enrollment is explicit: `atomic harness list` marks each instance discovered or enrolled, `atomic harness status` reports one target and the shared resources it consumes, `atomic harness repair` reconverges it, and `atomic update` never enrolls a target on its own. Codex receives one generated plugin package — marketplace descriptor, plugin manifest, the rule index and matcher, and the projected rule, skill, and agent corpus — and resolves its root from `CODEX_HOME`, the only root CP0 observed. Codex 0.147.0 proved registration and list visibility only, so no hook configuration is emitted at all and `atomic doctor`'s `codex` category reports every runtime surface as unsupported with its evidence rather than claiming parity; enrollment writes no Codex configuration, because Codex's own registry stays Codex's surface. → [install guide](docs/guides/install.md)
 
 ### The workflow
 

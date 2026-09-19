@@ -55,14 +55,39 @@ func TestAtomicCLIHelper(t *testing.T) {
 // only form that catches scope-root resolution bugs — seam stubs cannot.
 func runAtomicCLI(t *testing.T, home string, args ...string) (string, int) {
 	t.Helper()
+	return runAtomicCLIEnv(t, home, nil, args...)
+}
+
+// runAtomicCLIEnv is runAtomicCLI with extra environment entries, for a verb
+// whose adapter resolves its native root from a variable (Codex reads
+// CODEX_HOME). An inherited entry under the same name is dropped, so the
+// injected value is the only one the child sees.
+func runAtomicCLIEnv(t *testing.T, home string, extra []string, args ...string) (string, int) {
+	t.Helper()
 	outPath := filepath.Join(t.TempDir(), "stdout")
-	cmd := exec.Command(os.Args[0], "-test.run=^TestAtomicCLIHelper$")
-	cmd.Env = append(os.Environ(),
+	overridden := map[string]bool{}
+	for _, kv := range extra {
+		if name, _, ok := strings.Cut(kv, "="); ok {
+			overridden[name] = true
+		}
+	}
+	env := make([]string, 0, len(os.Environ())+len(extra)+4)
+	for _, kv := range os.Environ() {
+		if name, _, ok := strings.Cut(kv, "="); ok && overridden[name] {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env,
 		"ATOMIC_TEST_CLI_ARGS="+strings.Join(args, "\x1f"),
 		"ATOMIC_TEST_CLI_OUT="+outPath,
 		"HOME="+home,
 		"CLAUDE_CONFIG_DIR=",
 	)
+	env = append(env, extra...)
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAtomicCLIHelper$")
+	cmd.Env = env
 	diag, err := cmd.CombinedOutput()
 	out, readErr := os.ReadFile(outPath)
 	if readErr != nil && !os.IsNotExist(readErr) {
@@ -474,4 +499,127 @@ func TestRepairSelectionIsEnrolledOnly(t *testing.T) {
 	if sel.All {
 		t.Error("repair selection must not select every discovered instance")
 	}
+}
+
+// TestLifecycleCLICodexTarget drives the generic lifecycle verbs against a real
+// Codex home through the production registry: discovery resolves CODEX_HOME,
+// enrollment publishes only the Atomic plugin package, status, rules, diff, and
+// repair report it, and a target uninstall removes only the owned package.
+func TestLifecycleCLICodexTarget(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "codex-home")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(root, "user-notes.toml")
+	if err := os.WriteFile(sentinel, []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"CODEX_HOME=" + root}
+	key := "codex:" + root
+
+	list, code := runAtomicCLIEnv(t, home, env, "harness", "list", "--json")
+	if code != 0 {
+		t.Fatalf("list exited %d:\n%s", code, list)
+	}
+	if !strings.Contains(list, root) || !strings.Contains(list, "\"codex\"") {
+		t.Errorf("list output = %q, want the configured CODEX_HOME instance", list)
+	}
+
+	out, code := runAtomicCLIEnv(t, home, env, "install", "--harness", "codex", "--yes")
+	if code != 0 {
+		t.Fatalf("install exited %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, key) || !strings.Contains(out, "applied") {
+		t.Errorf("install output = %q, want the codex target applied", out)
+	}
+
+	manifest := filepath.Join(home, ".atomic", "packages", "codex", "atomic", ".agents", "plugins", "marketplace.json")
+	if _, err := os.Stat(manifest); err != nil {
+		t.Errorf("enrollment did not publish the plugin package: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "config.toml")); !os.IsNotExist(err) {
+		t.Errorf("enrollment wrote the Codex native registry (stat err = %v); registration is Codex's own surface", err)
+	}
+
+	status, code := runAtomicCLIEnv(t, home, env, "harness", "status", "--json")
+	if code != 0 {
+		t.Fatalf("status exited %d:\n%s", code, status)
+	}
+	var report struct {
+		Targets []struct {
+			Target struct {
+				Harness  string `json:"harness"`
+				Instance string `json:"instance"`
+			} `json:"target"`
+		} `json:"targets"`
+	}
+	if err := json.Unmarshal([]byte(status), &report); err != nil {
+		t.Fatalf("status JSON: %v\n%s", err, status)
+	}
+	if len(report.Targets) != 1 || report.Targets[0].Target.Harness != "codex" || report.Targets[0].Target.Instance != root {
+		t.Fatalf("status targets = %+v, want the enrolled codex target", report.Targets)
+	}
+
+	rules, code := runAtomicCLIEnv(t, home, env, "harness", "rules", "status", "--json")
+	if code != 0 {
+		t.Fatalf("rules status exited %d:\n%s", code, rules)
+	}
+	if !strings.Contains(rules, string(harness.RoleStaticScope)) {
+		t.Errorf("rules status = %q, want the unproven Codex rule-delivery roles reported", rules)
+	}
+
+	diff, code := runAtomicCLIEnv(t, home, env, "harness", "diff", "--json")
+	if code != 0 {
+		t.Fatalf("diff exited %d:\n%s", code, diff)
+	}
+	if !strings.Contains(diff, filepath.Join(home, ".atomic", "packages", "codex", "atomic")) {
+		t.Errorf("diff = %q, want the owned plugin package reported", diff)
+	}
+
+	repair, code := runAtomicCLIEnv(t, home, env, "harness", "repair", "--yes")
+	if code != 0 {
+		t.Fatalf("repair exited %d:\n%s", code, repair)
+	}
+	if !strings.Contains(repair, key) {
+		t.Errorf("repair output = %q, want the enrolled codex target converged", repair)
+	}
+
+	removal, code := runAtomicCLIEnv(t, home, env, "harness", "uninstall", key, "--yes")
+	if code != 0 {
+		t.Fatalf("uninstall exited %d:\n%s", code, removal)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".atomic", "packages", "codex", "atomic")); !os.IsNotExist(err) {
+		t.Errorf("target uninstall left the owned plugin package (stat err = %v)", err)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("target uninstall removed unowned bytes in the native root: %v", err)
+	}
+	after, code := runAtomicCLIEnv(t, home, env, "harness", "status", "--json")
+	if code != 0 {
+		t.Fatalf("status after uninstall exited %d:\n%s", code, after)
+	}
+	if strings.Contains(after, key) {
+		t.Errorf("status still reports the removed target:\n%s", after)
+	}
+}
+
+// TestLifecycleCLICodexRequiresHome proves an unset CODEX_HOME is an explicit
+// refusal naming the variable, never a guessed default root.
+func TestLifecycleCLICodexRequiresHome(t *testing.T) {
+	home := t.TempDir()
+	out, code := runAtomicCLIEnv(t, home, []string{"CODEX_HOME="}, "harness", "list", "--json")
+	if code != 0 {
+		t.Fatalf("list exited %d:\n%s", code, out)
+	}
+	if strings.Contains(out, "\"codex\"") {
+		t.Errorf("list reported a codex instance with CODEX_HOME unset:\n%s", out)
+	}
+
+	out, code = runAtomicCLIEnv(t, home, []string{"CODEX_HOME="}, "harness", "enroll", "codex")
+	if code == 0 {
+		t.Fatalf("enroll accepted an unset CODEX_HOME:\n%s", out)
+	}
+	// The refusal text itself — CODEX_HOME named, wrapped in ErrUnsupported — is
+	// pinned by the adapter's own discovery test; here the dispatch is the claim.
 }

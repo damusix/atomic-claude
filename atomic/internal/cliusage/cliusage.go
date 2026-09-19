@@ -188,7 +188,7 @@ var commands = []Command{
 	},
 	{
 		Path:        []string{"harness", "enroll"},
-		Args:        "<claude|omp>",
+		Args:        "<claude|omp|codex>",
 		Flags:       []string{"--all", "--dry-run", "--harness", "--instance", "--json", "--leave-unowned", "--replace", "--yes"},
 		Description: "Explicitly enroll a harness instance",
 	},

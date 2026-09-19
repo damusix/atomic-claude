@@ -11,6 +11,7 @@ You need these tools on your `PATH` before installing:
 - **GitHub CLI** (`gh`) — used by `/commit` and `/report-issue`. Authenticate with `gh auth login`
 - **POSIX shell** — `bash` or `zsh`, plus standard utilities (`grep`, `sed`, `awk`, `find`, `jq`, etc.)
 - **Oh My Pi (OMP)** — optional second harness. Enroll it with `atomic install --harness omp`; the `omp` binary must be on `PATH` so its agent root can be discovered
+- **Codex CLI** (optional third harness) — enroll it with `CODEX_HOME=<root> atomic install --harness codex`. The only root Atomic will enroll is the one `CODEX_HOME` names; the default `~/.codex` was never observed at runtime, so Atomic refuses to guess at it
 - **Docker** — only needed for the [evaluation environment](./evaluations.md), not for normal use
 
 
@@ -31,6 +32,7 @@ Enroll a harness target. Atomic ships one authored corpus and projects it into e
 ```bash
 atomic install --harness claude     # Claude Code
 atomic install --harness omp        # Oh My Pi (OMP)
+CODEX_HOME=~/.codex atomic install --harness codex   # Codex CLI
 ```
 
 `--dry-run` prints the plan and writes nothing; `--yes` approves the printed plan without prompting; `--instance <root>` names a non-default target; `--all` covers every discovered instance. `--replace` and `--leave-unowned` are the batched decision for older-version artifacts the selected generation cannot prove. The command enrolls the target in `~/.atomic/install/ledger.json`, converges its native resources, and — for Claude — registers the session-start hook and seeds the Atomic output style into `~/.claude/settings.json`. Verify with `atomic doctor`, which reports the enrolled target among its checks.
@@ -54,7 +56,7 @@ For a project-scoped Claude install instead of global: `atomic claude install --
 |------|------|
 | `atomic harness list` | List discovered and enrolled instances, marking each `discovered` or `enrolled` |
 | `atomic harness status [<target-key>]` | Report one target's resources, the enrolled targets that consume them, and any unenrolled instances that can merely see them |
-| `atomic harness enroll <claude\|omp>` | Enroll an instance and converge it; takes the same selection flags as `atomic install` |
+| `atomic harness enroll <claude\|omp\|codex>` | Enroll an instance and converge it; takes the same selection flags as `atomic install` |
 | `atomic harness adopt [claude]` | Import a verified legacy Claude install into the ledger |
 | `atomic harness repair` | Reconverge already-enrolled targets |
 | `atomic harness diff` | Report each enrolled resource's native difference from the selected generation, read-only |
@@ -62,6 +64,27 @@ For a project-scoped Claude install instead of global: `atomic claude install --
 | `atomic harness rules status` / `rules sync` | Report or converge per-target rule tier, digests, coverage, and conflicts |
 
 Every real mutation takes one advisory lifecycle lock and recovers unresolved journals oldest-first before planning; the target is re-observed before the plan is built, so a plan that cannot be decided reports `blocked` and changes nothing. `--dry-run` opens no lock, writes nothing, and reports `blocked_on_recovery` when a journal cannot resolve to one safe result. Resource ownership lives in `~/.atomic/install/ledger.json`; in-flight operations live in `~/.atomic/install/{journals,transactions}/`.
+
+### Codex
+
+Codex enrolls through the same verbs. Its native root is the `CODEX_HOME` environment variable — the only root CP0 observed — so the variable is how a home is named:
+
+```bash
+CODEX_HOME=~/.codex atomic install --harness codex
+```
+
+With `CODEX_HOME` unset, a broad walk reports the harnesses it can resolve and an explicit `--harness codex` or `harness enroll codex` refuses, naming the variable instead of guessing at `~/.codex`. `--all` with `--harness` or `--instance` is itself refused: a harness you name explicitly is never silently dropped from an all-target operation.
+
+Enrollment publishes one generated plugin package at `~/.atomic/packages/codex/atomic`: the marketplace descriptor, the plugin manifest, the compiled rule index and matcher, and the projected rule, skill, and agent corpus. It writes no Codex configuration and registers nothing — Codex owns its own registry and cache, so Atomic observes that state instead of staging it. Register the published package with the Codex CLI:
+
+```bash
+codex plugin marketplace add ~/.atomic/packages/codex/atomic
+codex plugin add atomic@atomic-claude
+```
+
+`atomic harness status`, `diff`, `rules status`, `repair`, and `uninstall <target-key>` work exactly as they do for any other harness; a target uninstall removes the owned package tree only when no other enrolled consumer still depends on it.
+
+Rule delivery, plugin-hook trust, deliberate disablement, payload limits, and child-session behavior are **unproven** for the tested Codex version: CP0 reached thread creation, then the account rejected the configured model before any hook event. The plugin therefore emits no hook configuration at all — the rule index, matcher, rules, skills, and agents ship, and `atomic doctor`'s `codex` category (24) reports every one of those surfaces as unsupported with the evidence that fixes it. Nothing is fabricated as a trust or coverage claim, and doctor never repairs one.
 
 ### Repository state selection
 

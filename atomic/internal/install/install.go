@@ -18,6 +18,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/codex"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/omp"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/prompt"
@@ -53,8 +54,13 @@ func DefaultSteps(home string) Steps {
 
 // DefaultRegistry builds the adapter set this binary ships. The home argument
 // keeps the seam's shape; an adapter resolves its instances per call.
+//
+// Codex is registered like any other harness, but its native root is the
+// CODEX_HOME variable CP0 observed: with the variable unset the adapter refuses
+// discovery (ErrUnsupported), so a broad walk reports the harnesses it can
+// resolve and `--harness codex` reports the refusal by name.
 func DefaultRegistry(string) (*harness.Registry, error) {
-	return harness.NewRegistry(claude.New(), omp.New())
+	return harness.NewRegistry(claude.New(), omp.New(), codex.New())
 }
 
 // Selection names which discovered instances a verb operates on.
@@ -83,10 +89,13 @@ func (s Steps) Resolve(sel Selection) ([]harness.Instance, error) {
 		return s.enrolledInstances(sel)
 	}
 	if sel.All {
+		if sel.Kind != "" || sel.Instance != "" {
+			return nil, fmt.Errorf("--all cannot be combined with --harness or --instance: a harness you name explicitly must never be silently dropped")
+		}
 		return reg.Discover(s.Home)
 	}
 	if sel.Kind == "" {
-		return nil, fmt.Errorf("select a harness with --harness <claude|omp> or pass --all, then retry")
+		return nil, fmt.Errorf("select a harness with --harness <claude|omp|codex> or pass --all, then retry")
 	}
 	inst, err := reg.Select(s.Home, harness.Selector{Kind: sel.Kind, Instance: sel.Instance})
 	if err != nil {

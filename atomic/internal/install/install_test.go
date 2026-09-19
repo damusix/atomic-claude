@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,6 +131,54 @@ func TestConvergeInstallEnrollsTarget(t *testing.T) {
 	}
 	if _, ok := ledger.FindTarget(string(harness.KindOMP), root); !ok {
 		t.Error("target was not enrolled")
+	}
+}
+
+// TestResolveCodexUsesConfiguredHome proves the generic selection resolves the
+// Codex kind through the adapter's relocation variable: a configured root
+// resolves, and an unset one is an explicit refusal rather than a guessed
+// default directory.
+func TestResolveCodexUsesConfiguredHome(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "codex-home")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	steps := DefaultSteps(home)
+
+	t.Setenv("CODEX_HOME", root)
+	instances, err := steps.Resolve(Selection{Kind: harness.KindCodex})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if len(instances) != 1 || instances[0].NativeRoot != root {
+		t.Fatalf("instances = %+v, want the configured CODEX_HOME", instances)
+	}
+
+	t.Setenv("CODEX_HOME", "")
+	if _, err := steps.Resolve(Selection{Kind: harness.KindCodex}); !errors.Is(err, harness.ErrUnsupported) {
+		t.Errorf("resolve error = %v, want the adapter's ErrUnsupported refusal", err)
+	}
+}
+
+// TestResolveRefusesAllCombinedWithNamedHarness proves --all can never silently
+// drop a harness the caller named explicitly (the CODEX_HOME refusal must
+// surface instead of quietly enrolling the other harnesses).
+func TestResolveRefusesAllCombinedWithNamedHarness(t *testing.T) {
+	home := t.TempDir()
+	steps := DefaultSteps(home)
+	if _, err := steps.Resolve(Selection{All: true, Kind: harness.KindCodex}); err == nil {
+		t.Fatal("resolve accepted --all with a named harness")
+	}
+	if _, err := steps.Resolve(Selection{All: true, Instance: "x"}); err == nil {
+		t.Fatal("resolve accepted --all with a named instance")
+	}
+	instances, err := steps.Resolve(Selection{All: true})
+	if err != nil {
+		t.Fatalf("plain --all must still resolve: %v", err)
+	}
+	if len(instances) == 0 {
+		t.Fatal("plain --all resolved no instances")
 	}
 }
 

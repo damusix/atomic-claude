@@ -199,7 +199,7 @@ Implementation:
 
 ## Doctor integration
 
-The `profile` check is doctor category 10; the suite now carries 23 stable categories (see `docs/spec/atomic-doctor.md`).
+The `profile` check is doctor category 10; the category list is owned by `docs/spec/atomic-doctor.md` and now carries 24 stable categories.
 
 | Name (canonical) | Checks | Fail severity |
 |------------------|--------|---------------|
@@ -501,6 +501,14 @@ The rows stay as the build record; do not treat them as work to do. The preamble
 
 
 ## Change log
+
+### 2026-09-19 — Doctor category-count reference follows the appended Codex category
+
+**What changed:** The `## Doctor integration` paragraph no longer restates a count of its own; it points at `docs/spec/atomic-doctor.md` as the owner and names the current total (24).
+
+**Correction:** CP7F appended doctor category 24 (`codex`), so this spec's "23 stable categories" sentence went stale. `docs/spec/atomic-doctor.md` owns the category list and was amended in the same change.
+
+**Superseded:** The paragraph read "the suite now carries 23 stable categories".
 
 ### 2026-07-16 — User state root relocated to ~/.atomic
 

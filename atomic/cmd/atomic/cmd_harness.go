@@ -28,7 +28,7 @@ func buildHarnessCmd() *cobra.Command {
 	addHarnessSub(parent, []string{"status"}, "Report enrolled target and shared-resource state", "[<target-key>]", func(fs *pflag.FlagSet) {
 		fs.Bool("json", false, "emit machine-readable JSON output")
 	})
-	addHarnessSub(parent, []string{"enroll"}, "Explicitly enroll a harness instance", "<claude|omp>", func(fs *pflag.FlagSet) {
+	addHarnessSub(parent, []string{"enroll"}, "Explicitly enroll a harness instance", "<claude|omp|codex>", func(fs *pflag.FlagSet) {
 		registerInstallFlags(fs)
 	})
 	addHarnessSub(parent, []string{"adopt"}, "Adopt a verified legacy Claude install", "[claude]", func(fs *pflag.FlagSet) {
@@ -87,7 +87,7 @@ func addHarnessSub(parent *cobra.Command, path []string, short, argsHint string,
 // disables flag parsing and each handler owns its own stdlib FlagSet.
 
 func registerInstallFlags(fs *pflag.FlagSet) {
-	fs.String("harness", "", "harness to install (claude or omp)")
+	fs.String("harness", "", "harness to install (claude, omp, or codex)")
 	fs.String("instance", "", "native root of the instance")
 	fs.Bool("all", false, "operate on every discovered instance")
 	fs.Bool("replace", false, "replace unowned older-version artifacts")
@@ -98,7 +98,7 @@ func registerInstallFlags(fs *pflag.FlagSet) {
 }
 
 func registerRepairFlags(fs *pflag.FlagSet) {
-	fs.String("harness", "", "restrict to one harness (claude or omp)")
+	fs.String("harness", "", "restrict to one harness (claude, omp, or codex)")
 	fs.String("instance", "", "restrict to one native root")
 	fs.Bool("dry-run", false, "print what would happen; make no changes")
 	fs.Bool("yes", false, "approve the printed plan without prompting")
@@ -233,7 +233,7 @@ func runHarnessStatus(steps install.Steps, args []string) {
 
 func runHarnessEnroll(steps install.Steps, args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: atomic harness enroll <claude|omp> [--instance <root>] [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: atomic harness enroll <claude|omp|codex> [--instance <root>] [flags]")
 		os.Exit(2)
 	}
 	kind, err := harness.ParseKind(args[0])
@@ -242,7 +242,7 @@ func runHarnessEnroll(steps install.Steps, args []string) {
 	}
 
 	fs := flag.NewFlagSet("harness enroll", flag.ContinueOnError)
-	cliutil.SetUsage(fs, "atomic harness enroll <claude|omp> [--instance <root>] [--replace|--leave-unowned] [--dry-run] [--yes] [--json]")
+	cliutil.SetUsage(fs, "atomic harness enroll <claude|omp|codex> [--instance <root>] [--replace|--leave-unowned] [--dry-run] [--yes] [--json]")
 	flags := addInstallFlags(fs)
 	if err := fs.Parse(args[1:]); err != nil {
 		if err == flag.ErrHelp {
@@ -318,7 +318,7 @@ func runHarnessAdopt(steps install.Steps, args []string) {
 
 func runHarnessRepair(steps install.Steps, args []string) {
 	fs := flag.NewFlagSet("harness repair", flag.ContinueOnError)
-	cliutil.SetUsage(fs, "atomic harness repair [--harness <claude|omp>] [--instance <root>] [--dry-run] [--yes] [--json]")
+	cliutil.SetUsage(fs, "atomic harness repair [--harness <claude|omp|codex>] [--instance <root>] [--dry-run] [--yes] [--json]")
 	flags := addInstallFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -343,7 +343,7 @@ func runHarnessRepair(steps install.Steps, args []string) {
 
 func runHarnessDiff(steps install.Steps, args []string) {
 	fs := flag.NewFlagSet("harness diff", flag.ContinueOnError)
-	cliutil.SetUsage(fs, "atomic harness diff [--harness <claude|omp>] [--instance <root>] [--json]")
+	cliutil.SetUsage(fs, "atomic harness diff [--harness <claude|omp|codex>] [--instance <root>] [--json]")
 	flags := addInstallFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {

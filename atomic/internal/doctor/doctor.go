@@ -97,6 +97,7 @@ var categories = []Category{
 	{Index: 21, Name: "staleness", Severity: WARN, Run: checkStaleness},
 	{Index: 22, Name: "conflicts", Severity: WARN, Run: checkConflicts},
 	{Index: 23, Name: "shadowing", Severity: WARN, Run: checkShadowing},
+	{Index: 24, Name: "codex", Severity: WARN, Run: checkCodex},
 }
 
 // Categories returns the registry. Callers must not mutate it.

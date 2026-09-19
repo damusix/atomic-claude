@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 )
@@ -63,11 +64,20 @@ func (r *Registry) Kinds() []Kind {
 // Discover reports every instance of every registered kind, read-only, in
 // stable kind-then-root order. Nothing here consults or writes enrollment
 // state.
+//
+// A kind answering ErrUnsupported — a native root the adapter refuses to guess
+// at without an explicit relocation — contributes no instance and is not an
+// error. One harness's unproven root must not turn a whole-machine scan into a
+// failure, so the adapter's refusal is reported where the user names that
+// harness (Select) and stays silent in a broad walk.
 func (r *Registry) Discover(home string) ([]Instance, error) {
 	var out []Instance
 	for _, kind := range r.Kinds() {
 		a := r.adapters[kind]
 		instances, err := a.Discover(home)
+		if errors.Is(err, ErrUnsupported) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("harness: discover %s: %w", kind, err)
 		}

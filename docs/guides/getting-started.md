@@ -3,7 +3,7 @@
 
 You have run `atomic install --harness claude` (or the Claude-only `atomic claude install`). The binary is on your `PATH` and the bundle is in `~/.claude/`. This guide takes you from there to a first real task, in the order that pays off fastest. Each step works on its own, so you can stop after any one of them and still come out ahead.
 
-If you have not installed yet, start with the [install guide](/guides/install) and come back here. Under another harness (OMP today), enroll it with `atomic install --harness omp` instead; everything below is the same workflow.
+If you have not installed yet, start with the [install guide](/guides/install) and come back here. Under another harness — OMP with `atomic install --harness omp`, or Codex with `CODEX_HOME=<root> atomic install --harness codex` — everything below is the same workflow.
 
 
 ### TLDR
@@ -97,7 +97,7 @@ One command updates the binary and every harness target you enrolled:
 atomic update
 ```
 
-This fetches the latest release, verifies its checksum, replaces the binary, converges already-enrolled targets with the replacement binary's embedded generation, applies migrations, and finishes with a health check. It never enrolls a new harness — that is always an explicit `atomic install --harness <claude|omp>`. The [install guide](/guides/install#updating) owns the rest: the update flags, the background staging that makes the swap near-instant, and the merge flow that protects a hand-edited `~/.claude/CLAUDE.md`.
+This fetches the latest release, verifies its checksum, replaces the binary, converges already-enrolled targets with the replacement binary's embedded generation, applies migrations, and finishes with a health check. It never enrolls a new harness — that is always an explicit `atomic install --harness <claude|omp|codex>`. The [install guide](/guides/install#updating) owns the rest: the update flags, the background staging that makes the swap near-instant, and the merge flow that protects a hand-edited `~/.claude/CLAUDE.md`.
 
 
 ## Where to go next

@@ -1,6 +1,6 @@
 ---
 type: Domain
-description: Expands the committed context/ artifact source into the embedded binary and projects it into Claude Code and OMP through native adapters.
+description: Expands the committed context/ artifact source into the embedded binary and projects it into Claude Code, OMP, and Codex through native adapters.
 tags: [artifacts, codegen, build]
 ---
 
@@ -12,7 +12,7 @@ tags: [artifacts, codegen, build]
 
 The markdown artifacts under [`context/`](../../context) — agents, commands, skills, output-styles, rules, [`AGENTS.md`](../../context/AGENTS.md) — are the product; this domain is how a user gets them without a manual copy step. `make bundle` reads [`context/`](../../context), expands any `{{ template "<name>" . }}` directive against [`context/_partials/`](../../context/_partials), and writes the result to [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) plus a generated `manifest.go`. `//go:embed bundle` in [`atomic/internal/embedded/bundle.go`](../../atomic/internal/embedded/bundle.go) compiles that tree into the [`atomic`](../../atomic) binary, and `atomic claude install`/`update` writes the embedded copies to a target directory…
 
-Under Milestone A the binary does not install one flat tree: it renders the canonical corpus into **native projections** — a direct Claude global `CLAUDE.md`, an `AGENTS.md` plus thin `CLAUDE.md` loader pair per scope, and an import-free OMP steering body — and enrolls the target in the ledger at `~/.atomic/install/ledger.json`. `atomic install --harness <claude|omp>` and `atomic harness enroll` are the enrollment path; `atomic claude install` remains the Claude-only bundle route that writes the same corpus without the ledger. Contract: [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md).
+Under Milestone A the binary does not install one flat tree: it renders the canonical corpus into **native projections** — a direct Claude global `CLAUDE.md`, an `AGENTS.md` plus thin `CLAUDE.md` loader pair per scope, and an import-free OMP steering body — and enrolls the target in the ledger at `~/.atomic/install/ledger.json`. `atomic install --harness <claude|omp|codex>` and `atomic harness enroll` are the enrollment path; `atomic claude install` remains the Claude-only bundle route that writes the same corpus without the ledger. Contract: [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md).
 
 There is one generation step, not two. [`context/commands/<verb>.md`](../../context/commands) and [`context/agents/<name>.md`](../../context/agents) are committed source, not generated output — no `templates/` directory and no top-level `commands/`/`agents/` directory exist in this repo. Expansion happens on the way into the embedded bundle; nothing is ever written back into [`context/`](../../context), so an artifact exists in exactly one place.
 
@@ -33,8 +33,8 @@ flowchart LR
     PART -.->|"template expansion"| CTX
     CTX -->|"make bundle"| EMB["atomic/internal/embedded/bundle/<br/>+ manifest.go (gitignored)"]
     EMB -->|"go:embed bundle"| BIN["atomic binary"]
-    BIN -->|"atomic install / harness enroll"| ADAPT["harness adapters<br/>Claude · OMP"]
-    ADAPT -->|"native projection"| HOME["~/.claude/ · OMP profile root"]
+    BIN -->|"atomic install / harness enroll"| ADAPT["harness adapters<br/>Claude · OMP · Codex"]
+    ADAPT -->|"native projection"| HOME["~/.claude/ · OMP profile root · Codex plugin package"]
 ```
 
 `make bundle` runs `go run ./internal/tools/bundle-mirror -repo ../ -outdir ./internal/embedded` from [`atomic/`](../../atomic). `test`, `build`, and `vet` in [`atomic/Makefile`](../../atomic/Makefile) all declare `bundle` as a prerequisite, because [`atomic/internal/embedded`](../../atomic/internal/embedded) does not compile until the mirror exists. CI regenerates it the same way through `go generate ./...`, which fires the `//go:generate go run ../tools/bundle-mirror -repo ../../../ -outdir .` directive in [`bundle.go`](../../atomic/internal/embedded/bundle.go); goreleaser's `before` hook does the same before a release build. There is no committed rendered-artifact tree to diff, so [`.githooks/pre-commit`](../../.githooks/pre-commit) carries no render or bundle stage.
@@ -66,7 +66,7 @@ The canonical corpus is enumerated once by [`atomic/internal/artifacts/catalog.g
 | `LoaderPair` | authored `AGENTS.md` + a thin `CLAUDE.md` whose managed block is `@AGENTS.md` | a repository or nested realm scope |
 | `OMPSteering` | import-free Atomic steering, one blank line, then the output-style body with frontmatter stripped | an OMP profile's `AGENTS.md` |
 
-Projections are digest-carrying and deterministic, so the ledger records what a target applied and `atomic harness diff` reports drift without re-rendering. OMP additionally gets a generated package of commands, agents, and skills plus native rule cards; where the CP0 capability record does not prove a delivery surface, the adapter reports `unsupported` rather than fabricating bytes. Capability evidence: [`docs/research/harness-capability-matrix.md`](../research/harness-capability-matrix.md).
+Projections are digest-carrying and deterministic, so the ledger records what a target applied and `atomic harness diff` reports drift without re-rendering. OMP additionally gets a generated package of commands, agents, and skills plus native rule cards, and Codex gets a generated plugin package carrying the rule index, matcher, rules, skills, and TOML agents — with no hook configuration, since the tested version proved registration and list visibility only. Where the CP0 capability record does not prove a delivery surface, the adapter reports `unsupported` rather than fabricating bytes. Capability evidence: [`docs/research/harness-capability-matrix.md`](../research/harness-capability-matrix.md).
 
 ### Partial composition
 
@@ -126,7 +126,7 @@ The multi-harness lifecycle enrolls a target and converges its projection; the `
 | Verb | Flags |
 |------|-------|
 | `atomic install` | `--harness`, `--instance`, `--all`, `--replace` \| `--leave-unowned`, `--dry-run`, `--yes`, `--json` |
-| `atomic harness enroll <claude\|omp>` | same selection flags as `atomic install` |
+| `atomic harness enroll <claude\|omp\|codex>` | same selection flags as `atomic install` |
 | `atomic harness adopt [claude]` | `--instance`, `--replace` \| `--leave-unowned`, `--acknowledge-snapshot`, `--dry-run`, `--yes`, `--json` |
 | `atomic harness repair` | `--harness`, `--instance`, `--dry-run`, `--yes`, `--json` |
 | `atomic harness diff` | `--harness`, `--instance`, `--json` |
@@ -210,7 +210,8 @@ Both are gitignored; `git ls-files atomic/internal/embedded/` returns only [`bun
 | [`atomic/internal/harness/harness.go`](../../atomic/internal/harness/harness.go), `registry.go`, `capability.go` | Adapter contract (`Discover`, `Capabilities`, `Lifecycle`), the per-kind registry (`claude`, `omp`, `codex`), and the CP0 capability matrix that gates every native claim. |
 | [`atomic/internal/harness/claude/`](../../atomic/internal/harness/claude) | Claude adapter: direct global `CLAUDE.md` projection, repository/realm loader-pair management, settings/output-style mutation, and legacy guidance adoption. |
 | [`atomic/internal/harness/omp/`](../../atomic/internal/harness/omp) | OMP adapter: profile discovery through `omp config path`, the import-free profile `AGENTS.md`, the generated package of commands/agents/skills, and native rule projection. |
-| [`atomic/internal/install/`](../../atomic/internal/install) | The converge engine the lifecycle verbs share: `Steps`, `Selection`, `Converge`, `EnrolledOnly`, `RulesStatus`. Builds the registry with the Claude and OMP adapters. |
+| [`atomic/internal/harness/codex/`](../../atomic/internal/harness/codex) | Codex adapter: `CODEX_HOME` discovery, the generated plugin package (marketplace descriptor, plugin manifest, rule index and matcher, projected rules/skills/TOML agents), read-only native-surface reports, and no hook configuration — the tested version proved registration and list visibility only. |
+| [`atomic/internal/install/`](../../atomic/internal/install) | The converge engine the lifecycle verbs share: `Steps`, `Selection`, `Converge`, `EnrolledOnly`, `RulesStatus`. Builds the registry with the Claude, OMP, and Codex adapters. |
 | [`atomic/internal/installstate/`](../../atomic/internal/installstate) | Enrollment ledger (`ledger.json`), lifecycle lock, journals, transactions, recovery, and the seven-state migration classifier. |
 | [`atomic/internal/embedded/bundle.go`](../../atomic/internal/embedded/bundle.go) | Holds `//go:embed bundle` and the `go:generate` directive that invokes `bundle-mirror`. |
 | [`atomic/internal/embedded/manifest.go`](../../atomic/internal/embedded/manifest.go) | Generated `Manifest() []Artifact` allowlist: kind, embedded source path, install target, canonical context/-relative source, SHA256. |

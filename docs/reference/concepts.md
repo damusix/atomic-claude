@@ -43,12 +43,13 @@ Everything below is produced by this binary or grounded by what it produces. `at
 ## Harnesses, steering, and state paths
 
 
-Atomic ships one authored corpus: `context/AGENTS.md` as the global contract, plus commands, agents, skills, and rules. A **native adapter** projects that corpus into a harness's own surface. Enrollment is explicit — `atomic install --harness <claude|omp>` or `atomic harness enroll` — and discovery (`atomic harness list`) never enrolls. The ledger at `~/.atomic/install/ledger.json` records what each enrolled target owns; `atomic update` reconverges already-enrolled targets with the replacement binary's embedded generation and never enrolls a new one.
+Atomic ships one authored corpus: `context/AGENTS.md` as the global contract, plus commands, agents, skills, and rules. A **native adapter** projects that corpus into a harness's own surface. Enrollment is explicit — `atomic install --harness <claude|omp|codex>` or `atomic harness enroll` — and discovery (`atomic harness list`) never enrolls. A harness whose native root the adapter will not guess at (`CODEX_HOME` for Codex) contributes no discovered instance instead of a defaulted one. The ledger at `~/.atomic/install/ledger.json` records what each enrolled target owns; `atomic update` reconverges already-enrolled targets with the replacement binary's embedded generation and never enrolls a new one.
 
 | Harness | Global steering | Native artifacts | Rules |
 |---------|-----------------|------------------|-------|
 | **Claude Code** | Direct rendered `~/.claude/CLAUDE.md` block (no user-level `AGENTS.md`) | agents, commands, skills, output styles, unconditional rules | path-scoped delivery not yet proven for `2.1.273`, so scoped rules stay `unsupported` |
 | **OMP** | Import-free profile `AGENTS.md` (Atomic steering + output-style body) | generated package of commands, agents, skills | native cards published where the capability record proves delivery; static scope is advisory today |
+| **Codex** | none — no instruction surface was proven, so the adapter writes no steering file | generated plugin package: rule index and matcher, rules, skills, TOML agents, marketplace and plugin manifests | unsupported: the tested version proved registration and list visibility only, so no hook configuration is emitted and doctor reports every runtime surface as unproven |
 
 Repository and nested-realm steering is a **loader pair**: authored guidance in `AGENTS.md` plus an adjacent thin `CLAUDE.md` whose managed block is `@AGENTS.md`. Under another harness the same `AGENTS.md` guidance is delivered natively. The capability record behind each projection is versioned in [`docs/research/harness-capability-matrix.md`](../research/harness-capability-matrix.md); a missing capability row is reported `unsupported`, never assumed.
 

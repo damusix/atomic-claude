@@ -86,6 +86,7 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 21 | `staleness`     | Materialized resources whose recorded generation is behind the selected binary's projection (`RowStale`), and resources carrying no applied digest to compare (`RowUnverifiable`). Either → WARN; otherwise PASS naming the compared resource count. | WARN |
 | 22 | `conflicts`     | Owned resources whose native bytes match neither the recorded generation nor the selected projection — a later derivative edit, a malformed managed block, or a conflicting project card. Any conflict, or a target plan blocker, → WARN; a repair never overwrites the conflicting bytes. | WARN |
 | 23 | `shadowing`     | Projected resources a native copy duplicates. Two shapes are reported: the same owned digest delivered at two paths sharing one file name, and a Claude-native global `AGENTS.md` beside the projected `CLAUDE.md` (which the adapter is contractually forbidden to create or reference). Either → WARN; shadowing is degraded or deliberately disabled delivery, so repair never overwrites the native copy. | WARN |
+| 24 | `codex`         | The Codex native surfaces CP0 could not prove, reported read-only for every discovered or enrolled `CODEX_HOME`: plugin-hook trust, deliberate hook disablement, mediated tool coverage, payload spill, child-session delivery, and the last successful runtime proof — each with its evidence — plus the observed native registration row from Codex's own registry and the rule-delivery roles the capability record leaves unproven. Every surface is unproven for the tested version, so the category reports rather than repairs and never fabricates a trust or coverage claim; no discovered or enrolled Codex home → PASS. | WARN |
 
 
 Category short-names are stable: editing/removing one is a spec amendment (`Removed:` log entry).
@@ -214,7 +215,7 @@ Per-item confirm (axiom 3). Each repair idempotent. Print every shell command be
 | 8 | `binary`    | Print: `atomic update` to update. |
 | 14 | `output-style` | Seed the user-level `outputStyle` key via `hooks.SeedOutputStyle` (never a project file), and only when the check reports the warning genuinely fixable. `output_style.seed = false` and a missing style file are reported **cannot auto-fix** up front, so no repair is offered and no write is attempted. |
 | 15, 17, 19, 21 | `targets`, `journals`, `rules`, `staleness` | Converge enrolled targets through the common CP7A planner (`install.Steps.Converge`, `Selection{EnrolledOnly}`). The adapter acquires the one advisory lifecycle lock (`~/.atomic/install/operation.lock`) and recovers unresolved journals oldest-first before planning; the planner re-observes after projection, so a plan that moved on refuses rather than writing around it. The fix loop's per-item `Confirm` is the only consent prompt — the planner is handed `AssumeYes` and never prompts again. With no enrolled target the repair is **cannot auto-fix**. |
-| 16, 18, 20, 22, 23 | `resources`, `capabilities`, `trust`, `conflicts`, `shadowing` | **Cannot auto-fix.** These report owned/verbose state; a conflicting or shadowing native copy is reported and preserved, never overwritten. |
+| 16, 18, 20, 22, 23, 24 | `resources`, `capabilities`, `trust`, `conflicts`, `shadowing`, `codex` | **Cannot auto-fix.** These report owned/verbose state; a conflicting or shadowing native copy is reported and preserved, never overwritten, and an unproven native surface is reported rather than fabricated into a trust or coverage claim. |
 
 
 Skill-required and content-authored repairs degrade to printed instructions. This is the acceptable boundary: the CLI cannot dispatch a Claude skill, and cannot rewrite human authorship.
@@ -278,6 +279,18 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 
 
 <!-- empty on creation; entries appended on amendment after approval -->
+
+### 2026-09-19 — Codex surfaces append category 24
+
+**What changed:** One category appends after the existing 1–23, whose names, severities, and indices are unchanged.
+
+- `codex` (24) — the Codex native surfaces CP0 could not prove, for every discovered or enrolled `CODEX_HOME` root. It renders the CP5 read-only seams (`codex.RuntimeState`, `RegistrationStateRow`, `RuntimeDisablementGap`, and `harness.RuleGaps` over the Codex capability record): plugin-hook trust and changed-definition re-review, deliberate hook disablement and configuration precedence, mediated tool coverage, hosted/specialized bypasses, instruction and payload limits, additional-context spill, child-session delivery, the last successful runtime proof, the observed native registration row, and every unproven rule-delivery role. Each row carries the evidence that fixes it.
+
+The category is report-only: its unproven surfaces render as PASS findings (never fabricated as supported) and it never participates in `--fix` — the repair table lists it with the other cannot-auto-fix categories. On an unreadable home, registry, or ledger the category reports the read failure as a WARN exactly like the other multi-harness categories, and `--fix` still refuses to auto-repair it. Every surface is unproven for the tested version, so a fabricated "supported" row would be worse than the reported gap. Enrollment of a Codex home publishes only the generated plugin package — native marketplace and plugin registration is Codex's own surface, observed here rather than staged — so the registration row reports what Codex's registry actually records.
+
+**Why:** CP7F of `docs/spec/omp-plugin-compatibility.md` — Codex enrollment, trust status, disablement, rule tiers, unsupported capability roles, uncovered operations, and the last runtime proof must be discoverable, and every Codex surface must be reported honestly rather than presented as parity.
+
+**Superseded:** The 2026-09-19 CP7C entry's "No Codex checks are added (CP7F)" sentence deferred this work; category 24 is that work. The `--fix` category list now names `codex` among the cannot-auto-fix categories.
 
 ### 2026-05-23 — Signals check gains router validation
 

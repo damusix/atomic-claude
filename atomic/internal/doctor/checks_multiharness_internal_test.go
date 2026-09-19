@@ -10,6 +10,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/codex"
 	"github.com/damusix/atomic-claude/atomic/internal/install"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
@@ -85,6 +86,7 @@ func TestMultiHarnessCategoriesReportIndependently(t *testing.T) {
 		{21, "staleness", checkStaleness},
 		{22, "conflicts", checkConflicts},
 		{23, "shadowing", checkShadowing},
+		{24, "codex", checkCodex},
 	}
 	for _, c := range checks {
 		t.Run(c.name, func(t *testing.T) {
@@ -197,8 +199,8 @@ func TestCheckCapabilities(t *testing.T) {
 	if r.Severity != PASS {
 		t.Fatalf("capabilities = %+v, want PASS", r)
 	}
-	if !hasFinding(r.Detail, "2 harness capability record(s)") {
-		t.Errorf("capabilities detail = %q, want both registered harnesses counted", r.Detail)
+	if !hasFinding(r.Detail, "3 harness capability record(s)") {
+		t.Errorf("capabilities detail = %q, want every registered harness counted", r.Detail)
 	}
 }
 
@@ -253,6 +255,89 @@ func TestCheckTrust(t *testing.T) {
 	r := checkTrust(Opts{Home: home})
 	if r.Severity != WARN || !hasFinding(r.Detail, "drifted") {
 		t.Fatalf("trust = %+v, want WARN for a drifted hook", r)
+	}
+}
+
+// TestCheckCodex proves category 24 reports the CP5 read-only seams for every
+// discovered or enrolled Codex home, and reports nothing when no Codex home is
+// visible. Every surface is unproven for the tested version, so the category
+// never repairs one and never claims parity.
+func TestCheckCodex(t *testing.T) {
+	t.Run("no codex home", func(t *testing.T) {
+		home := t.TempDir()
+		withStatusSteps(t, func(h string) install.Steps {
+			return stepsWith(h, fakeAdapter{kind: harness.KindClaude})
+		})
+		r := checkCodex(Opts{Home: home})
+		if r.Severity != PASS || !hasFinding(r.Detail, "no Codex home") {
+			t.Fatalf("codex = %+v, want PASS with no Codex home", r)
+		}
+	})
+
+	t.Run("enrolled home reports surfaces and uncovered roles", func(t *testing.T) {
+		home := t.TempDir()
+		root := filepath.Join(home, "codex-home")
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target := installstate.TargetRecord{Harness: string(harness.KindCodex), Instance: root, NativeRoot: root, Status: string(harness.StatusConverged)}
+		saveLedger(t, home, []installstate.TargetRecord{target}, nil)
+		withStatusSteps(t, func(h string) install.Steps {
+			return stepsWith(h, fakeAdapter{kind: harness.KindClaude})
+		})
+
+		restore := codexSurfacesFn
+		t.Cleanup(func() { codexSurfacesFn = restore })
+		codexSurfacesFn = func(got string) codexSurfaces {
+			if got != root {
+				t.Errorf("surface root = %q, want the enrolled native root %q", got, root)
+			}
+			return codexSurfaces{
+				root:        got,
+				surfaces:    []codex.SurfaceState{{Surface: "plugin-hook trust", Status: harness.StatusUnsupported, Evidence: "codex.hook-absence"}},
+				disablement: codex.PluginGap{Surface: "plugin-hook disablement", Evidence: "codex.hook-absence"},
+				rules:       harness.RuleGaps(harness.CodexCapabilities()),
+			}
+		}
+
+		r := checkCodex(Opts{Home: home})
+		if r.Severity != PASS {
+			t.Fatalf("codex = %+v, want PASS (surfaces are reported, never repaired)", r)
+		}
+		joined := strings.Join(r.Findings, "\n")
+		for _, want := range []string{"plugin-hook trust", "plugin-hook disablement", "uncovered " + string(harness.RoleStaticScope)} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("findings missing %q:\n%s", want, joined)
+			}
+		}
+	})
+}
+
+// TestReadCodexSurfacesIsReadOnly proves the composed CP5 seam answers entirely
+// from the CP0 record and Codex's own registry, touching no Atomic state and
+// fabricating no supported surface.
+func TestReadCodexSurfacesIsReadOnly(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "codex-home")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	state := readCodexSurfaces(root)
+	if len(state.surfaces) == 0 {
+		t.Fatal("no runtime surfaces reported")
+	}
+	for _, row := range state.surfaces {
+		if row.Status == harness.StatusSupported {
+			t.Errorf("surface %q reads supported; Codex 0.147.0 proved no runtime surface", row.Surface)
+		}
+		if row.Evidence == "" {
+			t.Errorf("surface %q carries no evidence", row.Surface)
+		}
+	}
+	if state.disablement.Surface == "" || state.disablement.Evidence == "" {
+		t.Errorf("disablement gap = %+v, want a named surface with evidence", state.disablement)
+	}
+	if len(state.rules) == 0 {
+		t.Error("no unproven rule-delivery roles reported")
 	}
 }
 

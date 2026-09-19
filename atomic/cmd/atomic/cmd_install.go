@@ -24,7 +24,7 @@ func buildInstallCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().String("harness", "", "harness to install (claude or omp)")
+	c.Flags().String("harness", "", "harness to install (claude, omp, or codex)")
 	c.Flags().String("instance", "", "native root of the instance to install")
 	c.Flags().Bool("all", false, "install every discovered instance")
 	c.Flags().Bool("replace", false, "replace unowned older-version artifacts the selected generation cannot prove")
@@ -49,7 +49,7 @@ type installFlags struct {
 
 func addInstallFlags(fs *flag.FlagSet) *installFlags {
 	out := &installFlags{}
-	fs.StringVar(&out.harness, "harness", "", "harness to install (claude or omp)")
+	fs.StringVar(&out.harness, "harness", "", "harness to install (claude, omp, or codex)")
 	fs.StringVar(&out.instance, "instance", "", "native root of the instance")
 	fs.BoolVar(&out.all, "all", false, "operate on every discovered instance")
 	fs.BoolVar(&out.replace, "replace", false, "replace unowned older-version artifacts")
@@ -102,7 +102,7 @@ func (f *installFlags) steps(home string) (install.Steps, error) {
 
 func runInstall(args []string) {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
-	cliutil.SetUsage(fs, "atomic install --harness <claude|omp> [--instance <root>] [--all] [--replace|--leave-unowned] [--dry-run] [--yes] [--json]")
+	cliutil.SetUsage(fs, "atomic install --harness <claude|omp|codex> [--instance <root>] [--all] [--replace|--leave-unowned] [--dry-run] [--yes] [--json]")
 	flags := addInstallFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -125,7 +125,7 @@ func runInstall(args []string) {
 	}
 
 	if sel.Kind == "" && !sel.All {
-		fmt.Fprintln(os.Stderr, "atomic install: select a harness with --harness <claude|omp>, or pass --all")
+		fmt.Fprintln(os.Stderr, "atomic install: select a harness with --harness <claude|omp|codex>, or pass --all")
 		os.Exit(2)
 	}
 

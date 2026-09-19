@@ -205,6 +205,11 @@ func repairPlan(r Result) (plan string, fixable bool) {
 		// recovers unresolved journals oldest-first, re-observes, and converges
 		// only already-enrolled targets.
 		return "converge enrolled targets via `atomic harness repair --all --yes`", true
+	case "codex":
+		// Codex native surfaces are CP0-unproven answers plus read-only native
+		// registration observation; there is nothing Atomic may repair without
+		// fabricating trust or coverage.
+		return "cannot auto-fix — Codex native surfaces are reported, never repaired", false
 	default:
 		return "cannot auto-fix — unknown category", false
 	}

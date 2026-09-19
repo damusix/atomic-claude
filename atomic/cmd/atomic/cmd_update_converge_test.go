@@ -207,6 +207,73 @@ func TestRunUpdate_AlreadyCurrentConvergesInProcess(t *testing.T) {
 	}
 }
 
+// enrollCodexTarget enrolls a Codex home at CODEX_HOME through the real install
+// engine and returns the native root plus the generation the enrollment
+// recorded, so update convergence has a non-Claude owner to reconverge.
+func enrollCodexTarget(t *testing.T, home string) (root, generation string) {
+	t.Helper()
+	root = filepath.Join(home, "codex-home")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", root)
+	steps := install.DefaultSteps(home)
+	steps.AssumeYes = true
+	reports, err := steps.Converge(install.ConvergeRequest{Selection: install.Selection{Kind: harness.KindCodex}, Enroll: true})
+	if err != nil {
+		t.Fatalf("enroll codex target: %v", err)
+	}
+	if len(reports) != 1 || len(reports[0].Blockers) > 0 {
+		t.Fatalf("enroll reports = %+v, want one converged target", reports)
+	}
+	return root, reports[0].Generation
+}
+
+// TestRunUpdate_AlreadyCurrentConvergesEnrolledCodex proves update convergence
+// covers an enrolled Codex target through the same generic path as any other
+// harness: the plugin package is reconverged in place, the recorded generation
+// is unchanged, and no second target is invented.
+func TestRunUpdate_AlreadyCurrentConvergesEnrolledCodex(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root, generation := enrollCodexTarget(t, home)
+
+	deps := stubUpdateDeps(t)
+	deps.apply = func(context.Context, string, *selfupdate.Client, string, string, string, bool, func() time.Time, io.Writer) (bool, error) {
+		return false, nil
+	}
+	converged := 0
+	deps.converge = func(h string, w io.Writer) error {
+		converged++
+		return convergeEnrolledTargets(h, w)
+	}
+	deps.runChild = func(string, ...string) error {
+		t.Error("an already-current update must not re-exec")
+		return nil
+	}
+	deps.migrate = func(string) error { return nil }
+
+	if code := runUpdateWith([]string{"--no-doctor"}, deps); code != 0 {
+		t.Fatalf("update exit = %d, want 0", code)
+	}
+	if converged != 1 {
+		t.Errorf("converge calls = %d, want 1 in the already-current process", converged)
+	}
+	if got := ledgerGeneration(t, home); got != generation {
+		t.Errorf("recorded generation = %q, want the enrolled %q", got, generation)
+	}
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatalf("load ledger: %v", err)
+	}
+	if _, ok := ledger.FindTarget(string(harness.KindCodex), root); !ok {
+		t.Errorf("the codex target was dropped by update convergence: %+v", ledger.Targets)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".atomic", "packages", "codex", "atomic", ".agents", "plugins", "marketplace.json")); err != nil {
+		t.Errorf("update convergence dropped the codex plugin package: %v", err)
+	}
+}
+
 // TestRunUpdate_ConvergeChildConvergesWithoutSelecting proves the re-exec'd
 // child owns convergence and performs no binary selection of its own.
 func TestRunUpdate_ConvergeChildConvergesWithoutSelecting(t *testing.T) {
