@@ -6,9 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/install"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 )
 
 func resolveClaudeHome() (string, error) {
@@ -140,6 +144,55 @@ func applyManifestRepair(out io.Writer) error {
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("make -C atomic bundle: %w", err)
+	}
+	return nil
+}
+
+// convergeStepsFn builds the install-engine steps a ledger-managed repair runs.
+// Tests swap it to inject a registry whose adapter records lock acquisition,
+// proving the doctor repair serializes against update and uninstall.
+var convergeStepsFn = install.DefaultSteps
+
+// defaultConvergeRepair reuses the CP7A install engine's converge planner for a
+// ledger-managed doctor repair. The planner resolves every enrolled target,
+// re-observes each projection, and hands mutation to the adapter, which acquires
+// the one advisory lifecycle lock and recovers unresolved journals oldest-first.
+// The doctor loop already obtained per-item consent, so AssumeYes carries that
+// recorded consent into the planner rather than prompting a second time.
+func defaultConvergeRepair(home string, out io.Writer) error {
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		return fmt.Errorf("read ledger: %w", err)
+	}
+	if len(ledger.Targets) == 0 {
+		fmt.Fprintln(out, "  no enrolled targets to converge")
+		return errNonFixable
+	}
+
+	steps := convergeStepsFn(home)
+	steps.Home = home
+	steps.AssumeYes = true
+	reports, err := steps.Converge(install.ConvergeRequest{Selection: install.Selection{EnrolledOnly: true}})
+	if err != nil {
+		return err
+	}
+	blocked := false
+	for _, report := range reports {
+		switch {
+		case len(report.Blockers) > 0:
+			blocked = true
+			fmt.Fprintf(out, "  %s: %s (%s)\n", report.Target.Key(), report.Status, strings.Join(report.Blockers, "; "))
+		case report.Applied:
+			fmt.Fprintf(out, "  %s: %s applied\n", report.Target.Key(), report.Status)
+		default:
+			fmt.Fprintf(out, "  %s: %s\n", report.Target.Key(), report.Status)
+		}
+	}
+	if blocked {
+		// A plan the converge engine refused to mutate is not a repair. Mirror
+		// the install verb, which treats any blocked target as failed convergence,
+		// so the fix loop counts it non-fixable rather than reporting "fixed".
+		return errNonFixable
 	}
 	return nil
 }

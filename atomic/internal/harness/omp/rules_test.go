@@ -113,8 +113,8 @@ func TestProjectShippedRulesMissingRowsStayUnsupported(t *testing.T) {
 			t.Errorf("%s claims tier %q scope %+v delivery %q from a rowless record", r.RecordID, r.Tier, r.Scope, r.Delivery)
 		}
 	}
-	if len(report.Gaps) != 4 {
-		t.Errorf("gaps = %d, want all four rule-delivery roles", len(report.Gaps))
+	if len(report.Gaps) != 5 {
+		t.Errorf("gaps = %d, want all five rule-delivery roles", len(report.Gaps))
 	}
 	if _, err := BuildPackage(cat, rowless); err != nil {
 		t.Fatalf("package generation failed on a rowless record: %v", err)

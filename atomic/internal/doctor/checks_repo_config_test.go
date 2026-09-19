@@ -9,6 +9,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
+	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
 // writeRepoConfig writes content to <root>/.claude/atomic.toml.
@@ -278,6 +279,53 @@ func TestCheckRepoConfig_WikisContradiction_EmptyClaudeMDPathSkips(t *testing.T)
 	r := doctor.RunCheckRepoConfig(doctor.Opts{RepoRoot: root})
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %v, want PASS (sub-check skipped, empty ClaudeMDPath); detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// F-5: the contradiction sub-check reads the authoritative ~/.atomic/wikis.md.
+// A doctrine-shaped home whose installed <wikis> projection was changed to name
+// a different realm still warns, because the authority — not the projection —
+// decides. The projection alone would have stayed silent.
+func TestCheckRepoConfig_WikisContradiction_AuthorityWinsOverProjection(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	home := t.TempDir()
+	root := filepath.Join(home, "realm")
+	if err := os.MkdirAll(filepath.Join(root, "wiki"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realmIndex := filepath.Join(root, "wiki", "index.md")
+	if err := os.WriteFile(realmIndex, []byte("# realm\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wiki.NewWikiRegistry(home).Save([]string{realmIndex}); err != nil {
+		t.Fatalf("seed authority: %v", err)
+	}
+
+	other := filepath.Join(home, "other", "wiki", "index.md")
+	if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("# other\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	claudeMD := filepath.Join(home, ".claude", "CLAUDE.md")
+	if err := os.MkdirAll(filepath.Dir(claudeMD), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(claudeMD, []byte(fmt.Sprintf("<wikis>\n- %s\n</wikis>\n", other)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writeRepoConfig(t, root, "scope = \"repo\"\n")
+
+	r := doctor.RunCheckRepoConfig(doctor.Opts{RepoRoot: root, ClaudeMDPath: claudeMD})
+	if r.Severity != doctor.WARN || !strings.Contains(r.Detail, "realm") {
+		t.Fatalf("severity = %v detail = %q, want WARN from the authority registration, not the changed projection", r.Severity, r.Detail)
+	}
+	if strings.Contains(r.Detail, claudeMD) {
+		t.Fatalf("detail = %q, want the wiki registry named, not the changed projection %s", r.Detail, claudeMD)
 	}
 }
 

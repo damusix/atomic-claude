@@ -179,6 +179,18 @@ type SessionDelivery struct {
 	Unproven      []PackageGap         `json:"unproven,omitempty"`
 }
 
+// RuntimeDisablementGap is the one deliberate-disablement surface CP0 could not
+// observe: a `--no-rules` run kept the Atomic baseline intact, but
+// `--no-extensions` was never exercised, so a disabled extension is reported as
+// unproven rather than assumed honored. A doctor check reads it here so the
+// surface has one owner.
+func RuntimeDisablementGap() PackageGap {
+	return PackageGap{
+		Surface:  "extension disablement",
+		Evidence: "omp.disablement covers --no-rules only; --no-extensions was never exercised, so a disabled extension is unreported rather than observed",
+	}
+}
+
 // BuildSessionDelivery plans OMP's runtime rule delivery for one projected rule
 // set. It is offline and deterministic, and it writes nothing: the same records
 // always produce the same plan and the same generated module.
@@ -223,10 +235,7 @@ func BuildSessionDelivery(sources []harness.RuleSource, m harness.CapabilityMatr
 		}, {
 			Surface:  "pre-operation matched-body delivery",
 			Evidence: "omp.context-return-absence; replay target omp-scope (absence)",
-		}, {
-			Surface:  "extension disablement",
-			Evidence: "omp.disablement covers --no-rules only; --no-extensions was never exercised, so a disabled extension is unreported rather than observed",
-		}},
+		}, RuntimeDisablementGap()},
 		Bound: BaselineByteBound,
 	}
 	ev := harness.RuleEvidence(m)

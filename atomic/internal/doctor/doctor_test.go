@@ -9,8 +9,8 @@ import (
 
 func TestRegistryCount(t *testing.T) {
 	cats := doctor.Categories()
-	if len(cats) != 14 {
-		t.Fatalf("registry len = %d, want 14", len(cats))
+	if len(cats) != 23 {
+		t.Fatalf("registry len = %d, want 23", len(cats))
 	}
 
 	for i, c := range cats {
@@ -37,6 +37,15 @@ func TestRegistryCategoryNames(t *testing.T) {
 		"migrate",
 		"repo-config",
 		"output-style",
+		"targets",
+		"resources",
+		"journals",
+		"capabilities",
+		"rules",
+		"trust",
+		"staleness",
+		"conflicts",
+		"shadowing",
 	}
 	cats := doctor.Categories()
 	for i, want := range wantNames {
@@ -62,6 +71,15 @@ func TestRegistryCategorySeverities(t *testing.T) {
 		doctor.WARN, // 12 migrate
 		doctor.WARN, // 13 repo-config
 		doctor.WARN, // 14 output-style
+		doctor.WARN, // 15 targets
+		doctor.WARN, // 16 resources
+		doctor.WARN, // 17 journals
+		doctor.WARN, // 18 capabilities
+		doctor.WARN, // 19 rules
+		doctor.WARN, // 20 trust
+		doctor.WARN, // 21 staleness
+		doctor.WARN, // 22 conflicts
+		doctor.WARN, // 23 shadowing
 	}
 	cats := doctor.Categories()
 	for i, want := range wantSeverities {
@@ -97,10 +115,10 @@ func TestRunFiltersBySkip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(results) != 10 {
-		t.Fatalf("Run returned %d results, want 10", len(results))
+	if len(results) != 19 {
+		t.Fatalf("Run returned %d results, want 19", len(results))
 	}
-	wantIndices := []int{1, 3, 5, 7, 9, 10, 11, 12, 13, 14}
+	wantIndices := []int{1, 3, 5, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23}
 	for i, want := range wantIndices {
 		if results[i].Index != want {
 			t.Errorf("results[%d].Index = %d, want %d", i, results[i].Index, want)
@@ -218,9 +236,10 @@ func TestFlagParsingRejectsUnknownCategory(t *testing.T) {
 }
 
 func TestFlagParsingRejectsOutOfRangeIndex(t *testing.T) {
-	_, err := doctor.ParseFlags([]string{"--only", "15"})
+	// 24 is one past the last category (23 shadowing); a valid index must parse.
+	_, err := doctor.ParseFlags([]string{"--only", "24"})
 	if err == nil {
-		t.Fatal("expected error for out-of-range index 15, got nil")
+		t.Fatal("expected error for out-of-range index 24, got nil")
 	}
 
 	_, err = doctor.ParseFlags([]string{"--only", "0"})

@@ -308,3 +308,23 @@ func TestProjectClaudeRules_EmptySet(t *testing.T) {
 		t.Errorf("gaps = %+v, want every unproven role", report.Gaps)
 	}
 }
+
+// Session-baseline is part of the rule-delivery surface: the projection that
+// supplies bounded rule context before the model chooses an operation uses that
+// event. A harness whose baseline is unproven reports it as a gap; one that
+// proved it drops out.
+func TestRuleGapsIncludesSessionBaseline(t *testing.T) {
+	claude := map[Role]bool{}
+	for _, gap := range RuleGaps(ClaudeCapabilities()) {
+		claude[gap.Role] = true
+	}
+	if !claude[RoleSessionBaseline] {
+		t.Errorf("Claude rule gaps omit session-baseline: %v", claude)
+	}
+
+	for _, gap := range RuleGaps(OMPCapabilities()) {
+		if gap.Role == RoleSessionBaseline {
+			t.Errorf("OMP's proven session-baseline was reported as a gap: %+v", gap)
+		}
+	}
+}

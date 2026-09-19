@@ -61,8 +61,10 @@ func runDoctor(args []string) {
 
 	project := doctorProjectName()
 
-	// claudeMDPath drives realm detection in the code-index check.
+	// claudeMDPath drives realm detection in the code-index check; Home scopes
+	// the multi-harness lifecycle checks.
 	opts.ClaudeMDPath = filepath.Join(home, ".claude", "CLAUDE.md")
+	opts.Home = home
 
 	results, err := doctor.Run(opts)
 	if err != nil {

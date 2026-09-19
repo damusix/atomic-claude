@@ -41,6 +41,7 @@ type Repairer struct {
 	ManifestFn        func(io.Writer) error
 	FollowupsRenderFn func(io.Writer) error
 	OutputStyleFn     func(io.Writer) error
+	ConvergeFn        func(home string, out io.Writer) error
 	HomeFn            func() (string, error)
 	IsRepoDevFn       func() (bool, error)
 	RepoRootFn        func() string
@@ -54,6 +55,7 @@ func DefaultRepairer() Repairer {
 		ManifestFn:        defaultManifestRepair,
 		FollowupsRenderFn: defaultFollowupsRenderRepair,
 		OutputStyleFn:     defaultOutputStyleRepair,
+		ConvergeFn:        defaultConvergeRepair,
 		HomeFn:            resolveHome,
 		IsRepoDevFn:       defaultIsRepoDev,
 		RepoRootFn:        defaultRepoRoot,
@@ -197,6 +199,12 @@ func repairPlan(r Result) (plan string, fixable bool) {
 		default:
 			return "seed the user-level outputStyle key", true
 		}
+	case "targets", "rules", "staleness", "journals":
+		// These categories report ledger-managed lifecycle state. Repair routes
+		// through the common converge planner, which takes the lifecycle lock,
+		// recovers unresolved journals oldest-first, re-observes, and converges
+		// only already-enrolled targets.
+		return "converge enrolled targets via `atomic harness repair --all --yes`", true
 	default:
 		return "cannot auto-fix — unknown category", false
 	}
@@ -244,6 +252,15 @@ func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, err
 			return "", err
 		}
 		return "seeded user-level outputStyle", nil
+	case "targets", "rules", "staleness", "journals":
+		home, err := rp.HomeFn()
+		if err != nil {
+			return "", fmt.Errorf("resolve home: %w", err)
+		}
+		if err := rp.ConvergeFn(home, out); err != nil {
+			return "", err
+		}
+		return "converged enrolled targets through the install planner", nil
 	default:
 		return "", fmt.Errorf("no repair for %q", r.Name)
 	}

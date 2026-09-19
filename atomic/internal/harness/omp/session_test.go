@@ -140,7 +140,7 @@ func TestBuildSessionDeliveryMissingRowsStayUnsupported(t *testing.T) {
 			t.Errorf("event %q was wired without a supported capability row", event.Event)
 		}
 	}
-	if len(delivery.Gaps) != 4 {
+	if len(delivery.Gaps) != 5 {
 		t.Errorf("gaps = %v, want every rule-delivery role reported", delivery.Gaps)
 	}
 	if len(delivery.Index) != 3 {

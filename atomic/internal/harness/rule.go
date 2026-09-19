@@ -101,7 +101,14 @@ func ClaudeRulePath(r rules.RuleRecord) string {
 // ruleRoles are the native rule-delivery surfaces a projection reports on. Being
 // unproven is the normal state: a role a harness later proves drops out of the
 // gap list.
+//
+// Session-baseline belongs here, not in the session layer alone: the Codex
+// projection delivers bounded rule context through its proven session-baseline
+// event, so an unproven baseline is an uncovered rule-delivery surface and must
+// be reported beside the others. OMP's proven baseline drops out; Claude's
+// partial one stays.
 var ruleRoles = []Role{
+	RoleSessionBaseline,
 	RoleStaticScope,
 	RolePreOperationTargets,
 	RoleContextReturn,

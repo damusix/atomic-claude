@@ -43,6 +43,16 @@ type Opts struct {
 	// RepoRoot is resolved once per Run so no check spawns its own git
 	// subprocess. Tests calling RunWith may set it to avoid git entirely.
 	RepoRoot string
+
+	// Home is the OS home directory the multi-harness lifecycle state lives
+	// under. The CLI resolves it once; an empty value falls back to
+	// os.UserHomeDir in the checks that need it.
+	Home string
+
+	// cache is per-Run shared state for the multi-harness checks, so several
+	// independent categories report the same read-only observation without
+	// repeating discovery or ledger reads. RunWith seeds it.
+	cache *statusCache
 }
 
 // CheckFunc is the signature every check implementation must satisfy.
@@ -78,6 +88,15 @@ var categories = []Category{
 	{Index: 12, Name: "migrate", Severity: WARN, Run: checkMigrateDrift},
 	{Index: 13, Name: "repo-config", Severity: WARN, Run: checkRepoConfig},
 	{Index: 14, Name: "output-style", Severity: WARN, Run: checkOutputStyle},
+	{Index: 15, Name: "targets", Severity: WARN, Run: checkTargets},
+	{Index: 16, Name: "resources", Severity: WARN, Run: checkResources},
+	{Index: 17, Name: "journals", Severity: WARN, Run: checkJournals},
+	{Index: 18, Name: "capabilities", Severity: WARN, Run: checkCapabilities},
+	{Index: 19, Name: "rules", Severity: WARN, Run: checkRules},
+	{Index: 20, Name: "trust", Severity: WARN, Run: checkTrust},
+	{Index: 21, Name: "staleness", Severity: WARN, Run: checkStaleness},
+	{Index: 22, Name: "conflicts", Severity: WARN, Run: checkConflicts},
+	{Index: 23, Name: "shadowing", Severity: WARN, Run: checkShadowing},
 }
 
 // Categories returns the registry. Callers must not mutate it.
@@ -112,6 +131,9 @@ func RunWith(opts Opts, repoDev bool) ([]Result, error) {
 		if cwd, err := os.Getwd(); err == nil {
 			opts.RepoRoot = gitToplevelFn(cwd)
 		}
+	}
+	if opts.cache == nil {
+		opts.cache = &statusCache{}
 	}
 
 	onlySet := indexSet(opts.Only)
