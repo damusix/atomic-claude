@@ -23,7 +23,7 @@ git worktree list 2>/dev/null
 ls docs/spec/ 2>/dev/null
 ls .claude/.scratchpad/ 2>/dev/null
 test -f docs/wiki/index.md && echo signals=yes || echo signals=no
-test -f CLAUDE.md && echo claudemd=yes || echo claudemd=no
+test -f AGENTS.md -o -f CLAUDE.md && echo steering=yes || echo steering=no
 ```
 
 Derive:
@@ -37,8 +37,8 @@ Derive:
 - `has_spec` — any files in `docs/spec/`
 - `has_scratchpad` — any active scratchpad dirs (implies in-flight `/subagent-implementation`)
 - `has_signals` — `docs/wiki/index.md` present
-- `has_claudemd` — `CLAUDE.md` present at repo root
-- `fresh_repo` — `in_repo` AND NOT (`has_signals` OR `has_claudemd` OR `has_spec`) — signals the user has never run the atomic toolchain here
+- `has_steering` — a project steering file (`AGENTS.md`, or the `CLAUDE.md` loader beside it) present at repo root
+- `fresh_repo` — `in_repo` AND NOT (`has_signals` OR `has_steering` OR `has_spec`) — signals the user has never run the atomic toolchain here
 
 
 ## Step 2 — Classify intent
@@ -81,12 +81,12 @@ One-line pointer per topic. Group by category for scannability.
 | `gather-evidence` / `evidence` | `/gather-evidence [<hypothesis> \| @<path>]` — pre-design hunch verification. Primary-source evidence with cited tier. Returns SUPPORTED / UNSUPPORTED / MIXED / INCONCLUSIVE. |
 | `pressure-test` | `/pressure-test [<topic> \| @<path>]` — Socratic challenger, no artifacts. Pre-approval gate. Complement: `/challenge-swarm` attacks the written design in parallel instead of dialogue. |
 | `challenge-swarm` / `swarm` | `/challenge-swarm [<path> \| @<path>]` — profiles the artifact, then seats 3-6 expert lenses with cited stakes from a ~30-lens catalog (engineering, data/ML, business, finance, communication, delivery); isolated parallel review, report is a contradiction map (conflicts / reinforced / unexamined assumptions). Post-design gate before `/subagent-implementation`. |
-| `implement` | Two verbs, split by where the context already is. `/subagent-implementation` reads the spec and runs the implement→review loop with `atomic-implementer`+`atomic-reviewer`, committing per green iteration — the default, and the right call when the context isn't loaded. `/implement [<task>]` runs the same checkpoint discipline in the main agent when the context *is* already in this conversation: Claude writes the code, `atomic-reviewer` gates every checkpoint, and the finalize is the same (docs, `atomic-auditor`, signals). Its Entry row hands back to `/subagent-implementation` when the context isn't loaded or the work won't fit inside it. |
+| `implement` | Two verbs, split by where the context already is. `/subagent-implementation` reads the spec and runs the implement→review loop with `atomic-implementer`+`atomic-reviewer`, committing per green iteration — the default, and the right call when the context isn't loaded. `/implement [<task>]` runs the same checkpoint discipline in the main agent when the context *is* already in this conversation: the main agent writes the code, `atomic-reviewer` gates every checkpoint, and the finalize is the same (docs, `atomic-auditor`, signals). Its Entry row hands back to `/subagent-implementation` when the context isn't loaded or the work won't fit inside it. |
 | `quick-fix` | `/quick-fix <task>` — implement→review loop without the planning phase, spec gate, or finalize ceremony (audit kept). For a known-cause fix with one obvious approach; hands off to `/subagent-diagnose` or `/atomic-plan` when the cause or the approach turns out open, never on file count. |
 | `diagnose` | `/subagent-diagnose ci [run-id]` or `/subagent-diagnose bug "<symptom>"` — orchestrated failure investigation. Same loop as implementation. |
 | `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`, every checkpoint inside `/implement`, and `/commit` dispatches it on main-agent code written ad-hoc, outside any command. All are diff-scoped; for standing code nobody is changing, `/deslop`. |
 | `ship` | Pick by intent — see `ship` matrix below. |
-| `docs` | `/documentation` syncs README/CLAUDE.md/spec/design after significant changes. Auto-fires on ship verbs in maintenance mode. |
+| `docs` | `/documentation` syncs README/project steering/spec/design after significant changes. Auto-fires on ship verbs in maintenance mode. |
 
 **Ship matrix**
 
@@ -101,8 +101,8 @@ One-line pointer per topic. Group by category for scannability.
 | `setup` / `install` | First-run flow: `/setup-wiki` audits conventions, then `/refresh-wiki` generates project context. |
 | `signals` | `/refresh-wiki` — idempotent, initializes or refreshes. The implement loop / `/autopilot` refreshes at finalize (scoped to the task's SHA range); ship verbs are the ad-hoc fallback and skip docs-only commits. A repo-scope refresh also emits one path-scoped pointer card per domain to `<state-root>/rules/wiki/<domain>.md`. |
 | `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, synthesizes capture-bucket material into `wiki/knowledge/` pages, refreshes only stale artifacts, commits the wiki (its git history is the changelog). Run `atomic wiki scan` first to scaffold. Use `atomic wiki bucket add/list/diff/promote` to manage capture folders. `atomic-wiki` skill is the conversational entry point — fires on "I want a place for notes/tickets", "add a bucket", "what does my wiki know", "is my wiki stale". |
-| `worktree` | Worktree creation is built into the implement loop — `/subagent-implementation` and `/autopilot` both offer (or auto-create) `.claude/worktrees/<branch>/` via the `worktree-setup` shared partial (Claude Code's native worktree home — `EnterWorktree` and `claude --worktree` manage the same directory). Cleanup via `/git-cleanup`. |
-| `bus` / `coordination` / `rooms` | `atomic bus` — peer messaging between concurrent Claude Code sessions over named rooms. `join <room> --as <name>` then a Monitor on `recv` delivers peer messages as prompts (always streams; no `--follow` flag, no replay of past traffic). `to` distinguishes addressed (act) from FYI (note only); `human`/`agent` kind and `--mode observe` shape who acts. Operator reaches a room without joining via `tail`/`say`/`read`/`chat`/`halt`/`resume`; `read <room> <msg-id>` recovers one message's full text from the room log. Daemon auto-spawns on first use, rehydrates its roster on restart; `start`/`stop`/`restart` control it explicitly — no idle shutdown. The `atomic-bus` skill carries the connect flow and reaction policy. See `docs/reference/bus.md`. |
+| `worktree` | Worktree creation is built into the implement loop — `/subagent-implementation` and `/autopilot` both offer (or auto-create) `.claude/worktrees/<branch>/` via the `worktree-setup` shared partial (the harness's worktree-entry capability opens the same directory). Cleanup via `/git-cleanup`. |
+| `bus` / `coordination` / `rooms` | `atomic bus` — peer messaging between concurrent agent sessions over named rooms. `join <room> --as <name>` then a persistent listener on `recv` delivers peer messages as prompts (always streams; no `--follow` flag, no replay of past traffic). `to` distinguishes addressed (act) from FYI (note only); `human`/`agent` kind and `--mode observe` shape who acts. Operator reaches a room without joining via `tail`/`say`/`read`/`chat`/`halt`/`resume`; `read <room> <msg-id>` recovers one message's full text from the room log. Daemon auto-spawns on first use, rehydrates its roster on restart; `start`/`stop`/`restart` control it explicitly — no idle shutdown. The `atomic-bus` skill carries the connect flow and reaction policy. See `docs/reference/bus.md`. |
 | `session` | `/session-report [<slug>]` captures branch session, written under `~/.atomic/<project-key>/reports/<branch>/` (resolved via `atomic where --json`). Read + deleted by next commit-message ship verb. |
 | `reminders` | `/remind-me <when> <text>` schedules. `/follow-up` reviews pending. `/follow-up review` triages stale entries. |
 | `scratchpad` / `bundles` | `atomic scratchpad new <slug> --purpose <p>` creates a slug-keyed bundle; `path <slug>` locates it; `list [--json] [--archived]`; `archive <slug>`. Commands call it instead of hand-rolling paths. |
@@ -114,8 +114,8 @@ One-line pointer per topic. Group by category for scannability.
 | `cleanup` | `/git-cleanup` (stale worktrees / branches — dispatches a read-only scan via `atomic prompt git-cleanup`, presents indexed report, you confirm). `/undo-commit` (soft-undo HEAD, refuses if pushed). Cleaning up *code* rather than git state is `/deslop`. |
 | `deslop` / `slop` | `/deslop [<path>]` — audits the codebase **as it stands**, not a diff: comment noise, AI-tell doc prose, speculative abstraction, reinvented stdlib, duplicate helpers, dead code, swallowed errors, convention drift. Fans out read-only `atomic-deslopper` agents sharded by wiki domain, writes an indexed report to a scratchpad bundle, and stops. `/deslop apply <ids\|tier>` is a separate gated pass that fixes accepted findings through the surgical implementer behind a green baseline. Every finding carries a safety tier; `report-only` (public API, dynamic refs, generated files) is never auto-fixed. |
 | `doctor` | `atomic doctor [--fix]` runs integrity checks, including category 14 `output-style`, which reports which settings file sets `outputStyle` and flags a project-level value as a possible override. `atomic validate` lints spec / config / bundle / artifacts. |
-| `update` | `atomic update [--check]` self-updates binary, auto-refreshes `~/.claude` artifacts, auto-runs install-scope migration steps, then runs doctor (`--skip-claude-update` skips the refresh). `--pre` installs the newest pre-release cut from the `next` branch; `atomic config set update.channel prerelease` makes that the default for the background check, banner and doctor too. When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge proposed `~/.claude/CLAUDE.md`. `atomic migrate` runs migration steps manually: bare = install scope (`~/.claude/`), `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos; `--show-log [<since>]` prints its dated change history, filtered by version or date. |
-| `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns background Haiku to watch CI. |
+| `update` | `atomic update [--check]` self-updates binary, auto-refreshes the installed harness artifacts, auto-runs install-scope migration steps, then runs doctor (`--skip-claude-update` skips the refresh). `--pre` installs the newest pre-release cut from the `next` branch; `atomic config set update.channel prerelease` makes that the default for the background check, banner and doctor too. When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge the proposed global steering file. `atomic migrate` runs migration steps manually: bare = install scope, `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos; `--show-log [<since>]` prints its dated change history, filtered by version or date. |
+| `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns a background subagent on the economical reasoning tier to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
 | `improve` / `retrospective` / `audit` | `/retrospective-learning [<targeted feedback>]` — session retrospective. Mines session history and the current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. |
 
@@ -123,10 +123,10 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `agents` | 8 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-deslopper`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration; `atomic-auditor` gates the finished whole once, in a fresh context; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `~/.claude/agents/` or `docs/reference/agents.md`. |
-| `skills` | 10 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-git-discipline`, `atomic-documentation`, `atomic-writing`, `atomic-wiki`, `atomic-visual-options`, `atomic-bus`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
+| `agents` | 8 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-deslopper`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration; `atomic-auditor` gates the finished whole once, in a fresh context; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `docs/reference/agents.md`. |
+| `skills` | 10 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-git-discipline`, `atomic-documentation`, `atomic-writing`, `atomic-wiki`, `atomic-visual-options`, `atomic-bus`. See `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Seeded automatically at install and every session start; `/config` → Output style overrides per project; `atomic config set output_style.seed false` opts out. |
-| `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
+| `commands` | Full catalog in the installed command set. Reference table at `docs/reference/commands.md`. |
 | `binary` / `cli` | Print the **Binary subcommands** section below. Do not recite the verb list from memory — `atomic --help` generates it from `cliusage`, so it cannot drift; a recited copy can. |
 
 ### Binary subcommands
@@ -142,11 +142,11 @@ Run them rather than reciting. What they cannot tell the user is which verb fits
 
 | Job | Verb | Detail |
 |-----|------|--------|
-| Install or restore `~/.claude` artifacts | `claude install`, `update`, `uninstall` | `docs/guides/install.md` |
+| Install or restore harness artifacts | `claude install`, `update`, `uninstall` | `docs/guides/install.md` |
 | Understand how code fits together | `code` — lead with `explore` | `docs/reference/code-intel.md` |
 | Maintain project or cross-repo context | `wiki`, `signals` | `docs/reference/repo-wiki.md`, `docs/reference/realm-wiki.md` |
-| Talk to another running Claude session | `bus` | `docs/reference/bus.md` |
-| Keep an interpreter alive across Bash calls | `repl` | `docs/reference/repl.md` |
+| Talk to another running agent session | `bus` | `docs/reference/bus.md` |
+| Keep an interpreter alive across shell calls | `repl` | `docs/reference/repl.md` |
 | Browse the wiki and code graph in a browser | `serve` | `docs/reference/serve.md` |
 | Change your own settings | `config` | `atomic config list` |
 | Change settings for everyone in the repo | edit `.claude/atomic.toml` | `docs/reference/atomic-toml.md` |
@@ -176,12 +176,12 @@ Examples of correct routing:
 
 When `$ARGUMENTS` is exactly `tour` (or `--tour`, or `walkthrough`), enter tour mode. Skip Steps 1 routing; just run the tour.
 
-The tour is four stages. After each stage, prompt the user via `AskUserQuestion` with three options: continue / dive deeper here / exit tour. Keep each stage to ≤15 lines of output.
+The tour is four stages. After each stage, ask the user with a structured three-option question (continue / dive deeper here / exit tour). Keep each stage to ≤15 lines of output.
 
 **Stage 1 — What atomic-claude is.**
 
 ```
-atomic-claude — opinionated Claude Code config. Five surfaces compose:
+atomic-claude — opinionated agent config. Five surfaces compose:
 
   output style    terse TUI replies (atomic — drop filler, fragments OK)
   skills          10 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing, visual options, bus messaging)
@@ -189,7 +189,7 @@ atomic-claude — opinionated Claude Code config. Five surfaces compose:
   agents          8 dispatchable subagents (implementer, reviewer, auditor, ...)
   binary          atomic CLI — signals scan, doctor, validate, update, install
 
-CLAUDE knows the current repo via auto-loaded signals files. Subagents
+The agent knows the current repo via auto-loaded signals files. Subagents
 run in fresh contexts so the implement→review loop can resume across sessions.
 ```
 
@@ -202,7 +202,7 @@ Prompt: continue to lifecycle / show me the surfaces in detail / exit tour.
 1. Plan         /atomic-plan        — design doc + spec contract
 2. Implement    /subagent-implementation  — TDD loop, reviewer gate, commit per green
 3. Ship         /commit [token]     — commit, then optionally push / pr / merge / squash
-4. Sync docs    /documentation      — README + CLAUDE.md + spec/design updated to match
+4. Sync docs    /documentation      — README + project steering + spec/design updated to match
 
 Challenge gates:  /pressure-test (defend the idea in dialogue) and /challenge-swarm
                   (isolated expert lenses attack the written design) sit between plan and implement.
@@ -229,7 +229,7 @@ docs/wiki/scan.md                     raw scan output — NOT @-ref'd
 .claude/worktrees/<branch>/           isolated branches (gitignored)
 docs/design/<topic>.md                conceptual workspace (committed)
 docs/spec/<topic>.md                  implementation contract (committed; body kept current, changes logged)
-<wikis> block in ~/.claude/CLAUDE.md  registered wiki index paths (CLI-managed, outside <atomic>)
+harness global steering file          <wikis> block: registered wiki index paths (CLI-managed, outside the <atomic> block)
 
 wiki layout:
   wiki/repos/         summaries of no-signals repos
@@ -250,7 +250,7 @@ Prompt: continue to maintenance / explain one of these / exit tour.
 atomic doctor [--fix]             integrity checks over install, hooks, signals, refs, ..., profile, code-index, migrate, output-style
 atomic validate                   lint spec / config / bundle / artifact-CLI-citation parity
 atomic update [--check] [--pre]   self-update binary (--pre tracks next-branch pre-releases), auto-runs install-scope migrations, runs doctor after
-atomic migrate [--repo|--realm|--show-log]   run versioned migration steps: bare = ~/.claude/, --repo = one project, --realm = fan-out across all atomic'd repos; --show-log [<since>] prints dated change history
+atomic migrate [--repo|--realm|--show-log]   run versioned migration steps: bare = install scope, --repo = one project, --realm = fan-out across all atomic'd repos; --show-log [<since>] prints dated change history
 atomic scratchpad new|path|list|archive   slug-keyed bundle lifecycle: create/extend, locate, enumerate, retire
 atomic profile refresh            re-detect dev tooling + shell, rewrite ## Environment block
 atomic where [--json]             one-shot position report: repo-scope wiki, realm scope (root/member/orphaned/none), code-index scope, plus branch/reports/reports_root/reminders/archive state paths — orient before wiki/realm-scoped work
@@ -309,7 +309,7 @@ If freeform intent maps cleanly to one verb, drop `alternatives:` (keep the tour
 
 If the user is on base + clean with no clear next move, ask: `what are you trying to do — start new work, review existing, or clean up?` Single line, no menu.
 
-For tour mode (D), use prose blocks + `AskUserQuestion` transitions, not the three-block format.
+For tour mode (D), use prose blocks + structured question transitions, not the three-block format.
 
 </workflow>
 

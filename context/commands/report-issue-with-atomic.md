@@ -4,7 +4,7 @@ description: Open an issue against the atomic-claude repo itself (bugs/feature r
 
 ## Scope
 
-This command files an issue against **atomic-claude** (`damusix/atomic-claude`) — the system that installs commands, skills, agents, and the output style into `~/.claude/`. Use it when the problem is with atomic-claude's behavior, not the user's current repo. For issues in the user's current project, use `/report-issue` instead.
+This command files an issue against **atomic-claude** (`damusix/atomic-claude`) — the system that installs commands, skills, agents, and the output style into a harness's config directory. Use it when the problem is with atomic-claude's behavior, not the user's current repo. For issues in the user's current project, use `/report-issue` instead.
 
 Hardcoded target: `damusix/atomic-claude`. Do **not** infer the target from `gh repo view` or cwd — the user is almost always inside a different repo when invoking this.
 
@@ -63,7 +63,7 @@ Hardcoded target: `damusix/atomic-claude`. Do **not** infer the target from `gh 
 - `atomic --version`: <x>
 - Install method: <curl install.sh | brew | source | docker>
 - OS: <x>
-- Claude Code version: <x if known>
+- Harness and version: <x if known>
 - Affected artifact: <command/skill/agent/output-style name>
 ```
 
