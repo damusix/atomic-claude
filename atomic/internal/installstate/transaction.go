@@ -247,19 +247,27 @@ func (t *Transaction) PublishFile(unit string) error {
 
 // filePublishBytes derives the bytes a file mutation should publish. A block
 // resource is spliced into the freshly observed bytes so only the managed
-// block changes; a whole-file resource, or a resource that does not exist yet,
-// publishes the staged bytes as-is. A block resource whose file no longer
-// carries exactly one parseable block fails loud rather than being clobbered.
+// block changes; when the observed file exists but has never carried a block,
+// the block is appended and the user's prose is preserved byte-for-byte. A
+// whole-file resource, or a resource that does not exist yet, publishes the
+// staged bytes as-is. A block resource whose file carries ambiguous tags, or
+// lost its one parseable block between plan and apply, fails loud rather than
+// being clobbered.
 func filePublishBytes(m Mutation, obs managedfile.Observation, staged []byte) ([]byte, error) {
 	if m.Kind != managedfile.KindBlock || !obs.Exists() {
 		return staged, nil
 	}
-	if obs.Conflict == managedfile.ConflictMalformedBlock {
-		return nil, fmt.Errorf("installstate: %s lost its parseable %s block between plan and apply", m.Path, managedfile.BlockOpen)
-	}
 	block, err := managedfile.ManagedBlock(staged)
 	if err != nil {
 		return nil, fmt.Errorf("installstate: staged %s carries no single %s block: %w", m.Unit, managedfile.BlockOpen, err)
+	}
+	if obs.Conflict == managedfile.ConflictMalformedBlock {
+		if !managedfile.HasBlockTags(obs.Bytes) {
+			// No tags at all: the file has never held a block, so the block is
+			// appended and every existing byte survives.
+			return managedfile.AppendBlock(obs.Bytes, block), nil
+		}
+		return nil, fmt.Errorf("installstate: %s lost its parseable %s block between plan and apply", m.Path, managedfile.BlockOpen)
 	}
 	spliced, err := managedfile.ReplaceBlock(obs.Bytes, block)
 	if err != nil {

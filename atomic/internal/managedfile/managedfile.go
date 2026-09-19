@@ -85,6 +85,26 @@ func ReplaceBlock(content, replacement []byte) ([]byte, error) {
 	return out, nil
 }
 
+// HasBlockTags reports whether content carries any managed-block tag at all,
+// parseable or not. It is the distinction between a file that has never held a
+// block and one whose tags are ambiguous: only the former may receive an
+// appended block, because the latter's boundary cannot be guessed.
+func HasBlockTags(content []byte) bool {
+	return bytes.Contains(content, []byte(BlockOpen)) || bytes.Contains(content, []byte(BlockClose))
+}
+
+// AppendBlock returns content with block appended as a new trailing region,
+// preserving every existing byte. A separator newline is added only when
+// content does not already end with one, so the appended opening tag stays a
+// line of its own and the block remains line-anchored.
+func AppendBlock(content, block []byte) []byte {
+	separator := ""
+	if len(content) > 0 && !bytes.HasSuffix(content, []byte("\n")) {
+		separator = "\n"
+	}
+	return append(append(append([]byte{}, content...), []byte(separator)...), block...)
+}
+
 // BlocksEqual reports whether both contents carry a parseable block and the
 // two blocks are byte-identical. Unowned or malformed content is never equal.
 func BlocksEqual(a, b []byte) bool {
