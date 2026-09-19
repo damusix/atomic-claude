@@ -75,7 +75,7 @@ Atomic installs one authored policy and workflow corpus into Claude Code and OMP
 - [ ] `atomic doctor` reports target instances, shared resources, unfinished journals, capability gaps, stale materializations, deliberate disablement or untrusted hooks, effective-content shadowing, and uncovered rule operations independently.
 - [ ] Existing `atomic doctor` category names and numeric indices remain unchanged; multi-harness categories append with stable names and indices.
 - [ ] Milestone A passes Claude and OMP runtime scenarios for global, root, nested wiki, resumed, and child sessions, including absence of duplicate Atomic or output-style application and exact rule matching behavior.
-- [ ] Milestone B passes Codex runtime scenarios for default and custom homes, plugin trust and disablement, override precedence, shared skills, native agents, matching and nonmatching rules, supported tools, shell and hosted operations without safe paths, resumed and child sessions, and every capability claimed by that milestone. Uncovered operations prove no matched body was delivered.
+- [ ] Milestone B passes Codex runtime scenarios for custom `CODEX_HOME` roots — plugin trust and disablement, override precedence, shared skills, native agents, matching and nonmatching rules, supported tools, shell and hosted operations without safe paths, resumed and child sessions — and records the default home as a declared unsupported outcome rather than a proven one: with `CODEX_HOME` unset, explicit selection refuses naming the variable, a broad `--all` walk skips the kind without error, and no default-root package or delivery claim appears. Uncovered operations prove no matched body was delivered.
 
 
 ## Approach
@@ -105,11 +105,17 @@ context/
 ├── rules/**/*.md ............................ M  (actual path-scoped rule metadata)
 └── commands/atomic-help.md .................. M  (new lifecycle discovery)
 
-repository steering
-├── AGENTS.md ................................ A  (project steering source)
-├── CLAUDE.md ................................ M  (project @AGENTS.md loader)
-├── docs/wiki/AGENTS.md ...................... A  (nested wiki steering source)
-└── docs/wiki/CLAUDE.md ...................... M  (nested @AGENTS.md loader)
+repository and realm steering (init and adapter outputs written into a user
+repository or realm; never committed repo files here, and this repo's root
+CLAUDE.md stays the contributor project overlay)
+├── <repo>/AGENTS.md ......................... A  (project steering source)
+├── <repo>/CLAUDE.md ......................... A  (project @AGENTS.md loader)
+├── <repo>/docs/wiki/AGENTS.md ............... A  (nested wiki steering source)
+├── <repo>/docs/wiki/CLAUDE.md ............... A  (nested @AGENTS.md loader)
+├── <realm>/AGENTS.md ........................ A  (capture/member steering source)
+├── <realm>/CLAUDE.md ........................ A  (realm @AGENTS.md loader)
+├── <realm>/wiki/AGENTS.md ................... A  (realm wiki steering source)
+└── <realm>/wiki/CLAUDE.md ................... A  (realm wiki @AGENTS.md loader)
 
 atomic/internal/
 ├── artifacts/ ............................... A  (canonical corpus enumeration, rendering, identity, projection digests)
@@ -171,7 +177,6 @@ user-facing and maintained documentation
 ├── docs/wiki/bundle.md ...................... M  (canonical corpus and native projections)
 ├── docs/wiki/config.md ...................... M  (ledger and state selection)
 ├── docs/wiki/doctor.md ...................... M  (target-aware checks)
-└── atomic/CHANGELOG.md ...................... M  (release-visible contract changes)
 ```
 
 
@@ -185,11 +190,9 @@ context/AGENTS.md
 context/CLAUDE.md
   Removal — obsolete global-source loader; Claude global projection is generated directly from context/AGENTS.md
 
-repository AGENTS.md and CLAUDE.md
-  Project steering — shared guidance plus Claude loader relation
-
-docs/wiki/AGENTS.md and docs/wiki/CLAUDE.md
-  Wiki steering — nested shared guidance plus Claude loader relation
+repository and realm steering pairs (init and adapter outputs, not committed repo files)
+  Project steering — repository-root AGENTS.md plus the adjacent thin Claude loader written on init or migration
+  Wiki steering — docs/wiki/AGENTS.md plus its adjacent thin Claude loader; realm root and realm wiki pairs follow the same shape
 
 atomic/internal/artifacts/
   Artifact — canonical identity, kind, rendered body, semantics, and source digest
@@ -270,7 +273,7 @@ atomic/internal/config/
 
 atomic/internal/wiki/
   WikiRegistry — authoritative byte-preserving ~/.atomic/wikis.md operations
-  Initialization — repository root/wiki and realm root/wiki steering, Git preconditions, state root, and capture surface
+  Initialization — repository `docs/wiki/` and realm `<realm>/wiki/` steering loader pairs, scope markers, Git preconditions, and capture surface
   Refresh — repository pages and wiki-pointer RuleRecord production; realm pages without scoped rule production
   NativeProjection — target convergence, per-target stale/conflict state, and no reverse import after adoption
 
@@ -420,9 +423,6 @@ atomic/cmd/atomic/cmd_harness_test.go
 
 atomic/cmd/atomic/cmd_state_test.go
   State verification — adoption, override, lazy creation, and persistence order
-
-atomic/CHANGELOG.md
-  Release entry — user-visible behavior and breaking lifecycle cutover
 ```
 
 
@@ -566,7 +566,7 @@ atomic/CHANGELOG.md
 | CP7D | Amend related lifecycle and state specifications for Milestone A | nine named related `docs/spec/*.md` files | atomic-implementer (mode: feature) | 9 | Each amended spec body states current Claude/OMP global, repository, rule, wiki, state, and uninstall contracts; Change logs record superseded behavior without duplicating this spec |
 | CP7E | Update Milestone A help, user docs, domain maps, and release entry | atomic-help, README, install script, guide, references, three wiki pages, changelog | atomic-implementer (mode: feature) | ~11 | Every Milestone A surface is discoverable; help-router reports zero missing commands; domain maps match implementation; release classification is correct |
 | CP8A | Prove Milestone A in isolated Claude and OMP homes | `runtimeproof/`, scratchpad runtime evidence, generated fixtures | atomic-implementer (mode: feature) | ~6 | Claude-only, OMP-only, named-profile, incompatible-generation, allowed shared visibility, global install, real prior-version complete/partial and v2 in-flight/orphaned/mixed fixtures, replace and leave-unowned outcomes, pending proposal, corrupt snapshot, listed-missing drift, concurrent update/uninstall/`doctor --fix`, filesystem-identical dry-runs with advisory applied-unrecorded/staging-discard plans and blocked later-edit recovery, interrupted adoption, idempotent rerun, state-root rollback, newer-schema refusal, old-binary drift, repo/realm/worktree behavior, rule matching, primary/resumed/child, uninstall recovery, repair, and both update scenarios pass |
-| CP5 | Add the Codex plugin, adapter, and hooks for Milestone B | Codex adapter/plugin/hooks, rules, shared skills, command layer, doctor checks, fixtures | atomic-implementer (mode: feature) | ~16 | Depends on CP0 registration/session/pre-operation/context/deny rows; default/custom homes, trust-pending and disabled state, AGENTS overrides, skills, TOML agents, bounded payloads, exact path extraction, and approved commands pass. Missing rows remain `unsupported` without blocking unrelated surfaces |
+| CP5 | Add the Codex plugin, adapter, and hooks for Milestone B | Codex adapter/plugin/hooks, rules, shared skills, command layer, doctor checks, fixtures | atomic-implementer (mode: feature) | ~16 | Depends on CP0 registration/session/pre-operation/context/deny rows; custom `CODEX_HOME` homes, trust-pending and disabled state, AGENTS overrides, skills, TOML agents, bounded payloads, exact path extraction, and approved commands pass, while an unset `CODEX_HOME` refuses by name and is never resolved to a guessed default root. Missing rows remain `unsupported` without blocking unrelated surfaces |
 | CP6B | Verify Codex guidance and rule runtime semantics | root/wiki steering, Codex adapter/hooks, runtimeproof, worktree and non-git fixtures | atomic-implementer (mode: feature) | ~10 | Guidance discovery, override precedence, match/nonmatch/overlap, mediated and bypassed tools, exact deny, payload limits/spill, reload, resume, child, dedupe, concurrency, failure, cleanup, worktree, and non-Git behavior match proven rows; shell/hosted calls without safe paths are uncovered and receive no matched body |
 | CP7F | Complete Codex lifecycle discovery and documentation | command layer, doctor, selfupdate, atomic-help, guides, references, specs, changelog | atomic-implementer (mode: feature) | ~12 | Codex enrollment, trust status, update, repair, target uninstall, rule tiers, unsupported capability roles, and promised artifact surfaces are discoverable; amended specs remain current; stable CLI and doctor contracts hold |
 | CP8B | Prove Milestone B in isolated Codex and mixed homes | `runtimeproof/`, scratchpad runtime evidence, generated fixtures | atomic-implementer (mode: feature) | ~6 | Codex-only and three-target scenarios extend CP8A migration fixtures with plugin trust/disablement, global install, wiki auto-convergence, two repos/worktrees, match/nonmatch/overlap, rename/delete/malformed/collision, changed derivative, mediated and uncovered operations with no false delivery claim, primary/resumed/child sessions, shared ownership, concurrent lifecycle refusal, interruption recovery, repair, and every promised capability |
@@ -622,4 +622,18 @@ atomic/CHANGELOG.md
 **Why:** The cutover moved partial expansion and enumeration ahead of projection, so a design or spec that still named `bundlemirror` as the corpus enumerator described the pre-cutover pipeline.
 
 **Superseded:** `bundlemirror` was the sole corpus enumerator, reading and rendering each matching file during its walk; enumeration and rendering now happen once in `artifacts.Load`, and `bundlemirror` consumes the result.
+
+### 2026-09-19 — Steering pairs are outputs; Codex default home is a declared boundary
+
+**Correction:** the change tree's "repository steering" rows named repo-root `AGENTS.md`/`CLAUDE.md`, `docs/wiki/AGENTS.md`, and `docs/wiki/CLAUDE.md` as files this change adds, and the tree and outline carried an `atomic/CHANGELOG.md` release-entry row. None of those repo files is created here: repository and realm steering pairs are init and adapter outputs written into a user's repository or realm, while this repository's root `CLAUDE.md` stays the contributor project overlay. Release visibility comes from the commit type under release-please, so a changelog file edit is not part of this change.
+
+**What changed:** `wiki.InitRepoScope` and `wiki.InitRealmScope` write the scope's loader pair — the shared `AGENTS.md` carrying the steering scaffold and the adjacent blank-bracketed `CLAUDE.md` import of it, rendered from `bundlespec.ScopeSteering` — instead of a lone `CLAUDE.md`; an existing `CLAUDE.md` (the pre-pair shape) stays byte-identical and keeps loading. Criterion 54 now states the Codex boundary the runtime evidence supports: a custom `CODEX_HOME` is proven while an unset `CODEX_HOME` is a declared unsupported outcome that refuses by name and is skipped by `--all`, never resolved to a guessed default root. The change tree and outline describe the steering pairs as outputs and drop the changelog row.
+
+**Why:** the audit found the recorded change tree describing files HEAD never gained, a release-entry claim no commit supports, and a criterion claiming default-home Codex coverage that CP0/CP8 never observed. The init path also contradicted the shipped steering-pair contract, so the code was converted rather than the contract weakened.
+
+### 2026-09-19 — Wiki steering-pair consumers reconciled
+
+**What changed:** The consumers that still assumed a lone `docs/wiki/CLAUDE.md` steering file now key off the pair. `atomic/internal/doctor/checks_signals.go` excludes `docs/wiki/AGENTS.md` from the router orphan check alongside `index.md`, `scan.md`, and `CLAUDE.md`; `atomic/internal/signals/signals.go`'s linkify skip list adds `AGENTS.md` while keeping `CLAUDE.md`; `context/agents/atomic-wiki-inferrer.md` names the shared `AGENTS.md` as authoritative steering with the `CLAUDE.md` loader as fallback, and the `signals-gate` partial passes a `<steering>` block to the silent dispatch. `docs/wiki/wiki.md`'s `init` row now reads "steering loader pair".
+
+**Why:** moving the scaffold into `AGENTS.md` changed which file carries guidance, so an initialized repo otherwise reported its steering file as an orphan domain — suppressing category 3's freshness result — linkify rewrote the file the pipeline promises to leave alone, and silent refreshes read the blank loader instead of the user's steering.
 

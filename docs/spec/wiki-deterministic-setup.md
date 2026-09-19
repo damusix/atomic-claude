@@ -4,13 +4,13 @@
 ## Goal
 
 
-A new `atomic wiki init --scope repo|realm --root <path>` CLI verb writes the fixed-content `CLAUDE.md` scaffold for both wiki scopes deterministically in Go, replacing the two LLM-executed bash heredocs that currently do this, and closing the realm-scope gap where no self-referencing `CLAUDE.md` is ever created.
+A new `atomic wiki init --scope repo|realm --root <path>` CLI verb writes the fixed-content steering loader pair for both wiki scopes deterministically in Go — the shared `AGENTS.md` scaffold plus the adjacent thin `CLAUDE.md` import of it — replacing the two LLM-executed bash heredocs that currently do this, and closing the realm-scope gap where no self-referencing steering file is ever created.
 
 
 ## Non-goals
 
 
-- No redesign of the `docs/wiki/CLAUDE.md` scaffold content — moved verbatim from the existing heredocs.
+- No redesign of the `docs/wiki/AGENTS.md` scaffold content — moved verbatim from the existing heredocs.
 - No change to the realm-scope `<wikis>` global registry (`atomic/internal/wiki/registry.go` `RegisterWiki`) — unrelated concern (cross-realm staleness tracking), stays as-is.
 - No `atomic migrate` involvement — this is an always-idempotent bootstrap verb, not a version-gated migration step.
 - No fix to `templates/commands/setup-wiki.md`'s broader pre-relocation `.claude/project/signals.md` / `deterministic-signals.md` references (audit table, `.gitignore` proposal, `CLAUDE.md` survey `@-ref` block) beyond the `signals-steering.md` rows. That staleness predates this workstream and is a separate, larger gap — out of scope here.
@@ -22,16 +22,16 @@ A new `atomic wiki init --scope repo|realm --root <path>` CLI verb writes the fi
 ## Success criteria
 
 
-- [ ] `atomic wiki init --scope repo --root <path>` writes `<path>/docs/wiki/CLAUDE.md` with the scaffold content currently embedded in `templates/commands/refresh-wiki.md` R3 and `skills/atomic-wiki/references/repo.md` Step 8c, byte-identical to those heredocs; no-op (exit 0, file untouched) when the file already exists.
-- [ ] `atomic wiki init --scope realm --root <path>` writes `<path>/wiki/CLAUDE.md` containing only `@index.md`; no-op when the file already exists.
+- [ ] `atomic wiki init --scope repo --root <path>` writes `<path>/docs/wiki/AGENTS.md` with the scaffold content currently embedded in `templates/commands/refresh-wiki.md` R3 and `skills/atomic-wiki/references/repo.md` Step 8c, byte-identical to those heredocs, plus the adjacent `<path>/docs/wiki/CLAUDE.md` thin loader importing `@AGENTS.md`; no-op (exit 0, nothing written) when `CLAUDE.md` already exists.
+- [ ] `atomic wiki init --scope realm --root <path>` writes `<path>/wiki/AGENTS.md` containing only `@index.md`, plus the adjacent `<path>/wiki/CLAUDE.md` thin loader importing `@AGENTS.md`; no-op when `CLAUDE.md` already exists.
 - [ ] Both writes go through the `writeFileAtomic` temp-file-plus-rename idiom (`atomic/internal/wiki/registry.go:200-225`) and create missing parent directories.
 - [ ] `atomic wiki init` with a missing or invalid `--scope` value (anything other than `repo`/`realm`) exits 1 with a usage error and writes nothing.
-- [ ] `atomic/internal/wiki/wiki.go` `Scan()` (via its `scaffold()` step, `wiki.go:422-459`) calls the realm-scope writer, so `atomic wiki scan` on a realm root ensures `<root>/wiki/CLAUDE.md` exists with no separate call.
+- [ ] `atomic/internal/wiki/wiki.go` `Scan()` (via its `scaffold()` step, `wiki.go:422-459`) calls the realm-scope writer, so `atomic wiki scan` on a realm root ensures `<root>/wiki/AGENTS.md` and its adjacent `CLAUDE.md` loader exist with no separate call.
 - [ ] `wiki init` is registered in `buildWikiCmd()` (`atomic/cmd/atomic/main.go`), the static wiki command block in `atomic/internal/cliusage/cliusage.go`, and the wiki ground-truth table in `atomic/cmd/atomic/main_test.go`; `TestDeriveCommandsGolden` and the Cobra-metadata cross-check both pass.
 - [ ] `templates/commands/refresh-wiki.md` R3 no longer contains a `cat > ... EOF` heredoc; it calls `atomic wiki init --scope repo` instead.
 - [ ] `skills/atomic-wiki/references/repo.md` Step 8c no longer contains a heredoc; it calls the same CLI verb.
-- [ ] `templates/commands/setup-wiki.md` Step 1 audit, Step 2 propose, and Step 4 apply check for `docs/wiki/CLAUDE.md` (not `.claude/project/signals-steering.md`) and, when creating it, call `atomic wiki init --scope repo`.
-- [ ] `claude.local.md` (~line 200) and `skills/atomic-wiki/references/repo.md` (lines 73, 203) no longer describe `signals-steering.md` as a distinct caller-supplied file; wording reflects `docs/wiki/CLAUDE.md` as the nested-memory steering source.
+- [ ] `templates/commands/setup-wiki.md` Step 1 audit, Step 2 propose, and Step 4 apply check for the wiki steering pair (`docs/wiki/AGENTS.md` and its adjacent `CLAUDE.md` loader, not `.claude/project/signals-steering.md`) and, when creating it, call `atomic wiki init --scope repo`.
+- [ ] `claude.local.md` (~line 200) and `skills/atomic-wiki/references/repo.md` (lines 73, 203) no longer describe `signals-steering.md` as a distinct caller-supplied file; wording reflects the wiki steering pair (`docs/wiki/AGENTS.md` plus its `CLAUDE.md` loader) as the nested-memory steering source.
 - [ ] `templates/commands/atomic-help.md`'s `binary`/`cli` topic row mentions `wiki init --scope repo|realm`.
 - [ ] `go test ./...`, `go vet ./...`, `gofmt -l .` clean under `atomic/`.
 - [ ] `make render && git diff --exit-code` clean; `make -C atomic bundle && git diff --exit-code` clean.
@@ -61,7 +61,7 @@ New `atomic wiki init --scope repo|realm --root <path>` CLI verb, following the 
 |------|-----------|-----------|
 | `cliusage.go`'s static wiki-command table and the live Cobra tree diverge, breaking `TestDeriveCommandsGolden` / the Cobra-metadata cross-check | High (will fire if either is edited alone) | CP1 updates `cliusage.go`, `buildWikiCmd()`, and `main_test.go`'s ground-truth table in the same commit; run `go test ./...` before proceeding |
 | Scaffold text drifts from the existing heredocs during the verbatim move (whitespace, comment wording) | Med | CP1's test asserts the written file matches the exact heredoc content byte-for-byte; CP2 diffs `refresh-wiki.md`/`repo.md` output against a fresh `atomic wiki init --scope repo` run before deleting the heredocs |
-| Standalone `atomic wiki init --scope realm` on a root with no `wiki/` yet writes only `CLAUDE.md` (via `writeFileAtomic`'s parent-mkdir), not the rest of `wiki.Scan()`'s scaffold (`README.md`, `.gitignore`, `git init`) — a user could mistake `init` for the full realm bootstrap | Low | CLI `--help` description states `init` writes only the `CLAUDE.md` scaffold; `wiki scan` remains the entry point for full realm setup |
+| Standalone `atomic wiki init --scope realm` on a root with no `wiki/` yet writes only the steering pair (`wiki/AGENTS.md` plus its `CLAUDE.md` loader via `writeFileAtomic`'s parent-mkdir), not the rest of `wiki.Scan()`'s scaffold (`README.md`, `.gitignore`, `git init`) — a user could mistake `init` for the full realm bootstrap | Low | CLI `--help` description states `init` writes only the steering pair; `wiki scan` remains the entry point for full realm setup |
 | Implementer scope-creeps into fixing `setup-wiki.md`'s broader pre-relocation `.claude/project/signals.md` staleness (lines outside the steering rows) while already in the file | Med | Non-goals names the exact rows in scope (audit ~74, propose ~106, apply ~180-213); CP3 verifies only those rows changed |
 | `atomic-help.md`'s `binary`/`cli` topic row is one long paragraph — an imprecise edit could corrupt neighboring verb descriptions | Low | CP3 makes a single minimal insertion naming `wiki init --scope repo\|realm`; run the MISSING-scan verification command after editing |
 
@@ -69,7 +69,13 @@ New `atomic wiki init --scope repo|realm --root <path>` CLI verb, following the 
 ## Change log
 
 
-<!-- empty on creation; first entry on first post-approval amendment -->
+### 2026-09-19 — `wiki init` writes the steering loader pair
+
+**What changed:** `atomic wiki init` writes each scope's steering loader pair instead of a lone `CLAUDE.md`: the shared `AGENTS.md` carrying the scaffold (repo) or `@index.md` (realm), plus the adjacent thin `CLAUDE.md` importing `@AGENTS.md`. Existing `CLAUDE.md` files are still left untouched, so an install created before the pair keeps loading. The verb's one-line CLI description now reads "Write the steering loader pair and the scope marker", and the Goal, non-goal, success criteria, and realm risk row describe the pair.
+
+**Why:** the multi-harness compatibility work made the repository and realm steering pair the canonical shape — guidance authored in `AGENTS.md` with a thin Claude loader beside it — but this verb still produced the pre-pair single-file layout, so a fresh `wiki init` disagreed with every other steering writer and with the shipped `setup-wiki`/`atomic-wiki` prose.
+
+**Superseded:** `wiki init` wrote `<path>/docs/wiki/CLAUDE.md` with the full scaffold (repo) and `<path>/wiki/CLAUDE.md` containing only `@index.md` (realm); the scaffold now lives in the adjacent `AGENTS.md` and `CLAUDE.md` is the blank-bracketed loader in both scopes.
 
 
 ## Implementation log

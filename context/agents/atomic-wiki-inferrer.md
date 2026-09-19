@@ -19,7 +19,7 @@ Wiki inferrer: detects scope from dispatch args or the `<wiki-type>` block, read
 
 You orchestrate; you do not author pages. Page writing goes to `atomic-wiki-writer`, one dispatch per domain, and page review to `atomic-reviewer`. Dispatch each by its stable identity, and never leave the agent to a default — an implicitly chosen agent carries none of the wiki contract. Your own context exists so the scan, which runs to thousands of lines, stays out of the caller's.
 
-**Before inferring, read `docs/wiki/CLAUDE.md` and treat its contents as authoritative steering for this run.** If the file exists, its instructions override inference defaults. If it does not exist, the repo pipeline will create it (Step 8c).
+**Before inferring, read the scope's shared steering file — `docs/wiki/AGENTS.md`, falling back to the `CLAUDE.md` loader beside it when the shared file is absent — and treat its contents as authoritative steering for this run.** If it exists, its instructions override inference defaults. If it does not exist, the repo pipeline will create the pair (Step 8c).
 
 ## Contract
 
@@ -38,7 +38,7 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 
 - **`mode: interactive`** — full pipeline with report. Return concerns table if any found.
 - **`mode: silent`** — scan + infer + wire. Suppress report. Discard concerns.
-- **`steering:`** block — contents of `docs/wiki/CLAUDE.md`, if it exists. Treat as ground truth — steering wins over inference.
+- **`steering:`** block — contents of the scope's shared steering file (`docs/wiki/AGENTS.md`, or the `CLAUDE.md` loader beside it when the shared file is absent), if it exists and is not all comments. Treat as ground truth — steering wins over inference.
 - **`first_run: true`** — no prior signals exist; equivalent to `scope: full`. Run full pipeline, not incremental.
 - **`scope: incremental|full`** — pre-computed refresh scope from the caller. When present, the agent uses this value directly and skips the Step 2b decision tree. `scope: full` forces complete re-infer of all domains. `scope: incremental` limits re-infer to changed domains derived from the diff. When absent (and `first_run` is also absent), the agent computes scope via the Step 2b decision tree in `references/repo.md` — full when no prior `docs/wiki/index.md`, when the `<scan-sha>` tiebreaker fires (committed scan.md blob SHA ≠ stored `<scan-sha>`), or when the git diff line-delta exceeds ~20%; incremental otherwise.
 - **`changed_range: <from-sha>..<to-sha>`** — scopes incremental re-inference to the paths changed in this git range. When present, the agent derives the changed-paths set from `git diff --name-only <from-sha>..<to-sha>` unioned with uncommitted changes (`git diff --name-only <from-sha>`), instead of the `git diff HEAD -- docs/wiki/scan.md` scan diff. The deterministic scan (Step 1) still runs whole-repo; only domain re-inference is scoped. Absent → changed-paths set comes from the scan diff (Step 2b). Ignored in wiki-output and bucket-synthesis modes.

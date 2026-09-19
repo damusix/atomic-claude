@@ -56,7 +56,7 @@ Everything under [`atomic/internal/wiki/`](../../atomic/internal/wiki) is realm 
 |------|----------------|----------|
 | `scan` | `--root` | Discover members, classify, scaffold `wiki/`, rewrite the managed regions, register in `~/.claude/CLAUDE.md`, rebuild bucket indexes. Prints a member handoff to stdout. |
 | `stale` | `--root` | Read-only freshness report. Exit 0 fresh, 1 stale, 2 hard error. |
-| `init` | `--scope repo\|realm`, `--root` | Write the fixed-content steering [`CLAUDE.md`](../../CLAUDE.md) for that scope plus the `scope` marker in [`.claude/atomic.toml`](../../.claude/atomic.toml). Idempotent. |
+| `init` | `--scope repo\|realm`, `--root` | Write the steering loader pair (shared `AGENTS.md` + thin `CLAUDE.md`) for that scope plus the `scope` marker in [`.claude/atomic.toml`](../../.claude/atomic.toml). Idempotent. |
 | `stamp <file>` | `--repo` / `--root --cites` / `--knowledge --sources` | Write `reflects_rev`, `reflects:`, or `sources:` frontmatter. Three mutually exclusive modes. |
 | `linkify` | `--root` | Rewrite path citations under `wiki/` as relative markdown links. Idempotent; never touches fenced code. |
 | `mark-dirty` | none | Touch `<root>/wiki/.dirty` when cwd is under a registered realm. Internal: no Cobra subcommand, no `cliusage` entry, not in `/atomic-help`. |

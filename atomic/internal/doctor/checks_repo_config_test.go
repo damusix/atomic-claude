@@ -282,7 +282,7 @@ func TestCheckRepoConfig_WikisContradiction_EmptyClaudeMDPathSkips(t *testing.T)
 	}
 }
 
-// F-5: the contradiction sub-check reads the authoritative ~/.atomic/wikis.md.
+// The contradiction sub-check reads the authoritative ~/.atomic/wikis.md.
 // A doctrine-shaped home whose installed <wikis> projection was changed to name
 // a different realm still warns, because the authority — not the projection —
 // decides. The projection alone would have stayed silent.

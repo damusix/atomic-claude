@@ -439,10 +439,17 @@ func TestClaudeGuidanceNonGitRealm(t *testing.T) {
 	if got := readFileString(t, filepath.Join(realm, "AGENTS.md")); !strings.HasPrefix(got, realmAgentsBefore) {
 		t.Errorf("the realm migration rewrote the realm root's shared guidance:\n%s", got)
 	}
-	if data, err := os.ReadFile(filepath.Join(wikiDir, "CLAUDE.md")); err != nil {
+	// The realm wiki pair keeps its pre-existing relative import in the shared
+	// AGENTS.md the loader imports, so cd'ing into wiki/ still auto-loads index.md.
+	if data, err := os.ReadFile(filepath.Join(wikiDir, "AGENTS.md")); err != nil {
 		t.Fatal(err)
 	} else if !strings.Contains(string(data), "@index.md") {
-		t.Errorf("the wiki loader dropped its pre-existing relative import: %q", data)
+		t.Errorf("the wiki steering dropped its pre-existing relative import: %q", data)
+	}
+	if data, err := os.ReadFile(filepath.Join(wikiDir, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	} else if !strings.Contains(string(data), "@AGENTS.md") {
+		t.Errorf("the wiki loader does not import the adjacent AGENTS.md: %q", data)
 	}
 }
 

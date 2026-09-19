@@ -308,3 +308,88 @@ func TestCP8AOMPRuleIdentityIndex(t *testing.T) {
 	ev.Outcome = "identity index reached the session in canonical order; covered tools known, bash reported uncovered"
 	recordScenario(t, ev)
 }
+
+// TestCP8ARepoScopeInitLoaderPair proves repository wiki initialization emits
+// the wiki steering loader pair rather than a lone CLAUDE.md: the shared
+// docs/wiki/AGENTS.md carries the scaffold, the adjacent docs/wiki/CLAUDE.md is
+// the blank-bracketed loader that imports it, and a CLAUDE.md-direct install is
+// left byte-identical so it keeps loading as it always did.
+//
+// Criterion: repository wiki initialization creates or amends the shared
+// docs/wiki/AGENTS.md plus its adjacent thin Claude loader without overwriting
+// an existing install.
+func TestCP8ARepoScopeInitLoaderPair(t *testing.T) {
+	root := filepath.Join(isolatedHome(t), "repo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ev := ScenarioEvidence{
+		Scenario:  "cp8a/repo/init-loader-pair",
+		Group:     "repo",
+		Engine:    "wiki",
+		Criterion: "repo wiki init writes the docs/wiki/AGENTS.md steering file and its thin CLAUDE.md loader, leaving a CLAUDE.md-direct install untouched",
+		Command:   "wiki.InitRepoScope",
+		Paths:     []string{root},
+	}
+
+	created, err := wiki.InitRepoScope(root)
+	if err != nil {
+		t.Fatalf("InitRepoScope: %v", err)
+	}
+	agentsPath := filepath.Join(root, "docs", "wiki", "AGENTS.md")
+	claudePath := filepath.Join(root, "docs", "wiki", "CLAUDE.md")
+	if len(created) != 2 || created[0] != agentsPath || created[1] != claudePath {
+		t.Fatalf("created = %v, want the pair %s, %s", created, agentsPath, claudePath)
+	}
+	agents, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatalf("read shared steering: %v", err)
+	}
+	if len(agents) == 0 {
+		t.Errorf("the shared AGENTS.md steering file is empty")
+	}
+	loader, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("read loader: %v", err)
+	}
+	// The import must resolve top-level: an `@` line inside the block tags is
+	// swallowed by the HTML block those tags open, so the pair would deliver
+	// nothing while looking converged.
+	if !strings.Contains(string(loader), managedfile.BlockOpen+"\n\n@AGENTS.md\n\n"+managedfile.BlockClose) {
+		t.Errorf("the loader is not the blank-bracketed @AGENTS.md import:\n%s", loader)
+	}
+	if !fileExists(agentsPath) {
+		t.Errorf("the loader imports an AGENTS.md that does not exist")
+	}
+
+	// A repo initialized before the pair existed keeps its CLAUDE.md bytes and
+	// gains no second steering file to duplicate them.
+	legacy := filepath.Join(isolatedHome(t), "legacy")
+	legacyClaude := filepath.Join(legacy, "docs", "wiki", "CLAUDE.md")
+	if err := os.MkdirAll(filepath.Dir(legacyClaude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prior := "---\ntype: Steering\ndescription: pre-pair install.\n---\n\nmaintainer notes\n"
+	if err := os.WriteFile(legacyClaude, []byte(prior), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := wiki.InitRepoScope(legacy)
+	if err != nil {
+		t.Fatalf("InitRepoScope on a CLAUDE.md-direct install: %v", err)
+	}
+	if len(kept) != 0 {
+		t.Errorf("created = %v, want nothing for a CLAUDE.md-direct install", kept)
+	}
+	if got, err := os.ReadFile(legacyClaude); err != nil {
+		t.Fatal(err)
+	} else if string(got) != prior {
+		t.Errorf("init rewrote an existing CLAUDE.md-direct install:\n%s", got)
+	}
+	if fileExists(filepath.Join(legacy, "docs", "wiki", "AGENTS.md")) {
+		t.Errorf("init added an AGENTS.md the existing install does not import")
+	}
+
+	ev.Outcome = "init emitted the docs/wiki AGENTS.md + CLAUDE.md loader pair; the pre-pair CLAUDE.md install stayed byte-identical"
+	recordScenario(t, ev)
+}

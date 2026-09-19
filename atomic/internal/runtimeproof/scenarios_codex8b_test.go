@@ -14,6 +14,7 @@ package runtimeproof
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/embeddedcorpus"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/codex"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/omp"
 	"github.com/damusix/atomic-claude/atomic/internal/install"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/rules"
@@ -1135,5 +1137,78 @@ func TestCP8BCodexPromisedCapabilitiesUnsupported(t *testing.T) {
 	}
 
 	ev.Outcome = "every capability row outside registration is unsupported with evidence; no hook registered; no unproven surface omitted"
+	recordScenario(t, ev)
+}
+
+// TestCP8BCodexDefaultHomeUnsupported proves the declared boundary for a Codex
+// home Atomic was never able to exercise: with CODEX_HOME unset, naming codex
+// explicitly refuses and says why, a broad --all walk skips the kind instead of
+// failing, and no default ~/.codex root, package, or delivery claim appears.
+//
+// Criterion: Codex runtime scenarios cover default and custom homes honestly —
+// the custom home is proven and the default home is a declared unsupported
+// outcome, never a guessed native root or a fabricated delivery.
+func TestCP8BCodexDefaultHomeUnsupported(t *testing.T) {
+	home := isolatedHome(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv(omp.ProfileEnv, "")
+	t.Setenv(codex.HomeEnv, "")
+	os.Unsetenv(codex.HomeEnv)
+
+	ev := ScenarioEvidence{
+		Scenario:  "cp8b/codex/default-home-unsupported",
+		Group:     "codex",
+		Engine:    "install + harness",
+		Criterion: "an unset CODEX_HOME refuses by name when selected, is skipped by --all, and never fabricates a default-home delivery",
+		Command:   "install.Steps.Resolve (codex, then --all)",
+		Paths:     []string{home},
+	}
+
+	steps := scenarioSteps(home)
+	// Explicit selection surfaces the refusal where the user named the harness,
+	// and the refusal names the variable rather than guessing ~/.codex.
+	_, err := steps.Resolve(install.Selection{Kind: harness.KindCodex})
+	if err == nil {
+		t.Fatalf("naming codex with CODEX_HOME unset resolved an instance")
+	}
+	if !errors.Is(err, harness.ErrUnsupported) {
+		t.Errorf("the codex refusal does not carry ErrUnsupported: %v", err)
+	}
+	if !strings.Contains(err.Error(), codex.HomeEnv) {
+		t.Errorf("the codex refusal does not name %s: %v", codex.HomeEnv, err)
+	}
+	if strings.Contains(err.Error(), "converged") || strings.Contains(err.Error(), "installed") {
+		t.Errorf("the refusal reads as a delivery claim: %v", err)
+	}
+
+	// A broad walk skips the kind without error and contributes no Codex
+	// instance, so one unproven root cannot fail a whole-machine scan.
+	instances, err := steps.Resolve(install.Selection{All: true})
+	if err != nil {
+		t.Fatalf("a broad --all walk failed on the unproven Codex root: %v", err)
+	}
+	for _, inst := range instances {
+		if inst.Kind == harness.KindCodex {
+			t.Errorf("--all surfaced a Codex instance %q from an unproven default root", inst.NativeRoot)
+		}
+	}
+
+	// No delivery claim anywhere: no default home, no plugin package, and a
+	// converge attempt refuses without writing native bytes.
+	defaultRoot := filepath.Join(home, codex.DefaultHomeDir)
+	if _, err := os.Stat(defaultRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the unsupported outcome created the default Codex root %s", defaultRoot)
+	}
+	if fileExists(codex.CachePath(defaultRoot)) {
+		t.Errorf("the unsupported outcome published a plugin cache tree")
+	}
+	if reports, err := steps.Converge(install.ConvergeRequest{Selection: install.Selection{Kind: harness.KindCodex}, Enroll: true}); err == nil {
+		t.Errorf("a Codex converge with no CODEX_HOME succeeded: %+v", reports)
+	}
+	if _, err := os.Stat(defaultRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the refused converge created the default Codex root %s", defaultRoot)
+	}
+
+	ev.Outcome = "unset CODEX_HOME refused by name when selected, skipped by --all, and produced no default-root, package, or delivery claim"
 	recordScenario(t, ev)
 }

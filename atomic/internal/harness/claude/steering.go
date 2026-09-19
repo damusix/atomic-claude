@@ -108,7 +108,7 @@ func MigrateScope(req ScopeRequest) (ScopeResult, error) {
 	}
 
 	guidanceBlock := managedfile.BlockDocument(req.Scope.Guidance)
-	loaderBlock := loaderDocument([]byte(bundlespec.ScopeSteering.LoaderBody()))
+	loaderBlock := bundlespec.ScopeSteering.LoaderDocument()
 
 	agentsIntended, agentsKind, err := mergeOwned(agentsPath, agents, agentsShape, guidanceBlock)
 	if err != nil {
@@ -259,17 +259,6 @@ func classifyShape(path string, data []byte, exists bool) (fileShape, error) {
 		return 0, fmt.Errorf("claude: %s carries an ambiguous %s block; refusing to guess a boundary", path, managedfile.BlockOpen)
 	}
 	return shapePlain, nil
-}
-
-// loaderDocument renders the thin Claude loader as a managed block whose import
-// is a top-level markdown paragraph. Claude's memory parser resolves an import
-// through its markdown parse, and an import line immediately inside the block's
-// tags is swallowed by the HTML block those tags open, so the body is bracketed
-// by blank lines the way the authored global contract already is. Without the
-// brackets the loader converges and verifies while delivering nothing.
-func loaderDocument(body []byte) []byte {
-	inner := strings.TrimRight(string(body), "\n")
-	return []byte(managedfile.BlockOpen + "\n\n" + inner + "\n\n" + managedfile.BlockClose + "\n")
 }
 
 // mergeOwned derives the intended bytes for one file: a missing or blocked file

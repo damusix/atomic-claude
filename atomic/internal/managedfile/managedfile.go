@@ -103,6 +103,17 @@ func BlockDocument(body []byte) []byte {
 	return []byte(BlockOpen + "\n" + inner + "\n" + BlockClose + "\n")
 }
 
+// BracketedBlockDocument wraps body in one Atomic managed block and separates
+// the body from both tags with a blank line. It is the form a loader document
+// needs: Claude resolves an `@` import through its markdown parse, and an import
+// line immediately inside the block's tags is swallowed by the HTML block those
+// tags open, so a loader whose import is not bracketed converges and verifies
+// while delivering nothing.
+func BracketedBlockDocument(body []byte) []byte {
+	inner := strings.TrimRight(string(body), "\n")
+	return []byte(BlockOpen + "\n\n" + inner + "\n\n" + BlockClose + "\n")
+}
+
 // AppendBlock returns content with block appended as a new trailing region,
 // preserving every existing byte. A separator newline is added only when
 // content does not already end with one, so the appended opening tag stays a

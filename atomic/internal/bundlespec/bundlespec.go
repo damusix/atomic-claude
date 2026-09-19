@@ -1,12 +1,14 @@
 // Package bundlespec holds the bundle inclusion predicates and the steering
-// source descriptors. It is a pure leaf: artifacts.Load applies the predicates
-// while enumerating the canonical corpus, bundlemirror maps that corpus to
-// Claude-native targets, and manifestcheck consumes the mapping at runtime.
+// source descriptors. artifacts.Load applies the predicates while enumerating
+// the canonical corpus, bundlemirror maps that corpus to Claude-native targets,
+// and manifestcheck consumes the mapping at runtime.
 package bundlespec
 
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
 
 // ContextDir is the only tree that ships to a user's harness targets;
@@ -81,4 +83,11 @@ func IsGlobalSteeringSource(name string) bool {
 // is delivered exactly once.
 func (s SteeringSource) LoaderBody() string {
 	return "@" + s.Source + "\n"
+}
+
+// LoaderDocument renders LoaderBody as the managed block a scope's Claude file
+// carries: the import sits as a top-level markdown paragraph, bracketed by blank
+// lines so the block's HTML tags cannot swallow it.
+func (s SteeringSource) LoaderDocument() []byte {
+	return managedfile.BracketedBlockDocument([]byte(s.LoaderBody()))
 }
