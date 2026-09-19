@@ -297,6 +297,33 @@ func TestPackageTreeGolden(t *testing.T) {
 	checkGolden(t, "package.txt", []byte(b.String()))
 }
 
+// TestUnprovenSurfacesHaveSingleOwner pins every unproven surface to one
+// reporting surface: the package gaps and the runtime delivery gaps never name
+// the same surface, so extension disablement and the matched-body absence are
+// reported once, by the runtime delivery that owns them.
+func TestUnprovenSurfacesHaveSingleOwner(t *testing.T) {
+	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities())
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	owner := map[string]string{}
+	for _, gap := range pkg.Unproven {
+		owner[gap.Surface] = "package"
+	}
+	for _, gap := range pkg.Runtime.Unproven {
+		if first, ok := owner[gap.Surface]; ok {
+			t.Errorf("unproven surface %q is reported by both the %s gaps and the runtime delivery", gap.Surface, first)
+			continue
+		}
+		owner[gap.Surface] = "runtime"
+	}
+	for _, surface := range []string{"extension disablement", "pre-operation matched-body delivery", "repository wiki card runtime index"} {
+		if got := owner[surface]; got != "runtime" {
+			t.Errorf("runtime surface %q is owned by %q, want the runtime delivery", surface, got)
+		}
+	}
+}
+
 func TestPackageCarriesNoProviderIDs(t *testing.T) {
 	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities())
 	if err != nil {

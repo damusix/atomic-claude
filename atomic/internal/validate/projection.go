@@ -450,6 +450,113 @@ func commandProjection(a artifacts.Artifact) (artifacts.Projection, error) {
 func (g *projGate) checkRules() {
 	g.checkClaudeRules()
 	g.checkOMPRules()
+	g.checkOMPRuntime()
+}
+
+// checkOMPRuntime audits the runtime delivery the OMP package's extension module
+// carries. The gate pins the claims the delivery makes: every wired event rests
+// on a capability row the CP0 record proves, every indexed rule carries its
+// authored source digest and the tier the projection proves, and the delivery is
+// deterministic. An event wired without its row, or a rule claiming more than
+// instruction-only delivery, fails here rather than reaching a session.
+func (g *projGate) checkOMPRuntime() {
+	sources, err := shippedRuleSources(g.root)
+	if err != nil {
+		g.fail(ruleRenderFailure, "context/rules", "load shipped rules: %v", err)
+		return
+	}
+	if len(sources) == 0 {
+		g.fail(ruleRenderFailure, "context/rules", "the shipped rule corpus is empty")
+		return
+	}
+	matrix := harness.OMPCapabilities()
+	delivery, err := omp.BuildSessionDelivery(sources, matrix, nil)
+	if err != nil {
+		g.fail(ruleRenderFailure, "context/rules", "plan OMP runtime delivery: %v", err)
+		return
+	}
+	again, err := omp.BuildSessionDelivery(sources, matrix, nil)
+	if err != nil {
+		g.fail(ruleRenderFailure, "context/rules", "re-plan OMP runtime delivery: %v", err)
+		return
+	}
+	module, err := delivery.RenderExtension()
+	if err != nil {
+		g.fail(ruleRenderFailure, "context/rules", "render OMP runtime module: %v", err)
+		return
+	}
+	moduleAgain, err := again.RenderExtension()
+	if err != nil {
+		g.fail(ruleRenderFailure, "context/rules", "re-render OMP runtime module: %v", err)
+		return
+	}
+	if string(module) != string(moduleAgain) {
+		g.fail(ruleDeterminism, omp.SkeletonPath, "the OMP runtime module is not deterministic")
+	}
+	// The artifact must register exactly the planned events: a template that
+	// registered a handler for an unproven role would ship behavior the delivery
+	// never planned, and auditing delivery.Events alone cannot see it.
+	if planned, registered := delivery.WiredEvents(), omp.RegisteredEvents(module); !sameEventSet(planned, registered) {
+		g.fail(ruleMetadata, omp.SkeletonPath, "the rendered module registers events %v, but the delivery plans %v", registered, planned)
+	}
+
+	for _, event := range delivery.Events {
+		if !event.Observation && event.Status != harness.StatusSupported {
+			g.fail(ruleTier, omp.SkeletonPath, "runtime event %s rests on role %s, which CP0 reports %s", event.Event, event.Role, event.Status)
+		}
+		if event.Evidence == "" {
+			g.fail(ruleMetadata, omp.SkeletonPath, "runtime event %s carries no CP0 evidence", event.Event)
+		}
+	}
+	digests := make(map[string]string, len(sources))
+	tiers := make(map[string]artifacts.EnforcementTier, len(sources))
+	for _, source := range sources {
+		digests[source.Record.ID] = source.Record.SourceDigest
+		tiers[source.Record.ID] = rules.Select(source.Record, artifacts.TargetOMP, harness.RuleEvidence(matrix)).Tier
+	}
+	for _, entry := range delivery.Index {
+		if entry.SourceDigest != digests[entry.RecordID] {
+			g.fail(ruleIdentity, entry.RecordID, "runtime index digest %s does not match the authored source digest %s", entry.SourceDigest, digests[entry.RecordID])
+		}
+		if entry.Tier != tiers[entry.RecordID] {
+			g.fail(ruleTier, entry.RecordID, "runtime index tier %q does not match the projected tier %q", entry.Tier, tiers[entry.RecordID])
+		}
+		for _, pattern := range entry.Patterns {
+			if pattern.Regex == "" {
+				g.fail(ruleMetadata, entry.RecordID, "runtime index pattern %q carries no expression", pattern.Glob)
+			}
+		}
+	}
+	if len(delivery.Undeliverable) != 0 {
+		for _, rule := range delivery.Undeliverable {
+			g.fail(ruleMetadata, rule.RecordID, "rule patterns are outside the runtime dialect: %s", rule.Reason)
+		}
+	}
+	if delivery.Suppressed {
+		g.fail(ruleMetadata, omp.SkeletonPath, "the runtime rule index exceeds the %d byte bound at %d bytes", delivery.Bound, delivery.IndexBytes)
+	}
+}
+
+// sameEventSet reports whether two event-name lists name the same events,
+// ignoring order and duplicates.
+func sameEventSet(a, b []string) bool {
+	as := make(map[string]bool, len(a))
+	for _, name := range a {
+		as[name] = true
+	}
+	bs := make(map[string]bool, len(b))
+	for _, name := range b {
+		bs[name] = true
+	}
+	if len(as) != len(bs) {
+		return false
+	}
+	for name := range as {
+		if !bs[name] {
+			return false
+		}
+	}
+	return true
 }
 
 // checkClaudeRules audits the Claude-native rule projection.

@@ -88,16 +88,27 @@ func ProjectShippedRules(cat *artifacts.Catalog, m harness.CapabilityMatrix) (Sh
 	if m.Harness != harness.KindOMP {
 		return ShippedRuleReport{}, fmt.Errorf("omp: shipped rule projection needs the OMP capability record, got %q", m.Harness)
 	}
+	sources, err := ShippedRuleSources(cat)
+	if err != nil {
+		return ShippedRuleReport{}, err
+	}
+	return projectShippedRules(sources, m)
+}
+
+// ShippedRuleSources pairs every canonical path-scoped rule with its authored
+// bytes. The rule projection and the runtime delivery consume the same pairs, so
+// a rule cannot ship in one and be missing from the other.
+func ShippedRuleSources(cat *artifacts.Catalog) ([]harness.RuleSource, error) {
 	artifactsOfKind := cat.OfKind(artifacts.KindRule)
 	sources := make([]harness.RuleSource, 0, len(artifactsOfKind))
 	for _, a := range artifactsOfKind {
 		record, err := rules.ParseShipped(a.Source, a.Body)
 		if err != nil {
-			return ShippedRuleReport{}, fmt.Errorf("omp: parse %s: %w", a.ID, err)
+			return nil, fmt.Errorf("omp: parse %s: %w", a.ID, err)
 		}
 		sources = append(sources, harness.RuleSource{Record: record, Bytes: a.Body})
 	}
-	return projectShippedRules(sources, m)
+	return sources, nil
 }
 
 func projectShippedRules(sources []harness.RuleSource, m harness.CapabilityMatrix) (ShippedRuleReport, error) {

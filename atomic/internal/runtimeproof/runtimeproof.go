@@ -43,6 +43,11 @@ const MaxObservedFile = 1 << 20
 // defaultConfigEnv is the configuration-root variable CP0 observed Claude using.
 const defaultConfigEnv = "CLAUDE_CONFIG_DIR"
 
+// postExitWaitDelay bounds how long Wait waits for the launch's output pipes to
+// close after the process ends. A harness that leaves a child behind would
+// otherwise hold the pipes and stall a bounded scenario past its bound.
+const postExitWaitDelay = 2 * time.Second
+
 // ErrTimeout reports a scenario that exceeded its bound. The observation is
 // still returned: the startup evidence collected before the bound is real, and
 // the timeout is what the caller must decide about.
@@ -263,6 +268,10 @@ func Run(ctx context.Context, s Scenario) (Observation, error) {
 	cmd.Dir = s.WorkDir
 	cmd.Env = launchEnv(s)
 	cmd.Stdin = nil
+	// A bounded launch must not wait on a grandchild. Killing the direct child
+	// leaves any process it spawned holding the output pipes, and Wait would then
+	// block for that process' lifetime instead of the scenario's bound.
+	cmd.WaitDelay = postExitWaitDelay
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -333,24 +342,39 @@ func launchEnv(s Scenario) []string {
 	if configEnv == "" {
 		configEnv = defaultConfigEnv
 	}
+	rootless := configEnv == NoConfigEnv
 	env := make([]string, 0, len(os.Environ())+len(s.Env)+4)
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
-		if key == configEnv || key == "HOME" || key == "RUNTIMEPROOF_EVENT_LOG" {
+		if key == configEnv || key == "HOME" || key == "RUNTIMEPROOF_EVENT_LOG" || key == defaultConfigEnv {
 			continue
 		}
 		if strings.HasPrefix(key, "ANTHROPIC_") || strings.HasPrefix(key, "CLAUDE_") {
 			continue
 		}
+		if carriesCredential(key) {
+			continue
+		}
 		env = append(env, entry)
 	}
-	env = append(env,
-		"HOME="+s.Home,
-		configEnv+"="+s.ConfigDir,
-		"RUNTIMEPROOF_EVENT_LOG="+s.EventLog,
-		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
-	)
+	env = append(env, "HOME="+s.Home, "RUNTIMEPROOF_EVENT_LOG="+s.EventLog)
+	if !rootless {
+		env = append(env, configEnv+"="+s.ConfigDir)
+	}
+	env = append(env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	return append(env, s.Env...)
+}
+
+// carriesCredential reports whether an environment name could hold a provider
+// credential. An isolated home must not inherit a real key it did not put there,
+// so a scenario that needs a provider credential passes it explicitly.
+func carriesCredential(key string) bool {
+	for _, suffix := range []string{"_API_KEY", "_TOKEN", "_SECRET", "_ACCESS_KEY", "_API_TOKEN"} {
+		if strings.HasSuffix(key, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // readEvents parses the event log, if any. A missing log means no hook ran.

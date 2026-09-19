@@ -18,8 +18,8 @@ import (
 
 // SkeletonPath is the extension entry point the package publishes. OMP
 // discovers an extension as a TypeScript module under an agent root's
-// extensions/ directory (CP0); the package carries the module, while
-// registering and driving it are surfaces CP0 left unproven.
+// extensions/ directory (CP0); the package carries the module, and the module
+// registers exactly the CP0-selected events from the runtime delivery.
 const SkeletonPath = "extensions/atomic.ts"
 
 // portableCommandKeys are the command frontmatter keys the package carries as
@@ -75,6 +75,10 @@ type Package struct {
 	Gaps []harness.Capability `json:"gaps,omitempty"`
 	// Unproven names the native package surfaces with no CP0 observation.
 	Unproven []PackageGap `json:"unproven,omitempty"`
+	// Runtime is the runtime delivery the package's extension module carries:
+	// the CP0-selected events, the bounded session-baseline rule index, proven
+	// tool coverage, exact deny predicates, and the unproven surfaces.
+	Runtime SessionDelivery `json:"runtime"`
 }
 
 // BuildPackage projects the canonical corpus into the OMP package tree. It is
@@ -102,14 +106,31 @@ func BuildPackage(cat *artifacts.Catalog, m harness.CapabilityMatrix) (Package, 
 	if err := pkg.addSkills(cat, m); err != nil {
 		return Package{}, err
 	}
-	if err := pkg.addRules(cat, m); err != nil {
+	sources, err := ShippedRuleSources(cat)
+	if err != nil {
 		return Package{}, err
 	}
+	report, err := projectShippedRules(sources, m)
+	if err != nil {
+		return Package{}, err
+	}
+	if err := pkg.addRules(cat, report); err != nil {
+		return Package{}, err
+	}
+	delivery, err := BuildSessionDelivery(sources, m, nil)
+	if err != nil {
+		return Package{}, err
+	}
+	module, err := delivery.RenderExtension()
+	if err != nil {
+		return Package{}, err
+	}
+	pkg.Runtime = delivery
 	pkg.Files = append(pkg.Files, PackageFile{
 		Path:   SkeletonPath,
-		Bytes:  []byte(extensionSkeleton),
-		Tier:   artifacts.EnforcementUnsupported,
-		Digest: artifacts.ProjectionDigest([]byte(extensionSkeleton)),
+		Bytes:  module,
+		Tier:   Tier,
+		Digest: artifacts.ProjectionDigest(module),
 	})
 
 	sort.Slice(pkg.Files, func(i, j int) bool { return pkg.Files[i].Path < pkg.Files[j].Path })
@@ -232,11 +253,7 @@ func (p *Package) addSkills(cat *artifacts.Catalog, m harness.CapabilityMatrix) 
 // pre-operation event but no context return, so no record claims a native scope
 // or a hook-required tier: the body ships, the tier records unsupported, and a
 // missing capability row is reported rather than failing the package.
-func (p *Package) addRules(cat *artifacts.Catalog, m harness.CapabilityMatrix) error {
-	report, err := ProjectShippedRules(cat, m)
-	if err != nil {
-		return err
-	}
+func (p *Package) addRules(cat *artifacts.Catalog, report ShippedRuleReport) error {
 	identity := make(map[string]string)
 	for _, a := range cat.OfKind(artifacts.KindRule) {
 		identity[a.Source] = a.ID
@@ -325,26 +342,15 @@ func safePackagePath(path string) error {
 }
 
 // packageGaps are the OMP package surfaces CP0 left unsupported: no package was
-// registered, so installation, shared visibility, project scope, uninstall,
-// and cleanup have no observation.
+// registered, so installation, shared visibility, project scope, and uninstall
+// have no observation. The runtime delivery is never one of them — it ships in
+// the extension module — and SessionDelivery.Unproven is the single owner of the
+// surfaces that delivery cannot promise, so no runtime surface is repeated here.
 func packageGaps() []PackageGap {
 	return []PackageGap{
 		{Surface: "package install and lifecycle", Evidence: "omp plugin list returned empty npm and marketplace arrays; no package was registered"},
 		{Surface: "shared-package visibility", Evidence: "no package was registered, so visibility to an unenrolled profile is unobserved"},
 		{Surface: "project installation scope", Evidence: "no package was registered"},
 		{Surface: "package uninstall and cleanup", Evidence: "no package was registered"},
-		{Surface: "extension disablement", Evidence: "--no-extensions was never run; replay target absent"},
-		{Surface: "runtime delivery", Evidence: "no matched-body context return was observed; runtime delivery lands with its own checkpoint"},
 	}
 }
-
-// extensionSkeleton is the extension module the package publishes. It is the
-// CP0-proven module shape — a default-exported factory receiving the
-// ExtensionAPI — and nothing else: no event is registered, because OMP
-// registered no package in CP0 and runtime delivery is a separate checkpoint.
-const extensionSkeleton = `// Atomic's OMP extension entry point. OMP discovers an extension as a
-// TypeScript module whose default export receives the ExtensionAPI.
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-
-export default function atomic(_pi: ExtensionAPI): void {}
-`
