@@ -22,7 +22,7 @@ flowchart LR
     accDescr: atomic signals scan writes the deterministic substrate to docs/wiki/scan.md. The atomic-wiki-inferrer reads that substrate, the steering file, and the code-intel graph when present, writes the index and domain pages, and atomic signals linkify turns their path citations into links.
     scan["atomic signals scan"] --> sub[("docs/wiki/scan.md")]
     sub --> inf["atomic-wiki-inferrer"]
-    steer["docs/wiki/CLAUDE.md steering"] -. overrides inference .-> inf
+    steer["docs/wiki/AGENTS.md steering"] -. overrides inference .-> inf
     graphdb[("atomic.db import/call edges")] -.-> inf
     inf --> pages["docs/wiki/index.md + domain pages"]
     pages --> link["atomic signals linkify"]
@@ -43,7 +43,7 @@ The result is a navigable markdown graph. The inferrer writes each path citation
 
 ## Pointer rules
 
-`/refresh-wiki` also writes one path-scoped rule file per domain to `.claude/rules/wiki/<domain>.md`. Claude Code's own `paths:` frontmatter injects a card into context the moment a session touches a file in that domain, so the domain's wiki page reaches the session without loading any wiki content by default.
+`/refresh-wiki` also writes one path-scoped rule file per domain to `<state-root>/rules/wiki/<domain>.md` — `.claude/rules/wiki/` under the default repository-state root. The harness's own `paths:` frontmatter injects a card into context the moment a session touches a file in that domain, so the domain's wiki page reaches the session without loading any wiki content by default.
 
 ```markdown
 ---
@@ -72,15 +72,15 @@ Consult the map before changing behavior here. Behavior changes stale the pages 
 
 The full contract (glob derivation, category rules, the ignore-file probe, scope handling) lives in `context/skills/atomic-wiki/references/repo.md` Step 7b; this page only orients.
 
-**Where they live.** `.claude/rules/wiki/<domain>.md`, one file per domain. The pipeline owns every byte: a hand edit survives until the next refresh, then is overwritten.
+**Where they live.** `<state-root>/rules/wiki/<domain>.md`, one file per domain. The pipeline owns every byte: a hand edit survives until the next refresh, then is overwritten.
 
 **When they regenerate.** Every `/refresh-wiki` run. A repo whose wiki predates pointer cards gets a bootstrap run instead: cards for every domain, regardless of scope, once each domain has a partition-derived `<source_paths>` block to build globs from. After that first set exists, a full run rewrites every domain's card; an incremental run rewrites only the cards of the domains it re-dispatched, since only those had their source paths recomputed. Either way, a card whose domain no longer exists in the router table is deleted.
 
 **Read-path payoff.** Edit a file under a domain's globs and the card lands in context automatically, main session or subagent, pointing at the domain's map instead of leaving Claude to re-derive it from the tree.
 
-**Write-path payoff.** A silent refresh stages `.claude/rules/wiki/` alongside the router and domain pages, so a regenerated card set never sits unstaged after a commit: at ship time (`signals-gate`), and at `/subagent-implementation` finalize and `/autopilot`'s own staging step.
+**Write-path payoff.** A silent refresh stages `<state-root>/rules/wiki/` alongside the router and domain pages, so a regenerated card set never sits unstaged after a commit: at ship time (`signals-gate`), and at `/subagent-implementation` finalize and `/autopilot`'s own staging step.
 
-**Ignore-file negation.** Some repos gitignore `rules/*` by default. Before writing, the pipeline runs `git check-ignore -v .claude/rules/wiki`; on a match, the pipeline appends `!/rules/wiki/` and `!/rules/wiki/**` to the ignore file the probe named, so future cards aren't silently dropped from version control. Once the negation lands, later probes report "not ignored" and skip the append.
+**Ignore-file negation.** Some repos gitignore `rules/*` by default. Before writing, the pipeline runs `git check-ignore -v <state-root>/rules/wiki`; on a match, the pipeline appends `!/rules/wiki/` and `!/rules/wiki/**` to the ignore file the probe named, so future cards aren't silently dropped from version control. Once the negation lands, later probes report "not ignored" and skip the append.
 
 ::: tip Doctor validation is deferred
 Cards are fully pipeline-owned, so today the only guarantee of correctness is "was regenerated recently." A doctor check that validates card/domain parity between refreshes is tracked as a follow-up.
@@ -91,9 +91,9 @@ Cards are fully pipeline-owned, so today the only guarantee of correctness is "w
 
 The inferrer makes its best guess from the scan, but it can get things wrong — especially with monorepos, polyglot projects, or unconventional naming.
 
-Create `docs/wiki/CLAUDE.md` to provide explicit hints. The inferrer reads it before writing `docs/wiki/index.md` and treats its content as ground truth, so when steering contradicts the scan, steering wins.
+Write your hints into the wiki steering file — the shared `docs/wiki/AGENTS.md`, with a thin `docs/wiki/CLAUDE.md` loader beside it for Claude Code. The inferrer reads the steering before writing `docs/wiki/index.md` and treats its content as ground truth, so when steering contradicts the scan, steering wins.
 
-The delivery mechanism is Claude Code's own, not something atomic added on top. A `CLAUDE.md` inside a directory is nested memory: the harness loads it whenever Claude reads a file in that directory. Reading files under `docs/wiki/` is precisely what the inferrer does, so the steering is present exactly when it applies and absent the rest of the time. That is why this file is deliberately **not** `@`-referenced the way `docs/wiki/index.md` is — an `@`-ref would pay for it on every turn of every session to serve one agent that already gets it for free.
+The delivery mechanism is the harness's own, not something atomic added on top. Authored guidance lives in `AGENTS.md`; under Claude Code the adjacent `CLAUDE.md` carries a one-line import of it, so the directory's nested memory delivers the guidance whenever the harness reads a file in `docs/wiki/`. Reading files under `docs/wiki/` is precisely what the inferrer does, so the steering is present exactly when it applies and absent the rest of the time. That is why this file is deliberately **not** `@`-referenced the way `docs/wiki/index.md` is — an `@`-ref would pay for it on every turn of every session to serve one agent that already gets it for free.
 
 
 ### When to use steering
@@ -143,7 +143,7 @@ The steering file is the dotted input in the pipeline above. Two rules govern it
 
 ### Bootstrap
 
-`/setup-wiki` creates `docs/wiki/CLAUDE.md` if it does not exist. Uncomment and edit the sections you need. Delete sections you do not.
+`/setup-wiki` runs `atomic wiki init --scope repo`, which creates the wiki steering scaffold if it does not exist and no-ops when it does. The scaffold's canonical home is the steering pair — the shared `docs/wiki/AGENTS.md`, with the `CLAUDE.md` loader beside it — and the command reads whichever the run created. Uncomment and edit the sections you need. Delete sections you do not.
 
 The file is committed along with the rest of `docs/wiki/`.
 
@@ -173,4 +173,4 @@ This used to be a repo-root `.signalsignore` file, one glob per line, with `+` m
 
 **Use `[scan]`** when a committed path should be excluded from the scan or flagged as generated.
 
-**Use `docs/wiki/CLAUDE.md`** when you want to tell the inferrer something it cannot derive from the scan.
+**Use the wiki steering file (`docs/wiki/AGENTS.md`)** when you want to tell the inferrer something it cannot derive from the scan.

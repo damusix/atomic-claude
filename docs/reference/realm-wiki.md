@@ -6,7 +6,8 @@ You work out of a folder. Call it a realm: a client engagement, a team's set of 
 
 ```
 ~/work/acme/                the realm
-├─ CLAUDE.md           realm rules · ## Capture surfaces written by bucket add
+├─ AGENTS.md           realm rules · ## Capture surfaces written by bucket add
+├─ CLAUDE.md           thin loader importing AGENTS.md
 ├─ billing-api/        repo · has its own wiki → indexed
 ├─ gateway/            repo · has its own wiki → indexed
 ├─ vendor-sdk/         repo · no wiki → summarized
@@ -32,14 +33,14 @@ Two layers fill a wiki, and they differ by who drives them.
 
 **You drive the knowledge layer through capture buckets.** Atomic never touches `raw/` or any other user-maintained folder. To bridge between loose material and the wiki, register the folder as a capture bucket. Atomic tracks what the wiki has already consumed and synthesizes only new or changed material on the next `/refresh-wiki`.
 
-**You manage the realm from a `CLAUDE.md`.** Keep one at the realm root, holding your rules for the realm and a pointer to the wiki. Claude Code walks up the directory tree when it loads `CLAUDE.md`, and the walk crosses repo boundaries, so a realm-root file stays in context from anywhere inside the realm, including a session you start in a member repo. The realm level is where that earns its place: cross-cutting concerns, or a feature or bug you are tracing across several services, work that spans repos instead of sitting in one. Start there to organize `raw/`, fold it into the wiki, manage `research/` and `experiments/`, or reason across the repos at once.
+**You manage the realm from a steering pair.** Keep `AGENTS.md` at the realm root, holding your rules for the realm and a pointer to the wiki, with the thin `CLAUDE.md` loader beside it for Claude Code. The harness walks up the directory tree loading steering, and the walk crosses repo boundaries, so a realm-root file stays in context from anywhere inside the realm, including a session you start in a member repo. The realm level is where that earns its place: cross-cutting concerns, or a feature or bug you are tracing across several services, work that spans repos instead of sitting in one. Start there to organize `raw/`, fold it into the wiki, manage `research/` and `experiments/`, or reason across the repos at once.
 
-This draws the boundary. Atomic stays on the code side: it documents repos, keeps their wikis current, runs the plan-implement-ship lifecycle, and bridges loose capture material into the wiki knowledge layer. The non-code work is yours to direct from the realm `CLAUDE.md`, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
+This draws the boundary. Atomic stays on the code side: it documents repos, keeps their wikis current, runs the plan-implement-ship lifecycle, and bridges loose capture material into the wiki knowledge layer. The non-code work is yours to direct from the realm steering file, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
 
 Deterministic CLI verbs and one command do the work:
 
 - **`atomic wiki scan [--root=<path>]`** — scaffolds the wiki, scans the root for member repos, classifies each, and registers the wiki globally. Deterministic, no model.
-- **`atomic wiki init --scope repo|realm [--root=<path>]`** — writes the fixed-content `CLAUDE.md` scaffold for the given scope, and declares that root's identity: it writes `scope = "repo"` or `scope = "realm"` into `.claude/atomic.toml`, the same marker `atomic repo init` writes on the repo side. `atomic where`'s realm axis prefers this marker over the `<wikis>` registry below; `repoctx` prefers the repo marker over git detection. Idempotent; a root whose marker already names a different scope is left untouched and reported as a conflict.
+- **`atomic wiki init --scope repo|realm [--root=<path>]`** — writes the fixed-content steering scaffold for the given scope (the shared `AGENTS.md` with the `CLAUDE.md` loader beside it), and declares that root's identity: it writes `scope = "repo"` or `scope = "realm"` into `.claude/atomic.toml`, the same marker `atomic repo init` writes on the repo side. `atomic where`'s realm axis prefers this marker over the `<wikis>` registry below; `repoctx` prefers the repo marker over git detection. Idempotent; a root whose marker already names a different scope is left untouched and reported as a conflict.
 - **`atomic wiki stale [--root=<path>]`** — a read-only freshness verdict. Reports `DRIFT`/`STALE` lines for repos and concerns, plus `STALE bucket <name>` for capture folders with a non-empty diff. Exits `0` fresh, `1` stale, `2` error, mirroring `atomic signals stale`.
 - **`atomic wiki linkify --root=<path>`** — renders the path citations in summaries, concerns, knowledge pages, and the index into file-relative markdown links. Deterministic, idempotent, no model.
 - **`atomic wiki bucket add|list|diff|promote`** — manage capture buckets. `add` registers a folder and splices the `<wiki-buckets>` block; `list` shows status; `diff` gives a read-only change report; `promote` advances the baseline after successful synthesis. See [Capture buckets](#capture-buckets) below.
@@ -124,7 +125,7 @@ When the refresh pass meets a `pending` repo, it presents the repos without one 
 
 ## The registry
 
-Each wiki registers its `index.md` path in a `<wikis>` block inside `~/.claude/CLAUDE.md`:
+Each wiki registers its `index.md` path in the authoritative registry at `~/.atomic/wikis.md`. That file is the source of truth; the harness global steering file carries a derived `<wikis>` projection of it:
 
 ```
 <wikis>
@@ -133,7 +134,7 @@ Each wiki registers its `index.md` path in a `<wikis>` block inside `~/.claude/C
 </wikis>
 ```
 
-The block sits outside the `<atomic>` block, so `atomic claude update` preserves it. It is not `@`-referenced — it is a lightweight index that the session-start nudge and cross-wiki links read on demand, not context loaded into every session. The scan writes the entry idempotently: no duplicates on re-run, and the `<atomic>` block is never touched.
+The projection sits outside the `<atomic>` block, so `atomic claude update` preserves it. It is not `@`-referenced — a lightweight index the session-start nudge and cross-wiki links read on demand, not context loaded into every session. Registration writes the authority first and reprojects: no duplicates on re-run, and the `<atomic>` block is never touched. A registry that predates the authority file is seeded from the installed `<wikis>` block once; after that a changed projection is a conflict, never an import.
 
 
 ## Staleness
