@@ -5,13 +5,13 @@ import { BUS } from '../../.vitepress/theme/bus-script'
 
 # atomic bus
 
-`atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms. It is a single per-user daemon behind a Unix domain socket, speaking newline-delimited JSON, spawned automatically the first time any session needs it. Nothing retires it automatically — see The daemon lifecycle below. There is no configuration file and no manual daemon management for the common case: `join` starts everything.
+`atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms. It is a single per-user daemon behind a Unix domain socket, speaking newline-delimited JSON, spawned automatically the first time any session needs it. Nothing retires it automatically. See The daemon lifecycle below. There is no configuration file and no manual daemon management for the common case: `join` starts everything.
 
-Localhost and Unix-only (macOS, Linux, WSL2). Authentication is Unix file permissions — any process running as the same user can connect, so the daemon assigns sender identity server-side rather than trusting a request's claim about who sent it. See Security below.
+Localhost and Unix-only (macOS, Linux, WSL2). Authentication is Unix file permissions: any process running as the same user can connect. The daemon assigns sender identity server-side rather than trusting a request's claim about who sent it. See Security below.
 
 A gateway extends the same rooms across machines: `atomic bus gateway` runs beside the daemon on a
-host, and every verb here works unchanged against it with `--host <name>`, except `chat` (local-only)
-and `shutdown` (the gateway refuses it outright). See Remote rooms below, and the
+host. Every verb here works unchanged against it with `--host <name>`, except `chat` (local-only) and
+`shutdown` (the gateway refuses it outright). See Remote rooms below, and the
 [hosting guide](../guides/bus-hosting.md) for standing one up.
 
 
@@ -133,7 +133,7 @@ A room is a named channel scoped to one piece of work: two sessions on a feature
 
 Membership is per-room rather than global, so a session can hold different names in different rooms and a roster lists only who joined that room. `who <room>` shows the roster; `rooms` lists every room the daemon knows, with a member count each.
 
-A room disappears when its last member leaves, so one created by a typo does not outlive the mistake. The exception is a live `tail` or `recv`: dropping the room out from under a subscriber would orphan it silently, since the next publish would create a fresh empty room the listener was never attached to. `close` is the operator-driven version of the same teardown — see Closing.
+A room disappears when its last member leaves, so one created by a typo does not outlive the mistake. The exception is a live `tail` or `recv`: dropping the room out from under a subscriber would orphan it silently. The next publish would create a fresh empty room the listener was never attached to. `close` is the operator-driven version of the same teardown. See Closing.
 
 
 ## Position: the name is where a session runs
@@ -148,11 +148,11 @@ A member's name is its position stacked with an optional role, `<realm>-<repo>-<
 
 Empty segments are omitted and a segment equal to the one before it collapses, which is why `alpha` does not double. Outside any repo, the repo segment falls back to cwd's basename, so a name is never blank, and a collision on the result gets `-2`. Each member also carries `repo` and `realm` as columns in `who`; the name is already the qualified form, so there is no second display form.
 
-The joining client reports its own position, since the daemon has no cwd to resolve one from, but every envelope is stamped from the roster at send time — see Security.
+The joining client reports its own position, since the daemon has no cwd to resolve one from, but every envelope is stamped from the roster at send time. See Security.
 
 ### Addressing by a short fragment
 
-A fully stacked name is long to type, so `--to` resolves in two passes: an exact name match wins first, even over a `-2` sibling that would also match as a substring; failing that, a unique suffix or substring against the room's current members resolves to the full name. `--to fe-main` reaches `taxgentic-gui-fe-main` when it is the only member containing that fragment.
+A fully stacked name is long to type, so `--to` resolves in two passes. An exact name match wins first, even over a `-2` sibling that would also match as a substring. Failing that, a unique suffix or substring against the room's current members resolves to the full name. `--to fe-main` reaches `taxgentic-gui-fe-main` when it is the only member containing that fragment.
 
 A fragment matching more than one member is an error naming every candidate, never a silent delivery to one of them. A fragment matching nobody passes through unresolved, which is what the unknown-addressee warning below catches.
 
@@ -163,9 +163,9 @@ Every message carries a `to` list of addressee names. That list is the entire me
 
 A message with a nonempty `to` is addressed: the named recipient is expected to act on it, the way they would act on an instruction from the user. A message with an empty `to` is FYI: room-wide status, addressed to nobody, meant to be noted and not acted on.
 
-Without this distinction, agents in the same room answer each other's status updates forever — each reply is itself a status update, so nothing converges. `to` closes that loop by making "should I act on this" a field lookup instead of a judgment call: `to` contains me → act, `to` is empty or names someone else → note it, move on. The reaction policy that reads this field lives in `context/skills/atomic-bus/SKILL.md`, not in the daemon — the daemon delivers every message to every subscriber regardless of addressing; the discipline is entirely on the receiving side.
+Without this distinction, agents in the same room answer each other's status updates forever. Each reply is itself a status update, so nothing converges. `to` closes that loop by making "should I act on this" a field lookup instead of a judgment call. The rule: `to` contains me → act, `to` is empty or names someone else → note it, move on. The reaction policy that reads this field lives in `context/skills/atomic-bus/SKILL.md`, not in the daemon. The daemon delivers every message to every subscriber regardless of addressing; the discipline is entirely on the receiving side.
 
-`send --to <name>` warns on stderr, but still delivers, when no member by that name is currently in the room — an addressed message with nobody to receive it is the exact failure the distinction exists to prevent, so the daemon flags it instead of failing silently. A `--to` fragment matching more than one member is a different, harder failure and gets a different response: an error, not a warning — see Position above.
+`send --to <name>` warns on stderr, but still delivers, when no member by that name is currently in the room. An addressed message with nobody to receive it is the exact failure the distinction exists to prevent, so the daemon flags it instead of failing silently. A `--to` fragment matching more than one member is a different, harder failure and gets a different response: an error, not a warning. See Position above.
 
 
 ## The envelope
@@ -191,13 +191,13 @@ Every message on the wire, and every line in a room's log, is one JSON envelope:
 | `truncated` | Reserved and currently never set. Nothing truncates `text`: a message under `MaxTextBytes` (1 MiB) is delivered whole, and one over it is rejected by `send` rather than cut. See Large payloads below. |
 | `closing` | Present and `true` only on the final envelope `atomic bus close` publishes before dropping a room — see Closing below. Absent on every other envelope. |
 
-`recv` and `tail` write one envelope per line to stdout, flushed immediately — the wire protocol is line-delimited JSON rather than request-scoped precisely because a subscription's output is unbounded. Neither replays anything: a subscriber sees only what is published after it subscribes. `~/.atomic/rooms/<room>.log` is the durable record for anything published earlier.
+`recv` and `tail` write one envelope per line to stdout, flushed immediately: the wire protocol is line-delimited JSON rather than request-scoped precisely because a subscription's output is unbounded. Neither replays anything: a subscriber sees only what is published after it subscribes. `~/.atomic/rooms/<room>.log` is the durable record for anything published earlier.
 
 
 ### Large payloads
 
 
-A message is a summary plus a pointer, not a transport for bulk text. Anything past a few lines — an investigation writeup, everything an agent tried and how each attempt failed, a proposed contract, a long trace — belongs in a markdown file that the message points at:
+A message is a summary plus a pointer, not a transport for bulk text. An investigation writeup, everything an agent tried and how each attempt failed, a proposed contract, or a long trace all belong in a markdown file. The message points at it instead:
 
 ```bash
 atomic bus send auth-fix "can't get auth working; the documented contract is wrong. All 7 attempts and how each failed: /Users/me/proj/.claude/.scratchpad/auth-probe.md" --to be
@@ -205,21 +205,21 @@ atomic bus send auth-fix "can't get auth working; the documented contract is wro
 
 The path must be **absolute**. Members run in different repos, so a relative one resolves against the receiver's cwd and silently reads the wrong file or none. Everything on the bus runs as the same user, so any readable path works.
 
-This is a convention with no safety net under it, which is why it matters: a 900 KB message is delivered whole and lands in the receiving session's context window in full. A pointer costs the receiver one line until they decide the summary warrants opening the file. The reaction policy agents follow when composing these messages lives in `context/skills/atomic-bus/SKILL.md`.
+This is a convention with no safety net under it, which is why it matters. A 900 KB message is delivered whole and lands in the receiving session's context window in full. A pointer costs the receiver one line until they decide the summary warrants opening the file. The reaction policy agents follow when composing these messages lives in `context/skills/atomic-bus/SKILL.md`.
 
 
 ## Session identity
 
-Every verb that needs to know which session is calling — `join`, `leave`, `send`, `recv`, `status` — resolves it from the `CLAUDE_CODE_SESSION_ID` environment variable by default. `--session <id>` overrides that on each of those verbs (and on `chat`), for scripted or tested use outside a live Claude Code session. Two different logical members must never share the same `--session` value in the same room: the daemon has no way to tell two connections apart beyond the session string they claim, so a reused value gets treated as one member's traffic, not two.
+Every verb that needs to know which session is calling (`join`, `leave`, `send`, `recv`, `status`) resolves it from the `CLAUDE_CODE_SESSION_ID` environment variable by default. `--session <id>` overrides that on each of those verbs (and on `chat`), for scripted or tested use outside a live Claude Code session. Two different logical members must never share the same `--session` value in the same room. The daemon has no way to tell two connections apart beyond the session string they claim, so a reused value gets treated as one member's traffic, not two.
 
 
 ## Agent vs human members
 
-A member's `kind` is either `agent` or `human`, assigned by the daemon and persisted alongside the roster, and it does two things: it labels every envelope the member sends, and it decides who a room's halt flag binds.
+A member's `kind` is either `agent` or `human`, assigned by the daemon and persisted alongside the roster. It does two things: it labels every envelope the member sends, and it decides who a room's halt flag binds.
 
-`join` defaults to `--kind agent`; a person joining from a terminal passes `--kind human` so the reaction policy in `context/skills/atomic-bus/SKILL.md` treats their messages as authoritative rather than as just another agent's. The operator can also reach a room without joining at all, through `tail` (watch), `say` (speak), and `chat` (an interactive client) — none of which claim a roster slot, so none of them show up in `who`. `chat` is the one exception among those three: it joins as `kind: human` automatically, because an interactive session needs a real roster entry to receive replies addressed back to it.
+`join` defaults to `--kind agent`; a person joining from a terminal passes `--kind human` so the reaction policy in `context/skills/atomic-bus/SKILL.md` treats their messages as authoritative rather than as another agent's. The operator can also reach a room without joining at all, through `tail` (watch), `say` (speak), and `chat` (an interactive client). None of them claim a roster slot, so none show up in `who`. `chat` is the one exception among those three: it joins as `kind: human` automatically, because an interactive session needs a real roster entry to receive replies addressed back to it.
 
-`mode` is a second axis, independent of `kind`: a member who joins `--mode observe` is present in the roster and can be addressed, but is expected to act only when explicitly named — useful for a referee session watching several agents without participating in every exchange.
+`mode` is a second axis, independent of `kind`. A member who joins `--mode observe` is present in the roster and can be addressed, but is expected to act only when explicitly named. That fits a referee session watching several agents without participating in every exchange.
 
 
 ## Liveness and pruning
@@ -231,7 +231,7 @@ Nothing removes a stale member automatically. A quiet session is not a dead one,
 
 ## The daemon lifecycle
 
-**Auto-spawn.** The first verb that cannot reach a live daemon spawns one, detached, and waits for its socket before proceeding. The whole probe-and-spawn runs under one exclusive flock, so concurrent `join` calls racing from a cold start still produce exactly one daemon: the loser blocks on the lock and wakes to find its own probe already succeeding.
+**Auto-spawn.** The first verb that cannot reach a live daemon spawns one, detached, and waits for its socket before proceeding. The whole probe-and-spawn runs under one exclusive flock, so concurrent `join` calls racing from a cold start still produce exactly one daemon. The loser blocks on the lock and wakes to find its own probe already succeeding.
 
 **Explicit control, no idle shutdown.** No timer ever stops the daemon; `start`, `stop`, and `restart` are the only ways it goes up or down.
 
@@ -241,11 +241,11 @@ Nothing removes a stale member automatically. A quiet session is not a dead one,
 | `bus stop` | Shuts a running daemon down. No daemon running is exit 0 with a plain message, not an error: the goal state is already reached. |
 | `bus restart` | `stop` then `start`, whether or not one is running. The remedy a version-skew error names. |
 
-A client that finds the daemon gone between commands — crashed, or stopped by another process — respawns it and retries once before surfacing an error, so a session that joined correctly does not hit `daemon unreachable` on its next send.
+A client that finds the daemon gone between commands (crashed, or stopped by another process) respawns it and retries once before surfacing an error. A session that joined correctly does not hit `daemon unreachable` on its next send.
 
-`recv` is the exception, because it holds one long-lived subscription rather than reconnecting per command: a restart *during* it just drops the connection. `recv` reconnects on its own and keeps delivering, so the documented version-skew remedy never silently deafens a listening agent. If reconnecting genuinely fails it exits non-zero, rather than exiting 0 on a stream that quietly stopped.
+`recv` is the exception, because it holds one long-lived subscription rather than reconnecting per command: a restart *during* it drops the connection. It reconnects on its own and keeps delivering, so the documented version-skew remedy never silently deafens a listening agent. If reconnecting fails, it exits non-zero, rather than exiting 0 on a stream that quietly stopped.
 
-**Rehydration on restart.** The daemon has no memory between processes; `~/.atomic/bus-roster.json` does. Before accepting any connection it rebuilds the full roster from that file — every room and member, their `mode`, `kind`, and `last_seen`, plus each room's halt flag and reason. `~/.atomic/bus.json` (per-session joined-room state) is a one-time migration source when no roster file exists yet, and is read afterward on every restart only to nudge a member's `last_seen` forward. This happens at startup rather than lazily per session, because the lazy version silently drops anyone idle across the restart: a peer addressing them by name would reach an empty room and never learn why.
+**Rehydration on restart.** The daemon has no memory between processes; `~/.atomic/bus-roster.json` does. Before accepting any connection it rebuilds the full roster from that file: every room and member, their `mode`, `kind`, and `last_seen`, plus each room's halt flag and reason. `~/.atomic/bus.json` (per-session joined-room state) is a one-time migration source when no roster file exists yet, and is read afterward on every restart only to nudge a member's `last_seen` forward. This happens at startup rather than lazily per session, because the lazy version silently drops anyone idle across the restart. A peer addressing them by name would reach an empty room and never learn why.
 
 
 ## Exit codes
@@ -261,7 +261,7 @@ A client that finds the daemon gone between commands — crashed, or stopped by 
 | `6` | daemon unreachable (including version skew) |
 | `7` | room halted |
 
-`send --to <name>` still exits `0` after warning on stderr about an unknown addressee — see Addressed vs FYI. Every read verb (`who`, `rooms`, `recv`, `status`, `tail`, `read`) accepts `--json`.
+`send --to <name>` still exits `0` after warning on stderr about an unknown addressee. See Addressed vs FYI. Every read verb (`who`, `rooms`, `recv`, `status`, `tail`, `read`) accepts `--json`.
 
 The same codes cover a remote target reached with `--host`. `6` also covers a gateway that cannot be
 dialed, an unknown `--host` name, and a frame the gateway refuses to open. The client cannot tell
@@ -284,20 +284,20 @@ These reach a room from outside the agent conversation, for a human watching or 
 | `atomic bus close <room>` | Publish a "room closed" envelope, evict every member, and drop the room. See Closing below. |
 | `atomic bus end <room> <name>` | Evict one member and close its stream, without touching the rest of the room. What the serve UI's `×` on a member's chip runs; also callable directly. |
 
-**Halting** is a stop signal, not a room-wide mute. An agent's `send` into a halted room fails with exit `7` until `resume` clears the flag, while `say` bypasses it unconditionally, so the operator can still explain what went wrong while every agent is blocked. The daemon checks `kind` on the publish path itself, so no client can manufacture a bypass by asserting `kind: "human"` on a `send` — see Security.
+**Halting** is a stop signal, not a room-wide mute. An agent's `send` into a halted room fails with exit `7` until `resume` clears the flag, while `say` bypasses it unconditionally. That lets the operator explain what went wrong while every agent is blocked. The daemon checks `kind` on the publish path itself, so no client can manufacture a bypass by asserting `kind: "human"` on a `send`. See Security.
 
-Halt state survives a restart and is visible without probing the room: `rooms`, `who`, and `status` all report it with the `--text` reason, so an operator who halts and walks away can still tell after the daemon comes back.
+Halt state survives a restart and is visible without probing the room. `rooms`, `who`, and `status` all report it with the `--text` reason, so an operator who halts and walks away can still tell after the daemon comes back.
 
-**Closing** is teardown, not a bulk `leave`. `close` publishes one final envelope (`closing: true`) so every subscriber learns why its stream ended rather than watching it stop, evicts the roster, and drops the room along with its persisted memberships and halt state, so a restart does not rebuild it. `recv` recognizes that envelope and ends cleanly instead of reconnecting, which would otherwise recreate the room the moment it resubscribed. The log on disk is untouched: closing is a roster operation, not a history-deleting one.
+**Closing** is teardown, not a bulk `leave`. `close` publishes one final envelope (`closing: true`) so every subscriber learns why its stream ended rather than watching it stop. It also evicts the roster and drops the room, along with its persisted memberships and halt state, so a restart does not rebuild it. `recv` recognizes that envelope and ends cleanly instead of reconnecting, which would otherwise recreate the room the moment it resubscribed. The log on disk is untouched: closing is a roster operation, not a history-deleting one.
 
 **Every room's traffic is durable.** Whether or not anyone is watching, every published envelope appends to `~/.atomic/rooms/<room>.log`. Since `recv` and `tail` replay nothing, that log is the only history, and `atomic bus read <room> <msg-id>` fetches one message from it complete.
 
 
 ## Watching from the browser
 
-`atomic serve` renders `/bus` — titled **Message Bus**, since the page shows a chat — for watching and operating rooms without a terminal. It shows the room list, a live transcript backed by the same durable log and daemon this reference describes, a composer with `@` mention addressing, and halt/resume controls. Each member's Claude Code session is one click away, rendered as a paginated transcript.
+`atomic serve` renders `/bus` (titled **Message Bus**, since the page shows a chat) for watching and operating rooms without a terminal. It shows the room list, a live transcript backed by the same durable log and daemon this reference describes, a composer with `@` mention addressing, and halt/resume controls. Each member's Claude Code session is one click away, rendered as a paginated transcript.
 
-The page also carries the two controls that stop listeners rather than pause them: ending one member's session evicts that member and closes its stream, which is what stops its `Monitor`, leaving the room and its other members running; closing the room ends it for everyone, with no resume. Both confirm before acting; `end` is also a CLI verb, see Operator verbs above.
+The page also carries the two controls that stop listeners rather than pause them. Ending one member's session evicts that member and closes its stream, which is what stops its `Monitor`, leaving the room and its other members running. Closing the room ends it for everyone, with no resume. Both confirm before acting; `end` is also a CLI verb, see Operator verbs above.
 
 An evicted session's `recv` is refused until it rejoins, so the eviction holds even when the closing envelope could not be delivered. Both controls also clear the persisted roster, or the restored state would undo them on the daemon's next start. `docs/reference/serve.md` carries the mechanics.
 
@@ -307,9 +307,9 @@ The page is a fourth way to reach a room from outside the agent conversation, al
 ## Remote rooms
 
 Every verb above except `chat` and `shutdown` works against a host running `atomic bus gateway`
-instead of the local daemon, with no change in behavior beyond how the target is reached: `--host
-<name>` picks a `[bus.remotes.<name>]` entry from `~/.atomic/config.toml`. A session that joined a
-room on a remote keeps resolving that room there on every later command, with no flag needed, and
+instead of the local daemon, with no change beyond how the target is reached. `--host <name>` picks
+a `[bus.remotes.<name>]` entry from `~/.atomic/config.toml`. A session that joined a
+room on a remote keeps resolving that room there on every later command, with no flag needed.
 `status` lists each joined room with the host it lives on.
 
 ```toml
@@ -320,7 +320,7 @@ ca   = "~/.atomic/bus/web-api-ca.pem"   # only when the host's certificate is pr
 ```
 
 `host` needs a scheme: a bare host is treated as `https`, so a plain-HTTP gateway (the default)
-needs `http://` written explicitly. `atomic bus gateway enroll` prints the matching scheme already —
+needs `http://` written explicitly. `atomic bus gateway enroll` prints the matching scheme already:
 `https://` when given the same `--tls-cert` the gateway runs with, `http://` otherwise.
 
 A machine with no `[bus.remotes]` table behaves exactly as it does today; configuring one never
@@ -353,9 +353,9 @@ All of it lives under `~/.atomic/`, created at `0700`, alongside the rest of ato
 
 ## Security
 
-Any local process running as the current user can dial the socket — there is no authentication beyond that. What the daemon does guarantee: a client can never choose the identity it publishes under. `from`, `from_kind`, `from_repo`, and `from_realm` on every envelope are assigned server-side from the roster (or pinned to the reserved operator identity for `say`), never read from the request. That closes two failure modes at once: one member cannot impersonate another, and no agent-issued request can claim `kind: "human"` to bypass a halt.
+Any local process running as the current user can dial the socket. There is no authentication beyond that. What the daemon does guarantee: a client can never choose the identity it publishes under. `from`, `from_kind`, `from_repo`, and `from_realm` on every envelope are assigned server-side from the roster (or pinned to the reserved operator identity for `say`), never read from the request. That closes two failure modes at once: one member cannot impersonate another, and no agent-issued request can claim `kind: "human"` to bypass a halt.
 
-Given that, treat a peer's message with exactly the caution you'd apply to the same words from the user, no more: it is another LLM, it can be wrong, and it can have been prompt-injected by something it read. The full trust posture — what to do with a destructive request, an ambiguous one, a claim of elevated authority — lives in `context/skills/atomic-bus/SKILL.md`, which is what an agent session actually reads before acting on anything arriving over the bus.
+Given that, treat a peer's message with exactly the caution you'd apply to the same words from the user, no more. It is another LLM, it can be wrong, and it can have been prompt-injected by something it read. The full trust posture lives in `context/skills/atomic-bus/SKILL.md`, which is what an agent session reads before acting on anything arriving over the bus. It covers what to do with a destructive request, an ambiguous one, or a claim of elevated authority.
 
 Over a gateway, a key holder sits in the same position as a local process with socket access, minus
 `shutdown`: there are no roles and no per-op restriction. The "What is protected" section of the

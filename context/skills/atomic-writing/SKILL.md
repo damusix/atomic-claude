@@ -179,6 +179,21 @@ Not every document needs all five, and a surface with its own defined structure 
 
 16. **Instruct plainly in prompt artifacts.** In `commands/`, `agents/`, `skills/`, `rules/`, and `CLAUDE.md`, give the instruction and the constraint. Rationale earns its place when it changes what the reader does at the edges, which is what a `**Why:**` line is for. Rationale that only defends the instruction against an imagined objection is noise, and it costs tokens on every turn.
 
+## Structural tells
+
+Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `docs/research/`, and the prose in `docs/reference/`. Skip `docs/spec/` and `docs/wiki/`, and lookup tables on any page.
+
+- Metaphor that returns after a heading? Keep one comparison in one sentence; cut the returns.
+- Closing line that states what the section proved? Cut it.
+- Summary or Conclusion section restating the page? End on the last fact.
+- Every fact serves one claim, and no exception appears? Put the dropped exception back. If none exists, the check passes; add no hedge.
+- Nothing on the page the reader would not have guessed? Name the likely wrong assumption in the what-will-bite-me section.
+- Same register from first line to last? Quote the page's transcript or error string. Do not roughen prose on purpose.
+- Consecutive sentences opening the same way? Vary the openers.
+- Sentence over 30 words, or an aside nested inside a clause? Split it where a clause ends, and move the aside to its own sentence. Keep a `, so` or colon join when the result stays under 30 words; do not bridge a split with `therefore`, `thus`, `nonetheless`, or `This means`. A short parenthetical that replaces an em dash (rule 7) stays.
+
+Read the page twice. The first read covers the first five checks. The second covers the last three on three sampled paragraphs: count sentences over 30 words, look for repeated openers, and check whether the register changes.
+
 ## Quick checklist before saving
 
 - Read the headings alone, in order. Do they answer what-is-this, how, where, what-bites, what-else? If the first one is an inventory, the page is upside down.
@@ -193,9 +208,10 @@ Not every document needs all five, and a surface with its own defined structure 
 - Two diagrams with barely any text between them? Give the second its own section and its own claim, or cut it as a restatement.
 - Node label that is a generic noun rather than a real identifier? Use the identifier.
 - Mermaid block with no caption line above it? Add one.
+- Prose surface? Run the `Structural tells` checks above.
 - Em dash inside a sentence? Replace with comma or period. (In a table cell or `a — b` list line, leave it.)
 - Adverb anywhere? Delete unless it carries technical meaning.
-- Sentence starting with `What`, `Here's`, `So`, or `Look,`? Restructure.
+- Sentence starting with `What`, `Here's`, `So`, or `Look,`? Restructure. Join a `So` sentence to the one before it with `, so`, or drop the word.
 - Passive voice? Find the actor.
 - Vague declarative ("the implications matter")? Name the implication or cut.
 - Three-item rhythm list (`speed, quality, cost`)? Drop to two, or break the rhythm.
