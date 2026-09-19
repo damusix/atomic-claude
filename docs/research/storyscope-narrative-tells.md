@@ -8,7 +8,7 @@ code at [`jenna-russell/storyscope`](https://github.com/jenna-russell/storyscope
 the authors released with it.
 
 This note asks which of the paper's AI-versus-human differences have a form in the docs this repo ships.
-The answer became `context/skills/atomic-writing/references/structural-tells.md`.
+The answer became the `Structural tells` checks in `context/skills/atomic-writing/SKILL.md`.
 
 
 ## What the paper claims
@@ -56,8 +56,8 @@ five AI sources pooled. We then ranked all 304 features by total variation dista
 counts each joined combination as one value. The scripts are not committed; this method and the pinned
 commit reproduce every figure below.
 
-The first table lists the features rows 1-8 of `references/structural-tells.md` use, plus figurative
-device density, which shows where Claude departs from the pool. Most ranks it skips describe characters,
+The first table lists the features behind the `Structural tells` checks, plus figurative device density,
+which shows where Claude departs from the pool. Most ranks it skips describe characters,
 setting, genre, allusion, or plot. Rank 7 is typical: emotional expression through embodied sensation, 81%
 against 39%. A few skipped style features could transfer and are not used yet, such as Latinate versus
 Anglo-Saxon vocabulary at rank 19.
@@ -128,17 +128,16 @@ page-level defaults such as a closing verdict or a recap.
 
 
 Add a page-level layer to `atomic-writing` rather than more words to the avoid list:
-`context/skills/atomic-writing/references/structural-tells.md`, plus a `Structural tells` check list in
-the skill's `SKILL.md`.
+a `Structural tells` check list in `context/skills/atomic-writing/SKILL.md`.
 
 Rejected: porting the 30 core features as a checklist. Most of them describe characters, senses, setting,
-and time order in fiction. The ones that do transfer are already rows 2 and 4 of the reference.
+and time order in fiction. The ones that do transfer are already the closing-line and exception checks.
 
 
 ## What would settle the open question
 
 
-Whether the nine rows hold for technical prose is untested. The cheap experiment points the paper's own
+Whether these checks hold for technical prose is untested. The cheap experiment points the paper's own
 pipeline at a parallel corpus built from this repo:
 
 1. Take 100 merged PRs that changed a `docs/` page.
