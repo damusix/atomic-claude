@@ -190,7 +190,7 @@ Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `doc
 - Nothing on the page the reader would not have guessed? Name the likely wrong assumption in the what-will-bite-me section.
 - Same register from first line to last? Quote the page's transcript or error string. Do not roughen prose on purpose.
 - Consecutive sentences opening the same way? Vary the openers.
-- Sentence over 30 words, or an aside nested inside a clause? Split it, and move the aside to its own sentence. A short parenthetical that replaces an em dash (rule 7) stays.
+- Sentence over 30 words, or an aside nested inside a clause? Split it where a clause ends, and move the aside to its own sentence. Keep a `, so` or colon join when the result stays under 30 words; do not bridge a split with `therefore`, `thus`, `nonetheless`, or `This means`. A short parenthetical that replaces an em dash (rule 7) stays.
 
 Read the page twice. The first read covers the first five checks. The second covers the last three on three sampled paragraphs: count sentences over 30 words, look for repeated openers, and check whether the register changes.
 
@@ -211,7 +211,7 @@ Read the page twice. The first read covers the first five checks. The second cov
 - Prose surface? Run the `Structural tells` checks above.
 - Em dash inside a sentence? Replace with comma or period. (In a table cell or `a — b` list line, leave it.)
 - Adverb anywhere? Delete unless it carries technical meaning.
-- Sentence starting with `What`, `Here's`, `So`, or `Look,`? Restructure.
+- Sentence starting with `What`, `Here's`, `So`, or `Look,`? Restructure. Join a `So` sentence to the one before it with `, so`, or drop the word.
 - Passive voice? Find the actor.
 - Vague declarative ("the implications matter")? Name the implication or cut.
 - Three-item rhythm list (`speed, quality, cost`)? Drop to two, or break the rhythm.
