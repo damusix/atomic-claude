@@ -53,6 +53,7 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 - [ ] Symlinks are resolved and deduped during tree walk (this repo's `scripts/link-local.sh` symlinks `.claude/` ↔ root dirs — must not double-count or loop).
 - [ ] Canonical casing: `AGENTS.md` (the authored global contract), `claude.local.md` (lowercase per existing repo). C5 resolution is case-sensitive. Document and FAIL on the wrong case.
 - [ ] Test coverage: each v1 rule has at least one PASS and one FAIL fixture in `atomic/internal/validate/testdata/`.
+- [ ] The projection validator re-renders the complete canonical corpus and audits every projection for dependency resolution, canonical identity, native metadata safety, projection-digest determinism, enforcement-tier accuracy, and unclassified Claude-only wire tokens; the real corpus passes and each failure class has a test.
 - [ ] Soft perf budget: `atomic validate` on this repo completes in **<500ms** on a modern machine, the budget the test asserts locally. Future rule additions fit within this envelope. On CI the test asserts **<3s** instead, because a shared runner measures the same work an order of magnitude slower and the tighter number reports the runner rather than the rules.
 - [ ] CI integration is real: `.github/workflows/ci.yml` runs `atomic validate` and the step fails on exit 1.
 
@@ -66,6 +67,7 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 | `atomic validate config` | Cross-reference integrity | `AGENTS.md` + `agents/` + `commands/` + `skills/` + `claude.local.md` |
 | `atomic validate bundle` | Bundle parity | `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, steering `AGENTS.md` ↔ `atomic/internal/embedded/` |
 | `atomic validate artifacts [paths...]` | Artifact CLI-flag citations (rule A1) | Full artifact corpus via `artifacts.Load` (or explicit paths) |
+| `atomic validate projections` | Canonical corpus projection audit (rules P1–P6) | Full corpus via `artifacts.Load`, re-rendered through the Claude/OMP/Codex adapters |
 | `atomic validate` | All of the above | Whole repo |
 
 
@@ -95,10 +97,10 @@ Honors `--json` and `--suggest` identically to the other subcommands. Included i
 Path-aware dispatch: `atomic validate docs/spec/foo.md other/path.md` routes the first to `spec`, ignores (with WARN) the second.
 
 
-**Bundle is repo-dev-only.** Bundle parity compares the working tree against the embedded source snapshot, which only exists in the atomic-claude repo (detected by the presence of `atomic/internal/bundlemirror/mirror.go` at the git toplevel — the same heuristic as `atomic doctor`'s manifest check). Outside that repo:
+**Bundle and projections are repo-dev-only.** Bundle parity compares the working tree against the embedded source snapshot, and the projection audit renders the canonical corpus under `context/`; both only exist in the atomic-claude repo (detected by the presence of `atomic/internal/bundlemirror/mirror.go` at the git toplevel — the same heuristic as `atomic doctor`'s manifest check). Outside that repo:
 
-- Bare `atomic validate` runs spec + config only; the bundle section is omitted silently (no header, no findings).
-- Explicit `atomic validate bundle` (and `--json`) prints a one-line `SKIP — not in atomic-claude repo` and exits 0.
+- Bare `atomic validate` runs spec + config only; the bundle and projection sections are omitted silently (no header, no findings).
+- Explicit `atomic validate bundle` and `atomic validate projections` (and `--json`) print a one-line `SKIP — not in atomic-claude repo` and exit 0.
 
 It never errors out. spec and config validators run in any repo.
 
@@ -147,6 +149,26 @@ Single check (shared with future `atomic doctor` via `atomic/internal/manifestch
 
 
 No `go generate` invocation — pure read-and-compare. CI's existing `git diff --exit-code` gate stays canonical; this is the dev-loop counterpart.
+
+
+### Projection validator (rules P1–P6)
+
+
+Re-renders the complete canonical corpus through the real target adapters — Claude agents, skills, rules, and commands; OMP agents and skills; offline Codex agents — and audits every projection against the CP0 capability record. The gate renders nothing itself and duplicates no adapter or pattern list: it calls the same `harness` projectors that ship and reads the same `harnessRuntimePatterns` suite the skill projection classifies, so a failure means the corpus or an adapter broke an invariant the projection contract promises.
+
+| ID | Rule | Severity |
+|----|------|----------|
+| P1 | Every declared dependency resolves by stable identity in the corpus | FAIL |
+| P2 | A projection carries its artifact's identity, and the artifact's source digest still matches the authored bytes | FAIL |
+| P3 | No model, effort, or tool-restriction key (`harness.UserPolicyKeys`) reaches a projected native document's metadata | FAIL |
+| P4 | Two renders of one artifact are byte-identical, and the projection digest describes the bytes | FAIL |
+| P5 | No projection claims an enforcement tier stronger than its CP0 record proves, and every canonical field a projection drops is reported unsupported | FAIL |
+| P6 | No Claude-only wire token reaches another target's projected bytes unclassified | FAIL |
+| P0 | An adapter could not render a projection at all (the gate's render-failure surface) | FAIL |
+
+P6 reuses the skill projection's own runtime classification: a harness marker the adapter already reports as a gap (the `.claude/` state-root default, a background-delivery instruction) is portable and never a token, and a marker the skill report classifies is not a leak. A wire token in a projection with no classification channel — an agent, a rule, a command rendered for a non-Claude target — fails.
+
+**Projections is repo-dev-only**, like bundle: it audits the canonical corpus under `context/`, which only the atomic-claude repo carries. Outside that repo, bare `atomic validate` omits the section silently and explicit `atomic validate projections` prints `SKIP — not in atomic-claude repo` and exits 0.
 
 
 ## Output format
@@ -219,6 +241,7 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 | `atomic/internal/validate/spec.go` | S0, S1, S5, S6 rules |
 | `atomic/internal/validate/config.go` | C3, C5, C7, C9 rules |
 | `atomic/internal/validate/artifacts.go` | A1 rule — CLI-flag citation scanner |
+| `atomic/internal/validate/projection.go` | P0–P6 rules — canonical corpus projection audit |
 | `atomic/internal/validate/output.go` | Human + JSON formatters, `--suggest` structural templates |
 | `atomic/internal/validate/testdata/` | PASS / FAIL fixtures per rule |
 | `atomic/internal/cliusage/` | Structured command-surface table; renders `--help` Commands block; source of truth for A1 |
@@ -263,6 +286,13 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 
 
 <!-- Drafting/refinement edits before approval are not logged. First entry is at v1 ship. -->
+
+
+### 2026-09-18 — Add `atomic validate projections`
+
+**What changed:** A new `atomic validate projections` subcommand re-renders the complete canonical corpus through the Claude, OMP, and offline Codex adapters and audits every projection under rules P1–P6 (P0 for a render failure): dependency resolution, canonical identity and source digest, native metadata safety, projection-digest determinism, enforcement-tier accuracy against the CP0 record, and unclassified Claude-only wire tokens. The gate reuses the shipped `harness` projectors and the `harnessRuntimePatterns` suite rather than duplicating them; the `Subcommands` table, `Sources` column, repo-dev-only paragraph, success criteria, and `## Package layout` gained the new surface.
+
+**Why:** the canonical corpus gained agent, skill, rule, and command projections across CP2A–CP2M, and nothing verified that the corpus still rendered, resolved its dependencies, or avoided leaking harness-specific tokens; the projection gate is that mechanical check.
 
 
 ### 2026-09-17 — Global source is `AGENTS.md`; A1 corpus is the canonical catalog

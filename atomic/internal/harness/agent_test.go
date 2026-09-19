@@ -271,7 +271,7 @@ func TestAgent_RefusesUserPolicyMetadata(t *testing.T) {
 	cat := loadCorpus(t)
 	a := getAgent(t, cat, representativeAgent)
 
-	for _, key := range userPolicyKeys {
+	for _, key := range UserPolicyKeys {
 		policy := a
 		policy.Body = []byte("---\nname: atomic-reviewer\ndescription: fixture\n" + key + ": value\n---\nBody.\n")
 

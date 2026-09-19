@@ -113,7 +113,7 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `cleanup` | `/git-cleanup` (stale worktrees / branches — dispatches a read-only scan via `atomic prompt git-cleanup`, presents indexed report, you confirm). `/undo-commit` (soft-undo HEAD, refuses if pushed). Cleaning up *code* rather than git state is `/deslop`. |
 | `deslop` / `slop` | `/deslop [<path>]` — audits the codebase **as it stands**, not a diff: comment noise, AI-tell doc prose, speculative abstraction, reinvented stdlib, duplicate helpers, dead code, swallowed errors, convention drift. Fans out read-only `atomic-deslopper` agents sharded by wiki domain, writes an indexed report to a scratchpad bundle, and stops. `/deslop apply <ids\|tier>` is a separate gated pass that fixes accepted findings through the surgical implementer behind a green baseline. Every finding carries a safety tier; `report-only` (public API, dynamic refs, generated files) is never auto-fixed. |
-| `doctor` | `atomic doctor [--fix]` runs integrity checks, including category 14 `output-style`, which reports which settings file sets `outputStyle` and flags a project-level value as a possible override. `atomic validate` lints spec / config / bundle / artifacts. |
+| `doctor` | `atomic doctor [--fix]` runs integrity checks, including category 14 `output-style`, which reports which settings file sets `outputStyle` and flags a project-level value as a possible override. `atomic validate` lints spec / config / bundle / artifacts / canonical-corpus projections. |
 | `update` | `atomic update [--check]` self-updates binary, auto-refreshes the installed harness artifacts, auto-runs install-scope migration steps, then runs doctor (`--skip-claude-update` skips the refresh). `--pre` installs the newest pre-release cut from the `next` branch; `atomic config set update.channel prerelease` makes that the default for the background check, banner and doctor too. When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge the proposed global steering file. `atomic migrate` runs migration steps manually: bare = install scope, `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos; `--show-log [<since>]` prints its dated change history, filtered by version or date. |
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns a background subagent on the economical reasoning tier to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
@@ -248,7 +248,7 @@ Prompt: continue to maintenance / explain one of these / exit tour.
 
 ```
 atomic doctor [--fix]             integrity checks over install, hooks, signals, refs, ..., profile, code-index, migrate, output-style
-atomic validate                   lint spec / config / bundle / artifact-CLI-citation parity
+atomic validate                   lint spec / config / bundle / artifact-CLI-citation parity / canonical-corpus projections
 atomic update [--check] [--pre]   self-update binary (--pre tracks next-branch pre-releases), auto-runs install-scope migrations, runs doctor after
 atomic migrate [--repo|--realm|--show-log]   run versioned migration steps: bare = install scope, --repo = one project, --realm = fan-out across all atomic'd repos; --show-log [<since>] prints dated change history
 atomic scratchpad new|path|list|archive   slug-keyed bundle lifecycle: create/extend, locate, enumerate, retire

@@ -23,11 +23,12 @@ import (
 // description, and skills keys, so the bytes ship unchanged with no CP0 row
 // needed.
 
-// userPolicyKeys are canonical agent metadata keys that select a model, a
+// UserPolicyKeys are canonical agent metadata keys that select a model, a
 // reasoning effort, or a tool surface. User model policy is authoritative, so
 // no projection writes them into native metadata, and an agent that declares
-// one is refused rather than projected.
-var userPolicyKeys = []string{"model", "effort", "tools", "disallowedTools", "mcpServers"}
+// one is refused rather than projected. The projection gate reads this list to
+// audit every projected native document for a leak.
+var UserPolicyKeys = []string{"model", "effort", "tools", "disallowedTools", "mcpServers"}
 
 // ClaudeAgent renders a canonical agent into Claude Code's native agent file.
 // The canonical frontmatter already carries only the Claude-native name,
@@ -165,7 +166,7 @@ func checkedAgent(cat *artifacts.Catalog, a artifacts.Artifact) error {
 	if err != nil {
 		return fmt.Errorf("harness: agent %s frontmatter: %w", a.ID, err)
 	}
-	for _, key := range userPolicyKeys {
+	for _, key := range UserPolicyKeys {
 		if _, ok := meta[key]; ok {
 			return fmt.Errorf("harness: agent %s declares %q, which user model policy owns; a projection never writes model, effort, or tool restrictions", a.ID, key)
 		}

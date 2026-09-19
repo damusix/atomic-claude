@@ -362,7 +362,7 @@ var commands = []Command{
 	},
 	{
 		Path:        []string{"validate"},
-		Args:        "[flags] [spec|config|bundle|artifacts] [paths...]",
+		Args:        "[flags] [spec|config|bundle|artifacts|projections] [paths...]",
 		Flags:       []string{"--json", "--suggest"},
 		Description: "Lint repo artifacts",
 	},

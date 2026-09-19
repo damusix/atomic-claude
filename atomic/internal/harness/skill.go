@@ -426,22 +426,54 @@ func skillRelativeDir(source string) string {
 	return ""
 }
 
-// harnessRuntimePatterns are the harness-specific runtime markers a portable
-// skill file must not carry: a backticked harness tool name, a tool-call shape,
-// an installed Claude state path, a model/effort selection, or an instruction
-// whose delivery depends on harness background output injection. The list is
-// deliberately literal so prose cannot trip it.
-var harnessRuntimePatterns = []struct {
+// harnessRuntimePattern is one harness-specific runtime marker. wire marks a
+// Claude-only wire token — harness syntax no other target resolves, so its
+// presence in another target's projected bytes is a leak. A non-wire marker is
+// a classified surface: the state-root default stays portable, and a background
+// delivery instruction is a runtime capability the projection reports as a gap.
+type harnessRuntimePattern struct {
 	name    string
 	pattern *regexp.Regexp
-}{
-	{"harness tool name", regexp.MustCompile("`(?:Bash|Read|Write|Edit|Glob|Grep|Task|Monitor|WebFetch|WebSearch|TodoWrite|SlashCommand|NotebookEdit|AskUserQuestion|BashOutput|KillShell)`")},
-	{"harness tool call", regexp.MustCompile(`\b(?:Monitor|Task|TodoWrite|WebFetch|WebSearch)\(`)},
-	{"TaskStop", regexp.MustCompile("`?TaskStop`?")},
-	{"subagent_type", regexp.MustCompile("subagent_type")},
-	{"claude state path", regexp.MustCompile(`~?/?\.claude/`)},
-	{"model or effort selection", regexp.MustCompile(`(?i)\b(?:haiku|sonnet|opus)\b|model:|effort:`)},
-	{"harness background delivery", regexp.MustCompile(`(?i)persistent background command|streams its output into this session`)},
+	wire    bool
+}
+
+// harnessRuntimePatterns are the harness-specific runtime markers a portable
+// skill file must not silently carry: a backticked harness tool name, a
+// tool-call shape, an installed Claude state path, a model/effort selection, or
+// an instruction whose delivery depends on harness background output injection.
+// The list is deliberately literal so prose cannot trip it.
+var harnessRuntimePatterns = []harnessRuntimePattern{
+	{"harness tool name", regexp.MustCompile("`(?:Bash|Read|Write|Edit|Glob|Grep|Task|Monitor|WebFetch|WebSearch|TodoWrite|SlashCommand|NotebookEdit|AskUserQuestion|BashOutput|KillShell)`"), true},
+	{"harness tool call", regexp.MustCompile(`\b(?:Monitor|Task|TodoWrite|WebFetch|WebSearch)\(`), true},
+	{"TaskStop", regexp.MustCompile("`?TaskStop`?"), true},
+	{"subagent_type", regexp.MustCompile("subagent_type"), true},
+	{"claude state path", regexp.MustCompile(`~?/?\.claude/`), false},
+	{"model or effort selection", regexp.MustCompile(`(?i)\b(?:haiku|sonnet|opus)\b|model:|effort:`), true},
+	{"harness background delivery", regexp.MustCompile(`(?i)persistent background command|streams its output into this session`), false},
+}
+
+// HarnessRuntimeUse is one harness-specific runtime marker a byte body carries.
+type HarnessRuntimeUse struct {
+	// Name is the marker label, e.g. "harness tool name".
+	Name string `json:"name"`
+	// Wire reports a Claude-only wire token, as opposed to a classified surface
+	// the projection reports as a gap.
+	Wire bool `json:"wire"`
+}
+
+// HarnessRuntimeUses reports every harness-specific runtime marker body
+// carries, reusing the pattern list the skill projection classifies. The
+// projection gate consumes it to prove no target leaks an unclassified
+// Claude-only wire token.
+func HarnessRuntimeUses(body []byte) []HarnessRuntimeUse {
+	text := string(body)
+	var out []HarnessRuntimeUse
+	for _, t := range harnessRuntimePatterns {
+		if t.pattern.MatchString(text) {
+			out = append(out, HarnessRuntimeUse{Name: t.name, Wire: t.wire})
+		}
+	}
+	return out
 }
 
 // atomicRuntimeVerb matches an atomic binary invocation in a skill body.
