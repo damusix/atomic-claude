@@ -44,6 +44,8 @@ func TestAtomicCLIHelper(t *testing.T) {
 		runHarness(fields[1:])
 	case "claude":
 		runClaude(fields[1:])
+	case "update":
+		os.Exit(runUpdateWith(fields[1:], defaultUpdateDeps()))
 	default:
 		t.Fatalf("unknown helper verb %q", fields[0])
 	}

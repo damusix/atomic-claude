@@ -216,6 +216,20 @@ func (s Steps) Converge(req ConvergeRequest) ([]ConvergeReport, error) {
 	return reports, nil
 }
 
+// ConvergeEnrolled converges every enrolled target, and is a no-op when none is
+// enrolled. Update runs it after binary selection; unlike repair it must not
+// fail an unenrolled home.
+func (s Steps) ConvergeEnrolled() ([]ConvergeReport, error) {
+	ledger, err := installstate.LoadLedger(ledgerPath(s.Home))
+	if err != nil {
+		return nil, err
+	}
+	if len(ledger.Targets) == 0 {
+		return nil, nil
+	}
+	return s.Converge(ConvergeRequest{Selection: Selection{EnrolledOnly: true}})
+}
+
 // AdoptRequest is the explicit legacy adoption of one Claude target.
 type AdoptRequest struct {
 	Selection Selection

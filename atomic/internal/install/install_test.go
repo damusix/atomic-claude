@@ -133,6 +133,48 @@ func TestConvergeInstallEnrollsTarget(t *testing.T) {
 	}
 }
 
+// TestConvergeEnrolledNoEnrollmentIsNoop proves an unenrolled home converges
+// nothing and reports no error, which is what update relies on.
+func TestConvergeEnrolledNoEnrollmentIsNoop(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".omp", "agent")
+	adapter := &fakeAdapter{kind: harness.KindOMP, instances: []harness.Instance{{Kind: harness.KindOMP, ID: root, NativeRoot: root, Home: home, Exists: true}}}
+	steps := testSteps(t, home, adapter)
+
+	reports, err := steps.ConvergeEnrolled()
+	if err != nil {
+		t.Fatalf("converge enrolled: %v", err)
+	}
+	if len(reports) != 0 {
+		t.Errorf("reports = %+v, want none without enrollment", reports)
+	}
+}
+
+// TestConvergeEnrolledReconvergesEnrolledTarget proves update convergence acts
+// on the ledger's enrolled targets, not on discovery.
+func TestConvergeEnrolledReconvergesEnrolledTarget(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".omp", "agent")
+	adapter := &fakeAdapter{kind: harness.KindOMP, instances: []harness.Instance{{Kind: harness.KindOMP, ID: root, NativeRoot: root, Home: home, Exists: true}}, files: map[string]fakeFile{
+		"steering": {path: filepath.Join(root, "AGENTS.md"), content: []byte("<atomic>\ncontract\n</atomic>\n"), kind: managedfile.KindBlock},
+	}}
+	steps := testSteps(t, home, adapter)
+
+	if _, err := steps.Converge(ConvergeRequest{Selection: Selection{Kind: harness.KindOMP}, Enroll: true}); err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	reports, err := steps.ConvergeEnrolled()
+	if err != nil {
+		t.Fatalf("converge enrolled: %v", err)
+	}
+	if len(reports) != 1 || reports[0].Status != harness.StatusConverged {
+		t.Fatalf("reports = %+v, want the enrolled target reconverged", reports)
+	}
+	if reports[0].Target.Key() != adapter.instances[0].Target().Key() {
+		t.Errorf("target = %s, want %s", reports[0].Target.Key(), adapter.instances[0].Target().Key())
+	}
+}
+
 // TestDryRunIsReadOnly proves a dry run leaves the filesystem byte-identical: no
 // directory, journal, backup, or native write appears.
 func TestDryRunIsReadOnly(t *testing.T) {

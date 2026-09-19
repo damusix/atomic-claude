@@ -18,7 +18,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
-	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/install"
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 	"github.com/damusix/atomic-claude/atomic/internal/updatedoctor"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
@@ -40,6 +40,25 @@ func stripBackgroundCheckMarker(args []string) (found bool, cleaned []string) {
 	cleaned = make([]string, 0, len(args))
 	for _, a := range args {
 		if a == backgroundCheckMarker {
+			found = true
+			continue
+		}
+		cleaned = append(cleaned, a)
+	}
+	return found, cleaned
+}
+
+// targetConvergeMarker marks the re-exec of the freshly swapped binary that owns
+// post-swap target convergence. Like backgroundCheckMarker it is stripped before
+// parsing and never registered on a FlagSet, so it stays out of --help and the
+// cliusage surface.
+const targetConvergeMarker = "--__target-converge"
+
+// stripTargetConvergeMarker reports whether the marker was present.
+func stripTargetConvergeMarker(args []string) (found bool, cleaned []string) {
+	cleaned = make([]string, 0, len(args))
+	for _, a := range args {
+		if a == targetConvergeMarker {
 			found = true
 			continue
 		}
@@ -139,7 +158,7 @@ func buildUpdateCmd() *cobra.Command {
 	c.Flags().String("channel", "stable", "release channel: stable or prerelease")
 	c.Flags().Bool("pre", false, "shorthand for --channel prerelease")
 	c.Flags().Bool("no-doctor", false, "skip post-update doctor self-check")
-	c.Flags().Bool("skip-claude-update", false, "skip the ~/.claude artifact refresh after binary swap")
+	c.Flags().Bool("skip-claude-update", false, "skip the post-swap enrolled-target convergence")
 	c.Flags().Bool("force", false, "bypass the update lock; never weakens checksum verification")
 	return c
 }
@@ -252,9 +271,53 @@ func resolveUpdateChannel(home string, fs *flag.FlagSet, channel string, pre boo
 	return cfg.Update.Channel, nil
 }
 
+// updateDeps are the collaborators one `atomic update` invocation reaches.
+// Production wiring is defaultUpdateDeps; tests replace the network, the binary
+// swap, and the re-exec so the stale/replacement boundary is observable without
+// a second binary.
+type updateDeps struct {
+	client       *selfupdate.Client
+	executable   func() (string, error)
+	evalSymlinks func(string) (string, error)
+	runChild     func(exe string, args ...string) error
+	apply        func(ctx context.Context, home string, c *selfupdate.Client, channel, currentVersion, currentBinary string, force bool, now func() time.Time, w io.Writer) (bool, error)
+	converge     func(home string, w io.Writer) error
+	migrate      func(home string) error
+	doctor       func(w io.Writer)
+	terminal     func() bool
+	out          io.Writer
+	errOut       io.Writer
+	now          func() time.Time
+}
+
+// defaultUpdateDeps wires the production collaborators.
+func defaultUpdateDeps() updateDeps {
+	return updateDeps{
+		client:       &selfupdate.Client{},
+		executable:   os.Executable,
+		evalSymlinks: filepath.EvalSymlinks,
+		runChild:     defaultRunCmd,
+		apply:        runUpdateApplyOutcome,
+		converge:     convergeEnrolledTargets,
+		migrate:      runMigrateInstall,
+		doctor:       func(w io.Writer) { updatedoctor.Run(doctor.Run, w) },
+		terminal:     func() bool { return charmterm.IsTerminal(os.Stdout.Fd()) },
+		out:          os.Stdout,
+		errOut:       os.Stderr,
+		now:          time.Now,
+	}
+}
+
 func runUpdate(args []string) {
-	// Stripped before flag parsing so it never surfaces as an unknown flag.
+	os.Exit(runUpdateWith(args, defaultUpdateDeps()))
+}
+
+// runUpdateWith is the testable core of `atomic update`. It returns the process
+// exit code instead of exiting, so the re-exec boundary is exercised in-process.
+func runUpdateWith(args []string, deps updateDeps) int {
+	// Stripped before flag parsing so they never surface as unknown flags.
 	background, args := stripBackgroundCheckMarker(args)
+	convergeChild, args := stripTargetConvergeMarker(args)
 
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	cliutil.SetUsage(fs, "atomic update [--check] [--pre | --channel stable|prerelease] [--no-doctor] [--skip-claude-update] [--force]")
@@ -262,96 +325,146 @@ func runUpdate(args []string) {
 	var channel string
 	var pre bool
 	var noDoctor bool
-	var skipClaudeUpdate bool
+	var skipTargets bool
 	var force bool
 	fs.BoolVar(&check, "check", false, "only check if an update is available; do not apply")
 	fs.StringVar(&channel, "channel", "stable", "release channel: stable or prerelease")
 	fs.BoolVar(&pre, "pre", false, "shorthand for --channel prerelease")
 	fs.BoolVar(&noDoctor, "no-doctor", false, "skip post-update doctor self-check")
-	fs.BoolVar(&skipClaudeUpdate, "skip-claude-update", false, "skip the ~/.claude artifact refresh after the binary swap")
+	fs.BoolVar(&skipTargets, "skip-claude-update", false, "skip the post-swap enrolled-target convergence")
 	fs.BoolVar(&force, "force", false, "bypass the update lock; never weakens checksum verification")
 	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
+		return 2
 	}
 
 	// An unresolvable home degrades to a raw run with no state or config I/O.
 	home, _ := os.UserHomeDir()
 	channel, err := resolveUpdateChannel(home, fs, channel, pre)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic update: %v\n", err)
-		os.Exit(2)
+		fmt.Fprintf(deps.errOut, "atomic update: %v\n", err)
+		return 2
 	}
-
-	c := &selfupdate.Client{}
 
 	ctx := context.Background()
 
 	if check {
-		newer, tag, err := runUpdateCheck(ctx, home, background, c, channel, version.Version, time.Now, os.Stderr)
+		newer, tag, err := runUpdateCheck(ctx, home, background, deps.client, channel, version.Version, deps.now, deps.errOut)
 		if err != nil {
 			// Exit 2 for a hard error, distinct from the exit-1 "available" signal.
-			fmt.Fprintf(os.Stderr, "atomic update: %v\n", err)
-			os.Exit(2)
+			fmt.Fprintf(deps.errOut, "atomic update: %v\n", err)
+			return 2
 		}
 		if newer {
 			// Exit 1 signals "available", the diff(1) idiom.
-			fmt.Printf("update available: %s (current: %s)\n", tag, version.Version)
-			os.Exit(1)
+			fmt.Fprintf(deps.out, "update available: %s (current: %s)\n", tag, version.Version)
+			return 1
 		}
-		fmt.Printf("atomic is up to date (%s)\n", tag)
-		return
+		fmt.Fprintf(deps.out, "atomic is up to date (%s)\n", tag)
+		return 0
 	}
 
-	exe, err := os.Executable()
+	// The replacement binary owns post-swap convergence: it embeds the selected
+	// generation, which is the only corpus allowed to publish.
+	if convergeChild {
+		return runUpdatePostSwap(home, noDoctor, skipTargets, deps)
+	}
+
+	exe, err := deps.executable()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic update: resolve executable: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(deps.errOut, "atomic update: resolve executable: %v\n", err)
+		return 1
 	}
-	exe, err = filepath.EvalSymlinks(exe)
+	exe, err = deps.evalSymlinks(exe)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic update: resolve symlinks: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(deps.errOut, "atomic update: resolve symlinks: %v\n", err)
+		return 1
 	}
 
-	c.OnProgress = downloadProgressRenderer(os.Stdout, charmterm.IsTerminal(os.Stdout.Fd()))
+	deps.client.OnProgress = downloadProgressRenderer(deps.out, deps.terminal())
 
-	if err := runUpdateApply(ctx, home, c, channel, version.Version, exe, force, time.Now, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic update: %v\n", err)
-		os.Exit(1)
+	swapped, err := deps.apply(ctx, home, deps.client, channel, version.Version, exe, force, deps.now, deps.out)
+	if err != nil {
+		fmt.Fprintf(deps.errOut, "atomic update: %v\n", err)
+		return 1
 	}
 
-	// Re-exec of the freshly swapped binary, not an in-process call: this
-	// process still embeds the OLD bundle, so it would install stale artifacts.
-	// Best-effort — a refresh failure warns and never blocks the update.
-	if !skipClaudeUpdate {
-		hooksInstalled := false
-		if home, herr := os.UserHomeDir(); herr == nil {
-			if installed, _, ierr := hooks.IsInstalled(home); ierr == nil {
-				hooksInstalled = installed
-			}
+	if swapped {
+		// The swap replaced the binary on disk; this process still embeds the
+		// stale corpus, so it must refuse every convergence path and hand all
+		// post-swap work to the replacement. Only when nothing was swapped is
+		// this binary the selected generation and allowed to converge in place.
+		childArgs := []string{"update", targetConvergeMarker}
+		if skipTargets {
+			childArgs = append(childArgs, "--skip-claude-update")
 		}
-		if err := defaultRunCmd(exe, artifactRefreshArgs(hooksInstalled)...); err != nil {
-			fmt.Fprintf(os.Stderr, "atomic update: artifact refresh failed: %v\nrun `atomic claude update` manually.\n", err)
+		if noDoctor {
+			childArgs = append(childArgs, "--no-doctor")
 		}
+		if err := deps.runChild(exe, childArgs...); err != nil {
+			fmt.Fprintf(deps.errOut, "atomic update: target convergence failed: %v\nrun `atomic harness repair` manually.\n", err)
+		}
+		return 0
 	}
 
-	// After the refresh, so migrations see the new bundle. Best-effort.
-	if home, herr := os.UserHomeDir(); herr == nil {
-		if err := runMigrateInstall(home); err != nil {
-			fmt.Fprintf(os.Stderr, "atomic update: migrations failed: %v\nrun `atomic migrate` manually.\n", err)
+	// Already current: this binary embeds the selected generation.
+	return runUpdatePostSwap(home, noDoctor, skipTargets, deps)
+}
+
+// runUpdatePostSwap converges every enrolled target, then runs the migrations
+// and doctor that follow a completed update. It runs only in a process whose
+// embedded corpus is the selected generation: the re-exec'd replacement after a
+// swap, or the already-current binary when no swap was needed. A convergence
+// failure warns and never blocks the update success path. With an unresolvable
+// home there is no install root, so both convergence and migrations are
+// skipped: the update stays a raw run with no state or config I/O.
+func runUpdatePostSwap(home string, noDoctor, skipTargets bool, deps updateDeps) int {
+	if !skipTargets {
+		if err := deps.converge(home, deps.out); err != nil {
+			fmt.Fprintf(deps.errOut, "atomic update: target convergence failed: %v\nrun `atomic harness repair` manually.\n", err)
 		}
 	}
-
+	if home != "" {
+		if err := deps.migrate(home); err != nil {
+			fmt.Fprintf(deps.errOut, "atomic update: migrations failed: %v\nrun `atomic migrate` manually.\n", err)
+		}
+	}
 	cfgRunDoctor := true // safe default when config is unreadable
-	if home, herr := os.UserHomeDir(); herr == nil {
-		cfgPath := config.TOMLPath(home)
-		if cfg, _, cerr := config.Load(cfgPath); cerr == nil {
+	if home != "" {
+		if cfg, _, cerr := config.Load(config.TOMLPath(home)); cerr == nil {
 			cfgRunDoctor = cfg.Update.RunDoctor
 		}
 	}
 	if shouldRunPostUpdateDoctor(noDoctor, cfgRunDoctor) {
-		updatedoctor.Run(doctor.Run, os.Stdout)
+		deps.doctor(deps.out)
 	}
+	return 0
+}
+
+// convergeEnrolledTargets runs the CP7A install engine over every enrolled
+// target. `atomic update` is the user's consent, so the plan is auto-approved;
+// adapters re-acquire the lifecycle lock and recover unresolved journals before
+// they mutate. A home with no enrollment is a no-op, never an error.
+func convergeEnrolledTargets(home string, w io.Writer) error {
+	if home == "" {
+		return nil
+	}
+	steps := install.DefaultSteps(home)
+	steps.AssumeYes = true
+	reports, err := steps.ConvergeEnrolled()
+	if err != nil {
+		return err
+	}
+	for _, r := range reports {
+		switch {
+		case len(r.Blockers) > 0:
+			fmt.Fprintf(w, "%s\t%s\t%s\n", r.Target.Key(), r.Status, r.Blockers[0])
+		case r.Applied:
+			fmt.Fprintf(w, "%s\t%s\tapplied\n", r.Target.Key(), r.Status)
+		default:
+			fmt.Fprintf(w, "%s\t%s\n", r.Target.Key(), r.Status)
+		}
+	}
+	return nil
 }
 
 // downloadProgressRenderer rewrites one status line in place as the archive
@@ -379,12 +492,20 @@ func downloadProgressRenderer(w io.Writer, isTTY bool) func(received, total int6
 	}
 }
 
-// runUpdateApply performs the foreground swap: lock acquire/takeover, a fresh
-// GitHub lookup (state's own latest_version is never trusted for this call),
-// then a staged fast-path swap or a fallback to the full download. Callers must
-// pass currentBinary already symlink-resolved. State I/O is skipped, never
-// blocking the swap, when home is unresolvable.
+// runUpdateApply performs the foreground swap and reports only its error.
 func runUpdateApply(ctx context.Context, home string, c *selfupdate.Client, channel, currentVersion, currentBinary string, force bool, now func() time.Time, w io.Writer) error {
+	_, err := runUpdateApplyOutcome(ctx, home, c, channel, currentVersion, currentBinary, force, now, w)
+	return err
+}
+
+// runUpdateApplyOutcome performs the foreground swap: lock acquire/takeover, a
+// fresh GitHub lookup (state's own latest_version is never trusted for this
+// call), then a staged fast-path swap or a fallback to the full download. It
+// reports whether the binary was replaced: a false outcome with a nil error
+// means the running binary is already the selected generation. Callers must pass
+// currentBinary already symlink-resolved. State I/O is skipped, never blocking
+// the swap, when home is unresolvable.
+func runUpdateApplyOutcome(ctx context.Context, home string, c *selfupdate.Client, channel, currentVersion, currentBinary string, force bool, now func() time.Time, w io.Writer) (bool, error) {
 	var statePath string
 	state := selfupdate.State{}
 	if home != "" {
@@ -403,7 +524,7 @@ func runUpdateApply(ctx context.Context, home string, c *selfupdate.Client, chan
 	acquiredAt := now()
 	locked, err := selfupdate.AcquireOrTakeoverLock(state, acquiredAt, force)
 	if err != nil {
-		return err
+		return false, err
 	}
 	state = locked
 	writeState(state)
@@ -424,13 +545,13 @@ func runUpdateApply(ctx context.Context, home string, c *selfupdate.Client, chan
 	rel, err := c.Lookup(ctx, channel, os.Getenv("GITHUB_TOKEN"))
 	if err != nil {
 		writeState(releaseLock(nil))
-		return err
+		return false, err
 	}
 
 	if !selfupdate.ShouldInstall(channel, currentVersion, rel.TagName) {
 		writeState(releaseLock(nil))
 		fmt.Fprintf(w, "atomic is up to date (%s)\n", selfupdate.DisplayVersion(rel.TagName))
-		return nil
+		return false, nil
 	}
 
 	tag := selfupdate.DisplayVersion(rel.TagName)
@@ -448,7 +569,7 @@ func runUpdateApply(ctx context.Context, home string, c *selfupdate.Client, chan
 	if !swapped {
 		if aerr := c.Apply(ctx, rel, currentBinary); aerr != nil {
 			writeState(releaseLock(nil))
-			return aerr
+			return false, aerr
 		}
 	}
 
@@ -463,7 +584,7 @@ func runUpdateApply(ctx context.Context, home string, c *selfupdate.Client, chan
 	}))
 
 	fmt.Fprintf(w, "updated atomic %s → %s.\n", currentVersion, tag)
-	return nil
+	return true, nil
 }
 
 // shouldRunPostUpdateDoctor applies the precedence --no-doctor > config
@@ -480,15 +601,4 @@ func defaultRunCmd(name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
-}
-
-// artifactRefreshArgs builds the post-swap refresh argv. --no-hooks is appended
-// when the session-start hook is unregistered: the refresh must never be what
-// first registers hooks or overrides an explicit --no-hooks install choice.
-func artifactRefreshArgs(hooksInstalled bool) []string {
-	args := []string{"claude", "update", "--no-update-check"}
-	if !hooksInstalled {
-		args = append(args, "--no-hooks")
-	}
-	return args
 }
