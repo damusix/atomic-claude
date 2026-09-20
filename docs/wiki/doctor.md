@@ -53,8 +53,8 @@ Indices are stable and never renumbered.
 | 10 | profile | `checks_profile.go` | Four legs: `~/.atomic/profile.md` exists and is readable; `@~/.atomic/profile.md` is wired; its `lastcheck` stamp is under 30 days old; no candidate file still carries the legacy `@~/.claude/.atomic/profile.md` ref. | WARN | no |
 | 11 | code-index | `checks_code_index.go` | Code-index DB mtime against `--stale-days`. At a wiki realm root, aggregates across every non-excluded member DB instead. | WARN; absence is an informational PASS | no |
 | 12 | migrate | `checks_migrate.go` | Binary version against `[install].version`; and whether `~/.claude/.atomic` is still a real directory. | WARN | no |
-| 13 | repo-config | `checks_repo_config.go` | `<root>/.claude/atomic.toml`: parses, keys known, `[code] ignore` globs valid, `scope` valid, `[repl] idle_timeout` parses. Dispatcher also flags `scope = "repo"` at a root registered as a realm in the `<wikis>` block. | WARN; absence is an informational PASS | no |
-| 14 | output-style | `checks_output_style.go` | User-level `outputStyle` key in `~/.claude/settings.json`: whether set, and to what value, never a computed effective style, since Claude Code's per-repo file-placement precedence isn't documented well enough to replicate. Appends a note to `Detail` when the repo's own `settings.json`/`settings.local.json` sets `outputStyle`, naming the file, as a possible override; skipped when `RepoRoot` is empty or the repo's own [`.claude`](../../.claude) dir resolves to the install target. | WARN when absent, or set to `"Atomic"` without the style file installed; PASS otherwise | for the not-installed / seeding-disabled qualifiers, message only; unqualified absence: `atomic doctor --fix` calls `defaultOutputStyleRepair` -> `hooks.SeedOutputStyle`, the same seed the install path uses |
+| 13 | repo-config | `checks_repo_config.go` | `<root>/.claude/atomic.toml`: parses, keys known, `[code] ignore` globs valid, `scope` valid, `[repl] idle_timeout` parses. Dispatcher also flags `scope = "repo"` at a root the wiki registry registers as a realm. | WARN; absence is an informational PASS | no |
+| 14 | output-style | `checks_output_style.go` | User-level `outputStyle` key in `~/.claude/settings.json`: whether set, and to what value, never a computed effective style, since Claude Code's per-repo file-placement precedence isn't documented well enough to replicate. Appends a note to `Detail` when the repo's own `settings.json`/`settings.local.json` sets `outputStyle`, naming the file, as a possible override; skipped when `RepoRoot` is empty or the repo's own [`.claude`](../../.claude) dir resolves to the install target. | WARN when absent, or set to `"Atomic"` without the style file installed; PASS otherwise | for the not-installed / seeding-disabled qualifiers, message only; unqualified absence: `atomic doctor --fix` calls `defaultOutputStyleRepair` -> `hooks.SeedOutputStyleInDir`, the same seed the install path uses |
 
 | 15 | targets | `checks_targets.go` | Enrolled target instances (ledger rows) against read-only discovery. Enrollment and native registration are separate facts, so both are listed and their disagreement is the defect: a target whose `native_root` is absent or that discovery does not report → WARN. A project-keyed target is never expected in profile discovery. | WARN | no |
 | 16 | resources | `checks_resources.go` | Every ledger-owned physical resource with its `consumers` (enrolled targets that depend on it) and `visible-to` (unenrolled instances that can merely see it). Visibility is not a dependency; a consumer the ledger does not enroll → WARN. | WARN | no |
@@ -64,21 +64,22 @@ Indices are stable and never renumbered.
 | 20 | trust | `checks_trust.go` | Deliberate disablement and untrusted hook state: the Claude session-start registration via `hooks.IsInstalled`, per-harness `skill-disablement` capability status, and OMP's unproven extension-disablement surface. A deliberate override is reported, never repaired. | WARN | no |
 | 21 | staleness | `checks_staleness.go` | Materialized resources whose recorded generation is behind the selected binary's projection, and resources with no applied digest to compare. | WARN | no |
 | 22 | conflicts | `checks_conflicts.go` | Owned resources whose native bytes match neither the recorded generation nor the selected projection — a later derivative edit, a malformed managed block, or a conflicting project card. A repair never overwrites the conflicting bytes. | WARN | no |
-| 23 | shadowing | `checks_shadowing.go` | Projected resources a native copy duplicates: the same owned digest at two paths sharing a file name, or a Claude-native global `AGENTS.md` beside the projected `CLAUDE.md`. Shadowing is degraded or deliberately disabled delivery, so repair never overwrites the native copy. | WARN | no |
+| 23 | shadowing | `checks_shadowing.go` | Projected resources a native copy duplicates: the same owned digest at two paths sharing a file name, or a Claude-native global `AGENTS.md` beside the projected [`CLAUDE.md`](../../CLAUDE.md). Shadowing is degraded or deliberately disabled delivery, so repair never overwrites the native copy. | WARN | no |
 | 24 | codex | `checks_codex.go` | The Codex native surfaces CP0 could not prove, read-only per discovered or enrolled `CODEX_HOME` root: plugin-hook trust, deliberate disablement, mediated coverage, payload spill, child delivery, and the last runtime proof, each with its evidence, plus the observed registration row from Codex's own registry and every unproven rule-delivery role. Enrollment publishes the plugin package only, so the registration row reports what Codex actually records. | WARN | no |
 
 Categories 11, 12, and 13 have no `repairPlan` case, so `--fix` prints `cannot auto-fix — unknown category` for them rather than a category-specific line. Categories 15-24 are report-only by design: a conflicting or shadowing native copy is reported and preserved, never overwritten, and an unproven Codex surface is reported rather than fabricated into a trust or coverage claim. Ledger-managed repairs (`targets`, `rules`, `staleness`, `journals` — 15, 17, 19, 21) route through the install engine's converge planner (`install.Steps.Converge` with `EnrolledOnly`): it takes the lifecycle lock, recovers unresolved journals oldest-first, re-observes, and converges only already-enrolled targets.
 
 ### The static lint
 
-Four modes, plus a bare invocation that runs all of them:
+Five modes, plus a bare invocation that runs all of them:
 
 ```
-atomic validate                    -> spec + config + [bundle, repo-dev only] + artifacts
+atomic validate                    -> spec + config + [bundle, repo-dev only] + artifacts + [projections, repo-dev only]
 atomic validate spec [paths...]    -> S0 S1 S5 S6 over docs/spec/*.md
 atomic validate config             -> C3 C5 C7 C9, whole-repo only
 atomic validate bundle             -> manifest parity
 atomic validate artifacts [paths]  -> A1 over the canonical corpus
+atomic validate projections        -> P0-P6 over the re-rendered canonical corpus, repo-dev only
 atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, WARNs on anything else
 ```
 
@@ -94,6 +95,13 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 | C9 | config | [`context/agents/`](../../context/agents), [`context/skills/`](../../context/skills), [`context/output-styles/`](../../context/output-styles) entries carry the [`atomic`](../../atomic) prefix. Without it they never bundle. | WARN |
 | A1 | artifacts | Every `--flag` cited beside an `atomic <verb>` in an artifact's code spans and fenced blocks exists on that verb in the `cliusage` surface. | FAIL |
 | bundle | bundle | Generated mirror against the committed manifest. Capped at 5 findings plus an overflow line. | FAIL |
+| P1 | projections | Every declared dependency resolves by stable identity in the canonical corpus. | FAIL |
+| P2 | projections | A projection carries its artifact's identity, and the artifact's source digest still matches the authored bytes. | FAIL |
+| P3 | projections | No model, effort, or tool-restriction key reaches a projected native document's metadata. | FAIL |
+| P4 | projections | Two renders of one artifact are byte-identical, and the projection digest describes the bytes. | FAIL |
+| P5 | projections | No projection claims an enforcement tier stronger than its CP0 record proves, and every canonical field a projection drops is reported unsupported. | FAIL |
+| P6 | projections | No Claude-only wire token reaches another target's projected bytes unclassified. | FAIL |
+| P0 | projections | An adapter could not render a projection at all — the gate's own render-failure surface, standing in for a silent skip. | FAIL |
 
 ## Where it lives
 
@@ -121,6 +129,7 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 | [`atomic/internal/validate/config.go`](../../atomic/internal/validate/config.go) | `RunConfigRules(repoRoot)`, the `reAtRef` / `reSubagentType` grammars, and `isEmailLocalChar`. |
 | [`atomic/internal/validate/artifacts.go`](../../atomic/internal/validate/artifacts.go) | A1: code-span extraction, `longestMatch` verb-path resolution, flag comparison. `ScanArtifactText` is the pure seam. |
 | [`atomic/internal/validate/bundle.go`](../../atomic/internal/validate/bundle.go) | Wraps `manifestcheck.Compare` into findings. |
+| [`atomic/internal/validate/projection.go`](../../atomic/internal/validate/projection.go) | P0-P6: re-renders the canonical corpus for the Claude, OMP, and Codex adapters twice and audits identity, source and projection digests, determinism, native-metadata leakage, the CP0 enforcement-tier ceiling, and Claude-only wire tokens; also audits the OMP runtime extension module. Repo-dev only. |
 | [`atomic/internal/validate/dispatch.go`](../../atomic/internal/validate/dispatch.go) | Path-aware routing and `runWholeRepo`. |
 | [`atomic/internal/validate/finding.go`](../../atomic/internal/validate/finding.go) | `Finding`, deterministic sort by (path, line, rule), `summarize`, `exitCode`. |
 | [`atomic/internal/validate/output.go`](../../atomic/internal/validate/output.go) | Human and JSON formatters. JSON envelope is `schema_version: 1`. `--suggest` templates exist for S5 and S6 only. |
@@ -141,7 +150,7 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 |------|------|
 | [`docs/spec/atomic-doctor.md`](../spec/atomic-doctor.md) | Canonical contract: every check category, fix functions, exit codes, `--fix` behavior. |
 | [`docs/design/atomic-doctor.md`](../design/atomic-doctor.md) | Design rationale for the check-registry architecture. |
-| [`docs/spec/atomic-validate.md`](../spec/atomic-validate.md) | `atomic validate` contract: the S, C, and A rule sets and their severities. |
+| [`docs/spec/atomic-validate.md`](../spec/atomic-validate.md) | `atomic validate` contract: the S, C, A, and P rule sets and their severities. |
 | [`docs/design/atomic-validate.md`](../design/atomic-validate.md) | Design rationale for the validate subcommand. |
 | [`docs/spec/validate-artifact-cli-flags.md`](../spec/validate-artifact-cli-flags.md) | A1 contract: the `cliusage` surface, scanner rules, known scope limits. Design at [`docs/design/validate-artifact-cli-flags.md`](../design/validate-artifact-cli-flags.md). |
 | [`docs/spec/verify-gate-validate.md`](../spec/verify-gate-validate.md) | How the `atomic-verify` skill gates on validate output. Design at [`docs/design/verify-gate-validate.md`](../design/verify-gate-validate.md). |
@@ -154,7 +163,7 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 - **`--fix` exits on the post-repair state, not the one it printed.** `postRepairExitCode` in [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) re-runs every check after the repair pass, so CI can gate on `atomic doctor --fix` in one run. The second pass is skipped when no repair was applied, and a re-check that errors keeps the pre-repair verdict rather than reporting health nobody observed. The printed report always reflects the state before repairs.
 - **`--fix` and `--json` are mutually exclusive**, rejected at flag-parse time with exit 2. So are a non-positive `--stale-days` and an unknown `--only`/`--skip` token.
 - **A missing `~/.claude` short-circuits only an empty ledger.** When no Claude home exists *and* the install ledger records no enrolled target, the run prints ``atomic-claude not installed; run `atomic claude install`.`` and exits 0 without running a check. Once any target is enrolled — an OMP-only home included — the harness categories 15-24 run and the Claude-scoped checks report SKIP instead of a false WARN (2 hooks, 10 profile, 14 output-style; 1 install already skips on its own), so a green doctor on such a home reflects a real state. A ledger that cannot be read (unreadable, undecodable, or a newer schema) also lifts the gate: `HasEnrolledTargets` counts the read failure as enrollment so categories 15-24 run and report the unreadable state instead of swallowing it as "not installed".
-- **Repo-dev-only checks vanish outside this repo.** Check 5 is omitted entirely, not even reported as SKIP, unless you ask for it with `--only 5`. Same for `validate bundle` inside a bare `atomic validate`. Users running in their own projects never see bundle noise.
+- **Repo-dev-only checks vanish outside this repo.** Check 5 is omitted entirely, not even reported as SKIP, unless you ask for it with `--only 5`. Same for `validate bundle` and `validate projections` inside a bare `atomic validate`. Users running in their own projects never see bundle noise.
 - **One git subprocess per run.** `Run` resolves `Opts.RepoRoot` once and every check reads that field. A new check that shells out to `git rev-parse` on its own breaks the invariant pinned by `gitcallcount_internal_test.go`.
 - **`validate`'s summary always reports 0 PASS.** `summarize` counts findings, and only WARN and FAIL findings are ever emitted, so the PASS column can never be non-zero. It is not a count of files inspected.
 - **Three checks combine independent findings into one Result.** Check 9 appends a chronic update-failure detail to whatever the config-validity leg found, capped at WARN on its own. Check 12 concatenates version drift and legacy-state-dir details and takes the worse severity. Check 14 appends a project-override note to whatever the user-level leg found, without changing the severity. Reading only the severity loses half the signal; read `Detail`.
@@ -164,9 +173,9 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 
 ## Coupling
 
-**bundle.** Four surfaces here read bundle-domain inclusion rules. Check 1 uses `claudeinstall.Diff`; check 5 and `validate bundle` both go through `manifestcheck.Compare`, which calls `bundlemirror.Enumerate`; A1 enumerates the canonical corpus directly through `artifacts.Load`; check 14 uses `claudeinstall.ResolveTarget` to locate the install target and `hooks.StyleInstalled` to confirm `output-styles/atomic.md` landed there. Change what bundles and these surfaces change with it.
+**bundle.** Five surfaces here read bundle-domain inclusion rules. Check 1 uses `claudeinstall.Diff`; check 5 and `validate bundle` both go through `manifestcheck.Compare`, which calls `bundlemirror.Enumerate`; A1 and `validate projections` both enumerate the canonical corpus directly through `artifacts.Load`; check 14 uses `claudeinstall.ResolveTarget` to locate the install target and `hooks.StyleInstalled` to confirm `output-styles/atomic.md` landed there. Change what bundles and these surfaces change with it.
 
-**signals and wiki.** Checks 3 and 4 own the `@docs/wiki/index.md` contract. `signalsRef` in `checks_refs.go` and `routerRef` in `checks_signals.go` are the constants; the signals domain's wiring convention must move with them. Check 3 additionally parses the router's Domains table, so a change to that table's shape breaks orphan and missing-file detection. Check 13's contradiction sub-check calls `wiki.ReadWikiIndexPaths`.
+**signals and wiki.** Checks 3 and 4 own the `@docs/wiki/index.md` contract. `signalsRef` in `checks_refs.go` and `routerRef` in `checks_signals.go` are the constants; the signals domain's wiring convention must move with them. Check 3 additionally parses the router's Domains table, so a change to that table's shape breaks orphan and missing-file detection. Check 13's contradiction sub-check calls `wiki.RegisteredIndexPaths`.
 
 **config.** Check 9 validates the user schema through `config.Load` and `config.Validate`; check 13 validates the repo schema through `config.LoadRepoConfig`, `config.NewIgnoreMatcher`, and `config.ValidScope`; check 10 resolves paths through `config.ProfilePath`; check 12 detects whether `config.MigrateUserState` completed; check 14 reads `output_style.seed` through `hooks.SeedEnabled`, which calls `config.Load` in turn. A new config key is not covered until one of these learns about it.
 

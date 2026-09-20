@@ -13,5 +13,7 @@ Contracts:
   - docs/spec/code-intel-engine.md
 References:
   - docs/reference/code-intel.md
+Guides:
+  - docs/guides/code-intel-mcp.md
 
 Consult the map before changing behavior here. Behavior changes stale the pages above. Renames or removals stale mentions beyond them: grep the old name across docs/ before shipping.

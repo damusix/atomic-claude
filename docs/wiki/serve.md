@@ -14,7 +14,7 @@ A wiki realm is a set of markdown files and a set of SQLite symbol graphs. Read 
 
 `atomic serve [path] [--port N] [--host H] [--open]` renders all of it in a browser (default port 4500, default bind `127.0.0.1`). Go serves a JSON API; the UI is a React + TypeScript SPA built by Bun, committed as `frontend/dist/` and embedded with `go:embed`, so `go build` never invokes Bun or Node.
 
-Serve is read-only with respect to realm and repo content. The `/api/bus/*` chat endpoints are the one exception: they write to the bus daemon's own state (room membership and messages), never to files, and every one of them is refused unless the request's TCP peer is loopback.
+Serve is read-only with respect to realm and repo content. Two write surfaces exist, both refused unless the request's TCP peer is loopback: the `/api/bus/*` chat routes, which write the bus daemon's own state (room membership and messages), never files, and `POST /api/code/index`, which rebuilds one member's SQLite index (the served root's own index in repo scope) — derived state, never realm or repo content.
 
 
 ## How it works
@@ -47,7 +47,8 @@ flowchart LR
 | `GET /api/search/md?q=` | Literal case-insensitive substring search over `*.md`, capped at 50 results |
 | `GET /api/code/search?q=&only=&exclude=` | Federated symbol search, grouped per member. An unindexed member returns `indexed:false` with empty results, not an error |
 | `GET /api/search/stream?q=&src=` | SSE: one `md` event, one `code` event per member as its search completes, terminal `end` |
-| `GET /api/code/{node,callers,callees,impact,files,schema,file}` | Code-explorer JSON, backing the code modal and SQL schema view |
+| `GET /api/code/{node,callers,callees,impact,files,schema,capabilities,file}` | Code-explorer JSON, backing the code modal, the SQL schema view, and the shell's capability probe |
+| `GET /api/code/index` / `POST /api/code/index` | Reindex job state for one member; POST starts a rebuild (loopback-only, one job per member) |
 | `GET /api/status` | Realm health: wiki staleness plus code-index health |
 | `GET /api/external` | External-link registry with first-seen dates |
 | `GET /api/plans[?member=<key>]` | One row per plan slug, aggregated across every git worktree of the target repo (realm root or a named member). `<key>` matches a member's `Prefix` first, its `Key` second — `findPlansMember` (`api_plans.go`) |
@@ -65,21 +66,21 @@ Bus routes, all under `/api/bus/`:
 | Method | Routes |
 |--------|--------|
 | `GET` | `status`, `rooms`, `who`, `sessions`, `transcript`, `log`, `tail` |
-| `POST` | `join`, `send`, `say`, `halt`, `resume`, `leave` |
+| `POST` | `join`, `send`, `say`, `halt`, `resume`, `leave`, `close`, `end` |
 
 ### Security model
 
-Four guards, each at a different layer:
+Five guards, each at a different layer:
 
 | Guard | Where | Rejects |
 |-------|-------|---------|
-| `isLoopbackPeer` | every `/api/bus/*` request | a non-loopback TCP peer |
+| `isLoopbackPeer` | every `/api/bus/*` and `/api/code/index` request | a non-loopback TCP peer |
 | `safeResolve` (`render.go`) | page, rail, file | a path escaping the served root |
 | `requireRoom` | bus room names | a name that would escape `RoomLogPath` |
 | `resolvePlansPath` (`api_plans_page.go`) | plans page and raw-file reads | a path escaping a worktree-issued root, or an unregistered worktree id |
-| `rejectCrossOrigin` (`origin_guard.go`) | every `/api/bus/*` POST route, `/api/reindex` POST | a request whose `Origin` or `Sec-Fetch-Site` header does not match the server's own origin |
+| `rejectCrossOrigin` (`origin_guard.go`) | every `/api/bus/*` POST route, `/api/code/index` POST | a request whose `Origin` or `Sec-Fetch-Site` header does not match the server's own origin |
 
-**Read-only, and the one hole in it.** `isLoopbackPeer` parses `r.RemoteAddr` with `net.SplitHostPort` and `net.ParseIP(...).IsLoopback()`, never a header, so `--host 0.0.0.0` extends browsing to the LAN but never bus send or halt. It also cannot see through a reverse proxy that terminates LAN traffic locally, which is outside the gate's threat model rather than a gap in it. Unparseable addresses fail closed.
+**Read-only, and the one hole in it.** `isLoopbackPeer` parses `r.RemoteAddr` with `net.SplitHostPort` and `net.ParseIP(...).IsLoopback()`, never a header, so `--host 0.0.0.0` extends browsing to the LAN but never bus send or halt, and never an index rebuild. It also cannot see through a reverse proxy that terminates LAN traffic locally, which is outside the gate's threat model rather than a gap in it. Unparseable addresses fail closed.
 
 **`rejectCrossOrigin` replaces containment the iframe sandbox used to provide.** Once a bundle-mock HTML file's iframe can run scripts (see the Plans section below), a script served from this origin could otherwise POST straight to the loopback-gated bus and reindex routes. An opaque-origin document — what a sandboxed frame produces — sends `Origin: null`, which never equals the server's own `scheme://host`, so `rejectCrossOrigin` refuses it with `403`. It checks `Origin` first, falling back to `Sec-Fetch-Site` when `Origin` is absent; either header naming a different origin is rejected.
 
@@ -109,7 +110,7 @@ Four guards, each at a different layer:
 
 `/plans` lists one row per slug — the shared filename stem of `docs/design/<slug>.md` and `docs/spec/<slug>.md` — and `/plans/:slug/*` opens one. A row aggregates across every git worktree `git worktree list --porcelain` reports for the repo, so a slug worked on in three worktrees at once still reads as one row.
 
-A committed document collapses across worktrees by content SHA-256, never by filename or branch name, so two checkouts holding byte-identical bytes fold into one version and two checkouts holding different bytes produce two. A scratchpad bundle never collapses this way: each worktree's `.claude/.scratchpad/<slug>/` is its own `planBundle` entry, attributed to the checkout that holds it, because nothing merges an uncommitted directory.
+A committed document collapses across worktrees by content SHA-256, never by filename or branch name, so two checkouts holding byte-identical bytes fold into one version and two checkouts holding different bytes produce two. A scratchpad bundle never collapses this way: each worktree's `<state-root>/.scratchpad/<slug>/` is its own `planBundle` entry, attributed to the checkout that holds it, because nothing merges an uncommitted directory.
 
 ```mermaid
 flowchart TD
@@ -229,6 +230,8 @@ Go, all in [`atomic/internal/serve/`](../../atomic/internal/serve):
 | `api_bus.go` | `/api/bus/*` handler: loopback gate, dial-vs-ensure split, `requireRoom`, `writeBusError`, `rejectCrossOrigin` on every POST route |
 | `origin_guard.go` | `rejectCrossOrigin` — the same-origin check every bus POST route and the reindex POST route call before touching daemon or index state |
 | `api_bus_transcript.go` | `/api/bus/sessions` and `/api/bus/transcript` |
+| `api_code_capabilities.go` | `/api/code/capabilities` — the shell's capability probe (`schema`), config-overridable and memoized for 60s |
+| `api_reindex.go` | `/api/code/index` GET/POST — one rebuild job per member, loopback-only |
 | `frontend_dist.go` | `//go:embed all:frontend/dist` and `//go:generate bun run --cwd frontend build.ts` |
 
 Frontend, all under [`atomic/internal/serve/frontend/`](../../atomic/internal/serve/frontend):
@@ -319,6 +322,6 @@ Docs:
 - **code-intel domain.** `serve` calls `realm.Resolve` for scope, opens per-member indexes through `engine.NewWithDBPath`, and talks to the engine only through the `CodeEngine` interface in `codeexplorer.go`. Adding a method there means every fake in `codeexplorer_fakes_test.go` grows too. `api_plans.go` reuses `realm.Resolve` and the `codeMember` type from `code_members.go` to build its member list, rather than defining a second one.
 - **bus domain.** `api_bus.go` imports `internal/bus` in-process, not as a subprocess, and uses `bus.JoinIdentity`, `bus.Dial`, `bus.EnsureDaemon`, and `bus.RoomLogPath`. The wire types `bus.Request`, `bus.Response`, `bus.Envelope`, `bus.RoomInfo`, `bus.Member`, and `bus.Error` cross the boundary with no translation layer, so their JSON shapes are also serve's contract with the `/bus` frontend. `bus.Error.Code` drives the HTTP status mapping.
 - **doctor domain.** `health.go` calls `doctor.RunCheckCodeIndexRealmWith` and `doctor.RunCheckCodeIndexWith` for the code-index half of `/api/status`. Separately, `atomic validate artifacts` lints `atomic serve` citations against `cliusage.go`, so a new flag has to be registered there or valid citations start failing.
-- **config domain.** Member database paths resolve through `config.IndexDBPath`, which is harness-dir aware. Serve never hardcodes [`.claude/.atomic-index/`](../../.claude/.atomic-index). `plans.go` resolves each worktree's bundle root through `config.ScratchpadDir` and validates a doc's filename stem with `config.ValidateSegment` before it can become a path or row key.
+- **config domain.** Member database paths resolve through `config.IndexDBPath`, which derives from the harness-neutral repository-state root rather than a harness fingerprint. Serve never hardcodes [`.claude/.atomic-index/`](../../.claude/.atomic-index). `plans.go` resolves each worktree's bundle root through `config.ScratchpadDir` and validates a doc's filename stem with `config.ValidateSegment` before it can become a path or row key.
 - **workflow domain.** `plans.go` calls `scratchpad.List` per worktree to enumerate `meta.toml`-bearing bundles; `atomic scratchpad new/path/archive` — the write side of that same bundle layout — is a workflow-domain verb serve never calls, since Plans stays read-only.
 - **bundle domain.** `go generate ./...` runs the Bun frontend build through `frontend_dist.go`'s `go:generate` directive, so the bundle step depends on a populated `frontend/node_modules`. CI installs Bun and runs `bun install --frozen-lockfile` before generating.

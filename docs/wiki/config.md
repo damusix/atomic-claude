@@ -43,7 +43,7 @@ flowchart LR
 | `update.check` | user | bool | `true` | the hourly detached background version lookup |
 | `update.stage` | user | bool | `true` | once-per-version background download + checksum |
 | `update.channel` | user | string | empty (resolves to `stable`) | release channel every update path reads: background check, banner, `atomic update`, doctor's binary check |
-| `state.dir` | user | string | `.claude` | the repo-local state-directory name; one safe path segment. Named `harness.dir` before Milestone A |
+| `state.dir` | user | string | [`.claude`](../../.claude) | the repo-local state-directory name; one safe path segment. Named `harness.dir` before Milestone A |
 | `harness.dir` | user | string | [`.claude`](../../.claude) | **legacy** — migration evidence only while `state.dir` is unset; not a rung of its own |
 | `repl.idle_timeout` | user, repo | duration | `1h` | idle window before a REPL session self-terminates |
 | `code.ignore` | repo | []string | none | glob patterns excluded from the code-intel index |
@@ -68,6 +68,7 @@ Machine-written tables, not user-settable via `atomic config set`: `[install]` (
 │   ├── operation.lock      advisory lifecycle lock (one mutation at a time)
 │   ├── journals/<op>.json  intended mutations + commit-unit progress
 │   └── transactions/<op>/{stage,backup}/  publication state
+├── packages/<harness>/atomic/  generated harness package, published by its adapter
 └── <project-key>/         one entry per clone (main checkout root, flattened)
     ├── state-location.json    persisted repository-state selection (shared by worktrees)
     ├── reports/<branch>/      /session-report output
@@ -96,7 +97,7 @@ Every path under `~/.atomic/` derives from `config.Dir(home)` in [`atomic/intern
 | 1 | process-only `ATOMIC_STATE_DIR` | never rewrites the persisted selection |
 | 2 | `~/.atomic/<project-key>/state-location.json` | persisted per-clone selection, shared by every worktree |
 | 3 | user `state.dir` | a non-default legacy `harness.dir` supplies migration evidence only while `state.dir` is unset |
-| 4 | built-in `.claude` | fallback |
+| 4 | built-in [`.claude`](../../.claude) | fallback |
 
 The retired `ATOMIC_HARNESS` variable is never an alias: while it is set, resolution refuses with instructions to unset it or use `ATOMIC_STATE_DIR` / `state.dir`. A relative rung value must be one safe path segment (`ValidateStateDirSegment` rejects empty, `.`, `..`, and `/`); a selection record may hold an absolute directory, used as-is.
 
@@ -106,7 +107,7 @@ The retired `ATOMIC_HARNESS` variable is never an alias: while it is set, resolu
 
 Under Milestone A the harness installs are no longer a single manifest: each enrolled target is a row in `~/.atomic/install/ledger.json`, recording the physical resources it owns, the consumers that depend on them, and the generation each applied. Every mutation (install, enroll, adopt, repair, uninstall, `doctor --fix`) takes the one advisory lock at `~/.atomic/install/operation.lock`, recovers unresolved journals oldest-first, then re-observes the target before planning; a plan that cannot be decided reports `blocked` and changes nothing. `--dry-run` opens no lock and writes nothing — it previews journals read-only and reports `blocked_on_recovery` when a journal cannot resolve to one safe result.
 
-Uninstall preserves user data (`config.toml`, `profile.md`, `wikis.md`, backups) and retains unresolved journals plus the backups, ledger rows, and state-location records those journals reference until recovery completes. `installstate.Classifier` names the pre-adoption states — `absent`, `legacy-complete`, `legacy-partial`, `v2-clean`, `v2-in-flight`, `v2-orphaned`, `mixed`. Contract: [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md).
+Uninstall preserves user data (`config.toml`, `profile.md`, `wikis.md`, backups) and retains unresolved journals plus the backups, ledger rows, and state-location records those journals reference until recovery completes. `installstate.Classify` names the pre-adoption states — `absent`, `legacy-complete`, `legacy-partial`, `v2-clean`, `v2-in-flight`, `v2-orphaned`, `mixed`. Contract: [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md).
 
 ### Resolving the project-keyed state home
 
@@ -256,17 +257,17 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | Path | Role |
 |------|------|
 | [`context/commands/follow-up.md`](../../context/commands/follow-up.md) | `/follow-up [due <id> \| review]`. Reviews pending reminders; `review` triages stale follow-up entries with per-item `extend\|close\|promote\|skip`. |
-| [`context/commands/git-cleanup.md`](../../context/commands/git-cleanup.md) | Runs `atomic prompt git-cleanup` through a `general-purpose` subagent (read-only scan), presents an indexed report, confirms before deleting. |
-| [`context/commands/remind-me.md`](../../context/commands/remind-me.md) | Schedules a reminder file, then cron (under 1h) or Routines (1h and over). Degrades to file-only when neither scheduler is available. |
-| [`context/commands/watch-ci.md`](../../context/commands/watch-ci.md) | Dispatches `general-purpose` with `model: haiku` as a background subagent to watch CI. Provider auto-detected. |
+| [`context/commands/git-cleanup.md`](../../context/commands/git-cleanup.md) | Runs `atomic prompt git-cleanup` through a fresh-context generic subagent (read-only scan), presents an indexed report, confirms before deleting. |
+| [`context/commands/remind-me.md`](../../context/commands/remind-me.md) | Schedules a reminder file via the session-scoped one-shot scheduler (under 1h) or the durable scheduler (1h and over). Degrades silently to file-only when neither is available. |
+| [`context/commands/watch-ci.md`](../../context/commands/watch-ci.md) | Dispatches an isolated background subagent pinned to the economical reasoning tier to watch CI; provider-agnostic, so the subagent detects the provider from signals. |
 
 ### Schema and paths
 
 | Path | Role |
 |------|------|
 | [`atomic/internal/config/config.go`](../../atomic/internal/config/config.go) | User `Config` struct, lenient `Load`, strict `Validate`, `Get`/`Set`/`Unset`, atomic write via `os.Rename`. Levenshtein typo suggestion on unknown keys. |
-| [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go) | Every `~/.atomic/` path: `Dir`, `TOMLPath`, `StatePath`, `BackupDir`, `PreInstallDir`, `ProposedCLAUDEMD`, `ProfilePath`, `ProfileRelPath`. |
-| [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go) | `harnessDir()` five-rung resolver, the seven repo-local path helpers, and `RemindersDir` (a pure delegate to `ProjectRemindersDir`). |
+| [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go) | Every `~/.atomic/` path: `Dir`, `TOMLPath`, `StatePath`, `WikisPath`, `ProfilePath`, `ProfileRelPath`, `BackupDir`/`BackupStampDir`/`BackupStamps`/`RemoveBackupStamp`, `PreInstallDir`, `ProposedCLAUDEMD`, the generated-package roots (`PackagesDir`/`PackageRoot`), and the `install/` lifecycle paths (`InstallDir`, `OperationLockPath`, `LedgerPath`, `JournalsDir`/`JournalPath`, `TransactionsDir`/`TransactionDir`/`TransactionStageDir`/`TransactionBackupDir`). |
+| [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go) | `resolveHarnessDirFromHome`/`segmentFromConfig` (the configured-segment read: `state.dir`, else a non-default legacy `harness.dir`, else [`.claude`](../../.claude)), `SetHarnessDirForTest`, `stateRoot`, the seven repo-local path helpers, and `RemindersDir` (a pure delegate to `ProjectRemindersDir`). |
 | [`atomic/internal/config/projectstate.go`](../../atomic/internal/config/projectstate.go) | `ProjectStateDir`, `mainCheckoutRoot`, `resolveSymlinks`, `projectKey`, `ReportsRoot`/`ReportsDir`/`ReportsDirLegacy`, `ProjectRemindersDir`/`RemindersDirLegacy`, `ArchiveDir`, `BranchFromHEAD`, `validateRefName`/`parseHEAD`. |
 | [`atomic/internal/config/pathsegment.go`](../../atomic/internal/config/pathsegment.go) | `ValidateSegment` and `ValidateDateSegment` — the one allow-list every path-segment source (slug, branch, bundle-created date) calls before a value reaches `filepath.Join`. |
 | [`atomic/internal/config/repo.go`](../../atomic/internal/config/repo.go) | `RepoConfig` (`Code`, `Scope`, `Repl`), `LoadRepoConfig`, `IgnoreMatcher`, `ValidateIdleTimeout`. |
@@ -307,9 +308,10 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 
 | Path | Role |
 |------|------|
-| [`atomic/internal/config/projectstate.go`](../../atomic/internal/config/projectstate.go) | `ProjectStateDir`, `mainCheckoutRoot`, `resolveSymlinks`, `projectKey`, the `state-location.json` record (`PersistStateSelection` / read / clear), `ReportsRoot`/`ReportsDir`/`ReportsDirLegacy`, `ProjectRemindersDir`/`RemindersDirLegacy`, `ArchiveDir`, `BranchFromHEAD`. |
+| [`atomic/internal/config/statelocation.go`](../../atomic/internal/config/statelocation.go) | `ResolveStateLocation` (the four-rung neutral ladder) and its no-error cache form `repositoryStateDir`, `StateSelection`/`ReadStateSelection`/`PersistStateSelection`/`WithdrawStateSelection` (the `state-location.json` record), `DiscoverStateCandidates`/`AdoptStateRoot`, `ValidateStateDirSegment`, `MutablePaths`/`MutablePathsFor`. |
+| [`atomic/internal/config/projectstate.go`](../../atomic/internal/config/projectstate.go) | `ProjectStateDir`, `mainCheckoutRoot`, `resolveSymlinks`, `projectKey`, `ReportsRoot`/`ReportsDir`/`ReportsDirLegacy`, `ProjectRemindersDir`/`RemindersDirLegacy`, `ArchiveDir`, `BranchFromHEAD`. |
 | [`atomic/cmd/atomic/cmd_state.go`](../../atomic/cmd/atomic/cmd_state.go) | `atomic state adopt [--dir\|--clear] [--dry-run] [--json]` dispatch and its discovery/decision seams. |
-| [`atomic/internal/installstate/`](../../atomic/internal/installstate) | `Lock` (one advisory lifecycle lock), `Schema` (writer/reader versioning), `Ledger` (`ledger.json` targets + resources + generations), `Journal`/`Transaction` (intended mutations, backups, commit-unit progress), `Classifier` (the seven migration states), `Recovery` (oldest-first), `LegacyAdoption` (selected-generation evidence, preserved snapshot, one-time mutable-data import). |
+| [`atomic/internal/installstate/`](../../atomic/internal/installstate) | `Lock` (one advisory lifecycle lock), `Header` (writer/reader versioning), `Ledger` (`ledger.json` targets + resources + generations), `Journal`/`Transaction` (intended mutations, backups, commit-unit progress), `Classify` (the seven migration states), `Recovery` (oldest-first), `PlanAdoption`/`Adopt` (selected-generation evidence, preserved snapshot, one-time mutable-data import). |
 | [`atomic/internal/install/install.go`](../../atomic/internal/install/install.go) | The converge engine: `Steps`, `Selection`, `Converge`, `EnrolledOnly`, `RulesStatus`. Builds the Claude + OMP + Codex adapter registry; the lifecycle verbs and ledger-managed `doctor --fix` share it. |
 | [`atomic/cmd/atomic/cmd_install.go`](../../atomic/cmd/atomic/cmd_install.go), [`cmd_harness.go`](../../atomic/cmd/atomic/cmd_harness.go) | `atomic install` and the `atomic harness list\|status\|enroll\|adopt\|repair\|diff\|uninstall\|rules` family: flag parsing, JSON output, and non-zero exit on a blocked target. |
 
@@ -327,7 +329,8 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 
 | Path | Role |
 |------|------|
-| [`atomic/internal/hooks/hooks.go`](../../atomic/internal/hooks/hooks.go), `hooks_hujson.go` | Session-start payload plus install/uninstall of the settings.json registration. `hujson` parses settings leniently. |
+| [`atomic/internal/hooks/hooks.go`](../../atomic/internal/hooks/hooks.go), `hooks_hujson.go` | Session-start payload plus install/uninstall of the settings.json registration, each with an explicit-config-dir form (`InstallInDir`/`UninstallInDir`/`IsInstalledInDir`/`SettingsPathInDir`) that a custom-named native root uses. `hujson` parses settings leniently. |
+| [`atomic/internal/hooks/ownership.go`](../../atomic/internal/hooks/ownership.go) | `ObserveSettingsOwnedInDir` — the digest over a canonical projection of the Atomic-owned settings members (the `SessionStart` registration and an `outputStyle` naming the shipped style), so unrelated user edits never read as drift. |
 | [`atomic/internal/hooks/outputstyle.go`](../../atomic/internal/hooks/outputstyle.go) | `SeedOutputStyle`, `ReadOutputStyle`, `RemoveOutputStyleIfAtomic`, `StyleInstalled`, `SeedEnabled` — the `outputStyle` key seed/read/remove primitives and their guards. |
 | [`atomic/internal/reminder/reminder.go`](../../atomic/internal/reminder/reminder.go) | File-based reminder CRUD behind `atomic reminder add\|list\|show\|rm`; `unionEntries` and `findWritableByID` implement the project-keyed/legacy union (see Coupling). |
 | [`atomic/internal/followups/`](../../atomic/internal/followups) | YAML-frontmatter entry parser, INDEX renderer, append-only `CLOSED.md`. Serves `atomic followups path\|render\|list\|add\|close`. |
@@ -389,7 +392,7 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 
 **The repository-state root is cached per repository root for the process lifetime.** `repositoryStateDir` is the no-error form repo-local path helpers call, and it caches by root; `ResolveStateLocation` is the per-call form for callers with an error channel and refuses while the retired `ATOMIC_HARNESS` is set. Tests use `SetHarnessDirForTest(dir)`, which bypasses the cache and `os.UserHomeDir` entirely and returns a restore func. Rewriting `config.toml` mid-process will not change a cached value.
 
-**The `state.dir` key is validated twice, and the read path is the stricter of the two in effect.** `Set` rejects empty, `.`, `..`, and any value containing `/`. `Load` re-applies the same shape check but falls back to the default instead of erroring, because an unvalidated value would otherwise reach `filepath.Join` unguarded in the repo-local helpers.
+**`state.dir` is validated at write and discarded at read.** `Set` (and the strict `Validate`) rejects empty, `.`, `..`, and any value containing `/`. `Load` applies no shape check of its own to `state.dir`; the read path (`readConfiguredStateDirSegment`, mirrored by `segmentFromConfig` against a temp home) discards an invalid value rather than erroring and falls through to a non-default legacy `harness.dir`, then [`.claude`](../../.claude), because an unvalidated value would otherwise reach `filepath.Join` unguarded in the repo-local helpers.
 
 **`scope` is the only top-level scalar in the repo schema.** Every other top-level key names a table, so `checkUnknownRepoKeys` carries a separate `repoKnownTopLevelLeaves` set for it. Adding another top-level scalar means adding it there, or it warns as unknown.
 
@@ -399,7 +402,7 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 
 **Both config loaders are lenient on read and strict on write.** A missing file yields an empty config with no error, an unknown key yields a `Warning`, and malformed TOML yields an error the caller degrades on. `pi` is an opaque top-level table in both schemas: its child keys are structurally arbitrary and never warn, with semantic validation left to `ResolvePiAgents`.
 
-**Two agent-override namespaces, one config file.** `[claude.agents.<name>]` carries `model` + `effort`, is written by `atomic config agents`, and is patched into installed agent frontmatter. `[pi.agents.<name>]` carries `model` + `thinking`, is read-only through `atomic config resolve --repo <root> --json`, and patches nothing. The Pi repo-side file is hardcoded at `<repo>/.pi/atomic.toml`, not `harness.dir`-resolved.
+**Two agent-override namespaces, one config file.** `[claude.agents.<name>]` carries `model` + `effort`, is written by `atomic config agents`, and is patched into installed agent frontmatter. `[pi.agents.<name>]` carries `model` + `thinking`, is read-only through `atomic config resolve --repo <root> --json`, and patches nothing. The Pi repo-side file is hardcoded at `<repo>/.pi/atomic.toml`, not state-root-resolved.
 
 **`[claude.agents.<name>]` accepts nested tables only.** A scalar entry is a config decode error, not a lenient fallback. `effort` is a hard `Validate` failure outside `low|medium|high|xhigh|max`; `model` never blocks loading and only rejects whitespace and control characters, so a bare model id like `claude-opus-4-8` passes. An unknown agent name is a non-fatal `AgentWarnings` entry.
 
@@ -431,7 +434,7 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 
 **Prerelease identifiers compare by semver §11.4, not raw string order.** `comparePrerelease`/`compareIdentifier`/`numericIdentifier` in [`atomic/internal/selfupdate/semver.go`](../../atomic/internal/selfupdate/semver.go) split a prerelease tag on `.` and compare each dot-identifier numerically when all-digit, lexically otherwise, so `next.10` ranks above `next.2` — a raw string compare would rank it below. `CompareSemver` (shared with `migrate`) and `IsNewer` both go through this.
 
-**`atomic repo init` is append-only and never commits.** Of its seven guarantees, two create a directory (`.scratchpad/`, [`.claude/project/`](../../.claude/project), no git involved), four answer "is this already ignored" by running `git check-ignore -q` against a nonexistent probe path (falling back to a literal line scan when git is absent or the root is not a work tree), and the last writes the scope marker. Existing ignore content is never rewritten or reordered. Guarantee 5 (root `tmp/`) is the only ignore rule not nested under `harness.dir`. The scope-marker guarantee returns an error rather than an `Action` on a conflicting existing value, so `Init` fails and the caller surfaces it.
+**`atomic repo init` is append-only and never commits.** Of its seven guarantees, two create a directory (`.scratchpad/`, [`.claude/project/`](../../.claude/project), no git involved), four answer "is this already ignored" by running `git check-ignore -q` against a nonexistent probe path (falling back to a literal line scan when git is absent or the root is not a work tree), and the last writes the scope marker. Existing ignore content is never rewritten or reordered. Guarantee 5 (root `tmp/`) is the only ignore rule not nested under the state root. The scope-marker guarantee returns an error rather than an `Action` on a conflicting existing value, so `Init` fails and the caller surfaces it.
 
 **Follow-up plans are exempt from staleness.** `kind` defaults to `finding` when absent. `--severity` is required for findings and optional for plans, `isStale` returns false unconditionally for plans, and `ListEntries --stale` excludes them. `INDEX.md` renders the plans bucket first, then severity buckets. The pre-commit hook re-renders `INDEX.md` when entry files are staged.
 
@@ -456,8 +459,8 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 |-----------|----------|
 | → doctor | `checks_config.go` (category 9) imports both `config` and `selfupdate`: it validates `config.toml` and folds a non-empty `state.json` `last_result` into the same Result as a chronic-failure warning. A schema change to `Config` or to `UpdateState` lands here. |
 | → doctor | `checks_binary.go` (category 8) resolves the configured `update.channel` via `config.Load` before calling `Client.Check` (`binaryChannelFn`), so the binary self-check reports against the channel the user is tracking; an unreadable or invalid config falls back to stable. |
-| → doctor | `checks_repo_config.go` (category 13) imports `LoadRepoConfig`, `RepoConfigPath`, `ValidScope`, `NewIgnoreMatcher`, and `ValidateIdleTimeout`. It also reads `wiki.ReadWikiIndexPaths` to warn when `scope = "repo"` contradicts a `<wikis>`-registered realm root at the same path. |
-| → doctor | `checks_followups.go` and `checks_profile.go` resolve their targets through `config.FollowupsDir` / `config.ProfilePath`, so their detail strings stay correct under a non-default `harness.dir`. |
+| → doctor | `checks_repo_config.go` (category 13) imports `LoadRepoConfig`, `RepoConfigPath`, `ValidScope`, `NewIgnoreMatcher`, and `ValidateIdleTimeout`. It also reads `wiki.RegisteredIndexPaths` to warn when `scope = "repo"` contradicts a wiki-registry-registered realm root at the same path. |
+| → doctor | `checks_followups.go` and `checks_profile.go` resolve their targets through `config.FollowupsDir` / `config.ProfilePath`, so their detail strings stay correct under a non-default state root. |
 | → doctor | `updatedoctor` reads `update.run_doctor`. Doctor also nudges "run `atomic migrate`" when the binary version exceeds `config.toml [install].version`. |
 | → doctor | [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) is the CLI-surface source of truth that `atomic validate artifacts` rule A1 lints against. This domain adds entries for `config resolve`, `repo init`, `prompt <name>`, `migrate` (with `--repo`/`--realm`/`--show-log`), `scratchpad new\|path\|list\|archive`, and one `template <name>` row per `doctemplate.Names()` entry. Renaming or adding a skeleton or a verb requires editing both in lockstep. |
 | → bundle | `claudeinstall.loadAgentOverrides` / `readPatchedEmbedded` read `Config.Claude.Agents` and patch `model:` and `effort:` frontmatter independently at install time. New `AgentOverride` fields propagate straight into install-time patching. |
@@ -468,10 +471,10 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | → doctor | `checks_output_style.go` (category 14) reads the user-level `outputStyle` key via `hooks.ReadOutputStyle`, warns when absent or when it names an uninstalled style, and reports any project-level `outputStyle` in `<repoRoot>/.claude/settings.json`/`settings.local.json` as a possible override (skipped when the repo root resolves to the install target). `Repairer.OutputStyleFn` / `defaultOutputStyleRepair` seed the user level on `--fix`, honoring `output_style.seed`. |
 | → code-intel | `LoadRepoConfig` and `NewIgnoreMatcher` are called by `engine.ensureIndexer` to filter indexer discovery. `codeintel/engine`, `mcp/daemon`, `realm/resolver`, and `cli/code` all derive the index path from `config.IndexDBPath` / `config.IndexDir`. |
 | → repl | This domain owns the `[repl] idle_timeout` schema at both scopes and the shared `ValidateIdleTimeout`. `internal/repl`'s `resolveIdleTimeout` consumes both and resolves repo, then user, then `1h`. |
-| → signals | `signals/tree.go` reads `output.signals.max_depth`, and derives its skip prefixes from `config.ScratchpadDir("")` / `config.ProjectDir("")` so the scan skips the harness dir under any `harness.dir`. |
+| → signals | `signals/tree.go` reads `output.signals.max_depth`, and derives its skip prefixes from `config.ScratchpadDir("")` / `config.ProjectDir("")` so the scan skips the state root under whatever it resolves to. |
 | → serve | `serve/code_members.go` resolves member db paths via `config.IndexDBPath`. `atomic serve`'s "Plans" surface ([`docs/spec/serve-plans-page.md`](../spec/serve-plans-page.md)) reads `scratchpad.List`, `config.ArchiveDir`, and the doctemplate-seeded `docs/design/<slug>.md`/`docs/spec/<slug>.md` pair this domain writes, across every git worktree of a repo. |
 | → docs-meta | `docs/docs.go` writes the doc-surfaces cache under `config.ProjectDir(root)`. |
 | → wiki | `wikiInitAction` calls `config.EnsureScopeMarker(absRoot, scope)` with its validated `--scope` value; a `ScopeMarkerConflict` exits 1 without touching either file. Outcome-enum changes in `scope.go` land there. The `<wiki-schema>N</wiki-schema>` block `migrate/schema.go` reads and writes is the same block [`docs/wiki/index.md`](index.md)'s frontmatter carries. |
 | → workflow | `/subagent-implementation` Phase 3 shells out to `atomic followups add`. Command templates seed structure via `atomic scratchpad new <slug> --purpose <p>` and `atomic template <name>`, hard-stopping with a fail-loud message when the verb is unavailable. |
-| → workflow | [`context/commands/setup-wiki.md`](../../context/commands/setup-wiki.md), [`context/commands/subagent-implementation.md`](../../context/commands/subagent-implementation.md), [`context/commands/subagent-diagnose.md`](../../context/commands/subagent-diagnose.md), and [`context/_partials/worktree-setup.md`](../../context/_partials/worktree-setup.md) call `atomic repo init` best-effort behind a `command -v atomic` guard. The binary-absent fallback is per call site, not per file: `setup-wiki.md` and the worktree-setup partial append to [`.gitignore`](../../.gitignore) manually; `subagent-implementation.md`'s Phase-1 scratchpad call and both of `subagent-diagnose.md`'s calls have no fallback and silently skip the ignore-rule guarantee. |
+| → workflow | [`context/commands/setup-wiki.md`](../../context/commands/setup-wiki.md), [`context/commands/subagent-diagnose.md`](../../context/commands/subagent-diagnose.md), [`context/commands/deslop.md`](../../context/commands/deslop.md), [`context/_partials/implement-loop.md`](../../context/_partials/implement-loop.md), and [`context/_partials/worktree-setup.md`](../../context/_partials/worktree-setup.md) call `atomic repo init`. The binary-absent fallback is per call site, not per file: `setup-wiki.md` falls back to a manual [`.gitignore`](../../.gitignore) append; `subagent-diagnose.md`, `deslop.md`, and the implement-loop partial guard with `command -v atomic` and skip the guarantee silently when it fails; `worktree-setup.md` runs the verb unguarded. |
 | → reminder | `internal/reminder.unionEntries` reads both `config.RemindersDir` (project-keyed) and `config.RemindersDirLegacy`, unioning in any legacy entry whose id is absent from the project-keyed set; `findWritableByID` restricts mutation (`set-due`, `rm`) to the project-keyed directory alone and refuses a legacy-only id with a `run atomic migrate --repo` remedy rather than promoting it on write. |

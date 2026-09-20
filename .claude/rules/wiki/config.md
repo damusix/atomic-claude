@@ -15,6 +15,7 @@ paths:
   - "atomic/internal/coldprompt/**"
   - "atomic/internal/doctemplate/**"
   - "atomic/internal/dockerinit/**"
+  - "atomic/internal/cliutil/**"
   - "atomic/cmd/atomic/main.go"
 ---
 
@@ -25,6 +26,7 @@ Map:
 Contracts:
   - docs/spec/atomic-state-and-config.md
   - docs/spec/output-style-seed.md
+  - docs/spec/omp-plugin-compatibility.md
 References:
   - docs/reference/conventions.md
 Designs:

@@ -5,7 +5,7 @@ paths:
   - "context/skills/atomic-bus/**"
 ---
 
-Domain: bus. Messaging between concurrent Claude sessions over named rooms; 19 verbs.
+Domain: bus. Messaging between concurrent agent sessions over named rooms; 19 verbs.
 
 Map:
   - docs/wiki/bus.md

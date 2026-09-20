@@ -24,7 +24,7 @@ flowchart LR
 
 ### Verbs
 
-Six verbs, registered by `buildReplCmd` in [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) and dispatched by `ReplAction` in [`atomic/internal/repl/action.go`](../../atomic/internal/repl/action.go). Every verb takes `--json`; the JSON shape differs per verb (see [`docs/reference/repl.md`](../reference/repl.md)).
+Six verbs, defined by `buildReplCmd` in [`atomic/cmd/atomic/cmd_repl.go`](../../atomic/cmd/atomic/cmd_repl.go) and added to the root command in [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go), dispatched by `ReplAction` in [`atomic/internal/repl/action.go`](../../atomic/internal/repl/action.go). Every verb takes `--json`; the JSON shape differs per verb (see [`docs/reference/repl.md`](../reference/repl.md)).
 
 | Verb | Does | Flags |
 |------|------|-------|
@@ -115,7 +115,7 @@ Fixed literal values, pinned by `TestExitCodes_PinnedValues`, defined in [`atomi
 | [`atomic/internal/repl/client.go`](../../atomic/internal/repl/client.go) | Dial, one round trip per connection, `Eval` and the timeout escalation; `ErrSessionNotFound` is defined here |
 | [`atomic/internal/repl/action.go`](../../atomic/internal/repl/action.go) | Verb dispatch, scope and idle-timeout resolution, flag parsing, error-to-exit-code mapping, `deadSessionError` and `dialError` |
 | [`atomic/internal/repl/harness_embed.go`](../../atomic/internal/repl/harness_embed.go) | `go:embed` of both harness scripts, canonical language ids, materialized filenames |
-| [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) | `buildReplCmd` and `runRepl` |
+| [`atomic/cmd/atomic/cmd_repl.go`](../../atomic/cmd/atomic/cmd_repl.go) | `buildReplCmd` and `runRepl` |
 | [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) | Six `{"repl", <verb>}` entries feeding `--help` and the A1 artifact-citation lint |
 
 ### Harness scripts and their tests
@@ -165,5 +165,5 @@ Fixed literal values, pinned by `TestExitCodes_PinnedValues`, defined in [`atomi
 - **config domain.** `[repl] idle_timeout` is a config-domain schema key at both scopes (`replSection` and `ValidateIdleTimeout` in [`atomic/internal/config/repo.go`](../../atomic/internal/config/repo.go)), shared by `RepoConfig.Repl` and the user-level `Config.Repl`. repl consumes it through `resolveIdleTimeout` and owns none of it. `RootDir` also depends on `config.Dir(home)` for the `~/.atomic/repl` state root.
 - **config domain (scope resolution).** `resolveScopeRoots` calls `repoctx.ResolveFrom` for the repo root and `config.FindScopeRoot(dir, "realm")` for the enclosing realm. Both are config-domain primitives, so a session's cross-repo visibility is entirely a function of how the scope-marker walk resolves.
 - **doctor domain.** Both validation call sites live in doctor, at different severity ceilings: repo-scoped (`checks_repo_config.go`, category 13) folds an invalid `idle_timeout` into a WARN, user-scoped (`checks_config.go`, category 9) fails `config.Validate` and reports FAIL. See [`docs/wiki/doctor.md`](doctor.md).
-- **bundle domain.** repl ships no command, agent, or skill of its own. The `## Persistent REPL sessions` section in [`context/AGENTS.md`](../../context/AGENTS.md) and the intent row in [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md) are bundle inputs, so editing either needs `make bundle`.
+- **bundle domain.** repl ships no command, agent, or skill of its own. The `atomic repl` bullet in the `## Atomic binary` section of [`context/AGENTS.md`](../../context/AGENTS.md) and the intent row in [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md) are bundle inputs, so editing either needs `make bundle`.
 - **Verb count.** `repl` is one of the top-level Cobra verbs [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go)'s `TestRootCmdExact23Verbs` pins. Adding, removing, or renaming any verb anywhere in the binary updates that list.

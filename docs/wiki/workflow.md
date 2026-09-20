@@ -185,7 +185,7 @@ flowchart LR
     P["Profile: 9 questions"] --> G{"Gate holds for lens X?"}
     G -->|yes, cited| S["Seat lens X"]
     G -->|no| B["Bench X, print reason"]
-    S --> D["Dispatch N isolated subagents,<br/>model: sonnet, in parallel"]
+    S --> D["Dispatch N isolated subagents,<br/>economical tier, pinned, in parallel"]
     D --> M["Merge into contradiction map"]
 ```
 
@@ -217,13 +217,13 @@ Docs are written before the signals refresh so a new page exists when the scan r
 | [`context/commands/implement.md`](../../context/commands/implement.md) | Fit-gated main-agent implementation for work whose context is already in the conversation. Checkpoints are declared up front; `atomic-reviewer` is dispatched after each one, never batched to the end; a checkpoint commits only on `VERDICT: PASS`. Finalizes with the shared loop-finalize sequence: one `atomic-auditor` pass over `<loop-base>..HEAD`, then a range-scoped signals refresh. Never pushes, merges, or opens a PR. |
 | [`context/commands/quick-fix.md`](../../context/commands/quick-fix.md) | The same loop minus the spec gate, worktree gate, and finalize ceremony; keeps the once-per-task audit. Fit gate at entry, escape hatch mid-loop. |
 | [`context/commands/subagent-diagnose.md`](../../context/commands/subagent-diagnose.md) | Failure-driven loop. `ci` mode seeds from a failed GitHub Actions run, `bug` mode from a freeform symptom. Topic slugs no longer carry a date prefix (`diagnose-ci-<run-id>`, `diagnose-bug-<slug>`) since `atomic scratchpad` owns bundle identity. |
-| [`context/commands/autopilot.md`](../../context/commands/autopilot.md) | Runs plan to loop to ship unattended. The merge method is the only human decision. Phase 6 deletes `tmp/trash/` only; the task's scratchpad bundle is left for later retirement. |
+| [`context/commands/autopilot.md`](../../context/commands/autopilot.md) | Runs plan to loop to ship unattended. The merge method is the only human decision. Deletion happens once, at Ship (`rm -rf tmp/trash`); the task's scratchpad bundle is left for later retirement. |
 | [`context/commands/review-branch.md`](../../context/commands/review-branch.md) | One `atomic-reviewer` pass over `<base>..HEAD`. Pre-flight before `/commit pr` or `/commit merge`. |
-| [`context/commands/watch-ci.md`](../../context/commands/watch-ci.md) | Dispatches a background, Haiku-backed `general-purpose` subagent to poll CI to a terminal state and report back; provider detection (GitHub Actions, GitLab CI, CircleCI, etc.) lives in the subagent, sourced from [`docs/wiki/index.md`](index.md) first, file-tree heuristics second. Read-only, never reruns or cancels a workflow. Returns immediately. |
+| [`context/commands/watch-ci.md`](../../context/commands/watch-ci.md) | Dispatches a background subagent pinned to the economical reasoning tier, to poll CI to a terminal state and report back; provider detection (GitHub Actions, GitLab CI, CircleCI, etc.) lives in the subagent, sourced from [`docs/wiki/index.md`](index.md) first, file-tree heuristics second. Read-only, never reruns or cancels a workflow. Returns immediately. |
 | [`context/commands/commit.md`](../../context/commands/commit.md) | The single ship verb. Escalation tokens `push`, `pr`, `merge`, `squash`, `squash merge`; no token commits then prompts. |
 | [`context/commands/undo-commit.md`](../../context/commands/undo-commit.md) | Soft-resets the last commit. Refuses on merge commits, the initial commit, and an already-pushed HEAD. |
 | [`context/commands/session-report.md`](../../context/commands/session-report.md) | Writes branch-scoped why-context to the `reports` path `atomic where --json` reports (`~/.atomic/<project-key>/reports/<branch>/`, outside the repository). Read by `/commit`, deleted after a successful commit. |
-| [`context/commands/setup-wiki.md`](../../context/commands/setup-wiki.md) | Repo bootstrap. Audits [`.gitignore`](../../.gitignore), [`docs/`](..) layout, and [`CLAUDE.md`](../../CLAUDE.md) presence; proposes only what is absent. |
+| [`context/commands/setup-wiki.md`](../../context/commands/setup-wiki.md) | Repo bootstrap. Audits [`.gitignore`](../../.gitignore), [`docs/`](..) layout, and the project steering file's presence at the repo root (`AGENTS.md` or the [`CLAUDE.md`](../../CLAUDE.md) loader beside it); proposes only what is absent. |
 | [`context/commands/retrospective-learning.md`](../../context/commands/retrospective-learning.md) | Mines session history for friction and corrections, walks findings one at a time. Its working dir is `tmp/<date>-retro/`, not a scratchpad bundle. |
 | [`context/commands/follow-up.md`](../../context/commands/follow-up.md), [`context/commands/remind-me.md`](../../context/commands/remind-me.md) | Reminder lifecycle. Reads/writes the `reminders` path `atomic where --json` reports when the binary is present; falls back to `.claude/.scratchpad/reminders/` when it is absent. |
 | [`context/commands/report-issue.md`](../../context/commands/report-issue.md) | Opens a GitHub issue against the current repo via `gh`. |
@@ -258,7 +258,7 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 
 | Path | Role |
 |---|---|
-| [`context/_partials/worktree-setup.md`](../../context/_partials/worktree-setup.md) | The whole worktree gate: isolation detection, branch resolution, spec carry-forward, `git worktree add`, `EnterWorktree`, setup and baseline test detection. Composed into `subagent-implementation`, `autopilot`, and `/implement` (run only when the working tree is clean). |
+| [`context/_partials/worktree-setup.md`](../../context/_partials/worktree-setup.md) | The whole worktree gate: isolation detection, branch resolution, spec carry-forward, `git worktree add`, moving the session into the worktree, setup and baseline test detection. Composed into `subagent-implementation`, `autopilot`, and `/implement` (run only when the working tree is clean). |
 | [`context/_partials/handoff.md`](../../context/_partials/handoff.md) | The shared hand-off table, checked at entry and whenever an implementer report or a reviewer finding surfaces a signal (unknown or shifted root cause, two viable approaches, an implied public API/schema/cross-service contract, implementer `BLOCKED`/`NEEDS_CONTEXT`); on a match, names the signal, prints the target verb, keeps `$SCRATCH`, and stops. Composed into `/subagent-implementation`, `/quick-fix`, and `/implement`. |
 | [`context/_partials/implement-loop.md`](../../context/_partials/implement-loop.md) | The shared implement to review loop: code-index sync, scratchpad-trio seeding from `atomic template`, per-checkpoint Implement / Review / Triage / Commit, and the same-blocking-signal stuck check. Composed into `/subagent-implementation`, `/quick-fix`, `/autopilot`, and `/implement`. `/subagent-diagnose` is not a consumer — it runs its own Phase-based flow. |
 | [`context/_partials/loop-finalize.md`](../../context/_partials/loop-finalize.md) | The shared finalize sequence: verify, docs, one `atomic-auditor` dispatch over `<loop-base>..HEAD`, follow-up dispositions, implementation log, signals refresh, report, run once after the last checkpoint passes, skipping whatever the policy table's Finalize row omits. `$SCRATCH` stays; `/git-cleanup` archives it. Composed into `/subagent-implementation`, `/quick-fix`, `/autopilot`, and `/implement`. `/subagent-diagnose` is not a consumer — it runs its own Phase-based flow. |
@@ -269,9 +269,9 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 | [`context/_partials/doc-impact.md`](../../context/_partials/doc-impact.md) | Matches the staged diff against the `## Documentation surfaces` table, walks each match with Yes / Later / Remind / Skip. |
 | [`context/_partials/signals-gate.md`](../../context/_partials/signals-gate.md) | Docs-only guard, `atomic signals stale`, silent `atomic-wiki-inferrer` dispatch, `atomic wiki mark-dirty`. |
 | [`context/_partials/worktree-cleanup-prompt.md`](../../context/_partials/worktree-cleanup-prompt.md) | Offers to remove a linked worktree after a merge. Archives the worktree's scratchpad bundle(s) via `atomic scratchpad list`/`archive` before `git worktree remove`, so a bundle isn't destroyed unarchived; falls back to removal without archiving, with a printed notice, when [`atomic`](../../atomic) is absent. Composed into `merge-flow` only. |
-| [`context/_partials/git-safety.md`](../../context/_partials/git-safety.md) | Explicit staging, one git command per Bash call, never `--amend` after a hook failure, no force-push on base. |
+| [`context/_partials/git-safety.md`](../../context/_partials/git-safety.md) | Explicit staging, one git command per shell call, never `--amend` after a hook failure, no force-push on base. |
 | [`context/_partials/report-issue-privacy.md`](../../context/_partials/report-issue-privacy.md) | PII and secret redaction plus a preview-and-confirm gate, composed into both issue commands. |
-| [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) | The 7-rung simplicity ladder, composed into `atomic-implementer`, `atomic-reviewer`, and `atomic-strategist`. |
+| [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) | The 9-rung simplicity ladder, composed into `atomic-implementer`, `atomic-reviewer`, and `atomic-strategist`. |
 | [`context/_partials/agent-implementer-workflow.md`](../../context/_partials/agent-implementer-workflow.md) | The entire `<workflow>` block for `atomic-implementer`; itself composes `agent-search-tooling`, `agent-tdd-signals`, `agent-code-intel`, `agent-where`. |
 | [`context/_partials/agent-readability.md`](../../context/_partials/agent-readability.md) | Comment noise, over-engineering, and repetition floored at 🟡 risk (never 🔵) and made verdict-driving; escalates to 🔴 on a misdescribing comment or a repeat finding across iterations. Composed into `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`. |
 | [`context/_partials/agent-signals-output.md`](../../context/_partials/agent-signals-output.md) | The implementer's report skeleton — `## Did` / `## Tests` / `## Signals` / `## Failed` / `## Commit` / `## Status`, the `## Commit` section a proposed Conventional Commits message the orchestrator commits from directly, and `## Status` (`DONE` / `DONE_WITH_CONCERNS` / `BLOCKED` / `NEEDS_CONTEXT`) the line the orchestrator triages on. |
@@ -325,12 +325,12 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 
 **Refusals to expect, quoted exactly:**
 
-- No spec for non-trivial work: `Run /atomic-plan first. I need an approved spec at docs/spec/<topic>.md before launching the implementation loop.`
+- No spec, work larger than a small obvious change: `/subagent-implementation` proceeds spec-less only for small obvious work, printing `no spec; proceeding inline`; anything larger prints the `/atomic-plan` hand-off and stops.
 - Worktree branch collision: `branch <name> already exists. pick a different name or checkout existing.`
 - Concurrent diagnose run: `scratchpad already exists for <topic>; atomic scratchpad archive it or pick a different topic suffix.`
 - Sandbox blocks worktree creation: `sandbox blocked worktree creation. working in place.` The run then continues in place rather than failing.
 
-**`/autopilot` avoids `rm` and shell chaining mid-run.** Both trigger permission prompts that stall an unattended session. Scratch experiments (not the task's scratchpad bundle) are quarantined into `tmp/trash/` and deleted once, at Phase 6.
+**`/autopilot` avoids `rm` and shell chaining mid-run.** Both trigger permission prompts that stall an unattended session. Scratch experiments (not the task's scratchpad bundle) are quarantined into `tmp/trash/` and deleted once, at Ship.
 
 **`/challenge-swarm` seats a minimum of 3 lenses and requires a citation per seat.** A lens without a one-line pointer to the design section or source path where its stake lives is benched, printed as `<lens>: benched — <reason>`, not silently dropped.
 

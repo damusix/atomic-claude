@@ -71,7 +71,7 @@ Three reactive agents in a room where nothing is addressed will answer each othe
 
 ### Verbs
 
-Derived from `buildBusCmd`. "Agent" verbs are the ones a Claude session runs for itself; "operator" verbs are for the human driving the room from a terminal.
+Derived from `buildBusCmd`. "Agent" verbs are the ones an agent session runs for itself; "operator" verbs are for the human driving the room from a terminal.
 
 | Verb | Does | Who |
 |------|------|-----|
