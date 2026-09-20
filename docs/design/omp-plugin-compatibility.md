@@ -140,6 +140,7 @@ One path has one authority. Native harness files are projections unless the row 
 | `~/.atomic/packages/omp/atomic/` | Atomic-owned generated OMP package | Published as a generated directory; shared visibility and consumers recorded separately |
 | `~/.atomic/packages/codex/atomic/` | Atomic-owned generated Codex plugin | CP0-proven native registration and hook trust verified per enrolled `CODEX_HOME`; trust is never fabricated |
 | Claude, OMP, and Codex native roots | Derived target state written only by the owning adapter | Changed owned bytes conflict; unowned bytes and user settings win |
+| Claude `settings.json` owned members | Written only when the Claude adapter converges a target (converge or legacy adopt): the inline `SessionStart` registration and the `outputStyle` seed | One ledger resource whose digest covers only the owned members, so unrelated user keys never conflict and a user edit to an owned member conflicts; target and full uninstall strip exactly those members |
 | Repository/realm steering and repository rule projections | Shared `AGENTS.md` managed blocks, thin Claude loaders, and target-native generated directories | Canonical writes precede projection; one failed target becomes stale without rolling back other targets |
 
 The repository-state record lives at `~/.atomic/<project-key>/state-location.json`, not under a new `projects/` hierarchy. This reuses the current worktree-sharing convention and avoids a second project-key namespace.

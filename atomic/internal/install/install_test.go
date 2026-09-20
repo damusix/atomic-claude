@@ -10,6 +10,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
@@ -362,6 +363,57 @@ func TestUninstallRefusesChangedResource(t *testing.T) {
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != "user prose\n" {
 		t.Errorf("changed resource was not preserved: %q, %v", data, err)
+	}
+}
+
+// TestFullUninstallKeepsClaimWhenSettingsAreReadOnly proves a full uninstall
+// that cannot write a read-only settings file reports the resource skipped and
+// keeps its ledger row and enrollment, so a later uninstall can still clear it.
+func TestFullUninstallKeepsClaimWhenSettingsAreReadOnly(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hooks.InstallInDir(root); err != nil {
+		t.Fatalf("register session-start hook: %v", err)
+	}
+	owned, err := hooks.ObserveSettingsOwnedInDir(root)
+	if err != nil {
+		t.Fatalf("observe settings: %v", err)
+	}
+	seedLedger(t, home,
+		[]installstate.TargetRecord{{Harness: "claude", Instance: root, NativeRoot: root, Status: "converged"}},
+		[]installstate.Row{{
+			Target: "claude:" + root, Resource: "settings.json", Consumer: "claude:" + root,
+			Applied: installstate.AppliedValue{Path: owned.Path, Kind: managedfile.KindSettings, Digest: owned.Digest},
+		}})
+
+	settingsPath := filepath.Join(root, "settings.json")
+	if err := os.Chmod(settingsPath, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(settingsPath, 0o644) })
+
+	report, err := testSteps(t, home).UninstallAll()
+	if err != nil {
+		t.Fatalf("uninstall all: %v", err)
+	}
+	if len(report.Targets) != 1 || len(report.Targets[0].Skipped) != 1 || report.Targets[0].Skipped[0] != "settings.json" {
+		t.Fatalf("targets = %+v, want the settings resource reported skipped", report.Targets)
+	}
+	kept, err := installstate.LoadLedger(ledgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := kept.Find("claude:"+root, "settings.json"); !ok {
+		t.Error("the skipped removal dropped the ownership claim")
+	}
+	if _, ok := kept.FindTarget("claude", root); !ok {
+		t.Error("the skipped removal dropped the enrollment")
+	}
+	if _, err := os.Stat(settingsPath); err != nil {
+		t.Errorf("the read-only settings file was removed: %v", err)
 	}
 }
 

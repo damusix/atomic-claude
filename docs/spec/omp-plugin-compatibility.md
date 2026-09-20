@@ -68,7 +68,7 @@ Atomic installs one authored policy and workflow corpus into Claude Code and OMP
 - [ ] Unowned guidance remains byte-identical unless the user approves relocation and equivalent effective guidance is verified at global, project, and nested wiki scopes.
 - [ ] `~/.atomic/profile.md` and `~/.atomic/wikis.md` are authoritative after one-time legacy adoption; later divergent native copies are conflicts and are never imported automatically.
 - [ ] Existing user model settings, role overrides, native override files, disabled plugins, hook trust decisions, and profile guidance outside Atomic-owned blocks remain authoritative.
-- [ ] A target uninstall removes only unchanged resources owned for that target and leaves shared resources while another consumer exists.
+- [ ] A target uninstall removes only unchanged resources owned for that target and leaves shared resources while another consumer exists; a resource the removal cannot clear is reported skipped and keeps its claim.
 - [ ] Full uninstall after the final target preserves `config.toml`, `profile.md`, `wikis.md`, and backups; removes completed operational and adoption state; and retains unresolved journals plus referenced transaction backups, ledger rows, and state-location records until recovery completes.
 - [ ] A downloaded update re-executes the replacement binary before target convergence, applies and records only that binary's embedded artifact generation, and never lets the stale process publish its corpus.
 - [ ] An already-current normal update skips download but still converges enrolled targets; `atomic update --check` remains read-only.
@@ -522,7 +522,7 @@ atomic/cmd/atomic/cmd_state_test.go
 
 1. User selects one enrolled target instance or requests full Atomic removal.
 2. Adapter observes every owned target resource, shared visibility, and consumer relation.
-3. Changed target resources require user resolution; unchanged owned resources and consumer links are removed.
+3. Changed target resources require user resolution; unchanged owned resources and consumer links are removed; a resource the removal cannot clear keeps its claim and is reported skipped.
 4. Shared resources remain while another enrolled consumer exists, regardless of visibility to unenrolled instances.
 5. Target steering is removed independently of plugin disablement or unlinking.
 6. After the final target, full uninstall preserves `~/.atomic/config.toml`, `~/.atomic/profile.md`, `~/.atomic/wikis.md`, and backups.
@@ -636,4 +636,13 @@ atomic/cmd/atomic/cmd_state_test.go
 **What changed:** The consumers that still assumed a lone `docs/wiki/CLAUDE.md` steering file now key off the pair. `atomic/internal/doctor/checks_signals.go` excludes `docs/wiki/AGENTS.md` from the router orphan check alongside `index.md`, `scan.md`, and `CLAUDE.md`; `atomic/internal/signals/signals.go`'s linkify skip list adds `AGENTS.md` while keeping `CLAUDE.md`; `context/agents/atomic-wiki-inferrer.md` names the shared `AGENTS.md` as authoritative steering with the `CLAUDE.md` loader as fallback, and the `signals-gate` partial passes a `<steering>` block to the silent dispatch. `docs/wiki/wiki.md`'s `init` row now reads "steering loader pair".
 
 **Why:** moving the scaffold into `AGENTS.md` changed which file carries guidance, so an initialized repo otherwise reported its steering file as an orphan domain — suppressing category 3's freshness result — linkify rewrote the file the pipeline promises to leave alone, and silent refreshes read the blank loader instead of the user's steering.
+
+
+### 2026-09-20 — Claude settings ownership is member-wise
+
+**What changed:** A Claude target's `settings.json` is now one ledger resource recorded whenever a Claude target converges (adapter converge during enroll, repair, or update, and the explicit legacy adoption), with a digest over only the Atomic-owned members — the inline `SessionStart` registration and the `outputStyle` seed. Target and full uninstall remove exactly those members and leave the user's other keys byte-for-byte; a later edit to an owned member is a changed resource and refuses the operation. A member-cleared `settings.json` is drift convergence repairs rather than mixed ownership evidence, so it never blocks a repair, and a removal that cannot write a read-only `settings.json` reports the resource skipped and keeps its claim for a later uninstall. The ownership table in [`docs/design/omp-plugin-compatibility.md`](../design/omp-plugin-compatibility.md) carries the new resource row.
+
+**Why:** the converge-time hook registration and style seed were not ledger-owned, so `atomic harness uninstall` left them behind — F-7 in the loop's follow-up ledger.
+
+**Superseded:** owned native resources were whole-file or whole-block bytes only; converge-time settings mutations had no ledger row and survived a target uninstall.
 

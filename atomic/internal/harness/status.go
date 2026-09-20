@@ -62,7 +62,7 @@ func RowStatus(row installstate.Row, desired string) (ResourceStatus, error) {
 		Tier:       row.Tier,
 		Applied:    row.Applied.Digest,
 	}
-	obs, err := managedfile.Observe(row.Applied.Path, row.Applied.Kind)
+	obs, err := installstate.ObserveApplied(row.Applied)
 	if err != nil {
 		return out, err
 	}

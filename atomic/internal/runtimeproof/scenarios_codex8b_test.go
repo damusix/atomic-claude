@@ -646,7 +646,7 @@ func TestCP8BCodexRuleProducers(t *testing.T) {
 		t.Errorf("a refused malformed card was written")
 	}
 	malformed := filepath.Join(stateRoot, "rules", "broken.md")
-	cp8aMkfile(t, malformed, "---\npaths:\n  - \"/absolute/**\"\n---\n\nBody.\n")
+	scenarioMkfile(t, malformed, "---\npaths:\n  - \"/absolute/**\"\n---\n\nBody.\n")
 	if _, err := rules.LoadShipped(filepath.Join(stateRoot, "rules")); err == nil {
 		t.Errorf("the shipped producer accepted an absolute pattern")
 	} else if !strings.Contains(err.Error(), "broken.md") {
@@ -658,7 +658,7 @@ func TestCP8BCodexRuleProducers(t *testing.T) {
 
 	// Collision: a shipped `atomic-wiki/<domain>.md` and a wiki card of the same
 	// domain share one native name, so the combined set must fail validation.
-	cp8aMkfile(t, filepath.Join(stateRoot, "rules", "atomic-wiki", "style.md"), "---\npaths:\n  - \"**/*.md\"\n---\n\nShipped body.\n")
+	scenarioMkfile(t, filepath.Join(stateRoot, "rules", "atomic-wiki", "style.md"), "---\npaths:\n  - \"**/*.md\"\n---\n\nShipped body.\n")
 	if _, err := wiki.Refresh(stateRoot, "cp8b-producers", wiki.RefreshRepo, []wiki.PointerCard{card("style")}); err != nil {
 		t.Fatalf("refresh style: %v", err)
 	}
@@ -994,8 +994,8 @@ func TestCP8BCodexInterruptionRecovery(t *testing.T) {
 		Kind: row.Applied.Kind, Path: row.Applied.Path, Intended: row.Applied.Digest,
 		PriorObserved: true, BackupSum: "unused",
 	}
-	journalPath := cp8aWriteJournal(t, home, cp8aJournal("cp8b-codex-recovery", []installstate.Mutation{m},
-		[]installstate.Progress{{Unit: m.Unit, State: installstate.StateApplied, At: cp8aFixedTime()}}))
+	journalPath := scenarioWriteJournal(t, home, scenarioJournal("cp8b-codex-recovery", []installstate.Mutation{m},
+		[]installstate.Progress{{Unit: m.Unit, State: installstate.StateApplied, At: scenarioFixedTime()}}))
 	if !fileExists(journalPath) {
 		t.Fatalf("the unresolved journal was not written")
 	}

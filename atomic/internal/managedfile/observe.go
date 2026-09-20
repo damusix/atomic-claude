@@ -25,6 +25,11 @@ const (
 	KindBlock Kind = "block"
 	// KindTree is a generated directory published as one unit.
 	KindTree Kind = "tree"
+	// KindSettings is a JSON settings file whose owned region is the named
+	// members Atomic wrote, not the whole file. Its observation lives with the
+	// settings semantics (the hooks package), because only that layer knows
+	// which members are owned and how to digest them apart from the user's.
+	KindSettings Kind = "settings"
 )
 
 // Conflict names a structural reason an observation cannot be treated as
@@ -36,6 +41,9 @@ const (
 	// ConflictMalformedBlock marks a block resource whose file does not carry
 	// exactly one parseable block.
 	ConflictMalformedBlock Conflict = "malformed-block"
+	// ConflictMalformedSettings marks a settings resource whose file does not
+	// parse as JWCC/JSON, so its owned members cannot be read.
+	ConflictMalformedSettings Conflict = "malformed-settings"
 )
 
 // Observation is the current native state of one managed resource: its kind,
@@ -66,6 +74,9 @@ const (
 // KindBlock, a file without exactly one parseable block is reported with
 // ConflictMalformedBlock and no digest — a shape Atomic never treats as owned.
 func Observe(path string, kind Kind) (Observation, error) {
+	if kind == KindSettings {
+		return Observation{}, fmt.Errorf("managedfile: observe %s: a settings resource is observed member-wise by the settings layer, not as whole-file bytes", path)
+	}
 	obs := Observation{Path: path, Kind: kind, Ownership: OwnershipUnowned}
 
 	if kind == KindTree {

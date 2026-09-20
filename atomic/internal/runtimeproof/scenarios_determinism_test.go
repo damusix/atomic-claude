@@ -77,7 +77,7 @@ func TestCP8ADryRunsAreFilesystemIdentical(t *testing.T) {
 		root := legacyClaudeInstall(t, home)
 		ageClaudeInstall(t, home, root)
 		before := treeDigest(t, home)
-		if _, err := installstate.PlanAdoption(cp8aAdoptReq(t, home, root)); err != nil {
+		if _, err := installstate.PlanAdoption(scenarioAdoptReq(t, home, root)); err != nil {
 			t.Fatalf("plan adoption: %v", err)
 		}
 		if after := treeDigest(t, home); after != before {
@@ -114,13 +114,13 @@ func TestCP8AAdvisoryRecoveryPlans(t *testing.T) {
 		root := filepath.Join(home, ".claude")
 		path := filepath.Join(root, "commands", "commit.md")
 		data := []byte("selected bytes\n")
-		cp8aMkfile(t, path, string(data))
-		m := cp8aMutation(t, "commands.commit.md", path, data)
+		scenarioMkfile(t, path, string(data))
+		m := scenarioMutation(t, "commands.commit.md", path, data)
 		m.PriorObserved = true
 		m.Backup = filepath.Join(config.TransactionBackupDir(home, "op-apply"), "commands.commit.md")
 		m.BackupSum = "unused"
-		cp8aWriteJournal(t, home, cp8aJournal("op-apply", []installstate.Mutation{m},
-			[]installstate.Progress{{Unit: m.Unit, State: installstate.StateApplied, At: cp8aFixedTime()}}))
+		scenarioWriteJournal(t, home, scenarioJournal("op-apply", []installstate.Mutation{m},
+			[]installstate.Progress{{Unit: m.Unit, State: installstate.StateApplied, At: scenarioFixedTime()}}))
 
 		plan, err := installstate.PlanAdoption(installstate.AdoptionRequest{Home: home, NativeRoot: root, Target: "claude:default"})
 		if err != nil {
@@ -129,7 +129,7 @@ func TestCP8AAdvisoryRecoveryPlans(t *testing.T) {
 		if plan.Status == installstate.StatusBlockedOnRecovery {
 			t.Fatalf("status = %s, want an advisory plan", plan.Status)
 		}
-		if !cp8aHasRecovery(plan, installstate.DecisionCommitApplied) {
+		if !scenarioHasRecovery(plan, installstate.DecisionCommitApplied) {
 			t.Errorf("recovery advisory = %+v, want commit-applied", plan.Recovery)
 		}
 		ev.Paths = append(ev.Paths, home)
@@ -139,12 +139,12 @@ func TestCP8AAdvisoryRecoveryPlans(t *testing.T) {
 		home := isolatedHome(t)
 		root := filepath.Join(home, ".claude")
 		path := filepath.Join(root, "commands", "plan.md")
-		cp8aMkfile(t, path, "pre-mutation bytes\n")
-		m := cp8aMutation(t, "commands.plan.md", path, []byte("staged bytes\n"))
+		scenarioMkfile(t, path, "pre-mutation bytes\n")
+		m := scenarioMutation(t, "commands.plan.md", path, []byte("staged bytes\n"))
 		m.Stage = filepath.Join(config.TransactionStageDir(home, "op-stage"), "commands.plan.md")
-		cp8aMkfile(t, m.Stage, "staged bytes\n")
-		cp8aWriteJournal(t, home, cp8aJournal("op-stage", []installstate.Mutation{m},
-			[]installstate.Progress{{Unit: m.Unit, State: installstate.StateStaged, At: cp8aFixedTime()}}))
+		scenarioMkfile(t, m.Stage, "staged bytes\n")
+		scenarioWriteJournal(t, home, scenarioJournal("op-stage", []installstate.Mutation{m},
+			[]installstate.Progress{{Unit: m.Unit, State: installstate.StateStaged, At: scenarioFixedTime()}}))
 
 		plan, err := installstate.PlanAdoption(installstate.AdoptionRequest{Home: home, NativeRoot: root, Target: "claude:default"})
 		if err != nil {
@@ -153,7 +153,7 @@ func TestCP8AAdvisoryRecoveryPlans(t *testing.T) {
 		if plan.Status == installstate.StatusBlockedOnRecovery {
 			t.Fatalf("status = %s, want an advisory plan", plan.Status)
 		}
-		if !cp8aHasRecovery(plan, installstate.DecisionDiscardStaging) {
+		if !scenarioHasRecovery(plan, installstate.DecisionDiscardStaging) {
 			t.Errorf("recovery advisory = %+v, want discard-staging", plan.Recovery)
 		}
 		ev.Paths = append(ev.Paths, home)
@@ -173,13 +173,13 @@ func TestCP8ABlockedLaterEditRecovery(t *testing.T) {
 	home := isolatedHome(t)
 	root := filepath.Join(home, ".claude")
 	path := filepath.Join(root, "commands", "commit.md")
-	cp8aMkfile(t, path, "edited after the operation\n")
+	scenarioMkfile(t, path, "edited after the operation\n")
 
-	m := cp8aMutation(t, "commands.commit.md", path, []byte("intended bytes\n"))
+	m := scenarioMutation(t, "commands.commit.md", path, []byte("intended bytes\n"))
 	m.PriorObserved = true
 	m.BackupSum = "different"
-	cp8aWriteJournal(t, home, cp8aJournal("op-edit", []installstate.Mutation{m},
-		[]installstate.Progress{{Unit: m.Unit, State: installstate.StateApplied, At: cp8aFixedTime()}}))
+	scenarioWriteJournal(t, home, scenarioJournal("op-edit", []installstate.Mutation{m},
+		[]installstate.Progress{{Unit: m.Unit, State: installstate.StateApplied, At: scenarioFixedTime()}}))
 
 	ev := ScenarioEvidence{
 		Scenario:  "cp8a/determinism/blocked-later-edit",

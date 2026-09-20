@@ -438,6 +438,9 @@ func printRemoval(removal harness.Removal) {
 	for _, id := range removal.Retained {
 		fmt.Printf("retained\t%s\t(another enrolled consumer depends on it)\n", id)
 	}
+	for _, id := range removal.Skipped {
+		fmt.Printf("skipped\t%s\t(read-only; retained for a later uninstall)\n", id)
+	}
 	printRecovery(removal.Recovery)
 }
 

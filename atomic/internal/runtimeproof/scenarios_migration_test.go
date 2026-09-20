@@ -18,8 +18,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
 
-// cp8aMkfile writes path, creating its parent directories.
-func cp8aMkfile(t *testing.T, path, content string) {
+// scenarioMkfile writes path, creating its parent directories.
+func scenarioMkfile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -29,9 +29,9 @@ func cp8aMkfile(t *testing.T, path, content string) {
 	}
 }
 
-// cp8aClaims mirrors what the harness layer hands the classifier: one claim per
+// scenarioClaims mirrors what the harness layer hands the classifier: one claim per
 // selected artifact with the selected generation's digest.
-func cp8aClaims(t *testing.T, root string) []managedfile.Claim {
+func scenarioClaims(t *testing.T, root string) []managedfile.Claim {
 	t.Helper()
 	artifacts := claudeArtifacts(t, root)
 	out := make([]managedfile.Claim, 0, len(artifacts))
@@ -45,9 +45,9 @@ func cp8aClaims(t *testing.T, root string) []managedfile.Claim {
 	return out
 }
 
-// cp8aAdoptReq is the explicit adoption intent a scenario applies. It carries
+// scenarioAdoptReq is the explicit adoption intent a scenario applies. It carries
 // the selected generation's artifacts exactly as the harness layer would.
-func cp8aAdoptReq(t *testing.T, home, root string) installstate.AdoptionRequest {
+func scenarioAdoptReq(t *testing.T, home, root string) installstate.AdoptionRequest {
 	t.Helper()
 	return installstate.AdoptionRequest{
 		Home:          home,
@@ -60,18 +60,18 @@ func cp8aAdoptReq(t *testing.T, home, root string) installstate.AdoptionRequest 
 	}
 }
 
-// cp8aClassify classifies one Claude home against the selected generation.
-func cp8aClassify(t *testing.T, home, root string) installstate.Classification {
+// scenarioClassify classifies one Claude home against the selected generation.
+func scenarioClassify(t *testing.T, home, root string) installstate.Classification {
 	t.Helper()
-	c, err := installstate.Classify(installstate.ClassifyRequest{Home: home, NativeRoot: root, Claims: cp8aClaims(t, root)})
+	c, err := installstate.Classify(installstate.ClassifyRequest{Home: home, NativeRoot: root, Claims: scenarioClaims(t, root)})
 	if err != nil {
 		t.Fatalf("classify: %v", err)
 	}
 	return c
 }
 
-// cp8aWriteLedger persists a real v2 ledger.
-func cp8aWriteLedger(t *testing.T, home string, targets []installstate.TargetRecord, rows []installstate.Row) {
+// scenarioWriteLedger persists a real v2 ledger.
+func scenarioWriteLedger(t *testing.T, home string, targets []installstate.TargetRecord, rows []installstate.Row) {
 	t.Helper()
 	ledger := &installstate.Ledger{Targets: targets, Rows: rows}
 	if err := ledger.Save(config.LedgerPath(home)); err != nil {
@@ -79,8 +79,8 @@ func cp8aWriteLedger(t *testing.T, home string, targets []installstate.TargetRec
 	}
 }
 
-// cp8aWriteJournal persists an unresolved journal in the v2 layout.
-func cp8aWriteJournal(t *testing.T, home string, j *installstate.Journal) string {
+// scenarioWriteJournal persists an unresolved journal in the v2 layout.
+func scenarioWriteJournal(t *testing.T, home string, j *installstate.Journal) string {
 	t.Helper()
 	path := config.JournalPath(home, j.OperationID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -92,11 +92,11 @@ func cp8aWriteJournal(t *testing.T, home string, j *installstate.Journal) string
 	return path
 }
 
-// cp8aFixedTime is a fixed instant for fixture journals.
-func cp8aFixedTime() time.Time { return time.Date(2026, 9, 16, 10, 0, 0, 0, time.UTC) }
+// scenarioFixedTime is a fixed instant for fixture journals.
+func scenarioFixedTime() time.Time { return time.Date(2026, 9, 16, 10, 0, 0, 0, time.UTC) }
 
-// cp8aMutation builds a journal-ready file mutation with the intended digest.
-func cp8aMutation(t *testing.T, unit, path string, data []byte) installstate.Mutation {
+// scenarioMutation builds a journal-ready file mutation with the intended digest.
+func scenarioMutation(t *testing.T, unit, path string, data []byte) installstate.Mutation {
 	t.Helper()
 	digest, err := managedfile.DigestResourceBytes(data, managedfile.KindFile)
 	if err != nil {
@@ -112,16 +112,16 @@ func cp8aMutation(t *testing.T, unit, path string, data []byte) installstate.Mut
 	}
 }
 
-// cp8aJournal builds an unresolved journal carrying mutations and progress.
-func cp8aJournal(id string, mutations []installstate.Mutation, progress []installstate.Progress) *installstate.Journal {
-	j := installstate.NewJournal(id, cp8aFixedTime())
+// scenarioJournal builds an unresolved journal carrying mutations and progress.
+func scenarioJournal(id string, mutations []installstate.Mutation, progress []installstate.Progress) *installstate.Journal {
+	j := installstate.NewJournal(id, scenarioFixedTime())
 	j.Mutations = mutations
 	j.Progress = progress
 	return j
 }
 
-// cp8aActionFor reports the plan's action for a resource id.
-func cp8aActionFor(p installstate.AdoptionPlan, id string) installstate.AdoptionAction {
+// scenarioActionFor reports the plan's action for a resource id.
+func scenarioActionFor(p installstate.AdoptionPlan, id string) installstate.AdoptionAction {
 	for _, r := range p.Resources {
 		if r.ID == id {
 			return r.Action
@@ -130,8 +130,8 @@ func cp8aActionFor(p installstate.AdoptionPlan, id string) installstate.Adoption
 	return ""
 }
 
-// cp8aHasRecovery reports whether any journal simulation reached want.
-func cp8aHasRecovery(plan installstate.AdoptionPlan, want installstate.RecoveryDecision) bool {
+// scenarioHasRecovery reports whether any journal simulation reached want.
+func scenarioHasRecovery(plan installstate.AdoptionPlan, want installstate.RecoveryDecision) bool {
 	for _, sim := range plan.Recovery {
 		for _, a := range sim.Actions {
 			if a.Decision == want {
@@ -142,8 +142,8 @@ func cp8aHasRecovery(plan installstate.AdoptionPlan, want installstate.RecoveryD
 	return false
 }
 
-// cp8aJournalCount counts the journal files under ~/.atomic/install/journals.
-func cp8aJournalCount(home string) int {
+// scenarioJournalCount counts the journal files under ~/.atomic/install/journals.
+func scenarioJournalCount(home string) int {
 	entries, err := os.ReadDir(config.JournalsDir(home))
 	if err != nil {
 		return 0
@@ -172,18 +172,18 @@ func TestCP8ALegacyCompleteDiscovery(t *testing.T) {
 		Paths:     []string{home, root},
 	}
 
-	c := cp8aClassify(t, home, root)
+	c := scenarioClassify(t, home, root)
 	if c.State != installstate.StateLegacyComplete {
 		t.Fatalf("state = %s (%v), want %s", c.State, c.Conflicts, installstate.StateLegacyComplete)
 	}
-	plan, err := installstate.PlanAdoption(cp8aAdoptReq(t, home, root))
+	plan, err := installstate.PlanAdoption(scenarioAdoptReq(t, home, root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.Status != installstate.StatusReady {
 		t.Fatalf("plan status = %s (%v), want ready", plan.Status, plan.Blockers)
 	}
-	result, err := installstate.Adopt(cp8aAdoptReq(t, home, root))
+	result, err := installstate.Adopt(scenarioAdoptReq(t, home, root))
 	if err != nil {
 		t.Fatalf("adopt: %v", err)
 	}
@@ -229,21 +229,21 @@ func TestCP8AListedMissingDrift(t *testing.T) {
 		Paths:     []string{home, root},
 	}
 
-	c := cp8aClassify(t, home, root)
+	c := scenarioClassify(t, home, root)
 	if c.State != installstate.StateLegacyPartial {
 		t.Fatalf("state = %s, want %s", c.State, installstate.StateLegacyPartial)
 	}
 	if len(c.Legacy.ListedMissing) == 0 {
 		t.Fatalf("the missing listed file was not reported as drift")
 	}
-	plan, err := installstate.PlanAdoption(cp8aAdoptReq(t, home, root))
+	plan, err := installstate.PlanAdoption(scenarioAdoptReq(t, home, root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cp8aActionFor(plan, "commands/commit.md"); got != installstate.ActionRecreate {
+	if got := scenarioActionFor(plan, "commands/commit.md"); got != installstate.ActionRecreate {
 		t.Errorf("action = %s, want recreate", got)
 	}
-	if _, err := installstate.Adopt(cp8aAdoptReq(t, home, root)); err != nil {
+	if _, err := installstate.Adopt(scenarioAdoptReq(t, home, root)); err != nil {
 		t.Fatalf("adopt: %v", err)
 	}
 	if !fileExists(filepath.Join(root, "commands", "commit.md")) {
@@ -274,18 +274,18 @@ func TestCP8APendingProposalBlocks(t *testing.T) {
 		Paths:     []string{home, root},
 	}
 
-	c := cp8aClassify(t, home, root)
+	c := scenarioClassify(t, home, root)
 	if c.State != installstate.StateLegacyPartial || !c.Legacy.Proposed {
 		t.Fatalf("state = %s proposed = %v, want partial with a pending proposal", c.State, c.Legacy.Proposed)
 	}
-	plan, err := installstate.PlanAdoption(cp8aAdoptReq(t, home, root))
+	plan, err := installstate.PlanAdoption(scenarioAdoptReq(t, home, root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.Status != installstate.StatusBlocked {
 		t.Fatalf("plan status = %s, want blocked", plan.Status)
 	}
-	if _, err := installstate.Adopt(cp8aAdoptReq(t, home, root)); err == nil {
+	if _, err := installstate.Adopt(scenarioAdoptReq(t, home, root)); err == nil {
 		t.Errorf("adoption proceeded despite a pending proposal")
 	}
 
@@ -314,21 +314,21 @@ func TestCP8ACorruptSnapshotAcknowledged(t *testing.T) {
 		Paths:     []string{home, root},
 	}
 
-	c := cp8aClassify(t, home, root)
+	c := scenarioClassify(t, home, root)
 	if c.State != installstate.StateLegacyPartial {
 		t.Fatalf("state = %s, want %s", c.State, installstate.StateLegacyPartial)
 	}
 	if c.Legacy.Snapshot.State != "corrupt" {
 		t.Fatalf("snapshot state = %s, want corrupt", c.Legacy.Snapshot.State)
 	}
-	plan, err := installstate.PlanAdoption(cp8aAdoptReq(t, home, root))
+	plan, err := installstate.PlanAdoption(scenarioAdoptReq(t, home, root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.Status != installstate.StatusBlocked {
 		t.Fatalf("plan status = %s, want blocked", plan.Status)
 	}
-	req := cp8aAdoptReq(t, home, root)
+	req := scenarioAdoptReq(t, home, root)
 	req.AcknowledgeSnapshot = true
 	ack, err := installstate.PlanAdoption(req)
 	if err != nil {
@@ -361,11 +361,11 @@ func TestCP8AV2MigrationStates(t *testing.T) {
 		home := isolatedHome(t)
 		root := filepath.Join(home, ".claude")
 		path := filepath.Join(root, "commands", "commit.md")
-		cp8aMkfile(t, path, "applied\n")
-		m := cp8aMutation(t, "commands.commit.md", path, []byte("applied\n"))
-		cp8aWriteJournal(t, home, cp8aJournal("op-inflight", []installstate.Mutation{m}, nil))
+		scenarioMkfile(t, path, "applied\n")
+		m := scenarioMutation(t, "commands.commit.md", path, []byte("applied\n"))
+		scenarioWriteJournal(t, home, scenarioJournal("op-inflight", []installstate.Mutation{m}, nil))
 
-		c := cp8aClassify(t, home, root)
+		c := scenarioClassify(t, home, root)
 		if c.State != installstate.StateV2InFlight {
 			t.Fatalf("state = %s, want %s", c.State, installstate.StateV2InFlight)
 		}
@@ -380,7 +380,7 @@ func TestCP8AV2MigrationStates(t *testing.T) {
 		if err := os.MkdirAll(config.TransactionStageDir(home, "op-orphan"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		c := cp8aClassify(t, home, filepath.Join(home, ".claude"))
+		c := scenarioClassify(t, home, filepath.Join(home, ".claude"))
 		if c.State != installstate.StateV2Orphaned {
 			t.Fatalf("state = %s, want %s", c.State, installstate.StateV2Orphaned)
 		}
@@ -405,7 +405,7 @@ func TestCP8AMixedEvidenceBlocks(t *testing.T) {
 	root := legacyClaudeInstall(t, home)
 	ageClaudeInstall(t, home, root)
 	drifted := filepath.Join(root, "commands", "commit.md")
-	cp8aWriteLedger(t, home, nil, []installstate.Row{{
+	scenarioWriteLedger(t, home, nil, []installstate.Row{{
 		Target:   "claude:default",
 		Resource: "commands/commit.md",
 		Applied:  installstate.AppliedValue{Path: drifted, Kind: managedfile.KindFile, Digest: "0000"},
@@ -420,11 +420,11 @@ func TestCP8AMixedEvidenceBlocks(t *testing.T) {
 		Paths:     []string{home, root},
 	}
 
-	c := cp8aClassify(t, home, root)
+	c := scenarioClassify(t, home, root)
 	if c.State != installstate.StateMixed {
 		t.Fatalf("state = %s (%v), want %s", c.State, c.Conflicts, installstate.StateMixed)
 	}
-	plan, err := installstate.PlanAdoption(cp8aAdoptReq(t, home, root))
+	plan, err := installstate.PlanAdoption(scenarioAdoptReq(t, home, root))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,7 @@ func TestCP8AReplaceOrLeaveUnowned(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	undecided := cp8aAdoptReq(t, home, root)
+	undecided := scenarioAdoptReq(t, home, root)
 	undecided.BatchDecision = ""
 	plan, err := installstate.PlanAdoption(undecided)
 	if err != nil {
@@ -471,21 +471,21 @@ func TestCP8AReplaceOrLeaveUnowned(t *testing.T) {
 		t.Fatalf("undecided plan = %+v, want blocked with a batch awaiting a decision", plan)
 	}
 
-	replace, err := installstate.PlanAdoption(cp8aAdoptReq(t, home, root))
+	replace, err := installstate.PlanAdoption(scenarioAdoptReq(t, home, root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cp8aActionFor(replace, "commands/commit.md"); got != installstate.ActionReplace {
+	if got := scenarioActionFor(replace, "commands/commit.md"); got != installstate.ActionReplace {
 		t.Errorf("replace action = %s, want replace", got)
 	}
 
-	leave := cp8aAdoptReq(t, home, root)
+	leave := scenarioAdoptReq(t, home, root)
 	leave.BatchDecision = installstate.DecisionLeaveUnowned
 	left, err := installstate.PlanAdoption(leave)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cp8aActionFor(left, "commands/commit.md"); got != installstate.ActionLeaveUnowned {
+	if got := scenarioActionFor(left, "commands/commit.md"); got != installstate.ActionLeaveUnowned {
 		t.Errorf("leave action = %s, want leave-unowned", got)
 	}
 	if _, err := installstate.Adopt(leave); err != nil {
@@ -524,7 +524,7 @@ func TestCP8AInterruptedAdoptionResumes(t *testing.T) {
 	}
 
 	artifacts := claudeArtifacts(t, root)
-	victim := cp8aArtifact(t, artifacts, "commands/commit.md")
+	victim := scenarioArtifact(t, artifacts, "commands/commit.md")
 	digest, err := managedfile.DigestResourceBytes(victim.Data, victim.Kind)
 	if err != nil {
 		t.Fatal(err)
@@ -544,13 +544,13 @@ func TestCP8AInterruptedAdoptionResumes(t *testing.T) {
 	}
 	// Deliberately not Complete: the journal owns applied-but-unrecorded work.
 
-	req := cp8aAdoptReq(t, home, root)
+	req := scenarioAdoptReq(t, home, root)
 	req.Artifacts = artifacts
 	result, err := installstate.Adopt(req)
 	if err != nil {
 		t.Fatalf("adopt after interruption: %v", err)
 	}
-	if !cp8aHasActions(result.Recovery, installstate.DecisionCommitApplied) {
+	if !scenarioHasActions(result.Recovery, installstate.DecisionCommitApplied) {
 		t.Errorf("recovery actions = %+v, want commit-applied", result.Recovery)
 	}
 	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
@@ -572,8 +572,8 @@ func TestCP8AInterruptedAdoptionResumes(t *testing.T) {
 	recordScenario(t, ev)
 }
 
-// cp8aArtifact finds a selected artifact by id.
-func cp8aArtifact(t *testing.T, artifacts []installstate.Artifact, id string) installstate.Artifact {
+// scenarioArtifact finds a selected artifact by id.
+func scenarioArtifact(t *testing.T, artifacts []installstate.Artifact, id string) installstate.Artifact {
 	t.Helper()
 	for _, a := range artifacts {
 		if a.ID == id {
@@ -584,8 +584,8 @@ func cp8aArtifact(t *testing.T, artifacts []installstate.Artifact, id string) in
 	return installstate.Artifact{}
 }
 
-// cp8aHasActions reports whether any action reached want.
-func cp8aHasActions(actions []installstate.RecoveryAction, want installstate.RecoveryDecision) bool {
+// scenarioHasActions reports whether any action reached want.
+func scenarioHasActions(actions []installstate.RecoveryAction, want installstate.RecoveryDecision) bool {
 	for _, a := range actions {
 		if a.Decision == want {
 			return true
@@ -613,11 +613,11 @@ func TestCP8AAdoptionIsIdempotent(t *testing.T) {
 		Paths:     []string{home, root},
 	}
 
-	if _, err := installstate.Adopt(cp8aAdoptReq(t, home, root)); err != nil {
+	if _, err := installstate.Adopt(scenarioAdoptReq(t, home, root)); err != nil {
 		t.Fatalf("first adopt: %v", err)
 	}
-	journals := cp8aJournalCount(home)
-	result, err := installstate.Adopt(cp8aAdoptReq(t, home, root))
+	journals := scenarioJournalCount(home)
+	result, err := installstate.Adopt(scenarioAdoptReq(t, home, root))
 	if err != nil {
 		t.Fatalf("second adopt: %v", err)
 	}
@@ -627,7 +627,7 @@ func TestCP8AAdoptionIsIdempotent(t *testing.T) {
 	if len(result.Applied) != 0 {
 		t.Errorf("second adoption applied %v, want nothing", result.Applied)
 	}
-	if got := cp8aJournalCount(home); got != journals {
+	if got := scenarioJournalCount(home); got != journals {
 		t.Errorf("journal count = %d, want %d", got, journals)
 	}
 
@@ -656,9 +656,9 @@ func TestCP8AStateRootPersistenceAndRollback(t *testing.T) {
 		root := legacyClaudeInstall(t, home)
 		ageClaudeInstall(t, home, root)
 		repoRoot := isolatedHome(t)
-		cp8aMkfile(t, filepath.Join(repoRoot, ".claude", "atomic.toml"), "scope marker\n")
+		scenarioMkfile(t, filepath.Join(repoRoot, ".claude", "atomic.toml"), "scope marker\n")
 
-		req := cp8aAdoptReq(t, home, root)
+		req := scenarioAdoptReq(t, home, root)
 		req.RepoRoot = repoRoot
 		if _, err := installstate.Adopt(req); err != nil {
 			t.Fatalf("adopt: %v", err)
@@ -678,7 +678,7 @@ func TestCP8AStateRootPersistenceAndRollback(t *testing.T) {
 		root := legacyClaudeInstall(t, home)
 		ageClaudeInstall(t, home, root)
 		repoRoot := isolatedHome(t)
-		cp8aMkfile(t, filepath.Join(repoRoot, ".claude", "atomic.toml"), "scope marker\n")
+		scenarioMkfile(t, filepath.Join(repoRoot, ".claude", "atomic.toml"), "scope marker\n")
 
 		blockedDir := filepath.Join(root, "commands")
 		if err := os.Chmod(blockedDir, 0o555); err != nil {
@@ -686,9 +686,9 @@ func TestCP8AStateRootPersistenceAndRollback(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Chmod(blockedDir, 0o755) })
 
-		req := cp8aAdoptReq(t, home, root)
+		req := scenarioAdoptReq(t, home, root)
 		req.RepoRoot = repoRoot
-		victim := cp8aArtifact(t, claudeArtifacts(t, root), "commands/atomic-help.md")
+		victim := scenarioArtifact(t, claudeArtifacts(t, root), "commands/atomic-help.md")
 		req.Artifacts = append([]installstate.Artifact{victim}, claudeArtifacts(t, root)...)
 
 		if _, err := installstate.Adopt(req); err == nil {
@@ -733,7 +733,7 @@ func TestCP8ANewerSchemaRefusal(t *testing.T) {
 		t.Fatalf("classify error = %v, want a newer-schema refusal", err)
 	}
 	root := filepath.Join(home, ".claude")
-	if _, err := installstate.Adopt(cp8aAdoptReq(t, home, root)); err == nil || !strings.Contains(err.Error(), "newer") {
+	if _, err := installstate.Adopt(scenarioAdoptReq(t, home, root)); err == nil || !strings.Contains(err.Error(), "newer") {
 		t.Fatalf("adopt error = %v, want a newer-schema refusal", err)
 	}
 
@@ -761,15 +761,15 @@ func TestCP8AOldBinaryDrift(t *testing.T) {
 		Paths:     []string{home, root},
 	}
 
-	if _, err := installstate.Adopt(cp8aAdoptReq(t, home, root)); err != nil {
+	if _, err := installstate.Adopt(scenarioAdoptReq(t, home, root)); err != nil {
 		t.Fatalf("adopt: %v", err)
 	}
-	if c := cp8aClassify(t, home, root); c.State != installstate.StateV2Clean {
+	if c := scenarioClassify(t, home, root); c.State != installstate.StateV2Clean {
 		t.Fatalf("post-adoption state = %s (%v), want v2-clean", c.State, c.Conflicts)
 	}
 
-	cp8aMkfile(t, filepath.Join(root, "commands", "commit.md"), "old binary wrote this\n")
-	drifted := cp8aClassify(t, home, root)
+	scenarioMkfile(t, filepath.Join(root, "commands", "commit.md"), "old binary wrote this\n")
+	drifted := scenarioClassify(t, home, root)
 	if drifted.State != installstate.StateMixed {
 		t.Fatalf("drifted state = %s, want %s", drifted.State, installstate.StateMixed)
 	}

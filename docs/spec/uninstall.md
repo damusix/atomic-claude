@@ -19,7 +19,7 @@ The removal, retention, lock, and recovery contracts are shared with the multi-h
 
 ## Success criteria
 
-- [ ] `atomic harness uninstall <target-key>` removes only the unchanged resources owned for that target. A resource whose native bytes changed refuses the whole operation; a resource another enrolled consumer depends on is retained and reported.
+- [ ] `atomic harness uninstall <target-key>` removes only the unchanged resources owned for that target. A resource whose native bytes changed refuses the whole operation; a resource another enrolled consumer depends on is retained and reported; a resource the removal cannot clear — a read-only `settings.json` — is reported `skipped` and keeps its ownership claim.
 - [ ] `atomic harness uninstall --all` removes every enrolled target, then the completed operational and adoption state.
 - [ ] Full uninstall preserves `~/.atomic/config.toml`, `~/.atomic/profile.md`, `~/.atomic/wikis.md`, and backups, and retains unresolved journals plus the transaction backups, ledger rows, and state-location records they reference until recovery completes.
 - [ ] `--dry-run` opens no lock, writes nothing, previews unresolved journals read-only, and reports `blocked_on_recovery` (exit 1) when a journal cannot resolve to one safe result.
@@ -45,6 +45,8 @@ The removal, retention, lock, and recovery contracts are shared with the multi-h
 
 - A resource whose native bytes changed since Atomic wrote them refuses the whole operation — uninstall never overwrites a user edit.
 - A resource another enrolled consumer depends on is retained and reported alongside what was removed.
+- A resource the removal cannot clear is reported `skipped` alongside what was removed, and its ledger row and enrollment are kept: the bytes still on disk behind a read-only file are still Atomic's claim, so a later uninstall can finish the job.
+- A Claude target's `settings.json` is owned member-wise rather than whole-file: whenever a Claude target converges — adapter converge during enroll, repair, or update, and the explicit legacy adoption — the ledger records the Atomic-owned members (the inline `SessionStart` registration and the `outputStyle` seed), so uninstall strips exactly those members and leaves the user's other keys byte-for-byte. A later edit to an owned member is a changed resource like any other — the operation refuses instead of overwriting it. A read-only `settings.json` is the skipped case above: the removal leaves it untouched rather than clobbering it.
 - The plan is complete before anything is removed: every resource is observed, planned, and approved (one confirmation), then removed.
 
 ### Full uninstall
@@ -52,7 +54,7 @@ The removal, retention, lock, and recovery contracts are shared with the multi-h
 `atomic harness uninstall --all` removes every enrolled target, then removes the completed operational and adoption state through `installstate.Cleanup`.
 
 - **Preserved:** `~/.atomic/config.toml`, `~/.atomic/profile.md`, `~/.atomic/wikis.md`, and backups under `~/.atomic/backups/` — user data, not Atomic-owned state.
-- **Retained:** unresolved journals, and the transaction backups, ledger rows, and state-location records those journals reference, until recovery completes. `installstate.ComputeRetention` names what survives; a completed journal contributes nothing and its operational state is removable.
+- **Retained:** unresolved journals, and the transaction backups, ledger rows, and state-location records those journals reference, until recovery completes. `installstate.ComputeRetention` names what survives; a completed journal contributes nothing and its operational state is removable. A row whose removal was skipped — a read-only `settings.json` — is passed to `installstate.Cleanup` explicitly and survives with the target record it names, so the full uninstall does not silently drop a claim the bytes still support.
 - A transaction directory with no journal at all is orphaned v2 evidence and is never auto-deleted.
 
 The full retention criteria are owned by the multi-harness lifecycle spec — see `docs/spec/omp-plugin-compatibility.md`.
@@ -118,6 +120,20 @@ Built across 4 iterations of /subagent-implementation. Commits (chronological):
 
 
 ## Change log
+
+### 2026-09-20 — A skipped removal keeps its ownership claim
+
+**What changed:** A resource the removal cannot clear — a read-only `settings.json` — is reported `skipped` rather than `removed`, and its ledger row and enrollment survive, including through `atomic harness uninstall --all` where `installstate.Cleanup` is passed the skipped rows explicitly. A later uninstall clears the claim once the file is writable.
+
+**Why:** The settings resource is written by convergence, so a read-only file made the removal silently drop the claim while the `SessionStart` registration and `outputStyle` seed stayed in the user's settings file — residue no later uninstall could name.
+
+### 2026-09-20 — Claude settings ownership is member-wise
+
+**What changed:** A Claude target's `settings.json` is now an owned resource in the ledger, recorded during adapter convergence with a digest over only the Atomic-owned members (the inline `SessionStart` registration and the `outputStyle` seed). Target and full uninstall strip exactly those members, leaving the user's other keys byte-for-byte; a later edit to an owned member is a changed resource and refuses the whole operation. The `### Target uninstall` body states the member-wise contract.
+
+**Why:** The converge-time settings mutations were not ledger-owned, so `atomic harness uninstall` left the registration and `outputStyle` behind. See `docs/spec/omp-plugin-compatibility.md` for the multi-harness lifecycle.
+
+**Superseded:** Prior body treated every owned resource as whole-file or whole-block bytes, with no settings resource, so the converge-time hook/style mutations survived a target uninstall.
 
 ### 2026-09-19 — generic multi-target uninstall is the primary surface
 

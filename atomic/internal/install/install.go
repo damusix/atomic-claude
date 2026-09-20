@@ -324,6 +324,9 @@ func (s Steps) Adopt(req AdoptRequest) ([]ConvergeReport, error) {
 		if err != nil {
 			return reports, err
 		}
+		if err := claude.ApplyOwnedSettings(s.Home, target, claude.Generation()); err != nil {
+			return reports, err
+		}
 		report.Status = harness.StatusConverged
 		report.Applied = len(migrated.Adoption.Applied) > 0
 		reports = append(reports, report)

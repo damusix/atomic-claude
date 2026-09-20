@@ -37,7 +37,7 @@ Every supported or partial claim below is owned by exactly one replay target. A 
 | `codex-registration` | `codex/repo` | `codex.registration`, `codex.visibility` |
 | `codex-runtime` | `codex/repo` | `codex.native-global-root`, `codex.failure`, `codex.hook-absence` |
 
-Every target pins its own working directory, closes stdin, and writes `<target>.stdout`, `<target>.stderr`, and `<target>.status` into the generated `output/` directory. Nothing about a target upgrades a capability: a target proves the recorded command can be re-run. `unsupported` rows that have a target are absence evidence, and they stay unsupported.
+Every target pins its own working directory and closes stdin. The default capture is `<target>.stdout`, `<target>.stderr`, and `<target>.status` under the generated `output/` directory, but four targets name their outputs differently: `versions` writes one `versions-<harness>.{stdout,stderr,status}` triple per harness plus `version-preflight.txt`; `codex-registration` writes a named triple per command (`codex-marketplace-add`, `codex-marketplace-list`, `codex-plugin-list-before-add`, `codex-plugin-add`, `codex-plugin-list-after-add`); `omp-order` writes `omp-handler-order.{stdout,stderr,status}` plus `omp-order.jsonl`; and `run-omp-deny-probe.sh`, the separate bounded runner, writes no `<target>.*` triple at all — its captures are `<name>.txt` files and `.jsonl` event streams under `output/runtime-deny-side-effect/`. Several targets also write an event stream, a session id, or a verdict beside their triple (`<...>-events-*.jsonl`, `claude-session-id.txt`, `omp-session-id.txt`, `codex-runtime.verdict.txt`). Nothing about a target upgrades a capability: a target proves the recorded command can be re-run. `unsupported` rows that have a target are absence evidence, and they stay unsupported.
 
 **Replay assumptions (they bound every row above).**
 
@@ -46,6 +46,7 @@ Every target pins its own working directory, closes stdin, and writes `<target>.
 - Auth and network. OMP needs a provider credential resolved at runtime from `CP0_OMP_AUTH_HOME` or `CP0_OMP_API_KEY`; only a transient token is passed and nothing is retained. Codex uses the ambient ChatGPT account credential outside `CODEX_HOME`; no credential file is copied into the replay root. Claude runs with an isolated `CLAUDE_CONFIG_DIR` and no credential, so its model requests are expected to fail with `Not logged in`.
 - Resume. Resume targets consume the session ID their create target wrote into the same fresh root (`output/claude-session-id.txt`, `output/omp-session-id.txt`). No session ID is hard-coded, and a stale ID is not a valid replay input.
 - Fresh root. The generator refuses an existing destination. Registration and extension-discovery rows assume an empty isolated home, so a reused root invalidates the before-add registry state and the discovery and dedupe counts.
+- Status scope. A `replay-manifest.json` row's `status` describes replay reproducibility — whether the recorded command re-runs and reaches its expected terminal condition — not capability support. `codex.failure` is `partial` because its target reproduces the expected model rejection; the Codex failure-semantics capability row stays `unsupported`.
 
 **Claims with no replay target.** `reload`, `user overrides`, and `numeric limits` on all three harnesses, OMP extension disablement (`--no-extensions`), OMP package install/lifecycle/scope, and every Codex runtime hook surface beyond thread creation were not exercised, so no target exists for them. They are unsupported and are not covered by any manifest row.
 
@@ -224,7 +225,7 @@ The isolated runtime authenticated far enough to create a thread, but the config
 | `PreToolUse` structured path inventory | Unsupported | Not exercised. Replay target: `codex-runtime` (absence) |
 | Context return, deny, and input rewrite | Unsupported | Not exercised. Replay target: `codex-runtime` (absence) |
 | Multiple-hook ordering and concurrency | Unsupported | Not exercised. No replay target |
-| Failure, timeout, and exit-code semantics | Unsupported | Not exercised. Replay target: `codex-runtime` (absence) |
+| Failure, timeout, and exit-code semantics | Unsupported | Not exercised. Replay target: `codex-runtime` (absence); its manifest `partial` status is replay-only (see Replay assumptions), never capability support. |
 | Additional-context spill and consumer resolution | Unsupported | Not exercised. The documented 2,500-token threshold is not runtime proof. Replay target: `codex-runtime` (absence) |
 | Hosted-tool and specialized-tool bypasses | Unsupported | Not exercised. No replay target |
 | Reload | Unsupported | Not exercised. No replay target |

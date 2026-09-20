@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
@@ -93,10 +94,85 @@ func (a *Adapter) converge(home string, t harness.Target, p harness.Plan) (harne
 	if err != nil {
 		return harness.Convergence{Target: t}, err
 	}
-	if err := applyClaudeSettings(home, t.NativeRoot); err != nil {
+	if err := ApplyOwnedSettings(home, t, p.Generation); err != nil {
 		return harness.Convergence{Target: t}, err
 	}
 	return harness.Convergence{Target: t, Status: harness.StatusConverged}, nil
+}
+
+// settingsResourceID names the one Claude settings resource a target owns: the
+// named members of its settings.json, never the file itself.
+const settingsResourceID = "settings.json"
+
+// ApplyOwnedSettings applies the two narrow settings mutations convergence owns
+// — the inline SessionStart registration and the outputStyle seed — and records
+// their ledger ownership, so a target uninstall removes exactly the members
+// Atomic wrote and a later user edit to one of them refuses the removal instead
+// of being overwritten. Both the adapter convergence and the explicit legacy
+// adoption call it, so every ledger-owned Claude target carries the row. The
+// apply and the record share one lifecycle lock so a concurrent lifecycle
+// operation cannot interleave between them.
+func ApplyOwnedSettings(home string, t harness.Target, generation string) error {
+	lock, err := installstate.AcquireLock(home, installstate.WriterIdentity{OperationID: "claude-settings"})
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+	if err := applyClaudeSettings(home, t.NativeRoot); err != nil {
+		return err
+	}
+	return recordSettingsOwnership(home, t, generation)
+}
+
+// recordSettingsOwnership writes the settings row for a converged target: the
+// digest of the members Atomic owns, re-observed after the apply so the row can
+// only record bytes that verify now. A settings file carrying neither owned
+// member — a read-only target the apply skipped, or one the user reverted —
+// leaves no row, so a claim that can never be verified is never recorded.
+func recordSettingsOwnership(home string, t harness.Target, generation string) error {
+	owned, err := hooks.ObserveSettingsOwnedInDir(t.NativeRoot)
+	if err != nil {
+		return fmt.Errorf("claude: observe settings ownership: %w", err)
+	}
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		return err
+	}
+	verifiable := owned.Conflict == managedfile.ConflictNone && owned.Digest != "" && owned.Exists()
+	if !verifiable {
+		return dropSettingsRow(ledger, home, t)
+	}
+	if ledger.Upsert(installstate.Row{
+		Target:     t.Key(),
+		Resource:   settingsResourceID,
+		Consumer:   t.Key(),
+		Generation: generation,
+		Tier:       string(Tier),
+		Applied:    installstate.AppliedValue{Path: owned.Path, Kind: managedfile.KindSettings, Digest: owned.Digest},
+	}) {
+		return ledger.Save(config.LedgerPath(home))
+	}
+	return nil
+}
+
+// dropSettingsRow removes any settings row for the target and reports whether
+// the ledger changed. It covers the converged-but-unownable case without
+// leaving a stale claim behind.
+func dropSettingsRow(ledger *installstate.Ledger, home string, t harness.Target) error {
+	kept := ledger.Rows[:0:0]
+	changed := false
+	for _, row := range ledger.Rows {
+		if row.Target == t.Key() && row.Resource == settingsResourceID {
+			changed = true
+			continue
+		}
+		kept = append(kept, row)
+	}
+	if !changed {
+		return nil
+	}
+	ledger.Rows = kept
+	return ledger.Save(config.LedgerPath(home))
 }
 
 // applyClaudeSettings runs the two narrow Claude settings mutations

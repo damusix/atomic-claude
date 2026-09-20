@@ -120,9 +120,10 @@ func TestCP8AClaudeOnlyLifecycle(t *testing.T) {
 		t.Fatalf("the artifact tree was not projected")
 	}
 
-	// The adapter owns the SessionStart registration outside the ledger, so
-	// clearing it is drift repair must restore; the same call for an unenrolled
-	// home refuses rather than writing.
+	// The adapter records its settings ownership in the ledger, and settings
+	// drift is repairable rather than mixed evidence, so clearing the file is
+	// drift repair must restore; the same call for an unenrolled home refuses
+	// rather than writing.
 	settings := filepath.Join(root, "settings.json")
 	if err := os.WriteFile(settings, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -629,14 +630,14 @@ func TestCP8AUninstallRecovery(t *testing.T) {
 	row := ledger.Rows[0]
 	// An applied-but-unrecorded write: the native bytes already match the
 	// intended digest, so recovery commits them rather than discarding.
-	cp8aMkfile(t, row.Applied.Path, string(mustRead(t, row.Applied.Path)))
+	scenarioMkfile(t, row.Applied.Path, string(mustRead(t, row.Applied.Path)))
 	m := installstate.Mutation{
 		Unit: "cp8a-recovery", Resource: row.Resource, Target: row.Target,
 		Kind: row.Applied.Kind, Path: row.Applied.Path, Intended: row.Applied.Digest,
 		PriorObserved: true, BackupSum: "unused",
 	}
-	journalPath := cp8aWriteJournal(t, home, cp8aJournal("cp8a-uninstall-recovery", []installstate.Mutation{m},
-		[]installstate.Progress{{Unit: m.Unit, State: installstate.StateApplied, At: cp8aFixedTime()}}))
+	journalPath := scenarioWriteJournal(t, home, scenarioJournal("cp8a-uninstall-recovery", []installstate.Mutation{m},
+		[]installstate.Progress{{Unit: m.Unit, State: installstate.StateApplied, At: scenarioFixedTime()}}))
 	if !fileExists(journalPath) {
 		t.Fatalf("the unresolved journal was not written")
 	}

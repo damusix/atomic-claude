@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
 
 func newHome(t *testing.T) string {
@@ -437,5 +439,296 @@ func TestConvergeWritesSettingsUnderCustomNamedRoot(t *testing.T) {
 				t.Errorf("default target settings mutated: %q", after)
 			}
 		})
+	}
+}
+
+// setSetting rewrites one top-level member of a JSON settings file, preserving
+// every other member, so a test can model a user edit without rebuilding the
+// file's exact bytes.
+func setSetting(t *testing.T, path, key string, value any) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatal(err)
+	}
+	settings[key] = value
+	out, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// convergeDefaultClaudeTarget enrolls and converges the default Claude root so
+// its settings mutations and their ledger ownership are in place.
+func convergeDefaultClaudeTarget(t *testing.T, home, root string) harness.Target {
+	t.Helper()
+	adapter := New()
+	instances, err := adapter.Discover(home)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	selected, err := harness.Select(instances, harness.Selector{Kind: harness.KindClaude})
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	target := selected.Target()
+	claims := append([]harness.Claim{SteeringClaim(root)}, SelectionClaims(root)...)
+	if _, err := harness.Enroll(home, harness.EnrollmentRequest{Target: target, Claims: claims, Approved: true}); err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	life := adapter.Lifecycle(home)
+	plan, err := life.Project(target, harness.PlanRequest{BatchDecision: installstate.DecisionReplace})
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	if len(plan.Blockers) > 0 {
+		t.Fatalf("unexpected blockers: %v", plan.Blockers)
+	}
+	if _, err := life.Converge(target, plan); err != nil {
+		t.Fatalf("converge: %v", err)
+	}
+	return target
+}
+
+// TestConvergeRecordsSettingsOwnership proves the settings mutations converge
+// owns are ledger resources: after converge the ledger carries a settings row,
+// a target uninstall removes exactly the Atomic members, and the user's
+// unrelated keys survive.
+func TestConvergeRecordsSettingsOwnership(t *testing.T) {
+	home := newHome(t)
+	t.Setenv(ConfigDirEnv, "")
+	root := filepath.Join(home, ".claude")
+	settingsPath := filepath.Join(root, "settings.json")
+	writeFile(t, settingsPath, "{\"model\":\"opus\"}\n")
+
+	target := convergeDefaultClaudeTarget(t, home, root)
+
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatalf("load ledger: %v", err)
+	}
+	row, ok := ledger.Find(target.Key(), "settings.json")
+	if !ok {
+		t.Fatalf("no settings row: %+v", ledger.Rows)
+	}
+	if row.Applied.Kind != managedfile.KindSettings || row.Applied.Digest == "" {
+		t.Fatalf("settings row applied = %+v, want a settings kind with a digest", row.Applied)
+	}
+
+	// The ledger must agree with the bytes on disk: the member-wise settings
+	// observation is what classification reads, so a mismatch here would report
+	// a healthy install as mixed.
+	classification, err := installstate.Classify(installstate.ClassifyRequest{
+		Home:       home,
+		NativeRoot: root,
+		Claims:     GlobalClaims(root),
+	})
+	if err != nil {
+		t.Fatalf("classify: %v", err)
+	}
+	if classification.State != installstate.StateV2Clean {
+		t.Errorf("post-converge state = %s (conflicts %v), want v2-clean", classification.State, classification.Conflicts)
+	}
+
+	// A user edit to an unrelated key is not drift on the owned members.
+	setSetting(t, settingsPath, "model", "sonnet")
+
+	if _, err := harness.RemoveTargetResources(home, target); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+
+	installed, drifted, err := hooks.IsInstalledInDir(root)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if installed || drifted {
+		t.Errorf("hook registration survived uninstall: installed=%v drifted=%v", installed, drifted)
+	}
+	if _, present, err := hooks.ReadOutputStyle(settingsPath); err != nil || present {
+		t.Errorf("outputStyle survived uninstall: present=%v err=%v", present, err)
+	}
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("settings.json removed by uninstall: %v", err)
+	}
+	var remaining map[string]any
+	if err := json.Unmarshal(after, &remaining); err != nil {
+		t.Fatalf("settings.json unparseable after uninstall: %v", err)
+	}
+	if remaining["model"] != "sonnet" {
+		t.Errorf("unrelated user key lost: %s", after)
+	}
+}
+
+// TestSettingsDriftIsRepairableNotMixed proves a cleared settings.json does not
+// classify the install mixed: the settings row is drift convergence repairs, so
+// a repair converges and re-registers the hook, and a later uninstall still
+// tolerates the absent members.
+func TestSettingsDriftIsRepairableNotMixed(t *testing.T) {
+	home := newHome(t)
+	t.Setenv(ConfigDirEnv, "")
+	root := filepath.Join(home, ".claude")
+	settingsPath := filepath.Join(root, "settings.json")
+	writeFile(t, settingsPath, "{\"model\":\"opus\"}\n")
+
+	target := convergeDefaultClaudeTarget(t, home, root)
+
+	// Clear the members Atomic owns; the ledger row still records what it wrote.
+	writeFile(t, settingsPath, "{}\n")
+
+	classification, err := installstate.Classify(installstate.ClassifyRequest{
+		Home:       home,
+		NativeRoot: root,
+		Claims:     GlobalClaims(root),
+	})
+	if err != nil {
+		t.Fatalf("classify: %v", err)
+	}
+	if classification.State != installstate.StateV2Clean {
+		t.Fatalf("cleared settings state = %s (conflicts %v), want v2-clean", classification.State, classification.Conflicts)
+	}
+	if len(classification.Drift) == 0 {
+		t.Error("cleared settings reported no drift")
+	}
+
+	life := New().Lifecycle(home)
+	plan, err := life.Project(target, harness.PlanRequest{BatchDecision: installstate.DecisionReplace})
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	if len(plan.Blockers) > 0 {
+		t.Fatalf("cleared settings blocked repair: %v", plan.Blockers)
+	}
+	if _, err := life.Converge(target, plan); err != nil {
+		t.Fatalf("converge: %v", err)
+	}
+
+	installed, drifted, err := hooks.IsInstalledInDir(root)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if !installed || drifted {
+		t.Errorf("repair did not restore the registration: installed=%v drifted=%v", installed, drifted)
+	}
+
+	// Absence is not a conflict: uninstall clears the claim's row.
+	if _, err := harness.RemoveTargetResources(home, target); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatalf("load ledger: %v", err)
+	}
+	if _, ok := ledger.Find(target.Key(), "settings.json"); ok {
+		t.Error("uninstall left the settings row behind")
+	}
+}
+
+// TestUninstallKeepsClaimWhenSettingsAreReadOnly proves a removal that cannot
+// write a read-only settings.json reports the resource skipped and keeps its
+// ledger row and enrollment, so a later uninstall still clears the claim.
+func TestUninstallKeepsClaimWhenSettingsAreReadOnly(t *testing.T) {
+	home := newHome(t)
+	t.Setenv(ConfigDirEnv, "")
+	root := filepath.Join(home, ".claude")
+	settingsPath := filepath.Join(root, "settings.json")
+	writeFile(t, settingsPath, "{\"model\":\"opus\"}\n")
+
+	target := convergeDefaultClaudeTarget(t, home, root)
+
+	if err := os.Chmod(settingsPath, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(settingsPath, 0o644) })
+
+	removal, err := harness.RemoveTargetResources(home, target)
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if len(removal.Skipped) != 1 || removal.Skipped[0] != "settings.json" {
+		t.Fatalf("skipped = %v, want [settings.json]", removal.Skipped)
+	}
+	for _, id := range removal.Removed {
+		if id == "settings.json" {
+			t.Errorf("a skipped resource is reported removed: %+v", removal)
+		}
+	}
+	installed, _, err := hooks.IsInstalledInDir(root)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if !installed {
+		t.Error("the read-only registration was removed")
+	}
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatalf("load ledger: %v", err)
+	}
+	if _, ok := ledger.Find(target.Key(), "settings.json"); !ok {
+		t.Error("the skipped removal dropped the ownership claim")
+	}
+	if _, ok := ledger.FindTarget(string(target.Kind), target.Instance); !ok {
+		t.Error("the skipped removal dropped the enrollment")
+	}
+
+	// Once the file is writable, a later uninstall clears the claim.
+	if err := os.Chmod(settingsPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second, err := harness.RemoveTargetResources(home, target)
+	if err != nil {
+		t.Fatalf("second uninstall: %v", err)
+	}
+	if len(second.Skipped) != 0 {
+		t.Errorf("second uninstall skipped = %v, want none", second.Skipped)
+	}
+	ledger, err = installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatalf("reload ledger: %v", err)
+	}
+	if _, ok := ledger.Find(target.Key(), "settings.json"); ok {
+		t.Error("the settings claim survived a writable uninstall")
+	}
+	if _, present, err := hooks.ReadOutputStyle(settingsPath); err != nil || present {
+		t.Errorf("outputStyle survived: present=%v err=%v", present, err)
+	}
+}
+
+// TestUninstallRefusesUserEditedOwnedSetting proves a later edit to an owned
+// settings member conflicts: the whole uninstall refuses and no bytes are
+// written, so the user's edit is never overwritten.
+func TestUninstallRefusesUserEditedOwnedSetting(t *testing.T) {
+	home := newHome(t)
+	t.Setenv(ConfigDirEnv, "")
+	root := filepath.Join(home, ".claude")
+	settingsPath := filepath.Join(root, "settings.json")
+	writeFile(t, settingsPath, "{\"model\":\"opus\"}\n")
+
+	target := convergeDefaultClaudeTarget(t, home, root)
+	setSetting(t, settingsPath, "outputStyle", "Default")
+	before, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := harness.RemoveTargetResources(home, target); !errors.Is(err, harness.ErrEvidenceConflict) {
+		t.Fatalf("uninstall error = %v, want %v", err, harness.ErrEvidenceConflict)
+	}
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("uninstall rewrote the user's settings: %s", after)
+	}
+	if _, err := os.Stat(filepath.Join(root, "commands", "commit.md")); err != nil {
+		t.Errorf("uninstall removed a resource despite refusing the plan: %v", err)
 	}
 }

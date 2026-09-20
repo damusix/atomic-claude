@@ -43,6 +43,9 @@ type Convergence struct {
 
 // Removal is the outcome of removing one target's resources. Retained names
 // resources kept because another enrolled consumer still depends on them.
+// Skipped names resources removal could not clear — a read-only settings file —
+// whose ledger rows and enrollment are kept so a later uninstall can finish the
+// job.
 //
 // A dry run populates Recovery with the unresolved journals a real removal
 // would reconcile first, and Blockers with anything that forbids a decidable
@@ -51,6 +54,7 @@ type Removal struct {
 	Target   Target   `json:"target"`
 	Removed  []string `json:"removed,omitempty"`
 	Retained []string `json:"retained,omitempty"`
+	Skipped  []string `json:"skipped,omitempty"`
 	// Recovery previews unresolved journals in memory. It is never a mutation.
 	Recovery []installstate.RecoverySimulation `json:"recovery,omitempty"`
 	// Blockers names the observations that forbid a decidable plan, including a

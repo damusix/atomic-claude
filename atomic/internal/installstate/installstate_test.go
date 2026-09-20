@@ -1271,6 +1271,53 @@ func TestCleanupDropsTargetsNothingReferences(t *testing.T) {
 	}
 }
 
+// TestCleanupKeepsRowsACallerCouldNotClear proves Cleanup retains a row a
+// removal could not clear — a resource still on disk behind a read-only file —
+// and the target record that row names, while still pruning everything else.
+func TestCleanupKeepsRowsACallerCouldNotClear(t *testing.T) {
+	home := newHome(t)
+
+	skippedTarget := TargetRecord{Harness: "claude", Instance: "default", NativeRoot: filepath.Join(home, ".claude"), Status: "converged"}
+	clearedTarget := TargetRecord{Harness: "claude", Instance: "read-only", NativeRoot: filepath.Join(home, ".claude-ro"), Status: "converged"}
+	ledger, err := LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger.UpsertTarget(skippedTarget)
+	ledger.UpsertTarget(clearedTarget)
+	kept := Row{Target: skippedTarget.Key(), Resource: "settings.json", Applied: AppliedValue{Path: filepath.Join(skippedTarget.NativeRoot, "settings.json"), Kind: managedfile.KindSettings, Digest: "sha256:kept"}}
+	cleared := Row{Target: clearedTarget.Key(), Resource: "global-claude"}
+	ledger.Upsert(kept)
+	ledger.Upsert(cleared)
+	if err := ledger.Save(config.LedgerPath(home)); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Cleanup(home, ledger, time.Now().UTC(), kept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.RemovedRows) != 1 || result.RemovedRows[0].Resource != "global-claude" {
+		t.Errorf("removed rows = %+v, want only the cleared resource", result.RemovedRows)
+	}
+	if _, ok := ledger.Find(skippedTarget.Key(), "settings.json"); !ok {
+		t.Error("the kept row was pruned")
+	}
+	if _, ok := ledger.FindTarget(skippedTarget.Harness, skippedTarget.Instance); !ok {
+		t.Error("the target a kept row names was dropped")
+	}
+	if _, ok := ledger.FindTarget(clearedTarget.Harness, clearedTarget.Instance); ok {
+		t.Error("a target nothing references survived cleanup")
+	}
+	onDisk, err := LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(onDisk.Rows) != 1 || onDisk.Rows[0].Resource != "settings.json" {
+		t.Errorf("ledger on disk after cleanup = %+v, want only the kept row", onDisk.Rows)
+	}
+}
+
 func TestEndToEndOperationUnderRealHome(t *testing.T) {
 	home := newHome(t)
 

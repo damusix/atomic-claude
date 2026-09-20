@@ -59,16 +59,16 @@ type ScenarioEvidence struct {
 	RecordedAt string   `json:"recorded_at"`
 }
 
-// cp8aEvidence collects every scenario record and writes the matrix index once
+// scenarioRecorder collects every scenario record and writes the matrix index once
 // the package's tests have all run.
-var cp8aEvidence = struct {
+var scenarioRecorder = struct {
 	mu      sync.Mutex
 	records []ScenarioEvidence
 	root    string
 }{}
 
 func TestMain(m *testing.M) {
-	cp8aEvidence.root = resolveEvidenceRoot()
+	scenarioRecorder.root = resolveEvidenceRoot()
 	code := m.Run()
 	writeEvidenceIndex()
 	os.Exit(code)
@@ -129,7 +129,7 @@ func recordScenario(t *testing.T, ev ScenarioEvidence) {
 // the index.
 func persistScenario(t *testing.T, ev ScenarioEvidence) {
 	t.Helper()
-	root := cp8aEvidence.root
+	root := scenarioRecorder.root
 	if root == "" {
 		t.Logf("scenario %s: no evidence root resolvable; record kept in-process only", ev.Scenario)
 	} else if err := os.MkdirAll(root, 0o755); err != nil {
@@ -143,9 +143,9 @@ func persistScenario(t *testing.T, ev ScenarioEvidence) {
 		}
 	}
 
-	cp8aEvidence.mu.Lock()
-	cp8aEvidence.records = append(cp8aEvidence.records, ev)
-	cp8aEvidence.mu.Unlock()
+	scenarioRecorder.mu.Lock()
+	scenarioRecorder.records = append(scenarioRecorder.records, ev)
+	scenarioRecorder.mu.Unlock()
 }
 
 // recordSkip retains a skip with its reason and stops the test loudly, so an
@@ -190,7 +190,7 @@ func safeEvidenceName(name string) string {
 // index is rebuilt from the per-scenario JSON records already on disk so a
 // filtered or repeated run cannot shrink or double-count the retained matrix.
 func writeEvidenceIndex() {
-	root := cp8aEvidence.root
+	root := scenarioRecorder.root
 	if root == "" {
 		return
 	}

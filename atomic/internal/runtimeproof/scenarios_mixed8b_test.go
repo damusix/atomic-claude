@@ -339,10 +339,10 @@ func TestCP8BMixedInterruptionRecovery(t *testing.T) {
 		t.Fatalf("no file ownership row to build the interrupted operation from")
 	}
 	data := mustRead(t, row.Applied.Path)
-	m := cp8aMutation(t, "cp8b-mixed-recovery", row.Applied.Path, data)
+	m := scenarioMutation(t, "cp8b-mixed-recovery", row.Applied.Path, data)
 	m.Target = row.Target
-	journalPath := cp8aWriteJournal(t, home, cp8aJournal("cp8b-mixed-recovery", []installstate.Mutation{m},
-		[]installstate.Progress{{Unit: m.Unit, State: installstate.StateApplied, At: cp8aFixedTime()}}))
+	journalPath := scenarioWriteJournal(t, home, scenarioJournal("cp8b-mixed-recovery", []installstate.Mutation{m},
+		[]installstate.Progress{{Unit: m.Unit, State: installstate.StateApplied, At: scenarioFixedTime()}}))
 
 	reports, err := scenarioSteps(home).ConvergeEnrolled()
 	if err != nil {

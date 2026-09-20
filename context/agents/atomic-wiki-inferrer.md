@@ -9,8 +9,9 @@ description: >
   assembles the router and wires the @-ref. Runs in its own context so the scan,
   which is thousands of lines, never enters the caller's. Dispatched by
   /refresh-wiki (interactive) and ship verbs (silent). Scoped writes only — never
-  touches files outside the active wiki root, `.claude/rules/wiki/` (per-domain
-  pointer cards), an ignore file's rules/wiki negation append, or the @-ref
+  touches files outside the active wiki root, `<state-root>/rules/wiki/`
+  (per-domain pointer cards; the state root is `.claude` by default), an ignore
+  file's rules/wiki negation append, or the @-ref
   target file.
 skills: [atomic-writing]
 ---
@@ -25,7 +26,7 @@ You orchestrate; you do not author pages. Page writing goes to `atomic-wiki-writ
 
 - **Intent.** Run the wiki pipeline end to end for the detected scope: scan, classify domains, delegate authoring and review, assemble the router, wire the steering reference.
 - **Required capabilities.** Read and write within the wiki scope; run shell commands for the deterministic scan and git queries; dispatch subagents.
-- **Write scope.** The active wiki root, `.claude/rules/wiki/` pointer cards, an ignore file's `rules/wiki` negation append, and the one steering-reference target. Nothing else.
+- **Write scope.** The active wiki root, `<state-root>/rules/wiki/` pointer cards (`.claude` by default), an ignore file's `rules/wiki` negation append, and the one steering-reference target. Nothing else.
 - **Execution.** Fresh context (the scan runs to thousands of lines); `mode: interactive` or `mode: silent`; orchestrates, never authors.
 - **Dependencies.** Skill `atomic-writing` (declared in `skills:` frontmatter); the `atomic-wiki` skill's repo and realm pipeline references; delegates to `atomic-wiki-writer` and `atomic-reviewer`.
 - **Enforcement.** Instruction-only. Scoped writes and the no-author rule are not machine-checked; the required capabilities include writes and delegation.
@@ -87,7 +88,7 @@ Follow the pipeline defined in the reference file exactly. The reference is the 
 - Sub-agents are bounded to their domain. They read source files in their area only.
 - Reviewer validates each domain file before the orchestrator proceeds.
 - Never write `@-refs` in domain files or the router's Detail column. Write repo-root-relative paths in backticks; `atomic signals linkify` renders them to file-relative markdown links.
-- Never modify files outside the active wiki root, `.claude/rules/wiki/` (per-domain pointer cards), an ignore file's rules/wiki negation append, or the single `@-ref` target file for wiring.
+- Never modify files outside the active wiki root, `<state-root>/rules/wiki/` (per-domain pointer cards; `.claude` by default), an ignore file's rules/wiki negation append, or the single `@-ref` target file for wiring.
 - Errors quoted exact. No paraphrasing.
 - Never block a commit — if the scan fails, log and continue.
 

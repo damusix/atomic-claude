@@ -69,7 +69,7 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 | `.claude/.scratchpad/<slug>/` | Per-task working bundle from `atomic scratchpad new`. Gitignored, worktree-local; archived when the worktree is reaped. |
 | `.claude/worktrees/<branch>/` | Isolated branches (`EnterWorktree`, `claude --worktree`). Gitignored; prompt to delete on merge. |
 | `.claude/project/followups/<id>.md` | Committed follow-ups managed by `atomic followups`; `INDEX.md` is the `@-ref`. |
-| `.claude/rules/wiki/<domain>.md` | Path-scoped pointer cards from `/refresh-wiki`. Pipeline-owned; never hand-edit. |
+| `<state-root>/rules/wiki/<domain>.md` | Path-scoped pointer cards from `/refresh-wiki` (the state root is the repository-state directory, `.claude` by default). Pipeline-owned; never hand-edit. |
 | `.claude/atomic.toml` | Committed repo config: `[scan]`, `[code] ignore`, `[repl] idle_timeout`. Reference: `docs/reference/atomic-toml.md`. |
 | `docs/design/<topic>.md`, `docs/spec/<topic>.md` | Design workspace and the implementation contract derived from it. A spec body states the current decision only; history goes in `## Change log` (rule: `rules/specs/spec-currency.md`, auto-loaded on touch). |
 | `tmp/` | Scratch. Gitignored. |

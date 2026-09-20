@@ -136,7 +136,17 @@ func (s Steps) UninstallAll() (FullUninstallReport, error) {
 	if err != nil {
 		return report, err
 	}
-	report.Cleanup, err = installstate.Cleanup(s.Home, ledger, s.now())
+	// A resource a removal could not clear — a read-only settings file — is not
+	// completed state: keep its row so a later uninstall can finish the job.
+	var uncleared []installstate.Row
+	for _, removal := range report.Targets {
+		for _, id := range removal.Skipped {
+			if row, ok := ledger.Find(removal.Target.Key(), id); ok {
+				uncleared = append(uncleared, row)
+			}
+		}
+	}
+	report.Cleanup, err = installstate.Cleanup(s.Home, ledger, s.now(), uncleared...)
 	if err != nil {
 		return report, err
 	}

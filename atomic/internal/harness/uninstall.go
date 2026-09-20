@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
@@ -103,16 +105,48 @@ func RemoveTargetResources(home string, t Target) (Removal, error) {
 	}
 
 	// Every removable resource verified before the first deletion, so a conflict
-	// in the last resource cannot leave the earlier ones half-removed.
+	// in the last resource cannot leave the earlier ones half-removed. Settings
+	// rows go last: their outputStyle member is dropped only once the style file
+	// it names is gone, and that file is another row in this same plan.
+	ordered := make([]string, 0, len(out.Removed))
 	for _, id := range out.Removed {
-		if err := removeResource(removable[id]); err != nil {
+		if removable[id].Applied.Kind != managedfile.KindSettings {
+			ordered = append(ordered, id)
+		}
+	}
+	for _, id := range out.Removed {
+		if removable[id].Applied.Kind == managedfile.KindSettings {
+			ordered = append(ordered, id)
+		}
+	}
+	skipped := map[string]bool{}
+	for _, id := range ordered {
+		removed, err := removeResource(removable[id])
+		if err != nil {
 			return out, err
 		}
+		if !removed {
+			skipped[id] = true
+			out.Skipped = append(out.Skipped, id)
+		}
+	}
+	if len(out.Skipped) > 0 {
+		// A resource removal could not clear still holds Atomic's bytes, so its
+		// claim is not spent: report it skipped, drop it from Removed, and keep
+		// its ledger row and enrollment for a later uninstall.
+		sort.Strings(out.Skipped)
+		keptRemoved := out.Removed[:0:0]
+		for _, id := range out.Removed {
+			if !skipped[id] {
+				keptRemoved = append(keptRemoved, id)
+			}
+		}
+		out.Removed = keptRemoved
 	}
 
 	kept := ledger.Rows[:0:0]
 	for _, row := range ledger.Rows {
-		if row.Target == t.Key() {
+		if row.Target == t.Key() && !skipped[row.Resource] {
 			continue
 		}
 		kept = append(kept, row)
@@ -120,7 +154,7 @@ func RemoveTargetResources(home string, t Target) (Removal, error) {
 	ledger.Rows = kept
 	keptTargets := ledger.Targets[:0:0]
 	for _, record := range ledger.Targets {
-		if record.Key() == t.Key() {
+		if record.Key() == t.Key() && len(out.Skipped) == 0 {
 			continue
 		}
 		keptTargets = append(keptTargets, record)
@@ -139,7 +173,7 @@ func verifyOwned(row installstate.Row) error {
 	if row.Applied.Digest == "" {
 		return fmt.Errorf("%w: %s carries no recorded digest, so its bytes cannot be verified", ErrEvidenceConflict, row.Resource)
 	}
-	obs, err := managedfile.Observe(row.Applied.Path, row.Applied.Kind)
+	obs, err := installstate.ObserveApplied(row.Applied)
 	if err != nil {
 		return err
 	}
@@ -159,22 +193,40 @@ func verifyOwned(row installstate.Row) error {
 // removeResource deletes one verified resource. A managed block removes only
 // its own bytes: the user's prose outside the block survives, and the file is
 // deleted only when nothing but whitespace remains.
-func removeResource(row installstate.Row) error {
+//
+// removed reports whether the resource was actually cleared. A read-only
+// settings file the removal cannot write reports false, so the caller keeps the
+// claim the bytes still support instead of dropping it.
+func removeResource(row installstate.Row) (removed bool, err error) {
 	switch row.Applied.Kind {
 	case managedfile.KindTree:
 		if err := os.RemoveAll(row.Applied.Path); err != nil {
-			return fmt.Errorf("harness: remove tree %s: %w", row.Applied.Path, err)
+			return false, fmt.Errorf("harness: remove tree %s: %w", row.Applied.Path, err)
 		}
-		return nil
+		return true, nil
 	case managedfile.KindFile:
 		if err := os.Remove(row.Applied.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("harness: remove %s: %w", row.Applied.Path, err)
+			return false, fmt.Errorf("harness: remove %s: %w", row.Applied.Path, err)
 		}
-		return nil
+		return true, nil
 	case managedfile.KindBlock:
-		return removeBlock(row.Applied.Path)
+		if err := removeBlock(row.Applied.Path); err != nil {
+			return false, err
+		}
+		return true, nil
+	case managedfile.KindSettings:
+		// The owned members are the SessionStart registration and the
+		// outputStyle seed. hooks.UninstallInDir removes the registration and
+		// drops outputStyle only once the style file it names is gone, so this
+		// runs after the artifact rows (see RemoveTargetResources). A read-only
+		// settings file is reported skipped rather than clobbered.
+		skipped, err := hooks.UninstallInDir(filepath.Dir(row.Applied.Path))
+		if err != nil {
+			return false, fmt.Errorf("harness: remove settings ownership at %s: %w", row.Applied.Path, err)
+		}
+		return !skipped, nil
 	default:
-		return fmt.Errorf("harness: remove %s: unknown resource kind %q", row.Resource, row.Applied.Kind)
+		return false, fmt.Errorf("harness: remove %s: unknown resource kind %q", row.Resource, row.Applied.Kind)
 	}
 }
 

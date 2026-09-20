@@ -80,7 +80,7 @@ The full contract (glob derivation, category rules, the ignore-file probe, scope
 
 **Write-path payoff.** A silent refresh stages `<state-root>/rules/wiki/` alongside the router and domain pages, so a regenerated card set never sits unstaged after a commit: at ship time (`signals-gate`), and at `/subagent-implementation` finalize and `/autopilot`'s own staging step.
 
-**Ignore-file negation.** Some repos gitignore `rules/*` by default. Before writing, the pipeline runs `git check-ignore -v <state-root>/rules/wiki`; on a match, the pipeline appends `!/rules/wiki/` and `!/rules/wiki/**` to the ignore file the probe named, so future cards aren't silently dropped from version control. Once the negation lands, later probes report "not ignored" and skip the append.
+**Ignore-file negation.** Some repos gitignore `rules/*` by default. Before writing, the pipeline runs `git check-ignore -v <state-root>/rules/wiki` (`.claude/rules/wiki` by default); on a match, the pipeline appends `!/rules/wiki/` and `!/rules/wiki/**` to the ignore file the probe named, so future cards aren't silently dropped from version control. Once the negation lands, later probes report "not ignored" and skip the append.
 
 ::: tip Doctor validation is deferred
 Cards are fully pipeline-owned, so today the only guarantee of correctness is "was regenerated recently." A doctor check that validates card/domain parity between refreshes is tracked as a follow-up.

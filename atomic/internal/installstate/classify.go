@@ -182,6 +182,9 @@ func Classify(req ClassifyRequest) (Classification, error) {
 		return Classification{}, err
 	}
 	c.V2 = v2
+	// Settings drift is repairable rather than mixed ownership evidence, so it
+	// is reported here instead of through the state verdict.
+	c.Drift = append(c.Drift, settingsDrift(v2)...)
 
 	settings, err := inventorySettings(req.NativeRoot)
 	if err != nil {
@@ -290,36 +293,78 @@ func v2State(v2 V2Inventory) (State, []string, []string) {
 	}
 }
 
+// ObserveApplied observes the native bytes one ledger row records, dispatching
+// on the applied kind. A settings row owns named JSON members of a Claude
+// settings file rather than the whole file, so its observation comes from the
+// settings layer; every other kind reads the path directly.
+func ObserveApplied(a AppliedValue) (managedfile.Observation, error) {
+	if a.Kind == managedfile.KindSettings {
+		return hooks.ObserveSettingsOwnedInDir(filepath.Dir(a.Path))
+	}
+	return managedfile.Observe(a.Path, a.Kind)
+}
+
 // ledgerDisagreements reports every ledger row whose recorded applied value no
 // longer matches the bytes on disk. A row that agrees is proof of adopted work;
 // a row that disagrees — a changed file, a deleted file, or a row with no
 // recorded digest — is the overlap that makes a state mixed. A row an
 // unresolved journal intends to rewrite is excluded: its journal owns the
 // difference and recovery reconciles it.
+//
+// A settings row is exempt from the verdict: convergence re-applies the members
+// it owns on every run, so a missing or edited member is drift the next converge
+// repairs, never evidence of a competing owner. It is reported through Drift
+// instead, which is why settingsDrift exists.
 func ledgerDisagreements(v2 V2Inventory) []string {
 	var out []string
 	for _, row := range v2.rows {
-		if row.Applied.Path == "" {
+		if row.Applied.Kind == managedfile.KindSettings {
 			continue
 		}
-		if v2.inflightPaths[row.Applied.Path] {
-			continue
-		}
-		obs, err := managedfile.Observe(row.Applied.Path, row.Applied.Kind)
-		if err != nil {
-			out = append(out, fmt.Sprintf("%s is unreadable", row.Applied.Path))
-			continue
-		}
-		switch {
-		case !obs.Exists():
-			out = append(out, fmt.Sprintf("%s recorded by the ledger is absent", row.Applied.Path))
-		case row.Applied.Digest == "":
-			out = append(out, fmt.Sprintf("%s carries no recorded applied digest", row.Applied.Path))
-		case obs.Digest != row.Applied.Digest:
-			out = append(out, fmt.Sprintf("%s (%s) no longer matches its ledger record", row.Applied.Path, obs.Digest))
+		if disagreement, ok := ledgerRowDisagreement(row, v2.inflightPaths); ok {
+			out = append(out, disagreement)
 		}
 	}
 	return out
+}
+
+// settingsDrift reports every settings row whose owned members no longer match
+// the ledger record. These are repairable drift — the next convergence rewrites
+// the members — so they never classify the install mixed, but they stay visible
+// to a caller reporting what changed.
+func settingsDrift(v2 V2Inventory) []string {
+	var out []string
+	for _, row := range v2.rows {
+		if row.Applied.Kind != managedfile.KindSettings {
+			continue
+		}
+		if disagreement, ok := ledgerRowDisagreement(row, v2.inflightPaths); ok {
+			out = append(out, disagreement)
+		}
+	}
+	return out
+}
+
+// ledgerRowDisagreement reports the disagreement one ledger row carries, if any.
+// A row with no applied path, or one an unresolved journal intends to rewrite,
+// contributes nothing: the journal owns that difference.
+func ledgerRowDisagreement(row Row, inflight map[string]bool) (string, bool) {
+	if row.Applied.Path == "" || inflight[row.Applied.Path] {
+		return "", false
+	}
+	obs, err := ObserveApplied(row.Applied)
+	if err != nil {
+		return fmt.Sprintf("%s is unreadable", row.Applied.Path), true
+	}
+	switch {
+	case !obs.Exists():
+		return fmt.Sprintf("%s recorded by the ledger is absent", row.Applied.Path), true
+	case row.Applied.Digest == "":
+		return fmt.Sprintf("%s carries no recorded applied digest", row.Applied.Path), true
+	case obs.Digest != row.Applied.Digest:
+		return fmt.Sprintf("%s (%s) no longer matches its ledger record", row.Applied.Path, obs.Digest), true
+	}
+	return "", false
 }
 
 // inventoryLegacy reads the legacy installer's evidence read-only.

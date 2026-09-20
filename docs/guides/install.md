@@ -229,7 +229,7 @@ atomic harness uninstall claude     # one target
 atomic harness uninstall --all      # every enrolled target
 ```
 
-A target-level uninstall removes only the unchanged resources that target owns. A resource whose native bytes changed since Atomic wrote it refuses the whole operation — Atomic never overwrites a user edit — and a resource another enrolled consumer still depends on is retained and reported. `--dry-run` opens no lock, writes nothing, and previews unfinished journals read-only.
+A target-level uninstall removes only the unchanged resources that target owns. A resource whose native bytes changed since Atomic wrote it refuses the whole operation — Atomic never overwrites a user edit — and a resource another enrolled consumer still depends on is retained and reported. A read-only `settings.json` is reported `skipped` and keeps its ownership claim, so a later uninstall finishes the job once the file is writable. `--dry-run` opens no lock, writes nothing, and previews unfinished journals read-only.
 
 `--all` removes every enrolled target, then completed operational and adoption state. It does **not** delete your data: `~/.atomic/config.toml`, `profile.md`, `wikis.md`, and backups survive, so a reinstall resumes where you left off. Unresolved journals and the backups, ledger rows, and state-location records they reference are retained until recovery completes.
 

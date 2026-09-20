@@ -131,6 +131,17 @@ func rowsNameTarget(rows []Row, record TargetRecord) bool {
 	return false
 }
 
+// keepsRow reports whether row is one of the rows a caller asked Cleanup to
+// retain. Row identity is the target plus resource pair, the ledger's key.
+func keepsRow(keep []Row, row Row) bool {
+	for _, k := range keep {
+		if k.Target == row.Target && k.Resource == row.Resource {
+			return true
+		}
+	}
+	return false
+}
+
 func (r Retention) references() []string {
 	refs := make([]string, 0, len(r.Journals)+len(r.Backups)+len(r.Selections))
 	refs = append(refs, r.Journals...)
@@ -218,7 +229,11 @@ func CleanupOperation(home, operationID string) (CleanupResult, error) {
 //
 // A completed operation's transaction directory is removed before its journal,
 // so a failed directory removal cannot strand a journal-less orphan.
-func Cleanup(home string, led *Ledger, now time.Time) (CleanupResult, error) {
+//
+// keep names ledger rows a caller's removal could not clear — a resource still
+// on disk behind a read-only file. They are not completed state: keeping them,
+// and the target records they name, lets a later uninstall finish the job.
+func Cleanup(home string, led *Ledger, now time.Time, keep ...Row) (CleanupResult, error) {
 	var result CleanupResult
 
 	journalsDir := config.JournalsDir(home)
@@ -281,7 +296,7 @@ func Cleanup(home string, led *Ledger, now time.Time) (CleanupResult, error) {
 	}
 	kept := led.Rows[:0:0]
 	for _, row := range led.Rows {
-		if ret.KeepsRow(row) {
+		if ret.KeepsRow(row) || keepsRow(keep, row) {
 			kept = append(kept, row)
 			continue
 		}
