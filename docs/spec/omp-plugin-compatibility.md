@@ -646,3 +646,66 @@ atomic/cmd/atomic/cmd_state_test.go
 
 **Superseded:** owned native resources were whole-file or whole-block bytes only; converge-time settings mutations had no ledger row and survived a target uninstall.
 
+## Implementation log
+
+### implemented — 2026-09-20
+
+Built across 53 iterations of `/subagent-implementation` (loop base `af7f2f6b`). Commits (chronological):
+
+- `7b0d9d0c` — CP0 capability matrix + reproducible replay evidence (Claude/OMP/Codex)
+- `979158c7` — CP1A managedfile + installstate primitives
+- `63d0185c` — CP1B adapter registry, enrollment, ownership evidence
+- `9d91ddc5` — CP1C harness-neutral repository state and mutable context
+- `6e78da12` — CP1D migration classifier and legacy adoption
+- `629119d3` — CP2A canonical steering cut to AGENTS.md + offline renderers
+- `9119505a` — CP2B eight agent definitions normalized
+- `cfa0a67d` — CP2C agent composition partials normalized
+- `50269332` — CP2D native agent projections + offline Codex boundary
+- `dd49bab8` — CP2E1 lifecycle/review skills ported
+- `2a6c4388` — CP2E2 authoring/runtime skills ported
+- `bfe48224` — CP2F1 canonical rule parser/binder/matcher/validator
+- `0581f253` — CP2F2 Claude scoped-rule projection + runtimeproof seam
+- `0e7156a6` — CP2G planning/evidence workflows ported
+- `d65fc452` — CP2H implementation/diagnosis workflows ported
+- `4420ac04` — CP2I review/CI workflows ported
+- `37ff9398` — CP2J ship workflows ported
+- `aed3681f` — CP2K wiki workflows ported + repository wiki-rule producer
+- `2be2f2b1` — CP2L state/capture workflows ported
+- `98a5039f` — CP2M help/issue-report workflows ported
+- `d1e2f5b7` — CP2N corpus + projection validation gate
+- `4f58f5f7` — CP3 verified instruction migration
+- `6a2bf53b` — CP4A native OMP package generation and enrollment
+- `fdf38edc` — CP4B1 OMP static rule projection + card lifecycle
+- `ec2cdf96` — CP4B2 OMP runtime rule delivery + proof
+- `e82161a5` — CP6A Claude/OMP guidance verification (loader defect fixed)
+- `69569fc7` — CP7A generic Claude/OMP lifecycle CLI
+- `2b88a6b9` — CP7B target-aware update convergence
+- `89f279c5` — CP7C multi-harness doctor checks (15–24)
+- `0c8a7668` — CP7D related spec amendments
+- `eb500961` — CP7E Milestone A help/docs/release surfaces
+- `10574096` — CP8A Milestone A proof (35 scenarios)
+- `185d25c6` — CP5 Codex plugin adapter (capability-disabled)
+- `56ef77da` — CP6B Codex offline verification matrix
+- `7bfb3846` — repl e2e fixture cleanup (retired ATOMIC_HARNESS pin)
+- `bb34af1c` — CP7F Codex lifecycle discovery + doctor category 24
+- `a4dcfecf` — CP8B Milestone B proof (19 scenarios)
+- `94af1e62` — finalization docs alignment
+- `00e8a4eb` — finalize-audit fixes (wiki steering pairs, Codex default-home boundary, spec/STATE truth)
+- `05f22f9d` — follow-up polish (settings-member ownership, docs/spec currency, recorder naming)
+
+**Out-of-scope work performed during this build:**
+
+- `7bfb3846` cleanup of a pre-existing uncommitted repl fixture edit (retired env pin) — it blocked a clean working tree for every checkpoint and every reviewer had certified it correct.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- Claude never resolves an `@` import that sits inside the `<atomic>` HTML block — the scope loader delivered nothing until the body was blank-bracketed (found by CP6A's runtime matrix, not by unit tests).
+- `atomic wiki init` still wrote a lone `docs/wiki/CLAUDE.md`; converted to the loader pair in the audit round, with doctor orphan/linkify/inferrer consumers reconciled.
+- Repository-local generated-tree publication failed cross-device (HOME-rooted staging); `managedfile.PublishDir` gained a copy+fsync fallback (ramdisk-proved).
+- Ledger-owned settings members needed their own drift class: owned-member drift is repairable, not `mixed` evidence, or repair would refuse what it exists to fix.
+- Codex 0.147.0 authenticated in isolation but had the configured model rejected before any hook event; every runtime surface stayed capability-disabled and uncovered.
+- The `--all --harness` combination silently dropped the named harness; now refused.
+
+**Deferred items still open:**
+
+- F-10 (path-independent resource ids for corpus/settings rows) tracked in the scratchpad ledger.
