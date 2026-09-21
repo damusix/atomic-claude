@@ -11,6 +11,8 @@ Run `/refresh-wiki` to generate or update them:
 
 Both are committed, but only `index.md` auto-loads into sessions via an `@`-ref. `scan.md` can run to thousands of lines on a large repo, so the inferrer reads it on demand instead.
 
+`index.md` and the domain pages carry no count of things in the repo. They record structure, contracts, and coupling; counts of the current tree stay in `scan.md`, so the authored pages do not churn and parallel branches do not collide on them.
+
 
 ## The pipeline
 
@@ -29,6 +31,8 @@ flowchart LR
 ```
 
 The dotted inputs are optional: steering exists only where you wrote it, and the code-intel edges only where `atomic code index` has run, corroborating domain boundaries by who calls whom rather than by directory layout.
+
+The writer also receives the domain's `docs/design/` files and redraws every current-architecture diagram in them against source into the domain page, dropping one whose nodes no longer resolve and reporting it as a concern.
 
 Three things trigger a refresh: `/refresh-wiki` on demand; the implementation loop (`/subagent-implementation`, `/autopilot`) at finalize, scoped to the task's SHA range, which is the primary path; and ship commands as an ad-hoc fallback for real-code commits. Docs-only commits are skipped, and a freshness check prevents a double refresh after the loop already ran.
 

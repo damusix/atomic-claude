@@ -27,6 +27,23 @@ func TestExtractLinks_MarkdownLink(t *testing.T) {
 	}
 }
 
+// Linkify writes paths with spaces or parentheses in angle brackets; the serve
+// graph resolves Target on disk, so the brackets must not reach it.
+func TestExtractLinks_AngleBracketDestination(t *testing.T) {
+	content := "[`My Project/App.sln`](<../../My Project/App.sln>) then [`draft (old).md`](<draft (old).md>) and [x](y.md)\n"
+	links := mdlink.ExtractLinks(content)
+
+	want := []string{"../../My Project/App.sln", "draft (old).md", "y.md"}
+	if len(links) != len(want) {
+		t.Fatalf("want %d links, got %d: %v", len(want), len(links), links)
+	}
+	for i, w := range want {
+		if links[i].Target != w {
+			t.Errorf("link %d Target: got %q, want %q", i, links[i].Target, w)
+		}
+	}
+}
+
 func TestExtractLinks_Wikilink(t *testing.T) {
 	content := "See [[concepts]] for more.\n"
 	links := mdlink.ExtractLinks(content)

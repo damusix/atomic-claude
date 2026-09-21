@@ -3,7 +3,7 @@
 
 ## Goal
 
-Replace the flat eager-loaded `inferred-signals.md` with a router-shaped `signals.md` that auto-loads a complete project orientation (framework, build commands, language breakdown, devops, domain index), leaving per-domain detail files on disk for the LLM to `Read` on demand. Eliminates token overflow on large repos while preserving the "Claude already knows where things live" property.
+Replace the flat eager-loaded `inferred-signals.md` with a router-shaped `signals.md` that auto-loads a complete project orientation (framework, build commands, devops, domain index), leaving per-domain detail files on disk for the LLM to `Read` on demand. Eliminates token overflow on large repos while preserving the "Claude already knows where things live" property.
 
 
 ## Non-goals
@@ -17,7 +17,7 @@ Replace the flat eager-loaded `inferred-signals.md` with a router-shaped `signal
 
 - [ ] `signals.md` is written to `.claude/project/signals.md`; it is `@-ref`'d from the user's project `CLAUDE.md`; it loads in every session.
 - [ ] `signals.md` is always the output shape. No flat vs router mode split — one code path.
-- [ ] `signals.md` is a complete orientation document: framework/runtime, build/test/lint commands, language breakdown, devops/CI summary, domain route table, cross-cutting conventions.
+- [ ] `signals.md` is a complete orientation document: framework/runtime, build/test/lint commands, devops/CI summary, domain route table, cross-cutting conventions.
 - [ ] Domain files (`signals/<domain>.md` or `signals/<domain>/index.md`) are written to `.claude/project/signals/` as vertical slices — one per functional concern, grouping artifacts + CLI code + docs + coupling. They are NOT `@-ref`'d; they are NOT eagerly loaded.
 - [ ] `deterministic-signals.md` remains on disk at `.claude/project/deterministic-signals.md`; it is NOT `@-ref`'d; it is NOT auto-loaded.
 - [ ] Deterministic tree entries include per-path metadata from a single file read: content SHA (hex, 7-char truncated), line count, character count, byte size.
@@ -122,7 +122,6 @@ The router is a complete orientation document, not a thin index. Two zones:
 | `# Project signals` | Header |
 | `## Framework & runtime` | Stack, language versions, key dependencies (compressed, not exhaustive) |
 | `## Build / test / lint` | Command table: purpose + command + source. CI gate notes. |
-| `## Language breakdown` | Counts: language, LOC, file count, percentage |
 | `## DevOps & CI` | Release pipeline, deploy mechanism, CI provider. 1-2 lines each. |
 
 **Zone 2 — Domain route table.** Scales with domain count (~30 tokens/row).
@@ -299,7 +298,7 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 | 2 | `.signalsignore` read + `[generated]` flagging in scan output | `atomic/internal/signals/signals.go`, `signals_test.go` (atomic-surgeon) | Matching paths appear in tree with `[generated]` marker; content SHA still computed; `.signalsignore` absent = no exclusions; `go test ./internal/signals/...` passes |
 | 3 | `output.signals.max_depth` config key | `atomic/internal/config/config.go`, `config_test.go`, `render.go`, `render_test.go` (atomic-surgeon) | Config loads default `3`; explicit value overrides; rendered in `config.resolved.md`; `go test ./internal/config/...` passes |
 | 4 | Content-SHA diff: prev vs current deterministic scan, changed-paths extraction | `atomic/internal/signals/signals.go`, `signals_test.go` (atomic-surgeon) | Prev saved as `.prev.md`; diff output lists entries with changed SHAs; `[generated]` paths excluded from changed set; works without git; `go test ./internal/signals/...` passes |
-| 5 | Inferrer agent prompt: orchestrator role, sub-agent dispatch, reviewer loop, cross-domain refs, router assembly, migration, naming continuity | `agents/atomic-wiki-inferrer.md` (atomic-surgeon) | Prompt describes: sub-agent dispatch per domain, reviewer validation loop, cross-domain ref wiring, router orientation sections (framework, build, language, devops, domain table), domain file sections, naming-continuity rule, migration instructions, `.signalsignore`/`[generated]` skip rule; `grep -c` confirms key phrases |
+| 5 | Inferrer agent prompt: orchestrator role, sub-agent dispatch, reviewer loop, cross-domain refs, router assembly, migration, naming continuity | `agents/atomic-wiki-inferrer.md` (atomic-surgeon) | Prompt describes: sub-agent dispatch per domain, reviewer validation loop, cross-domain ref wiring, router orientation sections (framework, build, devops, domain table), domain file sections, naming-continuity rule, migration instructions, `.signalsignore`/`[generated]` skip rule; `grep -c` confirms key phrases |
 | 6 | `atomic-signals` skill + bundled `CLAUDE.md` + `claude.local.md` `@-ref` switch | `skills/atomic-signals/SKILL.md`, `CLAUDE.md` (root), `claude.local.md` (atomic-surgeon) | Skill references `signals.md` not `inferred-signals.md`; `CLAUDE.md` and `claude.local.md` `@-ref`s updated; bundle regen (`make -C atomic bundle`) exits 0 |
 | 7 | `/setup-wiki` blank `.signalsignore` generation | `commands/setup-wiki.md` (atomic-surgeon) | Command generates `.signalsignore` with commented explanation when absent; does not overwrite existing |
 | 8 | Doctor `signals` check update | `atomic/internal/doctor/checks_signals.go`, `checks_signals_test.go` (atomic-surgeon) | Validates: router present + `@-ref`'d; domain files in router table exist on disk; no orphan files in `signals/`; check runs per-cwd only (no worktree cross-compare); `go test ./internal/doctor/...` passes |
@@ -319,6 +318,14 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 
 
 ## Change log
+
+### 2026-09-21 — Language breakdown dropped from the router
+
+**What changed:** The router's Zone 1 table no longer carries a `## Language breakdown` section, and the `## Goal` and success-criteria mentions of a language breakdown among the router's orientation content are removed.
+
+**Why:** The table conflicted across every parallel branch that touched code and cost context on every session turn. `docs/spec/wiki-durable-facts.md` replaces it: a wiki page carries durable facts, not tree measurements, and language counts are exactly that.
+
+**Superseded:** Zone 1 previously listed a `## Language breakdown` row (`Counts: language, LOC, file count, percentage`), and `## Goal`/success criteria named "language breakdown" as part of the router's frontloaded orientation.
 
 ### 2026-07-16 — User state root relocated to ~/.atomic
 

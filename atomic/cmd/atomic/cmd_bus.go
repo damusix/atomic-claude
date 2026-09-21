@@ -110,7 +110,7 @@ func buildBusCmd() *cobra.Command {
 func buildBusGatewayCmd() *cobra.Command {
 	gw := &cobra.Command{
 		Use:                "gateway",
-		Short:              "Run the network gateway beside the bus daemon; see bus gateway enroll|revoke",
+		Short:              "Run the network gateway beside the bus daemon; keys from bus gateway enroll or ATOMIC_BUS_KEY",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runBusGateway(args)

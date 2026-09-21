@@ -144,6 +144,10 @@ func RunCheckRepoConfigWith(root string) Result {
 		}
 	}
 
+	if _, warn := config.ResolveMaxLines(cfg.Comments); warn != nil {
+		warns = append(warns, *warn)
+	}
+
 	if len(warns) > 0 {
 		msgs := make([]string, 0, len(warns))
 		for _, w := range warns {

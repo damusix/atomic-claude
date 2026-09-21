@@ -84,7 +84,7 @@ One-line pointer per topic. Group by category for scannability.
 | `implement` | Two verbs, split by where the context already is. `/subagent-implementation` reads the spec and runs the implement→review loop with `atomic-implementer`+`atomic-reviewer`, committing per green iteration — the default, and the right call when the context isn't loaded. `/implement [<task>]` runs the same checkpoint discipline in the main agent when the context *is* already in this conversation: Claude writes the code, `atomic-reviewer` gates every checkpoint, and the finalize is the same (docs, `atomic-auditor`, signals). Its Entry row hands back to `/subagent-implementation` when the context isn't loaded or the work won't fit inside it. |
 | `quick-fix` | `/quick-fix <task>` — implement→review loop without the planning phase, spec gate, or finalize ceremony (audit kept). For a known-cause fix with one obvious approach; hands off to `/subagent-diagnose` or `/atomic-plan` when the cause or the approach turns out open, never on file count. |
 | `diagnose` | `/subagent-diagnose ci [run-id]` or `/subagent-diagnose bug "<symptom>"` — orchestrated failure investigation. Same loop as implementation. |
-| `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`, every checkpoint inside `/implement`, and `/commit` dispatches it on main-agent code written ad-hoc, outside any command. All are diff-scoped; for standing code nobody is changing, `/deslop`. |
+| `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` gates each iteration inside `/subagent-implementation`, every checkpoint inside `/implement`, and code the main agent writes ad-hoc — at `atomic-verify` before a completion claim and at `/commit` before the commit, on the session's model via an explicit override. `atomic-auditor` gates the finished whole once after a loop. All are diff-scoped; for standing code nobody is changing, `/deslop`. |
 | `ship` | Pick by intent — see `ship` matrix below. |
 | `docs` | `/documentation` syncs README/CLAUDE.md/spec/design after significant changes. Auto-fires on ship verbs in maintenance mode. |
 
@@ -117,13 +117,13 @@ One-line pointer per topic. Group by category for scannability.
 | `update` | `atomic update [--check]` self-updates binary, auto-refreshes `~/.claude` artifacts, auto-runs install-scope migration steps, then runs doctor (`--skip-claude-update` skips the refresh). `--pre` installs the newest pre-release cut from the `next` branch; `atomic config set update.channel prerelease` makes that the default for the background check, banner and doctor too. When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge proposed `~/.claude/CLAUDE.md`. `atomic migrate` runs migration steps manually: bare = install scope (`~/.claude/`), `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos; `--show-log [<since>]` prints its dated change history, filtered by version or date. |
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns background Haiku to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
-| `improve` / `retrospective` / `audit` | `/retrospective-learning [<targeted feedback>]` — session retrospective. Mines `.jsonl` session history + current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. |
+| `improve` / `retrospective` / `audit` | `/retrospective-learning [<targeted feedback>]` — session retrospective. Mines session history extracted by `atomic retro extract` + current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. `atomic retro extract` also runs standalone. |
 
 **Reference**
 
 | Topic | Output |
 |-------|--------|
-| `agents` | 7 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration; `atomic-auditor` gates the finished whole once, in a fresh context; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `~/.claude/agents/` or `docs/reference/agents.md`. |
+| `agents` | 7 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration, each `/implement` checkpoint, and the working or staged diff when the main agent edits code outside a loop; `atomic-auditor` gates the finished whole once after a loop; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `~/.claude/agents/` or `docs/reference/agents.md`. |
 | `skills` | 10 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-git-discipline`, `atomic-documentation`, `atomic-writing`, `atomic-wiki`, `atomic-visual-options`, `atomic-bus`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Seeded automatically at install and every session start; `/config` → Output style overrides per project; `atomic config set output_style.seed false` opts out. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
@@ -144,6 +144,7 @@ Run them rather than reciting. What they cannot tell the user is which verb fits
 |-----|------|--------|
 | Install or restore `~/.claude` artifacts | `claude install`, `update`, `uninstall` | `docs/guides/install.md` |
 | Understand how code fits together | `code` — lead with `explore` | `docs/reference/code-intel.md` |
+| Count the comments a diff adds | `code comments` | `docs/reference/code-intel.md` |
 | Maintain project or cross-repo context | `wiki`, `signals` | `docs/reference/repo-wiki.md`, `docs/reference/realm-wiki.md` |
 | Talk to another running Claude session | `bus` | `docs/reference/bus.md` |
 | Keep an interpreter alive across Bash calls | `repl` | `docs/reference/repl.md` |
@@ -155,6 +156,7 @@ Run them rather than reciting. What they cannot tell the user is which verb fits
 | Scaffold a repo or a document | `repo init`, `template <name>` | — |
 | Update the binary and its artifacts | `update`, `migrate` | — |
 | Track deferred work | `followups`, `reminder` | — |
+| Extract session history for a retrospective | `retro extract` | `docs/reference/retro.md` |
 
 ### C. Freeform intent — classify and route
 
@@ -211,6 +213,7 @@ Diagnose failures: /subagent-diagnose ci|bug runs the same loop from a failure s
 Context is here:  /implement writes the code in this session, reviewer gate per checkpoint.
 Skip planning:    /quick-fix <task> runs the same loop without a spec — known cause, one obvious fix.
 Hands-off:        /autopilot <task|issue#> runs stages 1-3 autonomously; asks only how to merge.
+Ad-hoc edit:      no command — atomic-reviewer gates it, reply carries a review: <verdict> line.
 ```
 
 Prompt: continue to state files / dive into a stage / exit tour.
@@ -255,9 +258,10 @@ atomic scratchpad new|path|list|archive   slug-keyed bundle lifecycle: create/ex
 atomic profile refresh            re-detect dev tooling + shell, rewrite ## Environment block
 atomic where [--json]             one-shot position report: repo-scope wiki, realm scope (root/member/orphaned/none), code-index scope, plus branch/reports/reports_root/reminders/archive state paths — orient before wiki/realm-scoped work
 atomic bus join|send|recv|tail|read|chat  peer messaging between concurrent sessions over named rooms; daemon auto-spawns/rehydrates on restart, start|stop|restart control it explicitly; atomic-bus skill carries the reaction policy
-atomic bus gateway|enroll|revoke  host rooms across machines: gateway runs beside the daemon behind one HTTP endpoint, enroll prints a [bus.remotes] key block, revoke ends a machine's access within one frame; every bus verb except chat and shutdown reaches it with --host <name>
+atomic bus gateway|enroll|revoke  host rooms across machines: gateway runs beside the daemon behind one HTTP endpoint, enroll prints a [bus.remotes] key block, revoke ends a machine's access within one frame, ATOMIC_BUS_KEY on the gateway admits one shared key; every bus verb except chat and shutdown reaches it with --host <name>
 atomic code index/sync            build or refresh the symbol graph; at a wiki-realm root, fans out across member repos (--only/--exclude to filter)
 atomic code explore "<query>"     one-shot context digest for a question; search/callers/callees/impact drill into one symbol; realm output grouped under [key] headers
+atomic code comments [--diff <range>]   list the comments a diff adds (path:line, span, first words); exit 1 when one exceeds [comments] max_lines
 atomic serve [path] [--port N]    local read-only HTTP server: Obsidian-style page view + right-rail graph/links, system-graph toggle, code-file modal, a Plans view aggregating design/spec docs and scratchpad bundles across every worktree, md|code|plans search (default port 4500; --open opens browser)
 atomic code mcp                   start MCP server exposing graph as tools; daemon self-syncs every 10s (--no-watch disables, --watch-interval overrides); use `atomic --repo <abs-path> code mcp` to serve any repo cwd-independently — one entry per repo in .mcp.json; realm members resolve to their realm db
 atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki; write ## Members links
@@ -275,6 +279,7 @@ atomic prompt claude-merge        emit claude-merge brief for use inside a subag
 /watch-ci [target]                background agent tails CI, notifies when terminal
 /report-issue                     file issue against current repo
 /report-issue-with-atomic         file issue against atomic-claude config itself
+atomic retro extract [--since d] [--shards N] --out f   sessions since the last retrospective as numbered markdown; user text + skill/agent calls only
 /retrospective-learning [<hint>]  session retrospective; surfaces friction and drift
 ```
 

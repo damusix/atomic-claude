@@ -36,6 +36,7 @@ Run `atomic code <verb>` from your project root. Every query verb accepts `--jso
 | `affected` | Test files transitively affected by a set of changed files (`--test-glob` to scope tests, `--stdin` to read paths) |
 | `explore` | Gather context for a natural-language query (markdown output) |
 | `mcp` | Run the MCP server over stdio (see [Code-intel MCP](/guides/code-intel-mcp)) |
+| `comments` | Comments a diff adds, one line each with `path:line`, span, and first words; `--diff <range>` picks the diff, exit 1 when one exceeds `[comments] max_lines` |
 
 Start with `explore` when you don't yet know the exact symbol. `atomic code explore "how does session refresh work"` returns a bundled digest — the relevant definitions, files, and call relationships — in one query, instead of running `search`, `callers`, and `callees` separately and stitching the results together. Once `explore` points you at a symbol, the targeted verbs (`callers`, `callees`, `impact`) drill into it precisely. Atomic's investigator, reviewer, and wiki agents follow the same order automatically: explore to orient, then drill in.
 
@@ -75,6 +76,18 @@ atomic code affected --json $(git diff --name-only main...HEAD)
 
 The MCP server below is the conversational front end to this same graph. The CLI is the scriptable one.
 
+
+## Counting comments in a diff
+
+`atomic code comments` reads `git diff -U0` and lists every full-line comment the diff adds, classified by file extension. It does not see trailing comments on a code line or docstring string literals, only whole comment lines. It needs git, not the index, so it runs in a repo with no database and never opens `atomic.db`.
+
+```
+comments added: 2 (max_lines 2)
+atomic/internal/x.go:3   1 line    Greet returns a greeting for name.
+atomic/internal/x.go:8   3 lines   This block handles the retry path when the upstream call tim   OVER
+```
+
+The implementer, reviewer, and auditor each run it on their diff. See [`.claude/atomic.toml`](/reference/atomic-toml) for the `[comments] max_lines` key.
 
 ## Where the index lives
 

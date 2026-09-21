@@ -58,6 +58,8 @@ Flag a comment that contradicts or misdescribes the code as 🔴 bug — future 
 
 What the rest of the file does is not a defense. A chatty file does not license another comment. Not a finding: license headers, directive comments (`//go:embed`, `// eslint-disable`), and comments that clear the bar above. Judgment call, not a regex lint.
 
+When `atomic` is on PATH, run `atomic code comments --diff <range>` on the diff under review and walk its list instead of reading the diff for comments by eye.
+
 - `src/queue.ts:14: 🟡 risk: comment says "increment counter" above the increment. Delete, the line reads itself.`
 - `src/retry.ts:30: 🔴 bug: comment says "retries 3 times" but code retries 5. Fix the comment or the constant.`
 - `src/user.ts:52: 🟡 risk: "// fixed per review comment" left in source. Reviewer talk, not code — delete.`

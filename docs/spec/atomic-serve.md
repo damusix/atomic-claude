@@ -66,7 +66,9 @@ only what gets built.
       badges render inline where the data exists.
 - [ ] **SC6** — A new exported `mdlink.ExtractLinks(content string) []Link` returns both
       markdown links `[text](path)` and Obsidian wikilinks `[[page]]` / `[[page|alias]]`
-      (fenced code spans excluded, matching the existing fence tracking). Wikilinks
+      (fenced code spans excluded, matching the existing fence tracking). An angle-bracket
+      destination `[text](<path>)` yields `path` without the brackets, since linkify writes
+      that form for a path containing a space or parenthesis. Wikilinks
       resolve to a file path; a same-named page in two locations resolves by a documented
       rule (nearest-then-alphabetical) and the ambiguity is surfaced. The realm link graph
       (nodes + edges) is built from this; a page view shows backlinks, outbound links, and
@@ -365,6 +367,12 @@ None.
 
 
 ## Change log
+
+### 2026-09-18 — `ExtractLinks` unwraps angle-bracket destinations
+
+**What changed:** SC6 now states that `mdlink.ExtractLinks` returns an angle-bracket destination without its brackets, and reads it through the closing `>)` so a parenthesis inside the path does not end the link early.
+
+**Why:** Linkify now writes a path containing a space or parenthesis as `(<path>)` (issue #262, `docs/spec/signals-wiki-linkify.md`). The rail's OUT links and the graph edges resolve `Target` on disk, and a bracketed `Target` would never resolve.
 
 ### 2026-08-23 — `frontend/dist/` is gitignored build output
 

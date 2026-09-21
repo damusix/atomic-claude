@@ -57,6 +57,8 @@ Record the partitioning basis as the one-line intro above the router's `## Domai
 
 Skip `[generated]` entries when partitioning — generated files do not drive domain narratives.
 
+Each `docs/design/*.md` joins a domain too: the domain its `domain:` frontmatter names when present, otherwise the domain whose paths it describes (the same judgment this step already applies to "the docs that describe them"). Record the per-domain list; Step 4 passes it to the writer.
+
 ### Step 4 — Dispatch sub-agents per domain
 
 For each domain that needs writing or updating, dispatch one `atomic-wiki-writer`. Name that type explicitly on every dispatch: omitting `subagent_type` falls back to `general-purpose`, which declares no `skills:` frontmatter, so the page contract and the voice rules would reach it as a request rather than as loaded context.
@@ -69,12 +71,17 @@ Prompt: "Write docs/wiki/<domain>.md for the <domain> domain.
 Source paths in this domain: <list from deterministic tree>
 </source_paths>
 
+<design_docs>
+Design docs for this domain: <list, or none>
+</design_docs>
+
 <steering>
 <include steering directives here if docs/wiki/CLAUDE.md was provided by the caller>
 </steering>
 
 <instructions>
 - Signals are FACTS about current state — not instructions, rules, or intent. Every sentence must be verifiable by reading a source file.
+- Never count things in the repo. `atomic-writing` rule 17 has the list; a version or a documented contract value is not a count.
 - Read the actual source files listed above. Do not infer from filenames alone.
 - Skip any entries marked [generated].
 - Write a domain file conforming to the domain file schema below.
@@ -82,6 +89,7 @@ Source paths in this domain: <list from deterministic tree>
 - Draw every shape the domain has. A pipeline, a lifecycle, and a request path are three claims and three diagrams, each with its own `###` sub-heading and a caption stating what it claims. There is no cap. Leaving a shape in prose is the failure to avoid, not drawing too many.
 - Before writing any Mermaid block, read `~/.claude/skills/atomic-writing/references/mermaid.md` — it picks the diagram type from the reader's question and lists what breaks rendering. Identifier labels are why it matters: a bare `verify(token)` is a parse error, `verify("token")` is not.
 - Draw from the source you read, never from prose someone already wrote about it. A diagram inherits any error in the paragraph it was copied from.
+- Redraw the design diagrams. For each file in `<design_docs>`, read every Mermaid block. A block that draws current architecture (a pipeline, a data model, a request path, a lifecycle) is redrawn in `## How it works` against the source: every node label resolves to a file or symbol in the source paths (`atomic code search <label>` when the index exists, grep otherwise), the caption states the claim, and the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md` applies. A block that draws a decision (before and after, a rejected topology) stays in the design. A block whose nodes no longer resolve is dropped and reported in the concerns block as `docs/design/<file>.md:<line> — diagram no longer matches source (severity: risk)`. The redrawn block's `%% source:` comment names the design doc it came from and the source files its nodes resolve to.
 - Output only the file content. Do not summarize your process.
 </instructions>
 
@@ -140,6 +148,8 @@ Prompt: "Review docs/wiki/<domain>.md against the source code.
 
 Domain file path: docs/wiki/<domain>.md
 Source paths: <list of paths in this domain>
+Design docs: <list, or none>
+Writer concerns: <the concerns block the writer returned, or none>
 
 Check:
 - Every claim in the domain file is supported by a source file.
@@ -150,9 +160,12 @@ Check:
 - `## Where it lives` is one table, not parallel lists split by file type.
 - Every `## Constraints` entry names what breaks when it is violated.
 - `## Coupling` names the counterpart domains, and the skills, commands, and agents that drive or consume this domain.
+- Every current-architecture diagram in a listed design doc appears in `## How it works`, redrawn with nodes that resolve to source, or is named in the writer concerns as stale.
+- Every Mermaid block passes the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md`.
 - OKF frontmatter present (`type: Domain` and `description:`) at the top of the file.
 - No @-refs (repo-root-relative paths in backticks only — a code linkify step renders them to relative links later; a `[text](path)` link is not an @-ref).
 - Fact-shaped, not steering-shaped.
+- No count of things in the repo, anywhere on the page, including diagram labels and table cells (`atomic-writing` rule 17 has the list). Any such number is `CHANGES_REQUESTED`, named. The only exceptions are a version and a documented contract value.
 
 Return VERDICT: PASS or VERDICT: CHANGES_REQUESTED with specific corrections."
 ```
@@ -364,7 +377,7 @@ The fallback is deliberately limited.
 
 `docs/wiki/index.md` is a complete orientation document. Two zones:
 
-**Zone 1 — Orientation, then the map.** Fixed cost, does not scale with repo size. Lead with what the repo *is* and how its pieces flow, so a reader who has never opened it can place everything that follows; put the domain map next, because that is what a session actually navigates by. Reference detail (stack, commands, counts) sits below the map — needed, but not what someone reads first.
+**Zone 1 — Orientation, then the map.** Fixed cost, does not scale with repo size. Lead with what the repo *is* and how its pieces flow, so a reader who has never opened it can place everything that follows; put the domain map next, because that is what a session actually navigates by. Reference detail (stack, commands) sits below the map — needed, but not what someone reads first.
 
 ```markdown
 # Project signals
@@ -394,12 +407,6 @@ The fallback is deliberately limited.
 <command table rows>
 
 <CI gate notes>
-
-## Language breakdown
-
-| Language | LOC | Files | % |
-|----------|-----|-------|---|
-<rows from deterministic scan>
 
 ## DevOps & CI
 
@@ -432,11 +439,11 @@ Write every path citation — the `Start here` column AND the `Detail` column �
 
 The router is `@-ref`'d into every session; domain files are read on demand. That split is the budget model — the router's cost is paid on every turn of every session, a domain file's cost only when a task reaches for it. Write each fact where the session that needs it will find it, so the model pulls detail as the task requires it instead of carrying all of it from the first turn.
 
-- **R1 — Put a fact where it is discovered.** A fact about one domain belongs in that domain's file, where the session working on that domain will read it. The router carries what every session needs regardless of task: stack, build commands, language mix, and the map of where to look next.
+- **R1 — Put a fact where it is discovered.** A fact about one domain belongs in that domain's file, where the session working on that domain will read it. The router carries what every session needs regardless of task: stack, build commands, and the map of where to look next.
 - **R2 — Cross-domain facts live in the `## Coupling` section of the domain that owns them.** A session reading about the code graph learns there how it relates to the skills that drive it, at the moment that relationship matters. State the fact once in the owning domain; from other domains, point at it.
 - **R3 — Touch only what changed.** A section whose facts still hold is left exactly as it is — an idempotent refresh produces a byte-identical file. Rewrite a section only when a fact in it no longer holds.
-- **R4 — The router describes the present.** Commit SHAs, branch names, PR numbers, and LOC deltas between refreshes answer "how did this get here" — `git log` answers that on demand, better. A present-tense "known stale" note naming a doc that contradicts current code is a current fact and stays.
-- **R5 — Language breakdown is the scan's table**, plus at most 2 lines on how the numbers are counted.
+- **R4 — The router describes the present.** Commit SHAs, branch names, and PR numbers answer "how did this get here" — `git log` answers that on demand, better. A present-tense "known stale" note naming a doc that contradicts current code is a current fact and stays.
+- **R5 — No counts.** The router carries no LOC total, percentage, or count of repo things. `atomic-writing`'s rule 17 states the ban and its version-and-contract-value boundary.
 - **R6 — A changed fact is rewritten where it is stated.** Edit the sentence that is now wrong rather than appending a paragraph describing the change — an appended delta leaves both the stale claim and its correction in context, and the reader cannot tell which one is current. The router states current truth; its history lives in git. (Same body-is-truth standard `rules/specs/spec-currency.md` applies to `docs/spec/**`.)
 - **R7 — One row per domain** in the `## Domains` table. Dedupe by domain name before writing; merge duplicates into the newer description.
 - **R8 — Budget: ~200 lines.** The router points and summarizes; detail lives one hop away. Over budget, shorten the pointers — the domain map stays complete.

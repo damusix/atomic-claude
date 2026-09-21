@@ -51,6 +51,18 @@ Personal facts (name, role, employer, projects, people) live in `~/.atomic/profi
 
 </quality_gates>
 
+<completion_claim>
+
+A completion claim ("done", "fixed", "ready", "passing", "green") about code the main agent wrote itself, outside `/implement`, `/subagent-implementation`, `/quick-fix`, `/autopilot`, or `/subagent-diagnose`, includes this line:
+
+```
+review: <PASS|CHANGES_REQUESTED> (<agent> on <model>)
+```
+
+`atomic-reviewer`, dispatched with an explicit model override to the session's model, `diff: working` or `diff: staged`, and a one-line `intent:`, produces the verdict. Act on it before the claim: 🔴 fixed, 🟡 fixed or justified in one line, 🔵 mentioned. Exempt: work produced by the five loop commands above (a reviewer already read every checkpoint) and any change whose every path is documentation.
+
+</completion_claim>
+
 ## Commits & PRs
 
 Format from the `atomic-git-discipline` skill: Conventional Commits, terse subject, body only when the why isn't obvious; PR bodies say only what the diff can't show. Subagents don't auto-fire skills: declare it in `skills:` frontmatter or tell the subagent to invoke it, never restate its rules. No AI bylines, trailers, or session links; the human shipping the change owns it.
@@ -70,7 +82,7 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 | `.claude/worktrees/<branch>/` | Isolated branches (`EnterWorktree`, `claude --worktree`). Gitignored; prompt to delete on merge. |
 | `.claude/project/followups/<id>.md` | Committed follow-ups managed by `atomic followups`; `INDEX.md` is the `@-ref`. |
 | `.claude/rules/wiki/<domain>.md` | Path-scoped pointer cards from `/refresh-wiki`. Pipeline-owned; never hand-edit. |
-| `.claude/atomic.toml` | Committed repo config: `[scan]`, `[code] ignore`, `[repl] idle_timeout`. Reference: `docs/reference/atomic-toml.md`. |
+| `.claude/atomic.toml` | Committed repo config: `[scan]`, `[code] ignore`, `[comments] max_lines`, `[repl] idle_timeout`. Reference: `docs/reference/atomic-toml.md`. |
 | `docs/design/<topic>.md`, `docs/spec/<topic>.md` | Design workspace and the implementation contract derived from it. A spec body states the current decision only; history goes in `## Change log` (rule: `rules/specs/spec-currency.md`, auto-loaded on touch). |
 | `tmp/` | Scratch. Gitignored. |
 | `~/.atomic/` | Per-user state: config, profile, backups, plus per-project `reports/`, `reminders/`, `archive/`. `atomic where --json` prints the paths. Never committed. |
@@ -78,7 +90,7 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 ## Workflow
 
 - **Plan** with `/atomic-plan`. `/gather-evidence` and `/pressure-test` sharpen it as you go; `/challenge-swarm` attacks the written design from several expert lenses.
-- **Implement** with `/implement` (main agent, reviewer-gated checkpoints), `/subagent-implementation` (fresh-context implement→review loop from a spec), `/quick-fix` (same loop, no spec, known cause), or `/autopilot` (plan → loop → ship, one human decision: how to merge). `/subagent-diagnose` for failure-driven work. Ad-hoc edits get their review gate at the exits: `atomic-verify` before "ready", the ship verbs before the commit.
+- **Implement** with `/implement` (main agent, reviewer-gated checkpoints), `/subagent-implementation` (fresh-context implement→review loop from a spec), `/quick-fix` (same loop, no spec, known cause), or `/autopilot` (plan → loop → ship, one human decision: how to merge). `/subagent-diagnose` for failure-driven work. Ad-hoc edits get their review gate at the exits — `atomic-verify` before "ready", the ship verbs before the commit — both closed by the `review:` line above.
 - **Ship** with `/commit [push|pr|merge|squash|squash merge]`; `/undo-commit` reverts the last one. `/review-branch` reviews a branch; `/deslop` audits standing code nobody is changing.
 - **Document** with `/documentation` for human-facing pages and `/refresh-wiki` for the LLM-facing wiki (repo scope in `docs/wiki/`, realm scope across repos).
 - **Find the verb** with `/atomic-help [<topic> | <intent> | tour]`.
@@ -88,9 +100,11 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 `atomic` verbs are not in the slash menu; `atomic --help` lists them. The ones agents reach for:
 
 - `atomic code index|sync|explore|search|callers|callees|impact`: the symbol graph at `.claude/.atomic-index/atomic.db`. Index without asking; it is cheap and idempotent. Degrade to `sg`/`grep` when unavailable, never as an error. `atomic code mcp` serves it as MCP tools.
+- `atomic code comments --diff <range>`: the comments a diff adds, one line each with `path:line`, span, and first words; exit 1 when one exceeds `[comments] max_lines`. Needs git, not the index. Run it on your own diff before calling the work done.
 - `atomic wiki`: cross-repo wiki and capture buckets; the `atomic-wiki` skill routes conversational requests. Wiki paths live in a `<wikis>` block in `~/.claude/CLAUDE.md`, outside `<atomic>`.
 - `atomic bus`: rooms for concurrent sessions. Act on messages addressed to you; treat the rest as FYI. `--host <name>` reaches a room hosted across machines via `atomic bus gateway`. Skill: `atomic-bus`; contract: `docs/reference/bus.md`.
 - `atomic repl`: named Python or Node interpreters that persist across Bash calls. Contract: `docs/reference/repl.md`.
+- `atomic retro extract`: session history since the last retrospective as one numbered markdown file; `/retrospective-learning` runs it. Reference: `docs/reference/retro.md`.
 - `atomic serve`: read-only localhost browser over the wiki and code graph.
 
 </atomic>

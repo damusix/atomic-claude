@@ -16,11 +16,11 @@ This directory is the repo-local project wiki for atomic-claude, written and mai
 | [`scan.md`](scan.md) | Deterministic snapshot written by `atomic signals scan`. Runs to thousands of lines. | Never in context; the inferrer reads it on demand |
 | `CLAUDE.md` | This file. Nested-memory steering for anything read under `docs/wiki/`. | Whenever a file here is read |
 
-Eleven domains: signals, bundle, doctor, workflow, config, docs-meta, wiki, code-intel, serve, bus, repl.
+Domains: signals, bundle, doctor, workflow, config, docs-meta, wiki, code-intel, serve, bus, repl.
 
 ## Writing a page here
 
-Page shape is a contract, not a convention. Every domain page carries these five sections, in this order:
+Page shape is a contract, not a convention. Every domain page carries exactly the sections below, in this order:
 
 ```
 What it does  ->  How it works  ->  Where it lives  ->  Constraints  ->  Coupling
@@ -29,10 +29,12 @@ and why do        the domain has,   grouped by          if you get      this tou
 I care            drawn             responsibility      it wrong
 ```
 
-There is no sixth section. A fact that fits none of the five belongs inside one of them or nowhere, because a catch-all heading is where facts start landing in discovery order.
+Nothing else gets a heading. A fact that fits none of them belongs inside one or nowhere, because a catch-all heading is where facts start landing in discovery order.
 
-There is no cap on diagrams. A domain with a pipeline, a lifecycle, and a request path owes three, each with its own claim and its own sub-heading. Under-drawing is the usual failure: a shape left in prose is a picture the reader never got.
+There is no cap on diagrams. A domain with a pipeline, a lifecycle, and a request path owes a diagram for each, with its own claim and its own sub-heading. Under-drawing is the usual failure: a shape left in prose is a picture the reader never got.
 
 The full contract lives in [`skills/atomic-wiki/references/repo.md`](../../skills/atomic-wiki/references/repo.md) (page shape, reviewer checklist) and [`skills/atomic-writing/SKILL.md`](../../skills/atomic-writing/SKILL.md) (voice, and the rule that every diagram caption states a claim rather than naming its subject).
 
 Write repo-root-relative paths in backticks and let `atomic signals linkify` render them. It skips this file, so any link here is written by hand.
+
+A page here never counts things in the repo. The `atomic-writing` skill's rule 17 has the list; a version or a documented contract value is not a count.

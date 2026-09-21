@@ -147,7 +147,6 @@ func TestAPIBus_Tail_RemoteHost_StreamsOverGateway(t *testing.T) {
 	}
 
 	postBusJSON(t, srv.URL+"/api/bus/join", map[string]string{"room": "potato", "host": "prod"}).Body.Close()
-	postBusJSON(t, srv.URL+"/api/bus/send", map[string]any{"room": "potato", "text": "over the wire", "host": "prod"}).Body.Close()
 
 	envCh := make(chan bus.Envelope, 1)
 	go func() {
@@ -164,13 +163,21 @@ func TestAPIBus_Tail_RemoteHost_StreamsOverGateway(t *testing.T) {
 			}
 		}
 	}()
-	select {
-	case env := <-envCh:
-		if env.Text != "over the wire" {
-			t.Errorf("tailed envelope = %+v", env)
+	// handleTailRemote sends its headers before the gateway subscription is
+	// live, so a single send can land before anyone is tailing.
+	deadline := time.After(5 * time.Second)
+	for {
+		postBusJSON(t, srv.URL+"/api/bus/send", map[string]any{"room": "potato", "text": "over the wire", "host": "prod"}).Body.Close()
+		select {
+		case env := <-envCh:
+			if env.Text != "over the wire" {
+				t.Errorf("tailed envelope = %+v", env)
+			}
+			return
+		case <-time.After(200 * time.Millisecond):
+		case <-deadline:
+			t.Fatal("remote tail did not deliver the sent envelope")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("remote tail did not deliver the sent envelope")
 	}
 }
 

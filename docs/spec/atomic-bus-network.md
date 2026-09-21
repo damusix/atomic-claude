@@ -11,8 +11,9 @@ gap are lost rather than forged — `read` recovers them from the room log.
 
 A gateway process runs beside the bus daemon, starts it, opens each AEAD-sealed frame, rewrites the
 caller's identity, and speaks the existing protocol to the daemon over its Unix socket. Each machine
-holds one 32-byte key issued at enrollment. Holding a key puts a machine in the same position as a
-process on the host with socket access, minus `shutdown`. There are no roles.
+holds one 32-byte key, issued at enrollment or shared through `ATOMIC_BUS_KEY`. Holding a key puts a
+machine in the same position as a process on the host with socket access, minus `shutdown`. There
+are no roles.
 
 The daemon is hardened rather than untouched: it gains a room-name guard, a session length cap, its
 own roster file, a `Host` field on memberships, and `OpRead`. Adding an op changes the pinned wire
@@ -31,7 +32,8 @@ closes remote rooms alongside local ones.
   shell on the host, which is accepted: that host is infrastructure the deployer controls.
 - No multi-tenancy, no federation between gateways.
 - No key rotation window. Rotating means enrolling under a new name and revoking the old one; enroll
-  refuses a name that already has a key.
+  refuses a name that already has a key. A key from `ATOMIC_BUS_KEY` rotates by restarting the
+  gateway with a new value, and cannot be revoked for one machine alone.
 - No OS keyring. The client key is a file under `~/.atomic/`.
 - No HTTP/3 and no QUIC. No h2 either: it is disabled explicitly on both sides.
 - No required TLS, no `autocert`, no new `golang.org/x/crypto` dependency.
@@ -79,13 +81,17 @@ closes remote rooms alongside local ones.
     the change tree.
 17. `docs/guides/bus-hosting.md` walks a reader from nothing to two machines sharing a room, for a
     host inside a VPN and a host behind a proxy.
+18. A gateway started with `ATOMIC_BUS_KEY` set to 64 hex characters admits that key with no
+    `keys.json` present and alongside every enrolled key. The key is never written to `keys.json`,
+    `revoke` never removes it, and a corrupt `keys.json` does not lock it out. Any other value
+    refuses to start with a usage error before a socket is bound.
 
 
 ## Approach
 
 
-A gateway beside the daemon, one AES-256-GCM key per machine carrying admission, identity and
-confidentiality, and no authorization beyond refusing `shutdown`. See
+A gateway beside the daemon, one AES-256-GCM key per machine or one shared by many, carrying
+admission, identity and confidentiality, and no authorization beyond refusing `shutdown`. See
 `docs/design/atomic-bus-network.md`.
 
 
@@ -169,7 +175,8 @@ atomic/internal/gateway/keys.go
   Store      — keys.json, re-read when its mtime moves
   Enroll     — 32 bytes from crypto/rand, id = truncated sha256, refuse a taken name, print a TOML block once
   Revoke     — delete by name
-  Lookup     — key id to key and name; the seal path re-checks before every frame
+  Pin        — one operator-supplied key held in memory beside the file
+  Lookup     — key id to key and name, pinned key first; the seal path re-checks before every frame
 
 atomic/internal/gateway/nonce.go
   Window     — seen nonces, low edge max of now minus window and gateway start
@@ -199,6 +206,8 @@ docs/guides/bus-hosting.md
   Before you start        — a host, an address, the binary, clocks within two minutes
   Run the gateway         — one command, one volume, one port
   Enroll a machine        — enroll on the host, paste the block on the client
+  Share one key           — one env var, one block on every client, no per-machine revoke
+  Run it in a container   — a copyable Dockerfile and one docker run
   Join from two machines  — the worked transcript
   Inside a VPN            — bind to the interface, no TLS needed
   Behind a proxy          — the proxy terminates TLS, idle timeouts and the heartbeat
@@ -217,6 +226,15 @@ docs/guides/bus-hosting.md
    stores id, key and name in `~/.atomic/gateway/keys.json`, and prints a `[bus.remotes]` TOML block
    once.
 3. Operator pastes the block into `~/.atomic/config.toml` on the client.
+
+**Flow: share one operator-supplied key**
+
+1. Operator generates 32 random bytes in hex and starts the gateway with `ATOMIC_BUS_KEY` set to it.
+2. Gateway decodes the value before binding any socket; anything but 64 hex characters exits with a
+   usage error.
+3. Gateway pins the key in its store and admits it through the same ladder as an enrolled key.
+4. Operator writes one `[bus.remotes]` block with that key into `~/.atomic/config.toml` on every
+   client.
 
 **Flow: send from a remote client**
 
@@ -298,6 +316,16 @@ whether or not the network work does. Checkpoint 6 is severable.
 
 ## Change log
 
+
+### 2026-09-18 — operator-supplied shared key
+
+**What changed:** `atomic bus gateway` reads `ATOMIC_BUS_KEY` (64 hex characters) at start and
+admits that key alongside enrolled keys, held in memory by `Store.Pin`.
+
+**Why:** deploying the gateway in a container needed a key set from configuration and handed to
+every server, with no `enroll` step inside the running container.
+
+**Superseded:** every key was issued by `enroll`, one per machine.
 
 ### 2026-09-15 — end-to-end findings
 

@@ -10,9 +10,10 @@ description: >
   table, or tree over a paragraph when the content has a shape, because a drawn flow
   carries a logic better than a paragraph does for a human reader and a model alike.
   Structure comes before sentences: a page answers what-is-this, how, where, what-bites,
-  what-else, in that order. references/mermaid.md carries diagram type selection and the
-  rules that decide whether a block renders; references/exemplar-*.md carry finished
-  page shapes to imitate per surface type.
+  what-else, in that order. references/mermaid.md carries diagram type selection, the
+  layout limits (direction, width, density, color), and the rules that decide whether a
+  block renders; references/exemplar-*.md carry finished page shapes to imitate per
+  surface type.
   Invoked by /documentation and as callee by atomic-documentation. Auto-fires on
   "draft the README", "write the docs", "improve this prose", "edit the guide",
   "write the spec", "clean up this doc", "make this readable".
@@ -117,6 +118,8 @@ Not every document needs all five, and a surface with its own defined structure 
 
     Budgets, per diagram: 9 nodes for a flowchart, 6 participants for a sequence, 8 entities for an ER or class diagram. Over budget means the claim is too big, not that the labels should shrink. Split by abstraction level instead.
 
+    Layout follows the same discipline: `references/mermaid.md`'s layout table sets the default direction (`TD`), the side-by-side and label-width limits, and the color ban.
+
     Two things that look like diagrams and are not. Linear steps with no branch and no boundary crossing are a numbered list, and five boxes in a chain are worse than five lines: bigger, harder to diff, harder to search. And reaching for a flowchart is usually a sign the claim has not been decided. If the logic is ordered interaction across a boundary, `sequenceDiagram` carries time for free. If it is which transitions are legal, `stateDiagram-v2` shows illegality by absence and a flowchart cannot.
 
     Label nodes with the real identifier (`pruneDeleted`, `AuthGuard.verify()`), not a generic noun ("cleanup", "check auth"). A renamed symbol then turns up in grep; a vague label goes stale in silence. Encode distinctions in shape or line style, not color: `{diamond}` for a decision, `[(cylinder)]` for a store, `-.->` for async. Color encodes nothing, breaks on dark backgrounds, and fails colorblind readers.
@@ -179,6 +182,23 @@ Not every document needs all five, and a surface with its own defined structure 
 
 16. **Instruct plainly in prompt artifacts.** In `commands/`, `agents/`, `skills/`, `rules/`, and `CLAUDE.md`, give the instruction and the constraint. Rationale earns its place when it changes what the reader does at the edges, which is what a `**Why:**` line is for. Rationale that only defends the instruction against an imagined objection is noise, and it costs tokens on every turn.
 
+17. **A wiki page never counts things in the repo.** No LOC totals, file counts, percentages, or language tables, and no count of verbs, artifacts, domains, checks, resolvers, steps, lenses, icons, registry entries, tests, or sections. Name the things, or let the list that follows stand on its own. A version and a documented contract value are not counts and stay: `Go 1.25`, a pinned dependency, a 3s timeout, a 16 MiB buffer, a 500-file gate, a port.
+
+## Structural tells
+
+Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `docs/research/`, and the prose in `docs/reference/`. Skip `docs/spec/` and `docs/wiki/`, and lookup tables on any page.
+
+- Metaphor that returns after a heading? Keep one comparison in one sentence; cut the returns.
+- Closing line that states what the section proved? Cut it.
+- Summary or Conclusion section restating the page? End on the last fact.
+- Every fact serves one claim, and no exception appears? Put the dropped exception back. If none exists, the check passes; add no hedge.
+- Nothing on the page the reader would not have guessed? Name the likely wrong assumption in the what-will-bite-me section.
+- Same register from first line to last? Quote the page's transcript or error string. Do not roughen prose on purpose.
+- Consecutive sentences opening the same way? Vary the openers.
+- Sentence over 30 words, or an aside nested inside a clause? Split it where a clause ends, and move the aside to its own sentence. Keep a `, so` or colon join when the result stays under 30 words; do not bridge a split with `therefore`, `thus`, `nonetheless`, or `This means`. A short parenthetical that replaces an em dash (rule 7) stays.
+
+Read the page twice. The first read covers the first five checks. The second covers the last three on three sampled paragraphs: count sentences over 30 words, look for repeated openers, and check whether the register changes.
+
 ## Quick checklist before saving
 
 - Read the headings alone, in order. Do they answer what-is-this, how, where, what-bites, what-else? If the first one is an inventory, the page is upside down.
@@ -192,10 +212,12 @@ Not every document needs all five, and a surface with its own defined structure 
 - A shape explained in prose that a picture would carry better? Draw it, however many diagrams the page already has.
 - Two diagrams with barely any text between them? Give the second its own section and its own claim, or cut it as a restatement.
 - Node label that is a generic noun rather than a real identifier? Use the identifier.
+- `flowchart LR` with a branch, more than 4 nodes side by side, or any `style`/`fill:` line? Fix against the layout table in `references/mermaid.md`.
 - Mermaid block with no caption line above it? Add one.
+- Prose surface? Run the `Structural tells` checks above.
 - Em dash inside a sentence? Replace with comma or period. (In a table cell or `a — b` list line, leave it.)
 - Adverb anywhere? Delete unless it carries technical meaning.
-- Sentence starting with `What`, `Here's`, `So`, or `Look,`? Restructure.
+- Sentence starting with `What`, `Here's`, `So`, or `Look,`? Restructure. Join a `So` sentence to the one before it with `, so`, or drop the word.
 - Passive voice? Find the actor.
 - Vague declarative ("the implications matter")? Name the implication or cut.
 - Three-item rhythm list (`speed, quality, cost`)? Drop to two, or break the rhythm.
@@ -205,6 +227,7 @@ Not every document needs all five, and a surface with its own defined structure 
 - Throat-clearing opener ("Here's the thing")? Cut.
 - Binary-contrast structure ("not X. Y.")? State Y.
 - In a prompt artifact: paragraph that only defends an instruction? Cut it.
+- Writing a wiki page: a count of things in the repo? Cut it. Versions and documented contract values stay.
 
 ## Examples
 
@@ -217,7 +240,7 @@ Not every document needs all five, and a surface with its own defined structure 
 > Ship verb order, and why it is fixed:
 >
 > ```mermaid
-> flowchart LR
+> flowchart TD
 >     A[stage] --> B[doc-impact]
 >     B --> C{docs-only?}
 >     C -->|yes| E[commit]
@@ -265,7 +288,7 @@ Not every document needs all five, and a surface with its own defined structure 
 
 ## Reference files
 
-- `references/mermaid.md` — picking a diagram type from the reader's question, and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file.
+- `references/mermaid.md` — picking a diagram type from the reader's question, the layout limits (direction, width, density, color), and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file.
 - `references/exemplar-reference-page.md` — the shape of a finished reference page for a config file, format, or subsystem. Read before writing a `docs/reference/` page a reader will use for lookup.
 - `references/exemplar-tool-page.md` — the shape of a finished tool reference: worked example first, then the model, then per-verb lookup. Read before writing a page for a CLI tool, daemon, or protocol.
 

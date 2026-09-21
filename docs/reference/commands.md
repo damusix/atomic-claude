@@ -30,7 +30,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 
 | Command | What it does |
 |---------|-------------|
-| `/commit` | Stage and commit, then ask how far to ship — or skip the prompt by passing a token: `push`, `pr`, `merge`, `squash`, or `squash merge`. With no pending changes and commits ahead of base, skips straight to the ship step. Code Claude wrote directly, outside the implement loop, gets an `atomic-reviewer` pass before the commit lands. |
+| `/commit` | Stage and commit, then ask how far to ship — or skip the prompt by passing a token: `push`, `pr`, `merge`, `squash`, or `squash merge`. With no pending changes and commits ahead of base, skips straight to the ship step. Code Claude wrote directly, outside the implement loop, gets an `atomic-reviewer` pass, on the session's model via an explicit override, before the commit lands. |
 | `/undo-commit` | Soft-undo the last commit. Refuses merge commits, initial commits, and already-pushed commits. |
 
 
@@ -83,6 +83,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | `atomic wiki` | Scan and maintain the cross-repo wiki, and register capture buckets that feed its knowledge layer. | [Wiki workflow](/reference/realm-wiki) |
 | `atomic bus` | Message between concurrent Claude Code sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
 | `atomic repl` | Drive a named Python or Node interpreter session that survives across separate Bash calls. | [REPL](/reference/repl) |
+| `atomic retro` | `atomic retro extract` writes session history since a date as one numbered markdown file for `/retrospective-learning`. | [Retro](/reference/retro) |
 | `atomic serve` | Serve the wiki and code graph as a browsable site. Read-only, localhost by default. | [Serve](/reference/serve) |
 | `atomic scratchpad` | Create, look up, list, and archive slug-keyed work bundles — the shared shape behind every implement-loop scratchpad. | [Conventions](/reference/conventions) |
 | `atomic doctor` · `validate` · `update` · `migrate` | Check the install, validate artifacts, self-update against a verified checksum, apply versioned migrations. | [Install](/guides/install) |

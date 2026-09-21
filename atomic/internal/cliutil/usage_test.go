@@ -106,6 +106,27 @@ func TestSetUsage_StringFlagWithDefaultNoExisting(t *testing.T) {
 	}
 }
 
+// A flag registered with an empty Usage string is a same-value alias for
+// another flag (e.g. -o for --out) and must not get its own Options line.
+func TestSetUsage_EmptyUsageFlagSuppressed(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	var buf bytes.Buffer
+	fs.SetOutput(&buf)
+	fs.String("out", "", "write output to this file instead of stdout")
+	fs.String("o", "", "")
+
+	cliutil.SetUsage(fs, "atomic retro extract [-o <file>]")
+	fs.Usage()
+
+	out := buf.String()
+	if !strings.Contains(out, "--out") {
+		t.Errorf("expected --out in output, got:\n%s", out)
+	}
+	if strings.Contains(out, "--o ") || strings.Contains(out, "--o\n") {
+		t.Errorf("expected --o suppressed from Options, got:\n%s", out)
+	}
+}
+
 func TestSetUsage_ZeroFlags(t *testing.T) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	var buf bytes.Buffer

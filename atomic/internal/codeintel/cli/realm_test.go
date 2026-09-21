@@ -359,6 +359,58 @@ func TestRunCodeRealm_RepoScope_SubdirResolvesToGitRoot(t *testing.T) {
 	}
 }
 
+// comments bypasses realm resolution entirely (see RunCodeWithRealm), so a
+// subdir invocation must still resolve to the git root and scan the whole repo.
+func TestRunCodeRealm_Comments_SubdirResolvesToGitRoot(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repoRoot := t.TempDir()
+	runGitRealm(t, repoRoot, "init")
+	runGitRealm(t, repoRoot, "config", "user.email", "test@example.com")
+	runGitRealm(t, repoRoot, "config", "user.name", "Test")
+
+	subdir := filepath.Join(repoRoot, "src")
+	writeGoFile(t, filepath.Join(subdir, "main.go"), "package main\n\nfunc main() {}\n")
+	runGitRealm(t, repoRoot, "add", ".")
+	runGitRealm(t, repoRoot, "commit", "-m", "init")
+
+	writeGoFile(t, filepath.Join(subdir, "main.go"), "package main\n\n// Entry point.\nfunc main() {}\n")
+
+	claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
+	writeGoFile(t, claudeMD, "# no wikis\n")
+
+	var rootOut, rootErr bytes.Buffer
+	rootCode := codecli.RunCodeWithRealm([]string{"comments"}, repoRoot, claudeMD, &rootOut, &rootErr, noStdin())
+	if rootCode != 0 {
+		t.Fatalf("root: expected exit 0, got %d; stderr: %s", rootCode, rootErr.String())
+	}
+
+	t.Chdir(subdir)
+	var subOut, subErr bytes.Buffer
+	subCode := codecli.RunCodeWithRealm([]string{"comments"}, subdir, claudeMD, &subOut, &subErr, noStdin())
+	if subCode != 0 {
+		t.Fatalf("subdir: expected exit 0, got %d; stderr: %s", subCode, subErr.String())
+	}
+
+	if rootOut.String() != subOut.String() {
+		t.Errorf("subdir run resolved a different scope than root run:\nroot: %s\nsub:  %s", rootOut.String(), subOut.String())
+	}
+	if !strings.Contains(subOut.String(), "comments added: 1") {
+		t.Errorf("expected 1 comment counted, got: %s", subOut.String())
+	}
+}
+
+func runGitRealm(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
 // Indexing from inside a member repo must leave that repo untouched.
 func TestRunCodeRealm_MemberIndex_NoWriteIntoMemberDir(t *testing.T) {
 	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha"})

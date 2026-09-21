@@ -5,12 +5,12 @@ Agents are specialized workers that run in a fresh context. The orchestrator dis
 
 ## Who dispatches whom
 
-Three orchestration trees cover every dispatch. The implement loop fans out per checkpoint, implementer then reviewer, with the investigator scoping surfaces, the auditor gating the whole delivery once at the end, and the strategist called in only when the loop is stuck; `/quick-fix` drives the same implementer, reviewer, and auditor from a brief instead of a spec. The wiki pipeline fans out per domain, one writer per domain with the same reviewer gating each page. The deslop pass fans out per shard, one read-only auditor per wiki domain, and its second phase hands accepted findings back to the same implementer.
+Three orchestration trees drive the implementation lifecycle, and two ad-hoc exits route into the same reviewer outside them. The implement loop fans out per checkpoint, implementer then reviewer, with the investigator scoping surfaces, the auditor gating the whole delivery once at the end, and the strategist called in only when the loop is stuck; `/quick-fix` drives the same implementer, reviewer, and auditor from a brief instead of a spec. The wiki pipeline fans out per domain, one writer per domain with the same reviewer gating each page. The deslop pass fans out per shard, one read-only auditor per wiki domain, and its second phase hands accepted findings back to the same implementer.
 
 ```mermaid
 flowchart LR
     accTitle: Agent dispatch topology
-    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /quick-fix runs the same implementer, reviewer, and auditor without a spec. /implement dispatches no implementer at all, driving the reviewer once per checkpoint and the auditor once at the end. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer. /deslop fans out one deslopper per shard, and /deslop apply drives the implementer.
+    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /quick-fix runs the same implementer, reviewer, and auditor without a spec. /implement dispatches no implementer at all, driving the reviewer once per checkpoint and the auditor once at the end. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer. /deslop fans out one deslopper per shard, and /deslop apply drives the implementer. atomic-verify and the ship verbs' review gate each dispatch the reviewer, on the session's model via an explicit override, on code the main agent wrote ad-hoc, outside any loop.
     SI["/subagent-implementation"] --> INV["atomic-investigator"]
     SI --> IMP["atomic-implementer"]
     SI --> REV["atomic-reviewer"]
@@ -26,9 +26,11 @@ flowchart LR
     WI --> REV
     DS["/deslop"] -->|one per shard| DSL["atomic-deslopper"]
     DSA["/deslop apply"] --> IMP
+    AV["atomic-verify"] -->|diff: working, model override| REV
+    SC["ship verbs"] -->|diff: staged, model override| REV
 ```
 
-`/quick-fix` and `/subagent-diagnose` reuse the implement loop's tree, `/autopilot` runs it end to end, and ship verbs dispatch the wiki-inferrer silently. `/implement` is the one implementation verb with no implementer dispatch: the main agent writes the code, so the reviewer runs per checkpoint and the auditor once at the end, as in the loop. `/atomic-plan` borrows the reviewer alone, in spec-mode. `/deslop` is the only tree whose two halves are separate invocations: the audit never reaches the implementer without a human accepting findings first.
+`/quick-fix` and `/subagent-diagnose` reuse the implement loop's tree, `/autopilot` runs it end to end, and ship verbs dispatch the wiki-inferrer silently. `/implement` is the one implementation verb with no implementer dispatch: the main agent writes the code, so the reviewer runs per checkpoint and the auditor once at the end, as in the loop. `/atomic-plan` borrows the reviewer alone, in spec-mode. `/deslop` is the only tree whose two halves are separate invocations: the audit never reaches the implementer without a human accepting findings first. Code the main agent writes ad-hoc, outside any of these trees, reaches the reviewer two ways, each with an explicit model override to the session's model: `atomic-verify` dispatches it against the working diff before a completion claim, and the ship verbs' review gate dispatches it against the staged diff before the commit.
 
 
 ## Code agents
@@ -38,7 +40,7 @@ These write, review, and gate code.
 | Agent | What it does | Model |
 |-------|-------------|-------|
 | `atomic-implementer` | Dual-mode implementation agent. The orchestrator declares the mode at dispatch time. **feature mode**: implements a feature checkpoint — one cohesive slice across however many files it touches (controller + service + DTO + tests, etc.); refuses cross-cutting or ambiguous scope. **surgical mode**: small targeted edits with a hard cap of 2 files, test files excluded; bounces anything larger back to the orchestrator. Both modes write a failing test first. | Sonnet, `medium` effort |
-| `atomic-reviewer` | Reviews a diff after each implementer pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. Flags suppression patterns — error-catching added to dodge a failure without investigating it. Flags over-engineering — reinvented stdlib, duplicate helpers, or one-implementation abstractions — and comment noise; both are 🟡 and drive the verdict, never nits. Checks the implementer's proposed commit message against `atomic-git-discipline`. Also runs in spec-mode: reviews a draft spec against its design doc (coverage, voice, over-prescription) to gate the `/atomic-plan` spec loop. The ship verbs' review gate dispatches it a third way: on code Claude wrote directly, outside any loop, before the commit lands. | Sonnet, `xhigh` effort |
+| `atomic-reviewer` | Reviews a diff after each implementer pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. Flags suppression patterns — error-catching added to dodge a failure without investigating it. Flags over-engineering — reinvented stdlib, duplicate helpers, or one-implementation abstractions — and comment noise; both are 🟡 and drive the verdict, never nits. Runs `atomic code comments` on the diff and reports `comments: N added (M over max)` beside the other signals. Checks the implementer's proposed commit message against `atomic-git-discipline`. Also runs in spec-mode: reviews a draft spec against its design doc (coverage, voice, over-prescription) to gate the `/atomic-plan` spec loop. Also gates code the main agent wrote outside any loop, at both `atomic-verify` (`diff: working`, before a completion claim) and the ship verbs' review gate (`diff: staged`, before the commit); both dispatches pass an explicit `model:` override to the session's model, overriding the `claude-sonnet-5` frontmatter pin. | Sonnet, `xhigh` effort |
 | `atomic-auditor` | Final gate on a finished implementation, dispatched once after the loop goes green. Audits four things per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, commit types that misstate user-visible impact, and documentation that is current but says nothing. Never edits the repo; findings also land in `$SCRATCH/AUDIT.md`. Fresh context, ends with PASS or CHANGES_REQUESTED. | caller's choice, `max` effort |
 
 
@@ -60,7 +62,7 @@ These handle system-level tasks.
 | Agent | What it does | Model |
 |-------|-------------|-------|
 | `atomic-wiki-inferrer` | Scope-sensitive wiki pipeline, and an orchestrator rather than an author. Repo scope: scans via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), dispatches one `atomic-wiki-writer` per domain and `atomic-reviewer` per page, then assembles `docs/wiki/index.md` and wires the `@docs/wiki/index.md` ref (checking `claude.local.md`/`CLAUDE.local.md` before `CLAUDE.md`). Realm scope: executes the cross-repo pipeline against `<root>/wiki/`. Runs in its own context so the scan, which is thousands of lines, never enters the caller's. Dispatched by `/refresh-wiki` and silently by ship verbs. | Sonnet, `medium` effort |
-| `atomic-wiki-writer` | Authors one wiki page from source, dispatched once per domain by `atomic-wiki-inferrer` with the page contract and source paths in its prompt. Carries the `atomic-writing` skill in frontmatter, so the page's reading order, its diagrams, and its voice load as context rather than arriving as a request. Reads the files rather than inferring from filenames, draws every shape the domain has, and reports judgments separately from facts. Holds no `Agent` tool, so it cannot fan out. | Sonnet, `high` effort |
+| `atomic-wiki-writer` | Authors one wiki page from source, dispatched once per domain by `atomic-wiki-inferrer` with the page contract and source paths in its prompt. Carries the `atomic-writing` skill in frontmatter, so the page's reading order, its diagrams, and its voice load as context rather than arriving as a request. Reads the files rather than inferring from filenames, draws every shape the domain has, and reports judgments separately from facts. Redraws every current-architecture diagram from the domain's design docs into the page, checked against source. Holds no `Agent` tool, so it cannot fan out. | Sonnet, `high` effort |
 
 
 ## Model and effort overrides
@@ -82,7 +84,7 @@ Each agent's model and effort default to the bundled tier shown in the tables ab
 | `atomic-auditor` | unpinned, effort `max` |
 | `atomic-strategist` | unpinned, effort `xhigh` |
 
-`atomic-strategist` and `atomic-auditor` ship with no `model:` field on purpose, so the parent session or your own config decides whether a given question is worth opus or fable. Effort is the knob that survives an unpinned model. (`fable` is forward-reserved and may not correspond to a live Claude Code model tier yet.)
+`atomic-strategist` and `atomic-auditor` ship with no `model:` field on purpose, so the parent session or your own config decides whether a given question is worth opus or fable. A pinned agent isn't locked to that pin either — the caller's Agent tool `model:` parameter overrides frontmatter at dispatch time, which is how `atomic-verify` and the ship verbs run the `claude-sonnet-5`-pinned `atomic-reviewer` on the session's own model. Effort is the knob that survives an unpinned model. (`fable` is forward-reserved and may not correspond to a live Claude Code model tier yet.)
 
 ### How an override travels
 

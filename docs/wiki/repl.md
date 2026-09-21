@@ -24,7 +24,7 @@ flowchart LR
 
 ### Verbs
 
-Six verbs, registered by `buildReplCmd` in [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) and dispatched by `ReplAction` in [`atomic/internal/repl/action.go`](../../atomic/internal/repl/action.go). Every verb takes `--json`; the JSON shape differs per verb (see [`docs/reference/repl.md`](../reference/repl.md)).
+Every verb is registered by `buildReplCmd` in [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go), dispatched by `ReplAction` in [`atomic/internal/repl/action.go`](../../atomic/internal/repl/action.go), and takes `--json`; the JSON shape differs per verb (see [`docs/reference/repl.md`](../reference/repl.md)).
 
 | Verb | Does | Flags |
 |------|------|-------|
@@ -39,7 +39,7 @@ Six verbs, registered by `buildReplCmd` in [`atomic/cmd/atomic/main.go`](../../a
 
 ### Session lifecycle
 
-Two of the three ways a session ends are ones nobody typed, so an agent has to treat a missing session as ordinary rather than exceptional.
+A session can end without anyone typing `stop`: the idle window elapsing or an eval deadline escalation ends it just the same, so an agent has to treat a missing session as ordinary rather than exceptional.
 
 ```mermaid
 stateDiagram-v2
@@ -69,7 +69,7 @@ A session belongs to one scope root and is found from the union of two.
 
 ### Error text after a session is found but not reached
 
-`findSession` resolving a name only proves a meta file was on disk a moment ago; the dial that follows can still fail, and `eval`, `status`, `reset`, and `stop` each route that dial error through `dialError` before printing it. `dialError` special-cases `ErrSessionNotFound`, rebuilding it through `notFoundError` rather than passing it through raw: `Dial` returns that error when no socket exists at the path, which is what happens in the window `stop` opens by returning on the harness's shutdown ack while the harness is still removing its own socket and meta. A verb landing in that window finds the meta, then dials nothing. `notFoundError` builds the message text once but is invoked from two call sites: `findSessionInDirs`'s own pre-dial return, for a name that was never started, and `dialError`'s post-dial rebuild, for this vanished-mid-window case.
+`findSession` resolving a name only proves a meta file was on disk a moment ago; the dial that follows can still fail, and `eval`, `status`, `reset`, and `stop` each route that dial error through `dialError` before printing it. `dialError` special-cases `ErrSessionNotFound`, rebuilding it through `notFoundError` rather than passing it through raw: `Dial` returns that error when no socket exists at the path, which is what happens in the window `stop` opens by returning on the harness's shutdown ack while the harness is still removing its own socket and meta. A verb landing in that window finds the meta, then dials nothing. `notFoundError` builds the message text once but is invoked from `findSessionInDirs`'s own pre-dial return, for a name that was never started, and from `dialError`'s post-dial rebuild, for this vanished-mid-window case.
 
 ```mermaid
 flowchart TD
@@ -107,7 +107,7 @@ Fixed literal values, pinned by `TestExitCodes_PinnedValues`, defined in [`atomi
 
 | Path | Role |
 |------|------|
-| [`atomic/internal/repl/protocol.go`](../../atomic/internal/repl/protocol.go) | Wire types, `ProtocolVersion`, the four ops, `MaxStreamBytes`, the eight exit codes |
+| [`atomic/internal/repl/protocol.go`](../../atomic/internal/repl/protocol.go) | Wire types, `ProtocolVersion`, the ops, `MaxStreamBytes`, the exit codes |
 | [`atomic/internal/repl/paths.go`](../../atomic/internal/repl/paths.go) | `ScopeKey`, session dir, socket / meta / lock paths, `ValidateName` |
 | [`atomic/internal/repl/meta.go`](../../atomic/internal/repl/meta.go) | The on-disk session record and its atomic write |
 | [`atomic/internal/repl/envfile.go`](../../atomic/internal/repl/envfile.go) | `--env` KEY=VALUE parsing |
@@ -116,7 +116,7 @@ Fixed literal values, pinned by `TestExitCodes_PinnedValues`, defined in [`atomi
 | [`atomic/internal/repl/action.go`](../../atomic/internal/repl/action.go) | Verb dispatch, scope and idle-timeout resolution, flag parsing, error-to-exit-code mapping, `deadSessionError` and `dialError` |
 | [`atomic/internal/repl/harness_embed.go`](../../atomic/internal/repl/harness_embed.go) | `go:embed` of both harness scripts, canonical language ids, materialized filenames |
 | [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) | `buildReplCmd` and `runRepl` |
-| [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) | Six `{"repl", <verb>}` entries feeding `--help` and the A1 artifact-citation lint |
+| [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) | `{"repl", <verb>}` entries feeding `--help` and the A1 artifact-citation lint |
 
 ### Harness scripts and their tests
 
@@ -132,13 +132,13 @@ Fixed literal values, pinned by `TestExitCodes_PinnedValues`, defined in [`atomi
 
 | Path | Role |
 |------|------|
-| [`docs/reference/repl.md`](../reference/repl.md) | User-facing reference: scope model, all six verbs with examples, exit-code table, idle timeout |
+| [`docs/reference/repl.md`](../reference/repl.md) | User-facing reference: scope model, every verb with examples, exit-code table, idle timeout |
 | [`docs/spec/atomic-repl.md`](../spec/atomic-repl.md) | Implementation contract: goal, non-goals, success criteria, checkpoints, risks |
-| [`docs/design/atomic-repl.md`](../design/atomic-repl.md) | Rationale: four approaches weighed (central daemon, embedded goja, Jupyter kernel protocol, per-session self-serving harness) and the mechanism-decision table |
+| [`docs/design/atomic-repl.md`](../design/atomic-repl.md) | Rationale: approaches weighed (central daemon, embedded goja, Jupyter kernel protocol, per-session self-serving harness) and the mechanism-decision table |
 
 ## Constraints
 
-**A reaped session and a name that was never started can still produce the same message even when the error surfaces from different call sites.** `notFoundError` in `action.go` is the one place the not-found message text is built, but it is invoked from two places: `findSession`'s own not-found path, and `dialError`'s rebuild of a post-dial `ErrSessionNotFound`. A session whose meta was on disk when `findSession` approved it can still vanish (socket removed, then meta) before the dial that follows, and the reader is owed the same sentence regardless of which call site caught it. The remedy either way is `atomic repl start`.
+**A reaped session and a name that was never started can still produce the same message even when the error surfaces from different call sites.** `notFoundError` in `action.go` is the one place the not-found message text is built, but it is invoked from `findSession`'s own not-found path, and from `dialError`'s rebuild of a post-dial `ErrSessionNotFound`. A session whose meta was on disk when `findSession` approved it can still vanish (socket removed, then meta) before the dial that follows, and the reader is owed the same sentence regardless of which call site caught it. The remedy either way is `atomic repl start`.
 
 **`ScopeKey` hashes the cleaned scope root rather than embedding it** (SHA-256, first 12 hex chars). That is what bounds the socket path under `maxSocketPathLen = 103`: `sun_path` is 104 bytes on macOS and 108 on Linux, NUL included, so an arbitrarily deep repo still produces a fixed-width session directory name. A session name long enough to overflow the limit is rejected by `SocketPath` rather than handed to a spawn.
 
@@ -146,7 +146,7 @@ Fixed literal values, pinned by `TestExitCodes_PinnedValues`, defined in [`atomi
 
 **`materializeHarness` rewrites the on-disk script from embedded bytes on every spawn**, through a temp file and a rename. The disk copy is a cache of the binary's bytes, never trusted stale, so an `atomic update` cannot leave a harness on disk speaking a protocol the client no longer does. The Node harness lands as `node_harness.mjs`, not `.js`: nothing under `~/.atomic/repl` has a [`package.json`](../../package.json) of its own, and whichever one Node finds by walking up is a stranger's.
 
-**The eval timeout escalation verifies process identity before signaling anything.** `defaultPidMatch` runs `ps -p <pid> -o etime=,state=` and rejects zombie state `Z`, because a pid read from a file is a number, not a process, and a SIGKILL at the wrong one is unrecoverable. The sequence is SIGINT, a 2s grace period, then SIGKILL, with the socket and meta removed either way. The escalation exists because the two harnesses answer SIGINT differently: Node installs no handler and dies outright, while Python catches the `KeyboardInterrupt` inside the eval and keeps serving. Converging them is what keeps one command from producing two outcomes.
+**The eval timeout escalation verifies process identity before signaling anything.** `defaultPidMatch` runs `ps -p <pid> -o etime=,state=` and rejects zombie state `Z`, because a pid read from a file is a number, not a process, and a SIGKILL at the wrong one is unrecoverable. The sequence is SIGINT, a 2s grace period, then SIGKILL, with the socket and meta removed either way. The escalation exists because the harnesses answer SIGINT differently: Node installs no handler and dies outright, while Python catches the `KeyboardInterrupt` inside the eval and keeps serving. Converging them is what keeps one command from producing divergent outcomes.
 
 **`Meta` carries no field for the `--env` values a session started with.** `list` and `status` render that struct directly, so having nowhere to put a secret is a stronger guarantee than remembering to filter one out at render time.
 
@@ -166,4 +166,4 @@ Fixed literal values, pinned by `TestExitCodes_PinnedValues`, defined in [`atomi
 - **config domain (scope resolution).** `resolveScopeRoots` calls `repoctx.ResolveFrom` for the repo root and `config.FindScopeRoot(dir, "realm")` for the enclosing realm. Both are config-domain primitives, so a session's cross-repo visibility is entirely a function of how the scope-marker walk resolves.
 - **doctor domain.** Both validation call sites live in doctor, at different severity ceilings: repo-scoped (`checks_repo_config.go`, category 13) folds an invalid `idle_timeout` into a WARN, user-scoped (`checks_config.go`, category 9) fails `config.Validate` and reports FAIL. See [`docs/wiki/doctor.md`](doctor.md).
 - **bundle domain.** repl ships no command, agent, or skill of its own. The `## Persistent REPL sessions` section in [`context/CLAUDE.md`](../../context/CLAUDE.md) and the intent row in [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md) are bundle inputs, so editing either needs `make bundle`.
-- **Verb count.** `repl` is one of the top-level Cobra verbs [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go)'s `TestRootCmdExact23Verbs` pins. Adding, removing, or renaming any verb anywhere in the binary updates that list.
+- **Verb count is pinned.** `repl` is one of the top-level Cobra verbs [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go)'s `TestRootCmdExact<N>Verbs` pins. Adding, removing, or renaming any verb anywhere in the binary updates that list.

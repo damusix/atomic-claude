@@ -22,6 +22,8 @@ import (
 // --addr is not given.
 const defaultGatewayAddr = ":8443"
 
+const gatewayKeyEnv = "ATOMIC_BUS_KEY"
+
 // gatewayKeysPath is the shared key store every gateway process and every
 // enroll/revoke invocation reads and writes — see docs/design/
 // atomic-bus-network.md, "Deployment": one ~/.atomic volume for keys, roster
@@ -65,6 +67,16 @@ func gatewayAction(args []string, home string, out, errOut io.Writer) int {
 		return int(bus.ExitUsage)
 	}
 
+	store := gateway.NewStore(gatewayKeysPath(home))
+	if v := os.Getenv(gatewayKeyEnv); v != "" {
+		key, err := hex.DecodeString(v)
+		if err != nil || len(key) != 32 {
+			fmt.Fprintf(errOut, "atomic bus gateway: %s must be 64 hex characters; generate one with: openssl rand -hex 32\n", gatewayKeyEnv)
+			return int(bus.ExitUsage)
+		}
+		store.Pin(gatewayKeyEnv, key)
+	}
+
 	if err := bus.EnsureDirs(home); err != nil {
 		fmt.Fprintf(errOut, "atomic bus gateway: %v\n", err)
 		return int(bus.ExitHard)
@@ -89,7 +101,6 @@ func gatewayAction(args []string, home string, out, errOut io.Writer) int {
 	}
 	defer httpLn.Close()
 
-	store := gateway.NewStore(gatewayKeysPath(home))
 	window := gateway.NewWindow(gateway.AdmissionWindow, time.Now())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -24,17 +24,17 @@ Every non-trivial task leaves a `docs/design/<topic>.md` and a `docs/spec/<topic
 Three failures compound:
 
 - A feature's contract is spread over N specs that drifted from each other and from the code. A reader reconstructs the current design by diffing them; a subagent cannot.
-- The design docs hold the diagrams and the tradeoffs, and the wiki never sees them. The repo pipeline in `context/skills/atomic-wiki/references/repo.md` lists design and spec files in the scan, leaves their inclusion to the inferrer's discretion at Step 3, and binds the writer at Step 4 to "every sentence verifiable by reading a source file". A design doc states intent, not fact, so the only legal use is a link row, which is what `docs/wiki/code-intel.md` carries: five spec links, no diagram, no rationale. Step 5 tells the reviewer to catch "contradictions between a spec and its implementation" and never supplies the spec.
+- The design docs hold the tradeoffs, and the wiki never sees them. The repo pipeline in `context/skills/atomic-wiki/references/repo.md` assigns each design doc to a domain at Step 3, and the writer at Step 4 redraws that domain's current-architecture diagrams into the page against source. Purpose and vocabulary have no role yet: a design doc's intent-shaped prose still has no legal use beyond the link row, which is what `docs/wiki/code-intel.md` carries for its spec family: five spec links, no rationale. Step 5 tells the reviewer to catch "contradictions between a spec and its implementation" and never supplies the spec.
 - Spec-versus-code drift is invisible until someone reads both.
 
-Where each document kind sits today. The dotted edge is the one the pipeline assumes and never provides.
+Where each document kind sits today. The dotted edge is the one the pipeline provides for diagrams only; purpose and vocabulary still cross by link row alone.
 
 ```mermaid
 flowchart LR
     D["docs/design/*.md<br/>why, tradeoffs, diagrams"] --> S["docs/spec/*.md<br/>contract, checkpoints"]
     S --> C["code"]
     C --> W["docs/wiki/&lt;domain&gt;.md<br/>current state"]
-    D -.->|"discretionary, link rows only"| W
+    D -.->|"diagrams redrawn;<br/>purpose, vocabulary open"| W
 ```
 
 
@@ -44,7 +44,7 @@ flowchart LR
 - Goals:
     - One living design doc per feature that passes the rebuild test: an agent reading only it, plus the code's language and runtime, reaches the same build.
     - Every retired file recoverable from a lineage table that names the commit which last held the whole family.
-    - Design and spec files enter wiki inference with a contracted role, so diagrams and purpose cross into `docs/wiki/<domain>.md` and drift surfaces on every refresh.
+    - Design and spec files gain a purpose and vocabulary role in wiki inference, so intent crosses into `docs/wiki/<domain>.md` alongside the diagrams already carried, and drift surfaces on every refresh.
     - Family membership walkable by code, not by prose grep.
 - Non-goals:
     - No third documentation surface. `docs/design/`, `docs/spec/`, `docs/wiki/` keep their roles.
@@ -168,9 +168,9 @@ Three edits to `context/skills/atomic-wiki/references/repo.md` and the writer an
 
 | Step | Today | After |
 |------|-------|-------|
-| 3 partition | "the docs that describe them", discretionary | `docs/design/*` and `docs/spec/*` join the domain named by `domain:` (filename prefix as fallback) |
-| 4 writer | facts only; design is unusable | Code is the source for facts. Design is the source for purpose (`## What it does` opens on it), vocabulary, and diagrams that pass the code check. Spec is read for vocabulary while `status != shipped`, never cited as current state |
-| 5 reviewer | assumes specs were read | A design or spec claim the code contradicts becomes a Step 6b Concern row |
+| 3 partition | "the docs that describe them", discretionary | **Shipped.** `docs/design/*` joins the domain named by its `domain:` frontmatter when present, otherwise the domain whose paths it describes (`context/skills/atomic-wiki/references/repo.md` Step 3) |
+| 4 writer | facts only; design is unusable | **Diagram clause shipped:** the writer redraws every current-architecture diagram from a domain's design docs into the page, checked against source. Purpose and vocabulary role for design docs: open |
+| 5 reviewer | assumes specs were read | **Diagram check shipped:** the reviewer verifies every current-architecture design diagram lands on the page or is named stale. Claim-contradiction Concern row for design/spec text: open |
 
 The reviewer edit makes `/refresh-wiki` the drift detector and the consolidation verb the drift resolver. Same signal, no new scanning.
 
@@ -195,7 +195,7 @@ The last hop is direct because docs-only commits skip the signals gate, so `mark
 ### Delivery order
 
 1. Frontmatter contract, backfill script, finalize stamping, validator fix. Makes the graph visible; candidates are invisible without it.
-2. Wiki pipeline roles (Steps 3, 4, 5).
+2. Wiki pipeline roles (Steps 3, 4, 5) (diagram slice shipped; purpose and vocabulary open).
 3. The consolidation verb.
 
 ### Landmines
@@ -213,3 +213,13 @@ The last hop is direct because docs-only commits skip the signals gate, so `mark
 - `/atomic-plan` lookup order after retirement: family design doc lineage table first, then `docs/spec/`. One line in the command, but it changes what the planner reads first.
 - Verb name: `/consolidate-docs <feature>` is the working name.
 - Whether `status` is stamped by finalize only, or also derived when every checkpoint row is checked, for specs written before stamping existed.
+
+
+## Change log
+
+
+### 2026-09-20 — Diagram row of the wiki-inference section shipped
+
+**What changed:** `docs/design/diagram-legibility.md` shipped the diagram slice of the wiki-inference section: Step 3's domain-assignment rule, Step 4's carried-diagram clause, and Step 5's carry-over check in `context/skills/atomic-wiki/references/repo.md`, the matching W4/W5 restatement in `context/skills/atomic-wiki/references/realm.md`, and the carry-over responsibility on `atomic-wiki-writer`. The Problem bullet and the wiki-inference goal above are rewritten to describe that slice as shipped, leaving purpose and vocabulary as the remaining goals.
+
+**Why:** issue #272.
