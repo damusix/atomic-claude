@@ -1,5 +1,29 @@
 # Changelog
 
+## [6.8.0](https://github.com/damusix/atomic-claude/compare/v6.7.0...v6.8.0) (2026-09-21)
+
+
+### Features
+
+* **atomic-writing:** add structural AI tells reference ([be5fd01](https://github.com/damusix/atomic-claude/commit/be5fd01a62601c87411c12170336d9bd712a0966))
+* **bus:** shared gateway key via ATOMIC_BUS_KEY ([9598c82](https://github.com/damusix/atomic-claude/commit/9598c823cf9bbda18f42d8a42a3529cc2990cef2))
+* **code:** add atomic code comments verb and [comments] max_lines ([f4ecc46](https://github.com/damusix/atomic-claude/commit/f4ecc461186ac1d2f98ae8507ae0466bbf7bda39))
+* mermaid layout limits and design-diagram carry-over ([f6fd68f](https://github.com/damusix/atomic-claude/commit/f6fd68fd33686e38f3a2ea85ddcb15b299ee036a)), closes [#272](https://github.com/damusix/atomic-claude/issues/272)
+* **retro:** add atomic retro extract and point the retrospective at it ([1a2bd5a](https://github.com/damusix/atomic-claude/commit/1a2bd5a417be175dfaaf9487ad7bd57c4893a8b3)), closes [#270](https://github.com/damusix/atomic-claude/issues/270)
+* **review-gate:** gate ad-hoc completion claims with a named review ([f56ea06](https://github.com/damusix/atomic-claude/commit/f56ea068903b729fad39f8dab7e7a4a1dfd0e992)), closes [#271](https://github.com/damusix/atomic-claude/issues/271)
+* **wiki:** ban counts of repo things from wiki pages ([f35ce98](https://github.com/damusix/atomic-claude/commit/f35ce98e1434aa303ca60db903b957b02af4c8d2))
+
+
+### Bug Fixes
+
+* **atomic-writing:** name the replacement when splitting a so-join ([39d1494](https://github.com/damusix/atomic-claude/commit/39d1494ed71dbb2029543011e72773bb3a74885e))
+* **mdlink:** bracket link destinations with spaces ([ed00a6c](https://github.com/damusix/atomic-claude/commit/ed00a6c1e55bf3abdcbf85f2e3b7770b3b547e74)), closes [#262](https://github.com/damusix/atomic-claude/issues/262)
+* **release:** anchor the next channel on v6.7.0 ([ffca359](https://github.com/damusix/atomic-claude/commit/ffca3599cca45c00448c6ef63bb65afeaadc4417))
+* **release:** back-merge main into next and anchor on v6.7.0 ([d7e41a4](https://github.com/damusix/atomic-claude/commit/d7e41a44896699874a39c7c28f54ea297b9acbae))
+* **release:** re-base the next channel above 6.7.0 ([a9b750f](https://github.com/damusix/atomic-claude/commit/a9b750ff04c5be9fd9b3be030d578f5998d97d58))
+* **release:** restore the next channel's tagged anchor ([3691ee5](https://github.com/damusix/atomic-claude/commit/3691ee5a4b061c8d59215e75cd5daca2694fc9ec))
+* **wiki:** match &lt;wikis&gt; tags as whole lines when reading ([ed4e436](https://github.com/damusix/atomic-claude/commit/ed4e4369f4863a7088619a24c1149468bba68672)), closes [#263](https://github.com/damusix/atomic-claude/issues/263)
+
 ## [6.7.0](https://github.com/damusix/atomic-claude/compare/v6.6.1...v6.7.0) (2026-09-16)
 
 
