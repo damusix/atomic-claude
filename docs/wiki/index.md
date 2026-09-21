@@ -4,7 +4,7 @@ description: Repo-local project wiki for atomic-claude — framework signals and
 ---
 
 <wiki-type>repo</wiki-type>
-<scan-sha>05e1a018762af267a78076e214c8e40b98334839</scan-sha>
+<scan-sha>773972d62ebce13af390fe09eb7f41237428da25</scan-sha>
 <wiki-schema>1</wiki-schema>
 
 # Project signals
@@ -91,13 +91,13 @@ The CI test job installs Bun (`oven-sh/setup-bun@v2`, pinned `1.3.13`) and runs 
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Go | 226326 | 761 | 64% |
-| Markdown | 55491 | 412 | 15% |
-| TypeScript | 46342 | 301 | 13% |
-| JavaScript | 10670 | 20 | 3% |
+| Go | 231425 | 763 | 64% |
+| Markdown | 55649 | 420 | 15% |
+| TypeScript | 46342 | 301 | 12% |
+| JavaScript | 10670 | 20 | 2% |
 | CSS | 7797 | 15 | 2% |
 | JSON | 3582 | 14 | 1% |
-| Shell | 935 | 8 | 0% |
+| Shell | 939 | 8 | 0% |
 | Vue | 782 | 3 | 0% |
 | YAML | 530 | 10 | 0% |
 | Python | 329 | 2 | 0% |
