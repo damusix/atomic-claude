@@ -10,6 +10,8 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/omp"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
@@ -24,6 +26,9 @@ type fakeAdapter struct {
 	// files maps a resource ID to its native absolute path and content.
 	files    map[string]fakeFile
 	blockers []string
+	// projectErr makes the projection fail, so a caller's error handling is
+	// observable.
+	projectErr error
 }
 
 type fakeFile struct {
@@ -41,6 +46,9 @@ func (f *fakeAdapter) Capabilities() harness.CapabilityMatrix { return harness.O
 func (f *fakeAdapter) Lifecycle(home string) harness.Lifecycle {
 	return harness.Lifecycle{
 		ProjectFn: func(t harness.Target, req harness.PlanRequest) (harness.Plan, error) {
+			if f.projectErr != nil {
+				return harness.Plan{}, f.projectErr
+			}
 			plan := harness.Plan{Target: t, Generation: "gen-1", Blockers: f.blockers}
 			converged := true
 			for id, file := range f.files {
@@ -341,9 +349,10 @@ func TestUninstallRetainsSharedResource(t *testing.T) {
 	}
 }
 
-// TestUninstallRefusesChangedResource proves a resource that changed underneath
-// Atomic is preserved and refuses removal.
-func TestUninstallRefusesChangedResource(t *testing.T) {
+// TestUninstallSkipsChangedResource proves a resource that changed underneath
+// Atomic is skipped rather than aborting the whole removal: its bytes are
+// preserved, its claim is kept, and the rest of the target still uninstalls.
+func TestUninstallSkipsChangedResource(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, ".omp", "agent")
 	path := filepath.Join(root, "AGENTS.md")
@@ -353,16 +362,37 @@ func TestUninstallRefusesChangedResource(t *testing.T) {
 	if err := os.WriteFile(path, []byte("user prose\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	intact := filepath.Join(root, "commands", "help.md")
+	if err := os.MkdirAll(filepath.Dir(intact), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(intact, []byte("owned bytes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	intactDigest, err := managedfile.DigestResourceBytes([]byte("owned bytes\n"), managedfile.KindFile)
+	if err != nil {
+		t.Fatal(err)
+	}
 	seedLedger(t, home,
 		[]installstate.TargetRecord{{Harness: "omp", Instance: root, NativeRoot: root, Status: "converged"}},
-		[]installstate.Row{{Target: "omp:" + root, Resource: "steering", Consumer: "omp:" + root, Applied: installstate.AppliedValue{Path: path, Kind: managedfile.KindFile, Digest: "0000"}}})
+		[]installstate.Row{
+			{Target: "omp:" + root, Resource: "steering", Consumer: "omp:" + root, Applied: installstate.AppliedValue{Path: path, Kind: managedfile.KindFile, Digest: "0000"}},
+			{Target: "omp:" + root, Resource: "commands/help.md", Consumer: "omp:" + root, Applied: installstate.AppliedValue{Path: intact, Kind: managedfile.KindFile, Digest: intactDigest}},
+		})
 
 	steps := testSteps(t, home)
-	if _, err := steps.UninstallTarget("omp:" + root); err == nil {
-		t.Fatal("uninstalling a changed resource succeeded")
+	removal, err := steps.UninstallTarget("omp:" + root)
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if len(removal.Skipped) != 1 || removal.Skipped[0] != "steering" {
+		t.Fatalf("skipped = %v, want [steering]", removal.Skipped)
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != "user prose\n" {
 		t.Errorf("changed resource was not preserved: %q, %v", data, err)
+	}
+	if _, err := os.Stat(intact); !os.IsNotExist(err) {
+		t.Errorf("intact owned resource survived the removal: %v", err)
 	}
 }
 
@@ -674,15 +704,43 @@ func TestUninstallDryRunLeavesFilesystemIdentical(t *testing.T) {
 	if _, err := steps.UninstallTarget("omp:" + root); err != nil {
 		t.Fatalf("real uninstall: %v", err)
 	}
-	recovered, err := installstate.LoadJournal(config.JournalPath(home, operationID))
-	if err != nil {
-		t.Fatalf("the real run consumed the journal: %v", err)
-	}
-	if !recovered.Completed {
-		t.Error("real uninstall left the journal unresolved")
+	if _, err := os.Stat(config.JournalPath(home, operationID)); !os.IsNotExist(err) {
+		t.Errorf("the real run left the consumed journal behind (stat err = %v)", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("real uninstall left the owned resource (stat err = %v)", err)
+	}
+}
+
+// TestStatusSurfacesProjectionFailure proves a target whose projection cannot be
+// rendered reports a blocker. Dropping the error leaves every row compared
+// against an empty desired set, so a target that cannot be projected at all
+// reads as current — the one verdict a status report must never invent.
+func TestStatusSurfacesProjectionFailure(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".omp", "agent")
+	adapter := &fakeAdapter{
+		kind:      harness.KindOMP,
+		instances: []harness.Instance{{Kind: harness.KindOMP, ID: root, NativeRoot: root, Home: home, Exists: true}},
+		files: map[string]fakeFile{
+			"steering": {path: filepath.Join(root, "AGENTS.md"), content: []byte("<atomic>\ncontract\n</atomic>\n"), kind: managedfile.KindBlock},
+		},
+	}
+	steps := testSteps(t, home, adapter)
+	if _, err := steps.Converge(ConvergeRequest{Selection: Selection{Kind: harness.KindOMP}, Enroll: true}); err != nil {
+		t.Fatalf("converge: %v", err)
+	}
+
+	adapter.projectErr = errors.New("CODEX_HOME is unset")
+	report, err := steps.Status(Selection{})
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if len(report.Targets) != 1 {
+		t.Fatalf("targets = %+v, want the one enrolled target", report.Targets)
+	}
+	if blockers := strings.Join(report.Targets[0].Blockers, "; "); !strings.Contains(blockers, "CODEX_HOME is unset") {
+		t.Errorf("target blockers = %q, want the projection failure", blockers)
 	}
 }
 
@@ -884,5 +942,200 @@ func TestUninstallDryRunReportsBlockedOnRecovery(t *testing.T) {
 	}
 	if after := treeDigest(t, home); after != before {
 		t.Errorf("dry-run full uninstall changed the filesystem:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// claudeSteps wires the real Claude adapter against a fixed native root, so a
+// scenario exercises the shipped projection/classification code without reading
+// the process environment.
+func claudeSteps(t *testing.T, home, root string) Steps {
+	t.Helper()
+	adapter := claude.New()
+	adapter.ConfigDir = func(string) string { return root }
+	return testSteps(t, home, adapter)
+}
+
+// TestConvergeEnrolledOverAChangedGeneration is the two-generation regression
+// over the real Claude adapter: a target adopted at one generation converges to
+// a later one because the ledger records Atomic's own write of the bytes on
+// disk. Before the ledger evidence rule, those bytes read as unowned and every
+// update blocked on a replace-or-leave-unowned batch.
+func TestConvergeEnrolledOverAChangedGeneration(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".claude")
+	steps := claudeSteps(t, home, root)
+
+	reports, err := steps.Converge(ConvergeRequest{Selection: Selection{Kind: harness.KindClaude}, Enroll: true})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if len(reports) != 1 || len(reports[0].Blockers) != 0 {
+		t.Fatalf("install reports = %+v, want one unblocked target", reports)
+	}
+
+	// Simulate generation G1: every whole-file artifact holds older bytes, and
+	// the ledger records those bytes as Atomic's own applied value.
+	ledger, err := installstate.LoadLedger(ledgerPath(home))
+	if err != nil {
+		t.Fatalf("load ledger: %v", err)
+	}
+	older := map[string][]byte{}
+	for i := range ledger.Rows {
+		row := &ledger.Rows[i]
+		if row.Applied.Kind != managedfile.KindFile {
+			continue
+		}
+		data := []byte("generation-one bytes for " + row.Resource + "\n")
+		if err := os.WriteFile(row.Applied.Path, data, 0o644); err != nil {
+			t.Fatalf("write older generation: %v", err)
+		}
+		row.Applied.Digest = managedfile.Digest(data)
+		older[row.Applied.Path] = data
+	}
+	if len(older) == 0 {
+		t.Fatal("no whole-file ledger rows to age; the fixture is empty")
+	}
+	if err := ledger.Save(ledgerPath(home)); err != nil {
+		t.Fatalf("save ledger: %v", err)
+	}
+
+	// G2: the selected corpus differs from the G1 bytes on disk.
+	reports, err = steps.ConvergeEnrolled()
+	if err != nil {
+		t.Fatalf("converge enrolled: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("reports = %+v, want the one enrolled target", reports)
+	}
+	if len(reports[0].Blockers) != 0 {
+		t.Fatalf("a changed generation blocked convergence: %v", reports[0].Blockers)
+	}
+	if reports[0].Status != harness.StatusConverged || !reports[0].Applied {
+		t.Fatalf("report = %+v, want an applied convergence", reports[0])
+	}
+	for path, g1 := range older {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if string(got) == string(g1) {
+			t.Errorf("%s still holds the older generation's bytes", path)
+		}
+	}
+}
+
+// TestInstallIntoPrePopulatedClaudeHome is the real-adapter pre-populated-home
+// regression: a user's own ~/.claude/CLAUDE.md with no Atomic block must not
+// read as an ambiguous block. Adoption appends the block and preserves every
+// existing byte.
+func TestInstallIntoPrePopulatedClaudeHome(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prose := "# My own guidance\n\nKeep it.\n"
+	steering := filepath.Join(root, "CLAUDE.md")
+	if err := os.WriteFile(steering, []byte(prose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	steps := claudeSteps(t, home, root)
+
+	reports, err := steps.Converge(ConvergeRequest{Selection: Selection{Kind: harness.KindClaude}, Enroll: true})
+	if err != nil {
+		t.Fatalf("install over a pre-populated home: %v", err)
+	}
+	if len(reports) != 1 || len(reports[0].Blockers) != 0 {
+		t.Fatalf("install reports = %+v, want one unblocked target", reports)
+	}
+	got, err := os.ReadFile(steering)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(got), prose) {
+		t.Errorf("install rewrote the user's prose:\n%s", got)
+	}
+	if !strings.Contains(string(got), managedfile.BlockOpen) {
+		t.Errorf("install did not append an Atomic block:\n%s", got)
+	}
+}
+
+// TestInstallIntoPrePopulatedOMPProfile is the OMP half of the pre-populated
+// regression: an existing profile AGENTS.md with user bytes and no Atomic block
+// converges with no blocker, preserving the prose.
+func TestInstallIntoPrePopulatedOMPProfile(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".omp", "agent")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prose := "# Profile guidance\n\nMine.\n"
+	steering := filepath.Join(root, "AGENTS.md")
+	if err := os.WriteFile(steering, []byte(prose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	adapter := omp.New()
+	adapter.ConfigPath = func(home, profile string) (string, error) { return root, nil }
+	steps := testSteps(t, home, adapter)
+
+	reports, err := steps.Converge(ConvergeRequest{Selection: Selection{Kind: harness.KindOMP}, Enroll: true})
+	if err != nil {
+		t.Fatalf("install over a pre-populated profile: %v", err)
+	}
+	if len(reports) != 1 || len(reports[0].Blockers) != 0 {
+		t.Fatalf("install reports = %+v, want one unblocked target", reports)
+	}
+	got, err := os.ReadFile(steering)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(got), prose) {
+		t.Errorf("install rewrote the profile's prose:\n%s", got)
+	}
+	if !strings.Contains(string(got), managedfile.BlockOpen) {
+		t.Errorf("install did not append an Atomic block:\n%s", got)
+	}
+}
+
+// TestInstallRefusesMalformedSteeringBlock proves the counterpart: a steering
+// file whose Atomic tags do not parse to one block still refuses loudly rather
+// than guessing a boundary.
+func TestInstallRefusesMalformedSteeringBlock(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	malformed := "prose\n" + managedfile.BlockOpen + "\nfirst\n" + managedfile.BlockClose + "\n" + managedfile.BlockOpen + "\nsecond\n" + managedfile.BlockClose + "\n"
+	steering := filepath.Join(root, "CLAUDE.md")
+	if err := os.WriteFile(steering, []byte(malformed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	steps := claudeSteps(t, home, root)
+
+	reports, err := steps.Converge(ConvergeRequest{Selection: Selection{Kind: harness.KindClaude}, Enroll: true})
+	if err != nil {
+		t.Fatalf("converge: %v", err)
+	}
+	if len(reports) != 1 || len(reports[0].Blockers) == 0 {
+		t.Fatalf("reports = %+v, want a malformed-block refusal", reports)
+	}
+	if got, err := os.ReadFile(steering); err != nil || string(got) != malformed {
+		t.Errorf("a malformed block was rewritten: %q, %v", got, err)
+	}
+}
+
+// An enrolled --instance names a native root, so a trailing slash must select the
+// same target rather than silently matching nothing.
+func TestSelectionMatchesCleansInstancePaths(t *testing.T) {
+	target := harness.Target{Kind: harness.KindClaude, Instance: "/home/user/.claude"}
+	for _, instance := range []string{"/home/user/.claude", "/home/user/.claude/", "/home/user/./.claude"} {
+		sel := Selection{Kind: harness.KindClaude, Instance: instance}
+		if !sel.matches(target) {
+			t.Errorf("selection %q did not match %q", instance, target.Instance)
+		}
+	}
+	if (Selection{Kind: harness.KindClaude, Instance: "/home/user/.claude-work"}).matches(target) {
+		t.Error("a different root matched")
 	}
 }

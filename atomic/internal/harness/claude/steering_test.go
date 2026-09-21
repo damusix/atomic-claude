@@ -320,8 +320,8 @@ func TestMigrateScopeConvergesJournalFree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("journals = %d, want only the first migration's", len(entries))
+	if len(entries) != 0 {
+		t.Errorf("journals = %d, want none: every completed migration is consumed", len(entries))
 	}
 }
 
@@ -358,5 +358,63 @@ func TestMigrateScopeRealmPairs(t *testing.T) {
 	// The realm wiki's legacy `@index.md` prose is unowned and survives.
 	if wikiClaude := readScopeFile(t, filepath.Join(realm, "wiki", "CLAUDE.md")); !strings.Contains(wikiClaude, "@index.md") {
 		t.Errorf("realm wiki loader dropped the legacy import: %q", wikiClaude)
+	}
+}
+
+// A relocated AGENTS.md keeps block-scoped ownership: the row records the managed
+// block's digest, so a later edit to the prose the user approved moving is not a
+// derivative edit, and a target uninstall strips the block instead of deleting
+// the prose. Before the fix the row was whole-file, so uninstall removed the file.
+func TestMigrateScopeRelocationRecordsBlockOwnership(t *testing.T) {
+	home := t.TempDir()
+	repo := copyScopeFixture(t, "repo")
+	target := "claude:" + filepath.Join(home, ".claude")
+
+	if _, err := MigrateScope(ScopeRequest{
+		Home:        home,
+		Target:      target,
+		OperationID: "scope-relocate-own",
+		Scope:       Scope{Dir: repo, Guidance: []byte(scopeGuidance)},
+		Relocate:    true,
+	}); err != nil {
+		t.Fatalf("MigrateScope: %v", err)
+	}
+
+	agentsPath := filepath.Join(repo, "AGENTS.md")
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := ledger.Find(target, agentsPath)
+	if !ok {
+		t.Fatalf("no ownership row for %s: %+v", agentsPath, ledger.Rows)
+	}
+	if row.Applied.Kind != managedfile.KindBlock {
+		t.Fatalf("AGENTS.md row kind = %s, want %s: a whole-file row deletes the user's prose on uninstall",
+			row.Applied.Kind, managedfile.KindBlock)
+	}
+	obs, err := managedfile.Observe(agentsPath, managedfile.KindBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.Digest != row.Applied.Digest {
+		t.Errorf("row digest %s does not match the file's block %s", row.Applied.Digest, obs.Digest)
+	}
+
+	// A later edit to the relocated prose is the user's, not Atomic's.
+	before := readScopeFile(t, agentsPath)
+	edited := strings.Replace(before, "Project-specific guidance kept by the maintainer.", "Edited by the maintainer later.", 1)
+	if edited == before {
+		t.Fatalf("fixture prose was not found to edit:\n%s", before)
+	}
+	if err := os.WriteFile(agentsPath, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	after, err := managedfile.Observe(agentsPath, managedfile.KindBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, owned := after.Verify(row.Applied.Digest); !owned {
+		t.Error("editing the relocated prose broke block ownership")
 	}
 }

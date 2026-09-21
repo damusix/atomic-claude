@@ -24,7 +24,6 @@ var equivalenceGlobs = []string{
 	"**",
 	"file?.md",
 	"[ab]*.md",
-	"[^a]*.md",
 	"src/*/test?.{js,[m]js}",
 }
 
@@ -66,10 +65,16 @@ func TestCompileGlobMatchesCanonicalMatcher(t *testing.T) {
 // A pattern outside the translated dialect is refused rather than approximated:
 // an inexact translation would silently disagree with canonical matching at
 // runtime, which is worse than reporting the rule as undeliverable.
+//
+// A leading `!` or `^` negates the class for the canonical matcher and is a
+// literal member for the emitted expression, so it is a refusal, not a
+// translation: `[!a]` means "not a" to doublestar and "`!` or `a`" to the
+// generated regex, and `[^a]` admits `/` where the canonical matcher does not.
 func TestCompileGlobRefusesUnsupportedDialect(t *testing.T) {
 	for _, glob := range []string{
 		"", "/abs/*.md", "~/x", "../x", "a//b", "a**b", "**x", "a/[unterminated",
 		"a/{b", "a/{b}", "a/{,b}", `a/\d.md`, "a/[]",
+		"[!a]*.md", "[^a]*.md", "src/[!a].ts", "a/[^b]",
 	} {
 		if compiled, err := CompileGlob(glob); err == nil {
 			t.Errorf("CompileGlob(%q) = %q, want a refusal", glob, compiled)

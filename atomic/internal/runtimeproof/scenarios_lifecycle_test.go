@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/embeddedcorpus"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/omp"
@@ -55,6 +57,10 @@ func deterministicOMP(named ...string) *omp.Adapter {
 		}
 		return filepath.Join(home, ".omp", "profiles", profile, "agent"), nil
 	}
+	// This resolver answers every name, so an ambient selector would add a
+	// profile the scenario never asked for. Opt out of the ambient read to keep
+	// the scenario as hermetic as its doc claims.
+	a.AmbientProfile = nil
 	if len(named) > 0 {
 		names := append([]string(nil), named...)
 		a.ProfileNames = func(string) []string { return names }
@@ -311,75 +317,116 @@ func TestCP8AOMPSharedVisibility(t *testing.T) {
 	recordScenario(t, ev)
 }
 
-// TestCP8AOMPIncompatibleGeneration proves convergence refuses before any
-// mutation when two enrolled profiles require different generations of one
-// shared package, reporting both targets and leaving the package bytes intact.
+// TestCP8AOMPSharedGenerationConverges proves one physical shared package moves
+// every enrolled consumer to a new generation in one operation: a profile whose
+// row records the old generation is stale, not a requirement, so the update path
+// converges both profiles instead of deadlocking them.
 //
-// Criterion: if two enrolled OMP profiles require different generations of one
-// shared package, convergence refuses before mutation and reports both targets
-// without changing the package.
-func TestCP8AOMPIncompatibleGeneration(t *testing.T) {
+// Criterion: one physical resource has one ownership record per consumer, and a
+// generation move converges every enrolled consumer of that resource — no
+// consumer's recorded generation blocks another's convergence.
+func TestCP8AOMPSharedGenerationConverges(t *testing.T) {
 	home := isolatedHome(t)
-	adapter := deterministicOMP("work")
+	first := deterministicOMP("work")
 	defRoot := filepath.Join(home, filepath.FromSlash(omp.DefaultAgentDir))
 	workRoot := filepath.Join(home, ".omp", "profiles", "work", "agent")
+	defKey := (harness.Target{Kind: harness.KindOMP, Instance: defRoot}).Key()
+	workKey := (harness.Target{Kind: harness.KindOMP, Instance: workRoot}).Key()
 
 	ev := ScenarioEvidence{
-		Scenario:  "cp8a/lifecycle/omp-incompatible-generation",
-		Group:     "lifecycle",
-		Engine:    "harness/omp",
-		Criterion: "two consumers requiring different shared-package generations refuse before mutation and report both targets",
-		Command:   "Enroll (default) → rewrite recorded generation → Enroll (work)",
-		Paths:     []string{home, defRoot, workRoot},
+		Scenario: "cp8a/lifecycle/omp-shared-generation-converges",
+		Group:    "lifecycle",
+		Engine:   "harness/omp",
+		Criterion: "a new shared-package generation converges every enrolled consumer in one operation " +
+			"instead of refusing on a consumer's older recorded generation",
+		Command: "Enroll (default, work) at generation one → swap the selected corpus → ConvergeEnrolled",
+		Paths:   []string{home, defRoot, workRoot},
 	}
 
-	if _, err := adapter.Enroll(omp.EnrollRequest{Home: home, Profile: omp.Profile{Root: defRoot}}); err != nil {
-		t.Fatalf("enroll default: %v", err)
-	}
 	pkgRoot := omp.PackageResource(home)
-	before := treeDigest(t, pkgRoot)
+	for _, p := range []omp.Profile{{Root: defRoot}, {Name: "work", Root: workRoot}} {
+		if _, err := first.Enroll(omp.EnrollRequest{Home: home, Profile: p}); err != nil {
+			t.Fatalf("enroll %q: %v", p.Name, err)
+		}
+	}
+	older := treeDigest(t, pkgRoot)
+	if older == "" {
+		t.Fatalf("the first generation published no package tree")
+	}
 
-	// Record a second, incompatible generation for the shared package, as an
-	// older binary would have left behind.
-	ledgerPath := config.LedgerPath(home)
-	ledger, err := installstate.LoadLedger(ledgerPath)
+	// The swap: the same profiles stay enrolled while the selected binary's
+	// corpus moves a whole-file artifact, which changes the package generation.
+	swapped := nextGenerationCatalog(t)
+	next, err := omp.BuildPackage(swapped, harness.OMPCapabilities(), nil)
+	if err != nil {
+		t.Fatalf("build the swapped package: %v", err)
+	}
+	nextDigest, err := next.TreeDigest()
+	if err != nil {
+		t.Fatalf("digest the swapped package: %v", err)
+	}
+	second := deterministicOMP("work")
+	second.Corpus = func() (*artifacts.Catalog, error) { return swapped, nil }
+	steps := scenarioStepsWith(home, second)
+	reports, err := steps.ConvergeEnrolled()
+	if err != nil {
+		t.Fatalf("the update path refused after a generation swap: %v", err)
+	}
+	if len(reports) != 2 {
+		t.Fatalf("converged %d target(s), want both enrolled profiles", len(reports))
+	}
+	for _, report := range reports {
+		if report.Status != harness.StatusConverged || len(report.Blockers) > 0 {
+			t.Errorf("report %s = %s %v, want a converged target", report.Target.Key(), report.Status, report.Blockers)
+		}
+	}
+
+	newer := treeDigest(t, pkgRoot)
+	if newer == older {
+		t.Fatalf("the package tree did not change across the generation swap")
+	}
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed := false
-	for i := range ledger.Rows {
-		if ledger.Rows[i].Resource == pkgRoot {
-			ledger.Rows[i].Generation = "incompatible-generation"
-			changed = true
+	for _, key := range []string{defKey, workKey} {
+		row, ok := ledger.Find(key, pkgRoot)
+		if !ok {
+			t.Fatalf("no package row for %s after convergence", key)
+		}
+		if row.Applied.Digest != nextDigest {
+			t.Errorf("%s records package digest %s, want the converged tree %s", key, row.Applied.Digest, nextDigest)
+		}
+		if row.Generation != next.Generation {
+			t.Errorf("%s records generation %s, want the converged %s", key, row.Generation, next.Generation)
+		}
+		if _, ok := ledger.FindTarget("omp", strings.TrimPrefix(key, "omp:")); !ok {
+			t.Errorf("%s is not enrolled after convergence", key)
 		}
 	}
-	if !changed {
-		t.Fatalf("no package ownership row to age")
-	}
-	if err := ledger.Save(ledgerPath); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = adapter.Enroll(omp.EnrollRequest{Home: home, Profile: omp.Profile{Name: "work", Root: workRoot}})
-	if err == nil {
-		t.Fatalf("enroll succeeded despite an incompatible recorded generation")
-	}
-	if !strings.Contains(err.Error(), "refuses before package mutation") {
-		t.Errorf("refusal error = %q, want the compatibility refusal", err)
-	}
-	defKey := (harness.Target{Kind: harness.KindOMP, Instance: defRoot}).Key()
-	if !strings.Contains(err.Error(), defKey) || !strings.Contains(err.Error(), "incompatible-generation") {
-		t.Errorf("refusal error = %q, want it to name both the conflicting target and its generation", err)
-	}
-	if after := treeDigest(t, pkgRoot); after != before {
-		t.Errorf("the package changed despite the refusal")
-	}
-	if fileExists(omp.SteeringPath(workRoot)) {
-		t.Errorf("the refused enroll wrote the second profile's steering")
-	}
-
-	ev.Outcome = "enroll refused before mutation; both targets reported; package bytes unchanged"
+	ev.Outcome = "both enrolled profiles converged on the new shared package generation in one update pass"
 	recordScenario(t, ev)
+}
+
+// nextGenerationCatalog loads the shipped corpus and moves one whole-file
+// artifact, so the selected generation differs from the one already enrolled.
+func nextGenerationCatalog(t *testing.T) *artifacts.Catalog {
+	t.Helper()
+	base, err := embeddedcorpus.Load()
+	if err != nil {
+		t.Fatalf("load embedded corpus: %v", err)
+	}
+	swapped := &artifacts.Catalog{Artifacts: append([]artifacts.Artifact(nil), base.Artifacts...)}
+	for i := range swapped.Artifacts {
+		if swapped.Artifacts[i].Kind != artifacts.KindRule {
+			continue
+		}
+		body := append([]byte(nil), swapped.Artifacts[i].Body...)
+		swapped.Artifacts[i].Body = append(body, []byte("\nNew generation.\n")...)
+		return swapped
+	}
+	t.Fatal("the shipped corpus carries no rule to move")
+	return nil
 }
 
 // TestCP8ATargetUninstallSharedRetained proves a target uninstall removes the

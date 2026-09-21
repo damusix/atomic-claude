@@ -18,6 +18,14 @@ import (
 // blockers.
 var ErrAdoptionRefused = errors.New("installstate: adoption refused")
 
+// JournalConflictError renders the one message every lifecycle operation reports
+// when recovery cannot reconcile an unresolved journal to a single safe result.
+// It names the verb that resolves it, because hand-deleting the journal was
+// otherwise the only documented exit.
+func JournalConflictError(path, detail string) error {
+	return fmt.Errorf("%w: unresolved journal conflict at %s: %s; run `atomic harness recover` to reconcile it, or `atomic harness recover --rollback` to restore the pre-mutation bytes", ErrAdoptionRefused, path, detail)
+}
+
 // Decision is the caller's per-resource choice for an artifact the selected
 // generation cannot prove ownership of. Older-version non-block artifacts are
 // batched for one replace-or-leave-unowned decision, overridable per resource.
@@ -131,7 +139,13 @@ type AdoptionRequest struct {
 	// RepoRoot, when set, adopts the repository-state root and journals the
 	// selection record as a dependency.
 	RepoRoot string
-	Now      func() time.Time
+	// ImportMutable, when set, runs once inside the locked section, after
+	// recovery and after the post-recovery plan proved ready or converged. The
+	// harness layer owns the legacy mutable locations, so it supplies the
+	// closure; running it here keeps the one-time import under the lifecycle
+	// lock and behind journal recovery instead of before either.
+	ImportMutable func() ([]string, error)
+	Now           func() time.Time
 }
 
 // AdoptionResult reports what adoption observed, planned, and committed.
@@ -142,6 +156,8 @@ type AdoptionResult struct {
 	// JournalPath is empty when the operation needed no journal because nothing
 	// had to change.
 	JournalPath string `json:"journal_path,omitempty"`
+	// Imported names the authoritative mutable files a one-time import created.
+	Imported []string `json:"imported,omitempty"`
 }
 
 // PlanAdoption is the read-only dry-run: it classifies the observed state,
@@ -150,7 +166,7 @@ type AdoptionResult struct {
 // leaves the filesystem byte-identical. A journal whose safe result depends on
 // a later edit or conflict yields StatusBlockedOnRecovery.
 func PlanAdoption(req AdoptionRequest) (AdoptionPlan, error) {
-	c, err := Classify(ClassifyRequest{Home: req.Home, NativeRoot: req.NativeRoot, Claims: claimsFor(req.Artifacts)})
+	c, err := Classify(ClassifyRequest{Home: req.Home, NativeRoot: req.NativeRoot, Target: req.Target, Claims: claimsFor(req.Artifacts)})
 	if err != nil {
 		return AdoptionPlan{}, err
 	}
@@ -221,7 +237,7 @@ func Adopt(req AdoptionRequest) (AdoptionResult, error) {
 				return result, planErr
 			}
 			result.Plan = plan
-			return result, fmt.Errorf("%w: unresolved journal conflict at %s: %s", ErrAdoptionRefused, action.Path, action.Detail)
+			return result, JournalConflictError(action.Path, action.Detail)
 		}
 	}
 
@@ -234,6 +250,20 @@ func Adopt(req AdoptionRequest) (AdoptionResult, error) {
 	if plan.Status == StatusBlocked {
 		return result, fmt.Errorf("%w: %s", ErrAdoptionRefused, strings.Join(plan.Blockers, "; "))
 	}
+
+	// The one-time mutable import runs only now: the lock is held, recovery has
+	// reconciled every journal, and the post-recovery plan is ready or already
+	// converged. Importing before either would write a mutable authority a
+	// refused or conflicted adoption never authorized.
+	if req.ImportMutable != nil && plan.Classification.Legacy.Present() &&
+		(plan.Status == StatusReady || plan.Status == StatusConverged) {
+		imported, importErr := req.ImportMutable()
+		if importErr != nil {
+			return result, importErr
+		}
+		result.Imported = imported
+	}
+
 	if plan.Status == StatusConverged {
 		// Already converged is still an adoption: the operation ran to record the
 		// target and the ownership its verified bytes prove. Without the rows the
@@ -265,7 +295,7 @@ func Adopt(req AdoptionRequest) (AdoptionResult, error) {
 // planAfterRecovery classifies the state after recovery has run and builds a
 // plan from it. Recovery already ran, so no simulation is attached.
 func planAfterRecovery(req AdoptionRequest) (AdoptionPlan, error) {
-	c, err := Classify(ClassifyRequest{Home: req.Home, NativeRoot: req.NativeRoot, Claims: claimsFor(req.Artifacts)})
+	c, err := Classify(ClassifyRequest{Home: req.Home, NativeRoot: req.NativeRoot, Target: req.Target, Claims: claimsFor(req.Artifacts)})
 	if err != nil {
 		return AdoptionPlan{}, err
 	}
@@ -296,7 +326,7 @@ func applyAdoption(req AdoptionRequest, plan AdoptionPlan, operationID string, g
 			Unit:       unit,
 			Resource:   r.ID,
 			Target:     req.Target,
-			Consumer:   req.Consumer,
+			Consumer:   consumerOf(req),
 			Generation: req.Generation,
 			Tier:       req.Tier,
 			Kind:       r.Kind,
@@ -336,6 +366,13 @@ func applyAdoption(req AdoptionRequest, plan AdoptionPlan, operationID string, g
 	}
 	if len(mutations) == 0 {
 		result.JournalPath = ""
+		return nil
+	}
+	// The journal and its transaction tree are consumed: the rows are committed,
+	// so leaving them behind only makes every later classify and status parse a
+	// dead operation. JournalPath stays as the operation's identity.
+	if _, err := CleanupOperation(req.Home, tx.ID); err != nil {
+		return err
 	}
 	return nil
 }
@@ -468,8 +505,15 @@ func buildPlan(req AdoptionRequest, c Classification) AdoptionPlan {
 			r.Action = ActionNone
 		case managedfile.EvidenceBlock:
 			r.Action = ActionAdopt
+		case managedfile.EvidenceNoBlock:
+			r.Action = ActionAdopt
 		case managedfile.EvidenceMissing:
 			r.Action = ActionRecreate
+		case managedfile.EvidenceLedger:
+			// The ledger records Atomic's own write of these bytes at an older
+			// generation. Ownership is proven, so the resource is replaced with
+			// the selected generation without a batch decision.
+			r.Action = ActionReplace
 		case managedfile.EvidenceUnowned:
 			switch decision {
 			case DecisionReplace:
@@ -553,6 +597,49 @@ func RecoverJournals(home string) ([]RecoveryAction, error) {
 	return recoverAll(home)
 }
 
+// RollbackJournals reconciles every unresolved journal oldest-first by
+// restoring its digest-verified transaction backups — the explicit rollback
+// alternative to RecoverJournals' roll-forward. A unit whose native bytes
+// changed after Atomic wrote them is a conflict, never an overwrite. It is what
+// `atomic harness recover --rollback` runs, and like RecoverJournals it acquires
+// no lock of its own: the operation holds one.
+func RollbackJournals(home string) ([]RecoveryAction, error) {
+	paths, err := JournalPaths(config.JournalsDir(home))
+	if err != nil {
+		return nil, err
+	}
+	var actions []RecoveryAction
+	for _, path := range paths {
+		j, err := LoadJournal(path)
+		if err != nil {
+			return actions, err
+		}
+		if j.Completed {
+			continue
+		}
+		ledger, err := LoadLedger(config.LedgerPath(home))
+		if err != nil {
+			return actions, err
+		}
+		r := NewRecovery(home, j, ledger)
+		res, err := r.Rollback()
+		if err != nil {
+			return actions, err
+		}
+		actions = append(actions, res.Actions...)
+		if len(res.Conflicts) > 0 {
+			return actions, nil
+		}
+		if err := r.ConsumeJournal(path, res); err != nil {
+			return actions, err
+		}
+		if _, err := CleanupOperation(home, j.OperationID); err != nil {
+			return actions, err
+		}
+	}
+	return actions, nil
+}
+
 // recoverAll reconciles every unresolved journal oldest-first. It returns the
 // decisions it made; a conflict decision stops the caller from planning.
 func recoverAll(home string) ([]RecoveryAction, error) {
@@ -585,15 +672,20 @@ func recoverAll(home string) ([]RecoveryAction, error) {
 		if err := r.ConsumeJournal(path, res); err != nil {
 			return actions, err
 		}
+		if _, err := CleanupOperation(home, j.OperationID); err != nil {
+			return actions, err
+		}
 	}
 	return actions, nil
 }
 
-// SimulateRecoveries previews every unresolved journal in memory. It opens no
-// lock and neutralizes every write seam, so the filesystem stays byte-identical.
-// It is the dry-run counterpart of RecoverJournals: blocked reports that a
-// journal cannot be reconciled to one safe result, which is what a plan reports
-// as blocked_on_recovery.
+// SimulateRecoveries previews every unresolved journal in memory, rolling
+// forward as RecoverJournals would. It opens no lock and neutralizes every write
+// seam — staging removal, the interrupted tree publication's rename, and the
+// transaction backup restore — so the filesystem stays byte-identical. It is the
+// dry-run counterpart of RecoverJournals: blocked reports that a journal cannot
+// be reconciled to one safe result, which is what a plan reports as
+// blocked_on_recovery.
 //
 // The returned ledger is the simulated post-recovery view: the rows the
 // simulated decisions would commit, threaded in memory and never saved. A
@@ -601,6 +693,22 @@ func recoverAll(home string) ([]RecoveryAction, error) {
 // the journal proves but the ledger has not yet recorded are visible exactly as
 // a real recovery would make them.
 func SimulateRecoveries(home string) ([]RecoverySimulation, *Ledger, bool, error) {
+	return simulateJournals(home, false)
+}
+
+// SimulateRollbacks previews the --rollback alternative in memory, with the same
+// neutralized seams: the decisions RollbackJournals would make — restoring a
+// digest-verified transaction backup, or refusing to overwrite a later edit —
+// are reported without a byte being written. blocked reports a journal that
+// cannot be rolled back to one safe result.
+func SimulateRollbacks(home string) ([]RecoverySimulation, bool, error) {
+	sims, _, blocked, err := simulateJournals(home, true)
+	return sims, blocked, err
+}
+
+// simulateJournals is the shared in-memory preview: oldest-first over every
+// unresolved journal, deciding each one without performing it.
+func simulateJournals(home string, rollback bool) ([]RecoverySimulation, *Ledger, bool, error) {
 	paths, err := JournalPaths(config.JournalsDir(home))
 	if err != nil {
 		return nil, nil, false, err
@@ -622,10 +730,13 @@ func SimulateRecoveries(home string) ([]RecoverySimulation, *Ledger, bool, error
 			continue
 		}
 		r := NewRecovery(home, j, ledger)
-		r.LedgerPath = ""
-		r.JournalPath = ""
-		r.RemoveStaging = func(string) error { return nil }
-		res, err := r.Recover()
+		neutralizeWriteSeams(r)
+		var res RecoveryResult
+		if rollback {
+			res, err = r.Rollback()
+		} else {
+			res, err = r.Recover()
+		}
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -636,6 +747,18 @@ func SimulateRecoveries(home string) ([]RecoverySimulation, *Ledger, bool, error
 		}
 	}
 	return sims, ledger, blocked, nil
+}
+
+// neutralizeWriteSeams strips every write seam from a recovery so a simulated
+// pass reports the decisions it would make without performing one: staging
+// removal, the interrupted publication's tree move, and the transaction backup
+// restore all become no-ops, and neither the ledger nor the journal is saved.
+func neutralizeWriteSeams(r *Recovery) {
+	r.LedgerPath = ""
+	r.JournalPath = ""
+	r.RemoveStaging = func(string) error { return nil }
+	r.MoveTreeFn = func(string, string) error { return nil }
+	r.RestoreBackupFn = func(managedfile.BackupRecord, managedfile.Kind) error { return nil }
 }
 
 // selectionGuard remembers the state-root selection a failed adoption must

@@ -53,7 +53,7 @@ flowchart LR
     REN --> OMP["omp adapter"]
     REN --> CX["codex adapter"]
     CL --> CLN["~/.claude/CLAUDE.md, rules/, agents/, skills/"]
-    OMP --> OMPN["~/.atomic/packages/omp/atomic + profile AGENTS.md"]
+    OMP --> OMPN["profile agent root: AGENTS.md + extensions/atomic.ts<br/>~/.atomic/packages/omp/atomic (corpus store)"]
     CX --> CXN["~/.atomic/packages/codex/atomic plugin tree"]
 ```
 

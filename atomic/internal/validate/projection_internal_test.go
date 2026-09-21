@@ -199,8 +199,9 @@ func TestProjGate_WireTokenClassification(t *testing.T) {
 	}
 }
 
-// P1/P2: an unresolved dependency fails, and a source digest that no longer
-// matches the authored bytes fails.
+// P1/P2: an unresolved dependency fails. A source digest is NOT re-verified by
+// the corpus gate: artifacts.Load stamps it from the same bytes the gate would
+// read, so the comparison cannot fail — see checkCorpus.
 func TestProjGate_CorpusIdentityAndDependencies(t *testing.T) {
 	root := t.TempDir()
 	srcPath := filepath.Join(root, "context", "agents", "atomic-x.md")
@@ -222,14 +223,5 @@ func TestProjGate_CorpusIdentityAndDependencies(t *testing.T) {
 	g.checkCorpus()
 	if !gateFindingsWithRule(g, ruleDependency) {
 		t.Fatalf("expected P1 finding, got %+v", g.findings)
-	}
-
-	drift := dep
-	drift.SourceDigest = "stale"
-	g2 := newProjGate(drift)
-	g2.root = root
-	g2.checkCorpus()
-	if !gateFindingsWithRule(g2, ruleIdentity) {
-		t.Fatalf("expected P2 finding, got %+v", g2.findings)
 	}
 }

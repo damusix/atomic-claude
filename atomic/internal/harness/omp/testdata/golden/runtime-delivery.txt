@@ -1,8 +1,8 @@
-marker atomic-omp-runtime bound 8192 index-bytes 676 suppressed false
+marker atomic-omp-runtime bound 8192 index-units 840 suppressed false
 event session_start session-baseline observation=true observation only
 event before_provider_request session-baseline observation=true observation only: records whether the delivered block reached the provider payload
 event session_shutdown session-baseline observation=true observation only: writes the session summary
-event before_agent_start session-baseline observation=false bounded session-baseline rule index (bound 8192 bytes)
+event before_agent_start session-baseline observation=false bounded session-baseline rule index (bound 8192 UTF-16 code units)
 event tool_call pre-operation-targets observation=false exact-path matching for proven structured inputs; uncovered tools recorded
 event tool_call deterministic-deny observation=false exact predicate deny
 index shipped:rules/all/style.md 2f9e78a0e8524212922199044333dcda089df40d2c6f89ed931cb68a676e8bfc unsupported **/*.ts => ^(?:[^/]+/)*[^/]*\.ts$

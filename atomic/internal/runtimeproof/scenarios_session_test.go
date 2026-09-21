@@ -123,10 +123,7 @@ func TestCP8AOMPPrimarySession(t *testing.T) {
 		return
 	}
 	dir := t.TempDir()
-	home, err := NewOMPHome(filepath.Join(dir, "home"), runtimeModule(t, nil))
-	if err != nil {
-		t.Fatalf("prepare home: %v", err)
-	}
+	home, _ := prepareOMPHome(t, filepath.Join(dir, "home"), OMPHomeRequest{})
 	repo := filepath.Join(dir, "repo")
 	writeTree(t, repo, map[string]string{"src/a.ts": "export const a = 1;\n"})
 	ev.Paths = []string{home.AgentRoot, repo}

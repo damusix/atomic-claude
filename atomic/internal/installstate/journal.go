@@ -53,9 +53,18 @@ type Mutation struct {
 	Path       string           `json:"path"`
 	Stage      string           `json:"stage,omitempty"`
 	Intended   string           `json:"intended_digest"`
-	Prior      string           `json:"prior_digest,omitempty"`
-	Backup     string           `json:"backup,omitempty"`
-	BackupSum  string           `json:"backup_digest,omitempty"`
+	// RowKind, when set, is the ownership kind the ledger row records; Kind
+	// governs how the staged bytes are published. The two differ only for a
+	// relocation that publishes merged whole-file bytes while Atomic owns just
+	// the managed block: the row must strip the block on removal, never delete
+	// the user prose it moved.
+	RowKind managedfile.Kind `json:"row_kind,omitempty"`
+	// RowDigest, when set, is the digest the ledger row records instead of
+	// Intended — the block digest for such a relocation.
+	RowDigest string `json:"row_digest,omitempty"`
+	Prior     string `json:"prior_digest,omitempty"`
+	Backup    string `json:"backup,omitempty"`
+	BackupSum string `json:"backup_digest,omitempty"`
 	// PriorObserved records that the pre-mutation observation was journaled. The
 	// journal is written before every native mutation, so a unit that carries no
 	// such observation cannot have been published, which is what makes its
@@ -68,15 +77,26 @@ type Mutation struct {
 	AppliedSum string `json:"applied_digest,omitempty"`
 }
 
-// LedgerRow builds the ownership row this mutation commits once verified.
+// LedgerRow builds the ownership row this mutation commits once verified. A
+// mutation that publishes whole-file bytes but owns only a managed block records
+// its RowKind and RowDigest, so removal strips the block rather than deleting the
+// file.
 func (m Mutation) LedgerRow() Row {
+	kind := m.Kind
+	if m.RowKind != "" {
+		kind = m.RowKind
+	}
+	digest := m.Intended
+	if m.RowDigest != "" {
+		digest = m.RowDigest
+	}
 	return Row{
 		Target:     m.Target,
 		Resource:   m.Resource,
 		Consumer:   m.Consumer,
 		Generation: m.Generation,
 		Tier:       m.Tier,
-		Applied:    AppliedValue{Path: m.Path, Kind: m.Kind, Digest: m.Intended},
+		Applied:    AppliedValue{Path: m.Path, Kind: kind, Digest: digest},
 	}
 }
 

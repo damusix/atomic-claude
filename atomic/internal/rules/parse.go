@@ -141,10 +141,61 @@ func normalizePattern(pattern string) (string, error) {
 			return "", fmt.Errorf("parent-escaping pattern %q", pattern)
 		}
 	}
+	if hiddenDotSegment(p) {
+		return "", fmt.Errorf("pattern %q contains a path segment that resolves to %q or %q", pattern, ".", "..")
+	}
 	if !doublestar.ValidatePattern(p) {
 		return "", fmt.Errorf("malformed pattern %q", pattern)
 	}
 	return path.Clean(p), nil
+}
+
+// hiddenDotSegment reports whether any `/`-separated segment can resolve to `.`
+// or `..` through a character class or a brace alternative. The literal-segment
+// check above cannot see `{..,src}/y` or `[.][.]/x`, so a pattern that escapes
+// through either would be compiled into the runtime module as a match the
+// canonical matcher never intends.
+func hiddenDotSegment(pattern string) bool {
+	for _, seg := range strings.Split(pattern, "/") {
+		if dotSegment(seg) {
+			return true
+		}
+	}
+	return false
+}
+
+// dotSegment reports whether one segment resolves to `.` or `..`: a literal dot
+// or parent segment, a character class built only from dots (which is a literal
+// `.` once expanded), or a brace alternative that itself qualifies.
+func dotSegment(segment string) bool {
+	if segment == "." || segment == ".." {
+		return true
+	}
+	for i := 0; i < len(segment); i++ {
+		switch segment[i] {
+		case '[':
+			end := strings.IndexByte(segment[i:], ']')
+			if end < 0 {
+				return false
+			}
+			if body := segment[i+1 : i+end]; body != "" && strings.Trim(body, ".") == "" {
+				return true
+			}
+			i += end
+		case '{':
+			end := strings.IndexByte(segment[i:], '}')
+			if end < 0 {
+				return false
+			}
+			for _, alternative := range strings.Split(segment[i+1:i+end], ",") {
+				if dotSegment(alternative) {
+					return true
+				}
+			}
+			i += end
+		}
+	}
+	return false
 }
 
 // LoadShipped parses every authored .md under rulesDir into records, sorted by

@@ -2001,3 +2001,399 @@ func TestRollbackNeverOverwritesOutsideBlockEditsOrResurrectsDeletions(t *testin
 		}
 	})
 }
+
+// interruptTreePublication drives a generated-tree replacement up to the crash
+// window PublishDir always leaves when it dies between the two renames: the
+// current tree is displaced into the transaction backup and the staged tree has
+// not yet moved into place. It returns the loaded journal, ledger, and the
+// backup path.
+func interruptTreePublication(t *testing.T, home, dest string) (*Journal, *Ledger, string) {
+	t.Helper()
+	tx, _ := newTreeTransaction(t, home, "op-tree-window", dest)
+	if _, err := tx.StageTree("omp-package", renderTree); err != nil {
+		t.Fatal(err)
+	}
+	kill := errors.New("killed between the two renames")
+	tx.PublishDirFn = func(stageDir, destDir, backupDir string) (managedfile.Publication, error) {
+		backup := filepath.Join(backupDir, filepath.Base(destDir))
+		if err := os.MkdirAll(backupDir, 0o755); err != nil {
+			return managedfile.Publication{}, err
+		}
+		if err := os.Rename(destDir, backup); err != nil {
+			return managedfile.Publication{}, err
+		}
+		return managedfile.Publication{}, kill
+	}
+	if err := tx.PublishTree("omp-package"); !errors.Is(err, kill) {
+		t.Fatalf("publish error = %v, want the injected kill", err)
+	}
+	journal, err := LoadJournal(tx.JournalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state := journal.State("omp-package"); state != StateStaged {
+		t.Fatalf("journal state = %s, want %s (the window under test)", state, StateStaged)
+	}
+	m, _ := journal.Mutation("omp-package")
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("destination survived the crash window: %v", err)
+	}
+	ledger, err := LoadLedger(tx.LedgerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return journal, ledger, m.Backup
+}
+
+// TestRecoveryFinishesInterruptedTreePublication proves the crash window where
+// the staged tree is still intact is reconciled by finishing the rename: the
+// published tree lands, the ledger records it, and the displaced tree stays in
+// the transaction backup.
+func TestRecoveryFinishesInterruptedTreePublication(t *testing.T) {
+	home := newHome(t)
+	dest := filepath.Join(home, ".atomic", "packages", "omp", "atomic")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "old.md"), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	journal, ledger, backup := interruptTreePublication(t, home, dest)
+	rec := NewRecovery(home, journal, ledger)
+	result, err := rec.Recover()
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if len(result.Conflicts) != 0 {
+		t.Fatalf("recovery reported conflicts for a still-staged tree: %+v", result.Conflicts)
+	}
+	if len(result.Actions) != 1 || result.Actions[0].Decision != DecisionCompletePublication {
+		t.Fatalf("recovery actions = %+v, want %s", result.Actions, DecisionCompletePublication)
+	}
+	if got, err := os.ReadFile(filepath.Join(dest, "commands", "help.md")); err != nil || string(got) != "new\n" {
+		t.Fatalf("published tree = %q (%v), want the staged tree finished into place", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(backup, "old.md")); err != nil || string(got) != "old\n" {
+		t.Fatalf("displaced tree = %q (%v); recovery discarded the only pre-mutation copy", got, err)
+	}
+	if _, ok := ledger.Find("omp:default", "omp-package"); !ok {
+		t.Error("finished publication was not ledger-committed")
+	}
+}
+
+// TestRecoveryRestoresInterruptedTreeBackup proves the other half of the crash
+// window: when the staged tree is gone, the digest-verified backup is restored
+// instead of reporting a conflict.
+func TestRecoveryRestoresInterruptedTreeBackup(t *testing.T) {
+	home := newHome(t)
+	dest := filepath.Join(home, ".atomic", "packages", "omp", "atomic")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "old.md"), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	journal, ledger, backup := interruptTreePublication(t, home, dest)
+	m, _ := journal.Mutation("omp-package")
+	if err := os.RemoveAll(m.Stage); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := NewRecovery(home, journal, ledger)
+	result, err := rec.Recover()
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if len(result.Conflicts) != 0 {
+		t.Fatalf("recovery reported conflicts for a digest-verified backup: %+v", result.Conflicts)
+	}
+	if len(result.Actions) != 1 || result.Actions[0].Decision != DecisionRestoreBackup {
+		t.Fatalf("recovery actions = %+v, want %s", result.Actions, DecisionRestoreBackup)
+	}
+	if got, err := os.ReadFile(filepath.Join(dest, "old.md")); err != nil || string(got) != "old\n" {
+		t.Fatalf("restored tree = %q (%v), want the displaced tree back", got, err)
+	}
+	if _, ok := ledger.Find("omp:default", "omp-package"); ok {
+		t.Error("a restored (undone) publication was ledger-committed")
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Errorf("restore left the backup in place: %v", err)
+	}
+}
+
+// TestRecoveryTreatsNeverWrittenBlockAsUnapplied proves a block unit whose file
+// still carries no Atomic tags never landed: the journaled write is discarded
+// rather than reported as a conflict, even though the user's prose changed.
+func TestRecoveryTreatsNeverWrittenBlockAsUnapplied(t *testing.T) {
+	home := newHome(t)
+	target := filepath.Join(home, ".claude", "CLAUDE.md")
+	writeBlockFile(t, target, "user prose with no atomic block\n")
+
+	tx, err := NewTransaction(home, "op-never-written", Plan{Mutations: []Mutation{fileMutation(t, "global-claude", target, blockDoc)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.StageFile("global-claude", []byte(blockDoc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// beginPublish journals the pre-mutation observation without writing.
+	if _, _, err := tx.beginPublish("global-claude"); err != nil {
+		t.Fatal(err)
+	}
+	// The user edits their own prose between the crash and recovery.
+	writeBlockFile(t, target, "user edited their prose, still no block\n")
+
+	journal, err := LoadJournal(tx.JournalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := LoadLedger(tx.LedgerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := NewRecovery(home, journal, ledger)
+	result, err := rec.Recover()
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if len(result.Conflicts) != 0 {
+		t.Fatalf("a never-written block reported a conflict: %+v", result.Conflicts)
+	}
+	if len(result.Actions) != 1 || result.Actions[0].Decision != DecisionDiscardStaging {
+		t.Fatalf("recovery actions = %+v, want %s", result.Actions, DecisionDiscardStaging)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "user edited their prose, still no block\n" {
+		t.Errorf("recovery touched the user's prose: %q (%v)", got, err)
+	}
+}
+
+// TestRollbackJournalsRestoresAppliedBackup proves the rollback entry point is
+// reachable and preserves user bytes: an applied-but-unverified publication is
+// undone from its digest-verified backup, and the journal is consumed.
+func TestRollbackJournalsRestoresAppliedBackup(t *testing.T) {
+	home := newHome(t)
+	target := filepath.Join(home, ".claude", "commands", "commit.md")
+	writeBlockFile(t, target, "original bytes\n")
+
+	staged := "user prose\n<atomic>\nnew body\n</atomic>\n"
+	tx, err := NewTransaction(home, "op-rollback", Plan{Mutations: []Mutation{fileMutation(t, "global-claude", target, staged)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.StageFile("global-claude", []byte(staged), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.PublishFile("global-claude"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	applied, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !managedfile.HasBlock([]byte(applied)) {
+		t.Fatalf("native content = %q, want the published block", applied)
+	}
+
+	actions, err := RollbackJournals(home)
+	if err != nil {
+		t.Fatalf("RollbackJournals: %v", err)
+	}
+	if !hasDecisionIn(actions, DecisionRestoreBackup) {
+		t.Fatalf("actions = %+v, want a restore", actions)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "original bytes\n" {
+		t.Errorf("rollback did not restore the user's bytes: %q (%v)", got, err)
+	}
+	if _, err := os.Stat(config.JournalPath(home, "op-rollback")); !os.IsNotExist(err) {
+		t.Errorf("rollback left the consumed journal and its transaction tree behind (stat err = %v)", err)
+	}
+}
+
+// crashedTreeTransaction drives a real generated-tree publication into the crash
+// window between PublishDir's two renames: the tree already at the destination is
+// displaced into the transaction backup, and the process dies before the staged
+// tree is moved in. corruptStage changes the staged tree afterwards, which is the
+// shape whose only resolution is the digest-verified backup. It returns the
+// transaction and the mutation as the journal recorded it.
+func crashedTreeTransaction(t *testing.T, home, operationID, dest string, corruptStage bool) (*Transaction, Mutation) {
+	t.Helper()
+	scratch := filepath.Join(t.TempDir(), "atomic")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := renderTree(scratch); err != nil {
+		t.Fatal(err)
+	}
+	intended, _, err := managedfile.TreeDigest(scratch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "old.md"), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := NewTransaction(home, operationID, Plan{Mutations: []Mutation{{
+		Unit:       "omp-package",
+		Resource:   "omp-package",
+		Target:     "omp:default",
+		Kind:       managedfile.KindTree,
+		Path:       dest,
+		Intended:   intended,
+		Generation: "gen-1",
+		Tier:       "native",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage, err := tx.StageTree("omp-package", renderTree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if corruptStage {
+		if err := os.WriteFile(filepath.Join(stage, "commands", "help.md"), []byte("changed under the crash\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tx.PublishDirFn = func(_, destDir, backupDir string) (managedfile.Publication, error) {
+		if err := os.MkdirAll(backupDir, 0o755); err != nil {
+			return managedfile.Publication{}, err
+		}
+		if err := os.Rename(destDir, filepath.Join(backupDir, filepath.Base(destDir))); err != nil {
+			return managedfile.Publication{}, err
+		}
+		return managedfile.Publication{}, errors.New("simulated crash between the two renames")
+	}
+	if err := tx.PublishTree("omp-package"); err == nil {
+		t.Fatal("the crash stub published the tree")
+	}
+	journal, err := LoadJournal(tx.JournalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation, ok := journal.Mutation("omp-package")
+	if !ok {
+		t.Fatal("the crashed publication left no mutation")
+	}
+	return tx, mutation
+}
+
+// homeFingerprint digests every path under home, so a read-only assertion
+// compares the whole tree and not only the files a test happened to name.
+func homeFingerprint(t *testing.T, home string) string {
+	t.Helper()
+	digest, _, err := managedfile.TreeDigest(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
+// TestSimulateRecoveriesNeutralizesTreeWriteSeams proves the in-memory preview
+// resolves an interrupted generated-tree publication without performing it: the
+// complete-publication and restore-backup decisions are both reported, while the
+// destination, the staged tree, and the transaction backup keep their
+// pre-preview bytes.
+func TestSimulateRecoveriesNeutralizesTreeWriteSeams(t *testing.T) {
+	home := newHome(t)
+	publishDest := config.PackageRoot(home, "omp")
+	publishTx, publishMutation := crashedTreeTransaction(t, home, "op-tree-publish", publishDest, false)
+	restoreDest := config.PackageRoot(home, "cards")
+	restoreTx, restoreMutation := crashedTreeTransaction(t, home, "op-tree-restore", restoreDest, true)
+
+	before := homeFingerprint(t, home)
+	sims, _, blocked, err := SimulateRecoveries(home)
+	if err != nil {
+		t.Fatalf("SimulateRecoveries: %v", err)
+	}
+	if blocked {
+		t.Fatalf("an interrupted tree publication reported a conflict: %+v", sims)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		path   string
+		want   RecoveryDecision
+		stage  string
+		backup string
+		dest   string
+	}{
+		{"publish", publishTx.JournalPath, DecisionCompletePublication, publishMutation.Stage, publishMutation.Backup, publishDest},
+		{"restore", restoreTx.JournalPath, DecisionRestoreBackup, restoreMutation.Stage, restoreMutation.Backup, restoreDest},
+	} {
+		var actions []RecoveryAction
+		for _, sim := range sims {
+			if sim.Journal == tc.path {
+				actions = sim.Actions
+			}
+		}
+		if !hasDecisionIn(actions, tc.want) {
+			t.Errorf("%s journal actions = %+v, want %s", tc.name, actions, tc.want)
+		}
+		if _, err := os.Stat(tc.dest); !os.IsNotExist(err) {
+			t.Errorf("%s: the preview performed the tree publication (stat %s = %v)", tc.name, tc.dest, err)
+		}
+		if _, err := os.Stat(tc.stage); err != nil {
+			t.Errorf("%s: the preview consumed the staged tree: %v", tc.name, err)
+		}
+		if _, err := os.Stat(tc.backup); err != nil {
+			t.Errorf("%s: the preview consumed the transaction backup: %v", tc.name, err)
+		}
+	}
+	if after := homeFingerprint(t, home); after != before {
+		t.Errorf("the preview changed the filesystem:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// TestSimulateRollbacksPreviewsRestoreWithoutWriting proves the rollback preview
+// reports the restore a real --rollback run would make while leaving the native
+// bytes, the transaction backup, and the journal untouched.
+func TestSimulateRollbacksPreviewsRestoreWithoutWriting(t *testing.T) {
+	home := newHome(t)
+	target := filepath.Join(home, ".claude", "commands", "commit.md")
+	writeBlockFile(t, target, "original bytes\n")
+	staged := "user prose\n<atomic>\nnew body\n</atomic>\n"
+	tx, err := NewTransaction(home, "op-preview-rollback", Plan{Mutations: []Mutation{fileMutation(t, "global-claude", target, staged)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.StageFile("global-claude", []byte(staged), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.PublishFile("global-claude"); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := homeFingerprint(t, home)
+
+	sims, blocked, err := SimulateRollbacks(home)
+	if err != nil {
+		t.Fatalf("SimulateRollbacks: %v", err)
+	}
+	if blocked {
+		t.Fatalf("a restorable journal reported a conflict: %+v", sims)
+	}
+	if len(sims) != 1 || !hasDecisionIn(sims[0].Actions, DecisionRestoreBackup) {
+		t.Fatalf("preview = %+v, want one restore decision", sims)
+	}
+	if after, err := os.ReadFile(target); err != nil || string(after) != string(applied) {
+		t.Errorf("the rollback preview changed the native bytes: %q (%v)", after, err)
+	}
+	if after := homeFingerprint(t, home); after != before {
+		t.Errorf("the rollback preview changed the filesystem:\nbefore %s\nafter  %s", before, after)
+	}
+	journal, err := LoadJournal(tx.JournalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if journal.Completed {
+		t.Error("the rollback preview consumed the journal")
+	}
+}

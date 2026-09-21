@@ -472,10 +472,7 @@ func TestOMPGuidanceRuntimeMatrix(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	home, err := NewOMPHome(filepath.Join(dir, "home"), runtimeModule(t, nil))
-	if err != nil {
-		t.Fatalf("prepare home: %v", err)
-	}
+	home, _ := prepareOMPHome(t, filepath.Join(dir, "home"), OMPHomeRequest{})
 	repo := filepath.Join(dir, "repo")
 	writeTree(t, repo, map[string]string{
 		"src/a.ts":       "export const a = 1;\n",
@@ -513,13 +510,7 @@ func TestOMPGuidanceRuntimeMatrix(t *testing.T) {
 	// because CP0 proved no context-return result for the current operation. The
 	// generated module carries no rule body at all, so no handler could return
 	// one before an operation.
-	delivery, err := omp.BuildSessionDelivery([]harness.RuleSource{
-		runtimeRuleSource(t, "rules/ts/style.md", []string{"**/*.{ts,tsx}"}, "# TypeScript\n"),
-		runtimeRuleSource(t, "rules/docs/spec.md", []string{"docs/spec/**/*.md"}, "# Specs\n"),
-	}, harness.OMPCapabilities(), nil)
-	if err != nil {
-		t.Fatalf("build session delivery: %v", err)
-	}
+	delivery := runtimeDelivery(t, nil)
 	module, err := delivery.RenderExtension()
 	if err != nil {
 		t.Fatalf("render extension: %v", err)

@@ -7,8 +7,11 @@ import (
 )
 
 // checkStaleness implements category 21: materialized resources whose recorded
-// generation is behind the selected binary's projection, and resources whose
-// native bytes hold the desired generation without a matching ledger record.
+// generation is behind the selected binary's projection, resources whose native
+// bytes hold the desired generation without a matching ledger record, and owned
+// resources that are not on disk at all. RowMissing is counted here for every
+// owned resource, not rules only: a deleted owned skill or agent is exactly the
+// drift this category exists to surface, and no other category counts it.
 func checkStaleness(opts Opts) Result {
 	report, err := loadStatus(opts)
 	if err != nil {
@@ -27,6 +30,9 @@ func checkStaleness(opts Opts) Result {
 			if r.State == harness.RowStale {
 				problems = append(problems, fmt.Sprintf("%s: %s materialized generation %s is behind the selected projection",
 					key, r.Resource, shortDigest(r.Generation)))
+			}
+			if r.State == harness.RowMissing {
+				problems = append(problems, fmt.Sprintf("%s: owned resource %s is not on disk", key, r.Resource))
 			}
 			if r.State == harness.RowUnverifiable {
 				problems = append(problems, fmt.Sprintf("%s: %s carries no applied digest to compare", key, r.Resource))

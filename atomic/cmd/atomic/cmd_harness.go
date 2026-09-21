@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -42,6 +43,9 @@ func buildHarnessCmd() *cobra.Command {
 	})
 	addHarnessSub(parent, []string{"uninstall"}, "Remove one enrolled target, or every target with --all", "<target-key>", func(fs *pflag.FlagSet) {
 		registerUninstallFlags(fs)
+	})
+	addHarnessSub(parent, []string{"recover"}, "Reconcile unresolved journals, or restore their backups with --rollback", "", func(fs *pflag.FlagSet) {
+		registerRecoverFlags(fs)
 	})
 
 	rules := &cobra.Command{
@@ -122,9 +126,15 @@ func registerAdoptFlags(fs *pflag.FlagSet) {
 	fs.Bool("json", false, "emit machine-readable JSON output")
 }
 
+func registerRecoverFlags(fs *pflag.FlagSet) {
+	fs.Bool("rollback", false, "restore digest-verified transaction backups instead of rolling forward")
+	fs.Bool("dry-run", false, "print what would happen; make no changes")
+	fs.Bool("json", false, "emit machine-readable JSON output")
+}
+
 func runHarness(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: atomic harness <list|status|enroll|adopt|repair|diff|uninstall|rules> [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: atomic harness <list|status|enroll|adopt|repair|diff|uninstall|recover|rules> [flags]")
 		os.Exit(2)
 	}
 	home, err := os.UserHomeDir()
@@ -148,6 +158,8 @@ func runHarness(args []string) {
 		runHarnessDiff(steps, args[1:])
 	case "uninstall":
 		runHarnessUninstall(steps, args[1:])
+	case "recover":
+		runHarnessRecover(steps, args[1:])
 	case "rules":
 		runHarnessRules(steps, args[1:])
 	default:
@@ -222,6 +234,9 @@ func runHarnessStatus(steps install.Steps, args []string) {
 		for _, r := range t.Resources {
 			fmt.Printf("  %s\t%s\n", r.State, r.Resource)
 		}
+		for _, u := range t.Unproven {
+			fmt.Printf("  unsupported\t%s\n", u)
+		}
 	}
 	if len(report.Retention.Journals) > 0 {
 		fmt.Printf("retained: %d unresolved journal(s)\n", len(report.Retention.Journals))
@@ -264,7 +279,9 @@ func runHarnessEnroll(steps install.Steps, args []string) {
 	if err != nil {
 		fatal("harness enroll", err)
 	}
-	printConvergeReports("harness enroll", reports, flags.dryRun, flags.jsonOut)
+	if printConvergeReports("harness enroll", reports, flags.dryRun, flags.jsonOut) {
+		os.Exit(1)
+	}
 }
 
 func runHarnessAdopt(steps install.Steps, args []string) {
@@ -313,7 +330,9 @@ func runHarnessAdopt(steps install.Steps, args []string) {
 	if err != nil {
 		fatal("harness adopt", err)
 	}
-	printConvergeReports("harness adopt", reports, dryRun, jsonOut)
+	if printConvergeReports("harness adopt", reports, dryRun, jsonOut) {
+		os.Exit(1)
+	}
 }
 
 func runHarnessRepair(steps install.Steps, args []string) {
@@ -338,7 +357,9 @@ func runHarnessRepair(steps install.Steps, args []string) {
 	if err != nil {
 		fatal("harness repair", err)
 	}
-	printConvergeReports("harness repair", reports, flags.dryRun, flags.jsonOut)
+	if printConvergeReports("harness repair", reports, flags.dryRun, flags.jsonOut) {
+		os.Exit(1)
+	}
 }
 
 func runHarnessDiff(steps install.Steps, args []string) {
@@ -430,6 +451,83 @@ func runHarnessUninstall(steps install.Steps, args []string) {
 	}
 }
 
+// runHarnessRecover is the explicit `atomic harness recover` verb: it
+// reconciles every unresolved journal oldest-first, rolling forward by default
+// or restoring digest-verified transaction backups under --rollback. A dry run
+// opens no lock and simulates each journal in memory — the same choice, so the
+// preview shows the decisions the real run would make. A run that leaves an
+// unreconciled journal reports every conflict and exits non-zero, in both output
+// forms, so a scripted caller never reads a refusal as success.
+func runHarnessRecover(steps install.Steps, args []string) {
+	fs := flag.NewFlagSet("harness recover", flag.ContinueOnError)
+	cliutil.SetUsage(fs, "atomic harness recover [--rollback] [--dry-run] [--json]")
+	var rollback, dryRun, jsonOut bool
+	fs.BoolVar(&rollback, "rollback", false, "restore digest-verified transaction backups instead of rolling forward")
+	fs.BoolVar(&dryRun, "dry-run", false, "print what would happen; make no changes")
+	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON output")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			os.Exit(0)
+		}
+		os.Exit(2)
+	}
+
+	if dryRun {
+		sims, blocked, err := steps.PreviewRecovery(rollback)
+		if err != nil {
+			fatal("harness recover", err)
+		}
+		if jsonOut {
+			encodeJSON(sims)
+		} else {
+			printRecovery(sims)
+		}
+		if blocked {
+			// The plan owns stdout, so the JSON form keeps its diagnostics on
+			// stderr; the text form prints them beside the plan, as printBlockers
+			// does.
+			diagnostics := os.Stdout
+			if jsonOut {
+				diagnostics = os.Stderr
+			}
+			printRecoveryConflicts(diagnostics, sims)
+			fmt.Fprintln(diagnostics, "blocked\tan unresolved journal cannot be recovered to one safe result without an unavailable observation or a later edit")
+			os.Exit(1)
+		}
+		return
+	}
+
+	actions, err := steps.Recover(rollback)
+	if err != nil {
+		fatal("harness recover", err)
+	}
+	if jsonOut {
+		encodeJSON(actions)
+	} else {
+		for _, a := range actions {
+			fmt.Printf("%s\t%s\t%s\n", a.Decision, a.Path, a.Detail)
+		}
+		if len(actions) == 0 {
+			fmt.Println("recovery\tno unresolved journals")
+		}
+	}
+	if conflicts := conflictCount(actions); conflicts > 0 {
+		fmt.Fprintf(os.Stderr, "%d unresolved journal conflict(s) remain\n", conflicts)
+		os.Exit(1)
+	}
+}
+
+// conflictCount is the number of commit units recovery could not reconcile.
+func conflictCount(actions []installstate.RecoveryAction) int {
+	conflicts := 0
+	for _, a := range actions {
+		if a.Decision == installstate.DecisionConflict {
+			conflicts++
+		}
+	}
+	return conflicts
+}
+
 // printRemoval renders one target's removal outcome.
 func printRemoval(removal harness.Removal) {
 	for _, id := range removal.Removed {
@@ -439,7 +537,7 @@ func printRemoval(removal harness.Removal) {
 		fmt.Printf("retained\t%s\t(another enrolled consumer depends on it)\n", id)
 	}
 	for _, id := range removal.Skipped {
-		fmt.Printf("skipped\t%s\t(read-only; retained for a later uninstall)\n", id)
+		fmt.Printf("skipped\t%s\t(read-only or drifted; retained for a later uninstall)\n", id)
 	}
 	printRecovery(removal.Recovery)
 }
@@ -449,6 +547,17 @@ func printRemoval(removal harness.Removal) {
 func printRecovery(sims []installstate.RecoverySimulation) {
 	for _, sim := range sims {
 		fmt.Printf("recovery\t%s\t%d action(s), %d conflict(s)\n", sim.Journal, len(sim.Actions), len(sim.Conflicts))
+	}
+}
+
+// printRecoveryConflicts renders every conflict a simulated run reported, so a
+// home with more than one unreconciled unit names all of them rather than the
+// first.
+func printRecoveryConflicts(w io.Writer, sims []installstate.RecoverySimulation) {
+	for _, sim := range sims {
+		for _, conflict := range sim.Conflicts {
+			fmt.Fprintf(w, "conflict\t%s\t%s\t%s\n", sim.Journal, conflict.Path, conflict.Detail)
+		}
 	}
 }
 
@@ -500,13 +609,18 @@ func runHarnessRules(steps install.Steps, args []string) {
 			for _, gap := range status.Gaps {
 				fmt.Printf("  gap\t%s\t%s\n", gap.Role, gap.Status)
 			}
+			for _, u := range status.Unproven {
+				fmt.Printf("  unsupported\t%s\n", u)
+			}
 		}
 	case "sync":
 		reports, err := steps.RulesSync()
 		if err != nil {
 			fatal("harness rules sync", err)
 		}
-		printConvergeReports("harness rules sync", reports, flags.dryRun, flags.jsonOut)
+		if printConvergeReports("harness rules sync", reports, flags.dryRun, flags.jsonOut) {
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "atomic harness rules: unknown verb %q\n", args[0])
 		os.Exit(2)

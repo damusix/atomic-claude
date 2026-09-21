@@ -228,9 +228,10 @@ func TestMigrateLegacyCompleteIntoCleanHome(t *testing.T) {
 	}
 }
 
-// After adoption a divergent native copy is a conflict: Verify reports it and
-// never rewrites it, and no second import overwrites the authority.
-func TestMigrateVerifyReportsDerivativeConflict(t *testing.T) {
+// After adoption a derivative edit to the owned block is drift the resource's
+// verdict carries: Verify reports it, classifies the install decidable, and
+// never rewrites it.
+func TestMigrateVerifyReportsDerivativeDrift(t *testing.T) {
 	home := t.TempDir()
 	root := installLegacy(t, home)
 	ageInstall(t, home, root)
@@ -255,8 +256,11 @@ func TestMigrateVerifyReportsDerivativeConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	if len(verification.Conflicts) == 0 {
+	if len(verification.Drift) == 0 {
 		t.Fatalf("derivative edit not reported: %+v", verification)
+	}
+	if verification.Classification.State == installstate.StateMixed {
+		t.Errorf("derivative edit classified the install mixed: %+v", verification.Classification)
 	}
 	if got := readScopeFile(t, steeringPath); got != string(edited) {
 		t.Error("Verify rewrote a derivative edit")
@@ -285,12 +289,12 @@ func TestMigrateOldBinaryDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	joined := strings.Join(verification.Conflicts, "\n")
+	joined := strings.Join(verification.Drift, "\n")
 	if !strings.Contains(joined, drifted) {
 		t.Fatalf("drift at %s not reported: %+v", drifted, verification)
 	}
-	if verification.Classification.State == installstate.StateV2Clean {
-		t.Errorf("drifted install classified clean: %+v", verification.Classification)
+	if verification.Classification.State == installstate.StateMixed {
+		t.Errorf("old-binary drift classified the install mixed: %+v", verification.Classification)
 	}
 }
 
@@ -442,6 +446,10 @@ func TestMigrateRefusesNativeRootScope(t *testing.T) {
 // A caller-supplied operation id is suffixed per scope: each scope owns a
 // distinct journal and transaction tree, so no scope's completed record
 // overwrites an earlier one's.
+// TestMigrateScopesKeepDistinctOperations proves two scopes converge as two
+// distinct operations: each writes its own loader pair, the previous scope's
+// journal is never overwritten before its rows commit, and both completed
+// operations are consumed rather than accumulating.
 func TestMigrateScopesKeepDistinctOperationJournals(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, ".claude")
@@ -470,29 +478,31 @@ func TestMigrateScopesKeepDistinctOperationJournals(t *testing.T) {
 	if first.JournalPath == second.JournalPath {
 		t.Fatalf("scopes share one journal: %s", first.JournalPath)
 	}
+	if _, err := os.Stat(config.JournalsDir(home)); !os.IsNotExist(err) {
+		entries, readErr := os.ReadDir(config.JournalsDir(home))
+		if readErr == nil && len(entries) != 0 {
+			t.Errorf("completed scope migrations left %d journal(s) behind", len(entries))
+		}
+	}
 
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i, sr := range result.Scopes {
 		if sr.Status != ScopeCreated {
 			t.Errorf("scope %d status = %s, want %s", i, sr.Status, ScopeCreated)
 		}
-		j, err := installstate.LoadJournal(sr.JournalPath)
-		if err != nil {
-			t.Fatalf("load scope %d journal %s: %v", i, sr.JournalPath, err)
-		}
-		if !j.Completed {
-			t.Errorf("scope %d journal %s is not completed", i, sr.JournalPath)
-		}
-		inScope := false
-		for _, m := range j.Mutations {
-			if strings.HasPrefix(m.Path, repos[i]+string(os.PathSeparator)) {
-				inScope = true
+		for _, path := range []string{sr.AgentsPath, sr.ClaudePath} {
+			if !strings.HasPrefix(path, repos[i]+string(os.PathSeparator)) {
+				t.Errorf("scope %d wrote outside its directory: %s", i, path)
 			}
-		}
-		if !inScope {
-			t.Errorf("scope %d journal records no mutation under %s", i, repos[i])
-		}
-		if _, err := os.Stat(config.TransactionDir(home, j.OperationID)); err != nil {
-			t.Errorf("scope %d transaction tree missing: %v", i, err)
+			if _, err := os.Stat(path); err != nil {
+				t.Errorf("scope %d did not publish %s: %v", i, path, err)
+			}
+			if _, ok := ledger.Find(req.Target, path); !ok {
+				t.Errorf("scope %d recorded no ownership row for %s", i, path)
+			}
 		}
 	}
 }

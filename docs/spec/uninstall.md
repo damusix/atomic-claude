@@ -19,7 +19,7 @@ The removal, retention, lock, and recovery contracts are shared with the multi-h
 
 ## Success criteria
 
-- [ ] `atomic harness uninstall <target-key>` removes only the unchanged resources owned for that target. A resource whose native bytes changed refuses the whole operation; a resource another enrolled consumer depends on is retained and reported; a resource the removal cannot clear — a read-only `settings.json` — is reported `skipped` and keeps its ownership claim.
+- [ ] `atomic harness uninstall <target-key>` removes only the unchanged resources owned for that target. A resource whose native bytes changed — including an edit to an owned `settings.json` member — is reported `skipped` and keeps its ownership claim rather than aborting the removal, so the rest of the target still uninstalls; a resource another enrolled consumer depends on is retained and reported.
 - [ ] `atomic harness uninstall --all` removes every enrolled target, then the completed operational and adoption state.
 - [ ] Full uninstall preserves `~/.atomic/config.toml`, `~/.atomic/profile.md`, `~/.atomic/wikis.md`, and backups, and retains unresolved journals plus the transaction backups, ledger rows, and state-location records they reference until recovery completes.
 - [ ] `--dry-run` opens no lock, writes nothing, previews unresolved journals read-only, and reports `blocked_on_recovery` (exit 1) when a journal cannot resolve to one safe result.
@@ -43,10 +43,10 @@ The removal, retention, lock, and recovery contracts are shared with the multi-h
 
 `atomic harness uninstall <target-key>` removes one enrolled target's unchanged Atomic-owned resources. Ownership comes from the ledger, never from names or legacy config paths.
 
-- A resource whose native bytes changed since Atomic wrote them refuses the whole operation — uninstall never overwrites a user edit.
+- A resource whose native bytes changed since Atomic wrote them is reported `skipped` and keeps its claim rather than aborting the removal — uninstall never overwrites a user edit, and the rest of the target still uninstalls.
 - A resource another enrolled consumer depends on is retained and reported alongside what was removed.
 - A resource the removal cannot clear is reported `skipped` alongside what was removed, and its ledger row and enrollment are kept: the bytes still on disk behind a read-only file are still Atomic's claim, so a later uninstall can finish the job.
-- A Claude target's `settings.json` is owned member-wise rather than whole-file: whenever a Claude target converges — adapter converge during enroll, repair, or update, and the explicit legacy adoption — the ledger records the Atomic-owned members (the inline `SessionStart` registration and the `outputStyle` seed), so uninstall strips exactly those members and leaves the user's other keys byte-for-byte. A later edit to an owned member is a changed resource like any other — the operation refuses instead of overwriting it. A read-only `settings.json` is the skipped case above: the removal leaves it untouched rather than clobbering it.
+- A Claude target's `settings.json` is owned member-wise rather than whole-file: whenever a Claude target converges — adapter converge during enroll, repair, or update, and the explicit legacy adoption — the ledger records the Atomic-owned members (the inline `SessionStart` registration and the `outputStyle` seed), so uninstall strips exactly those members and leaves the user's other keys byte-for-byte. A later edit to an owned member is a changed resource like any other — the removal reports it `skipped` instead of overwriting it, matching the read-only case above.
 - The plan is complete before anything is removed: every resource is observed, planned, and approved (one confirmation), then removed.
 
 ### Full uninstall
@@ -62,7 +62,7 @@ The full retention criteria are owned by the multi-harness lifecycle spec — se
 ### Dry run and locking
 
 - `--dry-run` opens no lock, writes nothing, and previews unresolved journals read-only through `installstate.SimulateRecoveries`. A journal that resolves to one safe result yields the advisory post-recovery plan, planned against the ledger a real recovery would leave behind. A journal that cannot resolve to one safe result reports `blocked_on_recovery` and exits 1 — no plan is offered.
-- Every real mutation acquires one advisory lifecycle lock and reconciles unresolved journals oldest-first before planning. Uninstall is the one lifecycle operation that proceeds past a recovery conflict: recovery consumes what it can verify, and each removal independently refuses any resource whose bytes changed.
+- Every real mutation acquires one advisory lifecycle lock and reconciles unresolved journals oldest-first before planning. Uninstall is the one lifecycle operation that proceeds past a recovery conflict: recovery consumes what it can verify, and each removal independently skips any resource whose bytes changed.
 
 ### Claude pre-install snapshot route
 
@@ -89,7 +89,7 @@ The full retention criteria are owned by the multi-harness lifecycle spec — se
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| A target resource was edited after Atomic wrote it | Medium | The whole operation refuses; the user resolves the divergence before retrying |
+| A target resource was edited after Atomic wrote it | Medium | The resource is reported `skipped` and keeps its claim; the user resolves the divergence — with `atomic harness repair` — before retrying |
 | A shared resource is still used by another enrolled target | Low | Retained and reported; removed only once no enrolled consumer depends on it |
 | A crash leaves an unresolved journal | Low | The next mutation recovers oldest-first; unresolved work and its backups are retained, never silently dropped |
 | `settings.json` has complex nested structure that the LLM route misreads | Medium | Show a unified diff to the user; require explicit confirm before writing |
@@ -120,6 +120,14 @@ Built across 4 iterations of /subagent-implementation. Commits (chronological):
 
 
 ## Change log
+
+### 2026-09-20 — Drift on an owned resource no longer aborts the removal
+
+**What changed:** A target resource whose native bytes changed since Atomic wrote them is now reported `skipped` and keeps its ledger row and enrollment, while the rest of the target uninstalls; previously such a resource refused the whole operation. The multi-harness classifier no longer reports ordinary row/bytes drift as `mixed`, so `atomic harness uninstall` reaches the removal plan at all. The settings bullet carries the same skip semantics for an edited owned member.
+
+**Why:** A row/bytes disagreement is per-resource drift, not a state, so aborting the removal hid the resources that could be cleared behind the one that could not. The redesign is in `docs/spec/omp-plugin-compatibility.md` (per-resource drift, ledger-recorded ownership evidence).
+
+**Superseded:** Prior body refused the entire target removal whenever any owned resource had changed, and success criterion 1 said so explicitly.
 
 ### 2026-09-20 — A skipped removal keeps its ownership claim
 

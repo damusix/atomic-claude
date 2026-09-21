@@ -63,7 +63,7 @@ func scenarioAdoptReq(t *testing.T, home, root string) installstate.AdoptionRequ
 // scenarioClassify classifies one Claude home against the selected generation.
 func scenarioClassify(t *testing.T, home, root string) installstate.Classification {
 	t.Helper()
-	c, err := installstate.Classify(installstate.ClassifyRequest{Home: home, NativeRoot: root, Claims: scenarioClaims(t, root)})
+	c, err := installstate.Classify(installstate.ClassifyRequest{Home: home, NativeRoot: root, Target: "claude:default", Claims: scenarioClaims(t, root)})
 	if err != nil {
 		t.Fatalf("classify: %v", err)
 	}
@@ -394,13 +394,14 @@ func TestCP8AV2MigrationStates(t *testing.T) {
 	recordScenario(t, ev)
 }
 
-// TestCP8AMixedEvidenceBlocks proves a ledger row that disagrees with the
-// observed bytes — overlapping legacy and v2 ownership evidence — classifies
-// mixed and refuses adoption.
+// TestCP8ADriftedRowIsPerResourceDrift proves a ledger row whose bytes no longer
+// match is per-resource drift, not a mixed install, and that the changed
+// resource stays on the explicit replace-or-leave-unowned decision path.
 //
-// Criterion: unjournaled v2 remnants and overlapping legacy/v2 evidence block
-// automatic adoption until resolved.
-func TestCP8AMixedEvidenceBlocks(t *testing.T) {
+// Criterion: a row/bytes disagreement does not force mixed; bytes matching
+// neither the selected generation nor the ledger's recorded digest require a
+// replace-or-leave-unowned decision.
+func TestCP8ADriftedRowIsPerResourceDrift(t *testing.T) {
 	home := isolatedHome(t)
 	root := legacyClaudeInstall(t, home)
 	ageClaudeInstall(t, home, root)
@@ -412,27 +413,43 @@ func TestCP8AMixedEvidenceBlocks(t *testing.T) {
 	}})
 
 	ev := ScenarioEvidence{
-		Scenario:  "cp8a/migration/mixed-evidence",
+		Scenario:  "cp8a/migration/drifted-row-drift",
 		Group:     "migration",
 		Engine:    "installstate",
-		Criterion: "overlapping legacy and v2 evidence classifies mixed and refuses adoption",
+		Criterion: "a row/bytes disagreement is per-resource drift and needs a decision, not mixed",
 		Command:   "Classify → PlanAdoption",
 		Paths:     []string{home, root},
 	}
 
 	c := scenarioClassify(t, home, root)
-	if c.State != installstate.StateMixed {
-		t.Fatalf("state = %s (%v), want %s", c.State, c.Conflicts, installstate.StateMixed)
+	if c.State == installstate.StateMixed {
+		t.Fatalf("state = %s (%v), want a decidable state — a row/bytes disagreement is per-resource drift", c.State, c.Conflicts)
 	}
-	plan, err := installstate.PlanAdoption(scenarioAdoptReq(t, home, root))
+	reported := false
+	for _, d := range c.Drift {
+		if strings.Contains(d, drifted) {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Errorf("drift = %v, want the changed resource reported", c.Drift)
+	}
+
+	// With no batch decision the changed resource stays on the explicit path.
+	undecided := scenarioAdoptReq(t, home, root)
+	undecided.BatchDecision = ""
+	plan, err := installstate.PlanAdoption(undecided)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.Status == installstate.StatusReady {
-		t.Fatalf("plan status = %s, want a refused plan", plan.Status)
+		t.Fatalf("plan status = %s, want a refused plan without a decision", plan.Status)
+	}
+	if _, err := installstate.Adopt(undecided); err == nil {
+		t.Fatal("adoption succeeded without a decision for a drifted resource")
 	}
 
-	ev.Outcome = "mixed classified; adoption plan refused"
+	ev.Outcome = "drifted row classified as per-resource drift and kept on the decision path"
 	recordScenario(t, ev)
 }
 
@@ -504,8 +521,15 @@ func TestCP8AReplaceOrLeaveUnowned(t *testing.T) {
 }
 
 // TestCP8AInterruptedAdoptionResumes proves an adoption interrupted after its
-// native write but before the ledger record resumes: recovery commits the
+// native write but before the ledger record resumes: recovery ledger-commits the
 // verified applied bytes and consumes the journal.
+//
+// Contract asserted now: recovery leaves no journal file behind — consumption
+// marks it completed and cleans the operational state, so a later classify never
+// parses a dead operation.
+// Property still protected: the recovered resource is the one the journal proved
+// applied — the ledger row is committed only after digest verification, and the
+// bytes on disk are that verified digest.
 //
 // Criterion: partial v2 recovery ledger-commits applied bytes only after digest
 // verification and consumes the recovered journal.
@@ -543,6 +567,10 @@ func TestCP8AInterruptedAdoptionResumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Deliberately not Complete: the journal owns applied-but-unrecorded work.
+	journalPath := config.JournalPath(home, "op-interrupted")
+	if !fileExists(journalPath) {
+		t.Fatalf("the interrupted transaction wrote no journal to recover")
+	}
 
 	req := scenarioAdoptReq(t, home, root)
 	req.Artifacts = artifacts
@@ -560,12 +588,20 @@ func TestCP8AInterruptedAdoptionResumes(t *testing.T) {
 	if _, ok := ledger.Find("claude:default", victim.ID); !ok {
 		t.Errorf("the recovered resource was not ledger-committed")
 	}
-	j, err := installstate.LoadJournal(config.JournalPath(home, "op-interrupted"))
-	if err != nil {
-		t.Fatal(err)
+	// The journal existed when Adopt ran, so its absence is the recovery's
+	// consumption of completed operational state, not a file that was never
+	// written.
+	if fileExists(journalPath) {
+		t.Errorf("the recovered journal survived adoption; it was not consumed")
 	}
-	if !j.Completed {
-		t.Errorf("the recovered journal was not consumed")
+	// The recovery effect: the applied bytes it committed are on disk at the
+	// digest the journal verified, so the ledger row and the artifact agree.
+	obs, err := managedfile.Observe(victim.Path, victim.Kind)
+	if err != nil {
+		t.Fatalf("observe recovered artifact: %v", err)
+	}
+	if obs.Digest != digest {
+		t.Errorf("recovered bytes digest = %q, want the verified applied digest %q", obs.Digest, digest)
 	}
 
 	ev.Outcome = "recovery committed the verified applied bytes, recorded the ledger row, and consumed the journal"
@@ -742,8 +778,8 @@ func TestCP8ANewerSchemaRefusal(t *testing.T) {
 }
 
 // TestCP8AOldBinaryDrift proves that after migration an old Claude-only binary
-// writing the artifact tree again surfaces as drift/conflict instead of being
-// silently adopted.
+// writing the artifact tree again surfaces as per-resource drift — not a mixed
+// install, and not silently adopted — and that a replace decision repairs it.
 //
 // Criterion: old Claude-only binaries are unsupported writers after migration
 // and their later changes surface as drift or conflict.
@@ -757,7 +793,7 @@ func TestCP8AOldBinaryDrift(t *testing.T) {
 		Group:     "migration",
 		Engine:    "installstate",
 		Criterion: "an old binary's later write surfaces as drift/conflict after migration",
-		Command:   "Adopt → old-binary rewrite → Classify",
+		Command:   "Adopt → old-binary rewrite → Classify → replace",
 		Paths:     []string{home, root},
 	}
 
@@ -768,15 +804,39 @@ func TestCP8AOldBinaryDrift(t *testing.T) {
 		t.Fatalf("post-adoption state = %s (%v), want v2-clean", c.State, c.Conflicts)
 	}
 
-	scenarioMkfile(t, filepath.Join(root, "commands", "commit.md"), "old binary wrote this\n")
+	driftedPath := filepath.Join(root, "commands", "commit.md")
+	scenarioMkfile(t, driftedPath, "old binary wrote this\n")
 	drifted := scenarioClassify(t, home, root)
-	if drifted.State != installstate.StateMixed {
-		t.Fatalf("drifted state = %s, want %s", drifted.State, installstate.StateMixed)
+	if drifted.State == installstate.StateMixed {
+		t.Fatalf("drifted state = %s (%v), want a decidable state — drift is per resource", drifted.State, drifted.Conflicts)
 	}
-	if len(drifted.Conflicts) == 0 {
-		t.Errorf("old-binary drift reported no conflict")
+	reported := false
+	for _, d := range drifted.Drift {
+		if strings.Contains(d, driftedPath) {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Errorf("old-binary drift = %v, want the changed resource reported", drifted.Drift)
 	}
 
-	ev.Outcome = "old-binary rewrite classified mixed with conflict detail"
+	// The replace decision the request already carries repairs the drift.
+	if _, err := installstate.Adopt(scenarioAdoptReq(t, home, root)); err != nil {
+		t.Fatalf("replace-decided repair of old-binary drift: %v", err)
+	}
+	for _, a := range claudeArtifacts(t, root) {
+		if a.ID != "commands/commit.md" {
+			continue
+		}
+		got, err := os.ReadFile(driftedPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(a.Data) {
+			t.Errorf("repair did not restore the selected bytes: %q", got)
+		}
+	}
+
+	ev.Outcome = "old-binary rewrite classified as per-resource drift and repaired under replace"
 	recordScenario(t, ev)
 }

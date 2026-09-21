@@ -2,6 +2,7 @@ package install
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
@@ -129,16 +130,22 @@ func (s Steps) Diff(sel Selection) ([]harness.ResourceStatus, error) {
 	return out, nil
 }
 
-// targetStatus compares one target's rows against the selected generation.
+// targetStatus compares one target's rows against the selected generation. A
+// projection failure is recorded as a blocker rather than dropped: without the
+// desired digests every row reads as current, so a target whose projection
+// cannot be rendered would report healthy.
 func targetStatus(reg *harness.Registry, home string, ledger *installstate.Ledger, target harness.Target) (harness.TargetStatus, error) {
 	out := harness.TargetStatus{Target: target, Status: target.Status}
 	desired := map[string]string{}
-	if adapter, err := reg.Adapter(target.Kind); err == nil {
-		plan, err := adapter.Lifecycle(home).Project(target, harness.PlanRequest{})
-		if err == nil {
-			desired = harness.DesiredDigests(plan)
-			out.Blockers = plan.Blockers
-		}
+	adapter, err := reg.Adapter(target.Kind)
+	if err != nil {
+		out.Blockers = append(out.Blockers, "no adapter for target: "+err.Error())
+	} else if plan, err := adapter.Lifecycle(home).Project(target, harness.PlanRequest{}); err != nil {
+		out.Blockers = append(out.Blockers, "projection failed: "+err.Error())
+	} else {
+		desired = harness.DesiredDigests(plan)
+		out.Blockers = append(out.Blockers, plan.Blockers...)
+		out.Unproven = append(out.Unproven, plan.Unproven...)
 	}
 	for _, row := range ledger.Rows {
 		if row.Target != target.Key() {
@@ -179,12 +186,13 @@ func (s Steps) enrolledInstances(sel Selection) ([]harness.Instance, error) {
 }
 
 // matches reports whether a target satisfies the selection's kind and instance
-// filters.
+// filters. An instance is a native root for most harnesses, so the comparison
+// cleans both sides: `--instance ~/.claude/` names the same root as `~/.claude`.
 func (sel Selection) matches(target harness.Target) bool {
 	if sel.Kind != "" && target.Kind != sel.Kind {
 		return false
 	}
-	if sel.Instance != "" && target.Instance != sel.Instance {
+	if sel.Instance != "" && filepath.Clean(sel.Instance) != filepath.Clean(target.Instance) {
 		return false
 	}
 	return true

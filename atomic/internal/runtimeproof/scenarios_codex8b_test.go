@@ -31,6 +31,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/harness/omp"
 	"github.com/damusix/atomic-claude/atomic/internal/install"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 	"github.com/damusix/atomic-claude/atomic/internal/rules"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
@@ -110,27 +111,29 @@ import matcher from "./matcher.mjs";
 const spec = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const paths = {};
 for (const [name, candidate] of Object.entries(spec.paths)) {
-	paths[name] = matcher.matchPath(candidate);
+	paths[name] = matcher.matchPath(candidate, spec.base);
 }
-const normalized = {};
-for (const [name, candidate] of Object.entries(spec.normalize)) {
-	normalized[name] = matcher.normalize(candidate);
+const rebased = {};
+for (const [name, candidate] of Object.entries(spec.rebase)) {
+	rebased[name] = matcher.rebase(candidate, spec.base);
 }
 const operations = spec.operations.map((operation) => matcher.matchOperation(operation));
-writeFileSync(process.argv[3], JSON.stringify({ paths, normalized, operations }, null, 2));
+writeFileSync(process.argv[3], JSON.stringify({ paths, rebased, operations }, null, 2));
 `
 
 // codexMatcherSpec is the synthetic operation sequence one Bun run consumes.
+// Base is the observed workspace root every candidate is rebased onto.
 type codexMatcherSpec struct {
+	Base       string            `json:"base"`
 	Paths      map[string]string `json:"paths"`
-	Normalize  map[string]string `json:"normalize"`
+	Rebase     map[string]string `json:"rebase"`
 	Operations []map[string]any  `json:"operations"`
 }
 
 // codexMatcherResult is one driver run, decoded from the output document.
 type codexMatcherResult struct {
 	Paths      map[string][]string `json:"paths"`
-	Normalized map[string]any      `json:"normalized"`
+	Rebased    map[string]any      `json:"rebased"`
 	Operations []map[string]any    `json:"operations"`
 }
 
@@ -459,16 +462,19 @@ func TestCP8BCodexMatcherOffline(t *testing.T) {
 	}
 
 	spec := codexMatcherSpec{
+		Base: "/repo",
 		Paths: map[string]string{
-			"match":    "src/a.ts",
-			"overlap":  "docs/spec/x.md",
-			"nonmatch": "src/a.txt",
-			"absolute": "/etc/passwd",
-			"escape":   "../escape.md",
+			"match":       "src/a.ts",
+			"overlap":     "docs/spec/x.md",
+			"nonmatch":    "src/a.txt",
+			"absolute":    "/etc/passwd",
+			"escape":      "../escape.md",
+			"absolute_in": "/repo/docs/spec/x.md",
 		},
-		Normalize: map[string]string{
-			"absolute": "/etc/passwd",
-			"escape":   "../escape.md",
+		Rebase: map[string]string{
+			"absolute":    "/etc/passwd",
+			"escape":      "../escape.md",
+			"absolute_in": "/repo/docs/spec/x.md",
 		},
 		Operations: []map[string]any{
 			{"tool": "bash", "input": map[string]any{"command": "cat docs/spec/x.md"}},
@@ -492,8 +498,16 @@ func TestCP8BCodexMatcherOffline(t *testing.T) {
 	if ids := got.Paths["escape"]; len(ids) != 0 {
 		t.Errorf("matchPath accepted a parent-escaping path: %v", ids)
 	}
-	if got.Normalized["absolute"] != nil || got.Normalized["escape"] != nil {
-		t.Errorf("normalize accepted a non-exact relative candidate: %v", got.Normalized)
+	// An absolute path inside the observed base rebases onto the same
+	// base-relative candidate; one outside it is refused.
+	if ids := got.Paths["absolute_in"]; strings.Join(ids, ",") != "shipped:rules/docs/spec.md,shipped:rules/markdown/style.md" {
+		t.Errorf("matchPath(/repo/docs/spec/x.md) = %v, want the rebased path's matches", ids)
+	}
+	if got.Rebased["absolute"] != nil || got.Rebased["escape"] != nil {
+		t.Errorf("rebase accepted a non-exact relative candidate: %v", got.Rebased)
+	}
+	if got.Rebased["absolute_in"] != "docs/spec/x.md" {
+		t.Errorf("rebase(/repo/docs/spec/x.md) = %v, want docs/spec/x.md", got.Rebased["absolute_in"])
 	}
 	for i, op := range got.Operations {
 		if covered, _ := op["covered"].(bool); covered {
@@ -559,8 +573,9 @@ func TestCP8BCodexNoFalseDelivery(t *testing.T) {
 	}
 
 	spec := codexMatcherSpec{
-		Paths:     map[string]string{"ts": "src/a.ts"},
-		Normalize: map[string]string{},
+		Base:   "/repo",
+		Paths:  map[string]string{"ts": "src/a.ts"},
+		Rebase: map[string]string{},
 		Operations: []map[string]any{
 			// A matching path on a tool whose structured input CP0 never
 			// exercised must not be delivered a body.
@@ -854,12 +869,14 @@ func TestCP8BCodexSharedOwnership(t *testing.T) {
 }
 
 // TestCP8BCodexConcurrentLifecycle proves a concurrent Codex enrollment cannot
-// proceed while the one advisory lifecycle lock is held, and that an enrollment
-// whose shared package carries an incompatible recorded generation refuses
-// before any package mutation.
+// proceed while the one advisory lifecycle lock is held, that a generation swap
+// converges every enrolled consumer of the shared plugin tree and records the
+// new generation on each consumer's row, and that a row for a target the ledger
+// does not enroll is the one genuine pin and refuses before any mutation.
 //
-// Criterion: concurrent enrollment serializes on the one lifecycle lock, and an
-// incompatible shared generation refuses before mutation naming both targets.
+// Criterion: concurrent enrollment serializes on the one lifecycle lock; a
+// generation swap moves every enrolled consumer's row with the tree; an
+// unenrolled consumer's row refuses before mutation.
 func TestCP8BCodexConcurrentLifecycle(t *testing.T) {
 	home := isolatedHome(t)
 	first := filepath.Join(home, "codex-a")
@@ -874,8 +891,8 @@ func TestCP8BCodexConcurrentLifecycle(t *testing.T) {
 		Scenario:  "cp8b/codex/concurrent-lifecycle",
 		Group:     "codex",
 		Engine:    "harness/codex + installstate",
-		Criterion: "a concurrent enrollment blocks while the lifecycle lock is held; an incompatible shared generation refuses before mutation",
-		Command:   "hold AcquireLock → codex.Enroll; perturb recorded generation → codex.Enroll",
+		Criterion: "a concurrent enrollment blocks while the lifecycle lock is held; a generation swap converges every enrolled consumer; an unenrolled consumer's row refuses before mutation",
+		Command:   "hold AcquireLock → codex.Enroll; swap the corpus generation → codex.Enroll; pin an unenrolled row → codex.Enroll",
 		Paths:     []string{home, first, second},
 	}
 
@@ -912,33 +929,79 @@ func TestCP8BCodexConcurrentLifecycle(t *testing.T) {
 		t.Fatalf("enrollment did not proceed after the lock was released")
 	}
 
-	// An incompatible recorded generation refuses before mutation.
+	// A row an enrolled consumer records is what Atomic last wrote, not a
+	// requirement: the operation that moves the shared tree rewrites every
+	// enrolled consumer's row in the same commit, so a generation swap converges
+	// rather than refuses. Codex publishes one corpus, so the swap is injected
+	// through the adapter's corpus seam.
 	ledgerPath := config.LedgerPath(home)
 	ledger, err := installstate.LoadLedger(ledgerPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed := false
-	for i := range ledger.Rows {
-		if ledger.Rows[i].Resource == codex.PackageResource(home) {
-			ledger.Rows[i].Generation = "incompatible-generation"
-			changed = true
-		}
+	firstKey := harness.Target{Kind: harness.KindCodex, Instance: first}.Key()
+	previous, ok := ledger.Find(firstKey, codex.PackageResource(home))
+	if !ok {
+		t.Fatalf("no package ownership row recorded for the first enrolled home")
 	}
-	if !changed {
-		t.Fatalf("no package ownership row to age")
-	}
-	if err := ledger.Save(ledgerPath); err != nil {
-		t.Fatal(err)
-	}
+
 	third := filepath.Join(home, "codex-c")
 	if err := os.MkdirAll(third, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	swapped := codex.New()
+	swapped.Corpus = func() (*artifacts.Catalog, error) { return codexMatcherCorpus(t), nil }
+	result, err := swapped.Enroll(codex.EnrollRequest{Home: home, Root: third, OperationID: "cp8b-concurrent-third"})
+	if err != nil {
+		t.Fatalf("enrollment across a generation swap: %v", err)
+	}
+	if result.Generation == previous.Generation {
+		t.Fatalf("the swapped corpus published the same generation %q; the scenario proves nothing", previous.Generation)
+	}
+	ledger, err = installstate.LoadLedger(ledgerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{first, second, third} {
+		key := harness.Target{Kind: harness.KindCodex, Instance: root}.Key()
+		row, ok := ledger.Find(key, codex.PackageResource(home))
+		if !ok {
+			t.Errorf("no ownership row for enrolled consumer %s after the generation swap", root)
+			continue
+		}
+		if row.Generation != result.Generation {
+			t.Errorf("consumer %s records generation %q, want the converged %q", root, row.Generation, result.Generation)
+		}
+	}
+
+	// A row for a target the ledger does not enroll is the one genuine pin:
+	// nothing in this operation moves that consumer, so it refuses before any
+	// mutation rather than publishing bytes the pin's row denies.
+	pinnedRoot := filepath.Join(home, "codex-pinned")
+	pinnedKey := harness.Target{Kind: harness.KindCodex, Instance: pinnedRoot}.Key()
+	fourth := filepath.Join(home, "codex-d")
+	if err := os.MkdirAll(fourth, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ledger, err = installstate.LoadLedger(ledgerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger.Upsert(installstate.Row{
+		Target:     pinnedKey,
+		Resource:   codex.PackageResource(home),
+		Consumer:   pinnedKey,
+		Generation: "incompatible-generation",
+		Tier:       string(codex.Tier),
+		Applied:    installstate.AppliedValue{Path: codex.PackageResource(home), Kind: "tree"},
+	})
+	if err := ledger.Save(ledgerPath); err != nil {
+		t.Fatal(err)
+	}
 	before := treeDigest(t, codex.PackageResource(home))
-	_, err = a.Enroll(codex.EnrollRequest{Home: home, Root: third, OperationID: "cp8b-concurrent-third"})
+	_, err = swapped.Enroll(codex.EnrollRequest{Home: home, Root: fourth, OperationID: "cp8b-concurrent-pinned"})
 	if err == nil {
-		t.Fatalf("enrollment succeeded despite an incompatible recorded generation")
+		t.Fatalf("enrollment succeeded despite a pin on an unenrolled consumer")
 	}
 	if !strings.Contains(err.Error(), "refuses before plugin tree mutation") {
 		t.Errorf("refusal = %q, want the shared-generation refusal", err)
@@ -947,13 +1010,20 @@ func TestCP8BCodexConcurrentLifecycle(t *testing.T) {
 		t.Errorf("the package changed despite the refusal")
 	}
 
-	ev.Outcome = "concurrent enrollment blocked on the held lock then completed; incompatible shared generation refused before mutation"
+	ev.Outcome = "concurrent enrollment blocked on the held lock then completed; a generation swap converged every enrolled consumer onto the new generation; an unenrolled consumer's pin refused before mutation"
 	recordScenario(t, ev)
 }
 
 // TestCP8BCodexInterruptionRecovery proves an unresolved journal is reconciled
 // oldest-first before a Codex enrollment plans any mutation, consuming the
 // journal as completed operational state.
+//
+// Contract asserted now: the recovered journal leaves no file behind — the
+// lifecycle operation marks it completed and cleans the operational state, so a
+// later plan never parses a dead operation.
+// Property still protected: the journal's applied bytes are the owned tree the
+// ledger row records, so recovery commits verified bytes rather than rewriting
+// around them.
 //
 // Criterion: a lifecycle operation recovers unresolved journals oldest-first
 // before planning any mutation.
@@ -1007,18 +1077,32 @@ func TestCP8BCodexInterruptionRecovery(t *testing.T) {
 	if len(reports) != 1 || len(reports[0].Blockers) > 0 {
 		t.Fatalf("reports = %+v, want the enrolled Codex target converged", reports)
 	}
+	// The journal existed before the enrollment ran, so its absence afterward is
+	// the recovery's consumption of completed operational state — the operation
+	// committed the applied bytes, marked the journal completed, and cleaned the
+	// operational state — not a journal that was never written.
 	if fileExists(journalPath) {
-		// Recovery marks the journal completed in place; only a cleanup removes
-		// the file, so the completed state is what proves it was consumed.
-		j, err := installstate.LoadJournal(journalPath)
-		if err != nil {
-			t.Fatalf("load recovered journal: %v", err)
-		}
-		if !j.Completed {
-			t.Errorf("the unresolved journal was neither removed nor marked completed")
-		}
-	} else {
-		t.Errorf("the recovered journal disappeared without being consumed")
+		t.Errorf("the recovered journal survived the enrollment; it was not consumed")
+	}
+	if n := scenarioJournalCount(home); n != 0 {
+		t.Errorf("journal files remaining = %d, want 0 after recovery consumed them", n)
+	}
+	// The recovery effect: the committed applied bytes are the package's bytes,
+	// so the owned tree still verifies at the digest its ledger row records.
+	after, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed, ok := after.Find(row.Target, row.Resource)
+	if !ok {
+		t.Fatalf("the package ownership row was dropped by the recovery")
+	}
+	obs, err := managedfile.Observe(codex.PackageResource(home), managedfile.KindTree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.Digest != committed.Applied.Digest {
+		t.Errorf("package digest = %q, want the ledger's committed applied digest %q", obs.Digest, committed.Applied.Digest)
 	}
 
 	ev.Outcome = "applied-unrecorded journal recovered and consumed before the enrollment converged"

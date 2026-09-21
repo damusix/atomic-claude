@@ -26,10 +26,13 @@ import (
 // which the next baseline reports. Prose rules stay instruction guidance; only
 // an exact machine predicate can deny.
 
-// BaselineByteBound is Atomic's own ceiling on the session-baseline block. CP0
-// measured no native numeric limit, so this is not a native promise: a block
-// over the bound is not injected at all and the suppression is reported, because
-// a silently truncated rule index would misreport which rules are in force.
+// BaselineByteBound is Atomic's own ceiling on the static rule index the
+// session-baseline block carries, measured in the unit the delivered module
+// evaluates at runtime: UTF-16 code units, which is what `String.length`
+// reports. CP0 measured no native numeric limit, so this is not a native
+// promise; an index over the bound is not injected at all and the suppression is
+// reported, because a silently truncated rule index would misreport which rules
+// are in force.
 const BaselineByteBound = 8192
 
 // RuntimeMarker identifies the Atomic block inside a system prompt. The block
@@ -109,8 +112,11 @@ type IndexPattern struct {
 // identity, the digest of the bytes the index points at, the enforcement tier the
 // projection proves, and the patterns that scope it.
 type RuleIndexEntry struct {
-	RecordID     string                    `json:"id"`
-	Class        rules.Class               `json:"class"`
+	RecordID string      `json:"id"`
+	Class    rules.Class `json:"class"`
+	// Source is the rule's path inside Atomic's OMP package tree, which is where
+	// the session-baseline block tells the model the body lives.
+	Source       string                    `json:"source"`
 	SourceDigest string                    `json:"digest"`
 	Patterns     []IndexPattern            `json:"patterns"`
 	Tier         artifacts.EnforcementTier `json:"tier"`
@@ -160,16 +166,19 @@ type DedupeContract struct {
 // events, the bounded session-baseline rule index, the tools whose inputs may be
 // matched, the exact deny predicates, and every surface that stays unproven.
 type SessionDelivery struct {
-	Target     artifacts.Target `json:"target"`
-	Version    string           `json:"version"`
-	Events     []EventWiring    `json:"events"`
-	Index      []RuleIndexEntry `json:"index"`
-	IndexText  string           `json:"-"`
-	IndexBytes int              `json:"index_bytes"`
-	Bound      int              `json:"bound"`
-	// Suppressed reports that the index alone exceeds the bound, so no session
-	// can ever receive a baseline block. The delivery still ships: the tier stays
-	// unsupported and the suppression is explicit.
+	Target    artifacts.Target `json:"target"`
+	Version   string           `json:"version"`
+	Events    []EventWiring    `json:"events"`
+	Index     []RuleIndexEntry `json:"index"`
+	IndexText string           `json:"-"`
+	// IndexUnits is the static index's size in the unit the module measures,
+	// `String.length`'s UTF-16 code units. The bound is evaluated by the module,
+	// so a byte count here would disagree with every runtime decision.
+	IndexUnits int `json:"index_units"`
+	Bound      int `json:"bound"`
+	// Suppressed reports that the static index alone exceeds the bound, so no
+	// session can ever receive a baseline block. The delivery still ships: the
+	// tier stays unsupported and the suppression is explicit.
 	Suppressed    bool                 `json:"suppressed,omitempty"`
 	Undeliverable []UndeliverableRule  `json:"undeliverable,omitempty"`
 	Tools         []ProvenToolInput    `json:"tools"`
@@ -243,6 +252,7 @@ func BuildSessionDelivery(sources []harness.RuleSource, m harness.CapabilityMatr
 		entry := RuleIndexEntry{
 			RecordID:     record.ID,
 			Class:        record.Class,
+			Source:       record.Source,
 			SourceDigest: record.SourceDigest,
 			Tier:         rules.Select(record, artifacts.TargetOMP, ev).Tier,
 			Order:        i,
@@ -275,9 +285,26 @@ func BuildSessionDelivery(sources []harness.RuleSource, m harness.CapabilityMatr
 	}
 
 	delivery.IndexText = baselineIndexText(delivery.Index)
-	delivery.IndexBytes = len(delivery.IndexText)
-	delivery.Suppressed = delivery.IndexBytes > delivery.Bound
+	delivery.IndexUnits = utf16Units(delivery.IndexText)
+	delivery.Suppressed = delivery.IndexUnits > delivery.Bound
 	return delivery, nil
+}
+
+// utf16Units is the length the generated module's `String.length` reports for s:
+// one unit per rune, two for a rune outside the basic multilingual plane. The
+// module evaluates the bound at runtime, so planning has to measure the same
+// string in the same unit or a non-ASCII index reports deliverable while every
+// session suppresses it.
+func utf16Units(s string) int {
+	units := 0
+	for _, r := range s {
+		if r > 0xFFFF {
+			units += 2
+			continue
+		}
+		units++
+	}
+	return units
 }
 
 // sessionEvents is the CP0-selected event set. Each event is included only when
@@ -316,7 +343,7 @@ func sessionEvents(m harness.CapabilityMatrix) []EventWiring {
 			Event:    "before_agent_start",
 			Role:     harness.RoleSessionBaseline,
 			Status:   m.Capability(harness.RoleSessionBaseline).Status,
-			Delivery: fmt.Sprintf("bounded session-baseline rule index (bound %d bytes)", BaselineByteBound),
+			Delivery: fmt.Sprintf("bounded session-baseline rule index (bound %d UTF-16 code units)", BaselineByteBound),
 			Evidence: "omp.session-baseline, omp.role.session-baseline-event; replay target omp-root",
 		})
 	}
@@ -354,19 +381,23 @@ func sessionDedupe() DedupeContract {
 
 // baselineIndexText renders the static part of the session-baseline block: the
 // closing tag, any matched or uncovered lines, and the bound check belong to the
-// runtime module, which is the only place that knows the session's matches.
+// runtime module, which is the only place that knows the session's matches. The
+// module bounds this static text alone, in `String.length` units — the same
+// string the plan measures, the same way — so the plan's verdict and the
+// module's decision cannot disagree.
 func baselineIndexText(index []RuleIndexEntry) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<atomic-rules source=\"omp-runtime\" delivery=\"session-baseline\" marker=%q>\n", RuntimeMarker)
-	b.WriteString("Atomic path-scoped rules are installed for this workspace. OMP delivers no rule\n")
-	b.WriteString("body automatically, so read the rule file under the OMP agent root (beside this\n")
-	b.WriteString("extension) when an operation touches a path one of them scopes.\n")
+	b.WriteString("Atomic path-scoped rules ship in Atomic's OMP package tree (the packages/omp/atomic\n")
+	b.WriteString("directory under the Atomic home, ~/.atomic by default), and each source below is\n")
+	b.WriteString("relative to that tree. OMP delivers no rule body automatically, so read the named\n")
+	b.WriteString("file there when an operation touches a path one of them scopes.\n")
 	for _, entry := range index {
 		globs := make([]string, 0, len(entry.Patterns))
 		for _, pattern := range entry.Patterns {
 			globs = append(globs, pattern.Glob)
 		}
-		fmt.Fprintf(&b, "- %s digest %s paths %s\n", entry.RecordID, entry.SourceDigest, strings.Join(globs, " "))
+		fmt.Fprintf(&b, "- %s source %s digest %s paths %s\n", entry.RecordID, entry.Source, entry.SourceDigest, strings.Join(globs, " "))
 	}
 	return b.String()
 }

@@ -25,6 +25,12 @@ type Result struct {
 
 	Findings    []string // per-item lines; printed only when Verbose
 	Remediation string   // fix hint; printed on WARN/FAIL regardless of Verbose
+
+	// Scopes names the enrolled native roots this result was produced for. Empty
+	// means the check is not scoped to ledger-enrolled roots, so its repair runs
+	// the legacy verb; a scoped result is repaired through the ledger-driven
+	// converge, which writes to the roots that were inspected.
+	Scopes []string
 }
 
 // Opts holds the parsed CLI flags passed to Run.

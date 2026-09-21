@@ -8,31 +8,39 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 )
 
-// hooksInstalledFn is the session-start hook trust probe. Tests swap it to
-// exercise the drifted branch without hand-building a half-migrated settings
-// file.
-var hooksInstalledFn = hooks.IsInstalled
+// hooksInstalledInDirFn is the session-start hook trust probe, reading one
+// Claude config directory's settings.json. Tests swap it to exercise the drifted
+// branch without hand-building a half-migrated settings file.
+var hooksInstalledInDirFn = hooks.IsInstalledInDir
 
 // checkTrust implements category 20: deliberate disablement and untrusted hook
 // state. A deliberate override wins by design, so the check reports what is
 // registered, what is unproven, and refuses to repair either.
+//
+// The session-start hook is Claude-scoped, so it is read per enrolled Claude
+// target and never read from an un-enrolled ~/.claude. The harness registry legs
+// stay: they are not Claude-scoped, and the OMP disablement gap they report has
+// no other owner.
 func checkTrust(opts Opts) Result {
-	home := installHome(opts)
-	if home == "" {
-		return unavailability(errNoHome)
-	}
-
 	var findings, problems []string
 
-	installed, drifted, err := hooksInstalledFn(home)
+	scope := claudeScopeFor(opts)
 	switch {
-	case err != nil:
-		problems = append(problems, "session-start hook state unreadable: "+err.Error())
-	case drifted:
-		problems = append(problems, "session-start hook is registered but drifted; run `atomic hooks install`")
-		findings = append(findings, fmt.Sprintf("claude session-start hook: installed=%v drifted=%v", installed, drifted))
+	case scope.Skip:
+		findings = append(findings, "claude session-start hook: "+claudeNoTargetDetail)
 	default:
-		findings = append(findings, fmt.Sprintf("claude session-start hook: installed=%v", installed))
+		for _, root := range scope.Roots {
+			installed, drifted, err := hooksInstalledInDirFn(root)
+			switch {
+			case err != nil:
+				problems = append(problems, "session-start hook state unreadable in "+root+": "+err.Error())
+			case drifted:
+				problems = append(problems, "session-start hook is registered but drifted in "+root+"; run `atomic hooks install`")
+				findings = append(findings, fmt.Sprintf("claude session-start hook (%s): installed=%v drifted=%v", root, installed, drifted))
+			default:
+				findings = append(findings, fmt.Sprintf("claude session-start hook (%s): installed=%v", root, installed))
+			}
+		}
 	}
 
 	reg, err := loadRegistry(opts)

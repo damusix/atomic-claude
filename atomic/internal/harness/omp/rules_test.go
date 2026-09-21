@@ -77,7 +77,7 @@ func TestProjectShippedRulesHonestAndShipsBodies(t *testing.T) {
 
 	// Integration with package generation: the package carries the projection
 	// byte for byte and claims the same tier and absence of scope.
-	pkg, err := BuildPackage(cat, harness.OMPCapabilities())
+	pkg, err := BuildPackage(cat, harness.OMPCapabilities(), nil)
 	if err != nil {
 		t.Fatalf("BuildPackage: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestProjectShippedRulesMissingRowsStayUnsupported(t *testing.T) {
 	if len(report.Gaps) != 5 {
 		t.Errorf("gaps = %d, want all five rule-delivery roles", len(report.Gaps))
 	}
-	if _, err := BuildPackage(cat, rowless); err != nil {
+	if _, err := BuildPackage(cat, rowless, nil); err != nil {
 		t.Fatalf("package generation failed on a rowless record: %v", err)
 	}
 }
@@ -248,22 +248,13 @@ func TestPublishProjectCardsWritesRecoverably(t *testing.T) {
 	if !result.Applied || result.Status != harness.StatusConverged {
 		t.Fatalf("result = %+v, want an applied converged publication", result)
 	}
-	if result.JournalPath == "" || !exists(result.JournalPath) {
-		t.Fatalf("journal %q was not written", result.JournalPath)
+	if result.JournalPath == "" {
+		t.Fatalf("publication recorded no operation id")
 	}
-	journal, err := installstate.LoadJournal(result.JournalPath)
-	if err != nil {
-		t.Fatalf("load journal: %v", err)
-	}
-	if !journal.Completed {
-		t.Error("publication journal is not completed")
-	}
-	mutation, ok := journal.Mutation(cardsUnit)
-	if !ok || mutation.Kind != managedfile.KindTree || mutation.Path != result.Dir {
-		t.Fatalf("journal mutation = %+v, want the card tree", mutation)
-	}
-	if state := journal.State(cardsUnit); state != installstate.StateCommitted {
-		t.Errorf("journal unit state = %s, want committed", state)
+	// The completed operation is consumed: its journal and transaction tree are
+	// removed once the rows are committed.
+	if _, err := os.Stat(result.JournalPath); !os.IsNotExist(err) {
+		t.Errorf("completed publication left its journal behind (stat err = %v)", err)
 	}
 
 	published := filepath.Join(base, ".omp", "rules", "atomic-wiki", "typescript.md")

@@ -701,10 +701,11 @@ func TestUninstallKeepsClaimWhenSettingsAreReadOnly(t *testing.T) {
 	}
 }
 
-// TestUninstallRefusesUserEditedOwnedSetting proves a later edit to an owned
-// settings member conflicts: the whole uninstall refuses and no bytes are
-// written, so the user's edit is never overwritten.
-func TestUninstallRefusesUserEditedOwnedSetting(t *testing.T) {
+// TestUninstallSkipsUserEditedOwnedSetting proves a later edit to an owned
+// settings member is skipped rather than aborting the whole removal: the
+// resource keeps its claim and the user's bytes are never overwritten, while the
+// rest of the target still uninstalls.
+func TestUninstallSkipsUserEditedOwnedSetting(t *testing.T) {
 	home := newHome(t)
 	t.Setenv(ConfigDirEnv, "")
 	root := filepath.Join(home, ".claude")
@@ -718,8 +719,12 @@ func TestUninstallRefusesUserEditedOwnedSetting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := harness.RemoveTargetResources(home, target); !errors.Is(err, harness.ErrEvidenceConflict) {
-		t.Fatalf("uninstall error = %v, want %v", err, harness.ErrEvidenceConflict)
+	removal, err := harness.RemoveTargetResources(home, target)
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if len(removal.Skipped) != 1 || removal.Skipped[0] != "settings.json" {
+		t.Fatalf("skipped = %v, want [settings.json]", removal.Skipped)
 	}
 	after, err := os.ReadFile(settingsPath)
 	if err != nil {
@@ -728,7 +733,14 @@ func TestUninstallRefusesUserEditedOwnedSetting(t *testing.T) {
 	if string(after) != string(before) {
 		t.Errorf("uninstall rewrote the user's settings: %s", after)
 	}
-	if _, err := os.Stat(filepath.Join(root, "commands", "commit.md")); err != nil {
-		t.Errorf("uninstall removed a resource despite refusing the plan: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "commands", "commit.md")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("uninstall left an otherwise-removable resource in place: %v", err)
+	}
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatalf("load ledger: %v", err)
+	}
+	if _, ok := ledger.Find(target.Key(), "settings.json"); !ok {
+		t.Error("the skipped removal dropped the ownership claim")
 	}
 }

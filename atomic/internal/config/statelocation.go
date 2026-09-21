@@ -100,6 +100,13 @@ func resolveStateDirValue(repoRoot, value string) (string, error) {
 	return filepath.Join(repoRoot, value), nil
 }
 
+// CheckObsoleteHarnessEnv reports the retired-harness refusal, or nil. The root
+// command calls it once so an obsolete ATOMIC_HARNESS surfaces with instructions
+// before any verb runs, instead of the quiet repo-local resolver ignoring it.
+func CheckObsoleteHarnessEnv() error {
+	return refuseObsoleteHarnessEnv()
+}
+
 // refuseObsoleteHarnessEnv blocks resolution while the retired harness variable
 // is set. It is not an alias for StateDirEnvVar: the user must migrate.
 func refuseObsoleteHarnessEnv() error {
@@ -180,7 +187,13 @@ var (
 	stateDirCached = map[string]string{}
 )
 
-// resolveRepositoryStateDir is the uncached quiet resolution.
+// resolveRepositoryStateDir is the uncached quiet resolution. It walks the same
+// ladder as ResolveStateLocation, plus one read-only rung between the record and
+// the configured default: a repository with exactly one populated state
+// candidate resolves to it in place, so state left under a former harness root
+// (for example `.pi`) keeps being read instead of a fresh default directory
+// sprouting beside it. Two populated candidates are ambiguous and fall through
+// to the configured default; `atomic state adopt` is the explicit resolver.
 func resolveRepositoryStateDir(repoRoot string) string {
 	if raw := os.Getenv(StateDirEnvVar); raw != "" {
 		if root, err := resolveStateDirValue(repoRoot, raw); err == nil {
@@ -192,6 +205,9 @@ func resolveRepositoryStateDir(repoRoot string) string {
 			if root, err := resolveStateDirValue(repoRoot, sel.StateDir); err == nil {
 				return root
 			}
+		}
+		if cands, err := DiscoverStateCandidates(repoRoot); err == nil && len(cands) == 1 {
+			return cands[0].Root
 		}
 	}
 	if seg, ok := configuredStateDirSegment(); ok {

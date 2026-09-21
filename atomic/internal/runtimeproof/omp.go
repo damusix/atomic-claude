@@ -1,8 +1,10 @@
 // OMP scenario support for the runtime proof runner. The generated Atomic
-// extension is the artifact under proof, so the scenarios materialize an
-// isolated OMP home carrying that module under the CP0-proven agent root and
-// launch OMP against it. Nothing here asserts native behavior: the runner
-// retains the observation, and the capability record stays the source of truth.
+// extension is the artifact under proof, so a scenario enrolls an isolated OMP
+// home through the production adapter — the same call an install makes — and
+// launches OMP against the layout that enrollment produced. Nothing here
+// hand-writes the delivered module, so the observation is evidence for the
+// shipped layout. Nothing asserts native behavior either: the runner retains the
+// observation, and the capability record stays the source of truth.
 package runtimeproof
 
 import (
@@ -57,36 +59,83 @@ func OMPCLI() (string, error) {
 type OMPHome struct {
 	// Home is the isolated OS home the launch runs with.
 	Home string
-	// AgentRoot is the CP0-observed agent root under that home. OMP discovers
-	// AGENTS.md, RULES.md, rules/, and extensions/ beneath it.
+	// AgentRoot is the profile's agent root. OMP discovers AGENTS.md, RULES.md,
+	// rules/, and extensions/ beneath it.
 	AgentRoot string
-	// Module is the extension entry point OMP auto-discovers.
+	// Profile is the enrolled profile's name, empty for the default profile. A
+	// named profile is launched with the documented selector set, so OMP loads
+	// the module this home enrolled rather than the default profile's.
+	Profile string
+	// Module is the extension entry point OMP auto-discovers, as enrollment
+	// published it.
 	Module string
 	// Log receives this home's runtime records unless a launch names its own.
 	Log string
 }
 
-// NewOMPHome materializes an isolated OMP home carrying module as the discovered
-// extension. The home holds no credential, no session, and no provider
-// selection beyond the placeholder a launch passes.
-func NewOMPHome(home string, module []byte) (OMPHome, error) {
+// OMPHomeRequest is the enrollment one isolated home is prepared with.
+type OMPHomeRequest struct {
+	// Adapter enrolls the profile. Nil uses the shipped adapter over the
+	// embedded corpus, which is the layout an install produces.
+	Adapter *omp.Adapter
+	// Profile is the profile to enroll. An empty Root is resolved by the same
+	// CP0-proven path query production uses.
+	Profile omp.Profile
+	// Deny carries the exact machine predicates the delivered module blocks.
+	Deny []omp.DenyPredicate
+}
+
+// NewOMPHome materializes an isolated OMP home by enrolling one profile through
+// the production adapter, and returns what that enrollment reported. Nothing
+// here hand-writes the delivered layout: the extension a scenario launches is
+// the module enrollment published, at the agent root CP0 proved OMP discovers,
+// so the runtime observation is evidence for the shipped layout rather than for
+// a test-only one. A caller that fails to enroll gets the enrollment error, not
+// a home with a hand-placed module.
+func NewOMPHome(home string, req OMPHomeRequest) (OMPHome, omp.EnrollResult, error) {
+	var result omp.EnrollResult
 	if strings.TrimSpace(home) == "" {
-		return OMPHome{}, fmt.Errorf("runtimeproof: OMP home requires a directory")
+		return OMPHome{}, result, fmt.Errorf("runtimeproof: OMP home requires a directory")
 	}
-	agentRoot := filepath.Join(home, ".omp", "agent")
+	adapter := req.Adapter
+	if adapter == nil {
+		adapter = omp.New()
+	}
+	profile := req.Profile
+	if profile.Root == "" {
+		root, err := omp.DefaultConfigPath(home, profile.Name)
+		if err != nil {
+			return OMPHome{}, result, fmt.Errorf("runtimeproof: resolve OMP profile root: %w", err)
+		}
+		profile.Root = root
+	}
+	if err := os.MkdirAll(profile.Root, 0o755); err != nil {
+		return OMPHome{}, result, fmt.Errorf("runtimeproof: create OMP agent root: %w", err)
+	}
+
+	result, err := adapter.Enroll(omp.EnrollRequest{
+		Home:        home,
+		Profile:     profile,
+		Deny:        req.Deny,
+		OperationID: "runtimeproof-omp",
+	})
+	if err != nil {
+		return OMPHome{}, result, fmt.Errorf("runtimeproof: enroll OMP profile %q: %w", profile.Name, err)
+	}
+	if result.ExtensionPath == "" {
+		return OMPHome{}, result, fmt.Errorf("runtimeproof: enrollment reported no extension module for profile %q", profile.Name)
+	}
 	prepared := OMPHome{
 		Home:      home,
-		AgentRoot: agentRoot,
-		Module:    filepath.Join(agentRoot, "extensions", "atomic.ts"),
-		Log:       filepath.Join(agentRoot, OMPLogName),
+		AgentRoot: profile.Root,
+		Profile:   profile.Name,
+		Module:    result.ExtensionPath,
+		Log:       filepath.Join(profile.Root, OMPLogName),
 	}
-	if err := os.MkdirAll(filepath.Dir(prepared.Module), 0o755); err != nil {
-		return OMPHome{}, fmt.Errorf("runtimeproof: create OMP agent root: %w", err)
+	if _, err := os.Stat(prepared.Module); err != nil {
+		return OMPHome{}, result, fmt.Errorf("runtimeproof: the enrolled module %s is not readable: %w", prepared.Module, err)
 	}
-	if err := os.WriteFile(prepared.Module, module, 0o644); err != nil {
-		return OMPHome{}, fmt.Errorf("runtimeproof: write OMP extension: %w", err)
-	}
-	return prepared, nil
+	return prepared, result, nil
 }
 
 // LogPath names a second log inside the prepared home's agent root, so a
@@ -152,6 +201,15 @@ func (h OMPHome) Launch(launch OMPLaunch) (Scenario, error) {
 	if err := resetFile(hookLog); err != nil {
 		return Scenario{}, err
 	}
+	env := []string{
+		"OMP_NO_UPDATE_CHECK=1",
+		omp.RuntimeLogEnv + "=" + log,
+	}
+	if h.Profile != "" {
+		// The documented selector must reach the launched process, or OMP would
+		// load the default profile while this home enrolled a named one.
+		env = append(env, omp.ProfileEnv+"="+h.Profile)
+	}
 	return Scenario{
 		Name:      launch.Name,
 		Harness:   ompExecutable(),
@@ -162,10 +220,7 @@ func (h OMPHome) Launch(launch OMPLaunch) (Scenario, error) {
 		WorkDir:   launch.WorkDir,
 		EventLog:  hookLog,
 		Timeout:   DefaultTimeout,
-		Env: []string{
-			"OMP_NO_UPDATE_CHECK=1",
-			omp.RuntimeLogEnv + "=" + log,
-		},
+		Env:       env,
 	}, nil
 }
 

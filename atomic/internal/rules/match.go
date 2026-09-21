@@ -104,22 +104,36 @@ func normalizeCandidate(candidate string) (string, error) {
 // outside and is rejected even though it is lexically under base.
 func contained(base, candidate string) bool {
 	joined := filepath.Join(base, filepath.FromSlash(candidate))
-	resolved, err := filepath.EvalSymlinks(joined)
-	if err != nil {
-		// The leaf may not exist; resolving the parent still catches a symlink
-		// component that leaves the base.
-		parent, name := filepath.Split(joined)
-		if r, parentErr := filepath.EvalSymlinks(filepath.Clean(parent)); parentErr == nil {
-			resolved = filepath.Join(r, name)
-		} else {
-			resolved = filepath.Clean(joined)
-		}
-	}
-	rel, err := filepath.Rel(base, resolved)
+	rel, err := filepath.Rel(base, resolveDeepest(joined))
 	if err != nil {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// resolveDeepest resolves the deepest existing ancestor of path and re-appends
+// the components that do not exist yet. Resolving only the leaf's parent leaves
+// a symlink two or more levels up unresolved — the common case for a candidate
+// several directories below the base — so containment would fall back to a
+// purely lexical verdict it cannot justify.
+func resolveDeepest(path string) string {
+	clean := filepath.Clean(path)
+	remainder := ""
+	for {
+		if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+			if remainder == "" {
+				return resolved
+			}
+			return filepath.Join(resolved, remainder)
+		}
+		parent := filepath.Dir(clean)
+		if parent == clean {
+			// Nothing on the path exists; the lexical verdict is all there is.
+			return filepath.Clean(path)
+		}
+		remainder = filepath.Join(filepath.Base(clean), remainder)
+		clean = parent
+	}
 }
 
 // dedupe removes repeated (record, base) pairs produced by overlapping

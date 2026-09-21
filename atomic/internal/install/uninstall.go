@@ -27,9 +27,10 @@ type FullUninstallReport struct {
 const blockedOnRecovery = string(installstate.StatusBlockedOnRecovery) +
 	": an unresolved journal cannot be recovered to one safe result without an unavailable observation or a later edit"
 
-// UninstallTarget removes one enrolled target's resources. Changed resources
-// refuse the whole operation; resources another enrolled consumer depends on
-// are retained and reported.
+// UninstallTarget removes one enrolled target's resources. A resource whose
+// bytes drifted underneath Atomic is reported skipped and keeps its claim while
+// the rest of the target uninstalls; resources another enrolled consumer depends
+// on are retained and reported.
 func (s Steps) UninstallTarget(key string) (harness.Removal, error) {
 	target, err := harness.ParseKey(key)
 	if err != nil {
@@ -232,6 +233,37 @@ func (s Steps) lock(operationID string) (*installstate.Lock, error) {
 func (s Steps) recoverRetaining() error {
 	_, err := installstate.RecoverJournals(s.Home)
 	return err
+}
+
+// Recover is the explicit `atomic harness recover` operation: it acquires the
+// one advisory lifecycle lock and reconciles every unresolved journal
+// oldest-first, rolling forward by default or restoring digest-verified
+// transaction backups under rollback. A journal that cannot be reconciled to one
+// safe result leaves its conflict in the returned actions; the journal survives
+// so a later run can finish the job.
+func (s Steps) Recover(rollback bool) ([]installstate.RecoveryAction, error) {
+	lock, err := s.lock("recover")
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	if rollback {
+		return installstate.RollbackJournals(s.Home)
+	}
+	return installstate.RecoverJournals(s.Home)
+}
+
+// PreviewRecovery is the read-only counterpart of Recover: it opens no lock and
+// neutralizes every write seam, simulating each unresolved journal in memory so a
+// dry run can report what a real recovery would do — rolling forward, or
+// restoring transaction backups when rollback is set. blocked reports that a
+// journal cannot be reconciled to one safe result.
+func (s Steps) PreviewRecovery(rollback bool) ([]installstate.RecoverySimulation, bool, error) {
+	if rollback {
+		return installstate.SimulateRollbacks(s.Home)
+	}
+	sims, _, blocked, err := installstate.SimulateRecoveries(s.Home)
+	return sims, blocked, err
 }
 
 // now is the step clock, defaulted so a zero Steps value still works.

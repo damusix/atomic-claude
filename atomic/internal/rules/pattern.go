@@ -85,6 +85,12 @@ func compileSegment(segment, glob string) (string, error) {
 			if class == "" || strings.ContainsAny(class, `[\`) {
 				return "", fmt.Errorf("rules: compile glob %q: unsupported character class %q", glob, "["+class+"]")
 			}
+			// A leading `!` or `^` negates the class for the canonical matcher
+			// but is a literal member for the emitted expression, so the two
+			// would disagree on every candidate.
+			if class[0] == '!' || class[0] == '^' {
+				return "", fmt.Errorf("rules: compile glob %q: negated character class %q is not translatable", glob, "["+class+"]")
+			}
 			out.WriteString("[" + class + "]")
 			i += end
 		case '{':

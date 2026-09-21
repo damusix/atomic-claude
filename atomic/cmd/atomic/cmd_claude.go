@@ -4,11 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/install"
 	"github.com/spf13/cobra"
 )
 
@@ -55,11 +58,14 @@ func buildClaudeCmd() *cobra.Command {
 	return parent
 }
 
-// HooksError is non-fatal here; the caller decides whether to warn.
+// installResult is what one `atomic claude install|update` run reports. Report
+// is the install-engine output when the resolved root is ledger-enrolled; the
+// legacy path leaves it empty and fills Plan instead.
 type installResult struct {
 	Plan           []claudeinstall.FileAction
 	HooksInstalled bool
 	HooksError     error
+	Report         string
 }
 
 // runClaudeInstall is split out of the cmd switch so it is testable without
@@ -67,7 +73,15 @@ type installResult struct {
 // and home (the fixed root of atomic state under ~/.atomic) resolve
 // independently: a custom --target does not move where config state lives. The
 // hook's scopeRoot is targetDir's parent, mirroring `hooks install --scope`.
+//
+// An enrolled root converges through the install engine: its owned bytes must
+// move under the lifecycle lock, journal, and ledger, which the legacy writer
+// knows nothing about. Only an un-adopted install keeps the legacy path.
 func runClaudeInstall(targetDir, home, verb string, dryRun, noHooks bool) (installResult, error) {
+	if converged, result, err := convergeEnrolledClaude(targetDir, home, dryRun); converged {
+		return result, err
+	}
+
 	var plan []claudeinstall.FileAction
 	var err error
 	if verb == "update" {
@@ -95,6 +109,53 @@ func runClaudeInstall(targetDir, home, verb string, dryRun, noHooks bool) (insta
 	}
 	result.HooksInstalled = true
 	return result, nil
+}
+
+// convergeEnrolledClaude reports whether the resolved Claude root is
+// ledger-enrolled and, if so, converges it through the install engine. The
+// legacy writer would rewrite owned bytes with no ledger row, which is what made
+// an adopted target classify as mixed and unrepairable. A dry run plans without
+// mutating; a blocked plan is returned as an error so a scripted caller never
+// reads a refusal as success.
+func convergeEnrolledClaude(targetDir, home string, dryRun bool) (bool, installResult, error) {
+	target := harness.Target{Kind: harness.KindClaude, Instance: targetDir}
+	enrolled, err := install.TargetEnrolled(home, target)
+	if err != nil {
+		return false, installResult{}, err
+	}
+	if !enrolled {
+		return false, installResult{}, nil
+	}
+
+	steps := install.DefaultSteps(home)
+	steps.DryRun = dryRun
+	// `atomic claude install|update` is the user's explicit consent, so the plan
+	// is auto-approved exactly as `atomic update` auto-approves it.
+	steps.AssumeYes = true
+	reports, err := steps.Converge(install.ConvergeRequest{
+		Selection: install.Selection{EnrolledOnly: true, Kind: harness.KindClaude, Instance: targetDir},
+	})
+	if err != nil {
+		return true, installResult{}, err
+	}
+
+	var b strings.Builder
+	var blocked []string
+	for _, r := range reports {
+		switch {
+		case len(r.Blockers) > 0:
+			blocked = append(blocked, fmt.Sprintf("%s: %s", r.Target.Key(), strings.Join(r.Blockers, "; ")))
+			fmt.Fprintf(&b, "%s\t%s\t%s\n", r.Target.Key(), r.Status, strings.Join(r.Blockers, "; "))
+		case r.Applied:
+			fmt.Fprintf(&b, "%s\t%s\tapplied\n", r.Target.Key(), r.Status)
+		default:
+			fmt.Fprintf(&b, "%s\t%s\n", r.Target.Key(), r.Status)
+		}
+	}
+	if len(blocked) > 0 {
+		return true, installResult{Report: b.String()}, fmt.Errorf("%s", strings.Join(blocked, "; "))
+	}
+	return true, installResult{Report: b.String()}, nil
 }
 
 // runClaudeUninstall returns the markdown prompt Claude should execute. Split
@@ -156,7 +217,7 @@ func runClaude(args []string) {
 		var noHooks bool
 		fs.BoolVar(&dryRun, "dry-run", false, "print what would happen; make no changes")
 		fs.StringVar(&target, "target", "~/.claude", "target directory (default ~/.claude)")
-		fs.BoolVar(&noHooks, "no-hooks", false, "skip session-start hook installation")
+		fs.BoolVar(&noHooks, "no-hooks", false, "skip session-start hook installation (legacy installs only; an enrolled target converges its owned settings)")
 		if err := fs.Parse(args[1:]); err != nil {
 			os.Exit(2)
 		}
@@ -181,7 +242,11 @@ func runClaude(args []string) {
 		if dryRun {
 			fmt.Println("(dry-run — no changes written)")
 		}
-		fmt.Print(claudeinstall.Report(result.Plan, targetDir))
+		if result.Report != "" {
+			fmt.Print(result.Report)
+		} else {
+			fmt.Print(claudeinstall.Report(result.Plan, targetDir))
+		}
 
 		if !dryRun {
 			if result.HooksInstalled {

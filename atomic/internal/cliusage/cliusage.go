@@ -217,6 +217,12 @@ var commands = []Command{
 		Description: "Remove one enrolled target, or every target with --all",
 	},
 	{
+		Path:        []string{"harness", "recover"},
+		Args:        "",
+		Flags:       []string{"--dry-run", "--json", "--rollback"},
+		Description: "Reconcile unresolved journals, or restore their backups with --rollback",
+	},
+	{
 		Path:        []string{"harness", "rules", "status"},
 		Args:        "",
 		Flags:       []string{"--dry-run", "--harness", "--instance", "--json", "--yes"},
@@ -394,7 +400,7 @@ var commands = []Command{
 		Path:        []string{"update"},
 		Args:        "",
 		Flags:       []string{"--check", "--channel", "--pre", "--no-doctor", "--skip-claude-update", "--force"},
-		Description: "Self-update the atomic binary, then refresh ~/.claude artifacts",
+		Description: "Self-update the atomic binary, then converge enrolled harness targets",
 	},
 	{
 		Path:        []string{"followups", "list"},

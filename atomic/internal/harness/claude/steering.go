@@ -67,10 +67,19 @@ type ScopeResult struct {
 }
 
 // MigrateScope creates or converges one scope's loader pair through the shared
-// transaction engine: the journal and backups precede any native write, the
-// owned block is spliced into observed bytes so unowned prose survives, and the
-// ledger commit waits for effective-content verification. An ambiguous managed
-// block on either file refuses the scope instead of guessing at a boundary.
+// transaction engine. It acquires the lifecycle lock itself and recovers
+// unresolved journals oldest-first before it observes the scope, so the bytes it
+// publishes were read under the same lock and behind the same recovery every
+// other lifecycle verb performs. The journal and backups precede any native
+// write, the owned block is spliced into observed bytes so unowned prose
+// survives, and the ledger commit waits for effective-content verification. An
+// ambiguous managed block on either file refuses the scope instead of guessing
+// at a boundary.
+//
+// An approved relocation publishes merged whole-file bytes because prose moves
+// between the two documents, but the AGENTS.md ownership row records only the
+// managed block: a later uninstall strips the block and leaves every byte of the
+// user's prose.
 func MigrateScope(req ScopeRequest) (ScopeResult, error) {
 	if req.Home == "" {
 		return ScopeResult{}, fmt.Errorf("claude: migrate scope: no home")
@@ -83,6 +92,31 @@ func MigrateScope(req ScopeRequest) (ScopeResult, error) {
 	}
 	if req.NativeRoot != "" && sameResolvedDir(req.Scope.Dir, req.NativeRoot) {
 		return ScopeResult{}, fmt.Errorf("claude: migrate scope: %s is the global native root; refusing to write a scope loader pair there", req.Scope.Dir)
+	}
+
+	now := req.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	operationID := req.OperationID
+	if operationID == "" {
+		operationID = fmt.Sprintf("scope-%d", now().UnixNano())
+	}
+
+	lock, err := installstate.AcquireLock(req.Home, installstate.WriterIdentity{OperationID: operationID})
+	if err != nil {
+		return ScopeResult{}, err
+	}
+	defer lock.Release()
+
+	recovery, err := installstate.RecoverJournals(req.Home)
+	if err != nil {
+		return ScopeResult{}, err
+	}
+	for _, action := range recovery {
+		if action.Decision == installstate.DecisionConflict {
+			return ScopeResult{}, installstate.JournalConflictError(action.Path, action.Detail)
+		}
 	}
 
 	agentsPath := filepath.Join(req.Scope.Dir, bundlespec.ScopeSteering.Source)
@@ -117,6 +151,10 @@ func MigrateScope(req ScopeRequest) (ScopeResult, error) {
 
 	var claudeIntended []byte
 	claudeKind := managedfile.KindBlock
+	// Relocation publishes whole-file bytes but owns only the block, so the row
+	// kind and digest are recorded separately from the publish kind.
+	var agentsRow managedfile.Kind
+	var agentsRowDigest string
 	if req.Relocate {
 		prose := unownedProse(claude, claudeShape)
 		if len(bytes.TrimSpace(prose)) > 0 {
@@ -124,6 +162,12 @@ func MigrateScope(req ScopeRequest) (ScopeResult, error) {
 			// resolving to the same file; it just lives in the shared document now.
 			agentsIntended = append(append(append([]byte{}, prose...), '\n'), agentsIntended...)
 			agentsKind = managedfile.KindFile
+			blockDigest, err := managedfile.DigestResourceBytes(agentsIntended, managedfile.KindBlock)
+			if err != nil {
+				return result, err
+			}
+			agentsRow = managedfile.KindBlock
+			agentsRowDigest = blockDigest
 		}
 		claudeIntended = loaderBlock
 		// The whole file becomes the loader; the relocated prose now lives in
@@ -141,10 +185,12 @@ func MigrateScope(req ScopeRequest) (ScopeResult, error) {
 		observed []byte
 		exists   bool
 		kind     managedfile.Kind
+		rowKind  managedfile.Kind
+		rowSum   string
 		intended []byte
 	}
 	plans := []plan{
-		{path: agentsPath, observed: agents, exists: agentsExists, kind: agentsKind, intended: agentsIntended},
+		{path: agentsPath, observed: agents, exists: agentsExists, kind: agentsKind, rowKind: agentsRow, rowSum: agentsRowDigest, intended: agentsIntended},
 		{path: claudePath, observed: claude, exists: claudeExists, kind: claudeKind, intended: claudeIntended},
 	}
 
@@ -162,28 +208,21 @@ func MigrateScope(req ScopeRequest) (ScopeResult, error) {
 			return result, err
 		}
 		mutations = append(mutations, installstate.Mutation{
-			Unit:     unit,
-			Resource: p.path,
-			Target:   req.Target,
-			Consumer: req.Target,
-			Kind:     p.kind,
-			Path:     p.path,
-			Intended: digest,
+			Unit:      unit,
+			Resource:  p.path,
+			Target:    req.Target,
+			Consumer:  req.Target,
+			Kind:      p.kind,
+			RowKind:   p.rowKind,
+			RowDigest: p.rowSum,
+			Path:      p.path,
+			Intended:  digest,
 		})
 	}
 
 	if len(mutations) == 0 {
 		result.Status = ScopeConverged
 		return result, nil
-	}
-
-	operationID := req.OperationID
-	now := req.Now
-	if now == nil {
-		now = func() time.Time { return time.Now().UTC() }
-	}
-	if operationID == "" {
-		operationID = fmt.Sprintf("scope-%d", now().UnixNano())
 	}
 
 	tx, err := installstate.NewTransaction(req.Home, operationID, installstate.Plan{Mutations: mutations})
@@ -204,6 +243,9 @@ func MigrateScope(req ScopeRequest) (ScopeResult, error) {
 		result.Applied = append(result.Applied, m.Path)
 	}
 	if err := tx.Complete(); err != nil {
+		return result, err
+	}
+	if _, err := installstate.CleanupOperation(req.Home, tx.ID); err != nil {
 		return result, err
 	}
 

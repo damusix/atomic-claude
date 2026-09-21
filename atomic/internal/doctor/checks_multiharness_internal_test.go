@@ -11,6 +11,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/codex"
+	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/install"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
@@ -224,6 +225,26 @@ func TestCheckRules(t *testing.T) {
 		}
 	})
 
+	t.Run("unproven package surface", func(t *testing.T) {
+		home, root, _ := claudeLedgerHome(t)
+		target := claudeTarget(home, root)
+		saveLedger(t, home, []installstate.TargetRecord{target}, nil)
+		withStatusSteps(t, func(h string) install.Steps {
+			return stepsWith(h, fakeAdapter{
+				kind:      harness.KindClaude,
+				instances: []harness.Instance{claudeInstance(home, root)},
+				plan:      harness.Plan{Unproven: []string{"package install and lifecycle: no package was registered"}},
+			})
+		})
+		r := checkRules(Opts{Home: home})
+		if r.Severity != PASS {
+			t.Fatalf("rules = %+v, want the unproven surface reported without a problem verdict", r)
+		}
+		if !hasFinding(strings.Join(r.Findings, "\n"), "no package was registered") {
+			t.Fatalf("rules findings = %v, want the unproven package surface named rather than a silent pass", r.Findings)
+		}
+	})
+
 	t.Run("missing rule resource", func(t *testing.T) {
 		home, root, _ := claudeLedgerHome(t)
 		rulePath := filepath.Join(root, "rules", "atomic", "gone.md")
@@ -242,16 +263,19 @@ func TestCheckRules(t *testing.T) {
 }
 
 func TestCheckTrust(t *testing.T) {
-	restore := hooksInstalledFn
-	t.Cleanup(func() { hooksInstalledFn = restore })
+	restore := hooksInstalledInDirFn
+	t.Cleanup(func() { hooksInstalledInDirFn = restore })
 
 	home := t.TempDir()
-	hooksInstalledFn = func(string) (bool, bool, error) { return true, false, nil }
+	if err := os.Mkdir(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatalf("mkdir .claude: %v", err)
+	}
+	hooksInstalledInDirFn = func(string) (bool, bool, error) { return true, false, nil }
 	if r := checkTrust(Opts{Home: home}); r.Severity != PASS {
 		t.Fatalf("trust = %+v, want PASS for a registered hook", r)
 	}
 
-	hooksInstalledFn = func(string) (bool, bool, error) { return true, true, nil }
+	hooksInstalledInDirFn = func(string) (bool, bool, error) { return true, true, nil }
 	r := checkTrust(Opts{Home: home})
 	if r.Severity != WARN || !hasFinding(r.Detail, "drifted") {
 		t.Fatalf("trust = %+v, want WARN for a drifted hook", r)
@@ -370,6 +394,24 @@ func TestCheckStaleness(t *testing.T) {
 		r := checkStaleness(Opts{Home: home})
 		if r.Severity != WARN || !hasFinding(r.Detail, "no applied digest") {
 			t.Fatalf("staleness = %+v, want WARN for an unverifiable generation", r)
+		}
+	})
+
+	// A deleted owned skill is the drift this category exists to surface, and no
+	// other category counts a missing non-rule resource.
+	t.Run("missing owned non-rule resource", func(t *testing.T) {
+		home, root, _ := claudeLedgerHome(t)
+		target := claudeTarget(home, root)
+		gone := filepath.Join(root, "skills", "atomic-example", "SKILL.md")
+		saveLedger(t, home, []installstate.TargetRecord{target}, []installstate.Row{
+			fileRow(target.Key(), "skills/atomic-example/SKILL.md", gone, managedfile.Digest([]byte("projected"))),
+		})
+		withStatusSteps(t, func(h string) install.Steps {
+			return stepsWith(h, fakeAdapter{kind: harness.KindClaude, instances: []harness.Instance{claudeInstance(home, root)}})
+		})
+		r := checkStaleness(Opts{Home: home})
+		if r.Severity != WARN || !hasFinding(r.Detail, "is not on disk") {
+			t.Fatalf("staleness = %+v, want WARN for an owned resource that is gone", r)
 		}
 	})
 }
@@ -621,6 +663,86 @@ func TestClaudeScopedCategoriesSkipWithoutClaudeHome(t *testing.T) {
 	}
 }
 
+// TestClaudeScopedCategoriesFollowEnrollment proves the Claude-scoped categories
+// read the ledger instead of a hardcoded ~/.claude: a machine whose ledger enrols
+// only OMP skips them even when Claude Code is installed, and one that enrols
+// Claude at a relocated NativeRoot inspects that root rather than ~/.claude.
+func TestClaudeScopedCategoriesFollowEnrollment(t *testing.T) {
+	t.Run("omp-only ledger with a Claude home present", func(t *testing.T) {
+		home := t.TempDir()
+		// Claude Code is installed, so ~/.claude exists with a registered hook —
+		// exactly the state the hardcoded gate keyed on.
+		claudeDir := filepath.Join(home, ".claude")
+		if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := hooks.InstallInDir(claudeDir); err != nil {
+			t.Fatalf("seed claude settings: %v", err)
+		}
+		root := filepath.Join(home, ".omp")
+		saveLedger(t, home, []installstate.TargetRecord{
+			{Harness: string(harness.KindOMP), Instance: root, NativeRoot: root, Status: string(harness.StatusConverged)},
+		}, nil)
+		withStatusSteps(t, func(h string) install.Steps {
+			return stepsWith(h, fakeAdapter{kind: harness.KindOMP, instances: []harness.Instance{
+				{Kind: harness.KindOMP, ID: root, NativeRoot: root, Home: h},
+			}})
+		})
+
+		for name, run := range map[string]func(Opts) Result{
+			"install":      checkInstall,
+			"hooks":        checkHooks,
+			"profile":      checkProfile,
+			"output-style": checkOutputStyle,
+		} {
+			r := run(Opts{Home: home})
+			if r.Severity != SKIP {
+				t.Errorf("%s = %+v, want SKIP for an un-enrolled Claude harness", name, r)
+			}
+		}
+
+		r := checkTrust(Opts{Home: home})
+		if r.Severity == FAIL {
+			t.Errorf("trust = %+v, want no FAIL for an un-enrolled Claude harness", r)
+		}
+		if plan, fixable := repairPlan(r); fixable {
+			t.Errorf("trust repair plan = %q (fixable), want no repair offer for an un-enrolled harness", plan)
+		}
+	})
+
+	t.Run("enrolled Claude root is inspected instead of ~/.claude", func(t *testing.T) {
+		home := t.TempDir()
+		root := filepath.Join(home, "claude-work")
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// The default home carries a registered hook, the enrolled root carries
+		// none, so a check that reads ~/.claude reports the wrong harness healthy.
+		if _, err := hooks.InstallInDir(filepath.Join(home, ".claude")); err != nil {
+			t.Fatalf("seed claude settings: %v", err)
+		}
+		saveLedger(t, home, []installstate.TargetRecord{claudeTarget(home, root)}, nil)
+
+		if r := checkHooks(Opts{Home: home}); r.Severity != WARN || !hasFinding(r.Detail, "missing") {
+			t.Errorf("hooks = %+v, want WARN for the enrolled root with no registration", r)
+		}
+
+		var probed []string
+		restore := hooksInstalledInDirFn
+		t.Cleanup(func() { hooksInstalledInDirFn = restore })
+		hooksInstalledInDirFn = func(configDir string) (bool, bool, error) {
+			probed = append(probed, configDir)
+			return true, false, nil
+		}
+		if r := checkTrust(Opts{Home: home}); r.Severity != PASS {
+			t.Errorf("trust = %+v, want PASS for the enrolled root", r)
+		}
+		if len(probed) != 1 || probed[0] != root {
+			t.Errorf("trust probed %v, want the enrolled root %s", probed, root)
+		}
+	})
+}
+
 // TestDoctorRunsHarnessCategoriesOnOMPOnlyHome drives the selection doctor
 // makes after the gate lifts: the lifecycle category runs against an OMP-only
 // ledger while the Claude-scoped categories skip.
@@ -651,5 +773,43 @@ func TestDoctorRunsHarnessCategoriesOnOMPOnlyHome(t *testing.T) {
 	}
 	if _, ok := got[15]; !ok {
 		t.Errorf("category 15 did not run on an OMP-only enrolled home: %+v", results)
+	}
+}
+
+// TestCombineClaudeRootsEnrolledRemediationIsConverge pins the merged repair
+// hint for an enrolled scoped result: the per-root producers emit
+// `atomic claude update`, which resolves its own default root and would write
+// outside the ledger, so the merge must name the ledger-driven converge.
+func TestCombineClaudeRootsEnrolledRemediationIsConverge(t *testing.T) {
+	scope := claudeScope{Roots: []string{"/relocated/.claude"}, Enrolled: true}
+	got := combineClaudeRoots(scope, []Result{{
+		Severity:    WARN,
+		Detail:      "3/4 files match bundle (1 drifted)",
+		Remediation: "atomic claude update",
+	}})
+
+	if got.Remediation != claudeConvergePlan {
+		t.Errorf("Remediation = %q, want the converge plan %q", got.Remediation, claudeConvergePlan)
+	}
+	if strings.Join(got.Scopes, ",") != strings.Join(scope.Roots, ",") {
+		t.Errorf("Scopes = %v, want %v", got.Scopes, scope.Roots)
+	}
+}
+
+// TestCombineClaudeRootsUnenrolledKeepsLegacyRemediation pins the other branch:
+// an unresolved-ledger result has no enrolled root to converge, so the legacy
+// verb survives and the result carries no scopes.
+func TestCombineClaudeRootsUnenrolledKeepsLegacyRemediation(t *testing.T) {
+	got := combineClaudeRoots(claudeScope{Roots: []string{"/home/u/.claude"}}, []Result{{
+		Severity:    WARN,
+		Detail:      "3/4 files match bundle (1 drifted)",
+		Remediation: "atomic claude update",
+	}})
+
+	if got.Remediation != "atomic claude update" {
+		t.Errorf("Remediation = %q, want the legacy verb", got.Remediation)
+	}
+	if len(got.Scopes) != 0 {
+		t.Errorf("Scopes = %v, want empty for an unresolved-ledger result", got.Scopes)
 	}
 }

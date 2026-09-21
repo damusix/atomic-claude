@@ -1,10 +1,11 @@
 package managedfile
 
 // Evidence is the observed basis for an ownership claim over a managed
-// resource. Only two bases prove ownership: bytes that match the selected
-// binary's embedded generation exactly, and a resource that carries exactly one
-// parseable Atomic block. A resource name, a legacy config path, and a legacy
-// version string prove nothing.
+// resource. Three bases prove ownership: bytes that match the selected binary's
+// embedded generation exactly, a resource that carries exactly one parseable
+// Atomic block, and bytes the ledger recorded Atomic itself applying. A
+// resource name, a legacy config path, and a legacy version string prove
+// nothing.
 type Evidence string
 
 const (
@@ -15,6 +16,17 @@ const (
 	// block. The block is independently verifiable because migration can
 	// preserve and replace only that region.
 	EvidenceBlock Evidence = "managed-block"
+	// EvidenceNoBlock means a block resource exists and carries user bytes but
+	// has never held an Atomic block at all. That is "no block yet", not
+	// ambiguity: adoption appends a block and preserves every existing byte.
+	// A file that carries tags which do not parse stays EvidenceConflict.
+	EvidenceNoBlock Evidence = "no-managed-block"
+	// EvidenceLedger means the observed bytes equal the digest the ledger
+	// recorded applying to this (target, resource). It is proof Atomic wrote
+	// them, even when they are an older generation's bytes, and is distinct
+	// from a historical digest catalog: it records only what Atomic itself
+	// last wrote, not every generation it ever shipped.
+	EvidenceLedger Evidence = "ledger-applied"
 	// EvidenceMissing means the resource is listed but absent. That is drift to
 	// be recreated after convergence is accepted, never ownership.
 	EvidenceMissing Evidence = "missing"
@@ -36,6 +48,10 @@ type Claim struct {
 	// SelectedDigest is the selected generation's expected digest. An empty
 	// digest proves nothing, so a block claim uses block evidence instead.
 	SelectedDigest string `json:"selected_digest,omitempty"`
+	// RecordedDigest is the digest the ledger recorded applying to this
+	// resource for its target, when one exists. Only an exact match proves
+	// Atomic's own write; an empty digest proves nothing.
+	RecordedDigest string `json:"recorded_digest,omitempty"`
 }
 
 // Assessment is the verdict for one claim against the current native bytes. It
@@ -62,6 +78,11 @@ func Assess(c Claim) (Assessment, error) {
 	switch {
 	case !obs.Exists():
 		a.Evidence = EvidenceMissing
+	case c.Kind == KindBlock && obs.Conflict == ConflictMalformedBlock && !HasBlockTags(obs.Bytes):
+		// The file exists and carries user bytes, but has never held an Atomic
+		// block: a block that has never existed is not an ambiguous one, so the
+		// file is adopted by appending.
+		a.Evidence = EvidenceNoBlock
 	case obs.Conflict != ConflictNone:
 		a.Evidence = EvidenceConflict
 	case c.Kind == KindBlock:
@@ -71,6 +92,8 @@ func Assess(c Claim) (Assessment, error) {
 		}
 	case c.SelectedDigest != "" && obs.Digest == c.SelectedDigest:
 		a.Evidence, a.Owned = EvidenceSelection, true
+	case c.RecordedDigest != "" && obs.Digest == c.RecordedDigest:
+		a.Evidence, a.Owned = EvidenceLedger, true
 	default:
 		a.Evidence = EvidenceUnowned
 	}

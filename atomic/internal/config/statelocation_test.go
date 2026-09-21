@@ -472,3 +472,56 @@ func TestAdoptStateRoot_EmptyRepoAgreesWithResolution(t *testing.T) {
 		})
 	}
 }
+
+// A repository whose only populated state root sits under a former harness
+// directory resolves it in place. The quiet resolver every repo-local path
+// helper uses must not orphan that state by defaulting to `.claude`.
+func TestRepositoryStateDir_AdoptsSinglePopulatedCandidate(t *testing.T) {
+	withHome(t)
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".pi", "project"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveRepositoryStateDir(repo); got != filepath.Join(repo, ".pi") {
+		t.Errorf("resolved = %s, want the populated .pi root", got)
+	}
+}
+
+// Two populated roots are ambiguous: the quiet resolver refuses to guess and
+// falls through to the built-in default, so explicit `atomic state adopt`
+// remains the only thing that picks one.
+func TestRepositoryStateDir_AmbiguousFallsBackToDefault(t *testing.T) {
+	withHome(t)
+	repo := t.TempDir()
+	for _, name := range []string{".pi", ".claude"} {
+		if err := os.MkdirAll(filepath.Join(repo, name, "project"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := resolveRepositoryStateDir(repo); got != filepath.Join(repo, stateDirDefault) {
+		t.Errorf("resolved = %s, want the built-in default on ambiguity", got)
+	}
+	if _, err := AdoptStateRoot(repo); !errors.Is(err, ErrAmbiguousStateRoot) {
+		t.Errorf("adopt error = %v, want ErrAmbiguousStateRoot", err)
+	}
+}
+
+// The root command calls CheckObsoleteHarnessEnv once before any verb runs, so
+// an obsolete ATOMIC_HARNESS surfaces with instructions instead of the quiet
+// repo-local resolver ignoring it and silently resolving a different root.
+func TestCheckObsoleteHarnessEnv(t *testing.T) {
+	t.Setenv(StateDirEnvVar, "")
+	t.Setenv(ObsoleteHarnessEnvVar, "")
+	if err := CheckObsoleteHarnessEnv(); err != nil {
+		t.Fatalf("unset variable refused: %v", err)
+	}
+
+	t.Setenv(ObsoleteHarnessEnvVar, "pi")
+	err := CheckObsoleteHarnessEnv()
+	if !errors.Is(err, ErrObsoleteHarnessEnv) {
+		t.Fatalf("error = %v, want ErrObsoleteHarnessEnv", err)
+	}
+	if !strings.Contains(err.Error(), StateDirEnvVar) {
+		t.Errorf("refusal %q does not name %s", err, StateDirEnvVar)
+	}
+}

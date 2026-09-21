@@ -32,7 +32,9 @@ func fixtureCorpus(t *testing.T) *artifacts.Catalog {
 }
 
 // newAdapter returns an adapter over the fixture corpus and a directory mapper,
-// so no test depends on an installed OMP binary.
+// so no test depends on an installed OMP binary. The ambient profile is read
+// from the process the way New reads it, and routed through the adapter's own
+// seam so a test can opt out and a stubbed resolver stays hermetic.
 func newAdapter(t *testing.T, roots map[string]string) *Adapter {
 	t.Helper()
 	cat := fixtureCorpus(t)
@@ -44,7 +46,8 @@ func newAdapter(t *testing.T, roots map[string]string) *Adapter {
 			}
 			return root, nil
 		},
-		Corpus: func() (*artifacts.Catalog, error) { return cat, nil },
+		AmbientProfile: func() string { return os.Getenv(ProfileEnv) },
+		Corpus:         func() (*artifacts.Catalog, error) { return cat, nil },
 	}
 }
 
@@ -112,7 +115,8 @@ func TestAdapterReportsOMPKindAndCP0Capabilities(t *testing.T) {
 		t.Errorf("adapter default root %q disagrees with the CP0 row %q", DefaultAgentDir, caps.Root.DefaultDir)
 	}
 	// The lifecycle cutover binds every hook: a profile target must project the
-	// shared package and steering claims rather than report an unwired surface.
+	// shared package, the profile steering, and the discovered extension claims
+	// rather than report an unwired surface.
 	home := newHome(t)
 	root := filepath.Join(home, ".omp", "agent")
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -124,8 +128,11 @@ func TestAdapterReportsOMPKindAndCP0Capabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project: %v", err)
 	}
-	if len(plan.Claims) != 2 || plan.Generation == "" {
-		t.Errorf("project plan = %+v, want the package and steering claims", plan)
+	if len(plan.Claims) != 3 || plan.Generation == "" {
+		t.Errorf("project plan = %+v, want the package, steering, and extension claims", plan)
+	}
+	if len(plan.Unproven) == 0 {
+		t.Error("the plan promises no unproven surfaces, want the package gaps it cannot prove")
 	}
 }
 
@@ -171,11 +178,12 @@ func TestDiscoverResolvesDefaultAndNamedProfiles(t *testing.T) {
 	}
 }
 
-// TestDefaultConfigPathEndToEnd drives root resolution through a real HOME and
-// a real process: the adapter runs the CP0-proven `omp config path` command, so
-// the named-profile selector travels as the environment OMP documents.
-func TestDefaultConfigPathEndToEnd(t *testing.T) {
-	home := newHome(t)
+// installOMPStub puts a fake `omp` on PATH that answers `omp config path` the
+// way the documented command does: the ambient OMP_PROFILE selects an isolated
+// agent root, the empty profile the default one. It lets a test drive the real
+// resolver with no installed OMP binary.
+func installOMPStub(t *testing.T) {
+	t.Helper()
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
@@ -190,6 +198,14 @@ func TestDefaultConfigPathEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestDefaultConfigPathEndToEnd drives root resolution through a real HOME and
+// a real process: the adapter runs the CP0-proven `omp config path` command, so
+// the named-profile selector travels as the environment OMP documents.
+func TestDefaultConfigPathEndToEnd(t *testing.T) {
+	home := newHome(t)
+	installOMPStub(t)
 	t.Setenv("OMP_PROFILE", "stale-ambient-value")
 
 	wantDefault := filepath.Join(home, ".omp", "agent")
@@ -226,11 +242,11 @@ func TestDefaultConfigPathEndToEnd(t *testing.T) {
 
 func TestBuildPackageIsDeterministicAndExcludesSteering(t *testing.T) {
 	cat := fixtureCorpus(t)
-	first, err := BuildPackage(cat, harness.OMPCapabilities())
+	first, err := BuildPackage(cat, harness.OMPCapabilities(), nil)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	second, err := BuildPackage(cat, harness.OMPCapabilities())
+	second, err := BuildPackage(cat, harness.OMPCapabilities(), nil)
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
@@ -285,7 +301,7 @@ func findFile(p Package, path string) (PackageFile, bool) {
 // TestPackageTreeGolden pins the generated tree's identity: every file's path,
 // digest, and tier in order.
 func TestPackageTreeGolden(t *testing.T) {
-	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities())
+	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities(), nil)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -312,7 +328,7 @@ func TestPackageTreeGolden(t *testing.T) {
 // the same surface, so extension disablement and the matched-body absence are
 // reported once, by the runtime delivery that owns them.
 func TestUnprovenSurfacesHaveSingleOwner(t *testing.T) {
-	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities())
+	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities(), nil)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -335,7 +351,7 @@ func TestUnprovenSurfacesHaveSingleOwner(t *testing.T) {
 }
 
 func TestPackageCarriesNoProviderIDs(t *testing.T) {
-	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities())
+	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities(), nil)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -382,7 +398,7 @@ func providerCorpus(t *testing.T, kind artifacts.Kind, source string, body strin
 func TestBuildPackageRejectsProviderIDCommand(t *testing.T) {
 	cat := providerCorpus(t, artifacts.KindCommand, "commands/provider.md",
 		"---\ndescription: provider fixture\n---\n\nCall `anthropic/opus` for this step.\n")
-	_, err := BuildPackage(cat, harness.OMPCapabilities())
+	_, err := BuildPackage(cat, harness.OMPCapabilities(), nil)
 	if err == nil {
 		t.Fatal("package generated with a concrete provider or model identifier in a command")
 	}
@@ -397,7 +413,7 @@ func TestBuildPackageRejectsProviderIDCommand(t *testing.T) {
 func TestBuildPackageRejectsProviderIDRule(t *testing.T) {
 	cat := providerCorpus(t, artifacts.KindRule, "rules/provider.md",
 		"---\npaths:\n  - \"**/*.ts\"\n---\n\nPrefer the anthropic/opus model for reviews.\n")
-	_, err := BuildPackage(cat, harness.OMPCapabilities())
+	_, err := BuildPackage(cat, harness.OMPCapabilities(), nil)
 	if err == nil {
 		t.Fatal("package generated with a concrete provider or model identifier in a rule")
 	}
@@ -409,7 +425,8 @@ func TestBuildPackageRejectsProviderIDRule(t *testing.T) {
 // TestEnrollWritesPackageAndSteeringThroughTransaction drives one enrollment
 // against a real HOME: the journal precedes the native writes, the package tree
 // matches its plan-time digest, the profile's AGENTS.md carries the Atomic
-// block, and the ledger rows record the generation and tier.
+// block, the module sits where OMP discovers extensions, and the ledger rows
+// record the generation and tier.
 func TestEnrollWritesPackageAndSteeringThroughTransaction(t *testing.T) {
 	home := newHome(t)
 	root := filepath.Join(home, ".omp", "agent")
@@ -422,32 +439,24 @@ func TestEnrollWritesPackageAndSteeringThroughTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enroll: %v", err)
 	}
-	if result.JournalPath == "" || len(result.Applied) != 2 {
-		t.Fatalf("enroll applied = %+v, want the package tree and the steering block", result)
+	if result.JournalPath == "" || len(result.Applied) != 3 {
+		t.Fatalf("enroll applied = %+v, want the package tree, the steering block, and the extension module", result)
 	}
-	if !exists(result.JournalPath) {
-		t.Errorf("journal %s was not written", result.JournalPath)
+	// The completed operation is consumed: its journal and transaction tree are
+	// removed once the rows are committed, so nothing accumulates per converge.
+	if _, err := os.Stat(result.JournalPath); !os.IsNotExist(err) {
+		t.Errorf("completed enrollment left its journal behind (stat err = %v)", err)
 	}
-	journal, err := installstate.LoadJournal(result.JournalPath)
-	if err != nil {
-		t.Fatalf("load journal: %v", err)
+	if _, err := os.Stat(config.TransactionDir(home, "enroll-test")); !os.IsNotExist(err) {
+		t.Errorf("completed enrollment left its transaction tree behind (stat err = %v)", err)
 	}
-	if !journal.Completed {
-		t.Error("enrollment journal is not completed")
-	}
-	for _, unit := range []string{packageUnit, steeringUnit} {
-		if state := journal.State(unit); state != installstate.StateCommitted {
-			t.Errorf("journal unit %s state = %s, want committed", unit, state)
-		}
-	}
-
 	// The published package matches the plan-time tree identity, and its files
 	// are the generated ones.
 	digest, _, err := managedfile.TreeDigest(config.PackageRoot(home, "omp"))
 	if err != nil {
 		t.Fatalf("tree digest: %v", err)
 	}
-	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities())
+	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -759,8 +768,13 @@ func TestResourcesSeparateConsumersFromVisibility(t *testing.T) {
 	if len(plan.Retained) != 1 || plan.Retained[0] != PackageResource(home) {
 		t.Errorf("retained = %v, want the shared package", plan.Retained)
 	}
-	if len(plan.Removed) != 1 || plan.Removed[0] != SteeringResource(enrolled) {
-		t.Errorf("removed = %v, want the leaving profile's steering", plan.Removed)
+	if len(plan.Removed) != 2 {
+		t.Fatalf("removed = %v, want the leaving profile's steering and extension module", plan.Removed)
+	}
+	for _, want := range []string{SteeringResource(enrolled), ExtensionResource(enrolled)} {
+		if !contains(plan.Removed, want) {
+			t.Errorf("removed = %v, want the leaving profile's %s", plan.Removed, want)
+		}
 	}
 
 	// Removing an unenrolled profile's root drops its visibility.
@@ -776,9 +790,128 @@ func TestResourcesSeparateConsumersFromVisibility(t *testing.T) {
 	}
 }
 
-// TestIncompatibleGenerationRefusesBeforeMutation seeds a second consumer at a
-// different generation and proves the enrollment refuses without touching the
-// package, the steering file, or the ledger.
+// TestDiscoverReportsTheAmbientProfile proves the documented profile selector is
+// what makes a named profile reachable: a user who runs a named profile has
+// OMP_PROFILE set, so discovery resolves that profile's root through the same
+// CP0-proven path query instead of leaving named profiles a test-only concept.
+// The adapter is the production one, so the test covers the constructor's own
+// wiring of the ambient seam, not a stub.
+func TestDiscoverReportsTheAmbientProfile(t *testing.T) {
+	home := newHome(t)
+	installOMPStub(t)
+	named := filepath.Join(home, ".omp", "profiles", "work", "agent")
+	if err := os.MkdirAll(named, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(ProfileEnv, "work")
+
+	instances, err := New().Discover(home)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	if len(instances) != 2 || instances[1].NativeRoot != named || !instances[1].Exists {
+		t.Fatalf("instances = %+v, want the default root and the ambient profile root", instances)
+	}
+}
+
+// TestDiscoverReadsTheAmbientProfileThroughItsSeam proves discovery consults the
+// adapter's ambient seam rather than the process environment: an adapter built
+// with its own resolver and no ambient name reports exactly the roots it
+// resolves, whatever OMP_PROFILE the process carries. Otherwise a test — or any
+// caller threading a stub — would silently discover profiles of the machine it
+// happens to run on.
+func TestDiscoverReadsTheAmbientProfileThroughItsSeam(t *testing.T) {
+	home := newHome(t)
+	def := filepath.Join(home, ".omp", "agent")
+	a := newAdapter(t, map[string]string{
+		"":     def,
+		"work": filepath.Join(home, ".omp", "profiles", "work", "agent"),
+	})
+	a.AmbientProfile = nil
+	t.Setenv(ProfileEnv, "work")
+
+	instances, err := a.Discover(home)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	if len(instances) != 1 || instances[0].NativeRoot != def {
+		t.Fatalf("instances = %+v, want only the default root the adapter resolved", instances)
+	}
+}
+
+// TestDiscoverSkipsAnUnresolvableAmbientProfile proves one name the machine
+// cannot place does not fail the walk: the ambient selector names a profile the
+// resolver has no root for — the state a named profile is in when the OMP
+// binary is absent and CP0 recorded no fallback — and discovery still reports
+// the default root rather than returning an error that would abort registry
+// discovery for every harness.
+func TestDiscoverSkipsAnUnresolvableAmbientProfile(t *testing.T) {
+	home := newHome(t)
+	def := filepath.Join(home, ".omp", "agent")
+	a := newAdapter(t, map[string]string{"": def})
+	t.Setenv(ProfileEnv, "not-installed")
+
+	instances, err := a.Discover(home)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	if len(instances) != 1 || instances[0].NativeRoot != def {
+		t.Fatalf("instances = %+v, want the default root despite the unresolvable ambient name", instances)
+	}
+}
+
+// stubAdapter is a registry fixture built from outside the harness package: it
+// proves a whole-registry walk reaches the other harnesses even when OMP cannot
+// place the profile its environment names.
+type stubAdapter struct {
+	instances []harness.Instance
+}
+
+func (s *stubAdapter) Kind() harness.Kind { return harness.KindClaude }
+
+func (s *stubAdapter) Discover(string) ([]harness.Instance, error) { return s.instances, nil }
+
+func (s *stubAdapter) Capabilities() harness.CapabilityMatrix { return harness.ClaudeCapabilities() }
+
+func (s *stubAdapter) Lifecycle(string) harness.Lifecycle { return harness.Lifecycle{} }
+
+// TestRegistryDiscoverySurvivesAMissingOMPBinary proves a machine without the
+// OMP binary still discovers every other harness. The ambient selector names a
+// profile that has no recorded root without the binary, so OMP contributes only
+// its default root instead of failing the registry walk.
+func TestRegistryDiscoverySurvivesAMissingOMPBinary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv(ProfileEnv, "work")
+
+	claudeRoot := filepath.Join(home, ".claude")
+	claude := &stubAdapter{instances: []harness.Instance{{Kind: harness.KindClaude, ID: claudeRoot, NativeRoot: claudeRoot, Home: home}}}
+	registry, err := harness.NewRegistry(claude, New())
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+
+	instances, err := registry.Discover(home)
+	if err != nil {
+		t.Fatalf("a machine without the omp binary failed discovery: %v", err)
+	}
+	if len(instances) != 2 {
+		t.Fatalf("instances = %+v, want the other harness plus OMP's default root", instances)
+	}
+	if instances[0].Kind != harness.KindClaude || instances[1].Kind != harness.KindOMP {
+		t.Fatalf("instances = %+v, want stable kind order", instances)
+	}
+	if want := filepath.Join(home, filepath.FromSlash(DefaultAgentDir)); instances[1].NativeRoot != want {
+		t.Errorf("omp root = %q, want the CP0-recorded default %q", instances[1].NativeRoot, want)
+	}
+}
+
+// TestIncompatibleGenerationRefusesBeforeMutation seeds a generation claim on a
+// target the ledger does not enroll and proves the enrollment refuses without
+// touching the package, the steering file, or the ledger. An enrolled consumer's
+// recorded generation is not a pin: the operation that moves the shared package
+// converges that consumer too, which is what TestTwoProfilesConvergeAcrossGenerationSwap
+// proves.
 func TestIncompatibleGenerationRefusesBeforeMutation(t *testing.T) {
 	home := newHome(t)
 	root := filepath.Join(home, ".omp", "agent")
@@ -866,9 +999,142 @@ func TestEmbeddedCorpusLoadsSelectedGeneration(t *testing.T) {
 	if steering.Source != "AGENTS.md" {
 		t.Errorf("steering source = %q, want the canonical AGENTS.md", steering.Source)
 	}
-	if _, err := BuildPackage(cat, harness.OMPCapabilities()); err != nil {
+	if _, err := BuildPackage(cat, harness.OMPCapabilities(), nil); err != nil {
 		t.Fatalf("build package from embedded corpus: %v", err)
 	}
+}
+
+// TestEnrollPublishesExtensionAtAgentRoot proves the artifact OMP actually loads
+// is delivered: the generated module is written under the profile's agent root,
+// where CP0 proved OMP discovers extensions, and the ledger records it as a
+// profile-owned file resource. Nothing about the package tree is a discovery
+// claim.
+func TestEnrollPublishesExtensionAtAgentRoot(t *testing.T) {
+	home := newHome(t)
+	root := filepath.Join(home, ".omp", "agent")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := newAdapter(t, map[string]string{"": root})
+
+	result, err := a.Enroll(EnrollRequest{Home: home, Profile: Profile{Root: root}, OperationID: "extension"})
+	if err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	want := filepath.Join(root, "extensions", "atomic.ts")
+	if result.ExtensionPath != want {
+		t.Fatalf("extension path = %q, want the CP0-proven agent-root location %q", result.ExtensionPath, want)
+	}
+	pkg, err := BuildPackage(fixtureCorpus(t), harness.OMPCapabilities(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	module, err := pkg.ExtensionModule()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, want); got != string(module) {
+		t.Errorf("the delivered extension is not the generated module")
+	}
+
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := ledger.Find(result.Target.Key(), ExtensionResource(root))
+	if !ok {
+		t.Fatalf("the delivered extension has no ledger row for its profile")
+	}
+	if row.Applied.Kind != managedfile.KindFile || row.Applied.Path != want {
+		t.Errorf("extension row = %+v, want a profile-owned file at %s", row.Applied, want)
+	}
+	if row.Applied.Digest != artifacts.ProjectionDigest(module) {
+		t.Errorf("extension row digest %s does not record the delivered bytes", row.Applied.Digest)
+	}
+	if row.Generation != result.Generation || row.Tier != string(Tier) {
+		t.Errorf("extension row generation/tier = %s/%s, want the enrolled %s/%s", row.Generation, row.Tier, result.Generation, Tier)
+	}
+}
+
+// TestTwoProfilesConvergeAcrossGenerationSwap proves a shared-package generation
+// move converges every enrolled consumer in one operation: the profile whose row
+// records the older generation is stale, not a requirement, so the second
+// profile's enrollment must not refuse and both rows must record the new
+// generation.
+func TestTwoProfilesConvergeAcrossGenerationSwap(t *testing.T) {
+	home := newHome(t)
+	defRoot := filepath.Join(home, ".omp", "agent")
+	workRoot := filepath.Join(home, ".omp", "profiles", "work", "agent")
+	for _, root := range []string{defRoot, workRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := newAdapter(t, map[string]string{"": defRoot, "work": workRoot})
+	for _, p := range []Profile{{Root: defRoot}, {Name: "work", Root: workRoot}} {
+		if _, err := first.Enroll(EnrollRequest{Home: home, Profile: p}); err != nil {
+			t.Fatalf("enroll %q at generation one: %v", p.Name, err)
+		}
+	}
+
+	swapped := nextGenerationCorpus(t)
+	next, err := BuildPackage(swapped, harness.OMPCapabilities(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextDigest, err := next.TreeDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := newAdapter(t, map[string]string{"": defRoot, "work": workRoot})
+	second.Corpus = func() (*artifacts.Catalog, error) { return swapped, nil }
+
+	result, err := second.Enroll(EnrollRequest{Home: home, Profile: Profile{Name: "work", Root: workRoot}})
+	if err != nil {
+		t.Fatalf("the second enrolled consumer could not move to the new generation: %v", err)
+	}
+	if result.Generation != next.Generation {
+		t.Fatalf("enrolled generation %s, want the selected %s", result.Generation, next.Generation)
+	}
+
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, instance := range []string{defRoot, workRoot} {
+		key := harness.Target{Kind: harness.KindOMP, Instance: instance}.Key()
+		row, ok := ledger.Find(key, PackageResource(home))
+		if !ok {
+			t.Fatalf("no package row for %s", key)
+		}
+		if row.Generation != next.Generation || row.Applied.Digest != nextDigest {
+			t.Errorf("%s records %s/%s, want the converged %s/%s", key, row.Generation, row.Applied.Digest, next.Generation, nextDigest)
+		}
+	}
+	// The physical package is the new generation for both consumers, so a later
+	// convergence of the first profile is a no-op rather than a second publish.
+	_, err = second.Enroll(EnrollRequest{Home: home, Profile: Profile{Root: defRoot}, OperationID: "again"})
+	if err != nil {
+		t.Fatalf("converging the first consumer after the swap: %v", err)
+	}
+}
+
+// nextGenerationCorpus loads the fixture corpus with one whole-file artifact
+// moved, so the selected generation differs from the enrolled one.
+func nextGenerationCorpus(t *testing.T) *artifacts.Catalog {
+	t.Helper()
+	base := fixtureCorpus(t)
+	swapped := &artifacts.Catalog{Artifacts: append([]artifacts.Artifact(nil), base.Artifacts...)}
+	for i := range swapped.Artifacts {
+		if swapped.Artifacts[i].Kind != artifacts.KindRule {
+			continue
+		}
+		body := append([]byte(nil), swapped.Artifacts[i].Body...)
+		swapped.Artifacts[i].Body = append(body, []byte("\nNew generation line.\n")...)
+		return swapped
+	}
+	t.Fatal("the fixture corpus carries no rule to move")
+	return nil
 }
 
 // contains reports whether list holds value. It lives here because the

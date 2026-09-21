@@ -59,7 +59,7 @@ func TestBuildSessionDeliveryWiresOnlyProvenEvents(t *testing.T) {
 	}
 	for _, want := range []string{
 		"session_start|observation only",
-		"before_agent_start|bounded session-baseline rule index (bound 8192 bytes)",
+		"before_agent_start|bounded session-baseline rule index (bound 8192 UTF-16 code units)",
 		"tool_call|exact-path matching for proven structured inputs; uncovered tools recorded",
 		"tool_call|exact predicate deny",
 	} {
@@ -88,6 +88,154 @@ func TestBuildSessionDeliveryWiresOnlyProvenEvents(t *testing.T) {
 	}
 }
 
+// TestSessionDeliveryBoundMeasuresTheUnitTheModuleMeasures proves the plan's
+// suppression verdict and the delivered module agree. The module evaluates the
+// bound over the static index with `String.length`, so planning has to measure
+// the same string in the same unit: an index that is over the bound in bytes but
+// not in UTF-16 code units must report deliverable, or every session would
+// suppress a block the plan called fine.
+func TestSessionDeliveryBoundMeasuresTheUnitTheModuleMeasures(t *testing.T) {
+	// Two-byte runes in the source path: identical unit count, twice the bytes.
+	rule := runtimeRule(t, "rules/"+strings.Repeat("é", 3_800)+"/style.md", []string{"**/*.ts"}, "# Multi\n")
+	delivery, err := BuildSessionDelivery([]harness.RuleSource{rule}, harness.OMPCapabilities(), nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(delivery.IndexText) <= delivery.Bound {
+		t.Fatalf("the fixture index is %d bytes, want one that only exceeds the bound in bytes", len(delivery.IndexText))
+	}
+	if delivery.IndexUnits != utf16Units(delivery.IndexText) {
+		t.Fatalf("index units = %d, want the module's own measurement %d", delivery.IndexUnits, utf16Units(delivery.IndexText))
+	}
+	if delivery.IndexUnits > delivery.Bound {
+		t.Fatalf("index units = %d, want the fixture under the %d-unit bound", delivery.IndexUnits, delivery.Bound)
+	}
+	if delivery.Suppressed {
+		t.Errorf("an index of %d units is reported suppressed against the %d-unit bound, so the plan disagrees with the module that delivers it", delivery.IndexUnits, delivery.Bound)
+	}
+
+	// The generated module must evaluate the bound over the same string, in the
+	// same unit; a guard over the whole assembled block would suppress sessions
+	// this plan reported deliverable. The rendered module is the artifact that
+	// runs, so the template is audited against the plan here the way
+	// RegisteredEvents audits registrations against the plan elsewhere.
+	module, err := delivery.RenderExtension()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(string(module), "DATA.indexText.length > DATA.bound") {
+		t.Errorf("the rendered module does not bound the static index in UTF-16 units")
+	}
+}
+
+// TestSessionDeliveryNearBoundIndexStillDelivers proves the plan and the module
+// agree at the edge of the bound: an index the plan reports deliverable is
+// delivered even when this session's matched line pushes the assembled block
+// over the bound. The ceiling covers the static index — what the plan measures —
+// so the session that observed matches is not the one that loses the rule index,
+// and no state exists where status or doctor calls a delivery deliverable while
+// every session suppresses it.
+func TestSessionDeliveryNearBoundIndexStillDelivers(t *testing.T) {
+	bun, err := exec.LookPath("bun")
+	if err != nil {
+		t.Skipf("bun is unavailable: %v", err)
+	}
+	build := func(source string) SessionDelivery {
+		delivery, err := BuildSessionDelivery([]harness.RuleSource{runtimeRule(t, source, []string{"**/*.ts"}, "# Near\n")}, harness.OMPCapabilities(), nil)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		return delivery
+	}
+	// Pad the source path until the index sits inside the bound by a few units,
+	// so the matched line is what crosses it. The source is named twice in an
+	// index line, so each character the path grows by adds two units.
+	source := "rules/near/style.md"
+	delivery := build(source)
+	if pad := 4 + (delivery.Bound-delivery.IndexUnits-4)/2; pad > len("near") {
+		source = "rules/" + strings.Repeat("n", pad) + "/style.md"
+		delivery = build(source)
+	}
+	if under := delivery.Bound - delivery.IndexUnits; under < 0 || under > 4 {
+		t.Fatalf("index of %d units is %d units under the %d-unit bound, want it within a few", delivery.IndexUnits, under, delivery.Bound)
+	}
+	if delivery.Suppressed {
+		t.Fatalf("the plan reported an index of %d units suppressed against the %d-unit bound", delivery.IndexUnits, delivery.Bound)
+	}
+
+	module, err := delivery.RenderExtension()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "atomic.ts"), string(module))
+	writeFile(t, filepath.Join(dir, "driver.ts"), extensionDriver)
+	specBytes, err := json.Marshal(map[string]any{
+		"tools": []string{"read"},
+		"steps": []map[string]any{
+			{"event": "session_start", "payload": map[string]any{}, "ctx": map[string]any{"cwd": "/repo"}},
+			{"event": "tool_call", "payload": map[string]any{"toolName": "read", "input": map[string]any{"path": "src/a.ts"}}},
+			{"event": "before_agent_start", "payload": map[string]any{"systemPrompt": []string{"base"}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "spec.json"), string(specBytes))
+
+	logPath := filepath.Join(dir, "runtime.jsonl")
+	cmd := exec.Command(bun, "run", "driver.ts", "spec.json", "out.json")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), RuntimeLogEnv+"="+logPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("bun driver failed: %v\n%s", err, out)
+	}
+	var results []map[string]any
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(dir, "out.json"))), &results); err != nil {
+		t.Fatalf("parse driver output: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("driver returned %d results, want 3", len(results))
+	}
+	prompt, _ := results[2]["systemPrompt"].([]any)
+	if len(prompt) != 2 {
+		t.Fatalf("the module suppressed a block the plan reported deliverable: %v", results[2])
+	}
+	block := asString(prompt[1])
+	if len(block) <= delivery.Bound {
+		t.Fatalf("the delivered block is %d units, want the matched line to push it past the %d-unit bound", len(block), delivery.Bound)
+	}
+	if !strings.Contains(block, "matched by this session's proven paths") {
+		t.Errorf("the delivered block does not report the session's matched rules:\n%s", block)
+	}
+	log, err := ReadRuntimeLog(logPath)
+	if err != nil {
+		t.Fatalf("read runtime log: %v", err)
+	}
+	if log.BaselineDeliveries != 1 || log.Suppressions != 0 {
+		t.Errorf("log = %+v, want one delivery and no suppression", log)
+	}
+}
+
+// TestSessionBaselineNamesTheRuleLocation proves the delivered block tells the
+// model where the rule bodies actually are. The bodies ship in Atomic's package
+// tree, not beside the extension module OMP loads, so a block that pointed at the
+// agent root would send every session looking somewhere the files are not.
+func TestSessionBaselineNamesTheRuleLocation(t *testing.T) {
+	delivery, err := BuildSessionDelivery(runtimeRules(t), harness.OMPCapabilities(), nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if !strings.Contains(delivery.IndexText, "packages/omp/atomic") {
+		t.Errorf("the baseline does not name the package tree that holds the rule bodies:\n%s", delivery.IndexText)
+	}
+	for _, line := range strings.Split(delivery.IndexText, "\n") {
+		if strings.HasPrefix(line, "- ") && !strings.Contains(line, " source ") {
+			t.Errorf("an index line does not name the rule's source path: %q", line)
+		}
+	}
+}
+
 // TestSessionDeliveryGolden pins the runtime delivery plan: the wired events, the
 // indexed rules with their digests and tiers, the proven tool coverage, the
 // duplication contract with its CP0 claim IDs, and every unproven surface. A
@@ -98,7 +246,7 @@ func TestSessionDeliveryGolden(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "marker %s bound %d index-bytes %d suppressed %v\n", RuntimeMarker, delivery.Bound, delivery.IndexBytes, delivery.Suppressed)
+	fmt.Fprintf(&b, "marker %s bound %d index-units %d suppressed %v\n", RuntimeMarker, delivery.Bound, delivery.IndexUnits, delivery.Suppressed)
 	for _, event := range delivery.Events {
 		fmt.Fprintf(&b, "event %s %s observation=%v %s\n", event.Event, event.Role, event.Observation, event.Delivery)
 	}
@@ -203,7 +351,7 @@ func TestBuildSessionDeliverySuppressesAnOverBoundIndex(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 	if !delivery.Suppressed {
-		t.Fatalf("index of %d bytes was not reported suppressed against the %d byte bound", delivery.IndexBytes, delivery.Bound)
+		t.Fatalf("index of %d units was not reported suppressed against the %d-unit bound", delivery.IndexUnits, delivery.Bound)
 	}
 	module, err := delivery.RenderExtension()
 	if err != nil {
@@ -564,6 +712,115 @@ func TestExtensionModuleDrivesASyntheticSession(t *testing.T) {
 		if record.Kind == "operation" && record.Candidate == "docs/other.md" && len(record.Matched) != 0 {
 			t.Errorf("a nonmatching path matched rules: %+v", record)
 		}
+	}
+}
+
+// TestExtensionModuleRebasesOntoTheObservedBase drives the generated module with
+// a session whose workspace root is a subdirectory and compares every operation
+// against rules.Matcher bound to that same base: a relative path resolves against
+// the base, an absolute path inside it rebases to the same candidate, and a path
+// the base does not contain is recorded as an uncovered operation instead of
+// being matched against a path it does not have.
+func TestExtensionModuleRebasesOntoTheObservedBase(t *testing.T) {
+	bun, err := exec.LookPath("bun")
+	if err != nil {
+		t.Skipf("bun is unavailable: %v", err)
+	}
+	base := t.TempDir()
+	sub := filepath.Join(base, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+
+	sources := runtimeRules(t)
+	delivery, err := BuildSessionDelivery(sources, harness.OMPCapabilities(), nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	module, err := delivery.RenderExtension()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "atomic.ts"), string(module))
+	writeFile(t, filepath.Join(dir, "driver.ts"), extensionDriver)
+
+	read := func(path string) map[string]any {
+		return map[string]any{"event": "tool_call", "payload": map[string]any{"toolName": "read", "input": map[string]any{"path": path}}}
+	}
+	specBytes, err := json.Marshal(map[string]any{
+		"tools": []string{"read"},
+		"steps": []map[string]any{
+			{"event": "session_start", "payload": map[string]any{}, "ctx": map[string]any{"cwd": sub}},
+			read("docs/spec/x.md"),
+			read(filepath.Join(sub, "docs/spec/x.md")),
+			read("../escape.md"),
+			read("/etc/passwd"),
+			read("docs/spec/x.txt"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "spec.json"), string(specBytes))
+
+	logPath := filepath.Join(dir, "runtime.jsonl")
+	cmd := exec.Command(bun, "run", "driver.ts", "spec.json", "out.json")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), RuntimeLogEnv+"="+logPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("bun driver failed: %v\n%s", err, out)
+	}
+	log, err := ReadRuntimeLog(logPath)
+	if err != nil {
+		t.Fatalf("read runtime log: %v", err)
+	}
+
+	records := make([]rules.RuleRecord, 0, len(sources))
+	for _, source := range sources {
+		records = append(records, source.Record)
+	}
+	instances, err := rules.BindAll(records, "proj", sub)
+	if err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+	canonical, err := rules.NewMatcher(instances)
+	if err != nil {
+		t.Fatalf("matcher: %v", err)
+	}
+
+	var refused []string
+	matchedRows := 0
+	for _, record := range log.Records {
+		switch record.Kind {
+		case "uncovered_operation":
+			refused = append(refused, record.Candidate)
+		case "operation":
+			matches, err := canonical.Match(record.Candidate)
+			if err != nil {
+				t.Fatalf("canonical Match(%q): %v", record.Candidate, err)
+			}
+			var want []string
+			for _, match := range matches {
+				want = append(want, match.Record.ID)
+			}
+			if strings.Join(record.Matched, ",") != strings.Join(want, ",") {
+				t.Errorf("operation %q: module matched %v, canonical matcher matched %v", record.Candidate, record.Matched, want)
+			}
+			if len(want) != 0 {
+				matchedRows++
+			}
+		}
+	}
+	if matchedRows == 0 {
+		t.Error("no operation matched anything, so the parity comparison cannot detect a divergence")
+	}
+	sort.Strings(refused)
+	if got := strings.Join(refused, ","); got != "../escape.md,/etc/passwd" {
+		t.Errorf("refused operations = %q, want the parent escape and the path outside the base", got)
+	}
+	if log.Operations != 3 {
+		t.Errorf("operations = %d, want the three contained paths", log.Operations)
 	}
 }
 

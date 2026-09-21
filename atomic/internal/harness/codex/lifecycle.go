@@ -52,6 +52,9 @@ func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 	}
 
 	plan := harness.Plan{Target: t, Generation: plugin.Generation, Converged: true}
+	for _, gap := range plugin.Unproven {
+		plan.Unproven = append(plan.Unproven, gap.Surface+": "+gap.Evidence)
+	}
 	claims, err := a.Claims(home)
 	if err != nil {
 		return harness.Plan{}, err

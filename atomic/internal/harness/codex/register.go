@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -117,6 +119,26 @@ func DefaultRegister(req RegisterRequest) (RegisterResult, error) {
 	if _, err := run("plugin", "marketplace", "add", marketplaceRoot, "--json"); err != nil {
 		return result, err
 	}
+
+	// Observe the plugin list before mutating: a plugin the user deliberately
+	// disabled must stay disabled, so `plugin add` is skipped when Codex already
+	// reports it installed but disabled.
+	preOut, err := run("plugin", "list", "--json")
+	if err != nil {
+		return result, err
+	}
+	preInstalled, preEnabled, err := parsePluginList(preOut, PluginID())
+	if err != nil {
+		return result, err
+	}
+	if preInstalled && !preEnabled {
+		result.Installed, result.Enabled = true, false
+		if state, obsErr := ObserveRegistration(req.Root); obsErr == nil {
+			result.State = state
+		}
+		return result, fmt.Errorf("codex: register %s: the plugin is installed but disabled; refusing to re-enable a deliberate disablement", PluginID())
+	}
+
 	if _, err := run("plugin", "add", PluginID(), "--json"); err != nil {
 		return result, err
 	}
@@ -142,8 +164,41 @@ func DefaultRegister(req RegisterRequest) (RegisterResult, error) {
 		return result, err
 	}
 	result.State = state
+
+	// The cache Codex materialized is an Atomic-caused generated tree, so it is
+	// recorded as an owned resource and a later target uninstall removes it.
+	// Codex's own config.toml is left unclaimed: Codex writes it, and a row would
+	// make an uninstall delete the user's Codex configuration.
+	if err := recordCacheOwnership(req.Home, target, result.CachePath); err != nil {
+		return result, err
+	}
 	return result, nil
 }
+
+// recordCacheOwnership records the plugin cache directory as an owned tree
+// resource of target, so a target uninstall removes only the Atomic-caused
+// artifact and never Codex's own registry file.
+func recordCacheOwnership(home string, target harness.Target, cachePath string) error {
+	digest, _, err := managedfile.TreeDigest(cachePath)
+	if err != nil {
+		return fmt.Errorf("codex: digest plugin cache %s: %w", cachePath, err)
+	}
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		return err
+	}
+	ledger.Upsert(installstate.Row{
+		Target:   target.Key(),
+		Resource: cacheResourceID,
+		Consumer: target.Key(),
+		Applied:  installstate.AppliedValue{Path: cachePath, Kind: managedfile.KindTree, Digest: digest},
+	})
+	return ledger.Save(config.LedgerPath(home))
+}
+
+// cacheResourceID names the one Codex resource an Atomic registration owns: the
+// plugin cache directory Codex materialized from the published marketplace tree.
+const cacheResourceID = "codex-plugin-cache"
 
 // codexBinary resolves the Codex executable: BinaryEnv when set, else `codex` on
 // PATH. A missing binary is an unsupported surface, never a silent skip.

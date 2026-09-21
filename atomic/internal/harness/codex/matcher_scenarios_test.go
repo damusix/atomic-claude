@@ -21,6 +21,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/rules"
 )
 
 // matcherDriver imports the generated matcher and runs one operation spec,
@@ -32,14 +33,14 @@ import matcher from "./matcher.mjs";
 const spec = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const paths = {};
 for (const [name, candidate] of Object.entries(spec.paths)) {
-	paths[name] = matcher.matchPath(candidate);
+	paths[name] = matcher.matchPath(candidate, spec.base);
 }
-const normalized = {};
-for (const [name, candidate] of Object.entries(spec.normalize)) {
-	normalized[name] = matcher.normalize(candidate);
+const rebased = {};
+for (const [name, candidate] of Object.entries(spec.rebase)) {
+	rebased[name] = matcher.rebase(candidate, spec.base);
 }
 const operations = spec.operations.map((operation) => matcher.matchOperation(operation));
-writeFileSync(process.argv[3], JSON.stringify({ paths, normalized, operations }, null, 2));
+writeFileSync(process.argv[3], JSON.stringify({ paths, rebased, operations }, null, 2));
 `
 
 // matcherCorpus builds a small canonical corpus with overlapping rules. Two
@@ -76,17 +77,19 @@ func matcherCorpus(t *testing.T) *artifacts.Catalog {
 }
 
 // matcherSpec is the synthetic operation sequence one Bun run consumes. Keys are
-// stable names so a mismatch names the row.
+// stable names so a mismatch names the row. Base is the observed workspace root
+// every candidate is rebased onto.
 type matcherSpec struct {
+	Base       string            `json:"base"`
 	Paths      map[string]string `json:"paths"`
-	Normalize  map[string]string `json:"normalize"`
+	Rebase     map[string]string `json:"rebase"`
 	Operations []map[string]any  `json:"operations"`
 }
 
 // matcherResult is one driver run, decoded from the output document.
 type matcherResult struct {
 	Paths      map[string][]string `json:"paths"`
-	Normalized map[string]any      `json:"normalized"`
+	Rebased    map[string]any      `json:"rebased"`
 	Operations []map[string]any    `json:"operations"`
 }
 
@@ -158,6 +161,7 @@ func TestCodexMatcherOfflineGuarantees(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "matcher.mjs"), string(matcher.Bytes))
 	writeFile(t, filepath.Join(dir, "driver.ts"), matcherDriver)
 	spec := matcherSpec{
+		Base: "/repo",
 		Paths: map[string]string{
 			"match":         "src/a.ts",
 			"overlap":       "docs/spec/x.md",
@@ -167,14 +171,17 @@ func TestCodexMatcherOfflineGuarantees(t *testing.T) {
 			"absolute":      "/etc/passwd",
 			"escape":        "../escape.md",
 			"dot_prefixed":  "./docs/spec/x.md",
+			"absolute_in":   "/repo/docs/spec/x.md",
+			"outside_base":  "/other/docs/spec/x.md",
 		},
-		Normalize: map[string]string{
+		Rebase: map[string]string{
 			"absolute":     "/etc/passwd",
 			"escape":       "../escape.md",
 			"windows":      `C:\Users\x.md`,
 			"empty":        "",
 			"dot_prefixed": "./docs/spec/x.md",
 			"double_slash": "docs//spec/x.md",
+			"absolute_in":  "/repo/docs/spec/x.md",
 		},
 		Operations: []map[string]any{
 			// A shell command string is never parsed for a scope path.
@@ -234,16 +241,27 @@ func TestCodexMatcherOfflineGuarantees(t *testing.T) {
 	if ids := got.Paths["dot_prefixed"]; strings.Join(ids, ",") != "shipped:rules/docs/spec.md,shipped:rules/markdown/style.md" {
 		t.Errorf("matchPath(./docs/spec/x.md) = %v, want the collapsed path's matches", ids)
 	}
+	// An absolute path inside the observed base rebases to the same
+	// base-relative candidate; one outside it is refused.
+	if ids := got.Paths["absolute_in"]; strings.Join(ids, ",") != "shipped:rules/docs/spec.md,shipped:rules/markdown/style.md" {
+		t.Errorf("matchPath(/repo/docs/spec/x.md) = %v, want the rebased path's matches", ids)
+	}
+	if ids := got.Paths["outside_base"]; len(ids) != 0 {
+		t.Errorf("matchPath accepted a path outside the observed base: %v", ids)
+	}
 	for _, refused := range []string{"absolute", "escape", "windows", "empty"} {
-		if got.Normalized[refused] != nil {
-			t.Errorf("normalize(%s) = %v, want null for a non-exact-relative candidate", refused, got.Normalized[refused])
+		if got.Rebased[refused] != nil {
+			t.Errorf("rebase(%s) = %v, want null for a path the base does not contain", refused, got.Rebased[refused])
 		}
 	}
-	if got.Normalized["dot_prefixed"] != "docs/spec/x.md" {
-		t.Errorf("normalize(./docs/spec/x.md) = %v, want docs/spec/x.md", got.Normalized["dot_prefixed"])
+	if got.Rebased["dot_prefixed"] != "docs/spec/x.md" {
+		t.Errorf("rebase(./docs/spec/x.md) = %v, want docs/spec/x.md", got.Rebased["dot_prefixed"])
 	}
-	if got.Normalized["double_slash"] != "docs/spec/x.md" {
-		t.Errorf("normalize(docs//spec/x.md) = %v, want docs/spec/x.md", got.Normalized["double_slash"])
+	if got.Rebased["double_slash"] != "docs/spec/x.md" {
+		t.Errorf("rebase(docs//spec/x.md) = %v, want docs/spec/x.md", got.Rebased["double_slash"])
+	}
+	if got.Rebased["absolute_in"] != "docs/spec/x.md" {
+		t.Errorf("rebase(/repo/docs/spec/x.md) = %v, want docs/spec/x.md", got.Rebased["absolute_in"])
 	}
 
 	// Uncovered: no operation carries a proven structured input path, so none is
@@ -268,6 +286,106 @@ func TestCodexMatcherOfflineGuarantees(t *testing.T) {
 	// Deterministic evaluation: the same spec produces byte-identical output.
 	if first != second {
 		t.Errorf("two matcher runs disagree:\n--- first ---\n%s\n--- second ---\n%s", first, second)
+	}
+}
+
+// canonicalRuleRecords mirrors matcherCorpus as canonical records, so the
+// generated module and rules.Matcher can be driven over the same corpus.
+func canonicalRuleRecords() []rules.RuleRecord {
+	record := func(source string, include ...string) rules.RuleRecord {
+		return rules.RuleRecord{
+			ID:       "shipped:" + source,
+			Class:    rules.ClassShipped,
+			Producer: rules.ProducerShipped,
+			Source:   source,
+			BaseKind: rules.BaseRepositoryRoot,
+			Include:  include,
+		}
+	}
+	return []rules.RuleRecord{
+		record("rules/ts/style.md", "**/*.ts"),
+		record("rules/docs/spec.md", "docs/spec/**/*.md"),
+		record("rules/markdown/style.md", "**/*.md"),
+	}
+}
+
+// TestCodexMatcherRebasesAgainstCanonicalMatcher drives the generated module and
+// rules.Matcher over the same candidates, so a divergence in base rebasing or
+// containment fails here rather than inside a session: a candidate the module
+// rebases must match exactly the identities the canonical matcher returns, and a
+// candidate the module refuses must match nothing.
+func TestCodexMatcherRebasesAgainstCanonicalMatcher(t *testing.T) {
+	bun, err := exec.LookPath("bun")
+	if err != nil {
+		t.Skipf("bun is unavailable: %v", err)
+	}
+	plugin, err := BuildPlugin(matcherCorpus(t), harness.CodexCapabilities())
+	if err != nil {
+		t.Fatalf("build plugin: %v", err)
+	}
+	matcher, ok := findFile(plugin, MatcherPath)
+	if !ok {
+		t.Fatal("plugin carries no matcher module")
+	}
+
+	base := t.TempDir()
+	sub := filepath.Join(base, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+	instances, err := rules.BindAll(canonicalRuleRecords(), "proj", sub)
+	if err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+	canonical, err := rules.NewMatcher(instances)
+	if err != nil {
+		t.Fatalf("matcher: %v", err)
+	}
+
+	candidates := map[string]string{
+		"subdir_relative":  "docs/spec/x.md",
+		"absolute_inside":  filepath.Join(sub, "docs/spec/x.md"),
+		"parent_escape":    "../escape.md",
+		"absolute_outside": "/etc/passwd",
+		"nonmatch":         "docs/spec/x.txt",
+		"match":            "src/a.ts",
+	}
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "matcher.mjs"), string(matcher.Bytes))
+	writeFile(t, filepath.Join(dir, "driver.ts"), matcherDriver)
+	specBytes, err := json.Marshal(matcherSpec{Base: sub, Paths: candidates, Rebase: candidates, Operations: []map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "spec.json"), string(specBytes))
+
+	var got matcherResult
+	if err := json.Unmarshal([]byte(runMatcherDriver(t, bun, dir, "parity.json")), &got); err != nil {
+		t.Fatalf("decode matcher output: %v", err)
+	}
+
+	// The matrix must not be vacuous: a module that refused every path would pass
+	// the comparison below, so one row's identities are pinned here.
+	if ids := got.Paths["subdir_relative"]; strings.Join(ids, ",") != "shipped:rules/docs/spec.md,shipped:rules/markdown/style.md" {
+		t.Fatalf("subdir_relative matched %v, want the docs/spec and markdown rules", ids)
+	}
+
+	for name, candidate := range candidates {
+		var want []string
+		if rebased, _ := got.Rebased[name].(string); rebased != "" {
+			matches, err := canonical.Match(rebased)
+			if err != nil {
+				t.Fatalf("canonical Match(%q): %v", rebased, err)
+			}
+			for _, match := range matches {
+				want = append(want, match.Record.ID)
+			}
+		}
+		ids := got.Paths[name]
+		if strings.Join(ids, ",") != strings.Join(want, ",") {
+			t.Errorf("%s (%q): module matched %v, canonical matcher matched %v", name, candidate, ids, want)
+		}
 	}
 }
 

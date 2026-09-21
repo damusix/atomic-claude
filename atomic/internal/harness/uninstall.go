@@ -22,8 +22,9 @@ var ErrNotEnrolled = errors.New("harness: target is not enrolled")
 // against a ledger view: the enrolled ledger on disk for a real removal, or the
 // dry run's simulated post-recovery ledger. Every removable resource's bytes are
 // verified against the digest the ledger recorded writing; a resource that
-// changed underneath Atomic refuses the plan, so nothing is half-removed around
-// a conflict the user must resolve.
+// changed underneath Atomic — ordinary drift on a resource Atomic owns, or a
+// malformed block — is reported skipped and keeps its claim rather than
+// aborting the removal, so the rest of the target still uninstalls.
 func PlanTargetRemoval(home string, t Target, ledger *installstate.Ledger) (Removal, map[string]installstate.Row, error) {
 	out := Removal{Target: t}
 	if home == "" {
@@ -77,6 +78,14 @@ func PlanTargetRemoval(home string, t Target, ledger *installstate.Ledger) (Remo
 			continue
 		}
 		if err := verifyOwned(o.row); err != nil {
+			if errors.Is(err, ErrEvidenceConflict) {
+				// Ordinary drift on an owned resource is not a reason to abort
+				// the whole removal: the resource is skipped and keeps its
+				// claim, so the rest of the target still uninstalls and a later
+				// repair (or removal) can finish the job.
+				out.Skipped = append(out.Skipped, id)
+				continue
+			}
 			return out, nil, err
 		}
 		out.Removed = append(out.Removed, id)
@@ -84,6 +93,7 @@ func PlanTargetRemoval(home string, t Target, ledger *installstate.Ledger) (Remo
 	}
 	sort.Strings(out.Removed)
 	sort.Strings(out.Retained)
+	sort.Strings(out.Skipped)
 	return out, removable, nil
 }
 
@@ -119,7 +129,13 @@ func RemoveTargetResources(home string, t Target) (Removal, error) {
 			ordered = append(ordered, id)
 		}
 	}
+	// Resources the plan already skipped keep their claim for a later removal;
+	// they are seeded here so the occupancy reconciliation below never drops a
+	// row whose bytes still hold Atomic content.
 	skipped := map[string]bool{}
+	for _, id := range out.Skipped {
+		skipped[id] = true
+	}
 	for _, id := range ordered {
 		removed, err := removeResource(removable[id])
 		if err != nil {

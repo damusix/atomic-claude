@@ -16,6 +16,9 @@ type RulesTargetStatus struct {
 	Tier      string                   `json:"tier,omitempty"`
 	Gaps      []harness.Capability     `json:"gaps,omitempty"`
 	Resources []harness.ResourceStatus `json:"resources,omitempty"`
+	// Unproven names the native package and runtime surfaces this target's
+	// projection cannot promise, each as "surface: evidence".
+	Unproven []string `json:"unproven,omitempty"`
 }
 
 // RulesStatus reports per-target rule tier, digest, coverage, and conflict state
@@ -40,6 +43,7 @@ func (s Steps) RulesStatus() ([]RulesTargetStatus, error) {
 			status.Gaps = harness.RuleGaps(adapter.Capabilities())
 			if plan, err := adapter.Lifecycle(s.Home).Project(target, harness.PlanRequest{}); err == nil {
 				desired = harness.DesiredDigests(plan)
+				status.Unproven = append(status.Unproven, plan.Unproven...)
 			}
 		}
 		for _, row := range ledger.Rows {

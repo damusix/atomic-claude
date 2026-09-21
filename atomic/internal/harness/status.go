@@ -99,6 +99,9 @@ type TargetStatus struct {
 	// Blockers are the observations the selected generation reports against this
 	// target, empty when the target has no read-only projection.
 	Blockers []string `json:"blockers,omitempty"`
+	// Unproven names the native surfaces this target's projection cannot promise,
+	// each as "surface: evidence".
+	Unproven []string `json:"unproven,omitempty"`
 }
 
 // Resources merges ledger rows and discovered instances into one record per

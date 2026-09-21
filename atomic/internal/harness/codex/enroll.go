@@ -99,9 +99,12 @@ type EnrollResult struct {
 // Codex owns the byte format of its registry and cache; enrollment records only
 // what it can verify, and reports the observed registration state read-only.
 //
-// A home whose recorded generation of the shared package differs from the one
-// this plan publishes refuses before any mutation, naming both targets: one
-// physical marketplace tree cannot hold two generations.
+// The shared plugin tree is one physical resource every enrolled CODEX_HOME
+// consumes, so moving it records each enrolled consumer's row in the same
+// commit. A home whose row records an older generation is stale, not a
+// requirement, and does not block: this operation rewrites it. A row for a
+// target the ledger does not enroll is the one genuine pin, and refuses before
+// any mutation, naming both targets.
 func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	var result EnrollResult
 	if req.Home == "" {
@@ -150,7 +153,7 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	}
 	for _, action := range recovery {
 		if action.Decision == installstate.DecisionConflict {
-			return result, fmt.Errorf("codex: enroll %s: unresolved journal conflict at %s: %s", target.Key(), action.Path, action.Detail)
+			return result, installstate.JournalConflictError(action.Path, action.Detail)
 		}
 	}
 
@@ -186,6 +189,26 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 		Status:     string(harness.StatusConverged),
 	}) {
 		rowsChanged = true
+	}
+
+	// One physical marketplace tree cannot hold two generations, and every
+	// enrolled CODEX_HOME consumes it: the running binary is the only writer, so
+	// the operation that moves the tree records each consumer's row in the same
+	// commit rather than leaving a stale generation to look like a requirement.
+	for _, consumer := range harness.SharedConsumers(ledger, harness.KindCodex, packageRoot) {
+		if consumer == target.Key() {
+			continue
+		}
+		if ledger.Upsert(installstate.Row{
+			Target:     consumer,
+			Resource:   packageRoot,
+			Consumer:   consumer,
+			Generation: plugin.Generation,
+			Tier:       string(Tier),
+			Applied:    installstate.AppliedValue{Path: packageRoot, Kind: managedfile.KindTree, Digest: treeDigest},
+		}) {
+			rowsChanged = true
+		}
 	}
 
 	if obs.Digest != "" && obs.Digest == treeDigest {
@@ -225,6 +248,9 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	}
 	result.Applied = append(result.Applied, packageRoot)
 	if err := tx.Complete(); err != nil {
+		return result, err
+	}
+	if _, err := installstate.CleanupOperation(req.Home, tx.ID); err != nil {
 		return result, err
 	}
 

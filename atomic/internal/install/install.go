@@ -122,6 +122,10 @@ type ConvergeReport struct {
 	Generation string         `json:"generation,omitempty"`
 	Applied    bool           `json:"applied"`
 	Blockers   []string       `json:"blockers,omitempty"`
+	// Unproven names the native surfaces the target's projection cannot promise,
+	// each as "surface: evidence", so a caller never reads a converged target as
+	// a fully delivered one.
+	Unproven []string `json:"unproven,omitempty"`
 }
 
 // Converge executes the ordering one mutating verb follows per target: project
@@ -173,6 +177,7 @@ func (s Steps) Converge(req ConvergeRequest) ([]ConvergeReport, error) {
 			return reports, err
 		}
 		report.Generation = plan.Generation
+		report.Unproven = append(report.Unproven, plan.Unproven...)
 		if len(plan.Blockers) > 0 {
 			report.Status = harness.StatusConflicted
 			report.Blockers = plan.Blockers
@@ -369,6 +374,18 @@ func (s Steps) registry() (*harness.Registry, error) {
 // ledgerPath is the one ledger root every helper reads.
 func ledgerPath(home string) string {
 	return config.LedgerPath(home)
+}
+
+// TargetEnrolled reports whether the ledger enrolls target. The legacy Claude
+// verbs use it to decide whether a resolved root is ledger-managed: an enrolled
+// root converges through the install engine, while an un-adopted install keeps
+// the legacy writer.
+func TargetEnrolled(home string, target harness.Target) (bool, error) {
+	ledger, err := installstate.LoadLedger(ledgerPath(home))
+	if err != nil {
+		return false, err
+	}
+	return enrolled(ledger, target), nil
 }
 
 // enrolled reports whether the ledger records target.

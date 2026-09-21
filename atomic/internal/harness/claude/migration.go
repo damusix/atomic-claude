@@ -107,6 +107,13 @@ func Migrate(req MigrationRequest) (MigrationResult, error) {
 		return result, err
 	}
 	adoption := adoptionRequest(req, artifacts)
+	// The one-time mutable import rides inside Adopt's locked section: it runs
+	// after recovery and only for a post-recovery plan that is ready or already
+	// converged, so a refused adoption can never have written an authority.
+	adoption.ImportMutable = func() ([]string, error) {
+		imported, importErr := ImportMutable(req.Home, req.NativeRoot)
+		return imported.Imported, importErr
+	}
 
 	plan, err := installstate.PlanAdoption(adoption)
 	if err != nil {
@@ -114,22 +121,12 @@ func Migrate(req MigrationRequest) (MigrationResult, error) {
 	}
 	result.Plan = plan
 
-	// A blocked or in-flight plan has no approved mutation to precede, so the
-	// one-time import waits — Adopt recovers first and would refuse otherwise.
-	if plan.Classification.Legacy.Present() &&
-		(plan.Status == installstate.StatusReady || plan.Status == installstate.StatusConverged) {
-		imported, err := ImportMutable(req.Home, req.NativeRoot)
-		if err != nil {
-			return result, err
-		}
-		result.Import = imported
-	}
-
 	adopted, err := installstate.Adopt(adoption)
 	result.Adoption = adopted
 	if err != nil {
 		return result, err
 	}
+	result.Import = MutableImport{Imported: adopted.Imported}
 
 	// Each scope is its own operation. A caller-supplied id is suffixed per
 	// scope index so the journals and transaction trees stay distinct; sharing
@@ -221,8 +218,8 @@ type Verification struct {
 
 // Verify reports the current migration state read-only: the ledger's applied
 // digests against the observed bytes (an old binary's later write, or any other
-// derivative edit, surfaces as a conflict), plus divergent native profile and
-// wiki copies. It mutates nothing.
+// derivative edit, surfaces as drift the resource's own verdict carries), plus
+// divergent native profile and wiki copies. It mutates nothing.
 func Verify(req MigrationRequest) (Verification, error) {
 	var out Verification
 	if req.Home == "" || req.NativeRoot == "" {
@@ -232,6 +229,7 @@ func Verify(req MigrationRequest) (Verification, error) {
 	c, err := installstate.Classify(installstate.ClassifyRequest{
 		Home:       req.Home,
 		NativeRoot: req.NativeRoot,
+		Target:     req.Target,
 		Claims:     GlobalClaims(req.NativeRoot),
 	})
 	if err != nil {

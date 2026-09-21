@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,7 +19,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
 	"github.com/damusix/atomic-claude/atomic/internal/install"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 	"github.com/damusix/atomic-claude/atomic/internal/updatedoctor"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
@@ -146,7 +149,7 @@ func defaultUpdateSpawn(exe string) error {
 func buildUpdateCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                "update",
-		Short:              "Self-update the atomic binary, then refresh ~/.claude artifacts",
+		Short:              "Self-update the atomic binary, then converge enrolled harness targets",
 		Annotations:        map[string]string{"args_hint": ""},
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -420,7 +423,13 @@ func runUpdateWith(args []string, deps updateDeps) int {
 func runUpdatePostSwap(home string, noDoctor, skipTargets bool, deps updateDeps) int {
 	if !skipTargets {
 		if err := deps.converge(home, deps.out); err != nil {
-			fmt.Fprintf(deps.errOut, "atomic update: target convergence failed: %v\nrun `atomic harness repair` manually.\n", err)
+			fmt.Fprintf(deps.errOut, "atomic update: target convergence failed: %v\n", err)
+			if errors.Is(err, errLegacyUnenrolled) {
+				// A legacy install no longer refreshes itself: fail loudly so the
+				// user adopts it rather than believing update kept it current.
+				return 1
+			}
+			fmt.Fprintf(deps.errOut, "run `atomic harness repair` manually.\n")
 		}
 	}
 	if home != "" {
@@ -440,11 +449,18 @@ func runUpdatePostSwap(home string, noDoctor, skipTargets bool, deps updateDeps)
 	return 0
 }
 
+// errLegacyUnenrolled reports an un-adopted legacy Claude install. The
+// pre-cutover refresh path is retired, so update names the adopt verb and exits
+// non-zero rather than silently freezing the user's artifacts.
+var errLegacyUnenrolled = errors.New("legacy Claude install is not enrolled")
+
 // convergeEnrolledTargets runs the CP7A install engine over every enrolled
 // target. `atomic update` is the user's consent, so the plan is auto-approved;
 // adapters re-acquire the lifecycle lock and recover unresolved journals before
-// they mutate. A home with no enrollment is a no-op, never an error.
-func convergeEnrolledTargets(home string, w io.Writer) error {
+// they mutate. A home with no enrollment and no legacy evidence is a no-op; a
+// home with legacy evidence but no enrollment refuses with the adopt
+// instruction, because nothing else can refresh it any more.
+func convergeEnrolledTargets(home string, _ io.Writer) error {
 	if home == "" {
 		return nil
 	}
@@ -454,17 +470,36 @@ func convergeEnrolledTargets(home string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	for _, r := range reports {
-		switch {
-		case len(r.Blockers) > 0:
-			fmt.Fprintf(w, "%s\t%s\t%s\n", r.Target.Key(), r.Status, r.Blockers[0])
-		case r.Applied:
-			fmt.Fprintf(w, "%s\t%s\tapplied\n", r.Target.Key(), r.Status)
-		default:
-			fmt.Fprintf(w, "%s\t%s\n", r.Target.Key(), r.Status)
-		}
+	if len(reports) == 0 {
+		return legacyUnenrolledError(home)
+	}
+	// The shared printer is what makes update honest: an enrolled OMP target
+	// whose generated commands, agents, skills, and rule bodies OMP does not
+	// discover prints its `unsupported` rows here instead of reading as wholly
+	// delivered, and every blocker is printed rather than only the first.
+	if printConvergeReports("update", reports, false, false) {
+		return fmt.Errorf("one or more enrolled targets could not converge; run `atomic harness repair` for details")
 	}
 	return nil
+}
+
+// legacyUnenrolledError classifies the default Claude root: when legacy evidence
+// is present and no target is enrolled, it returns the adopt instruction, and
+// nil otherwise (a home with neither is a genuine no-op).
+func legacyUnenrolledError(home string) error {
+	root := claude.DefaultConfigDir(home)
+	c, err := installstate.Classify(installstate.ClassifyRequest{
+		Home:       home,
+		NativeRoot: root,
+		Target:     "claude:" + root,
+	})
+	if err != nil {
+		return err
+	}
+	if !c.Legacy.Present() {
+		return nil
+	}
+	return fmt.Errorf("%w at %s; run `atomic harness adopt claude` to migrate it under ledger management, then re-run `atomic update`", errLegacyUnenrolled, root)
 }
 
 // downloadProgressRenderer rewrites one status line in place as the archive

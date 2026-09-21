@@ -78,15 +78,17 @@ func TestResolve_ChangedProjectionDoesNotOverrideAuthority(t *testing.T) {
 	}
 }
 
-// Repository-state resolution is harness-neutral: harness fingerprints never
-// select the code-index root. Only a `.pi` index exists, so the report must not
-// claim a repo-scope index.
-func TestResolve_CodeIndexIgnoresHarnessFingerprints(t *testing.T) {
+// A repository whose only populated state root is a former harness directory
+// resolves that index in place.
+//
+// Contract asserted now: repository-state resolution follows presence, not the
+// environment — one populated candidate is adopted, so a lone `.pi` index is
+// the resolved state and the report names repo scope.
+// Property still protected: resolution never sprouts a fresh `.claude`
+// directory beside state that already exists, orphaning it.
+func TestResolve_CodeIndexAdoptsSinglePopulatedCandidate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ATOMIC_HARNESS", "pi")
-	t.Setenv("PI_CODING_AGENT", "true")
-	t.Setenv("CLAUDECODE", "1")
 
 	repo := t.TempDir()
 	mkGitMarker(t, repo)
@@ -102,24 +104,62 @@ func TestResolve_CodeIndexIgnoresHarnessFingerprints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if report.CodeIndex.Scope == realm.ScopeRepo {
-		t.Errorf("harness fingerprint selected the .pi index; scope=%v", report.CodeIndex.Scope)
+	if report.CodeIndex.Scope != realm.ScopeRepo {
+		t.Errorf("scope = %v, want Repo for the lone populated candidate", report.CodeIndex.Scope)
+	}
+	if got, want := config.IndexDBPath(repo), filepath.Join(piIndex, "atomic.db"); got != want {
+		t.Errorf("resolved index = %q, want the populated .pi index %q", got, want)
+	}
+}
+
+// Harness fingerprints are never an input to repository-state resolution.
+//
+// Contract asserted now: exporting ATOMIC_HARNESS/PI_CODING_AGENT cannot invent
+// an index where no state exists, and with two equally populated candidates it
+// cannot tip the tie toward the harness-named `.pi` — the built-in `.claude`
+// default decides.
+// Property still protected: the environment never changes what a repository
+// resolves to; explicit `atomic state adopt` remains the only way to pick
+// between ambiguous candidates.
+func TestResolve_CodeIndexHarnessFingerprintDoesNotDecide(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ATOMIC_HARNESS", "pi")
+	t.Setenv("PI_CODING_AGENT", "true")
+	t.Setenv("CLAUDECODE", "1")
+
+	// No candidate directory exists, so the fingerprint has nothing to select.
+	empty := t.TempDir()
+	mkGitMarker(t, empty)
+	report, err := where.Resolve(empty, missingClaudeMD(t, empty))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if report.CodeIndex.Scope != realm.ScopeNoIndex {
+		t.Errorf("fingerprint invented an index; scope = %v, want NoIndex", report.CodeIndex.Scope)
 	}
 
-	// The default `.claude` layout is what the neutral ladder selects.
-	claudeIndex := filepath.Join(repo, ".claude", ".atomic-index")
-	if err := os.MkdirAll(claudeIndex, 0o755); err != nil {
-		t.Fatal(err)
+	// Two equally populated candidates: the fingerprint cannot break the tie.
+	tied := t.TempDir()
+	mkGitMarker(t, tied)
+	for _, dir := range []string{".pi", ".claude"} {
+		index := filepath.Join(tied, dir, ".atomic-index")
+		if err := os.MkdirAll(index, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(index, "atomic.db"), []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(claudeIndex, "atomic.db"), []byte(""), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	report, err = where.Resolve(repo, missingClaudeMD(t, repo))
+	report, err = where.Resolve(tied, missingClaudeMD(t, tied))
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if report.CodeIndex.Scope != realm.ScopeRepo {
-		t.Errorf("default .claude index not selected; scope=%v", report.CodeIndex.Scope)
+		t.Errorf("tied candidates with a fingerprint set: scope = %v, want the default index", report.CodeIndex.Scope)
+	}
+	if got, want := config.IndexDBPath(tied), filepath.Join(tied, ".claude", ".atomic-index", "atomic.db"); got != want {
+		t.Errorf("resolved index = %q, want the built-in default %q", got, want)
 	}
 }
 

@@ -3,6 +3,7 @@ package omp
 import (
 	"fmt"
 
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
@@ -42,7 +43,7 @@ func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 	if err != nil {
 		return harness.Plan{}, err
 	}
-	pkg, err := BuildPackage(cat, a.Capabilities())
+	pkg, err := BuildPackage(cat, a.Capabilities(), nil)
 	if err != nil {
 		return harness.Plan{}, err
 	}
@@ -54,15 +55,22 @@ func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 	if err != nil {
 		return harness.Plan{}, err
 	}
+	module, err := pkg.ExtensionModule()
+	if err != nil {
+		return harness.Plan{}, err
+	}
 	blockDigest, err := SteeringDigest(block)
 	if err != nil {
 		return harness.Plan{}, err
 	}
 
 	plan := harness.Plan{Target: t, Generation: pkg.Generation, Converged: true}
+	plan.Unproven = append(plan.Unproven, gapLines(pkg.Unproven)...)
+	plan.Unproven = append(plan.Unproven, gapLines(pkg.Runtime.Unproven)...)
 	desired := map[string]string{
-		PackageResource(home):          treeDigest,
-		SteeringResource(t.NativeRoot): blockDigest,
+		PackageResource(home):           treeDigest,
+		SteeringResource(t.NativeRoot):  blockDigest,
+		ExtensionResource(t.NativeRoot): artifacts.ProjectionDigest(module),
 	}
 	claims, err := a.Claims(home, t.NativeRoot)
 	if err != nil {
@@ -81,6 +89,13 @@ func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 			return harness.Plan{}, err
 		}
 		if obs.Conflict != managedfile.ConflictNone {
+			if obs.Conflict == managedfile.ConflictMalformedBlock && !managedfile.HasBlockTags(obs.Bytes) {
+				// The file exists with user bytes but has never held an Atomic
+				// block: enrollment appends one and preserves every existing
+				// byte, so this is not a blocker.
+				plan.Converged = false
+				continue
+			}
 			plan.Blockers = append(plan.Blockers, fmt.Sprintf("%s carries an ambiguous %s block", claim.Path, managedfile.BlockOpen))
 			plan.Converged = false
 			continue
@@ -98,6 +113,16 @@ func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 		plan.Blockers = append(plan.Blockers, err.Error())
 	}
 	return plan, nil
+}
+
+// gapLines renders each unproven surface as one "surface: evidence" line, the
+// form a plan, a status report, and a doctor finding all print.
+func gapLines(gaps []PackageGap) []string {
+	out := make([]string, 0, len(gaps))
+	for _, gap := range gaps {
+		out = append(out, gap.Surface+": "+gap.Evidence)
+	}
+	return out
 }
 
 // converge applies the OMP plan through the enrollment engine.

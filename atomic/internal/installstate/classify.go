@@ -152,10 +152,13 @@ type Classification struct {
 // ClassifyRequest is the read-only input to Classify. NativeRoot is the legacy
 // Claude artifact root (usually ~/.claude); Claims are the selected
 // generation's ownership claims, which the harness layer produces from its
-// adapter and this layer only judges.
+// adapter and this layer only judges. Target keys the ledger rows the claims
+// are judged against, so Atomic's own recorded write is recognizable as
+// ownership evidence.
 type ClassifyRequest struct {
 	Home       string
 	NativeRoot string
+	Target     string
 	Claims     []managedfile.Claim
 }
 
@@ -182,8 +185,9 @@ func Classify(req ClassifyRequest) (Classification, error) {
 		return Classification{}, err
 	}
 	c.V2 = v2
-	// Settings drift is repairable rather than mixed ownership evidence, so it
-	// is reported here instead of through the state verdict.
+	// Settings drift and row drift are repairable rather than mixed ownership
+	// evidence, so they are reported here instead of through the state verdict.
+	c.Drift = append(c.Drift, rowDrift(v2)...)
 	c.Drift = append(c.Drift, settingsDrift(v2)...)
 
 	settings, err := inventorySettings(req.NativeRoot)
@@ -192,7 +196,7 @@ func Classify(req ClassifyRequest) (Classification, error) {
 	}
 	c.Settings = settings
 
-	resources, err := assessResources(req.NativeRoot, req.Claims, legacy.Listed)
+	resources, err := assessResources(req.NativeRoot, req.Target, v2.rows, req.Claims, legacy.Listed)
 	if err != nil {
 		return Classification{}, err
 	}
@@ -272,16 +276,15 @@ func legacyState(legacy LegacyInventory, resources []Resource) (State, []string,
 }
 
 // v2State classifies a v2-only installation. The ledger is consulted first: an
-// unreadable journal or a ledger row whose bytes no longer match is decisive
-// evidence, and reporting in-flight or orphaned work would otherwise hide it.
-// A row the unresolved journals themselves intend to rewrite is not drift —
-// recovery re-observes and reconciles it before any new plan.
+// unreadable journal is decisive evidence, and reporting in-flight or orphaned
+// work would otherwise hide it. A row whose bytes no longer match is ordinary
+// per-resource drift, not a state: the resource itself carries the verdict, so
+// repair can replace it and uninstall can clear it. A row the unresolved
+// journals themselves intend to rewrite is not drift — recovery re-observes and
+// reconciles it before any new plan.
 func v2State(v2 V2Inventory) (State, []string, []string) {
 	if len(v2.Unreadable) > 0 {
 		return StateMixed, nil, []string{"unreadable v2 evidence: " + strings.Join(v2.Unreadable, ", ")}
-	}
-	if disagreements := ledgerDisagreements(v2); len(disagreements) > 0 {
-		return StateMixed, nil, []string{"the ledger disagrees with the observed bytes: " + strings.Join(disagreements, "; ")}
 	}
 	switch {
 	case len(v2.Journals) > 0:
@@ -304,18 +307,20 @@ func ObserveApplied(a AppliedValue) (managedfile.Observation, error) {
 	return managedfile.Observe(a.Path, a.Kind)
 }
 
-// ledgerDisagreements reports every ledger row whose recorded applied value no
-// longer matches the bytes on disk. A row that agrees is proof of adopted work;
-// a row that disagrees — a changed file, a deleted file, or a row with no
-// recorded digest — is the overlap that makes a state mixed. A row an
-// unresolved journal intends to rewrite is excluded: its journal owns the
-// difference and recovery reconciles it.
+// rowDrift reports every ledger row whose recorded applied value no longer
+// matches the bytes on disk. A row that agrees is proof of adopted work; a row
+// that disagrees — a changed file, a deleted file, or a row with no recorded
+// digest — is per-resource drift the owning resource's verdict carries: a
+// changed file needs a replace-or-leave-unowned decision, an absent one is
+// recreated, and neither makes the install mixed. A row an unresolved journal
+// intends to rewrite is excluded: its journal owns the difference and recovery
+// reconciles it.
 //
 // A settings row is exempt from the verdict: convergence re-applies the members
 // it owns on every run, so a missing or edited member is drift the next converge
 // repairs, never evidence of a competing owner. It is reported through Drift
 // instead, which is why settingsDrift exists.
-func ledgerDisagreements(v2 V2Inventory) []string {
+func rowDrift(v2 V2Inventory) []string {
 	var out []string
 	for _, row := range v2.rows {
 		if row.Applied.Kind == managedfile.KindSettings {
@@ -506,15 +511,28 @@ func inventorySettings(nativeRoot string) (SettingsInventory, error) {
 }
 
 // assessResources judges every selected-generation claim and marks which the
-// legacy [install] section named.
-func assessResources(nativeRoot string, claims []managedfile.Claim, listed []string) ([]Resource, error) {
+// legacy [install] section named. Each claim is first enriched with the ledger's
+// recorded digest for its (target, resource), so bytes Atomic itself wrote at an
+// older generation are recognized as owned rather than batched for a decision.
+func assessResources(nativeRoot, target string, rows []Row, claims []managedfile.Claim, listed []string) ([]Resource, error) {
 	listedSet := make(map[string]bool, len(listed))
 	for _, t := range listed {
 		listedSet[filepath.FromSlash(t)] = true
 	}
 
+	recorded := map[string]string{}
+	for _, row := range rows {
+		if row.Target != target || row.Applied.Digest == "" {
+			continue
+		}
+		recorded[row.Resource] = row.Applied.Digest
+	}
+
 	out := make([]Resource, 0, len(claims))
 	for _, claim := range claims {
+		if claim.RecordedDigest == "" {
+			claim.RecordedDigest = recorded[claim.ID]
+		}
 		a, err := managedfile.Assess(claim)
 		if err != nil {
 			return nil, err

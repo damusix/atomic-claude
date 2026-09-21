@@ -19,6 +19,8 @@ type (
 const (
 	EvidenceSelection = managedfile.EvidenceSelection
 	EvidenceBlock     = managedfile.EvidenceBlock
+	EvidenceNoBlock   = managedfile.EvidenceNoBlock
+	EvidenceLedger    = managedfile.EvidenceLedger
 	EvidenceMissing   = managedfile.EvidenceMissing
 	EvidenceUnowned   = managedfile.EvidenceUnowned
 	EvidenceConflict  = managedfile.EvidenceConflict

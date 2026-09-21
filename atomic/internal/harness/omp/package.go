@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -87,7 +88,11 @@ type Package struct {
 // never enters the tree — a canonical field the CP0 record does not prove is
 // dropped and reported — and the report names every native surface the package
 // cannot promise.
-func BuildPackage(cat *artifacts.Catalog, m harness.CapabilityMatrix) (Package, error) {
+// deny carries the exact machine predicates the delivery's extension module
+// blocks; an empty list ships none, which is what the selected generation does
+// by default. It is a package input because the module is rendered once, into
+// the tree, and the same bytes are what a profile's agent root receives.
+func BuildPackage(cat *artifacts.Catalog, m harness.CapabilityMatrix, deny []DenyPredicate) (Package, error) {
 	if m.Harness != harness.KindOMP {
 		return Package{}, fmt.Errorf("omp: package generation needs the OMP capability record, got %q", m.Harness)
 	}
@@ -117,7 +122,7 @@ func BuildPackage(cat *artifacts.Catalog, m harness.CapabilityMatrix) (Package, 
 	if err := pkg.addRules(cat, report); err != nil {
 		return Package{}, err
 	}
-	delivery, err := BuildSessionDelivery(sources, m, nil)
+	delivery, err := BuildSessionDelivery(sources, m, deny)
 	if err != nil {
 		return Package{}, err
 	}
@@ -273,7 +278,10 @@ func (p *Package) addRules(cat *artifacts.Catalog, report ShippedRuleReport) err
 }
 
 // Render writes the package tree into dir. The caller owns dir; every file is
-// written with the mode the generated-tree identity records.
+// written with the mode the generated-tree identity records. Modes are set
+// explicitly after writing, because os.WriteFile's mode is masked by the process
+// umask: without the Chmod a converge from a shell with a different umask would
+// digest a published tree as stale and replace it.
 func (p Package) Render(dir string) error {
 	for _, f := range p.Files {
 		if err := safePackagePath(f.Path); err != nil {
@@ -287,7 +295,28 @@ func (p Package) Render(dir string) error {
 			return fmt.Errorf("omp: write %s: %w", f.Path, err)
 		}
 	}
-	return nil
+	return chmodTree(dir)
+}
+
+// chmodTree pins every node's permission bits — directories to 0755, files to
+// 0644 — so the tree digest is umask-independent.
+func chmodTree(dir string) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == dir {
+			return nil
+		}
+		mode := os.FileMode(0o644)
+		if d.IsDir() {
+			mode = 0o755
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			return fmt.Errorf("omp: chmod %s: %w", path, err)
+		}
+		return nil
+	})
 }
 
 // TreeDigest renders the package into a scratch directory and digests the
@@ -304,6 +333,18 @@ func (p Package) TreeDigest() (string, error) {
 	}
 	digest, _, err := managedfile.TreeDigest(dir)
 	return digest, err
+}
+
+// ExtensionModule returns the rendered runtime delivery module the package
+// carries. Those bytes are also what a profile's agent root receives, so the
+// delivered extension and the corpus store never drift.
+func (p Package) ExtensionModule() ([]byte, error) {
+	for _, f := range p.Files {
+		if f.Path == SkeletonPath {
+			return f.Bytes, nil
+		}
+	}
+	return nil, fmt.Errorf("omp: package carries no %s module", SkeletonPath)
 }
 
 // Paths returns the package's file paths in order.
@@ -342,13 +383,16 @@ func safePackagePath(path string) error {
 }
 
 // packageGaps are the OMP package surfaces CP0 left unsupported: no package was
-// registered, so installation, shared visibility, project scope, and uninstall
-// have no observation. The runtime delivery is never one of them — it ships in
-// the extension module — and SessionDelivery.Unproven is the single owner of the
-// surfaces that delivery cannot promise, so no runtime surface is repeated here.
+// registered, so installation, artifact discovery, shared visibility, project
+// scope, and uninstall have no observation. What OMP loads is the profile's
+// extension module under its agent root, which is a separate resource. The
+// runtime delivery is never one of these gaps — it ships in that module — and
+// SessionDelivery.Unproven is the single owner of the surfaces the delivery
+// cannot promise, so no runtime surface is repeated here.
 func packageGaps() []PackageGap {
 	return []PackageGap{
-		{Surface: "package install and lifecycle", Evidence: "omp plugin list returned empty npm and marketplace arrays; no package was registered"},
+		{Surface: "package install, registration, and lifecycle", Evidence: "omp plugin list --json returned empty npm and marketplace arrays; no package was registered"},
+		{Surface: "package command, agent, and skill discovery", Evidence: "CP0 proved extension discovery under the agent root only; no command, agent, or skill was observed loading from a package"},
 		{Surface: "shared-package visibility", Evidence: "no package was registered, so visibility to an unenrolled profile is unobserved"},
 		{Surface: "project installation scope", Evidence: "no package was registered"},
 		{Surface: "package uninstall and cleanup", Evidence: "no package was registered"},

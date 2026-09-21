@@ -8,6 +8,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 	"github.com/spf13/cobra"
 )
 
@@ -159,13 +160,19 @@ func stateAdopt(opts stateOptions) (stateReport, error) {
 	return report, nil
 }
 
-// printStateReport renders one selection outcome.
+// printStateReport renders one selection outcome. The selected directory is
+// printed as the absolute path resolution would use: an absolute --dir is
+// already resolved, a segment joins the repository root.
 func printStateReport(report stateReport, repoRoot string, dryRun bool) {
 	switch report.Action {
 	case "clear":
 		fmt.Printf("cleared\t%s\n", config.StateLocationRecordPath(repoRoot))
 	case "select", "adopt":
-		fmt.Printf("%s\t%s\n", report.Action, filepath.Join(repoRoot, report.StateDir))
+		root := report.StateDir
+		if !filepath.IsAbs(root) {
+			root = filepath.Join(repoRoot, root)
+		}
+		fmt.Printf("%s\t%s\n", report.Action, root)
 	default:
 		fmt.Printf("resolution\t%s\t%s\n", report.Root, report.Source)
 	}
@@ -175,13 +182,13 @@ func printStateReport(report stateReport, repoRoot string, dryRun bool) {
 }
 
 // stateRepoRoot resolves the repository root the selection is recorded for: an
-// explicit positional root, the --repo override, or the current directory.
+// explicit positional root, the --repo override, or the invoked directory's
+// repo root. It uses the same resolver every repo-local verb uses, so a
+// subdirectory invocation records the selection for the repository rather than
+// for the subdirectory.
 func stateRepoRoot(repoOverride string, rest []string) (string, error) {
 	if len(rest) > 0 && rest[0] != "" {
-		return filepath.Abs(rest[0])
+		return repoctx.Resolve(rest[0])
 	}
-	if repoOverride != "" {
-		return filepath.Abs(repoOverride)
-	}
-	return os.Getwd()
+	return repoctx.Resolve(repoOverride)
 }

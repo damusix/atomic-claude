@@ -8,10 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/omp"
-	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
-	"github.com/damusix/atomic-claude/atomic/internal/rules"
 )
 
 // TestOMPRuntimeDeliveryPrimarySession drives the real OMP binary against an
@@ -31,10 +30,7 @@ func TestOMPRuntimeDeliveryPrimarySession(t *testing.T) {
 		t.Skipf("omp is unavailable: %v", err)
 	}
 	dir := t.TempDir()
-	home, err := NewOMPHome(filepath.Join(dir, "home"), runtimeModule(t, nil))
-	if err != nil {
-		t.Fatalf("prepare home: %v", err)
-	}
+	home, _ := prepareOMPHome(t, filepath.Join(dir, "home"), OMPHomeRequest{})
 	repo := filepath.Join(dir, "repo")
 	writeTree(t, repo, map[string]string{
 		"src/a.ts":       "export const a = 1;\n",
@@ -197,10 +193,7 @@ func TestOMPRuntimeDeliveryChildSession(t *testing.T) {
 		t.Skip("no provider credential: set CP0_OMP_AUTH_HOME or CP0_OMP_API_KEY to exercise a child session")
 	}
 	dir := t.TempDir()
-	home, err := NewOMPHome(filepath.Join(dir, "home"), runtimeModule(t, nil))
-	if err != nil {
-		t.Fatalf("prepare home: %v", err)
-	}
+	home, _ := prepareOMPHome(t, filepath.Join(dir, "home"), OMPHomeRequest{})
 	repo := filepath.Join(dir, "repo")
 	writeTree(t, repo, map[string]string{"src/a.ts": "export const a = 1;\n"})
 	scenario, err := home.Launch(OMPLaunch{
@@ -254,14 +247,11 @@ func TestOMPRuntimeDeliveryMachineDeny(t *testing.T) {
 	dir := t.TempDir()
 	sentinel := filepath.Join(dir, "denied-side-effect")
 	command := "touch '" + sentinel + "' # ATOMIC_RUNTIMEPROOF_BLOCK_ME"
-	home, err := NewOMPHome(filepath.Join(dir, "home"), runtimeModule(t, []omp.DenyPredicate{{
+	home, _ := prepareOMPHome(t, filepath.Join(dir, "home"), OMPHomeRequest{Deny: []omp.DenyPredicate{{
 		Tool:    "bash",
 		Command: command,
 		Reason:  "ATOMIC_RUNTIMEPROOF_DENY_MARKER",
-	}}))
-	if err != nil {
-		t.Fatalf("prepare home: %v", err)
-	}
+	}}})
 	repo := filepath.Join(dir, "repo")
 	writeTree(t, repo, map[string]string{"src/a.ts": "export const a = 1;\n"})
 	scenario, err := home.Launch(OMPLaunch{
@@ -333,40 +323,64 @@ func TestOMPModelTokenResolvesCP0APIKey(t *testing.T) {
 	}
 }
 
-// runtimeModule renders the extension under proof from a small projected rule
-// set, so a scenario asserts the delivery contract rather than the shipped
-// corpus' current contents.
-func runtimeModule(t *testing.T, deny []omp.DenyPredicate) []byte {
+// runtimeAdapter returns the adapter the OMP scenarios enroll with: the
+// runtimeproof fixture corpus, so a scenario asserts the delivery contract rather
+// than the shipped corpus' current contents, and a stub root resolver, so no test
+// depends on an installed OMP binary. Enrollment itself is the production call.
+func runtimeAdapter(t *testing.T) *omp.Adapter {
 	t.Helper()
-	sources := []harness.RuleSource{
-		runtimeRuleSource(t, "rules/ts/style.md", []string{"**/*.{ts,tsx}"}, "# TypeScript\n"),
-		runtimeRuleSource(t, "rules/docs/spec.md", []string{"docs/spec/**/*.md"}, "# Specs\n"),
+	a := omp.New()
+	a.ConfigPath = func(home, profile string) (string, error) {
+		if profile == "" {
+			return filepath.Join(home, filepath.FromSlash(omp.DefaultAgentDir)), nil
+		}
+		return filepath.Join(home, ".omp", "profiles", profile, "agent"), nil
+	}
+	// The stub answers every name, so an ambient selector would enroll a profile
+	// the scenario never named. Opt out of the ambient read.
+	a.AmbientProfile = nil
+	a.Corpus = func() (*artifacts.Catalog, error) { return runtimeCorpus(t), nil }
+	return a
+}
+
+// runtimeCorpus loads the fixture corpus the OMP scenarios deliver.
+func runtimeCorpus(t *testing.T) *artifacts.Catalog {
+	t.Helper()
+	cat, err := artifacts.Load(filepath.Join("testdata", "omp-corpus"))
+	if err != nil {
+		t.Fatalf("load OMP fixture corpus: %v", err)
+	}
+	return cat
+}
+
+// runtimeDelivery is the delivery the fixture corpus produces, which is what the
+// enrolled home's extension module carries.
+func runtimeDelivery(t *testing.T, deny []omp.DenyPredicate) omp.SessionDelivery {
+	t.Helper()
+	sources, err := omp.ShippedRuleSources(runtimeCorpus(t))
+	if err != nil {
+		t.Fatalf("shipped rule sources: %v", err)
 	}
 	delivery, err := omp.BuildSessionDelivery(sources, harness.OMPCapabilities(), deny)
 	if err != nil {
 		t.Fatalf("build session delivery: %v", err)
 	}
-	module, err := delivery.RenderExtension()
-	if err != nil {
-		t.Fatalf("render extension: %v", err)
-	}
-	return module
+	return delivery
 }
 
-func runtimeRuleSource(t *testing.T, source string, include []string, body string) harness.RuleSource {
+// prepareOMPHome enrolls an isolated OMP home through the production adapter and
+// returns the prepared home with the enrollment result, so a scenario launches
+// the layout enrollment produced rather than one it wrote itself.
+func prepareOMPHome(t *testing.T, dir string, req OMPHomeRequest) (OMPHome, omp.EnrollResult) {
 	t.Helper()
-	bytes := []byte(body)
-	record := rules.RuleRecord{
-		ID:           string(rules.ProducerShipped) + ":" + source,
-		Class:        rules.ClassShipped,
-		Producer:     rules.ProducerShipped,
-		Source:       source,
-		BaseKind:     rules.BaseRepositoryRoot,
-		Include:      include,
-		Body:         bytes,
-		SourceDigest: managedfile.Digest(bytes),
+	if req.Adapter == nil {
+		req.Adapter = runtimeAdapter(t)
 	}
-	return harness.RuleSource{Record: record, Bytes: bytes}
+	home, result, err := NewOMPHome(dir, req)
+	if err != nil {
+		t.Fatalf("enroll OMP home: %v", err)
+	}
+	return home, result
 }
 
 func writeTree(t *testing.T, root string, files map[string]string) {

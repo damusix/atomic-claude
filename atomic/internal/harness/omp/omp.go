@@ -4,6 +4,12 @@
 // block, publishes repository wiki cards into the native project rule
 // directory, and enrolls a profile through the shared transaction engine.
 //
+// What OMP loads is the profile's AGENTS.md block and the generated extension
+// module under the profile's agent root; the package tree under
+// ~/.atomic/packages/omp is Atomic's corpus store, and no OMP surface discovers
+// it. Package installation, registration, and artifact discovery are therefore
+// reported unsupported rather than assumed.
+//
 // Every native claim is gated by the CP0 capability record. OMP 18.1.18 proved
 // extension discovery under an agent root, the steering files a profile loads,
 // a session-baseline event, a pre-operation event with structured targets, and
@@ -53,10 +59,17 @@ type Adapter struct {
 	// DefaultConfigPath; tests inject a stub so discovery never depends on the
 	// process environment or an installed OMP binary.
 	ConfigPath func(home, profile string) (string, error)
-	// ProfileNames lists the named profiles discovery should report. CP0 proved
-	// no profile-listing surface, so the production value is nil and only the
-	// default profile is enumerated: a caller that knows a profile name supplies
-	// it, and the root still comes from ConfigPath.
+	// AmbientProfile returns the process's ambient profile name — the documented
+	// OMP_PROFILE selector — or "" when none is set. Discovery reads the ambient
+	// name here rather than from the environment, so a caller that injected its
+	// own resolver stays independent of the process it runs in. A nil field
+	// means no ambient profile; New wires the production read.
+	AmbientProfile func() string
+	// ProfileNames lists extra named profiles discovery should report beyond the
+	// default profile and the ambient one. CP0 proved no profile-listing
+	// surface, so the production value is nil: a caller that knows a profile
+	// name supplies it, and the root still comes from ConfigPath rather than a
+	// guessed directory layout.
 	ProfileNames func(home string) []string
 	// Corpus loads the canonical corpus the package publishes. It defaults to
 	// the selected binary's embedded generation; tests inject a fixture corpus.
@@ -65,7 +78,11 @@ type Adapter struct {
 
 // New returns an adapter resolving real roots and the embedded corpus.
 func New() *Adapter {
-	return &Adapter{ConfigPath: DefaultConfigPath, Corpus: embeddedcorpus.Load}
+	return &Adapter{
+		ConfigPath:     DefaultConfigPath,
+		AmbientProfile: func() string { return os.Getenv(ProfileEnv) },
+		Corpus:         embeddedcorpus.Load,
+	}
 }
 
 // Kind reports the harness this adapter serves.
@@ -97,6 +114,12 @@ func (a *Adapter) resolve() func(home, profile string) (string, error) {
 // Discover reports every OMP profile root visible from home. Discovery reads
 // the filesystem and runs the read-only path query; it never enrolls, so it
 // creates no ledger, journal, or package.
+//
+// A named profile is speculative: the ambient selector or a caller-supplied
+// name. One this machine cannot resolve — a name with no installed binary and no
+// CP0-recorded root — is skipped rather than returned, so one unanswerable name
+// cannot fail discovery for every harness. The default profile is the harness's
+// own root, so its refusal is still reported.
 func (a *Adapter) Discover(home string) ([]harness.Instance, error) {
 	if strings.TrimSpace(home) == "" {
 		return nil, errors.New("omp: discovery requires a home directory")
@@ -104,14 +127,26 @@ func (a *Adapter) Discover(home string) ([]harness.Instance, error) {
 
 	resolve := a.resolve()
 	profiles := []Profile{{Name: ""}}
+	names := make([]string, 0, 1)
 	if a.ProfileNames != nil {
-		for _, name := range a.ProfileNames(home) {
-			name = strings.TrimSpace(name)
-			if name == "" {
-				continue
-			}
-			profiles = append(profiles, Profile{Name: name})
+		names = append(names, a.ProfileNames(home)...)
+	}
+	// The documented selector names one isolated profile, and CP0 proved no
+	// profile-listing surface, so the ambient name is the only one Atomic can
+	// know without guessing a directory layout. A user who runs a named profile
+	// already has it set, so discovery reports that profile's root too —
+	// through the same CP0-proven `omp config path` query.
+	if a.AmbientProfile != nil {
+		if ambient := strings.TrimSpace(a.AmbientProfile()); ambient != "" {
+			names = append(names, ambient)
 		}
+	}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		profiles = append(profiles, Profile{Name: name})
 	}
 
 	seen := map[string]bool{}
@@ -119,6 +154,9 @@ func (a *Adapter) Discover(home string) ([]harness.Instance, error) {
 	for _, p := range profiles {
 		root, err := resolve(home, p.Name)
 		if err != nil {
+			if p.Name != "" {
+				continue
+			}
 			return nil, err
 		}
 		root = filepath.Clean(root)
@@ -229,4 +267,12 @@ func SettingsPath(root string) string {
 // inside. OMP discovers it as AGENTS.md under the agent root.
 func SteeringPath(root string) string {
 	return filepath.Join(root, "AGENTS.md")
+}
+
+// ExtensionPath is the module OMP auto-discovers under a profile's agent root.
+// CP0 observed discovery of an agent root's `extensions/*.ts` files, so this is
+// the one native location a generated Atomic artifact reaches OMP from: the
+// package tree Atomic also publishes is a corpus store no OMP surface reads.
+func ExtensionPath(root string) string {
+	return filepath.Join(root, filepath.FromSlash(SkeletonPath))
 }

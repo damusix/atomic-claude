@@ -211,6 +211,7 @@ func (a *Adapter) assess(home string, t harness.Target) ([]harness.Assessment, e
 	c, err := installstate.Classify(installstate.ClassifyRequest{
 		Home:       home,
 		NativeRoot: t.NativeRoot,
+		Target:     t.Key(),
 		Claims:     GlobalClaims(t.NativeRoot),
 	})
 	if err != nil {

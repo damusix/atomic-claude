@@ -109,6 +109,27 @@ func TestMatch_SymlinkEscapeIsNotContained(t *testing.T) {
 	}
 }
 
+// A candidate whose leaf and every parent below the base are absent still
+// resolves the deepest existing ancestor, so a symlink several levels above the
+// leaf is caught. Resolving only the immediate parent would fall back to a
+// lexical verdict and match a path that leaves the base.
+func TestMatch_DeepSymlinkEscapeIsNotContained(t *testing.T) {
+	base := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(base, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	m := overlapMatcher(t, base)
+
+	matches, err := m.Match("link/sub/deep.go")
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("escaped candidate matched %+v", matches)
+	}
+}
+
 // A base reached through a symlink still matches its own contents.
 func TestMatch_SymlinkedBaseMatches(t *testing.T) {
 	real := t.TempDir()

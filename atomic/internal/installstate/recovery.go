@@ -21,6 +21,11 @@ const (
 	DecisionCommitApplied RecoveryDecision = "commit-applied"
 	// DecisionDiscardStaging removes a proven-unused staging projection.
 	DecisionDiscardStaging RecoveryDecision = "discard-staging"
+	// DecisionCompletePublication finishes an interrupted generated-tree
+	// publication whose destination is absent but whose staged tree still
+	// digests to the intended value: the rename that was cut short is
+	// re-performed, then the applied bytes are ledger-committed.
+	DecisionCompletePublication RecoveryDecision = "complete-publication"
 	// DecisionRestoreBackup writes digest-unchanged applied bytes back from a
 	// transaction backup.
 	DecisionRestoreBackup RecoveryDecision = "restore-backup"
@@ -67,6 +72,7 @@ type Recovery struct {
 	Exists          func(path string) (bool, error)
 	RemoveStaging   func(path string) error
 	RestoreBackupFn func(rec managedfile.BackupRecord, kind managedfile.Kind) error
+	MoveTreeFn      func(src, dest string) error
 	SaveLedger      func(path string, l *Ledger) error
 	WriteJournalFn  func(path string, j *Journal) error
 
@@ -86,6 +92,7 @@ func NewRecovery(home string, j *Journal, ledger *Ledger) *Recovery {
 		Exists:           pathExists,
 		RemoveStaging:    os.RemoveAll,
 		RestoreBackupFn:  restoreBackup,
+		MoveTreeFn:       managedfile.MoveTree,
 		SaveLedger:       func(path string, l *Ledger) error { return l.Save(path) },
 		WriteJournalFn:   WriteJournal,
 	}
@@ -109,6 +116,20 @@ func (r *Recovery) Recover() (RecoveryResult, error) {
 			r.ledgerChanged = true
 			r.Journal.Record(m.Unit, StateCommitted, m.Intended, time.Now().UTC())
 			r.journalDirty = true
+			result.add(m, decision, detail)
+		case DecisionCompletePublication:
+			if err := r.completePublication(m); err != nil {
+				return result, err
+			}
+			r.Ledger.Upsert(m.LedgerRow())
+			r.ledgerChanged = true
+			r.Journal.Record(m.Unit, StateCommitted, m.Intended, time.Now().UTC())
+			r.journalDirty = true
+			result.add(m, decision, detail)
+		case DecisionRestoreBackup:
+			if err := r.restoreBackupFor(m); err != nil {
+				return result, err
+			}
 			result.add(m, decision, detail)
 		case DecisionDiscardStaging:
 			action, err := r.discardStaging(m)
@@ -163,6 +184,9 @@ func (r *Recovery) forwardDecision(m Mutation) (RecoveryDecision, string, error)
 		if err != nil {
 			return "", "", err
 		}
+		if m.Kind == managedfile.KindTree && !obs.Exists() {
+			return r.treeWindow(m)
+		}
 		switch {
 		case m.Intended != "" && obs.Digest == m.Intended:
 			return DecisionCommitApplied, "applied bytes verified against the intended digest", nil
@@ -183,11 +207,19 @@ func (r *Recovery) forwardDecision(m Mutation) (RecoveryDecision, string, error)
 		if err != nil {
 			return "", "", err
 		}
+		if m.Kind == managedfile.KindTree && !obs.Exists() {
+			return r.treeWindow(m)
+		}
 		switch {
 		case m.Intended != "" && obs.Digest == m.Intended:
 			return DecisionCommitApplied, "the native write landed before the journal recorded it as applied", nil
 		case m.BackupSum != "" && wholeDigest(obs) == m.BackupSum:
 			return DecisionDiscardStaging, "native bytes still hold the pre-mutation backup, so the staged projection was never applied", nil
+		case m.Kind == managedfile.KindBlock && m.Prior == "" && obs.Conflict == managedfile.ConflictMalformedBlock && !managedfile.HasBlockTags(obs.Bytes):
+			// The file held no block before the operation, and it still carries
+			// no Atomic tags: Atomic never appended one, so the staged block was
+			// never applied and there is nothing to conflict with.
+			return DecisionDiscardStaging, "the native file still carries no Atomic block, so the staged projection was never applied", nil
 		case m.Prior != "" && obs.Digest == m.Prior:
 			return DecisionDiscardStaging, "native bytes still hold the observed pre-mutation digest, so the staged projection was never applied", nil
 		case !obs.Exists() && m.BackupSum == "":
@@ -196,6 +228,52 @@ func (r *Recovery) forwardDecision(m Mutation) (RecoveryDecision, string, error)
 			return DecisionConflict, fmt.Sprintf("native bytes at %s (digest %s) match neither the intended digest %s nor the pre-mutation digest %s, and the transaction holds a pre-mutation copy; refusing to discard the staged projection", m.Path, digestOrAbsent(obs), m.Intended, m.Prior), nil
 		}
 	}
+}
+
+// treeWindow resolves an absent generated-tree destination, the one shape a
+// crash inside a tree publication always produces: PublishDir displaces the
+// current tree into the transaction backup and then renames the staged tree into
+// place, so the process can die between the two renames. The staged tree, when
+// it still digests to the intended value, is moved into place (the same-device
+// rename or its cross-filesystem copy). Otherwise the digest-verified backup is
+// restored. Only when neither holds is there a genuine conflict.
+func (r *Recovery) treeWindow(m Mutation) (RecoveryDecision, string, error) {
+	if m.Stage != "" {
+		if digest, _, err := managedfile.TreeDigest(m.Stage); err == nil && m.Intended != "" && digest == m.Intended {
+			return DecisionCompletePublication, "the staged tree still matches the intended digest; finishing the interrupted publication", nil
+		}
+	}
+	if m.Backup != "" && m.BackupSum != "" {
+		if digest, _, err := managedfile.TreeDigest(m.Backup); err == nil && digest == m.BackupSum {
+			return DecisionRestoreBackup, "the destination is absent and the displaced tree backup still matches its recorded digest; restoring it", nil
+		}
+	}
+	return DecisionConflict, fmt.Sprintf("the destination %s is absent and neither the staged projection nor the transaction backup matches its recorded digest", m.Path), nil
+}
+
+// completePublication re-performs the second rename of an interrupted tree
+// publication: it moves the staged tree into the absent destination, which
+// managedfile does as a rename on one filesystem or a copy plus remove across
+// two.
+func (r *Recovery) completePublication(m Mutation) error {
+	move := r.MoveTreeFn
+	if move == nil {
+		move = managedfile.MoveTree
+	}
+	if err := move(m.Stage, m.Path); err != nil {
+		return fmt.Errorf("installstate: finish publication %s: %w", m.Path, err)
+	}
+	return nil
+}
+
+// restoreBackupFor restores one unit's digest-verified transaction backup in
+// place, the rollback half of the tree crash window.
+func (r *Recovery) restoreBackupFor(m Mutation) error {
+	rec, err := r.backupRecord(m)
+	if err != nil {
+		return err
+	}
+	return r.RestoreBackupFn(rec, m.Kind)
 }
 
 // Rollback restores transaction backups for applied-but-incomplete units whose

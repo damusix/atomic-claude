@@ -246,10 +246,6 @@ func TestCP8AOMPRuleIdentityIndex(t *testing.T) {
 			t.Fatalf("index identities are not in canonical ascending order: %v", ids)
 		}
 	}
-	module, err := delivery.RenderExtension()
-	if err != nil {
-		t.Fatalf("render extension: %v", err)
-	}
 
 	if testing.Short() {
 		recordScenarioSkip(t, ev, "short mode: the real OMP launch is skipped")
@@ -260,10 +256,11 @@ func TestCP8AOMPRuleIdentityIndex(t *testing.T) {
 		return
 	}
 	dir := t.TempDir()
-	home, err := NewOMPHome(filepath.Join(dir, "home"), module)
-	if err != nil {
-		t.Fatalf("prepare home: %v", err)
-	}
+	// The shipped adapter over the embedded corpus enrolls the isolated home, so
+	// the module OMP launches is the one an install publishes, at the path
+	// enrollment reported.
+	home, enroll := prepareOMPHome(t, filepath.Join(dir, "home"), OMPHomeRequest{Adapter: omp.New()})
+	ev.Paths = []string{home.AgentRoot, enroll.PackageRoot}
 	repo := filepath.Join(dir, "repo")
 	writeTree(t, repo, map[string]string{"src/a.ts": "export const a = 1;\n", "docs/spec/x.md": "# spec\n"})
 	launch := OMPLaunch{Name: "cp8a-omp-index", WorkDir: repo, Prompt: "Reply OK.", Log: home.LogPath("atomic-runtime-index.jsonl")}

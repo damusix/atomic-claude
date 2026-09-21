@@ -13,7 +13,7 @@ import (
 
 func classifyReq(home, root string, t *testing.T) ClassifyRequest {
 	t.Helper()
-	return ClassifyRequest{Home: home, NativeRoot: root, Claims: claimsFor(selectedArtifacts(t, root))}
+	return ClassifyRequest{Home: home, NativeRoot: root, Target: "claude:default", Claims: claimsFor(selectedArtifacts(t, root))}
 }
 
 func TestClassifyAbsent(t *testing.T) {
@@ -180,12 +180,13 @@ func TestClassifyV2States(t *testing.T) {
 	})
 }
 
-func TestClassifyMixed(t *testing.T) {
+// A ledger row whose recorded bytes no longer match the artifact on disk is
+// ordinary per-resource drift, not a mixed install: the owning resource's
+// verdict carries it, so the state stays decidable and repair can replace it.
+func TestClassifyDriftedRowIsResourceDrift(t *testing.T) {
 	home := newHome(t)
 	root := installLegacy(t, home)
 	ageInstall(t, home, root)
-	// A ledger row whose recorded bytes no longer match the artifact on disk is
-	// the overlap that makes a state mixed.
 	drifted := filepath.Join(root, "commands", "commit.md")
 	writeLedgerFixture(t, home, nil, []Row{{
 		Target:   "claude:default",
@@ -197,12 +198,34 @@ func TestClassifyMixed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
-	if c.State != StateMixed {
-		t.Fatalf("state = %s (%v), want %s", c.State, c.Conflicts, StateMixed)
+	if c.State == StateMixed {
+		t.Fatalf("drifted row classified the install mixed (%v); a row/bytes disagreement is per-resource drift", c.Conflicts)
 	}
-	if len(c.Conflicts) == 0 {
-		t.Error("mixed state reported no conflict detail")
+	if !containsPrefix(c.Drift, drifted) {
+		t.Errorf("drift = %v, want the changed resource reported", c.Drift)
 	}
+	var assessed bool
+	for _, r := range c.Resources {
+		if r.Assessment.Claim.Path != drifted {
+			continue
+		}
+		assessed = true
+		if r.Assessment.Evidence != managedfile.EvidenceUnowned {
+			t.Errorf("drifted resource evidence = %s, want %s (a replace-or-leave-unowned decision)", r.Assessment.Evidence, managedfile.EvidenceUnowned)
+		}
+	}
+	if !assessed {
+		t.Errorf("the drifted resource was not assessed: %+v", c.Resources)
+	}
+}
+
+func containsPrefix(values []string, prefix string) bool {
+	for _, v := range values {
+		if strings.HasPrefix(v, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestClassifyRefusesNewerSchema(t *testing.T) {
@@ -266,11 +289,11 @@ func TestClassifyUnreadableJournalIsEvidence(t *testing.T) {
 
 // A v2-only install has no legacy evidence to hide behind, so the ledger is the
 // only ownership proof the classifier can judge: a row whose bytes no longer
-// match is drift, never v2-clean.
+// match is surface drift, never a mixed install, and a matching row is clean.
 func TestClassifyV2OnlyLedgerDisagreement(t *testing.T) {
 	const native = "native bytes\n"
 
-	t.Run("drifted row is mixed", func(t *testing.T) {
+	t.Run("drifted row is drift", func(t *testing.T) {
 		home := newHome(t)
 		path := filepath.Join(home, ".claude", "commands", "commit.md")
 		mkfile(t, path, native)
@@ -283,11 +306,11 @@ func TestClassifyV2OnlyLedgerDisagreement(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c.State != StateMixed {
-			t.Fatalf("state = %s, want %s", c.State, StateMixed)
+		if c.State != StateV2Clean {
+			t.Fatalf("state = %s (%v), want %s", c.State, c.Conflicts, StateV2Clean)
 		}
-		if len(c.Conflicts) == 0 {
-			t.Error("drifted v2-only install reported no conflict detail")
+		if !containsPrefix(c.Drift, path) {
+			t.Errorf("drift = %v, want the changed resource reported", c.Drift)
 		}
 	})
 

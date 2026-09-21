@@ -34,6 +34,9 @@ func checkRules(opts Opts) Result {
 			uncovered++
 			findings = append(findings, fmt.Sprintf("%s uncovered %s: %s", key, gap.Role, gap.Status))
 		}
+		for _, u := range status.Unproven {
+			findings = append(findings, fmt.Sprintf("%s unsupported %s", key, u))
+		}
 		for _, r := range status.Resources {
 			findings = append(findings, fmt.Sprintf("%s %s: %s applied=%s observed=%s tier=%s",
 				key, r.Resource, r.State, shortDigest(r.Applied), shortDigest(r.Observed), r.Tier))

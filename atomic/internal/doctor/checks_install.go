@@ -7,19 +7,25 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 )
 
-// checkInstall implements category 1: install integrity, diffing every
-// embedded artifact against ~/.claude. A missing artifact FAILs, a drifted one
-// WARNs, and an absent target directory SKIPs.
+// checkInstall implements category 1: install integrity, diffing every embedded
+// artifact against each enrolled Claude target. A missing artifact FAILs, a
+// drifted one WARNs, and a target directory that does not exist SKIPs. A machine
+// whose ledger enrols no Claude target is skipped instead of being failed
+// against an un-enrolled ~/.claude.
 func checkInstall(opts Opts) Result {
-	target, err := claudeinstall.ResolveTarget("~/.claude")
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve target: %v", err)}
+	scope := claudeScopeFor(opts)
+	if scope.Skip {
+		return Result{Severity: SKIP, Detail: scope.Detail}
 	}
 	home, err := resolveHome()
 	if err != nil {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve home dir: %v", err)}
 	}
-	return RunCheckInstall(target, home)
+	results := make([]Result, 0, len(scope.Roots))
+	for _, root := range scope.Roots {
+		results = append(results, RunCheckInstall(root, home))
+	}
+	return combineClaudeRoots(scope, results)
 }
 
 // RunCheckInstall runs the install check against an explicit target directory

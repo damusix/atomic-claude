@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
 
 // Install must lay the bundle and register the session-start hook in one shot;
@@ -223,5 +226,47 @@ func TestRunClaudeUninstall_ProducesPrompt(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "CLAUDE.md") {
 		t.Errorf("prompt missing 'CLAUDE.md'")
+	}
+}
+
+// TestRunClaudeInstallRoutesEnrolledTargetThroughConverge is the P2-1
+// regression: on a ledger-enrolled root the legacy writer must not rewrite owned
+// bytes outside the lock, journal, and ledger. A drifted owned resource the plan
+// cannot verify must block instead of being silently overwritten, which is what
+// the legacy path did.
+func TestRunClaudeInstallRoutesEnrolledTargetThroughConverge(t *testing.T) {
+	home := t.TempDir()
+	if out, code := runAtomicCLI(t, home, "install", "--harness", "claude", "--yes"); code != 0 {
+		t.Fatalf("install exited %d:\n%s", code, out)
+	}
+	root := filepath.Join(home, ".claude")
+
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatalf("ledger: %v", err)
+	}
+	var victim string
+	for _, row := range ledger.Rows {
+		if row.Target == "claude:"+root && row.Applied.Path != "" && row.Applied.Kind == managedfile.KindFile {
+			victim = row.Applied.Path
+			break
+		}
+	}
+	if victim == "" {
+		t.Fatal("enrollment recorded no owned file resource")
+	}
+	if err := os.WriteFile(victim, []byte("user drift the ledger cannot verify\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runClaudeInstall(root, home, "install", false, false)
+	if err == nil {
+		t.Fatalf("an enrolled target with a drifted owned resource converged silently: %+v", result)
+	}
+	if result.Report == "" {
+		t.Error("the enrolled target did not route through the install planner")
+	}
+	if got, readErr := os.ReadFile(victim); readErr != nil || string(got) != "user drift the ledger cannot verify\n" {
+		t.Errorf("the legacy writer overwrote the drifted owned file: %q (%v)", got, readErr)
 	}
 }

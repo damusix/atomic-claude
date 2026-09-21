@@ -99,7 +99,7 @@ One-line pointer per topic. Group by category for scannability.
 | Topic | Output |
 |-------|--------|
 | `setup` / `onboard` | First-run repo flow: `/setup-wiki` audits conventions, then `/refresh-wiki` generates project context. |
-| `install` / `harness` / `enroll` / `codex` | `atomic install --harness <claude\|omp\|codex> --instance <root>` enrolls one harness instance and converges it; `atomic harness list` marks each instance `discovered` or `enrolled`, `status [<target-key>]` reports a target and its shared resources, `adopt [claude]` imports a verified legacy Claude install into the ledger, `repair` reconverges already-enrolled targets, `diff` reports native drift read-only, `rules status` reports rule tier and coverage. Nothing enrolls implicitly — a harness must be named, or `--all` passed. Codex resolves its root from `CODEX_HOME` (unset = unsupported), publishes a plugin package, and has every unproven native surface reported by doctor's `codex` category rather than claimed as parity. Reference: `docs/guides/install.md`. |
+| `install` / `harness` / `enroll` / `codex` | `atomic install --harness <claude\|omp\|codex> --instance <root>` enrolls one harness instance and converges it; `atomic harness list` marks each instance `discovered` or `enrolled`, `status [<target-key>]` reports a target and its shared resources, `adopt [claude]` imports a verified legacy Claude install into the ledger, `repair` reconverges already-enrolled targets, `diff` reports native drift read-only, `recover [--rollback]` reconciles an unresolved journal (rolling forward, or restoring its digest-verified backups under `--rollback`), `rules status` reports rule tier and coverage. Nothing enrolls implicitly — a harness must be named, or `--all` passed. Codex resolves its root from `CODEX_HOME` (unset = unsupported), publishes a plugin package, and has every unproven native surface reported by doctor's `codex` category rather than claimed as parity. Reference: `docs/guides/install.md`. |
 | `state` / `state-root` | `atomic state adopt [--dir <segment\|absolute>] [--clear]` selects this repository's state root (`.claude`, `.omp`, …) and persists the choice per clone; `atomic where` reports cwd's four orientation axes (repo root, repo-scope wiki, realm scope, code-index scope), and `atomic where --json` adds the project-keyed report, reminders, and archive paths. |
 | `uninstall` / `remove` | `atomic harness uninstall <target-key>` removes one enrolled target; `--all` removes every target, then completed operational and adoption state, while `config.toml`, `profile.md`, `wikis.md`, and backups survive. The Claude-only `atomic claude uninstall` snapshot route remains. |
 | `signals` | `/refresh-wiki` — idempotent, initializes or refreshes. The implement loop / `/autopilot` refreshes at finalize (scoped to the task's SHA range); ship verbs are the ad-hoc fallback and skip docs-only commits. A repo-scope refresh also emits one path-scoped pointer card per domain to `<state-root>/rules/wiki/<domain>.md`. |
@@ -145,7 +145,7 @@ Run them rather than reciting. What they cannot tell the user is which verb fits
 
 | Job | Verb | Detail |
 |-----|------|--------|
-| Install or restore harness artifacts | `install`, `harness enroll\|adopt\|repair\|uninstall`, `claude install`, `update` | `docs/guides/install.md` |
+| Install or restore harness artifacts | `install`, `harness enroll\|adopt\|repair\|recover\|uninstall`, `claude install`, `update` | `docs/guides/install.md` |
 | Inspect or enroll a harness target | `harness list`, `harness status`, `harness rules status`, `harness rules sync` | `docs/reference/commands.md` |
 | Pick this repo's state root | `state adopt` | `docs/reference/conventions.md` |
 | Understand how code fits together | `code` — lead with `explore` | `docs/reference/code-intel.md` |
@@ -258,6 +258,7 @@ Prompt: continue to maintenance / explain one of these / exit tour.
 ```
 atomic install --harness <claude|omp|codex>  enroll + converge one harness instance (--all for every discovered; --dry-run and --yes to preview and approve)
 atomic harness list|status|enroll|adopt|repair|diff|uninstall  target lifecycle (claude, omp, codex); adopt imports a verified legacy Claude install
+atomic harness recover [--rollback]  reconcile an unresolved journal, or restore its pre-mutation backups
 atomic harness rules status|sync  per-target rule tier, digests, coverage, and conflict state
 atomic state adopt [--dir|--clear]  select this repo's state root on the harness-neutral ladder
 atomic doctor [--fix]             24 integrity checks: install, hooks, signals, refs, ..., output-style, plus targets/resources/journals/capabilities/rules/trust/staleness/conflicts/shadowing/codex

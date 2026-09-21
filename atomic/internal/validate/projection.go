@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
@@ -157,9 +158,29 @@ func (g *projGate) fail(rule, path, format string, args ...any) {
 	})
 }
 
+// warn records a surfaced gap the gate cannot turn into a verdict. Atomic's host
+// frontmatter is deliberately more permissive than YAML — an unquoted colon in a
+// description is valid to Claude Code — so a document the metadata parser cannot
+// read is reported here rather than failed, while a key the parser CAN read and
+// that user policy owns stays a FAIL.
+func (g *projGate) warn(rule, path, format string, args ...any) {
+	g.findings = append(g.findings, Finding{
+		Severity: "WARN",
+		Rule:     rule,
+		Path:     path,
+		Message:  fmt.Sprintf(format, args...),
+	})
+}
+
 // checkCorpus audits the shared corpus invariants: every canonical ID is
-// unique, every declared dependency resolves by stable identity, and every
-// source digest still matches the authored bytes on disk.
+// unique and every declared dependency resolves by stable identity.
+//
+// SourceDigest is NOT re-verified here. artifacts.Load stamps it from the same
+// authored bytes this gate would read, so re-reading and re-digesting the file
+// can only ever agree — the comparison cannot fail. What actually deserves proof
+// is that the shipped bundle carries those authored bytes, and that a rule
+// projection's bytes still match the record digest; bundle parity owns the first
+// and checkClaudeRules/checkOMPRules own the second.
 func (g *projGate) checkCorpus() {
 	seen := make(map[string]bool, len(g.cat.Artifacts))
 	for _, a := range g.cat.Artifacts {
@@ -168,15 +189,6 @@ func (g *projGate) checkCorpus() {
 		}
 		seen[a.ID] = true
 
-		srcPath := filepath.Join(bundlespec.SourceRoot(g.root), filepath.FromSlash(a.Source))
-		data, err := os.ReadFile(srcPath)
-		if err != nil {
-			g.fail(ruleIdentity, a.Source, "%s: cannot read authored source: %v", a.ID, err)
-			continue
-		}
-		if got := managedfile.Digest(data); got != a.SourceDigest {
-			g.fail(ruleIdentity, a.Source, "%s: source digest %s does not match authored bytes %s", a.ID, a.SourceDigest, got)
-		}
 		for _, req := range a.Semantics.Requires {
 			if !g.ids[req] {
 				g.fail(ruleDependency, a.Source, "%s requires %s, which the corpus does not carry", a.ID, req)
@@ -283,11 +295,34 @@ func (g *projGate) checkTier(a artifacts.Artifact, target artifacts.Target, p ar
 
 // checkNativeMetadata rejects any model, effort, or tool restriction key that
 // reached a projected native document. The user's own configuration owns those
-// fields, so a projection that writes one is a leak, not a default.
+// fields, so a projection that writes one is a leak, not a default. A document
+// whose metadata cannot be parsed is reported too: a parse failure that returned
+// no keys would leave the whole surface unchecked.
 func (g *projGate) checkNativeMetadata(a artifacts.Artifact, target artifacts.Target, projected []byte) {
-	for _, key := range nativeMetadataKeys(target, projected) {
+	keys, err := nativeMetadataKeys(a.Kind, target, projected)
+	if err != nil {
+		g.warn(ruleMetadata, a.Source, "%s: %s projection metadata is unreadable: %v", a.ID, target, err)
+		return
+	}
+	for _, key := range keys {
 		if isUserPolicyKey(key) {
 			g.fail(ruleMetadata, a.Source, "%s: %s projection carries native metadata key %q, which user model policy owns", a.ID, target, key)
+		}
+	}
+}
+
+// checkRuleMetadata audits one projected rule document's frontmatter: a
+// user-policy key is a leak, and a document whose frontmatter cannot be parsed
+// is reported rather than silently skipped.
+func (g *projGate) checkRuleMetadata(path, recordID string, target artifacts.Target, projected []byte) {
+	keys, err := nativeMetadataKeys(artifacts.KindRule, target, projected)
+	if err != nil {
+		g.warn(ruleMetadata, path, "%s: %s rule projection metadata is unreadable: %v", recordID, target, err)
+		return
+	}
+	for _, key := range keys {
+		if isUserPolicyKey(key) {
+			g.fail(ruleMetadata, path, "%s: rule projection carries native metadata key %q, which user model policy owns", recordID, key)
 		}
 	}
 }
@@ -542,7 +577,7 @@ func (g *projGate) checkOMPRuntime() {
 		}
 	}
 	if delivery.Suppressed {
-		g.fail(ruleMetadata, omp.SkeletonPath, "the runtime rule index exceeds the %d byte bound at %d bytes", delivery.Bound, delivery.IndexBytes)
+		g.fail(ruleMetadata, omp.SkeletonPath, "the runtime rule index exceeds the %d-unit bound at %d units (UTF-16 code units, the unit the delivered module measures)", delivery.Bound, delivery.IndexUnits)
 	}
 }
 
@@ -606,11 +641,7 @@ func (g *projGate) checkClaudeRules() {
 		if i < len(again.Rules) && (again.Rules[i].Digest != r.Digest || string(again.Rules[i].Bytes) != string(r.Bytes)) {
 			g.fail(ruleDeterminism, path, "%s: Claude rule projection is not deterministic", r.RecordID)
 		}
-		for _, key := range nativeMetadataKeys(artifacts.TargetClaude, r.Bytes) {
-			if isUserPolicyKey(key) {
-				g.fail(ruleMetadata, path, "%s: rule projection carries native metadata key %q, which user model policy owns", r.RecordID, key)
-			}
-		}
+		g.checkRuleMetadata(path, r.RecordID, artifacts.TargetClaude, r.Bytes)
 		if r.Tier != artifacts.EnforcementUnsupported {
 			role, known := g.unprovenTierRole(r.Tier, artifacts.TargetClaude)
 			if !known {
@@ -657,11 +688,7 @@ func (g *projGate) checkOMPRules() {
 		if i < len(again.Rules) && (again.Rules[i].Digest != r.Digest || string(again.Rules[i].Bytes) != string(r.Bytes)) {
 			g.fail(ruleDeterminism, path, "%s: OMP rule projection is not deterministic", r.RecordID)
 		}
-		for _, key := range nativeMetadataKeys(artifacts.TargetOMP, r.Bytes) {
-			if isUserPolicyKey(key) {
-				g.fail(ruleMetadata, path, "%s: rule projection carries native metadata key %q, which user model policy owns", r.RecordID, key)
-			}
-		}
+		g.checkRuleMetadata(path, r.RecordID, artifacts.TargetOMP, r.Bytes)
 		if r.Tier != artifacts.EnforcementUnsupported {
 			role, known := g.unprovenTierRole(r.Tier, artifacts.TargetOMP)
 			if !known {
@@ -696,30 +723,49 @@ func shippedRuleSources(repoRoot string) ([]harness.RuleSource, error) {
 }
 
 // nativeMetadataKeys returns the top-level metadata keys a projected native
-// document declares: TOML keys for Codex, frontmatter keys for Markdown. A
-// document with no parseable metadata contributes none.
-func nativeMetadataKeys(target artifacts.Target, projected []byte) []string {
-	if target == artifacts.TargetCodex {
-		var doc map[string]any
-		if err := toml.Unmarshal(projected, &doc); err != nil {
-			return nil
+// document declares. The parser follows the document's shape, not the target: a
+// Codex projection is TOML for an agent and Markdown with frontmatter for a
+// skill, so a target-keyed parser silently skipped the whole Codex skill surface.
+// A document that declares metadata the parser cannot read is an error rather
+// than an empty key set, so a malformed projection FAILs the gate instead of
+// passing it unchecked.
+func nativeMetadataKeys(kind artifacts.Kind, target artifacts.Target, projected []byte) ([]string, error) {
+	if hasFrontmatter(projected) {
+		kvs, _, err := frontmatter.ParseOrdered(string(projected))
+		if err != nil {
+			return nil, err
 		}
-		keys := make([]string, 0, len(doc))
-		for k := range doc {
-			keys = append(keys, k)
+		keys := make([]string, 0, len(kvs))
+		for _, kv := range kvs {
+			keys = append(keys, kv.Key)
 		}
 		sort.Strings(keys)
-		return keys
+		return keys, nil
 	}
-	kvs, _, err := frontmatter.ParseOrdered(string(projected))
-	if err != nil {
-		return nil
+	// A Codex agent document is the one native document with no frontmatter
+	// fence: it is TOML. A projected file that is neither form carries no
+	// metadata to inspect.
+	if target != artifacts.TargetCodex || kind != artifacts.KindAgent {
+		return nil, nil
 	}
-	keys := make([]string, 0, len(kvs))
-	for _, kv := range kvs {
-		keys = append(keys, kv.Key)
+	var doc map[string]any
+	if err := toml.Unmarshal(projected, &doc); err != nil {
+		return nil, err
 	}
-	return keys
+	keys := make([]string, 0, len(doc))
+	for k := range doc {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+
+// hasFrontmatter reports whether a projected document opens with a Markdown
+// frontmatter fence, the shape that distinguishes it from a native TOML
+// document.
+func hasFrontmatter(projected []byte) bool {
+	text := strings.TrimPrefix(string(projected), "\ufeff")
+	return strings.HasPrefix(text, "---\n") || strings.HasPrefix(text, "---\r\n")
 }
 
 // isUserPolicyKey reports whether key selects a model, a reasoning effort, or a

@@ -493,12 +493,8 @@ func TestUpdateConvergenceRecoversInterruptedUpdate(t *testing.T) {
 		t.Fatalf("update convergence: %v", err)
 	}
 
-	recovered, err := installstate.LoadJournal(journalPath)
-	if err != nil {
-		t.Fatalf("load journal after convergence: %v", err)
-	}
-	if !recovered.Completed {
-		t.Error("interrupted journal was not recovered before convergence")
+	if _, err := os.Stat(journalPath); !os.IsNotExist(err) {
+		t.Errorf("the recovered journal was not consumed and cleaned up (stat err = %v)", err)
 	}
 	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
 	if err != nil {
@@ -601,5 +597,72 @@ func TestEnrollConvergenceRegistersHookAndSeedsOutputStyle(t *testing.T) {
 	}
 	if string(after) != before {
 		t.Fatalf("reconvergence rewrote settings.json:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// TestRunUpdatePostSwapRefusesLegacyUnenrolledClaude is the P1-6 regression: a
+// legacy Claude install no ledger target owns must not update silently. Before
+// the fix convergeEnrolledTargets returned nil for an empty report set, so
+// `atomic update` exited 0 and froze the artifacts with no message.
+func TestRunUpdatePostSwapRefusesLegacyUnenrolledClaude(t *testing.T) {
+	home := t.TempDir()
+	if out, code := runAtomicCLI(t, home, "claude", "install", "--no-hooks"); code != 0 {
+		t.Fatalf("legacy install exited %d:\n%s", code, out)
+	}
+	if _, err := os.Stat(config.LedgerPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("the legacy install wrote a ledger (stat err = %v)", err)
+	}
+
+	deps := stubUpdateDeps(t)
+	deps.converge = convergeEnrolledTargets
+	deps.migrate = func(string) error { return nil }
+	deps.doctor = func(io.Writer) {}
+	var errOut strings.Builder
+	deps.errOut = &errOut
+
+	if code := runUpdatePostSwap(home, true, false, deps); code == 0 {
+		t.Fatal("a legacy unenrolled install converged as a no-op (exit 0)")
+	}
+	if !strings.Contains(errOut.String(), "atomic harness adopt claude") {
+		t.Errorf("stderr = %q, want the adopt instruction", errOut.String())
+	}
+}
+
+// TestRunUpdatePostSwapNoopOnEmptyHome proves the refusal narrows to legacy
+// evidence: a home with neither an installation nor an enrollment stays a
+// silent no-op.
+func TestRunUpdatePostSwapNoopOnEmptyHome(t *testing.T) {
+	home := t.TempDir()
+	deps := stubUpdateDeps(t)
+	deps.converge = convergeEnrolledTargets
+	deps.migrate = func(string) error { return nil }
+	deps.doctor = func(io.Writer) {}
+
+	if code := runUpdatePostSwap(home, true, false, deps); code != 0 {
+		t.Fatalf("empty home exit = %d, want 0", code)
+	}
+}
+
+// TestObsoleteHarnessRefusalAtRoot is the P1-7 regression: the root command must
+// surface the retired ATOMIC_HARNESS refusal with instructions instead of the
+// quiet repo-local resolver ignoring it.
+func TestObsoleteHarnessRefusalAtRoot(t *testing.T) {
+	t.Setenv(config.StateDirEnvVar, "")
+	t.Setenv(config.ObsoleteHarnessEnvVar, "")
+	var out strings.Builder
+	if obsoleteHarnessRefusal(&out) {
+		t.Fatalf("an unset ATOMIC_HARNESS refused: %s", out.String())
+	}
+	if out.Len() != 0 {
+		t.Errorf("unset variable wrote %q", out.String())
+	}
+
+	t.Setenv(config.ObsoleteHarnessEnvVar, "pi")
+	out.Reset()
+	if !obsoleteHarnessRefusal(&out) {
+		t.Fatal("an obsolete ATOMIC_HARNESS did not refuse at the root")
+	}
+	if !strings.Contains(out.String(), config.StateDirEnvVar) {
+		t.Errorf("refusal %q does not name %s", out.String(), config.StateDirEnvVar)
 	}
 }

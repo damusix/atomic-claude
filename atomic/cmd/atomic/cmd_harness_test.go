@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +11,9 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/omp"
 	"github.com/damusix/atomic-claude/atomic/internal/install"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
@@ -501,6 +504,72 @@ func TestRepairSelectionIsEnrolledOnly(t *testing.T) {
 	}
 }
 
+// TestLifecycleCLIOMPTarget drives the generic lifecycle verbs against a real
+// OMP profile through the production registry: install delivers the generated
+// extension module under the profile's agent root — the path CP0 proved OMP
+// discovers — and install, status, and rules status report the package surfaces
+// Atomic cannot prove instead of reading the enrollment as a full delivery.
+func TestLifecycleCLIOMPTarget(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".omp", "agent")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The isolated child must not inherit an ambient profile selector: discovery
+	// reports the ambient profile too, and two instances make --harness omp
+	// ambiguous rather than wrong.
+	env := []string{"OMP_PROFILE="}
+	key := "omp:" + root
+
+	out, code := runAtomicCLIEnv(t, home, env, "install", "--harness", "omp", "--yes")
+	if code != 0 {
+		t.Fatalf("install exited %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, key) {
+		t.Errorf("install output = %q, want the omp target reported", out)
+	}
+	if !strings.Contains(out, "unsupported") {
+		t.Errorf("install output = %q, want the unproven package surfaces reported rather than a silent success", out)
+	}
+
+	// What OMP loads is the enrolled profile's module, at the agent-root path CP0
+	// observed discovery under; the package tree is Atomic's corpus store.
+	extension := filepath.Join(root, "extensions", "atomic.ts")
+	if data, err := os.ReadFile(extension); err != nil {
+		t.Fatalf("enrollment did not deliver the discovered extension at %s: %v", extension, err)
+	} else if !strings.Contains(string(data), string(omp.RuntimeMarker)) {
+		t.Errorf("the delivered extension does not carry the generated runtime delivery")
+	}
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Errorf("enrollment did not write the profile steering: %v", err)
+	}
+
+	status, code := runAtomicCLIEnv(t, home, env, "harness", "status")
+	if code != 0 {
+		t.Fatalf("status exited %d:\n%s", code, status)
+	}
+	if !strings.Contains(status, "unsupported") || !strings.Contains(status, "package install") {
+		t.Errorf("status output = %q, want the unproven package surfaces named", status)
+	}
+
+	rules, code := runAtomicCLIEnv(t, home, env, "harness", "rules", "status")
+	if code != 0 {
+		t.Fatalf("rules status exited %d:\n%s", code, rules)
+	}
+	if !strings.Contains(rules, "unsupported") {
+		t.Errorf("rules status output = %q, want the unproven package surfaces named", rules)
+	}
+
+	// Repair converges the enrolled profile and reports the same unproven rows.
+	repair, code := runAtomicCLIEnv(t, home, env, "harness", "repair", "--yes")
+	if code != 0 {
+		t.Fatalf("repair exited %d:\n%s", code, repair)
+	}
+	if !strings.Contains(repair, key) || !strings.Contains(repair, "unsupported") {
+		t.Errorf("repair output = %q, want the converged target and its unproven surfaces", repair)
+	}
+}
+
 // TestLifecycleCLICodexTarget drives the generic lifecycle verbs against a real
 // Codex home through the production registry: discovery resolves CODEX_HOME,
 // enrollment publishes only the Atomic plugin package, status, rules, diff, and
@@ -622,4 +691,438 @@ func TestLifecycleCLICodexRequiresHome(t *testing.T) {
 	}
 	// The refusal text itself — CODEX_HOME named, wrapped in ErrUnsupported — is
 	// pinned by the adapter's own discovery test; here the dispatch is the claim.
+}
+
+// seedAppliedClaudeJournal writes an applied-but-unrecorded block publication:
+// the native file holds Atomic's new block, the transaction backup holds the
+// user's original bytes, and the journal is unresolved. It returns the journal
+// path and the file path.
+func seedAppliedClaudeJournal(t *testing.T, home string) (string, string) {
+	t.Helper()
+	target := filepath.Join(home, ".claude", "commands", "commit.md")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("original user bytes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	staged := "user prose\n" + managedfile.BlockOpen + "\nnew body\n" + managedfile.BlockClose + "\n"
+	digest, err := managedfile.DigestResourceBytes([]byte(staged), managedfile.KindBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := installstate.NewTransaction(home, "op-cli-recover", installstate.Plan{Mutations: []installstate.Mutation{{
+		Unit:       "global-claude",
+		Resource:   "global-claude",
+		Target:     "claude:default",
+		Kind:       managedfile.KindBlock,
+		Path:       target,
+		Intended:   digest,
+		Generation: "gen-1",
+		Tier:       "unsupported",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.StageFile("global-claude", []byte(staged), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.PublishFile("global-claude"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	return tx.JournalPath, target
+}
+
+// TestHarnessRecoverCLIForwardAndRollback proves the `harness recover` verb is
+// reachable: a dry run is read-only, the default run rolls forward and records
+// the applied bytes, and --rollback restores the pre-mutation bytes.
+func TestHarnessRecoverCLIForwardAndRollback(t *testing.T) {
+	t.Run("dry run is read-only", func(t *testing.T) {
+		home := t.TempDir()
+		journalPath, target := seedAppliedClaudeJournal(t, home)
+		before, err := os.ReadFile(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, code := runAtomicCLI(t, home, "harness", "recover", "--dry-run", "--json")
+		if code != 0 {
+			t.Fatalf("exit = %d, want 0\n%s", code, out)
+		}
+		if _, err := os.Stat(journalPath); err != nil {
+			t.Errorf("dry run consumed the journal: %v", err)
+		}
+		if after, err := os.ReadFile(target); err != nil || string(after) != string(before) {
+			t.Errorf("dry run changed the native bytes: %q (%v)", after, err)
+		}
+	})
+
+	t.Run("rolls forward by default", func(t *testing.T) {
+		home := t.TempDir()
+		journalPath, target := seedAppliedClaudeJournal(t, home)
+		out, code := runAtomicCLI(t, home, "harness", "recover")
+		if code != 0 {
+			t.Fatalf("exit = %d, want 0\n%s", code, out)
+		}
+		got, err := os.ReadFile(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !managedfile.HasBlock(got) {
+			t.Errorf("forward recovery did not keep the applied block: %q", got)
+		}
+		if _, err := os.Stat(journalPath); !os.IsNotExist(err) {
+			t.Errorf("forward recovery left the consumed journal behind (stat err = %v)", err)
+		}
+	})
+
+	t.Run("rollback restores user bytes", func(t *testing.T) {
+		home := t.TempDir()
+		journalPath, target := seedAppliedClaudeJournal(t, home)
+		out, code := runAtomicCLI(t, home, "harness", "recover", "--rollback")
+		if code != 0 {
+			t.Fatalf("exit = %d, want 0\n%s", code, out)
+		}
+		got, err := os.ReadFile(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != "original user bytes\n" {
+			t.Errorf("rollback did not restore the user's bytes: %q", got)
+		}
+		if _, err := os.Stat(journalPath); !os.IsNotExist(err) {
+			t.Errorf("rollback left the consumed journal behind (stat err = %v)", err)
+		}
+	})
+}
+
+// TestHarnessRecoverCLIReportsConflict proves a journal whose bytes no longer
+// match anything recovery may touch is reported as a conflict with a non-zero
+// exit, and the conflict message names the resolving verb.
+func TestHarnessRecoverCLIReportsConflict(t *testing.T) {
+	home := t.TempDir()
+	journalPath, target := seedAppliedClaudeJournal(t, home)
+	// A later user edit matches neither the published bytes nor the backup.
+	if err := os.WriteFile(target, []byte("edited after the crash\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runAtomicCLI(t, home, "harness", "recover")
+	if code == 0 {
+		t.Fatalf("exit = 0, want non-zero for an unresolvable journal\n%s", out)
+	}
+	if !strings.Contains(out, string(installstate.DecisionConflict)) {
+		t.Errorf("output = %q, want a conflict decision", out)
+	}
+	if _, err := os.Stat(journalPath); err != nil {
+		t.Errorf("a conflicted recovery consumed the journal: %v", err)
+	}
+
+	// The adapter-level conflict error names the verb that resolves it.
+	_, err := installstate.Adopt(installstate.AdoptionRequest{Home: home, NativeRoot: filepath.Join(home, ".claude"), Target: "claude:default"})
+	if err == nil || !strings.Contains(err.Error(), "atomic harness recover") {
+		t.Errorf("adoption conflict error = %v, want a `harness recover` instruction", err)
+	}
+}
+
+// atomicStateDigest digests Atomic's whole state root, so a read-only assertion
+// covers the journal, the transaction backup, and the ledger at once.
+func atomicStateDigest(t *testing.T, home string) string {
+	t.Helper()
+	return treeDigestCLI(t, filepath.Join(home, ".atomic"))
+}
+
+// seedInterruptedTreeJournal writes the state an interrupted generated-tree
+// publication leaves: the tree already at the destination is displaced into the
+// transaction backup, the staged tree is still in place, and the destination is
+// absent — the window between PublishDir's two renames. It returns the
+// destination, the staged tree, and the transaction backup.
+func seedInterruptedTreeJournal(t *testing.T, home string) (dest, stage, backup string) {
+	t.Helper()
+	dest = config.PackageRoot(home, "omp")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "package.json"), []byte("{\"version\":\"old\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The staged tree is written twice: once to learn the digest the journal must
+	// record, then through the real staging path.
+	staged := []byte("{\"version\":\"new\"}\n")
+	scratch := filepath.Join(t.TempDir(), "staged")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scratch, "package.json"), staged, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	intended, _, err := managedfile.TreeDigest(scratch)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := installstate.NewTransaction(home, "op-tree-crash", installstate.Plan{Mutations: []installstate.Mutation{{
+		Unit: "omp-package", Resource: "omp-package", Target: "omp:default", Consumer: "omp:default",
+		Generation: "gen-1", Tier: "unsupported",
+		Kind: managedfile.KindTree, Path: dest, Intended: intended,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage, err = tx.StageTree("omp-package", func(dir string) error {
+		return os.WriteFile(filepath.Join(dir, "package.json"), staged, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup = filepath.Join(tx.BackupRoot(), filepath.Base(dest))
+	tx.PublishDirFn = func(_, destDir, backupDir string) (managedfile.Publication, error) {
+		if err := os.MkdirAll(backupDir, 0o755); err != nil {
+			return managedfile.Publication{}, err
+		}
+		if err := os.Rename(destDir, filepath.Join(backupDir, filepath.Base(destDir))); err != nil {
+			return managedfile.Publication{}, err
+		}
+		return managedfile.Publication{}, errors.New("simulated crash between the two renames")
+	}
+	if err := tx.PublishTree("omp-package"); err == nil {
+		t.Fatal("the crash stub published the tree")
+	}
+	return dest, stage, backup
+}
+
+// assertTreeUnchanged proves one read-only verb left the interrupted tree state
+// and Atomic's own state byte-identical: the destination is still absent, the
+// staged tree and the transaction backup are still in place, and nothing under
+// ~/.atomic moved. The whole home is deliberately not compared — enumerating
+// harness instances runs the installed OMP path query, which bootstraps its own
+// state outside Atomic's.
+func assertTreeUnchanged(t *testing.T, verb, home, before, dest, stage, backup string) {
+	t.Helper()
+	if after := atomicStateDigest(t, home); after != before {
+		t.Errorf("%s changed Atomic's state:\nbefore %s\nafter  %s", verb, before, after)
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Errorf("%s performed the interrupted tree publication (stat %s = %v)", verb, dest, err)
+	}
+	if _, err := os.Stat(stage); err != nil {
+		t.Errorf("%s consumed the staged tree: %v", verb, err)
+	}
+	if _, err := os.Stat(backup); err != nil {
+		t.Errorf("%s consumed the transaction backup: %v", verb, err)
+	}
+}
+
+// TestHarnessDryRunsLeaveInterruptedTreeUntouched proves every read-only caller
+// that previews recovery — the recover, status, and uninstall dry runs, install
+// --dry-run through the projection, and doctor's journal check — reports the
+// interrupted tree publication without performing it. Before the simulation
+// neutralized the tree seams, each of these moved the staged tree into the
+// destination and consumed the tree backup the crash left behind.
+func TestHarnessDryRunsLeaveInterruptedTreeUntouched(t *testing.T) {
+	home := t.TempDir()
+	// An empty PATH keeps the OMP adapter's read-only path query from spawning a
+	// locally installed OMP binary, whose own bootstrap would move bytes in the
+	// home under test.
+	noPath := []string{"PATH=" + t.TempDir()}
+	// A real claude install gives the home an enrolled target, which is what makes
+	// status and install project through the adoption planner.
+	if out, code := runAtomicCLIEnv(t, home, noPath, "install", "--harness", "claude", "--yes"); code != 0 {
+		t.Fatalf("install exited %d:\n%s", code, out)
+	}
+	dest, stage, backup := seedInterruptedTreeJournal(t, home)
+	before := atomicStateDigest(t, home)
+
+	dryRuns := []struct {
+		verb string
+		args []string
+	}{
+		{"harness recover --dry-run", []string{"harness", "recover", "--dry-run"}},
+		{"harness status", []string{"harness", "status"}},
+		{"harness uninstall --dry-run", []string{"harness", "uninstall", "claude:" + filepath.Join(home, ".claude"), "--dry-run"}},
+		{"install --dry-run", []string{"install", "--harness", "claude", "--dry-run", "--yes"}},
+	}
+	for _, dry := range dryRuns {
+		out, code := runAtomicCLIEnv(t, home, noPath, dry.args...)
+		if code != 0 {
+			t.Fatalf("%s exited %d:\n%s", dry.verb, code, out)
+		}
+		if dry.verb == "harness recover --dry-run" && !strings.Contains(out, "op-tree-crash") {
+			t.Errorf("the preview did not report the interrupted journal:\n%s", out)
+		}
+		assertTreeUnchanged(t, dry.verb, home, before, dest, stage, backup)
+	}
+
+	results, err := doctor.RunWith(doctor.Opts{Home: home, Only: []int{17}, RepoRoot: t.TempDir()}, false)
+	if err != nil {
+		t.Fatalf("doctor journals check: %v", err)
+	}
+	if len(results) != 1 || results[0].Index != 17 {
+		t.Fatalf("doctor results = %+v, want category 17", results)
+	}
+	if len(results[0].Findings) != 1 {
+		t.Errorf("doctor findings = %v, want the interrupted journal reported", results[0].Findings)
+	}
+	assertTreeUnchanged(t, "doctor journals", home, before, dest, stage, backup)
+}
+
+// hasDecision reports whether one recovery result carries a decision.
+func hasDecision(actions []installstate.RecoveryAction, want installstate.RecoveryDecision) bool {
+	for _, a := range actions {
+		if a.Decision == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestHarnessRecoverDryRunPreviewsRollback proves --rollback --dry-run previews
+// the rollback the same command performs for real, instead of the roll-forward
+// decision, and writes nothing: the native bytes, the transaction backup, and the
+// journal are untouched.
+func TestHarnessRecoverDryRunPreviewsRollback(t *testing.T) {
+	home := t.TempDir()
+	journalPath, target := seedAppliedClaudeJournal(t, home)
+	applied, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := installstate.LoadJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(journal.Backups) == 0 {
+		t.Fatal("the seeded publication captured no transaction backup")
+	}
+	before := treeDigestCLI(t, home)
+
+	out, code := runAtomicCLI(t, home, "harness", "recover", "--rollback", "--dry-run", "--json")
+	if code != 0 {
+		t.Fatalf("rollback dry run exited %d:\n%s", code, out)
+	}
+	var sims []installstate.RecoverySimulation
+	if err := json.Unmarshal([]byte(out), &sims); err != nil {
+		t.Fatalf("rollback dry-run JSON: %v\n%s", err, out)
+	}
+	if len(sims) != 1 || !hasDecision(sims[0].Actions, installstate.DecisionRestoreBackup) {
+		t.Fatalf("preview = %+v, want the rollback decision", sims)
+	}
+	if hasDecision(sims[0].Actions, installstate.DecisionCommitApplied) {
+		t.Errorf("the rollback preview reported the roll-forward decision: %+v", sims[0].Actions)
+	}
+	if after, err := os.ReadFile(target); err != nil || string(after) != string(applied) {
+		t.Errorf("the rollback preview changed the native bytes: %q (%v)", after, err)
+	}
+	if _, err := os.Stat(journal.Backups[0].Path); err != nil {
+		t.Errorf("the rollback preview consumed the transaction backup: %v", err)
+	}
+	if after := treeDigestCLI(t, home); after != before {
+		t.Errorf("the rollback preview changed the filesystem:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// seedConflictedClaudeJournal writes an applied-but-unrecorded publication of two
+// block resources that a later edit changed, so recovery can reconcile neither.
+// It returns the journal path and both native paths.
+func seedConflictedClaudeJournal(t *testing.T, home string) (string, []string) {
+	t.Helper()
+	units := []struct{ file, unit string }{{"commit.md", "global-claude"}, {"plan.md", "global-claude-plan"}}
+	dir := filepath.Join(home, ".claude", "commands")
+	mutations := make([]installstate.Mutation, 0, len(units))
+	staged := make(map[string][]byte, len(units))
+	paths := make([]string, 0, len(units))
+	for _, u := range units {
+		path := filepath.Join(dir, u.file)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("original bytes for "+u.unit+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		body := "user prose\n" + managedfile.BlockOpen + "\nnew body for " + u.unit + "\n" + managedfile.BlockClose + "\n"
+		digest, err := managedfile.DigestResourceBytes([]byte(body), managedfile.KindBlock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutations = append(mutations, installstate.Mutation{
+			Unit: u.unit, Resource: u.unit, Target: "claude:default",
+			Kind: managedfile.KindBlock, Path: path, Intended: digest,
+			Generation: "gen-1", Tier: "unsupported",
+		})
+		staged[u.unit] = []byte(body)
+		paths = append(paths, path)
+	}
+	tx, err := installstate.NewTransaction(home, "op-cli-conflict", installstate.Plan{Mutations: mutations})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range units {
+		if _, err := tx.StageFile(u.unit, staged[u.unit], 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, u := range units {
+		if err := tx.PublishFile(u.unit); err != nil {
+			t.Fatalf("publish %s: %v", u.unit, err)
+		}
+	}
+	for _, path := range paths {
+		if err := os.WriteFile(path, []byte("edited after the crash\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return tx.JournalPath, paths
+}
+
+// TestHarnessRecoverCLIJSONReportsEveryConflict proves a scripted recovery reads
+// a refusal as a refusal — a non-zero exit in both output forms — and that every
+// unreconciled unit is reported, not the first.
+func TestHarnessRecoverCLIJSONReportsEveryConflict(t *testing.T) {
+	home := t.TempDir()
+	journalPath, paths := seedConflictedClaudeJournal(t, home)
+
+	out, code := runAtomicCLI(t, home, "harness", "recover", "--dry-run")
+	if code == 0 {
+		t.Errorf("text dry-run exit = 0, want non-zero\n%s", out)
+	}
+	for _, path := range paths {
+		if !strings.Contains(out, path) {
+			t.Errorf("the text dry run omitted the conflict at %s:\n%s", path, out)
+		}
+	}
+
+	out, code = runAtomicCLI(t, home, "harness", "recover", "--dry-run", "--json")
+	if code == 0 {
+		t.Errorf("dry-run exit = 0, want non-zero\n%s", out)
+	}
+	var sims []installstate.RecoverySimulation
+	if err := json.Unmarshal([]byte(out), &sims); err != nil {
+		t.Fatalf("dry-run JSON: %v\n%s", err, out)
+	}
+	if len(sims) != 1 || len(sims[0].Conflicts) != len(paths) {
+		t.Errorf("dry-run conflicts = %+v, want both units", sims)
+	}
+
+	out, code = runAtomicCLI(t, home, "harness", "recover", "--json")
+	if code == 0 {
+		t.Errorf("exit = 0, want non-zero for an unresolvable journal\n%s", out)
+	}
+	var actions []installstate.RecoveryAction
+	if err := json.Unmarshal([]byte(out), &actions); err != nil {
+		t.Fatalf("recovery JSON: %v\n%s", err, out)
+	}
+	conflicted := map[string]bool{}
+	for _, a := range actions {
+		if a.Decision == installstate.DecisionConflict {
+			conflicted[a.Path] = true
+		}
+	}
+	for _, path := range paths {
+		if !conflicted[path] {
+			t.Errorf("the JSON report omitted the conflict at %s: %+v", path, actions)
+		}
+	}
+	if _, err := os.Stat(journalPath); err != nil {
+		t.Errorf("a conflicted recovery consumed the journal: %v", err)
+	}
 }

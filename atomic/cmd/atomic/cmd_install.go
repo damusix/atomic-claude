@@ -133,15 +133,20 @@ func runInstall(args []string) {
 	if err != nil {
 		fatal("install", err)
 	}
-	printConvergeReports("install", reports, flags.dryRun, flags.jsonOut)
+	if printConvergeReports("install", reports, flags.dryRun, flags.jsonOut) {
+		os.Exit(1)
+	}
 }
 
-// printConvergeReports renders convergence outcomes. A blocked target exits
-// non-zero so a scripted install never reads a refusal as success.
-func printConvergeReports(verb string, reports []install.ConvergeReport, dryRun, jsonOut bool) {
+// printConvergeReports renders convergence outcomes and reports whether any
+// target was blocked, so a scripted install never reads a refusal as success.
+// Every blocker and every unproven surface is printed: a converged OMP target
+// whose generated commands, agents, skills, and rule bodies are not discovered
+// by OMP must say so rather than reading as fully delivered.
+func printConvergeReports(verb string, reports []install.ConvergeReport, dryRun, jsonOut bool) bool {
 	if jsonOut {
 		encodeJSON(map[string]any{"verb": verb, "dry_run": dryRun, "targets": reports})
-		return
+		return false
 	}
 	blocked := false
 	for _, r := range reports {
@@ -157,13 +162,14 @@ func printConvergeReports(verb string, reports []install.ConvergeReport, dryRun,
 		default:
 			fmt.Printf("%s\t%s\n", r.Target.Key(), r.Status)
 		}
+		for _, u := range r.Unproven {
+			fmt.Printf("\tunsupported\t%s\n", u)
+		}
 	}
 	if dryRun {
 		fmt.Println("(dry-run — no changes written)")
 	}
-	if blocked {
-		os.Exit(1)
-	}
+	return blocked
 }
 
 // encodeJSON writes one JSON document to stdout, aborting the verb on failure.

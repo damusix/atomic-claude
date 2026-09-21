@@ -33,6 +33,10 @@ type Plan struct {
 	// Converged reports that the target already holds this generation, so
 	// convergence would write nothing.
 	Converged bool `json:"converged,omitempty"`
+	// Unproven names the native surfaces this projection cannot promise, each as
+	// "surface: evidence". A surface listed here is reported as unsupported
+	// wherever the plan is shown; nothing about it is applied silently.
+	Unproven []string `json:"unproven,omitempty"`
 }
 
 // Convergence is one target's convergence outcome.

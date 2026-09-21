@@ -67,7 +67,7 @@ Both files carry managed blocks: the owned block is spliced into the observed by
 ## Milestone A adoption
 
 
-Under Milestone A a legacy Claude install converges through the generic adoption engine rather than through the `claude` verb: `atomic install --harness claude` and `atomic harness adopt|repair` acquire the single lifecycle lock, recover unresolved journals oldest-first, batch older-version replace-or-leave-unowned decisions, preserve the write-once legacy pre-install snapshot, and import `profile.md`/`wikis.md` into `~/.atomic` once while the authority is absent. Canonical contract: [`omp-plugin-compatibility.md`](./omp-plugin-compatibility.md).
+Under Milestone A a legacy Claude install converges through the generic adoption engine rather than through the `claude` verb: `atomic install --harness claude` and `atomic harness adopt|repair` acquire the single lifecycle lock, recover unresolved journals oldest-first, treat bytes the ledger recorded applying as owned while batching the genuine older-version replace-or-leave-unowned decisions, preserve the write-once legacy pre-install snapshot, and import `profile.md`/`wikis.md` into `~/.atomic` once while the authority is absent. A steering file with no Atomic tag at all is "no block yet" and is adopted by appending the block; tags that do not parse to one block still refuse. Canonical contract: [`omp-plugin-compatibility.md`](./omp-plugin-compatibility.md).
 
 
 ## Success criteria

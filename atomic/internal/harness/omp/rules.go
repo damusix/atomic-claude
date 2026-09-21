@@ -554,7 +554,7 @@ func (a *Adapter) PublishProjectCards(req CardPublishRequest) (CardPublishResult
 	}
 	for _, action := range recovery {
 		if action.Decision == installstate.DecisionConflict {
-			return result, fmt.Errorf("omp: publish project cards %s: unresolved journal conflict at %s: %s", target.Key(), action.Path, action.Detail)
+			return result, installstate.JournalConflictError(action.Path, action.Detail)
 		}
 	}
 
@@ -629,6 +629,9 @@ func (a *Adapter) PublishProjectCards(req CardPublishRequest) (CardPublishResult
 		return result, err
 	}
 	if err := tx.Complete(); err != nil {
+		return result, err
+	}
+	if _, err := installstate.CleanupOperation(req.Home, tx.ID); err != nil {
 		return result, err
 	}
 

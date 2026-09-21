@@ -43,7 +43,7 @@ For the Claude-only bundle path that skips enrollment entirely:
 atomic claude install
 ```
 
-It writes the embedded bundle (`CLAUDE.md`, agents, commands, skills, output styles, rules) into `~/.claude/`, seeds the Atomic output style into `~/.claude/settings.json`, and registers the hook (pass `--no-hooks` to skip it). It is independent of the multi-harness ledger: `atomic update` does not reconverge it. Use `atomic claude update` when you want to refresh it.
+It writes the embedded bundle (`CLAUDE.md`, agents, commands, skills, output styles, rules) into `~/.claude/`, seeds the Atomic output style into `~/.claude/settings.json`, and registers the hook (pass `--no-hooks` to skip it). This legacy route is only for an install the ledger does not own: when the resolved `~/.claude` root is enrolled, `atomic claude install|update` converges it through the install planner instead — the same lock, journal, and ledger every other lifecycle verb uses — so an un-adopted install is the only one the legacy writer still touches. `atomic update` converges enrolled targets too.
 
 For a project-scoped Claude install instead of global: `atomic claude install --target ./.claude`. That route deliberately does not seed the output style, since the file it would write is committed and the choice is personal. Pick the style yourself with `/config` → **Output style** → **Atomic**, which writes the gitignored `.claude/settings.local.json`.
 
@@ -60,10 +60,20 @@ For a project-scoped Claude install instead of global: `atomic claude install --
 | `atomic harness adopt [claude]` | Import a verified legacy Claude install into the ledger |
 | `atomic harness repair` | Reconverge already-enrolled targets |
 | `atomic harness diff` | Report each enrolled resource's native difference from the selected generation, read-only |
+| `atomic harness recover [--rollback] [--dry-run]` | Reconcile an unresolved journal: roll it forward by default, or restore its digest-verified pre-mutation backups under `--rollback` |
 | `atomic harness uninstall <target-key>` / `--all` | Remove one enrolled target, or every target |
 | `atomic harness rules status` / `rules sync` | Report or converge per-target rule tier, digests, coverage, and conflicts |
 
 Every real mutation takes one advisory lifecycle lock and recovers unresolved journals oldest-first before planning; the target is re-observed before the plan is built, so a plan that cannot be decided reports `blocked` and changes nothing. `--dry-run` opens no lock, writes nothing, and reports `blocked_on_recovery` when a journal cannot resolve to one safe result. Resource ownership lives in `~/.atomic/install/ledger.json`; in-flight operations live in `~/.atomic/install/{journals,transactions}/`.
+
+### Oh My Pi
+
+OMP enrolls through the same verbs, and what it receives is what discovery proved it loads:
+
+- the profile `AGENTS.md`, carrying the Atomic steering and output-style block;
+- the generated extension module at the profile agent root's `extensions/atomic.ts`, which supplies the bounded session-baseline rule index and the capability-proven events.
+
+Named profiles are discovered through `OMP_PROFILE`: a profile selector you already export for OMP is the same one Atomic resolves, so a named profile is not a separate configuration. Atomic also publishes its corpus — commands, agents, skills, and rule bodies — to `~/.atomic/packages/omp/atomic`, but that tree is a **corpus store**: no OMP surface was observed discovering it. Package installation, registration, and command/agent/skill discovery are therefore reported `unsupported` in `install`, `harness status`, `harness rules status`, and `atomic doctor`'s multi-harness rule category, with the evidence that fixes each one. Never read a converged OMP target as a fully delivered one.
 
 ### Codex
 
@@ -119,6 +129,8 @@ atomic update
 ```
 
 One command updates everything: it swaps the binary, then the replacement binary converges every already-enrolled harness target with its own embedded generation, and finishes with a health check that prints what to look at if anything fails. It never enrolls a target — a harness you have not enrolled with `atomic install --harness` or `atomic harness enroll` is left alone. It is usually near-instant because a background process pre-downloads and checksum-verifies each release ahead of time; the swap re-verifies version and checksum regardless, so the binary is never stale or unverified. Convergence restores the adapter's settings defaults — for Claude it re-registers the session-start hook and re-seeds the output style if either is missing.
+
+**A pre-multi-harness install stops here, loudly.** If `~/.claude` still carries legacy install evidence and no ledger target owns it, `atomic update` does not refresh it: it prints an `atomic harness adopt claude` instruction to stderr and exits non-zero. The retired legacy writer would rewrite owned files with no ledger row, which is exactly the drift the next converge reads as unrepairable — so the command refuses instead of silently freezing the artifacts. Adopting once moves the install under the ledger, and every later update converges it normally.
 
 To skip the post-swap convergence, pass `--skip-claude-update` and converge manually when ready:
 
@@ -229,7 +241,9 @@ atomic harness uninstall claude     # one target
 atomic harness uninstall --all      # every enrolled target
 ```
 
-A target-level uninstall removes only the unchanged resources that target owns. A resource whose native bytes changed since Atomic wrote it refuses the whole operation — Atomic never overwrites a user edit — and a resource another enrolled consumer still depends on is retained and reported. A read-only `settings.json` is reported `skipped` and keeps its ownership claim, so a later uninstall finishes the job once the file is writable. `--dry-run` opens no lock, writes nothing, and previews unfinished journals read-only.
+A target-level uninstall removes only the unchanged resources that target owns. A resource whose native bytes changed since Atomic wrote it is reported `skipped` and keeps its claim — Atomic never overwrites a user edit, and the rest of the target still uninstalls. A resource another enrolled consumer still depends on is retained and reported. A read-only `settings.json` is reported `skipped` too, so a later uninstall finishes the job once the file is writable. `--dry-run` opens no lock, writes nothing, and previews unfinished journals read-only.
+
+If an unresolved journal blocks an operation, `atomic harness recover` reconciles it: the default run rolls verified work forward, and `--rollback` restores the digest-verified pre-mutation bytes instead. `atomic harness recover --dry-run` previews the decision the same command would make — including the `--rollback` choice — without writing. A run that leaves a journal unreconciled reports every conflict and exits non-zero, with or without `--json`.
 
 `--all` removes every enrolled target, then completed operational and adoption state. It does **not** delete your data: `~/.atomic/config.toml`, `profile.md`, `wikis.md`, and backups survive, so a reinstall resumes where you left off. Unresolved journals and the backups, ledger rows, and state-location records they reference are retained until recovery completes.
 

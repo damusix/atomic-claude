@@ -162,8 +162,40 @@ func summarizeAndPrint(s RepairSummary, out io.Writer) RepairSummary {
 	return s
 }
 
+// outputStyleNonFixable reports the output-style conditions whose remedy is a
+// user config or reinstall action rather than a lifecycle mutation. They must
+// be decided before the scoped-repair guard: an enrolled scoped target routed
+// to converge would report an applied repair while the WARN stands, because
+// the converge cannot seed a style whose seeding the user disabled or install a
+// style file the bundle does not carry. The plan and the apply share this
+// predicate, so the two cannot disagree.
+func outputStyleNonFixable(r Result) (plan string, nonFixable bool) {
+	if r.Name != "output-style" {
+		return "", false
+	}
+	switch {
+	case strings.Contains(r.Detail, "seeding is disabled"):
+		return "cannot auto-fix — output_style.seed is disabled; run `atomic config set output_style.seed true` to enable", true
+	case strings.Contains(r.Detail, "is not installed"):
+		return "cannot auto-fix — run `atomic claude update` to reinstall the style", true
+	}
+	return "", false
+}
+
+// claudeConvergePlan is the repair description for a ledger-enrolled Claude
+// result. The legacy verbs resolve their own default root, so on a relocated or
+// adopted target they would write outside the ledger; the converge writes only
+// the roots the check inspected.
+const claudeConvergePlan = "converge the enrolled Claude target via `atomic harness repair --all --yes`"
+
 // repairPlan returns a human-readable plan description and whether auto-fix is available.
 func repairPlan(r Result) (plan string, fixable bool) {
+	if plan, nonFixable := outputStyleNonFixable(r); nonFixable {
+		return plan, false
+	}
+	if scopedRepair(r) {
+		return claudeConvergePlan, true
+	}
 	switch r.Name {
 	case "install":
 		return "run `atomic claude install --merge` to re-sync bundle", true
@@ -191,14 +223,7 @@ func repairPlan(r Result) (plan string, fixable bool) {
 	case "profile":
 		return "run `atomic claude install` to create the profile stub; @-ref insertion is bundle-source-driven and updates with `atomic claude install/update`", false
 	case "output-style":
-		switch {
-		case strings.Contains(r.Detail, "seeding is disabled"):
-			return "cannot auto-fix — output_style.seed is disabled; run `atomic config set output_style.seed true` to enable", false
-		case strings.Contains(r.Detail, "is not installed"):
-			return "cannot auto-fix — run `atomic claude update` to reinstall the style", false
-		default:
-			return "seed the user-level outputStyle key", true
-		}
+		return "seed the user-level outputStyle key", true
 	case "targets", "rules", "staleness", "journals":
 		// These categories report ledger-managed lifecycle state. Repair routes
 		// through the common converge planner, which takes the lifecycle lock,
@@ -219,8 +244,38 @@ func repairPlan(r Result) (plan string, fixable bool) {
 // this context. Callers count it as NonFixable, not Skipped.
 var errNonFixable = fmt.Errorf("cannot auto-fix in this context")
 
+// scopedRepair reports whether a result names an enrolled Claude target one of
+// the legacy verbs could repair. The legacy verbs resolve their own Claude root,
+// so repairing a scoped result through them would write to a target the check
+// never inspected; the ledger-driven converge writes to the roots that were. The
+// predicate is shared by the plan and the apply, so the two cannot disagree.
+func scopedRepair(r Result) bool {
+	if len(r.Scopes) == 0 {
+		return false
+	}
+	switch r.Name {
+	case "install", "hooks", "output-style":
+		return true
+	default:
+		return false
+	}
+}
+
 // applyRepair runs the repair for a fixable category and returns a summary line.
 func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, error) {
+	if _, nonFixable := outputStyleNonFixable(r); nonFixable {
+		return "", errNonFixable
+	}
+	if scopedRepair(r) {
+		home, err := rp.HomeFn()
+		if err != nil {
+			return "", fmt.Errorf("resolve home: %w", err)
+		}
+		if err := rp.ConvergeFn(home, out); err != nil {
+			return "", err
+		}
+		return "converged the enrolled Claude target through the install planner", nil
+	}
 	switch r.Name {
 	case "install":
 		if err := rp.InstallFn(out); err != nil {

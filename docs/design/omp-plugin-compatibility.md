@@ -34,7 +34,7 @@ The existing system already supplies reusable mechanics. `artifacts.Load` enumer
 
 - Goals:
   - Make `context/AGENTS.md` the sole authored global steering source, remove the global-source `context/CLAUDE.md`, render directly into Claude's `~/.claude/CLAUDE.md`, and use thin `CLAUDE.md` references only beside repository and realm `AGENTS.md` files.
-  - Deliver a native OMP package and an import-free profile `AGENTS.md` composed from Atomic steering followed by the output-style body.
+  - Deliver the OMP artifact the capability record proved discovery for — the generated extension module under the profile agent root — plus an import-free profile `AGENTS.md` composed from Atomic steering followed by the output-style body. The generated package is Atomic's corpus store; package install, registration, and artifact discovery are unsupported on the tested version and reported as such.
   - Keep commands, agents, skills, actual path-scoped rules, session behavior, and model preferences native to each supported harness.
   - Track explicit target enrollment, physical resource ownership, shared visibility, desired generations, interruption recovery, and safe target uninstall.
   - Select one repository-state tree independently of the active harness.
@@ -137,7 +137,7 @@ One path has one authority. Native harness files are projections unless the row 
 | `~/.atomic/install/transactions/<operation-id>/{stage,backup}/` | Staging and transaction backups | Staging validates before publication; backups referenced by unresolved journals survive |
 | `~/.atomic/backups/**` | User recovery history | Preserved by full uninstall |
 | `~/.atomic/<project-key>/state-location.json` | Project-state selection shared across worktrees | Persisted before resolution switches; retained while an unresolved journal references the selection |
-| `~/.atomic/packages/omp/atomic/` | Atomic-owned generated OMP package | Published as a generated directory; shared visibility and consumers recorded separately |
+| `~/.atomic/packages/omp/atomic/` | Atomic-owned generated OMP corpus store | Published as a generated directory; no OMP discovery surface reads it, so package install, registration, and artifact discovery stay `unsupported`; shared visibility and consumers recorded separately |
 | `~/.atomic/packages/codex/atomic/` | Atomic-owned generated Codex plugin | CP0-proven native registration and hook trust verified per enrolled `CODEX_HOME`; trust is never fabricated |
 | Claude, OMP, and Codex native roots | Derived target state written only by the owning adapter | Changed owned bytes conflict; unowned bytes and user settings win |
 | Claude `settings.json` owned members | Written only when the Claude adapter converges a target (converge or legacy adopt): the inline `SessionStart` registration and the `outputStyle` seed | One ledger resource whose digest covers only the owned members, so unrelated user keys never conflict and a user edit to an owned member conflicts; target and full uninstall strip exactly those members |
@@ -173,10 +173,10 @@ Per-target convergence writes:
 | Target | Global writes |
 |---|---|
 | Claude | Atomic block in `~/.claude/CLAUDE.md`, commands, agents, skills, output style, shipped rules, narrow `settings.json` hook/style mutations, and ledger records |
-| OMP | Shared Atomic package, profile-owned `AGENTS.md` block, native extension registration, role defaults only where user settings are absent, session hook state, and consumer records |
+| OMP | Shared Atomic package (corpus store), profile-owned `AGENTS.md` block and profile-owned extension module at the agent root, role defaults only where user settings are absent, session hook state, and consumer records |
 | Codex | Atomic plugin package, CP0-proven native registration state, global `AGENTS.md` managed block, proven event configuration, skills/agents, trust-pending status, and target records |
 
-An OMP package may be visible to unenrolled profiles when OMP's native package surface is shared. That visibility is reported separately from enrollment and consumer ownership. Enrolled profiles with incompatible desired package generations make the entire shared-package plan refuse before mutation.
+An OMP package may be visible to unenrolled profiles when OMP's native package surface is shared. That visibility is reported separately from enrollment and consumer ownership. One physical package holds one generation, so the plan that moves it converges every enrolled consumer of that resource in the same operation — a consumer's older recorded generation is stale, not a requirement — and refuses before mutation only when a recorded claim belongs to a target the operation cannot enroll.
 
 Update re-executes the replacement binary before convergence so only the replacement's embedded generation can publish. Repair reuses the same planner and transaction protocol. A target uninstall removes only unchanged target-owned resources and consumer links. Full uninstall after the final target preserves `config.toml`, `profile.md`, `wikis.md`, and backups. It removes completed operational and project-adoption state, but retains unresolved journals, referenced transaction backups, referenced ledger rows, and referenced state-location records until recovery completes.
 

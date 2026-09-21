@@ -246,7 +246,7 @@ func TestAdoptRefusesBlockedStates(t *testing.T) {
 		}
 	})
 
-	t.Run("mixed", func(t *testing.T) {
+	t.Run("drifted row needs an explicit decision", func(t *testing.T) {
 		home := newHome(t)
 		root := installLegacy(t, home)
 		ageInstall(t, home, root)
@@ -256,9 +256,17 @@ func TestAdoptRefusesBlockedStates(t *testing.T) {
 			Resource: "commands/commit.md",
 			Applied:  AppliedValue{Path: drifted, Kind: managedfile.KindFile, Digest: "0000"},
 		}})
-		_, err := Adopt(adoptReq(home, root, t))
-		if !errors.Is(err, ErrAdoptionRefused) {
-			t.Fatalf("error = %v, want ErrAdoptionRefused", err)
+
+		// The row's bytes no longer match, so the resource is ordinary drift on
+		// the explicit replace-or-leave-unowned path: with no decision adoption
+		// refuses, and with one it replaces without a mixed blocker.
+		undecided := adoptReq(home, root, t)
+		undecided.BatchDecision = ""
+		if _, err := Adopt(undecided); !errors.Is(err, ErrAdoptionRefused) {
+			t.Fatalf("error = %v, want ErrAdoptionRefused without a decision", err)
+		}
+		if _, err := Adopt(adoptReq(home, root, t)); err != nil {
+			t.Fatalf("replace-decided adoption failed: %v", err)
 		}
 	})
 
@@ -415,12 +423,8 @@ func TestAdoptResumesInterruptedOperation(t *testing.T) {
 	if _, ok := ledger.Find("claude:default", victim.ID); !ok {
 		t.Error("recovered resource was not ledger-committed")
 	}
-	j, err := LoadJournal(config.JournalPath(home, "op-interrupted"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !j.Completed {
-		t.Error("recovered journal was not consumed")
+	if _, err := os.Stat(config.JournalPath(home, "op-interrupted")); !os.IsNotExist(err) {
+		t.Error("recovered journal was not consumed and cleaned up")
 	}
 }
 
@@ -535,6 +539,11 @@ func TestAdoptStateRootPersistenceAndRollback(t *testing.T) {
 	})
 }
 
+// An old Claude-only binary's later write is ordinary drift on a resource Atomic
+// owns: it stays decidable (v2-clean, not mixed), the changed resource carries a
+// replace-or-leave-unowned verdict, repair replaces it under --replace, and the
+// ledger's recorded bytes are the ownership proof that makes the replacement
+// possible.
 func TestAdoptSurfacesOldBinaryDrift(t *testing.T) {
 	home := newHome(t)
 	root := installLegacy(t, home)
@@ -553,17 +562,40 @@ func TestAdoptSurfacesOldBinaryDrift(t *testing.T) {
 	}
 
 	// An old Claude-only binary rewrites one artifact with its own generation.
-	mkfile(t, filepath.Join(root, "commands", "commit.md"), "old binary wrote this\n")
+	driftedPath := filepath.Join(root, "commands", "commit.md")
+	mkfile(t, driftedPath, "old binary wrote this\n")
 
 	drifted, err := Classify(classifyReq(home, root, t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if drifted.State != StateMixed {
-		t.Fatalf("drifted state = %s, want %s", drifted.State, StateMixed)
+	if drifted.State == StateMixed {
+		t.Fatalf("old-binary drift classified the install mixed (%v); it is per-resource drift", drifted.Conflicts)
 	}
-	if len(drifted.Conflicts) == 0 {
-		t.Error("old-binary drift reported no conflict")
+	if !containsPrefix(drifted.Drift, driftedPath) {
+		t.Errorf("old-binary drift = %v, want the changed resource reported", drifted.Drift)
+	}
+
+	// The changed resource needs an explicit decision; repair replaces it.
+	undecided := adoptReq(home, root, t)
+	undecided.BatchDecision = ""
+	if _, err := Adopt(undecided); !errors.Is(err, ErrAdoptionRefused) {
+		t.Fatalf("error = %v, want ErrAdoptionRefused without a decision", err)
+	}
+	if _, err := Adopt(adoptReq(home, root, t)); err != nil {
+		t.Fatalf("repair of old-binary drift failed: %v", err)
+	}
+	got, err := os.ReadFile(driftedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range selectedArtifacts(t, root) {
+		if a.ID != "commands/commit.md" {
+			continue
+		}
+		if string(got) != string(a.Data) {
+			t.Errorf("repair did not restore the selected bytes: %q", got)
+		}
 	}
 }
 

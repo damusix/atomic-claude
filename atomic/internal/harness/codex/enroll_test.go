@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
@@ -37,18 +38,13 @@ func TestEnrollWritesPluginThroughTransaction(t *testing.T) {
 	if result.Status != harness.StatusConverged || result.JournalPath == "" || len(result.Applied) != 1 {
 		t.Fatalf("enroll = %+v, want one applied plugin tree through a journal", result)
 	}
-	if !exists(result.JournalPath) {
-		t.Errorf("journal %s was not written", result.JournalPath)
+	// The completed operation is consumed: its journal and transaction tree are
+	// removed once the rows are committed, so nothing accumulates per converge.
+	if _, err := os.Stat(result.JournalPath); !os.IsNotExist(err) {
+		t.Errorf("completed enrollment left its journal behind (stat err = %v)", err)
 	}
-	journal, err := installstate.LoadJournal(result.JournalPath)
-	if err != nil {
-		t.Fatalf("load journal: %v", err)
-	}
-	if !journal.Completed {
-		t.Error("enrollment journal is not completed")
-	}
-	if state := journal.State(packageUnit); state != installstate.StateCommitted {
-		t.Errorf("journal unit %s state = %s, want committed", packageUnit, state)
+	if _, err := os.Stat(config.TransactionDir(home, "enroll-test")); !os.IsNotExist(err) {
+		t.Errorf("completed enrollment left its transaction tree behind (stat err = %v)", err)
 	}
 
 	pkg, err := BuildPlugin(fixtureCorpus(t), harness.CodexCapabilities())
@@ -146,9 +142,12 @@ func TestEnrollRerunIsNoOp(t *testing.T) {
 	}
 }
 
-// TestEnrollRefusesIncompatibleSharedGeneration proves one physical marketplace
-// tree cannot hold two generations: a second home requiring a different one
-// refuses before mutation and names both targets.
+// TestEnrollRefusesIncompatibleSharedGeneration proves a generation claim the
+// operation cannot move stops it: a row for a target the ledger does not enroll
+// is a pin, and enrollment refuses before mutation, naming both targets. An
+// *enrolled* home's older recorded generation is not a pin — it is what Atomic
+// last wrote, and TestTwoHomesConvergeAcrossGenerationSwap proves the operation
+// rewrites it.
 func TestEnrollRefusesIncompatibleSharedGeneration(t *testing.T) {
 	home := newHome(t)
 	root := newRoot(t, home)
@@ -183,6 +182,79 @@ func TestEnrollRefusesIncompatibleSharedGeneration(t *testing.T) {
 	if _, err := os.Stat(config.JournalPath(home, "refuse")); !os.IsNotExist(err) {
 		t.Errorf("refused enrollment wrote a journal: %v", err)
 	}
+}
+
+// TestTwoHomesConvergeAcrossGenerationSwap proves a shared plugin-tree generation
+// move converges every enrolled CODEX_HOME in one operation: the first home's row
+// records the older generation, which is stale rather than a requirement, so the
+// second home's enrollment must not refuse and both rows must record the new
+// generation.
+func TestTwoHomesConvergeAcrossGenerationSwap(t *testing.T) {
+	home := newHome(t)
+	firstRoot := newRoot(t, home)
+	secondRoot := filepath.Join(home, "second-codex-home")
+	if err := os.MkdirAll(secondRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	first := newAdapter(t, firstRoot)
+	for _, root := range []string{firstRoot, secondRoot} {
+		if _, err := first.Enroll(EnrollRequest{Home: home, Root: root}); err != nil {
+			t.Fatalf("enroll %s at generation one: %v", root, err)
+		}
+	}
+
+	swapped := nextGenerationCorpus(t)
+	next, err := BuildPlugin(swapped, first.Capabilities())
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextDigest, err := next.TreeDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := newAdapter(t, firstRoot)
+	second.Corpus = func() (*artifacts.Catalog, error) { return swapped, nil }
+
+	result, err := second.Enroll(EnrollRequest{Home: home, Root: secondRoot})
+	if err != nil {
+		t.Fatalf("the second enrolled home could not move to the new generation: %v", err)
+	}
+	if result.Generation != next.Generation {
+		t.Fatalf("enrolled generation %s, want the selected %s", result.Generation, next.Generation)
+	}
+
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{firstRoot, secondRoot} {
+		key := harness.Target{Kind: harness.KindCodex, Instance: root}.Key()
+		row, ok := ledger.Find(key, PackageResource(home))
+		if !ok {
+			t.Fatalf("no plugin-tree row for %s", key)
+		}
+		if row.Generation != next.Generation || row.Applied.Digest != nextDigest {
+			t.Errorf("%s records %s/%s, want the converged %s/%s", key, row.Generation, row.Applied.Digest, next.Generation, nextDigest)
+		}
+	}
+}
+
+// nextGenerationCorpus loads the fixture corpus with one whole-file artifact
+// moved, so the selected generation differs from the enrolled one.
+func nextGenerationCorpus(t *testing.T) *artifacts.Catalog {
+	t.Helper()
+	base := fixtureCorpus(t)
+	swapped := &artifacts.Catalog{Artifacts: append([]artifacts.Artifact(nil), base.Artifacts...)}
+	for i := range swapped.Artifacts {
+		if swapped.Artifacts[i].Kind != artifacts.KindRule {
+			continue
+		}
+		body := append([]byte(nil), swapped.Artifacts[i].Body...)
+		swapped.Artifacts[i].Body = append(body, []byte("\nNew generation line.\n")...)
+		return swapped
+	}
+	t.Fatal("the fixture corpus carries no rule to move")
+	return nil
 }
 
 // TestClaimsCarryNoSteering proves the adapter claims only the shared plugin

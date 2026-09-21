@@ -106,6 +106,31 @@ func TestProjection_MetadataLeakFails(t *testing.T) {
 	}
 }
 
+// P3: a Codex skill is Markdown with frontmatter, so a user-policy key in a
+// shipped skill file is a leak. A parser keyed on the target read the Markdown as
+// TOML, failed, and reported nothing — the whole Codex skill surface went
+// unchecked.
+func TestProjection_CodexSkillMetadataLeakFails(t *testing.T) {
+	root := writeProjectionCorpus(t, map[string]string{
+		"skills/atomic-sample/SKILL.md":            "---\nname: atomic-sample\ndescription: Sample skill.\n---\nSkill body.\n",
+		"skills/atomic-sample/references/notes.md": "---\nmodel: opus\n---\nNotes shipped beside the manifest.\n",
+	})
+
+	findings, err := validate.RunProjectionRules(root)
+	if err != nil {
+		t.Fatalf("RunProjectionRules: %v", err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.Rule == "P3" && f.Severity == "FAIL" && strings.Contains(f.Message, "model") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a P3 finding for the Codex skill metadata leak, got %+v", findings)
+	}
+}
+
 // P6: a Claude-only wire token that reaches another target's projected bytes
 // unclassified is a leak.
 func TestProjection_WireTokenLeakFails(t *testing.T) {
