@@ -14,7 +14,7 @@ A wiki realm is a set of markdown files and a set of SQLite symbol graphs. Read 
 
 `atomic serve [path] [--port N] [--host H] [--open]` renders all of it in a browser (default port 4500, default bind `127.0.0.1`). Go serves a JSON API; the UI is a React + TypeScript SPA built by Bun, committed as `frontend/dist/` and embedded with `go:embed`, so `go build` never invokes Bun or Node.
 
-Serve is read-only with respect to realm and repo content. Two write surfaces exist, both refused unless the request's TCP peer is loopback: the `/api/bus/*` chat routes, which write the bus daemon's own state (room membership and messages), never files, and `POST /api/code/index`, which rebuilds one member's SQLite index (the served root's own index in repo scope) — derived state, never realm or repo content.
+Serve is read-only with respect to realm and repo content. Two write surfaces exist, both refused unless the request's TCP peer is loopback: the `/api/bus/*` chat routes, which write a bus daemon's own state (room membership and messages) — the local daemon, or a `[bus.remotes]` gateway when the request names a host — never files, and `POST /api/code/index`, which rebuilds one member's SQLite index (the served root's own index in repo scope) — derived state, never realm or repo content.
 
 
 ## How it works
@@ -68,6 +68,8 @@ Bus routes, all under `/api/bus/`:
 | `GET` | `status`, `rooms`, `who`, `sessions`, `transcript`, `log`, `tail` |
 | `POST` | `join`, `send`, `say`, `halt`, `resume`, `leave`, `close`, `end` |
 
+A room verb carries an optional `host` — a query parameter on `GET who`/`sessions`/`log`/`tail`, a JSON body field on the POST routes — naming a `[bus.remotes]` entry so the request reaches that machine's gateway instead of the local daemon. `status` reports this machine and `transcript` reads a local Claude Code session file, so neither takes one, and `rooms` fans out on its own.
+
 ### Security model
 
 Five guards, each at a different layer:
@@ -102,7 +104,9 @@ Five guards, each at a different layer:
 
 ### Bus facade
 
-**No bus read route spawns a daemon.** `status`, `rooms`, and `who` go through `h.do` to `bus.Dial`; `log` reads the room log file with no daemon involved; `tail` dials directly for a subscription. All degrade to a not-running or empty response. Only `join` and `send`'s join-if-needed path use `h.doEnsure` to `bus.EnsureDaemon`. Opening `/bus` never starts a daemon; sending into a room does.
+**No route spawns a local daemon for a remote target.** A named host resolves to `bus.DoRemote` before any local path: `h.do(host, req)` and `h.doEnsure(host, req)` branch on it ahead of the socket, and the three commands that reach a gateway directly — `log`'s empty-backlog short-circuit, `tail`'s remote `Stream`, and the `rooms` fan-out — never take the socket path at all. So a failed remote dial can never spawn a local daemon and split the bus. Local reads stay Dial-only — `status` pings, `log` reads the room log file, `tail` subscribes — and degrade to a not-running or empty response. Only `join` and `send`'s join-if-needed path reach `h.doEnsure` → `bus.EnsureDaemon`. Opening `/bus` never starts a daemon; sending into a room does.
+
+**`rooms` fans out across hosts; a remote room's backlog is empty by design.** `handleRooms` unions the local daemon's rooms with every configured `[bus.remotes]` entry, tagging each entry with its `Host` so two rooms sharing a name on different buses stay distinguishable, and the fan-out runs concurrently under the dial timeout so one unreachable remote cannot hold up the poll behind it. A remote that does not answer is skipped silently, and `running` still reflects only the local daemon. A room on a remote has no log file on this machine and the wire protocol carries no bulk-history op, so `/api/bus/log` returns an empty backlog for it and the SSE tail fills the transcript live.
 
 **Transcript parsing is deliberately tolerant.** `api_bus_transcript.go` skips unknown line types, malformed JSON, and over-length lines rather than failing the read, bounds memory with a sliding window, and truncates each rendered block. A future change to Claude Code's `.jsonl` format degrades rendering quality, not availability. Session ids are validated against `^[A-Za-z0-9._-]{1,128}$` before being spliced into a glob.
 
@@ -227,7 +231,7 @@ Go, all in [`atomic/internal/serve/`](../../atomic/internal/serve):
 | `plans.go` | `plansAggregator` — the worktree enumeration, content-SHA version grouping, bundle collection, `rowUpdatedAt` (newest mtime across a row's doc versions and bundle files, rows sorted descending with a slug tiebreak), and the stat-only fingerprint cache the Plans surface reads from |
 | `api_plans.go` | `/api/plans` and `/api/plans/members`; `plansRegistry` sharing one `plansAggregator` per root and indexing worktree ids across every aggregator built |
 | `api_plans_page.go` | `/api/plans/page`; `resolvePlansPath`, `plansContentType`'s HTML/XML-sniff clamp for `raw=1` responses |
-| `api_bus.go` | `/api/bus/*` handler: loopback gate, dial-vs-ensure split, `requireRoom`, `writeBusError`, `rejectCrossOrigin` on every POST route |
+| `api_bus.go` | `/api/bus/*` handler: loopback gate, the `host` selector and its `bus.DoRemote` routing, dial-vs-ensure split, `requireRoom`, `writeBusError`, `rejectCrossOrigin` on every POST route |
 | `origin_guard.go` | `rejectCrossOrigin` — the same-origin check every bus POST route and the reindex POST route call before touching daemon or index state |
 | `api_bus_transcript.go` | `/api/bus/sessions` and `/api/bus/transcript` |
 | `api_code_capabilities.go` | `/api/code/capabilities` — the shell's capability probe (`schema`), config-overridable and memoized for 60s |

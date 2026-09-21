@@ -4,7 +4,7 @@ description: Repo-local project wiki for atomic-claude — framework signals and
 ---
 
 <wiki-type>repo</wiki-type>
-<scan-sha>773972d62ebce13af390fe09eb7f41237428da25</scan-sha>
+<scan-sha>335e568e8c2f1d3f832b1e8e0896a338e75a2219</scan-sha>
 <wiki-schema>1</wiki-schema>
 
 # Project signals
@@ -41,7 +41,7 @@ Domains are vertical slices by feature concern, not horizontal layers by file ty
 | wiki | [`atomic/internal/wiki/`](../../atomic/internal/wiki) | Cross-repo knowledge layer: scan, classify, synthesize, capture buckets. | [`docs/wiki/wiki.md`](wiki.md) |
 | code-intel | [`atomic/internal/codeintel/`](../../atomic/internal/codeintel) | Tree-sitter symbol graph, the `atomic code` verbs, and the MCP server. | [`docs/wiki/code-intel.md`](code-intel.md) |
 | serve | [`atomic/internal/serve/`](../../atomic/internal/serve) | Local read-only web UI over the wiki and the code graph. | [`docs/wiki/serve.md`](serve.md) |
-| bus | [`atomic/internal/bus/`](../../atomic/internal/bus) | Messaging between concurrent agent sessions over named rooms; 19 verbs. | [`docs/wiki/bus.md`](bus.md) |
+| bus | [`atomic/internal/bus/`](../../atomic/internal/bus) | Messaging between concurrent agent sessions over named rooms, local or gateway-hosted; 23 verbs. | [`docs/wiki/bus.md`](bus.md) |
 | repl | [`atomic/internal/repl/`](../../atomic/internal/repl) | Persistent Python and Node interpreter sessions an agent drives. | [`docs/wiki/repl.md`](repl.md) |
 
 ## Framework & runtime
@@ -91,12 +91,12 @@ The CI test job installs Bun (`oven-sh/setup-bun@v2`, pinned `1.3.13`) and runs 
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Go | 231425 | 763 | 64% |
-| Markdown | 55649 | 420 | 15% |
-| TypeScript | 46342 | 301 | 12% |
+| Go | 239050 | 779 | 65% |
+| Markdown | 57216 | 424 | 15% |
+| TypeScript | 46389 | 301 | 12% |
 | JavaScript | 10670 | 20 | 2% |
-| CSS | 7797 | 15 | 2% |
-| JSON | 3582 | 14 | 1% |
+| CSS | 7804 | 15 | 2% |
+| JSON | 3582 | 14 | 0% |
 | Shell | 939 | 8 | 0% |
 | Vue | 782 | 3 | 0% |
 | YAML | 530 | 10 | 0% |
