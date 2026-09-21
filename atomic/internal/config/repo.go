@@ -47,6 +47,28 @@ type replSection struct {
 	IdleTimeout string `toml:"idle_timeout"`
 }
 
+// A pointer because absence (default, no warning) and an explicit 0 (invalid,
+// warns) must resolve differently.
+type commentsSection struct {
+	MaxLines *int `toml:"max_lines"`
+}
+
+const defaultMaxLines = 2
+
+// ResolveMaxLines returns the effective max_lines: the default when the key
+// is absent, and the default plus a Warning when it is below 1.
+func ResolveMaxLines(c commentsSection) (int, *Warning) {
+	if c.MaxLines == nil {
+		return defaultMaxLines, nil
+	}
+	if *c.MaxLines < 1 {
+		return defaultMaxLines, &Warning{
+			Message: fmt.Sprintf("config: comments.max_lines %d must be at least 1, using default %d", *c.MaxLines, defaultMaxLines),
+		}
+	}
+	return *c.MaxLines, nil
+}
+
 // ValidateIdleTimeout requires a Go duration string that is strictly positive —
 // zero or negative is invalid, never "disable". Returns the parsed duration so
 // callers that need the value do not reparse it.
@@ -64,21 +86,23 @@ func ValidateIdleTimeout(value string) (time.Duration, error) {
 // RepoConfig is the repo-scoped configuration read from RepoConfigPath — a small
 // schema, separate from the user-scoped Config.
 type RepoConfig struct {
-	Code  codeSection  `toml:"code"`
-	Scan  scanSection  `toml:"scan"`
-	Scope string       `toml:"scope"`
-	Repl  replSection  `toml:"repl"`
-	Serve serveSection `toml:"serve"`
+	Code     codeSection     `toml:"code"`
+	Comments commentsSection `toml:"comments"`
+	Scan     scanSection     `toml:"scan"`
+	Scope    string          `toml:"scope"`
+	Repl     replSection     `toml:"repl"`
+	Serve    serveSection    `toml:"serve"`
 }
 
 // repoKnownSections is the set of known top-level TOML table names in the
 // repo config schema.
 var repoKnownSections = map[string]bool{
-	"code":  true,
-	"pi":    true,
-	"repl":  true,
-	"scan":  true,
-	"serve": true,
+	"code":     true,
+	"comments": true,
+	"pi":       true,
+	"repl":     true,
+	"scan":     true,
+	"serve":    true,
 }
 
 // repoKnownTopLevelLeaves is the top-level scalar keys — ones naming a value
@@ -90,11 +114,12 @@ var repoKnownTopLevelLeaves = map[string]bool{
 
 // repoKnownLeaves is the set of known dotted leaf keys in the repo config schema.
 var repoKnownLeaves = map[string]bool{
-	"code.ignore":       true,
-	"repl.idle_timeout": true,
-	"scan.generated":    true,
-	"scan.ignore":       true,
-	"serve.schema":      true,
+	"code.ignore":        true,
+	"comments.max_lines": true,
+	"repl.idle_timeout":  true,
+	"scan.generated":     true,
+	"scan.ignore":        true,
+	"serve.schema":       true,
 }
 
 // LoadRepoConfig mirrors Load's contract: a missing file is an empty RepoConfig
