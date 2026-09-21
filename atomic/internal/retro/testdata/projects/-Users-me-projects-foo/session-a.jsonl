@@ -1,0 +1,13 @@
+{"type":"user","timestamp":"2026-09-06T20:44:40Z","cwd":"/Users/me/projects/foo","sessionId":"session-a","message":{"content":[{"type":"tool_result","content":"file contents here"}]}}
+{"type":"user","timestamp":"2026-09-06T20:44:41Z","isSidechain":true,"message":{"content":"subagent prompt text"}}
+{"type":"user","timestamp":"2026-09-06T20:44:42Z","isMeta":true,"message":{"content":"<skill-prompt>expanded skill body</skill-prompt>"}}
+{"type":"user","timestamp":"2026-09-06T20:44:43Z","isCompactSummary":true,"message":{"content":"This session is being continued from a previous conversation that ran out of context."}}
+{"type":"user","timestamp":"2026-09-06T20:44:44Z","message":{"content":"<local-command-stdout>total 0\ndrwxr-xr-x  2 me me 64 Sep  6 20:44 .</local-command-stdout>"}}
+{"type":"user","timestamp":"2026-09-06T20:44:45Z","message":{"content":"make the test pass without touching the fixture<system-reminder>Session state reminder text.</system-reminder>"}}
+{"type":"user","timestamp":"2026-09-06T20:44:46Z","message":{"content":"<command-name>/model</command-name>"}}
+{"type":"user","timestamp":"2026-09-06T20:44:47Z","message":{"content":"<command-message>commit</command-message><command-args>push</command-args>"}}
+{"type":"user","timestamp":"2026-09-06T20:44:48Z","message":{"content":[{"type":"text","text":"no. I said without touching the fixture."},{"type":"image","source":"ignored"}]}}
+{"type":"assistant","timestamp":"2026-09-06T20:44:49Z","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"atomic-tdd","args":"retro-extract"}}]}}
+{"type":"assistant","timestamp":"2026-09-06T20:44:50Z","message":{"content":[{"type":"tool_use","name":"Agent","input":{"subagent_type":"atomic-implementer","description":"Fix fixture-independent test"}}]}}
+{"type":"attachment","timestamp":"2026-09-06T20:44:51Z","message":{"content":"ignored"}}
+{"type":"assistant","timestamp":"2026-09-06T20:44:52Z","message":{"content":[{"type":"thinking","text":"internal reasoning"},{"type":"text","text":"final answer prose"}]}}

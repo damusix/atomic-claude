@@ -166,6 +166,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 
 	rootCmd.AddCommand(buildReplCmd(repoOverride))
 
+	rootCmd.AddCommand(buildRetroCmd())
+
 	return rootCmd
 }
 

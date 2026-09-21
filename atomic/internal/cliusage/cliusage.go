@@ -678,6 +678,12 @@ var commands = []Command{
 		Flags:       []string{"--name", "--json"},
 		Description: "End a session and remove its socket + meta",
 	},
+	{
+		Path:        []string{"retro", "extract"},
+		Args:        "",
+		Flags:       []string{"--since", "--project", "--shards", "--out"},
+		Description: "Extract session history to compact, line-numbered markdown",
+	},
 }
 
 // Commands returns a copy of the ordered command surface.

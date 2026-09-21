@@ -12,7 +12,7 @@ tags: [agents, artifacts, lifecycle]
 
 A long task run in one context degrades. The model accumulates its own reasoning, stops seeing earlier choices as choices, and reviews its own work against the rationalizations that produced it.
 
-This domain is the lifecycle a change moves through and the machinery that keeps that from happening: each step runs in a fresh context, and a gate sits between them. Most orchestrator commands never write code themselves — each dispatches fresh-context subagents, parses their verdicts, and commits between rounds. `/implement` is the exception: it keeps the same checkpoint-and-gate discipline, but the main agent writes the code itself, and a dispatched `atomic-reviewer` supplies at every checkpoint the independent read a fresh-context implementer's counterpart would otherwise give. Editing code directly with no command around it at all is the one path with no loop, so the same reviewer gates it at two exits instead — see "Ad-hoc direct edits" below. No Go package implements any of it; the whole domain is prompt artifacts under [`context/commands/`](../../context/commands), [`context/agents/`](../../context/agents), [`context/skills/`](../../context/skills), and [`context/_partials/`](../../context/_partials).
+This domain is the lifecycle a change moves through and the machinery that keeps that from happening: each step runs in a fresh context, and a gate sits between them. Most orchestrator commands never write code themselves — each dispatches fresh-context subagents, parses their verdicts, and commits between rounds. `/implement` is the exception: it keeps the same checkpoint-and-gate discipline, but the main agent writes the code itself, and a dispatched `atomic-reviewer` supplies at every checkpoint the independent read a fresh-context implementer's counterpart would otherwise give. Editing code directly with no command around it at all is the one path with no loop, so the same reviewer gates it at two exits instead — see "Ad-hoc direct edits" below. No Go package implements any of it, with one exception: the retro extraction utility one command shells out to (see "Retro extraction" under Where it lives). The rest of the domain is prompt artifacts under [`context/commands/`](../../context/commands), [`context/agents/`](../../context/agents), [`context/skills/`](../../context/skills), and [`context/_partials/`](../../context/_partials).
 
 
 ## How it works
@@ -224,12 +224,23 @@ Docs are written before the signals refresh so a new page exists when the scan r
 | [`context/commands/undo-commit.md`](../../context/commands/undo-commit.md) | Soft-resets the last commit. Refuses on merge commits, the initial commit, and an already-pushed HEAD. |
 | [`context/commands/session-report.md`](../../context/commands/session-report.md) | Writes branch-scoped why-context to the `reports` path `atomic where --json` reports (`~/.atomic/<project-key>/reports/<branch>/`, outside the repository). Read by `/commit`, deleted after a successful commit. |
 | [`context/commands/setup-wiki.md`](../../context/commands/setup-wiki.md) | Repo bootstrap. Audits [`.gitignore`](../../.gitignore), [`docs/`](..) layout, and [`CLAUDE.md`](../../CLAUDE.md) presence; proposes only what is absent. |
-| [`context/commands/retrospective-learning.md`](../../context/commands/retrospective-learning.md) | Mines session history for friction and corrections, walks findings one at a time. Its working dir is `tmp/<date>-retro/`, not a scratchpad bundle. |
+| [`context/commands/retrospective-learning.md`](../../context/commands/retrospective-learning.md) | Pre-flight runs `atomic retro extract --shards 4 --out $SCRATCH/history.md` (Go package [`atomic/internal/retro/`](../../atomic/internal/retro)) to turn session `.jsonl` history into numbered markdown shards; one Sonnet-backed `general-purpose` subagent scans each shard and cites `file:line` findings instead of retyping quotes, which Step 4 recovers with `sed` before categorizing. Falls back to current-conversation-only scope, announcing `history extract unavailable — history scan skipped`, when [`atomic`](../../atomic) is absent or extract exits non-zero. Its working dir is `tmp/<date>-retro/`, not a scratchpad bundle. |
 | [`context/commands/follow-up.md`](../../context/commands/follow-up.md), [`context/commands/remind-me.md`](../../context/commands/remind-me.md) | Reminder lifecycle. Reads/writes the `reminders` path `atomic where --json` reports when the binary is present; falls back to `.claude/.scratchpad/reminders/` when it is absent. |
 | [`context/commands/report-issue.md`](../../context/commands/report-issue.md) | Opens a GitHub issue against the current repo via `gh`. |
 | [`context/commands/report-issue-with-atomic.md`](../../context/commands/report-issue-with-atomic.md) | Same flow, target hardcoded to `damusix/atomic-claude`, never inferred from `gh repo view` or cwd. |
 | [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md) | Routes a lost user to one next action. Bare, topic keyword, freeform intent, or `tour`. |
 | [`context/commands/git-cleanup.md`](../../context/commands/git-cleanup.md) | Scans and cleans stale worktrees, branches, and registrations. Now also archives a departing worktree's scratchpad bundle(s) before `git worktree remove`, and reaps session-report directories for branches already gone from `git branch -a`, with no grace window. |
+
+### Retro extraction
+
+`/retrospective-learning`'s pre-flight is the only caller of this package; everything else in this row lives outside the prompt-artifact domain but exists to feed that one command.
+
+| Path | Role |
+|---|---|
+| [`atomic/internal/retro/extract.go`](../../atomic/internal/retro/extract.go) | Walks `~/.claude/projects/*/`, reads direct-child `*.jsonl` session files, and reduces each row to a kept `Entry` (user text, slash command, `Skill`/`Agent` tool call) per a fixed keep/drop rule set; returns `Session`s ordered by first timestamp. |
+| [`atomic/internal/retro/lastrun.go`](../../atomic/internal/retro/lastrun.go) | `LastRunSince` reads `run_ts` from the newest `~/.atomic/retro-runs/*.json` by filename, the default `--since` date when the flag is omitted. Returns `ok=false, err=nil` only when the dir is missing or holds no `*.json` file; a newest file that exists but fails to unmarshal or fails `time.Parse` returns a non-nil `err` instead. `resolveSince` in `cmd_retro.go` folds both outcomes into the same 30-day fallback. |
+| [`atomic/internal/retro/render.go`](../../atomic/internal/retro/render.go) | `Render` turns sessions into one numbered markdown document, every physical line prefixed with its own line number so `sed -n '<N>p'` recovers a cited entry; `Shard` assigns sessions to K = min(N, session count) size-balanced files, largest session into the lightest bin, never splitting a session across files; `truncate` caps a message at 800 runes with a `…[+N chars]` marker. |
+| [`atomic/cmd/atomic/cmd_retro.go`](../../atomic/cmd/atomic/cmd_retro.go) | Cobra dispatch: `retro extract` parses `--since`, `--project`, `--shards`, `-o`/`--out`, resolves the effective `--since` via `resolveSince` (flag value, else the last run, else 30 days back), calls `retro.Extract`, then `retro.Render` or `retro.Shard`, and writes the output plus a stderr summary (files/projects/sessions scanned, unparsable rows, read errors, per-file byte and line counts). |
 
 ### Agents
 
@@ -296,6 +307,9 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 | [`docs/spec/session-report.md`](../spec/session-report.md), [`docs/spec/setup-wiki.md`](../spec/setup-wiki.md) | Contracts for those two commands. |
 | [`docs/spec/comment-discipline.md`](../spec/comment-discipline.md) | Comment rules the implementer, reviewer, and auditor all enforce, floored at 🟡 risk by `agent-readability.md`. |
 | [`docs/spec/visual-options.md`](../spec/visual-options.md), [`docs/design/visual-options.md`](../design/visual-options.md) | Contract and rationale for the visual-options skill. |
+| [`docs/reference/retro.md`](../reference/retro.md) | Reference for the `atomic retro extract` verb: flags and defaults, output shape and the `file:line` convention, the drop-row table, exit codes. |
+| [`docs/design/retro-extract.md`](../design/retro-extract.md) | Rationale for extracting session history via a Go verb instead of scanner-applied filtering; the row-shape table is verified against real transcripts. |
+| [`docs/spec/retro-extract.md`](../spec/retro-extract.md) | Contract for `atomic retro extract` and for `/retrospective-learning`'s reshape to consume it instead of reading raw session files. |
 
 
 ## Constraints
@@ -333,6 +347,11 @@ Expanded directly into the embedded bundle by `make bundle` (see Coupling below)
 **`/autopilot` avoids `rm` and shell chaining mid-run.** Both trigger permission prompts that stall an unattended session. Scratch experiments (not the task's scratchpad bundle) are quarantined into `tmp/trash/` and deleted once, at Phase 6.
 
 **`/challenge-swarm` seats a minimum of 3 lenses and requires a citation per seat.** A lens without a one-line pointer to the design section or source path where its stake lives is benched, printed as `<lens>: benched — <reason>`, not silently dropped.
+
+
+**`atomic retro extract` degrades to a scope narrowing, not a failure.** `/retrospective-learning`'s pre-flight runs the extractor before Step 1; when [`atomic`](../../atomic) is absent or the command exits non-zero, the command announces `history extract unavailable — history scan skipped` and narrows the run to current-conversation-only scope rather than failing the retrospective.
+
+**A session row past 16 MiB truncates that session's scan, not the whole extract.** `parseSession` grows `bufio.Scanner`'s buffer from its 64 KiB default to 16 MiB, since a `tool_result` row threaded into a user message can be large; a row exceeding 16 MiB ends the scan for that file, counts as one unparsable row in the stderr summary, and the session's remaining rows are lost.
 
 
 ## Coupling

@@ -1,5 +1,5 @@
 ---
-description: Session retrospective. Mines `.jsonl` history and this conversation for friction, corrections, and misbehavior; cross-references installed artifacts; walks findings one at a time. Persists a run log so later runs detect drift. Use after long sessions or repeated friction.
+description: Session retrospective. Mines session history extracted by `atomic retro extract` and this conversation for friction, corrections, and misbehavior; cross-references installed artifacts; walks findings one at a time. Persists a run log so later runs detect drift. Use after long sessions or repeated friction.
 ---
 
 You orchestrate a retrospective audit. Subagents do the scanning (read-only). You categorize, present findings indexed, and apply only what the user accepts per item.
@@ -19,13 +19,13 @@ You orchestrate a retrospective audit. Subagents do the scanning (read-only). Yo
     SCRATCH="tmp/$(date +%Y-%m-%d)-retro"
     mkdir -p "$RUNS_DIR" "$SCRATCH"
     RUN_ID="$(date +%Y-%m-%d-%H%M%S)"
-    ```
-3. Resolve the current Claude project session dir (used by history scan):
-    ```
     PROJECT_SLUG=$(pwd | sed 's|/|-|g')
-    SESSIONS_DIR="${HOME}/.claude/projects/${PROJECT_SLUG}"
     ```
-    If `$SESSIONS_DIR` does not exist, the history scan will degrade to current-only — note that in the run summary, do not abort.
+3. Extract session history for the scan:
+    ```
+    atomic retro extract --shards 4 --out "$SCRATCH/history.md"
+    ```
+    Default `--since` is the last retrospective run (30 days on first run); the binary names which on stderr. If `atomic` is absent or exits non-zero, announce `history extract unavailable — history scan skipped` and set the scope to current-only for Step 2b.
 4. Read `$LEARNINGS` if it exists. It carries: acceptance rates per category, modify-signal patterns, deprioritized finding types. Apply as soft weights during Phase 4 categorization. If absent, proceed — it will be created at the end of the run.
 
 ## Step 1 — Pick scope
@@ -35,7 +35,7 @@ Prompt via `AskUserQuestion`:
 ```
 Question: What scope should this retrospective cover?
 Options:
-  - Historical + current conversation (recommended) — last 5 .jsonl sessions + prior /retrospective-learning audits + this conversation
+  - Historical + current conversation (recommended) — every session since the last retrospective run (30 days on first run), via `atomic retro extract`, + prior /retrospective-learning audits + this conversation
   - Current conversation only — skip history scan, no prior-audit cross-check
 ```
 
@@ -68,32 +68,20 @@ Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Techn
 
 Dispatch with `subagent_type: "atomic-investigator"`. Prompt: `Read $SCRATCH/discovery-brief.md and return the inventory.`
 
-### 2b. History scan — Haiku-backed runner (full scope only)
+### 2b. History scan — one Sonnet runner per shard (full scope only)
 
 Skip if `$SCOPE = "current-only"`.
 
-Write `$SCRATCH/history-brief.md`:
+`$SCRATCH/history.1.md` … `history.4.md` hold the extract from Pre-flight step 3: numbered lines, one `## <date> · <project dir>` section per session, and inside each section one entry per line: `[MM-DD HH:MM] user: <text>`, `/verb args`, `[MM-DD HH:MM] skill: <skill> <args>`, or `[MM-DD HH:MM] agent: <subagent_type> — <description>`.
+
+Write `$SCRATCH/history-brief.md`, shared by every shard runner (each is told its own file path in the dispatch prompt):
 
 ```markdown
 # History scan brief
 
-Scan the 5 most recently modified `.jsonl` session files in `${SESSIONS_DIR}` (exclude the current session, identified by mtime within the last 60 minutes if no other heuristic).
+Read the assigned shard file. Each line is prefixed `<N> | ` with its own physical line number. Every entry is one of: `user:` (typed text), `/verb args` (slash command), `skill: <name> <args>`, or `agent: <subagent_type> — <description>`.
 
-For each session, extract ONLY user-typed messages. Each row in a `.jsonl` is a single JSON object; the shape varies but user messages look roughly like:
-
-```json
-{"type":"user","message":{"role":"user","content":"actual text the user typed"},"timestamp":"2026-05-20T14:32:08Z","sessionId":"…"}
-```
-
-Or with structured content:
-
-```json
-{"type":"user","message":{"role":"user","content":[{"type":"text","text":"actual text"}]}}
-```
-
-Skip rows where `message.content` is an array containing `tool_result` blocks — those are not user input, they are tool outputs threaded as user-role messages. Also skip rows where the message is empty or whitespace-only.
-
-Filter the extracted text for:
+Filter for:
 
 - Corrections: "no", "don't", "stop", "not that", "wrong", "actually", "instead"
 - Praise: "yes", "perfect", "exactly", "great", "love"
@@ -102,36 +90,31 @@ Filter the extracted text for:
 
 **Atomic-meta detection (positional, not name-matching).** Do NOT search for literal mentions of atomic skill/agent/command names — users rarely complain in atomic's vocabulary. Instead:
 
-1. Identify rows where an atomic artifact was active in the preceding ~5 turns. Signals: an `assistant` row with a `tool_use` whose name matches `atomic-*` (subagent dispatch), or any user/assistant row mentioning an atomic command (`/commit`, `/atomic-plan`, etc.) or skill (anything under `~/.claude/skills/atomic-*` or invoked via the `Skill` tool with an atomic skill name).
-2. For each such window, look for frustration / correction signals in the *next* user message (within 5 turns). The frustration anchors on what came before in the conversation, not on naming the artifact.
-3. If a correction or frustration signal lands in that window, mark `atomic_meta = true` and capture the active atomic artifact name in `meta_target`.
+1. Identify a `skill:` / `agent:` / `/verb` line naming an atomic artifact (an atomic-* skill or agent, or a command like `/commit`, `/atomic-plan`).
+2. Look for a correction or frustration signal in a `user:` line within the following ~5 entries in the same session.
+3. If one lands, mark `atomic_meta = true` and set `meta_target` to the `file:line` of the atomic-artifact entry from step 1.
 
-**Profile drift detection.** Read `~/.atomic/profile.md` if it exists (skip silently if absent). Parse facts from `<stable>` and `<volatile>` sections (skip `<deterministic>` — never flagged). For each user-typed message in the session, scan for statements that contradict or supersede an existing fact. Examples:
+**Profile drift detection.** Read `~/.atomic/profile.md` if it exists (skip silently if absent). Parse facts from `<stable>` and `<volatile>` sections (skip `<deterministic>` — never flagged). For each `user:` line, scan for statements that contradict or supersede an existing fact. Examples:
 - profile says `Employer: Acme`; user writes "at Globex we did it this way" → drift candidate.
 - profile says `Role: Senior eng`; user writes "now that I'm a staff engineer" → drift candidate.
 
-For each drift candidate, return a finding with:
-- `category = "profile drift"`
-- `existing_fact` (the line from profile.md, verbatim) → stored in `meta_target` column
-- `new_fact` (the user's contradicting statement) → stored in `quote` column
-- `confidence` (`low` / `medium` / `high` based on contradiction strength) → stored in `recurrence_across_sessions` column as `confidence:<level>`
-- `session_date`
+For each drift candidate, return a finding with `category = "profile drift"`, `file:line` = the shard's `file:line` of the `user:` line carrying the new fact, `meta_target` = the `~/.atomic/profile.md:<line>` of the existing fact, `recurrence_across_sessions` = `confidence:<low|medium|high>` based on contradiction strength, and `atomic_meta = false`. Do not re-type either fact; both are cited by line number.
 
-`<deterministic>` section facts are excluded — Claude does not write to those sections and they should never drift.
+Never re-type the entry text. Every row cites the shard file and line number; the orchestrator recovers the text with `sed`.
 
 Return a table:
-| session_date | category | quote (≤120 chars; for profile-drift: new_fact) | recurrence_across_sessions (for profile-drift: confidence:<low\|medium\|high>) | atomic_meta (bool) | meta_target (for profile-drift: existing_fact verbatim) |
+| file:line | category | recurrence_across_sessions | atomic_meta | meta_target |
 
-For profile drift rows: `quote` = new_fact, `meta_target` = existing_fact (verbatim from profile.md), `recurrence_across_sessions` = `confidence:<low|medium|high>`, `atomic_meta` = false.
+`meta_target` is the `file:line` of the `skill:` / `agent:` / `/verb` entry that precedes a finding within ~5 entries in the same session, or empty when none applies. For profile-drift rows, `meta_target` is the profile.md `file:line` of the existing fact.
 
 Mark recurring patterns (same complaint in 2+ sessions). No raw transcripts. Read-only.
 
 Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Findings only — no preamble, no echo of this brief.
 ```
 
-Dispatch with `subagent_type: "general-purpose"`, `model: haiku`. Prompt: `Read $SCRATCH/history-brief.md and execute. Read-only.`
+Dispatch one runner per shard file that exists, in the same message: `subagent_type: "general-purpose"`, `model: sonnet`. Prompt each: `Read $SCRATCH/history-brief.md. Your shard is $SCRATCH/history.<i>.md. Execute. Read-only.`
 
-### 2c. Prior-retro audit — Haiku-backed runner (full scope only, and only if `$RUNS_DIR` has entries)
+### 2c. Prior-retro audit — one Sonnet runner (full scope only, and only if `$RUNS_DIR` has entries)
 
 Skip if no prior runs exist.
 
@@ -158,7 +141,7 @@ Plus a separate list of `drifted` and `missing` items for re-surfacing (with tar
 Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Audit table + re-surface list only — no preamble, no echo of this brief.
 ```
 
-Dispatch with `subagent_type: "general-purpose"`, `model: haiku`. Prompt: `Read $SCRATCH/prior-retro-brief.md.`
+Dispatch with `subagent_type: "general-purpose"`, `model: sonnet`. Prompt: `Read $SCRATCH/prior-retro-brief.md.`
 
 ## Step 3 — Analyze current conversation (foreground, while agents run)
 
@@ -173,13 +156,15 @@ Scan the in-context conversation for the same signal categories the history scan
 | Behavioral patterns | Over-explaining, missing context, wrong tool choice, ignored axioms |
 | Techniques discovered | Novel approaches that worked — candidate for codification |
 | Targeted feedback | `$ARGUMENTS` — flagged HIGHEST priority |
-| Atomic-meta frustration | Frustration or correction landing within ~5 turns *after* an atomic artifact was active (subagent dispatch, atomic skill invocation, atomic slash-command run). The user rarely names the artifact in their complaint — the position in the conversation does. Look back from each correction/frustration signal: was an atomic-* artifact the most recent acting party? If yes, it's atomic-meta. Capture the artifact name as `meta_target`. |
+| Atomic-meta frustration | Frustration or correction landing within ~5 turns *after* an atomic artifact was active (subagent dispatch, atomic skill invocation, atomic slash-command run). Same positional rule as the history scan (Step 2b). `meta_target` here is the artifact name, there is no `file:line` for the live conversation. |
 
 Capture findings in `$SCRATCH/current-conv-findings.md` as `category | quote | proposed_action | atomic_meta(bool) | meta_target`.
 
 ## Step 4 — Wait for agents, reflect, fallback on failure
 
 After each agent returns, reflect on the result before proceeding. Malformed output — missing table headers, body where data was expected, hedged narrative instead of structured findings — is a failure even if the agent didn't error. Treat as empty and apply fallback. Do not let garbage data pollute Phase 5.
+
+Before categorizing the history scan's findings, recover each cited quote: for every `file:line` a scanner returned, run `sed -n '<line>p' <file>`. A line that does not exist, or does not start with the numbered prefix (`<N> | `), invalidates that row. Drop it, do not guess at the intended text. Categorization in Step 5 uses only the recovered text.
 
 Then for each agent:
 
@@ -198,7 +183,7 @@ Never silently proceed with missing data — surface what was skipped and why.
 Categorization decides what becomes a finding at all — get this wrong and the user walks noise. Anchor every tier assignment in observable signals, not model inference:
 
 - A finding is **Critical** only when there is recurrence (≥2 sessions OR ≥2 violations in current conversation) OR a direct user pushback. Never assign Critical from a single inferred pattern.
-- A finding is **Atomic-meta** only when the frustration is positionally co-located with an atomic artifact (see history brief). Vague "this is frustrating" with no atomic artifact in the preceding window is just **User coaching** or no finding at all.
+- A finding is **Atomic-meta** only when the frustration is positionally co-located with an atomic artifact: from history, the cited `meta_target` file:line; from the current conversation, Step 3's live positional check. Vague "this is frustrating" with no atomic artifact in the preceding window is just **User coaching** or no finding at all.
 - Weight direct user corrections > recurring history pattern > single-session signal > model-inferred pattern. The last category caps at confidence: low.
 - When two signals point at the same target file with different recommendations, surface as ONE finding with the conflict named, not two competing ones.
 - If the only evidence is "the artifact looks unusual to me," that's not a finding — drop it.
@@ -663,7 +648,7 @@ Atomic. No narration. Print every shell command before running it (axiom 3). Fin
 - Prior-retro drifted/missing findings re-enter the current run at tier 1. Previously skipped OR suppressed findings re-enter at tier 2 only when their `signal_keywords` match a current-run signal. **Why:** the audit-trail is itself a deliverable; users want confidence that past accepts stuck, and skipped/suppressed items shouldn't nag unless the underlying friction is still present. Suppressed re-surfaces are weighted equally with skipped re-surfaces — the user never had the chance to actively decline a suppressed item.
 - Never edit `~/.claude/settings.json` or `.claude/settings.json` without printing the JSON patch first and confirming. Delegate to `/update-config` skill when present. **Why:** settings.json changes affect tool permissions and hook execution — they need a visible diff.
 - No commits. End by suggesting `/commit`; let the user inspect first. **Why:** mixed audit + ship is opaque; separating them keeps the diff reviewable.
-- Read-only agents only — discovery, history scan, prior-retro audit all use read-only agents (`atomic-investigator`, plus Haiku-backed `general-purpose` runners). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
+- Read-only agents only — discovery, history scan, prior-retro audit all use read-only agents (`atomic-investigator`, plus Sonnet-backed `general-purpose` runners). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
 - Atomic-tier carve-out for state: `retro-runs/` and `retro-learnings.md` live in `~/.atomic/`, not in memory (axiom 2 carve-out for shell-readable durable state). **Why:** the next run needs to grep past run logs deterministically; memory is conversational and not addressable from a shell.
 
 ## Open behaviors

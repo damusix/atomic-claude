@@ -132,6 +132,7 @@ Atomic Claude dogfoods itself: the root artifacts are both the live config and t
 | Bus (inter-session messaging) | [docs/reference/bus.md](docs/reference/bus.md) |
 | Bus hosting (rooms across machines) | [docs/guides/bus-hosting.md](docs/guides/bus-hosting.md) |
 | REPL (persistent interpreter sessions) | [docs/reference/repl.md](docs/reference/repl.md) |
+| Retro (`atomic retro extract`, session history for retrospectives) | [docs/reference/retro.md](docs/reference/retro.md) |
 | Code intelligence | [docs/reference/code-intel.md](docs/reference/code-intel.md) |
 | Code-intel MCP setup | [docs/guides/code-intel-mcp.md](docs/guides/code-intel-mcp.md) |
 | Concepts (how it flows) | [docs/reference/concepts.md](docs/reference/concepts.md) |
