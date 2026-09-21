@@ -154,6 +154,58 @@ func TestLinkify_AlreadyLinked(t *testing.T) {
 	}
 }
 
+// A bare destination ends at the first space and needs balanced parentheses;
+// written bare, these paths render as literal text on GitHub.
+func TestLinkify_DestinationNeedsAngleBrackets(t *testing.T) {
+	dir := t.TempDir()
+	fileAbs := filepath.Join(dir, "docs", "wiki", "index.md")
+
+	for _, tc := range []struct{ token, want string }{
+		{"My Project/App.sln", "[`My Project/App.sln`](<../../My Project/App.sln>)"},
+		{"notes/draft (old).md", "[`notes/draft (old).md`](<../../notes/draft (old).md>)"},
+		{"notes/a (b.md", "[`notes/a (b.md`](<../../notes/a (b.md>)"},
+	} {
+		makeFile(t, dir, tc.token)
+		content := "See `" + tc.token + "` here.\n"
+
+		pass1 := mdlink.Linkify(content, fileAbs, dir)
+		if want := "See " + tc.want + " here.\n"; pass1 != want {
+			t.Errorf("%s:\ngot:  %q\nwant: %q", tc.token, pass1, want)
+		}
+		if pass2 := mdlink.Linkify(pass1, fileAbs, dir); pass2 != pass1 {
+			t.Errorf("%s not idempotent:\npass1: %q\npass2: %q", tc.token, pass1, pass2)
+		}
+	}
+}
+
+// Angle brackets cannot hold a raw < or >, so such a path stays plain code
+// rather than becoming a link that does not parse.
+func TestLinkify_AngleBracketInPathStaysPlain(t *testing.T) {
+	dir := t.TempDir()
+	makeFile(t, dir, "a <b>.md")
+
+	fileAbs := filepath.Join(dir, "docs", "wiki", "index.md")
+	content := "See `a <b>.md` here.\n"
+	if got := mdlink.Linkify(content, fileAbs, dir); got != content {
+		t.Errorf("got %q, want unchanged", got)
+	}
+}
+
+// Earlier releases wrote these links bare. Re-running linkify must repair them,
+// or wikis already refreshed stay broken.
+func TestLinkify_RepairsBareDestinationWithSpace(t *testing.T) {
+	dir := t.TempDir()
+	makeFile(t, dir, "My Project/App.sln")
+	makeFile(t, dir, "notes/draft (old).md")
+
+	fileAbs := filepath.Join(dir, "docs", "wiki", "index.md")
+	content := "See [`My Project/App.sln`](../../My Project/App.sln) and [`notes/draft (old).md`](../../notes/draft (old).md).\n"
+	want := "See [`My Project/App.sln`](<../../My Project/App.sln>) and [`notes/draft (old).md`](<../../notes/draft (old).md>).\n"
+	if got := mdlink.Linkify(content, fileAbs, dir); got != want {
+		t.Errorf("got:  %q\nwant: %q", got, want)
+	}
+}
+
 func TestLinkify_DirToken(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0o755); err != nil {

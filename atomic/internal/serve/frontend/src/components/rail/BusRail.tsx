@@ -39,6 +39,7 @@ function formatAge(mtimeUnix: number): string {
 export function BusRail() {
   const [params] = useSearchParams();
   const room = params.get("room") ?? "";
+  const host = params.get("host") ?? "";
   const [sessions, setSessions] = useState<BusSessionInfo[]>([]);
   const [open, setOpen] = useState<BusSessionInfo | null>(null);
 
@@ -47,12 +48,13 @@ export function BusRail() {
       setSessions([]);
       return;
     }
+    const hostQuery = host ? `&host=${encodeURIComponent(host)}` : "";
     void attempt(() =>
-      api.get<BusSessionsResponse>(`/bus/sessions?room=${encodeURIComponent(room)}`),
+      api.get<BusSessionsResponse>(`/bus/sessions?room=${encodeURIComponent(room)}${hostQuery}`),
     ).then(([res, err]) => {
       if (!err && res?.ok && res.data) setSessions(res.data.sessions);
     });
-  }, [room]);
+  }, [room, host]);
 
   useEffect(() => {
     refresh();

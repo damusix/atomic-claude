@@ -259,7 +259,7 @@ func TestBusError_ImplementsError(t *testing.T) {
 // is to revert the shape, or bump the version and add a hashes entry.
 func TestProtocolWireShape_GoldenFieldsAndOps(t *testing.T) {
 	assertGoldenFields(t, "Request", reflect.TypeOf(Request{}), []string{
-		"op", "room", "rooms", "name", "mode", "kind", "session", "to",
+		"op", "id", "room", "rooms", "name", "mode", "kind", "session", "to",
 		"reply_to", "text", "repo", "realm", "skip_self", "filters",
 	})
 	assertGoldenFields(t, "Response", reflect.TypeOf(Response{}), []string{"ok", "error", "code", "payload"})
@@ -273,7 +273,7 @@ func TestProtocolWireShape_GoldenFieldsAndOps(t *testing.T) {
 
 	wantOps := []string{
 		OpPing, OpJoin, OpLeave, OpSend, OpSay, OpRecv, OpTail, OpWho, OpRooms,
-		OpHalt, OpResume, OpShutdown, OpPrune, OpClose, OpEnd,
+		OpHalt, OpResume, OpShutdown, OpPrune, OpClose, OpEnd, OpRead,
 	}
 	gotOps := append([]string(nil), AllOps...)
 	sort.Strings(gotOps)
@@ -302,6 +302,7 @@ func TestProtocolWireShape_GoldenFieldsAndOps(t *testing.T) {
 var protocolShapeHashes = map[int]string{
 	2: "f4bf0980c3ca8d8177280563a956e7fd9383a1c529123e2b5d6608f703b08144",
 	3: "7c94cc9ee4f5117a72a2208f96445ddf75b1fea73b548a986c8c8d6bb8edd3c7",
+	4: "34e95274a630c6760223c388178cf92e6ac80dd18dbc5460f8c57e841f75dc5c",
 }
 
 // wireShapeFields returns typ's json-tagged field names in declaration order,

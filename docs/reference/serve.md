@@ -2,7 +2,7 @@
 
 `atomic serve` starts a local HTTP server that renders a wiki realm (or a single repo) as a navigable, Obsidian-style knowledge graph in the browser. It is a presentation layer for that content: it reads what already exists (wiki summaries, code-intel indexes, bucket manifests) and never writes, re-indexes, or re-stamps any of it. The one exception is the bus chat page (`/bus`), which operates `atomic bus` rooms and stays loopback-only regardless of `--host`. See Bus chat below.
 
-The UI is a React single-page app: Go serves a JSON API plus a handful of carried, unreshaped endpoints (`/graph/data`, `/code/graph/data`, `/code/graph/members`, `/events`, `/healthz`); React Router resolves every other path client-side.
+The UI is a React single-page app. Go serves a JSON API plus a handful of carried, unreshaped endpoints (`/graph/data`, `/code/graph/data`, `/code/graph/members`, `/events`, `/healthz`). React Router resolves every other path client-side.
 
 
 ## Usage
@@ -38,9 +38,9 @@ The resolved scope reaches the client as `GET /api/status`'s `isRealmScope` fiel
 
 The nav tree, markdown search, the docs graph, and the change-detection fingerprint all walk the same tree and share one exclusion rule.
 
-Skipped: dot-directories, `node_modules`, `vendor`, `tmp`, and anything git ignores. `.claude` is the deliberate exception to the dot-directory rule — it holds servable project docs that wiki links cite across members, so skipping it would break valid links.
+Skipped: dot-directories, `node_modules`, `vendor`, `tmp`, and anything git ignores. `.claude` is the deliberate exception to the dot-directory rule. It holds servable project docs that wiki links cite across members, so skipping it would break valid links.
 
-Git-ignored is not on its own enough to skip, because a realm gitignores its member repositories: from the realm's point of view they carry their own history and are disposable, yet they are the very thing a realm exists to serve. So an ignored directory is still walked when it is a repository in its own right — when it holds a `.git` **directory**. What that leaves out is a second copy of content already reachable somewhere else:
+Git-ignored is not on its own enough to skip, because a realm gitignores its member repositories. From the realm's point of view they carry their own history and are disposable, yet they are the very thing a realm exists to serve. An ignored directory is nonetheless walked when it is a repository in its own right (when it holds a `.git` **directory**). This still leaves out a second copy of content already reachable somewhere else:
 
 | Ignored path | `.git` entry | Enumerated |
 |---|---|---|
@@ -50,11 +50,11 @@ Git-ignored is not on its own enough to skip, because a realm gitignores its mem
 
 A linked worktree carries `.git` as a file pointing back at the repository it duplicates, which is what tells it apart from a member repo. Before this rule, a repo with eight worktrees showed every doc nine times in nav, search, and the graph.
 
-This governs enumeration only. An ignored file still renders when you navigate to it by path — it simply does not show up in a listing, a search result, or the graph.
+This governs enumeration only. An ignored file still renders when you navigate to it by path. It does not show up in a listing, a search result, or the graph.
 
 ## The interface
 
-The UI is a single persistent shell — navigating never reloads it; only the focused content and its surrounding context change.
+The UI is a single persistent shell. Navigating never reloads it; only the focused content and its surrounding context change.
 
 - **Top bar** — a breadcrumb, a search trigger (`⌘K`), a network-view button that routes to `/graph`, and a light/dark theme toggle.
 - **Left nav** — the collapsible folder tree.
@@ -99,7 +99,7 @@ The layout is a continuous physics simulation, not a one-shot pass. It settles a
 
 - **Shift-click pins** a node's neighborhood highlight so it survives mouse-out and releasing Shift, which is what makes studying a node's relationships hands-free. A second Shift-click opens the node. The pin clears on a background click, on pinning another node, or when the legend hides that node's type.
 - **The legend filters.** Each chip names a type and its count of visible nodes, and clicking one toggles that type off. Hide repos to see only knowledge pages and the edges between them.
-- **Labels and sizes track zoom.** Labels fade in as you zoom in and out as you zoom out, and node size scales with how connected a node is, shrinking toward a floor as you pull back, so a fitted view of a dense graph reads as structure rather than a solid mass. A hovered node always shows its label.
+- **Labels and sizes track zoom.** Labels fade in as you zoom in and out as you zoom out. Node size scales with how connected a node is, shrinking toward a floor as you pull back. A fitted view of a dense graph therefore reads as structure rather than a solid mass. A hovered node always shows its label.
 
 What differs between the two:
 
@@ -111,9 +111,9 @@ What differs between the two:
 | Opening a node | the page, inline over the dimmed graph | the code-explorer view for that symbol |
 | Scope | the whole realm at once | one repo, chosen with a member picker |
 
-A page's concept type comes from frontmatter `type:` first, then a path convention (`repos/`, `concerns/`, `knowledge/`), then `page` as the default. A provenance edge whose recorded fingerprint no longer matches the live content is drawn red — the drift signal from the `reflects:` / `sources:` chain.
+A page's concept type comes from frontmatter `type:` first, then a path convention (`repos/`, `concerns/`, `knowledge/`), then `page` as the default. A provenance edge whose recorded fingerprint no longer matches the live content is drawn red (the drift signal from the `reflects:` / `sources:` chain).
 
-Opening a docs node shows the page in a modal over the dimmed graph rather than navigating away, with an "Open full page →" button for when you want more context; graph state survives throughout. The selected view lives in the URL, so a link to a specific graph reopens that same one. In a realm the selected member is the browser-held repo pick shared with Schema and Plans (see Plans below), never part of the URL.
+Opening a docs node shows the page in a modal over the dimmed graph rather than navigating away, with an "Open full page →" button for more context. Graph state survives throughout. The selected view lives in the URL, so a link to a specific graph reopens that same one. In a realm the selected member is the browser-held repo pick shared with Schema and Plans (see Plans below), never part of the URL.
 
 There is one code graph per repo and no merged cross-repo graph, the same federation-not-merging boundary federated code search follows. A repo with no index shows a message naming `atomic code index` rather than an empty pane.
 
@@ -121,26 +121,26 @@ There is one code graph per repo and no merged cross-repo graph, the same federa
 
 ### Code modal
 
-Clicking a source-file link — in page content, in the rail, or in a search/code result — opens an Ark UI `Dialog` over the dimmed page:
+Clicking a source-file link (in page content, in the rail, or in a search/code result) opens an Ark UI `Dialog` over the dimmed page:
 
 - **Source** (`GET /api/file/<path>`) — chroma-highlighted, per-line anchors; a `file:line` reference scrolls to the line.
-- **Code intelligence** (`GET /api/code/file?path=<path>`) — the symbols defined in the file, each a chip that drills into its callers, callees, and impact radius. In a realm the file path is mapped to its owning member, that member's own index is opened, and it is queried with the member-relative path; the drill-down links carry a `member=` parameter so callers/callees/impact stay within the same member's index. When the file's repo is not indexed, the modal shows source only with a brief note.
+- **Code intelligence** (`GET /api/code/file?path=<path>`) — the symbols defined in the file, each a chip that drills into its callers, callees, and impact radius. In a realm the file path is mapped to its owning member, that member's own index is opened, and it is queried with the member-relative path. The drill-down links carry a `member=` parameter so callers/callees/impact stay within the same member's index. When the file's repo is not indexed, the modal shows source only with a brief note.
 
 Intel-pane drill actions push onto the modal's back-stack; Back pops the stack and re-syncs the source pane to the popped entry's file/line, deduping same-file hops (scroll-to-line only, no re-fetch). The modal closes on `Esc`, the close button, or a backdrop click, which clears the stack.
 
 ### Plans
 
-The fifth `IconRail` mode, with no scope gate. `/plans` lists every slug's committed docs (`docs/design/<slug>.md`, `docs/spec/<slug>.md`) and its uncommitted scratchpad bundle, aggregated across every git worktree of the repo — a checkout elsewhere on disk still counts, since worktrees are enumerated with `git worktree list --porcelain` rather than a glob over the conventional path. A root that is not a git repository, such as a realm root that is a plain directory, counts as one checkout of its own, so its `docs/design`, `docs/spec`, and scratchpad still appear. In realm scope, a picker on the page's own title line — repo scope renders none — switches between one member's view at a time; there is no cross-member union. The realm root appears under the realm's name.
+The fifth `IconRail` mode, with no scope gate. `/plans` lists every slug's committed docs (`docs/design/<slug>.md`, `docs/spec/<slug>.md`) and its uncommitted scratchpad bundle, aggregated across every git worktree of the repo. A checkout elsewhere on disk still counts, since worktrees are enumerated with `git worktree list --porcelain` rather than a glob over the conventional path. Even a root that is not a git repository, such as a realm root that is a plain directory, counts as one checkout of its own. Its `docs/design`, `docs/spec`, and scratchpad appear the same way. In realm scope, a picker on the page's own title line (repo scope renders none) switches between one member's view at a time; there is no cross-member union. The realm root appears under the realm's name.
 
-The pick is held by the browser, not the URL. One value, shared with the Graph and Schema pickers, is persisted in the `atomic-member` cookie, keyed inside it by the served realm or repo (`realm:<name>` or `repo:<name>`), so a rail click, a reload, or a serve of the same realm on another port all land on the same repo, and a different realm served later on the same port reads its own entry. Only an explicit pick writes it; a page that cannot show the picked member, such as Graph when that member has no code index, falls back to its first member without changing the pick.
+The pick is held by the browser, not the URL. One value, shared with the Graph and Schema pickers, is persisted in the `atomic-member` cookie, keyed inside it by the served realm or repo (`realm:<name>` or `repo:<name>`). A rail click, a reload, or a serve of the same realm on another port therefore all land on the same repo. A different realm served later on the same port reads its own entry. Only an explicit pick writes it. A page that cannot show the picked member, such as Graph when that member has no code index, falls back to its first member without changing the pick.
 
-The two halves of a row collapse differently, because only one of them ever repeats identically. A committed doc dedups by content SHA: several worktrees holding byte-identical bytes render as one version, labelled by the checkout on the repository's default branch when one holds it, else by the most recently modified. A scratchpad bundle never dedups — one checkout, one bundle, attributed to the worktree that holds it, because nothing merges it.
+The two halves of a row collapse differently, because only one of them ever repeats identically. A committed doc dedups by content SHA. Several worktrees holding byte-identical bytes render as one version, labelled by the checkout on the repository's default branch when one holds it, else by the most recently modified. A scratchpad bundle never dedups. One checkout, one bundle, attributed to the worktree that holds it, because nothing merges it.
 
-Opening a slug (`/plans/:slug/*`) renders one file in the middle pane; the right rail carries a version picker, a navigation over the bundle's parts (design, spec, brief, state, followups, findings, options — only the ones present), and the open file's own headings, mirroring how the right rail works for any other page.
+Opening a slug (`/plans/:slug/*`) renders one file in the middle pane. The right rail carries a version picker and a navigation over the bundle's parts (design, spec, brief, state, followups, findings, options; only the ones present). It also carries the open file's own headings, mirroring how the right rail works for any other page.
 
-The version picker is a type-ahead over checkout names, not a tab strip — a repo with a dozen worktrees would wrap a tab strip into uselessness, and it renders nothing at all when a file has exactly one version. With no picked name, a file opens at its newest version by mtime; the merged version keeps its label and its filled dot and is one keystroke away. A picked name persists as you move between files and is re-resolved against each file's own version set. A bundle file that lives in only one checkout — a `findings/` note from a swarm run on another branch — still opens from any selection: it renders at its newest version by mtime, and the picker updates to name that checkout rather than the request being refused.
+The version picker is a type-ahead over checkout names, not a tab strip. A repo with a dozen worktrees would wrap a tab strip into uselessness, and it renders nothing at all when a file has exactly one version. With no picked name, a file opens at its newest version by mtime; the merged version keeps its label and its filled dot and is one keystroke away. A picked name persists as you move between files and is re-resolved against each file's own version set. A bundle file that lives in only one checkout (a `findings/` note from a swarm run on another branch) still opens from any selection. It renders at its newest version by mtime, and the picker updates to name that checkout rather than the request being refused.
 
-Picking a version is a property of reading a file, not of viewing the list — there is no worktree selector above the row list and no page-level version control.
+Picking a version is a property of reading a file, not of viewing the list. There is no worktree selector above the row list and no page-level version control.
 
 ```mermaid
 flowchart TB
@@ -154,9 +154,9 @@ flowchart TB
 
 Navigation always wins; the selection yields rather than blocks.
 
-The top bar says where the open file lives. On `/plans/:slug/*` in realm scope the breadcrumb reads `plans › <member> › <slug> › <file>`, and after the file a muted `<branch> · <path>` names the checkout on screen: the path is relative to the served root, absolute when the worktree lives outside it. It comes from the same resolution the version picker uses, so the two cannot disagree.
+The top bar says where the open file lives. On `/plans/:slug/*` in realm scope the breadcrumb reads `plans › <member> › <slug> › <file>`, and after the file a muted `<branch> · <path>` names the checkout on screen. The path is relative to the served root, absolute when the worktree lives outside it. It comes from the same resolution the version picker uses, so the two cannot disagree.
 
-A bundle file renders by its classified kind: `markdown` through the existing markdown pipeline, `html` (an `atomic-visual-options` artifact) inside an `<iframe>` sandboxed with `allow-scripts` alone — the mock runs its own scripts in an opaque origin and is never injected into the app's own document or stylesheet — and `file` as a download link with no inline preview.
+A bundle file renders by its classified kind. `markdown` renders through the existing markdown pipeline. `html` (an `atomic-visual-options` artifact) renders inside an `<iframe>` sandboxed with `allow-scripts` alone. The mock runs its own scripts in an opaque origin and is never injected into the app's own document or stylesheet. `file` renders as a download link with no inline preview.
 
 `⌘K` gains a third `source: "plans"` tab alongside `md` and `code`, filtering the already-fetched `/api/plans` payload by title and description client-side; there is no separate plans search endpoint.
 
@@ -166,7 +166,7 @@ A bundle file renders by its classified kind: `markdown` through the existing ma
 | `GET /api/plans/page?worktree=<id>&path=<relpath>[&raw=1]` | A single doc or bundle file, resolved through a worktree id issued by the aggregator. Without `raw`, the same rendered HTML-in-JSON shape `/api/page` returns; with `raw=1`, the file's own content-type and raw bytes. |
 | `GET /api/plans/members` | The member list backing the realm picker — declared and wiki-scanned members, including one with no code index, plus the realm root itself. |
 
-Cross-worktree reads never widen `safeResolve`'s allowed-root set. The client sends an opaque worktree id and a relative path, never a filesystem path, so nothing in the request can influence which roots are reachable; an unknown or stale id is rejected. Every `raw=1` response carries `Content-Security-Policy: sandbox`, with `allow-scripts` added for kind `html` so a bundle mock can run, and its content-type is decided by the aggregator's classified `kind` alone — a sniff may narrow a non-HTML type further but is clamped before it can promote anything to `text/html` or an XML type. The same origin serves the unauthenticated `/api/bus/*` and `/api/code/index` write routes, and a sandboxed frame on the serving machine passes their loopback gate, so every POST route refuses a browser request whose `Origin` is not the server's own (an opaque-origin frame sends `Origin: null`) or whose `Sec-Fetch-Site` is not `same-origin`. CLI callers send neither header and are unaffected.
+Cross-worktree reads never widen `safeResolve`'s allowed-root set. The client sends an opaque worktree id and a relative path, never a filesystem path, so nothing in the request can influence which roots are reachable. An unknown or stale id is rejected. Every `raw=1` response carries `Content-Security-Policy: sandbox`, with `allow-scripts` added for kind `html` so a bundle mock can run. Its content-type is decided by the aggregator's classified `kind` alone. A sniff may narrow a non-HTML type further but is clamped before it can promote anything to `text/html` or an XML type. The same origin serves the unauthenticated `/api/bus/*` and `/api/code/index` write routes, and a sandboxed frame on the serving machine passes their loopback gate. Every POST route therefore refuses a browser request whose `Origin` is not the server's own (an opaque-origin frame sends `Origin: null`) or whose `Sec-Fetch-Site` is not `same-origin`. CLI callers send neither header and are unaffected.
 
 ### Search
 
@@ -184,7 +184,7 @@ Results stream in rather than landing at once. The markdown block arrives first,
 
 In realm scope, code search spans every member and groups results under `[key]` headers. A member with no index is skipped with a visible "not indexed" note rather than aborting the others, and `only` / `exclude` filter the member set. In repo or member scope it targets the single index.
 
-Members come from two sources, unioned: realm federation (a `<code-index>` block in CLAUDE.md, with per-member dbs under `<realm>/.atomic/`) and per-member self-indexes, written by a plain `cd <member> && atomic code index`. Code search and the code modal therefore work in any realm whose members were indexed individually, with no federation setup at all.
+Members come from two sources, unioned. Realm federation is a `<code-index>` block in CLAUDE.md, with per-member dbs under `<realm>/.atomic/`; per-member self-indexes are written by a plain `cd <member> && atomic code index`. Code search and the code modal therefore work in any realm whose members were indexed individually, with no federation setup at all.
 
 ### SQL schema view
 
@@ -201,7 +201,7 @@ The realm-health view reports wiki staleness (DRIFT / STALE / STALE bucket) alon
 
 ## Bus chat
 
-`/bus` operates `atomic bus` rooms from the browser: watch a room's traffic live, speak into it as the operator, end a member's session, close a room, and open the Claude Code session behind any member. The page is titled **Message Bus**, because what it shows is a chat; `bus` alone named the transport rather than the thing on screen. The CLI verb and the Go package are still `bus`.
+`/bus` operates `atomic bus` rooms from the browser: you can watch a room's traffic live and speak into it as the operator. You can also end a member's session, close a room, and open the Claude Code session behind any member. The page is titled **Message Bus**, because what it shows is a chat; `bus` alone named the transport rather than the thing on screen. The CLI verb and the Go package are still `bus`.
 
 The room list polls `GET /api/bus/rooms` and shows each room's member count and halted state. Opening a room backfills the transcript from the room's durable log (`GET /api/bus/log`), then follows a live `GET /api/bus/tail` Server-Sent Events stream, deduplicated by envelope id. Each message shows its sender, its kind, and either its addressees or `fyi` for a room-wide status message.
 
@@ -213,43 +213,56 @@ Opening a channel with no daemon running starts one, the same auto-spawn `atomic
 
 Two controls stop listeners rather than pause them, so both confirm first.
 
-The `×` on a member's chip (`POST /api/bus/end`) evicts that member: it delivers one closing envelope to that member's own stream, drops the membership, and closes the stream, which is what stops the agent's `Monitor`. The room and everyone else in it carry on. The operator's own chip carries no control — cutting your own listener from the page you are using has no use.
+The `×` on a member's chip (`POST /api/bus/end`) evicts that member. It delivers one closing envelope to that member's own stream, drops the membership, and closes the stream, which is what stops the agent's `Monitor`. The room and everyone else in it carry on. The operator's own chip carries no control. Cutting your own listener from the page you are using has no use.
 
-**Close** (`POST /api/bus/close`) ends the room for everyone: every listener is closed and the room is dropped. Unlike halt, there is no resume — the room is gone, and reopening it means joining again.
+**Close** (`POST /api/bus/close`) ends the room for everyone: every listener is closed and the room is dropped. Unlike halt, there is no resume. The room is gone, and reopening it means joining again.
 
-The eviction envelope reaches only the evicted member. `closing` is read as "the last envelope this stream will ever see", so delivering it to a peer that is staying would leave that peer primed to treat the next daemon restart as a shutdown and stop reconnecting. Peers learn of the departure from the roster. The room log still records the eviction, so it is auditable after the fact.
+The eviction envelope reaches only the evicted member. `closing` is read as "the last envelope this stream will ever see". Delivering it to a peer that is staying would leave that peer primed to treat the next daemon restart as a shutdown and stop reconnecting. Peers learn of the departure from the roster. The room log still records the eviction, so it is auditable after the fact.
 
-That envelope alone cannot carry the guarantee, because it travels through the member's bounded channel — and the agent most likely to be evicted, one whose reader has stalled, is exactly the one whose buffer is full. The envelope would be dropped, `recv` would see a bare close, and it would reconnect. So the daemon also refuses a `recv` from an evicted session until it rejoins. Rejoining is the way back in.
+That envelope alone cannot carry the guarantee, because it travels through the member's bounded channel. The agent most likely to be evicted, one whose reader has stalled, is exactly the one whose buffer is full. The envelope would be dropped, `recv` would see a bare close, and it would reconnect. The daemon therefore refuses a `recv` from an evicted session until it rejoins. Rejoining is the way back in.
 
-Both controls also clear the persisted roster in `~/.atomic/bus.json`, the same second step `atomic bus close` performs. Without it the daemon's next start replays that file and restores what was just removed: an evicted member would reappear in the roster with a dead listener, and a closed room would come back.
+The daemon persists its own roster to `~/.atomic/bus-roster.json` after both ops, so a restart does not replay what was removed. An evicted member would otherwise reappear with a dead listener, and a closed room would otherwise come back. `atomic serve` also clears the affected membership from `~/.atomic/bus.json`. The per-session client-side state `atomic bus close` and `end` clean up the same way, so a stale `--host` route or `resume`/`prune` target doesn't outlive the room.
 
 ### Session rail
 
-The right rail on `/bus` lists the room's members, each with its `kind` and staleness, plus a chip for its Claude Code session when one is found. Sessions are located by globbing `~/.claude/projects/*/<session-id>.jsonl`. Clicking a chip opens the transcript in a paginated modal, rendered as markdown through the same server-side pipeline as realm pages. The parser tolerates the drift of an internal, unversioned `.jsonl` format: unknown line types are skipped, and long blocks are truncated rather than breaking the render.
+The right rail on `/bus` lists the room's members, each with its `kind` and staleness, plus a chip for its Claude Code session when one is found. Sessions are located by globbing `~/.claude/projects/*/<session-id>.jsonl`. Clicking a chip opens the transcript in a paginated modal, rendered as markdown through the same server-side pipeline as realm pages. The parser tolerates the drift of an internal, unversioned `.jsonl` format: unknown line types are skipped, and long blocks are truncated rather than breaking the render. In a room on a remote host, the rail lists that host's members with no session chips, since each member's transcript is on its own machine.
+
+### Remote rooms
+
+When `~/.atomic/config.toml` carries a `[bus.remotes]` table (see the
+[hosting guide](../guides/bus-hosting.md)), the room list fans out across every configured remote
+alongside the local daemon, in one list tagged by host. Every routing path resolves a remote room
+through the same gateway a CLI `--host` call would use: the one-shot ops, `handleTail`'s SSE stream,
+and `handleRooms`'s fan-out. `handleLog` is the exception. There is no bulk-history wire op (`OpTail`
+is live-only, `OpRead` answers one id at a time). A remote room's backlog is therefore always empty, and
+the SSE tail fills the transcript live instead. A room named `checkout` on `web-api` and a local room also
+named `checkout` stay distinct in the list and in the URL. Server-Sent Events to the browser are
+unchanged either way; only the socket underneath the SSE route switches between a local Unix dial and
+a sealed remote stream.
 
 ### Loopback only
 
-Every `/api/bus/*` request is refused with 403 unless it comes from the loopback interface, regardless of `--host`. `--host 0.0.0.0` exposes the read-only realm and repo views to the LAN; it does not extend to bus chat, because sending or halting as the human operator is a capability the read-only viewer never had.
+Every `/api/bus/*` request is refused with 403 unless it comes from the loopback interface, regardless of `--host`. `--host 0.0.0.0` exposes the read-only realm and repo views to the LAN. It does not extend to bus chat, because sending or halting as the human operator is a capability the read-only viewer never had.
 
-The gate checks the TCP peer address, not a header, so a request cannot claim to be local. It also cannot see through a reverse proxy: a proxy that terminates LAN connections and forwards them to `atomic serve` on `127.0.0.1` makes every forwarded request look local to the gate. Running such a proxy is a deliberate choice outside `atomic serve`'s threat model, not a gap in the gate.
+The gate checks the TCP peer address, not a header, so a request cannot claim to be local. It also cannot see through a reverse proxy. A proxy that terminates LAN connections and forwards them to `atomic serve` on `127.0.0.1` makes every forwarded request look local to the gate. Running such a proxy is a deliberate choice outside `atomic serve`'s threat model, not a gap in the gate.
 
 
 ## Live reload
 
-While a browser tab is open, `atomic serve` reflects filesystem changes without a restart. The server keeps one realm snapshot (fingerprint, nav paths, link graph) and re-checks it with a stat-only walk every 10 seconds, but only while at least one tab is subscribed to the `/events` stream. With no tabs open the server does no periodic work.
+While a browser tab is open, `atomic serve` reflects filesystem changes without a restart. The server keeps one realm snapshot (fingerprint, nav paths, link graph) and re-checks it with a stat-only walk every 10 seconds. It does this only while at least one tab is subscribed to the `/events` stream. With no tabs open the server does no periodic work.
 
-When the realm changes, subscribed tabs receive a push carrying the new fingerprint and the list of changed files. The open page refetches its pane and rail only when the displayed file itself changed; the nav tree refreshes on any change. Scroll position is preserved as a natural property of React re-rendering content in place rather than swapping panes. The graph pane is not patched in place on a live-reload push — it reflects the change only on its next `/graph/data` or `/code/graph/data` fetch (re-entering the view, reloading, or the cosmos engine's own fingerprint-keyed layout cache invalidating on a subsequent load).
+When the realm changes, subscribed tabs receive a push carrying the new fingerprint and the list of changed files. The open page refetches its pane and rail only when the displayed file itself changed; the nav tree refreshes on any change. Scroll position is preserved as a natural property of React re-rendering content in place rather than swapping panes. The graph pane is not patched in place on a live-reload push. It reflects the change only on its next `/graph/data` or `/code/graph/data` fetch (re-entering the view, reloading, or the cosmos engine's own fingerprint-keyed layout cache invalidating on a subsequent load).
 
 Files written moments ago are held back for a short quiet window before they are published, so a tool writing a file incrementally never renders a half-written page. A small indicator in the top bar shows the live connection state: live, reconnecting, or disconnected. Shutting the server down with tabs open exits cleanly and immediately.
 
-Provenance hashing and the full graph JSON are warmed once in a background goroutine at startup and recomputed on demand when the realm fingerprint changes — never on the periodic check.
+Provenance hashing and the full graph JSON are warmed once in a background goroutine at startup and recomputed on demand when the realm fingerprint changes, never on the periodic check.
 
 
 ## Theme and typography
 
 The top-bar sun / moon button switches between a light theme (warm paper, charcoal text, amber accent) and a dark one (warm charcoal, off-white text, amber accent). Your choice persists; a first visit follows the OS setting. Switching retints every visible graph immediately, with no page reload.
 
-Headings are set in Newsreader, UI text in Inter, and code in a monospace stack with ligatures disabled, so a sequence like `--` or `->` never visually collapses the characters around it. In the right rail, a page's `type` property renders as a chip in the same color that type carries in the graph.
+Headings are set in Newsreader, UI text in Inter, and code in a monospace stack with ligatures disabled. This means a sequence like `--` or `->` never visually collapses the characters around it. In the right rail, a page's `type` property renders as a chip in the same color that type carries in the graph.
 
 The whole UI is embedded in the binary and served from memory, so there is no runtime build step and no file dependency outside the binary. The one network call is for the webfonts; without network access the UI falls back to system fonts.
 
@@ -259,4 +272,4 @@ The whole UI is embedded in the binary and served from memory, so there is no ru
 - Binds to `127.0.0.1` by default; `--host 0.0.0.0` opts into LAN exposure. Read-only either way with respect to realm and repo content, and never an auth surface for that content. The bus chat page is the exception: it refuses every non-loopback request regardless of `--host`. See Bus chat above.
 - Every served path is resolved against the scope root and rejected (404) if it escapes via path traversal (`../` or absolute). `os.ReadFile` is never called on an unvalidated request path. The markdown-search query is treated purely as a substring, never a path.
 - No write operations against realm or repo content. Mutating that content stays in `/refresh-wiki`, `atomic code index`, and `atomic wiki` subcommands. `POST /api/bus/*` is the one write surface serve exposes, and it targets the bus daemon's own state, not realm or repo content.
-- Plain-HTTP/no-JS readability of `/page/*` no longer applies post-cutover — content requires the SPA to run; unmatched non-API GETs return the SPA shell (200) rather than 404, and traversal guards enforce at the `/api/*` boundary.
+- Plain-HTTP/no-JS readability of `/page/*` no longer applies post-cutover. Content requires the SPA to run; unmatched non-API GETs return the SPA shell (200) rather than 404, and traversal guards enforce at the `/api/*` boundary.

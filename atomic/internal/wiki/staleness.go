@@ -36,7 +36,12 @@ func ReadWikiIndexPaths(claudeMDPath string) ([]string, error) {
 		return nil, fmt.Errorf("wiki registry read: %w", err)
 	}
 
-	_, _, blockContent := findBareLineBlock(string(data), wikisMarkerOpen, wikisMarkerClose)
+	// Whole-line tags only: the shipped <atomic> block names "<wikis>" in prose,
+	// and a first-occurrence match reads the bullets after it as index paths.
+	blockStart, _, blockContent := findBareLineBlock(string(data), wikisMarkerOpen, wikisMarkerClose)
+	if blockStart == -1 {
+		return nil, nil
+	}
 
 	var paths []string
 	for _, line := range strings.Split(blockContent, "\n") {

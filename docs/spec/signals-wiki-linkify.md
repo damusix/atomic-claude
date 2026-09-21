@@ -23,11 +23,12 @@ Make signals and wiki markdown navigable as a graph in Obsidian, a generic markd
 ### Linkify core (code)
 
 - [ ] A reusable linkify function takes file content + the file's absolute path + a base directory, and rewrites each **inline-code path token** (`` `path` ``) whose `join(base, token)` exists on disk into `` [`path`](relpath) ``, where `relpath = filepath.Rel(dir(file), join(base, token))`.
+- [ ] **Destination form:** a `relpath` containing a space, a tab, or a parenthesis is written in angle brackets, `` [`path`](<relpath>) ``. A bare CommonMark destination ends at the first space and must balance its parentheses, so GitHub and goldmark render the bare form as literal text. A `relpath` that needs angle brackets and also contains `<` or `>` is left as plain code, since angle brackets cannot hold either unescaped.
 - [ ] Disk resolution is the filter: a token that does not `stat` from the base (e.g. `` `atomic signals scan` ``, `` `git status` ``) is left untouched. No extension/heuristic guessing.
 - [ ] **Skip-set:** a token with any path segment in `{.git, node_modules, dist, build, target, vendor, .worktrees, tmp}` is never linked even when it resolves on disk — linking to build output or VCS internals is noise. Exact-segment match, so `.github` / `.githooks` / `.gitignore` still link.
 - [ ] **Degenerate tokens:** a token built entirely from `.` and `/` — including the empty token — is never linked. Disk resolution cannot reject these (`join(base, ".")` and `join(base, "/")` are the base itself, `".."` is its parent), but prose quoting a bare path character is never a citation, and the empty case comes from a `` `` `` span quoting text that itself contains backticks, where linking shreds the quoted string into three pieces.
 - [ ] **Gitignore layer (optional, best-effort):** `LinkifyFile` skips any token that `git check-ignore` flags under the base dir (e.g. `bin/`, `.env`, logs). Batched (one `git check-ignore --stdin` per file). Degrades to skip-set-only with no error when git is absent or the base dir is not a git work tree. The pure `Linkify` (skip-set only, no exec) remains for callers/tests that want no git dependency.
-- [ ] Idempotent: a token already wrapped as the text of a markdown link (`` [`path`](...) ``) is skipped, so re-running produces a byte-identical file.
+- [ ] Idempotent: a token already wrapped as the text of a markdown link (`` [`path`](...) ``) is skipped, so re-running produces a byte-identical file. One exception: when the existing destination is exactly the bare `relpath` that the destination-form rule puts in angle brackets, it is rewritten to the bracketed form, so a re-run repairs pages linkified before that rule existed.
 - [ ] Fenced code blocks (```` ``` ````) are never linkified; only inline-code spans in prose, tables, and bullets.
 - [ ] Links are file-relative (`../../agents/x.md`), never repo-root-absolute (`/agents/x.md`) and never `@-ref`s — portable across Obsidian, a markdown server, and GitHub.
 
@@ -104,3 +105,11 @@ Approach A. Relative-prefix computation is a deterministic transform — code's 
 **Why:** Dogfooding again. Nine of eleven `docs/wiki/` domain files carried corrupted prose. Sentences describing Node import classification ("a specifier not starting with `.`, `/`, or `#`") rendered their path characters as links, and — worse — a `` `` `` span quoting a string that itself contains backticks opened a zero-width token that resolved to the base, splitting `` ``not installed; run `atomic claude install`.`` `` into three fragments with two spurious links.
 
 **Correction:** The 2026-06-07 entry above frames disk resolution plus the skip-set as sufficient to keep non-citations plain. It is not: the degenerate tokens resolve by construction, and no path segment of theirs is in the skip-set.
+
+### 2026-09-18 — Angle-bracket destinations for paths with spaces or parentheses
+
+**What changed:** A new destination-form criterion writes a `relpath` containing a space, tab, or parenthesis as `<relpath>`, and leaves one that would also need a raw `<` or `>` as plain code. The idempotence criterion gains one exception: an existing link whose bare destination is exactly such a `relpath` is rewritten to the bracketed form.
+
+**Why:** Issue #262. A repo with a top-level `My Project/` directory got 280 links across 16 wiki pages that GitHub rendered as literal text, because a bare destination ends at the first space. The repair exception lets a re-run of `atomic signals linkify` or `atomic wiki linkify` fix pages written before this change.
+
+**Superseded:** Every resolved token was written as `` [`path`](relpath) `` with `relpath` bare.

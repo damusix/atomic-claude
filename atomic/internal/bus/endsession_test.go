@@ -18,8 +18,16 @@ func TestEndSession_ClosesOnlyThatMembersStream(t *testing.T) {
 
 	victimCh := make(chan Envelope, 4)
 	bystanderCh := make(chan Envelope, 4)
-	defer h.Subscribe("room", victimCh, "sess-victim", false)()
-	defer h.Subscribe("room", bystanderCh, "sess-bystander", false)()
+	unsubVictim, err := h.Subscribe("room", victimCh, "sess-victim", false)
+	if err != nil {
+		t.Fatalf("subscribe victim: %v", err)
+	}
+	defer unsubVictim()
+	unsubBystander, err := h.Subscribe("room", bystanderCh, "sess-bystander", false)
+	if err != nil {
+		t.Fatalf("subscribe bystander: %v", err)
+	}
+	defer unsubBystander()
 
 	if _, err := h.EndSession("room", victim); err != nil {
 		t.Fatalf("end session: %v", err)
