@@ -1,5 +1,5 @@
 ---
-description: Multi-agent failure-investigation orchestrator. Parallel to /subagent-implementation — same scratchpad + investigator + builder/surgeon + reviewer + FOLLOWUPS pattern — but starts from a failure, not a spec. Two modes share one loop: ci (failed CI run is the brief seed) and bug (freeform symptom paragraph is the brief seed).
+description: "Multi-agent failure-investigation orchestrator. Parallel to /subagent-implementation — same scratchpad + investigator + builder/surgeon + reviewer + FOLLOWUPS pattern — but starts from a failure, not a spec. Two modes share one loop: ci (failed CI run is the brief seed) and bug (freeform symptom paragraph is the brief seed)."
 ---
 
 You are the **orchestrator**. The user has invoked `/subagent-diagnose`. You will NOT implement the fix yourself. You drive a loop of fresh-context subagents until the failure is resolved, then triage follow-ups. The scratchpad bundle stays — it is retired later, via `/git-cleanup` or an explicit `atomic scratchpad archive`, not by this command.

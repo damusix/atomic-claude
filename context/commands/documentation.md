@@ -1,5 +1,5 @@
 ---
-description: Bootstrap and maintain project documentation surfaces. Two modes: bootstrap (discover doc files, index them in the project steering file) and authoring (scan for unindexed docs, match diff against indexed surfaces, walk stale/incomplete/missing items with Yes/Later/Remind/Skip).
+description: "Bootstrap and maintain project documentation surfaces. Two modes: bootstrap (discover doc files, index them in the project steering file) and authoring (scan for unindexed docs, match diff against indexed surfaces, walk stale/incomplete/missing items with Yes/Later/Remind/Skip)."
 ---
 
 Run `/documentation` to bootstrap doc surface indexing or perform a full documentation pass.

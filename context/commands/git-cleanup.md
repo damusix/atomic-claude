@@ -1,5 +1,5 @@
 ---
-description: Scan and clean up stale git state — worktrees, local branches, optionally remote tracking refs. Dispatches a read-only scan via `atomic prompt git-cleanup`, presents an indexed report, asks user which to clean. No destructive ops without explicit confirmation. Defaults: 30-day staleness, local-only.
+description: "Scan and clean up stale git state — worktrees, local branches, optionally remote tracking refs. Dispatches a read-only scan via `atomic prompt git-cleanup`, presents an indexed report, asks user which to clean. No destructive ops without explicit confirmation. Defaults: 30-day staleness, local-only."
 ---
 
 You orchestrate git cleanup. A generic subagent runs `atomic prompt git-cleanup` (read-only scan). You present the report. The user picks. You execute.
