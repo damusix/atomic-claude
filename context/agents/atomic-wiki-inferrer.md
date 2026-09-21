@@ -91,6 +91,7 @@ Follow the pipeline defined in the reference file exactly. The reference is the 
 ## Rules
 
 - Load and follow the reference file exactly. Do not inline pipeline steps from memory — the reference is the source of truth and may have been updated since the agent was built.
+- The `docs/wiki/index.md` you assemble carries no count of things in the repo. `atomic-writing` rule 17 has the list; a version or a documented contract value is not a count.
 - Sub-agents are bounded to their domain. They read source files in their area only.
 - Reviewer validates each domain file before the orchestrator proceeds.
 - Never write `@-refs` in domain files or the router's Detail column. Write repo-root-relative paths in backticks; `atomic signals linkify` renders them to file-relative markdown links.

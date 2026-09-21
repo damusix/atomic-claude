@@ -43,7 +43,7 @@ flowchart LR
 | `GET /api/page/<relpath>` | Rendered markdown as HTML-in-JSON, plus title, breadcrumb segments, `hasMermaid`. Empty relpath serves the scope landing (realm index, else [`README.md`](../../README.md)). A directory with no index file returns `{dir, entries}` |
 | `GET /api/file/<relpath>` | Chroma line-table HTML for a source file |
 | `GET /api/rail/<relpath>` | One payload: `properties`, `out`, `in`, `graphDataURL` |
-| `GET /api/nav` | Realm scope: six groups (Realm, Repos, Concerns, Knowledge, Buckets, External) with staleness badges. Repo scope: docs file tree |
+| `GET /api/nav` | Realm scope: the Realm, Repos, Concerns, Knowledge, Buckets, and External groups, with staleness badges. Repo scope: docs file tree |
 | `GET /api/search/md?q=` | Literal case-insensitive substring search over `*.md`, capped at 50 results |
 | `GET /api/code/search?q=&only=&exclude=` | Federated symbol search, grouped per member. An unindexed member returns `indexed:false` with empty results, not an error |
 | `GET /api/search/stream?q=&src=` | SSE: one `md` event, one `code` event per member as its search completes, terminal `end` |
@@ -69,7 +69,7 @@ Bus routes, all under `/api/bus/`:
 
 ### Security model
 
-Four guards, each at a different layer:
+Each guard sits at a different layer:
 
 | Guard | Where | Rejects |
 |-------|-------|---------|
@@ -107,9 +107,9 @@ Four guards, each at a different layer:
 
 ### Plans
 
-`/plans` lists one row per slug — the shared filename stem of `docs/design/<slug>.md` and `docs/spec/<slug>.md` — and `/plans/:slug/*` opens one. A row aggregates across every git worktree `git worktree list --porcelain` reports for the repo, so a slug worked on in three worktrees at once still reads as one row.
+`/plans` lists one row per slug — the shared filename stem of `docs/design/<slug>.md` and `docs/spec/<slug>.md` — and `/plans/:slug/*` opens one. A row aggregates across every git worktree `git worktree list --porcelain` reports for the repo, so a slug worked on in more than one worktree at once still reads as one row.
 
-A committed document collapses across worktrees by content SHA-256, never by filename or branch name, so two checkouts holding byte-identical bytes fold into one version and two checkouts holding different bytes produce two. A scratchpad bundle never collapses this way: each worktree's `.claude/.scratchpad/<slug>/` is its own `planBundle` entry, attributed to the checkout that holds it, because nothing merges an uncommitted directory.
+A committed document collapses across worktrees by content SHA-256, never by filename or branch name, so checkouts holding byte-identical bytes fold into one version, and checkouts holding different bytes each produce their own version. A scratchpad bundle never collapses this way: each worktree's `.claude/.scratchpad/<slug>/` is its own `planBundle` entry, attributed to the checkout that holds it, because nothing merges an uncommitted directory.
 
 ```mermaid
 flowchart TD
@@ -123,7 +123,7 @@ flowchart TD
     M -->|no| L2["label = newest-fileMtime<br/>checkout's branch"]
 ```
 
-Two checkouts editing the same bytes read as one version with two checkouts listed under it; a checkout that has diverged reads as a second version, never a second row.
+Checkouts editing the same bytes read as one version, listing every matching checkout under it; a checkout that has diverged reads as its own version, never an additional row.
 
 `resolveDefaultBranch` (`plans.go`) decides which checkout's version counts as merged — `refs/remotes/origin/HEAD`, else `init.defaultBranch` from the shared git config, else `main` when some checkout holds it, else `master` — with no `git` subprocess beyond the one `worktree list` call. `checkoutID` derives each worktree's opaque id as the first 12 hex characters of `sha256(resolved checkout path)`, re-issued by `resolverFor` on every aggregator rebuild and never accepted from a client; `plansRegistry.resolveWorktree` looks an id up against the one aggregator that issued it and confirms it is still current before resolving.
 
@@ -137,17 +137,17 @@ A row's title and description come from `extractMeta` reading the representative
 
 Bundle files render by classification, never by client-supplied extension: `.md`/`.markdown` fetches through `/api/plans/page` and renders server-side, identically to a committed doc; `.html`/`.htm` renders through `BundleFileViewer`'s `HtmlWindow`, the same code-fence window chrome (dots bar, filename caption) a markdown code block gets, filling the pane via a `mode-plans-frame` body class rather than the prose measure, in an `iframe` with `sandbox="allow-scripts"` so a bundle mock (e.g. an `atomic-visual-options` HTML fixture) can run its own scripts — everything else is never fetched into the React tree, the client points a download link straight at `/api/plans/page?...&raw=1`. Every raw fetch gets `Content-Security-Policy: sandbox` on the response, except an `.html`/`.htm` fetch, which gets `sandbox allow-scripts` to match the iframe; the frame's opaque origin keeps a running script from the app's cookies and storage, and `rejectCrossOrigin` (Security model, above) is what now stops that script from reaching the write routes on this origin.
 
-**`usePlansScope` is the one place Plans code reads or writes `?at=` and the `/plans/:slug/*` route.** Before it existed, five call sites each re-derived the same state from their own `useSearchParams`/`useLocation` calls and assembled their own `/plans` URLs, which is how they drifted. Every consumer now either reads a field (`at`, `slug`, `relpath`, `isPlansRoute`) or calls a writer (`openSlug`, `openFile`, `setAt`) — never `react-router` directly. `setAt` navigates through `{ pathname, search, hash }` rather than `setSearchParams`, because `setSearchParams`'s `"?" + params` form drops a heading anchor open at the time of the write. Which member is selected is no longer a URL concern — `usePlansScope` dropped `member`/`setMember`/`scopedSearch` entirely; `plansHref` and `slugHref` no longer carry a member query param.
+**`usePlansScope` is the one place Plans code reads or writes `?at=` and the `/plans/:slug/*` route.** Before it existed, call sites each re-derived the same state from their own `useSearchParams`/`useLocation` calls and assembled their own `/plans` URLs, which is how they drifted. Every consumer now either reads a field (`at`, `slug`, `relpath`, `isPlansRoute`) or calls a writer (`openSlug`, `openFile`, `setAt`) — never `react-router` directly. `setAt` navigates through `{ pathname, search, hash }` rather than `setSearchParams`, because `setSearchParams`'s `"?" + params` form drops a heading anchor open at the time of the write. Which member is selected is no longer a URL concern — `usePlansScope` dropped `member`/`setMember`/`scopedSearch` entirely; `plansHref` and `slugHref` no longer carry a member query param.
 
-**`utils/memberStore.ts` is the one module-level store for the reader's picked member**, cookie-backed (`atomic-member`, one JSON map keyed `<scope>:<name>` so a realm pick and a repo pick never collide) rather than URL-carried, so the selection survives a reload without living in every page's query string. `useCurrentMember()` (`useSyncExternalStore`, same pattern as `components/code-modal/store.ts`) resolves the scope identity from one `GET /nav` per page load; `ready` is false until that resolves, and Graph and Schema both hold their member-scoped fetch on `!ready` rather than fetching against an empty member and refetching once identity lands. `memberLabel(prefix, realmName)` renders the empty prefix (the realm root or bare-repo scope) as the realm's own name instead of blank; `graphEngineAdapter.ts`'s `pickerLabel(m, realmName)` composes it with the `— not indexed` suffix for the Graph and Schema member `<select>`s, replacing the two near-identical `memberLabel` helpers those files used to define locally.
+**`utils/memberStore.ts` is the one module-level store for the reader's picked member**, cookie-backed (`atomic-member`, one JSON map keyed `<scope>:<name>` so a realm pick and a repo pick never collide) rather than URL-carried, so the selection survives a reload without living in every page's query string. `useCurrentMember()` (`useSyncExternalStore`, same pattern as `components/code-modal/store.ts`) resolves the scope identity from one `GET /nav` per page load; `ready` is false until that resolves, and Graph and Schema both hold their member-scoped fetch on `!ready` rather than fetching against an empty member and refetching once identity lands. `memberLabel(prefix, realmName)` renders the empty prefix (the realm root or bare-repo scope) as the realm's own name instead of blank; `graphEngineAdapter.ts`'s `pickerLabel(m, realmName)` composes it with the `— not indexed` suffix for the Graph and Schema member `<select>`s, replacing the near-identical `memberLabel` helpers those files used to define locally.
 
 **Graph and Schema both read `member` from the store, not `?member=`.** `Graph.tsx`'s effect used to correct a stale or unresolvable `?member=` by rewriting the URL and re-running on the next pass; now `resolveMember(fetched, member)` picks the render/fetch fallback locally and never writes it back to the store, so a member missing from one page's own list doesn't leak into another page's pick. `SchemaView.tsx` follows the same shape (`resolveMember` computed inline, `setMember` from the store passed straight to `SchemaToolbar`). The `/graph` URL now carries only `?view=`.
 
 **The top bar names the checkout on screen.** `TopBar.tsx`'s `provenanceLabel` reads `utils/planViewStore.ts`'s `useOnScreenCheckout()` — a second module-level `useSyncExternalStore` store, set by `SlugView` to `{branch, path, outsideRoot}` for whichever checkout resolved onto the page — and renders `<branch> · <path>` after the breadcrumb's file crumb, gated on `scope.slug` (not `isPlansRoute`, which also holds on bare `/plans` and would show the outgoing slug's provenance for a frame during unmount). The plans breadcrumb itself (`plansCrumbs`) inserts a member crumb between "plans" and the slug only when `member.scope === "realm"`, labeled through the same `memberLabel`.
 
-Reading a slug is two panes agreeing on one resolution. `SlugView` owns the sticky `?at=` query parameter, naming a checkout's branch, through `usePlansScope`'s `setAt`; `PlansRail` (mounted separately in the shell's aside) computes the identical resolution read-only through `components/plans/resolve.ts`'s `resolveDocVersion`, so the body and the rail's version picker can never show different versions. When the resolved checkout's branch does not match `at` — no selection yet, or the requested branch has no version for a newly opened file — `SlugView` rewrites the URL to match rather than blocking on it: navigation always wins over the sticky preference.
+Reading a slug means the body and the rail agreeing on one resolution. `SlugView` owns the sticky `?at=` query parameter, naming a checkout's branch, through `usePlansScope`'s `setAt`; `PlansRail` (mounted separately in the shell's aside) computes the identical resolution read-only through `components/plans/resolve.ts`'s `resolveDocVersion`, so the body and the rail's version picker can never show different versions. When the resolved checkout's branch does not match `at` — no selection yet, or the requested branch has no version for a newly opened file — `SlugView` rewrites the URL to match rather than blocking on it: navigation always wins over the sticky preference.
 
-A row's `updatedAt` is `rowUpdatedAt` (`plans.go`): the newest mtime across every doc version and every bundle file, never `meta.toml`'s own `updated` field (a Save-verb rewrite stamp, not a per-file one). `/api/plans` sorts rows by it, descending, with a slug tiebreak, so the list reads newest-touched first. `PlansView`'s toolbar is sticky and carries a client-side filter (`filterPlanRows` in `searchItems.ts`, case-insensitive substring over title/description/slug) shared with the ⌘K palette's plans tab, so the two surfaces never disagree on a match; ⌘F/Ctrl+F focuses the filter input while `/plans` is mounted, unless focus already sits in a text field, and Escape clears it.
+A row's `updatedAt` is `rowUpdatedAt` (`plans.go`): the newest mtime across every doc version and every bundle file, never `meta.toml`'s own `updated` field (a Save-verb rewrite stamp, not a per-file one). `/api/plans` sorts rows by it, descending, with a slug tiebreak, so the list reads newest-touched first. `PlansView`'s toolbar is sticky and carries a client-side filter (`filterPlanRows` in `searchItems.ts`, case-insensitive substring over title/description/slug) shared with the ⌘K palette's plans tab, so the toolbar and the palette never disagree on a match; ⌘F/Ctrl+F focuses the filter input while `/plans` is mounted, unless focus already sits in a text field, and Escape clears it.
 
 
 ### Graph pane
@@ -167,7 +167,7 @@ The rail mini-graph's `cytoscape.min.js` is an unrelated load; the rail never us
 
 ### Live reload
 
-Three gates stand in front of the expensive rebuild, so an idle server does no periodic filesystem work at all and a burst of edits rebuilds once rather than once per tick.
+The expensive rebuild sits behind gates, so an idle server does no periodic filesystem work at all and a burst of edits rebuilds once rather than once per tick.
 
 ```mermaid
 flowchart TD
@@ -200,7 +200,7 @@ Go, all in [`atomic/internal/serve/`](../../atomic/internal/serve):
 
 | Path | Role |
 |------|------|
-| `serve.go` | `Run` / `RunWithContext`, `Options`, `DisplayScope`, `ResolveDisplayScope`, the whole mux (including the three `/api/plans*` routes), `newSPAHandler`, listener and graceful shutdown |
+| `serve.go` | `Run` / `RunWithContext`, `Options`, `DisplayScope`, `ResolveDisplayScope`, the whole mux (including the `/api/plans*` routes), `newSPAHandler`, listener and graceful shutdown |
 | `api_handlers.go` | The page, file, rail, nav, md-search, code-search, and search-stream handlers; `writeAPIJSON` / `writeAPIError` share one `{"error": "..."}` envelope |
 | `context_handler.go` | Relpath resolution shared by page and rail (index files, directory listing) |
 | `render.go` | goldmark + chroma renderer, mermaid fence pass-through, `RenderMarkdownWithGraph`, `safeResolve`, `resolveContained` (the shared containment algorithm both `safeResolve` and `api_plans_page.go` call) |
@@ -251,7 +251,7 @@ Frontend, all under [`atomic/internal/serve/frontend/`](../../atomic/internal/se
 | `src/components/rail/PlansRail.tsx` | Right rail for an opened slug: version picker, the row's docs + bundle files as nav entries, active file's headings — mounted outside `SlugView`'s route subtree, re-derives slug/path from the URL itself |
 | `src/utils/memberStore.ts` | Module-level, cookie-backed store (`atomic-member`) for the reader's picked member; `useCurrentMember`, `setMember`, `memberLabel` |
 | `src/utils/planViewStore.ts` | Module-level store for the checkout `SlugView` currently has on screen; `useOnScreenCheckout`, read by `TopBar` for provenance |
-| `src/components/nav/IconRail.tsx` | The five mode icons (Docs, Graph, Schema, Message Bus, Plans) routed below the Browse toggle |
+| `src/components/nav/IconRail.tsx` | The mode icons (Docs, Graph, Schema, Message Bus, Plans) routed below the Browse toggle |
 | `src/components/search/SearchPalette.tsx`, `searchItems.ts` | Cmd-K palette; a `plans` source tab fetches the full `/api/plans` payload once and filters client-side (`planPaletteItems`, built on `filterPlanRows`, the same filter `PlansView`'s toolbar uses), since Plans has no search endpoint |
 | `src/hooks/useLiveReload.ts` | `EventSource('/events')` to a `realm.changed` observer event; `shouldRefetchPage` decides page and rail refetch |
 | `src/utils/api.ts` | The single shared `FetchEngine` |
@@ -297,7 +297,7 @@ Docs:
 
 **Carried script load order matters, and getting it wrong fails silently.** Both graph profiles read `window.GraphCore` at their own top-level init, so loading a profile before `graph-core.js` produces no error, just a pane that never mounts.
 
-**`code-graph.js`'s `KIND_GROUPS` table must track `AllNodeKinds`** in [`atomic/internal/codeintel/types/types.go`](../../atomic/internal/codeintel/types/types.go) (39 values, mapped to 8 visual groups). A kind missing from the table falls through to the `other` bucket instead of erroring, so a taxonomy gap is invisible until someone cross-checks the counts.
+**`code-graph.js`'s `KIND_GROUPS` table must track every value of `AllNodeKinds`** in [`atomic/internal/codeintel/types/types.go`](../../atomic/internal/codeintel/types/types.go), each mapped to a visual group. A kind missing from the table falls through to the `other` bucket instead of erroring, so a taxonomy gap is invisible until someone cross-checks `KIND_GROUPS` against `AllNodeKinds`.
 
 **`public/` is copied verbatim into `dist/` by `build.ts`; `public/` is committed, `dist/` is gitignored.** Editing `public/code-graph.js` without re-running `make -C atomic frontend` leaves the served copy stale in a binary you built earlier — `make build|test|vet` rebuild it first, a bare `go build` does not. CI has a dedicated frontend job that runs `bun test` and `bun run build.ts`; there is no committed copy to diff against.
 
@@ -305,7 +305,7 @@ Docs:
 
 **`bun:test` does not reset modules between test files.** `loadScript`'s `loaded` cache and `railCytoscapeStyle`'s `window.__railCy` global both leak across files, so `src/test/setup.testing.ts` resets them in a global `afterEach` on top of whatever individual suites do.
 
-**A Plans row never reads a file inside the quiet window.** `plansAggregator.build` and `plansAggregator.fingerprint` both skip a [`docs/design`](../design)/[`docs/spec`](../spec) entry whose mtime is under 2 seconds old (`defaultQuietWindow`, shared with `snapshot.go`'s), so a file mid-write cannot tear a version's content SHA across the two reads.
+**A Plans row never reads a file inside the quiet window.** `plansAggregator.build` and `plansAggregator.fingerprint` both skip a [`docs/design`](../design)/[`docs/spec`](../spec) entry whose mtime is under 2 seconds old (`defaultQuietWindow`, shared with `snapshot.go`'s), so a file mid-write cannot tear a version's content SHA across the build and fingerprint reads.
 
 **A symlink under [`docs/design/`](../design) or [`docs/spec/`](../spec) is never followed.** The docs walk spans every checkout including review-only worktrees, and a symlink there would hash and title-extract an arbitrary file from outside the repository into a row.
 

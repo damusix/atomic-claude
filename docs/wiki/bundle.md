@@ -12,9 +12,9 @@ tags: [artifacts, codegen, build]
 
 The markdown artifacts under [`context/`](../../context) — agents, commands, skills, output-styles, rules, [`CLAUDE.md`](../../CLAUDE.md) — are the product; this domain is how a user gets them without a manual copy step. `make bundle` reads [`context/`](../../context), expands any `{{ template "<name>" . }}` directive against [`context/_partials/`](../../context/_partials), and writes the result to [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) plus a generated `manifest.go`. `//go:embed bundle` in [`atomic/internal/embedded/bundle.go`](../../atomic/internal/embedded/bundle.go) compiles that tree into the [`atomic`](../../atomic) binary, and `atomic claude install`/`update` writes the embedded copies to a target directory (`~/.claude` by default).
 
-There is one generation step, not two. [`context/commands/<verb>.md`](../../context/commands) and [`context/agents/<name>.md`](../../context/agents) are committed source, not generated output — no `templates/` directory and no top-level `commands/`/`agents/` directory exist in this repo. Expansion happens on the way into the embedded bundle; nothing is ever written back into [`context/`](../../context), so an artifact exists in exactly one place.
+Generation happens on the way into the embedded bundle, not before it. [`context/commands/<verb>.md`](../../context/commands) and [`context/agents/<name>.md`](../../context/agents) are committed source, not generated output — no `templates/` directory and no top-level `commands/`/`agents/` directory exist in this repo. Nothing is ever written back into [`context/`](../../context), so an artifact is never duplicated between source and output.
 
-Both [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) and `manifest.go` are gitignored build outputs, confirmed by `git ls-files atomic/internal/embedded/` returning only [`bundle.go`](../../atomic/internal/embedded/bundle.go). CI's comment on the "Generate bundle" step states the reason directly: "The bundle is gitignored, so there is no drift gate here — only the generation step that makes `internal/embedded` compile." What ships to a user is fully determined by [`context/`](../../context) and the two small Go packages that mirror and install it.
+Both [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) and `manifest.go` are gitignored build outputs, confirmed by `git ls-files atomic/internal/embedded/` returning only [`bundle.go`](../../atomic/internal/embedded/bundle.go). CI's comment on the "Generate bundle" step states the reason directly: "The bundle is gitignored, so there is no drift gate here — only the generation step that makes `internal/embedded` compile." What ships to a user is fully determined by [`context/`](../../context) and the Go packages that mirror and install it.
 
 
 ## How it works
@@ -97,7 +97,7 @@ Every other command source is self-contained.
 | `atomic claude list` | none |
 | `atomic claude uninstall` | `--target` |
 
-`install` and `update` share one code path, `installOrUpdate` in [`atomic/internal/claudeinstall/install.go`](../../atomic/internal/claudeinstall/install.go). Both take a write-once pre-install snapshot, plan, apply, create `~/.atomic/profile.md` if absent, offer to prune stale artifacts, then record what was installed in `[install.artifacts]`.
+`install` and `update` share a code path, `installOrUpdate` in [`atomic/internal/claudeinstall/install.go`](../../atomic/internal/claudeinstall/install.go). Both take a write-once pre-install snapshot, plan, apply, create `~/.atomic/profile.md` if absent, offer to prune stale artifacts, then record what was installed in `[install.artifacts]`.
 
 Right after `Apply` returns, `installOrUpdate` calls `seedOutputStyleForInstall(targetDir, home, manifest, dryRun, out)` (after `Apply`, so the style file the seed guard checks for is already on disk). Seeding fires only when `manifestHasOutputStyle` finds the output-style artifact in the manifest itself (not on disk, since `--dry-run` writes nothing) and `isUserLevelTarget` confirms `targetDir` is `~/.claude` via `hooks.SameDir`; a custom `--target` install never seeds. Under `--dry-run`, `planOutputStyleSeed` reports what would be seeded by checking `hooks.SeedEnabled` and the current `settings.json` state, without writing. A seed failure (malformed `settings.json`) prints as a non-fatal warning and never aborts the install.
 
@@ -105,7 +105,7 @@ Right after `Apply` returns, `installOrUpdate` calls `seedOutputStyleForInstall(
 
 ### The per-artifact install decision
 
-[`CLAUDE.md`](../../CLAUDE.md) is the one artifact never overwritten wholesale, because a user's own content lives in the same file.
+[`CLAUDE.md`](../../CLAUDE.md) is never overwritten wholesale, because a user's own content lives in the same file.
 
 ```mermaid
 flowchart TD
@@ -124,7 +124,7 @@ flowchart TD
 
 Backups land in `~/.atomic/backups/<timestamp>/<target>`, one timestamp directory per run. The proposed file lands at `~/.atomic/proposed/CLAUDE.md`, and the install output tells the user to run `atomic prompt claude-merge` in a Claude Code session. If the `<atomic>` block vanishes between plan and apply, `applyAction` fails loud with `"<path> lost its parseable <atomic> block between plan and apply"` rather than guessing the boundary.
 
-`Plan`, `Apply`, and `Diff` all load the `[claude.agents]` overrides and patch `model:` and `effort:` frontmatter before hashing, so all three agree on the expected on-disk bytes. `patchAgentContent` sets the two keys independently and preserves the source order of every other key; a file with no parseable frontmatter is left unchanged.
+`Plan`, `Apply`, and `Diff` all load the `[claude.agents]` overrides and patch `model:` and `effort:` frontmatter before hashing, so all three agree on the expected on-disk bytes. `patchAgentContent` sets `model:` and `effort:` independently and preserves the source order of every other key; a file with no parseable frontmatter is left unchanged.
 
 `ReapplyAgents(targetDir, home)` re-patches only agent files already present on disk. An absent agent is never installed by it.
 
@@ -142,7 +142,7 @@ Install reads the previous `[install.artifacts]` list from `~/.atomic/config.tom
 |------|------|
 | `context/commands/*.md` | Source for each slash command. May compose `{{ template "<name>" . }}` directives. |
 | `context/agents/*.md` | Source for each subagent definition. Same composition contract as commands. |
-| `context/_partials/*.md` | Partials composed by both kinds via `{{ template "<name>" . }}`. One pool: a partial defined once is callable from any command or agent source. |
+| `context/_partials/*.md` | Partials composed by both kinds via `{{ template "<name>" . }}`. A partial defined once is callable from any command or agent source. |
 | `context/skills/atomic-*/` | Skill directories, whole subtree. Bundled byte-for-byte, no expansion. |
 | `context/output-styles/atomic*.md` | Output style definitions. Bundled byte-for-byte. |
 | `context/rules/**/*.md` | Path-scoped topic rules. Bundled byte-for-byte. |
@@ -198,7 +198,7 @@ Both are gitignored; `git ls-files atomic/internal/embedded/` returns only [`bun
 
 **`make bundle` writes and overwrites, but the target of a removed artifact is not tracked anywhere to prune.** Since `manifest.go` is regenerated wholesale on every run, deleting a source file under [`context/`](../../context) simply drops it from the next `Manifest()` — there is no stale committed copy to `git rm`, unlike a workflow with a committed rendered tree.
 
-**The `<atomic>` block is the ownership boundary in [`CLAUDE.md`](../../CLAUDE.md).** Content inside the tags is atomic-owned and replaced wholesale; content outside is preserved byte for byte. Detection is line-anchored, so only a line whose trimmed content is exactly `<atomic>` or `</atomic>` counts, and a backticked mention in prose never matches. Two blocks, an unclosed tag, or a close before an open all report not-ok and route to the merge path instead.
+**The `<atomic>` block is the ownership boundary in [`CLAUDE.md`](../../CLAUDE.md).** Content inside the tags is atomic-owned and replaced wholesale; content outside is preserved byte for byte. Detection is line-anchored, so only a line whose trimmed content is exactly `<atomic>` or `</atomic>` counts, and a backticked mention in prose never matches. Duplicate blocks, an unclosed tag, or a close before an open all report not-ok and route to the merge path instead.
 
 **Pre-commit hook stages** (install with `make hooks`, which sets `core.hooksPath=.githooks`):
 
@@ -214,7 +214,7 @@ That stage does not belong to this domain, and there is no render, bundle, or fr
 ## Coupling
 
 
-- **config** — install writes into two roots that must not be confused. Artifacts go to `targetDir` (default `~/.claude`, overridable with `--target`); everything atomic owns resolves through [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go) under `~/.atomic` (`config.toml`, `backups/`, `proposed/CLAUDE.md`, `profile.md`, `pre-install/`). The config domain owns those helpers; this domain calls them. Spec: [`docs/spec/configurable-state-paths.md`](../spec/configurable-state-paths.md).
+- **config** — install writes into separate roots that must not be confused. Artifacts go to `targetDir` (default `~/.claude`, overridable with `--target`); everything atomic owns resolves through [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go) under `~/.atomic` (`config.toml`, `backups/`, `proposed/CLAUDE.md`, `profile.md`, `pre-install/`). The config domain owns those helpers; this domain calls them. Spec: [`docs/spec/configurable-state-paths.md`](../spec/configurable-state-paths.md).
 - **config** — `atomic config agents` writes `[claude.agents.<name>]` overrides, then calls `ReapplyAgents` through the `ApplyAgentsHook` package variable. `internal/config` cannot import `internal/claudeinstall` without a cycle, so [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go), the only package importing both, wires the hook in `init()`. `ReapplyAgents` resolves its target via `ResolveTarget("~/.claude")`, so an install made with a custom `--target` is invisible to that verb.
 - **config** — `seedOutputStyleForInstall` in [`atomic/internal/claudeinstall/install.go`](../../atomic/internal/claudeinstall/install.go) calls `hooks.SeedOutputStyle` and `hooks.SameDir` from [`atomic/internal/hooks/`](../../atomic/internal/hooks), the config domain's package. `hooks.SeedOutputStyle` owns the `outputStyle` key write to `~/.claude/settings.json`; this domain only decides when to call it (manifest carries the artifact, target is user-level).
 - **doctor** — [`atomic/internal/manifestcheck/manifestcheck.go`](../../atomic/internal/manifestcheck/manifestcheck.go) calls `bundlemirror.Enumerate` and compares the result against the binary's embedded `Manifest()`. Doctor's manifest check and `atomic validate` both consume it. The check is repo-dev only and SKIPs outside the atomic-claude repo. Changing a `bundlespec` predicate changes what both report.
@@ -223,4 +223,4 @@ That stage does not belong to this domain, and there is no render, bundle, or fr
 - **doctor, config** — install creates `~/.atomic/profile.md` on first run via [`atomic/internal/profile`](../../atomic/internal/profile) and prints `ProfileNudge`. Profile content and its freshness window belong to those domains.
 - **workflow** — every ship verb and orchestrator command lives in [`context/commands/`](../../context/commands). Changing a ship-verb flow means editing [`context/_partials/commit-flow.md`](../../context/_partials/commit-flow.md) and its siblings, not a single command file, because the partials fan out to every command in the family.
 - **docs-meta** — [`context/CLAUDE.md`](../../context/CLAUDE.md) is both the bundle input and, per the root [`CLAUDE.md`](../../CLAUDE.md), a separate file from this repo's own project instructions: [`context/CLAUDE.md`](../../context/CLAUDE.md) installs as every user's `~/.claude/CLAUDE.md`, while the root [`CLAUDE.md`](../../CLAUDE.md) never installs. A change to [`context/CLAUDE.md`](../../context/CLAUDE.md) reaches every user on their next update.
-- **Lockstep contract** — [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) and the "Simplicity first (YAGNI)" ladder in [`context/CLAUDE.md`](../../context/CLAUDE.md)'s `<principles>` block carry the same seven steps verbatim. [`context/CLAUDE.md`](../../context/CLAUDE.md) is copied byte-for-byte, not expanded, so nothing enforces the match. Edit both together.
+- **Lockstep contract** — [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) and the "Simplicity first (YAGNI)" ladder in [`context/CLAUDE.md`](../../context/CLAUDE.md)'s `<principles>` block carry the same steps verbatim. [`context/CLAUDE.md`](../../context/CLAUDE.md) is copied byte-for-byte, not expanded, so nothing enforces the match. Edit both together.

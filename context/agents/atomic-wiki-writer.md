@@ -42,6 +42,8 @@ The dispatch prompt carries the section order and what each section holds. Two r
 
 Draw from the source you read, never from prose someone already wrote about the source. A diagram copied from a paragraph inherits whatever that paragraph got wrong.
 
+**Never count things in the repo.** `atomic-writing` rule 17 has the list; a version or a documented contract value is not a count.
+
 Before writing any Mermaid block, read `~/.claude/skills/atomic-writing/references/mermaid.md`. It picks the type from the reader's question and lists what breaks rendering, which matters here because the labels you are asked to write are real identifiers and a bare `verify(token)` is a parse error.
 
 ## 3. Redraw the design diagrams
