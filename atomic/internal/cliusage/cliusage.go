@@ -469,6 +469,12 @@ var commands = []Command{
 		Description: "Gather context for a query",
 	},
 	{
+		Path:        []string{"code", "comments"},
+		Args:        "",
+		Flags:       []string{"--diff", "--json"},
+		Description: "List comments added in a diff",
+	},
+	{
 		Path:        []string{"code", "mcp"},
 		Args:        "",
 		Flags:       []string{"--daemon", "--source", "--db", "--watch-interval", "--no-watch"},

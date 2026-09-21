@@ -24,6 +24,7 @@ Your personal preferences live in `~/.atomic/config.toml` and never reach the re
 | `[code] ignore` | string array | empty | Glob patterns excluded from the code-intel index |
 | `[scan] ignore` | string array | empty | Glob patterns dropped from the wiki scan entirely |
 | `[scan] generated` | string array | empty | Globs kept in the tree but skipped for domain content |
+| `[comments] max_lines` | integer | `2` | Longest comment `atomic code comments` accepts before it flags the entry |
 | `[repl] idle_timeout` | string | `1h` | How long an idle `atomic repl` session survives |
 
 A complete example:
@@ -37,6 +38,9 @@ ignore = ["vendor/**", "*.generated.ts", "dist/**"]
 [scan]
 ignore = ["fixtures/large-dataset.json", "third_party/**"]
 generated = ["*.pb.go", "generated/**"]
+
+[comments]
+max_lines = 2
 
 [repl]
 idle_timeout = "30m"
@@ -103,6 +107,12 @@ generated = ["*.pb.go", "generated/**"]
 Matching follows the same rules as `[code] ignore` above: a pattern with a slash matches the full repo-relative path, one without matches the basename at any depth, and `**` crosses directories.
 
 **Migrating from `.signalsignore`.** These keys replace the repo-root `.signalsignore` file, whose bare lines are now `ignore` and whose `+`-prefixed lines are now `generated`. `atomic update` converts an existing file and deletes it; `atomic migrate --repo <path>` does the same on demand. Until that runs, a repo with no `[scan]` table still reads `.signalsignore`, so nothing breaks in the meantime. If both exist, `[scan]` wins as a whole table — a config declaring only `ignore` also suppresses the old file's `+` lines, so the effective rules never depend on a file you forgot was there.
+
+## [comments] max_lines
+
+Bounds how many consecutive full-line comment lines `atomic code comments` accepts in one diff entry before flagging it. Default 2 when the key is absent. A value under 1 warns and resolves to 2, the same lenient contract as the other keys.
+
+See [code intelligence](/reference/code-intel) for the verb that reads this key.
 
 ## [repl] idle_timeout
 

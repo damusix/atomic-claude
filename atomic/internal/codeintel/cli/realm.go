@@ -33,6 +33,19 @@ func RunCodeWithRealm(args []string, projectRoot, claudeMDPath string, stdout, s
 		return RunCode(args, projectRoot, stdout, stderr, stdin)
 	}
 
+	// comments resolves the git root like ScopeNoIndex, no fan-out.
+	if args[0] == "comments" {
+		root, err := repoctx.Resolve(projectRoot)
+		if err != nil {
+			root, err = repoctx.Resolve("")
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "atomic code: %v\n", err)
+			return 1
+		}
+		return RunCode(args, root, stdout, stderr, stdin)
+	}
+
 	res, err := realm.Resolve(projectRoot, claudeMDPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "atomic code: realm resolve: %v\n", err)

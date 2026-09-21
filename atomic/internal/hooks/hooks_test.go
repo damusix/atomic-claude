@@ -101,6 +101,17 @@ func stubNoWherePosition(t *testing.T) {
 	t.Cleanup(func() { hooks.WherePosition = orig })
 }
 
+// tempHome points $HOME at a temp dir and stubs the profile refresh, whose real
+// subprocesses write into $HOME past the call and race t.TempDir's RemoveAll.
+func tempHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	hooks.ProfileRefresh = func(_, _ string, _ int) (bool, error) { return false, nil }
+	t.Cleanup(func() { hooks.ProfileRefresh = hooks.DefaultProfileRefresh })
+	return home
+}
+
 func TestSessionStart_EmptyReminders(t *testing.T) {
 	stubNoWikiStaleness(t)
 	stubNoWherePosition(t)
@@ -1162,8 +1173,7 @@ func TestInstall_MigratesLegacyRegistration(t *testing.T) {
 func TestSessionStart_ProfileRefreshCalled(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := tempHome(t)
 	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
 
 	var gotHome, gotToday string
@@ -1293,8 +1303,7 @@ func TestSessionStart_SeedOutputStyle_PayloadUnaffected(t *testing.T) {
 	stubNoWikiStaleness(t)
 	stubNoWherePosition(t)
 	root := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := tempHome(t)
 	now := time.Now().UTC()
 	addReminderWithDate(t, root, "seed must not alter the payload", 0)
 
@@ -1336,8 +1345,7 @@ func TestSessionStart_SeedOutputStyle_MalformedSettings_NeverBlocks(t *testing.T
 	stubNoWikiStaleness(t)
 	stubNoWherePosition(t)
 	root := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := tempHome(t)
 	now := time.Now().UTC()
 	addReminderWithDate(t, root, "must still surface despite malformed settings", 0)
 

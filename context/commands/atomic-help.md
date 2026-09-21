@@ -144,6 +144,7 @@ Run them rather than reciting. What they cannot tell the user is which verb fits
 |-----|------|--------|
 | Install or restore `~/.claude` artifacts | `claude install`, `update`, `uninstall` | `docs/guides/install.md` |
 | Understand how code fits together | `code` — lead with `explore` | `docs/reference/code-intel.md` |
+| Count the comments a diff adds | `code comments` | `docs/reference/code-intel.md` |
 | Maintain project or cross-repo context | `wiki`, `signals` | `docs/reference/repo-wiki.md`, `docs/reference/realm-wiki.md` |
 | Talk to another running Claude session | `bus` | `docs/reference/bus.md` |
 | Keep an interpreter alive across Bash calls | `repl` | `docs/reference/repl.md` |
@@ -258,6 +259,7 @@ atomic bus join|send|recv|tail|read|chat  peer messaging between concurrent sess
 atomic bus gateway|enroll|revoke  host rooms across machines: gateway runs beside the daemon behind one HTTP endpoint, enroll prints a [bus.remotes] key block, revoke ends a machine's access within one frame, ATOMIC_BUS_KEY on the gateway admits one shared key; every bus verb except chat and shutdown reaches it with --host <name>
 atomic code index/sync            build or refresh the symbol graph; at a wiki-realm root, fans out across member repos (--only/--exclude to filter)
 atomic code explore "<query>"     one-shot context digest for a question; search/callers/callees/impact drill into one symbol; realm output grouped under [key] headers
+atomic code comments [--diff <range>]   list the comments a diff adds (path:line, span, first words); exit 1 when one exceeds [comments] max_lines
 atomic serve [path] [--port N]    local read-only HTTP server: Obsidian-style page view + right-rail graph/links, system-graph toggle, code-file modal, a Plans view aggregating design/spec docs and scratchpad bundles across every worktree, md|code|plans search (default port 4500; --open opens browser)
 atomic code mcp                   start MCP server exposing graph as tools; daemon self-syncs every 10s (--no-watch disables, --watch-interval overrides); use `atomic --repo <abs-path> code mcp` to serve any repo cwd-independently — one entry per repo in .mcp.json; realm members resolve to their realm db
 atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki; write ## Members links

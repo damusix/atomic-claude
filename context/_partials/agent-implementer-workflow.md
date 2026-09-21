@@ -9,6 +9,7 @@
 2d. **Reuse check.** Before writing, walk the *Simplicity first (YAGNI)* ladder above and stop at the first hit — reuse beats rewrite, and don't add a second helper for what an existing one already does.
 {{ template "agent-tdd-signals" . }}
 4b. **Self-check**: if a spec or brief was provided, re-read its success criteria. Confirm each is met by the code you wrote. If any is unmet, go back — don't report done.
+4c. **Comment count.** Run `atomic code comments --diff {BASE_SHA}`, work the list, re-run, and carry the final count into the signals block.
 5. Report atomic.
 </workflow>
 {{ template "agent-code-intel" . }}
