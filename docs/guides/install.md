@@ -31,7 +31,7 @@ Install the artifact bundle (CLAUDE.md, agents, commands, skills, output styles,
 atomic claude install
 ```
 
-This also registers the session-start hook by default; pass `--no-hooks` to skip it (see "After installing").
+This also registers three Claude Code hooks by default; pass `--no-hooks` to skip them (see "After installing").
 
 That is it. Install seeds the Atomic output style into `~/.claude/settings.json` automatically. Verify with `atomic doctor`, which runs integrity checks, names anything missing, and confirms the seeded style.
 
@@ -46,7 +46,15 @@ The installer prints one manual step it cannot automate:
 
 A few optional steps go further:
 
-- **Check the session-start hook.** `atomic claude install` already registered a Claude Code session-start hook that refreshes your profile, injects pending reminders, nudges you when a wiki falls stale, and re-seeds the output style if the key is ever missing. Some managed or enterprise setups disable hooks; if yours does, remove it with `atomic hooks uninstall`, which leaves your seeded output style alone as long as the style file itself is still installed, or install with `atomic claude install --no-hooks` next time. To add the hook later (or after removing it), run `atomic hooks install`; the scope defaults to your user config, and `--scope project` limits it to one repo.
+- **Check the Claude Code hooks.** `atomic claude install` registered three Claude Code hooks:
+
+    | Hook | Command | What it does |
+    |------|---------|--------------|
+    | session-start | `atomic hooks session-start` | Refreshes your profile, injects pending reminders, nudges you when a wiki falls stale, re-seeds the output style if the key is ever missing |
+    | post-tool-use | `atomic hooks post-tool-use` | Records the files Claude edits and its review dispatches |
+    | stop | `atomic hooks stop` | Blocks the turn while an edited file is uncommitted and unreviewed |
+
+    To skip them, install with `--no-hooks`; to remove them, `atomic hooks uninstall` (all three; the seeded output style stays while its file is installed); to add them later, `atomic hooks install` (`--scope project` limits it to one repo); `atomic doctor` warns when any is missing. Contract: [reference/hooks](../reference/hooks.md).
 - **Map related repos with a wiki.** If you work across a folder of services, libraries, or client projects, run `/refresh-wiki` to build a cross-repo wiki. It summarizes each member repo and writes up the concerns they share, so Claude can reason about a whole realm of projects rather than one repo at a time. See the [wiki workflow](/reference/realm-wiki).
 - **Index a project's symbols.** Run `atomic code index` in a project to build a symbol graph of it. Once indexed, `atomic code explore "<question>"` returns a context digest of the relevant symbols and call edges in one query, and the implementation agents use the graph for blast-radius checks and domain clustering. Indexing is opt-in and degrades to plain search when absent; see the [code-intel reference](/reference/code-intel).
 

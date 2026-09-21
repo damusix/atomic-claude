@@ -166,7 +166,7 @@ func repairPlan(r Result) (plan string, fixable bool) {
 	case "install":
 		return "run `atomic claude install --merge` to re-sync bundle", true
 	case "hooks":
-		return "run `atomic hooks install` to register session-start hook", true
+		return "run `atomic hooks install` to register Claude Code hooks", true
 	case "signals":
 		return "cannot auto-fix — run /refresh-wiki from Claude Code to refresh signals.", false
 	case "refs":
@@ -218,7 +218,7 @@ func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, err
 		if err := rp.HooksFn(out); err != nil {
 			return "", err
 		}
-		return "session-start hook registered", nil
+		return "Claude Code hooks registered", nil
 	case "refs":
 		chosenFile, err := rp.applyRefsRepair(p, out)
 		if err != nil {

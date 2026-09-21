@@ -253,16 +253,28 @@ var commands = []Command{
 		Description: "Print session-start hook payload",
 	},
 	{
+		Path:        []string{"hooks", "post-tool-use"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Handle PostToolUse hook payload",
+	},
+	{
+		Path:        []string{"hooks", "stop"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Handle Stop hook payload; exit 2 to block",
+	},
+	{
 		Path:        []string{"hooks", "install"},
 		Args:        "",
 		Flags:       []string{"--scope"},
-		Description: "Install session-start hook",
+		Description: "Install Claude Code hooks",
 	},
 	{
 		Path:        []string{"hooks", "uninstall"},
 		Args:        "",
 		Flags:       []string{"--scope"},
-		Description: "Remove session-start hook",
+		Description: "Remove Claude Code hooks",
 	},
 	{
 		Path:        []string{"reminder", "add"},

@@ -84,7 +84,7 @@ One-line pointer per topic. Group by category for scannability.
 | `implement` | Two verbs, split by where the context already is. `/subagent-implementation` reads the spec and runs the implement→review loop with `atomic-implementer`+`atomic-reviewer`, committing per green iteration — the default, and the right call when the context isn't loaded. `/implement [<task>]` runs the same checkpoint discipline in the main agent when the context *is* already in this conversation: Claude writes the code, `atomic-reviewer` gates every checkpoint, and the finalize is the same (docs, `atomic-auditor`, signals). Its Entry row hands back to `/subagent-implementation` when the context isn't loaded or the work won't fit inside it. |
 | `quick-fix` | `/quick-fix <task>` — implement→review loop without the planning phase, spec gate, or finalize ceremony (audit kept). For a known-cause fix with one obvious approach; hands off to `/subagent-diagnose` or `/atomic-plan` when the cause or the approach turns out open, never on file count. |
 | `diagnose` | `/subagent-diagnose ci [run-id]` or `/subagent-diagnose bug "<symptom>"` — orchestrated failure investigation. Same loop as implementation. |
-| `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`, every checkpoint inside `/implement`, and `/commit` dispatches it on main-agent code written ad-hoc, outside any command. All are diff-scoped; for standing code nobody is changing, `/deslop`. |
+| `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation` and every checkpoint inside `/implement`; `atomic-auditor` gates main-agent code written ad-hoc, outside any command, at both exits (`atomic-verify` before "ready", `/commit` before the commit), with the `atomic hooks stop` hook as backstop. All are diff-scoped; for standing code nobody is changing, `/deslop`. |
 | `ship` | Pick by intent — see `ship` matrix below. |
 | `docs` | `/documentation` syncs README/CLAUDE.md/spec/design after significant changes. Auto-fires on ship verbs in maintenance mode. |
 
@@ -123,7 +123,7 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `agents` | 7 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration; `atomic-auditor` gates the finished whole once, in a fresh context; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `~/.claude/agents/` or `docs/reference/agents.md`. |
+| `agents` | 7 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration; `atomic-auditor` gates the finished whole once, in a fresh context, and the working tree when the main agent edited code outside a loop; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `~/.claude/agents/` or `docs/reference/agents.md`. |
 | `skills` | 10 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-git-discipline`, `atomic-documentation`, `atomic-writing`, `atomic-wiki`, `atomic-visual-options`, `atomic-bus`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Seeded automatically at install and every session start; `/config` → Output style overrides per project; `atomic config set output_style.seed false` opts out. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
@@ -248,6 +248,7 @@ Prompt: continue to maintenance / explain one of these / exit tour.
 
 ```
 atomic doctor [--fix]             integrity checks over install, hooks, signals, refs, ..., profile, code-index, migrate, output-style
+atomic hooks install|uninstall    register or remove the Claude Code hooks: session-start (reminders, profile, wiki nudge), post-tool-use + stop (review-gate backstop for main-agent edits)
 atomic validate                   lint spec / config / bundle / artifact-CLI-citation parity
 atomic update [--check] [--pre]   self-update binary (--pre tracks next-branch pre-releases), auto-runs install-scope migrations, runs doctor after
 atomic migrate [--repo|--realm|--show-log]   run versioned migration steps: bare = ~/.claude/, --repo = one project, --realm = fan-out across all atomic'd repos; --show-log [<since>] prints dated change history

@@ -2,14 +2,14 @@
 
 ## Goal
 
-A sixth subagent that gates the finished implementation once, in a context that never saw the loop produce it. It closes four holes that per-checkpoint review cannot reach: cumulative spec compliance, cross-iteration coherence, commit-message soundness, and documentation adherence.
+A sixth subagent that gates the finished implementation once, in a context that never saw the loop produce it. It closes four holes that per-checkpoint review cannot reach: cumulative spec compliance, cross-iteration coherence, commit-message soundness, and documentation adherence. In working-diff mode it is also the independent reader for code the main agent wrote outside any loop.
 
 ## Non-goals
 
-- Not a diff reviewer. `atomic-reviewer` keeps gating each iteration; the auditor never re-litigates a single checkpoint.
+- Not a checkpoint reviewer. `atomic-reviewer` keeps gating each loop iteration; the auditor never re-litigates a single checkpoint of a running loop.
 - Not an approach critic. Whether the design was right stays with `atomic-strategist`.
 - No repo writes. It reports; the orchestrator dispatches a builder against its findings. Its only write is `$SCRATCH/AUDIT.md`.
-- No second audit pass. One dispatch per task, always.
+- No second audit pass within a loop. One dispatch per loop, always; in working-diff mode each gate event is its own dispatch.
 - No new CLI verb, no Go change.
 
 ## Success criteria
@@ -132,3 +132,13 @@ atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
 **What changed:** `/quick-fix` Finalize gains the audit step between `atomic-verify` and `FOLLOWUPS.md` triage, passing `brief: $SCRATCH/BRIEF.md` since no spec exists. The agent reads the brief's success criteria wherever it would read a spec's, and under a brief reports an untouched documentation surface as 🟡, because `/documentation` is deferred to the user by design.
 
 **Why:** the fast loop had no whole-delivery gate at all, and it is the loop where comment noise and a duplicated helper most often slip past per-iteration review.
+
+### 2026-09-20 — Working-diff mode for ad-hoc main-agent code
+
+**What changed:** A `diff: working` caller mode plus `intent:`, dispatched by `atomic-verify` and the ship verbs' review gate, one dispatch per gate event; `atomic-reviewer`'s description drops the ship-verb clause it no longer covers.
+
+**Why:** Issue #271 — the ad-hoc gate did not fire and, when it did, ran on the Sonnet-pinned reviewer. The auditor inherits the session model.
+
+**Superseded:** `Not a diff reviewer; one dispatch per task.`
+
+Full contract: `docs/spec/review-gate-hook.md`.

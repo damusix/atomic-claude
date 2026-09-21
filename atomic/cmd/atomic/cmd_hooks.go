@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -16,7 +17,7 @@ func buildHooksCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runHooks(args, *repoOverride) }
 	parent := &cobra.Command{
 		Use:   "hooks",
-		Short: "Manage session-start hooks (session-start|install|uninstall)",
+		Short: "Manage Claude Code hooks (session-start|post-tool-use|stop|install|uninstall)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -39,10 +40,12 @@ func buildHooksCmd(repoOverride *string) *cobra.Command {
 	addSub("session-start", "Print session-start hook payload", "", func(c *cobra.Command) {
 		c.Flags().String("format", "", "output format: json or text")
 	})
-	addSub("install", "Install session-start hook", "", func(c *cobra.Command) {
+	addSub("post-tool-use", "Handle PostToolUse hook payload", "", nil)
+	addSub("stop", "Handle Stop hook payload; exit 2 to block", "", nil)
+	addSub("install", "Install Claude Code hooks", "", func(c *cobra.Command) {
 		c.Flags().String("scope", "", "scope: user or project")
 	})
-	addSub("uninstall", "Remove session-start hook", "", func(c *cobra.Command) {
+	addSub("uninstall", "Remove Claude Code hooks", "", func(c *cobra.Command) {
 		c.Flags().String("scope", "", "scope: user or project")
 	})
 	return parent
@@ -50,12 +53,33 @@ func buildHooksCmd(repoOverride *string) *cobra.Command {
 
 func runHooks(args []string, repoOverride string) {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic hooks <session-start|install|uninstall> [flags]\n")
+		fmt.Fprintf(os.Stderr, "Usage: atomic hooks <session-start|post-tool-use|stop|install|uninstall> [flags]\n")
 		os.Exit(2)
 	}
 
 	verb := args[0]
 	switch verb {
+	case "post-tool-use":
+		stdin, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic hooks post-tool-use: %v\n", err)
+			os.Exit(0)
+		}
+		hooks.PostToolUse(stdin)
+		os.Exit(0)
+
+	case "stop":
+		stdin, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic hooks stop: %v\n", err)
+			os.Exit(0)
+		}
+		if message := hooks.Stop(stdin); message != "" {
+			fmt.Fprintln(os.Stderr, message)
+			os.Exit(2)
+		}
+		os.Exit(0)
+
 	case "session-start":
 		fs := flag.NewFlagSet("hooks session-start", flag.ContinueOnError)
 		cliutil.SetUsage(fs, "atomic hooks session-start [--format json|text]")
@@ -152,7 +176,7 @@ func runHooks(args []string, repoOverride string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "atomic hooks: unknown verb %q\n", verb)
-		fmt.Fprintf(os.Stderr, "Usage: atomic hooks <session-start|install|uninstall> [flags]\n")
+		fmt.Fprintf(os.Stderr, "Usage: atomic hooks <session-start|post-tool-use|stop|install|uninstall> [flags]\n")
 		os.Exit(2)
 	}
 }

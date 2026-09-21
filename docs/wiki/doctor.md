@@ -42,7 +42,7 @@ Indices are stable and never renumbered.
 | # | Name | File | Verifies | Fires as | `--fix` |
 |---|------|------|----------|----------|---------|
 | 1 | install | `checks_install.go` | Each embedded artifact against its installed copy under `~/.claude`, via `claudeinstall.Diff`. | FAIL if any missing, WARN if any drifted, SKIP if `~/.claude` absent | `atomic claude install --merge` |
-| 2 | hooks | `checks_hooks.go` | Session-start hook registered in `~/.claude/settings.json`; legacy wrapper-script form reported as drift. | WARN | `atomic hooks install` |
+| 2 | hooks | `checks_hooks.go` | Three Claude Code hooks (session-start, post-tool-use, stop) registered in `~/.claude/settings.json`; legacy wrapper-script form or a missing review-gate hook reported as drift. | WARN when missing or drifted, PASS otherwise | `atomic hooks install` |
 | 3 | signals | `checks_signals.go` | Scan age against `--stale-days`, source-tree change since the scan, then router integrity: [`docs/wiki/index.md`](index.md) present, `@`-ref'd, every domain file in its table on disk, no orphan domain file. | WARN | no |
 | 4 | refs | `checks_refs.go` | `@docs/wiki/index.md` present in one of [`claude.local.md`](../../claude.local.md), [`CLAUDE.local.md`](../../CLAUDE.local.md), [`CLAUDE.md`](../../CLAUDE.md), [`claude.md`](../../claude.md). | FAIL | appends the ref block to a chosen candidate |
 | 5 | manifest | `checks_manifest.go` | Bundle mirror regenerated from the working tree against the committed `embedded.Manifest()`. Repo-dev only. | FAIL | `make -C atomic bundle` |

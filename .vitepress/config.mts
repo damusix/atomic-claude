@@ -179,6 +179,7 @@ export default withMermaid(defineConfig({
                     { text: 'REPL', link: '/reference/repl' },
                     { text: 'Repo config (atomic.toml)', link: '/reference/atomic-toml' },
                     { text: 'Conventions', link: '/reference/conventions' },
+                    { text: 'Hooks', link: '/reference/hooks' },
                 ],
             },
         ],

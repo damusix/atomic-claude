@@ -38,12 +38,12 @@ func buildClaudeCmd() *cobra.Command {
 	addSub("install", "Install artifact bundle", "", func(c *cobra.Command) {
 		c.Flags().Bool("dry-run", false, "print what would happen; make no changes")
 		c.Flags().String("target", "", "target directory (default ~/.claude)")
-		c.Flags().Bool("no-hooks", false, "skip session-start hook installation")
+		c.Flags().Bool("no-hooks", false, "skip Claude Code hook installation")
 	})
 	addSub("update", "Update artifact bundle", "", func(c *cobra.Command) {
 		c.Flags().Bool("dry-run", false, "print what would happen; make no changes")
 		c.Flags().String("target", "", "target directory (default ~/.claude)")
-		c.Flags().Bool("no-hooks", false, "skip session-start hook installation")
+		c.Flags().Bool("no-hooks", false, "skip Claude Code hook installation")
 	})
 	addSub("list", "List bundled artifacts", "", nil)
 	addSub("diff", "Diff bundle vs on-disk", "", func(c *cobra.Command) {
@@ -146,7 +146,7 @@ func runClaude(args []string) {
 		var noHooks bool
 		fs.BoolVar(&dryRun, "dry-run", false, "print what would happen; make no changes")
 		fs.StringVar(&target, "target", "~/.claude", "target directory (default ~/.claude)")
-		fs.BoolVar(&noHooks, "no-hooks", false, "skip session-start hook installation")
+		fs.BoolVar(&noHooks, "no-hooks", false, "skip Claude Code hook installation")
 		if err := fs.Parse(args[1:]); err != nil {
 			os.Exit(2)
 		}
@@ -175,7 +175,7 @@ func runClaude(args []string) {
 
 		if !dryRun {
 			if result.HooksInstalled {
-				fmt.Fprintln(os.Stderr, "session-start hook installed.")
+				fmt.Fprintln(os.Stderr, "Claude Code hooks installed.")
 			} else if result.HooksError != nil {
 				fmt.Fprintf(os.Stderr, "warning: hook install failed (non-fatal): %v\n", result.HooksError)
 				fmt.Fprintln(os.Stderr, "         retry later with: atomic hooks install")

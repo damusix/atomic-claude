@@ -112,7 +112,7 @@ The `atomic` binary embeds `context/` at build time via `go:embed`. `go:embed` c
 **Pre-commit hook.** `.githooks/pre-commit` (installed via `make hooks`, which sets `core.hooksPath=.githooks`) has one stage: `atomic followups render` when any followups entry file (other than INDEX.md) is staged, re-staging `INDEX.md` (degrades to WARN if `atomic` binary absent). There is no render, bundle, or frontend stage — none of those produces a committed file.
 
 
-**`atomic hooks` vs git hooks — different systems.** `atomic hooks install` registers a Claude Code session-start hook (injects pending reminders into context). That has nothing to do with the build pipeline. Render parity is enforced by CI; the git pre-commit hook in `.githooks/` is the local convenience layer.
+**`atomic hooks` vs git hooks — different systems.** `atomic hooks install` registers the Claude Code hooks: session-start (injects pending reminders into context) and post-tool-use plus stop (the review-gate backstop for main-agent edits). That has nothing to do with the build pipeline. Render parity is enforced by CI; the git pre-commit hook in `.githooks/` is the local convenience layer.
 
 
 ## Shared partials
@@ -243,6 +243,7 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 | `docs/reference/bus.md` | `atomic bus` room model, addressed vs FYI, envelope, daemon lifecycle, exit codes, operator verbs | atomic-writing |
 | `docs/reference/repl.md` | `atomic repl` persistent interpreter sessions, scope model, six verbs, exit codes, idle_timeout config | atomic-writing |
 | `docs/reference/atomic-toml.md` | repo-scoped `.claude/atomic.toml`: scope marker, code-index ignore globs, repl idle_timeout, lenient load contract | atomic-writing |
+| `docs/reference/hooks.md` | the three Claude Code hooks, the review-gate state and exemptions, opt-out | atomic-writing |
 | `docs/credits.md` | inspirations, prior-art credits | atomic-writing |
 | `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-writing |
 | `context/CLAUDE.md` | global contract, agent/command/skill registry | atomic-writing |

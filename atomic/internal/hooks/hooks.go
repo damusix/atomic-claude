@@ -1,5 +1,5 @@
-// Package hooks builds the Claude Code session-start payload and manages its
-// settings.json registration.
+// Package hooks builds the Claude Code session-start, post-tool-use, and stop
+// hook payloads and manages their settings.json registration.
 package hooks
 
 import (
@@ -148,6 +148,20 @@ const (
 	previewMaxLen   = 80
 	oldThresholdDay = 14
 )
+
+// registration is one settings.json entry Install/Uninstall manage: an event
+// name, its matcher (empty when the event takes none), and the command.
+type registration struct {
+	event   string
+	matcher string
+	command string
+}
+
+var registrations = []registration{
+	{event: "SessionStart", matcher: ".*", command: sessionStartCommand},
+	{event: "PostToolUse", matcher: "Edit|Write|MultiEdit|NotebookEdit|Agent", command: "atomic hooks post-tool-use"},
+	{event: "Stop", matcher: "", command: "atomic hooks stop"},
+}
 
 // SessionStart returns the JSON hook payload, or "" when there is nothing to
 // surface. now is the reference time for relative date formatting.
@@ -407,10 +421,11 @@ func resolveDir(path string) string {
 	return abs
 }
 
-// Install registers the inline command under scopeRoot; repoRoot is unused here.
-// Any older wrapper-script registration is removed first so the hook cannot
-// double-fire. Idempotent. skipped reports a read-only settings.json left
-// untouched, so a caller can tell that from a genuine success.
+// Install registers the three entries under scopeRoot that are missing;
+// repoRoot is unused here. Any older wrapper-script registration is removed
+// first so the session-start hook cannot double-fire. Idempotent. skipped
+// reports a read-only settings.json left untouched, so a caller can tell that
+// from a genuine success.
 func Install(repoRoot, scopeRoot string) (skipped bool, err error) {
 	sfPath := SettingsPath(scopeRoot)
 
@@ -418,11 +433,16 @@ func Install(repoRoot, scopeRoot string) (skipped bool, err error) {
 		return skipped, err
 	}
 
-	return registerInSettings(sfPath, sessionStartCommand)
+	for _, r := range registrations {
+		if skipped, err := registerInSettings(sfPath, r.event, r.matcher, r.command); err != nil || skipped {
+			return skipped, err
+		}
+	}
+	return false, nil
 }
 
-// Uninstall removes the registration and any lingering legacy wrapper script.
-// skipped reports a read-only settings.json left untouched.
+// Uninstall removes all three registrations and any lingering legacy wrapper
+// script. skipped reports a read-only settings.json left untouched.
 func Uninstall(repoRoot, scopeRoot string) (skipped bool, err error) {
 	if err := os.Remove(legacyScriptPath(scopeRoot)); err != nil && !os.IsNotExist(err) {
 		return false, fmt.Errorf("hooks uninstall: remove legacy script: %w", err)
@@ -433,10 +453,12 @@ func Uninstall(repoRoot, scopeRoot string) (skipped bool, err error) {
 		return false, nil
 	}
 
-	if skipped, err := unregisterFromSettings(sfPath, sessionStartCommand); err != nil || skipped {
-		return skipped, err
+	for _, r := range registrations {
+		if skipped, err := unregisterFromSettings(sfPath, r.event, r.command); err != nil || skipped {
+			return skipped, err
+		}
 	}
-	if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil || skipped {
+	if skipped, err := unregisterFromSettings(sfPath, "SessionStart", legacyScriptPath(scopeRoot)); err != nil || skipped {
 		return skipped, err
 	}
 
@@ -451,7 +473,7 @@ func Uninstall(repoRoot, scopeRoot string) (skipped bool, err error) {
 // settings.json errors, so Install refuses to proceed.
 func migrateLegacy(sfPath, scopeRoot string) (skipped bool, err error) {
 	if _, err := os.Stat(sfPath); err == nil {
-		if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil || skipped {
+		if skipped, err := unregisterFromSettings(sfPath, "SessionStart", legacyScriptPath(scopeRoot)); err != nil || skipped {
 			return skipped, err
 		}
 	}
@@ -461,12 +483,12 @@ func migrateLegacy(sfPath, scopeRoot string) (skipped bool, err error) {
 	return false, nil
 }
 
-func hasRegistration(settings map[string]any, command string) bool {
+func hasRegistration(settings map[string]any, event, command string) bool {
 	hooksMap, ok := settings["hooks"].(map[string]any)
 	if !ok {
 		return false
 	}
-	ss, ok := hooksMap["SessionStart"].([]any)
+	ss, ok := hooksMap[event].([]any)
 	if !ok {
 		return false
 	}
@@ -493,8 +515,11 @@ func hasRegistration(settings map[string]any, command string) bool {
 }
 
 // IsInstalled reports registration state in scopeRoot/.claude/settings.json.
-// drifted means the hook still fires but through a legacy wrapper-script (or a
-// half-migrated pair), and `atomic hooks install` should be re-run.
+// installed is the session-start hook's own presence (inline or legacy
+// wrapper-script). drifted means either the legacy form is still registered,
+// or the inline session-start hook is present but a review-gate hook
+// (PostToolUse or Stop) is missing — either way `atomic hooks install`
+// should be re-run.
 func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
 	sfPath := SettingsPath(scopeRoot)
 	settings, _, _, readErr := readSettingsHujson(sfPath)
@@ -502,12 +527,12 @@ func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
 		return false, false, readErr
 	}
 
-	inline := hasRegistration(settings, sessionStartCommand)
-	legacy := hasRegistration(settings, legacyScriptPath(scopeRoot))
+	inline := hasRegistration(settings, "SessionStart", sessionStartCommand)
+	legacy := hasRegistration(settings, "SessionStart", legacyScriptPath(scopeRoot))
 
 	switch {
 	case inline && !legacy:
-		return true, false, nil
+		return true, gateHookMissing(settings), nil
 	case inline && legacy:
 		return true, true, nil
 	case legacy:
@@ -515,6 +540,20 @@ func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
 	default:
 		return false, false, nil
 	}
+}
+
+// gateHookMissing reports whether the PostToolUse or Stop registration is
+// absent, given the session-start hook is already present.
+func gateHookMissing(settings map[string]any) bool {
+	for _, r := range registrations {
+		if r.event == "SessionStart" {
+			continue
+		}
+		if !hasRegistration(settings, r.event, r.command) {
+			return true
+		}
+	}
+	return false
 }
 
 // malformedSettingsError embeds the real command in the snippet so the user can

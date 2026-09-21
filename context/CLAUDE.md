@@ -78,7 +78,7 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 ## Workflow
 
 - **Plan** with `/atomic-plan`. `/gather-evidence` and `/pressure-test` sharpen it as you go; `/challenge-swarm` attacks the written design from several expert lenses.
-- **Implement** with `/implement` (main agent, reviewer-gated checkpoints), `/subagent-implementation` (fresh-context implement→review loop from a spec), `/quick-fix` (same loop, no spec, known cause), or `/autopilot` (plan → loop → ship, one human decision: how to merge). `/subagent-diagnose` for failure-driven work. Ad-hoc edits get their review gate at the exits: `atomic-verify` before "ready", the ship verbs before the commit.
+- **Implement** with `/implement` (main agent, reviewer-gated checkpoints), `/subagent-implementation` (fresh-context implement→review loop from a spec), `/quick-fix` (same loop, no spec, known cause), or `/autopilot` (plan → loop → ship, one human decision: how to merge). `/subagent-diagnose` for failure-driven work. Ad-hoc edits get their review gate at the exits: `atomic-verify` before "ready" and the ship verbs before the commit both dispatch `atomic-auditor` on the working diff; the `atomic hooks stop` hook blocks the turn while main-agent edits sit unreviewed.
 - **Ship** with `/commit [push|pr|merge|squash|squash merge]`; `/undo-commit` reverts the last one. `/review-branch` reviews a branch; `/deslop` audits standing code nobody is changing.
 - **Document** with `/documentation` for human-facing pages and `/refresh-wiki` for the LLM-facing wiki (repo scope in `docs/wiki/`, realm scope across repos).
 - **Find the verb** with `/atomic-help [<topic> | <intent> | tour]`.

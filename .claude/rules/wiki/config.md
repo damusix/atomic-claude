@@ -16,6 +16,8 @@ paths:
   - "atomic/internal/doctemplate/**"
   - "atomic/internal/dockerinit/**"
   - "atomic/cmd/atomic/main.go"
+  - "atomic/cmd/atomic/cmd_hooks.go"
+  - "atomic/cmd/atomic/cmd_claude.go"
 ---
 
 Domain: config. User and repo config, state at `~/.atomic`, hooks, follow-ups, self-update.
@@ -25,9 +27,12 @@ Map:
 Contracts:
   - docs/spec/atomic-state-and-config.md
   - docs/spec/output-style-seed.md
+  - docs/spec/review-gate-hook.md
 References:
   - docs/reference/conventions.md
+  - docs/reference/hooks.md
 Designs:
   - docs/design/output-style-seed.md
+  - docs/design/review-gate-hook.md
 
 Consult the map before changing behavior here. Behavior changes stale the pages above. Renames or removals stale mentions beyond them: grep the old name across docs/ before shipping.

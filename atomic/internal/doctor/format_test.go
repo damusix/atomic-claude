@@ -11,7 +11,7 @@ import (
 // sampleResults is a consistent fixture used across format tests.
 var sampleResults = []doctor.Result{
 	{Index: 1, Name: "install", Severity: doctor.PASS, Detail: "36/36 files match bundle"},
-	{Index: 2, Name: "hooks", Severity: doctor.WARN, Detail: "session-start hook missing"},
+	{Index: 2, Name: "hooks", Severity: doctor.WARN, Detail: "Claude Code hooks missing"},
 	{Index: 3, Name: "signals", Severity: doctor.PASS, Detail: "last scan 3d ago (threshold 7d)"},
 	{Index: 4, Name: "refs", Severity: doctor.FAIL, Detail: "@-refs not present"},
 	{Index: 5, Name: "manifest", Severity: doctor.SKIP, Detail: "not in atomic-claude repo"},

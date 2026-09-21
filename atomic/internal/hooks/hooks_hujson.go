@@ -14,13 +14,13 @@ import (
 
 // registerInSettings is idempotent. skipped mirrors writeSettingsHujson's own
 // signal: a read-only target left untouched rather than an error.
-func registerInSettings(sfPath, command string) (skipped bool, err error) {
+func registerInSettings(sfPath, event, matcher, command string) (skipped bool, err error) {
 	settings, ast, _, err := readSettingsHujson(sfPath)
 	if err != nil {
 		return false, malformedSettingsError(sfPath, command)
 	}
 
-	if hasRegistration(settings, command) {
+	if hasRegistration(settings, event, command) {
 		return false, nil
 	}
 
@@ -32,14 +32,14 @@ func registerInSettings(sfPath, command string) (skipped bool, err error) {
 		}
 	}
 
-	if err := astRegisterSessionStart(&ast, command); err != nil {
+	if err := astRegister(&ast, event, matcher, command); err != nil {
 		return false, err
 	}
 
 	return writeSettingsHujson(sfPath, ast)
 }
 
-func unregisterFromSettings(sfPath, command string) (skipped bool, err error) {
+func unregisterFromSettings(sfPath, event, command string) (skipped bool, err error) {
 	settings, ast, _, err := readSettingsHujson(sfPath)
 	if err != nil {
 		return false, malformedSettingsError(sfPath, command)
@@ -52,11 +52,11 @@ func unregisterFromSettings(sfPath, command string) (skipped bool, err error) {
 	if !ok {
 		return false, nil
 	}
-	if _, ok := hooksMap["SessionStart"]; !ok {
+	if _, ok := hooksMap[event]; !ok {
 		return false, nil
 	}
 
-	if err := astUnregisterSessionStart(&ast, command); err != nil {
+	if err := astUnregister(&ast, event, command); err != nil {
 		return false, err
 	}
 
@@ -180,9 +180,9 @@ func resolveSettingsTarget(sfPath string) (resolved string, mode os.FileMode, wr
 	return resolved, mode, true, nil
 }
 
-// astRegisterSessionStart creates the hooks key and SessionStart array as needed.
-func astRegisterSessionStart(ast *hujson.Value, command string) error {
-	entryBytes, err := buildEntryJSON(command)
+// astRegister creates the hooks key and the event's array as needed.
+func astRegister(ast *hujson.Value, event, matcher, command string) error {
+	entryBytes, err := buildEntryJSON(matcher, command)
 	if err != nil {
 		return fmt.Errorf("hooks: build entry JSON: %w", err)
 	}
@@ -205,24 +205,24 @@ func astRegisterSessionStart(ast *hujson.Value, command string) error {
 
 	hooksObj := ensureObject(hooksValPtr)
 
-	ssValPtr := findMember(hooksObj, "SessionStart")
-	if ssValPtr == nil {
+	evValPtr := findMember(hooksObj, event)
+	if evValPtr == nil {
 		emptyArr, _ := hujson.Parse([]byte("[]"))
 		hooksObj.Members = append(hooksObj.Members, hujson.ObjectMember{
-			Name:  parseJSONString("SessionStart"),
+			Name:  parseJSONString(event),
 			Value: emptyArr,
 		})
-		ssValPtr = &hooksObj.Members[len(hooksObj.Members)-1].Value
+		evValPtr = &hooksObj.Members[len(hooksObj.Members)-1].Value
 	}
 
-	arr := ssValPtr.Value.(*hujson.Array)
+	arr := evValPtr.Value.(*hujson.Array)
 	arr.Elements = append(arr.Elements, entryVal)
 
 	return nil
 }
 
-// astUnregisterSessionStart drops SessionStart, then hooks, once each empties.
-func astUnregisterSessionStart(ast *hujson.Value, command string) error {
+// astUnregister drops the event's array, then hooks, once each empties.
+func astUnregister(ast *hujson.Value, event, command string) error {
 	topObj, ok := ast.Value.(*hujson.Object)
 	if !ok {
 		return nil
@@ -235,26 +235,26 @@ func astUnregisterSessionStart(ast *hujson.Value, command string) error {
 	if !ok {
 		return nil
 	}
-	ssValPtr := findMember(hooksObj, "SessionStart")
-	if ssValPtr == nil {
+	evValPtr := findMember(hooksObj, event)
+	if evValPtr == nil {
 		return nil
 	}
 
-	arr, ok := ssValPtr.Value.(*hujson.Array)
+	arr, ok := evValPtr.Value.(*hujson.Array)
 	if !ok {
 		return nil
 	}
 
 	filtered := arr.Elements[:0]
 	for _, elem := range arr.Elements {
-		if !sessionStartEntryMatchesCommand(elem, command) {
+		if !entryMatchesCommand(elem, command) {
 			filtered = append(filtered, elem)
 		}
 	}
 	arr.Elements = filtered
 
 	if len(arr.Elements) == 0 {
-		removeMember(hooksObj, "SessionStart")
+		removeMember(hooksObj, event)
 	}
 
 	if len(hooksObj.Members) == 0 {
@@ -264,9 +264,10 @@ func astUnregisterSessionStart(ast *hujson.Value, command string) error {
 	return nil
 }
 
-func buildEntryJSON(command string) ([]byte, error) {
+// buildEntryJSON omits the matcher key when matcher is empty — Stop has no
+// matcher field in Claude Code's schema.
+func buildEntryJSON(matcher, command string) ([]byte, error) {
 	entry := map[string]any{
-		"matcher": ".*",
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
@@ -274,10 +275,13 @@ func buildEntryJSON(command string) ([]byte, error) {
 			},
 		},
 	}
+	if matcher != "" {
+		entry["matcher"] = matcher
+	}
 	return json.MarshalIndent(entry, "", "  ")
 }
 
-func sessionStartEntryMatchesCommand(elem hujson.Value, command string) bool {
+func entryMatchesCommand(elem hujson.Value, command string) bool {
 	std, err := hujson.Standardize(elem.Pack())
 	if err != nil {
 		return false

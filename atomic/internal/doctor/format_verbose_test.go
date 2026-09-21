@@ -34,7 +34,7 @@ func TestFormatHumanFindingsShownOnlyWhenVerbose(t *testing.T) {
 			Index:    2,
 			Name:     "hooks",
 			Severity: doctor.WARN,
-			Detail:   "session-start hook missing",
+			Detail:   "Claude Code hooks missing",
 			Findings: []string{"missing: session-start", "drift: legacy script"},
 		},
 	}

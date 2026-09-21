@@ -5,12 +5,12 @@ Skills fire automatically when Claude encounters matching phrases in conversatio
 
 ## Discipline
 
-These enforce good engineering habits without you having to ask. Together, `atomic-tdd` and `atomic-verify` are the loop's objective gate: a test that passes or fails, not a second opinion. That is the difference between a loop that catches its own mistakes and one that talks itself into "done". Outside the loop, where Claude edits code directly and no reviewer is watching, `atomic-verify` restores the second opinion the loop has by default: it dispatches `atomic-reviewer` on the diff before the work can be called ready.
+These enforce good engineering habits without you having to ask. Together, `atomic-tdd` and `atomic-verify` are the loop's objective gate: a test that passes or fails, not a second opinion. That is the difference between a loop that catches its own mistakes and one that talks itself into "done". Outside the loop, where Claude edits code directly and no reviewer is watching, `atomic-verify` restores the second opinion the loop has by default: it dispatches `atomic-auditor` on the working diff, on the session's model, before the work can be called ready, and the completion message names the verdict and the model. The `atomic hooks stop` hook is the backstop: it blocks the turn from ending while edits Claude made sit unreviewed.
 
 | Skill | Fires when you say... | What it does |
 |-------|----------------------|-------------|
 | `atomic-tdd` | "let's implement X", "add feature Y", "fix bug Z" | Writes a failing test before touching production code. |
-| `atomic-verify` | "done", "fixed", "passing", "ready to merge" | Runs verification before letting Claude claim completion. No evidence, no claim. On code Claude wrote directly, outside the implement loop, verification includes an `atomic-reviewer` pass. |
+| `atomic-verify` | "done", "fixed", "passing", "ready to merge" | Runs verification before letting Claude claim completion. No evidence, no claim. On code Claude wrote directly, outside the implement loop, verification includes an `atomic-auditor` pass on the working diff; the `atomic hooks stop` hook blocks a turn that skips it. |
 | `atomic-debug` | pastes an error, "broken", "doesn't work", "failing" | Drives hypothesis-driven debugging instead of symptom-patching. |
 
 

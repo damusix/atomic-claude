@@ -116,8 +116,31 @@ func TestCheckHooks_PassDetailMentionsInstalled(t *testing.T) {
 	if r.Severity != doctor.PASS {
 		t.Fatalf("severity = %q, want PASS", r.Severity)
 	}
-	if r.Detail != "session-start hook installed" {
-		t.Errorf("detail = %q, want %q", r.Detail, "session-start hook installed")
+	want := "Claude Code hooks installed (session-start, post-tool-use, stop)"
+	if r.Detail != want {
+		t.Errorf("detail = %q, want %q", r.Detail, want)
+	}
+}
+
+// A settings.json with only the session-start entry registered is drift: the
+// review-gate hooks are missing, so IsInstalled reports installed but drifted.
+func TestCheckHooks_MissingGateHook_Warns(t *testing.T) {
+	scopeRoot := t.TempDir()
+	settingsDir := filepath.Join(scopeRoot, ".claude")
+	if err := os.MkdirAll(settingsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"hooks": {"SessionStart": [{"matcher": ".*", "hooks": [{"type": "command", "command": "atomic hooks session-start"}]}]}}`
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := RunCheckHooksWith(scopeRoot)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "atomic hooks install") {
+		t.Errorf("detail should name the install command; got %q", r.Detail)
 	}
 }
 

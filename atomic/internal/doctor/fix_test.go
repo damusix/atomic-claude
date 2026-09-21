@@ -389,7 +389,7 @@ func TestRepair_Hooks_Yes(t *testing.T) {
 	rp.HooksFn = func(out io.Writer) error { called = true; return nil }
 
 	results := []doctor.Result{
-		makeResult(2, "hooks", doctor.WARN, "session-start hook missing"),
+		makeResult(2, "hooks", doctor.WARN, "Claude Code hooks missing"),
 	}
 	var sb strings.Builder
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}

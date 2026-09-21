@@ -56,7 +56,7 @@ make hooks-uninstall # remove
 ```
 
 ::: tip This is a git hook, not a Claude Code hook
-`atomic hooks install` is a separate thing — it registers a session-start handler for reminders. The git pre-commit hook is build automation. They share the word "hook" and nothing else.
+`atomic hooks install` is a separate thing: it registers the Claude Code hooks (session-start for reminders, post-tool-use and stop for the review-gate backstop). The git pre-commit hook is build automation. They share the word "hook" and nothing else.
 :::
 
 

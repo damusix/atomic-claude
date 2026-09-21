@@ -677,6 +677,132 @@ func TestInstall_EmptyDir_RegistersInlineCommand(t *testing.T) {
 	}
 }
 
+// Install registers all three events with their exact matchers, and the Stop
+// entry carries no "matcher" key at all (Claude Code's schema has none for it).
+func TestInstall_RegistersThreeEntries(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	raw, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("settings.json not found: %v", err)
+	}
+
+	var settings map[string]any
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatalf("settings.json invalid JSON: %v", err)
+	}
+	hooksMap, _ := settings["hooks"].(map[string]any)
+
+	wantMatchers := map[string]string{
+		"SessionStart": ".*",
+		"PostToolUse":  "Edit|Write|MultiEdit|NotebookEdit|Agent",
+		"Stop":         "",
+	}
+	wantCommands := map[string]string{
+		"SessionStart": "atomic hooks session-start",
+		"PostToolUse":  "atomic hooks post-tool-use",
+		"Stop":         "atomic hooks stop",
+	}
+	for event, wantCmd := range wantCommands {
+		arr, ok := hooksMap[event].([]any)
+		if !ok || len(arr) != 1 {
+			t.Fatalf("%s entries = %v, want exactly 1", event, hooksMap[event])
+		}
+		entry, _ := arr[0].(map[string]any)
+		inner, _ := entry["hooks"].([]any)
+		h, _ := inner[0].(map[string]any)
+		if h["command"] != wantCmd {
+			t.Errorf("%s command = %q, want %q", event, h["command"], wantCmd)
+		}
+		matcher, hasMatcher := entry["matcher"]
+		want := wantMatchers[event]
+		if want == "" {
+			if hasMatcher {
+				t.Errorf("%s entry has matcher key %q, want none", event, matcher)
+			}
+			continue
+		}
+		if matcher != want {
+			t.Errorf("%s matcher = %v, want %q", event, matcher, want)
+		}
+	}
+}
+
+// A settings.json that already has the session-start entry gains only the two
+// missing gate-hook entries, and the pre-existing SessionStart entry survives
+// as one entry (not duplicated).
+func TestInstall_AddsOnlyMissingEntries(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
+	initial := `{"hooks": {"SessionStart": [{"matcher": ".*", "hooks": [{"type": "command", "command": "atomic hooks session-start"}]}]}}`
+	os.WriteFile(settingsPath, []byte(initial), 0o644)
+
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	raw, _ := os.ReadFile(settingsPath)
+	var settings map[string]any
+	json.Unmarshal(raw, &settings)
+	hooksMap, _ := settings["hooks"].(map[string]any)
+
+	ss, _ := hooksMap["SessionStart"].([]any)
+	if len(ss) != 1 {
+		t.Errorf("expected 1 SessionStart entry, got %d", len(ss))
+	}
+	ptu, _ := hooksMap["PostToolUse"].([]any)
+	if len(ptu) != 1 {
+		t.Errorf("expected PostToolUse to be added, got %v", hooksMap["PostToolUse"])
+	}
+	stop, _ := hooksMap["Stop"].([]any)
+	if len(stop) != 1 {
+		t.Errorf("expected Stop to be added, got %v", hooksMap["Stop"])
+	}
+}
+
+func TestIsInstalled_MissingGateHook_Drifts(t *testing.T) {
+	scopeRoot := t.TempDir()
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
+	initial := `{"hooks": {"SessionStart": [{"matcher": ".*", "hooks": [{"type": "command", "command": "atomic hooks session-start"}]}]}}`
+	os.WriteFile(settingsPath, []byte(initial), 0o644)
+
+	installed, drifted, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if !installed {
+		t.Error("installed = false, want true (session-start hook fires)")
+	}
+	if !drifted {
+		t.Error("drifted = false, want true (PostToolUse and Stop are missing)")
+	}
+}
+
+func TestIsInstalled_AllThreeRegistered_NotDrifted(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	installed, drifted, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if !installed || drifted {
+		t.Errorf("IsInstalled = (installed=%v, drifted=%v), want (true, false)", installed, drifted)
+	}
+}
+
 // sessionStartCommandIn fails the test when the expected structure is absent.
 func sessionStartCommandIn(t *testing.T, raw []byte) string {
 	t.Helper()
@@ -878,6 +1004,18 @@ func TestUninstall_RemovesRegistration(t *testing.T) {
 	if installed {
 		t.Error("hook still registered after uninstall")
 	}
+
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	raw, _ := os.ReadFile(settingsPath)
+	var settings map[string]any
+	json.Unmarshal(raw, &settings)
+	if hooksMap, ok := settings["hooks"].(map[string]any); ok {
+		for _, event := range []string{"SessionStart", "PostToolUse", "Stop"} {
+			if _, has := hooksMap[event]; has {
+				t.Errorf("%s still registered after uninstall: %v", event, hooksMap[event])
+			}
+		}
+	}
 }
 
 // Uninstall removes the legacy wrapper script but not its siblings.
@@ -1018,6 +1156,39 @@ func TestUninstall_PreservesOtherRegistrations(t *testing.T) {
 	innerHook, _ := innerHooks[0].(map[string]any)
 	if innerHook["command"] != "/other/hook.sh" {
 		t.Errorf("wrong remaining hook: %v", innerHook["command"])
+	}
+}
+
+// Uninstall over a full three-entry install removes PostToolUse and Stop too,
+// while an unrelated PreToolUse registration survives untouched.
+func TestUninstall_PreservesOtherRegistrations_AllThreeEvents(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
+	initial := `{"hooks": {"PreToolUse": [{"matcher": ".*", "hooks": [{"type": "command", "command": "echo hi"}]}]}}`
+	os.WriteFile(settingsPath, []byte(initial), 0o644)
+
+	if _, err := hooks.Install(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	raw, _ := os.ReadFile(settingsPath)
+	var settings map[string]any
+	json.Unmarshal(raw, &settings)
+	hooksMap, _ := settings["hooks"].(map[string]any)
+
+	for _, event := range []string{"SessionStart", "PostToolUse", "Stop"} {
+		if _, has := hooksMap[event]; has {
+			t.Errorf("%s still registered after uninstall: %v", event, hooksMap[event])
+		}
+	}
+	if _, has := hooksMap["PreToolUse"]; !has {
+		t.Error("unrelated PreToolUse registration was removed")
 	}
 }
 

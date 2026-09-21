@@ -5,6 +5,8 @@ description: >
   "passing", "complete", "ready to merge", "looks good", "should work", "should pass",
   "green", or any synonym. Iron rule: no completion claim without a fresh verification
   command run in this turn. Explicit invocation: /atomic-verify.
+  Dispatches atomic-auditor on the working diff before code the main agent wrote itself is
+  called ready; the atomic hooks stop hook is its backstop.
 ---
 
 Verify before claim. No claim without fresh evidence in this turn.
@@ -41,7 +43,7 @@ Skip any step = lying, not verifying.
 | typecheck green | run typecheck (tsc/mypy/etc), 0 errors |
 | bug fixed | run repro that failed before, see it pass now |
 | agent task complete | check VCS diff for actual changes |
-| code I wrote myself is ready | dispatch `atomic-reviewer` on the diff, 0 unaddressed 🔴 findings |
+| code I wrote myself is ready | dispatch `atomic-auditor` with `diff: working` and `intent: <what the change was for>`, act on the verdict (🔴 fixed before the claim; 🟡 fixed or justified in one line; 🔵 mentioned), state `audit: <verdict> (atomic-auditor on <model>)` in the completion message |
 | regression test works | red → fix → green sequence verified |
 | spec/artifact changed | run `atomic validate spec` + `atomic validate config` + `atomic validate artifacts`, 0 FAIL (skip if `atomic` binary absent) |
 
@@ -53,7 +55,7 @@ Every completion claim needs a fresh command run in this turn. Watch for these m
 - Before committing or pushing — verify all signals are green
 - After a subagent reports success — check the artifacts yourself
 - Partial checks (one test out of N) are not verification — run the full suite
-- When you wrote the code yourself, outside `/implement`, `/subagent-implementation`, `/quick-fix`, `/autopilot`, or `/subagent-diagnose` — dispatch `atomic-reviewer` on the diff before claiming the work is ready. Those commands gate every checkpoint or iteration with a reviewer; ad-hoc direct editing is the one implementation path with no gate, and green tests are not a review. Skip it only when every changed path is documentation, by the same test the ship verbs' review gate uses. **Why:** the agent that wrote the code still holds the reasoning that produced the bug, so it re-reads its own intent instead of the diff. A fresh reviewer reads only what is there.
+- When you wrote the code yourself, outside `/implement`, `/subagent-implementation`, `/quick-fix`, `/autopilot`, or `/subagent-diagnose` — dispatch `atomic-auditor` with `diff: working` before claiming the work is ready. Those commands gate every checkpoint or iteration with a reviewer; ad-hoc direct editing is the one implementation path with no gate, and green tests are not a review. Skip it only when every changed path is documentation, by the same test the ship verbs' review gate uses. The gate runs on the session's model, since the auditor carries no `model:` pin. The `atomic hooks stop` hook blocks the turn from ending while main-agent edits sit unreviewed, so a block from it is this gate being asked for, not an error. **Why:** the agent that wrote the code still holds the reasoning that produced the bug, so it re-reads its own intent instead of the diff. A fresh auditor reads only what is there.
 - When the change touched `docs/spec/**`, `docs/design/**`, or bundled artifacts (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`), run `atomic validate spec` (when a spec changed), `atomic validate config`, and `atomic validate artifacts`. A FAIL is a gate failure with the same standing as a failing test. **Graceful degradation:** if the `atomic` binary is not on PATH or no matching files exist, skip silently — never fail the gate on absence. (This skill ships to user repos that may not have the binary installed.)
 
 ## When tempted to skip
