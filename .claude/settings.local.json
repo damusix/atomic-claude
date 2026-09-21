@@ -1,8 +1,11 @@
 {
-  "outputStyle": "Atomic",
   "permissions": {
     "allow": [
-      "Bash(go *)"
+      "Bash(go *)",
+      "Bash(gofmt -l .)",
+      "Bash(echo \"gofmt exit $?\")",
+      "Bash(./bin/atomic validate *)"
     ]
-  }
+  },
+  "outputStyle": "Atomic"
 }

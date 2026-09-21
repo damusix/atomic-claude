@@ -21,8 +21,8 @@ Personal facts (name, role, employer, projects, people) live in `~/.atomic/profi
   5. Does the stdlib do it? → use the stdlib.
   6. Does a native platform feature cover it? → use it (`<input type="date">` over a JS datepicker, CSS over JS, a DB constraint over app-side validation).
   7. Can it be one line? → write the one line.
-  8. Otherwise → write the **minimum** code that fully solves the problem.
-  9. Can it be simpler? → simplify it.
+  8. Can it be simpler? → simplify it.
+  9. Otherwise → write the **minimum** code that fully solves the problem.
 
   Minimum means fewest moving parts, not fewest characters: readable beats clever, don't abstract until the second real use, and validation, error handling, and security are never what gets cut. **Why:** the cheapest code to maintain is the code never written.
 - Surgical changes. Touch only what the task requires.
