@@ -84,7 +84,7 @@ One-line pointer per topic. Group by category for scannability.
 | `implement` | Two verbs, split by where the context already is. `/subagent-implementation` reads the spec and runs the implement→review loop with `atomic-implementer`+`atomic-reviewer`, committing per green iteration — the default, and the right call when the context isn't loaded. `/implement [<task>]` runs the same checkpoint discipline in the main agent when the context *is* already in this conversation: Claude writes the code, `atomic-reviewer` gates every checkpoint, and the finalize is the same (docs, `atomic-auditor`, signals). Its Entry row hands back to `/subagent-implementation` when the context isn't loaded or the work won't fit inside it. |
 | `quick-fix` | `/quick-fix <task>` — implement→review loop without the planning phase, spec gate, or finalize ceremony (audit kept). For a known-cause fix with one obvious approach; hands off to `/subagent-diagnose` or `/atomic-plan` when the cause or the approach turns out open, never on file count. |
 | `diagnose` | `/subagent-diagnose ci [run-id]` or `/subagent-diagnose bug "<symptom>"` — orchestrated failure investigation. Same loop as implementation. |
-| `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`, every checkpoint inside `/implement`, and `/commit` dispatches it on main-agent code written ad-hoc, outside any command. All are diff-scoped; for standing code nobody is changing, `/deslop`. |
+| `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` gates each iteration inside `/subagent-implementation`, every checkpoint inside `/implement`, and code the main agent writes ad-hoc — at `atomic-verify` before a completion claim and at `/commit` before the commit, on the session's model via an explicit override. `atomic-auditor` gates the finished whole once after a loop. All are diff-scoped; for standing code nobody is changing, `/deslop`. |
 | `ship` | Pick by intent — see `ship` matrix below. |
 | `docs` | `/documentation` syncs README/CLAUDE.md/spec/design after significant changes. Auto-fires on ship verbs in maintenance mode. |
 
@@ -123,7 +123,7 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `agents` | 7 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration; `atomic-auditor` gates the finished whole once, in a fresh context; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `~/.claude/agents/` or `docs/reference/agents.md`. |
+| `agents` | 7 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-auditor`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`, `atomic-wiki-writer`. `atomic-reviewer` gates each iteration, each `/implement` checkpoint, and the working or staged diff when the main agent edits code outside a loop; `atomic-auditor` gates the finished whole once after a loop; `atomic-wiki-inferrer` orchestrates a wiki refresh and `atomic-wiki-writer` authors one page per domain under it. See `~/.claude/agents/` or `docs/reference/agents.md`. |
 | `skills` | 10 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-git-discipline`, `atomic-documentation`, `atomic-writing`, `atomic-wiki`, `atomic-visual-options`, `atomic-bus`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Seeded automatically at install and every session start; `/config` → Output style overrides per project; `atomic config set output_style.seed false` opts out. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
@@ -213,6 +213,7 @@ Diagnose failures: /subagent-diagnose ci|bug runs the same loop from a failure s
 Context is here:  /implement writes the code in this session, reviewer gate per checkpoint.
 Skip planning:    /quick-fix <task> runs the same loop without a spec — known cause, one obvious fix.
 Hands-off:        /autopilot <task|issue#> runs stages 1-3 autonomously; asks only how to merge.
+Ad-hoc edit:      no command — atomic-reviewer gates it, reply carries a review: <verdict> line.
 ```
 
 Prompt: continue to state files / dive into a stage / exit tour.

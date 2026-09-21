@@ -51,6 +51,18 @@ Personal facts (name, role, employer, projects, people) live in `~/.atomic/profi
 
 </quality_gates>
 
+<completion_claim>
+
+A completion claim ("done", "fixed", "ready", "passing", "green") about code the main agent wrote itself, outside `/implement`, `/subagent-implementation`, `/quick-fix`, `/autopilot`, or `/subagent-diagnose`, includes this line:
+
+```
+review: <PASS|CHANGES_REQUESTED> (<agent> on <model>)
+```
+
+`atomic-reviewer`, dispatched with an explicit model override to the session's model, `diff: working` or `diff: staged`, and a one-line `intent:`, produces the verdict. Act on it before the claim: 🔴 fixed, 🟡 fixed or justified in one line, 🔵 mentioned. Exempt: work produced by the five loop commands above (a reviewer already read every checkpoint) and any change whose every path is documentation.
+
+</completion_claim>
+
 ## Commits & PRs
 
 Format from the `atomic-git-discipline` skill: Conventional Commits, terse subject, body only when the why isn't obvious; PR bodies say only what the diff can't show. Subagents don't auto-fire skills: declare it in `skills:` frontmatter or tell the subagent to invoke it, never restate its rules. No AI bylines, trailers, or session links; the human shipping the change owns it.
@@ -78,7 +90,7 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 ## Workflow
 
 - **Plan** with `/atomic-plan`. `/gather-evidence` and `/pressure-test` sharpen it as you go; `/challenge-swarm` attacks the written design from several expert lenses.
-- **Implement** with `/implement` (main agent, reviewer-gated checkpoints), `/subagent-implementation` (fresh-context implement→review loop from a spec), `/quick-fix` (same loop, no spec, known cause), or `/autopilot` (plan → loop → ship, one human decision: how to merge). `/subagent-diagnose` for failure-driven work. Ad-hoc edits get their review gate at the exits: `atomic-verify` before "ready", the ship verbs before the commit.
+- **Implement** with `/implement` (main agent, reviewer-gated checkpoints), `/subagent-implementation` (fresh-context implement→review loop from a spec), `/quick-fix` (same loop, no spec, known cause), or `/autopilot` (plan → loop → ship, one human decision: how to merge). `/subagent-diagnose` for failure-driven work. Ad-hoc edits get their review gate at the exits — `atomic-verify` before "ready", the ship verbs before the commit — both closed by the `review:` line above.
 - **Ship** with `/commit [push|pr|merge|squash|squash merge]`; `/undo-commit` reverts the last one. `/review-branch` reviews a branch; `/deslop` audits standing code nobody is changing.
 - **Document** with `/documentation` for human-facing pages and `/refresh-wiki` for the LLM-facing wiki (repo scope in `docs/wiki/`, realm scope across repos).
 - **Find the verb** with `/atomic-help [<topic> | <intent> | tour]`.
