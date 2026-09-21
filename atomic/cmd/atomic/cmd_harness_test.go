@@ -65,9 +65,23 @@ func runAtomicCLI(t *testing.T, home string, args ...string) (string, int) {
 // whose adapter resolves its native root from a variable (Codex reads
 // CODEX_HOME). An inherited entry under the same name is dropped, so the
 // injected value is the only one the child sees.
+//
+// The child gets an empty PATH unless the caller names one. An install probes
+// the toolchain for profile detection, and a probe that writes its cache under
+// the temp HOME — bazel, say — races t.TempDir cleanup on a machine that has
+// that tool; no test here asserts a tool resolved from PATH.
 func runAtomicCLIEnv(t *testing.T, home string, extra []string, args ...string) (string, int) {
 	t.Helper()
 	outPath := filepath.Join(t.TempDir(), "stdout")
+	namedPath := false
+	for _, kv := range extra {
+		if strings.HasPrefix(kv, "PATH=") {
+			namedPath = true
+		}
+	}
+	if !namedPath {
+		extra = append(extra, "PATH=")
+	}
 	overridden := map[string]bool{}
 	for _, kv := range extra {
 		if name, _, ok := strings.Cut(kv, "="); ok {
@@ -1013,13 +1027,12 @@ func assertTreeUnchanged(t *testing.T, verb, home, before, dest, stage, backup s
 // destination and consumed the tree backup the crash left behind.
 func TestHarnessDryRunsLeaveInterruptedTreeUntouched(t *testing.T) {
 	home := t.TempDir()
-	// An empty PATH keeps the OMP adapter's read-only path query from spawning a
-	// locally installed OMP binary, whose own bootstrap would move bytes in the
-	// home under test.
-	noPath := []string{"PATH=" + t.TempDir()}
+	// runAtomicCLIEnv gives the child an empty PATH, so the OMP adapter's
+	// read-only path query cannot spawn a locally installed OMP binary whose own
+	// bootstrap would move bytes in the home under test.
 	// A real claude install gives the home an enrolled target, which is what makes
 	// status and install project through the adoption planner.
-	if out, code := runAtomicCLIEnv(t, home, noPath, "install", "--harness", "claude", "--yes"); code != 0 {
+	if out, code := runAtomicCLIEnv(t, home, nil, "install", "--harness", "claude", "--yes"); code != 0 {
 		t.Fatalf("install exited %d:\n%s", code, out)
 	}
 	dest, stage, backup := seedInterruptedTreeJournal(t, home)
@@ -1035,7 +1048,7 @@ func TestHarnessDryRunsLeaveInterruptedTreeUntouched(t *testing.T) {
 		{"install --dry-run", []string{"install", "--harness", "claude", "--dry-run", "--yes"}},
 	}
 	for _, dry := range dryRuns {
-		out, code := runAtomicCLIEnv(t, home, noPath, dry.args...)
+		out, code := runAtomicCLIEnv(t, home, nil, dry.args...)
 		if code != 0 {
 			t.Fatalf("%s exited %d:\n%s", dry.verb, code, out)
 		}
