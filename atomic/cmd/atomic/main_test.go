@@ -219,14 +219,14 @@ func assertCommandSetsEqual(t *testing.T, derived, golden []cliusage.Command) {
 
 // Catches a regression where Cobra re-adds the completion or help verbs that
 // DisableDefaultCmd and SetHelpCommand suppress, or a verb slips in unnoticed.
-func TestRootCmdExact23Verbs(t *testing.T) {
+func TestRootCmdExact24Verbs(t *testing.T) {
 	var repoOverride string
 	root := buildRootCmd(&repoOverride)
 
 	want := []string{
 		"bus", "claude", "code", "config", "docker", "docs", "doctor",
 		"followups", "harness", "hooks", "install", "migrate", "profile", "prompt", "reminder",
-		"repl", "repo", "scratchpad", "serve", "signals", "state", "template", "update", "validate", "where", "wiki",
+		"repl", "repo", "retro", "scratchpad", "serve", "signals", "state", "template", "update", "validate", "where", "wiki",
 	}
 
 	var visible []string

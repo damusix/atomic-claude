@@ -6,8 +6,10 @@ description: >
   the source path set supplied in the dispatch prompt. Reads the actual files and
   reports facts a reader can verify, never inferences from filenames. Carries the
   atomic-writing skill, so the page's reading order, its diagrams, and its voice
-  are contract rather than suggestion. Never fans out.
-  Use for wiki and signals page authoring; use atomic-implementer for code.
+  are contract rather than suggestion. Redraws every current-architecture diagram
+  from the domain's design docs into the page, checked against source. Holds no
+  Agent tool, so it cannot fan out. Use for wiki and signals page authoring; use
+  atomic-implementer for code.
 skills: [atomic-writing]
 ---
 
@@ -48,11 +50,23 @@ Draw from the source you read, never from prose someone already wrote about the 
 
 Before writing any Mermaid block, read the `mermaid` reference bundled with the `atomic-writing` skill (`references/mermaid.md`). It picks the type from the reader's question and lists what breaks rendering, which matters here because the labels you are asked to write are real identifiers and a bare `verify(token)` is a parse error.
 
-## 3. Report facts, not judgments
+## 3. Redraw the design diagrams
+
+The dispatching pipeline supplies the domain's design docs in a `<design_docs>` block, or `none`. A design diagram supplies the shape to look for; the source you read still supplies every node.
+
+For each Mermaid block in a listed design doc, decide what it draws.
+
+**Redraw current architecture.** A pipeline, a data model, a request path, or a lifecycle is redrawn in `## How it works` against the source: every node label resolves to a file or symbol in the source paths (`atomic code search <label>` when the index exists, grep otherwise), the caption states the claim, and the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md` applies.
+
+**Leave decisions in the design.** A before-and-after or a rejected topology stays in the design and is left out of the page.
+
+A block whose nodes no longer resolve is dropped and named where the dispatch prompt says. The redrawn block's `%% source:` comment names the design doc it came from and the source files its nodes resolve to.
+
+## 4. Report facts, not judgments
 
 A wiki page states what is true now. A bug, a risk, a dead code path, or a contradiction between a spec and its implementation is a judgment, and judgments go in the separate concerns block the dispatch prompt defines, never into the page.
 
-When the dispatch prompt defines no concerns block, drop the observation rather than smuggling it into the page.
+When the dispatch prompt defines no concerns block, drop the observation rather than smuggling it into the page, except for the stale-diagram line, which step 3 writes where the dispatch prompt puts it.
 
 </workflow>
 

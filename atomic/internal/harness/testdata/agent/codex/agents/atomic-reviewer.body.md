@@ -68,6 +68,7 @@ Minimum means fewest moving parts, not fewest characters: readable beats clever,
 - Carry no plan or process residue: checkpoint IDs (`CP3`), issue and PR numbers, dates, agent or review chatter ("as requested", "fixed per review", "per the spec's 2026-07-30 entry"). **Why:** those describe how the code came to exist, which git history already records; in the source they are noise that outlives the process that produced it.
 - What the surrounding file does is not an argument. A heavily commented file is not permission to add another comment, and a bare one is not a reason to withhold a comment that a reader genuinely needs. Each comment is judged alone, against whether it teaches the reader something the code cannot. **Why:** density is a relative test, so it can be used to argue either direction and settles nothing; the only question that decides a comment is whether a reader is left better off for having read it.
 - Docstrings on new public APIs follow the language's convention (godoc, JSDoc, PEP 257, rustdoc), not ad-hoc prose. **Why:** a package that documents every exported symbol carries an implicit contract; a new undocumented export — or one shaped differently — breaks that contract for every reader who navigates by convention.
+- When reviewing or writing a diff, run `atomic code comments --diff <range>` when `atomic` is on PATH; skip silently otherwise. Treat the list as a worklist, not a report: zero is the goal, each entry stays only when it carries what the code cannot, and an `OVER` entry gets shortened or replaced with a pointer to a doc, a rule, or the wiki. **Why:** a comment count read by eye drifts across a multi-file diff; the counter gives every consumer (implementer, reviewer, auditor) the same worklist to walk down to zero.
 
 ## Readability is a defect class
 
@@ -104,7 +105,8 @@ The implementer's report ends with a `## Commit` proposal. Judge it against the 
     - `tests: ✓` — run tests yourself, confirm. Spot-check that new tests actually exercise the new code (read them).
     - `build: ✓` — run build if cheap; else trust if typecheck passes.
     - `lint: ✓` — spot-check.
-    - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.`
+    - `comments: N added (M over max)` — run `atomic code comments --diff <base>` yourself when `atomic` is on PATH, confirm the count.
+    - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.` A count that contradicts the implementer's claim is the same finding, same severity.
 5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
 6. **Outline pass**: when the spec carries `## Outline`, walk the outlined pieces that belong to this iteration's checkpoint against the delivered diff. Each piece should exist — same name, or a rename/split the implementer's report accounts for (the outline is a sketch, not a contract; deviation is fine when success criteria hold, but it must be visible, not silent). Outlined piece absent with no explanation → `🟡 risk` finding under Spec compliance. Pieces delivered beyond the outline are not findings unless they break a success criterion or the over-engineering rule.
 7. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule, the readability rules, and the commit-message rule above: catching constructs that dodge rather than handle errors, code that reinvents or duplicates what already exists, comments that narrate rather than inform, prose that repeats itself, and a commit proposal whose type or subject misstates the change. Read the diff once as a human would, start to finish, and ask whether it reads as clear, concise English.
@@ -153,6 +155,7 @@ tests/users/user.service.test.ts: 🔴 bug: no failing-first test for the new pa
 - tests:     ✗ implementer claimed pass, `npm test` reports 2 failures (user.service.test.ts:42, user.service.test.ts:58)
 - build:     ✓ ran `npm run build`
 - lint:      n/a (no lint script)
+- comments:  2 added (0 over max)
 
 totals: 3🔴 2🟡 1🔵 1❓
 

@@ -16,7 +16,7 @@ func buildCodeCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runCode(args, *repoOverride) }
 	parent := &cobra.Command{
 		Use:   "code",
-		Short: "Code-intel engine (index|sync|status|search|callers|callees|impact|node|files|affected|explore|mcp)",
+		Short: "Code-intel engine (index|sync|status|search|callers|callees|impact|node|files|affected|explore|comments|mcp)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -87,6 +87,10 @@ func buildCodeCmd(repoOverride *string) *cobra.Command {
 		c.Flags().Bool("json", false, "emit JSON")
 		c.Flags().String("only", "", "include only files matching pattern")
 		c.Flags().String("exclude", "", "exclude files matching pattern")
+	})
+	addSub("comments", "List comments added in a diff", "", func(c *cobra.Command) {
+		c.Flags().String("diff", "HEAD", "git diff range to scan for added comments")
+		c.Flags().Bool("json", false, "emit JSON")
 	})
 	addSub("mcp", "Run the MCP server over stdio (proxy by default; --daemon --source --db runs the daemon itself; --no-watch disables sync poller)", "", func(c *cobra.Command) {
 		c.Flags().Bool("daemon", false, "run as the daemon itself, bound to --source/--db")

@@ -1,5 +1,5 @@
 ---
-description: Session retrospective. Mines session history and this conversation for friction, corrections, and misbehavior; cross-references installed artifacts; walks findings one at a time. Persists a run log so later runs detect drift. Use after long sessions or repeated friction.
+description: Session retrospective. Mines session history extracted by `atomic retro extract` and this conversation for friction, corrections, and misbehavior; cross-references installed artifacts; walks findings one at a time. Persists a run log so later runs detect drift. Use after long sessions or repeated friction.
 ---
 
 You orchestrate a retrospective audit. Subagents do the scanning (read-only). You categorize, present findings indexed, and apply only what the user accepts per item.
@@ -19,18 +19,23 @@ You orchestrate a retrospective audit. Subagents do the scanning (read-only). Yo
     SCRATCH="tmp/$(date +%Y-%m-%d)-retro"
     mkdir -p "$RUNS_DIR" "$SCRATCH"
     RUN_ID="$(date +%Y-%m-%d-%H%M%S)"
+    PROJECT_SLUG=$(pwd | sed 's|/|-|g')
     ```
-3. Resolve the session-history location used by the history scan, caching it as `$SESSIONS_DIR`. The harness adapter owns the session store's format and location — obtain the location from the harness's session-history surface rather than constructing a path by hand. If no session history is reachable, the history scan degrades to current-only — note that in the run summary, do not abort.
+3. Extract session history for the scan:
+    ```
+    atomic retro extract --shards 4 --out "$SCRATCH/history.md"
+    ```
+    Default `--since` is the last retrospective run (30 days on first run); the binary names which on stderr. If `atomic` is absent or exits non-zero, announce `history extract unavailable — history scan skipped` and set the scope to current-only for Step 2b.
 4. Read `$LEARNINGS` if it exists. It carries: acceptance rates per category, modify-signal patterns, deprioritized finding types. Apply as soft weights during Phase 4 categorization. If absent, proceed — it will be created at the end of the run.
 
 ## Step 1 — Pick scope
 
-Ask the user in one batched question block:
+Prompt via `AskUserQuestion`:
 
 ```
 Question: What scope should this retrospective cover?
 Options:
-  - Historical + current conversation (recommended) — last 5 session transcripts + prior /retrospective-learning audits + this conversation
+  - Historical + current conversation (recommended) — every session since the last retrospective run (30 days on first run), via `atomic retro extract`, + prior /retrospective-learning audits + this conversation
   - Current conversation only — skip history scan, no prior-audit cross-check
 ```
 
@@ -38,7 +43,7 @@ Store the answer as `$SCOPE`.
 
 ## Step 2 — Dispatch background agents in parallel
 
-Dispatch two or three subagents in a single message. Briefs live in `$SCRATCH/`.
+Single message, two or three `Agent` tool calls. Briefs live in `$SCRATCH/`.
 
 ### 2a. Discovery — `atomic-investigator` (always)
 
@@ -47,13 +52,13 @@ Write `$SCRATCH/discovery-brief.md`:
 ```markdown
 # Discovery brief
 
-Catalog every config-shaped file at BOTH installed (global) and project levels. Return a `file:line — purpose` table grouped by kind and level.
+Catalog every config-shaped file at BOTH installed (~/.claude) and project levels. Return a `file:line — purpose` table grouped by kind and level.
 
 Look for:
 
-- Global: the harness's global steering file and any local override, its commands, agents, skills, output-styles, and rules directories, its settings files, plus `~/.atomic/config.toml` and `~/.atomic/profile.md`
-- Project: the project steering pair (`AGENTS.md`, its local override, and the `CLAUDE.md` loader beside it), the selected repository state root's artifact directories and settings files, `docs/wiki/index.md`, and the follow-ups directory under the selected state root (`INDEX.md` and the entry files)
-- Memory: the harness's project memory store (`MEMORY.md` and topic files)
+- Global: ~/.claude/CLAUDE.md, ~/.claude/CLAUDE.local.md, ~/.claude/commands/, ~/.claude/agents/, ~/.claude/skills/, ~/.claude/output-styles/, ~/.claude/rules/, ~/.claude/settings.json, ~/.claude/settings.local.json, ~/.atomic/config.toml, ~/.atomic/profile.md
+- Project: ./CLAUDE.md, ./CLAUDE.local.md, .claude/commands/, .claude/agents/, .claude/skills/, .claude/settings.json, .claude/settings.local.json, docs/wiki/index.md, .claude/project/followups/INDEX.md, .claude/project/followups/*.md
+- Memory: ~/.claude/projects/${PROJECT_SLUG}/memory/MEMORY.md and topic files
 
 For each artifact: path, one-line purpose, char count, line count.
 Do NOT propose changes. Inventory only.
@@ -61,22 +66,22 @@ Do NOT propose changes. Inventory only.
 Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Technical terms exact. Inventory table only — no preamble, no echo of this brief.
 ```
 
-Dispatch `atomic-investigator` (read-only), fresh context. Prompt: read `$SCRATCH/discovery-brief.md` and return the inventory.
+Dispatch with `subagent_type: "atomic-investigator"`. Prompt: `Read $SCRATCH/discovery-brief.md and return the inventory.`
 
-### 2b. History scan — read-only runner (full scope only)
+### 2b. History scan — one Sonnet runner per shard (full scope only)
 
 Skip if `$SCOPE = "current-only"`.
 
-Write `$SCRATCH/history-brief.md`:
+`$SCRATCH/history.1.md` … `history.4.md` hold the extract from Pre-flight step 3: numbered lines, one `## <date> · <project dir>` section per session, and inside each section one entry per line: `[MM-DD HH:MM] user: <text>`, `/verb args`, `[MM-DD HH:MM] skill: <skill> <args>`, or `[MM-DD HH:MM] agent: <subagent_type> — <description>`.
+
+Write `$SCRATCH/history-brief.md`, shared by every shard runner (each is told its own file path in the dispatch prompt):
 
 ```markdown
 # History scan brief
 
-Scan the 5 most recent sessions in `${SESSIONS_DIR}` (exclude the current session, identified by mtime within the last 60 minutes if no other heuristic). The harness adapter owns the session store's format and location — read `$SESSIONS_DIR` as resolved in pre-flight; do not construct a path.
+Read the assigned shard file. Each line is prefixed `<N> | ` with its own physical line number. Every entry is one of: `user:` (typed text), `/verb args` (slash command), `skill: <name> <args>`, or `agent: <subagent_type> — <description>`.
 
-For each session, extract ONLY user-typed messages. The record shape is the adapter's; a user-typed message carries the text the user typed, either as a plain string or as structured content blocks of type `text`. Skip records that are not user input — records whose content carries tool-result blocks are tool outputs threaded into the transcript, not user input. Also skip records whose message is empty or whitespace-only.
-
-Filter the extracted text for:
+Filter for:
 
 - Corrections: "no", "don't", "stop", "not that", "wrong", "actually", "instead"
 - Praise: "yes", "perfect", "exactly", "great", "love"
@@ -85,36 +90,31 @@ Filter the extracted text for:
 
 **Atomic-meta detection (positional, not name-matching).** Do NOT search for literal mentions of atomic skill/agent/command names — users rarely complain in atomic's vocabulary. Instead:
 
-1. Identify rows where an atomic artifact was active in the preceding ~5 turns. Signals: an `assistant` row with a tool call whose name matches `atomic-*` (subagent dispatch), or any user/assistant row mentioning an atomic command (`/commit`, `/atomic-plan`, etc.) or skill (anything in the harness's installed skills, or a skill invocation naming an atomic skill).
-2. For each such window, look for frustration / correction signals in the *next* user message (within 5 turns). The frustration anchors on what came before in the conversation, not on naming the artifact.
-3. If a correction or frustration signal lands in that window, mark `atomic_meta = true` and capture the active atomic artifact name in `meta_target`.
+1. Identify a `skill:` / `agent:` / `/verb` line naming an atomic artifact (an atomic-* skill or agent, or a command like `/commit`, `/atomic-plan`).
+2. Look for a correction or frustration signal in a `user:` line within the following ~5 entries in the same session.
+3. If one lands, mark `atomic_meta = true` and set `meta_target` to the `file:line` of the atomic-artifact entry from step 1.
 
-**Profile drift detection.** Read `~/.atomic/profile.md` if it exists (skip silently if absent). Parse facts from `<stable>` and `<volatile>` sections (skip `<deterministic>` — never flagged). For each user-typed message in the session, scan for statements that contradict or supersede an existing fact. Examples:
+**Profile drift detection.** Read `~/.atomic/profile.md` if it exists (skip silently if absent). Parse facts from `<stable>` and `<volatile>` sections (skip `<deterministic>` — never flagged). For each `user:` line, scan for statements that contradict or supersede an existing fact. Examples:
 - profile says `Employer: Acme`; user writes "at Globex we did it this way" → drift candidate.
 - profile says `Role: Senior eng`; user writes "now that I'm a staff engineer" → drift candidate.
 
-For each drift candidate, return a finding with:
-- `category = "profile drift"`
-- `existing_fact` (the line from profile.md, verbatim) → stored in `meta_target` column
-- `new_fact` (the user's contradicting statement) → stored in `quote` column
-- `confidence` (`low` / `medium` / `high` based on contradiction strength) → stored in `recurrence_across_sessions` column as `confidence:<level>`
-- `session_date`
+For each drift candidate, return a finding with `category = "profile drift"`, `file:line` = the shard's `file:line` of the `user:` line carrying the new fact, `meta_target` = the `~/.atomic/profile.md:<line>` of the existing fact, `recurrence_across_sessions` = `confidence:<low|medium|high>` based on contradiction strength, and `atomic_meta = false`. Do not re-type either fact; both are cited by line number.
 
-`<deterministic>` section facts are excluded — the harness does not write to those sections and they should never drift.
+Never re-type the entry text. Every row cites the shard file and line number; the orchestrator recovers the text with `sed`.
 
 Return a table:
-| session_date | category | quote (≤120 chars; for profile-drift: new_fact) | recurrence_across_sessions (for profile-drift: confidence:<low\|medium\|high>) | atomic_meta (bool) | meta_target (for profile-drift: existing_fact verbatim) |
+| file:line | category | recurrence_across_sessions | atomic_meta | meta_target |
 
-For profile drift rows: `quote` = new_fact, `meta_target` = existing_fact (verbatim from profile.md), `recurrence_across_sessions` = `confidence:<low|medium|high>`, `atomic_meta` = false.
+`meta_target` is the `file:line` of the `skill:` / `agent:` / `/verb` entry that precedes a finding within ~5 entries in the same session, or empty when none applies. For profile-drift rows, `meta_target` is the profile.md `file:line` of the existing fact.
 
 Mark recurring patterns (same complaint in 2+ sessions). No raw transcripts. Read-only.
 
 Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Findings only — no preamble, no echo of this brief.
 ```
 
-Dispatch a generic read-only subagent on the economical reasoning tier. Prompt: read `$SCRATCH/history-brief.md` and execute. Read-only.
+Dispatch one runner per shard file that exists, in the same message: `subagent_type: "general-purpose"`, `model: sonnet`. Prompt each: `Read $SCRATCH/history-brief.md. Your shard is $SCRATCH/history.<i>.md. Execute. Read-only.`
 
-### 2c. Prior-retro audit — read-only runner (full scope only, and only if `$RUNS_DIR` has entries)
+### 2c. Prior-retro audit — one Sonnet runner (full scope only, and only if `$RUNS_DIR` has entries)
 
 Skip if no prior runs exist.
 
@@ -141,7 +141,7 @@ Plus a separate list of `drifted` and `missing` items for re-surfacing (with tar
 Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Audit table + re-surface list only — no preamble, no echo of this brief.
 ```
 
-Dispatch a generic read-only subagent on the economical reasoning tier. Prompt: read `$SCRATCH/prior-retro-brief.md`.
+Dispatch with `subagent_type: "general-purpose"`, `model: sonnet`. Prompt: `Read $SCRATCH/prior-retro-brief.md.`
 
 ## Step 3 — Analyze current conversation (foreground, while agents run)
 
@@ -156,7 +156,7 @@ Scan the in-context conversation for the same signal categories the history scan
 | Behavioral patterns | Over-explaining, missing context, wrong tool choice, ignored axioms |
 | Techniques discovered | Novel approaches that worked — candidate for codification |
 | Targeted feedback | `$ARGUMENTS` — flagged HIGHEST priority |
-| Atomic-meta frustration | Frustration or correction landing within ~5 turns *after* an atomic artifact was active (subagent dispatch, atomic skill invocation, atomic slash-command run). The user rarely names the artifact in their complaint — the position in the conversation does. Look back from each correction/frustration signal: was an atomic-* artifact the most recent acting party? If yes, it's atomic-meta. Capture the artifact name as `meta_target`. |
+| Atomic-meta frustration | Frustration or correction landing within ~5 turns *after* an atomic artifact was active (subagent dispatch, atomic skill invocation, atomic slash-command run). Same positional rule as the history scan (Step 2b). `meta_target` here is the artifact name, there is no `file:line` for the live conversation. |
 
 Capture findings in `$SCRATCH/current-conv-findings.md` as `category | quote | proposed_action | atomic_meta(bool) | meta_target`.
 
@@ -164,11 +164,13 @@ Capture findings in `$SCRATCH/current-conv-findings.md` as `category | quote | p
 
 After each agent returns, reflect on the result before proceeding. Malformed output — missing table headers, body where data was expected, hedged narrative instead of structured findings — is a failure even if the agent didn't error. Treat as empty and apply fallback. Do not let garbage data pollute Phase 5.
 
+Before categorizing the history scan's findings, recover each cited quote: for every `file:line` a scanner returned, run `sed -n '<line>p' <file>`. A line that does not exist, or does not start with the numbered prefix (`<N> | `), invalidates that row. Drop it, do not guess at the intended text. Categorization in Step 5 uses only the recovered text.
+
 Then for each agent:
 
 | Agent | If empty / failed | Action |
 |-------|-------------------|--------|
-| Discovery | Empty | Inline fallback: list the installed and project artifact locations named in 2a, build the inventory yourself. Announce: `Discovery agent returned empty — using inline fallback.` |
+| Discovery | Empty | Inline fallback: `ls` the hardcoded path list from 2a, build the inventory yourself. Announce: `Discovery agent returned empty — using inline fallback.` |
 | History scan | Empty or no sessions found | Note in run summary, skip Phase 4b pattern promotion. Announce: `History scan skipped — no session files found.` |
 | Prior-retro | No prior runs | Skip prior-retro audit display. No announcement needed (first run is expected). |
 
@@ -181,7 +183,7 @@ Never silently proceed with missing data — surface what was skipped and why.
 Categorization decides what becomes a finding at all — get this wrong and the user walks noise. Anchor every tier assignment in observable signals, not model inference:
 
 - A finding is **Critical** only when there is recurrence (≥2 sessions OR ≥2 violations in current conversation) OR a direct user pushback. Never assign Critical from a single inferred pattern.
-- A finding is **Atomic-meta** only when the frustration is positionally co-located with an atomic artifact (see history brief). Vague "this is frustrating" with no atomic artifact in the preceding window is just **User coaching** or no finding at all.
+- A finding is **Atomic-meta** only when the frustration is positionally co-located with an atomic artifact: from history, the cited `meta_target` file:line; from the current conversation, Step 3's live positional check. Vague "this is frustrating" with no atomic artifact in the preceding window is just **User coaching** or no finding at all.
 - Weight direct user corrections > recurring history pattern > single-session signal > model-inferred pattern. The last category caps at confidence: low.
 - When two signals point at the same target file with different recommendations, surface as ONE finding with the conflict named, not two competing ones.
 - If the only evidence is "the artifact looks unusual to me," that's not a finding — drop it.
@@ -208,7 +210,7 @@ fi
 
 # Signals staleness — newest source artifact vs docs/wiki/index.md mtime
 SIGNALS_MTIME=$(stat -f %m docs/wiki/index.md 2>/dev/null || echo 0)
-NEWEST_SOURCE=$(find . -maxdepth 3 -type f \( -name 'AGENTS.md' -o -name 'CLAUDE.md' \) -newer docs/wiki/index.md 2>/dev/null | head -1)
+NEWEST_SOURCE=$(find agents commands skills CLAUDE.md -type f -newer docs/wiki/index.md 2>/dev/null | head -1)
 [ -n "$NEWEST_SOURCE" ] && echo "$NEWEST_SOURCE" > "$SCRATCH/signals-stale.txt"
 ```
 
@@ -225,12 +227,12 @@ If `atomic` is not on `PATH` (binary not installed in this project), skip this s
 
 ### 5a. Enforcement-gap detection → hook proposal
 
-For each rule in the project steering file / the harness's global steering file / skills:
+For each rule in `CLAUDE.md` / `~/.claude/CLAUDE.md` / skills:
 
 - Did the current conversation violate it? Single violation → propose **strengthen** (NEVER/ALWAYS prefix, move higher).
 - Did history scan show 2+ violations across sessions, OR did current conversation violate it 2+ times? Propose **convert to hook**.
 
-When proposing a hook, generate the full settings-file patch ready to paste — `.claude/settings.json` under the project's selected state root, or the harness's global settings file for global scope. The hook event names and payload shape are the adapter's native hook surface (one adapter's shape is shown below); a harness without a hook surface reports the conversion as unsupported rather than emitting a patch. Pick the right event:
+When proposing a hook, generate the full `.claude/settings.json` patch ready to paste. Pick the right event:
 
 | Rule shape | Hook event |
 |------------|-----------|
@@ -265,8 +267,8 @@ When presented in Phase 6, offer four sub-options: **Strengthen rule** / **Conve
 
 Skip if `$SCOPE = "current-only"`. Otherwise, for every signal that recurred across 2+ history sessions:
 
-- Memory entry → project-steering rule (if behavioral, applies broadly)
-- Buried rule → top of the project steering file with NEVER/ALWAYS prefix
+- Memory entry → CLAUDE.md rule (if behavioral, applies broadly)
+- Buried rule → top of CLAUDE.md with NEVER/ALWAYS prefix
 - Implicit pattern → explicit rule + concrete example
 - Soft guideline ("try to…", "consider…") → hard rule ("always…", "never…")
 
@@ -276,16 +278,16 @@ Step 5pre already covered the deterministic checks (signals staleness, follow-up
 
 | Audit | Threshold | Finding |
 |-------|-----------|---------|
-| `AGENTS.md` size | >100 lines OR >20K chars (warn); >150 lines OR >40K chars (critical) | Suggest skill extraction or rule migration to `<state-root>/rules/` |
+| `CLAUDE.md` size | >100 lines OR >20K chars (warn); >150 lines OR >40K chars (critical) | Suggest skill extraction or rule migration to `.claude/rules/` |
 | Memory dir size | >20 files in project memory | Suggest consolidation pass |
 | Memory consolidation | Two memory files cover overlapping rules | Propose merge target + grep evidence (mandatory: verify with grep before claiming redundancy) |
-| Rule extraction | AGENTS.md section is path-specific (e.g. "for *.test.ts files") | Suggest move to `<state-root>/rules/<lang>/<topic>.md` with `paths:` frontmatter |
-| Skill extraction | AGENTS.md section >20 lines reads like a procedure | Suggest skill conversion (loaded on-demand, lower always-on cost) |
+| Rule extraction | CLAUDE.md section is path-specific (e.g. "for *.test.ts files") | Suggest move to `.claude/rules/<lang>/<topic>.md` with `paths:` frontmatter |
+| Skill extraction | CLAUDE.md section >20 lines reads like a procedure | Suggest skill conversion (loaded on-demand, lower always-on cost) |
 | Skill description budget | Total chars across all skill `description` fields >12K (warn), >15K (elevated) | Suggest compression targets, ideal 130 chars per description. Present as **Maintenance** tier always — community-discovered budget, not officially documented. |
 | Skill description quality | Description not third-person, missing trigger keywords, <60 or >300 chars | Propose rewrite |
 | Cross-skill contradictions | Two skills give conflicting directives or claim same trigger condition | Surface both file:line citations |
-| Skill vs steering contradictions | A skill contradicts a rule in the project steering file without acknowledging | Critical-tier finding |
-| Cross-level duplication | Same rule in the project steering file and the harness's global steering file | Suggest one wins, name which |
+| Skill vs CLAUDE.md contradictions | A skill contradicts a rule in `CLAUDE.md` without acknowledging | Critical-tier finding |
+| Cross-level duplication | Same rule in project `CLAUDE.md` and global `~/.claude/CLAUDE.md` | Suggest one wins, name which |
 
 ### 5d. Content placement audit
 
@@ -293,11 +295,11 @@ Five directions. Each direction produces one finding type:
 
 | Direction | Detect | Propose |
 |-----------|--------|---------|
-| Steering → skill | A steering-file section references a specific skill, OR describes a workflow only relevant during one skill's execution | Move the section into the skill file |
+| CLAUDE.md → skill | A CLAUDE.md section references a specific skill, OR describes a workflow only relevant during one skill's execution | Move the section into the skill file |
 | Memory → skill | Memory entry of type `feedback`/`project` contains multi-step procedure | Convert to a skill or skill section |
-| Skill → steering | Skill contains a universal behavioral rule (applies across all sessions, not just the skill's flow) | Promote to the project steering file |
-| Steering → memory | The steering file contains pure facts / external pointers, not behavior | Move to memory (cuts always-on context cost) |
-| Skill ↔ skill | Two skills share near-identical sections | Extract to shared reference or a steering-file rule |
+| Skill → CLAUDE.md | Skill contains a universal behavioral rule (applies across all sessions, not just the skill's flow) | Promote to CLAUDE.md |
+| CLAUDE.md → memory | CLAUDE.md contains pure facts / external pointers, not behavior | Move to memory (cuts always-on context cost) |
+| Skill ↔ skill | Two skills share near-identical sections | Extract to shared reference or CLAUDE.md rule |
 
 ### 5e. Categorize all findings
 
@@ -336,10 +338,10 @@ Every finding must include a **single recommended target** with rationale. No eq
 Decision rule:
 
 - Rule only applies during a specific skill → target that skill file.
-- Rule applies across 2+ skills, not universal → the project steering file.
-- Universal behavioral rule → top section of the project steering file.
+- Rule applies across 2+ skills, not universal → CLAUDE.md.
+- Universal behavioral rule → CLAUDE.md top section.
 - Factual / reference content → memory file.
-- Path-scoped instruction → `<state-root>/rules/<lang>/<topic>.md`.
+- Path-scoped instruction → `.claude/rules/<lang>/<topic>.md`.
 - Procedure >20 lines → new skill.
 
 ## Step 6 — Present findings indexed
@@ -383,15 +385,15 @@ N additional findings suppressed (tiers <list>). They are in the run log and wil
                           rationale: user said "I already told you the goal" twice; meta-skill misbehavior
                           options: open-issue | skip
 [2] critical · high     | repeated --no-verify usage in 3 sessions
-                          target: global settings file (new PreToolUse hook)
+                          target: ~/.claude/settings.json (new PreToolUse hook)
                           rationale: rule violated 3× across sessions; advisory text not enforcing
                           options: strengthen | hook-project | hook-global | both | skip
-[3] promotion · high    | "always quote file:line in reviews" recurring → project steering file
-                          target: AGENTS.md §Principles
+[3] promotion · high    | "always quote file:line in reviews" recurring → CLAUDE.md
+                          target: CLAUDE.md §Principles
                           rationale: 2 sessions corrected vague review feedback
                           options: accept | modify | skip
-[4] placement · medium  | atomic-tdd skill has a universal rule that belongs in the project steering file
-                          target: AGENTS.md §Quality gates (extract from skills/atomic-tdd/SKILL.md:42)
+[4] placement · medium  | atomic-tdd skill has a universal rule that belongs in CLAUDE.md
+                          target: CLAUDE.md §Quality gates (extract from skills/atomic-tdd/SKILL.md:42)
                           rationale: rule applies outside TDD flows
                           options: accept | modify | skip
 ```
@@ -409,7 +411,7 @@ For each selected item, you will be asked per-finding individually (per axiom 3 
 Your selection:
 ```
 
-Validate indices the same way `/git-cleanup` does. After valid selection, walk each picked finding one at a time, asking the user in a batched question block.
+Validate indices the same way `/git-cleanup` does. After valid selection, walk each picked finding one at a time via `AskUserQuestion`.
 
 **Standard findings** (most tiers):
 
@@ -458,13 +460,13 @@ On "Accept new": append the new fact to the matching section in `~/.atomic/profi
 
 `<deterministic>` section facts are excluded — they should never appear here.
 
-**Sub-option findings** (e.g. hook conversion in `critical` tier): after Accept, follow up with a second batched question block for the sub-option (strengthen / hook-project / hook-global / both).
+**Sub-option findings** (e.g. hook conversion in `critical` tier): after Accept, follow up with a second `AskUserQuestion` for the sub-option (strengthen / hook-project / hook-global / both).
 
 **Modify flow** (turn-boundary, not inline read).
 
-A batched question block does not collect free-text, and there is no inline-read primitive in the harness. The only way to get the user's replacement wording is to **end the assistant turn** and resume from their next message. The flow:
+`AskUserQuestion` does not collect free-text, and there is no inline-read primitive in the harness. The only way to get the user's replacement wording is to **end the assistant turn** and resume from their next message. The flow:
 
-1. When the user picks `Modify` in the question block for finding `[N]`, persist the pending state to `$SCRATCH/pending-modify.json`:
+1. When the user picks `Modify` in the AskUserQuestion for finding `[N]`, persist the pending state to `$SCRATCH/pending-modify.json`:
     ```json
     {
       "finding_index": N,
@@ -493,7 +495,7 @@ Announce: `Applying K approved changes across J files.`
 For each approved decision, in priority order:
 
 1. Read the target file.
-2. Decide the `verify_phrase` **before** writing — patch-unique, not concept-unique. Pick a literal substring of the bytes you are about to write that would not exist if the change were absent. For a hook patch, that's the exact `grep -qE '<PATTERN>' && { echo 'blocked: <REASON>'` slice — not the rule name (`--no-verify`), which exists in many places. For a steering-file sentence add, the verbatim new sentence. For a memory consolidation, a distinctive phrase from the merged content. The test: would this exact substring exist in the target file *only because the change was applied*? If not, pick a longer slice.
+2. Decide the `verify_phrase` **before** writing — patch-unique, not concept-unique. Pick a literal substring of the bytes you are about to write that would not exist if the change were absent. For a hook patch, that's the exact `grep -qE '<PATTERN>' && { echo 'blocked: <REASON>'` slice — not the rule name (`--no-verify`), which exists in many places. For a CLAUDE.md sentence add, the verbatim new sentence. For a memory consolidation, a distinctive phrase from the merged content. The test: would this exact substring exist in the target file *only because the change was applied*? If not, pick a longer slice.
 
    **Inverted case for deletes.** Memory-file consolidation deletes the source file. There is nothing to grep for. Record `verify_phrase: null` and `verify_absence: true` with `target_file` = the deleted path. Next run's prior-retro audit treats this as: landed if the file is absent, drifted if the file reappeared with similar content.
 
@@ -502,7 +504,7 @@ For each approved decision, in priority order:
 4. Apply the change (edit / append / new file / hook patch).
 5. **Verify-after-apply.** Re-read the target file (or `ls` for delete cases) and grep for the `verify_phrase` recorded in step 2. If absent (or if a delete target still exists), the write failed silently — set `decision.disposition = "failed"`, capture stderr / the apply error in `decision.failure_reason`, surface a one-line warning to the user (`[N] write failed: <reason> — finding will re-surface in next run`), and continue to the next decision. Do NOT include failed items in the changes-applied table. The verify step is non-negotiable: a silent write failure is worse than a loud one because the user thinks the change landed and the next run's drift audit will report `drifted` ambiguously (as if the change was rolled back, not as if it never landed).
 6. For "convert to hook" — see the merge recipe below. Sub-step 4 (Apply) becomes the jq-merge sequence; sub-step 5 (Verify) greps for the hook command-line in the resulting `.hooks.<event>` array.
-7. For memory consolidation that deletes files — first integrate content into the target (skill or steering file), confirm by re-reading, then delete the source memory file and update `MEMORY.md`. Sub-step 5 (Verify) tests the deleted-path-still-absent condition.
+7. For memory consolidation that deletes files — first integrate content into the target (skill or CLAUDE.md), confirm by re-reading, then delete the source memory file and update `MEMORY.md`. Sub-step 5 (Verify) tests the deleted-path-still-absent condition.
 8. For "skip" decisions — no file write. Just persisted in the run log with `signal_keywords` so future runs can detect recurrence. Sub-steps 3-5 are skipped.
 9. For "routed-to-issue" decisions (atomic-meta tier) — no file write. The user runs `/report-issue-with-atomic` themselves. Just persisted in the run log. Sub-steps 3-5 are skipped.
 
@@ -513,7 +515,7 @@ Hook patches must **append** to existing arrays, never overwrite. Use `jq` (prei
 For each event key in the patch (`PreToolUse`, `PostToolUse`, etc.):
 
 ```bash
-TARGET="<the harness's global settings file, or .claude/settings.json for project scope>"
+TARGET="$HOME/.claude/settings.json"     # or .claude/settings.json for project scope
 PATCH='<the generated hook JSON>'
 EVENT="PreToolUse"                       # whichever event the patch targets
 
@@ -527,13 +529,13 @@ PROPOSED=$(jq --argjson patch "$PATCH" --arg ev "$EVENT" \
 echo "$PROPOSED" | jq .hooks
 ```
 
-Then confirm with the user in a batched question block: `Apply this hook merge to <TARGET>? (yes / no)`. On yes:
+Then confirm with the user via `AskUserQuestion`: `Apply this hook merge to <TARGET>? (yes / no)`. On yes:
 
 ```bash
 echo "$PROPOSED" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
 ```
 
-Atomic write (write-then-rename) — never edit settings.json in place. **Why:** a half-written settings.json on disk crash kills every future session in that scope until repaired.
+Atomic write (write-then-rename) — never edit settings.json in place. **Why:** a half-written settings.json on disk crash kills every future Claude Code session in that scope until repaired.
 
 Print the changes table:
 
@@ -542,9 +544,9 @@ Print the changes table:
 
 | # | File | Change | Tier |
 |---|------|--------|------|
-| 1 | <state-root>/settings.json | added PreToolUse hook blocking --no-verify | critical |
-| 2 | AGENTS.md | added rule under §Principles: "always quote file:line in reviews" | promotion |
-| 3 | skills/atomic-tdd/SKILL.md → AGENTS.md | moved universal rule | placement |
+| 1 | ~/.claude/settings.json | added PreToolUse hook blocking --no-verify | critical |
+| 2 | CLAUDE.md | added rule under §Principles: "always quote file:line in reviews" | promotion |
+| 3 | skills/atomic-tdd/SKILL.md → CLAUDE.md | moved universal rule | placement |
 
 3 changes across 3 files.
 ```
@@ -566,7 +568,7 @@ Write `${RUNS_DIR}/${RUN_ID}.json`:
       "confidence": "high",
       "summary": "repeated --no-verify usage",
       "signal_keywords": ["--no-verify", "skip hooks", "bypass"],
-      "target_file": "<absolute path of the file this decision wrote>",
+      "target_file": "~/.claude/settings.json",
       "verify_phrase": "grep -qE '--no-verify' && { echo 'blocked: --no-verify forbidden'",
       "verify_absence": false,
       "disposition": "accept",
@@ -579,7 +581,7 @@ Write `${RUNS_DIR}/${RUN_ID}.json`:
       "confidence": "low",
       "summary": "skill description below 130 chars",
       "signal_keywords": ["skill description", "activation", "atomic-tdd"],
-      "target_file": "<absolute path of the edited skill file>",
+      "target_file": "skills/atomic-tdd/SKILL.md",
       "verify_phrase": null,
       "verify_absence": false,
       "disposition": "suppressed",
@@ -589,8 +591,6 @@ Write `${RUNS_DIR}/${RUN_ID}.json`:
   ]
 }
 ```
-
-`decisions[].target_file` must be a real path the next run can stat — resolve any harness token (`<state-root>` and the like) to the absolute path it denotes at apply time; never write the token or a display label. The prior-retro audit reads this field directly: a display label (e.g. `global settings file`) stats as absent, marks the item `missing`, and re-enters it at tier 1.
 
 ## Step 9 — Update learnings file
 
@@ -640,22 +640,22 @@ Atomic. No narration. Print every shell command before running it (axiom 3). Fin
 ## Rules
 
 - Always full sweep. `$ARGUMENTS` weights priority, never narrows scope. **Why:** narrowing skips audits the user didn't know to ask for; the value is surfacing the unknown unknowns.
-- Indexed selection (axiom 4) when finding count >4. A batched question block only for per-item Accept/Modify/Skip (or Open-issue/Skip for atomic-meta tier) after the indexed pick. **Why:** paginating 12 findings through 4-option widgets is worse UX than one printed list.
+- Indexed selection (axiom 4) when finding count >4. `AskUserQuestion` only for per-item Accept/Modify/Skip (or Open-issue/Skip for atomic-meta tier) after the indexed pick. **Why:** paginating 12 findings through 4-option widgets is worse UX than one printed list.
 - Atomic-meta findings never write files in this command. They route to `/report-issue-with-atomic` — the user runs it. **Why:** issue creation is a public action with persistent state on GitHub; per axiom 3 (destructive ops), the user invokes the publishing verb themselves so they can edit the body before submission.
 - Per-item confirm before any file write or hook patch (axiom 3). No "apply all" shortcut. **Why:** advisory rules getting promoted to enforcement hooks change tool behavior globally; batch-accepting hides the blast radius.
 - Memory consolidation: never delete a memory file before grep-verifying that the content lives in the target. The consolidate-then-clean order is mandatory. **Why:** unverified redundancy claims silently destroy rules.
 - Skill budget warnings are **always Maintenance tier**, never Critical, unless the user has reported actual invisible skills. The 16K char ceiling is community-discovered, not documented by Anthropic. **Why:** false-positive Critical alarms erode trust in the audit.
 - Prior-retro drifted/missing findings re-enter the current run at tier 1. Previously skipped OR suppressed findings re-enter at tier 2 only when their `signal_keywords` match a current-run signal. **Why:** the audit-trail is itself a deliverable; users want confidence that past accepts stuck, and skipped/suppressed items shouldn't nag unless the underlying friction is still present. Suppressed re-surfaces are weighted equally with skipped re-surfaces — the user never had the chance to actively decline a suppressed item.
-- Never edit the harness's global settings file or the project settings file without printing the JSON patch first and confirming. Delegate to `/update-config` skill when present. **Why:** settings.json changes affect tool permissions and hook execution — they need a visible diff.
+- Never edit `~/.claude/settings.json` or `.claude/settings.json` without printing the JSON patch first and confirming. Delegate to `/update-config` skill when present. **Why:** settings.json changes affect tool permissions and hook execution — they need a visible diff.
 - No commits. End by suggesting `/commit`; let the user inspect first. **Why:** mixed audit + ship is opaque; separating them keeps the diff reviewable.
-- Read-only agents only — discovery, history scan, prior-retro audit all use read-only agents (`atomic-investigator`, plus generic read-only runners on the economical reasoning tier). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
+- Read-only agents only — discovery, history scan, prior-retro audit all use read-only agents (`atomic-investigator`, plus Sonnet-backed `general-purpose` runners). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
 - Atomic-tier carve-out for state: `retro-runs/` and `retro-learnings.md` live in `~/.atomic/`, not in memory (axiom 2 carve-out for shell-readable durable state). **Why:** the next run needs to grep past run logs deterministically; memory is conversational and not addressable from a shell.
 
 ## Open behaviors
 
 - Skip Phase 5b (pattern promotion) entirely in current-only scope — requires cross-session history.
 - Skip prior-retro audit on first run (when `$RUNS_DIR` is empty).
-- Run-log JSON schema is informal — only `decisions[].target_file` (stored as a resolved, stat-able path) and `decisions[].verify_phrase` are load-bearing for prior-retro audits. The rest is informational.
-- `atomic-strategist` dispatch (read-only) is *not* part of the default pipeline. Only invoke when the cross-conversation pattern is genuinely ambiguous — multiple plausible root causes for the same recurring friction. Don't dispatch on clear-cut signals; the pass is expensive.
+- Run-log JSON schema is informal — only `decisions[].target_file` and `decisions[].verify_phrase` are load-bearing for prior-retro audits. The rest is informational.
+- `atomic-strategist` dispatch (high effort, read-only) is *not* part of the default pipeline. Only invoke when the cross-conversation pattern is genuinely ambiguous — multiple plausible root causes for the same recurring friction. Don't dispatch on clear-cut signals; the pass is expensive.
 
 </constraints>

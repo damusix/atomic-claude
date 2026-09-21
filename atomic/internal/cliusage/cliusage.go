@@ -541,6 +541,12 @@ var commands = []Command{
 		Description: "Gather context for a query",
 	},
 	{
+		Path:        []string{"code", "comments"},
+		Args:        "",
+		Flags:       []string{"--diff", "--json"},
+		Description: "List comments added in a diff",
+	},
+	{
 		Path:        []string{"code", "mcp"},
 		Args:        "",
 		Flags:       []string{"--daemon", "--source", "--db", "--watch-interval", "--no-watch"},
@@ -743,6 +749,12 @@ var commands = []Command{
 		Args:        "",
 		Flags:       []string{"--name", "--json"},
 		Description: "End a session and remove its socket + meta",
+	},
+	{
+		Path:        []string{"retro", "extract"},
+		Args:        "",
+		Flags:       []string{"--since", "--project", "--shards", "--out"},
+		Description: "Extract session history to compact, line-numbered markdown",
 	},
 }
 

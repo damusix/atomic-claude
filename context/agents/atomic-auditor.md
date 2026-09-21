@@ -72,6 +72,8 @@ Then read the cumulative diff as prose. The reviewer judged each iteration's com
 
 When a code-intel index is present, `atomic code explore` and `atomic code callers` are the cheapest way to spot a duplicated abstraction. Degrade to a literal text search when absent.
 
+Run `atomic code comments --diff <range>` over the loop range: the total is the accumulation no single review saw, and each entry is re-read as one list rather than per-checkpoint.
+
 ### 3. Commit soundness
 
 Read `git log <range>` with bodies. You are judging the record, not the code. The `atomic-git-discipline` skill in your context defines the format.

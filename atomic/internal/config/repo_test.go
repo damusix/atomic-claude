@@ -289,6 +289,101 @@ func TestValidateIdleTimeout(t *testing.T) {
 	}
 }
 
+// --- [comments] max_lines ---
+
+func TestLoadRepoConfig_CommentsMaxLines_Parse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atomic.toml")
+	content := "[comments]\nmax_lines = 3\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := LoadRepoConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRepoConfig: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Comments.MaxLines == nil || *cfg.Comments.MaxLines != 3 {
+		t.Errorf("Comments.MaxLines = %v, want 3", cfg.Comments.MaxLines)
+	}
+}
+
+// An unrecognized key inside [comments] warns with the dotted path, mirroring
+// code.bogus_leaf's coverage.
+func TestLoadRepoConfig_CommentsUnknownLeafWarns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atomic.toml")
+	content := "[comments]\nmax_lines = 2\nbogus = true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := LoadRepoConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRepoConfig: %v", err)
+	}
+	if len(warns) != 1 || !strings.Contains(warns[0].Message, "comments.bogus") {
+		t.Errorf("warns = %v, want one warning mentioning comments.bogus", warns)
+	}
+}
+
+// No [comments] table leaves MaxLines nil with no warnings — absence is
+// normal, distinct from an explicit invalid value.
+func TestLoadRepoConfig_CommentsAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atomic.toml")
+	content := "[code]\nignore = [\"vendor/**\"]\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := LoadRepoConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRepoConfig: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Comments.MaxLines != nil {
+		t.Errorf("Comments.MaxLines = %v, want nil", cfg.Comments.MaxLines)
+	}
+}
+
+func TestResolveMaxLines(t *testing.T) {
+	three := 3
+	zero := 0
+	negative := -1
+
+	cases := []struct {
+		name     string
+		maxLines *int
+		want     int
+		wantWarn bool
+	}{
+		{"absent", nil, 2, false},
+		{"valid", &three, 3, false},
+		{"zero warns and defaults", &zero, 2, true},
+		{"negative warns and defaults", &negative, 2, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, warn := ResolveMaxLines(commentsSection{MaxLines: tc.maxLines})
+			if got != tc.want {
+				t.Errorf("ResolveMaxLines(%v) = %d, want %d", tc.maxLines, got, tc.want)
+			}
+			if tc.wantWarn && warn == nil {
+				t.Error("expected a warning, got nil")
+			}
+			if !tc.wantWarn && warn != nil {
+				t.Errorf("expected no warning, got %v", warn)
+			}
+		})
+	}
+}
+
 // Only successfully compiled patterns count: an invalid one is dropped by
 // NewIgnoreMatcher and must not be counted active. A nil matcher counts 0.
 func TestIgnoreMatcher_PatternCount(t *testing.T) {

@@ -1,6 +1,6 @@
 ---
 name: atomic-writing
-description: 'One voice for every file the repo ships: README, docs/guides/, docs/reference/, docs/spec/, docs/design/, docs/research/, docs/wiki/, AGENTS.md, and the prompt artifacts under commands/, agents/, skills/, rules/, and output-styles/. Clear, direct, technical, and visual wherever the content has a shape. No marketing language, no AI-tell phrases, no em dashes in prose, no throat-clearing. The voice is constant; length is set by what the surface has to carry. Prefer a diagram, table, or tree over a paragraph when the content has a shape, because a drawn flow carries a logic better than a paragraph does for a human reader and a model alike. Structure comes before sentences: a page answers what-is-this, how, where, what-bites, what-else, in that order. references/mermaid.md carries diagram type selection and the rules that decide whether a block renders; references/exemplar-*.md carry finished page shapes to imitate per surface type. Invoked by /documentation and as callee by atomic-documentation. Auto-fires on "draft the README", "write the docs", "improve this prose", "edit the guide", "write the spec", "clean up this doc", "make this readable".'
+description: 'One voice for every file the repo ships: README, docs/guides/, docs/reference/, docs/spec/, docs/design/, docs/research/, docs/wiki/, AGENTS.md, and the prompt artifacts under commands/, agents/, skills/, rules/, and output-styles/. Clear, direct, technical, and visual wherever the content has a shape. No marketing language, no AI-tell phrases, no em dashes in prose, no throat-clearing. The voice is constant; length is set by what the surface has to carry. Prefer a diagram, table, or tree over a paragraph when the content has a shape, because a drawn flow carries a logic better than a paragraph does for a human reader and a model alike. Structure comes before sentences: a page answers what-is-this, how, where, what-bites, what-else, in that order. references/mermaid.md carries diagram type selection, the layout limits (direction, width, density, color), and the rules that decide whether a block renders; references/exemplar-*.md carry finished page shapes to imitate per surface type. Invoked by /documentation and as callee by atomic-documentation. Auto-fires on "draft the README", "write the docs", "improve this prose", "edit the guide", "write the spec", "clean up this doc", "make this readable".'
 ---
 <trigger>
 
@@ -101,6 +101,8 @@ Not every document needs all five, and a surface with its own defined structure 
 
     Budgets, per diagram: 9 nodes for a flowchart, 6 participants for a sequence, 8 entities for an ER or class diagram. Over budget means the claim is too big, not that the labels should shrink. Split by abstraction level instead.
 
+    Layout follows the same discipline: `references/mermaid.md`'s layout table sets the default direction (`TD`), the side-by-side and label-width limits, and the color ban.
+
     Two things that look like diagrams and are not. Linear steps with no branch and no boundary crossing are a numbered list, and five boxes in a chain are worse than five lines: bigger, harder to diff, harder to search. And reaching for a flowchart is usually a sign the claim has not been decided. If the logic is ordered interaction across a boundary, `sequenceDiagram` carries time for free. If it is which transitions are legal, `stateDiagram-v2` shows illegality by absence and a flowchart cannot.
 
     Label nodes with the real identifier (`pruneDeleted`, `AuthGuard.verify()`), not a generic noun ("cleanup", "check auth"). A renamed symbol then turns up in grep; a vague label goes stale in silence. Encode distinctions in shape or line style, not color: `{diamond}` for a decision, `[(cylinder)]` for a store, `-.->` for async. Color encodes nothing, breaks on dark backgrounds, and fails colorblind readers.
@@ -191,6 +193,7 @@ Read the page twice. The first read covers the first five checks. The second cov
 - A shape explained in prose that a picture would carry better? Draw it, however many diagrams the page already has.
 - Two diagrams with barely any text between them? Give the second its own section and its own claim, or cut it as a restatement.
 - Node label that is a generic noun rather than a real identifier? Use the identifier.
+- `flowchart LR` with a branch, more than 4 nodes side by side, or any `style`/`fill:` line? Fix against the layout table in `references/mermaid.md`.
 - Mermaid block with no caption line above it? Add one.
 - Prose surface? Run the `Structural tells` checks above.
 - Em dash inside a sentence? Replace with comma or period. (In a table cell or `a — b` list line, leave it.)
@@ -217,7 +220,7 @@ Read the page twice. The first read covers the first five checks. The second cov
 > Ship verb order, and why it is fixed:
 >
 > ```mermaid
-> flowchart LR
+> flowchart TD
 >     A[stage] --> B[doc-impact]
 >     B --> C{docs-only?}
 >     C -->|yes| E[commit]
@@ -265,7 +268,7 @@ Read the page twice. The first read covers the first five checks. The second cov
 
 ## Reference files
 
-- `references/mermaid.md` — picking a diagram type from the reader's question, and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file.
+- `references/mermaid.md` — picking a diagram type from the reader's question, the layout limits (direction, width, density, color), and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file.
 - `references/exemplar-reference-page.md` — the shape of a finished reference page for a config file, format, or subsystem. Read before writing a `docs/reference/` page a reader will use for lookup.
 - `references/exemplar-tool-page.md` — the shape of a finished tool reference: worked example first, then the model, then per-verb lookup. Read before writing a page for a CLI tool, daemon, or protocol.
 

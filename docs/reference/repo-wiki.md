@@ -30,6 +30,8 @@ flowchart LR
 
 The dotted inputs are optional: steering exists only where you wrote it, and the code-intel edges only where `atomic code index` has run, corroborating domain boundaries by who calls whom rather than by directory layout.
 
+The writer also receives the domain's `docs/design/` files and redraws every current-architecture diagram in them against source into the domain page, dropping one whose nodes no longer resolve and reporting it as a concern.
+
 Three things trigger a refresh: `/refresh-wiki` on demand; the implementation loop (`/subagent-implementation`, `/autopilot`) at finalize, scoped to the task's SHA range, which is the primary path; and ship commands as an ad-hoc fallback for real-code commits. Docs-only commits are skipped, and a freshness check prevents a double refresh after the loop already ran.
 
 ::: tip The CLI verb is still called `signals`

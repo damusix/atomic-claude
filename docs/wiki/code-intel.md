@@ -12,7 +12,7 @@ Grep finds text. It cannot answer who calls this, what breaks if I change it, or
 
 This domain answers them from a real graph. It parses a project's source into symbols, stores them in SQLite, resolves cross-file references into edges, and serves structural queries over the result. Consumers are the `atomic code` CLI verbs, an MCP server, agents that compose the `agent-code-intel` partial, and the `serve` domain's code-graph view.
 
-The index lives at `<projectRoot>/<state-root>/.atomic-index/atomic.db` (default [`.claude/.atomic-index/atomic.db`](../../.claude/.atomic-index/atomic.db)), derived by `config.IndexDBPath` in [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go).
+The index lives at `<projectRoot>/<harness.dir>/.atomic-index/atomic.db` (default [`.claude/.atomic-index/atomic.db`](../../.claude/.atomic-index/atomic.db)), derived by `config.IndexDBPath` in [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go).
 
 ## How it works
 
@@ -35,7 +35,7 @@ Extraction emits nodes plus `UnresolvedReference` rows; resolution is what turns
 
 ### Stored vocabulary
 
-Kind strings persist in SQLite, so these counts are asserted in tests and the slices are the truth:
+Kind strings persist in SQLite, so these counts are asserted in tests and the slices, not the comments beside them, are the truth:
 
 | Slice | Count | Pinned by |
 |-------|-------|-----------|
@@ -96,7 +96,7 @@ Package mints, edge inserts, and ref deletes share one transaction per window, s
 
 **Tool gating.** Repos under 500 files get only `atomic_code_explore`, `atomic_code_search`, and `atomic_code_node`. `atomic_code_callers`, `callees`, `impact`, `status`, and `files` appear at 500 files and above.
 
-**Repo-scoped ignore is exclude-only.** A committed [`.claude/atomic.toml`](../../.claude/atomic.toml) with `[code] ignore = [...]` filters files out of discovery. There is no negation syntax. A newly ignored file drops out of the list `filterIgnored` produces and is then reclaimed by the ordinary `pruneDeleted` path, so there is no separate ignore-prune step. A malformed TOML, invalid glob, or unknown key degrades to unfiltered indexing with a warning on stderr and never fails the run. This repo dogfoods it: [`.claude/atomic.toml`](../../.claude/atomic.toml) ignores `atomic/internal/serve/frontend/dist/**`, `atomic/internal/serve/frontend/public/vendor/**`, and `scripts/code-eval/fixtures/**`.
+**Repo-scoped ignore is exclude-only.** A committed [`.claude/atomic.toml`](../../.claude/atomic.toml) with `[code] ignore = [...]` filters files out of discovery. There is no negation syntax. A newly ignored file drops out of the list `filterIgnored` produces and is then reclaimed by the ordinary `pruneDeleted` path, so there is no separate ignore-prune step. A malformed TOML, invalid glob, or unknown key degrades to unfiltered indexing with a warning on stderr and never fails the run. This repo dogfoods it: [`.claude/atomic.toml`](../../.claude/atomic.toml) ignores `atomic/internal/serve/assets/vendor/**`.
 
 **Realm mode targets realm-owned databases.** At a realm root, `atomic code` fans out across members and each member's index lives at `<realm>/.atomic/<key>.db`, configured by `<realm>/.atomic/code.toml`. The member's own [`.claude/.atomic-index/atomic.db`](../../.claude/.atomic-index/atomic.db) is not the destination, so an empty member-local db after a realm index is the design, not data loss.
 
@@ -131,11 +131,12 @@ validation/     tests only, no production code
 | Path | Role |
 |------|------|
 | [`atomic/internal/codeintel/engine/engine.go`](../../atomic/internal/codeintel/engine/engine.go) | `Engine` facade wrapping db, pool, orchestrator, resolution pipeline, graph manager, searcher, context builder. `New(projectRoot)` uses the default index path; `NewWithDBPath(projectRoot, dbPath)` takes an explicit one. `IndexPath(projectRoot)` is the canonical DB-path deriver and delegates to `config.IndexDBPath`. |
-| [`atomic/internal/codeintel/cli/code.go`](../../atomic/internal/codeintel/cli/code.go) | `RunCode` dispatches 11 verbs: `index sync status search callers callees impact node files affected explore`. `mcp` is handled before the engine is built (it is a proxy, not a query). `EnsureGitignore` appends the index dir to [`.gitignore`](../../.gitignore). |
-| [`atomic/internal/codeintel/cli/realm.go`](../../atomic/internal/codeintel/cli/realm.go) | `RunCodeWithRealm` resolves scope before `repoctx.Resolve`, because a realm root need not be a git repo. Repo scope and no-index scope forward to `RunCode` byte-for-byte. |
+| [`atomic/internal/codeintel/cli/code.go`](../../atomic/internal/codeintel/cli/code.go) | `RunCode` dispatches 12 verbs: `index sync status search callers callees impact node files affected explore comments`. Two of them skip the engine entirely: `mcp` (handled before the engine is built, since it is a proxy, not a query) and `comments` (a `git diff` line scan that never opens the index). `EnsureGitignore` appends the index dir to [`.gitignore`](../../.gitignore). |
+| [`atomic/internal/codeintel/cli/realm.go`](../../atomic/internal/codeintel/cli/realm.go) | `RunCodeWithRealm` resolves scope before `repoctx.Resolve`, because a realm root need not be a git repo. `mcp --daemon` and `comments` both bypass realm resolution and dispatch straight to `RunCode` — a spawned daemon carries explicit `--source`/`--db` and would be killed by the realm-verb-reject gate otherwise, and `comments` resolves the plain git root (`repoctx.Resolve`, falling back to cwd) with no fan-out, since a diff-scan has no per-member concept. Repo scope and no-index scope forward to `RunCode` byte-for-byte. |
 | [`atomic/internal/codeintel/mcp/server.go`](../../atomic/internal/codeintel/mcp/server.go) | MCP server. 8 tools; `explore`, `search`, `node` always registered, the other five gated on `fileCount >= 500`. |
 | [`atomic/internal/codeintel/mcp/daemon.go`](../../atomic/internal/codeintel/mcp/daemon.go), `proxy.go` | `RunDaemon(ctx, sourceRoot, dbPath, now, watchInterval)` with a flock-guarded auto-start; `SocketPathFromDB` / `LockPathFromDB` key the socket next to the db file so per-repo daemons never collide. Default sync interval 10s. |
 | [`atomic/internal/codeintel/realm/resolver.go`](../../atomic/internal/codeintel/realm/resolver.go) | `Resolve(cwd, claudeMDPath)` returns `ScopeRepo`, `ScopeRealmAll`, `ScopeRealmMember`, or `ScopeNoIndex`. Never calls `os.Exit`. |
+| [`atomic/internal/codeintel/cli/comments.go`](../../atomic/internal/codeintel/cli/comments.go) | `runComments`: a per-file `git diff -U0` line scan for added comments, classified by a per-extension `commentSyntax` table (line and block markers). Reports a run of consecutive added comment lines as one entry, flags one `Over: true` when its line count exceeds `[comments] max_lines` (config), and untracked files (a bare `--diff` with no `..`) are scanned in full via `git ls-files --others --exclude-standard`. Exit 1 when any entry is over the limit. |
 
 ### Extraction
 
@@ -156,13 +157,13 @@ validation/     tests only, no production code
 
 | Path | Role |
 |------|------|
-| [`atomic/internal/codeintel/indexer/orchestrator.go`](../../atomic/internal/codeintel/indexer/orchestrator.go) | `IndexAll`, `Sync`, `IndexPaths`, `scanFiles`. Owns the ignore filter, the extractor-version migration, the store-time owner guard, and deleted-file pruning. |
+| [`atomic/internal/codeintel/indexer/orchestrator.go`](../../atomic/internal/codeintel/indexer/orchestrator.go) | `IndexAll`, `Sync`, `IndexPaths`, `ScanFiles`. Owns the ignore filter, the extractor-version migration, the store-time owner guard, and deleted-file pruning. |
 | [`atomic/internal/codeintel/indexer/embedded_sql_postpass.go`](../../atomic/internal/codeintel/indexer/embedded_sql_postpass.go) | Post-pass after host extraction: harvest literals, gate on `IsSQLLiteral`, find the owner node, extract, merge. Literals that fail the gate but look identifier-shaped become speculative `sql_string` refs. |
 | [`atomic/internal/codeintel/indexer/sql_fragment_harvest.go`](../../atomic/internal/codeintel/indexer/sql_fragment_harvest.go) | The fragment tier for builder args like `where("title LIKE ?")`. Gate: at most 160 chars, at least one identifier token, at least one discriminator. Tokenizes past a 28-word stoplist into `sql_fragment` refs. |
 | [`atomic/internal/codeintel/indexer/embedded_literals_config.go`](../../atomic/internal/codeintel/indexer/embedded_literals_config.go) | Per-language grammar node kinds for the 16 generic host languages. Probed from live grammars. |
 | [`atomic/internal/codeintel/db/db.go`](../../atomic/internal/codeintel/db/db.go) | Connection setup: `SetMaxOpenConns(1)`, `SetMaxIdleConns(1)`, and a fixed pragma order with `busy_timeout` first. |
 | [`atomic/internal/codeintel/db/schema.sql`](../../atomic/internal/codeintel/db/schema.sql) | Schema source of truth, embedded via `go:embed`. |
-| [`atomic/internal/codeintel/db/tx.go`](../../atomic/internal/codeintel/db/tx.go), `resolution.go` | Transaction-scoped writes. `Tx.NodeExists` backs the orchestrator's owner guard; `Tx.DeleteNodesByFile` / `DeleteFile` live in `tx.go` and `Tx.DeleteUnresolvedRefsByFile` in `resolution.go`, together backing pruning. |
+| [`atomic/internal/codeintel/db/tx.go`](../../atomic/internal/codeintel/db/tx.go) | Transaction-scoped writes. `Tx.NodeExists` backs the orchestrator's owner guard; `Tx.DeleteNodesByFile` / `DeleteUnresolvedRefsByFile` / `DeleteFile` back pruning. |
 
 ### Resolution and query
 
@@ -182,7 +183,7 @@ validation/     tests only, no production code
 
 | Path | Role |
 |------|------|
-| [`context/_partials/agent-code-intel.md`](../../context/_partials/agent-code-intel.md) | The `agent-code-intel` partial: verb guidance, bounded-query rule, silent-degradation rule, realm fan-out. Composed into [`context/agents/atomic-investigator.md`](../../context/agents/atomic-investigator.md), `atomic-reviewer.md`, `atomic-auditor.md`, `atomic-wiki-inferrer.md`, `atomic-wiki-writer.md`, `atomic-deslopper.md`, and (via [`context/_partials/agent-implementer-workflow.md`](../../context/_partials/agent-implementer-workflow.md)) `atomic-implementer.md`. `atomic-strategist` carries its own narrower grounding rule instead. |
+| [`context/_partials/agent-code-intel.md`](../../context/_partials/agent-code-intel.md) | The `agent-code-intel` partial: verb guidance, bounded-query rule, silent-degradation rule, realm fan-out. Composed into [`context/agents/atomic-investigator.md`](../../context/agents/atomic-investigator.md), `atomic-reviewer.md`, `atomic-auditor.md`, `atomic-wiki-inferrer.md`, and (via [`context/_partials/agent-implementer-workflow.md`](../../context/_partials/agent-implementer-workflow.md)) `atomic-implementer.md`. `atomic-strategist` carries its own narrower grounding rule instead. |
 
 ### Docs
 
@@ -212,7 +213,7 @@ validation/     tests only, no production code
 
 ## Constraints
 
-**Kind counts are pinned by tests, not by comments.** [`atomic/internal/codeintel/types/types_test.go`](../../atomic/internal/codeintel/types/types_test.go) asserts 39 node kinds, 13 edge kinds, and 32 languages, so a slice entry added or removed without moving `TestNodeKindCount` / `TestEdgeKindCount` / `TestLanguageCount` fails the build.
+**The kind-count comments in the source are wrong.** The section header comments in [`atomic/internal/codeintel/types/types.go`](../../atomic/internal/codeintel/types/types.go) still read "38 node-type strings" and "12 edge-type strings"; the tests assert 39 and 13. Trust the slices and the tests, not the comments.
 
 **One SQLite connection, one pragma order.** `db/db.go` pins `SetMaxOpenConns(1)` and `SetMaxIdleConns(1)`, and applies `busy_timeout` before any other pragma. Reordering breaks the appendix-O contract, and `foreign_keys=ON` is per-connection, so a second connection would silently drop FK enforcement.
 
@@ -220,7 +221,7 @@ validation/     tests only, no production code
 
 **`IndexPaths` does not prune.** `pruneDeleted` runs after `IndexAll` and `Sync`, deleting rows for files no longer on disk, one transaction per orphan so a crash mid-run leaves the rest intact. `IndexPaths` receives an explicit subset and would wrongly delete everything outside it.
 
-**`extractor_version` is a hand-bumped self-healing migration.** `project_metadata.extractor_version` is currently `"5"`. Bump it in `indexer/orchestrator.go` whenever an `extraction/` change would produce different nodes, edges, or refs for a file whose content has not changed, since the content-hash dedup would otherwise hide the drift forever. A mismatch forces one full re-extraction, stamped only after the run succeeds, so a crashed migration retries instead of recording a false success.
+**`extractor_version` is a hand-bumped self-healing migration.** `project_metadata.extractor_version` is currently `"2"`. Bump it in `indexer/orchestrator.go` whenever an `extraction/` change would produce different nodes, edges, or refs for a file whose content has not changed, since the content-hash dedup would otherwise hide the drift forever. A mismatch forces one full re-extraction, stamped only after the run succeeds, so a crashed migration retries instead of recording a false success.
 
 **`.sql.jinja` is a compound extension.** `filepath.Ext("stg.sql.jinja")` returns `.jinja`, which routes nowhere. `compoundExt` in `orchestrator.go` checks the compound suffix first, and `exts.go:SQLExtensions` lists `.sql.jinja` so the admission guard and the extension map agree.
 
@@ -228,7 +229,7 @@ validation/     tests only, no production code
 
 ## Coupling
 
-- **config** owns the paths. `engine.go`, `mcp/daemon.go`, `realm/resolver.go`, and `cli/code.go` all resolve the index location through `config.IndexDir` / `config.IndexDBPath` / `config.RepoConfigPath` in [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go), so a `state.dir` change moves the index everywhere at once. Repo-scoped ignore globs come from `config.LoadRepoConfig` + `config.NewIgnoreMatcher`, called by `engine.ensureIndexer`.
+- **config** owns the paths. `engine.go`, `mcp/daemon.go`, `realm/resolver.go`, and `cli/code.go` all resolve the index location through `config.IndexDir` / `config.IndexDBPath` / `config.RepoConfigPath` in [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go), so a `harness.dir` change moves the index everywhere at once. Repo-scoped ignore globs come from `config.LoadRepoConfig` + `config.NewIgnoreMatcher`, called by `engine.ensureIndexer`. `cli/comments.go` reads the same `config.LoadRepoConfig` and resolves its line-count threshold through `config.ResolveMaxLines(cfg.Comments)` — the `[comments] max_lines` key, defaulting to 2 and warning (never failing) below 1.
 - **serve** consumes `engine.GetAllNodes` / `engine.GetAllEdges` for its full-graph export, and `graph.Manager`'s `GetCallers` / `GetCallees` / `GetImpactRadius` through the `CodeEngine` interface. Adding a `NodeKind` here requires a matching entry in serve's code-graph kind-to-group taxonomy, or the kind falls into the `other` bucket. See [`docs/wiki/serve.md`](serve.md).
 - **doctor** category 11 ([`atomic/internal/doctor/checks_code_index.go`](../../atomic/internal/doctor/checks_code_index.go)) reports index health: absent is an informational PASS, stale is WARN, fresh is PASS. It imports `engine.IndexPath`, so a path-convention change touches both.
 - **workflow** commands drive the index lifecycle, all on the same warm/cold rule: `atomic code sync` when the db exists, `atomic code index` without prompting when it does not, and silent degradation on any error. `/subagent-implementation` and `/autopilot` apply it at task start and re-sync after each green implementer commit; `/refresh-wiki` applies it before synthesis.

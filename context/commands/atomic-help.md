@@ -120,7 +120,7 @@ One-line pointer per topic. Group by category for scannability.
 | `update` | `atomic update [--check]` self-updates the binary, then converges already-enrolled harness targets with the replacement binary's embedded generation, auto-runs install-scope migration steps, and runs doctor (`--skip-claude-update` skips the convergence). It never enrolls a target — first-time setup is `atomic install --harness <claude\|omp\|codex>`. `--pre` installs the newest pre-release cut from the `next` branch; `atomic config set update.channel prerelease` makes that the default for the background check, banner and doctor too. When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge the proposed global steering file. `atomic migrate` runs migration steps manually: bare = install scope, `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos; `--show-log [<since>]` prints its dated change history, filtered by version or dat…
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns a background subagent on the economical reasoning tier to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
-| `improve` / `retrospective` / `audit` | `/retrospective-learning [<targeted feedback>]` — session retrospective. Mines session history and the current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. |
+| `improve` / `retrospective` / `audit` | `/retrospective-learning [<targeted feedback>]` — session retrospective. Mines session history extracted by `atomic retro extract` + current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. `atomic retro extract` also runs standalone. |
 
 **Reference**
 
@@ -149,6 +149,7 @@ Run them rather than reciting. What they cannot tell the user is which verb fits
 | Inspect or enroll a harness target | `harness list`, `harness status`, `harness rules status`, `harness rules sync` | `docs/reference/commands.md` |
 | Pick this repo's state root | `state adopt` | `docs/reference/conventions.md` |
 | Understand how code fits together | `code` — lead with `explore` | `docs/reference/code-intel.md` |
+| Count the comments a diff adds | `code comments` | `docs/reference/code-intel.md` |
 | Maintain project or cross-repo context | `wiki`, `signals` | `docs/reference/repo-wiki.md`, `docs/reference/realm-wiki.md` |
 | Talk to another running agent session | `bus` | `docs/reference/bus.md` |
 | Keep an interpreter alive across shell calls | `repl` | `docs/reference/repl.md` |
@@ -160,6 +161,7 @@ Run them rather than reciting. What they cannot tell the user is which verb fits
 | Scaffold a repo or a document | `repo init`, `template <name>` | — |
 | Update the binary and its artifacts | `update`, `migrate` | — |
 | Track deferred work | `followups`, `reminder` | — |
+| Extract session history for a retrospective | `retro extract` | `docs/reference/retro.md` |
 
 ### C. Freeform intent — classify and route
 
@@ -272,6 +274,7 @@ atomic bus join|send|recv|tail|read|chat  peer messaging between concurrent sess
 atomic bus gateway|enroll|revoke  host rooms across machines: gateway runs beside the daemon behind one HTTP endpoint, enroll prints a [bus.remotes] key block, revoke ends a machine's access within one frame, ATOMIC_BUS_KEY on the gateway admits one shared key; every bus verb except chat and shutdown reaches it with --host <name>
 atomic code index/sync            build or refresh the symbol graph; at a wiki-realm root, fans out across member repos (--only/--exclude to filter)
 atomic code explore "<query>"     one-shot context digest for a question; search/callers/callees/impact drill into one symbol; realm output grouped under [key] headers
+atomic code comments [--diff <range>]   list the comments a diff adds (path:line, span, first words); exit 1 when one exceeds [comments] max_lines
 atomic serve [path] [--port N]    local read-only HTTP server: Obsidian-style page view + right-rail graph/links, system-graph toggle, code-file modal, a Plans view aggregating design/spec docs and scratchpad bundles across every worktree, md|code|plans search (default port 4500; --open opens browser)
 atomic code mcp                   start MCP server exposing graph as tools; daemon self-syncs every 10s (--no-watch disables, --watch-interval overrides); use `atomic --repo <abs-path> code mcp` to serve any repo cwd-independently — one entry per repo in .mcp.json; realm members resolve to their realm db
 atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki; write ## Members links
@@ -289,6 +292,7 @@ atomic prompt claude-merge        emit claude-merge brief for use inside a subag
 /watch-ci [target]                background agent tails CI, notifies when terminal
 /report-issue                     file issue against current repo
 /report-issue-with-atomic         file issue against atomic-claude config itself
+atomic retro extract [--since d] [--shards N] --out f   sessions since the last retrospective as numbered markdown; user text + skill/agent calls only
 /retrospective-learning [<hint>]  session retrospective; surfaces friction and drift
 ```
 

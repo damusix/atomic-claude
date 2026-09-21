@@ -61,6 +61,12 @@ Builder, surgeon, and reviewer enforce one shared code-comment discipline; the g
 | Reviewer over-fires on legitimate comments | Medium | Explicit not-a-finding list + judgment-call framing, same as suppression-pattern section |
 
 
+## Deterministic gate
+
+
+The prose rule above is enforced by `atomic code comments`, specified in `docs/spec/comment-counter.md`. The verb lists every full-line comment a diff adds and exits non-zero when one exceeds `[comments] max_lines`; the reviewer reports `comments: N added (M over max)` at every gate.
+
+
 ## Implementation log
 
 
@@ -88,3 +94,9 @@ Built in a worktree (`comment-discipline`, cut from `next`) across 2 checkpoints
 **Why:** at 🔵 the reviewer's comment findings were optional by definition — harvested to `FOLLOWUPS.md`, fixed only under `/autopilot` — so the comments shipped. Code is read far more often than it is written; a comment every reader has to skip is a defect in the file, not a style preference.
 
 **Superseded:** 🔵 noise / 🟡 misleading; reviewer-only enforcement.
+
+### 2026-09-20 — Deterministic gate added
+
+**What changed:** Added the `## Deterministic gate` section pointing to `atomic code comments`, specified in `docs/spec/comment-counter.md`.
+
+**Why:** issue #269 — three rewrites of the prose rule did not change the outcome.

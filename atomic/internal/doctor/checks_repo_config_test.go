@@ -226,6 +226,35 @@ func TestCheckRepoConfigInvalidIdleTimeout_ZeroRejected(t *testing.T) {
 	}
 }
 
+func TestCheckRepoConfigValid_MaxLines(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	writeRepoConfig(t, root, "[comments]\nmax_lines = 3\n")
+
+	r := doctor.RunCheckRepoConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS; detail: %s", r.Severity, r.Detail)
+	}
+}
+
+func TestCheckRepoConfigInvalidMaxLines(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	writeRepoConfig(t, root, "[comments]\nmax_lines = 0\n")
+
+	r := doctor.RunCheckRepoConfigWith(root)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %v, want WARN (invalid max_lines); detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "max_lines") {
+		t.Errorf("Detail = %q, want mention of max_lines", r.Detail)
+	}
+}
+
 // writeWikisClaudeMD makes root a <wikis>-registered realm root and returns
 // the CLAUDE.md carrying the registration.
 func writeWikisClaudeMD(t *testing.T, root string) string {
@@ -442,6 +471,7 @@ func TestCheckRepoConfigNeverFail(t *testing.T) {
 		{"unknown key", "[code]\nignore = [\"vendor/**\"]\n[bogus]\nkey = \"value\"\n"},
 		{"invalid glob", "[code]\nignore = [\"vendor[/**\"]\n"},
 		{"invalid idle_timeout", "[repl]\nidle_timeout = \"bogus\"\n"},
+		{"invalid max_lines", "[comments]\nmax_lines = 0\n"},
 		{"valid", "[code]\nignore = [\"vendor/**\"]\n"},
 	}
 

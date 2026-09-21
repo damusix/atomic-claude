@@ -19,6 +19,7 @@ typecheck: ✓ / ✗ (errors)
 tests:     ✓ / ✗ (N passed, M failed, K added)
 build:     ✓ / ✗ / n/a
 lint:      ✓ / ✗ / n/a
+comments:  N added (M over max) / n/a (atomic absent)
 
 ## Failed / blocked (if any)
 

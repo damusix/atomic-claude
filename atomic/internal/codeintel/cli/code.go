@@ -45,6 +45,10 @@ func RunCode(args []string, projectRoot string, stdout, stderr io.Writer, stdin 
 		return runMCP(ctx, projectRoot, dbPath, rest, stderr)
 	}
 
+	if verb == "comments" {
+		return runComments(rest, projectRoot, stdout, stderr)
+	}
+
 	eng, err := engine.New(projectRoot)
 	if err != nil {
 		fmt.Fprintf(stderr, "atomic code: create engine: %v\n", err)
@@ -98,6 +102,7 @@ func printCodeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  files     List indexed files (optional path/pattern filter)")
 	fmt.Fprintln(w, "  affected  Find test files transitively affected by changed files")
 	fmt.Fprintln(w, "  explore   Gather relevant context for a query (markdown output)")
+	fmt.Fprintln(w, "  comments  List comments added in a diff (--diff, --json)")
 	fmt.Fprintln(w, "  mcp       Run the MCP server over stdio (--daemon runs the auto-started server itself)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "All query verbs accept --json for machine-readable output.")
