@@ -1,5 +1,31 @@
 # Changelog
 
+## [6.7.0](https://github.com/damusix/atomic-claude/compare/v6.6.1...v6.7.0) (2026-09-16)
+
+
+### Features
+
+* add /deslop standing-code convention audit ([0e8d9a3](https://github.com/damusix/atomic-claude/commit/0e8d9a3e49715cf31ef5ed4c143f554116339c91))
+* add /implement, main-agent implementation loop ([7534167](https://github.com/damusix/atomic-claude/commit/753416712e268d3303fbad7d004335e060081bd9))
+* **bus:** host atomic bus over a network with per-machine keys ([2a0ce82](https://github.com/damusix/atomic-claude/commit/2a0ce82203b84fb56ffdb17cb1a180a3c6a1abc8))
+* **docs:** generate sitemap, bump vitepress to alpha.20 ([e1c1dae](https://github.com/damusix/atomic-claude/commit/e1c1dae029a2d8e7d9b77f0dba93daba40def59a))
+* gate main-agent code edits with a reviewer ([bd58f42](https://github.com/damusix/atomic-claude/commit/bd58f42e21a760acde847ce32e7c6d447859e9f2))
+* seed the atomic output style at the user level ([ec5ae5e](https://github.com/damusix/atomic-claude/commit/ec5ae5e9051b33cd59f08aa8c66d504f1fefdd74))
+* **serve:** sticky repo pick and plan provenance ([#235](https://github.com/damusix/atomic-claude/issues/235)) ([571ca70](https://github.com/damusix/atomic-claude/commit/571ca70797cbee39526b85afe2155e8b38dfddff)), closes [#234](https://github.com/damusix/atomic-claude/issues/234)
+* share one loop across implementation verbs ([6f6f955](https://github.com/damusix/atomic-claude/commit/6f6f95584f93f69cf072a85a1550910976afef06))
+* trim the output style and the global CLAUDE.md contract ([3211d2d](https://github.com/damusix/atomic-claude/commit/3211d2d8a3bff8ef2bdb069458be2252bcd7f88f))
+* **update:** add --pre prerelease channel ([12eda46](https://github.com/damusix/atomic-claude/commit/12eda46cc524c54d0131272ef996eb57220812c2))
+* **wiki:** path-scoped pointer cards per domain ([6469e19](https://github.com/damusix/atomic-claude/commit/6469e1957efe2e1e7e80de81b9e6bc67d8b86939))
+
+
+### Bug Fixes
+
+* **docs:** restore nav blur on vitepress alpha.20 ([a321b9a](https://github.com/damusix/atomic-claude/commit/a321b9ae14e4e3d0904d7fb38a7e805fd80c2dbc))
+* **git-discipline:** require a conventional PR title for squash merges ([8ab70e3](https://github.com/damusix/atomic-claude/commit/8ab70e38e0e550282158b98eebe73bfb520365bd))
+* stop two timing tests failing on CI hardware ([d8fce1f](https://github.com/damusix/atomic-claude/commit/d8fce1fa05a211b3d599d9c06e5a4f45a2d54030))
+* **update:** tick download progress every 100ms ([a50e873](https://github.com/damusix/atomic-claude/commit/a50e87322b7204981b8a1558c772f1cd7942b0e7))
+* **wiki:** nest pointer card collections one entry per line ([a116067](https://github.com/damusix/atomic-claude/commit/a116067445260eeefff08df69c95cf688215c07e))
+
 ## [6.6.1](https://github.com/damusix/atomic-claude/compare/v6.6.0...v6.6.1) (2026-08-24)
 
 
