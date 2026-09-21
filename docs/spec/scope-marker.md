@@ -115,7 +115,7 @@ Wiring:
   emitting an `Action` in the same shape (`created` / `ok`) so the existing
   output loop renders it unchanged. A `conflict` outcome is an error.
 - `wikiInitAction` calls `EnsureScopeMarker(absRoot, scope)` with the `--scope`
-  value it already validates, and reports it alongside the CLAUDE.md scaffold
+  value it already validates, and reports it alongside the steering scaffold
   line. Its existing scaffold no-op behavior is unchanged.
 
 Both stay idempotent: a second run reports `ok` and writes nothing.
@@ -208,12 +208,12 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
 - `docs/reference/concepts.md` documents the discovery order and the
   marker-outranks-`<wikis>` precedence.
 - `docs/reference/wiki-workflow.md` notes that `atomic wiki init --scope realm`
-  now declares realm identity, not only the CLAUDE.md scaffold.
+  now declares realm identity, not only the steering scaffold.
 - No new verb, flag, agent, skill, or command: `/atomic-help` needs no new row.
   The `where` and `repo init` rows already exist. The existing `wiki init` row's
   one-line description is updated in both `atomic/internal/cliusage/cliusage.go`
   and `templates/commands/atomic-help.md` to name the scope marker alongside
-  the CLAUDE.md scaffold — CP2 changed what the verb does, so its description
+  the steering scaffold — CP2 changed what the verb does, so its description
   must change too.
 - `cliusage` is unchanged — no flag or verb-path is added.
 - `make render` and `make -C atomic bundle` run and their outputs are committed
@@ -432,3 +432,20 @@ opposite and was corrected with it.
   **Superseded:** the prior CP6 body claimed the `where` and `repo init` rows
   "already exist and their one-line descriptions stay accurate" without
   naming that `wiki init`'s description needed a corresponding update.
+
+- 2026-09-19 — `wiki init` description and scaffold wording follow the loader pair
+
+  **What changed:** the `wiki init` one-line description (in
+  `atomic/internal/cliusage/cliusage.go`, `atomic/cmd/atomic/cmd_wiki.go`, and
+  the Cobra ground-truth table) now reads "Write the steering loader pair and
+  the scope marker", and CP2/CP6's "CLAUDE.md scaffold" wording became
+  "steering scaffold".
+
+  **Why:** `atomic wiki init` writes each scope's steering loader pair — the
+  shared `AGENTS.md` plus its adjacent thin `CLAUDE.md` import — so a
+  description naming only the `CLAUDE.md` scaffold under-restated what the verb
+  writes.
+
+  **Superseded:** the description named "the fixed-content CLAUDE.md scaffold";
+  the scaffold content now lives in the pair's `AGENTS.md` and `CLAUDE.md` is
+  the loader in both scopes.

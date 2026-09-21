@@ -28,13 +28,13 @@ One iteration per checkpoint. Checkpoints come from the spec's table when one ex
 
 ### Implement
 
-Writer `atomic-implementer` → dispatch it (`subagent_type: "atomic-implementer"`), fresh context. Mode `surgical` when the iteration touches at most 2 non-test files and is mechanically obvious, else `feature`. Prompt from `atomic prompt implementer`, substituting `{SCRATCH_PATH}`, `{SPEC_PATH}`, `{MODE}`, `{ITERATION_SCOPE}`, `{REVIEWER_FEEDBACK}` (`N/A — first iteration` on the first), `{BASE_SHA}` = HEAD now.
+Writer `atomic-implementer` → dispatch it, fresh context. Mode `surgical` when the iteration touches at most 2 non-test files and is mechanically obvious, else `feature`. Prompt from `atomic prompt implementer`, substituting `{SCRATCH_PATH}`, `{SPEC_PATH}`, `{MODE}`, `{ITERATION_SCOPE}`, `{REVIEWER_FEEDBACK}` (`N/A — first iteration` on the first), `{BASE_SHA}` = HEAD now.
 
 Writer `main agent` → write the checkpoint yourself under the `atomic-tdd` skill, run the project's signals, record the commands and results in `STATE.md`. Stay inside the checkpoint.
 
 ### Review
 
-Dispatch `atomic-reviewer` (`subagent_type: "atomic-reviewer"`), fresh context, code mode. Prompt from `atomic prompt reviewer`, substituting `{SCRATCH_PATH}`, `{SPEC_PATH}`, `{BASE_SHA}`. The iteration is uncommitted at this point; the reviewer diffs the working tree against `{BASE_SHA}`. Attach the implementer's report, or say `main agent wrote this`.
+Dispatch `atomic-reviewer`, fresh context, code mode. Prompt from `atomic prompt reviewer`, substituting `{SCRATCH_PATH}`, `{SPEC_PATH}`, `{BASE_SHA}`. The iteration is uncommitted at this point; the reviewer diffs the working tree against `{BASE_SHA}`. Attach the implementer's report, or say `main agent wrote this`.
 
 ### Triage
 
@@ -44,7 +44,7 @@ Dispatch `atomic-reviewer` (`subagent_type: "atomic-reviewer"`), fresh context, 
 
 **Stuck check.** Two consecutive `CHANGES_REQUESTED` on the same underlying blocking signal (same root failure, however the reviewer phrases it):
 
-- Stuck `ask` → `AskUserQuestion`: continue / `/pressure-test @docs/spec/<topic>.md` (`/pressure-test <task>` without a spec) / dispatch `atomic-strategist` (read-only RCA). Record the choice in `STATE.md`. A strategist run feeds the next `BRIEF.md` and is not an iteration.
+- Stuck `ask` → ask the user: continue / `/pressure-test @docs/spec/<topic>.md` (`/pressure-test <task>` without a spec) / dispatch `atomic-strategist` (read-only RCA). Record the choice in `STATE.md`. A strategist run feeds the next `BRIEF.md` and is not an iteration.
 - Stuck `auto` → dispatch `atomic-strategist` without asking; fold its findings into the next `BRIEF.md`.
 
 The check resets when the blocking signal changes.

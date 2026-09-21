@@ -8,7 +8,7 @@ There are two config files and they do not overlap:
 flowchart LR
     A["~/.atomic/config.toml<br/>per user, never committed"] --> C["atomic"]
     B[".claude/atomic.toml<br/>per repo, committed"] --> C
-    C --> D["output depth, update behavior,<br/>harness dir, agent overrides"]
+    C --> D["output depth, update behavior,<br/>state dir, agent overrides"]
     C --> E["repo identity, code-index<br/>exclusions, repl timeout"]
 ```
 

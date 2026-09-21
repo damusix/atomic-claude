@@ -1,6 +1,6 @@
 ---
 type: Domain
-description: Inter-session messaging between concurrent Claude Code sessions over named rooms, via a per-user Unix-socket daemon.
+description: Inter-session messaging between concurrent agent sessions over named rooms, via a per-user Unix-socket daemon or an enrolled HTTP gateway.
 tags: [messaging, daemon, cli]
 ---
 
@@ -8,7 +8,7 @@ tags: [messaging, daemon, cli]
 
 ## What it does
 
-Two Claude Code sessions on one machine cannot see each other. Anything one learns reaches the other only by the human retyping it, so parallel work on the same repo either duplicates effort or collides.
+Two agent sessions on one machine cannot see each other. Anything one learns reaches the other only by the human retyping it, so parallel work on the same repo either duplicates effort or collides.
 
 `atomic bus` gives them a channel. One per-user daemon behind a Unix domain socket at `~/.atomic/bus.sock` speaks newline-delimited JSON; sessions join named rooms under a name and publish envelopes that the daemon fans out to every live subscriber. The daemon auto-spawns on first need and runs until stopped; there is no idle timer.
 
@@ -94,7 +94,7 @@ Three reactive agents in a room where nothing is addressed will answer each othe
 
 ### Verbs
 
-Derived from `buildBusCmd`. "Agent" verbs are the ones a Claude session runs for itself; "operator" verbs are for the human driving the room from a terminal. Every verb that takes a room accepts `--host <name>` to reach a room on a `[bus.remotes.<name>]` gateway instead of the local daemon, except `chat`, which stays local-only.
+Derived from `buildBusCmd`. "Agent" verbs are the ones an agent session runs for itself; "operator" verbs are for the human driving the room from a terminal. Every verb that takes a room accepts `--host <name>` to reach a room on a `[bus.remotes.<name>]` gateway instead of the local daemon, except `chat`, which stays local-only.
 
 | Verb | Does | Who |
 |------|------|-----|
@@ -147,7 +147,7 @@ telling them apart would leak which admission check failed.
 
 | Path | Role |
 |------|------|
-| [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) | Auto-fires on connect/join/message-another-session language. Owns the connect flow (join, then a Monitor on `recv`), the reaction policy, the trust posture for peer messages, and the truncated-notification recovery path. |
+| [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) | Auto-fires on connect/join/message-another-session language. Owns the connect flow (join, then a persistent `recv` listener), the reaction policy, the trust posture for peer messages, and the truncated-notification recovery path. |
 
 ### Go packages
 
@@ -213,7 +213,8 @@ telling them apart would leak which admission check failed.
 
 - **config domain.** All bus state (`bus.sock`, `bus.lock`, `bus.json`, `rooms/*.log`) resolves through `config.Dir(home)`, called from [`atomic/internal/bus/paths.go`](../../atomic/internal/bus/paths.go). Moving `config.Dir`'s root moves bus's state with it.
 - **config domain, position resolution.** `position.go` calls `where.Resolve(cwd, claudeMDPath)`, reading the `<wikis>` registry from `<home>/.claude/CLAUDE.md`. A change to `where.Resolve`'s signature or to `RepoRoot` / `RealmScope` breaks member naming and position stamping.
-- **serve domain.** [`atomic/internal/serve/api_bus.go`](../../atomic/internal/serve/api_bus.go) imports `internal/bus` as an in-process Go package, not a CLI shell-out. It calls `JoinIdentity`, `RoomLogPath`, `Dial`, `EnsureDaemon`, the `Op*` and `Exit*` constants, and the wire types verbatim, so a signature change there breaks serve at compile time. Serve-side detail belongs to the serve domain file.
+- **serve domain.** [`atomic/internal/serve/api_bus.go`](../../atomic/internal/serve/api_bus.go) imports `internal/bus` as an in-process Go package, not a CLI shell-out. It calls `JoinIdentity`, `RoomLogPath`, `Dial`, `EnsureDaemon`, `DoRemote` / `DoRemoteTimeout`, the `Op*` and `Exit*` constants, and the wire types verbatim, and imports `internal/bus/remote` directly for the `[bus.remotes]` lookup and the remote tail's `Stream`; a signature change in either package breaks serve at compile time. Serve-side detail belongs to the serve domain file.
+- **bus domain's gateway package.** `internal/gateway` imports `internal/bus` and `internal/bus/remote` to admit a frame and dial the daemon's socket; nothing in `internal/bus` imports `internal/gateway` back, so the daemon stays network-unaware.
 - **doctor domain.** The `{"bus", ...}` entries in `cliusage.go` feed the A1 artifact-citation lint. Add, rename, or remove a bus verb or flag without updating `cliusage.go` and A1 either flags a valid citation or misses an invalid one.
 - **bundle domain.** [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) is a bundle input; it must appear in the regenerated [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) output and in the discovery surfaces ([`CLAUDE.md`](../../CLAUDE.md), [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md)).
 - **gateway domain.** `internal/gateway` imports `internal/bus` and `internal/bus/remote` to admit a frame and dial the daemon's socket; nothing in `internal/bus` imports `internal/gateway` back, so the daemon stays network-unaware. `internal/serve/api_bus.go` also imports `internal/bus/remote` directly, for the same remote routing the CLI's `--host` uses.

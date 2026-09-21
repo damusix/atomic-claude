@@ -242,9 +242,10 @@ func wikiLinkifyAction(args []string, cwd string) int {
 }
 
 // wikiInitAction implements `atomic wiki init --scope repo|realm [--root=<path>]`:
-// it declares the scope in .claude/atomic.toml and writes the CLAUDE.md
-// scaffold for it — docs/wiki/CLAUDE.md (steering) for repo, wiki/CLAUDE.md
-// (self-reference) for realm. Both writes no-op when the target exists.
+// it declares the scope in .claude/atomic.toml and writes the scope's steering
+// loader pair — docs/wiki/AGENTS.md plus its CLAUDE.md loader for repo, and
+// wiki/AGENTS.md plus its CLAUDE.md loader for realm. Each pair is a no-op when
+// its CLAUDE.md exists.
 //
 // A marker already declaring a different scope is never rewritten: that exits 1
 // with nothing touched.
@@ -282,14 +283,11 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
-	var path string
-	var created bool
+	var created []string
 	switch scope {
 	case "repo":
-		path = filepath.Join(absRoot, "docs", "wiki", "CLAUDE.md")
 		created, err = InitRepoScope(absRoot)
 	case "realm":
-		path = filepath.Join(absRoot, "wiki", "CLAUDE.md")
 		created, err = InitRealmScope(absRoot)
 	}
 	if err != nil {
@@ -300,7 +298,7 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 	if markerOutcome == config.ScopeMarkerCreated || markerOutcome == config.ScopeMarkerAdded {
 		fmt.Fprintf(out, "created %s\n", config.RepoConfigPath(absRoot))
 	}
-	if created {
+	for _, path := range created {
 		fmt.Fprintf(out, "created %s\n", path)
 	}
 	return 0

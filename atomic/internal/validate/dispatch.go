@@ -164,16 +164,30 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 		return 2
 	}
 
+	// Projections audit the atomic-claude canonical corpus, like bundle: a
+	// user's own repo has no context/ tree to render.
+	var projectionFindings []Finding
+	var projectionSummary summary
+	if includeBundle {
+		var projectionErr int
+		projectionFindings, projectionSummary, projectionErr = runProjectionsCollect(root)
+		if projectionErr != 0 {
+			fmt.Fprintf(w, "atomic validate: projections check failed: internal error (exit %d)\n", projectionErr)
+			return 2
+		}
+	}
+
 	var allFindings []Finding
 	allFindings = append(allFindings, specFindings...)
 	allFindings = append(allFindings, configFindings...)
 	allFindings = append(allFindings, bundleFindings...)
 	allFindings = append(allFindings, artifactsFindings...)
+	allFindings = append(allFindings, projectionFindings...)
 
 	aggSummary := summary{
-		Pass: specSummary.Pass + configSummary.Pass + bundleSummary.Pass + artifactsSummary.Pass,
-		Warn: specSummary.Warn + configSummary.Warn + bundleSummary.Warn + artifactsSummary.Warn,
-		Fail: specSummary.Fail + configSummary.Fail + bundleSummary.Fail + artifactsSummary.Fail,
+		Pass: specSummary.Pass + configSummary.Pass + bundleSummary.Pass + artifactsSummary.Pass + projectionSummary.Pass,
+		Warn: specSummary.Warn + configSummary.Warn + bundleSummary.Warn + artifactsSummary.Warn + projectionSummary.Warn,
+		Fail: specSummary.Fail + configSummary.Fail + bundleSummary.Fail + artifactsSummary.Fail + projectionSummary.Fail,
 	}
 
 	if jsonOut {
@@ -198,6 +212,12 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	fmt.Fprintln(w)
 	printHeader(w, "artifacts", "CLI-flag citation integrity")
 	printHuman(w, artifactsFindings, artifactsSummary, suggest)
+
+	if includeBundle {
+		fmt.Fprintln(w)
+		printHeader(w, "projections", "canonical corpus projection audit")
+		printHuman(w, projectionFindings, projectionSummary, suggest)
+	}
 
 	return exitCode(aggSummary)
 }

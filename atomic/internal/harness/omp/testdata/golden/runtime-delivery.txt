@@ -1,0 +1,21 @@
+marker atomic-omp-runtime bound 8192 index-units 840 suppressed false
+event session_start session-baseline observation=true observation only
+event before_provider_request session-baseline observation=true observation only: records whether the delivered block reached the provider payload
+event session_shutdown session-baseline observation=true observation only: writes the session summary
+event before_agent_start session-baseline observation=false bounded session-baseline rule index (bound 8192 UTF-16 code units)
+event tool_call pre-operation-targets observation=false exact-path matching for proven structured inputs; uncovered tools recorded
+event tool_call deterministic-deny observation=false exact predicate deny
+index shipped:rules/all/style.md 2f9e78a0e8524212922199044333dcda089df40d2c6f89ed931cb68a676e8bfc unsupported **/*.ts => ^(?:[^/]+/)*[^/]*\.ts$
+index shipped:rules/docs/spec.md 0a775297a3a4d930af278927b7143861929fd65f68ee982bc4604616dcf8aa62 unsupported docs/spec/**/*.md => ^docs/spec/(?:[^/]+/)*[^/]*\.md$
+index shipped:rules/ts/style.md 5323b9db9d9b8f78c14e9d1e634f59f3c7255c20dd0043e2603d96d384b029cd unsupported **/*.{ts,tsx} => ^(?:[^/]+/)*[^/]*\.(?:ts|tsx)$
+tool read path
+gap static-scoped-rule unsupported
+gap context-return unsupported
+unproven repository wiki card runtime index
+unproven pre-operation matched-body delivery
+unproven extension disablement
+dedupe factory omp.extension-discovery, omp.dedupe: one resolved extension path runs one factory per process, even when it is also named explicitly
+dedupe injection one Atomic block per returned system prompt; a block already present is replaced, never stacked
+dedupe resume omp.resume: a resumed session starts a new process, so the factory, session_start, and the baseline delivery run again
+dedupe child omp.child: a child session runs its own factory and session_start in the same process and receives its own baseline delivery, never the parent's
+dedupe lifetime the block is supplied on every before_agent_start call, which is how the session keeps it

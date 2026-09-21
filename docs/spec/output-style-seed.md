@@ -13,6 +13,12 @@ Make Atomic the effective output style in every project that has not chosen othe
 Seed the user-level key from install, update, and session start; never overwrite, never write a project file. Design: [`docs/design/output-style-seed.md`](../design/output-style-seed.md).
 
 
+## OMP delivery
+
+
+OMP does not receive the output style as a packaged artifact or as a rule. Each enrolled OMP profile's native `AGENTS.md` carries one Atomic-owned managed block composed of the rendered Atomic steering body, one blank line, then the Atomic output-style body with its parsed YAML frontmatter excluded. The style is therefore delivered exactly once per OMP profile, inside steering; there is no OMP `output-styles/` artifact and no rule-surface delivery. Architecture: [`docs/spec/omp-plugin-compatibility.md`](omp-plugin-compatibility.md).
+
+
 ## Non-goals
 
 
@@ -21,6 +27,7 @@ Seed the user-level key from install, update, and session start; never overwrite
 - No "seeded once" marker. The session-start trigger is ungated by decision; a deleted key is re-seeded on the next session.
 - No attempt to compute Claude Code's effective precedence. Doctor reports per-file contents only.
 - No row in `docs/reference/atomic-toml.md`; that page owns the repo-scoped config and this flag is user-scoped.
+- No OMP `output-styles/` artifact and no rule-surface delivery of the output style: OMP receives it once per profile inside the Atomic steering block, per the composition above.
 
 
 ## Success criteria
@@ -39,6 +46,7 @@ Seed the user-level key from install, update, and session start; never overwrite
 11. `atomic doctor` reports the user-level key, flags a project-level value as a possible override, and warns when the key names a style that is not installed. It never flags the user-level file as an override of itself: when the repo root's `.claude` resolves to the install target, as it does running from `$HOME`, the project scan is skipped.
 12. `atomic doctor --fix` seeds the user level only, and does nothing when `seed = false`.
 13. `atomic claude install --dry-run` lists the seed in its plan and writes nothing.
+14. An enrolled OMP profile's native `AGENTS.md` carries the Atomic output style exactly once, inside the Atomic-owned managed block as the steering body, one blank line, then the frontmatter-free style body; the OMP generated package ships no `output-styles/` artifact and no rule entry for it.
 
 
 ## Change tree
@@ -47,6 +55,16 @@ Seed the user-level key from install, update, and session start; never overwrite
 ```
 atomic/
   internal/
+    artifacts/
+      renderer.go               A  OMPSteering composes the import-free steering
+                                   body, one blank line, and the frontmatter-free
+                                   style body
+    harness/
+      omp/
+        steering.go             A  SteeringBlock wraps that composition in the
+                                   profile AGENTS.md managed block
+        package.go              A  generated package: commands, agents, skills,
+                                   actual rules, extension; never output-styles/
     hooks/
       outputstyle.go            A  SeedOutputStyle, ReadOutputStyle,
                                    RemoveOutputStyleIfAtomic, style-file guard
@@ -168,6 +186,19 @@ atomic/internal/doctor/fix.go
 
 atomic/internal/doctor/fix_impls.go
   defaultOutputStyleRepair         — seeds the user level; errNonFixable on no-write
+
+atomic/internal/artifacts/renderer.go
+  OMPSteering                      — steering body, one blank line, style body
+  styleBody                        — style body with frontmatter excluded
+
+atomic/internal/harness/omp/steering.go
+  SteeringBlock                    — wrap the composition in the profile's
+                                     Atomic-owned managed block
+  SteeringDigest                   — block-scoped ownership digest
+
+atomic/internal/harness/omp/package.go
+  BuildPackage                     — commands, agents, skills, and actual rules;
+                                     no output-style artifact
 ```
 
 
@@ -216,6 +247,14 @@ The style-file guard is what keeps the two uninstall flows apart. `atomic hooks 
 4. Present → PASS, reporting the value.
 5. Either way, any `outputStyle` found in `<repoRoot>/.claude/settings.json` or `settings.local.json` is reported as a possible override. The scan is skipped when `<repoRoot>/.claude` and the install target resolve to the same directory, so running from `$HOME` does not report the user-level file as overriding itself. The comparison resolves symlinks, since a `$HOME` or temp dir that is itself a symlink is routine on macOS.
 6. `--fix` seeds the user level only, and returns without action when `seed = false`.
+
+**OMP composition**
+
+1. `artifacts.NewRenderer(cat).OMPSteering` reads the canonical global `AGENTS.md` and the Atomic output-style artifact.
+2. It extracts the steering body and strips import directives, then drops the style's parsed YAML frontmatter — harness metadata, not instructions.
+3. It composes the steering body, one blank line, then the style body, and reports the projection composed with enforcement `unsupported`.
+4. The OMP adapter wraps that composition in one Atomic-owned managed block inside the profile's native `AGENTS.md`; every byte outside the block stays as the user wrote it.
+5. No OMP `output-styles/` artifact and no rule entry for the style exist in the generated package, so the composition is the style's only OMP delivery path.
 
 
 ## Checkpoints
@@ -292,3 +331,11 @@ The style-file guard is what keeps the two uninstall flows apart. `atomic hooks 
 **Superseded:** the key was previously removed on every `atomic hooks uninstall` whose value was `"Atomic"`, with no style-file check.
 
 **Why:** Checkpoint 4's reviewer caught that `hooks.Uninstall` is reached by `atomic hooks uninstall`, which never deletes the style file — it is the documented way to disable only the session-start hook (`docs/guides/install.md`). As originally specified, a user disabling the hook silently lost their output style even though the style remained installed. The original rationale, that the key must not name a deleted style, only applies once the bundle is actually gone, which is exactly what the new guard tests.
+
+### 2026-09-19 — OMP delivery: the style composes into profile steering
+
+**What changed:** A new `## OMP delivery` section, a Non-goals bullet, success criterion 14, matching change-tree and Outline rows, and an "OMP composition" flow state the Milestone A OMP contract: OMP receives no output-style packaged artifact and no rule-surface delivery. Each enrolled OMP profile's native `AGENTS.md` carries it exactly once, inside the Atomic-owned managed block, as the import-free steering body, one blank line, then the style body with its parsed YAML frontmatter excluded. The Claude seed triggers (install/update/session-start, user-level only, `output_style.seed` opt-out, style-file guard, doctor category 14) are unchanged and re-verified against `hooks/outputstyle.go`, `hooks/hooks.go`, and `claudeinstall/install.go`.
+
+**Why:** Milestone A (`docs/spec/omp-plugin-compatibility.md`) carries the output style through OMP steering composition. The body described only the Claude-native seed, so a fresh-context subagent reading it could not build the OMP path.
+
+**Superseded:** None — the OMP composition is additive; no prior body claim about OMP delivery existed, and the Claude seed contract is unchanged.

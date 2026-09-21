@@ -28,7 +28,7 @@ Design source: `docs/design/atomic-doctor.md`.
 - [ ] `--json` emits a stable schema (versioned via `schema_version`) for CI consumers.
 - [ ] `--fix` prompts per item (axiom 3); no batched silent mutations.
 - [ ] `--only <cat>` / `--skip <cat>` accept category indices or canonical short names.
-- [ ] Missing `~/.claude/` short-circuits to exit 0 with one informational line; no FAIL cascade.
+- [ ] A missing `~/.claude/` short-circuits to exit 0 with one informational line **only when the ledger enrolls no target**; an enrolled target — an OMP-only home included — runs the categories, with the Claude-scoped ones reporting `SKIP` instead of a false finding.
 - [ ] Repo-dev-only checks (manifest parity) are omitted entirely (no result row, no `SKIP`) when not in the atomic-claude repo, unless explicitly requested via `--only`.
 - [ ] All checks deterministic — no LLM judgment, pure Go.
 - [ ] `go test ./atomic/internal/doctor/...` covers each check + each repair with table-driven cases.
@@ -75,8 +75,18 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 10 | `profile`       | `~/.atomic/profile.md` exists; `@~/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (same search order as `refs`: `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` / `claude.md`); `<deterministic lastcheck=YYYY-MM-DD>` attribute is present and within the last 30 days. Missing file → WARN; missing @-ref → WARN; missing or stale lastcheck → WARN; a candidate file still carrying the legacy `@~/.claude/.atomic/profile.md` ref → WARN naming `atomic claude install`. | WARN |
 | 11 | `code-index`    | `<projectRoot>/.claude/.atomic-index/atomic.db` freshness check. **Absence is normal — the index is opt-in — and reports PASS (informational).** DB present + mtime older than `--stale-days` (default 7) → WARN with `run 'atomic code sync'`. DB present + fresh → PASS with age detail. **Never FAIL.** | WARN |
 | 12 | `migrate`       | Combines two conditions into one Result (combined-detail style, as `config` does): (a) version drift — `[install].version` in `~/.atomic/config.toml` older than the running binary → WARN naming the pending migration, `Remediation: atomic migrate`; (b) legacy state dir — `~/.claude/.atomic` still a real directory (not the compat symlink left by a completed migration) → WARN naming the path and that migration runs automatically on any `atomic` verb invocation. Severity is the worst of the two; detail concatenates whichever condition(s) fired. Neither firing → PASS. | WARN |
-| 13 | `repo-config`   | `<projectRoot>/.claude/atomic.toml` validation via `config.LoadRepoConfig` + `config.NewIgnoreMatcher`. **Absence is normal — the file is optional — and reports PASS (informational).** Parse errors, unknown keys, invalid `[code] ignore` glob patterns, an invalid top-level `scope` value, and an invalid `[repl] idle_timeout` (unparseable, or zero/negative — see `config.ValidateIdleTimeout`) each report WARN with detail naming the offending value. A valid file reports PASS naming the active ignore-pattern count and, when present, the declared `scope` (e.g. `scope=repo`). The dispatcher additionally WARNs when `scope = "repo"` while the root is also registered as a realm root in the `<wikis>` block — two mechanisms making incompatible claims about one directory; an empty/uninjected CLAUDE.md path skips this sub-check. **Never FAIL** — a malformed or invalid repo config only degrades code-intel indexing/discovery to unfiltered or fallback, it never blocks the repo. | WARN |
+| 13 | `repo-config`   | `<projectRoot>/.claude/atomic.toml` validation via `config.LoadRepoConfig` + `config.NewIgnoreMatcher`. **Absence is normal — the file is optional — and reports PASS (informational).** Parse errors, unknown keys, invalid `[code] ignore` glob patterns, an invalid top-level `scope` value, and an invalid `[repl] idle_timeout` (unparseable, or zero/negative — see `config.ValidateIdleTimeout`) each report WARN with detail naming the offending value. A valid file reports PASS naming the active ignore-pattern count and, when present, the declared `scope` (e.g. `scope=repo`). The dispatcher additionally WARNs when `scope = "repo"` while the root is also registered as a realm root in the wiki registry — two mechanisms making incompatible claims about one directory; an empty/uninjected CLAUDE.md path skips this sub-check. The registry read prefers the authoritative `~/.atomic/wikis.md` and falls back to the installed `<wikis>` projection only when no authority exists, so a changed projection can never override the authority. **Never FAIL** — a malformed or invalid repo config only degrades code-intel indexing/discovery to unfiltered or fallback, it never blocks the repo. | WARN |
 | 14 | `output-style`  | Reads `outputStyle` from the install target's `settings.json` (user level). Absent with `output_style.seed` enabled → WARN, repairable. Absent with seeding disabled → WARN saying so, **not** repairable. Set to `"Atomic"` with `output-styles/atomic.md` missing from the target → WARN naming the missing file, not repairable by seeding. Any other present value → PASS reporting it, qualified as not verified against an installed style file, since a style's `name:` is not its filename. Either way, `outputStyle` found in the current repo's `.claude/settings.json` or `.claude/settings.local.json` is appended to the detail as a possible override, naming the file; that scan is skipped when the repo's `.claude` resolves to the install target itself, so running from `$HOME` never reports the user-level file as its own override. **Never computes an effective/precedence value** — reports per-file contents only, since Claude Code's file-placement rules aren't documented well enough to replicate. | WARN |
+| 15 | `targets`       | Enrolled target instances reported against read-only discovery. Enrollment (the ledger's target records) and native registration (what discovery observes) are separate facts, so both are listed as findings and their disagreement is the defect: a target record whose `native_root` is absent or that discovery does not report → WARN. A project-keyed target (`NativeRoot` empty) is never expected in profile discovery. Reads the shared multi-harness status once per run. | WARN |
+| 16 | `resources`     | Every ledger-owned physical resource with its `consumers` (enrolled targets that depend on it) and `visible-to` (unenrolled instances that can merely see it). Visibility is not a dependency. A consumer the ledger does not enroll → WARN. | WARN |
+| 17 | `journals`      | Unfinished lifecycle journals, previewed read-only via `installstate.SimulateRecoveries` (no lock, no write). Each journal reports its simulated action/conflict counts; a journal that cannot resolve to one safe result → WARN naming the conflicting units; otherwise WARN naming the recoverable journals. None → PASS. | WARN |
+| 18 | `capabilities`  | Each registered harness's CP0 capability record as promised rows against proven ones. Never reads a row without a retained observation as proof. A registered adapter reporting a capability record for another harness → WARN; otherwise PASS with per-harness promised/proven/partial/unproven counts. | WARN |
+| 19 | `rules`         | Every enrolled target's rule surface via the install engine's read-only `RulesStatus`: enforcement tier, owned rule resources with their recorded and observed digests, and the CP0 rule-delivery roles the projection cannot promise (uncovered operations). A conflicting or missing rule resource → WARN; an unproven role is reported, never presented as parity. | WARN |
+| 20 | `trust`         | Deliberate disablement and untrusted hook state. The Claude session-start hook registration is read via `hooks.IsInstalled`; a registered-but-drifted hook → WARN. Per-harness `skill-disablement` capability status and OMP's one unproven extension-disablement surface are reported as findings. A deliberate override is reported, never repaired. | WARN |
+| 21 | `staleness`     | Materialized resources whose recorded generation is behind the selected binary's projection (`RowStale`), and resources carrying no applied digest to compare (`RowUnverifiable`). Either → WARN; otherwise PASS naming the compared resource count. | WARN |
+| 22 | `conflicts`     | Owned resources whose native bytes match neither the recorded generation nor the selected projection — a later derivative edit, a malformed managed block, or a conflicting project card. Any conflict, or a target plan blocker, → WARN; a repair never overwrites the conflicting bytes. | WARN |
+| 23 | `shadowing`     | Projected resources a native copy duplicates. Two shapes are reported: the same owned digest delivered at two paths sharing one file name, and a Claude-native global `AGENTS.md` beside the projected `CLAUDE.md` (which the adapter is contractually forbidden to create or reference). Either → WARN; shadowing is degraded or deliberately disabled delivery, so repair never overwrites the native copy. | WARN |
+| 24 | `codex`         | The Codex native surfaces CP0 could not prove, reported read-only for every discovered or enrolled `CODEX_HOME`: plugin-hook trust, deliberate hook disablement, mediated tool coverage, payload spill, child-session delivery, and the last successful runtime proof — each with its evidence — plus the observed native registration row from Codex's own registry and the rule-delivery roles the capability record leaves unproven. Every surface is unproven for the tested version, so the category reports rather than repairs and never fabricates a trust or coverage claim; no discovered or enrolled Codex home → PASS. | WARN |
 
 
 Category short-names are stable: editing/removing one is a spec amendment (`Removed:` log entry).
@@ -166,7 +176,12 @@ Bumping `schema_version` is a spec amendment.
 ## Missing `~/.claude/`
 
 
-Short-circuit before running any check:
+The missing-Claude-home gate is conditional. Doctor short-circuits — before running any check — only when `~/.claude/` is absent **and** the install ledger enrolls no target. An OMP-only home has no `~/.claude` but still owns lifecycle state, so a non-empty ledger lifts the gate and the categories run; the Claude-scoped ones report `SKIP` rather than a false finding (`install` when the target directory is absent, plus `hooks`, `profile`, and `output-style`, which read the Claude home directly).
+
+
+A ledger doctor cannot read — unreadable, undecodable, or refused as a newer schema — also lifts the gate: that read failure is the defect the multi-harness categories exist to report, and short-circuiting it to "not installed" would swallow it. Those categories then report the unreadable state themselves.
+
+Short-circuit output, when the gate holds:
 
 
 ```
@@ -199,6 +214,8 @@ Per-item confirm (axiom 3). Each repair idempotent. Print every shell command be
 | 7 | `memory`    | **Cannot auto-fix.** Print orphan refs; refuse to delete (user-authored). |
 | 8 | `binary`    | Print: `atomic update` to update. |
 | 14 | `output-style` | Seed the user-level `outputStyle` key via `hooks.SeedOutputStyle` (never a project file), and only when the check reports the warning genuinely fixable. `output_style.seed = false` and a missing style file are reported **cannot auto-fix** up front, so no repair is offered and no write is attempted. |
+| 15, 17, 19, 21 | `targets`, `journals`, `rules`, `staleness` | Converge enrolled targets through the common CP7A planner (`install.Steps.Converge`, `Selection{EnrolledOnly}`). The adapter acquires the one advisory lifecycle lock (`~/.atomic/install/operation.lock`) and recovers unresolved journals oldest-first before planning; the planner re-observes after projection, so a plan that moved on refuses rather than writing around it. The fix loop's per-item `Confirm` is the only consent prompt — the planner is handed `AssumeYes` and never prompts again. With no enrolled target the repair is **cannot auto-fix**. |
+| 16, 18, 20, 22, 23, 24 | `resources`, `capabilities`, `trust`, `conflicts`, `shadowing`, `codex` | **Cannot auto-fix.** These report owned/verbose state; a conflicting or shadowing native copy is reported and preserved, never overwritten, and an unproven native surface is reported rather than fabricated into a trust or coverage claim. |
 
 
 Skill-required and content-authored repairs degrade to printed instructions. This is the acceptable boundary: the CLI cannot dispatch a Claude skill, and cannot rewrite human authorship.
@@ -209,7 +226,7 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 
 | Code | Meaning |
 |------|---------|
-| 0 | All PASS or only WARN/SKIP. Also: `~/.claude/` missing (short-circuit). |
+| 0 | All PASS or only WARN/SKIP. Also: `~/.claude/` missing *and* no target enrolled (short-circuit). |
 | 1 | One or more FAIL. |
 | 2 | Doctor itself errored (cannot read state, conflicting flags, missing required dependency). |
 
@@ -263,6 +280,18 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 
 <!-- empty on creation; entries appended on amendment after approval -->
 
+### 2026-09-19 — Codex surfaces append category 24
+
+**What changed:** One category appends after the existing 1–23, whose names, severities, and indices are unchanged.
+
+- `codex` (24) — the Codex native surfaces CP0 could not prove, for every discovered or enrolled `CODEX_HOME` root. It renders the CP5 read-only seams (`codex.RuntimeState`, `RegistrationStateRow`, `RuntimeDisablementGap`, and `harness.RuleGaps` over the Codex capability record): plugin-hook trust and changed-definition re-review, deliberate hook disablement and configuration precedence, mediated tool coverage, hosted/specialized bypasses, instruction and payload limits, additional-context spill, child-session delivery, the last successful runtime proof, the observed native registration row, and every unproven rule-delivery role. Each row carries the evidence that fixes it.
+
+The category is report-only: its unproven surfaces render as PASS findings (never fabricated as supported) and it never participates in `--fix` — the repair table lists it with the other cannot-auto-fix categories. On an unreadable home, registry, or ledger the category reports the read failure as a WARN exactly like the other multi-harness categories, and `--fix` still refuses to auto-repair it. Every surface is unproven for the tested version, so a fabricated "supported" row would be worse than the reported gap. Enrollment of a Codex home publishes only the generated plugin package — native marketplace and plugin registration is Codex's own surface, observed here rather than staged — so the registration row reports what Codex's registry actually records.
+
+**Why:** CP7F of `docs/spec/omp-plugin-compatibility.md` — Codex enrollment, trust status, disablement, rule tiers, unsupported capability roles, uncovered operations, and the last runtime proof must be discoverable, and every Codex surface must be reported honestly rather than presented as parity.
+
+**Superseded:** The 2026-09-19 CP7C entry's "No Codex checks are added (CP7F)" sentence deferred this work; category 24 is that work. The `--fix` category list now names `codex` among the cannot-auto-fix categories.
+
 ### 2026-05-23 — Signals check gains router validation
 
 **What changed:** The `signals` check (category 3) now validates the signals router in addition to existing freshness checks. New validations: `signals.md` present, `signals.md` `@-ref`'d in a CLAUDE.md-family file, all domain files referenced in the router's Domains table exist on disk, no orphan domain files under `signals/`. Missing router emits WARN (not FAIL) to allow the transition period where repos still have the flat `inferred-signals.md`. Check remains anchored to cwd via `repoctx.Toplevel()` — no worktree cross-comparison.
@@ -305,7 +334,40 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 
 **Correction:** running `atomic doctor` from `$HOME` reported the user-level `settings.json` as a possible override of itself, since `repoRoot` and the install target named the same file. Found by the final audit hand-driving the binary; the check tests missed it because they inject the two roots as distinct temp directories.
 
+### 2026-09-19 — Multi-harness categories (15–23); ledger-managed `--fix`; F-4/F-5 closed
+
+**What changed:** Nine categories append after the existing 1–14, whose names, severities, and indices are unchanged. Each reports independently, reading the read-only multi-harness seams once per run:
+
+- `targets` (15) — enrolled target records against discovery (enrollment vs native registration).
+- `resources` (16) — ledger-owned resources with consumers and visibility kept separate.
+- `journals` (17) — unfinished journals previewed via `installstate.SimulateRecoveries`.
+- `capabilities` (18) — each harness's CP0 rows as promised vs proven.
+- `rules` (19) — per-target tier, rule resource digests, and uncovered rule-delivery roles via `install.Steps.RulesStatus`.
+- `trust` (20) — the Claude session-start hook trust state, per-harness skill disablement, and OMP's unproven extension disablement.
+- `staleness` (21) — materialized generations behind the selected projection.
+- `conflicts` (22) — derivative edits, malformed blocks, and conflicting cards.
+- `shadowing` (23) — a projected resource duplicated by a native copy, including a global Claude `AGENTS.md`.
+
+`--fix` gains a converge repair for `targets`, `rules`, `staleness`, and `journals`. It reuses the common CP7A converge planner (`install.Steps.Converge`), so every ledger-managed repair resolves enrolled targets, re-observes, and hands mutation to the adapter, which acquires the one advisory lifecycle lock (`operation.lock`) and recovers unresolved journals oldest-first before planning. The per-item doctor `Confirm` remains the only consent prompt; the planner receives `AssumeYes` so it never prompts twice. Purely local repairs keep their existing behavior. No Codex checks are added (CP7F).
+
+**F-5 closed:** category 13's `scope = "repo"` vs realm-registry contradiction sub-check now reads the wiki registry through `wiki.RegisteredIndexPaths`, which prefers the authoritative `~/.atomic/wikis.md` and falls back to the installed `<wikis>` projection only when no authority exists. A changed projection can no longer override the authority. **Superseded:** the prior body described the sub-check as reading the `<wikis>` block in `ClaudeMDPath` directly.
+
+**F-4 adjudicated:** session-baseline belongs to the rule-delivery surface, not the session layer alone — the Codex projection delivers bounded rule context through its proven session-baseline event. `harness.RuleGaps` now includes `RoleSessionBaseline`, so a harness whose baseline is unproven (Claude's is partial, Codex's unproven) reports it as a gap, while OMP's proven baseline drops out. Pinned by `TestRuleGapsIncludesSessionBaseline`.
+
+**Why:** CP7C of `docs/spec/omp-plugin-compatibility.md` — `atomic doctor` must report target instances, shared resources, unfinished journals, capability gaps, stale materializations, deliberate disablement or untrusted hooks, effective-content shadowing, and uncovered rule operations independently, and any ledger-managed `--fix` must use the global lock, oldest-first recovery, and the common planner rather than a second repair path.
+
+### 2026-09-19 — Correction: the missing-Claude-home short-circuit is conditional, and an unreadable ledger lifts it
+
+**What changed:** The missing-Claude-home gate is now stated as the conditional rule the code implements. Doctor short-circuits only when `~/.claude/` is absent *and* the ledger enrolls no target; the short-circuit message and `--json` contract for that empty case are unchanged, and the exit-code row now says so. An enrolled target — an OMP-only home included — runs the categories, with the Claude-scoped ones reporting `SKIP` rather than a false finding.
+
+`HasEnrolledTargets` no longer collapses a ledger load/validation error into "nothing enrolled". A ledger that is unreadable, undecodable, or refused as a newer schema also lifts the gate, so the multi-harness categories run and report the read failure through their existing unavailability detail — the same report shape they emit for any unreadable lifecycle state.
+
+**Correction:** The body described a gate the code had already made conditional (`ClaudeHomeMissing && !HasEnrolledTargets`), and said nothing about unreadable ledgers while `HasEnrolledTargets` returned false on any load error. Found by the CP7E re-review; pinned by `TestShortCircuitLiftsOnUnreadableLedger` (damaged, newer-schema, and permission-denied ledgers) alongside the existing `TestShortCircuitLiftsForEnrolledTargets` and `TestDoctorRunsHarnessCategoriesOnOMPOnlyHome`.
+
+**Superseded:** Prior body stated "Missing `~/.claude/` short-circuits to exit 0 with one informational line" as unconditional and documented only the empty-ledger output; a load or validation error on the ledger read as an absent one.
+
 ## Implementation log
+
 
 
 ### v1 — 2026-05-17

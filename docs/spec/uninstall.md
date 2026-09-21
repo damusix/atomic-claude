@@ -3,7 +3,9 @@
 
 ## Goal
 
-Users can cleanly reverse `atomic claude install` — restoring their pre-atomic `~/.claude/` state with LLM-mediated intelligence for files modified post-install.
+Users can cleanly reverse an Atomic install across every enrolled harness target, and a full removal leaves their user data intact. `atomic harness uninstall` is the primary surface — one target at a time, or every enrolled target with `--all`. The Claude-only pre-install snapshot route (`atomic claude uninstall`) remains available as the Claude target's snapshot-based recovery path.
+
+The removal, retention, lock, and recovery contracts are shared with the multi-harness lifecycle — see `docs/spec/omp-plugin-compatibility.md`. This spec states only the uninstall-specific decision.
 
 
 ## Non-goals
@@ -11,17 +13,19 @@ Users can cleanly reverse `atomic claude install` — restoring their pre-atomic
 - Binary self-removal (print instruction instead).
 - Project-level artifact removal (`.claude/project/` signals, followups).
 - Backwards-compat with installs predating the snapshot feature.
-- Pure-CLI uninstall without LLM mediation.
+- Removing user data: `~/.atomic/config.toml`, `~/.atomic/profile.md`, `~/.atomic/wikis.md`, and backups survive a full uninstall.
+- Removing operational state an unresolved journal still owns — it is retained until recovery completes.
 
 
 ## Success criteria
 
-- [ ] `atomic claude install` writes `~/.atomic/pre-install/` on first install containing: every file it will touch (CLAUDE.md, settings.json, agents/, commands/, skills/, output-styles/, rules/) plus a `manifest.json` recording paths, SHA256s, and timestamps.
-- [ ] Subsequent `atomic claude install` / `atomic claude update` calls do NOT overwrite `pre-install/` if it already exists.
-- [ ] `atomic claude uninstall` CLI subcommand exists and outputs a structured LLM prompt.
-- [ ] Prompt instructs Claude to restore pre-install files, delete atomic-only artifacts, LLM-merge settings.json/CLAUDE.md, remove `~/.atomic/`, and print binary removal instruction.
-- [ ] CLI exits 1 with clear error when `pre-install/manifest.json` is missing.
-- [ ] CLI detects TTY and prints human-readable hint when run outside a Claude session.
+- [ ] `atomic harness uninstall <target-key>` removes only the unchanged resources owned for that target. A resource whose native bytes changed — including an edit to an owned `settings.json` member — is reported `skipped` with its reason and the exact next step and keeps its ownership claim rather than aborting the removal, so the rest of the target still uninstalls; `--discard-changed` releases the claim on each skipped resource after confirming it by resource name, so a skip is transitional rather than terminal. A resource another enrolled consumer depends on is retained and reported; a target key that does not parse is still removable by its raw ledger key.
+- [ ] `atomic harness uninstall --all` removes every enrolled target, then the completed operational and adoption state.
+- [ ] Full uninstall preserves `~/.atomic/config.toml`, `~/.atomic/profile.md`, `~/.atomic/wikis.md`, and backups, and retains unresolved journals plus the transaction backups, ledger rows, and state-location records they reference until recovery completes.
+- [ ] `--dry-run` opens no lock, writes nothing, previews unresolved journals read-only, and reports `blocked_on_recovery` (exit 1) when a journal cannot resolve to one safe result.
+- [ ] Every real mutation acquires one advisory lifecycle lock and reconciles unresolved journals oldest-first before planning.
+- [ ] `atomic claude install` writes `~/.atomic/pre-install/` on first install containing every file it will touch (CLAUDE.md, settings.json, agents/, commands/, skills/, output-styles/, rules/) plus a `manifest.json` recording paths, SHA256s, and timestamps; while the directory exists a later install or update does NOT overwrite it.
+- [ ] `atomic claude uninstall` outputs a structured LLM prompt for the Claude target, exits 1 with a clear error when `pre-install/manifest.json` is missing, and prints a human-readable hint when run outside a Claude session.
 
 
 ## Checkpoints
@@ -35,113 +39,63 @@ Users can cleanly reverse `atomic claude install` — restoring their pre-atomic
 
 ## Design
 
-### Pre-install snapshot
+### Target uninstall
 
-**Location:** `~/.atomic/pre-install/`
+`atomic harness uninstall <target-key>` removes one enrolled target's unchanged Atomic-owned resources. Ownership comes from the ledger, never from names or legacy config paths.
 
-**When written:** During `Install()` in `claudeinstall`, before `Apply()` runs. Guarded by: `if pre-install/ dir exists → skip`. Write-once.
+- A resource whose native bytes changed since Atomic wrote them is reported `skipped` and keeps its claim rather than aborting the removal — uninstall never overwrites a user edit, and the rest of the target still uninstalls. The skip line names the reason and the exact next step: `--discard-changed` releases the claim on each skipped resource after confirming that resource by name. A file or tree is deleted; a managed block is stripped, or left whole with its claim released when its tags no longer parse; a settings file Atomic cannot write keeps the user's bytes while its claim is released. Without the flag nothing changes.
+- A resource another enrolled consumer depends on is retained and reported alongside what was removed.
+- A resource the removal cannot clear is reported `skipped` alongside what was removed, and its ledger row and enrollment are kept: the bytes still on disk behind a read-only file are still Atomic's claim, so a later uninstall can finish the job.
+- A directory a removed file resource emptied is removed with it — the `extensions/` directory the delivered OMP module created does not outlive the module — bounded by the target's native root and only when nothing else remains in it.
+- A target key that does not parse into an enrolled target still names ledger rows, and the row-only removal clears them by that raw key, so a stale record an older writer left is never unremovable state.
+- A Claude target's `settings.json` is owned member-wise rather than whole-file: whenever a Claude target converges — adapter converge during enroll, repair, or update, and the explicit legacy adoption — the ledger records the Atomic-owned members (the inline `SessionStart` registration and the `outputStyle` seed), so uninstall strips exactly those members and leaves the user's other keys byte-for-byte. A later edit to an owned member is a changed resource like any other — the removal reports it `skipped` instead of overwriting it, matching the read-only case above.
+- The plan is complete before anything is removed: every resource is observed, planned, and approved (one confirmation), then removed.
 
-**What's captured:**
+### Full uninstall
 
-| Source | Snapshot path | Notes |
-|--------|--------------|-------|
-| `~/.claude/CLAUDE.md` | `pre-install/CLAUDE.md` | May not exist (fresh install) |
-| `~/.claude/settings.json` | `pre-install/settings.json` | May not exist |
-| `~/.claude/agents/*.md` | `pre-install/agents/*.md` | Only files whose names match manifest targets |
-| `~/.claude/commands/*.md` | `pre-install/commands/*.md` | Same |
-| `~/.claude/skills/*/SKILL.md` | `pre-install/skills/*/SKILL.md` | Same |
-| `~/.claude/output-styles/*.md` | `pre-install/output-styles/*.md` | Same |
-| `~/.claude/rules/**/*.md` | `pre-install/rules/**/*.md` | Same |
+`atomic harness uninstall --all` removes every enrolled target, then removes the completed operational and adoption state through `installstate.Cleanup`.
 
-**`manifest.json` schema:**
+- **Preserved:** `~/.atomic/config.toml`, `~/.atomic/profile.md`, `~/.atomic/wikis.md`, and backups under `~/.atomic/backups/` — user data, not Atomic-owned state.
+- **Retained:** unresolved journals, and the transaction backups, ledger rows, and state-location records those journals reference, until recovery completes. `installstate.ComputeRetention` names what survives; a completed journal contributes nothing and its operational state is removable. A row whose removal was skipped — a read-only `settings.json` — is passed to `installstate.Cleanup` explicitly and survives with the target record it names, so the full uninstall does not silently drop a claim the bytes still support.
+- A transaction directory with no journal at all is orphaned v2 evidence and is never auto-deleted.
 
-```json
-{
-    "created": "2026-05-24T12:00:00Z",
-    "atomic_version": "1.5.1",
-    "files": [
-        {
-            "path": "CLAUDE.md",
-            "sha256": "abc123...",
-            "existed": true
-        },
-        {
-            "path": "agents/atomic-builder.md",
-            "sha256": "",
-            "existed": false
-        }
-    ]
-}
-```
+The full retention criteria are owned by the multi-harness lifecycle spec — see `docs/spec/omp-plugin-compatibility.md`.
 
-`existed: false` means "this path didn't exist before atomic — uninstall should delete, not restore."
+### Dry run and locking
 
-### Uninstall command
+- `--dry-run` opens no lock, writes nothing, and previews unresolved journals read-only through `installstate.SimulateRecoveries`. A journal that resolves to one safe result yields the advisory post-recovery plan, planned against the ledger a real recovery would leave behind. A journal that cannot resolve to one safe result reports `blocked_on_recovery` and exits 1 — no plan is offered.
+- Every real mutation acquires one advisory lifecycle lock and reconciles unresolved journals oldest-first before planning. Uninstall is the one lifecycle operation that proceeds past a recovery conflict: recovery consumes what it can verify, and each removal independently skips any resource whose bytes changed.
 
-**Trigger:** `atomic claude uninstall` (CLI subcommand, not a slash command).
+### Claude pre-install snapshot route
 
-**No agent definition.** The CLI bakes the LLM prompt into the binary. User either runs `atomic claude uninstall` from within a Claude session (Claude executes it and receives the prompt as stdout), or runs it in terminal and pastes the output into Claude.
+`atomic claude uninstall` is the Claude target's snapshot-based recovery path, independent of the ledger. It is CLI-only — no agent definition; the binary bakes the LLM prompt.
 
-**CLI responsibilities (deterministic):**
+**Snapshot.** `atomic claude install` writes `~/.atomic/pre-install/` before its first `Apply()`: a copy of every file it will touch (`CLAUDE.md`, `settings.json`, `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`) plus a `manifest.json` recording paths, SHA256s, and timestamps. Write-once — while the directory exists, a later install or update is a no-op.
 
-1. Read `~/.atomic/pre-install/manifest.json`. If missing → exit 1 with "no pre-install snapshot found."
-2. Compute the restore plan from manifest:
-   - `existed=true` → file to restore (source: `pre-install/<path>`)
-   - `existed=false` → file to delete
-3. Identify which files need LLM mediation:
-   - `settings.json`: if current SHA differs from BOTH pre-install AND embedded → needs merge
-   - `CLAUDE.md`: if current SHA differs from pre-install → needs merge
-4. Output a structured prompt to stdout that tells Claude exactly what to do.
+**Plan.** `BuildUninstallPlan` reads the manifest and three-way compares each file against the pre-install SHA and the embedded SHA:
 
-**CLI output (the prompt Claude receives):**
+| Current bytes | Action |
+|---------------|--------|
+| unchanged since install (== pre-install SHA) | restore from snapshot |
+| == embedded SHA | delete — Atomic wrote it, the user never touched it |
+| neither | restore with merge — the user modified it post-install |
 
-```markdown
-## Atomic Claude Uninstall
+`~/.atomic/profile.md` is user data with no pre-install counterpart; the plan never restores or deletes it. A missing manifest exits 1 with "no pre-install snapshot found".
 
-Run these steps in order. Confirm the plan with the user before executing.
+**Prompt.** The CLI prints a structured markdown prompt to stdout: show the plan, take one confirmation, then restore / merge / delete as listed and print the binary removal instruction. When stdout is a TTY the CLI prints a human-readable hint above the prompt.
 
-### Plan
-
-Restore from pre-install:
-- ~/.claude/settings.json (NEEDS MERGE — user modified post-install)
-- ~/.claude/agents/my-custom-agent.md
-
-Delete (no pre-install counterpart):
-- ~/.claude/agents/atomic-builder.md
-- ~/.claude/agents/atomic-reviewer.md
-- [... all atomic-managed artifacts ...]
-
-Remove directory:
-- ~/.atomic/
-
-### Instructions
-
-1. Show this plan to the user. Get one confirmation before proceeding.
-2. For files marked "NEEDS MERGE":
-   - Read the current file and the pre-install snapshot at ~/.atomic/pre-install/<path>
-   - Identify what the user added post-install (permissions, MCP servers, env vars, custom sections)
-   - Write a merged result: pre-install base + user additions, minus atomic hook/config entries
-   - Show the diff to the user before writing
-3. For files marked "Restore": copy from ~/.atomic/pre-install/<path>
-4. For files marked "Delete": rm the file
-5. rm -rf ~/.atomic/
-6. Print: "Uninstall complete. Binary still at <path>. Run: rm <path>"
-```
-
-**TTY detection:** If stdout is a TTY (user ran it in their terminal, not through Claude), print a human-readable hint above the prompt: "Run this inside a Claude Code session, or ask Claude to run `atomic claude uninstall`."
-
-### Confirmation UX
-
-One confirmation at the start showing the full plan. Then execute. No per-item prompts.
+**`--target`.** `atomic claude uninstall [--target <dir>]`. The default root resolves through the Claude adapter and honors `CLAUDE_CONFIG_DIR`; an explicit path goes through claudeinstall's tilde handling.
 
 
 ## Risks
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| User modified an atomic-managed file post-install (e.g. added custom agent named `atomic-builder.md`) | Low | Manifest records SHA256; if current differs from both pre-install and embedded, warn + ask |
-| `settings.json` has complex nested structure that LLM misreads | Medium | Show unified diff to user; require explicit confirm; keep a `.atomic-uninstall-backup` as safety net before final write |
-| User runs uninstall, regrets it, wants to re-install | Low | Binary still exists; `atomic claude install` works fresh. Pre-install/ is gone but that's fine — next install creates a new one |
+| A target resource was edited after Atomic wrote it | Medium | The resource is reported `skipped` and keeps its claim; the user resolves the divergence — with `atomic harness repair` — before retrying |
+| A shared resource is still used by another enrolled target | Low | Retained and reported; removed only once no enrolled consumer depends on it |
+| A crash leaves an unresolved journal | Low | The next mutation recovers oldest-first; unresolved work and its backups are retained, never silently dropped |
+| `settings.json` has complex nested structure that the LLM route misreads | Medium | Show a unified diff to the user; require explicit confirm before writing |
+| User runs uninstall, regrets it, wants to re-install | Low | The binary still exists and `atomic install` works fresh; preserved config, profile, and wikis survive |
 
 
 ## Implementation log
@@ -168,6 +122,44 @@ Built across 4 iterations of /subagent-implementation. Commits (chronological):
 
 
 ## Change log
+
+### 2026-09-20 — A skip is transitional: discard, native-key removal, empty containers
+
+**What changed:** `atomic harness uninstall --discard-changed` releases Atomic's claim on each resource the default plan skipped, after confirming that resource by name: a file or tree is deleted, a managed block is stripped (or left whole with its claim released when its tags no longer parse), and a settings file Atomic cannot write keeps the user's bytes while its claim is released. Without the flag nothing changes, and the skip line now prints the reason and the exact next step instead of a bare id. The removal also deletes a native directory its own removed file resource emptied — the `extensions/` directory the delivered OMP module created — bounded by the target's native root and only while it holds nothing else. A target key that does not parse into an enrolled target is removable by its raw ledger key through the row-only path.
+
+**Why:** A skipped resource had no exit and no stated one, so a drifted file or a read-only `settings.json` left the target enrolled forever while every later uninstall reported the same success-shaped skip; and the directory the extension module created outlived the module that owned it.
+
+**Superseded:** the skip was terminal (no flag, no named resolution) and the removal deleted only the resource file itself. Success criterion 1 and the `### Target uninstall` bullets carried the superseded wording; `docs/spec/omp-plugin-compatibility.md` criterion 73 and its uninstall flow state the same correction.
+
+### 2026-09-20 — Drift on an owned resource no longer aborts the removal
+
+**What changed:** A target resource whose native bytes changed since Atomic wrote them is now reported `skipped` and keeps its ledger row and enrollment, while the rest of the target uninstalls; previously such a resource refused the whole operation. The multi-harness classifier no longer reports ordinary row/bytes drift as `mixed`, so `atomic harness uninstall` reaches the removal plan at all. The settings bullet carries the same skip semantics for an edited owned member.
+
+**Why:** A row/bytes disagreement is per-resource drift, not a state, so aborting the removal hid the resources that could be cleared behind the one that could not. The redesign is in `docs/spec/omp-plugin-compatibility.md` (per-resource drift, ledger-recorded ownership evidence).
+
+**Superseded:** Prior body refused the entire target removal whenever any owned resource had changed, and success criterion 1 said so explicitly.
+
+### 2026-09-20 — A skipped removal keeps its ownership claim
+
+**What changed:** A resource the removal cannot clear — a read-only `settings.json` — is reported `skipped` rather than `removed`, and its ledger row and enrollment survive, including through `atomic harness uninstall --all` where `installstate.Cleanup` is passed the skipped rows explicitly. A later uninstall clears the claim once the file is writable.
+
+**Why:** The settings resource is written by convergence, so a read-only file made the removal silently drop the claim while the `SessionStart` registration and `outputStyle` seed stayed in the user's settings file — residue no later uninstall could name.
+
+### 2026-09-20 — Claude settings ownership is member-wise
+
+**What changed:** A Claude target's `settings.json` is now an owned resource in the ledger, recorded during adapter convergence with a digest over only the Atomic-owned members (the inline `SessionStart` registration and the `outputStyle` seed). Target and full uninstall strip exactly those members, leaving the user's other keys byte-for-byte; a later edit to an owned member is a changed resource and refuses the whole operation. The `### Target uninstall` body states the member-wise contract.
+
+**Why:** The converge-time settings mutations were not ledger-owned, so `atomic harness uninstall` left the registration and `outputStyle` behind. See `docs/spec/omp-plugin-compatibility.md` for the multi-harness lifecycle.
+
+**Superseded:** Prior body treated every owned resource as whole-file or whole-block bytes, with no settings resource, so the converge-time hook/style mutations survived a target uninstall.
+
+### 2026-09-19 — generic multi-target uninstall is the primary surface
+
+**What changed:** The body now leads with `atomic harness uninstall <target-key> | --all`. A target uninstall removes only unchanged owned resources, refuses the whole operation when a resource's native bytes changed, and retains a resource another enrolled consumer depends on. `--all` removes every enrolled target, then completed operational and adoption state; full uninstall preserves `~/.atomic/config.toml`, `profile.md`, `wikis.md`, and backups, and retains unresolved journals plus the transaction backups, ledger rows, and state-location records they reference until recovery completes. `--dry-run` opens no lock, writes nothing, previews journals read-only, and reports `blocked_on_recovery`; every real mutation takes one advisory lifecycle lock and recovers journals oldest-first first. The pre-install snapshot and the `atomic claude uninstall` LLM prompt are kept as the Claude target's route, with its write-once snapshot and `--target`/`CLAUDE_CONFIG_DIR` resolution stated from code.
+
+**Why:** Milestone A (`docs/spec/omp-plugin-compatibility.md`) makes uninstall a ledger-managed multi-harness lifecycle operation with a preserve-data and recovery-retention contract, not only the Claude-only snapshot recovery this body previously described.
+
+**Superseded:** Prior body described only the Claude-only pre-install snapshot + `atomic claude uninstall` LLM-prompt path, whose uninstall removed `~/.atomic/` wholesale. Whole-root removal no longer holds — full uninstall preserves config, profile, wikis, and backups. The `Pure-CLI uninstall without LLM mediation` non-goal is dropped (the generic path is pure CLI) and the stale `.atomic-uninstall-backup` risk mitigation is removed — neither appears in the implementation.
 
 ### 2026-07-16 — User state root relocated to ~/.atomic
 

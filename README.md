@@ -42,11 +42,12 @@
 | Feature | What it does |
 |---|---|
 | **Repo-aware sessions** | One scan builds a standing map of your codebase that Claude reads before your code, so it stops inventing `npm` scripts. |
+| **Multi-harness install** | One authored corpus projects into Claude Code, Oh My Pi (OMP), and Codex CLI through native adapters. Enroll a harness explicitly; `atomic update` reconverges the ones already enrolled. |
 | **Code graph** | A tree-sitter symbol graph across 31 languages and 23 web frameworks answers callers, call sites, and blast radius, no compiler required. |
 | **SQL in the graph** | Procedures, views, foreign keys, and lineage across Postgres, MySQL, T-SQL, and Snowflake, plus dbt models and macros, read from `.sql` files with no database connection. |
 | **Autopilot** | `/autopilot` takes an issue to a merged PR: plans, tests first, reviews its own diff, ships. Your only decision is how to merge. |
 | **Self-sharpening config** | `/retrospective-learning` mines your corrections for friction and edits its own skills and rules, only with your say-so. |
-| **Inter-session bus** | Concurrent Claude Code sessions message each other over named rooms: delegate work to a peer session, watch or halt a room as the operator. `atomic bus gateway` hosts rooms across machines behind sealed keys. |
+| **Inter-session bus** | Concurrent agent sessions message each other over named rooms: delegate work to a peer session, watch or halt a room as the operator. `atomic bus gateway` hosts rooms across machines behind sealed keys. |
 | **Persistent REPLs** | Named Python and Node interpreter sessions hold state across separate Bash calls, so agents stop re-running setup code to get back to where they were. |
 | **Structured replies** | Tables, trees, and ASCII flows replace walls of prose when they explain faster. |
 | **Incremental adoption** | One install; every layer is optional, from clearer replies up to full autopilot. |
@@ -55,6 +56,17 @@
 ## 🚀 Usage
 
 Everything below is opt-in and composes into one lifecycle. Lost? `/atomic-help` reads your git state and names one next command; `/atomic-help tour` walks the whole system.
+
+### Install and harnesses
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
+atomic install --harness claude      # enroll + converge Claude Code
+atomic install --harness omp         # enroll + converge Oh My Pi (OMP)
+CODEX_HOME=~/.codex atomic install --harness codex   # enroll + converge Codex CLI
+```
+
+Atomic ships one authored corpus — `context/AGENTS.md` plus commands, agents, skills, and rules — and projects it into a harness through a native adapter. Claude Code receives a direct global `CLAUDE.md`, repository and realm `AGENTS.md` loader pairs, native artifacts, and path-scoped rules. OMP receives an import-free profile `AGENTS.md` and the generated extension module under the profile's agent root, which is the one native artifact OMP was observed to load; its commands, agents, skills, and rules ship in `~/.atomic/packages/omp/atomic` as Atomic's corpus store, and package installation, registration, and artifact discovery are reported `unsupported` rather than assumed. Enrollment is explicit: `atomic harness list` marks each instance discovered or enrolled, `atomic harness status` reports one target and the shared resources it consumes, `atomic harness repair` reconverges it, and `atomic update` never enrolls a target on its own. Codex receives one generated plugin package — marketplace descriptor, plugin manifest, the rule index and matcher, and the projected rule, skill, and agent corpus — and resolves its root from `CODEX_HOME`, the only root CP0 observed. Codex 0.147.0 proved registration and list visibility only, so no hook configuration is emitted at all and `atomic doctor`'s `codex` category reports every runtime surface as unsupported with its evidence rather than claiming parity; enrollment writes no Codex configuration, because Codex's own registry stays Codex's surface. → [install guide](docs/guides/install.md)
 
 ### The workflow
 
@@ -90,12 +102,12 @@ Each phase's working state lives in one `atomic scratchpad` bundle per task — 
 
 Wikis are how Claude learns a codebase once instead of every session. Two scopes:
 
-- **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes. Plus one pointer card per domain under `.claude/rules/wiki/`, injected whenever Claude touches a file in that domain.
+- **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes. Plus one pointer card per domain under `<state-root>/rules/wiki/` (default `.claude/rules/wiki/`), injected whenever Claude touches a file in that domain.
 - **Realm wiki**: a Karpathy-style knowledge base you compile with Claude instead of maintaining by hand. A folder holds your repos and the loose material around them; the `wiki/` beside them holds per-repo summaries, shared concerns, and knowledge pages synthesized from capture buckets.
 
 ```text
 ~/work/acme/       the realm: repos + the material around them
-├─ CLAUDE.md       realm rules, loaded from any session inside
+├─ AGENTS.md       realm rules (plus a thin CLAUDE.md loader) — loaded from any session inside
 ├─ billing-api/    repo · has its own wiki → linked
 ├─ gateway/        repo · has its own wiki → linked
 ├─ vendor-sdk/     repo · no wiki → summarized
@@ -115,7 +127,7 @@ Two commands drive it. `/setup-wiki` audits a repo's conventions (ignore rules, 
 
 ## 💭 Contributing & feedback
 
-Atomic Claude dogfoods itself: the root artifacts are both the live config and the bundle source. Bugs and ideas are welcome via [Issues](https://github.com/damusix/atomic-claude/issues). To work on the config, see [docs/guides/contributing.md](docs/guides/contributing.md).
+Atomic Claude dogfoods itself: [`context/`](context/) is both the shipped artifact source and the live config this repo runs on. Bugs and ideas are welcome via [Issues](https://github.com/damusix/atomic-claude/issues). To work on the config, see [docs/guides/contributing.md](docs/guides/contributing.md).
 
 
 ## 📖 Further reading

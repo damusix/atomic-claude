@@ -50,7 +50,7 @@ Apply the same domain-partitioning logic as the repo-scope Step 3 (vertical slic
 
 ### W4 — Dispatch sub-agents per domain
 
-Dispatch one `atomic-wiki-writer` per member repo, naming that type explicitly — omitting `subagent_type` falls back to `general-purpose`, which carries no `skills:` frontmatter. Same dispatch logic as the repo-scope Step 4, with two differences:
+Dispatch one `atomic-wiki-writer` per member repo, dispatched by its stable identity, fresh context — an implicitly chosen agent carries none of the wiki contract. Same dispatch logic as the repo-scope Step 4, with two differences:
 
 1. Sub-agents read from `target_repo` read-only and write their domain output to `wiki_dir/repos/<repo-name>/` (or single file for small repos). They do NOT write into `target_repo`.
 2. **Omit the `<concerns_format>` block from sub-agent prompts.** Wiki mode never surfaces concerns (W7 explicitly excludes them), so including the block wastes tokens generating output that is immediately discarded.
@@ -63,7 +63,7 @@ Only one pipeline reference is loaded per run, so the sub-agent instructions are
 - Read the actual source files. Do not infer from filenames alone.
 - Invoke the `atomic-writing` skill and follow it. It governs three things here, not one: the page's reading order, when a shape gets drawn instead of written, and the sentence-level voice.
 - Draw every shape the repo has. A build pipeline, a request path, and a deploy flow are three claims and three diagrams, each with its own `###` sub-heading and a caption stating what it claims. There is no cap. Leaving a shape in prose is the failure to avoid, not drawing too many.
-- Before writing any Mermaid block, read `~/.claude/skills/atomic-writing/references/mermaid.md` — it picks the diagram type from the reader's question and lists what breaks rendering.
+- Before writing any Mermaid block, read the `atomic-writing` skill's Mermaid reference (`mermaid.md`, in that skill's own references directory) — it picks the diagram type from the reader's question and lists what breaks rendering.
 - Draw from the source you read, never from prose someone already wrote about it. A diagram inherits any error in the paragraph it was copied from.
 - Redraw the design diagrams. The dispatch prompt's `<design_docs>` block lists `target_repo`'s `docs/design/*.md` for this domain, or `none`. For each file in `<design_docs>`, read every Mermaid block. A block that draws current architecture (a pipeline, a data model, a request path, a lifecycle) is redrawn in `## How it works` against the source: every node label resolves to a file or symbol in `target_repo` (`atomic code search <label>` when the index exists, grep otherwise), the caption states the claim, and the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md` applies. A block that draws a decision (before and after, a rejected topology) stays in the design. A block whose nodes no longer resolve is dropped and named on the page as one `## Constraints` line stating what breaks: `docs/design/<file>.md draws <node>, which no longer exists in source; this page's diagram is current, the design's is not.` The redrawn block's `%% source:` comment names the design doc it came from and the source files its nodes resolve to.
 - Output only the file content. Do not summarize your process.
@@ -122,7 +122,7 @@ Same reviewer dispatch logic as the repo-scope Step 5. Reviewer checks that ever
 
 ### W6 — Skip @-ref wiring
 
-Do NOT wire any `@-ref`. Wiki summaries live under `wiki_dir/` — they are not wired into any CLAUDE.md or project config. No `@-ref` is written.
+Do NOT wire any `@-ref`. Wiki summaries live under `wiki_dir/` — they are not wired into any steering file or project config. No `@-ref` is written.
 
 ### W7 — Report
 

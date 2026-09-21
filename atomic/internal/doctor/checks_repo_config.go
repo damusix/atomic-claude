@@ -63,15 +63,18 @@ func RunCheckRepoConfig(opts Opts) Result {
 }
 
 // scopeWikisContradiction returns a WARN detail when root declares
-// scope = "repo" while <wikis> in claudeMDPath registers root as a realm
-// root, and "" in every other case.
+// scope = "repo" while the wiki registry registers root as a realm root, and ""
+// in every other case. It reads the authoritative ~/.atomic/wikis.md when the
+// claudeMDPath has the conventional <home>/.claude/CLAUDE.md shape, falling back
+// to the installed <wikis> projection only when no authority exists — so a
+// changed projection can never override the registry.
 func scopeWikisContradiction(root, claudeMDPath string) string {
 	cfg, _, err := config.LoadRepoConfig(config.RepoConfigPath(root))
 	if err != nil || cfg == nil || cfg.Scope != "repo" {
 		return ""
 	}
 
-	indexPaths, err := wiki.ReadWikiIndexPaths(claudeMDPath)
+	indexPaths, err := wiki.RegisteredIndexPaths(claudeMDPath)
 	if err != nil || len(indexPaths) == 0 {
 		return ""
 	}
@@ -81,10 +84,7 @@ func scopeWikisContradiction(root, claudeMDPath string) string {
 		// A registered path is <realmRoot>/wiki/index.md.
 		realmRoot := filepath.Dir(filepath.Dir(indexPath))
 		if normalizeScopeDir(realmRoot) == wantRoot {
-			return fmt.Sprintf(
-				"scope=repo conflicts with the <wikis> registry: this root is registered as a realm root in %s",
-				claudeMDPath,
-			)
+			return "scope=repo conflicts with the wiki registry: this root is registered as a realm root"
 		}
 	}
 	return ""

@@ -76,7 +76,7 @@ git diff --stat HEAD^..HEAD
 ```
 
 
-Ask via `AskUserQuestion`:
+Ask the user:
 
 
 ```

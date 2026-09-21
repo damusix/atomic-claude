@@ -28,22 +28,39 @@ const profileStaleDays = 30
 // checkProfile implements category 10: user profile wired. PASS when
 // profile.md exists, its @-ref is present in a candidate file, the lastcheck
 // stamp is within profileStaleDays, and no candidate carries legacyProfileRef.
-// Any failed leg WARNs — an unwired profile is degraded, not broken.
-func checkProfile(_ Opts) Result {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("could not determine home dir: %v", err)}
+// Any failed leg WARNs — an unwired profile is degraded, not broken. A machine
+// whose ledger enrols no Claude target is skipped rather than warned about an
+// un-enrolled ~/.claude.
+func checkProfile(opts Opts) Result {
+	scope := claudeScopeFor(opts)
+	if scope.Skip {
+		return Result{Severity: SKIP, Detail: scope.Detail}
 	}
-	return RunCheckProfileWith(home)
+	home := opts.Home
+	if home == "" {
+		resolved, err := resolveHome()
+		if err != nil {
+			return Result{Severity: WARN, Detail: fmt.Sprintf("resolve home dir: %v", err)}
+		}
+		home = resolved
+	}
+	results := make([]Result, 0, len(scope.Roots))
+	for _, root := range scope.Roots {
+		results = append(results, runCheckProfileAt(home, root))
+	}
+	return combineClaudeRoots(scope, results)
 }
 
-// RunCheckProfileWith runs the profile check against an explicit home dir.
-// Exported for testing.
+// RunCheckProfileWith runs the profile check against an explicit home dir and
+// the default Claude config directory under it. Exported for testing.
 func RunCheckProfileWith(home string) Result {
+	return runCheckProfileAt(home, filepath.Join(home, ".claude"))
+}
+
+// runCheckProfileAt runs the profile check against an explicit state home and
+// the Claude config directory whose CLAUDE.md family carries the profile ref.
+func runCheckProfileAt(home, claudeHome string) Result {
 	profilePath := config.ProfilePath(home)
-	// The installed CLAUDE.md family lives under ~/.claude, not the ~/.atomic
-	// state root.
-	claudeHome := filepath.Join(home, ".claude")
 
 	// Stat then ReadFile so an existing-but-unreadable file (mode 000) is
 	// reported as unreadable rather than absent.

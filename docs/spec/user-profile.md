@@ -6,6 +6,15 @@
 A global, auto-updated identity file at `~/.atomic/profile.md` that Claude reads in every session and writes to opportunistically, closing the gap between user-written global context and Claude-written per-project memory.
 
 
+## Authority
+
+`~/.atomic/profile.md` is the single authoritative user profile. The installed global steering references it with `@~/.atomic/profile.md` so every session loads it. Under Milestone A the authored global steering source is `context/AGENTS.md`; the Claude adapter projects it into `~/.claude/CLAUDE.md` — see `docs/spec/omp-plugin-compatibility.md`. This spec never restates that projection.
+
+**One-time legacy adoption.** A Claude-only install kept a mutable profile beside its native root at `<nativeRoot>/.atomic/profile.md`. While `~/.atomic/profile.md` is absent, `ImportMutable` (`atomic/internal/harness/claude/migration.go`) adopts that file once as the authority. The authority's existence is the guard that makes the import once: after it exists, a divergent native copy is a conflict, never an import source. `profile.DetectNativeConflict` compares the two files by bytes and is surfaced by `Verify` and the doctor `conflicts` category; a compat symlink that makes both names resolve to one file is not a conflict.
+
+**Ownership.** The user owns every byte of `profile.md`. Install and update create the stub only when the file is absent, and rewrite only the Atomic-owned `## Environment` section; they never overwrite user facts in the conversation-observed sections. Uninstall preserves the file (§Uninstall contract).
+
+
 ## Non-goals
 
 - No interactive install wizard. No mid-conversation prompts to "update your profile."
@@ -21,22 +30,21 @@ A global, auto-updated identity file at `~/.atomic/profile.md` that Claude reads
 
 - [ ] `~/.atomic/profile.md` is created at `atomic claude install` (idempotent — no-op if already present).
 - [ ] Install populates `## Environment` with deterministic captures: `git config --global user.name`, `git config --global user.email`, `runtime.GOOS`, `runtime.GOARCH`, `runtime.NumCPU()`.
-- [ ] `@~/.atomic/profile.md` appears in the atomic-owned block of `~/.claude/CLAUDE.md` (the installed copy), adjacent to the existing `@~/.atomic/config.resolved.md` ref.
-- [ ] `~/.claude/CLAUDE.md` contains the verbatim routing instruction (see § Routing contract) inside the `<atomic>` block.
-- [ ] Install prints the nudge line `Profile created at ~/.atomic/profile.md. Mention things about yourself naturally; Claude will fill it in. Run /retrospective-learning to review drift.` to stdout **on first install only** (when step 1 actually creates the file). Suppressed when step 1 is idempotent no-op.
-- [ ] `atomic claude uninstall` preserves `profile.md` (does not delete it, does not restore a pre-install version — none exists).
-- [ ] `atomic doctor` reports WARN when `@~/.atomic/profile.md` is absent from any of `~/.claude/CLAUDE.md`, `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md`.
+- [ ] `@~/.atomic/profile.md` and the verbatim routing paragraph (see § Routing contract) appear in the managed global-steering block projected into `~/.claude/CLAUDE.md`.
+- [ ] While `~/.atomic/profile.md` is absent, a legacy `<nativeRoot>/.atomic/profile.md` is imported once as the authority; a divergent native copy after that is reported as a conflict and is never re-imported.
+- [ ] Install prints the nudge line `Profile created at ~/.atomic/profile.md. Mention your role, projects, and preferences in conversation and Claude will record them. Run /retrospective-learning to review drift.` to stdout **on first install only** (when step 1 actually creates the file). Suppressed when step 1 is idempotent no-op.
+- [ ] `atomic claude uninstall` preserves `profile.md` (does not delete it, does not restore a pre-install version — none exists); full `atomic harness uninstall --all` preserves it as well.
+- [ ] `atomic doctor` reports WARN when `@~/.atomic/profile.md` is absent from any of `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md`, `~/.claude/CLAUDE.md`, `~/.claude/claude.md`, and WARN when a candidate carries the legacy pre-relocation `@`-ref.
 - [ ] `/retrospective-learning` discovery brief catalogs `profile.md`; history brief includes a **profile drift** finding category.
 - [ ] Existing tests pass after all checkpoints land (`go test ./...` from `atomic/`).
-- [ ] `make render && git diff --exit-code` clean after checkpoint 3.
-- [ ] `make -C atomic bundle && git diff --exit-code` clean after checkpoint 2 and checkpoint 3.
+- [ ] `make -C atomic bundle` regenerates the embedded corpus cleanly after checkpoint 2 and checkpoint 3.
 
 
 ## Approaches
 
 | # | Approach | Sketch | Cost | Risk |
 |---|----------|--------|------|------|
-| A | New file under `~/.atomic/`, install-generated stub, opportunistic write, `/retrospective-learning` review | Mirrors `config.resolved.md` pattern; no bundle changes; clean uninstall story; routing rule is one CLAUDE.md edit | Low | Routing instruction wording is load-bearing; wrong wording → facts go to wrong place |
+| A | New file under `~/.atomic/`, install-generated stub, opportunistic write, `/retrospective-learning` review | Mirrors the install-time mutable-state stub pattern; no bundle changes; clean uninstall story; routing rule is one steering edit | Low | Routing instruction wording is load-bearing; wrong wording → facts go to wrong place |
 | B | Bundle a template `profile.md` shipped with the binary, modified per-user | Discoverable from bundle; consistent shape | High | Bundle artifacts are read-only contracts that update — user content fights `atomic claude update` |
 | C | Write directly into `~/.claude/CLAUDE.md` | Zero new surfaces | Low | CLAUDE.md is a user-written contract; mixing Claude-observed facts into it breaks the install/update boundary |
 | D | Patch upstream Claude Code to add a global auto-memory tier | Fixes the gap at root | Very high | Out of our control |
@@ -45,7 +53,7 @@ A global, auto-updated identity file at `~/.atomic/profile.md` that Claude reads
 
 ## Recommendation
 
-**Approach A.** Precedent: `config.resolved.md` — install-time idempotent stub under `~/.atomic/`, @-ref'd from the installed `~/.claude/CLAUDE.md`, never bundled, never overwritten on update. Surface map confirms the insertion points: `atomic/internal/claudeinstall/install.go` line 112+ (parallel to `ensureResolvedConfigStub`), `atomic/internal/config/paths.go` line 39+ (parallel to `ResolvedPath`), and `CLAUDE.md` line 5 for the @-ref. No new artifact kinds; no bundle-parity work beyond the CLAUDE.md edit.
+**Approach A.** An install-time idempotent stub under `~/.atomic/`, `@`-ref'd from the installed global steering, never bundled, never overwritten on update. Insertion points: `atomic/internal/config/paths.go` (`ProfilePath`), `atomic/internal/claudeinstall/install.go` (`ensureProfileStub`), and `context/AGENTS.md` for the `@`-ref. No new artifact kinds and no new harness surface.
 
 
 ## Schema contract
@@ -118,42 +126,44 @@ These rules give Claude a deterministic answer for every write decision without 
 
 ## Routing contract
 
-The following verbatim text is inserted into `~/.claude/CLAUDE.md` inside the `<atomic>` block, after the `@~/.atomic/profile.md` ref line. This exact wording is the contract — paraphrasing it in the spec would create ambiguity between spec and installed artifact.
+The following verbatim text is part of the authored global steering source and lands in `~/.claude/CLAUDE.md` inside the managed global-steering block. This exact wording is the contract — paraphrasing it in the spec would create ambiguity between spec and installed artifact.
 
 ```
 ## User profile
 
 @~/.atomic/profile.md
 
-Personal facts about you — name, role, employer, active projects, interests, people you mention — are recorded in `~/.atomic/profile.md`. Claude reads this file in every session and appends new facts as they surface naturally in conversation. Facts that apply across all projects (identity, work, relationships) go here. Facts specific to one repo's conventions go to that project's auto memory instead. Rule of thumb: if the fact would still be true in a different repo, it belongs in profile.
+Personal facts (name, role, employer, projects, people) live in `~/.atomic/profile.md`; append new ones as they surface. A fact true in any repo goes there; a fact about one repo's conventions goes to that project's auto memory. Its `## Environment` block is refreshed by the session-start hook; if hooks are disabled and its `<deterministic lastcheck=...>` date is over a day old, run `atomic profile refresh --if-stale 1d` once, silently.
 ```
 
-The `@~/.atomic/profile.md` ref on its own line causes Claude Code to load the file as context. The paragraph below it is the routing instruction Claude uses to decide which surface captures a given fact.
+The `@~/.atomic/profile.md` ref on its own line causes Claude Code to load the file as context. The paragraph below it is the routing instruction Claude uses to decide which surface captures a given fact, and it carries the no-hooks refresh fallback (§v2.2).
 
-This text lives in `CLAUDE.md` at the repo root (the bundle source). It is emitted into `~/.claude/CLAUDE.md` by `atomic claude install` via the standard CLAUDE.md write path. `atomic claude update` overwrites the atomic-owned block, so the routing instruction must be part of the source `CLAUDE.md` — it cannot be written only at install time.
+This text lives in the authored global steering source `context/AGENTS.md`, which the Claude adapter projects into `~/.claude/CLAUDE.md` inside its managed block (see `docs/spec/omp-plugin-compatibility.md`). `atomic claude update` re-projects that block, so the routing instruction must be part of `context/AGENTS.md` — it cannot be written only at install time.
 
 
 ## Install contract
 
-Steps run in order during `atomic claude install`, after `ensureResolvedConfigStub`:
+Steps run in order during `atomic claude install`, after the artifact plan is applied:
 
 | Step | What happens | Idempotent? |
 |------|-------------|-------------|
-| 1 | Create `~/.atomic/profile.md` if absent using the schema template above with all fact fields empty | Yes — no-op if file exists |
-| 2 | Populate `## Environment` / `<deterministic>` block: run `git config --global user.name`, `git config --global user.email`; read `runtime.GOOS`, `runtime.GOARCH`, `runtime.NumCPU()` | Yes — if file already contains deterministic data, skip write |
-| 3 | `@~/.atomic/profile.md` ref and routing paragraph are already in `CLAUDE.md` source; they land in `~/.claude/CLAUDE.md` via the standard CLAUDE.md install write | Yes — idempotent via CLAUDE.md write path |
-| 4 | Print to stdout: `Profile created at ~/.atomic/profile.md. Mention things about yourself naturally; Claude will fill it in. Run /retrospective-learning to review drift.` | No — always prints on first-install invocation; suppressed on subsequent invocations where step 1 is a no-op |
+| 1 | `ensureProfileStub` creates `~/.atomic/profile.md` if absent, rendered from the schema template with `## Environment` filled by `profile.CaptureEnv` | Yes — no-op if file exists |
+| 2 | `populateProfile` calls `profile.RefreshIfStale(home, today, profile.DefaultRefreshDays)` to write the full dev-tooling fingerprint and stamp `lastcheck` | Yes — self-gates on `lastcheck`; a fresh block is not rewritten |
+| 3 | The `@~/.atomic/profile.md` ref and routing paragraph are authored in `context/AGENTS.md`; the Claude adapter projects them into the managed block of `~/.claude/CLAUDE.md` | Yes — idempotent managed-block projection |
+| 4 | Print `ProfileNudge` to stdout on the first create | No — suppressed on later invocations where step 1 is a no-op |
+
+**One-time legacy import.** Plain `atomic claude install` does not import. The import runs in the legacy adoption path (`Migrate` → `ImportMutable`), before adoption commits, only while `~/.atomic/profile.md` is absent and a legacy Claude-only install left `<nativeRoot>/.atomic/profile.md`. See §Authority.
 
 **Bootstrap nudge** goes to stdout (not a log file). Rationale: install already prints other stdout messages; one line here is consistent and more discoverable than a silent log. The line is suppressed when the file already exists (step 1 no-op) to avoid noise on `atomic claude update`.
 
 **Env capture failures** (git not installed, no global config set): populate with empty string for that field. Do not abort install. Partial capture is acceptable.
 
-**New path constant** needed in `atomic/internal/config/paths.go`: a function parallel to `ResolvedPath` that returns the profile.md absolute path given `claudeHome`. Used by install, uninstall, and doctor.
+**Path constant.** `config.ProfilePath(home)` in `atomic/internal/config/paths.go` returns `~/.atomic/profile.md`. Used by install, uninstall, doctor, `atomic profile refresh`, and native-copy conflict detection.
 
 
 ## /retrospective-learning integration
 
-Two additions to `templates/commands/retrospective-learning.md`:
+Two additions to `context/commands/retrospective-learning.md`:
 
 **1. Discovery brief** (catalog section): extend to include `~/.atomic/profile.md` in the file catalog. No special handling — treated like any other personal config file.
 
@@ -176,30 +186,30 @@ Cap: profile drift findings count against the existing 15-finding-per-run cap. N
 
 ## Uninstall contract
 
-`atomic claude uninstall` (spec: `docs/spec/uninstall.md`) **preserves `profile.md`**.
+Neither `atomic claude uninstall` nor full `atomic harness uninstall --all` deletes `profile.md` (spec: `docs/spec/uninstall.md`).
 
-Rationale: profile.md is user data generated after install — it has no pre-install counterpart and is not a bundle artifact. The uninstall plan must not include it in either the "restore" or "delete" buckets.
+Rationale: profile.md is user data written after install — it has no pre-install counterpart and is not a bundle artifact. No uninstall bucket may list it as a restore or a delete target.
 
-Implementation: `BuildUninstallPlan` in `atomic/internal/claudeinstall/uninstall.go` must explicitly exclude `~/.atomic/profile.md` from the deletion list. Since profile.md is not in the pre-install snapshot (`manifest.json` only records files atomic touches during install, and profile.md is created by install, not copied from the bundle), it will not appear in the manifest. The existing logic of "delete files with `existed=false`" would not touch it unless profile.md were incorrectly included in the manifest. Verify that `snapshot.go` does not error on the new file's presence.
+Implementation:
 
-Amendment required to `docs/spec/uninstall.md`: append a change-log entry under `## Change log` noting that profile.md is explicitly preserved (user data, no pre-install counterpart).
-
-The routing instruction in `~/.claude/CLAUDE.md` is removed by uninstall (it is inside the atomic-owned block, which is either deleted or LLM-merged out). After uninstall, profile.md remains on disk but is no longer @-ref'd. The user retains the file and can re-add the ref manually.
+- Claude-only path: `BuildUninstallPlan` in `atomic/internal/claudeinstall/uninstall.go` skips `config.ProfileRelPath()` explicitly, so a future manifest-schema change cannot pull it into the delete list.
+- Full path: `Steps.UninstallAll` in `atomic/internal/install/uninstall.go` preserves `~/.atomic/config.toml`, `profile.md`, `wikis.md`, and backups while removing the completed operational and adoption state.
+- Target uninstall removes only the resources owned by that target. The global-steering managed block is an owned resource, so it goes; `profile.md` remains on disk but is no longer `@`-ref'd. The user keeps the file and can re-add the ref manually.
 
 
 ## Doctor integration
 
-New check appended to the existing nine-check suite in `atomic/internal/doctor/`:
+The `profile` check is doctor category 10; the category list is owned by `docs/spec/atomic-doctor.md` and now carries 24 stable categories.
 
 | Name (canonical) | Checks | Fail severity |
 |------------------|--------|---------------|
-| `profile` | `@~/.atomic/profile.md` ref present in one of `~/.claude/CLAUDE.md`, `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md` (same search order as refs check). `~/.atomic/profile.md` exists on disk. | WARN for missing ref; WARN for missing file |
+| `profile` | `@~/.atomic/profile.md` ref present in one of `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md`, `~/.claude/CLAUDE.md`, `~/.claude/claude.md` (same search order as the refs check); no candidate carries the legacy pre-relocation `@`-ref; `~/.atomic/profile.md` exists on disk and is readable; `lastcheck` within 30 days | WARN for every failed leg |
 
 Severity rationale: profile.md absence is degraded experience, not a broken installation. FAIL is reserved for checks that block core functionality (axiom alignment: WARN for drift, FAIL for missing critical paths).
 
-`--fix` repair for the profile check: if file absent → create empty stub. If ref absent → insert the ref into `~/.claude/CLAUDE.md`. Both repairs require user confirm per-item (axiom 3).
+`--fix` repair for the profile check is not implemented. `repairPlan` reports `profile` non-fixable with the message "run `atomic claude install` to create the profile stub"; the `@`-ref leg is bundle-source-driven (projected from `context/AGENTS.md`), so inserting it only into the installed copy would diverge on the next install/update.
 
-The check index is whatever is next available at implementation time — do not bake the index into the spec. The check must be registered alongside the existing doctor checks; implementer verifies the current max index in `atomic/internal/doctor/` before assigning.
+Divergent native profile copies are reported by the `conflicts` category (index 22) via `Verify`.
 
 
 ## Checkpoints
@@ -215,13 +225,15 @@ The check index is whatever is next available at implementation time — do not 
 
 Checkpoints 2, 3, 4, 5 each depend only on checkpoint 1. They are independent of each other and can be implemented in parallel. Checkpoint 6 is last.
 
+The rows stay as the build record; do not treat them as work to do. Paths and gates that later moved — the global steering source is now `context/AGENTS.md`, authored artifacts live under `context/`, and the `make render` step was removed — are superseded; see the 2026-09-19 change-log entry.
+
 
 ## Risks
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
-| Routing instruction wording is ambiguous — Claude sends facts to wrong surface | Medium | Verbatim text is locked in § Routing contract. Spec is the source; CLAUDE.md must match exactly. |
-| `atomic claude update` overwrites the @-ref and routing instruction if not in the bundle source `CLAUDE.md` | High (if missed) | Spec explicitly requires the text be in `CLAUDE.md` at repo root (bundle source), not written only at install time. Build gate (`make bundle`) will catch drift. |
+| Routing instruction wording is ambiguous — Claude sends facts to wrong surface | Medium | Verbatim text is locked in § Routing contract. Spec is the source; `context/AGENTS.md` must match exactly. |
+| `atomic claude update` overwrites the @-ref and routing instruction if not in the authored global steering source | High (if missed) | Spec explicitly requires the text be in `context/AGENTS.md`, not written only at install time. The adapter re-projects the managed block on install and update. |
 | Install env capture blocks on slow git invocation | Low | Capture is a `git config --global` read — fast. No network. No fallback needed beyond empty string on error. |
 | `BuildUninstallPlan` accidentally includes `profile.md` in delete list if future manifest schema changes | Low | Checkpoint 4 adds an explicit test asserting profile.md is absent from the delete list. |
 | Doctor check numbering collides if another check is added before this ships | Low | Spec does not bake the index. Implementer checks current max in `atomic/internal/doctor/` at implementation time; amends this spec if a conflict arises. |
@@ -338,9 +350,9 @@ User-authored sections (Identity, Work, Active projects, Interests, People menti
 
 ### v2 Session-start hook wiring
 
-The existing session-start handler (`cmd/atomic/main.go`, `case "session-start"` → `hooks.SessionStart`) is extended to also invoke `atomic profile refresh --if-stale 7d`. This fires on every Claude Code session open; the `--if-stale` gate makes it a no-op when the env block is fresh.
+The session-start handler (`hooks.SessionStart`) calls `profile.RefreshIfStale(home, today, profile.DefaultRefreshDays)` in-process, best-effort. This fires on every Claude Code session open; the staleness gate makes it a no-op when the env block is fresh.
 
-Tradeoff accepted: a user who never opens a session for >7 days gets a stale block until their next session. Acceptable — the data is only consumed inside a session.
+Tradeoff accepted: a user who never opens a session for longer than the refresh window gets a stale block until their next session. Acceptable — the data is only consumed inside a session.
 
 
 ### v2 Doctor staleness extension
@@ -349,20 +361,20 @@ The existing doctor category 10 (`profile` check in `atomic/internal/doctor/chec
 
 | Sub-check | Condition | Severity |
 |-----------|-----------|----------|
-| File exists | `~/.atomic/profile.md` absent | WARN |
-| @-ref wired | Ref absent from all three candidate files | WARN |
+| File exists | `~/.atomic/profile.md` absent or unreadable | WARN |
+| @-ref wired | Ref absent from all four candidate files, or a candidate carries the legacy ref | WARN |
 | `lastcheck` freshness | `lastcheck` absent or older than 30 days | WARN |
 
 The staleness window (30 days) is a constant in the check, not a config value. If the `lastcheck` attribute is absent (v1-format file), the sub-check always fires as WARN with a message directing the user to run `atomic profile refresh`.
 
-The 30-day doctor-WARN threshold and the 7-day session-start `--if-stale` gate are intentionally different: the session-start gate keeps the env block fresh during active use; the doctor threshold is a longer safety net that fires only when the user hasn't opened a session in a month or more. Implementers must not unify these two constants.
+The 30-day doctor-WARN threshold and the session-start staleness gate (`profile.DefaultRefreshDays`, current value 1 day) are intentionally different: the session-start gate keeps the env block fresh during active use; the doctor threshold is a longer safety net that fires only when the user hasn't opened a session in a month or more. Implementers must not unify these two constants.
 
 
 ### v2 Success criteria
 
 - [ ] `atomic profile refresh` (no flags) re-detects all registry tools, rewrites `## Environment` wholesale, stamps `lastcheck=YYYY-MM-DD`. Exit 0.
-- [ ] `atomic profile refresh --if-stale 7d` is a no-op (exit 0, no file write) when `lastcheck` is within 7 days.
-- [ ] `atomic profile refresh --if-stale 7d` runs a full refresh when `lastcheck` is absent or older than 7 days.
+- [ ] `atomic profile refresh --if-stale <W>` is a no-op (exit 0, no file write) when `lastcheck` is within `W` days.
+- [ ] `atomic profile refresh --if-stale <W>` runs a full refresh when `lastcheck` is absent or older than `W` days.
 - [ ] Registry covers all 7 categories (≥ 45 entries). Registry is the sole detection source — no LLM, no config.
 - [ ] Version-manager detection finds nvm/sdkman/etc. via directory check when `exec.LookPath` fails.
 - [ ] Each detected runtime records: version string (trimmed first line), source class (system/version-manager/homebrew/other).
@@ -370,11 +382,10 @@ The 30-day doctor-WARN threshold and the 7-day session-start `--if-stale` gate a
 - [ ] Malformed `## Environment` block (tags stripped, truncated) self-heals on next refresh — no duplicate sections.
 - [ ] File-absent case: refresh recreates the stub file, then populates `## Environment`.
 - [ ] Section-absent case: refresh appends `## Environment` at EOF without touching other sections.
-- [ ] Session-start hook fires `atomic profile refresh --if-stale 7d`; verified by unit test on the hook handler.
+- [ ] Session-start hook calls `profile.RefreshIfStale` with `profile.DefaultRefreshDays`; verified by unit test on the hook handler.
 - [ ] Doctor category 10 reports WARN when `lastcheck` is absent; WARN when `lastcheck` is older than 30 days; PASS when fresh.
-- [ ] `atomic profile refresh` appears in CLAUDE.md `## Atomic binary subcommands`, `/atomic-help` topic table + tour, README, `docs/reference/` tables.
-- [ ] `make render && git diff --exit-code` clean after checkpoint 6.
-- [ ] `make -C atomic bundle && git diff --exit-code` clean after checkpoint 6.
+- [ ] `atomic profile refresh` appears in the global steering (`context/AGENTS.md`), `/atomic-help` topic table + tour, README, and `docs/reference/` tables.
+- [ ] `make -C atomic bundle` regenerates the embedded corpus cleanly after checkpoint 6.
 - [ ] `go test ./...` (from `atomic/`) passes after all checkpoints.
 
 
@@ -390,6 +401,8 @@ The 30-day doctor-WARN threshold and the 7-day session-start `--if-stale` gate a
 | 6 | Mandatory-checklist surfaces | `CLAUDE.md` (binary subcommands section), `templates/commands/atomic-help.md` (topic table + tour), `README.md`, `docs/reference/concepts.md` (binary subcommands + profile section); then `make render` + `make -C atomic bundle` + `/refresh-wiki` | `atomic-surgeon` | 4–6 | `grep -n 'atomic profile refresh' CLAUDE.md` returns match; same grep in `commands/atomic-help.md` returns match; `grep -n 'atomic profile refresh' docs/reference/concepts.md` returns match; `atomic signals stale` exits 0 (signals fresh after `/refresh-wiki`); `make render && git diff --exit-code` clean; `make -C atomic bundle && git diff --exit-code` clean |
 
 Checkpoints 1 and 2 are sequential (rewrite engine depends on the detector). Checkpoint 3 depends on 1 and 2. Checkpoints 4 and 5 depend on 3. Checkpoint 6 is last.
+
+The rows stay as the build record; do not treat them as work to do. The hook now calls `profile.RefreshIfStale` with the shared window rather than shelling out, the steering source is `context/AGENTS.md`, authored artifacts live under `context/`, and `make render` was removed — see the 2026-09-19 change-log entry.
 
 
 ### v2 Risks
@@ -425,7 +438,7 @@ Install and update leave a **complete** env fingerprint, not the v1 five-field s
 - Fresh install: stub has no `lastcheck` → stale → full detect → complete profile day one.
 - Re-install / update: refreshes only if older than `W`; no-op otherwise.
 - **Best-effort (mandatory):** the call is wrapped so any error or panic is swallowed and install/update still completes with at least the stub present. Install MUST NOT fail because detection failed. Mirrors the session-start hook's swallow behavior.
-- Order: stub → populate → CLAUDE.md `@-ref` wiring.
+- Order: the artifact/steering projection lands first (`Apply`), then stub → populate.
 
 ### v2.2 Per-tool detection timeout
 
@@ -441,15 +454,10 @@ Install and update leave a **complete** env fingerprint, not the v1 five-field s
 
 Some environments disallow hooks (enterprise policy, `CLAUDE_CODE_DISABLE_*`, `--bare`); the session-start hook never fires there. **Named `prefer-code-over-model` exception** (the deterministic trigger is unreliable → an LLM safeguard is acceptable as defense-in-depth).
 
-- Ship an LLM-fallback instruction in the `CLAUDE.md` profile preamble (the routing block, always `@`-loaded). **Verbatim text (the contract — emit exactly, like §Routing contract):**
-
-```
-`profile.md`'s `## Environment` block is refreshed automatically by the session-start hook. If hooks are disabled in your environment and its `<deterministic lastcheck=...>` date is more than a day old, run `atomic profile refresh --if-stale 1d` once, silently, to update the detected tooling.
-```
-
-  CP3's grep asserts a stable substring of this (e.g. `refreshed automatically by the session-start hook`).
+- Ship the LLM-fallback instruction inside the routing paragraph reproduced in § Routing contract — part of `context/AGENTS.md`, always `@`-loaded. The paragraph is the contract; paraphrase is forbidden.
+- CP3's grep asserts a stable substring of it (e.g. `refreshed by the session-start hook`).
 - Shipped **unconditionally** — no hook-presence detection. Hook present → it refreshes first, the LLM sees fresh `lastcheck` → no-op. Hook absent → the LLM is the trigger. The `--if-stale` gate dedupes.
-- Text lives in the repo-root `CLAUDE.md` (bundle source), emitted into `~/.claude/CLAUDE.md` on install. Deterministic path stays primary; LLM is strictly backup; doctor's 30d WARN is the backstop.
+- Text lives in `context/AGENTS.md`; the Claude adapter projects it into the managed block of `~/.claude/CLAUDE.md` on install. Deterministic path stays primary; LLM is strictly backup; doctor's 30d WARN is the backstop.
 - Honesty: probabilistic (model may skip it); requires Bash permission for the refresh; in maximally-locked envs the profile stays at install-time state until manually refreshed.
 
 ### v2.2 Nudge copy
@@ -465,7 +473,7 @@ Some environments disallow hooks (enterprise policy, `CLAUDE_CODE_DISABLE_*`, `-
 - [ ] The shared refresh-window constant equals 1 day (24h); install, update, AND the session-start hook all pass this constant — the hook no longer passes a literal `7`.
 - [ ] Config key `profile.refresh_window` is NOT introduced this iteration (the window stays a code constant — axiom 2, promote later).
 - [ ] Bare `atomic profile refresh` performs an unconditional refresh regardless of `lastcheck` (regression-assert).
-- [ ] `CLAUDE.md` profile preamble contains the no-hooks LLM-fallback instruction; present in both source and the embedded bundle; `make -C atomic bundle && git diff --exit-code` clean.
+- [ ] The global steering source (`context/AGENTS.md`) contains the no-hooks LLM-fallback instruction; it is present in the projected `~/.claude/CLAUDE.md` and recomputed by `make -C atomic bundle`.
 - [ ] First-install nudge copy no longer claims Claude fills the env block.
 - [ ] `go test ./...` green.
 
@@ -479,6 +487,8 @@ Some environments disallow hooks (enterprise policy, `CLAUDE_CODE_DISABLE_*`, `-
 
 CP1 → CP2 (population relies on bounded detection). CP3 is independent (preamble/doc + bundle).
 
+The rows stay as the build record; do not treat them as work to do. The preamble now lives in `context/AGENTS.md` and the bundle has no drift gate — see the 2026-09-19 change-log entry.
+
 ### v2.2 Risks
 
 | Risk | Likelihood | Mitigation |
@@ -491,6 +501,14 @@ CP1 → CP2 (population relies on bounded detection). CP3 is independent (preamb
 
 
 ## Change log
+
+### 2026-09-19 — Doctor category-count reference follows the appended Codex category
+
+**What changed:** The `## Doctor integration` paragraph no longer restates a count of its own; it points at `docs/spec/atomic-doctor.md` as the owner and names the current total (24).
+
+**Correction:** CP7F appended doctor category 24 (`codex`), so this spec's "23 stable categories" sentence went stale. `docs/spec/atomic-doctor.md` owns the category list and was amended in the same change.
+
+**Superseded:** The paragraph read "the suite now carries 23 stable categories".
 
 ### 2026-07-16 — User state root relocated to ~/.atomic
 
@@ -542,6 +560,16 @@ CP1 → CP2 (population relies on bounded detection). CP3 is independent (preamb
 **Why:** Dogfooding v2/v2.1 showed install leaves a half-populated profile (rich detection only ran on the first hooked session). Surfaced the trigger-model gap, the hook dependency (enterprises may disallow hooks), and the need for a guaranteed force-refresh path. Design captured in `docs/design/user-profile.md` §v2.2 (gather/pressure-test-style decisions made inline this session).
 
 **Superseded:** v2 §Bootstrap (install = "create stub + 5 env fields") → install also populates the full fingerprint. v2 §Scheduling hook window `7d` → shared `W` default `24h`. Adds the no-hooks LLM-fallback path (new behavior, defense-in-depth).
+
+
+### 2026-09-19 — Authoritative profile, one-time legacy adoption, conflict-not-import
+
+
+**What changed:** Added a § Authority section: `~/.atomic/profile.md` is the single authoritative profile, referenced by `@~/.atomic/profile.md` from the installed global steering (authored source `context/AGENTS.md`, projected by the Claude adapter into `~/.claude/CLAUDE.md` — pointer to `docs/spec/omp-plugin-compatibility.md`). While the authority is absent, `ImportMutable` adopts a legacy Claude-only `<nativeRoot>/.atomic/profile.md` once; after it exists, a divergent native copy is a conflict reported by `profile.DetectNativeConflict`, `Verify`, and the doctor `conflicts` category, and is never re-imported. The user owns every byte: install/update create the stub only when absent and rewrite only the `## Environment` section; uninstall preserves the file. Rewrote § Routing contract, § Install contract, § Uninstall contract, and § Doctor integration to the current code (managed global-steering block, `ProfileNudge`, `config.ProfilePath`, `Steps.UninstallAll`, doctor category 10 of 23). Updated the v2/v2.2 refresh sections: in-process `RefreshIfStale` with `profile.DefaultRefreshDays`, four @-ref candidates, and the no-hooks preamble text as actually projected.
+
+**Why:** Milestone A made `~/.atomic/profile.md` and `~/.atomic/wikis.md` authoritative mutable state with one-time legacy adoption. The spec still described a repo-root bundle-source `CLAUDE.md`, build-time render/bundle drift gates, and a three-candidate ref search, and carried no authority or conflict contract.
+
+**Superseded:** The profile preamble authored in a repo-root `CLAUDE.md` (now `context/AGENTS.md`, projected into `~/.claude/CLAUDE.md`); the hook invoking `atomic profile refresh --if-stale 7d` (now in-process `RefreshIfStale` with the shared 1-day window); `ensureResolvedConfigStub` / `ResolvedPath` / `config.resolved.md` insertion notes; the "nine-check suite" and three-candidate @-ref search (doctor now has 23 categories and four candidates); the `make render` gate; and uninstall guidance limited to `BuildUninstallPlan` (full uninstall now preserves `profile.md` through `Steps.UninstallAll`).
 
 
 ## Implementation log

@@ -6,11 +6,13 @@
 
 Consolidate atomic-owned state under `~/.atomic/` and ship a TOML-backed config (`atomic config get|set|unset|list|path`). `config.toml` is the single source of truth; `atomic config list` renders resolved values on demand. Config is consumed by the `atomic` binary, not injected into Claude sessions.
 
+This spec also owns the harness-neutral repository-state contract: the `state.dir` config key, the resolution ladder, the per-clone selection record, and the authoritative realm registry at `~/.atomic/wikis.md`. Under Milestone A that contract composes with the multi-harness architecture — see `docs/spec/omp-plugin-compatibility.md`.
+
 
 ## Non-goals
 
 
-- Project-local config overrides (a per-repo `config.toml` shadowing `~/.atomic/config.toml`). Deferred until a concrete case appears — distinct from `harness.dir` (below), which names a repo-local *state-directory*, not a config-override mechanism, and is itself user-level only (no per-repo override).
+- Project-local config overrides (a per-repo `config.toml` shadowing `~/.atomic/config.toml`). Deferred until a concrete case appears — distinct from `state.dir` (below), which names a repo-local *state-directory*, not a config-override mechanism, and is itself user-level only (no per-repo override).
 - Migrating legacy paths (`~/.claude/.atomic-backups/`, `~/.claude/CLAUDE.md.atomic-proposed`). Old paths orphaned; user cleans up.
 - Moving `<bin-dir>/.atomic.new` (selfupdate staged binary). Cross-filesystem `os.Rename` constraint.
 - Bundling `config.toml`. User state, never bundled.
@@ -28,7 +30,10 @@ Consolidate atomic-owned state under `~/.atomic/` and ship a TOML-backed config 
 - [ ] On fresh install, SHA-compare of installed vs bundled `CLAUDE.md` matches (no divergence, no `.atomic-proposed` written).
 - [ ] `claudeinstall` writes backups to `~/.atomic/backups/<ts>/` and proposed merges to `~/.atomic/proposed/CLAUDE.md`.
 - [ ] `atomic doctor` includes a `config` check (TOML parses, no unknown keys, values validate).
-- [ ] `atomic-claude-merger` agent and `/atomic-claude-merge` command reference the new proposed path.
+- [ ] `state.dir` accepts one safe path segment (not `.`, `..`, or containing `/`); a non-default legacy `harness.dir` supplies migration evidence only while `state.dir` is unset.
+- [ ] Repository-state resolution walks process-only `ATOMIC_STATE_DIR` → `~/.atomic/<project-key>/state-location.json` → user `state.dir` (legacy `harness.dir` evidence) → built-in `.claude`, never consulting a harness fingerprint; a set `ATOMIC_HARNESS` refuses resolution with a migration instruction and is never treated as an alias.
+- [ ] `atomic state adopt [--dir <segment|absolute>] [--clear] [--dry-run] [--json]` adopts one unambiguous populated state root in place without moving files; two or more populated roots refuse; an empty repository creates no candidate and writes nothing; the selection is persisted and fsynced before resolution switches.
+- [ ] `~/.atomic/wikis.md` is the authoritative realm registry; while `wikis.md` is absent the authority is seeded once from the harness-installed `<wikis>` block, and a later divergence is a conflict, never auto-imported.
 - [ ] Axiom 2 amended in `.claude/rules/authoring/axioms.md` with the shell-settable carve-out.
 
 
@@ -38,11 +43,13 @@ Consolidate atomic-owned state under `~/.atomic/` and ship a TOML-backed config 
 ```
 ~/.atomic/
 ├── config.toml              # user-written, atomic config set rewrites
+├── wikis.md                 # authoritative realm registry; a harness <wikis> block is a derived projection
 ├── backups/<ts>/<relpath>   # claudeinstall pre-write backups
 ├── proposed/
 │   └── CLAUDE.md            # claudeinstall divergence merge target
 ├── state.json               # machine-managed selfupdate state; atomic temp+rename; never hand-edited
 └── <project-key>/           # one entry per clone (main checkout root, flattened); see docs/spec/serve-plans-page.md
+    ├── state-location.json  # persisted repository-state selection (schema v1); shared by every worktree
     ├── reports/<branch>/    # /session-report output, resolved via `atomic where --json` .reports
     ├── reminders/           # reminder files, resolved via `atomic where --json` .reminders
     └── archive/<slug>/<created>/  # retired atomic scratchpad bundles
@@ -81,19 +88,23 @@ run_doctor = true           # true | false; run doctor after `atomic update`
 check = true                # true | false; enable the hourly detached background version check
 stage = true                # true | false; enable once-per-version background staged download
 
+[state]
+dir = ".claude"             # single non-empty path segment; repo-local state-directory name
+
 [harness]
-dir = ".claude"              # single non-empty path segment; repo-local state-directory name
+dir = ".claude"             # LEGACY: migration evidence only while state.dir is unset
 ```
 
-
-Current keys: `output.signals.max_depth`, `update.run_doctor`, `update.check`, `update.stage`, `update.channel`, `harness.dir`, `output_style.seed`. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
+Current keys: `output.signals.max_depth`, `update.run_doctor`, `update.check`, `update.stage`, `update.channel`, `state.dir`, `output_style.seed`. Legacy `harness.dir` stays readable as migration evidence only while `state.dir` is unset. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
 
 `update.check` and `update.stage` (bool, default `true`) gate the two halves of the detached background-update child described in [`selfupdate-state.md`](./selfupdate-state.md): `update.check` enables the hourly GitHub lookup that any invoked verb may spawn; `update.stage` enables that child's once-per-version download-and-checksum-verify into `~/.cache/atomic/staged/`. Both are user-level only — no repo-scoped equivalent.
 
 `update.channel` (string, default `stable`; valid `stable`, `prerelease`) selects the release channel every update path reads: the background check, the banner, `atomic update`, and doctor's binary check. Stored empty means unset and resolves to `stable`. `atomic update --pre` (or `--channel`) overrides it for one invocation and never writes it back, so a pinned machine can still take a single update from the other channel. A stored value outside the enum fails `Validate`; the update paths fall back to `stable` rather than blocking on it. User-level only — no repo-scoped equivalent.
 
 
-`harness.dir` (string, default `.claude`) names the repo-local state-directory every repo-scoped `atomic` verb resolves against — `<repo>/<harness.dir>/.scratchpad`, `<repo>/<harness.dir>/project`, `<repo>/<harness.dir>/.atomic-index`, `<repo>/<harness.dir>/atomic.toml`, `<repo>/<harness.dir>/worktrees` — decoupling those paths from Claude Code's `.claude` convention (e.g. `atomic config set harness.dir .pi` for a `pi` harness). It is unrelated to the `~/.atomic` user-state root above: `~/.atomic` is fixed and not configurable (see Non-goals). Validation: **write (`set`)** rejects empty, `.`, `..`, and any value containing `/` — same shape as every other write-time rejection in this schema. **Read (load)** goes one step further than the generic unknown-key leniency described below: a stored value that fails that same shape check (e.g. hand-edited to `..`) is not merely warned about — the resolver silently falls back to the built-in default, because an unvalidated value would otherwise reach `filepath.Join` unguarded in every repo-local path helper.
+`state.dir` (string, default `.claude`) names the repository-state directory every repo-scoped `atomic` verb resolves against — `<resolved-root>/.scratchpad`, `project`, `.atomic-index`, `atomic.toml`, `worktrees` — decoupling those paths from Claude Code's `.claude` convention (e.g. `atomic config set state.dir .omp` for an OMP install). It is unrelated to the `~/.atomic` user-state root above: `~/.atomic` is fixed and not configurable (see Non-goals). Validation: **write (`set`)** rejects empty, `.`, `..`, and any value containing `/`; the resolver already refuses those shapes for a recorded value. **Read (load)** goes one step further than the generic unknown-key leniency described below: an unset `state.dir` falls through the resolution ladder rather than erroring, and an invalid configured value degrades to the next rung instead of reaching `filepath.Join` unguarded in every repo-local path helper.
+
+`harness.dir` is **legacy**. It is no longer the current repository-state key: a non-default value supplies migration evidence only while `state.dir` is unset, so an existing machine keeps resolving where it did until the user migrates. Setting `state.dir` supersedes it; `harness.dir` is not removed from the schema and remains readable.
 
 
 ## Precedence (highest wins)
@@ -117,6 +128,42 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 - **Read (load)**: lenient. Unknown keys ignored with a single WARN log line. Allows newer-config / older-binary forward-compat.
 
 
+## Repository-state resolution
+
+
+The repository-state directory is harness-neutral, so one repo resolves the same root whatever harness runs it. `config.ResolveStateLocation` walks the ladder most specific first:
+
+| # | Rung | Notes |
+|---|------|-------|
+| 1 | process-only `ATOMIC_STATE_DIR` | never rewrites the persisted selection |
+| 2 | `~/.atomic/<project-key>/state-location.json` | persisted per-clone selection, shared by every worktree |
+| 3 | user `state.dir` | a non-default legacy `harness.dir` supplies migration evidence only while `state.dir` is unset |
+| 4 | built-in `.claude` | fallback |
+
+No rung consults a harness fingerprint. `ATOMIC_HARNESS` is retired and is never an alias: while it is set, resolution refuses with instructions to unset it or use `ATOMIC_STATE_DIR` / `state.dir`.
+
+A relative rung value must be one safe path segment (`ValidateStateDirSegment` rejects empty, `.`, `..`, and `/`); a selection record may hold an absolute directory, which is used as-is. `<project-key>` is the clone's main checkout root flattened to one path segment, so every worktree of one clone shares the selection and the project-keyed home (`reports/<branch>/`, `reminders/`, `archive/<slug>/<created>/`, and `state-location.json` itself).
+
+
+### `atomic state adopt`
+
+
+`atomic state adopt [--dir <segment|absolute>] [--clear] [--dry-run] [--json]` selects the repository's state root:
+
+- **no flags** — discovery scans the plausible repository-local directory names for Atomic state signatures; an empty or harness-only directory is not a candidate. Zero candidates write nothing and report the ladder's current resolution; one is adopted in place without moving files; two or more refuse, telling the user to re-run with `--dir`.
+- **`--dir`** — persists the given segment or absolute path as the selection.
+- **`--clear`** — withdraws the persisted selection, so the ladder decides again; `--dir` and `--clear` are mutually exclusive.
+- **`--dry-run`** — makes no changes; **`--json`** emits the report.
+
+`PersistStateSelection` writes and fsyncs the record bytes and its parent directory before resolution switches, so a crash cannot leave resolution pointing at a root the record does not name. A failed migration withdraws the record only while its bytes still match what was written — a later state write makes that a conflict, never a discarded choice. An empty repository creates no candidate and no adoption record until a stateful operation needs one. The retired harness variable blocks adoption.
+
+
+## Realm wiki registry
+
+
+`~/.atomic/wikis.md` is the authoritative realm registry: one writer, and every save rewrites only the `<wikis>` block while preserving every other byte. A `<wikis>` block installed in a harness's global file is a derived projection rendered from the authority — a later divergence is a conflict and is never imported automatically. `SeedFromProjection` seeds the authority once from the installed block while `wikis.md` is absent, so a realm that only ever lived in the projection survives the switch.
+
+
 ## Checkpoints
 
 
@@ -129,7 +176,9 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 | 3 | CLI wiring: `atomic config get|set|unset|list|path`, including `list --json` | `atomic/cmd/atomic/main.go`, `atomic/internal/config/cli.go` | integration: each subcommand exit codes + output match contract; typo suggestion fires on near-match |
 | 4 | Bundle source `CLAUDE.md` adds line `@~/.atomic/config.resolved.md` and a one-paragraph mention of the `.atomic/` namespace | `CLAUDE.md` (repo root), bundle regen via `make -C atomic bundle` | CI "Verify bundle is committed" passes; `manifest.go` reflects new CLAUDE.md hash |
 | 5 | `claudeinstall` writes backups to `.atomic/backups/<ts>/` and proposed merges to `.atomic/proposed/CLAUDE.md`; pre-creates empty `~/.atomic/config.resolved.md` on first install | `atomic/internal/claudeinstall/install.go` (lines 81, 132, 275-276 + pre-create step) | unit: fresh install creates `.atomic/config.resolved.md`; backup written to new path; divergent CLAUDE.md proposed at new path |
-| 6 | Update cross-references to the proposed path | `agents/atomic-claude-merger.md`, `commands/atomic-claude-merge.md` | grep: no remaining `CLAUDE.md.atomic-proposed` string in agents/ or commands/ |
+> Checkpoint 6 named cross-references in a command/agent pair that was later removed. Its row is historical — see the change log. Do not treat it as work to do.
+
+| 6 | (historical) Update cross-references to the proposed path — the named command/agent pair was removed | `agents/`, `commands/` | Retired 2026-09-19; see the change log. The row stays as the build record; do not treat it as work to do. |
 | 7 | New `doctor` check category `config`: TOML present + parses, no unknown keys, `config.resolved.md` matches render of TOML; `--fix` re-renders on drift | `atomic/internal/doctor/checks_config.go`, `checks_config_test.go`, dispatch wiring | unit: PASS/WARN/FAIL paths; integration: `--fix` re-renders and check goes PASS |
 | 8 | `doctor` install-integrity scans `.atomic/` paths (no legacy path scan) | `atomic/internal/doctor/checks_install.go` | unit: install check passes with new paths populated, regardless of legacy-path presence |
 | 9 | Amend `docs/spec/atomic-doctor.md`: add category #9 entry + change-log entry per spec-amendment rule | `docs/spec/atomic-doctor.md` | spec body lists check #9; change log has dated entry referencing this spec |
@@ -150,7 +199,7 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 ## Open questions
 
 
-- Should the config support per-project overrides (a repo-local `config.toml` shadowing the user config)? Deferred. Non-goal for v1 — `harness.dir` (below) covers the one concrete per-project need that has appeared so far (naming the repo-local state-directory), but it is a single user-level key, not a per-project override mechanism. Revisit if a steering value genuinely needs to vary per project, not per user.
+- Should the config support per-project overrides (a repo-local `config.toml` shadowing the user config)? Deferred. Non-goal for v1 — `state.dir` (below) covers the one concrete per-project need that has appeared so far (naming the repo-local state-directory), but it is a single user-level key, not a per-project override mechanism. Revisit if a steering value genuinely needs to vary per project, not per user.
 
 
 ## Change log
@@ -264,6 +313,17 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 **Why:** The file put a generated snapshot into every session's context for values only the `atomic` binary reads, and it drifted silently. A user's copy advertised four per-agent effort overrides while their `config.toml` had no `[claude.agents]` block at all, written by an older binary using pre-CP7 key names and never regenerated. A snapshot that can lie about config is worse than no snapshot.
 
 **Removed:** the rendered markdown view, its `@-ref`, the drift check, and the drift repair.
+
+
+### 2026-09-19 — Supersede `harness.dir` with `state.dir`; add repository-state resolution
+
+**What changed:** Schema v1 gains `state.dir` as the current repository-state key (string, one safe path segment, default `.claude`). `harness.dir` becomes a legacy input that supplies migration evidence only while `state.dir` is unset. The body gains a `## Repository-state resolution` section — the ladder process-only `ATOMIC_STATE_DIR` → `~/.atomic/<project-key>/state-location.json` → user `state.dir` (legacy `harness.dir` evidence) → built-in `.claude`, with no harness fingerprint, and the retired `ATOMIC_HARNESS` refusing resolution rather than acting as an alias — plus the `atomic state adopt [--dir <segment|absolute>] [--clear] [--dry-run] [--json]` contract and a `## Realm wiki registry` section making `~/.atomic/wikis.md` the authority and the harness `<wikis>` block a derived projection. The Layout tree gains `wikis.md` and `<project-key>/state-location.json`.
+
+**Why:** Milestone A makes repository state and the realm registry harness-neutral — see `docs/spec/omp-plugin-compatibility.md`.
+
+**Superseded:** `harness.dir` was the current repo-local state-directory key, the resolver consulted a harness fingerprint, `ATOMIC_HARNESS` selected the harness, and `~/.atomic/wikis.md` held no authority over a harness-installed `<wikis>` block.
+
+**Removed:** the `atomic-claude-merger` agent and `/atomic-claude-merge` command success criterion; checkpoint 6's cross-reference row is retained as historical only. Both artifacts were removed by the earlier artifact-consolidation work; the cold-op replacement is `atomic prompt claude-merge`.
 
 
 ## Implementation log

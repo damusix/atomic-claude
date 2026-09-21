@@ -1,0 +1,148 @@
+// Package managedfile owns the write primitives every Atomic target shares:
+// line-anchored block ownership, current-byte observations with digests,
+// durable backups with retention metadata, atomic file publication, and
+// journaled generated-directory publication.
+package managedfile
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"strings"
+)
+
+// BlockOpen and BlockClose bound Atomic-owned content inside a user file.
+// Detection is line-anchored — only a line whose trimmed content is exactly
+// the tag counts — so inline mentions never match. Everything outside the
+// block stays user-owned and byte-preserved.
+const (
+	BlockOpen  = "<atomic>"
+	BlockClose = "</atomic>"
+)
+
+// BlockBoundaries returns the [start, end) byte offsets of content's single
+// managed block, tags included. end covers the close-tag line's trailing
+// newline when present. A missing, unclosed, repeated, or out-of-order tag
+// shape is rejected rather than guessed: an ambiguous boundary is never
+// treated as a boundary, so callers fall back to unowned handling.
+func BlockBoundaries(content []byte) (start, end int, err error) {
+	start, end = -1, -1
+	offset := 0
+	for _, line := range bytes.SplitAfter(content, []byte("\n")) {
+		switch string(bytes.TrimSpace(line)) {
+		case BlockOpen:
+			if start != -1 || end != -1 {
+				return 0, 0, fmt.Errorf("managedfile: second %s block", BlockOpen)
+			}
+			start = offset
+		case BlockClose:
+			if start == -1 || end != -1 {
+				return 0, 0, fmt.Errorf("managedfile: %s without a preceding %s", BlockClose, BlockOpen)
+			}
+			end = offset + len(line)
+		}
+		offset += len(line)
+	}
+	if start == -1 {
+		return 0, 0, fmt.Errorf("managedfile: no %s block", BlockOpen)
+	}
+	if end == -1 {
+		return 0, 0, fmt.Errorf("managedfile: unclosed %s block", BlockOpen)
+	}
+	return start, end, nil
+}
+
+// HasBlock reports whether content carries exactly one parseable block.
+func HasBlock(content []byte) bool {
+	_, _, err := BlockBoundaries(content)
+	return err == nil
+}
+
+// ManagedBlock returns just the block bytes, tags included.
+func ManagedBlock(content []byte) ([]byte, error) {
+	start, end, err := BlockBoundaries(content)
+	if err != nil {
+		return nil, err
+	}
+	return content[start:end], nil
+}
+
+// ReplaceBlock swaps content's single managed block for replacement,
+// preserving every byte outside it. An unparseable block on either side is an
+// error, never a best-effort splice.
+func ReplaceBlock(content, replacement []byte) ([]byte, error) {
+	start, end, err := BlockBoundaries(content)
+	if err != nil {
+		return nil, err
+	}
+	if !HasBlock(replacement) {
+		return nil, fmt.Errorf("managedfile: replacement carries no single %s block", BlockOpen)
+	}
+	out := make([]byte, 0, len(content)-(end-start)+len(replacement))
+	out = append(out, content[:start]...)
+	out = append(out, replacement...)
+	out = append(out, content[end:]...)
+	return out, nil
+}
+
+// HasBlockTags reports whether content carries any managed-block tag at all,
+// parseable or not. It is the distinction between a file that has never held a
+// block and one whose tags are ambiguous: only the former may receive an
+// appended block, because the latter's boundary cannot be guessed.
+func HasBlockTags(content []byte) bool {
+	return bytes.Contains(content, []byte(BlockOpen)) || bytes.Contains(content, []byte(BlockClose))
+}
+
+// BlockDocument wraps body in one Atomic managed block, normalizing the body's
+// trailing newlines so the document carries exactly one. It is the form a
+// caller publishes when it owns only the block's content and the surrounding
+// file belongs to the user.
+func BlockDocument(body []byte) []byte {
+	inner := strings.TrimRight(string(body), "\n")
+	return []byte(BlockOpen + "\n" + inner + "\n" + BlockClose + "\n")
+}
+
+// BracketedBlockDocument wraps body in one Atomic managed block and separates
+// the body from both tags with a blank line. It is the form a loader document
+// needs: Claude resolves an `@` import through its markdown parse, and an import
+// line immediately inside the block's tags is swallowed by the HTML block those
+// tags open, so a loader whose import is not bracketed converges and verifies
+// while delivering nothing.
+func BracketedBlockDocument(body []byte) []byte {
+	inner := strings.TrimRight(string(body), "\n")
+	return []byte(BlockOpen + "\n\n" + inner + "\n\n" + BlockClose + "\n")
+}
+
+// AppendBlock returns content with block appended as a new trailing region,
+// preserving every existing byte. A separator newline is added only when
+// content does not already end with one, so the appended opening tag stays a
+// line of its own and the block remains line-anchored.
+func AppendBlock(content, block []byte) []byte {
+	separator := ""
+	if len(content) > 0 && !bytes.HasSuffix(content, []byte("\n")) {
+		separator = "\n"
+	}
+	return append(append(append([]byte{}, content...), []byte(separator)...), block...)
+}
+
+// BlocksEqual reports whether both contents carry a parseable block and the
+// two blocks are byte-identical. Unowned or malformed content is never equal.
+func BlocksEqual(a, b []byte) bool {
+	blockA, errA := ManagedBlock(a)
+	if errA != nil {
+		return false
+	}
+	blockB, errB := ManagedBlock(b)
+	if errB != nil {
+		return false
+	}
+	return bytes.Equal(blockA, blockB)
+}
+
+// Digest is the hex-encoded SHA256 of data — the one checksum form every
+// observation, backup, journal, and sidecar records.
+func Digest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}

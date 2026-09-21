@@ -24,7 +24,7 @@ Continue in place with the current working tree. Skip all steps below.
 
 ## Decide whether to create (ask-if-unspecified / auto-create)
 
-**Interactive mode (ask-if-unspecified):** if the caller has not already decided, ask via `AskUserQuestion`:
+**Interactive mode (ask-if-unspecified):** if the caller has not already decided, ask the user:
 
 ```
 Significant work ahead. Use an isolated worktree?
@@ -49,7 +49,7 @@ Detect carry-over candidates:
 - A spec path was passed by the caller, and `git status --porcelain -- <path>` reports it as untracked or modified.
 - The current conversation produced a `docs/spec/*.md` or `docs/design/*.md` that is untracked or modified, and its basename matches or is closely related to the branch name.
 
-For each candidate (interactive mode only — skip silently in hands-off mode): ask via `AskUserQuestion`:
+For each candidate (interactive mode only — skip silently in hands-off mode): ask the user:
 
 ```
 Spec `<path>` is uncommitted. Commit it before creating the worktree so
@@ -84,7 +84,7 @@ Stop.
 
 Run `atomic repo init` first (idempotent — guarantees the `.claude/` layout and its ignore rules).
 
-Then create the worktree explicitly — the explicit `git worktree add` pins the branch name and bases the branch on the current HEAD (so a just-committed spec is carried forward), which the `EnterWorktree` tool's own creation mode does not guarantee (it names the branch itself and bases it per the `worktree.baseRef` setting):
+Then create the worktree explicitly — the explicit `git worktree add` pins the branch name and bases the branch on the current HEAD (so a just-committed spec is carried forward), which a harness's own worktree command does not guarantee (it may name the branch itself and base it on a configured ref):
 
 ```bash
 git worktree add .claude/worktrees/<branch> -b <branch>
@@ -98,7 +98,7 @@ sandbox blocked worktree creation. working in place.
 
 Continue in place — do not run setup or tests.
 
-Then hand the session to Claude Code: call the `EnterWorktree` tool with `path: .claude/worktrees/<branch>`. The session's working directory is now the worktree — file edits and shell commands land in the isolation with no `cd` discipline needed. If the tool is unavailable in this session, run all subsequent commands from inside the worktree directory instead.
+Then move the session into the worktree: when the harness exposes a worktree-entry capability, invoke it with the path `.claude/worktrees/<branch>`. The session's working directory is now the worktree — file edits and shell commands land in the isolation with no `cd` discipline needed. If no such capability is available, run all subsequent commands from inside the worktree directory instead.
 
 ## Auto-detect and run setup
 

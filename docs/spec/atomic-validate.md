@@ -19,7 +19,7 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 - Auto-fixing content errors (human authorship boundary; `--suggest` prints *structural* templates only — empty section headings + skeletons, never name suggestions or fuzzy "did you mean").
 - Resolving third-party skill/agent names installed in `~/.claude/` but not bundled. If users legitimately depend on third-party refs, add a future C-rule with an explicit allowlist (e.g. `config.thirdPartySkills` in `claude.local.md`) — do NOT implicitly peek into `~/.claude/`.
 - Pre-commit hook wiring (`atomic hooks install --pre-commit`) — defer until v1 stabilizes and FAIL rate on real commits is known.
-- Validating the bundled `CLAUDE.md` snapshot's refs against the *bundled* agent/skill set (orthogonal to working-tree validation). Deferred to v1.1.
+- Validating the bundled `AGENTS.md` snapshot's refs against the *bundled* agent/skill set (orthogonal to working-tree validation). Deferred to v1.1.
 
 
 ## v1.1 deferrals (not in v1)
@@ -30,7 +30,7 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 - S8 (TODO/TBD scan) — if revived, scope to `docs/spec/` only; design docs legitimately carry open questions.
 - C2 (reverse registry direction), C4 (skill-name extraction from prose), C6 (`/atomic-<name>` claim without `user-invocable`), C8 (dup skill names).
 - F-rules (followups validator) — F1–F5.
-- Bundle-snapshot ref validation (run C5 against bundled `CLAUDE.md` too).
+- Bundle-snapshot ref validation (run C5 against bundled `AGENTS.md` too).
 - `--format sarif` output (current `--json` reserves `schema_version: 1` for forward compatibility).
 
 
@@ -46,13 +46,14 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 - [ ] `--json` emits `{schema_version: 1, findings: [...], summary: {...}}`.
 - [ ] `--suggest` prints structural templates for content-level FAILs without editing files. No name suggestions, no fuzzy matching.
 - [ ] All validator code lives in `atomic/internal/validate/`; bundle-parity computation in `atomic/internal/manifestcheck/`; bundle inclusion predicates in `atomic/internal/bundlespec/`.
-- [ ] `bundlespec/` is imported by both `bundlemirror/mirror.go` (build) and `manifestcheck/` (runtime) — single source of truth.
+- [ ] `bundlespec/` is a pure leaf: `artifacts.Load` applies its predicates while enumerating the canonical corpus, and `bundlemirror`/`manifestcheck` consume the result transitively — single source of truth.
 - [ ] Name resolution checks the working tree (`skills/*/SKILL.md`, `agents/*.md`), never `~/.claude/`.
 - [ ] Markdown parsing uses `goldmark` AST (not regex); refs inside fenced/indented code blocks are NOT extracted.
 - [ ] Project-root detection walks up for `.git`, treating it as **either a directory OR a file** (worktree case: `.git` is a file pointing at the main repo).
 - [ ] Symlinks are resolved and deduped during tree walk (this repo's `scripts/link-local.sh` symlinks `.claude/` ↔ root dirs — must not double-count or loop).
-- [ ] Canonical casing: `CLAUDE.md` (uppercase), `claude.local.md` (lowercase per existing repo). C5 resolution is case-sensitive. Document and FAIL on the wrong case.
+- [ ] Canonical casing: `AGENTS.md` (the authored global contract), `claude.local.md` (lowercase per existing repo). C5 resolution is case-sensitive. Document and FAIL on the wrong case.
 - [ ] Test coverage: each v1 rule has at least one PASS and one FAIL fixture in `atomic/internal/validate/testdata/`.
+- [ ] The projection validator re-renders the complete canonical corpus and audits every projection for dependency resolution, canonical identity, native metadata safety, projection-digest determinism, enforcement-tier accuracy, and unclassified Claude-only wire tokens; the real corpus passes and each failure class has a test.
 - [ ] Soft perf budget: `atomic validate` on this repo completes in **<500ms** on a modern machine, the budget the test asserts locally. Future rule additions fit within this envelope. On CI the test asserts **<3s** instead, because a shared runner measures the same work an order of magnitude slower and the tighter number reports the runner rather than the rules.
 - [ ] CI integration is real: `.github/workflows/ci.yml` runs `atomic validate` and the step fails on exit 1.
 
@@ -63,9 +64,10 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 | Subcommand | Validates | Sources |
 |------------|-----------|---------|
 | `atomic validate spec [paths...]` | Spec structure | `docs/spec/*.md` |
-| `atomic validate config` | Cross-reference integrity | `CLAUDE.md` + `agents/` + `commands/` + `skills/` + `claude.local.md` |
-| `atomic validate bundle` | Bundle parity | `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md` ↔ `atomic/internal/embedded/` |
-| `atomic validate artifacts [paths...]` | Artifact CLI-flag citations (rule A1) | Full artifact corpus via `bundlemirror.Enumerate` (or explicit paths) |
+| `atomic validate config` | Cross-reference integrity | `AGENTS.md` + `agents/` + `commands/` + `skills/` + `claude.local.md` |
+| `atomic validate bundle` | Bundle parity | `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, steering `AGENTS.md` ↔ `atomic/internal/embedded/` |
+| `atomic validate artifacts [paths...]` | Artifact CLI-flag citations (rule A1) | Full artifact corpus via `artifacts.Load` (or explicit paths) |
+| `atomic validate projections` | Canonical corpus projection audit (rules P1–P6) | Full corpus via `artifacts.Load`, re-rendered through the Claude/OMP/Codex adapters |
 | `atomic validate` | All of the above | Whole repo |
 
 
@@ -95,10 +97,10 @@ Honors `--json` and `--suggest` identically to the other subcommands. Included i
 Path-aware dispatch: `atomic validate docs/spec/foo.md other/path.md` routes the first to `spec`, ignores (with WARN) the second.
 
 
-**Bundle is repo-dev-only.** Bundle parity compares the working tree against the embedded source snapshot, which only exists in the atomic-claude repo (detected by the presence of `atomic/internal/bundlemirror/mirror.go` at the git toplevel — the same heuristic as `atomic doctor`'s manifest check). Outside that repo:
+**Bundle and projections are repo-dev-only.** Bundle parity compares the working tree against the embedded source snapshot, and the projection audit renders the canonical corpus under `context/`; both only exist in the atomic-claude repo (detected by the presence of `atomic/internal/bundlemirror/mirror.go` at the git toplevel — the same heuristic as `atomic doctor`'s manifest check). Outside that repo:
 
-- Bare `atomic validate` runs spec + config only; the bundle section is omitted silently (no header, no findings).
-- Explicit `atomic validate bundle` (and `--json`) prints a one-line `SKIP — not in atomic-claude repo` and exits 0.
+- Bare `atomic validate` runs spec + config only; the bundle and projection sections are omitted silently (no header, no findings).
+- Explicit `atomic validate bundle` and `atomic validate projections` (and `--json`) print a one-line `SKIP — not in atomic-claude repo` and exit 0.
 
 It never errors out. spec and config validators run in any repo.
 
@@ -126,7 +128,7 @@ S0 exists because `mdparse` only handles ATX correctly; silent mis-parsing of Se
 | ID | Rule | Severity |
 |----|------|----------|
 | C3 | Every `subagent_type: "<name>"` in `commands/*.md` resolves to `agents/<name>.md` or a built-in (`general-purpose`, `Explore`, `Plan`) | FAIL |
-| C5 | Every `@-ref` in `CLAUDE.md`, `claude.local.md`, `CLAUDE.local.md` resolves to an existing path (case-sensitive). An `@-ref` is `@`-prefixed at a word boundary; an `@` preceded by an email local-part character (`bob@host.com`) is prose, not a ref, and is skipped | FAIL |
+| C5 | Every `@`-ref in the authored global contract (`context/AGENTS.md`) resolves to an existing path (case-sensitive). An `@-ref` is `@`-prefixed at a word boundary; an `@` preceded by an email local-part character (`bob@host.com`) is prose, not a ref, and is skipped | FAIL |
 | C7 | No duplicate `name:` across `agents/*.md` | FAIL |
 | C9 | Files in `agents/`, `skills/`, `output-styles/` without the `atomic-` prefix (when not `_templates/` or similar known-skip dirs) | WARN |
 
@@ -140,13 +142,33 @@ C9 catches the silent-bundle-exclusion typo class (`agents/atomic_builder.md`, `
 Single check (shared with future `atomic doctor` via `atomic/internal/manifestcheck/`):
 
 
-- Compute expected bundle contents by walking working tree with `bundlespec.Matches(path) bool` predicates.
+- Compute expected bundle contents by re-running `bundlemirror.Enumerate`, which applies the `bundlespec` predicates while enumerating the canonical corpus via `artifacts.Load`.
 - Diff against committed `atomic/internal/embedded/bundle/` + `manifest.go`.
 - FAIL on any diff. Print up to 5 differing paths.
 - Resolve and dedupe symlinks before comparison.
 
 
 No `go generate` invocation — pure read-and-compare. CI's existing `git diff --exit-code` gate stays canonical; this is the dev-loop counterpart.
+
+
+### Projection validator (rules P1–P6)
+
+
+Re-renders the complete canonical corpus through the real target adapters — Claude agents, skills, rules, and commands; OMP agents and skills; offline Codex agents — and audits every projection against the CP0 capability record. The gate renders nothing itself and duplicates no adapter or pattern list: it calls the same `harness` projectors that ship and reads the same `harnessRuntimePatterns` suite the skill projection classifies, so a failure means the corpus or an adapter broke an invariant the projection contract promises.
+
+| ID | Rule | Severity |
+|----|------|----------|
+| P1 | Every declared dependency resolves by stable identity in the corpus | FAIL |
+| P2 | A projection carries its artifact's identity, and the artifact's source digest still matches the authored bytes | FAIL |
+| P3 | No model, effort, or tool-restriction key (`harness.UserPolicyKeys`) reaches a projected native document's metadata | FAIL |
+| P4 | Two renders of one artifact are byte-identical, and the projection digest describes the bytes | FAIL |
+| P5 | No projection claims an enforcement tier stronger than its CP0 record proves, and every canonical field a projection drops is reported unsupported | FAIL |
+| P6 | No Claude-only wire token reaches another target's projected bytes unclassified | FAIL |
+| P0 | An adapter could not render a projection at all (the gate's render-failure surface) | FAIL |
+
+P6 reuses the skill projection's own runtime classification: a harness marker the adapter already reports as a gap (the `.claude/` state-root default, a background-delivery instruction) is portable and never a token, and a marker the skill report classifies is not a leak. A wire token in a projection with no classification channel — an agent, a rule, a command rendered for a non-Claude target — fails.
+
+**Projections is repo-dev-only**, like bundle: it audits the canonical corpus under `context/`, which only the atomic-claude repo carries. Outside that repo, bare `atomic validate` omits the section silently and explicit `atomic validate projections` prints `SKIP — not in atomic-claude repo` and exits 0.
 
 
 ## Output format
@@ -219,11 +241,12 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 | `atomic/internal/validate/spec.go` | S0, S1, S5, S6 rules |
 | `atomic/internal/validate/config.go` | C3, C5, C7, C9 rules |
 | `atomic/internal/validate/artifacts.go` | A1 rule — CLI-flag citation scanner |
+| `atomic/internal/validate/projection.go` | P0–P6 rules — canonical corpus projection audit |
 | `atomic/internal/validate/output.go` | Human + JSON formatters, `--suggest` structural templates |
 | `atomic/internal/validate/testdata/` | PASS / FAIL fixtures per rule |
 | `atomic/internal/cliusage/` | Structured command-surface table; renders `--help` Commands block; source of truth for A1 |
-| `atomic/internal/bundlespec/` | Pure predicate package: `Matches(path) bool`. Thin leaf — small, no exported types beyond predicates. Imported by `bundlemirror/mirror.go` (build) and `manifestcheck/` (runtime) |
-| `atomic/internal/manifestcheck/` | Bundle-parity diff: walks tree using `bundlespec`, compares to committed `embedded/` snapshot |
+| `atomic/internal/bundlespec/` | Pure predicate and steering-descriptor package: `Matches(path) bool` plus the scope steering contract. Thin leaf — small, no state. Applied by `artifacts.Load` while enumerating the canonical corpus; `bundlemirror` and `manifestcheck` consume the result transitively |
+| `atomic/internal/manifestcheck/` | Bundle-parity diff: re-enumerates the canonical corpus through `bundlemirror.Enumerate`, compares to the binary's embedded snapshot |
 | `atomic/internal/mdparse/` | goldmark wrapper: section bracketing (group nodes by H2), table-by-header lookup, AST inline ref extraction (CodeSpan + Link, skips FencedCodeBlock/CodeBlock subtrees) |
 | `atomic/cmd/atomic/main.go` | Wire `validate` subcommand under root |
 
@@ -252,10 +275,10 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 | R1 | Markdown section / table parser brittle on heading style variants, indented code, or non-standard tables | med | Use [`goldmark`](https://github.com/yuin/goldmark) + `extension.Table`. Walk AST tracking "current H2" to bracket sections (siblings under root — pattern from [`go.abhg.dev/goldmark/toc`](https://pkg.go.dev/go.abhg.dev/goldmark/toc)). Match tables structurally via `ast.Table`/`TableHeader`. S0 rule rejects Setext loud rather than silently mis-parsing |
 | R2 | Ref extraction misses non-standard quoting OR false-positives inside fenced code examples | med | AST-walk `ast.CodeSpan` + `ast.Link` only; skip `ast.FencedCodeBlock` / `ast.CodeBlock` subtrees. Borrow ref-resolution model from [`felixgeelhaar/cclint`](https://github.com/felixgeelhaar/cclint) (TS prior art): project-root via `.git` walk-up, on-disk existence, circular detection, ≤5-hop |
 | R3 | `--json` schema instability breaks CI consumers | low | Ship `{schema_version: 1, ...}` (matches ruff / golangci-lint convention). SARIF deferred to v1.1 as `--format sarif` if external CI integration is requested. Bump `schema_version` only on breaking changes |
-| R4 | Bundle inclusion rules drift between `bundlemirror/mirror.go` and `manifestcheck/` | high | Extract predicates into `atomic/internal/bundlespec/` — both sides import. Predicates are pure functions, no state, no version field (rules change via code review, not version bumps). If predicates ever start *changing semantics*, revisit and add versioning then |
+| R4 | Bundle inclusion rules drift between `bundlemirror/mirror.go` and `manifestcheck/` | high | Extract predicates into `atomic/internal/bundlespec/` — applied once by `artifacts.Load`, with `bundlemirror` and `manifestcheck` consuming its output. Predicates are pure functions, no state, no version field (rules change via code review, not version bumps). If predicates ever start *changing semantics*, revisit and add versioning then |
 | R5 | Config validator FAILs on legitimate in-flight artifacts during PR review | med | Resolve names against working tree only; never read `~/.claude/`. C9 stays WARN. Project-root via `.git` walk-up treating `.git` as **directory OR file** (in a git worktree, `.git` is a file pointing at the main repo's worktree dir — hand-rolled walk-up logic must handle both) |
 | R6 | Symlink loops or double-counting in `manifestcheck` tree walk — `scripts/link-local.sh` symlinks `.claude/` ↔ root dirs in this repo | high | Resolve symlinks via `filepath.EvalSymlinks` and dedupe by realpath before comparison. Test fixture must include a symlinked dir to prevent regression |
-| R7 | Case sensitivity differences between macOS (insensitive) and Linux/CI (sensitive) cause silent breakage | med | Canonical casing pinned: `CLAUDE.md` (upper), `claude.local.md` (lower). C5 ref resolution is byte-exact, case-sensitive. Wrong case → FAIL. Document the canonical set in spec and `CLAUDE.md` |
+| R7 | Case sensitivity differences between macOS (insensitive) and Linux/CI (sensitive) cause silent breakage | med | Canonical casing pinned: `AGENTS.md` (the authored global contract), `claude.local.md` (lower). C5 ref resolution is byte-exact, case-sensitive. Wrong case → FAIL. Document the canonical set in spec and the global contract |
 | R8 | Perf regression as rules accumulate | low | <500ms soft budget locally and <3s on CI, asserted in checkpoint 8 test. New rules must demonstrate they fit |
 
 
@@ -264,6 +287,21 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 
 <!-- Drafting/refinement edits before approval are not logged. First entry is at v1 ship. -->
 
+
+### 2026-09-18 — Add `atomic validate projections`
+
+**What changed:** A new `atomic validate projections` subcommand re-renders the complete canonical corpus through the Claude, OMP, and offline Codex adapters and audits every projection under rules P1–P6 (P0 for a render failure): dependency resolution, canonical identity and source digest, native metadata safety, projection-digest determinism, enforcement-tier accuracy against the CP0 record, and unclassified Claude-only wire tokens. The gate reuses the shipped `harness` projectors and the `harnessRuntimePatterns` suite rather than duplicating them; the `Subcommands` table, `Sources` column, repo-dev-only paragraph, success criteria, and `## Package layout` gained the new surface.
+
+**Why:** the canonical corpus gained agent, skill, rule, and command projections across CP2A–CP2M, and nothing verified that the corpus still rendered, resolved its dependencies, or avoided leaking harness-specific tokens; the projection gate is that mechanical check.
+
+
+### 2026-09-17 — Global source is `AGENTS.md`; A1 corpus is the canonical catalog
+
+**What changed:** The bundle's authored global contract is now `context/AGENTS.md`, projected by the Claude adapter into `~/.claude/CLAUDE.md`. The body's C5 rule row, casing criterion, Subcommands `Sources` column, non-goals/deferrals, and `## Package layout` rows now name `AGENTS.md` and `artifacts.Load` instead of `CLAUDE.md` and a direct `bundlemirror`+`manifestcheck` import pair. The A1 corpus is the canonical corpus returned by `artifacts.Load`, and `manifestcheck` re-enumerates that corpus through `bundlemirror.Enumerate`.
+
+**Why:** The cutover renamed the authored global source and moved partial expansion and enumeration into `artifacts.Load`, so the body's old source and enumerator names described the pre-cutover pipeline.
+
+**Superseded:** C5 scanned `CLAUDE.md`, `claude.local.md`, and `CLAUDE.local.md`; it now scans the authored global contract (`context/AGENTS.md`). `bundlespec` was described as imported directly by `bundlemirror` (build) and `manifestcheck` (runtime); it is now applied once by `artifacts.Load` and consumed transitively.
 
 ### 2026-07-21 — C5 email false-positive guard
 

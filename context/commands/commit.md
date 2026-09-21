@@ -58,7 +58,7 @@ If there is an open PR and the escalation requires a merge, the new commit must 
 
 ## Interactive path
 
-If no escalation token was present in args, after the commit completes, ask via `AskUserQuestion`:
+If no escalation token was present in args, after the commit completes, ask the user:
 
 > Committed. Ship further?
 > - Done — just the commit

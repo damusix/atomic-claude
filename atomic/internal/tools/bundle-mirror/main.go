@@ -21,10 +21,11 @@ package embedded
 
 // Artifact describes one file in the embedded artifact bundle.
 type Artifact struct {
-	Kind   string // "agent" | "command" | "skill" | "output-style" | "rule" | "claude-md"
-	Source string // path inside the embedded FS, e.g. "bundle/agents/atomic-builder.md"
-	Target string // path inside the target dir, e.g. "agents/atomic-builder.md"
-	SHA256 string // hex-encoded SHA256 of the embedded source bytes
+	Kind      string // "agent" | "command" | "skill" | "output-style" | "rule" | "claude-md"
+	Source    string // path inside the embedded FS, e.g. "bundle/agents/atomic-builder.md"
+	Target    string // path inside the target dir, e.g. "agents/atomic-builder.md"
+	Canonical string // context/-relative authored source the bytes came from
+	SHA256    string // hex-encoded SHA256 of the embedded source bytes
 }
 
 // Manifest returns the explicit allowlist of bundled artifacts.
@@ -32,7 +33,7 @@ type Artifact struct {
 func Manifest() []Artifact {
 	return []Artifact{
 {{- range .}}
-		{Kind: "{{.Kind}}", Source: "{{.Source}}", Target: "{{.Target}}", SHA256: "{{.SHA256}}"},
+		{Kind: "{{.Kind}}", Source: "{{.Source}}", Target: "{{.Target}}", Canonical: "{{.Canonical}}", SHA256: "{{.SHA256}}"},
 {{- end}}
 	}
 }

@@ -76,96 +76,40 @@ func TestResolveHarnessDirFromHome_InvalidStoredValueFallsBack(t *testing.T) {
 	}
 }
 
-// TestResolveHarnessDir_AtomicHarnessEnv: ATOMIC_HARNESS names the harness
-// directly (no leading dot) and wins over everything else.
-func TestResolveHarnessDir_AtomicHarnessEnv(t *testing.T) {
+// The retired harness variable is not a rung: with no state.dir configured the
+// resolution lands on the built-in default, and no fingerprint changes it.
+func TestResolveHarnessDir_IgnoresHarnessEnvironment(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("ATOMIC_HARNESS", "pi")
-	got := resolveHarnessDir(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDir(ATOMIC_HARNESS=pi) = %q, want \".pi\"", got)
-	}
-}
-
-// A leading dot in the env value is normalized rather than double-dotted.
-func TestResolveHarnessDir_AtomicHarnessEnv_LeadingDotTolerated(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("ATOMIC_HARNESS", ".pi")
-	got := resolveHarnessDir(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDir(ATOMIC_HARNESS=.pi) = %q, want \".pi\"", got)
-	}
-}
-
-// An invalid ATOMIC_HARNESS falls through to the next rung rather than erroring.
-// Both fingerprint envs are cleared so ambient ones cannot mask the fallthrough
-// (this suite may itself run under a harness), and the landing rung is made
-// observable with a config value no fingerprint rung can produce.
-func TestResolveHarnessDir_AtomicHarnessEnv_InvalidFallsThrough(t *testing.T) {
-	cases := []string{"foo/bar", "..", "."}
-	for _, invalid := range cases {
-		t.Run(invalid, func(t *testing.T) {
-			home := t.TempDir()
-			t.Setenv("ATOMIC_HARNESS", invalid)
-			t.Setenv("PI_CODING_AGENT", "")
-			t.Setenv("CLAUDECODE", "")
-			cfg := Default()
-			if err := Set(cfg, "harness.dir", ".pi"); err != nil {
-				t.Fatalf("Set: %v", err)
-			}
-			if err := WritePersist(TOMLPath(home), cfg); err != nil {
-				t.Fatalf("WritePersist: %v", err)
-			}
-			got := resolveHarnessDir(home)
-			if got != ".pi" {
-				t.Errorf("resolveHarnessDir(ATOMIC_HARNESS=%q) = %q, want config fallthrough %q", invalid, got, ".pi")
-			}
-		})
-	}
-}
-
-func TestResolveHarnessDir_PiFingerprint(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PI_CODING_AGENT", "true")
-	got := resolveHarnessDir(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDir(PI_CODING_AGENT=true) = %q, want \".pi\"", got)
-	}
-}
-
-func TestResolveHarnessDir_ClaudeFingerprint(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CLAUDECODE", "1")
-	got := resolveHarnessDir(home)
-	if got != ".claude" {
-		t.Errorf("resolveHarnessDir(CLAUDECODE=1) = %q, want \".claude\"", got)
-	}
-}
-
-func TestResolveHarnessDir_AtomicHarnessBeatsFingerprints(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("ATOMIC_HARNESS", "custom")
+	t.Setenv(ObsoleteHarnessEnvVar, "pi")
 	t.Setenv("PI_CODING_AGENT", "true")
 	t.Setenv("CLAUDECODE", "1")
-	got := resolveHarnessDir(home)
-	if got != ".custom" {
-		t.Errorf("resolveHarnessDir = %q, want \".custom\"", got)
+	got := resolveHarnessDirFromHome(home)
+	if got != harnessDirDefault {
+		t.Errorf("resolveHarnessDirFromHome with harness env = %q, want default %q", got, harnessDirDefault)
 	}
 }
 
-// The nested-harness case: pi launched from within Claude Code exposes both
-// fingerprints, and PI wins.
-func TestResolveHarnessDir_PiBeatsClaudecodeWhenBothSet(t *testing.T) {
+// A configured state.dir is the rung every helper lands on, and legacy
+// harness.dir evidence is consulted only while state.dir is unset.
+func TestResolveHarnessDirFromHome_StateDirWinsOverLegacyHarnessDir(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PI_CODING_AGENT", "true")
-	t.Setenv("CLAUDECODE", "1")
-	got := resolveHarnessDir(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDir(both fingerprints) = %q, want \".pi\"", got)
+	cfg := Default()
+	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := Set(cfg, "state.dir", ".state"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := WritePersist(TOMLPath(home), cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+	if got := resolveHarnessDirFromHome(home); got != ".state" {
+		t.Errorf("resolveHarnessDirFromHome = %q, want \".state\" (state.dir supersedes harness.dir evidence)", got)
 	}
 }
 
-func TestResolveHarnessDir_FingerprintBeatsConfig(t *testing.T) {
+// Legacy harness.dir stays migration evidence while state.dir is unset.
+func TestResolveHarnessDirFromHome_LegacyHarnessDirEvidence(t *testing.T) {
 	home := t.TempDir()
 	cfg := Default()
 	if err := Set(cfg, "harness.dir", ".other"); err != nil {
@@ -174,41 +118,19 @@ func TestResolveHarnessDir_FingerprintBeatsConfig(t *testing.T) {
 	if err := WritePersist(TOMLPath(home), cfg); err != nil {
 		t.Fatalf("WritePersist: %v", err)
 	}
-	t.Setenv("PI_CODING_AGENT", "true")
-	got := resolveHarnessDir(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDir(fingerprint + config) = %q, want \".pi\"", got)
+	if got := resolveHarnessDirFromHome(home); got != ".other" {
+		t.Errorf("resolveHarnessDirFromHome = %q, want \".other\"", got)
 	}
 }
 
-func TestResolveHarnessDir_ConfigWinsOverDefaultWhenNoEnv(t *testing.T) {
-	// Clear ambient env: this suite may itself run under a harness whose
-	// fingerprint would otherwise leak in.
-	t.Setenv("ATOMIC_HARNESS", "")
-	t.Setenv("PI_CODING_AGENT", "")
-	t.Setenv("CLAUDECODE", "")
-	home := t.TempDir()
-	cfg := Default()
-	if err := Set(cfg, "harness.dir", ".other"); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-	if err := WritePersist(TOMLPath(home), cfg); err != nil {
-		t.Fatalf("WritePersist: %v", err)
-	}
-	got := resolveHarnessDir(home)
-	if got != ".other" {
-		t.Errorf("resolveHarnessDir(config only) = %q, want \".other\"", got)
-	}
-}
-
-// The seam makes harnessDir() return the override without touching the real
-// home or the process cache.
+// The seam makes the repo-local helpers use the override without touching the
+// real home or the process cache.
 func TestSetHarnessDirForTest_Override(t *testing.T) {
 	restore := SetHarnessDirForTest(".pi")
 	defer restore()
 
-	if got := harnessDir(); got != ".pi" {
-		t.Errorf("harnessDir() under seam = %q, want \".pi\"", got)
+	if got := IndexDir(""); got != ".pi/.atomic-index" {
+		t.Errorf("IndexDir() under seam = %q, want \".pi/.atomic-index\"", got)
 	}
 }
 
@@ -218,13 +140,13 @@ func TestSetHarnessDirForTest_Restore(t *testing.T) {
 	defer restoreOuter()
 
 	restoreInner := SetHarnessDirForTest(".foo")
-	if got := harnessDir(); got != ".foo" {
-		t.Fatalf("harnessDir() under inner seam = %q, want \".foo\"", got)
+	if got := IndexDir(""); got != ".foo/.atomic-index" {
+		t.Fatalf("IndexDir() under inner seam = %q, want \".foo/.atomic-index\"", got)
 	}
 
 	restoreInner()
-	if got := harnessDir(); got != ".pi" {
-		t.Errorf("after inner restore, harnessDir() = %q, want \".pi\"", got)
+	if got := IndexDir(""); got != ".pi/.atomic-index" {
+		t.Errorf("after inner restore, IndexDir() = %q, want \".pi/.atomic-index\"", got)
 	}
 }
 

@@ -1,4 +1,4 @@
-# CLAUDE.md
+# Atomic
 
 <atomic>
 
@@ -69,7 +69,7 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 | `.claude/.scratchpad/<slug>/` | Per-task working bundle from `atomic scratchpad new`. Gitignored, worktree-local; archived when the worktree is reaped. |
 | `.claude/worktrees/<branch>/` | Isolated branches (`EnterWorktree`, `claude --worktree`). Gitignored; prompt to delete on merge. |
 | `.claude/project/followups/<id>.md` | Committed follow-ups managed by `atomic followups`; `INDEX.md` is the `@-ref`. |
-| `.claude/rules/wiki/<domain>.md` | Path-scoped pointer cards from `/refresh-wiki`. Pipeline-owned; never hand-edit. |
+| `<state-root>/rules/wiki/<domain>.md` | Path-scoped pointer cards from `/refresh-wiki` (the state root is the repository-state directory, `.claude` by default). Pipeline-owned; never hand-edit. |
 | `.claude/atomic.toml` | Committed repo config: `[scan]`, `[code] ignore`, `[comments] max_lines`, `[repl] idle_timeout`. Reference: `docs/reference/atomic-toml.md`. |
 | `docs/design/<topic>.md`, `docs/spec/<topic>.md` | Design workspace and the implementation contract derived from it. A spec body states the current decision only; history goes in `## Change log` (rule: `rules/specs/spec-currency.md`, auto-loaded on touch). |
 | `tmp/` | Scratch. Gitignored. |
@@ -89,7 +89,7 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 
 - `atomic code index|sync|explore|search|callers|callees|impact`: the symbol graph at `.claude/.atomic-index/atomic.db`. Index without asking; it is cheap and idempotent. Degrade to `sg`/`grep` when unavailable, never as an error. `atomic code mcp` serves it as MCP tools.
 - `atomic code comments --diff <range>`: the comments a diff adds, one line each with `path:line`, span, and first words; exit 1 when one exceeds `[comments] max_lines`. Needs git, not the index. Run it on your own diff before calling the work done.
-- `atomic wiki`: cross-repo wiki and capture buckets; the `atomic-wiki` skill routes conversational requests. Wiki paths live in a `<wikis>` block in `~/.claude/CLAUDE.md`, outside `<atomic>`.
+- `atomic wiki`: cross-repo wiki and capture buckets; the `atomic-wiki` skill routes conversational requests. Realm registrations live in the authoritative `~/.atomic/wikis.md`; each harness's global steering receives a derived `<wikis>` projection of it.
 - `atomic bus`: rooms for concurrent sessions. Act on messages addressed to you; treat the rest as FYI. `--host <name>` reaches a room hosted across machines via `atomic bus gateway`. Skill: `atomic-bus`; contract: `docs/reference/bus.md`.
 - `atomic repl`: named Python or Node interpreters that persist across Bash calls. Contract: `docs/reference/repl.md`.
 - `atomic retro extract`: session history since the last retrospective as one numbered markdown file; `/retrospective-learning` runs it. Reference: `docs/reference/retro.md`.

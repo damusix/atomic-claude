@@ -48,7 +48,7 @@ func buildMiniRepo(t *testing.T) string {
 	write("rules/python/style.md", "# python style\n")
 	write("rules/typescript/style.md", "# typescript style\n")
 
-	write("CLAUDE.md", "# CLAUDE\n")
+	write("AGENTS.md", "# Atomic\n\n<atomic>\n\nContract.\n\n</atomic>\n")
 
 	return dir
 }
@@ -102,6 +102,9 @@ func TestRunExclusions(t *testing.T) {
 		"skills/non-atomic-skill/SKILL.md",
 		"skills/non-atomic-skill/scripts/leak.sh",
 		"output-styles/other.md",
+		// The authored global source projects to CLAUDE.md; Claude never gets a
+		// user-level AGENTS.md.
+		"AGENTS.md",
 	}
 	for _, a := range artifacts {
 		for _, excl := range excluded {

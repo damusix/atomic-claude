@@ -1,5 +1,5 @@
 ---
-description: Scan and clean up stale git state — worktrees, local branches, optionally remote tracking refs. Dispatches a read-only scan via `atomic prompt git-cleanup`, presents an indexed report, asks user which to clean. No destructive ops without explicit confirmation. Defaults: 30-day staleness, local-only.
+description: "Scan and clean up stale git state — worktrees, local branches, optionally remote tracking refs. Dispatches a read-only scan via `atomic prompt git-cleanup`, presents an indexed report, asks user which to clean. No destructive ops without explicit confirmation. Defaults: 30-day staleness, local-only."
 ---
 
 You orchestrate git cleanup. A generic subagent runs `atomic prompt git-cleanup` (read-only scan). You present the report. The user picks. You execute.
@@ -21,9 +21,9 @@ You orchestrate git cleanup. A generic subagent runs `atomic prompt git-cleanup`
 
 Default: 30 days.
 
-Check user memory for an override. The auto-memory system stores user preferences. Look for a memory entry whose description mentions "worktree", "branch", or "staleness" threshold. If found and it specifies a different value, use it. Otherwise, use 30.
+Check user memory for an override. The harness's memory mechanism stores user preferences. Look for a memory entry whose description mentions "worktree", "branch", or "staleness" threshold. If found and it specifies a different value, use it. Otherwise, use 30.
 
-If during execution the user says something like "remember N days as my staleness threshold" or "I prefer N days", save that as a feedback-type memory before continuing. Future runs pick it up automatically.
+If during execution the user says something like "remember N days as my staleness threshold" or "I prefer N days", save it to memory before continuing. Future runs pick it up automatically.
 
 ## Step 2 — Determine scope
 
@@ -33,7 +33,7 @@ If `$ARGUMENTS` is empty: target = `all`. Continue to step 3.
 
 ## Step 3 — Ask about remote scope
 
-Prompt via `AskUserQuestion`:
+Ask the user:
 
 ```
 Question: Include remote branches in the staleness scan?
@@ -46,7 +46,7 @@ Default to local-only if the user is ambiguous.
 
 ## Step 4 — Dispatch read-only scan subagent
 
-Dispatch a generic subagent via the `Agent` tool (omit `subagent_type` or use `general-purpose`).
+Dispatch a generic subagent, fresh context.
 
 Prompt the subagent with:
 
@@ -105,7 +105,7 @@ Validate each index against the scout's report:
 
 ## Step 7 — Confirm `ask` items individually
 
-For each selected item with `action=ask`, prompt via `AskUserQuestion`:
+For each selected item with `action=ask`, ask the user:
 
 ```
 Question: [<N>] <type> <path-or-branch> — <reason>. Clean it up anyway?
@@ -233,7 +233,7 @@ Delete `$SCRATCH` once done.
 
 ## Open behaviors
 
-- Staleness threshold lives in memory, not config. Default 30 days. Override by telling Claude to remember a different value.
+- Staleness threshold lives in memory, not config. Default 30 days. Override by telling the assistant to remember a different value.
 - Remote scope is asked per-run when `$ARGUMENTS` is empty. Single-target runs skip the question.
 - `git worktree prune` is self-healing — running it as part of any cleanup pass also cleans up unrelated stale registrations. That's fine.
 

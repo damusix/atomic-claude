@@ -1,6 +1,6 @@
 ---
 type: Domain
-description: Expands the committed context/ artifact source straight into the embedded binary and installs it into ~/.claude.
+description: Expands the committed context/ artifact source into the embedded binary and projects it into Claude Code, OMP, and Codex through native adapters.
 tags: [artifacts, codegen, build]
 ---
 
@@ -10,7 +10,9 @@ tags: [artifacts, codegen, build]
 ## What it does
 
 
-The markdown artifacts under [`context/`](../../context) — agents, commands, skills, output-styles, rules, [`CLAUDE.md`](../../CLAUDE.md) — are the product; this domain is how a user gets them without a manual copy step. `make bundle` reads [`context/`](../../context), expands any `{{ template "<name>" . }}` directive against [`context/_partials/`](../../context/_partials), and writes the result to [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) plus a generated `manifest.go`. `//go:embed bundle` in [`atomic/internal/embedded/bundle.go`](../../atomic/internal/embedded/bundle.go) compiles that tree into the [`atomic`](../../atomic) binary, and `atomic claude install`/`update` writes the embedded copies to a target directory (`~/.claude` by default).
+The markdown artifacts under [`context/`](../../context) — agents, commands, skills, output-styles, rules, [`AGENTS.md`](../../context/AGENTS.md) — are the product; this domain is how a user gets them without a manual copy step. `make bundle` reads [`context/`](../../context), expands any `{{ template "<name>" . }}` directive against [`context/_partials/`](../../context/_partials), and writes the result to [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) plus a generated `manifest.go`. `//go:embed bundle` in [`atomic/internal/embedded/bundle.go`](../../atomic/internal/embedded/bundle.go) compiles that tree into the [`atomic`](../../atomic) binary, and `atomic claude install`/`update` writes the embedded copies to a target directory.
+
+Under Milestone A the binary does not install one flat tree: it renders the canonical corpus into **native projections** — a direct Claude global [`CLAUDE.md`](../../CLAUDE.md), an `AGENTS.md` plus thin [`CLAUDE.md`](../../CLAUDE.md) loader pair per scope, and an import-free OMP steering body — and enrolls the target in the ledger at `~/.atomic/install/ledger.json`. `atomic install --harness <claude|omp|codex>` and `atomic harness enroll` are the enrollment path; `atomic claude install` writes the same corpus to the Claude root, and when that root is ledger-enrolled it converges through the install engine instead of the legacy writer. Contract: [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md).
 
 There is one generation step, not two. [`context/commands/<verb>.md`](../../context/commands) and [`context/agents/<name>.md`](../../context/agents) are committed source, not generated output — no `templates/` directory and no top-level `commands/`/`agents/` directory exist in this repo. Expansion happens on the way into the embedded bundle; nothing is ever written back into [`context/`](../../context), so an artifact exists in exactly one place.
 
@@ -27,20 +29,21 @@ Every stage after [`context/`](../../context) is regenerated from the one before
 ```mermaid
 flowchart LR
     PART["context/_partials/*.md"]
-    CTX["context/<br/>agents, commands, skills,<br/>output-styles, rules, CLAUDE.md"]
+    CTX["context/<br/>agents, commands, skills,<br/>output-styles, rules, AGENTS.md"]
     PART -.->|"template expansion"| CTX
     CTX -->|"make bundle"| EMB["atomic/internal/embedded/bundle/<br/>+ manifest.go (gitignored)"]
     EMB -->|"go:embed bundle"| BIN["atomic binary"]
-    BIN -->|"atomic claude install"| HOME["~/.claude/"]
+    BIN -->|"atomic install / harness enroll"| ADAPT["harness adapters<br/>Claude · OMP · Codex"]
+    ADAPT -->|"native projection"| HOME["~/.claude/ · OMP profile root · Codex plugin package"]
 ```
 
 `make bundle` runs `go run ./internal/tools/bundle-mirror -repo ../ -outdir ./internal/embedded` from [`atomic/`](../../atomic). `test`, `build`, and `vet` in [`atomic/Makefile`](../../atomic/Makefile) all declare `bundle` as a prerequisite, because [`atomic/internal/embedded`](../../atomic/internal/embedded) does not compile until the mirror exists. CI regenerates it the same way through `go generate ./...`, which fires the `//go:generate go run ../tools/bundle-mirror -repo ../../../ -outdir .` directive in [`bundle.go`](../../atomic/internal/embedded/bundle.go); goreleaser's `before` hook does the same before a release build. There is no committed rendered-artifact tree to diff, so [`.githooks/pre-commit`](../../.githooks/pre-commit) carries no render or bundle stage.
 
-Only `command` and `agent` artifacts pass through the template engine (`readArtifact` in [`mirror.go`](../../atomic/internal/bundlemirror/mirror.go) gates on `expandedKinds`); skills, rules, output-styles, and [`CLAUDE.md`](../../CLAUDE.md) are copied byte-for-byte, so a literal `{{` in their prose is never read as a directive. `bundlemirror.Enumerate` hashes the *expanded* bytes for the SHA256 in `manifest.go`, because that is what actually installs — a parity check has to agree with the file the user ends up with.
+Only `command`, `agent`, and `steering` artifacts pass through the template engine (`expandedKinds` in [`catalog.go`](../../atomic/internal/artifacts/catalog.go) gates it, exactly once, while the canonical corpus is built); skills, rules, and output-styles are copied byte-for-byte, so a literal `{{` in their prose is never read as a directive. The renderer hashes the *expanded* bytes for the SHA256 in `manifest.go`, because that is what actually installs — a parity check has to agree with the file the user ends up with.
 
 ### What the bundle includes
 
-Inclusion is decided by pure predicates in [`atomic/internal/bundlespec/bundlespec.go`](../../atomic/internal/bundlespec/bundlespec.go). A new file matching an existing rule is picked up with no Go change; a new artifact *kind* needs a new predicate plus a new walk in `bundlemirror`.
+Inclusion is decided by pure predicates in [`atomic/internal/bundlespec/bundlespec.go`](../../atomic/internal/bundlespec/bundlespec.go). A new file matching an existing rule is picked up with no Go change; a new artifact *kind* needs a new predicate plus a new walk in [`atomic/internal/artifacts/catalog.go`](../../atomic/internal/artifacts/catalog.go)'s `Load`/`walk`, and a Claude target mapping in [`atomic/internal/bundlemirror/mirror.go`](../../atomic/internal/bundlemirror/mirror.go).
 
 | Kind | Rule |
 |------|------|
@@ -49,9 +52,21 @@ Inclusion is decided by pure predicates in [`atomic/internal/bundlespec/bundlesp
 | output-style | `context/output-styles/atomic*.md`, no dash required after [`atomic`](../../atomic) |
 | command | `context/commands/**/*.md`, any `.md`, no allowlist, recursive |
 | rule | `context/rules/**/*.md` |
-| claude-md | [`context/CLAUDE.md`](../../context/CLAUDE.md), exact name |
+| steering | [`context/AGENTS.md`](../../context/AGENTS.md), exact name — the sole authored global contract. The adapter renders it directly into a harness global file: Claude's [`CLAUDE.md`](../../CLAUDE.md) under the `claude-md` kind, OMP's profile `AGENTS.md` under the OMP steering projection. Repository and realm guidance is projected as an `AGENTS.md` + thin [`CLAUDE.md`](../../CLAUDE.md) loader pair. |
 
-`context/_partials/*.md` is never itself a bundle target: `templaterender.LoadPartials` reads it as a pool of `{{ define }}` blocks, and `bundlemirror` never walks it as an artifact source. That is also why the plain `//go:embed bundle` pattern in [`bundle.go`](../../atomic/internal/embedded/bundle.go) needs no `all:` prefix today — the underscore-prefixed `_partials/` directory is a template input, not something that lands under `bundle/`.
+`context/_partials/*.md` is never itself a bundle target: `templaterender.LoadPartials` reads it as a pool of `{{ define }}` blocks, and [`atomic/internal/artifacts/catalog.go`](../../atomic/internal/artifacts/catalog.go)'s `Load` never walks it as an artifact source. That is also why the plain `//go:embed bundle` pattern in [`bundle.go`](../../atomic/internal/embedded/bundle.go) needs no `all:` prefix today — the underscore-prefixed `_partials/` directory is a template input, not something that lands under `bundle/`.
+
+### Projections
+
+The canonical corpus is enumerated once by [`atomic/internal/artifacts/catalog.go`](../../atomic/internal/artifacts/catalog.go); harness adapters turn it into native bytes with [`atomic/internal/artifacts/renderer.go`](../../atomic/internal/artifacts/renderer.go):
+
+| Projection | Bytes | Target |
+|------------|-------|--------|
+| `ClaudeGlobal` | the rendered global contract, one `<atomic>` block | Claude's user-level [`CLAUDE.md`](../../CLAUDE.md) |
+| `LoaderPair` | authored `AGENTS.md` + a thin [`CLAUDE.md`](../../CLAUDE.md) whose managed block is `@AGENTS.md` | a repository or nested realm scope |
+| `OMPSteering` | import-free Atomic steering, one blank line, then the output-style body with frontmatter stripped | an OMP profile's `AGENTS.md` |
+
+Projections are digest-carrying and deterministic, so the ledger records what a target applied and `atomic harness diff` reports drift without re-rendering. OMP additionally gets its profile agent root's generated extension module — the artifact discovery was observed for — with the commands, agents, skills, and rules published to `~/.atomic/packages/omp/atomic` as a corpus store, plus native rule cards, and Codex gets a generated plugin package carrying the rule index, matcher, rules, skills, and TOML agents — with no hook configuration, since the tested version proved registration and list visibility only. Where the CP0 capability record does not prove a delivery surface, the adapter reports `unsupported` rather than fabricating bytes. Capability evidence: [`docs/research/harness-capability-matrix.md`](../research/harness-capability-matrix.md).
 
 ### Partial composition
 
@@ -67,6 +82,22 @@ agent-implementer-workflow ──> agent-search-tooling, agent-tdd-signals,
                                agent-code-intel, agent-where
 ```
 
+Every `agent-*` partial is a pure fragment — one `{{ define }}` block, no conditionals, no variant-passing — and owns exactly one concern. Optional sub-fragments are their own micro-partials, so a consumer pulls in only what it needs.
+
+| Partial | Owns | Nests | Consumed by |
+|---------|------|-------|-------------|
+| `agent-atomic-voice` | The orchestrator-facing reply contract: findings only, no preamble or recap. | — | all eight agents |
+| `agent-code-intel` | When and how to query the `atomic code` symbol graph, degrading to literal search. | — | reviewer, investigator, wiki-inferrer, wiki-writer, auditor, deslopper; implementer (via workflow) |
+| `agent-comment-discipline` | The bar a comment must clear to earn its place. | — | implementer, reviewer, auditor, deslopper |
+| `agent-implementer-workflow` | The implementer's read → reflect → code-intel → reuse → TDD → self-check loop. | `agent-search-tooling`, `agent-tdd-signals`, `agent-code-intel`, `agent-where` | implementer |
+| `agent-readability` | Readability as a defect class: comment noise, over-engineering, repetition. | — | implementer, reviewer, auditor |
+| `agent-search-tooling` | Choosing a search tier: code-intel, then `sg`, then literal text. | — | investigator, deslopper; implementer (via workflow) |
+| `agent-shared-rules` | Cross-agent discipline: match file style, leave git state untouched, quote errors exactly. | — | implementer |
+| `agent-signals-output` | The report shape: Did / Tests / Signals / Failed / Commit / Status. | — | implementer |
+| `agent-tdd-signals` | TDD-first, and which quality signals to run. | — | implementer (via workflow) |
+| `agent-where` | Position orientation via `atomic where` across the repo, realm, and code-index axes. | — | reviewer, investigator, wiki-inferrer; implementer (via workflow) |
+| `agent-yagni` | The Simplicity-first (YAGNI) ladder. | — | implementer, reviewer, auditor, strategist, deslopper |
+
 | Agent source | Partials composed |
 |---------------|-------------------|
 | `atomic-implementer.md` | `agent-atomic-voice`, `agent-comment-discipline`, `agent-implementer-workflow`, `agent-readability`, `agent-shared-rules`, `agent-signals-output`, `agent-yagni` |
@@ -76,6 +107,7 @@ agent-implementer-workflow ──> agent-search-tooling, agent-tdd-signals,
 | `atomic-wiki-writer.md` | `agent-atomic-voice`, `agent-code-intel` |
 | `atomic-auditor.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-comment-discipline`, `agent-readability`, `agent-yagni` |
 | `atomic-strategist.md` | `agent-atomic-voice`, `agent-yagni` |
+| `atomic-deslopper.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-search-tooling`, `agent-yagni`, `agent-comment-discipline` |
 
 | Command source | Partials composed |
 |-----------------|-------------------|
@@ -84,13 +116,23 @@ agent-implementer-workflow ──> agent-search-tooling, agent-tdd-signals,
 | `autopilot.md` | `worktree-setup`, `implement-loop`, `loop-finalize` |
 | `quick-fix.md` | `handoff`, `implement-loop`, `loop-finalize` |
 | `report-issue.md`, `report-issue-with-atomic.md` | `report-issue-privacy` |
+| `deslop.md` | `worktree-setup`, `git-safety` |
 
 Every other command source is self-contained.
 
 ### Install verbs
 
+The multi-harness lifecycle enrolls a target and converges its projection; the `claude` family keeps the legacy bundle writer only for a root the ledger does not enroll — an enrolled Claude root converges through the same engine, under the same lock, journal, and ledger. Contract: [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md).
+
 | Verb | Flags |
 |------|-------|
+| `atomic install` | `--harness`, `--instance`, `--all`, `--replace` \| `--leave-unowned`, `--dry-run`, `--yes`, `--json` |
+| `atomic harness enroll <claude\|omp\|codex>` | same selection flags as `atomic install` |
+| `atomic harness adopt [claude]` | `--instance`, `--replace` \| `--leave-unowned`, `--acknowledge-snapshot`, `--dry-run`, `--yes`, `--json` |
+| `atomic harness repair` | `--harness`, `--instance`, `--dry-run`, `--yes`, `--json` |
+| `atomic harness diff` | `--harness`, `--instance`, `--json` |
+| `atomic harness uninstall <target-key>` \| `--all` | `--dry-run`, `--yes`, `--json` |
+| `atomic harness rules status` \| `rules sync` | `--harness`, `--instance`, `--dry-run`, `--yes`, `--json` |
 | `atomic claude install` | `--dry-run`, `--target`, `--no-hooks` |
 | `atomic claude update` | `--dry-run`, `--target`, `--no-hooks` |
 | `atomic claude diff` | `--target` |
@@ -101,7 +143,7 @@ Every other command source is self-contained.
 
 Right after `Apply` returns, `installOrUpdate` calls `seedOutputStyleForInstall(targetDir, home, manifest, dryRun, out)` (after `Apply`, so the style file the seed guard checks for is already on disk). Seeding fires only when `manifestHasOutputStyle` finds the output-style artifact in the manifest itself (not on disk, since `--dry-run` writes nothing) and `isUserLevelTarget` confirms `targetDir` is `~/.claude` via `hooks.SameDir`; a custom `--target` install never seeds. Under `--dry-run`, `planOutputStyleSeed` reports what would be seeded by checking `hooks.SeedEnabled` and the current `settings.json` state, without writing. A seed failure (malformed `settings.json`) prints as a non-fatal warning and never aborts the install.
 
-[`atomic/cmd/atomic/cmd_claude.go`](../../atomic/cmd/atomic/cmd_claude.go)'s `runClaudeInstall` calls `hooks.Install(scopeRoot, scopeRoot)` after `claudeinstall.Install`/`Update` returns, to register the session-start hook. `hooks.Install` returns a `skipped bool` alongside its error; when `skipped` is true (a read-only `settings.json`), `runClaudeInstall` sets `result.HooksError = fmt.Errorf("settings.json is read-only")` instead of reporting success. `printPostInstallHint`'s next-steps message no longer tells the user to open Claude Code and pick the output style manually under `/config`, since `seedOutputStyleForInstall` now does that during install; the hint keeps only the `/refresh-wiki` signals reminder.
+On the legacy path — a root the ledger does not enroll — [`atomic/cmd/atomic/cmd_claude.go`](../../atomic/cmd/atomic/cmd_claude.go)'s `runClaudeInstall` calls `hooks.InstallInDir(targetDir)` after `claudeinstall.Install`/`Update` returns, to register the session-start hook; an enrolled root converges through the install engine and returns before that call, so `--no-hooks` applies to legacy installs only. `hooks.InstallInDir` returns a `skipped bool` alongside its error; when `skipped` is true (a read-only `settings.json`), `runClaudeInstall` sets `result.HooksError = fmt.Errorf("settings.json is read-only")` instead of reporting success. `printPostInstallHint`'s next-steps message no longer tells the user to open Claude Code and pick the output style manually under `/config`, since `seedOutputStyleForInstall` now does that during install; the hint keeps only the `/refresh-wiki` signals reminder.
 
 ### The per-artifact install decision
 
@@ -130,7 +172,7 @@ Backups land in `~/.atomic/backups/<timestamp>/<target>`, one timestamp director
 
 ### Stale-artifact pruning
 
-Install reads the previous `[install.artifacts]` list from `~/.atomic/config.toml` *before* planning, so it compares against the old manifest rather than the one about to be written. `PruneDiff` returns the targets that left the bundle, and a batched confirm offers to remove them. A non-interactive terminal, or Ctrl+C at the prompt, skips the removal silently. `claude-md` is never tracked in `[install.artifacts]`. Dev builds (`version.Version == "dev"`) leave `Install.Version` untouched, because `dev` is not parseable semver and `config.Validate` would then fail every contributor's `atomic doctor`.
+Install reads the previous `[install.artifacts]` list from `~/.atomic/config.toml` *before* planning, so it compares against the old manifest rather than the one about to be written. `PruneDiff` returns the targets that left the bundle, and a batched confirm offers to remove them. A non-interactive terminal, or Ctrl+C at the prompt, skips the removal silently. The `claude-md` projection of the global steering source is never tracked in `[install.artifacts]`. Dev builds (`version.Version == "dev"`) leave `Install.Version` untouched, because `dev` is not parseable semver and `config.Validate` would then fail every contributor's `atomic doctor`.
 
 
 ## Where it lives
@@ -142,11 +184,11 @@ Install reads the previous `[install.artifacts]` list from `~/.atomic/config.tom
 |------|------|
 | `context/commands/*.md` | Source for each slash command. May compose `{{ template "<name>" . }}` directives. |
 | `context/agents/*.md` | Source for each subagent definition. Same composition contract as commands. |
-| `context/_partials/*.md` | Partials composed by both kinds via `{{ template "<name>" . }}`. One pool: a partial defined once is callable from any command or agent source. |
+| `context/_partials/*.md` | Partials composed by every expanding kind via `{{ template "<name>" . }}`. One pool: a partial defined once is callable from any command, agent, or global-steering source. |
 | `context/skills/atomic-*/` | Skill directories, whole subtree. Bundled byte-for-byte, no expansion. |
 | `context/output-styles/atomic*.md` | Output style definitions. Bundled byte-for-byte. |
 | `context/rules/**/*.md` | Path-scoped topic rules. Bundled byte-for-byte. |
-| [`context/CLAUDE.md`](../../context/CLAUDE.md) | The global contract installed as `~/.claude/CLAUDE.md`. Bundled byte-for-byte. |
+| [`context/AGENTS.md`](../../context/AGENTS.md) | The sole authored global contract. Expanded once like commands and agents, then projected by an adapter into the harness global file (Claude's `~/.claude/CLAUDE.md`, an OMP profile's `AGENTS.md`) — never a user-level `AGENTS.md`. Repository and realm guidance is an `AGENTS.md` + thin [`CLAUDE.md`](../../CLAUDE.md) loader pair. |
 
 ### Generated, never edit, never committed
 
@@ -161,18 +203,26 @@ Both are gitignored; `git ls-files atomic/internal/embedded/` returns only [`bun
 
 | Path | Role |
 |------|------|
-| [`atomic/internal/bundlespec/bundlespec.go`](../../atomic/internal/bundlespec/bundlespec.go) | Pure inclusion predicates. Single source of truth, imported by `bundlemirror` at build time and `manifestcheck` at runtime. |
+| [`atomic/internal/bundlespec/bundlespec.go`](../../atomic/internal/bundlespec/bundlespec.go) | Pure inclusion predicates and steering-source descriptors. Single source of truth: `artifacts.Load` applies them while enumerating the canonical corpus, and `bundlemirror` maps that corpus to Claude targets at build time; `manifestcheck` consumes them transitively through `bundlemirror.Enumerate` at runtime. |
 | [`atomic/internal/templaterender/templaterender.go`](../../atomic/internal/templaterender/templaterender.go) | `text/template` engine. `LoadPartials` pools every `*.md` under [`context/_partials/`](../../context/_partials) in sorted order; `Expand` clones the pool per file, so a `{{ define }}` in one artifact can never leak into the next. A missing partials dir yields an empty pool rather than an error. |
-| [`atomic/internal/bundlemirror/mirror.go`](../../atomic/internal/bundlemirror/mirror.go) | Build-time walker. `enumerate` reads each matching file once, expands `command`/`agent` kinds through `templaterender`, and keeps the bytes; `Run` reuses them for the copy. `Enumerate` is `Run` without the disk write, used by `manifestcheck`. Output sorts by kind then target, so the result is deterministic. |
+| [`atomic/internal/artifacts/catalog.go`](../../atomic/internal/artifacts/catalog.go) | Canonical corpus. `Load` enumerates [`context/`](../../context) once into `Artifact` values (identity `<kind>:<source>`, rendered body, portable semantics, source digest) and expands partials exactly once. `Validate` rejects duplicate identities, unknown dependencies, and malformed frontmatter. |
+| [`atomic/internal/artifacts/renderer.go`](../../atomic/internal/artifacts/renderer.go) | Target projections from one corpus: `ClaudeGlobal` (direct [`CLAUDE.md`](../../CLAUDE.md)), `LoaderPair` (a scope's `AGENTS.md` plus its adjacent thin [`CLAUDE.md`](../../CLAUDE.md)), and `OMPSteering` (import-free steering body, one blank line, frontmatter-free output-style body). Every projection carries a digest of its own bytes. |
+| [`atomic/internal/bundlemirror/mirror.go`](../../atomic/internal/bundlemirror/mirror.go) | Claude bundle adapter. `enumerate` loads the canonical corpus through `artifacts.Load` and maps it to the Claude-native target set, keeping the rendered bytes so `Run` copies without re-rendering; `Enumerate` is `Run` without the disk write, used by `manifestcheck`. The other harnesses project the same corpus through their own adapters. Output sorts by kind then target, so the result is deterministic. |
+| [`atomic/internal/harness/harness.go`](../../atomic/internal/harness/harness.go), `registry.go`, `capability.go` | Adapter contract (`Discover`, `Capabilities`, `Lifecycle`), the per-kind registry (`claude`, `omp`, `codex`), and the CP0 capability matrix that gates every native claim. |
+| [`atomic/internal/harness/claude/`](../../atomic/internal/harness/claude) | Claude adapter: direct global [`CLAUDE.md`](../../CLAUDE.md) projection, repository/realm loader-pair management, settings/output-style mutation, and legacy guidance adoption. |
+| [`atomic/internal/harness/omp/`](../../atomic/internal/harness/omp) | OMP adapter: profile discovery through `omp config path`, the import-free profile `AGENTS.md`, the code-generated extension module delivered under the profile agent root, the `~/.atomic/packages/omp/atomic` corpus store, and native rule projection. |
+| [`atomic/internal/harness/codex/`](../../atomic/internal/harness/codex) | Codex adapter: `CODEX_HOME` discovery, the generated plugin package (marketplace descriptor, plugin manifest, rule index and matcher, projected rules/skills/TOML agents), read-only native-surface reports, and no hook configuration — the tested version proved registration and list visibility only. |
+| [`atomic/internal/install/`](../../atomic/internal/install) | The converge engine the lifecycle verbs share: `Steps`, `Selection`, `Converge`, `EnrolledOnly`, `RulesStatus`. Builds the registry with the Claude, OMP, and Codex adapters. |
+| [`atomic/internal/installstate/`](../../atomic/internal/installstate) | Enrollment ledger (`ledger.json`), lifecycle lock, journals, transactions, recovery, and the seven-state migration classifier. |
 | [`atomic/internal/embedded/bundle.go`](../../atomic/internal/embedded/bundle.go) | Holds `//go:embed bundle` and the `go:generate` directive that invokes `bundle-mirror`. |
-| [`atomic/internal/embedded/manifest.go`](../../atomic/internal/embedded/manifest.go) | Generated `Manifest() []Artifact` allowlist: kind, embedded source path, install target, SHA256. |
+| [`atomic/internal/embedded/manifest.go`](../../atomic/internal/embedded/manifest.go) | Generated `Manifest() []Artifact` allowlist: kind, embedded source path, install target, canonical context/-relative source, SHA256. |
 | [`atomic/internal/tools/bundle-mirror/main.go`](../../atomic/internal/tools/bundle-mirror/main.go) | Entrypoint for `go generate` and `make bundle`. Prints `bundle-mirror: wrote N artifacts to <outDir>`, and writes `manifest.go` from an inline template. |
 | [`atomic/internal/claudeinstall/install.go`](../../atomic/internal/claudeinstall/install.go) | `Plan`, `Apply`, `Install`, `Update`, `Diff`, `List`, `ReapplyAgents`. SHA256 idempotency, agent frontmatter patching, backups. |
 | [`atomic/internal/claudeinstall/atomicblock.go`](../../atomic/internal/claudeinstall/atomicblock.go) | `<atomic>...</atomic>` parser for [`CLAUDE.md`](../../CLAUDE.md). Line-anchored: only a line whose trimmed content is exactly the tag counts. |
 | [`atomic/internal/claudeinstall/manifest.go`](../../atomic/internal/claudeinstall/manifest.go) | Stale-artifact pruning and the `[install]` config manifest. |
 | [`atomic/internal/claudeinstall/snapshot.go`](../../atomic/internal/claudeinstall/snapshot.go) | Write-once pre-install snapshot, the input to uninstall. |
 | [`atomic/internal/claudeinstall/uninstall.go`](../../atomic/internal/claudeinstall/uninstall.go) | `BuildUninstallPlan`, `GenerateUninstallPrompt`. |
-| [`atomic/cmd/atomic/cmd_claude.go`](../../atomic/cmd/atomic/cmd_claude.go) | `atomic claude install\|update\|diff\|list\|uninstall` dispatch. `runClaudeInstall` wires the session-start hook and surfaces a read-only `settings.json` as `HooksError`; `printPostInstallHint` prints the post-install next steps. |
+| [`atomic/cmd/atomic/cmd_claude.go`](../../atomic/cmd/atomic/cmd_claude.go) | `atomic claude install\|update\|diff\|list\|uninstall` dispatch. `runClaudeInstall` routes a ledger-enrolled root through `install.Steps.Converge` (auto-approved; a blocked plan returns an error) and falls back to the legacy `claudeinstall` writer only for an un-adopted target; that legacy path wires the session-start hook and surfaces a read-only `settings.json` as `HooksError`. `printPostInstallHint` prints the post-install next steps. |
 | [`atomic/internal/manifestcheck/manifestcheck.go`](../../atomic/internal/manifestcheck/manifestcheck.go) | `Compare` re-runs `bundlemirror.Enumerate` against the live [`context/`](../../context) tree and diffs it against the binary's baked-in `embedded.Manifest()` — a staleness check, not a git-commit-drift check, since neither side is committed. |
 
 ### Docs
@@ -180,9 +230,10 @@ Both are gitignored; `git ls-files atomic/internal/embedded/` returns only [`bun
 | Path | Covers |
 |------|--------|
 | [`docs/spec/artifact-templates.md`](../spec/artifact-templates.md) | Render/expansion contract, orphan rule, partial taxonomy. |
-| [`docs/spec/install-workflow.md`](../spec/install-workflow.md) | `atomic claude install/update`, SHA256 idempotency, backups, the [`CLAUDE.md`](../../CLAUDE.md) merge path. |
-| [`docs/spec/atomic-binary.md`](../spec/atomic-binary.md) | Master spec for every [`atomic`](../../atomic) CLI verb, including the `claude` family. |
-| [`docs/spec/uninstall.md`](../spec/uninstall.md), [`docs/design/uninstall.md`](../design/uninstall.md) | `atomic claude uninstall`: snapshot, restore plan, LLM merge of modified files. |
+| [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md) | Milestone A contract: canonical corpus, native projections, enrollment ledger, lifecycle serialization, adoption, and rule delivery. |
+| [`docs/spec/install-workflow.md`](../spec/install-workflow.md) | Claude global projection, the block-aware [`CLAUDE.md`](../../CLAUDE.md) path, loader pairs, and Milestone A adoption. |
+| [`docs/spec/atomic-binary.md`](../spec/atomic-binary.md) | Master spec for every [`atomic`](../../atomic) CLI verb, including the `claude`, `install`, `harness`, and `state` families. |
+| [`docs/spec/uninstall.md`](../spec/uninstall.md), [`docs/design/uninstall.md`](../design/uninstall.md) | Target-scoped `atomic harness uninstall` and the Claude-only snapshot path: snapshot, restore plan, LLM merge of modified files. |
 | [`docs/spec/artifact-consolidation.md`](../spec/artifact-consolidation.md) | Why the artifact surface is shaped as it is: ship-verb family collapse, cold ops moved to binary-emitted prompts. |
 | [`docs/spec/output-style-seed.md`](../spec/output-style-seed.md), [`docs/design/output-style-seed.md`](../design/output-style-seed.md) | Why install seeds the user-level `outputStyle` key, the non-goals (never a project file, never an overwrite), and the root-cause investigation behind seeding it at all. |
 | [`docs/guides/contributing.md`](../guides/contributing.md) | Contributor workflow, build pipeline, testing. |
@@ -214,13 +265,14 @@ That stage does not belong to this domain, and there is no render, bundle, or fr
 ## Coupling
 
 
-- **config** — install writes into two roots that must not be confused. Artifacts go to `targetDir` (default `~/.claude`, overridable with `--target`); everything atomic owns resolves through [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go) under `~/.atomic` (`config.toml`, `backups/`, `proposed/CLAUDE.md`, `profile.md`, `pre-install/`). The config domain owns those helpers; this domain calls them. Spec: [`docs/spec/configurable-state-paths.md`](../spec/configurable-state-paths.md).
+- **config** — install writes into two roots that must not be confused. Artifacts go to `targetDir` (default `~/.claude`, or `CLAUDE_CONFIG_DIR` when set; overridable with `--target`); everything atomic owns resolves through [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go) under `~/.atomic` (`config.toml`, `backups/`, `proposed/CLAUDE.md`, `profile.md`, `pre-install/`). The config domain owns those helpers; this domain calls them. Spec: [`docs/spec/configurable-state-paths.md`](../spec/configurable-state-paths.md).
 - **config** — `atomic config agents` writes `[claude.agents.<name>]` overrides, then calls `ReapplyAgents` through the `ApplyAgentsHook` package variable. `internal/config` cannot import `internal/claudeinstall` without a cycle, so [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go), the only package importing both, wires the hook in `init()`. `ReapplyAgents` resolves its target via `ResolveTarget("~/.claude")`, so an install made with a custom `--target` is invisible to that verb.
 - **config** — `seedOutputStyleForInstall` in [`atomic/internal/claudeinstall/install.go`](../../atomic/internal/claudeinstall/install.go) calls `hooks.SeedOutputStyle` and `hooks.SameDir` from [`atomic/internal/hooks/`](../../atomic/internal/hooks), the config domain's package. `hooks.SeedOutputStyle` owns the `outputStyle` key write to `~/.claude/settings.json`; this domain only decides when to call it (manifest carries the artifact, target is user-level).
 - **doctor** — [`atomic/internal/manifestcheck/manifestcheck.go`](../../atomic/internal/manifestcheck/manifestcheck.go) calls `bundlemirror.Enumerate` and compares the result against the binary's embedded `Manifest()`. Doctor's manifest check and `atomic validate` both consume it. The check is repo-dev only and SKIPs outside the atomic-claude repo. Changing a `bundlespec` predicate changes what both report.
 - **doctor** — doctor's install check calls `claudeinstall.Diff` to find drift between the embedded bundle and `~/.claude`: an absent artifact is FAIL, a differing one is WARN, and `atomic doctor --fix` repairs it.
-- **doctor** — doctor's category 14 check ([`atomic/internal/doctor/checks_output_style.go`](../../atomic/internal/doctor/checks_output_style.go)) reads the same `outputStyle` key this domain's install path writes via `hooks.SeedOutputStyle`, and warns when it is absent or names an uninstalled style. `atomic doctor --fix` re-seeds it through the same `hooks` primitives.
+- **doctor** — doctor's category 14 check ([`atomic/internal/doctor/checks_output_style.go`](../../atomic/internal/doctor/checks_output_style.go)) reads the same `outputStyle` key this domain's install path writes via `hooks.SeedOutputStyle`, and warns when it is absent or names an uninstalled style in each Claude root the ledger enrols; a ledger whose targets exclude Claude skips the check, while an absent or unresolved ledger keeps the legacy default root. `atomic doctor --fix` re-seeds it through the same `hooks` primitives.
 - **doctor, config** — install creates `~/.atomic/profile.md` on first run via [`atomic/internal/profile`](../../atomic/internal/profile) and prints `ProfileNudge`. Profile content and its freshness window belong to those domains.
 - **workflow** — every ship verb and orchestrator command lives in [`context/commands/`](../../context/commands). Changing a ship-verb flow means editing [`context/_partials/commit-flow.md`](../../context/_partials/commit-flow.md) and its siblings, not a single command file, because the partials fan out to every command in the family.
-- **docs-meta** — [`context/CLAUDE.md`](../../context/CLAUDE.md) is both the bundle input and, per the root [`CLAUDE.md`](../../CLAUDE.md), a separate file from this repo's own project instructions: [`context/CLAUDE.md`](../../context/CLAUDE.md) installs as every user's `~/.claude/CLAUDE.md`, while the root [`CLAUDE.md`](../../CLAUDE.md) never installs. A change to [`context/CLAUDE.md`](../../context/CLAUDE.md) reaches every user on their next update.
-- **Lockstep contract** — [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) and the "Simplicity first (YAGNI)" ladder in [`context/CLAUDE.md`](../../context/CLAUDE.md)'s `<principles>` block carry the same seven steps verbatim. [`context/CLAUDE.md`](../../context/CLAUDE.md) is copied byte-for-byte, not expanded, so nothing enforces the match. Edit both together.
+- **docs-meta** — [`context/AGENTS.md`](../../context/AGENTS.md) is both the bundle input and, per the root [`CLAUDE.md`](../../CLAUDE.md), a separate file from this repo's own project instructions: the Claude adapter renders it as every user's `~/.claude/CLAUDE.md`, while the root [`CLAUDE.md`](../../CLAUDE.md) never installs. A change to [`context/AGENTS.md`](../../context/AGENTS.md) reaches every user on their next update.
+- **harness** — the canonical corpus this domain enumerates is the input the `harness` domain projects natively: [`atomic/internal/artifacts/catalog.go`](../../atomic/internal/artifacts/catalog.go) loads it, the adapters under [`atomic/internal/harness/`](../../atomic/internal/harness) render it, and `atomic install` / `atomic harness enroll` records the applied bytes in the install ledger. The embed and mirror mechanics stay here; the projection and ownership model live there. Contract: [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md).
+- **Lockstep contract** — [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) and the "Simplicity first (YAGNI)" ladder in [`context/AGENTS.md`](../../context/AGENTS.md)'s `<principles>` block carry the same nine steps verbatim. Nothing enforces the match. Edit both together.

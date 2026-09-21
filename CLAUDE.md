@@ -1,11 +1,11 @@
 # CLAUDE.md
 
-Project-local context for working **on** this repo. Not copied anywhere — read by Claude only when the cwd is this repo. The contract that ships to users is `context/CLAUDE.md`, a different file.
+Project-local context for working **on** this repo. Not copied anywhere — read by Claude only when the cwd is this repo. The contract that ships to users is `context/AGENTS.md`, a different file.
 
 
 ## What this repo is
 
-A holistic Claude Code configuration. Everything that installs lives under `context/`: `CLAUDE.md`, `commands/`, `agents/`, `skills/`, `rules/`, `output-styles/`. They are designed as one coherent system — atomic output style, an opinionated command set, a small subagent roster, and discipline skills that interlock. Not a grab-bag; everything is meant to compose.
+A holistic Claude Code configuration. Everything that installs lives under `context/`: `AGENTS.md`, `commands/`, `agents/`, `skills/`, `rules/`, `output-styles/`. They are designed as one coherent system — atomic output style, an opinionated command set, a small subagent roster, and discipline skills that interlock. Not a grab-bag; everything is meant to compose.
 
 Replaces (for the author) heavier toolkits like superpowers and caveman. Personal config, no stability guarantee.
 
@@ -19,12 +19,12 @@ Target macOS and Linux only. Drop Windows-specific review findings, Windows-only
 
 | File | Role | Destination |
 |------|------|-------------|
-| `context/CLAUDE.md` | Single source of truth. Two roles in one file: (a) the global contract that ships as every user's `~/.claude/CLAUDE.md` on install, and (b) this repo's own project instructions when working *on* atomic-claude. Since it no longer sits at the repo root, Claude Code does not auto-load it here — the `@context/CLAUDE.md` ref below pulls it in. Not to be confused with the root `CLAUDE.md`, which is the row below. | `context/`, committed → `~/.claude/CLAUDE.md` on install |
-| `CLAUDE.md` (this file) | Project-local overlay for this repo *only*. Build pipeline rules, doc reference paths, mandatory checklist, design axioms. Auto-loads at the repo root, and pulls in `context/CLAUDE.md` by `@`-ref. Do NOT duplicate `context/CLAUDE.md` content here — both load into context, duplication = wasted tokens. | Repo root, committed, never installed. |
+| `context/AGENTS.md` | Single source of truth. The sole authored global contract, wrapped in the `<atomic>` managed block. It carries a whole-line `@~/.atomic/profile.md` import; adapters without import support strip that directive while projecting, so the OMP projection is import-free while the source itself is not. The Claude adapter renders the source directly into `~/.claude/CLAUDE.md`; other harnesses project it natively. Since it no longer sits at the repo root, Claude Code does not auto-load it here — the `@context/AGENTS.md` ref below pulls it in. Not to be confused with the root `CLAUDE.md`, which is the row below. | `context/`, committed → `~/.claude/CLAUDE.md` on install |
+| `CLAUDE.md` (this file) | Project-local overlay for this repo *only*. Build pipeline rules, doc reference paths, mandatory checklist, design axioms. Auto-loads at the repo root, and pulls in `context/AGENTS.md` by `@`-ref. Do NOT duplicate `context/AGENTS.md` content here — both load into context, duplication = wasted tokens. | Repo root, committed, never installed. |
 | `README.md` | Human-facing overview of what the config does and how to install it. | Repo root, committed. |
 | `context/commands/*.md` | Slash command definitions, committed in source form. May carry `{{ template "<flow>" . }}` directives resolved against `context/_partials/`; expansion happens on the way into the embedded bundle, never back into `context/`. Copied to `~/.claude/commands/` by `atomic claude install`. | `~/.claude/commands/` |
 | `context/agents/*.md` | Subagent definitions, same contract as commands. Every agent composes at least `agent-atomic-voice`. | `~/.claude/agents/` |
-| `context/_partials/<name>.md` | Reusable blocks composed by command AND agent sources via `{{ template "<name>" . }}`. One shared pool — a partial defined once is callable from either kind. Never installs: the mirror walks only the artifact kind directories, and `_partials/` is not one of them. The full inventory and the per-artifact composition tables live in `docs/wiki/bundle.md` — read them there rather than keeping a second copy here, which is what let this row drift. One rule that is not derivable from the files themselves: `agent-yagni` is kept **verbatim in sync** with the Simplicity-first (YAGNI) ladder in `context/CLAUDE.md`'s Principles block, and `CLAUDE.md` is not expanded, so nothing enforces the match. | Not copied; consumed at build time. |
+| `context/_partials/<name>.md` | Reusable blocks composed by command AND agent sources via `{{ template "<name>" . }}`. One shared pool — a partial defined once is callable from either kind. Never installs: `templaterender.LoadPartials` reads it as a pool of `{{ define }}` blocks, and artifact enumeration (`artifacts.Load` in [`catalog.go`](atomic/internal/artifacts/catalog.go)) never walks it as an artifact source. The full inventory and the per-artifact composition tables live in `docs/wiki/bundle.md` — read them there rather than keeping a second copy here, which is what let this row drift. One rule that is not derivable from the files themselves: `agent-yagni` is kept **verbatim in sync** with the Simplicity-first (YAGNI) ladder in `context/AGENTS.md`'s Principles block; nothing enforces the match. | Not copied; consumed at build time. |
 | `context/skills/*/SKILL.md` | Discipline skills. Copied to `~/.claude/skills/`. | `~/.claude/skills/` |
 | `context/output-styles/*.md` | Output style definitions. Copied to `~/.claude/output-styles/`. | `~/.claude/output-styles/` |
 | `context/rules/<topic>/*.md` | **Shipped** path-scoped topic rules. `paths:` frontmatter globs (e.g. `**/*.{ts,tsx}`, `docs/spec/**`) so the rule only loads when Claude touches a matching file — auto-loads into subagents too (verified). Currently: `typescript/`, `python/` (language style), `specs/spec-currency.md` (spec body-is-truth, globs `docs/spec/**` + `docs/design/**`). | `~/.claude/rules/` (via `atomic claude install`) |
@@ -41,9 +41,9 @@ These stay auto-loaded every session (project-specific, compact):
 
 ### Global contract (auto-loaded)
 
-`context/CLAUDE.md` is the file that installs as every user's `~/.claude/CLAUDE.md`. It no longer sits at the repo root, so Claude Code will not pick it up on its own — this ref is what keeps the repo dogfooding its own contract.
+`context/AGENTS.md` is the file the Claude adapter renders as every user's `~/.claude/CLAUDE.md`. It no longer sits at the repo root, so Claude Code will not pick it up on its own — this ref is what keeps the repo dogfooding its own contract.
 
-@context/CLAUDE.md
+@context/AGENTS.md
 
 
 ### Project signals (auto-loaded)
@@ -59,7 +59,7 @@ These stay auto-loaded every session (project-specific, compact):
 ## Coherence rules (when editing here)
 
 - Treat the five artifact types (commands, agents, skills, output-styles, rules) as one system. A change to one often demands a matching change to the others.
-- `CLAUDE.md` is the global contract. Adding a command/agent/skill that other artifacts reference? Update `CLAUDE.md` so every workspace knows it exists.
+- `context/AGENTS.md` is the global contract. Adding a command/agent/skill that other artifacts reference? Update `context/AGENTS.md` so every workspace knows it exists.
 - `README.md` is the public-facing index. New artifact, removed artifact, or renamed verb → update the tables.
 - Atomic output style applies to Claude's TUI replies, not to the files in this repo. Command/agent/skill prose stays in normal English so it reads cleanly when installed.
 - Skill triggers, agent dispatch criteria, and command behaviors must not contradict each other. If `/atomic-plan` says it writes to `docs/spec/` and an agent expects `docs/specs/`, that's a bug.
@@ -78,13 +78,13 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 | # | Surface | When to update | What to write |
 |---|---------|----------------|---------------|
 | 1 | The artifact file itself | Always | `context/agents/atomic-*.md`, `context/commands/<verb>.md`, `context/skills/<name>/SKILL.md`, `context/output-styles/atomic-*.md`, or `context/rules/<lang>/*.md` — one file, no separate template. Use the `atomic-` prefix for custom artifacts. |
-| 2 | `CLAUDE.md` | Always — single source of truth | This is both (a) the global contract that ships as every user's `~/.claude/CLAUDE.md` on install, and (b) the committed project instructions when working *on* atomic-claude. One file, both roles. Agents and skills are surfaced by the harness each session (agent roster + skill trigger descriptions), so they need no CLAUDE.md registry section — keep each artifact's own description accurate instead. Commands go only into the `## Workflow` lifecycle ordering (the per-command catalog was removed; discovery is via the harness slash listing + `/atomic-help`); naming conventions cover output styles/rules. |
-| 3 | `CLAUDE.md` (root, this file) | Only when the new artifact changes *project-local* conventions for this repo specifically (e.g. new bundle path, new build step, new file role) | Edit the relevant section. This file never installs. Do NOT duplicate the global registration here — the root file is for repo-specific overlays only, not for mirroring `context/CLAUDE.md`. Both load into context when cwd is this repo, so duplication = wasted tokens. |
+| 2 | `context/AGENTS.md` | Always — single source of truth | The sole authored global contract, wrapped in the `<atomic>` managed block and projected into each harness's native steering file on install (Claude's `~/.claude/CLAUDE.md`). This repo's project-local overlay is the root `CLAUDE.md` (row 3), a separate file. Agents and skills are surfaced by the harness each session (agent roster + skill trigger descriptions), so they need no registry section — keep each artifact's own description accurate instead. Commands go only into the `## Workflow` lifecycle ordering (the per-command catalog was removed; discovery is via the harness slash listing + `/atomic-help`); naming conventions cover output styles/rules. |
+| 3 | `CLAUDE.md` (root, this file) | Only when the new artifact changes *project-local* conventions for this repo specifically (e.g. new bundle path, new build step, new file role) | Edit the relevant section. This file never installs. Do NOT duplicate the global registration here — the root file is for repo-specific overlays only, not for mirroring `context/AGENTS.md`. Both load into context when cwd is this repo, so duplication = wasted tokens. |
 | 4 | `README.md` | Always — public-facing index | Add to the matching table in `docs/reference/commands.md` (or agents/skills equivalent). Keep one-line descriptions. |
 | 5 | `docs/spec/<topic>.md` | If the artifact has non-trivial behavior or cross-references | Write or extend the spec. Required for anything dispatched by another artifact or that mutates state. **Amending an existing spec: see "Spec amendment rule" below — never silently overwrite the original.** |
 | 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit` requires editing the command to call it AND the skill to declare itself as called from there. |
 | 7 | **`/atomic-help` topic table + tour** ⚠ | **Always** — every artifact a user might type, install, or run. Non-negotiable. | Edit `context/commands/atomic-help.md`. Add / remove / rename the row in the right category sub-table (Lifecycle / Ship matrix / State & context / Maintenance & utilities / Reference). Material lifecycle or maintenance change → also update the matching tour stage (Stage 2 lifecycle / Stage 3 state files / Stage 4 maintenance). **Read the full contract in `<help_router_contract>` below before skipping any sub-rule.** |
-| 8 | Bundle inclusion (`atomic/internal/bundlemirror/mirror.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the inclusion rule. Existing kinds (`context/agents/`, `context/commands/`, `context/skills/`, `context/output-styles/`, `context/rules/`) auto-include matching files. |
+| 8 | Bundle inclusion (`atomic/internal/bundlespec/bundlespec.go` + `atomic/internal/artifacts/catalog.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the predicate and its walk in `artifacts.Load`, plus a Claude target mapping in `atomic/internal/bundlemirror/mirror.go`. Existing kinds (`context/agents/`, `context/commands/`, `context/skills/`, `context/output-styles/`, `context/rules/`, and the singleton `context/AGENTS.md` steering source) auto-include matching files. |
 | 9 | Signals refresh | After adding the file | Run `/refresh-wiki` (or let ship verbs dispatch `atomic-wiki-inferrer` in silent mode) so `docs/wiki/scan.md` and `docs/wiki/index.md` reflect the new file. |
 
 </mandatory_checklist>
@@ -118,10 +118,10 @@ The `atomic` binary embeds `context/` at build time via `go:embed`. `go:embed` c
 ## Shared partials
 
 
-A command or agent source may compose a reusable block with `{{ template "<name>" . }}`, resolved against `context/_partials/`. Both kinds draw from one pool. Expansion happens inside `make bundle`, on the way into the embedded bundle — nothing is ever written back into `context/`, so an artifact exists in exactly one place and a partial edit reaches every consumer on the next build.
+A command, agent, or the global steering source may compose a reusable block with `{{ template "<name>" . }}`, resolved against `context/_partials/`. Every expanding kind draws from one pool. Expansion happens inside `make bundle`, on the way into the embedded bundle — nothing is ever written back into `context/`, so an artifact exists in exactly one place and a partial edit reaches every consumer on the next build.
 
 
-**Only commands and agents expand.** Skills, rules, output styles, and `context/CLAUDE.md` are copied byte-for-byte, so a literal `{{` in their prose is safe. A directive naming a partial that does not exist fails the build rather than shipping an artifact with a hole in it.
+**Commands, agents, and the global steering source expand.** Skills, rules, and output styles are copied byte-for-byte, so a literal `{{` in their prose is safe. A directive naming a partial that does not exist fails the build rather than shipping an artifact with a hole in it.
 
 
 **Adding an artifact is one file.** `context/commands/<verb>.md` or `context/agents/<name>.md` — there is no second location to keep in sync, and no orphan rule, because there is no separate output to orphan.
@@ -210,11 +210,11 @@ Zero `MISSING:` lines = pass. Any output = blocker.
 Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md` is NOT — it can be thousands of lines on large repos and would blow up context. The inferrer reads it on demand; sessions do not need it. `docs/wiki/CLAUDE.md` (steering) is also NOT `@-ref`'d — it lazy-loads as nested memory whenever Claude reads a file under `docs/wiki/`, which is exactly when the inferrer operates.
 
 
-**In this repo specifically**, the ref lives in the root `CLAUDE.md` (this file) — not in `context/CLAUDE.md`. Reason: `context/CLAUDE.md` is the bundle source (it installs as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. The root file never installs, and Claude Code auto-loads it when cwd is this repo. That's the correct home for the project-scoped `@`-ref.
+**In this repo specifically**, the ref lives in the root `CLAUDE.md` (this file) — not in `context/AGENTS.md`. Reason: `context/AGENTS.md` is the bundle source (it installs as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. The root file never installs, and Claude Code auto-loads it when cwd is this repo. That's the correct home for the project-scoped `@`-ref.
 
 
 - The `atomic-wiki-inferrer` agent checks for `@docs/wiki/index.md` in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md`. If present in ANY of them, it skips wiring. The agent's search order is the contract.
-- For most repos, the ref ends up in `CLAUDE.md` (one file, no separation) — which is also where it lives here, now that the shipped contract has moved to `context/CLAUDE.md` and freed the root name.
+- For most repos, the ref ends up in `CLAUDE.md` (one file, no separation) — which is also where it lives here, now that the shipped contract has moved to `context/AGENTS.md` and freed the root name.
 - If you fork the layout (e.g. moving refs into a separate `@`-included file), update the agent's search order in lockstep.
 
 
@@ -246,7 +246,7 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 | `docs/reference/atomic-toml.md` | repo-scoped `.claude/atomic.toml`: scope marker, code-index ignore globs, repl idle_timeout, lenient load contract | atomic-writing |
 | `docs/credits.md` | inspirations, prior-art credits | atomic-writing |
 | `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-writing |
-| `context/CLAUDE.md` | global contract, agent/command/skill registry | atomic-writing |
+| `context/AGENTS.md` | global contract, agent/command/skill registry | atomic-writing |
 
 **Ownership:** where two pages could carry the same fact, the owner below carries it and the sibling points. A doc edit that would restate an owned fact on a sibling page becomes a link instead.
 
@@ -336,7 +336,7 @@ When the release-please **branch or PR CI** breaks (stale-based branch re-failin
 ## Contributor-only skills
 
 
-These live under `.claude/skills/`, auto-load for sessions in this repo, and are **never bundled or installed** (`atomic/internal/bundlemirror/mirror.go` ships only `context/skills/atomic-*/`). Each needs an explicit negation pair in `.gitignore` (the `.claude/skills/*` line ignores the dir by default).
+These live under `.claude/skills/`, auto-load for sessions in this repo, and are **never bundled or installed** (`MatchesSkillDir` in `atomic/internal/bundlespec/bundlespec.go` admits only `context/skills/atomic-*/`, so `.claude/skills/` never enters the corpus). Each needs an explicit negation pair in `.gitignore` (the `.claude/skills/*` line ignores the dir by default).
 
 
 | Skill | Fires on | Purpose |

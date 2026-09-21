@@ -61,7 +61,8 @@ func (r Resolution) DBPath(key string) string {
 	return filepath.Join(r.RealmRoot, ".atomic", key+".db")
 }
 
-// Resolve picks a scope from cwd and the <wikis> registry at claudeMDPath. A
+// Resolve picks a scope from cwd and the wiki registry (authoritative
+// ~/.atomic/wikis.md, falling back to the <wikis> block at claudeMDPath). A
 // local index wins outright; otherwise cwd's position within a registered realm
 // decides. Sitting under a realm root but under no member is deliberately
 // ScopeNoIndex, guarding against a false realm match.
@@ -73,7 +74,7 @@ func Resolve(cwd, claudeMDPath string) (Resolution, error) {
 		return Resolution{Scope: ScopeRepo}, nil
 	}
 
-	indexPaths, err := wiki.ReadWikiIndexPaths(claudeMDPath)
+	indexPaths, err := wiki.RegisteredIndexPaths(claudeMDPath)
 	if err != nil {
 		// An absent block or file comes back (nil, nil), so any error here is a
 		// real read failure and must not be mistaken for "no realms registered".

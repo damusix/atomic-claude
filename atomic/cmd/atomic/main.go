@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -47,6 +48,14 @@ func main() {
 	rootCmd := buildRootCmd(&repoOverride)
 	repoOverride = repoOverrideVal
 
+	// The quiet repo-local resolver ignores a retired ATOMIC_HARNESS instead of
+	// refusing. Surface its refusal once here, before any verb runs, so an
+	// obsolete value blocks with instructions rather than silently resolving a
+	// different state root.
+	if obsoleteHarnessRefusal(os.Stderr) {
+		os.Exit(2)
+	}
+
 	// Derives the cliusage surface from the live tree, not a hardcoded table.
 	cliusage.SetRoot(rootCmd)
 
@@ -68,6 +77,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "atomic: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// obsoleteHarnessRefusal writes the retired-harness refusal to w and reports
+// whether the caller must stop. It runs before any verb so an obsolete
+// ATOMIC_HARNESS blocks with instructions instead of the quiet repo-local
+// resolver silently ignoring it.
+func obsoleteHarnessRefusal(w io.Writer) bool {
+	if err := config.CheckObsoleteHarnessEnv(); err != nil {
+		fmt.Fprintf(w, "atomic: %v\n", err)
+		return true
+	}
+	return false
 }
 
 // buildRootCmd assembles the verb tree. Every verb sets DisableFlagParsing so
@@ -131,6 +152,12 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 	rootCmd.AddCommand(buildHooksCmd(repoOverride))
 
 	rootCmd.AddCommand(buildClaudeCmd())
+
+	rootCmd.AddCommand(buildInstallCmd())
+
+	rootCmd.AddCommand(buildHarnessCmd())
+
+	rootCmd.AddCommand(buildStateCmd(repoOverride))
 
 	rootCmd.AddCommand(buildDoctorCmd())
 

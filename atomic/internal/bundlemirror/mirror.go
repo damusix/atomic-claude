@@ -6,31 +6,35 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
-	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
-	"text/template"
+
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
 
 // Artifact duplicates embedded.Artifact deliberately: internal/embedded carries
 // the go:embed for bundle/, so importing it would make this generator
 // unbuildable until the directory it exists to create already exists.
 type Artifact struct {
-	Kind   string
-	Source string // path inside embedded FS, e.g. "bundle/agents/atomic-builder.md"
-	Target string // path to write inside the target dir
-	SHA256 string
+	Kind string
+	// Source is the path inside the embedded FS, e.g. "bundle/agents/atomic-builder.md".
+	Source string
+	// Target is the path to write inside the target dir.
+	Target string
+	// Canonical is the context/-relative authored source the bytes came from.
+	// It differs from Target only where a canonical source projects to a
+	// different native file, as the global steering source does.
+	Canonical string
+	SHA256    string
 }
 
 // enumeratedArtifact retains Data from the enumeration read so Run can write
-// the file without a second os.ReadFile.
+// the file without a second read.
 type enumeratedArtifact struct {
 	Artifact
-	SrcPath string // absolute path of the source file on disk
-	Data    []byte // file bytes read during enumeration; reused by Run to avoid a second read
+	Data []byte // projected bytes; reused by Run to avoid a second render
 }
 
 // Enumerate is Run without the disk write — what manifestcheck uses.
@@ -46,185 +50,55 @@ func Enumerate(repoRoot string) ([]Artifact, error) {
 	return out, nil
 }
 
-// enumerate resolves every path under repoRoot/context/ and makes every Target
-// relative to it, so the install tree is independent of the repo layout.
+// enumerate renders the canonical corpus once and maps it to the Claude-native
+// files the embedded bundle carries.
 func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
-	var artifacts []enumeratedArtifact
-
-	contextRoot := bundlespec.SourceRoot(repoRoot)
-
-	// One pool for the whole walk; every templated artifact clones from it.
-	partials, err := templaterender.LoadPartials(filepath.Join(contextRoot, templaterender.PartialsDir))
+	catalog, err := artifacts.Load(repoRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	agentsDir := filepath.Join(contextRoot, "agents")
-	entries, err := os.ReadDir(agentsDir)
-	if err != nil {
-		return nil, fmt.Errorf("read agents dir: %w", err)
-	}
-	for _, e := range entries {
-		if e.IsDir() || !bundlespec.MatchesAgent(e.Name()) {
-			continue
-		}
-		src := filepath.Join(agentsDir, e.Name())
-		target := "agents/" + e.Name()
-		a, err := readArtifact(partials, src, target, "agent")
-		if err != nil {
-			return nil, err
-		}
-		artifacts = append(artifacts, a)
-	}
-
-	skillsDir := filepath.Join(contextRoot, "skills")
-	skillEntries, err := os.ReadDir(skillsDir)
-	if err != nil {
-		return nil, fmt.Errorf("read skills dir: %w", err)
-	}
-	for _, e := range skillEntries {
-		if !e.IsDir() || !bundlespec.MatchesSkillDir(e.Name()) {
-			continue
-		}
-		skillRoot := filepath.Join(skillsDir, e.Name())
-		if _, err := os.Stat(filepath.Join(skillRoot, "SKILL.md")); os.IsNotExist(err) {
-			continue
-		}
-		err = filepath.WalkDir(skillRoot, func(path string, d fs.DirEntry, werr error) error {
-			if werr != nil {
-				return werr
-			}
-			if d.IsDir() {
-				return nil
-			}
-			rel, err := filepath.Rel(contextRoot, path)
-			if err != nil {
-				return err
-			}
-			target := filepath.ToSlash(rel)
-			a, err := readArtifact(partials, path, target, "skill")
-			if err != nil {
-				return err
-			}
-			artifacts = append(artifacts, a)
-			return nil
+	artifactsOut := make([]enumeratedArtifact, 0, len(catalog.Artifacts))
+	for _, a := range catalog.Artifacts {
+		target := claudeTarget(a)
+		artifactsOut = append(artifactsOut, enumeratedArtifact{
+			Artifact: Artifact{
+				Kind:      installerKind(a.Kind),
+				Source:    "bundle/" + target,
+				Target:    target,
+				Canonical: a.Source,
+				SHA256:    SHA256Hex(a.Body),
+			},
+			Data: a.Body,
 		})
-		if err != nil {
-			return nil, fmt.Errorf("walk skill %s: %w", e.Name(), err)
-		}
 	}
 
-	outputStylesDir := filepath.Join(contextRoot, "output-styles")
-	osEntries, err := os.ReadDir(outputStylesDir)
-	if err != nil {
-		return nil, fmt.Errorf("read output-styles dir: %w", err)
-	}
-	for _, e := range osEntries {
-		if e.IsDir() || !bundlespec.MatchesOutputStyle(e.Name()) {
-			continue
+	sort.Slice(artifactsOut, func(i, j int) bool {
+		if artifactsOut[i].Kind != artifactsOut[j].Kind {
+			return artifactsOut[i].Kind < artifactsOut[j].Kind
 		}
-		src := filepath.Join(outputStylesDir, e.Name())
-		target := "output-styles/" + e.Name()
-		a, err := readArtifact(partials, src, target, "output-style")
-		if err != nil {
-			return nil, err
-		}
-		artifacts = append(artifacts, a)
-	}
-
-	commandsDir := filepath.Join(contextRoot, "commands")
-	err = filepath.WalkDir(commandsDir, func(path string, d fs.DirEntry, werr error) error {
-		if werr != nil {
-			return werr
-		}
-		if d.IsDir() || !bundlespec.MatchesCommand(d.Name()) {
-			return nil
-		}
-		rel, err := filepath.Rel(contextRoot, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.ToSlash(rel)
-		a, err := readArtifact(partials, path, target, "command")
-		if err != nil {
-			return err
-		}
-		artifacts = append(artifacts, a)
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walk commands: %w", err)
-	}
-
-	rulesDir := filepath.Join(contextRoot, "rules")
-	err = filepath.WalkDir(rulesDir, func(path string, d fs.DirEntry, werr error) error {
-		if werr != nil {
-			return werr
-		}
-		if d.IsDir() || !bundlespec.MatchesRule(path) {
-			return nil
-		}
-		rel, err := filepath.Rel(contextRoot, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.ToSlash(rel)
-		a, err := readArtifact(partials, path, target, "rule")
-		if err != nil {
-			return err
-		}
-		artifacts = append(artifacts, a)
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walk rules: %w", err)
-	}
-
-	claudeMdSrc := filepath.Join(contextRoot, "CLAUDE.md")
-	a, err := readArtifact(partials, claudeMdSrc, "CLAUDE.md", "claude-md")
-	if err != nil {
-		return nil, err
-	}
-	artifacts = append(artifacts, a)
-
-	sort.Slice(artifacts, func(i, j int) bool {
-		if artifacts[i].Kind != artifacts[j].Kind {
-			return artifacts[i].Kind < artifacts[j].Kind
-		}
-		return artifacts[i].Target < artifacts[j].Target
+		return artifactsOut[i].Target < artifactsOut[j].Target
 	})
 
-	return artifacts, nil
+	return artifactsOut, nil
 }
 
-// expandedKinds may compose a shared partial. Everything else is copied
-// byte-for-byte: running a skill or rule through the engine would read a
-// literal {{ in its prose as a directive.
-var expandedKinds = map[string]bool{"command": true, "agent": true}
+// claudeTarget maps a canonical artifact to its Claude-native path. Every kind
+// mirrors its authored layout except the global steering source, which Claude
+// consumes directly as its user-level CLAUDE.md.
+func claudeTarget(a artifacts.Artifact) string {
+	if a.Kind == artifacts.KindSteering {
+		return bundlespec.GlobalSteering.ClaudeTarget
+	}
+	return a.Source
+}
 
-// readArtifact hashes the expanded bytes, not the source, because that is what
-// installs — a parity check has to agree with the file the user ends up with.
-func readArtifact(partials *template.Template, src, target, kind string) (enumeratedArtifact, error) {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return enumeratedArtifact{}, fmt.Errorf("read %s: %w", src, err)
+// installerKind maps a canonical kind to the kind claudeinstall switches on.
+func installerKind(kind artifacts.Kind) string {
+	if kind == artifacts.KindSteering {
+		return "claude-md"
 	}
-	if expandedKinds[kind] {
-		data, err = templaterender.Expand(partials, filepath.Base(src), data)
-		if err != nil {
-			return enumeratedArtifact{}, err
-		}
-	}
-	return enumeratedArtifact{
-		Artifact: Artifact{
-			Kind:   kind,
-			Source: "bundle/" + target,
-			Target: target,
-			SHA256: SHA256Hex(data),
-		},
-		SrcPath: src,
-		Data:    data,
-	}, nil
+	return string(kind)
 }
 
 // Run mirrors every matching artifact into outDir/bundle/<target>.
@@ -239,34 +113,19 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		return nil, err
 	}
 
-	artifacts := make([]Artifact, 0, len(embeds))
+	out := make([]Artifact, 0, len(embeds))
 	for _, ea := range embeds {
-		a, err := mirrorFile(ea.Data, ea.Target, ea.Kind, bundleDir)
-		if err != nil {
-			return nil, err
+		dst := filepath.Join(bundleDir, filepath.FromSlash(ea.Target))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return nil, fmt.Errorf("mkdir for %s: %w", ea.Target, err)
 		}
-		artifacts = append(artifacts, a)
+		if err := os.WriteFile(dst, ea.Data, 0o644); err != nil {
+			return nil, fmt.Errorf("write %s: %w", dst, err)
+		}
+		out = append(out, ea.Artifact)
 	}
 
-	return artifacts, nil
-}
-
-func mirrorFile(data []byte, target, kind, bundleDir string) (Artifact, error) {
-	dst := filepath.Join(bundleDir, filepath.FromSlash(target))
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return Artifact{}, fmt.Errorf("mkdir for %s: %w", target, err)
-	}
-
-	if err := os.WriteFile(dst, data, 0o644); err != nil {
-		return Artifact{}, fmt.Errorf("write %s: %w", dst, err)
-	}
-
-	return Artifact{
-		Kind:   kind,
-		Source: "bundle/" + target,
-		Target: target,
-		SHA256: SHA256Hex(data),
-	}, nil
+	return out, nil
 }
 
 // SHA256Hex is the manifest's checksum form.

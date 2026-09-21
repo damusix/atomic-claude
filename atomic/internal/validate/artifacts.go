@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/damusix/atomic-claude/atomic/internal/bundlemirror"
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
@@ -272,19 +272,19 @@ func RunArtifactRules(repoRoot string, paths []string) ([]Finding, error) {
 }
 
 func runArtifactCorpus(repoRoot string) ([]Finding, error) {
-	artifacts, err := bundlemirror.Enumerate(repoRoot)
+	catalog, err := artifacts.Load(repoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("enumerate artifacts: %w", err)
 	}
 
 	var all []Finding
-	for _, a := range artifacts {
-		srcPath := filepath.Join(bundlespec.SourceRoot(repoRoot), a.Target)
+	for _, a := range catalog.Artifacts {
+		srcPath := filepath.Join(bundlespec.SourceRoot(repoRoot), filepath.FromSlash(a.Source))
 		src, err := os.ReadFile(srcPath)
 		if err != nil {
-			return nil, fmt.Errorf("read artifact %s: %w", a.Target, err)
+			return nil, fmt.Errorf("read artifact %s: %w", a.Source, err)
 		}
-		ff := scanArtifactBytes(a.Target, src)
+		ff := scanArtifactBytes(a.Source, src)
 		all = append(all, ff...)
 	}
 	sortFindings(all)

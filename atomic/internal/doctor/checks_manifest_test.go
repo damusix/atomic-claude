@@ -204,7 +204,11 @@ func buildSyntheticRepoDev(t *testing.T) string {
 		if err != nil {
 			t.Fatalf("read embedded %s: %v", a.Source, err)
 		}
-		dst := filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(a.Target))
+		canonical := a.Canonical
+		if canonical == "" {
+			canonical = a.Target
+		}
+		dst := filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(canonical))
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", filepath.Dir(dst), err)
 		}

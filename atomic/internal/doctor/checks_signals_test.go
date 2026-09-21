@@ -10,6 +10,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 	"github.com/damusix/atomic-claude/atomic/internal/signals"
+	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
 // makeSignalsFile leaves root in a self-consistent signals state aged to
@@ -388,29 +389,27 @@ func TestCheckSignalsRouterPipedOneLiner(t *testing.T) {
 	}
 }
 
-// index.md, scan.md, and CLAUDE.md are wiki infrastructure, not domain files,
-// so they never belong in the router table and never count as orphans.
+// index.md, scan.md, and the steering loader pair are wiki infrastructure, not
+// domain files, so they never belong in the router table and never count as
+// orphans. The pair is docs/wiki/AGENTS.md guidance with the thin
+// docs/wiki/CLAUDE.md loader beside it, which is what a current binary's init
+// writes.
 func TestCheckSignalsOrphanExclusion(t *testing.T) {
 	root := t.TempDir()
-	wikiDir := filepath.Join(root, "docs", "wiki")
-	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
-		t.Fatalf("mkdirall: %v", err)
+	if _, err := wiki.InitRepoScope(root); err != nil {
+		t.Fatalf("InitRepoScope: %v", err)
 	}
 
-	routerContent := "# Project wiki\n\n## Domains\n\n| Domain | Repo paths | One-liner | Detail |\n|--------|------------|-----------|--------|\n"
-	if err := os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(routerContent), 0o644); err != nil {
-		t.Fatalf("write index.md: %v", err)
+	scanPath := filepath.Join(root, "docs", "wiki", "scan.md")
+	if err := os.WriteFile(scanPath, []byte("# excluded\n"), 0o644); err != nil {
+		t.Fatalf("write scan.md: %v", err)
 	}
+
+	makeRouterFile(t, root, routerWithDomains())
 	makeClaudeMd(t, root, "claude.local.md", "@docs/wiki/index.md\n")
-
-	for _, name := range []string{"scan.md", "CLAUDE.md"} {
-		if err := os.WriteFile(filepath.Join(wikiDir, name), []byte("# excluded\n"), 0o644); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
 
 	r := doctor.RunCheckRouterWith(root)
 	if r.Severity != doctor.PASS {
-		t.Errorf("severity = %v, want PASS (scan.md and CLAUDE.md must not be orphans); detail: %s", r.Severity, r.Detail)
+		t.Errorf("severity = %v, want PASS (the steering pair and scan.md must not be orphans); detail: %s", r.Severity, r.Detail)
 	}
 }

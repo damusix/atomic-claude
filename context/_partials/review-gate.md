@@ -5,7 +5,7 @@ Give code the main agent wrote itself an independent review before it lands.
    - The staged work came from `/implement`, `/subagent-implementation`, `/quick-fix`, `/autopilot`, or `/subagent-diagnose` in this session. Each dispatches `atomic-reviewer` per iteration or per checkpoint, so the diff has been read by a fresh context already.
    - This gate already ran on the same change earlier in the flow — a squash of commits the commit-time gate reviewed, or a ship verb escalating after its own commit step. Review once per change, not once per step.
 2. **Docs-only guard.** Run `git diff --cached --name-only` and apply the documentation-path test from the signals refresh step of this same flow — same paths, same treatment of bundled artifact `.md` files as source rather than docs. If every staged path is documentation, skip: prose belongs to the doc-impact step, not to a code reviewer.
-3. **Dispatch** `atomic-reviewer` (`subagent_type: "atomic-reviewer"`) in code mode on the staged diff. Brief it with the diff range (`git diff --cached`), what the change was meant to do, and the spec path if one exists. There is no spec for ad-hoc work — say so rather than inventing one; the reviewer falls back to intent-versus-diff review.
+3. **Dispatch** `atomic-reviewer`, fresh context, in code mode on the staged diff. Brief it with the diff range (`git diff --cached`), what the change was meant to do, and the spec path if one exists. There is no spec for ad-hoc work — say so rather than inventing one; the reviewer falls back to intent-versus-diff review.
 4. **Act on the verdict before committing.**
    - `VERDICT: PASS` → continue.
    - Any 🔴 bug → fix it, then re-stage. Do not commit around a red finding.

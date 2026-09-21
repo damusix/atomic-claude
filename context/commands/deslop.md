@@ -85,11 +85,7 @@ tree.
 
 ## Fan out
 
-One `Agent` dispatch per shard, **all in a single message** so they run in parallel.
-
-- `subagent_type: "atomic-deslopper"`
-- `description: "Audit <shard>"`
-- `prompt`:
+One `atomic-deslopper` dispatch per shard, **all in a single message** so they run in parallel. Prompt:
 
     ```
     Audit the <shard> shard of this repo for accumulated slop. Standing-code audit, not a diff.
@@ -161,7 +157,7 @@ reconciling it.
 ## Selection
 
 `$ARGUMENTS` after `apply` names ids (`D-3 D-7`), tiers (`safe`, `guarded`), or both. Bare
-`apply` → show the counts table and ask which, via `AskUserQuestion`.
+`apply` → show the counts table and ask which in one batched question block.
 
 `report-only` findings are never selectable. Asked for explicitly → refuse per finding, one
 line each, naming the reason recorded in the report. That tier exists because the blast radius

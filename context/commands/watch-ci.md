@@ -1,5 +1,5 @@
 ---
-description: Spawn a background Haiku-backed subagent to watch CI for the current branch (or specified target). Provider-agnostic — the subagent inspects project signals to identify the CI system (GitHub Actions, GitLab CI, CircleCI, etc.) and picks the right CLI. Returns immediately; reports back when CI reaches a terminal state.
+description: Spawn a background subagent on the economical reasoning tier to watch CI for the current branch (or specified target). Provider-agnostic — the subagent inspects project signals to identify the CI system (GitHub Actions, GitLab CI, CircleCI, etc.) and picks the right CLI. Returns immediately; reports back when CI reaches a terminal state.
 ---
 
 <workflow>
@@ -51,13 +51,7 @@ Don't classify in the foreground. Different providers use different shapes (GitH
 
 ## Step 3 — Dispatch background subagent
 
-Invoke the `Agent` tool with:
-
-- `subagent_type: "general-purpose"` — generic runner backed by Haiku via per-call model override.
-- `model: haiku`
-- `run_in_background: true`
-- `description: "Watch CI for <branch-or-target>"`
-- `prompt`: a self-contained brief containing:
+Dispatch an isolated subagent in the background (economical reasoning tier). Prompt: a self-contained brief containing:
 
     ```
     Watch CI for this repo and report when it reaches a terminal state.
@@ -129,9 +123,9 @@ When the agent completes, pass-through summarize its report in 1-3 lines.
 - Provider detection lives in the subagent, not the command. Signals + tree heuristics, in that order.
 - Stop on pre-flight failure (not a git repo). Warn but continue on soft failures (signals missing).
 - Default to read-only. The watcher never re-runs, cancels, or modifies workflows.
-- One target per invocation. If `$ARGUMENTS` is ambiguous for the detected provider, the subagent asks via printed clarification (it can't `AskUserQuestion` from background, so it bails with a question instead).
-- Always `run_in_background: true`. The point of this command is non-blocking observation.
-- Dispatched agent is `general-purpose` with `model: haiku` as a per-call Agent parameter — the `model` parameter takes precedence over any agent definition frontmatter and runs the subagent on Haiku.
+- One target per invocation. If `$ARGUMENTS` is ambiguous for the detected provider, the subagent asks via printed clarification (it can't ask the user from the background, so it bails with a printed question instead).
+- Always dispatch in the background. The point of this command is non-blocking observation.
+- Dispatched agent is an isolated subagent pinned to the economical reasoning tier per dispatch — the explicit tier takes precedence over any agent definition default.
 - Cap the wait at 10 minutes. CI that exceeds that needs human investigation, not infinite polling.
 - Do not poll the background-agent's output file from the foreground. The harness notifies on completion.
 

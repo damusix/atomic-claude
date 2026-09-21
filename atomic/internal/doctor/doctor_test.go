@@ -9,8 +9,8 @@ import (
 
 func TestRegistryCount(t *testing.T) {
 	cats := doctor.Categories()
-	if len(cats) != 14 {
-		t.Fatalf("registry len = %d, want 14", len(cats))
+	if len(cats) != 24 {
+		t.Fatalf("registry len = %d, want 24", len(cats))
 	}
 
 	for i, c := range cats {
@@ -37,6 +37,16 @@ func TestRegistryCategoryNames(t *testing.T) {
 		"migrate",
 		"repo-config",
 		"output-style",
+		"targets",
+		"resources",
+		"journals",
+		"capabilities",
+		"rules",
+		"trust",
+		"staleness",
+		"conflicts",
+		"shadowing",
+		"codex",
 	}
 	cats := doctor.Categories()
 	for i, want := range wantNames {
@@ -62,6 +72,16 @@ func TestRegistryCategorySeverities(t *testing.T) {
 		doctor.WARN, // 12 migrate
 		doctor.WARN, // 13 repo-config
 		doctor.WARN, // 14 output-style
+		doctor.WARN, // 15 targets
+		doctor.WARN, // 16 resources
+		doctor.WARN, // 17 journals
+		doctor.WARN, // 18 capabilities
+		doctor.WARN, // 19 rules
+		doctor.WARN, // 20 trust
+		doctor.WARN, // 21 staleness
+		doctor.WARN, // 22 conflicts
+		doctor.WARN, // 23 shadowing
+		doctor.WARN, // 24 codex
 	}
 	cats := doctor.Categories()
 	for i, want := range wantSeverities {
@@ -91,16 +111,19 @@ func TestRunFiltersByOnly(t *testing.T) {
 func TestRunFiltersBySkip(t *testing.T) {
 	// Category 14 (output-style) reads $HOME/.claude/settings.json; sandbox
 	// so this whole-registry test never touches the developer's real config.
+	// CODEX_HOME is cleared so the Codex category reports the same answer
+	// whatever the developer's environment holds.
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CODEX_HOME", "")
 	opts := doctor.Opts{Skip: []int{2, 4, 6, 8}, StaleDays: 7}
 	results, err := doctor.Run(opts)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(results) != 10 {
-		t.Fatalf("Run returned %d results, want 10", len(results))
+	if len(results) != 20 {
+		t.Fatalf("Run returned %d results, want 20", len(results))
 	}
-	wantIndices := []int{1, 3, 5, 7, 9, 10, 11, 12, 13, 14}
+	wantIndices := []int{1, 3, 5, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24}
 	for i, want := range wantIndices {
 		if results[i].Index != want {
 			t.Errorf("results[%d].Index = %d, want %d", i, results[i].Index, want)
@@ -218,9 +241,18 @@ func TestFlagParsingRejectsUnknownCategory(t *testing.T) {
 }
 
 func TestFlagParsingRejectsOutOfRangeIndex(t *testing.T) {
-	_, err := doctor.ParseFlags([]string{"--only", "15"})
+	// 25 is one past the last category (24 codex); a valid index must parse.
+	_, err := doctor.ParseFlags([]string{"--only", "25"})
 	if err == nil {
-		t.Fatal("expected error for out-of-range index 15, got nil")
+		t.Fatal("expected error for out-of-range index 25, got nil")
+	}
+
+	opts, err := doctor.ParseFlags([]string{"--only", "24"})
+	if err != nil {
+		t.Fatalf("ParseFlags rejected the last valid index: %v", err)
+	}
+	if len(opts.Only) != 1 || opts.Only[0] != 24 {
+		t.Fatalf("Only = %v, want [24]", opts.Only)
 	}
 
 	_, err = doctor.ParseFlags([]string{"--only", "0"})

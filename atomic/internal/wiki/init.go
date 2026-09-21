@@ -3,6 +3,8 @@ package wiki
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
 
 // repoSteeringScaffold's examples sit in HTML comments so markdown rendering
@@ -49,31 +51,50 @@ description: Authoritative steering for the signals/wiki inferrer when operating
 `
 
 // realmSteeringScaffold self-references so cd'ing straight into the realm's
-// wiki/ auto-loads index.md, mirroring a member repo's root CLAUDE.md.
+// wiki/ auto-loads index.md: the pair's AGENTS.md carries the import, and the
+// CLAUDE.md loader beside it imports AGENTS.md.
 const realmSteeringScaffold = "@index.md\n"
 
-// InitRepoScope writes the repo-scope steering scaffold, reporting whether it
-// created the file. An existing file is a no-op.
-func InitRepoScope(root string) (bool, error) {
-	return initScaffold(filepath.Join(root, "docs", "wiki", "CLAUDE.md"), repoSteeringScaffold)
+// InitRepoScope writes the repo-scope steering loader pair — the shared
+// docs/wiki/AGENTS.md scaffold and the thin docs/wiki/CLAUDE.md loader beside it
+// — and reports the paths it created. An existing CLAUDE.md is a no-op: an
+// install created before the pair existed keeps its bytes and loads directly.
+func InitRepoScope(root string) ([]string, error) {
+	return initSteeringPair(filepath.Join(root, "docs", "wiki"), repoSteeringScaffold)
 }
 
-// InitRealmScope writes the realm-scope scaffold, reporting whether it created
-// the file. An existing file is a no-op.
-func InitRealmScope(root string) (bool, error) {
-	return initScaffold(filepath.Join(root, "wiki", "CLAUDE.md"), realmSteeringScaffold)
+// InitRealmScope writes the realm wiki's steering loader pair at <root>/wiki,
+// reporting the paths it created. An existing CLAUDE.md is a no-op.
+func InitRealmScope(root string) ([]string, error) {
+	return initSteeringPair(filepath.Join(root, "wiki"), realmSteeringScaffold)
 }
 
-// initScaffold reports (false, nil) when the file already exists — a
-// deliberate no-op, not a failure.
-func initScaffold(path, content string) (bool, error) {
-	if _, err := os.Lstat(path); err == nil {
-		return false, nil
+// initSteeringPair writes bundlespec.ScopeSteering's pair into dir: the authored
+// AGENTS.md carrying the scope's guidance and the adjacent thin CLAUDE.md loader
+// that imports it. An existing CLAUDE.md is left byte-identical and nothing else
+// is written, so a CLAUDE.md-direct install neither gains a duplicate guidance
+// file nor loses the loader-less shape it already loads through. An existing
+// AGENTS.md is preserved too; only the missing half of the pair is written.
+func initSteeringPair(dir, guidance string) ([]string, error) {
+	claudePath := filepath.Join(dir, bundlespec.ScopeSteering.ClaudeTarget)
+	if _, err := os.Lstat(claudePath); err == nil {
+		return nil, nil
 	} else if !os.IsNotExist(err) {
-		return false, err
+		return nil, err
 	}
-	if err := writeFileAtomic(path, []byte(content)); err != nil {
-		return false, err
+
+	var created []string
+	agentsPath := filepath.Join(dir, bundlespec.ScopeSteering.Source)
+	if _, err := os.Lstat(agentsPath); os.IsNotExist(err) {
+		if err := writeFileAtomic(agentsPath, []byte(guidance)); err != nil {
+			return nil, err
+		}
+		created = append(created, agentsPath)
+	} else if err != nil {
+		return nil, err
 	}
-	return true, nil
+	if err := writeFileAtomic(claudePath, bundlespec.ScopeSteering.LoaderDocument()); err != nil {
+		return nil, err
+	}
+	return append(created, claudePath), nil
 }
