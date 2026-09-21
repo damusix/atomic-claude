@@ -1,5 +1,12 @@
 # Changelog
 
+## [6.7.1](https://github.com/damusix/atomic-claude/compare/v6.7.0...v6.7.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **omp:** assert the contract the cross-filesystem publish actually keeps ([2ea989a](https://github.com/damusix/atomic-claude/commit/2ea989a646c660e0f5ac936fa8db6e77af894121))
+
 ## [6.7.0](https://github.com/damusix/atomic-claude/compare/v6.6.1...v6.7.0) (2026-09-16)
 
 
