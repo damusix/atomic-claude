@@ -598,10 +598,11 @@ func onDifferentDevice(a, b string) bool {
 
 // TestPublishProjectCardsAcrossFilesystems is the end-to-end regression for a
 // repository whose card surface lives on a different filesystem than the
-// HOME-rooted transaction stage: publication copies the staged tree onto the
-// destination's filesystem, the journal records the durable backup of the
-// displaced tree, and a second publication replaces the surface across the
-// boundary.
+// HOME-rooted transaction stage. The publication copies the staged tree onto the
+// destination's filesystem and renames it into place, so the surface converges
+// without a half-copied tree and a replacement over the same boundary converges
+// too. A completed operation leaves neither its journal, its transaction tree,
+// nor a staging residue on the destination's filesystem.
 func TestPublishProjectCardsAcrossFilesystems(t *testing.T) {
 	home := newHome(t)
 	alt := altDeviceRoot(home)
@@ -630,12 +631,44 @@ func TestPublishProjectCardsAcrossFilesystems(t *testing.T) {
 	if got := readFile(t, published); !strings.Contains(got, "# TS") {
 		t.Errorf("published card body = %q", got)
 	}
-	journal, err := installstate.LoadJournal(first.JournalPath)
+	if _, err := os.Stat(first.JournalPath); !os.IsNotExist(err) {
+		t.Errorf("completed cross-filesystem publication left its journal behind (stat err = %v)", err)
+	}
+	if _, err := os.Stat(config.TransactionDir(home, "cards-crossdev-first")); !os.IsNotExist(err) {
+		t.Errorf("completed cross-filesystem publication left its transaction tree behind (stat err = %v)", err)
+	}
+	// The copy is staged beside the destination and renamed into place, so a
+	// successful publication leaves no staging residue on that filesystem.
+	entries, err := os.ReadDir(filepath.Dir(filepath.Dir(published)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !journal.Completed || journal.State(cardsUnit) != installstate.StateCommitted {
-		t.Errorf("journal = %+v, want a completed committed unit", journal)
+	if len(entries) != 1 || entries[0].Name() != "atomic-wiki" {
+		var names []string
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		t.Errorf("destination parent holds %v, want only the published tree", names)
+	}
+
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := ledger.Find(first.Target.Key(), first.Dir)
+	if !ok {
+		t.Fatal("no ownership row for the cross-filesystem card tree")
+	}
+	projected, err := LoadProjectCards(stateRoot, "repo-key", base, harness.OMPCapabilities())
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectedDigest, err := projected.TreeDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Applied.Digest != projectedDigest {
+		t.Errorf("row applied digest = %s, want the projected tree digest %s", row.Applied.Digest, projectedDigest)
 	}
 
 	writeCards(t, stateRoot, "repo-key", pointerCard("typescript", []string{"**/*.ts"}, "# TS v2\n"))
@@ -651,15 +684,32 @@ func TestPublishProjectCardsAcrossFilesystems(t *testing.T) {
 	if got := readFile(t, published); !strings.Contains(got, "# TS v2") {
 		t.Errorf("replaced card body = %q", got)
 	}
-	replacement, err := installstate.LoadJournal(second.JournalPath)
+	if _, err := os.Stat(second.JournalPath); !os.IsNotExist(err) {
+		t.Errorf("completed cross-filesystem replacement left its journal behind (stat err = %v)", err)
+	}
+	ledger, err = installstate.LoadLedger(config.LedgerPath(home))
 	if err != nil {
 		t.Fatal(err)
 	}
-	mutation, ok := replacement.Mutation(cardsUnit)
-	if !ok || mutation.Backup == "" {
-		t.Fatalf("replacement mutation = %+v, want a journaled backup", mutation)
+	row, ok = ledger.Find(second.Target.Key(), second.Dir)
+	if !ok {
+		t.Fatal("replacement dropped the ownership row")
 	}
-	if got := readFile(t, filepath.Join(mutation.Backup, "typescript.md")); !strings.Contains(got, "# TS\n") {
-		t.Errorf("backed-up card body = %q", got)
+	if want := projectedDigestAfter(t, stateRoot, "repo-key", base); row.Applied.Digest != want {
+		t.Errorf("replacement row digest = %s, want %s", row.Applied.Digest, want)
 	}
+}
+
+// projectedDigestAfter returns the projected tree digest of the current cards.
+func projectedDigestAfter(t *testing.T, stateRoot, projectKey, base string) string {
+	t.Helper()
+	cards, err := LoadProjectCards(stateRoot, projectKey, base, harness.OMPCapabilities())
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := cards.TreeDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }
