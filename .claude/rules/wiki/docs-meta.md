@@ -15,8 +15,11 @@ Domain: docs-meta. Writing voice and diff-driven documentation routing.
 Map:
   - docs/wiki/docs-meta.md
 Contracts:
+  - docs/spec/diagram-legibility.md
   - docs/spec/documentation-as-maintenance.md
 References:
   - docs/reference/output-style.md
+Designs:
+  - docs/design/diagram-legibility.md
 
 Consult the map before changing behavior here. Behavior changes stale the pages above. Renames or removals stale mentions beyond them: grep the old name across docs/ before shipping.

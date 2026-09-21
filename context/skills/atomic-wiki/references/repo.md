@@ -57,6 +57,8 @@ Record the partitioning basis as the one-line intro above the router's `## Domai
 
 Skip `[generated]` entries when partitioning — generated files do not drive domain narratives.
 
+Each `docs/design/*.md` joins a domain too: the domain its `domain:` frontmatter names when present, otherwise the domain whose paths it describes (the same judgment this step already applies to "the docs that describe them"). Record the per-domain list; Step 4 passes it to the writer.
+
 ### Step 4 — Dispatch sub-agents per domain
 
 For each domain that needs writing or updating, dispatch one `atomic-wiki-writer`. Name that type explicitly on every dispatch: omitting `subagent_type` falls back to `general-purpose`, which declares no `skills:` frontmatter, so the page contract and the voice rules would reach it as a request rather than as loaded context.
@@ -68,6 +70,10 @@ Prompt: "Write docs/wiki/<domain>.md for the <domain> domain.
 <source_paths>
 Source paths in this domain: <list from deterministic tree>
 </source_paths>
+
+<design_docs>
+Design docs for this domain: <list, or none>
+</design_docs>
 
 <steering>
 <include steering directives here if docs/wiki/CLAUDE.md was provided by the caller>
@@ -82,6 +88,7 @@ Source paths in this domain: <list from deterministic tree>
 - Draw every shape the domain has. A pipeline, a lifecycle, and a request path are three claims and three diagrams, each with its own `###` sub-heading and a caption stating what it claims. There is no cap. Leaving a shape in prose is the failure to avoid, not drawing too many.
 - Before writing any Mermaid block, read `~/.claude/skills/atomic-writing/references/mermaid.md` — it picks the diagram type from the reader's question and lists what breaks rendering. Identifier labels are why it matters: a bare `verify(token)` is a parse error, `verify("token")` is not.
 - Draw from the source you read, never from prose someone already wrote about it. A diagram inherits any error in the paragraph it was copied from.
+- Redraw the design diagrams. For each file in `<design_docs>`, read every Mermaid block. A block that draws current architecture (a pipeline, a data model, a request path, a lifecycle) is redrawn in `## How it works` against the source: every node label resolves to a file or symbol in the source paths (`atomic code search <label>` when the index exists, grep otherwise), the caption states the claim, and the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md` applies. A block that draws a decision (before and after, a rejected topology) stays in the design. A block whose nodes no longer resolve is dropped and reported in the concerns block as `docs/design/<file>.md:<line> — diagram no longer matches source (severity: risk)`. The redrawn block's `%% source:` comment names the design doc it came from and the source files its nodes resolve to.
 - Output only the file content. Do not summarize your process.
 </instructions>
 
@@ -140,6 +147,8 @@ Prompt: "Review docs/wiki/<domain>.md against the source code.
 
 Domain file path: docs/wiki/<domain>.md
 Source paths: <list of paths in this domain>
+Design docs: <list, or none>
+Writer concerns: <the concerns block the writer returned, or none>
 
 Check:
 - Every claim in the domain file is supported by a source file.
@@ -150,6 +159,8 @@ Check:
 - `## Where it lives` is one table, not parallel lists split by file type.
 - Every `## Constraints` entry names what breaks when it is violated.
 - `## Coupling` names the counterpart domains, and the skills, commands, and agents that drive or consume this domain.
+- Every current-architecture diagram in a listed design doc appears in `## How it works`, redrawn with nodes that resolve to source, or is named in the writer concerns as stale.
+- Every Mermaid block passes the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md`.
 - OKF frontmatter present (`type: Domain` and `description:`) at the top of the file.
 - No @-refs (repo-root-relative paths in backticks only — a code linkify step renders them to relative links later; a `[text](path)` link is not an @-ref).
 - Fact-shaped, not steering-shaped.
