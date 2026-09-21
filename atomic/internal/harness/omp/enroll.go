@@ -173,7 +173,8 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 		return result, err
 	}
 
-	if err := harness.EnsureSharedGeneration(ledger, "omp", target.Key(), PackageResource(req.Home), "package", pkg.Generation); err != nil {
+	consumers, err := harness.EnsureSharedGeneration(ledger, harness.KindOMP, "omp", target.Key(), PackageResource(req.Home), "package", pkg.Generation)
+	if err != nil {
 		return result, err
 	}
 
@@ -252,11 +253,9 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	// writer. The operation that moves the package therefore records every
 	// consumer's row in the same commit, so no consumer's record describes bytes
 	// that are gone and no later convergence sees a stale generation as a
-	// requirement.
-	for _, consumer := range harness.SharedConsumers(ledger, harness.KindOMP, packageRoot) {
-		if consumer == target.Key() {
-			continue
-		}
+	// requirement. AssertSharedConsumers proves the set the generation check
+	// approved was the set this loop converged.
+	for _, consumer := range consumers {
 		if ledger.Upsert(installstate.Row{
 			Target:     consumer,
 			Resource:   packageRoot,
@@ -267,6 +266,9 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 		}) {
 			rowsChanged = true
 		}
+	}
+	if err := harness.AssertSharedConsumers(ledger, "omp", packageRoot, pkg.Generation, consumers); err != nil {
+		return result, err
 	}
 
 	if len(mutations) == 0 {

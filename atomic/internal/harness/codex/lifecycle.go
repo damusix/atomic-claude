@@ -83,7 +83,7 @@ func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 	if err != nil {
 		return harness.Plan{}, err
 	}
-	if err := harness.EnsureSharedGeneration(ledger, "codex", t.Key(), PackageResource(home), "plugin tree", plugin.Generation); err != nil {
+	if _, err := harness.EnsureSharedGeneration(ledger, harness.KindCodex, "codex", t.Key(), PackageResource(home), "plugin tree", plugin.Generation); err != nil {
 		plan.Blockers = append(plan.Blockers, err.Error())
 	}
 	return plan, nil

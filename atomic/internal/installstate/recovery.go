@@ -230,14 +230,22 @@ func (r *Recovery) forwardDecision(m Mutation) (RecoveryDecision, string, error)
 	}
 }
 
-// treeWindow resolves an absent generated-tree destination, the one shape a
-// crash inside a tree publication always produces: PublishDir displaces the
-// current tree into the transaction backup and then renames the staged tree into
-// place, so the process can die between the two renames. The staged tree, when
-// it still digests to the intended value, is moved into place (the same-device
-// rename or its cross-filesystem copy). Otherwise the digest-verified backup is
-// restored. Only when neither holds is there a genuine conflict.
+// treeWindow resolves an absent generated-tree destination. PublishDir displaces
+// the current tree into the transaction backup and then renames the staged tree
+// into place, so a crash inside the publication leaves exactly that window: the
+// staged tree still digests to the intended value and it is moved into place
+// (the same-device rename or its cross-filesystem copy). Otherwise the
+// digest-verified backup is restored. Only when neither holds is there a genuine
+// conflict.
+//
+// An absent destination is that window only until the publication commits. Once
+// the ledger records the intended bytes as applied, the destination existed and
+// the user deleted it afterwards; finishing the rename then would resurrect a
+// tree the user removed, so it is a conflict.
 func (r *Recovery) treeWindow(m Mutation) (RecoveryDecision, string, error) {
+	if r.ledgerRecordsApplied(m) {
+		return DecisionConflict, fmt.Sprintf("the destination %s is absent, but the ledger already records digest %s as applied; the tree was deleted after the publication committed, so recovery does not recreate it", m.Path, m.Intended), nil
+	}
 	if m.Stage != "" {
 		if digest, _, err := managedfile.TreeDigest(m.Stage); err == nil && m.Intended != "" && digest == m.Intended {
 			return DecisionCompletePublication, "the staged tree still matches the intended digest; finishing the interrupted publication", nil
@@ -249,6 +257,20 @@ func (r *Recovery) treeWindow(m Mutation) (RecoveryDecision, string, error) {
 		}
 	}
 	return DecisionConflict, fmt.Sprintf("the destination %s is absent and neither the staged projection nor the transaction backup matches its recorded digest", m.Path), nil
+}
+
+// ledgerRecordsApplied reports whether the ledger already records this
+// mutation's intended bytes as the last-applied value for its (target,
+// resource), at the path the mutation publishes. That is proof the publication
+// committed, which makes an absent destination a later deletion rather than the
+// crash window. The path must match too: a row for another path is a different
+// physical resource that merely shares the ledger's resource name.
+func (r *Recovery) ledgerRecordsApplied(m Mutation) bool {
+	if r.Ledger == nil || m.Intended == "" {
+		return false
+	}
+	row, ok := r.Ledger.Find(m.Target, m.Resource)
+	return ok && row.Applied.Digest == m.Intended && row.Applied.Path == m.Path
 }
 
 // completePublication re-performs the second rename of an interrupted tree

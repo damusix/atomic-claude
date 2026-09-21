@@ -61,7 +61,7 @@ For a project-scoped Claude install instead of global: `atomic claude install --
 | `atomic harness repair` | Reconverge already-enrolled targets |
 | `atomic harness diff` | Report each enrolled resource's native difference from the selected generation, read-only |
 | `atomic harness recover [--rollback] [--dry-run]` | Reconcile an unresolved journal: roll it forward by default, or restore its digest-verified pre-mutation backups under `--rollback` |
-| `atomic harness uninstall <target-key>` / `--all` | Remove one enrolled target, or every target |
+| `atomic harness uninstall <target-key>` / `--all` | Remove one enrolled target, or every target; `--discard-changed` releases the claim on a resource whose bytes changed, after confirming each one |
 | `atomic harness rules status` / `rules sync` | Report or converge per-target rule tier, digests, coverage, and conflicts |
 
 Every real mutation takes one advisory lifecycle lock and recovers unresolved journals oldest-first before planning; the target is re-observed before the plan is built, so a plan that cannot be decided reports `blocked` and changes nothing. `--dry-run` opens no lock, writes nothing, and reports `blocked_on_recovery` when a journal cannot resolve to one safe result. Resource ownership lives in `~/.atomic/install/ledger.json`; in-flight operations live in `~/.atomic/install/{journals,transactions}/`.
@@ -115,7 +115,7 @@ A few optional steps go further:
 
 On first install, the binary also creates `~/.atomic/profile.md` and prints a one-line nudge. The file starts with your git name, email, OS, architecture, and CPU count filled in from the environment. The remaining sections are empty; Claude fills them in as facts surface naturally in conversation. You do not need to edit the file by hand.
 
-`atomic harness uninstall --all` removes every enrolled target, then completed operational and adoption state — but not your data. `~/.atomic/config.toml`, `profile.md`, `wikis.md`, and backups survive a full uninstall, so a reinstall picks up where you left off. A target-level `atomic harness uninstall <target-key>` removes only the unchanged resources that target owns; a resource whose native bytes changed refuses the whole operation, and a resource another enrolled consumer still depends on is retained and reported.
+`atomic harness uninstall --all` removes every enrolled target, then completed operational and adoption state — but not your data. `~/.atomic/config.toml`, `profile.md`, `wikis.md`, and backups survive a full uninstall, so a reinstall picks up where you left off. A target-level `atomic harness uninstall <target-key>` removes only the unchanged resources that target owns; a resource whose native bytes changed is reported `skipped` with its reason, and a resource another enrolled consumer still depends on is retained and reported. Re-run with `--discard-changed` to release Atomic's claim on a skipped resource after confirming it by name.
 
 From here, you are ready to work. The [getting started guide](/guides/getting-started) walks the first session step by step; the [workflow reference](/reference/workflow) covers the full lifecycle.
 

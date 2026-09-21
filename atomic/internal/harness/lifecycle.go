@@ -47,23 +47,43 @@ type Convergence struct {
 
 // Removal is the outcome of removing one target's resources. Retained names
 // resources kept because another enrolled consumer still depends on them.
-// Skipped names resources removal could not clear — a read-only settings file —
-// whose ledger rows and enrollment are kept so a later uninstall can finish the
-// job.
+// Skipped names resources removal could not clear — a read-only settings file,
+// or bytes that changed underneath Atomic — whose ledger rows and enrollment are
+// kept so a later uninstall, or a confirmed discard, can finish the job.
 //
 // A dry run populates Recovery with the unresolved journals a real removal
 // would reconcile first, and Blockers with anything that forbids a decidable
 // plan. An applied removal leaves both empty: recovery has already run.
 type Removal struct {
-	Target   Target   `json:"target"`
-	Removed  []string `json:"removed,omitempty"`
-	Retained []string `json:"retained,omitempty"`
-	Skipped  []string `json:"skipped,omitempty"`
+	Target Target `json:"target"`
+	// TargetKey is the ledger key the removal matched. It is the only identity
+	// for a raw key that does not parse into a Target, which leaves Target zero.
+	TargetKey string   `json:"target_key,omitempty"`
+	Removed   []string `json:"removed,omitempty"`
+	Retained  []string `json:"retained,omitempty"`
+	Skipped   []string `json:"skipped,omitempty"`
+	// SkipReasons names why each skipped resource was skipped, keyed by
+	// resource id, so the operator sees the exact next step rather than a bare
+	// resource name.
+	SkipReasons map[string]string `json:"skip_reasons,omitempty"`
+	// Discarded names the skipped resources a confirmed discard released.
+	Discarded []string `json:"discarded,omitempty"`
+	// Pruned names the directories a removal emptied and deleted.
+	Pruned []string `json:"pruned,omitempty"`
 	// Recovery previews unresolved journals in memory. It is never a mutation.
 	Recovery []installstate.RecoverySimulation `json:"recovery,omitempty"`
 	// Blockers names the observations that forbid a decidable plan, including a
 	// journal that cannot be simulated to one safe result.
 	Blockers []string `json:"blockers,omitempty"`
+}
+
+// NoteSkip records why one resource was skipped, so a skip line can name the
+// resolution instead of the bare id.
+func (r *Removal) NoteSkip(id, reason string) {
+	if r.SkipReasons == nil {
+		r.SkipReasons = map[string]string{}
+	}
+	r.SkipReasons[id] = reason
 }
 
 // Lifecycle is the set of hook points a concrete adapter supplies: projection,

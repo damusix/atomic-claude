@@ -19,7 +19,7 @@ The removal, retention, lock, and recovery contracts are shared with the multi-h
 
 ## Success criteria
 
-- [ ] `atomic harness uninstall <target-key>` removes only the unchanged resources owned for that target. A resource whose native bytes changed — including an edit to an owned `settings.json` member — is reported `skipped` and keeps its ownership claim rather than aborting the removal, so the rest of the target still uninstalls; a resource another enrolled consumer depends on is retained and reported.
+- [ ] `atomic harness uninstall <target-key>` removes only the unchanged resources owned for that target. A resource whose native bytes changed — including an edit to an owned `settings.json` member — is reported `skipped` with its reason and the exact next step and keeps its ownership claim rather than aborting the removal, so the rest of the target still uninstalls; `--discard-changed` releases the claim on each skipped resource after confirming it by resource name, so a skip is transitional rather than terminal. A resource another enrolled consumer depends on is retained and reported; a target key that does not parse is still removable by its raw ledger key.
 - [ ] `atomic harness uninstall --all` removes every enrolled target, then the completed operational and adoption state.
 - [ ] Full uninstall preserves `~/.atomic/config.toml`, `~/.atomic/profile.md`, `~/.atomic/wikis.md`, and backups, and retains unresolved journals plus the transaction backups, ledger rows, and state-location records they reference until recovery completes.
 - [ ] `--dry-run` opens no lock, writes nothing, previews unresolved journals read-only, and reports `blocked_on_recovery` (exit 1) when a journal cannot resolve to one safe result.
@@ -43,9 +43,11 @@ The removal, retention, lock, and recovery contracts are shared with the multi-h
 
 `atomic harness uninstall <target-key>` removes one enrolled target's unchanged Atomic-owned resources. Ownership comes from the ledger, never from names or legacy config paths.
 
-- A resource whose native bytes changed since Atomic wrote them is reported `skipped` and keeps its claim rather than aborting the removal — uninstall never overwrites a user edit, and the rest of the target still uninstalls.
+- A resource whose native bytes changed since Atomic wrote them is reported `skipped` and keeps its claim rather than aborting the removal — uninstall never overwrites a user edit, and the rest of the target still uninstalls. The skip line names the reason and the exact next step: `--discard-changed` releases the claim on each skipped resource after confirming that resource by name. A file or tree is deleted; a managed block is stripped, or left whole with its claim released when its tags no longer parse; a settings file Atomic cannot write keeps the user's bytes while its claim is released. Without the flag nothing changes.
 - A resource another enrolled consumer depends on is retained and reported alongside what was removed.
 - A resource the removal cannot clear is reported `skipped` alongside what was removed, and its ledger row and enrollment are kept: the bytes still on disk behind a read-only file are still Atomic's claim, so a later uninstall can finish the job.
+- A directory a removed file resource emptied is removed with it — the `extensions/` directory the delivered OMP module created does not outlive the module — bounded by the target's native root and only when nothing else remains in it.
+- A target key that does not parse into an enrolled target still names ledger rows, and the row-only removal clears them by that raw key, so a stale record an older writer left is never unremovable state.
 - A Claude target's `settings.json` is owned member-wise rather than whole-file: whenever a Claude target converges — adapter converge during enroll, repair, or update, and the explicit legacy adoption — the ledger records the Atomic-owned members (the inline `SessionStart` registration and the `outputStyle` seed), so uninstall strips exactly those members and leaves the user's other keys byte-for-byte. A later edit to an owned member is a changed resource like any other — the removal reports it `skipped` instead of overwriting it, matching the read-only case above.
 - The plan is complete before anything is removed: every resource is observed, planned, and approved (one confirmation), then removed.
 
@@ -120,6 +122,14 @@ Built across 4 iterations of /subagent-implementation. Commits (chronological):
 
 
 ## Change log
+
+### 2026-09-20 — A skip is transitional: discard, native-key removal, empty containers
+
+**What changed:** `atomic harness uninstall --discard-changed` releases Atomic's claim on each resource the default plan skipped, after confirming that resource by name: a file or tree is deleted, a managed block is stripped (or left whole with its claim released when its tags no longer parse), and a settings file Atomic cannot write keeps the user's bytes while its claim is released. Without the flag nothing changes, and the skip line now prints the reason and the exact next step instead of a bare id. The removal also deletes a native directory its own removed file resource emptied — the `extensions/` directory the delivered OMP module created — bounded by the target's native root and only while it holds nothing else. A target key that does not parse into an enrolled target is removable by its raw ledger key through the row-only path.
+
+**Why:** A skipped resource had no exit and no stated one, so a drifted file or a read-only `settings.json` left the target enrolled forever while every later uninstall reported the same success-shaped skip; and the directory the extension module created outlived the module that owned it.
+
+**Superseded:** the skip was terminal (no flag, no named resolution) and the removal deleted only the resource file itself. Success criterion 1 and the `### Target uninstall` bullets carried the superseded wording; `docs/spec/omp-plugin-compatibility.md` criterion 73 and its uninstall flow state the same correction.
 
 ### 2026-09-20 — Drift on an owned resource no longer aborts the removal
 

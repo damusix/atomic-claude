@@ -65,8 +65,11 @@ func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 	}
 
 	plan := harness.Plan{Target: t, Generation: pkg.Generation, Converged: true}
-	plan.Unproven = append(plan.Unproven, gapLines(pkg.Unproven)...)
-	plan.Unproven = append(plan.Unproven, gapLines(pkg.Runtime.Unproven)...)
+	unproven, err := mergeUnproven(pkg.Unproven, pkg.Runtime.Unproven)
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	plan.Unproven = unproven
 	desired := map[string]string{
 		PackageResource(home):           treeDigest,
 		SteeringResource(t.NativeRoot):  blockDigest,
@@ -109,20 +112,41 @@ func (a *Adapter) project(home string, t harness.Target) (harness.Plan, error) {
 	if err != nil {
 		return harness.Plan{}, err
 	}
-	if err := harness.EnsureSharedGeneration(ledger, "omp", t.Key(), PackageResource(home), "package", pkg.Generation); err != nil {
+	if _, err := harness.EnsureSharedGeneration(ledger, harness.KindOMP, "omp", t.Key(), PackageResource(home), "package", pkg.Generation); err != nil {
 		plan.Blockers = append(plan.Blockers, err.Error())
 	}
 	return plan, nil
 }
 
-// gapLines renders each unproven surface as one "surface: evidence" line, the
-// form a plan, a status report, and a doctor finding all print.
-func gapLines(gaps []PackageGap) []string {
-	out := make([]string, 0, len(gaps))
-	for _, gap := range gaps {
-		out = append(out, gap.Surface+": "+gap.Evidence)
+// mergeUnproven renders the package and runtime-delivery gaps as one
+// "surface: evidence" line each, the form a plan, a status report, and a doctor
+// finding all print. The two producers must not name the same surface:
+// SessionDelivery.Unproven owns the runtime-delivery surfaces and packageGaps
+// owns the package surfaces, so a surface appearing in both is a defect, not a
+// duplicate to hide. A repeat inside one producer is deduped.
+func mergeUnproven(packageGaps, deliveryGaps []PackageGap) ([]string, error) {
+	owner := map[string]string{}
+	out := make([]string, 0, len(packageGaps)+len(deliveryGaps))
+	add := func(producer string, gaps []PackageGap) error {
+		for _, gap := range gaps {
+			if first, ok := owner[gap.Surface]; ok {
+				if first != producer {
+					return fmt.Errorf("omp: unproven surface %q is reported by both the %s and the %s producers; SessionDelivery.Unproven owns the runtime-delivery surfaces", gap.Surface, first, producer)
+				}
+				continue
+			}
+			owner[gap.Surface] = producer
+			out = append(out, gap.Surface+": "+gap.Evidence)
+		}
+		return nil
 	}
-	return out
+	if err := add("package", packageGaps); err != nil {
+		return nil, err
+	}
+	if err := add("runtime delivery", deliveryGaps); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // converge applies the OMP plan through the enrollment engine.

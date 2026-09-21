@@ -31,6 +31,10 @@ type Steps struct {
 	Home      string
 	DryRun    bool
 	AssumeYes bool
+	// DiscardChanged releases Atomic's claim on a resource the default
+	// uninstall plan skipped because its bytes no longer verify, after a
+	// per-resource confirmation.
+	DiscardChanged bool
 	// BatchDecision is the caller's replace-or-leave-unowned choice for
 	// resources the selected generation cannot prove ownership of.
 	BatchDecision installstate.Decision

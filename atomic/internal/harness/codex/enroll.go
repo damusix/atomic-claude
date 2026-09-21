@@ -161,7 +161,8 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	if err != nil {
 		return result, err
 	}
-	if err := harness.EnsureSharedGeneration(ledger, "codex", target.Key(), packageRoot, "plugin tree", plugin.Generation); err != nil {
+	consumers, err := harness.EnsureSharedGeneration(ledger, harness.KindCodex, "codex", target.Key(), packageRoot, "plugin tree", plugin.Generation)
+	if err != nil {
 		return result, err
 	}
 
@@ -195,10 +196,9 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	// enrolled CODEX_HOME consumes it: the running binary is the only writer, so
 	// the operation that moves the tree records each consumer's row in the same
 	// commit rather than leaving a stale generation to look like a requirement.
-	for _, consumer := range harness.SharedConsumers(ledger, harness.KindCodex, packageRoot) {
-		if consumer == target.Key() {
-			continue
-		}
+	// AssertSharedConsumers proves the set the generation check approved was the
+	// set this loop converged.
+	for _, consumer := range consumers {
 		if ledger.Upsert(installstate.Row{
 			Target:     consumer,
 			Resource:   packageRoot,
@@ -209,6 +209,9 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 		}) {
 			rowsChanged = true
 		}
+	}
+	if err := harness.AssertSharedConsumers(ledger, "codex", packageRoot, plugin.Generation, consumers); err != nil {
+		return result, err
 	}
 
 	if obs.Digest != "" && obs.Digest == treeDigest {

@@ -367,6 +367,51 @@ func TestClassifyRefusesMalformedLedger(t *testing.T) {
 	}
 }
 
+// TestLedgerDigestLookupIsByIdentityNotPath proves the ledger lookup that feeds
+// ownership evidence is keyed by the resource id the claim names: a row
+// recording the same path under a different resource id supplies no digest, so
+// the claim stays unowned rather than inheriting another resource's proof — and
+// the mismatch is surfaced instead of reading as a silent non-match.
+func TestLedgerDigestLookupIsByIdentityNotPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "AGENTS.md")
+	mkfile(t, path, "atomic bytes\n")
+	digest := managedfile.Digest([]byte("atomic bytes\n"))
+
+	rows := []Row{{
+		Target:   "omp:/a",
+		Resource: "steering",
+		Applied:  AppliedValue{Path: path, Kind: managedfile.KindFile, Digest: digest},
+	}}
+	claims := []managedfile.Claim{{ID: "extension", Kind: managedfile.KindFile, Path: path, SelectedDigest: "different"}}
+
+	resources, err := assessResources("", "omp:/a", rows, claims, nil)
+	if err != nil {
+		t.Fatalf("assessResources: %v", err)
+	}
+	if len(resources) != 1 {
+		t.Fatalf("resources = %+v, want one claim", resources)
+	}
+	if resources[0].Assessment.Evidence != managedfile.EvidenceUnowned {
+		t.Errorf("evidence = %s, want unowned: a path match must not prove another resource's identity", resources[0].Assessment.Evidence)
+	}
+	if resources[0].LedgerMismatch != "steering" {
+		t.Errorf("LedgerMismatch = %q, want the ledger resource that records the same path", resources[0].LedgerMismatch)
+	}
+
+	// The same row under the claim's own id is evidence.
+	rows[0].Resource = "extension"
+	resources, err = assessResources("", "omp:/a", rows, claims, nil)
+	if err != nil {
+		t.Fatalf("assessResources: %v", err)
+	}
+	if resources[0].Assessment.Evidence != managedfile.EvidenceLedger {
+		t.Errorf("evidence = %s, want ledger-applied for the matching id", resources[0].Assessment.Evidence)
+	}
+	if resources[0].LedgerMismatch != "" {
+		t.Errorf("LedgerMismatch = %q, want none for a matching id", resources[0].LedgerMismatch)
+	}
+}
+
 func mkfile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

@@ -30,11 +30,13 @@ const blockedOnRecovery = string(installstate.StatusBlockedOnRecovery) +
 // UninstallTarget removes one enrolled target's resources. A resource whose
 // bytes drifted underneath Atomic is reported skipped and keeps its claim while
 // the rest of the target uninstalls; resources another enrolled consumer depends
-// on are retained and reported.
+// on are retained and reported. A key that does not parse into a target is still
+// removable by its raw ledger key, so a stale row an older writer left is never
+// an unremovable state.
 func (s Steps) UninstallTarget(key string) (harness.Removal, error) {
 	target, err := harness.ParseKey(key)
 	if err != nil {
-		return harness.Removal{}, err
+		return s.uninstallRawKey(key)
 	}
 	if s.DryRun {
 		return s.dryRunTargetRemoval(target)
@@ -63,7 +65,75 @@ func (s Steps) UninstallTarget(key string) (harness.Removal, error) {
 	if !ok {
 		return plan, fmt.Errorf("uninstall %s: declined", target.Key())
 	}
-	return harness.RemoveTargetResources(s.Home, target)
+	return harness.RemoveTargetResources(s.Home, target, s.removalOptions())
+}
+
+// uninstallRawKey removes the ledger rows a target key names when the key does
+// not parse into a target. The row-only path is its one exit: nothing else can
+// name such a target, and ensure-shared-generation already treats the row as
+// something to rewrite rather than a pin, so clearing it must not require a
+// binary that can spell the kind.
+func (s Steps) uninstallRawKey(key string) (harness.Removal, error) {
+	if key == "" {
+		return harness.Removal{}, fmt.Errorf("harness: uninstall: target key is empty")
+	}
+	if s.DryRun {
+		return s.dryRunRowRemoval(key)
+	}
+	lock, err := s.lock("uninstall-" + safeSegment(key))
+	if err != nil {
+		return harness.Removal{}, err
+	}
+	defer lock.Release()
+	if err := s.recoverRetaining(); err != nil {
+		return harness.Removal{}, err
+	}
+	ledger, err := installstate.LoadLedger(ledgerPath(s.Home))
+	if err != nil {
+		return harness.Removal{}, err
+	}
+	plan, _, err := harness.PlanTargetRowRemoval(s.Home, key, ledger)
+	if err != nil {
+		return harness.Removal{}, err
+	}
+	ok, err := s.approve(fmt.Sprintf("Uninstall %s?", key), fmt.Sprintf("%d resource(s) removed, %d retained", len(plan.Removed), len(plan.Retained)))
+	if err != nil {
+		return harness.Removal{}, err
+	}
+	if !ok {
+		return plan, fmt.Errorf("uninstall %s: declined", key)
+	}
+	return harness.RemoveTargetRows(s.Home, key, s.removalOptions())
+}
+
+// removalOptions carries the caller's discard choice and the per-resource
+// confirmation it must run before any changed bytes are removed.
+func (s Steps) removalOptions() harness.RemovalOptions {
+	return harness.RemovalOptions{
+		DiscardChanged: s.DiscardChanged,
+		Confirm: func(resource, reason string) (bool, error) {
+			return s.approve(fmt.Sprintf("Discard changed resource %s?", resource), reason)
+		},
+	}
+}
+
+// dryRunRowRemoval is dryRunTargetRemoval for a raw ledger key: it previews
+// unresolved journals in memory and plans against the ledger a real recovery
+// would leave behind.
+func (s Steps) dryRunRowRemoval(key string) (harness.Removal, error) {
+	sims, ledger, blocked, err := installstate.SimulateRecoveries(s.Home)
+	if err != nil {
+		return harness.Removal{}, err
+	}
+	if blocked {
+		return harness.Removal{TargetKey: key, Recovery: sims, Blockers: []string{blockedOnRecovery}}, nil
+	}
+	plan, _, err := harness.PlanTargetRowRemoval(s.Home, key, ledger)
+	if err != nil {
+		return harness.Removal{}, err
+	}
+	plan.Recovery = sims
+	return plan, nil
 }
 
 // dryRunTargetRemoval is the read-only target-removal plan. It opens no lock
@@ -77,7 +147,7 @@ func (s Steps) dryRunTargetRemoval(target harness.Target) (harness.Removal, erro
 		return harness.Removal{}, err
 	}
 	if blocked {
-		return harness.Removal{Target: target, Recovery: sims, Blockers: []string{blockedOnRecovery}}, nil
+		return harness.Removal{Target: target, TargetKey: target.Key(), Recovery: sims, Blockers: []string{blockedOnRecovery}}, nil
 	}
 	plan, _, err := harness.PlanTargetRemoval(s.Home, target, ledger)
 	if err != nil {
@@ -124,7 +194,7 @@ func (s Steps) UninstallAll() (FullUninstallReport, error) {
 	}
 
 	for _, plan := range plans {
-		removal, err := harness.RemoveTargetResources(s.Home, plan.Target)
+		removal, err := harness.RemoveTargetResources(s.Home, plan.Target, s.removalOptions())
 		if err != nil {
 			return report, err
 		}
@@ -142,7 +212,7 @@ func (s Steps) UninstallAll() (FullUninstallReport, error) {
 	var uncleared []installstate.Row
 	for _, removal := range report.Targets {
 		for _, id := range removal.Skipped {
-			if row, ok := ledger.Find(removal.Target.Key(), id); ok {
+			if row, ok := ledger.Find(removal.TargetKey, id); ok {
 				uncleared = append(uncleared, row)
 			}
 		}

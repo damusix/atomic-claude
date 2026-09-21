@@ -396,6 +396,213 @@ func TestUninstallSkipsChangedResource(t *testing.T) {
 	}
 }
 
+// TestUninstallWithoutDiscardKeepsChangedClaim proves the default removal is
+// non-destructive: a skipped resource keeps its bytes, its ledger row, and the
+// target's enrollment, so a later uninstall — or a confirmed discard — can
+// finish the job.
+func TestUninstallWithoutDiscardKeepsChangedClaim(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".omp", "agent")
+	path := filepath.Join(root, "AGENTS.md")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("user prose\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedLedger(t, home,
+		[]installstate.TargetRecord{{Harness: "omp", Instance: root, NativeRoot: root, Status: "converged"}},
+		[]installstate.Row{{Target: "omp:" + root, Resource: "steering", Consumer: "omp:" + root,
+			Applied: installstate.AppliedValue{Path: path, Kind: managedfile.KindFile, Digest: "0000"}}})
+
+	removal, err := testSteps(t, home).UninstallTarget("omp:" + root)
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if len(removal.Skipped) != 1 || removal.SkipReasons["steering"] == "" {
+		t.Fatalf("skipped = %v (reasons %v), want steering skipped with a reason", removal.Skipped, removal.SkipReasons)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "user prose\n" {
+		t.Errorf("changed resource was not preserved: %q, %v", data, err)
+	}
+	ledger, err := installstate.LoadLedger(ledgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ledger.Find("omp:"+root, "steering"); !ok {
+		t.Error("the default removal dropped the skipped resource's row")
+	}
+	if _, ok := ledger.FindTarget("omp", root); !ok {
+		t.Error("the default removal dropped the enrollment")
+	}
+}
+
+// TestUninstallDiscardChangedClearsTarget proves the explicit discard releases
+// a claim the default removal would keep: the changed bytes are removed, the
+// row and the enrollment are dropped, and a declined confirmation leaves
+// everything untouched.
+func TestUninstallDiscardChangedClearsTarget(t *testing.T) {
+	newFixture := func(t *testing.T) (home, root, path string) {
+		t.Helper()
+		home = t.TempDir()
+		root = filepath.Join(home, ".omp", "agent")
+		path = filepath.Join(root, "AGENTS.md")
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("user prose\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		seedLedger(t, home,
+			[]installstate.TargetRecord{{Harness: "omp", Instance: root, NativeRoot: root, Status: "converged"}},
+			[]installstate.Row{{Target: "omp:" + root, Resource: "steering", Consumer: "omp:" + root,
+				Applied: installstate.AppliedValue{Path: path, Kind: managedfile.KindFile, Digest: "0000"}}})
+		return home, root, path
+	}
+
+	t.Run("declined confirmation leaves the claim", func(t *testing.T) {
+		home, root, path := newFixture(t)
+		steps := testSteps(t, home)
+		steps.AssumeYes = false
+		steps.DiscardChanged = true
+		steps.Confirm = func(title, _ string, _ bool) (bool, error) {
+			return !strings.HasPrefix(title, "Discard changed resource"), nil
+		}
+
+		removal, err := steps.UninstallTarget("omp:" + root)
+		if err != nil {
+			t.Fatalf("uninstall: %v", err)
+		}
+		if len(removal.Discarded) != 0 || len(removal.Skipped) != 1 {
+			t.Fatalf("removal = %+v, want the discard declined", removal)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("a declined discard removed the resource: %v", err)
+		}
+		ledger, err := installstate.LoadLedger(ledgerPath(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := ledger.Find("omp:"+root, "steering"); !ok {
+			t.Error("a declined discard dropped the claim")
+		}
+	})
+
+	t.Run("approved discard removes the resource and the claim", func(t *testing.T) {
+		home, root, path := newFixture(t)
+		steps := testSteps(t, home)
+		steps.DiscardChanged = true
+
+		removal, err := steps.UninstallTarget("omp:" + root)
+		if err != nil {
+			t.Fatalf("uninstall: %v", err)
+		}
+		if len(removal.Discarded) != 1 || removal.Discarded[0] != "steering" {
+			t.Fatalf("discarded = %v, want [steering]", removal.Discarded)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("discarded resource survived (stat err = %v)", err)
+		}
+		ledger, err := installstate.LoadLedger(ledgerPath(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := ledger.Find("omp:"+root, "steering"); ok {
+			t.Error("the discarded resource kept its row")
+		}
+		if _, ok := ledger.FindTarget("omp", root); ok {
+			t.Error("the discarded resource kept the enrollment")
+		}
+	})
+}
+
+// TestUninstallPrunesEmptiedExtensionDirectory proves the directory Atomic's own
+// file resource created is removed with it once empty, and survives while the
+// user keeps anything else in it.
+func TestUninstallPrunesEmptiedExtensionDirectory(t *testing.T) {
+	newFixture := func(t *testing.T) (home, root, ext string) {
+		t.Helper()
+		home = t.TempDir()
+		root = filepath.Join(home, ".omp", "agent")
+		ext = filepath.Join(root, "extensions", "atomic.ts")
+		if err := os.MkdirAll(filepath.Dir(ext), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(ext, []byte("module\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		digest, err := managedfile.DigestResourceBytes([]byte("module\n"), managedfile.KindFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seedLedger(t, home,
+			[]installstate.TargetRecord{{Harness: "omp", Instance: root, NativeRoot: root, Status: "converged"}},
+			[]installstate.Row{{Target: "omp:" + root, Resource: ext, Consumer: "omp:" + root,
+				Applied: installstate.AppliedValue{Path: ext, Kind: managedfile.KindFile, Digest: digest}}})
+		return home, root, ext
+	}
+
+	t.Run("empty container is removed", func(t *testing.T) {
+		home, root, ext := newFixture(t)
+		removal, err := testSteps(t, home).UninstallTarget("omp:" + root)
+		if err != nil {
+			t.Fatalf("uninstall: %v", err)
+		}
+		if _, err := os.Stat(ext); !os.IsNotExist(err) {
+			t.Fatalf("extension survived (stat err = %v)", err)
+		}
+		if _, err := os.Stat(filepath.Dir(ext)); !os.IsNotExist(err) {
+			t.Errorf("emptied extensions directory survived (stat err = %v)", err)
+		}
+		if len(removal.Pruned) != 1 {
+			t.Errorf("pruned = %v, want the emptied directory reported", removal.Pruned)
+		}
+	})
+
+	t.Run("occupied container survives", func(t *testing.T) {
+		home, root, ext := newFixture(t)
+		other := filepath.Join(filepath.Dir(ext), "user.ts")
+		if err := os.WriteFile(other, []byte("user module\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := testSteps(t, home).UninstallTarget("omp:" + root); err != nil {
+			t.Fatalf("uninstall: %v", err)
+		}
+		if _, err := os.Stat(filepath.Dir(ext)); err != nil {
+			t.Errorf("extensions directory holding a user file was removed: %v", err)
+		}
+		if _, err := os.Stat(other); err != nil {
+			t.Errorf("the user's file was removed: %v", err)
+		}
+	})
+}
+
+// TestUninstallRawKeyClearsStaleRow proves the row-only removal path reaches a
+// ledger row whose target key does not parse: a stale record an older writer
+// left is clearable by the key it is recorded under, which is its only identity.
+func TestUninstallRawKeyClearsStaleRow(t *testing.T) {
+	home := t.TempDir()
+	missing := filepath.Join(home, ".omp", "agent", "extensions", "atomic.ts")
+	seedLedger(t, home, nil,
+		[]installstate.Row{{Target: ":stale", Resource: missing, Consumer: ":stale",
+			Applied: installstate.AppliedValue{Path: missing, Kind: managedfile.KindFile, Digest: "0000"}}})
+
+	removal, err := testSteps(t, home).UninstallTarget(":stale")
+	if err != nil {
+		t.Fatalf("raw-key uninstall: %v", err)
+	}
+	if len(removal.Removed) != 1 || removal.Removed[0] != missing {
+		t.Fatalf("removed = %v, want the stale row's resource", removal.Removed)
+	}
+	ledger, err := installstate.LoadLedger(ledgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ledger.Find(":stale", missing); ok {
+		t.Error("the raw-key removal left the stale row behind")
+	}
+}
+
 // TestFullUninstallKeepsClaimWhenSettingsAreReadOnly proves a full uninstall
 // that cannot write a read-only settings file reports the resource skipped and
 // keeps its ledger row and enrollment, so a later uninstall can still clear it.

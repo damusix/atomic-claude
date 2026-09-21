@@ -959,6 +959,73 @@ func TestIncompatibleGenerationRefusesBeforeMutation(t *testing.T) {
 	}
 }
 
+// TestMergeUnprovenEnforcesSingleOwner proves the disjointness Plan.Unproven
+// relies on is enforced rather than documented: a surface named by both
+// producers fails loudly, and a repeat inside one producer is deduped.
+func TestMergeUnprovenEnforcesSingleOwner(t *testing.T) {
+	pkg := []PackageGap{
+		{Surface: "package install, registration, and lifecycle", Evidence: "a"},
+		{Surface: "package install, registration, and lifecycle", Evidence: "a"},
+	}
+	delivery := []PackageGap{{Surface: "extension disablement", Evidence: "b"}}
+
+	lines, err := mergeUnproven(pkg, delivery)
+	if err != nil {
+		t.Fatalf("disjoint producers refused: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("lines = %v, want the repeated surface deduped to two lines", lines)
+	}
+
+	overlap := []PackageGap{{Surface: "package install, registration, and lifecycle", Evidence: "a"}}
+	if _, err := mergeUnproven(pkg, overlap); err == nil {
+		t.Fatal("a surface reported by both producers was accepted")
+	}
+}
+
+// TestEnrollRewritesMalformedStaleRow proves a shared-package row whose target
+// key does not parse — a record an older writer left — is rewritten with the
+// selected generation rather than pinning the package forever, and that the
+// enrollment's rewrite assertion sees the row it converged.
+func TestEnrollRewritesMalformedStaleRow(t *testing.T) {
+	home := newHome(t)
+	root := filepath.Join(home, ".omp", "agent")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := newAdapter(t, map[string]string{"": root})
+
+	ledger := &installstate.Ledger{}
+	ledger.Upsert(installstate.Row{
+		Target:     ":stale",
+		Resource:   PackageResource(home),
+		Consumer:   ":stale",
+		Generation: "generation-from-a-different-binary",
+		Tier:       string(Tier),
+		Applied:    installstate.AppliedValue{Path: config.PackageRoot(home, "omp"), Kind: managedfile.KindTree, Digest: "deadbeef"},
+	})
+	if err := ledger.Save(config.LedgerPath(home)); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := a.Enroll(EnrollRequest{Home: home, Profile: Profile{Root: root}, OperationID: "stale"})
+	if err != nil {
+		t.Fatalf("a malformed stale row pinned the shared package: %v", err)
+	}
+
+	ledger, err = installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := ledger.Find(":stale", PackageResource(home))
+	if !ok {
+		t.Fatal("the stale row was dropped instead of rewritten")
+	}
+	if row.Generation != result.Generation {
+		t.Errorf("stale row generation = %q, want the converged %q", row.Generation, result.Generation)
+	}
+}
+
 // TestEnrollRefusesAmbiguousManagedBlock proves a malformed Atomic block is
 // refused rather than clobbered or guessed at.
 func TestEnrollRefusesAmbiguousManagedBlock(t *testing.T) {

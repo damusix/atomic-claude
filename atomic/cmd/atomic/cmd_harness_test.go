@@ -418,6 +418,98 @@ func TestLifecycleCLIUninstallDryRunPlansPostRecovery(t *testing.T) {
 	}
 }
 
+// TestLifecycleCLIUninstallNamesDiscardFlagAndClearsChangedResource proves the
+// CLI's skip line names the exact next step and that the flag it names finishes
+// the job: the default run preserves the changed bytes and the claim, and a
+// confirmed discard removes the resource, its row, and the enrollment.
+func TestLifecycleCLIUninstallNamesDiscardFlagAndClearsChangedResource(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".omp", "agent")
+	path := filepath.Join(root, "AGENTS.md")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("user prose\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	key := "omp:" + root
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger.UpsertTarget(installstate.TargetRecord{Harness: "omp", Instance: root, NativeRoot: root, Status: "converged"})
+	ledger.Upsert(installstate.Row{Target: key, Resource: "steering", Consumer: key,
+		Applied: installstate.AppliedValue{Path: path, Kind: managedfile.KindFile, Digest: "0000"}})
+	if err := ledger.Save(config.LedgerPath(home)); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runAtomicCLI(t, home, "harness", "uninstall", key, "--yes")
+	if code != 0 {
+		t.Fatalf("uninstall exited %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "--discard-changed") {
+		t.Errorf("the skip line does not name the resolution:\n%s", out)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the skipped resource's bytes were removed: %v", err)
+	}
+	kept, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := kept.Find(key, "steering"); !ok {
+		t.Fatal("the skipped claim was dropped")
+	}
+
+	out, code = runAtomicCLI(t, home, "harness", "uninstall", key, "--discard-changed", "--yes")
+	if code != 0 {
+		t.Fatalf("discard uninstall exited %d:\n%s", code, out)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the discarded resource survived (stat err = %v)", err)
+	}
+	cleared, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cleared.Find(key, "steering"); ok {
+		t.Error("the discard left the ownership row")
+	}
+	if _, ok := cleared.FindTarget("omp", root); ok {
+		t.Error("the discard left the enrollment")
+	}
+}
+
+// TestLifecycleCLIUninstallClearsUnparseableRow proves a ledger row whose target
+// key does not parse is clearable through the CLI: the key it is recorded under
+// is still a valid positional, so no stale row is unremovable state.
+func TestLifecycleCLIUninstallClearsUnparseableRow(t *testing.T) {
+	home := t.TempDir()
+	missing := filepath.Join(home, ".omp", "agent", "extensions", "atomic.ts")
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger.Upsert(installstate.Row{Target: ":stale", Resource: missing, Consumer: ":stale",
+		Applied: installstate.AppliedValue{Path: missing, Kind: managedfile.KindFile, Digest: "0000"}})
+	if err := ledger.Save(config.LedgerPath(home)); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runAtomicCLI(t, home, "harness", "uninstall", ":stale", "--yes")
+	if code != 0 {
+		t.Fatalf("raw-key uninstall exited %d:\n%s", code, out)
+	}
+	cleared, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cleared.Find(":stale", missing); ok {
+		t.Error("the raw-key removal left the stale row behind")
+	}
+}
+
 // TestLifecycleCLIListsInstances proves discovery reports candidates without
 // enrolling them.
 func TestLifecycleCLIListsInstances(t *testing.T) {

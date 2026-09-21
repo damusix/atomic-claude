@@ -2082,6 +2082,44 @@ func TestRecoveryFinishesInterruptedTreePublication(t *testing.T) {
 	}
 }
 
+// TestRecoveryDoesNotResurrectLedgerRecordedTreeDeletion proves the other case
+// an absent generated-tree destination can mean: the publication already
+// committed — the ledger records its intended bytes — so the destination was
+// deleted afterwards. Recovery must not finish the rename and recreate a tree
+// the user removed.
+func TestRecoveryDoesNotResurrectLedgerRecordedTreeDeletion(t *testing.T) {
+	home := newHome(t)
+	dest := filepath.Join(home, ".atomic", "packages", "omp", "atomic")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "old.md"), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	journal, ledger, _ := interruptTreePublication(t, home, dest)
+	m, _ := journal.Mutation("omp-package")
+	// The publication committed, then the user deleted the tree.
+	ledger.Upsert(Row{
+		Target:     m.Target,
+		Resource:   m.Resource,
+		Generation: m.Generation,
+		Applied:    AppliedValue{Path: dest, Kind: managedfile.KindTree, Digest: m.Intended},
+	})
+
+	rec := NewRecovery(home, journal, ledger)
+	result, err := rec.Recover()
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if len(result.Conflicts) != 1 || result.Conflicts[0].Decision != DecisionConflict {
+		t.Fatalf("recovery = %+v, want one conflict for the user's deletion", result)
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Errorf("recovery resurrected a tree the user deleted: %v", err)
+	}
+}
+
 // TestRecoveryRestoresInterruptedTreeBackup proves the other half of the crash
 // window: when the staged tree is gone, the digest-verified backup is restored
 // instead of reporting a conflict.

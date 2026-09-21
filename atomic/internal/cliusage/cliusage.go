@@ -213,7 +213,7 @@ var commands = []Command{
 	{
 		Path:        []string{"harness", "uninstall"},
 		Args:        "<target-key>",
-		Flags:       []string{"--all", "--dry-run", "--json", "--yes"},
+		Flags:       []string{"--all", "--discard-changed", "--dry-run", "--json", "--yes"},
 		Description: "Remove one enrolled target, or every target with --all",
 	},
 	{

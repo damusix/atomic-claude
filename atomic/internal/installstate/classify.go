@@ -66,6 +66,11 @@ func (c Classification) WithJournalsRecovered() Classification {
 type Resource struct {
 	Assessment managedfile.Assessment `json:"assessment"`
 	Listed     bool                   `json:"listed,omitempty"`
+	// LedgerMismatch names a ledger resource that records this claim's path
+	// under a different resource id. The ledger lookup is by identity, never by
+	// path, so such a row supplies no ownership evidence; naming it here keeps
+	// the defect visible instead of letting the claim read as unowned bytes.
+	LedgerMismatch string `json:"ledger_mismatch,omitempty"`
 }
 
 // LegacyInventory is the read-only legacy evidence the classifier observed.
@@ -520,18 +525,12 @@ func assessResources(nativeRoot, target string, rows []Row, claims []managedfile
 		listedSet[filepath.FromSlash(t)] = true
 	}
 
-	recorded := map[string]string{}
-	for _, row := range rows {
-		if row.Target != target || row.Applied.Digest == "" {
-			continue
-		}
-		recorded[row.Resource] = row.Applied.Digest
-	}
-
 	out := make([]Resource, 0, len(claims))
 	for _, claim := range claims {
+		digest, mismatch := "", ""
 		if claim.RecordedDigest == "" {
-			claim.RecordedDigest = recorded[claim.ID]
+			digest, mismatch = recordedLedgerDigest(rows, target, claim.ID, claim.Path)
+			claim.RecordedDigest = digest
 		}
 		a, err := managedfile.Assess(claim)
 		if err != nil {
@@ -543,9 +542,34 @@ func assessResources(nativeRoot, target string, rows []Row, claims []managedfile
 				rel = r
 			}
 		}
-		out = append(out, Resource{Assessment: a, Listed: listedSet[rel] || listedSet[claim.ID]})
+		out = append(out, Resource{
+			Assessment:     a,
+			Listed:         listedSet[rel] || listedSet[claim.ID],
+			LedgerMismatch: mismatch,
+		})
 	}
 	return out, nil
+}
+
+// recordedLedgerDigest returns the digest the ledger recorded applying to one
+// claim's resource, keyed by the resource id the claim names and never by path:
+// a path match is not an identity, so a row that records the same path under a
+// different resource id supplies no evidence. Such a row is reported through
+// mismatch instead of silently reading as unowned bytes, because it is a
+// ledger/claim identity defect rather than a resource the user changed.
+func recordedLedgerDigest(rows []Row, target, resource, path string) (digest, mismatch string) {
+	for _, row := range rows {
+		if row.Target != target || row.Applied.Digest == "" {
+			continue
+		}
+		if row.Resource == resource {
+			return row.Applied.Digest, ""
+		}
+		if path != "" && row.Applied.Path == path {
+			mismatch = row.Resource
+		}
+	}
+	return "", mismatch
 }
 
 func exists(path string) bool {

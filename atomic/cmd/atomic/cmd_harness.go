@@ -111,6 +111,7 @@ func registerRepairFlags(fs *pflag.FlagSet) {
 
 func registerUninstallFlags(fs *pflag.FlagSet) {
 	fs.Bool("all", false, "remove every enrolled target and completed operational state")
+	fs.Bool("discard-changed", false, "remove resources whose bytes changed, after confirming each one")
 	fs.Bool("dry-run", false, "print what would happen; make no changes")
 	fs.Bool("yes", false, "approve the printed plan without prompting")
 	fs.Bool("json", false, "emit machine-readable JSON output")
@@ -391,9 +392,10 @@ func runHarnessDiff(steps install.Steps, args []string) {
 
 func runHarnessUninstall(steps install.Steps, args []string) {
 	fs := flag.NewFlagSet("harness uninstall", flag.ContinueOnError)
-	cliutil.SetUsage(fs, "atomic harness uninstall <target-key> [--dry-run] [--yes] [--json]  |  atomic harness uninstall --all")
-	var all, dryRun, yes, jsonOut bool
+	cliutil.SetUsage(fs, "atomic harness uninstall <target-key> [--discard-changed] [--dry-run] [--yes] [--json]  |  atomic harness uninstall --all")
+	var all, discardChanged, dryRun, yes, jsonOut bool
 	fs.BoolVar(&all, "all", false, "remove every enrolled target and completed operational state")
+	fs.BoolVar(&discardChanged, "discard-changed", false, "remove resources whose bytes changed, after confirming each one")
 	fs.BoolVar(&dryRun, "dry-run", false, "print what would happen; make no changes")
 	fs.BoolVar(&yes, "yes", false, "approve the printed plan without prompting")
 	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON output")
@@ -406,6 +408,7 @@ func runHarnessUninstall(steps install.Steps, args []string) {
 	}
 	steps.DryRun = dryRun
 	steps.AssumeYes = yes
+	steps.DiscardChanged = discardChanged
 
 	if all {
 		report, err := steps.UninstallAll()
@@ -528,7 +531,9 @@ func conflictCount(actions []installstate.RecoveryAction) int {
 	return conflicts
 }
 
-// printRemoval renders one target's removal outcome.
+// printRemoval renders one target's removal outcome. A skipped resource names
+// the reason and the exact next step, so a removal that could not finish never
+// reads as a successful uninstall.
 func printRemoval(removal harness.Removal) {
 	for _, id := range removal.Removed {
 		fmt.Printf("removed\t%s\n", id)
@@ -536,8 +541,23 @@ func printRemoval(removal harness.Removal) {
 	for _, id := range removal.Retained {
 		fmt.Printf("retained\t%s\t(another enrolled consumer depends on it)\n", id)
 	}
+	for _, id := range removal.Discarded {
+		reason := removal.SkipReasons[id]
+		if reason != "" {
+			fmt.Printf("discarded\t%s\t%s\n", id, reason)
+			continue
+		}
+		fmt.Printf("discarded\t%s\n", id)
+	}
 	for _, id := range removal.Skipped {
-		fmt.Printf("skipped\t%s\t(read-only or drifted; retained for a later uninstall)\n", id)
+		reason := removal.SkipReasons[id]
+		if reason == "" {
+			reason = "Atomic could not clear its bytes"
+		}
+		fmt.Printf("skipped\t%s\t%s; re-run with --discard-changed to remove it\n", id, reason)
+	}
+	for _, dir := range removal.Pruned {
+		fmt.Printf("pruned\t%s\t(emptied directory)\n", dir)
 	}
 	printRecovery(removal.Recovery)
 }
