@@ -60,6 +60,7 @@ Only one pipeline reference is loaded per run, so the sub-agent instructions are
 ```
 <instructions>
 - Summaries are FACTS about current state — not instructions, rules, or intent. Every sentence must be verifiable by reading a source file in target_repo.
+- Never count things in the repo. `atomic-writing` rule 17 has the list; a version or a documented contract value is not a count.
 - Read the actual source files. Do not infer from filenames alone.
 - Invoke the `atomic-writing` skill and follow it. It governs three things here, not one: the page's reading order, when a shape gets drawn instead of written, and the sentence-level voice.
 - Draw every shape the repo has. A build pipeline, a request path, and a deploy flow are three claims and three diagrams, each with its own `###` sub-heading and a caption stating what it claims. There is no cap. Leaving a shape in prose is the failure to avoid, not drawing too many.
@@ -118,7 +119,7 @@ The `reflects_rev` frontmatter field is **intentionally left absent**. The code 
 
 ### W5 — Reviewer validates each summary file
 
-Same reviewer dispatch logic as the repo-scope Step 5. Reviewer checks that every claim is verifiable from source files in `target_repo`, and applies the same page-shape checks: sections present in order, `## What it does` opening on purpose rather than mechanism, every diagram captioned with a claim and every one past the first under its own sub-heading, `## Where it lives` as one table, every constraint naming what breaks. Diagram count is not capped; flag a diagram that restates its neighbour, and a shape left in prose that a picture would carry better. The reviewer also checks that every current-architecture diagram in a listed design doc appears in `## How it works`, redrawn with nodes that resolve to source in `target_repo`, or is named in `## Constraints` as stale; and that every Mermaid block passes the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md`. Iterate up to 3 times before flagging unresolved.
+Same reviewer dispatch logic as the repo-scope Step 5. Reviewer checks that every claim is verifiable from source files in `target_repo`, and applies the same page-shape checks: sections present in order, `## What it does` opening on purpose rather than mechanism, every diagram captioned with a claim and every one past the first under its own sub-heading, `## Where it lives` as one table, every constraint naming what breaks. Diagram count is not capped; flag a diagram that restates its neighbour, and a shape left in prose that a picture would carry better. The reviewer also checks that every current-architecture diagram in a listed design doc appears in `## How it works`, redrawn with nodes that resolve to source in `target_repo`, or is named in `## Constraints` as stale; that no count of things in the repo appears anywhere on the page, including diagram labels and table cells (`atomic-writing` rule 17 has the list; any such number is `CHANGES_REQUESTED`, named; the only exceptions are a version and a documented contract value); and that every Mermaid block passes the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md`. Iterate up to 3 times before flagging unresolved.
 
 ### W6 — Skip @-ref wiring
 
@@ -142,7 +143,7 @@ Activated when the caller provides **all three** of `bucket_name`, `bucket_path`
 
 ### Bucket-doc frontmatter contract
 
-Bucket docs (`<bucket>/<slug>.md`, one topic per file) carry six recognized keys — read them structurally instead of re-deriving from prose:
+Bucket docs (`<bucket>/<slug>.md`, one topic per file) carry the recognized keys below — read them structurally instead of re-deriving from prose:
 
 | Key | Writer | Notes |
 |-----|--------|-------|

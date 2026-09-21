@@ -53,10 +53,11 @@ flowchart LR
     GW -->|"unix socket, rewritten Session"| D["bus daemon"]
 ```
 
-One 32-byte key per enrolled machine does three jobs: it is what the gateway must hold to open a
-frame, the key that opened a frame says which machine sent it, and the body is ciphertext to
-anything between the two. There are no roles: a key holder sits where a local process with socket
-access sits, minus `shutdown`, which the gateway refuses outright. Full deployment walkthrough:
+One 32-byte key per enrolled machine is admission, attribution, and confidentiality at once: it is
+what the gateway must hold to open a frame, the key that opened a frame says which machine sent it,
+and the body is ciphertext to anything between the two. There are no roles: a key holder sits where
+a local process with socket access sits, minus `shutdown`, which the gateway refuses outright.
+Full deployment walkthrough:
 [`docs/guides/bus-hosting.md`](../guides/bus-hosting.md).
 
 ### Bringing the daemon up
@@ -166,7 +167,7 @@ telling them apart would leak which admission check failed.
 | [`atomic/internal/bus/action.go`](../../atomic/internal/bus/action.go) | `BusAction` verb dispatch, every `*Action` function, and the shared `parseFlags` / `dialDaemonRecovered` / `touchLastSeen` helpers. |
 | [`atomic/internal/bus/render.go`](../../atomic/internal/bus/render.go) | `TailLine`, `MemberTable`, `RoomTable`, `colourFor` (stable per-sender ANSI colour, off when not a tty). |
 | [`atomic/internal/bus/chat.go`](../../atomic/internal/bus/chat.go) | `Chat`: interactive client loop, pinned input line, `@name` / `/who` / `/rooms` / `/halt` / `/resume` / `/quit`. |
-| [`atomic/cmd/atomic/cmd_bus.go`](../../atomic/cmd/atomic/cmd_bus.go) | `buildBusCmd` registers `bus` and its 20 flat subcommands, plus `buildBusGatewayCmd` (`gateway`, itself runnable, with `enroll` and `revoke` children); `runBus` resolves home and cwd, then calls `bus.BusAction`. |
+| [`atomic/cmd/atomic/cmd_bus.go`](../../atomic/cmd/atomic/cmd_bus.go) | `buildBusCmd` registers `bus` and its flat subcommands, plus `buildBusGatewayCmd` (`gateway`, itself runnable, with `enroll` and `revoke` children); `runBus` resolves home and cwd, then calls `bus.BusAction`. |
 | [`atomic/cmd/atomic/cmd_bus_gateway.go`](../../atomic/cmd/atomic/cmd_bus_gateway.go) | `gatewayAction`, `gatewayEnrollAction`, `gatewayRevokeAction` — the CLI glue for `internal/gateway`. Lives here rather than in `internal/bus/action.go` because `internal/gateway` already imports `internal/bus`, and calling it from within `internal/bus` would cycle. |
 | [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) | `{"bus", "<verb>"}` entries mirroring the CLI surface, with args, flags, and descriptions, including `gateway enroll` / `gateway revoke`. |
 
@@ -175,10 +176,10 @@ telling them apart would leak which admission check failed.
 | Path | Role |
 |------|------|
 | [`docs/reference/bus.md`](../reference/bus.md) | Verb and concept reference: room model, member naming, addressed-vs-FYI, envelope fields, liveness, daemon lifecycle, exit codes, security model, remote rooms. |
-| [`docs/guides/bus-hosting.md`](../guides/bus-hosting.md) | Deployment walkthrough: running the gateway, enrolling a machine, the two topologies (inside a VPN, behind a proxy), what the transport protects, clock skew. |
+| [`docs/guides/bus-hosting.md`](../guides/bus-hosting.md) | Deployment walkthrough: running the gateway, enrolling a machine, the topologies (inside a VPN, behind a proxy), what the transport protects, clock skew. |
 | [`docs/spec/atomic-bus.md`](../spec/atomic-bus.md) | Implementation contract: goal, non-goals, success criteria, checkpoints, risks. |
 | [`docs/spec/atomic-bus-network.md`](../spec/atomic-bus-network.md) | Implementation contract for the network gateway: frame format, admission ladder, daemon hardening, remote client, `atomic serve` routing. |
-| [`docs/design/atomic-bus.md`](../design/atomic-bus.md) | Design doc: the three approaches considered, the wire-protocol op table, and the resolved open decisions. |
+| [`docs/design/atomic-bus.md`](../design/atomic-bus.md) | Design doc: the approaches considered, the wire-protocol op table, and the resolved open decisions. |
 | [`docs/design/atomic-bus-network.md`](../design/atomic-bus-network.md) | Design doc for the network gateway: the threat model, the sealed-frame format, key material, admission, identity rewriting. |
 
 ## Constraints
@@ -189,7 +190,7 @@ telling them apart would leak which admission check failed.
 
 **A member's name is its position, and `--as` only adds a role.** `stackedName` builds `<realm>-<repo>-<as>`, dropping empty segments and collapsing a segment that repeats the one before it, so `--as alpha` in repo `alpha` yields `alpha`, not `alpha-alpha`. `--to` resolves an exact name first, then a unique suffix or substring against the room's current members; an ambiguous fragment errors naming every candidate rather than guessing.
 
-**Two names are reserved.** `Join` refuses `"system"` (daemon control envelopes: halt/resume announcements, drop markers, close) and `"human"` (every `say` / `halt` / `resume` / `close` envelope), both through one `reservedNames` map in `room.go`. Combined with the closed `KindAgent` / `KindHuman` enum, a real member's envelope can never be mistaken for a daemon control envelope.
+**Reserved names never collide with control envelopes.** `Join` refuses `"system"` (daemon control envelopes: halt/resume announcements, drop markers, close) and `"human"` (every `say` / `halt` / `resume` / `close` envelope), both through the same `reservedNames` map in `room.go`. Combined with the closed `KindAgent` / `KindHuman` enum, a real member's envelope can never be mistaken for a daemon control envelope.
 
 **There is no replay.** No ring buffer, no `--since`. `recv` and `tail` deliver only what is published after the subscription opens. Every envelope is appended to the room log unconditionally, whether or not anyone is subscribed, and `atomic bus read <room> <msg-id>` is the only way to recover a past message. That read is a pure log scan, so it works with the daemon down, and it exists because a harness notification cap can truncate a long envelope in a session's context.
 
@@ -217,4 +218,4 @@ telling them apart would leak which admission check failed.
 - **doctor domain.** The `{"bus", ...}` entries in `cliusage.go` feed the A1 artifact-citation lint. Add, rename, or remove a bus verb or flag without updating `cliusage.go` and A1 either flags a valid citation or misses an invalid one.
 - **bundle domain.** [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) is a bundle input; it must appear in the regenerated [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) output and in the discovery surfaces ([`CLAUDE.md`](../../CLAUDE.md), [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md)).
 - **gateway domain.** `internal/gateway` imports `internal/bus` and `internal/bus/remote` to admit a frame and dial the daemon's socket; nothing in `internal/bus` imports `internal/gateway` back, so the daemon stays network-unaware. `internal/serve/api_bus.go` also imports `internal/bus/remote` directly, for the same remote routing the CLI's `--host` uses.
-- **Top-level verb count.** `bus` is one of the 23 verbs `TestRootCmdExact23Verbs` in [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go) pins. Renaming or removing it fails that test.
+- **Top-level verb count is pinned.** `bus` is one of the top-level Cobra verbs a `TestRootCmdExact<N>Verbs` test in [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go) pins. Renaming or removing it fails that test.

@@ -182,6 +182,8 @@ Not every document needs all five, and a surface with its own defined structure 
 
 16. **Instruct plainly in prompt artifacts.** In `commands/`, `agents/`, `skills/`, `rules/`, and `CLAUDE.md`, give the instruction and the constraint. Rationale earns its place when it changes what the reader does at the edges, which is what a `**Why:**` line is for. Rationale that only defends the instruction against an imagined objection is noise, and it costs tokens on every turn.
 
+17. **A wiki page never counts things in the repo.** No LOC totals, file counts, percentages, or language tables, and no count of verbs, artifacts, domains, checks, resolvers, steps, lenses, icons, registry entries, tests, or sections. Name the things, or let the list that follows stand on its own. A version and a documented contract value are not counts and stay: `Go 1.25`, a pinned dependency, a 3s timeout, a 16 MiB buffer, a 500-file gate, a port.
+
 ## Structural tells
 
 Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `docs/research/`, and the prose in `docs/reference/`. Skip `docs/spec/` and `docs/wiki/`, and lookup tables on any page.
@@ -225,6 +227,7 @@ Read the page twice. The first read covers the first five checks. The second cov
 - Throat-clearing opener ("Here's the thing")? Cut.
 - Binary-contrast structure ("not X. Y.")? State Y.
 - In a prompt artifact: paragraph that only defends an instruction? Cut it.
+- Writing a wiki page: a count of things in the repo? Cut it. Versions and documented contract values stay.
 
 ## Examples
 

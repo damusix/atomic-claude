@@ -11,6 +11,8 @@ Run `/refresh-wiki` to generate or update them:
 
 Both are committed, but only `index.md` auto-loads into sessions via an `@`-ref. `scan.md` can run to thousands of lines on a large repo, so the inferrer reads it on demand instead.
 
+`index.md` and the domain pages carry no count of things in the repo. They record structure, contracts, and coupling; counts of the current tree stay in `scan.md`, so the authored pages do not churn and parallel branches do not collide on them.
+
 
 ## The pipeline
 

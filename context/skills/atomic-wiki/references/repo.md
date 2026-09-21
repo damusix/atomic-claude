@@ -81,6 +81,7 @@ Design docs for this domain: <list, or none>
 
 <instructions>
 - Signals are FACTS about current state — not instructions, rules, or intent. Every sentence must be verifiable by reading a source file.
+- Never count things in the repo. `atomic-writing` rule 17 has the list; a version or a documented contract value is not a count.
 - Read the actual source files listed above. Do not infer from filenames alone.
 - Skip any entries marked [generated].
 - Write a domain file conforming to the domain file schema below.
@@ -164,6 +165,7 @@ Check:
 - OKF frontmatter present (`type: Domain` and `description:`) at the top of the file.
 - No @-refs (repo-root-relative paths in backticks only — a code linkify step renders them to relative links later; a `[text](path)` link is not an @-ref).
 - Fact-shaped, not steering-shaped.
+- No count of things in the repo, anywhere on the page, including diagram labels and table cells (`atomic-writing` rule 17 has the list). Any such number is `CHANGES_REQUESTED`, named. The only exceptions are a version and a documented contract value.
 
 Return VERDICT: PASS or VERDICT: CHANGES_REQUESTED with specific corrections."
 ```
@@ -375,7 +377,7 @@ The fallback is deliberately limited.
 
 `docs/wiki/index.md` is a complete orientation document. Two zones:
 
-**Zone 1 — Orientation, then the map.** Fixed cost, does not scale with repo size. Lead with what the repo *is* and how its pieces flow, so a reader who has never opened it can place everything that follows; put the domain map next, because that is what a session actually navigates by. Reference detail (stack, commands, counts) sits below the map — needed, but not what someone reads first.
+**Zone 1 — Orientation, then the map.** Fixed cost, does not scale with repo size. Lead with what the repo *is* and how its pieces flow, so a reader who has never opened it can place everything that follows; put the domain map next, because that is what a session actually navigates by. Reference detail (stack, commands) sits below the map — needed, but not what someone reads first.
 
 ```markdown
 # Project signals
@@ -405,12 +407,6 @@ The fallback is deliberately limited.
 <command table rows>
 
 <CI gate notes>
-
-## Language breakdown
-
-| Language | LOC | Files | % |
-|----------|-----|-------|---|
-<rows from deterministic scan>
 
 ## DevOps & CI
 
@@ -443,11 +439,11 @@ Write every path citation — the `Start here` column AND the `Detail` column �
 
 The router is `@-ref`'d into every session; domain files are read on demand. That split is the budget model — the router's cost is paid on every turn of every session, a domain file's cost only when a task reaches for it. Write each fact where the session that needs it will find it, so the model pulls detail as the task requires it instead of carrying all of it from the first turn.
 
-- **R1 — Put a fact where it is discovered.** A fact about one domain belongs in that domain's file, where the session working on that domain will read it. The router carries what every session needs regardless of task: stack, build commands, language mix, and the map of where to look next.
+- **R1 — Put a fact where it is discovered.** A fact about one domain belongs in that domain's file, where the session working on that domain will read it. The router carries what every session needs regardless of task: stack, build commands, and the map of where to look next.
 - **R2 — Cross-domain facts live in the `## Coupling` section of the domain that owns them.** A session reading about the code graph learns there how it relates to the skills that drive it, at the moment that relationship matters. State the fact once in the owning domain; from other domains, point at it.
 - **R3 — Touch only what changed.** A section whose facts still hold is left exactly as it is — an idempotent refresh produces a byte-identical file. Rewrite a section only when a fact in it no longer holds.
-- **R4 — The router describes the present.** Commit SHAs, branch names, PR numbers, and LOC deltas between refreshes answer "how did this get here" — `git log` answers that on demand, better. A present-tense "known stale" note naming a doc that contradicts current code is a current fact and stays.
-- **R5 — Language breakdown is the scan's table**, plus at most 2 lines on how the numbers are counted.
+- **R4 — The router describes the present.** Commit SHAs, branch names, and PR numbers answer "how did this get here" — `git log` answers that on demand, better. A present-tense "known stale" note naming a doc that contradicts current code is a current fact and stays.
+- **R5 — No counts.** The router carries no LOC total, percentage, or count of repo things. `atomic-writing`'s rule 17 states the ban and its version-and-contract-value boundary.
 - **R6 — A changed fact is rewritten where it is stated.** Edit the sentence that is now wrong rather than appending a paragraph describing the change — an appended delta leaves both the stale claim and its correction in context, and the reader cannot tell which one is current. The router states current truth; its history lives in git. (Same body-is-truth standard `rules/specs/spec-currency.md` applies to `docs/spec/**`.)
 - **R7 — One row per domain** in the `## Domains` table. Dedupe by domain name before writing; merge duplicates into the newer description.
 - **R8 — Budget: ~200 lines.** The router points and summarizes; detail lives one hop away. Over budget, shorten the pointers — the domain map stays complete.
