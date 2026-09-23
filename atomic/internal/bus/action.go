@@ -292,7 +292,7 @@ func doRemote(home, hostName string, req Request, timeout time.Duration) (Respon
 	}
 	cfg, ok := remotes[hostName]
 	if !ok {
-		return Response{}, &Error{Code: ExitUsage, Msg: fmt.Sprintf("bus: unknown remote %q; check [bus.remotes] in ~/.atomic/config.toml", hostName)}
+		return Response{}, &Error{Code: ExitUsage, Msg: fmt.Sprintf("bus: unknown remote %q; see atomic bus remote list, or add it with atomic bus remote add", hostName)}
 	}
 	client, err := remote.NewClient(cfg)
 	if err != nil {
@@ -689,7 +689,7 @@ func recvRemoteStream(home, hostName, room, sessionID string, out io.Writer) int
 	}
 	cfg, ok := remotes[hostName]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "atomic bus recv: unknown remote %q; check [bus.remotes] in ~/.atomic/config.toml\n", hostName)
+		fmt.Fprintf(os.Stderr, "atomic bus recv: unknown remote %q; see atomic bus remote list, or add it with atomic bus remote add\n", hostName)
 		return int(ExitUsage)
 	}
 	client, err := remote.NewClient(cfg)
@@ -1826,7 +1826,7 @@ func tailRemoteStream(home, hostName string, rooms []string, onlyAddressed bool,
 	}
 	cfg, ok := remotes[hostName]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "atomic bus tail: unknown remote %q; check [bus.remotes] in ~/.atomic/config.toml\n", hostName)
+		fmt.Fprintf(os.Stderr, "atomic bus tail: unknown remote %q; see atomic bus remote list, or add it with atomic bus remote add\n", hostName)
 		return int(ExitUsage)
 	}
 	client, err := remote.NewClient(cfg)

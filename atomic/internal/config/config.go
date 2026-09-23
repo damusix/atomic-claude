@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -70,6 +71,7 @@ var knownSchemaKeys = func() []string {
 // arbitrary. checkUnknownKeys accepts any child of one without a structural
 // warning; semantic validation is left to Validate / AgentWarnings.
 var opaqueSections = map[string]bool{
+	"bus":    true,
 	"claude": true,
 	"pi":     true,
 }
@@ -153,16 +155,6 @@ type installSection struct {
 	Artifacts installArtifactsSection `toml:"artifacts"`
 }
 
-// knownAtomicAgents is the fallback known-agent set when
-// [install.artifacts].agents is absent. Keep in sync with agents/ in the repo.
-var knownAtomicAgents = map[string]bool{
-	"atomic-implementer":   true,
-	"atomic-investigator":  true,
-	"atomic-reviewer":      true,
-	"atomic-strategist":    true,
-	"atomic-wiki-inferrer": true,
-}
-
 // claudeSection is the [claude] table, namespaced to mirror pi's: both harnesses
 // read [<harness>.agents.<name>].
 type claudeSection struct {
@@ -171,6 +163,18 @@ type claudeSection struct {
 	// user-settable via `atomic config set`. Nested-table decode only — no
 	// scalar form, no migration.
 	Agents map[string]AgentOverride `toml:"agents,omitempty"`
+}
+
+// BusRemote is one [bus.remotes.<name>] entry: a gateway reachable with
+// `--host <name>`. CA may start with "~/".
+type BusRemote struct {
+	Host string `toml:"host"`
+	Key  string `toml:"key"`
+	CA   string `toml:"ca,omitempty"`
+}
+
+type busSection struct {
+	Remotes map[string]BusRemote `toml:"remotes,omitempty"`
 }
 
 // Config is the parsed and defaulted configuration. Fields track explicit set
@@ -193,6 +197,8 @@ type Config struct {
 	// no backfill, since repl's own DefaultIdleTimeout supplies the concrete
 	// value rather than Load.
 	Repl replSection `toml:"repl,omitempty"`
+	// Bus is modeled so writes that round-trip the file keep [bus.remotes].
+	Bus busSection `toml:"bus,omitempty"`
 }
 
 // Default returns a Config populated with built-in defaults.
@@ -414,18 +420,20 @@ func Validate(cfg *Config) error {
 // AgentWarnings returns non-fatal warnings for [claude.agents] keys outside the
 // known bundled-agent set. An unknown key does not prevent loading — the user
 // may have a custom agent, or removed a bundled one. The known set comes from
-// the install manifest when available, else knownAtomicAgents.
+// the install manifest when available, else the embedded bundle.
 func AgentWarnings(cfg *Config) []Warning {
 	if len(cfg.Claude.Agents) == 0 {
 		return nil
 	}
 
-	// Prefer the install manifest over the static fallback.
-	known := knownAtomicAgents
+	known := map[string]bool{}
 	if len(cfg.Install.Artifacts.Agents) > 0 {
-		known = make(map[string]bool, len(cfg.Install.Artifacts.Agents))
 		for _, fname := range cfg.Install.Artifacts.Agents {
-			known[strings.TrimSuffix(fname, ".md")] = true
+			known[strings.TrimSuffix(path.Base(fname), ".md")] = true
+		}
+	} else {
+		for _, name := range bundledAgents() {
+			known[name] = true
 		}
 	}
 

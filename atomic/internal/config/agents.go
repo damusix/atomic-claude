@@ -3,19 +3,22 @@ package config
 import (
 	"errors"
 	"fmt"
-	"os"
+	"path"
+	"strings"
 
 	"github.com/charmbracelet/huh"
-	charmterm "github.com/charmbracelet/x/term"
+	"github.com/damusix/atomic-claude/atomic/internal/embedded"
+	"github.com/damusix/atomic-claude/atomic/internal/prompt"
 )
 
-// agentOrder is the fixed display order for the 5 bundled atomic agents.
-var agentOrder = []string{
-	"atomic-implementer",
-	"atomic-investigator",
-	"atomic-reviewer",
-	"atomic-strategist",
-	"atomic-wiki-inferrer",
+func bundledAgents() []string {
+	var names []string
+	for _, a := range embedded.Manifest() {
+		if a.Kind == "agent" {
+			names = append(names, strings.TrimSuffix(path.Base(a.Target), ".md"))
+		}
+	}
+	return names
 }
 
 // effortOptionLabels maps an effort option value to its label in the Select.
@@ -80,10 +83,11 @@ func defaultAgentTierSelector(cfg *Config) (map[string]AgentOverride, error) {
 		return nil, ErrNonInteractiveAgents
 	}
 
+	agents := bundledAgents()
 	// One model + one effort pointer per agent, pre-populated from cfg.
-	models := make(map[string]*string, len(agentOrder))
-	efforts := make(map[string]*string, len(agentOrder))
-	for _, agent := range agentOrder {
+	models := make(map[string]*string, len(agents))
+	efforts := make(map[string]*string, len(agents))
+	for _, agent := range agents {
 		m := cfg.Claude.Agents[agent].Model
 		e := cfg.Claude.Agents[agent].Effort
 		models[agent] = &m
@@ -96,7 +100,7 @@ func defaultAgentTierSelector(cfg *Config) (map[string]AgentOverride, error) {
 	}
 
 	var fields []huh.Field
-	for _, agent := range agentOrder {
+	for _, agent := range agents {
 		agent := agent // capture
 
 		fields = append(fields, huh.NewInput().
@@ -120,19 +124,15 @@ func defaultAgentTierSelector(cfg *Config) (map[string]AgentOverride, error) {
 		return nil, fmt.Errorf("agents tier form: %w", err)
 	}
 
-	selections := make(map[string]AgentOverride, len(agentOrder))
-	for _, agent := range agentOrder {
+	selections := make(map[string]AgentOverride, len(agents))
+	for _, agent := range agents {
 		selections[agent] = AgentOverride{Model: *models[agent], Effort: *efforts[agent]}
 	}
 	return selections, nil
 }
 
-// isAgentsTTY reports whether stdin and stdout are both terminals. A variable so
-// tests can override it.
-var isAgentsTTY = func() bool {
-	return charmterm.IsTerminal(os.Stdin.Fd()) &&
-		charmterm.IsTerminal(os.Stdout.Fd())
-}
+// isAgentsTTY is a variable so tests can override it.
+var isAgentsTTY = prompt.IsInteractive
 
 // DefaultAgentTierSelector is the production implementation, exported so tests
 // can restore it after overriding AgentTierSelector.

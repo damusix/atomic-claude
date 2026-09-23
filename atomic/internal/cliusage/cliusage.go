@@ -157,6 +157,30 @@ var commands = []Command{
 		Description: "Delete an enrolled machine's key; the gateway notices on its next lookup",
 	},
 	{
+		Path:        []string{"bus", "remote", "add"},
+		Args:        "[<name>]",
+		Flags:       []string{"--host", "--key", "--ca", "--force"},
+		Description: "Save a gateway under a name; prompts for missing fields on a terminal",
+	},
+	{
+		Path:        []string{"bus", "remote", "list"},
+		Args:        "",
+		Flags:       []string{"--json"},
+		Description: "List saved gateways (keys are never printed)",
+	},
+	{
+		Path:        []string{"bus", "remote", "test"},
+		Args:        "[<name>]",
+		Flags:       nil,
+		Description: "Send one authenticated ping to a saved gateway, or to every one",
+	},
+	{
+		Path:        []string{"bus", "remote", "remove"},
+		Args:        "<name>",
+		Flags:       nil,
+		Description: "Delete a saved gateway",
+	},
+	{
 		Path:        []string{"claude", "install"},
 		Args:        "",
 		Flags:       []string{"--dry-run", "--target", "--no-hooks"},

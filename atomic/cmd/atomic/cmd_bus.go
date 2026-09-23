@@ -12,7 +12,7 @@ func buildBusCmd() *cobra.Command {
 	dispatch := func(args []string) { runBus(args) }
 	parent := &cobra.Command{
 		Use:   "bus",
-		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|read|halt|resume|prune|close|end|chat|gateway)",
+		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|read|halt|resume|prune|close|end|chat|gateway|remote)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -100,6 +100,7 @@ func buildBusCmd() *cobra.Command {
 		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")
 	})
 	parent.AddCommand(buildBusGatewayCmd())
+	parent.AddCommand(buildBusRemoteCmd())
 	return parent
 }
 

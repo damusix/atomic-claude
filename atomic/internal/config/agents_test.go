@@ -2,10 +2,32 @@ package config
 
 import (
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
+
+// The agents form must follow the shipped agents/ directory, so an agent added
+// to the bundle shows up without editing a Go list.
+func TestBundledAgentsMatchesEmbeddedAgentsDir(t *testing.T) {
+	entries, err := fs.ReadDir(embedded.FS, "bundle/agents")
+	if err != nil {
+		t.Fatalf("read embedded agents dir: %v", err)
+	}
+	var want []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".md") {
+			want = append(want, strings.TrimSuffix(e.Name(), ".md"))
+		}
+	}
+	got := bundledAgents()
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("bundledAgents() = %v, want %v", got, want)
+	}
+}
 
 // --- validateModelInput (huh.Input validator, pure function) ---
 

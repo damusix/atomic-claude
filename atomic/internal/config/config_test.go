@@ -1006,10 +1006,11 @@ func TestAgentsFableIsValid(t *testing.T) {
 	}
 }
 
-// The install manifest takes precedence over the static known-agent set.
+// The install manifest takes precedence over the bundle, and `claude install`
+// records target paths (agents/<name>.md), not bare filenames.
 func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
 	cfg := Default()
-	cfg.Install.Artifacts.Agents = []string{"custom-agent.md", "atomic-implementer.md"}
+	cfg.Install.Artifacts.Agents = []string{"agents/custom-agent.md", "agents/atomic-implementer.md"}
 	cfg.Claude.Agents = map[string]AgentOverride{
 		"custom-agent":       {Model: "haiku"}, // in manifest → known
 		"atomic-implementer": {Model: "sonnet"},
