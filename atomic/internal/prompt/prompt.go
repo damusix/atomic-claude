@@ -25,7 +25,8 @@ type Option[T comparable] struct {
 	Description string
 }
 
-func isInteractive() bool {
+// IsInteractive reports whether stdin and stdout are both terminals.
+func IsInteractive() bool {
 	return charmterm.IsTerminal(os.Stdin.Fd()) &&
 		charmterm.IsTerminal(os.Stdout.Fd())
 }
@@ -38,7 +39,7 @@ var runConfirm = defaultRunConfirm
 var runSelect interface{} = nil
 
 func defaultRunConfirm(title, desc string, def bool) (bool, error) {
-	if !isInteractive() {
+	if !IsInteractive() {
 		return false, ErrNonInteractive
 	}
 	var result bool
@@ -67,7 +68,7 @@ func Confirm(title, desc string, def bool) (bool, error) {
 
 func defaultRunSelect[T comparable](title string, opts []Option[T]) (T, error) {
 	var zero T
-	if !isInteractive() {
+	if !IsInteractive() {
 		return zero, ErrNonInteractive
 	}
 	huhOpts := make([]huh.Option[T], len(opts))
