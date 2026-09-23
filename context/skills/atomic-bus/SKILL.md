@@ -70,7 +70,7 @@ atomic bus join checkout --as fe --host web-api
 ```
 
 That name must already exist as `[bus.remotes.web-api]` in `~/.atomic/config.toml`, set up ahead of
-time by the operator. Never do that setup on your own initiative. Once joined, every later
+time by the operator with `atomic bus remote add` (`atomic bus remote list` shows what exists; `atomic bus remote test <name>` checks it answers). Never do that setup on your own initiative. Once joined, every later
 command against `checkout` resolves to that host automatically (except `chat`, which is local-only);
 you never need to repeat `--host`. If the user asks how to set up a remote before one exists, point them at
 `docs/guides/bus-hosting.md` rather than attempting it yourself. Enrolling a machine is an
@@ -249,5 +249,5 @@ does not need any of them.
 `0` ok · `1` usage · `2` error · `3` not joined · `4` name taken · `5` no such room ·
 `6` daemon unreachable · `7` room halted
 
-The same codes apply with `--host`: `6` also covers an unreachable gateway, an unknown `--host`
-name, or the gateway refusing the connection outright.
+The same codes apply with `--host`: an unknown `--host` name exits `1`; `6` also covers an
+unreachable gateway or a frame the gateway drops.
