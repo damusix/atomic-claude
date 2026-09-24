@@ -1,5 +1,18 @@
 # Changelog
 
+## [6.9.0](https://github.com/damusix/atomic-claude/compare/v6.8.0...v6.9.0) (2026-09-24)
+
+
+### Features
+
+* **bus:** add atomic bus remote add|list|test|remove ([7d35cd1](https://github.com/damusix/atomic-claude/commit/7d35cd1de904b957432695985cd08da64a33bdb9))
+
+
+### Bug Fixes
+
+* **config:** keep [bus.remotes] across config writes ([7d35cd1](https://github.com/damusix/atomic-claude/commit/7d35cd1de904b957432695985cd08da64a33bdb9))
+* **config:** list and recognize every bundled agent ([7d35cd1](https://github.com/damusix/atomic-claude/commit/7d35cd1de904b957432695985cd08da64a33bdb9))
+
 ## [6.8.0](https://github.com/damusix/atomic-claude/compare/v6.7.0...v6.8.0) (2026-09-21)
 
 
