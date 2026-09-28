@@ -178,6 +178,7 @@ export default withMermaid(defineConfig({
                     { text: 'Inter-session Bus', link: '/reference/bus' },
                     { text: 'REPL', link: '/reference/repl' },
                     { text: 'Retro', link: '/reference/retro' },
+                    { text: 'Docs index', link: '/reference/docs-index' },
                     { text: 'Repo config (atomic.toml)', link: '/reference/atomic-toml' },
                     { text: 'Conventions', link: '/reference/conventions' },
                 ],

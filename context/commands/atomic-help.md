@@ -157,6 +157,7 @@ Run them rather than reciting. What they cannot tell the user is which verb fits
 | Update the binary and its artifacts | `update`, `migrate` | — |
 | Track deferred work | `followups`, `reminder` | — |
 | Extract session history for a retrospective | `retro extract` | `docs/reference/retro.md` |
+| Rebuild or check a docs directory's `index.md` listing | `docs index [--check]` | `docs/reference/docs-index.md` |
 
 ### C. Freeform intent — classify and route
 

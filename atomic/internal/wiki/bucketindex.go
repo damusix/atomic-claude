@@ -52,7 +52,7 @@ type BucketTopic struct {
 func walkBucketTopics(bucketDir string) ([]BucketTopic, error) {
 	entries, err := os.ReadDir(bucketDir)
 	if err != nil {
-		return nil, fmt.Errorf("bucket index: read bucket dir %s: %w", bucketDir, err)
+		return nil, fmt.Errorf("index: read dir %s: %w", bucketDir, err)
 	}
 
 	var fileNames, dirNames []string
@@ -149,7 +149,7 @@ func countDescendantMD(dir string) (int, error) {
 		return nil
 	})
 	if err != nil {
-		return 0, fmt.Errorf("bucket index: count descendants of %s: %w", dir, err)
+		return 0, fmt.Errorf("index: count descendants of %s: %w", dir, err)
 	}
 	return count, nil
 }
@@ -315,31 +315,57 @@ func renderBucketDocs(topics []BucketTopic) string {
 	return sb.String()
 }
 
-// RebuildBucketIndex rewrites the `<bucket-docs>` region in
-// <bucketDir>/index.md, treating an absent index.md as an empty document. An
-// errUnpairedRegion propagates and leaves index.md untouched.
+// RebuildBucketIndex is write-mode IndexDir.
 func RebuildBucketIndex(bucketDir string) error {
-	indexPath := filepath.Join(bucketDir, "index.md")
+	_, err := IndexDir(bucketDir, false)
+	return err
+}
+
+// IndexResult counts the rendered topics. Stale means the `<bucket-docs>`
+// region differed from a fresh render before the call, in write mode too.
+type IndexResult struct {
+	Indexed   int
+	Unindexed int
+	Stale     bool
+}
+
+// IndexDir rebuilds <dir>/index.md's `<bucket-docs>` region, treating an absent index.md as empty;
+// an errUnpairedRegion propagates and leaves index.md untouched, and with check set it writes nothing.
+func IndexDir(dir string, check bool) (IndexResult, error) {
+	indexPath := filepath.Join(dir, "index.md")
 
 	var document string
 	if data, err := os.ReadFile(indexPath); err == nil {
 		document = string(data)
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("bucket index: read %s: %w", indexPath, err)
+		return IndexResult{}, fmt.Errorf("index: read %s: %w", indexPath, err)
 	}
 
-	topics, err := walkBucketTopics(bucketDir)
+	topics, err := walkBucketTopics(dir)
 	if err != nil {
-		return err
+		return IndexResult{}, err
+	}
+
+	var res IndexResult
+	for _, t := range topics {
+		if t.Indexed {
+			res.Indexed++
+		} else {
+			res.Unindexed++
+		}
 	}
 
 	content := renderBucketDocs(topics)
 	newDocument, err := spliceManagedRegion(document, managedRegion{tag: "bucket-docs", content: content})
 	if err != nil {
-		return fmt.Errorf("bucket index: splice %s: %w", indexPath, err)
+		return IndexResult{}, fmt.Errorf("index: splice %s: %w", indexPath, err)
 	}
+	res.Stale = newDocument != document
 
-	return writeFileAtomic(indexPath, []byte(newDocument))
+	if check {
+		return res, nil
+	}
+	return res, writeFileAtomic(indexPath, []byte(newDocument))
 }
 
 // renderBucketList renders one OKF §6 line per registered bucket, name-sorted.

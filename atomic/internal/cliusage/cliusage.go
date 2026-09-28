@@ -421,6 +421,12 @@ var commands = []Command{
 		Description: "Exit 0 fresh, 1 stale, 2 error",
 	},
 	{
+		Path:        []string{"docs", "index"},
+		Args:        "[--check] <dir>...",
+		Flags:       []string{"--check"},
+		Description: "Rebuild each <dir>/index.md <bucket-docs> region; --check exits 0 fresh, 1 stale, 2 error",
+	},
+	{
 		Path:        []string{"profile", "refresh"},
 		Args:        "",
 		Flags:       []string{"--if-stale"},
