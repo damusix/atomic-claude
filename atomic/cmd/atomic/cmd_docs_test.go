@@ -80,3 +80,137 @@ func TestRunDocsUnknownVerbDispatch(t *testing.T) {
 		t.Errorf("docsAction(bogus): got exit code %d, want 1", code)
 	}
 }
+
+func writeDocsIndexDir(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	files := map[string]string{
+		"sources.md": "---\ntitle: Sources\ndescription: Register a source.\n---\n\nBody.\n",
+		"jobs.md":    "---\ntitle: Jobs\ndescription: Read the queue.\n---\n\nBody.\n",
+		"index.md":   "# Help\n\n<bucket-docs>\n\n## Docs\n\n- stale\n\n</bucket-docs>\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+}
+
+func TestRunDocsIndexDispatch(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "admin")
+	writeDocsIndexDir(t, dir)
+
+	var code int
+	stdout, _ := captureOutput(t, func() { code = docsAction([]string{"index", dir}, t.TempDir()) })
+	if code != 0 {
+		t.Fatalf("docsAction(index) returned %d, want 0", code)
+	}
+	if want := dir + ": 2 indexed, 0 unindexed\n"; stdout != want {
+		t.Errorf("stdout %q, want %q", stdout, want)
+	}
+}
+
+func TestRunDocsIndexCheckExitCodes(t *testing.T) {
+	base := t.TempDir()
+	stale := filepath.Join(base, "stale")
+	writeDocsIndexDir(t, stale)
+	missing := filepath.Join(base, "missing")
+
+	before, err := os.ReadFile(filepath.Join(stale, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var code int
+	stdout, _ := captureOutput(t, func() { code = docsAction([]string{"index", "--check", stale}, base) })
+	if code != 1 {
+		t.Errorf("--check stale: exit %d, want 1", code)
+	}
+	if want := "STALE " + filepath.Join(stale, "index.md") + "\n"; stdout != want {
+		t.Errorf("--check stale: stdout %q, want %q", stdout, want)
+	}
+	after, err := os.ReadFile(filepath.Join(stale, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("--check must not write index.md")
+	}
+
+	stdout, stderr := captureOutput(t, func() { code = docsAction([]string{"index", "--check", stale, missing}, base) })
+	if code != 2 {
+		t.Errorf("--check stale missing: exit %d, want 2", code)
+	}
+	if !strings.Contains(stdout, "STALE "+filepath.Join(stale, "index.md")) {
+		t.Errorf("stale dir must still be reported alongside the error: stdout %q", stdout)
+	}
+	if !strings.Contains(stderr, missing) {
+		t.Errorf("stderr must name the missing dir: %q", stderr)
+	}
+
+	_, stderr = captureOutput(t, func() { code = docsAction([]string{"index", missing}, base) })
+	if code != 1 {
+		t.Errorf("write mode, missing dir: exit %d, want 1", code)
+	}
+	if !strings.Contains(stderr, missing) {
+		t.Errorf("stderr must name the missing dir: %q", stderr)
+	}
+
+	captureOutput(t, func() { code = docsAction([]string{"index", stale}, base) })
+	if code != 0 {
+		t.Fatalf("write run: exit %d, want 0", code)
+	}
+	stdout, _ = captureOutput(t, func() { code = docsAction([]string{"index", "--check", stale}, base) })
+	if code != 0 || stdout != "" {
+		t.Errorf("--check after write: exit %d stdout %q, want 0 and no output", code, stdout)
+	}
+}
+
+func TestRunDocsNoVerbUsageNamesIndex(t *testing.T) {
+	_, stderr := captureOutput(t, func() { docsAction(nil, t.TempDir()) })
+	if want := "Usage: atomic docs <scan|stale|index>\n"; stderr != want {
+		t.Errorf("stderr %q, want %q", stderr, want)
+	}
+}
+
+func TestRunDocsIndexFlagAfterDirIsUsageError(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "admin")
+	writeDocsIndexDir(t, dir)
+	before, err := os.ReadFile(filepath.Join(dir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var code int
+	stdout, _ := captureOutput(t, func() { code = docsAction([]string{"index", dir, "--check"}, t.TempDir()) })
+	if code != 2 {
+		t.Errorf("flag after dir: exit %d, want 2", code)
+	}
+	if stdout != "" {
+		t.Errorf("flag after dir: stdout %q, want none", stdout)
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("a usage error must write nothing")
+	}
+}
+
+func TestRunDocsIndexDashDirAfterTerminator(t *testing.T) {
+	base := t.TempDir()
+	writeDocsIndexDir(t, filepath.Join(base, "-admin"))
+	t.Chdir(base)
+
+	var code int
+	stdout, stderr := captureOutput(t, func() { code = docsAction([]string{"index", "--", "-admin"}, base) })
+	if code != 0 {
+		t.Fatalf("-- -admin: exit %d, want 0; stderr %q", code, stderr)
+	}
+	if want := "-admin: 2 indexed, 0 unindexed\n"; stdout != want {
+		t.Errorf("stdout %q, want %q", stdout, want)
+	}
+}
