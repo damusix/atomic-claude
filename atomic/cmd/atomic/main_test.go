@@ -37,6 +37,7 @@ var wantCobraSubcommandMeta = []struct {
 	{[]string{"docker", "init"}, "", "Scaffold Docker eval environment"},
 	{[]string{"docs", "scan"}, "", "Scan docs and write doc-surfaces.md"},
 	{[]string{"docs", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error"},
+	{[]string{"docs", "index"}, "[--check] <dir>...", "Rebuild each <dir>/index.md <bucket-docs> region; --check exits 0 fresh, 1 stale, 2 error"},
 	{[]string{"profile", "refresh"}, "", "Refresh ## Environment in profile.md"},
 	{[]string{"prompt", "git-cleanup"}, "", "Emit the git-cleanup cold-op brief"},
 	{[]string{"prompt", "claude-merge"}, "", "Emit the CLAUDE.md merge cold-op brief"},

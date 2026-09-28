@@ -84,6 +84,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | `atomic bus` | Message between concurrent Claude Code sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
 | `atomic repl` | Drive a named Python or Node interpreter session that survives across separate Bash calls. | [REPL](/reference/repl) |
 | `atomic retro` | `atomic retro extract` writes session history since a date as one numbered markdown file for `/retrospective-learning`. | [Retro](/reference/retro) |
+| `atomic docs` | `atomic docs index` rebuilds the `<bucket-docs>` listing in a directory's `index.md` from its files' frontmatter; `--check` fails CI when it lags. | [Docs index](/reference/docs-index) |
 | `atomic serve` | Serve the wiki and code graph as a browsable site. Read-only, localhost by default. | [Serve](/reference/serve) |
 | `atomic scratchpad` | Create, look up, list, and archive slug-keyed work bundles — the shared shape behind every implement-loop scratchpad. | [Conventions](/reference/conventions) |
 | `atomic doctor` · `validate` · `update` · `migrate` | Check the install, validate artifacts, self-update against a verified checksum, apply versioned migrations. | [Install](/guides/install) |

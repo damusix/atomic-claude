@@ -556,3 +556,96 @@ func TestRebuildAllBucketIndexes_ZeroBucketsNoSplice(t *testing.T) {
 		t.Errorf("must not splice an empty ## Buckets region:\n%s", got)
 	}
 }
+
+func writeTwoConcepts(t *testing.T, dir string) {
+	t.Helper()
+	writeTopicFile(t, filepath.Join(dir, "sources.md"), "---\ntitle: Sources\ndescription: Register and crawl a source.\ntags: [ingest]\n---\n\nBody.\n")
+	writeTopicFile(t, filepath.Join(dir, "jobs.md"), "---\ntitle: Jobs\ndescription: Read the worker queue.\n---\n\nBody.\n")
+}
+
+func TestIndexDir_WritesRegionAndCounts(t *testing.T) {
+	dir := t.TempDir()
+	writeTwoConcepts(t, dir)
+	writeTopicFile(t, filepath.Join(dir, "draft.md"), "# Draft\n\nNo frontmatter.\n")
+	writeTopicFile(t, filepath.Join(dir, "index.md"), "# Admin help\n\nIntro.\n\n<bucket-docs>\n\nold\n\n</bucket-docs>\n\nTrailer.\n")
+
+	res, err := IndexDir(dir, false)
+	if err != nil {
+		t.Fatalf("IndexDir: %v", err)
+	}
+	if res.Indexed != 2 || res.Unindexed != 1 {
+		t.Errorf("got %d indexed, %d unindexed; want 2, 1", res.Indexed, res.Unindexed)
+	}
+	if !res.Stale {
+		t.Errorf("region differed before the write; want Stale")
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "index.md"))
+	if err != nil {
+		t.Fatalf("read index.md: %v", err)
+	}
+	want := "# Admin help\n\nIntro.\n\n<bucket-docs>\n\n## Docs\n\n" +
+		"- [Jobs](jobs.md) - Read the worker queue.\n" +
+		"- [Sources](sources.md) - Register and crawl a source. · tags: ingest\n\n" +
+		"### Unindexed\n\n- [Draft](draft.md)\n\n" +
+		"</bucket-docs>\n\nTrailer.\n"
+	if string(got) != want {
+		t.Errorf("index.md\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestIndexDir_CheckStaleLeavesFile(t *testing.T) {
+	dir := t.TempDir()
+	writeTwoConcepts(t, dir)
+	original := "# Admin help\n\n<bucket-docs>\n\n## Docs\n\n- stale\n\n</bucket-docs>\n"
+	writeTopicFile(t, filepath.Join(dir, "index.md"), original)
+
+	res, err := IndexDir(dir, true)
+	if err != nil {
+		t.Fatalf("IndexDir: %v", err)
+	}
+	if !res.Stale {
+		t.Errorf("region differs from a fresh render; want Stale")
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "index.md"))
+	if err != nil {
+		t.Fatalf("read index.md: %v", err)
+	}
+	if string(got) != original {
+		t.Errorf("check must not write\ngot:  %q\nwant: %q", got, original)
+	}
+}
+
+func TestIndexDir_CheckFreshAfterWrite(t *testing.T) {
+	dir := t.TempDir()
+	writeTwoConcepts(t, dir)
+
+	if _, err := IndexDir(dir, false); err != nil {
+		t.Fatalf("write run: %v", err)
+	}
+	res, err := IndexDir(dir, true)
+	if err != nil {
+		t.Fatalf("check run: %v", err)
+	}
+	if res.Stale {
+		t.Errorf("check right after a write must report fresh")
+	}
+}
+
+func TestIndexDir_MissingDirErrors(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "absent")
+
+	for _, check := range []bool{false, true} {
+		_, err := IndexDir(dir, check)
+		if err == nil {
+			t.Fatalf("check=%v: want an error for a missing directory", check)
+		}
+		if !strings.Contains(err.Error(), dir) {
+			t.Errorf("check=%v: error must name the directory: %v", check, err)
+		}
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("a missing directory must not be created: %v", err)
+	}
+}
