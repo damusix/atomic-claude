@@ -849,8 +849,8 @@ func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
 	return 0
 }
 
-// wikiScanAction runs Scan, registers the wiki in ~/.claude/CLAUDE.md, and
-// prints the deterministic stdout handoff.
+// wikiScanAction runs Scan, declares the realm scope marker, registers the wiki
+// in ~/.claude/CLAUDE.md, and prints the deterministic stdout handoff.
 func wikiScanAction(args []string, claudeHome, cwd string, out io.Writer) int {
 	fs := flag.NewFlagSet("wiki-scan", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -878,6 +878,13 @@ func wikiScanAction(args []string, claudeHome, cwd string, out io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki scan: %v\n", err)
 		return 1
+	}
+
+	switch markerOutcome, err := config.EnsureScopeMarker(absRoot, "realm"); {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: warning: scope marker not written: %v\n", err)
+	case markerOutcome == config.ScopeMarkerConflict:
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: warning: %s already declares a different scope — left unchanged\n", config.RepoConfigPath(absRoot))
 	}
 
 	wikiDir := filepath.Join(absRoot, "wiki")

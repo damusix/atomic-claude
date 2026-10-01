@@ -514,7 +514,7 @@ var commands = []Command{
 		Path:        []string{"wiki", "scan"},
 		Args:        "",
 		Flags:       []string{"--root"},
-		Description: "Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md",
+		Description: "Scaffold wiki/, scan repos, mark realm scope, register in ~/.claude/CLAUDE.md",
 	},
 	{
 		Path:        []string{"wiki", "stale"},

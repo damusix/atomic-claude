@@ -2,10 +2,13 @@ package wiki
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // TestRegistry_BlockAbsent_AppendsAfterAtomicClose verifies that when CLAUDE.md
@@ -433,5 +436,77 @@ func TestWikiAction_NoRootFlag_UsesCwd(t *testing.T) {
 	// The wiki should have been created at cwd/wiki.
 	if _, err := os.Stat(filepath.Join(cwd, "wiki", "index.md")); err != nil {
 		t.Fatalf("wiki/index.md not created under cwd: %v", err)
+	}
+}
+
+func TestWikiAction_ScanWritesRealmScopeMarker(t *testing.T) {
+	root := t.TempDir()
+	member := filepath.Join(root, "member")
+	if err := os.MkdirAll(filepath.Join(member, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if code := wikiAction([]string{"scan", "--root=" + root}, t.TempDir(), root, &buf); code != 0 {
+		t.Fatalf("wikiAction returned %d, output:\n%s", code, buf.String())
+	}
+
+	got, found := config.FindScopeRoot(member, "realm")
+	if !found || got != root {
+		t.Fatalf("FindScopeRoot(member, realm) = %q, %v; want %q, true", got, found, root)
+	}
+}
+
+// An unusable marker file must not abort the scan: the rest of the bootstrap
+// (registry, handoff) still runs and the user's file is never rewritten.
+func TestWikiAction_ScanWarnsOnUnusableScopeMarker(t *testing.T) {
+	cases := []struct {
+		name, content, warning string
+	}{
+		{"conflicting scope", "scope = \"repo\"\n", "already declares a different scope"},
+		{"malformed toml", "scope = \n", "scope marker not written"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			claudeHome := t.TempDir()
+			path := config.RepoConfigPath(root)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			oldStderr := os.Stderr
+			r, w, _ := os.Pipe()
+			os.Stderr = w
+			var buf bytes.Buffer
+			code := wikiAction([]string{"scan", "--root=" + root}, claudeHome, root, &buf)
+			w.Close()
+			os.Stderr = oldStderr
+			stderr, _ := io.ReadAll(r)
+
+			if code != 0 {
+				t.Fatalf("wikiAction returned %d, stderr:\n%s", code, stderr)
+			}
+			if !strings.Contains(buf.String(), "repos ·") {
+				t.Errorf("handoff not printed after warning:\n%s", buf.String())
+			}
+			if !strings.Contains(string(stderr), tc.warning) {
+				t.Errorf("stderr missing %q:\n%s", tc.warning, stderr)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tc.content {
+				t.Errorf("marker file rewritten: got %q, want %q", got, tc.content)
+			}
+			registry, err := os.ReadFile(filepath.Join(claudeHome, "CLAUDE.md"))
+			if err != nil || !strings.Contains(string(registry), filepath.Join(root, "wiki", "index.md")) {
+				t.Errorf("wiki not registered after warning: err=%v registry=%q", err, registry)
+			}
+		})
 	}
 }
