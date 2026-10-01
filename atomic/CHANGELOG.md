@@ -1,5 +1,18 @@
 # Changelog
 
+## [6.10.0](https://github.com/damusix/atomic-claude/compare/v6.9.0...v6.10.0) (2026-10-01)
+
+
+### Features
+
+* **docs:** add atomic docs index [--check] ([86e0c00](https://github.com/damusix/atomic-claude/commit/86e0c00f35527b14bc1bf480cb1b6363c7f7c2c2))
+
+
+### Bug Fixes
+
+* cut index descriptions at a word boundary ([dd36c60](https://github.com/damusix/atomic-claude/commit/dd36c60e88da16a2f534269c96f1328ad3edc9cb))
+* **wiki:** write the realm scope marker on scan ([115eb37](https://github.com/damusix/atomic-claude/commit/115eb374cf40fddaba5b6da4857d5aa430c247f3))
+
 ## [6.9.0](https://github.com/damusix/atomic-claude/compare/v6.8.0...v6.9.0) (2026-09-24)
 
 
