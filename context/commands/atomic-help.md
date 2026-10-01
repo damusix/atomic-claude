@@ -266,7 +266,7 @@ atomic code explore "<query>"     one-shot context digest for a question; search
 atomic code comments [--diff <range>]   list the comments a diff adds (path:line, span, first words); exit 1 when one exceeds [comments] max_lines
 atomic serve [path] [--port N]    local read-only HTTP server: Obsidian-style page view + right-rail graph/links, system-graph toggle, code-file modal, a Plans view aggregating design/spec docs and scratchpad bundles across every worktree, md|code|plans search (default port 4500; --open opens browser)
 atomic code mcp                   start MCP server exposing graph as tools; daemon self-syncs every 10s (--no-watch disables, --watch-interval overrides); use `atomic --repo <abs-path> code mcp` to serve any repo cwd-independently — one entry per repo in .mcp.json; realm members resolve to their realm db
-atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki; write ## Members links
+atomic wiki scan [--root=<path>]  scaffold + classify member repos; mark realm scope; register wiki; write ## Members links
 atomic wiki stale [--root=<path>] read-only freshness verdict; reports STALE bucket lines alongside repo/concern drift
 atomic wiki bucket add|list|diff|promote  manage capture folders: register, inspect status, diff vs baseline, advance baseline
 atomic wiki bucket doc|skill|index  doc: scaffold a topic file (--router for a subtree); skill: scaffold the per-bucket SKILL.md; index: rebuild the bucket + realm listing regions

@@ -118,7 +118,7 @@ A `CLAUDE.md` at the realm root steers all of it, again through the harness: Cla
 ### Scope resolution
 
 
-A directory declares itself with `scope = "repo"` or `scope = "realm"` at the top of `.claude/atomic.toml` (`atomic repo init` writes the former, `atomic wiki init --scope <s>` either). A marker answers discovery on its own, but only a realm the `<wikis>` block also lists gets the session-start staleness nudge:
+A directory declares itself with `scope = "repo"` or `scope = "realm"` at the top of `.claude/atomic.toml` (`atomic repo init` writes the former, `atomic wiki scan` the latter, `atomic wiki init --scope <s>` either). A marker answers discovery on its own, but only a realm the `<wikis>` block also lists gets the session-start staleness nudge:
 
 ```mermaid
 flowchart TD

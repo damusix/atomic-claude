@@ -32,6 +32,7 @@ Design: `docs/design/wiki.md`.
 - [ ] A member already recorded `summarized` whose summary file still exists keeps `summarized` on re-scan; otherwise status is re-derived (signals → `indexed`, then summary-on-disk → `summarized`, else `pending`). Disk discovery makes `summarized` reachable without a prior entry: `/refresh-wiki` writes summaries after its initial scan, and the closing re-scan picks them up.
 - [ ] Re-running regenerates ONLY the `<wiki-scan>` block; a diff of `index.md` outside the block and of every file under `repos/`/`concerns/` is empty.
 - [ ] The `index.md` path is written to a `<wikis>` block in `~/.claude/CLAUDE.md`. Three insertion cases: block present (add line iff absent, dedup by normalized path), block absent (append after `</atomic>`, or EOF when none), file absent (create). A registry write never alters the `<atomic>` block (diff outside `<wikis>` is empty).
+- [ ] `scan` declares `scope = "realm"` in `<root>/.claude/atomic.toml`, creating the file or inserting the key when absent. A file already declaring another scope, or one that fails to parse, is left byte-identical with a warning on stderr; the scan still registers the wiki, prints the handoff, and exits 0.
 - [ ] If `<root>/wiki/` exists but `index.md` is absent or lacks a `<wiki-scan>` marker, `scan` refuses with a non-zero exit and a message naming the path.
 - [ ] `scan` prints a stdout handoff: summary (`<N> repos · <M> indexed · <K> pending`), per-repo list (`<status> <path> [→ signals path]`), `NEXT STEPS` naming each `pending` repo. Labels stable (orientation for `/refresh-wiki`; the incremental pass is driven by `atomic wiki stale`).
 - [ ] `scan` writes a managed `## Members` linked section into `index.md` between `<!-- wiki-members:start -->` / `<!-- wiki-members:end -->` markers, spliced idempotently like the `<wiki-scan>` block (content outside the markers untouched): `indexed` → link to `../<repo>/.claude/project/signals.md`; `summarized` → link to the recorded summary path (`repos/<repo>.md`, or `repos/<repo>/` for a domain-split summary); `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
@@ -175,6 +176,13 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 
 ## Change log
+
+
+### 2026-09-30 — Scan writes the realm scope marker
+
+**What changed:** `atomic wiki scan` now declares `scope = "realm"` at the root through the same `EnsureScopeMarker` path `atomic wiki init --scope realm` uses. A root already marked with another scope, or a marker file that fails to parse, is warned about and left unchanged; the scan continues.
+
+**Why:** Bug. Scan is the documented realm bootstrap, but only `wiki init --scope realm` wrote the marker and no artifact calls it, so realms set up through `/refresh-wiki` or the `atomic-wiki` skill had none. Two things broke without it. `atomic repl` takes realm membership only from the marker, so realm sessions were invisible from member repos. And `atomic repo init` at an unmarked, non-git realm root wrote `scope = "repo"` there, a marker that then outranks git for every member repo lacking its own; with the realm marker present, `repo init` refuses at the realm root instead. Scan warns rather than failing because it is a re-runnable bootstrap that `/refresh-wiki` stops on, and the marker is not required for anything else it does.
 
 
 ### 2026-09-18 — `<wikis>` reader matches whole-line tags

@@ -94,7 +94,7 @@ var wantDelegatedSubcommandMeta = []struct {
 	{[]string{"config", "agents"}, "", "Set per-agent model tiers interactively"},
 	{[]string{"config", "resolve"}, "", "Resolve Pi agent configuration"},
 	// wiki subcommands
-	{[]string{"wiki", "scan"}, "", "Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md"},
+	{[]string{"wiki", "scan"}, "", "Scaffold wiki/, scan repos, mark realm scope, register in ~/.claude/CLAUDE.md"},
 	{[]string{"wiki", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)"},
 	{[]string{"wiki", "linkify"}, "", "Linkify path tokens in wiki artifacts in-place"},
 	{[]string{"wiki", "init"}, "", "Write the fixed-content CLAUDE.md scaffold and the scope marker for --scope repo|realm (idempotent)"},
