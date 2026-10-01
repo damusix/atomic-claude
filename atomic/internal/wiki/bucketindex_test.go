@@ -181,6 +181,42 @@ func TestReadTopicMeta_DescriptionProseLineRung(t *testing.T) {
 	}
 }
 
+func TestListEntry_LongDescriptionCutAtWordBoundary(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sources.md")
+	desc := strings.Repeat("word ", 23) + "remove or replace a source and restart its crawl."
+	writeTopicFile(t, path, "---\ndescription: "+desc+"\ntags: [ingest]\n---\n")
+
+	topic := readTopicMeta(path)
+	topic.Path = "sources.md"
+	want := "- [sources](sources.md) - " + strings.Repeat("word ", 22) + "word… · tags: ingest"
+	if got := listEntry(topic); got != want {
+		t.Errorf("got entry\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	words := strings.Repeat("abcd ", 23)
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"cut at word end keeps the word", words + "abcd more words", words + "abcd…"},
+		{"double space at cut leaves no space before ellipsis", words + "abc  more", words + "abc…"},
+		{"single long word cut mid-word", strings.Repeat("x", 130), strings.Repeat("x", 119) + "…"},
+		{"leading space before long word cut mid-word", " " + strings.Repeat("x", 130), " " + strings.Repeat("x", 118) + "…"},
+		{"exactly at limit in runes is unchanged", strings.Repeat("é ", 59) + "éé", strings.Repeat("é ", 59) + "éé"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := truncate(c.in, 120); got != c.want {
+				t.Errorf("got\n%q\nwant\n%q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestReadTopicMeta_DescriptionExhaustedIsLinkOnly(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "call-notes-2026-07-11.md")

@@ -52,7 +52,7 @@ type BucketTopic struct {
 func walkBucketTopics(bucketDir string) ([]BucketTopic, error) {
 	entries, err := os.ReadDir(bucketDir)
 	if err != nil {
-		return nil, fmt.Errorf("index: read dir %s: %w", bucketDir, err)
+		return nil, fmt.Errorf("read dir %s: %w", bucketDir, err)
 	}
 
 	var fileNames, dirNames []string
@@ -149,7 +149,7 @@ func countDescendantMD(dir string) (int, error) {
 		return nil
 	})
 	if err != nil {
-		return 0, fmt.Errorf("index: count descendants of %s: %w", dir, err)
+		return 0, fmt.Errorf("count descendants of %s: %w", dir, err)
 	}
 	return count, nil
 }
@@ -338,7 +338,7 @@ func IndexDir(dir string, check bool) (IndexResult, error) {
 	if data, err := os.ReadFile(indexPath); err == nil {
 		document = string(data)
 	} else if !os.IsNotExist(err) {
-		return IndexResult{}, fmt.Errorf("index: read %s: %w", indexPath, err)
+		return IndexResult{}, fmt.Errorf("read %s: %w", indexPath, err)
 	}
 
 	topics, err := walkBucketTopics(dir)
@@ -358,7 +358,7 @@ func IndexDir(dir string, check bool) (IndexResult, error) {
 	content := renderBucketDocs(topics)
 	newDocument, err := spliceManagedRegion(document, managedRegion{tag: "bucket-docs", content: content})
 	if err != nil {
-		return IndexResult{}, fmt.Errorf("index: splice %s: %w", indexPath, err)
+		return IndexResult{}, fmt.Errorf("splice %s: %w", indexPath, err)
 	}
 	res.Stale = newDocument != document
 
@@ -425,7 +425,7 @@ func rebuildRealmBucketList(wikiDir string, entries []BucketEntry) error {
 	if data, readErr := os.ReadFile(indexPath); readErr == nil {
 		document = string(data)
 	} else if !os.IsNotExist(readErr) {
-		return fmt.Errorf("bucket index: read %s: %w", indexPath, readErr)
+		return fmt.Errorf("read %s: %w", indexPath, readErr)
 	}
 
 	content := renderBucketList(wikiDir, entries)
@@ -449,7 +449,7 @@ func RebuildAllBucketIndexes(root, wikiDir string) error {
 
 	entries, err := readBucketEntries(indexPath)
 	if err != nil {
-		return fmt.Errorf("bucket index: read bucket entries: %w", err)
+		return fmt.Errorf("read bucket entries: %w", err)
 	}
 
 	var errs []error

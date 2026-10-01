@@ -200,6 +200,29 @@ func TestRunDocsIndexFlagAfterDirIsUsageError(t *testing.T) {
 	}
 }
 
+func TestRunDocsIndexMisplacedTerminatorIsNotCalledAFlag(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "admin")
+	writeDocsIndexDir(t, dir)
+
+	var code int
+	_, stderr := captureOutput(t, func() { code = docsAction([]string{"index", dir, "--", "x"}, t.TempDir()) })
+	if code != 2 {
+		t.Errorf("misplaced --: exit %d, want 2", code)
+	}
+	if want := `atomic docs index: argument "--" must come before the directories`; !strings.Contains(stderr, want) {
+		t.Errorf("stderr %q, want it to contain %q", stderr, want)
+	}
+}
+
+func TestRunDocsIndexErrorPrefixedOnce(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nope")
+
+	_, stderr := captureOutput(t, func() { docsAction([]string{"index", missing}, t.TempDir()) })
+	if want := "atomic docs index: read dir " + missing + ": "; !strings.HasPrefix(stderr, want) {
+		t.Errorf("stderr %q, want prefix %q", stderr, want)
+	}
+}
+
 func TestRunDocsIndexDashDirAfterTerminator(t *testing.T) {
 	base := t.TempDir()
 	writeDocsIndexDir(t, filepath.Join(base, "-admin"))

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
@@ -871,8 +872,8 @@ func TestDeriveMemberDescription_LengthBound(t *testing.T) {
 	}
 
 	got := wiki.DeriveMemberDescription(summaryPath)
-	if len(got) > 120 {
-		t.Errorf("description must be <= 120 chars, got %d: %q", len(got), got)
+	if n := utf8.RuneCountInString(got); n > 120 {
+		t.Errorf("description must be <= 120 chars, got %d: %q", n, got)
 	}
 }
 

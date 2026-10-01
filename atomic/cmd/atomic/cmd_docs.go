@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
@@ -89,10 +90,10 @@ func docsIndex(args []string) int {
 		return 2
 	}
 	dirs := fs.Args()
-	terminated := len(args) > len(dirs) && args[len(args)-len(dirs)-1] == "--"
+	terminated := slices.Contains(args[:len(args)-len(dirs)], "--")
 	for _, dir := range dirs {
 		if !terminated && strings.HasPrefix(dir, "-") {
-			fmt.Fprintf(os.Stderr, "atomic docs index: flag %q must come before the directories\n", dir)
+			fmt.Fprintf(os.Stderr, "atomic docs index: argument %q must come before the directories\n", dir)
 			fs.Usage()
 			return 2
 		}

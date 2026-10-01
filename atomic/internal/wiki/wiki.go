@@ -619,8 +619,8 @@ func deriveSummaryFilePath(indexDir string, m Member) string {
 // DeriveMemberDescription reads a summary file and returns a one-line
 // description for an OKF §6 Members listing: the frontmatter "description"
 // key, else the first prose line of the body, else "" (link-only is valid per
-// §6 SHOULD semantics). Always single-line, truncated to 120 characters;
-// unreadable files return "".
+// §6 SHOULD semantics). Always single-line and at most 120 characters; a cut
+// lands at a word boundary and ends in "…". Unreadable files return "".
 func DeriveMemberDescription(summaryFilePath string) string {
 	data, err := os.ReadFile(summaryFilePath)
 	if err != nil {
@@ -754,13 +754,20 @@ func letterCount(s string) int {
 	return n
 }
 
-// truncate returns at most the first n runes of s, with no ellipsis.
+// truncate cuts s to at most n runes ending in "…", at a word boundary unless
+// the first word alone overflows.
 func truncate(s string, n int) string {
 	runes := []rune(s)
 	if len(runes) <= n {
 		return s
 	}
-	return string(runes[:n])
+	cut := string(runes[:n-1])
+	if runes[n-1] != ' ' {
+		if i := strings.LastIndexByte(cut, ' '); i > 0 {
+			cut = cut[:i]
+		}
+	}
+	return strings.TrimRight(cut, " ") + "…"
 }
 
 // buildMembersSection renders the `wiki-member-list` region body: a "## Members"
