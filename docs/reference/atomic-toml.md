@@ -14,7 +14,7 @@ flowchart LR
 
 Your personal preferences live in `~/.atomic/config.toml` and never reach the repository. Facts about the project live here. A teammate cloning the repo should get the same code-index exclusions you have; they should not inherit your update settings.
 
-`atomic repo init` creates the file with a `scope` marker. Everything else you add by hand.
+`atomic repo init` creates the file with a `scope` marker at a repo root; `atomic wiki scan` and `atomic wiki init --scope realm` do the same at a realm root. Everything else you add by hand.
 
 ## Keys
 
@@ -55,7 +55,7 @@ idle_timeout = "30m"
 | Value | Means |
 |-------|-------|
 | `"repo"` | A single project. Written by `atomic repo init`. |
-| `"realm"` | A root holding several member repos plus a shared wiki. Written by `atomic wiki init --scope realm`. |
+| `"realm"` | A root holding several member repos plus a shared wiki. Written by `atomic wiki scan` and `atomic wiki init --scope realm`. |
 
 Discovery walks upward from the current directory to the filesystem root, taking the first marker of the kind it wants. It crosses `.git` boundaries deliberately, because a realm root sits above the repos it contains.
 

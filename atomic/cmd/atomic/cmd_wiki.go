@@ -33,7 +33,7 @@ func buildWikiCmd() *cobra.Command {
 		}
 		parent.AddCommand(c)
 	}
-	addSub("scan", "Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md", "", func(c *cobra.Command) {
+	addSub("scan", "Scaffold wiki/, scan repos, mark realm scope, register in ~/.claude/CLAUDE.md", "", func(c *cobra.Command) {
 		c.Flags().String("root", "", "root directory to scan (default: cwd)")
 	})
 	addSub("stale", "Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)", "", func(c *cobra.Command) {
