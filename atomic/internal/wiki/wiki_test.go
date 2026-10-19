@@ -1700,7 +1700,7 @@ func TestScan_RebuildsBucketIndexesAndSurvivesBrokenBucket(t *testing.T) {
 	if !strings.Contains(after, "<wiki-bucket-list>") {
 		t.Errorf("wiki/index.md missing <wiki-bucket-list> region:\n%s", after)
 	}
-	if !strings.Contains(after, "- [research](../research) - Research capture bucket") {
+	if !strings.Contains(after, "- [research](../research/index.md) - Research capture bucket") {
 		t.Errorf("realm bucket list missing research entry:\n%s", after)
 	}
 

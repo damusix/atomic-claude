@@ -225,7 +225,7 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 | `README.md` | project overview, install, commands, agents, skills | atomic-writing |
 | `docs/guides/install.md` | installation, updating, uninstalling | atomic-writing |
 | `docs/guides/getting-started.md` | first-session quickstart, output style, repo setup, first task, updating | atomic-writing |
-| `docs/guides/knowledge-base.md` | karpathy realm, capture surfaces (research/raw/tickets), per-bucket doc indexes | atomic-writing |
+| `docs/guides/knowledge-base.md` | karpathy realm, capture surfaces (research items with `01_raw/` stages, history captures, tickets), per-folder bucket indexes | atomic-writing |
 | `docs/guides/contributing.md` | contributing, build pipeline, testing | atomic-writing |
 | `docs/guides/evaluations.md` | Docker eval environment, testing setup | atomic-writing |
 | `docs/guides/code-intel-mcp.md` | code-intel MCP server setup, .mcp.json, tools | atomic-writing |

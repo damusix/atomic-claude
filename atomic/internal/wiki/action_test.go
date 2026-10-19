@@ -1,18 +1,18 @@
 package wiki
 
 // action_test.go — tests for the shared argument scanner hardening
-// (resolveWikiRoot / parseBucketDocArgs) behind `atomic wiki bucket`.
+// (resolveWikiRoot) behind `atomic wiki bucket`.
 //
 // Covers: -h/-help/--help yield errUsageRequested and print usage without
 // mutating state (`bucket add -h` used to silently create a
 // bucket named "-h"); an unrecognized single-dash token is rejected with
-// the same parity as an unrecognized double-dash token; parseBucketDocArgs'
-// collapse to delegate at resolveWikiRoot still honors --router in any
-// position.
+// the same parity as an unrecognized double-dash token.
 
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,90 +74,6 @@ func TestResolveWikiRoot_UnrecognizedDashTokenDoesNotLeakIntoPositional(t *testi
 	_, positional, err := resolveWikiRoot([]string{"mybucket", "-x"}, cwd)
 	if err == nil {
 		t.Fatalf("expected rejection, got positional %v", positional)
-	}
-}
-
-func TestParseBucketDocArgs_HelpSentinel(t *testing.T) {
-	cwd := t.TempDir()
-	for _, tok := range []string{"-h", "-help", "--help"} {
-		t.Run(tok, func(t *testing.T) {
-			_, _, router, err := parseBucketDocArgs([]string{tok}, cwd)
-			if !errors.Is(err, errUsageRequested) {
-				t.Fatalf("parseBucketDocArgs(%q): got err %v, want errUsageRequested", tok, err)
-			}
-			if router {
-				t.Errorf("parseBucketDocArgs(%q): router should be false on help sentinel", tok)
-			}
-		})
-	}
-}
-
-func TestParseBucketDocArgs_UnrecognizedSingleDashRejected(t *testing.T) {
-	cwd := t.TempDir()
-	_, _, _, err := parseBucketDocArgs([]string{"-x"}, cwd)
-	if err == nil || errors.Is(err, errUsageRequested) {
-		t.Fatalf("expected non-sentinel rejection for -x, got %v", err)
-	}
-}
-
-func TestParseBucketDocArgs_RouterAnyPosition(t *testing.T) {
-	cwd := t.TempDir()
-	cases := [][]string{
-		{"--router", "mybucket", "slug"},
-		{"mybucket", "--router", "slug"},
-		{"mybucket", "slug", "--router"},
-		{"--root=" + cwd, "mybucket", "slug", "--router"},
-		{"mybucket", "--router", "slug", "--root=" + cwd},
-	}
-	for _, args := range cases {
-		absRoot, positional, router, err := parseBucketDocArgs(args, cwd)
-		if err != nil {
-			t.Fatalf("args %v: unexpected error: %v", args, err)
-		}
-		if !router {
-			t.Errorf("args %v: expected --router honored, got false", args)
-		}
-		if len(positional) != 2 || positional[0] != "mybucket" || positional[1] != "slug" {
-			t.Errorf("args %v: expected positional [mybucket slug], got %v", args, positional)
-		}
-		if absRoot == "" {
-			t.Errorf("args %v: expected resolved root", args)
-		}
-	}
-}
-
-// TestParseBucketDocArgs_RouterConsumedBeforeRootValue pins a deliberate
-// behavior delta flagged in review: parseBucketDocArgs strips every
-// literal "--router" token before delegating to resolveWikiRoot, so
-// `--root --router` reaches resolveWikiRoot as bare "--root" and errors
-// "flag --root requires a value" rather than silently taking "--router" as
-// the root path. A root path is never legitimately named "--router", so
-// erroring is correct — this is a pinned decision, not a regression.
-func TestParseBucketDocArgs_RouterConsumedBeforeRootValue(t *testing.T) {
-	cwd := t.TempDir()
-	_, _, _, err := parseBucketDocArgs([]string{"--root", "--router"}, cwd)
-	if err == nil {
-		t.Fatal("expected error for --root immediately followed by --router, got nil")
-	}
-	if errors.Is(err, errUsageRequested) {
-		t.Fatal("expected a value-required error, not the help sentinel")
-	}
-	if !strings.Contains(err.Error(), "flag --root requires a value") {
-		t.Errorf("expected \"flag --root requires a value\", got: %v", err)
-	}
-}
-
-func TestParseBucketDocArgs_RouterAbsentDefaultsFalse(t *testing.T) {
-	cwd := t.TempDir()
-	_, positional, router, err := parseBucketDocArgs([]string{"mybucket", "slug"}, cwd)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if router {
-		t.Error("expected router false when --router absent")
-	}
-	if len(positional) != 2 {
-		t.Errorf("expected 2 positionals, got %v", positional)
 	}
 }
 
@@ -279,5 +195,35 @@ func TestWikiAction_RemovedVerbsAreUnknown(t *testing.T) {
 		if !strings.Contains(stderr, "unknown verb") {
 			t.Errorf("wikiAction %v: stderr %q, want it to report an unknown verb", args, stderr)
 		}
+	}
+}
+
+// A reader grepping stderr by verb must see the prefix on every error line,
+// and an unpaired region alone must not fail the command.
+func TestReportTreeErrors_PrefixesEveryLineAndOnlyUnpairedIsSoft(t *testing.T) {
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = oldStderr })
+
+	soft := reportTreeErrors("atomic wiki scan", []error{fmt.Errorf("a: %w", errUnpairedRegion)})
+	hard := reportTreeErrors("atomic wiki scan", []error{errors.New("second")})
+
+	w.Close()
+	os.Stderr = oldStderr
+	captured, _ := io.ReadAll(r)
+
+	want := fmt.Sprintf("atomic wiki scan: a: %v\natomic wiki scan: second\n", errUnpairedRegion)
+	if got := string(captured); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if soft {
+		t.Error("an unpaired region alone reported as a hard failure")
+	}
+	if !hard {
+		t.Error("a non-region error not reported as a hard failure")
 	}
 }

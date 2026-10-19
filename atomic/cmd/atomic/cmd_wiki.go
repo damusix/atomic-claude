@@ -77,11 +77,9 @@ func buildWikiCmd() *cobra.Command {
 	}
 	addBucketSub("add", "Register a capture bucket; create its folder and index.md stub", "<name>", nil)
 	addBucketSub("list", "List registered buckets as name<TAB>path", "", nil)
-	addBucketSub("doc", "Scaffold <bucket>/<slug>.md from the embedded doc template; --router also scaffolds the sibling subtree", "<bucket> <slug>", func(c *cobra.Command) {
-		c.Flags().Bool("router", false, "also scaffold the sibling <slug>/ subtree and its CLAUDE.md stub")
-	})
+	addBucketSub("doc", "Scaffold <bucket>/<slug>/index.md and its 01_raw/ stage, then rebuild the bucket's indexes", "<bucket> <slug>", nil)
 	addBucketSub("skill", "Scaffold the realm per-bucket SKILL.md for <bucket> (no-op if present)", "<bucket>", nil)
-	addBucketSub("index", "Rebuild the <bucket-docs> region for one bucket (or all when omitted) plus the realm bucket list", "[<bucket>]", nil)
+	addBucketSub("index", "Rebuild the <bucket-docs> region in every directory of one bucket (or all when omitted) plus the realm bucket list", "[<bucket>]", nil)
 	parent.AddCommand(bucketParent)
 
 	return parent

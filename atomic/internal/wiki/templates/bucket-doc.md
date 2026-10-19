@@ -1,7 +1,7 @@
 ---
 title: {{TITLE}}
-type: <type — e.g. Research, Experiment, Ticket>
-description: <one-line description of this topic>
+type: <type, e.g. Research, Experiment>
+description: <one-line description of this item>
 tags: []
 status: <e.g. active, done>
 created: {{CREATED}}
@@ -9,11 +9,11 @@ created: {{CREATED}}
 
 # {{TITLE}}
 
-<!-- One-paragraph lede: what this topic is and why it exists. -->
+<!-- One-paragraph lede: what this item is and why it exists. -->
 
 <!--
-  One topic per file. If this topic outgrows a single file, create a
-  `{{TITLE}}/` directory beside it for subtopics — this file becomes the
-  router summary and stays the single index entry. Delete this comment
-  once the doc is filled in.
+  Each stage of this item is a numbered folder: 01_raw/ collects source
+  material, and later stages such as 02_findings/ or 10_publish/ build on
+  the one before. Every folder has an index.md whose listing atomic
+  rebuilds. Delete this comment once the item is filled in.
 -->

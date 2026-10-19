@@ -323,7 +323,23 @@ func wikiBucketAddAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
+	if _, errs := RebuildBucketTree(bucketDir); reportTreeErrors("atomic wiki bucket add", errs) {
+		return 1
+	}
+
 	return 0
+}
+
+// reportTreeErrors prints each error on its own line and reports whether any
+// is worse than an unpaired region, which only warns.
+func reportTreeErrors(verb string, errs []error) (hard bool) {
+	for _, err := range errs {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", verb, err)
+		if !errors.Is(err, errUnpairedRegion) {
+			hard = true
+		}
+	}
+	return hard
 }
 
 // wikiBucketListAction prints one "<name>\t<path>" line per registered bucket
@@ -359,28 +375,10 @@ func wikiBucketListAction(args []string, cwd string, out io.Writer) int {
 	return 0
 }
 
-// parseBucketDocArgs peels off the valueless --router and delegates the rest to
-// resolveWikiRoot, so flag and help classification has one implementation.
-func parseBucketDocArgs(args []string, cwd string) (absRoot string, positional []string, router bool, err error) {
-	filtered := make([]string, 0, len(args))
-	for _, arg := range args {
-		if arg == "--router" {
-			router = true
-			continue
-		}
-		filtered = append(filtered, arg)
-	}
-	absRoot, positional, err = resolveWikiRoot(filtered, cwd)
-	if err != nil {
-		return "", nil, false, err
-	}
-	return absRoot, positional, router, nil
-}
-
 func wikiBucketDocAction(args []string, cwd string, out io.Writer) int {
-	const usage = "Usage: atomic wiki bucket doc [--root=<path>] <bucket> <slug> [--router]\n"
+	const usage = "Usage: atomic wiki bucket doc [--root=<path>] <bucket> <slug>\n"
 
-	absRoot, positional, router, err := parseBucketDocArgs(args, cwd)
+	absRoot, positional, err := resolveWikiRoot(args, cwd)
 	if errors.Is(err, errUsageRequested) {
 		fmt.Fprintf(out, usage)
 		return 0
@@ -406,13 +404,15 @@ func wikiBucketDocAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
-	path, err := ScaffoldBucketDoc(bucketDir, slug, router, time.Now())
+	path, err := ScaffoldBucketDoc(bucketDir, slug, time.Now())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket doc: %v\n", err)
 		return 1
 	}
-
 	fmt.Fprintln(out, path)
+	if _, errs := RebuildBucketTree(bucketDir); reportTreeErrors("atomic wiki bucket doc", errs) {
+		return 1
+	}
 	return 0
 }
 
@@ -467,24 +467,8 @@ func wikiBucketSkillAction(args []string, cwd string, out io.Writer) int {
 	return 0
 }
 
-// printBucketIndexCounts writes one "<name>: N indexed, M unindexed" line,
-// walking topics the way RebuildBucketIndex does. A walk failure warns but
-// never blocks the caller's rebuild.
-func printBucketIndexCounts(out io.Writer, name, bucketDir string) {
-	topics, err := walkBucketTopics(bucketDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: count %s: %v\n", name, err)
-		return
-	}
-	var indexed, unindexed int
-	for _, t := range topics {
-		if t.Indexed {
-			indexed++
-		} else {
-			unindexed++
-		}
-	}
-	fmt.Fprintf(out, "%s: %d indexed, %d unindexed\n", name, indexed, unindexed)
+func printBucketIndexCounts(out io.Writer, name string, counts TopicCounts) {
+	fmt.Fprintf(out, "%s: %d indexed, %d unindexed\n", name, counts.Indexed, counts.Unindexed)
 }
 
 // wikiBucketIndexAction rebuilds every registered bucket, or just the named
@@ -519,15 +503,10 @@ func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
 			return 1
 		}
 
-		printBucketIndexCounts(out, name, bucketDir)
-
-		if rebErr := RebuildBucketIndex(bucketDir); rebErr != nil {
-			if errors.Is(rebErr, errUnpairedRegion) {
-				fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
-			} else {
-				fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
-				return 1
-			}
+		counts, rebErrs := RebuildBucketTree(bucketDir)
+		printBucketIndexCounts(out, name, counts)
+		if reportTreeErrors("atomic wiki bucket index", rebErrs) {
+			return 1
 		}
 
 		entries, rerr := readBucketEntries(indexPath)
@@ -547,16 +526,14 @@ func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rerr)
 		return 1
 	}
-	for _, e := range entries {
-		if !fileExists(e.Path) {
-			continue
-		}
-		printBucketIndexCounts(out, e.Name, e.Path)
-	}
 
-	if rebErr := RebuildAllBucketIndexes(absRoot, wikiDir); rebErr != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
+	results, rebErrs := RebuildAllBucketIndexes(absRoot, wikiDir)
+	for _, e := range entries {
+		if res, ok := results[e.Name]; ok {
+			printBucketIndexCounts(out, e.Name, res)
+		}
 	}
+	reportTreeErrors("atomic wiki bucket index", rebErrs)
 
 	return 0
 }

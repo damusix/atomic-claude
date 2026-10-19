@@ -2,7 +2,7 @@
 
 A wiki is a generated knowledge graph for a tree of code, and it comes at two scopes. This page is the **realm** scope: a folder of repositories, mapped into a `wiki/` beside them. The [repo wiki](/reference/repo-wiki) is the other scope, one level down, mapping a single repository into its own `docs/wiki/`. Same command, same inferrer; `/refresh-wiki` reads a `<wiki-type>` marker to tell which one it is looking at.
 
-You work out of a folder. Call it a realm: a client engagement, a team's set of services, an open-source org you contribute to. It accumulates two kinds of things. Repositories, some yours and some vendored. And the loose material that collects around real work: a ticket you are halfway through, an email thread with the one detail that explains a bug, a PDF someone sent you, the notes you took chasing a problem across three systems. You keep that loose material by hand, in a `raw/` dump.
+You work out of a folder. Call it a realm: a client engagement, a team's set of services, an open-source org you contribute to. It accumulates two kinds of things. Repositories, some yours and some vendored. And the loose material that collects around real work: a ticket you are halfway through, an email thread with the one detail that explains a bug, a PDF someone sent you, the notes you took chasing a problem across three systems. You keep that loose material by hand, in a `research/` folder.
 
 ```
 ~/work/acme/                the realm
@@ -11,8 +11,11 @@ You work out of a folder. Call it a realm: a client engagement, a team's set of 
 ├─ gateway/            repo · has its own wiki → indexed
 ├─ vendor-sdk/         repo · no wiki → summarized
 ├─ legacy-cron/        repo · no wiki → offered for promotion on refresh
-├─ raw/                capture bucket · registered via `atomic wiki bucket add raw`
 ├─ research/           capture bucket · registered via `atomic wiki bucket add research`
+│  ├─ index.md         lists the bucket's items
+│  └─ seo-audit/       one item · scaffolded by `atomic wiki bucket doc research seo-audit`
+│     ├─ index.md      lists the item's stages
+│     └─ 01_raw/       collected source material, with its own index.md
 ├─ experiments/        code spikes and prototypes · user-maintained (not a bucket)
 └─ wiki/               the map atomic compiles over it
    ├─ index.md         member registry + <wiki-buckets> block + your narrative
@@ -26,9 +29,9 @@ Two layers fill a wiki, and they differ by who drives them.
 
 **Atomic drives the repo layer.** `/refresh-wiki` walks the realm, finds the repositories, and documents them. A repo that already has its own wiki is documented in place; the realm references it and cites the path, never copying them. A repo without one is opt-in, the kind that needs a deeper dive: you pick which ones get promoted to their own wiki, and the rest Claude summarizes into `repos/` from a read-only pass that never writes back to the source. `concerns/` holds what cuts across them.
 
-**You drive the capture layer through buckets.** Atomic never touches `raw/` or any other user-maintained folder until you register it as a capture bucket. The realm `CLAUDE.md` lists each bucket folder, and the folder's `index.md` lists its docs.
+**You drive the capture layer through buckets.** Atomic never touches `research/` or any other user-maintained folder until you register it as a capture bucket. The realm `CLAUDE.md` lists each bucket folder, and every folder in a bucket has an `index.md` listing what it holds.
 
-**You manage the realm from a `CLAUDE.md`.** Keep one at the realm root, holding your rules for the realm and a pointer to the wiki. Claude Code walks up the directory tree when it loads `CLAUDE.md`, and the walk crosses repo boundaries, so a realm-root file stays in context from anywhere inside the realm, including a session you start in a member repo. The realm level is where that earns its place: cross-cutting concerns, or a feature or bug you are tracing across several services, work that spans repos instead of sitting in one. Start there to organize `raw/`, manage `research/` and `experiments/`, or reason across the repos at once.
+**You manage the realm from a `CLAUDE.md`.** Keep one at the realm root, holding your rules for the realm and a pointer to the wiki. Claude Code walks up the directory tree when it loads `CLAUDE.md`, and the walk crosses repo boundaries, so a realm-root file stays in context from anywhere inside the realm, including a session you start in a member repo. The realm level is where that earns its place: cross-cutting concerns, or a feature or bug you are tracing across several services, work that spans repos instead of sitting in one. Start there to organize `research/`, manage `experiments/`, or reason across the repos at once.
 
 This draws the boundary. Atomic stays on the code side: it documents repos, keeps their wikis current, runs the plan-implement-ship lifecycle, and indexes the capture folders you register. The non-code work is yours to direct from the realm `CLAUDE.md`, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
 
@@ -169,28 +172,42 @@ The selection prompt accepts indices (`1 3`), ranges (`1-3`), `all`, `none`, and
 
 A realm wiki created by an older atomic release may still hold `wiki/.dirty`, `wiki/.buckets/`, `wiki/knowledge/`, `reflects_*` frontmatter keys, and a `.dirty` line in `wiki/.gitignore`. Nothing reads them any more. Delete them by hand if you want them gone; leaving them changes nothing.
 
+The next `atomic wiki scan` adds an `index.md` to every non-skipped folder of each registered bucket. Older buckets also list differently: a `<slug>.md` beside a `<slug>/` folder now lists as two entries, and an old `<slug>/CLAUDE.md` stub lists as an unindexed doc.
+
 
 ## Capture buckets
 
-A capture bucket is a user-named folder at the realm root that holds loose material: research notes, raw email threads, ticket exports, PDFs, meeting notes. Registering it with `atomic wiki bucket add <name>` makes the wiki index it without changing the files you already keep there. The `atomic-wiki` skill is the conversational front door: tell Claude you want a place for notes, research, or tickets and it runs `bucket add` for you.
+A capture bucket is a user-named folder at the realm root that holds loose material: research notes, raw email threads, ticket exports, PDFs, meeting notes. Registering it with `atomic wiki bucket add <name>` makes the wiki index it. The only files atomic writes there are `index.md` files. The `atomic-wiki` skill is the conversational front door: tell Claude you want a place for notes, research, or tickets and it runs `bucket add` for you.
 
 ```
 atomic wiki bucket add research    # register ~/work/acme/research/
 atomic wiki bucket list            # research<TAB>/Users/you/work/acme/research
 ```
 
-`bucket add` creates the folder if it is missing, writes an `index.md` stub inside it unless one exists, adds a `<bucket>` entry to the `<wiki-buckets>` block in `wiki/index.md`, and writes a `## Capture surfaces` section into the realm `CLAUDE.md`. Registering a name that is already in the `<wiki-buckets>` block exits `1`. `bucket list` prints one `<name>\t<path>` line per registered bucket and exits `0`.
+`bucket add` creates the folder if it is missing, writes an `index.md` stub inside it unless one exists, adds a `<bucket>` entry to the `<wiki-buckets>` block in `wiki/index.md`, and writes a `## Capture surfaces` bullet naming `<bucket>/index.md` into the realm `CLAUDE.md`. It then adds a `<bucket-docs>` region to each folder's `index.md`, the bucket root included, creating the file when absent. Files other than `index.md` are not touched. Skipped folders, listed under the bucket index rules below, get no `index.md`. Registering a name that is already in the `<wiki-buckets>` block exits `1`. `bucket list` prints one `<name>\t<path>` line per registered bucket and exits `0`.
 
 **Bucket names.** `atomic wiki bucket add <name>` rejects an empty or whitespace-only name, a name that starts with `-`, a name containing `/` or `\`, the names `.` and `..`, and the reserved name `wiki`. Any other name registers: hyphenated, underscored, digits, and mixed case all work.
 
 **Help.** `-h`, `-help`, and `--help` work on every bucket sub-verb (`add`, `list`, `doc`, `skill`, `index`). Each prints usage and exits 0 without creating or modifying anything.
 
-**Bucket index.** Each bucket has an `index.md` at its root describing what the bucket is for and what conventions its content follows. `atomic wiki bucket add` creates a stub; you fill it in, or let the `/refresh-wiki` bucket offer ask you on first use. Below your description, the index carries a code-generated `<bucket-docs>` listing of every doc in the bucket. The buckets get no model pass: the per-folder indexes are the only output the wiki derives from them.
+**Bucket index.** Each bucket has an `index.md` at its root describing what the bucket is for and what conventions its content follows. `atomic wiki bucket add` creates a stub; you fill it in, or let the `/refresh-wiki` bucket offer ask you on first use. Below your description, the index carries a code-generated `<bucket-docs>` listing of the bucket's direct children: its markdown files and its subfolders. Every subfolder that is not skipped gets its own `index.md` with the same kind of listing, created if absent. An agent reads the root index and descends one `index.md` at a time, loading only the layers it needs. The buckets get no model pass: the per-folder indexes are the only output the wiki derives from them.
+
+| Listing rule | Behavior |
+|--------------|----------|
+| Entries | each `.md` file other than `index.md`, and each subfolder, linked as `<name>/index.md` |
+| Order | by name; a name with a leading number sorts first by that number, so `9_x` comes before `10_x` |
+| Not listed | non-markdown files, dot-prefixed files, OS junk such as `.DS_Store` |
+| Skipped folders | `node_modules`, `dist`, `build`, `target`, `vendor`, `tmp`, `.worktrees`, `.git`, and any dot-prefixed folder: neither listed nor indexed |
+| Unindexed | a file, or a subfolder's `index.md`, with no recognized frontmatter key lists under `### Unindexed` |
+| `<slug>.md` beside `<slug>/` | two separate entries |
+| Your text | everything outside the `<bucket-docs>` region survives a rebuild byte-for-byte; an unchanged index is not rewritten |
 
 
 ### Authoring bucket docs
 
-A bucket's own content is a set of topic files, one per file: `<bucket>/<slug>.md`. Each carries six recognized frontmatter keys, all optional at index time:
+A bucket item is a folder: `<bucket>/<slug>/index.md` describes it, and its work lives in numbered stage folders. `01_raw/` collects source material, and later stages you add, such as `02_findings/` or `10_publish/`, build on the one before. Raw material and research share one bucket this way; each item keeps its sources in its own `01_raw/`.
+
+The index recognizes six frontmatter keys on each doc, including every `index.md`, all optional at index time:
 
 | Key | Writer | Fallback if absent |
 |-----|--------|---------------------|
@@ -206,17 +223,16 @@ A doc with no frontmatter at all still indexes, listed under an `### Unindexed` 
 Three verbs manage this layer:
 
 ```
-atomic wiki bucket doc research seo             # scaffold research/seo.md
-atomic wiki bucket doc research seo --router     # also scaffold research/seo/ + a CLAUDE.md stub
-atomic wiki bucket skill research                # scaffold a per-bucket authoring skill
-atomic wiki bucket index [research]              # rebuild the listing regions (scan already does this)
+atomic wiki bucket doc research seo-audit    # scaffold research/seo-audit/index.md + 01_raw/index.md
+atomic wiki bucket skill research            # scaffold a per-bucket authoring skill
+atomic wiki bucket index [research]          # rebuild every folder's listing (scan already does this)
 ```
 
-`atomic wiki bucket doc <bucket> <slug>` writes `<bucket>/<slug>.md` from an embedded scaffold, `created` pre-stamped, and refuses if the target already exists. A topic that outgrows a single file becomes a **router**: pass `--router` at creation time to add a sibling `<slug>/` subtree and a `CLAUDE.md` stub, while `<slug>.md` stays the one index entry and its summary. Rerunning the command on an existing doc refuses with a collision error, so upgrading later means creating the `<slug>/` directory by hand.
+`atomic wiki bucket doc <bucket> <slug>` accepts a slug of `[a-z0-9-]+` and refuses a slug that names a skipped folder (`build`, `dist`, `target`, `tmp`, `vendor`), since the index would never list it. It also refuses if `<bucket>/<slug>` already exists as a file or folder. It writes `<slug>/index.md` (six-key frontmatter, `created` pre-stamped, a comment describing the stage layout) and `<slug>/01_raw/index.md`, prints the path of `<slug>/index.md`, then rebuilds the bucket's indexes. Add later stages as numbered folders by hand; the next rebuild indexes them.
 
 `atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line and the frontmatter contract above, so the bucket's own authoring conventions travel with it as a skill Claude can pick up automatically in that realm. It is a no-op if the file already exists.
 
-`atomic wiki bucket index [<bucket>]` rebuilds two managed regions from frontmatter: a `<bucket-docs>` region in the named bucket's `index.md` (or every registered bucket, when no name is given), and the `<wiki-bucket-list>` region in `wiki/index.md`. Both are code-generated and spliced idempotently; everything outside the region is preserved untouched. `atomic wiki scan` runs this rebuild as part of its own pass, so you rarely need to call `bucket index` directly.
+`atomic wiki bucket index [<bucket>]` walks every folder of the named bucket (or every registered bucket, when no name is given) and rebuilds the `<bucket-docs>` region in each folder's `index.md`, then the `<wiki-bucket-list>` region in `wiki/index.md`, which links each bucket's root `index.md`. It prints one `<name>: N indexed, M unindexed` line per bucket, counting entries across the bucket's whole tree. An `index.md` with an unpaired `<bucket-docs>` tag is reported and left alone; the walk continues with the rest. `atomic wiki scan` runs this rebuild as part of its own pass, so you rarely need to call `bucket index` directly.
 
 
 ## Relationship to the repo scope

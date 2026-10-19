@@ -51,21 +51,24 @@ The pipeline text lives **only** in the reference files (installed at `~/.claude
 
 When the user wants a folder for notes, tickets, research, or any loose material and the cwd is under a registered realm:
 
-1. Run `atomic wiki bucket add <name> --root <realm-root>` — never bare `mkdir`.
+1. When the folder already holds material, tell the user that every folder in it will gain an `index.md`. Then run `atomic wiki bucket add <name> --root <realm-root>` — never bare `mkdir`.
    - Creates `<realm-root>/<name>/index.md` (stub: purpose line + `## Conventions` placeholder).
    - Splices a `<bucket name="<name>" path="<abs-path>"/>` entry into the `<wiki-buckets>` block in `wiki/index.md`.
-   - On the first bucket in the realm, writes a `## Capture surfaces` section to the realm `CLAUDE.md`.
+   - Writes a `## Capture surfaces` bullet naming `<bucket>/index.md` to the realm `CLAUDE.md`, creating the section on the first bucket.
+   - Rebuilds the bucket's indexes: every folder the index walks gets an `index.md` with a `<bucket-docs>` listing.
 2. Drive the meaning-fill: ask the user what the bucket is for, then replace the `<!-- describe what this bucket is for -->` placeholder in the realm `CLAUDE.md` `## Capture surfaces` section and write the bucket's `index.md` purpose line + `## Conventions` block to match. **Code writes structure; the model writes meaning.**
 
 Reserved name `wiki` is refused by the binary. If `<wiki-buckets>` carries `declined="true"`, `bucket add` removes the attribute when registering a new bucket.
 
 ## Bucket doc authoring route
 
-When the user wants a new topic file inside a registered bucket, or asks about a bucket's own conventions:
+When the user wants a new item inside a registered bucket, or asks about a bucket's own conventions:
 
-- `atomic wiki bucket doc <bucket> <slug> [--router]` scaffolds `<bucket>/<slug>.md` from the embedded template (six-key frontmatter, `created` pre-stamped). `--router` also creates `<bucket>/<slug>/` + a `CLAUDE.md` stub for a topic that outgrows one file. Refuses on an existing target — never overwrites.
+- `atomic wiki bucket doc <bucket> <slug>` scaffolds an item folder: `<bucket>/<slug>/index.md` (six-key frontmatter, `created` pre-stamped) and `<bucket>/<slug>/01_raw/index.md`, the stage that collects source material. Later stages are numbered folders the user adds (`02_findings/`, `10_publish/`). Refuses a slug that names a folder the index skips (`build`, `dist`, `target`, `tmp`, `vendor`). Refuses when `<bucket>/<slug>` already exists; never overwrites.
 - `atomic wiki bucket skill <bucket>` scaffolds `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line. No-op if the file exists.
-- `atomic wiki bucket index [<bucket>]` rebuilds the `<bucket-docs>` region in one bucket's `index.md` (or every registered bucket when omitted) plus the realm `<wiki-bucket-list>` region in `wiki/index.md`. `atomic wiki scan` already runs this as part of its pass — only reach for the verb directly to force a rebuild outside a scan.
+- `atomic wiki bucket index [<bucket>]` walks every folder of one bucket (or every registered bucket when omitted) and rebuilds the `<bucket-docs>` region in each folder's `index.md`, listing its direct files and subfolders, stage folders in numeric order. It also rebuilds the realm `<wiki-bucket-list>` region in `wiki/index.md`. `atomic wiki scan` already runs this as part of its pass. Reach for the verb directly only to force a rebuild outside a scan.
+
+To read a bucket, start at its root `index.md` and descend one `index.md` at a time.
 
 See `references/realm.md` for the full frontmatter contract.
 
@@ -74,7 +77,7 @@ See `references/realm.md` for the full frontmatter contract.
 When the user asks to set up a wiki for a folder of projects:
 
 1. Run `atomic wiki scan --root <realm-root>` to scaffold `wiki/` and classify member repos.
-2. Offer bucket names — `research`, `raw`, `tickets` are examples; user defines the actual names.
+2. Offer bucket names: `research` (raw material lives in each item's `01_raw/` stage), `notes`, and `tickets` are examples; user defines the actual names.
 3. Create each named bucket via `atomic wiki bucket add <name>`.
 4. Fill in meaning for each bucket's `index.md` and `## Capture surfaces` entry.
 5. Point at `/refresh-wiki` for the pass that writes `wiki/repos/` summaries and `wiki/concerns/`.

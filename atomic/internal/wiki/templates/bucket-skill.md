@@ -1,9 +1,9 @@
 ---
 name: {{BUCKET}}-management
 description: >
-  Fires when creating or editing docs under {{BUCKET}}/ — new topic files,
-  router subtrees, or edits to existing entries. Use when the user asks to
-  add a note, doc, or topic to {{BUCKET}}, or references a file inside it.
+  Fires when creating or editing docs under {{BUCKET}}/: new items, new
+  stages, or edits to existing entries. Use when the user asks to add a
+  note, doc, or item to {{BUCKET}}, or references a file inside it.
 ---
 
 ## Purpose
@@ -12,11 +12,15 @@ description: >
 
 ## Doc shape
 
-Each topic is one file: `<slug>.md`. A topic that outgrows a single file
-becomes a router — keep `<slug>.md` as the summary and break subtopics into
-a sibling `<slug>/` directory:
+Each item is a folder: `<slug>/index.md` describes it, and its work lives in
+numbered stage folders, starting with `01_raw/` for collected source
+material. Later stages (`02_findings/`, `10_publish/`) build on the one
+before and list in numeric order. Scaffold a new item with:
 
-    atomic wiki bucket doc {{BUCKET}} <slug> --router
+    atomic wiki bucket doc {{BUCKET}} <slug>
+
+Every folder carries an `index.md`. Atomic rebuilds the `<bucket-docs>`
+listing in each one; write only outside that region.
 
 ## Frontmatter contract
 

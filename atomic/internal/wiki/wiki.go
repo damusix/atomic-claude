@@ -101,9 +101,8 @@ func Scan(root string, opts Options) ([]Member, error) {
 	}
 
 	// Non-fatal: a broken bucket region must not block membership.
-	if err := RebuildAllBucketIndexes(root, wikiDir); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki scan: bucket index rebuild: %v\n", err)
-	}
+	_, rebErrs := RebuildAllBucketIndexes(root, wikiDir)
+	reportTreeErrors("atomic wiki scan: bucket index rebuild", rebErrs)
 
 	return classified, nil
 }

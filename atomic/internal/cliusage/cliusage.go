@@ -549,8 +549,8 @@ var commands = []Command{
 	{
 		Path:        []string{"wiki", "bucket", "doc"},
 		Args:        "<bucket> <slug>",
-		Flags:       []string{"--root", "--router"},
-		Description: "Scaffold <bucket>/<slug>.md from the embedded doc template; --router also scaffolds the sibling subtree",
+		Flags:       []string{"--root"},
+		Description: "Scaffold <bucket>/<slug>/index.md and its 01_raw/ stage, then rebuild the bucket's indexes",
 	},
 	{
 		Path:        []string{"wiki", "bucket", "skill"},
@@ -562,7 +562,7 @@ var commands = []Command{
 		Path:        []string{"wiki", "bucket", "index"},
 		Args:        "[<bucket>]",
 		Flags:       []string{"--root"},
-		Description: "Rebuild the <bucket-docs> region for one bucket (or all when omitted) plus the realm bucket list",
+		Description: "Rebuild the <bucket-docs> region in every directory of one bucket (or all when omitted) plus the realm bucket list",
 	},
 	{
 		Path:        []string{"prompt", "git-cleanup"},

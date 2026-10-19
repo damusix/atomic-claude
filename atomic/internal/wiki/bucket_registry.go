@@ -8,6 +8,7 @@ package wiki
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -180,7 +181,7 @@ func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
 		return fmt.Errorf("capture surfaces: read %s: %w", claudeMDPath, err)
 	}
 
-	bullet := fmt.Sprintf("- `%s` <!-- describe what this bucket is for -->", absPath)
+	bullet := fmt.Sprintf("- `%s` <!-- describe what this bucket is for -->", filepath.Join(absPath, "index.md"))
 
 	var newContent string
 	if os.IsNotExist(err) || len(data) == 0 {
@@ -208,7 +209,10 @@ func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
 			}
 			before := strings.TrimRight(content[:insertPos], "\n")
 			afterInsert := content[insertPos:]
-			if strings.Contains(before, absPath) {
+			// A bullet written before buckets were indexed per folder names the
+			// bare folder; it still counts as this bucket's entry.
+			section := content[idx:insertPos]
+			if strings.Contains(section, "`"+absPath+"`") || strings.Contains(section, "`"+filepath.Join(absPath, "index.md")+"`") {
 				return nil
 			}
 			newContent = before + "\n" + bullet + "\n" + afterInsert
@@ -220,7 +224,7 @@ func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
 
 // createBucketIndexStub writes <bucketDir>/index.md, or nothing when one
 // already exists. The stub includes an empty `<bucket-docs>` region so the
-// first RebuildBucketIndex fills a well-formed region in place instead of
+// first RebuildBucketTree fills a well-formed region in place instead of
 // appending one at EOF.
 func createBucketIndexStub(bucketDir, name string) error {
 	indexPath := fmt.Sprintf("%s/index.md", bucketDir)
