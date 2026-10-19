@@ -52,11 +52,11 @@ Different material enters through different doors. Sort it by how processed it i
 |---------|-------|--------|
 | `research/` | One folder per item: a vendor evaluation, an API investigation, a design tradeoff. Its `01_raw/` stage holds the unprocessed dumps (PDFs, email and Slack exports, transcripts, screenshots); later stages hold what you write from them. | `<slug>/` per item, scaffolded by `bucket doc`; files in `01_raw/` stay as they arrive. |
 | `history/` | Scraped pages and time-stamped captures of source documents. | Timestamp-named. |
-| Tickets | Live issue tracker state. | Not a folder — read through MCP. |
+| Tickets | Live issue tracker state, read through MCP. A ticket you triage gets its own item in a `tickets/` bucket, shown in [the example below](#example-a-tickets-bucket-with-triage). | No folder for live state; `<slug>/` per triaged ticket. |
 
 Each bucket carries an `index.md` describing what it holds and the convention its files follow. `atomic wiki bucket add` creates the stub; you fill it in, or let the `/refresh-wiki` bucket offer ask you on first use. The same file also carries a generated listing of the bucket's contents, covered below in "Browsing a bucket's own docs".
 
-Tickets are the one surface that does not need a folder. Wire your tracker as an MCP server in the realm `.mcp.json` and Claude reads issues live:
+Live tracker state does not need a folder. Wire your tracker as an MCP server in the realm `.mcp.json` and Claude reads issues live:
 
 ```json
 {
@@ -66,7 +66,7 @@ Tickets are the one surface that does not need a folder. Wire your tracker as an
 }
 ```
 
-GitHub, Jira, and Linear all expose MCP servers. With one wired at the realm root, "what is blocking ticket ACME-412" is answerable from any session in the realm. When a tracker has no MCP server, export the tickets and drop the export in an item's `01_raw/` stage like any other dump.
+GitHub, Jira, and Linear all expose MCP servers. With one wired at the realm root, "what is blocking ticket ACME-412" is answerable from any session in the realm. When a tracker has no MCP server, or you want a written triage for each ticket, keep them in a bucket instead, as in the tickets example below.
 
 
 ### Browsing a bucket's own docs
@@ -78,7 +78,56 @@ The listing is derived from each doc's frontmatter. A bucket doc carries six key
 
 Scaffold an item with `atomic wiki bucket doc <bucket> <slug>`. It writes `<slug>/index.md` with the frontmatter and `created` stamped, and `<slug>/01_raw/index.md` for the material you collect. Add later stages as numbered folders (`02_findings/`, `10_publish/`) when the work reaches them; the next rebuild indexes each one.
 
-To keep a bucket's conventions in one place, `atomic wiki bucket skill <bucket>` scaffolds a `.claude/skills/<bucket>-management/` skill prefilled with the bucket's purpose. Fill in the rules for that bucket once, and they load automatically whenever you work in the realm.
+`atomic wiki bucket skill <bucket>` scaffolds a `.claude/skills/<bucket>-management/` skill at the realm root, with `## Purpose` taken from the `description:` in the bucket's `index.md` and a `## Stages` placeholder. The skill loads only in Claude Code sessions started at the realm root. A session started inside a member repo reaches the bucket's `index.md` instead, through its entry under `## Capture surfaces` in the realm `CLAUDE.md`. Write the conventions in both files.
+
+
+### Example: a tickets bucket with triage
+
+
+A tickets bucket holds one item per ticket. `01_raw/` keeps the ticket as received, and `02_triage/` holds your read of it:
+
+```text
+tickets/
+├─ index.md              what the bucket holds + its stage conventions
+└─ acme-412-login-loop/
+   ├─ index.md           the ticket: title, status, one-line description
+   ├─ 01_raw/            the export, email thread, screenshots, as received
+   └─ 02_triage/
+      └─ index.md        type, priority, owning repo, next action
+```
+
+The triage records four fields:
+
+| Field | Holds |
+|-------|-------|
+| Type | bug, feature request, question, or your own categories |
+| Priority | your scale, such as P0 to P3 |
+| Owning repo | one of the realm's member repos, as listed in the `<wiki-scan>` block of `wiki/index.md` |
+| Next action | the one step that moves the ticket forward, and who takes it |
+
+Register the bucket, then replace the `description:` placeholder in `tickets/index.md` before scaffolding the skill, because `bucket skill` copies that description into the skill's `## Purpose`:
+
+```sh
+atomic wiki bucket add tickets
+# edit tickets/index.md: description: One item per support ticket, triaged to an owning repo
+atomic wiki bucket skill tickets
+atomic wiki bucket doc tickets acme-412-login-loop
+```
+
+Filling `description:` does not update the realm `CLAUDE.md`. Its `## Capture surfaces` bullet for the bucket keeps the `<!-- describe what this bucket is for -->` placeholder, so replace that too.
+
+`bucket doc` creates `01_raw/` only. Add `02_triage/index.md` by hand when you triage the ticket, with the `title` and `description` frontmatter that `bucket doc` stamps on `01_raw/index.md`. Without frontmatter, the item's listing puts the stage under `### Unindexed` instead of beside Raw:
+
+```markdown
+---
+title: Triage
+description: Type, priority, owning repo, and next action for acme-412-login-loop
+---
+```
+
+Then write the convention down in two places. In `tickets/index.md`, replace the stages placeholder under `## Conventions` with the two stages and what each holds. In `.claude/skills/tickets-management/SKILL.md`, fill `## Stages` with the same list and the four triage fields, so a realm-root session that triages a ticket writes them the same way every time.
+
+The stage names are your convention. Atomic does not know what a ticket or a triage is: it lists `01_raw/` and `02_triage/` in numeric order like any other stage folders and checks nothing inside them.
 
 
 ## How a session finds material
