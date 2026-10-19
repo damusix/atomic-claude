@@ -215,7 +215,7 @@ func runSpec(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 	}
 
 	sortFindings(all)
-	s := summarize(all)
+	s := summarize(paths, all)
 
 	if jsonOut {
 		printJSON(w, all, s)
