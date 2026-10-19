@@ -13,7 +13,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/where"
-	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
 // ProfileRefresh is a test seam — spying on it avoids real tool detection and
@@ -53,38 +52,6 @@ func seedOutputStyleSilent() {
 	}
 	targetDir := filepath.Join(home, ".claude")
 	_, _ = SeedOutputStyleFn(home, targetDir, home)
-}
-
-// WikiCheckStalenessFn takes raw func types rather than wiki.ExecRunner so test
-// function literals assign without a cast.
-type WikiCheckStalenessFn func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error)
-
-// WikiCheckStaleness is a test seam; DefaultWikiCheckStaleness restores it.
-var DefaultWikiCheckStaleness WikiCheckStalenessFn = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
-	return wiki.CheckStaleness(claudeHome, thresholdDays, wiki.ExecRunner(runner), clock)
-}
-
-var WikiCheckStaleness WikiCheckStalenessFn = DefaultWikiCheckStaleness
-
-// wikiStalenessThresholdDays is the deterministic floor for wiki neglect; the
-// "from memory" override is an LLM-layer concern, not this code's.
-const wikiStalenessThresholdDays = 30
-
-// checkWikiStaleness is silent on both errors and empty results — the hook must
-// never block.
-func checkWikiStaleness(now time.Time) []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-	claudeHome := filepath.Join(home, ".claude")
-	// nil runner is deliberate: CheckStaleness only stats and reads in production;
-	// the runner exists as a test-recording seam.
-	nudges, err := WikiCheckStaleness(claudeHome, wikiStalenessThresholdDays, nil, func() time.Time { return now })
-	if err != nil {
-		return nil
-	}
-	return nudges
 }
 
 type WherePositionFn func(cwd, claudeMDPath string) (where.Report, error)
@@ -155,8 +122,6 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 	refreshProfile(now)
 	seedOutputStyleSilent()
 
-	wikiNudges := checkWikiStaleness(now)
-
 	whereNudges := checkWherePosition(repoRoot)
 
 	// Filter once, so the body builder and the systemMessage count agree.
@@ -167,7 +132,7 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 
 	pastDue := filterPastDue(rows, now)
 
-	body, err := buildBody(pastDue, wikiNudges, whereNudges, now)
+	body, err := buildBody(pastDue, whereNudges, now)
 	if err != nil {
 		return "", err
 	}
@@ -219,18 +184,17 @@ func SessionStartText(repoRoot string, now time.Time) (string, error) {
 	refreshProfile(now)
 	seedOutputStyleSilent()
 
-	wikiNudges := checkWikiStaleness(now)
 	whereNudges := checkWherePosition(repoRoot)
 
 	rows, err := reminder.List(repoRoot)
 	if err != nil {
 		return "", fmt.Errorf("hooks session-start: list reminders: %w", err)
 	}
-	return buildBody(filterPastDue(rows, now), wikiNudges, whereNudges, now)
+	return buildBody(filterPastDue(rows, now), whereNudges, now)
 }
 
-// buildBody orders orientation, then wiki staleness, then reminders.
-func buildBody(pastDue []reminder.Row, wikiNudges []string, whereNudges []string, now time.Time) (string, error) {
+// buildBody orders orientation, then reminders.
+func buildBody(pastDue []reminder.Row, whereNudges []string, now time.Time) (string, error) {
 	reminderBody, err := buildBodyFromPastDue(pastDue, now)
 	if err != nil {
 		return "", err
@@ -239,9 +203,6 @@ func buildBody(pastDue []reminder.Row, wikiNudges []string, whereNudges []string
 	var sections []string
 	if len(whereNudges) > 0 {
 		sections = append(sections, buildNudgeSection("## Orientation", whereNudges))
-	}
-	if len(wikiNudges) > 0 {
-		sections = append(sections, buildNudgeSection(fmt.Sprintf("## Wiki staleness (%d)", len(wikiNudges)), wikiNudges))
 	}
 	if reminderBody != "" {
 		sections = append(sections, reminderBody)

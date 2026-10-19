@@ -31,9 +31,6 @@ interface StatusResponse {
   isRealmScope: boolean;
   wiki: {
     staleRepos: string[];
-    staleConcerns: string[];
-    staleBuckets: string[];
-    bucketDiffKeys: string[];
     allFresh: boolean;
   };
   index: {
@@ -88,9 +85,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function Health({ status }: { status: StatusResponse }) {
   const { wiki, index } = status;
   const problems: { label: string; items: string[] }[] = [
-    { label: "stale repos", items: wiki.staleRepos },
-    { label: "stale concerns", items: wiki.staleConcerns },
-    { label: "stale buckets", items: wiki.staleBuckets },
+    { label: "membership drift", items: wiki.staleRepos },
     { label: "stale index", items: index.staleMembers },
     { label: "not indexed", items: index.notIndexed },
   ].filter((p) => p.items.length > 0);

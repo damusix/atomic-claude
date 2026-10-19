@@ -39,11 +39,11 @@ Read the `<wikis>` block in `~/.claude/CLAUDE.md` (outside `<atomic>`, CLI-manag
 
 ## Pipeline routing
 
-When a full inference run is needed (refresh, summarize, synthesize), detect scope and load the matching reference:
+When a full inference run is needed (refresh, summarize), detect scope and load the matching reference:
 
 1. Read `<wiki-type>` from the active wiki index (`docs/wiki/index.md` for repo scope, `wiki/index.md` for realm scope).
 2. **Repo scope** (`<wiki-type>repo</wiki-type>`) — the full per-repo pipeline lives at `~/.claude/skills/atomic-wiki/references/repo.md` (installed location). A full refresh is triggered via `/refresh-wiki`, which dispatches `atomic-wiki-inferrer` to execute it.
-3. **Realm scope** (`<wiki-type>realm</wiki-type>`) — the wiki-output and bucket-synthesis pipelines live at `~/.claude/skills/atomic-wiki/references/realm.md` (installed location). A full refresh is triggered via `/refresh-wiki [root]`, which orchestrates scan/stale/offer and dispatches `atomic-wiki-inferrer` for each inference step.
+3. **Realm scope** (`<wiki-type>realm</wiki-type>`) — the wiki-output pipeline lives at `~/.claude/skills/atomic-wiki/references/realm.md` (installed location). A full refresh is triggered via `/refresh-wiki [root]`, which runs the scan, makes its offers, re-authors the artifacts the user picks, and dispatches `atomic-wiki-inferrer` for each inference step.
 
 The pipeline text lives **only** in the reference files (installed at `~/.claude/skills/atomic-wiki/references/`) — not here, and not duplicated in the agent's system prompt. When an agentic inference run is needed, the agent resolves `$HOME` via Bash and reads the appropriate reference file at its absolute path, then executes it.
 
@@ -53,7 +53,6 @@ When the user wants a folder for notes, tickets, research, or any loose material
 
 1. Run `atomic wiki bucket add <name> --root <realm-root>` — never bare `mkdir`.
    - Creates `<realm-root>/<name>/index.md` (stub: purpose line + `## Conventions` placeholder).
-   - Creates `wiki/.buckets/<name>/` (empty manifest dir).
    - Splices a `<bucket name="<name>" path="<abs-path>"/>` entry into the `<wiki-buckets>` block in `wiki/index.md`.
    - On the first bucket in the realm, writes a `## Capture surfaces` section to the realm `CLAUDE.md`.
 2. Drive the meaning-fill: ask the user what the bucket is for, then replace the `<!-- describe what this bucket is for -->` placeholder in the realm `CLAUDE.md` `## Capture surfaces` section and write the bucket's `index.md` purpose line + `## Conventions` block to match. **Code writes structure; the model writes meaning.**
@@ -78,28 +77,26 @@ When the user asks to set up a wiki for a folder of projects:
 2. Offer bucket names — `research`, `raw`, `tickets` are examples; user defines the actual names.
 3. Create each named bucket via `atomic wiki bucket add <name>`.
 4. Fill in meaning for each bucket's `index.md` and `## Capture surfaces` entry.
-5. Point at `/refresh-wiki` for the synthesis pass that writes `wiki/repos/`, `wiki/concerns/`, and `wiki/knowledge/`.
+5. Point at `/refresh-wiki` for the pass that writes `wiki/repos/` summaries and `wiki/concerns/`.
 
 Wiki repo commits happen inside `wiki/` — never the realm root.
 
 ## Query and staleness route
 
-- **"what does my wiki know about X"** → read `wiki/index.md`, `wiki/knowledge/`, `wiki/repos/`, `wiki/concerns/` for the active realm. Summarize what is present; say explicitly if nothing matches.
-- **"is my wiki stale"** → run `atomic wiki stale --root <realm-root>`. Exit 0 = fresh. Exit 1 = stale: stdout lists `DRIFT`/`STALE` lines (including `STALE bucket <name>` for buckets with a non-empty diff). Exit 2 = hard error.
+- **"what does my wiki know about X"** → read `wiki/index.md`, `wiki/repos/`, `wiki/concerns/`, and each registered bucket's `index.md` for the active realm. Summarize what is present; say explicitly if nothing matches.
+- **"is my wiki stale"** → run `atomic wiki stale --root <realm-root>`. It reports membership drift only. Exit 0 = no drift. Exit 1 = stdout lists `DRIFT added|removed|status` lines. Exit 2 = hard error. Nothing tracks whether a summary or concern is current; `/refresh-wiki [root]` re-authors the ones the user picks.
 
 ## Conventions that prevent foot-guns
 
 - `<wiki-scan>` and `<wiki-buckets>` blocks in `wiki/index.md` are code-owned — never hand-edit them.
-- `wiki/concerns/` files need a `reflects:` stamp or they perpetually STALE-nag. Route through `/refresh-wiki`; or stamp after a light single-file edit with `atomic wiki stamp`.
-- Knowledge pages (`wiki/knowledge/<topic>.md`) are stamped via `atomic wiki stamp --knowledge` — never write `sources:` frontmatter by hand; the model declares which bucket files contributed, code writes every SHA-256 value.
-- Light single-file edit + stamp vs full `/refresh-wiki` for anything multi-artifact — full refresh is for batch staleness.
+- Edit a single summary or concern directly for a small change; run `/refresh-wiki [root]` to re-author several.
 
 <constraints>
 
 ## Boundaries
 
-- **Complements /refresh-wiki**: `/refresh-wiki` is the synthesis engine (repo signals refresh, realm repo summaries, bucket synthesis, concern re-auth, linkify). This skill is the conversational entry point — it registers and describes; `/refresh-wiki` synthesizes.
+- **Complements /refresh-wiki**: `/refresh-wiki` is the synthesis engine (repo signals refresh, realm repo summaries, concern re-auth, linkify). This skill is the conversational entry point — it registers and describes; `/refresh-wiki` synthesizes.
 - **Not invoked by other commands.** No cross-reference needed in the other direction.
-- **Never bare mkdir** for capture intent in a registered realm. `atomic wiki bucket add` is the only correct path — it wires the manifests and registry.
+- **Never bare mkdir** for capture intent in a registered realm. `atomic wiki bucket add` is the only correct path — it writes the index stub and the registry entry.
 
 </constraints>

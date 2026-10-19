@@ -81,8 +81,8 @@ func TestScanRepoOverride(t *testing.T) {
 	}
 }
 
-// Only migrate, config resolve and wiki stamp are exempt — including verbs
-// sharing a top-level name with an exempt verb.s parent.
+// Only migrate and config resolve are exempt — including verbs sharing a
+// top-level name with an exempt verb's parent.
 func TestRepoFlagExempt(t *testing.T) {
 	cases := []struct {
 		name string
@@ -93,7 +93,6 @@ func TestRepoFlagExempt(t *testing.T) {
 		{"migrate with its own --repo", []string{"migrate", "--repo", "/x"}, true},
 		{"migrate with --realm", []string{"migrate", "--realm", "/x"}, true},
 		{"config resolve", []string{"config", "resolve", "--repo", "/x", "--json"}, true},
-		{"wiki stamp with positional file before flags", []string{"wiki", "stamp", "f.md", "--repo", "/x"}, true},
 		{"config get is not exempt", []string{"config", "get", "some.key"}, false},
 		{"wiki scan is not exempt", []string{"wiki", "scan", "--root", "/x"}, false},
 		{"signals is not exempt", []string{"signals", "show"}, false},

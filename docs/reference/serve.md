@@ -1,6 +1,6 @@
 # atomic serve
 
-`atomic serve` starts a local HTTP server that renders a wiki realm (or a single repo) as a navigable, Obsidian-style knowledge graph in the browser. It is a presentation layer for that content: it reads what already exists (wiki summaries, code-intel indexes, bucket manifests) and never writes, re-indexes, or re-stamps any of it. The one exception is the bus chat page (`/bus`), which operates `atomic bus` rooms and stays loopback-only regardless of `--host`. See Bus chat below.
+`atomic serve` starts a local HTTP server that renders a wiki realm (or a single repo) as a navigable, Obsidian-style knowledge graph in the browser. It is a presentation layer for that content: it reads what already exists (wiki summaries, concerns, bucket docs, code-intel indexes) and never writes or re-indexes any of it. The one exception is the bus chat page (`/bus`), which operates `atomic bus` rooms and stays loopback-only regardless of `--host`. See Bus chat below.
 
 The UI is a React single-page app. Go serves a JSON API plus a handful of carried, unreshaped endpoints (`/graph/data`, `/code/graph/data`, `/code/graph/members`, `/events`, `/healthz`). React Router resolves every other path client-side.
 
@@ -27,7 +27,7 @@ The server shuts down cleanly on SIGINT. It prints the URL on start; under a wil
 
 | Detected shape | Scope | What is served |
 |---------------|-------|----------------|
-| Registered `<wikis>` realm root | **Realm** | Full realm: nav tree (Realm / Repos / Concerns / Knowledge / Buckets / External), graph mode (the whole-realm docs graph, and a code graph per member via a picker), federated code search across all members. The landing page is the realm index (`wiki/index.md`). |
+| Registered `<wikis>` realm root | **Realm** | Full realm: nav tree (Realm / Repos / Concerns / Buckets / External), graph mode (the whole-realm docs graph, and a code graph per member via a picker), federated code search across all members. The landing page is the realm index (`wiki/index.md`). |
 | Inside a member repo with a wiki | **Member** | Realm nav and realm chrome, rooted at the realm root; code search targets the single member's index. |
 | Bare repo (code index optional) | **Repo** | Pages, plus code intelligence when an index exists — docs-only when absent. No wiki chrome. The landing page is the repo `README.md`. |
 
@@ -70,7 +70,7 @@ Markdown is GitHub Flavored, rendered server-side with syntax highlighting. Fenc
 
 In-page links are resolved against the realm root, not the browser's current URL. Three link forms are supported:
 
-- **Bundle-relative** (`/path/to/page.md`) — a leading slash is resolved against the served root (OKF §5.1 recommended form). When the target exists under root it becomes an in-shell navigable route, exactly like a relative link. This is how cross-links between OKF concept pages (`knowledge/`, `concerns/`) render.
+- **Bundle-relative** (`/path/to/page.md`) — a leading slash is resolved against the served root (OKF §5.1 recommended form). When the target exists under root it becomes an in-shell navigable route, exactly like a relative link. This is how cross-links between OKF concept pages (`concerns/`, `repos/`) render.
 - **Relative** (`../concerns/x.md`, `./other.md`) — resolved from the source page's directory.
 - **Obsidian wikilinks** (`[[page]]`, `[[page|alias]]`) — resolved by nearest-then-alphabetical rule; kept for back-compat tolerance.
 
@@ -98,7 +98,7 @@ The layout is a continuous physics simulation, not a one-shot pass. It settles a
 **Interaction is Shift-gated.** With no modifier the pointer is a camera: drag pans, even over dense clusters, scroll zooms, and a click on a node opens it. Holding Shift makes the graph itself interactive, so hovering highlights a node's neighborhood and shows a preview card, and dragging moves the node and saves its new position. A corner hint names the gesture.
 
 - **Shift-click pins** a node's neighborhood highlight so it survives mouse-out and releasing Shift, which is what makes studying a node's relationships hands-free. A second Shift-click opens the node. The pin clears on a background click, on pinning another node, or when the legend hides that node's type.
-- **The legend filters.** Each chip names a type and its count of visible nodes, and clicking one toggles that type off. Hide repos to see only knowledge pages and the edges between them.
+- **The legend filters.** Each chip names a type and its count of visible nodes, and clicking one toggles that type off. Hide repos to see only concerns and the edges between them.
 - **Labels and sizes track zoom.** Labels fade in as you zoom in and out as you zoom out. Node size scales with how connected a node is, shrinking toward a floor as you pull back. A fitted view of a dense graph therefore reads as structure rather than a solid mass. A hovered node always shows its label.
 
 What differs between the two:
@@ -106,12 +106,12 @@ What differs between the two:
 | | Docs graph | Code graph |
 |---|---|---|
 | Nodes | pages, colored by concept type | symbols, colored by kind |
-| Edges | markdown links, wikilinks, provenance (dashed) | `contains` (faint), `calls`, `imports`, all others as one tier |
+| Edges | markdown links, wikilinks | `contains` (faint), `calls`, `imports`, all others as one tier |
 | Shift-hover card | title, description, snippet | name, kind, `file:line` |
 | Opening a node | the page, inline over the dimmed graph | the code-explorer view for that symbol |
 | Scope | the whole realm at once | one repo, chosen with a member picker |
 
-A page's concept type comes from frontmatter `type:` first, then a path convention (`repos/`, `concerns/`, `knowledge/`), then `page` as the default. A provenance edge whose recorded fingerprint no longer matches the live content is drawn red (the drift signal from the `reflects:` / `sources:` chain).
+A page's concept type comes from frontmatter `type:` first, then a path convention (`repos/`, `concerns/`), then `page` as the default.
 
 Opening a docs node shows the page in a modal over the dimmed graph rather than navigating away, with an "Open full page →" button for more context. Graph state survives throughout. The selected view lives in the URL, so a link to a specific graph reopens that same one. In a realm the selected member is the browser-held repo pick shared with Schema and Plans (see Plans below), never part of the URL.
 
@@ -196,7 +196,7 @@ The nav's External group lists every outbound `http(s)` URL across the realm: th
 
 ### Status
 
-The realm-health view reports wiki staleness (DRIFT / STALE / STALE bucket) alongside code-index health, naming only the repos that need action. Staleness also shows ambiently as badges in the nav, so this page summarizes rather than being the only signal. `/healthz` is a separate plain-text liveness probe.
+The realm-health view reports wiki membership drift (the `DRIFT` lines from `atomic wiki stale`) alongside code-index health, naming only the repos that need action. A drifted repo also carries a badge in the nav, so this page summarizes rather than being the only signal. `/healthz` is a separate plain-text liveness probe.
 
 
 ## Bus chat
@@ -255,7 +255,7 @@ When the realm changes, subscribed tabs receive a push carrying the new fingerpr
 
 Files written moments ago are held back for a short quiet window before they are published, so a tool writing a file incrementally never renders a half-written page. A small indicator in the top bar shows the live connection state: live, reconnecting, or disconnected. Shutting the server down with tabs open exits cleanly and immediately.
 
-Provenance hashing and the full graph JSON are warmed once in a background goroutine at startup and recomputed on demand when the realm fingerprint changes, never on the periodic check.
+The full graph JSON is warmed once in a background goroutine at startup and recomputed on demand when the realm fingerprint changes, never on the periodic check.
 
 
 ## Theme and typography

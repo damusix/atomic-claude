@@ -2,15 +2,14 @@
 // ?node= it emits every node and resolved edge; with ?node=&depth= it emits
 // the BFS neighbourhood, inbound and outbound, defaulting to depth 2.
 //
-// Edges carry one of three classes the client styles on: "md-link",
-// "wikilink", and "fingerprint" for provenance.
+// Edges carry one of two classes the client styles on: "md-link" and
+// "wikilink".
 package serve
 
 import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -214,8 +213,8 @@ type GraphDataHandler struct {
 	// store is nil for the per-request constructor, which rebuilds the graph
 	// on every request instead of tracking realm changes.
 	store *snapshotStore
-	// cache holds the full-view assembly — provenance walk, element build,
-	// marshal — keyed by filesystem fingerprint. Nil alongside a nil store.
+	// cache holds the full-view assembly — element build and marshal — keyed
+	// by filesystem fingerprint. Nil alongside a nil store.
 	cache *graphDataCache
 }
 
@@ -229,9 +228,9 @@ func NewGraphDataHandler(root string) http.Handler {
 // is reflected on the next request rather than at the next restart. store must
 // not be nil.
 func NewGraphDataHandlerWithGraph(root string, store *snapshotStore) http.Handler {
-	cache := newGraphDataCache(root, store)
+	cache := newGraphDataCache(store)
 	// Warm in the background so the first graph open does not wait on the
-	// provenance walk.
+	// whole-realm assembly.
 	go cache.warm()
 	return &GraphDataHandler{root: root, store: store, cache: cache}
 }
@@ -239,8 +238,8 @@ func NewGraphDataHandlerWithGraph(root string, store *snapshotStore) http.Handle
 func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	nodeParam := r.URL.Query().Get("node")
 
-	// The full view runs a provenance walk over the whole realm, so it is
-	// cached per realm state; an assemble error falls through to the live path.
+	// The full view covers the whole realm, so it is cached per realm state;
+	// an assemble error falls through to the live path.
 	if nodeParam == "" && h.cache != nil {
 		if b, fp, err := h.cache.fullJSON(); err == nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -260,9 +259,6 @@ func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g = BuildLinkGraph(h.root)
 	}
 
-	wikiDir := filepath.Join(h.root, "wiki")
-	provDAG := BuildProvenanceDAG(h.root, wikiDir)
-
 	var elems cytoElements
 
 	if nodeParam != "" {
@@ -277,74 +273,10 @@ func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		elems = buildCytoElements(g)
 	}
 
-	injectProvenanceEdges(&elems, provDAG, nodeParam != "")
-
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(elems); err != nil {
 		return // headers already sent
-	}
-}
-
-// injectProvenanceEdges merges the provenance DAG into the elements. Drifted
-// edges get an extra class so the client can colour them.
-//
-// A scoped call may only decorate what is already present — no new nodes, and
-// only edges with both endpoints in scope. Injecting the whole realm DAG into
-// a one-node neighbourhood filled the rail mini-graph with unrelated clusters
-// that had no path to the page being viewed.
-func injectProvenanceEdges(elems *cytoElements, dag ProvenanceDAG, scoped bool) {
-	existing := make(map[string]bool, len(elems.Nodes))
-	for _, n := range elems.Nodes {
-		existing[n.Data.ID] = true
-	}
-
-	for _, n := range dag.Nodes {
-		if scoped {
-			break
-		}
-		if !existing[n.ID] {
-			label := n.ID
-			if idx := strings.LastIndexByte(label, '/'); idx >= 0 {
-				label = label[idx+1:]
-			}
-			label = strings.TrimSuffix(label, ".md")
-			elems.Nodes = append(elems.Nodes, cytoNode{
-				Data: cytoNodeData{
-					ID:    n.ID,
-					Label: label,
-					Type:  n.Kind,
-				},
-			})
-			existing[n.ID] = true
-		}
-	}
-
-	seen := make(map[string]bool)
-	for _, e := range dag.Edges {
-		// Cytoscape drops the whole element set on one dangling reference.
-		if scoped && (!existing[e.Source] || !existing[e.Target]) {
-			continue
-		}
-		key := fmt.Sprintf("fp:%s→%s", e.Source, e.Target)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-
-		classes := "fingerprint"
-		if e.Drift {
-			classes = "fingerprint drift"
-		}
-		id := fmt.Sprintf("fp:%s→%s", e.Source, e.Target)
-		elems.Edges = append(elems.Edges, cytoEdge{
-			Data: cytoEdgeData{
-				ID:     id,
-				Source: e.Source,
-				Target: e.Target,
-			},
-			Classes: classes,
-		})
 	}
 }

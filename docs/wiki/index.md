@@ -4,7 +4,7 @@ description: Repo-local project wiki for atomic-claude — framework signals and
 ---
 
 <wiki-type>repo</wiki-type>
-<scan-sha>e9a049d7c3946e093a4a61d310176dc30485edc4</scan-sha>
+<scan-sha>4fe1d80a1a459cb53306c6579b54892b2aec6dca</scan-sha>
 <wiki-schema>1</wiki-schema>
 
 # Project signals
@@ -36,7 +36,7 @@ Domains are vertical slices by feature concern, not horizontal layers by file ty
 | workflow | [`context/commands/`](../../context/commands) | Plan, implement, review, ship — and the subagent loop that drives it. | [`docs/wiki/workflow.md`](workflow.md) |
 | config | [`atomic/internal/config/`](../../atomic/internal/config) | User and repo config, state at `~/.atomic`, hooks, follow-ups, self-update. | [`docs/wiki/config.md`](config.md) |
 | docs-meta | [`context/skills/atomic-writing/`](../../context/skills/atomic-writing) | Writing voice and diff-driven documentation routing. | [`docs/wiki/docs-meta.md`](docs-meta.md) |
-| wiki | [`atomic/internal/wiki/`](../../atomic/internal/wiki) | Cross-repo knowledge layer: scan, classify, synthesize, capture buckets. | [`docs/wiki/wiki.md`](wiki.md) |
+| wiki | [`atomic/internal/wiki/`](../../atomic/internal/wiki) | Cross-repo wiki: scan, classify, re-author picked pages, capture buckets. | [`docs/wiki/wiki.md`](wiki.md) |
 | code-intel | [`atomic/internal/codeintel/`](../../atomic/internal/codeintel) | Tree-sitter symbol graph, the `atomic code` verbs, and the MCP server. | [`docs/wiki/code-intel.md`](code-intel.md) |
 | serve | [`atomic/internal/serve/`](../../atomic/internal/serve) | Local read-only web UI over the wiki and the code graph. | [`docs/wiki/serve.md`](serve.md) |
 | bus | [`atomic/internal/bus/`](../../atomic/internal/bus) | Messaging between concurrent Claude sessions over named rooms. | [`docs/wiki/bus.md`](bus.md) |

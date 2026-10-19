@@ -13,7 +13,6 @@ Child spec of `docs/spec/wiki-buckets.md`. Design: `docs/design/bucket-doc-manag
 
 
 - No rejection or quarantine of frontmatter-free files. Files without frontmatter are listed under an `### Unindexed` sub-heading with a derived description; capture stays frictionless.
-- No change to manifest or staleness granularity. `WalkBucket`, `BucketDiff`, `PromoteBucket`, and the `STALE bucket <name>` line are untouched.
 - No new `atomic wiki stale` line type for unindexed or un-frontmattered docs. The stale exit-code contract is unchanged.
 - No per-bucket skill in the install bundle. `atomic claude install`, `bundlemirror`, and the embedded manifest never carry realm-local skills.
 - No central `tags` or `type` vocabulary, and no validation of `status` values. All three stay producer-defined.
@@ -38,8 +37,8 @@ Child spec of `docs/spec/wiki-buckets.md`. Design: `docs/design/bucket-doc-manag
 - [ ] A directory `<bucket>/<slug>/` sitting beside `<bucket>/<slug>.md` marks that topic a **router**; the subtree contributes no separate index entries and the entry is flagged as a router with its descendant `.md` count.
 - [ ] A directory `<bucket>/<slug>/` with **no** sibling `<slug>.md` is reported as an orphan subtree entry — listed, flagged, never silently dropped.
 - [ ] The walk covers the bucket root and one directory level for router detection; `.md` files nested deeper than a router subtree root are never promoted to top-level topics.
-- [ ] The bucket's own `index.md` is excluded from its topic list. OS junk (`.DS_Store`, `Thumbs.db`) and `skipDirs` members are excluded, matching `WalkBucket`.
-- [ ] Non-`.md` files at the bucket root are excluded from the topic list (they are still hashed by the manifest walk — the two granularities stay independent).
+- [ ] The bucket's own `index.md` is excluded from its topic list. OS junk (`.DS_Store`, `Thumbs.db`) and `skipDirs` members are excluded.
+- [ ] Non-`.md` files at the bucket root are excluded from the topic list.
 
 ### Managed-region primitive
 
@@ -61,7 +60,7 @@ Child spec of `docs/spec/wiki-buckets.md`. Design: `docs/design/bucket-doc-manag
 ### Realm-level index (`wiki/index.md`)
 
 - [ ] A `<wiki-bucket-list>` region holds a code-generated `## Buckets` heading plus one entry per registered bucket as `- [<name>](<link>) - <description>`.
-- [ ] `<link>` is relative to `wiki/index.md` (`../<name>` for a realm-root bucket), matching how `atomic wiki linkify` emits file-relative links — the absolute path stays in the `<wiki-buckets>` block, which `stale` and `serve` resolve from any cwd.
+- [ ] `<link>` is relative to `wiki/index.md` (`../<name>` for a realm-root bucket), matching how `atomic wiki linkify` emits file-relative links — the absolute path stays in the `<wiki-buckets>` block, which `bucket list` and `serve` resolve from any cwd.
 - [ ] Entries are sorted by bucket name.
 - [ ] Bucket description is derived from `<bucket>/index.md` via the same ladder as doc descriptions.
 - [ ] The `<wiki-buckets>` block is **unchanged** — no new attributes, no schema change. It stays the parse-back registry; `<wiki-bucket-list>` is the presentation.
@@ -79,7 +78,7 @@ Child spec of `docs/spec/wiki-buckets.md`. Design: `docs/design/bucket-doc-manag
 - [ ] `atomic wiki bucket doc <bucket> <slug> [--router]` writes `<bucket>/<slug>.md` from the embedded scaffold with `created` stamped to the current date.
 - [ ] The command refuses when the target file exists, exits non-zero, and names the path. It never overwrites.
 - [ ] `--router` additionally creates `<bucket>/<slug>/` and a `<slug>/CLAUDE.md` stub; both are skipped if present.
-- [ ] `<slug>` is validated against `[a-z0-9-]+`; a non-conforming slug is rejected with the pattern named, matching the knowledge-topic-name discipline already in `wiki-buckets`.
+- [ ] `<slug>` is validated against `[a-z0-9-]+`; a non-conforming slug is rejected with the pattern named.
 - [ ] An unregistered `<bucket>` is rejected, listing the registered bucket names.
 - [ ] `atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md` from the embedded scaffold, pre-filled with the bucket name and the purpose line read from `<bucket>/index.md`. No-op when the file exists.
 - [ ] `atomic wiki bucket index [<bucket>]` rebuilds the `<bucket-docs>` region for one bucket, or every registered bucket when the argument is omitted, and rebuilds the realm `<wiki-bucket-list>` region.
@@ -90,7 +89,7 @@ Child spec of `docs/spec/wiki-buckets.md`. Design: `docs/design/bucket-doc-manag
 ### Wiring and gates
 
 - [ ] `/refresh-wiki` runs the index rebuild in its deterministic phase, before the commit offer.
-- [ ] The `atomic-wiki` skill and `skills/atomic-wiki/references/realm.md` describe the frontmatter contract so bucket-synthesis reads it rather than re-deriving.
+- [ ] The `atomic-wiki` skill and `skills/atomic-wiki/references/realm.md` describe the frontmatter contract so a session authoring bucket docs reads it rather than re-deriving.
 - [ ] `/atomic-help` carries the three new verbs in its `cli` topic row (help-router coverage rule).
 - [ ] `docs/spec/wiki-buckets.md` gains a change-log entry naming this child spec.
 - [ ] `make render` and `make -C atomic bundle` are clean; `go test ./...`, `go vet ./...`, `gofmt -l .` clean.
@@ -128,7 +127,7 @@ Per-topic walk with frontmatter-derived listings spliced into XML-delimited mana
     commands/refresh-wiki.md ............ M  (rendered)
     commands/atomic-help.md ............. M  (rendered)
     skills/atomic-wiki/SKILL.md ......... M  (new verbs)
-    skills/atomic-wiki/references/realm.md  M  (frontmatter contract for synthesis)
+    skills/atomic-wiki/references/realm.md  M  (frontmatter contract)
     CLAUDE.md ........................... M  (one clause in the wiki paragraph)
     README.md ........................... M  (feature-table row)
     docs/reference/wiki-workflow.md ..... M  (bucket doc authoring section)
@@ -247,12 +246,11 @@ Per-topic walk with frontmatter-derived listings spliced into XML-delimited mana
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| Two walk granularities (per-topic index vs per-file manifest) read as a bug and get "fixed" into one | med | Package doc comment in `bucketindex.go` states the divergence and why; spec non-goal says the manifest walk is untouched |
 | Splicing corrupts a user's hand-written bucket `index.md` | med | Region replace is tag-bounded with byte-for-byte preservation outside; an unpaired tag leaves the file untouched rather than guessing; covered by a test that types prose between entries, after the region, and inside the region, then asserts only the region body moved |
 | Members migration runs against a realm mid-edit and loses content | low | Migration reuses the same primitive: locate the legacy region, replace only between its bounds, preserve outside; an unpaired legacy marker is left untouched and reported, not repaired |
 | Listing renders as raw text because the blank-line rule is dropped | med | The blank lines are emitted by `renderManagedRegion`, not by callers, so no call site can omit them; a rendering test asserts the wrapper shape |
 | Realm root is not a git repo, so the per-bucket skill never loads | med | Open question in the design flags it as unverified; checkpoint 3 verifies empirically before the guide text promises the behavior; symlink-into-`~/.claude/skills/` documented as the fallback |
-| `atomic wiki scan` slows on a large raw bucket | low | Index walk reads frontmatter only (bounded head read), not whole files; manifest walk already hashes every file, so the added cost is strictly smaller than the existing pass |
+| `atomic wiki scan` slows on a large raw bucket | low | Index walk reads frontmatter only (bounded head read), not whole files |
 | Users expect frontmatter to be enforced and are surprised by silent `### Unindexed` entries | low | The group is a visible heading in the bucket index, not a silent drop; `atomic wiki bucket index` reports the unindexed count on stdout |
 | Per-bucket skill name collides with a bundled `atomic-*` skill | low | Name is `<bucket>-management`; the reserved bucket name is `wiki`, and no bundled skill uses the `-management` suffix |
 
@@ -260,6 +258,14 @@ Per-topic walk with frontmatter-derived listings spliced into XML-delimited mana
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+
+### 2026-10-18 — Removed: bucket manifest walk and synthesis references
+
+**What changed:** The non-goal pinning manifest and staleness granularity is gone, along with the per-file manifest comparisons in the topic-list criterion and the risks table. The frontmatter contract is now described for sessions that author bucket docs. The per-folder index is the only output the wiki derives from a bucket.
+
+**Why:** Bucket manifests, `STALE bucket` lines, and bucket synthesis no longer exist.
+
+**Removed:** references to `WalkBucket`, `BucketDiff`, `PromoteBucket`, `STALE bucket`, the manifest walk, the knowledge-topic-name rule, and bucket synthesis. See `docs/spec/realm-wiki-drop-refresh.md`.
 
 
 ## Implementation log

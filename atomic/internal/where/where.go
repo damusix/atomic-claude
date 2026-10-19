@@ -214,7 +214,6 @@ func classifyRealmPosition(cwd, realmRoot, indexPath string, source config.Scope
 }
 
 // isUnder compares normalized path prefixes; it does not resolve symlinks.
-// Deliberate third copy alongside wiki.isUnder and codeintel/realm.isUnder.
 func isUnder(child, parent string) bool {
 	child = filepath.Clean(child)
 	parent = filepath.Clean(parent)

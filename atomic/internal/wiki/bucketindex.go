@@ -1,11 +1,6 @@
 package wiki
 
 // Per-bucket topic index: the `<bucket-docs>` region inside `<bucket>/index.md`.
-//
-// This walk is deliberately coarser than bucket.go's WalkBucket, which hashes
-// every file for staleness diffing. Here a router `<slug>.md` collapses its
-// whole subtree into one entry. Do not merge the two walks: they answer
-// different questions, and staleness needs the per-file granularity.
 
 import (
 	"errors"
@@ -21,6 +16,12 @@ import (
 // recognizedFrontmatterKeys is the frontmatter contract. A topic whose block
 // carries none of them counts as unindexed.
 var recognizedFrontmatterKeys = []string{"title", "type", "description", "tags", "status", "created"}
+
+// osJunk base names are excluded from a bucket walk at any depth.
+var osJunk = map[string]bool{
+	".DS_Store": true,
+	"Thumbs.db": true,
+}
 
 // BucketTopic is one entry in a bucket's `<bucket-docs>` listing: a single
 // topic file, or an orphan subtree with no companion `<slug>.md`.
@@ -48,7 +49,7 @@ type BucketTopic struct {
 
 // walkBucketTopics returns bucketDir's topics sorted by path. It descends one
 // directory level, purely to classify router versus orphan subtrees; nothing
-// deeper is ever promoted to a top-level topic. Exclusions match WalkBucket's.
+// deeper is ever promoted to a top-level topic.
 func walkBucketTopics(bucketDir string) ([]BucketTopic, error) {
 	entries, err := os.ReadDir(bucketDir)
 	if err != nil {
@@ -368,10 +369,8 @@ func IndexDir(dir string, check bool) (IndexResult, error) {
 	return res, writeFileAtomic(indexPath, []byte(newDocument))
 }
 
-// renderBucketList renders one OKF §6 line per registered bucket, name-sorted.
-// Links are relative to wikiDir, matching `atomic wiki linkify`; the absolute
-// path stays in the `<wiki-buckets>` block that stale and serve resolve from
-// any cwd. A missing bucket directory renders "(missing)" rather than erroring.
+// renderBucketList renders one OKF §6 line per bucket, name-sorted, linked relative to
+// wikiDir as `atomic wiki linkify` does; a missing bucket directory renders "(missing)".
 func renderBucketList(wikiDir string, entries []BucketEntry) string {
 	sorted := make([]BucketEntry, len(entries))
 	copy(sorted, entries)

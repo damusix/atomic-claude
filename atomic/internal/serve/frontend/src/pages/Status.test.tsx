@@ -27,16 +27,10 @@ describe("Status page", () => {
     mock.restore();
   });
 
-  test("realm scope: renders stale-item badges when not all fresh", async () => {
+  test("realm scope: lists each drifted member with a drift badge", async () => {
     mockFetchOnce({
       isRealmScope: true,
-      wiki: {
-        staleRepos: ["alpha"],
-        staleConcerns: ["concern-x"],
-        staleBuckets: ["research"],
-        bucketDiffKeys: ["research"],
-        allFresh: false,
-      },
+      wiki: { staleRepos: ["alpha", "libs/beta"], allFresh: false },
       index: {
         severity: "WARN",
         detail: "code index: 2 fresh; stale: foo (run atomic code sync); not indexed: baz",
@@ -49,31 +43,35 @@ describe("Status page", () => {
     renderStatus();
 
     await waitFor(() => expect(screen.getByText("alpha")).toBeInTheDocument());
-    expect(screen.getByText("concern-x")).toBeInTheDocument();
-    expect(screen.getByText("research")).toBeInTheDocument();
+    expect(screen.getByText("libs/beta")).toBeInTheDocument();
+    expect(screen.getByText("Wiki Membership Drift")).toBeInTheDocument();
+    expect(screen.getAllByText("membership drift")).toHaveLength(2);
     expect(screen.getByText("WARN")).toBeInTheDocument();
     expect(screen.getByText("foo")).toBeInTheDocument();
     expect(screen.getByText("baz")).toBeInTheDocument();
     expect(screen.queryByText("All fresh — realm is healthy.")).not.toBeInTheDocument();
   });
 
-  test("realm scope, all fresh: renders the all-fresh summary and no stale badges", async () => {
+  test("realm scope, no drift: renders the all-fresh summary and no drift badges", async () => {
     mockFetchOnce({
       isRealmScope: true,
-      wiki: { staleRepos: [], staleConcerns: [], staleBuckets: [], bucketDiffKeys: [], allFresh: true },
+      wiki: { staleRepos: [], allFresh: true },
       index: { severity: "PASS", detail: "code index: 5 fresh", freshCount: 5, staleMembers: [], notIndexed: [] },
     });
 
     renderStatus();
 
-    await waitFor(() => expect(screen.getByText("All wiki artifacts are fresh.")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Wiki membership matches the last scan.")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("membership drift")).not.toBeInTheDocument();
     expect(screen.getByText("All fresh — realm is healthy.")).toBeInTheDocument();
   });
 
   test("repo scope: renders code-index health only, no wiki section", async () => {
     mockFetchOnce({
       isRealmScope: false,
-      wiki: { staleRepos: [], staleConcerns: [], staleBuckets: [], bucketDiffKeys: [], allFresh: true },
+      wiki: { staleRepos: [], allFresh: true },
       index: { severity: "PASS", detail: "code index: 1 fresh", freshCount: 1, staleMembers: [], notIndexed: [] },
     });
 
@@ -82,6 +80,6 @@ describe("Status page", () => {
     await waitFor(() =>
       expect(screen.getByText("No realm wiki — showing repo code-index health only.")).toBeInTheDocument(),
     );
-    expect(screen.queryByText("Wiki Staleness")).not.toBeInTheDocument();
+    expect(screen.queryByText("Wiki Membership Drift")).not.toBeInTheDocument();
   });
 });

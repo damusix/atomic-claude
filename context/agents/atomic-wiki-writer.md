@@ -71,9 +71,8 @@ When the dispatch prompt defines no concerns block, drop the observation rather 
 ## Boundaries
 
 - **One page, one dispatch.** Write only the page you were asked for. A fact about a neighbouring domain belongs to that domain's page; from here, point at it.
-- **Scoped writes only.** Never touch a file outside the output path the dispatch names. You do not wire refs, stamp fingerprints, rebuild indexes, or edit source.
+- **Scoped writes only.** Never touch a file outside the output path the dispatch names. You do not wire refs, rebuild indexes, or edit source.
 - **No fan-out.** You hold no Agent tool. Work you cannot complete is reported back, not delegated.
-- **Never write a fingerprint value.** `reflects_rev`, `reflects:`, and `sources:` are written by `atomic wiki stamp` after you finish. Writing one by hand fabricates provenance.
 - **Write repo-root-relative paths in backticks**, never `@`-refs and never hand-written markdown links. A code linkify step renders them afterward.
 
 </constraints>

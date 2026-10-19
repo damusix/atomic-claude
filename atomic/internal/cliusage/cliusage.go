@@ -520,7 +520,7 @@ var commands = []Command{
 		Path:        []string{"wiki", "stale"},
 		Args:        "",
 		Flags:       []string{"--root"},
-		Description: "Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)",
+		Description: "Report membership drift: exit 0 none, 1 drift, 2 error (DRIFT lines on stdout)",
 	},
 	{
 		Path:        []string{"wiki", "linkify"},
@@ -535,34 +535,16 @@ var commands = []Command{
 		Description: "Write the fixed-content CLAUDE.md scaffold and the scope marker for --scope repo|realm (idempotent)",
 	},
 	{
-		Path:        []string{"wiki", "stamp"},
-		Args:        "<file>",
-		Flags:       []string{"--repo", "--root", "--cites", "--knowledge", "--sources"},
-		Description: "Write reflects_rev/reflects/sources fingerprint frontmatter (summary|concern|knowledge)",
-	},
-	{
 		Path:        []string{"wiki", "bucket", "add"},
 		Args:        "<name>",
 		Flags:       []string{"--root"},
-		Description: "Register a capture bucket; create index.md stub and manifest dir",
+		Description: "Register a capture bucket; create its folder and index.md stub",
 	},
 	{
 		Path:        []string{"wiki", "bucket", "list"},
 		Args:        "",
 		Flags:       []string{"--root"},
-		Description: "List registered buckets with baseline count and pending/fresh status",
-	},
-	{
-		Path:        []string{"wiki", "bucket", "diff"},
-		Args:        "<name>",
-		Flags:       []string{"--root"},
-		Description: "Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty",
-	},
-	{
-		Path:        []string{"wiki", "bucket", "promote"},
-		Args:        "<name>",
-		Flags:       []string{"--root"},
-		Description: "Snapshot bucket and rotate baseline→previous, current→baseline",
+		Description: "List registered buckets as name<TAB>path",
 	},
 	{
 		Path:        []string{"wiki", "bucket", "doc"},

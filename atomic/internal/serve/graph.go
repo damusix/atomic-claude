@@ -134,7 +134,7 @@ func (g *Graph) Meta(relPath string) NodeMeta {
 }
 
 // NodeType returns the frontend node class for relPath: "repo", "concern",
-// "knowledge", "bucket", "index", "domain", "external", or "page".
+// "bucket", "index", "domain", "external", or "page".
 func (g *Graph) NodeType(relPath string) string {
 	if t, ok := g.nodeTypes[relPath]; ok {
 		return t
@@ -148,7 +148,6 @@ func (g *Graph) NodeType(relPath string) string {
 // frontmatterTypeToClass maps OKF `type:` values to frontend node classes.
 // Lookup keys are lowercased.
 var frontmatterTypeToClass = map[string]string{
-	"knowledge":    "knowledge",
 	"concern":      "concern",
 	"repo summary": "repo",
 	"repo":         "repo",
@@ -179,8 +178,6 @@ func resolveNodeType(relPath string, fileContent []byte) string {
 		return "repo"
 	case strings.Contains(slashed, "/concerns/") || strings.HasPrefix(slashed, "concerns/"):
 		return "concern"
-	case strings.Contains(slashed, "/knowledge/") || strings.HasPrefix(slashed, "knowledge/"):
-		return "knowledge"
 	}
 
 	return "page"

@@ -1,6 +1,5 @@
-// Nav tree data behind /api/nav. Realm scope produces six groups (Realm,
-// Repos, Concerns, Knowledge, Buckets, External) with staleness badges; repo
-// scope produces the docs file tree plus a Code placeholder.
+// Nav tree data behind /api/nav: five realm-scope groups with drift badges on
+// repos, or the repo-scope docs tree plus a Code placeholder.
 package serve
 
 import (
@@ -13,9 +12,9 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// StalenessFn computes the stale-member and dirty-bucket sets that badge nav
-// nodes. Implementations must be read-only and must not hang on missing git.
-type StalenessFn func(realmRoot, wikiIndexPath string) (staleMembers map[string]bool, bucketDiffs map[string]bool)
+// StalenessFn computes the drifted-member set that badges nav nodes.
+// Implementations must be read-only.
+type StalenessFn func(realmRoot, wikiIndexPath string) (staleMembers map[string]bool)
 
 // NavOptions configures the nav tree. Exported so tests can construct it.
 type NavOptions struct {
@@ -32,12 +31,8 @@ type NavOptions struct {
 	// are set. Deprecated: prefer StalenessFn.
 	StaleMembers map[string]bool
 
-	// BucketDiffs is pre-computed and overridden by StalenessFn when both
-	// are set. Deprecated: prefer StalenessFn.
-	BucketDiffs map[string]bool
-
 	// StalenessFn nil takes computeStaleness; tests inject a stub to avoid
-	// disk and git I/O.
+	// disk I/O.
 	StalenessFn StalenessFn
 
 	// Store backs the repo-scope file list, shared with the page, rail, and
@@ -47,7 +42,7 @@ type NavOptions struct {
 }
 
 // sseLiveParam marks a nav refetch triggered by the live-reload stream, so the
-// handler can skip the git-backed staleness check on every refresh. An
+// handler can skip the realm-walking staleness check on every refresh. An
 // ordinary navigation still runs it.
 const sseLiveParam = "live"
 
@@ -168,9 +163,9 @@ type navGroupJSON struct {
 	Items []navNodeJSON `json:"items"`
 }
 
-// buildRealmNavGroupsJSON builds the six realm-scope nav groups.
+// buildRealmNavGroupsJSON builds the five realm-scope nav groups.
 func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
-	groups := make([]navGroupJSON, 0, 6)
+	groups := make([]navGroupJSON, 0, 5)
 
 	groups = append(groups, navGroupJSON{
 		Name:  "Realm",
@@ -184,7 +179,7 @@ func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
 	repoItems := make([]navNodeJSON, 0, len(members))
 	for _, m := range members {
 		name := filepath.Base(m.Path)
-		stale := opts.StaleMembers[name] || opts.StaleMembers[m.Path]
+		stale := opts.StaleMembers[m.Path]
 		landing := memberLinkRel(opts.RealmRoot, m)
 
 		children := []navNodeJSON{{Label: "index", RelPath: landing}}
@@ -218,13 +213,6 @@ func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
 	}
 	groups = append(groups, navGroupJSON{Name: "Concerns", Items: concernItems})
 
-	knowledge := walkMarkdownFiles(filepath.Join(opts.RealmRoot, "wiki", "knowledge"))
-	knowledgeItems := make([]navNodeJSON, 0, len(knowledge))
-	for _, name := range knowledge {
-		knowledgeItems = append(knowledgeItems, navNodeJSON{Label: stripMDExt(name), RelPath: "wiki/knowledge/" + name})
-	}
-	groups = append(groups, navGroupJSON{Name: "Knowledge", Items: knowledgeItems})
-
 	buckets, _ := wiki.ReadBucketEntries(opts.WikiIndexPath)
 	bucketItems := make([]navNodeJSON, 0, len(buckets))
 	for _, b := range buckets {
@@ -239,7 +227,6 @@ func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
 		files := walkMarkdownFilesRecursive(dir)
 		bucketItems = append(bucketItems, navNodeJSON{
 			Label:    b.Name,
-			Stale:    opts.BucketDiffs[b.Name],
 			Children: folderTreeToJSON(prefix, files),
 		})
 	}
@@ -308,12 +295,9 @@ func folderNodeToJSON(node *navFolderNode, basePrefix string) navNodeJSON {
 }
 
 // computeStaleness is the production StalenessFn. A staleness-check failure
-// yields empty maps rather than an error: the nav degrades to no badges
+// yields an empty map rather than an error: the nav degrades to no badges
 // instead of failing the page.
-func computeStaleness(realmRoot, _ string) (staleMembers map[string]bool, bucketDiffs map[string]bool) {
-	// Cached because the walk takes seconds and /api/status wants it too.
-	sets := navStalenessCache.get(realmRoot)
-	// Concerns are deliberately excluded — a stale concern does not badge its
-	// member.
-	return sets.Members, sets.Buckets
+func computeStaleness(realmRoot, _ string) (staleMembers map[string]bool) {
+	// Cached because /api/status wants the same walk.
+	return navStalenessCache.get(realmRoot).Members
 }
