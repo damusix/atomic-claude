@@ -19,6 +19,7 @@ Contracts:
   - docs/spec/wiki-buckets.md
   - docs/spec/wiki.md
 References:
+  - docs/reference/atomic-toml.md
   - docs/reference/realm-wiki.md
 
 Consult the map before changing behavior here. Behavior changes stale the pages above. Renames or removals stale mentions beyond them: grep the old name across docs/ before shipping.

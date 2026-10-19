@@ -40,7 +40,10 @@ func Stale(root string, out io.Writer) (int, error) {
 
 	recorded := parseBlockMembers(block)
 
-	current, err := discoverMembers(root, wikiDir)
+	current, warns, err := discoverMembers(root, wikiDir)
+	for _, w := range warns {
+		fmt.Fprintf(os.Stderr, "atomic wiki stale: warning: %s\n", w)
+	}
 	if err != nil {
 		return StaleCodeError, fmt.Errorf("discover members: %w", err)
 	}

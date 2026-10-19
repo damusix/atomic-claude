@@ -97,6 +97,8 @@ var knownSections = func() map[string]bool {
 // Warning carries a non-fatal diagnostic from Load.
 type Warning struct {
 	Message string
+	// Key is the dotted config key an unknown-key warning names; empty otherwise.
+	Key string
 }
 
 func (w Warning) Error() string { return w.Message }
@@ -357,6 +359,7 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 			if !knownSections[k] {
 				warns = append(warns, Warning{
 					Message: fmt.Sprintf("config: unknown key %q (ignored)", dotted),
+					Key:     dotted,
 				})
 				continue
 			}
@@ -371,6 +374,7 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 			if !knownLeaves[dotted] && !knownPrefixes[dotted] {
 				warns = append(warns, Warning{
 					Message: fmt.Sprintf("config: unknown key %q (ignored)", dotted),
+					Key:     dotted,
 				})
 				continue
 			}

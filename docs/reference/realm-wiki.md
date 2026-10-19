@@ -71,6 +71,17 @@ atomic wiki scan --root ~/work/acme   # scaffold <path>/wiki
 
 The scan is idempotent. Re-running regenerates only the managed regions — the `<wiki-scan>` block and `<wiki-member-list>` section in `index.md`, plus the bucket listing regions — every summary, concern doc, and the narrative you or the LLM wrote is left untouched. It is init and refresh in one command, exactly like `/refresh-wiki`.
 
+### Choosing which repos are members
+
+By default the scan walks the whole realm root and makes every git repo it finds a member. To keep out a repo sitting in a capture bucket or a notes folder, list your repos, or the folders that hold them, under `[realm] repos` in the realm root's `.claude/atomic.toml`:
+
+```toml
+[realm]
+repos = ["{billing-api,gateway,vendor-sdk,legacy-cron}", "experiments"]
+```
+
+The scan and `atomic wiki stale` then walk only those paths. Entries accept globs, and a bad entry warns on stderr without stopping the scan. See [`[realm] repos`](/reference/atomic-toml#realm-repos) for the matching rules and every warning.
+
 
 ## What a wiki looks like
 
@@ -140,7 +151,7 @@ DRIFT removed old-worker
 DRIFT status legacy-cron pending→indexed
 ```
 
-Paths are relative to the realm root. It exits `0` when the recorded members match the disk, `1` when it prints a `DRIFT` line, and `2` on a hard error such as a missing `wiki/index.md`. It reads no frontmatter, hashes no files, and runs no git.
+Paths are relative to the realm root. When [`[realm] repos`](/reference/atomic-toml#realm-repos) is set to a non-empty list, the walk covers only those paths, and a recorded repo outside them prints as `DRIFT removed <path>`, the same as a deleted one. It exits `0` when the recorded members match the disk, `1` when it prints a `DRIFT` line, and `2` on a hard error such as a missing `wiki/index.md`. It reads no frontmatter, hashes no files, and runs no git.
 
 No hook or ship verb runs it; `atomic serve` shows its result as nav badges and on `/status`. Run it between scans to see whether repos were added, removed, or reclassified since the last one. The next `atomic wiki scan` records the new membership, so `stale` run right after a scan prints nothing. `/refresh-wiki` scans at the start and again after it writes summaries.
 
