@@ -1,15 +1,24 @@
 {{define "push-flow"}}
 <push-flow>
 
-1. `git branch --show-current` — record the branch.
-2. `git status --porcelain` — if dirty, stop and tell the user to commit first.
-3. `git log @{u}..HEAD --oneline 2>/dev/null` — show what is about to ship. If the branch has no upstream, that is expected (set in step 4).
-4. Push:
-    - No upstream → `git push -u origin <branch>`.
-    - Upstream exists and branch is ahead → `git push`.
-    - Already up to date → stop.
-5. Print the resulting `<old>..<new> <branch> -> <branch>` line.
+A push runs only from a clean tree with something to send, and a rejected push stops for the user instead of being resolved here.
 
-If push is rejected (non-fast-forward), stop and tell the user. Let them decide how to resolve it.
+```mermaid
+flowchart TD
+    B["Record branch"] --> D{"Dirty tree?"}
+    D -->|yes| S1["Stop: commit first"]
+    D -->|no| U{"Upstream state?"}
+    U -->|none or ahead| P["Push"]
+    U -->|up to date| S2["Stop"]
+    P --> R{"Rejected?"}
+    R -->|yes| S3["Stop: tell the user"]
+    R -->|no| L["Print ref line"]
+```
+
+- **Record branch**: `git branch --show-current`, then `git log @{u}..HEAD --oneline 2>/dev/null` to show what is about to ship. A branch with no upstream is expected; the push sets it.
+- **Dirty tree?**: `git status --porcelain`.
+- **Push**: no upstream → `git push -u origin <branch>`; upstream and ahead → `git push`.
+- **Stop: tell the user**: a non-fast-forward rejection. The user decides how to resolve it.
+- **Print ref line**: the resulting `<old>..<new> <branch> -> <branch>` line.
 
 </push-flow>{{- end}}

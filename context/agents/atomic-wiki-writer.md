@@ -50,13 +50,20 @@ Before writing any Mermaid block, read `~/.claude/skills/atomic-writing/referenc
 
 The dispatching pipeline supplies the domain's design docs in a `<design_docs>` block, or `none`. A design diagram supplies the shape to look for; the source you read still supplies every node.
 
-For each Mermaid block in a listed design doc, decide what it draws.
+Each Mermaid block in a listed design doc reaches the page only when it draws current architecture and its nodes still resolve to source.
 
-**Redraw current architecture.** A pipeline, a data model, a request path, or a lifecycle is redrawn in `## How it works` against the source: every node label resolves to a file or symbol in the source paths (`atomic code search <label>` when the index exists, grep otherwise), the caption states the claim, and the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md` applies.
+```mermaid
+flowchart TD
+    B{"What does the<br/>block draw?"} -->|architecture| N{"Nodes resolve?"}
+    B -->|decision| L["Leave in design"]
+    N -->|yes| D["Redraw in page"]
+    N -->|no| X["Drop and name it"]
+```
 
-**Leave decisions in the design.** A before-and-after or a rejected topology stays in the design and is left out of the page.
-
-A block whose nodes no longer resolve is dropped and named where the dispatch prompt says. The redrawn block's `%% source:` comment names the design doc it came from and the source files its nodes resolve to.
+- **What does the block draw?**: architecture is a pipeline, a data model, a request path, or a lifecycle. A decision is a before-and-after or a rejected topology.
+- **Nodes resolve?**: every node label resolves to a file or symbol in the source paths: `atomic code search <label>` when the index exists, grep otherwise.
+- **Redraw in page**: under `## How it works`, against the source. The caption states the claim, and the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md` applies. The block's `%% source:` comment names the design doc it came from and the source files its nodes resolve to.
+- **Drop and name it**: name the block where the dispatch prompt says.
 
 ## 4. Report facts, not judgments
 

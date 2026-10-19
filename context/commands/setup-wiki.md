@@ -6,50 +6,45 @@ You set up the repo for atomic-claude conventions. Detect first, propose second,
 
 <workflow>
 
-## Pre-flight
+## Pre-flight and scope detection
 
-1. Run these two checks in parallel:
-   - `git rev-parse --is-inside-work-tree 2>/dev/null`
-   - `test -d wiki && echo wiki-present || echo wiki-absent`
+A `wiki/` outside a git repo is a realm root, a git repo without one is repo scope, and a git repo holding a `wiki/` is the user's call, defaulting to repo.
 
-2. If NOT in a git repo:
-   - **`wiki/` directory present** → realm root confirmed. Set `WIKI_SCOPE=realm`;
-     skip the init prompt and proceed to Scope detection.
-   - **No `wiki/` directory** → prompt via `AskUserQuestion`:
-     ```
-     Not a git repo. Initialize one?
-     - Yes, run git init
-     - No, stop
-     ```
-     On Yes: `git init`. On No: refuse and stop.
-
-## Scope detection
-
-Determine `WIKI_SCOPE` (skip if pre-flight already set it to `realm`):
-
-| git repo? | `wiki/` present? | `WIKI_SCOPE` |
-|-----------|-----------------|-------------|
-| No        | Yes             | `realm` (set in pre-flight) |
-| Yes       | No              | `repo` |
-| Yes       | Yes             | Ask user (see below) |
-
-**Ambiguous case** — git repo with a `wiki/` directory present. Prompt via
-`AskUserQuestion`:
-
-```
-A wiki/ directory exists inside this git repo. Which scope applies?
-- realm — this directory is a realm root (wiki/ is the attached wiki repo)
-- repo  — this is a single git repo with its own wiki/ storage
-- unsure / cancel — treat as repo
+```mermaid
+flowchart TD
+    G{"Inside a git repo?"} -->|no| W{"wiki/ present?"}
+    W -->|yes| RL["Scope: realm"]
+    W -->|no| I{"User inits git?"}
+    I -->|no| X["Refuse"]
+    I -->|yes| N["git init"]
+    N --> RP["Scope: repo"]
+    G -->|yes| W2{"wiki/ present?"}
+    W2 -->|no| RP
+    W2 -->|yes| Q{"User picks?"}
+    Q -->|realm| RL
+    Q -->|repo or cancel| RP
 ```
 
-Accept `realm` or `repo` as typed input or a button choice. If the user cancels,
-answers ambiguously, or chooses "unsure / cancel", default to `repo` and note
-`"wiki-type defaulted to repo (wiki/ present inside git repo — user did not confirm realm)"` in the Step 5 output.
+- **Inside a git repo?**: run in parallel with the `wiki/` check: `git rev-parse --is-inside-work-tree 2>/dev/null` and `test -d wiki && echo wiki-present || echo wiki-absent`.
+- **User inits git?**: `AskUserQuestion`:
 
-`WIKI_SCOPE` is now set to either `repo` or `realm`. It is surfaced in the
-Step 5 report only — the wiki pipeline (`/refresh-wiki`) writes the
-`<wiki-type>` marker itself, into the wiki index it generates.
+    ```
+    Not a git repo. Initialize one?
+    - Yes, run git init
+    - No, stop
+    ```
+
+- **User picks?**: `AskUserQuestion`; accept `realm` or `repo` as typed input or a button choice:
+
+    ```
+    A wiki/ directory exists inside this git repo. Which scope applies?
+    - realm — this directory is a realm root (wiki/ is the attached wiki repo)
+    - repo  — this is a single git repo with its own wiki/ storage
+    - unsure / cancel — treat as repo
+    ```
+
+    On cancel, an ambiguous answer, or "unsure / cancel", note `"wiki-type defaulted to repo (wiki/ present inside git repo — user did not confirm realm)"` in the Step 5 output.
+- **Scope: realm** / **Scope: repo**: sets `WIKI_SCOPE`. It is surfaced in the Step 5 report only — the wiki pipeline (`/refresh-wiki`) writes the `<wiki-type>` marker itself, into the wiki index it generates.
 
 ## Step 1 — Audit
 
@@ -66,7 +61,6 @@ Inspect the repo. Build this status table:
 | `docs/spec/` directory | `test -d docs/spec` | exists / missing |
 | `docs/design/` directory | `test -d docs/design` | exists / missing |
 | `README.md` at repo root | `test -f README.md` | exists / missing |
-| `atomic` binary on PATH | `command -v atomic` | found / missing |
 | `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value is `atomic hooks session-start` (the inline command written by `atomic hooks install`) | registered / missing |
 | `docs/wiki/index.md` | `test -f docs/wiki/index.md` | exists / missing |
 | Signals `@-ref` wired | present in ANY of `claude.local.md`, `CLAUDE.local.md`, `CLAUDE.md` — check each with `grep -qF '@docs/wiki/index.md' <file>` (mirrors the `atomic-wiki-inferrer` search order); n/a only when none of the three files exist. Only `docs/wiki/index.md` (the compact router) is `@-ref`'d — `docs/wiki/scan.md` is too large for context on big repos and is read by the inferrer on demand. | yes / no / n/a |
@@ -87,20 +81,14 @@ For each missing item, propose an action. Skip items already present.
 
 | Missing item | Proposed action |
 |--------------|----------------|
-| `.gitignore` missing, or any of `tmp/` / `.claude/.scratchpad/` / `.claude/worktrees/` not ignored, `atomic` binary present | Run `atomic repo init` — one idempotent call covers all three (creates `.gitignore` if absent) plus the `.claude/.scratchpad/` + `.claude/.atomic-index/` + `.claude/worktrees/` rules in nested `.claude/.gitignore` and the `.claude/.scratchpad/` + `.claude/project/` dirs. |
-| `.gitignore` doesn't exist, `atomic` binary absent | Create with: `tmp/`, `.claude/.scratchpad/`, `.claude/worktrees/`. |
-| `.gitignore` exists but missing `tmp/`, `atomic` binary absent | Append `tmp/`. |
-| `.gitignore` exists but missing `.claude/.scratchpad/`, `atomic` binary absent | Append `.claude/.scratchpad/`. |
-| `.claude/worktrees/` not ignored, `atomic` binary absent | Append `.claude/worktrees/` to root `.gitignore`. |
+| `.gitignore` missing, or any of `tmp/` / `.claude/.scratchpad/` / `.claude/worktrees/` not ignored | Run `atomic repo init` — one idempotent call covers all three (creates `.gitignore` if absent) plus the `.claude/.scratchpad/` + `.claude/.atomic-index/` + `.claude/worktrees/` rules in nested `.claude/.gitignore` and the `.claude/.scratchpad/` + `.claude/project/` dirs. |
 | `CLAUDE.md` missing | Run the survey procedure (see "CLAUDE.md survey" in Step 4). Seed every section with an agent guess from signals/README/code; user edits the guess. |
 | `docs/spec/` missing | Create directory + `docs/spec/.gitkeep` (so git tracks it before any content lands). |
 | `docs/design/` missing | Create directory + `docs/design/.gitkeep`. |
 | `README.md` missing | Offer to scaffold a minimal starter. If user declines, skip — don't push it. |
-| `atomic` binary missing | Print: `curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh \| bash`. Setup does not run the install — user runs the curl. |
-| Registration missing, binary present | Run `atomic hooks install`. |
-| Registration missing, binary missing | Manually add a `SessionStart` entry to `.claude/settings.json` whose `hooks[].command` is `atomic hooks session-start`. |
+| Registration missing | Run `atomic hooks install`. |
 | Legacy wrapper-script registration present | Run `atomic hooks install` (migrates to the inline command and deletes the stale `session-start-reminders.sh` script). |
-| `docs/wiki/index.md` missing but `atomic` present | Print: "Run `/refresh-wiki` to generate project signals." (follow-up only; setup does not invoke it). |
+| `docs/wiki/index.md` missing | Print: "Run `/refresh-wiki` to generate project signals." (follow-up only; setup does not invoke it). |
 | `CLAUDE.md` exists but the `@-ref` is missing | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
 | Legacy `.signalsignore` present | Point at `atomic migrate --repo .`, which folds it into `[scan]` in `.claude/atomic.toml` and removes the file. Never hand-convert it. |
 | `docs/wiki/CLAUDE.md` missing | Create `docs/wiki/CLAUDE.md` via `atomic wiki init --scope repo` (see `docs/wiki/CLAUDE.md` subsection in Step 4). Never overwrite if it exists. |
@@ -139,13 +127,7 @@ For each confirmed action, in order:
 
 ### `.gitignore`
 
-- **`atomic` binary present:** run `atomic repo init`. It creates `.gitignore` if missing and appends `tmp/` when not yet effective, plus (via nested `.claude/.gitignore`) `.claude/.scratchpad/`, `.claude/.atomic-index/`, and `.claude/worktrees/`. Idempotent — re-running once everything is in place is a no-op.
-- **`atomic` binary absent:** fall back to manual append. If file missing: write a fresh one with the three lines. If file exists: read it. For each missing entry, append a new line (preserve trailing newline). Append only — preserve existing entries and their order.
-
-```bash
-# Manual fallback: append one entry, idempotent:
-grep -qxF 'tmp/' .gitignore || echo 'tmp/' >> .gitignore
-```
+Run `atomic repo init`. It creates `.gitignore` if missing and appends `tmp/` when not yet effective, plus (via nested `.claude/.gitignore`) `.claude/.scratchpad/`, `.claude/.atomic-index/`, and `.claude/worktrees/`. Idempotent — re-running once everything is in place is a no-op.
 
 ### Scan exclusions (`[scan]` in `.claude/atomic.toml`)
 
@@ -186,13 +168,25 @@ Refuse to overwrite if file exists (audit already gated this — defensive doubl
 5. Recent `git log --oneline -50` for commit style and rule signals.
 6. `rg -n 'HACK|FIXME|XXX|WORKAROUND'` for tribal-knowledge candidates.
 
-**Survey loop.** Walk the six sections below in order. For each:
+**Survey loop.** Walk the six sections below in order; skip is offered only when the source returned nothing, because a guess with real content already found durable signal and gets written.
 
-1. Form the guess from the documented source.
-2. If the guess is **non-empty** (the source returned real content), present it and ask `[a]ccept / [e]dit`. Skip is NOT offered — the agent already found durable signal, so the section gets written.
-3. If the guess is **empty** (the source returned nothing actionable), present the fallback placeholder and ask `[a]ccept / [e]dit / [s]kip`. Skip writes the placeholder as the section body.
+```mermaid
+flowchart TD
+    F["Form guess"] --> E{"Guess has content?"}
+    E -->|yes| P1["Ask accept / edit"]
+    E -->|no| P2["Show placeholder, ask<br/>accept/edit/skip"]
+    P1 --> R["Record section"]
+    P2 --> R
+    R --> M{"More sections?"}
+    M -->|yes| F
+    M -->|no| W["Render, write"]
+```
 
-Accept → use as-is. Edit → user supplies replacement text. Skip (empty-guess path only) → render the one-line honest placeholder. Never an HTML comment. Never blank.
+- **Form guess**: from the section's documented source in the table below.
+- **Ask accept / edit**: `[a]ccept / [e]dit`.
+- **Show placeholder, ask accept/edit/skip**: the table's fallback placeholder, then `[a]ccept / [e]dit / [s]kip`.
+- **Record section**: accept → use as-is. Edit → the user supplies replacement text. Skip → the one-line honest placeholder becomes the section body. Never an HTML comment. Never blank.
+- **Render, write**: the skeleton under **Render** below.
 
 | # | Section | Guess source | If nothing inferable |
 |---|---------|--------------|----------------------|
@@ -281,14 +275,7 @@ touch docs/spec/.gitkeep docs/design/.gitkeep
 
 Apply in this order, only for the confirmed actions:
 
-**Binary missing** — Print the install command only; do not execute it:
-
-```
-Install the atomic binary:
-  curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
-```
-
-**Signals files missing (binary present)** — Print the follow-up command; do not invoke it:
+**Signals files missing** — Print the follow-up command; do not invoke it:
 
 ```
 Run /refresh-wiki to generate project signals.

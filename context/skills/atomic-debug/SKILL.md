@@ -25,80 +25,76 @@ Explicit: `/atomic-debug` or "let's debug X".
 
 <workflow>
 
-## Five steps
+## Flow
 
-### 1. State the symptom exactly
+A fix is written only after a test confirms a hypothesis; a refuted one moves to the next open test, and a surprise sends you back to the symptom.
 
-One sentence. Quote the exact error. Note what changed recently (commit, dep, env) if known.
-
-```
-Symptom: `POST /users` returns 500 since commit abc1234. Stack: `TypeError: Cannot read 'id' of undefined at users.ts:42`.
-```
-
-### 1b. Locate the surface (when not already in context)
-
-**Code-intel first (when an index is present).** Before dispatching an agent, try `atomic code explore "<symptom as a natural-language query>"` for a one-shot digest of the failure neighborhood, or `atomic code callers <suspect-fn>` when the symptom names a symbol. This is a single shell command — cheaper than spawning an investigator and it returns caller-graph context grep would have to reconstruct. Fall through to the investigator dispatch below only when the index is absent or the query returns nothing useful.
-
-If the suspect code isn't already mapped in the conversation (no `file:line` references, no recent reads of the relevant module), dispatch `atomic-investigator` BEFORE forming the hypothesis table. Haiku-backed and read-only, so it's cheap. Give it a focused brief:
-
-```
-Locate <symptom-relevant surface>. Report file:line table.
-
-Example: "Locate the request pipeline for POST /users — middleware order, body parsing, auth check. Report file:line table."
+```mermaid
+flowchart TD
+    S["State the symptom"] --> M{"Surface needs<br/>locating?"}
+    M -->|no| H["Hypothesis table"]
+    M -->|yes| L["Locate the surface"]
+    L --> H
+    H --> T["Run the cheapest<br/>open test"]
+    T --> O{"Observation?"}
+    O -->|confirmed| C["Root cause,<br/>fix at the root"]
+    O -->|refuted| N{"Hypothesis left?"}
+    N -->|yes| T
+    N -->|no| A["Stop, ask for<br/>more context"]
+    O -->|surprise| S
 ```
 
-Use its `file:line — what` table as the evidence base for the hypothesis table. The investigator spends Haiku tokens so the main context (running this skill) doesn't burn Sonnet/Opus on grep work.
+- **State the symptom**: one sentence. Quote the exact error. Note what changed recently (commit, dep, env) if known.
 
-**Skip this step when:** the symptom names the exact file:line (e.g. the stack trace pinpoints it), the bug is in code already in context, or the symptom is too abstract to map (e.g. "the build is slow" — there's no surface yet, hypotheses come first).
+    ```
+    Symptom: `POST /users` returns 500 since commit abc1234. Stack: `TypeError: Cannot read 'id' of undefined at users.ts:42`.
+    ```
 
-### 2. Hypothesis table
+- **Surface needs locating?**: yes when the suspect code is not mapped in the conversation (no `file:line` references, no recent reads of the relevant module). No when the symptom names the exact file:line (e.g. the stack trace pinpoints it), the bug is in code already in context, or the symptom is too abstract to map (e.g. "the build is slow" — there's no surface yet, hypotheses come first).
+- **Locate the surface**: code-intel first when an index is present. Try `atomic code explore "<symptom as a natural-language query>"` for a one-shot digest of the failure neighborhood, or `atomic code callers <suspect-fn>` when the symptom names a symbol. One shell command is cheaper than spawning an investigator, and it returns caller-graph context grep would have to reconstruct. When the index is absent or the query returns nothing useful, dispatch `atomic-investigator` before forming the hypothesis table. It is Haiku-backed and read-only, so it is cheap. Give it a focused brief:
 
-List 3-5 candidates ranked by likelihood × cheapness to test.
+    ```
+    Locate <symptom-relevant surface>. Report file:line table.
 
-```
-| # | Hypothesis | Likelihood | Test cost | Test |
-|---|-----------|-----------|-----------|------|
-| 1 | req.body missing `user` after middleware reorder | high | 1m | log req.body at line 40 |
-| 2 | DB returns null for new user before commit | med | 5m | run failing test in isolation |
-| 3 | Type widening hides null in TS 5.5 upgrade | low | 10m | revert tsconfig strict change |
-```
+    Example: "Locate the request pipeline for POST /users — middleware order, body parsing, auth check. Report file:line table."
+    ```
 
-Order: highest (likelihood / cost) first. Don't list more than 5 — if you have more, you're guessing.
+    Use its `file:line — what` table as the evidence base for the hypothesis table. The investigator spends Haiku tokens so the main context (running this skill) doesn't burn Sonnet/Opus on grep work.
 
-### 3. Run the cheapest test
+- **Hypothesis table**: 3-5 candidates ranked by likelihood × cheapness to test, highest (likelihood / cost) first. Don't list more than 5 — if you have more, you're guessing.
 
-Execute the test for hypothesis #1. Report the observation, exact and unedited.
+    ```
+    | # | Hypothesis | Likelihood | Test cost | Test |
+    |---|-----------|-----------|-----------|------|
+    | 1 | req.body missing `user` after middleware reorder | high | 1m | log req.body at line 40 |
+    | 2 | DB returns null for new user before commit | med | 5m | run failing test in isolation |
+    | 3 | Type widening hides null in TS 5.5 upgrade | low | 10m | revert tsconfig strict change |
+    ```
 
-If hypothesis confirmed → step 4.
-If refuted → cross it off, move to #2. Update the table.
-If observation surprises you → STOP, re-state the symptom. The mental model is wrong.
+- **Run the cheapest open test**: execute the test for the top hypothesis not yet crossed off. Report the observation, exact and unedited. A refuted hypothesis is crossed off and the table updated.
+- **Observation?**: a surprise means the mental model is wrong: stop and re-state the symptom.
+- **Root cause, fix at the root**: write the root cause as a causal chain:
 
-### 4. Root cause statement
+    ```
+    Root cause: middleware order change (commit abc1234) moved `parseBody` after `requireAuth`,
+    so `requireAuth` accesses `req.body.user` before it's populated → `undefined` →
+    `.id` throws TypeError.
+    ```
 
-Once a hypothesis is confirmed, write the root cause as a causal chain:
+    ASCII flow diagram if the chain has ≥3 hops:
 
-```
-Root cause: middleware order change (commit abc1234) moved `parseBody` after `requireAuth`,
-so `requireAuth` accesses `req.body.user` before it's populated → `undefined` →
-`.id` throws TypeError.
-```
+    ```
+    parseBody (moved after) → requireAuth runs → req.body = {} → req.body.user undefined → .id throws
+    ```
 
-ASCII flow diagram if the chain has ≥3 hops:
+    If the root cause is a shared symbol, run `atomic code callers <fn>` (when an index is present) to check for other callers that assume the old behavior. A fix that ignores the blast radius leaves related callers broken — list any non-trivial callers in the root-cause statement.
 
-```
-parseBody (moved after) → requireAuth runs → req.body = {} → req.body.user undefined → .id throws
-```
+    Propose the minimal fix at the root, not a guard at the symptom. State what regression test will lock the fix in.
 
-If the root cause is a shared symbol, run `atomic code callers <fn>` (when an index is present) to check for other callers that assume the old behavior. A fix that ignores the blast radius leaves related callers broken — list any non-trivial callers in the root-cause statement.
+    Bad fix: `if (req.body?.user)` guard at line 42.
+    Good fix: restore middleware order so `parseBody` runs before `requireAuth`. Add ordering test in middleware-pipeline.test.ts.
 
-### 5. Fix the cause, not the symptom
-
-Propose the minimal fix at the root, not a guard at the symptom. State what regression test will lock the fix in.
-
-Bad fix: `if (req.body?.user)` guard at line 42.
-Good fix: restore middleware order so `parseBody` runs before `requireAuth`. Add ordering test in middleware-pipeline.test.ts.
-
-If the user wants the symptom guard anyway (e.g., defense-in-depth), add it ON TOP of the root fix, not instead of.
+    If the user wants the symptom guard anyway (e.g., defense-in-depth), add it ON TOP of the root fix, not instead of.
 
 </workflow>
 
@@ -117,8 +113,8 @@ Stay hypothesis-driven throughout:
 ## Rules
 
 - One symptom per debug session. If the user reports two unrelated bugs, debug separately. **Why:** mixing symptoms conflates evidence trails — a clue that explains bug A can appear to confirm a hypothesis about bug B, producing a false root cause for both.
-- If hypothesis #1 is confirmed in step 3, stop. Fix and verify. Exploring remaining hypotheses "for completeness" wastes time on a solved problem. **Why:** continuing past a confirmed root cause risks introducing unrelated changes and inflates the diff without a corresponding bug to fix.
-- If 5 hypotheses are refuted, the mental model is wrong. Stop and ask for more context (logs, env, recent changes). **Why:** diminishing returns past five refutations signal that the framing is wrong, not the tests — more hypotheses from the same mental model just burn time; fresh context or fresh eyes reset the frame.
+- If hypothesis #1 is confirmed, stop. Fix and verify. Exploring remaining hypotheses "for completeness" wastes time on a solved problem. **Why:** continuing past a confirmed root cause risks introducing unrelated changes and inflates the diff without a corresponding bug to fix.
+- If every listed hypothesis is refuted (at most 5), the mental model is wrong. Stop and ask for more context (logs, env, recent changes). **Why:** diminishing returns past five refutations signal that the framing is wrong, not the tests — more hypotheses from the same mental model just burn time; fresh context or fresh eyes reset the frame.
 - Report cheap signals first: `git log --oneline -20`, `git diff HEAD~5`, exact env, exact reproduction command. **Why:** expensive tests (isolated DB run, full rebuild, bisect) are only worth running once cheap signals have narrowed the search space — running them first wastes time and may dirty the environment before the cheap tests run.
 
 </constraints>

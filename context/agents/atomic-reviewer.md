@@ -85,7 +85,7 @@ The implementer's report ends with a `## Commit` proposal. Judge it against the 
     - `tests: ✓` — run tests yourself, confirm. Spot-check that new tests actually exercise the new code (read them).
     - `build: ✓` — run build if cheap; else trust if typecheck passes.
     - `lint: ✓` — spot-check.
-    - `comments: N added (M over max)` — run `atomic code comments --diff <base>` yourself when `atomic` is on PATH, confirm the count.
+    - `comments: N added (M over max)` — run `atomic code comments --diff <base>` yourself, confirm the count.
     - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.` A count that contradicts the implementer's claim is the same finding, same severity.
 5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
 6. **Outline pass**: when the spec carries `## Outline`, walk the outlined pieces that belong to this iteration's checkpoint against the delivered diff. Each piece should exist — same name, or a rename/split the implementer's report accounts for (the outline is a sketch, not a contract; deviation is fine when success criteria hold, but it must be visible, not silent). Outlined piece absent with no explanation → `🟡 risk` finding under Spec compliance. Pieces delivered beyond the outline are not findings unless they break a success criterion or the over-engineering rule.

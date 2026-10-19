@@ -1,7 +1,7 @@
 # Spec: `atomic` binary
 
 
-The `atomic` CLI is a single Go binary that backs the cron and signals workflows in this configuration. It owns file management under `.claude/`, parses frontmatter, runs deterministic project scans, and exposes a hook-output mode for shell integration. Slash commands prefer the binary when present and fall back to raw file operations when absent.
+The `atomic` CLI is a single Go binary that backs the cron and signals workflows in this configuration. It owns file management under `.claude/`, parses frontmatter, runs deterministic project scans, and exposes a hook-output mode for shell integration. Slash commands call the binary directly, since they install through it.
 
 
 ## Purpose
@@ -708,6 +708,15 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 
 
 ## Change log
+
+
+### 2026-10-19 — Slash commands call the binary directly
+
+**What changed:** The opening paragraph says slash commands call the binary directly, since they install through it.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** slash commands preferred the binary when present and fell back to raw file operations when absent.
 
 
 ### 2026-09-02 — `atomic update` gains `--pre`; the prerelease channel tracks the tip

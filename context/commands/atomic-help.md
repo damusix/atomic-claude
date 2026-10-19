@@ -179,7 +179,26 @@ Examples of correct routing:
 
 When `$ARGUMENTS` is exactly `tour` (or `--tour`, or `walkthrough`), enter tour mode. Skip Steps 1 routing; just run the tour.
 
-The tour is four stages. After each stage, prompt the user via `AskUserQuestion` with three options: continue / dive deeper here / exit tour. Keep each stage to ≤15 lines of output.
+The tour is four stages, ≤15 lines of output each, and it advances only on the user's pick after each one.
+
+```mermaid
+flowchart TD
+    S["Show stage"] --> P{"User picks?"}
+    P -->|continue| L{"Last stage?"}
+    L -->|no| N["Go to stage"]
+    P -->|re-run| N
+    N --> S
+    L -->|yes| C["Print tour complete"]
+    P -->|end tour| C
+    P -->|dive or recap| D["Detail, re-prompt"]
+    D --> P
+    P -->|exit| X["Exit tour"]
+```
+
+- **User picks?**: `AskUserQuestion` with the three options on the stage's `Prompt:` line: continue / dive deeper here / exit tour. At Stage 4 they are end tour / get a specific topic recap / re-run tour: `end tour` goes to **Print tour complete**, `topic recap` to **Detail, re-prompt**, and `re-run tour` back to Stage 1.
+- **Go to stage**: the next stage on continue, Stage 1 on re-run.
+- **Detail, re-prompt**: the picked detail, then the same stage's prompt again. Stage 2's own line below sets its budget.
+- **Print tour complete**: the closing block after Stage 4.
 
 **Stage 1 — What atomic-claude is.**
 
@@ -311,11 +330,22 @@ alternatives:
 ```
 </output_format>
 
-If freeform intent maps cleanly to one verb, drop `alternatives:` (keep the tour line only when `fresh_repo`).
+The mode and the state decide how much of the three-block format is printed.
 
-If the user is on base + clean with no clear next move, ask: `what are you trying to do — start new work, review existing, or clean up?` Single line, no menu.
+```mermaid
+flowchart TD
+    M{"Mode?"} -->|tour| T["Prose blocks"]
+    M -->|A, B, or C| R{"Base + clean, no<br/>clear next move?"}
+    R -->|yes| Q["Ask one line"]
+    R -->|no| F{"Freeform maps<br/>to one verb?"}
+    F -->|yes| D["Drop alternatives"]
+    F -->|no| B["All three blocks"]
+```
 
-For tour mode (D), use prose blocks + `AskUserQuestion` transitions, not the three-block format.
+- **Prose blocks**: tour mode (D) uses prose blocks + `AskUserQuestion` transitions, not the three-block format.
+- **Base + clean, no clear next move?**: a feature-branch user is never asked.
+- **Ask one line**: `what are you trying to do — start new work, review existing, or clean up?` Single line, no menu.
+- **Drop alternatives**: drop `alternatives:`; keep the tour line only when `fresh_repo`.
 
 </workflow>
 

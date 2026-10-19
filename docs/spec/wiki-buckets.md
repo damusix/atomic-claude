@@ -81,8 +81,6 @@ The `atomic-wiki` skill (`skills/atomic-wiki/SKILL.md`) is the conversational ro
 
 **Query/staleness:** "what does my wiki know" → read `wiki/index.md`, `repos/`, `concerns/`, and each registered bucket's `index.md`; "is it stale" → `atomic wiki stale --root`, which reports membership drift only (exit 0 none / exit 1 `DRIFT` lines / exit 2 error).
 
-**Degradation:** `atomic` binary absent → say so, point at `/refresh-wiki` and `docs/reference/realm-wiki.md`; never hand-build the structure.
-
 **Relationship to /refresh-wiki:** this skill is the conversational entry point; `/refresh-wiki` writes the repo summaries and concerns. The skill is not invoked by other commands; it complements but does not call `/refresh-wiki`.
 
 
@@ -174,6 +172,14 @@ Go verbs under `atomic wiki bucket`, with the registry spliced into `wiki/index.
 **Why:** Audit found the criterion listed the stub, registry, and capture-surfaces writes but not the rebuild, which `docs/spec/bucket-icm-structure.md` criterion 9 requires.
 
 **Correction:** The criterion omitted the index rebuild that `bucket add` performs.
+
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** The `atomic-wiki` skill section no longer has a degradation rule for a missing binary.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** with the binary absent, the skill said so and pointed at `/refresh-wiki` and `docs/reference/realm-wiki.md`.
 
 
 ## Implementation log

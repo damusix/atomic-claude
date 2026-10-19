@@ -27,7 +27,7 @@ Auto-fires on:
 
 </trigger>
 
-Conversational entry point for wiki and capture-bucket operations. Code writes structure; the model writes meaning. Degrades gracefully when `atomic` binary is absent.
+Conversational entry point for wiki and capture-bucket operations. Code writes structure; the model writes meaning.
 
 ## Realm resolution
 
@@ -35,15 +35,10 @@ Read the `<wikis>` block in `~/.claude/CLAUDE.md` (outside `<atomic>`, CLI-manag
 
 - **cwd under a realm root** → that realm is active. Bucket operations target it.
 - **No registered realm + setup intent** → `atomic wiki scan --root <path>` bootstraps. Ask which folder is the realm root if ambiguous.
-- **`atomic` binary absent** → say so; point at `/refresh-wiki` and `docs/reference/realm-wiki.md`. Do not hand-build the structure.
 
 ## Pipeline routing
 
-When a full inference run is needed (refresh, summarize), detect scope and load the matching reference:
-
-1. Read `<wiki-type>` from the active wiki index (`docs/wiki/index.md` for repo scope, `wiki/index.md` for realm scope).
-2. **Repo scope** (`<wiki-type>repo</wiki-type>`) — the full per-repo pipeline lives at `~/.claude/skills/atomic-wiki/references/repo.md` (installed location). A full refresh is triggered via `/refresh-wiki`, which dispatches `atomic-wiki-inferrer` to execute it.
-3. **Realm scope** (`<wiki-type>realm</wiki-type>`) — the wiki-output pipeline lives at `~/.claude/skills/atomic-wiki/references/realm.md` (installed location). A full refresh is triggered via `/refresh-wiki [root]`, which runs the scan, makes its offers, re-authors the artifacts the user picks, and dispatches `atomic-wiki-inferrer` for each inference step.
+When a full inference run is needed (refresh, summarize), the `<wiki-type>` tag in the active wiki index picks the pipeline. `<wiki-type>repo</wiki-type>` in `docs/wiki/index.md` runs `/refresh-wiki` against `references/repo.md`. `<wiki-type>realm</wiki-type>` in `wiki/index.md` runs `/refresh-wiki [root]` against `references/realm.md`. Both dispatch `atomic-wiki-inferrer` to execute the pipeline.
 
 The pipeline text lives **only** in the reference files (installed at `~/.claude/skills/atomic-wiki/references/`) — not here, and not duplicated in the agent's system prompt. When an agentic inference run is needed, the agent resolves `$HOME` via Bash and reads the appropriate reference file at its absolute path, then executes it.
 

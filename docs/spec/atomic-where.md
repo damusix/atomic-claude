@@ -84,11 +84,12 @@ interesting-only nudge line when the position is non-trivial.
       behavior (see `buildBody` in
       `atomic/internal/hooks/hooks.go`).
 - [ ] A shared agent-prompt partial documents the convention: agents run
-      `atomic where` for orientation before wiki/realm-scoped work, with
-      graceful degradation when the binary is absent — mirroring
-      `agent-code-intel`'s existing "lead with `atomic code explore`"
-      convention. Composed into the same agents that already receive
-      `agent-code-intel` (or a documented subset, if scope differs).
+      `atomic where` for orientation before wiki/realm-scoped work,
+      falling back to the repo-scope walk and `<wikis>` heuristics when the
+      verb errors — mirroring `agent-code-intel`'s existing "lead with
+      `atomic code explore`" convention. Composed into the same agents
+      that already receive `agent-code-intel` (or a documented subset, if
+      scope differs).
 - [ ] `templates/commands/atomic-help.md`'s `binary`/`cli` topic row mentions
       `atomic where [--json]`.
 - [ ] `templates/commands/atomic-help.md`'s Stage 4 tour block (the maintenance
@@ -146,6 +147,14 @@ one `atomic where` verb — see
 **Why:** those pieces were deleted with realm wiki staleness tracking.
 
 **Removed:** citations to `wiki/staleness.go`, the wiki `isUnder` copy, and the wiki-staleness nudge source; see `docs/spec/realm-wiki-drop-refresh.md`.
+
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** The `agent-where` partial criterion no longer covers a missing binary; agents run `atomic where` directly.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** the partial also fell back when `atomic` was absent; the fallback on a failed `atomic where` stays.
 
 ## Implementation log
 

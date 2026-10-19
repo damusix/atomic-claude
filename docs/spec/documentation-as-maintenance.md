@@ -115,7 +115,7 @@ Replace current `/documentation` with:
 
 **Bootstrap mode** (no `## Documentation surfaces` in CLAUDE instructions):
 
-1. Run `atomic docs scan` (or Bash fallback: `find docs/ doc/ documentation/ wiki/ ADR/ adr/ decisions/ -name '*.md'`).
+1. Run `atomic docs scan`.
 2. Read the cache file.
 3. Present discovered surfaces as numbered list (axiom 4).
 4. User picks: `all | 1 3 5 | none`.
@@ -212,4 +212,10 @@ Add to `claude.local.md`:
 
 ## Change log
 
-<!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** Bootstrap mode runs `atomic docs scan` with no Bash fallback.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** bootstrap fell back to `find docs/ doc/ documentation/ wiki/ ADR/ adr/ decisions/ -name '*.md'` when the binary was absent.

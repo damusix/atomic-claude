@@ -46,15 +46,23 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 
 ### 1. Detect scope
 
-Determine scope from dispatch args first (most reliable signal):
+Dispatch args decide scope when present, because they are the most reliable signal; only without them does the agent read the wiki indexes on disk.
 
-- **Realm scope** — `target_repo` or `wiki_dir` is present. Load `~/.claude/skills/atomic-wiki/references/realm.md`.
-- **Repo scope** — none of the above realm args are present. Load `~/.claude/skills/atomic-wiki/references/repo.md`.
+```mermaid
+flowchart TD
+    A{"Realm args passed?"} -->|one or both| R["Realm scope"]
+    A -->|none| I{"Repo index?"}
+    I -->|yes| P["Repo scope"]
+    I -->|no| M{"Realm index<br/>at parent?"}
+    M -->|yes| R
+    M -->|no| P
+```
 
-If scope is ambiguous (no dispatch args, fresh repo), check:
-- `docs/wiki/index.md` exists with `<wiki-type>repo</wiki-type>` → repo scope.
-- `wiki/index.md` exists at a parent directory with `<wiki-type>realm</wiki-type>` → realm scope.
-- Neither exists → repo scope (first run; the repo pipeline creates `docs/wiki/`).
+- **Realm args passed?**: `target_repo` and `wiki_dir`.
+- **Repo index?**: `docs/wiki/index.md` with `<wiki-type>repo</wiki-type>`.
+- **Realm index at parent?**: `wiki/index.md` at a parent directory with `<wiki-type>realm</wiki-type>`. No index anywhere is a first run, and the repo pipeline creates `docs/wiki/`.
+- **Realm scope**: load `~/.claude/skills/atomic-wiki/references/realm.md`; with one arg, it refuses.
+- **Repo scope**: load `~/.claude/skills/atomic-wiki/references/repo.md`.
 
 ### 2. Load the reference
 
