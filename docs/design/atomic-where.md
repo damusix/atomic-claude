@@ -7,9 +7,8 @@ taxonomy?" Three detectors exist and each answers a slice of the question:
 
 - `codeintel/realm.Resolve` — code-index scope only (`atomic code` verb
   routing). Blind to wiki structure.
-- `wiki.ReadWikiIndexPaths` + private `isUnder` — realm-root/member detection,
-  but only ever consumed internally by `MarkDirty`/`CheckStaleness`. No public
-  report.
+- `wiki.ReadWikiIndexPaths` — reads the `<wikis>` registry; no position
+  detection and no public position report.
 - Repo-scope wiki (`docs/wiki/index.md`) presence — no detector exists at all.
 
 A repo that is both a realm member *and* carries its own repo-scope
@@ -45,7 +44,7 @@ flowchart TD
     how `agent-code-intel` already tells agents to lead with `atomic code
     explore`.
 - Non-goals:
-  - No refactor of `wiki.isUnder` / `realm.isUnder` duplication. Two private
+  - No refactor of `where.isUnder` / `realm.isUnder` duplication. Two private
     copies already exist by established precedent; this may add a third
     rather than force a cross-package extraction.
   - No caching/daemon layer — detection is a handful of stat calls, not a
@@ -69,8 +68,8 @@ flowchart TD
 Approach A. The only truly new detection logic is the repo-scope walk: from
 cwd, walk upward checking for `docs/wiki/index.md` at each level, stopping
 after checking the level where `.git` is found (or at filesystem root) — pure
-filesystem stats, no git exec, matching the "zero git spawns" contract already
-established in `wiki/staleness.go`. Stopping at the git boundary prevents a
+filesystem stats, no git exec, matching the "runs no git" contract of `wiki.Stale`
+(`docs/spec/realm-wiki-drop-refresh.md` criterion 3). Stopping at the git boundary prevents a
 false-positive match against an unrelated ancestor directory's `docs/wiki/`.
 
 Composition: `where.Resolve(cwd, claudeHome string) (Report, error)` calls the
@@ -103,3 +102,15 @@ convention.
 - Should the composite report expose code-index scope as a top-level field or
   a secondary/verbose-only detail? Leaning top-level since it's cheap to
   compute and the brief asked for it folded in, not hidden behind a flag.
+
+
+## Change log
+
+
+### 2026-10-19 — Removed wiki staleness callers
+
+**What changed:** The Problem bullet on `wiki.ReadWikiIndexPaths` no longer names `MarkDirty`, `CheckStaleness`, or the wiki package's private `isUnder`, and states what `ReadWikiIndexPaths` does rather than who calls it. The `isUnder` non-goal names the copies that exist (`where`, `realm`), and the no-git contract cites `wiki.Stale`.
+
+**Why:** Both were deleted with the realm wiki refresh tracking (`docs/spec/realm-wiki-drop-refresh.md`).
+
+**Removed:** `MarkDirty`, `CheckStaleness`, and `wiki.isUnder`, all deleted with the refresh tracking.

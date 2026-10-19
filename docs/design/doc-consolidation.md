@@ -190,7 +190,7 @@ flowchart LR
     E --> F["wiki writer for the domain<br/>dispatched directly"]
 ```
 
-The last hop is direct because docs-only commits skip the signals gate, so `mark-dirty` would not fire.
+The last hop is direct because docs-only commits skip the signals gate, so no ship verb would refresh the domain's wiki page.
 
 ### Delivery order
 
@@ -223,3 +223,11 @@ The last hop is direct because docs-only commits skip the signals gate, so `mark
 **What changed:** `docs/design/diagram-legibility.md` shipped the diagram slice of the wiki-inference section: Step 3's domain-assignment rule, Step 4's carried-diagram clause, and Step 5's carry-over check in `context/skills/atomic-wiki/references/repo.md`, the matching W4/W5 restatement in `context/skills/atomic-wiki/references/realm.md`, and the carry-over responsibility on `atomic-wiki-writer`. The Problem bullet and the wiki-inference goal above are rewritten to describe that slice as shipped, leaving purpose and vocabulary as the remaining goals.
 
 **Why:** issue #272.
+
+### 2026-10-19 — Removed `mark-dirty` from the last-hop reason
+
+**What changed:** The reason the wiki writer is dispatched directly now cites the skipped signals refresh instead of `mark-dirty`.
+
+**Why:** `atomic wiki mark-dirty` was deleted with the realm wiki refresh tracking (`docs/spec/realm-wiki-drop-refresh.md`).
+
+**Removed:** `mark-dirty` as the reason.
