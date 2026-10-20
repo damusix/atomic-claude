@@ -39,8 +39,8 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 
 - [ ] `atomic validate` (no args) runs all v1 validators on the whole repo from repo root.
 - [ ] `atomic validate <paths...>` routes each path to the appropriate validator by location.
-- [ ] `atomic validate spec|config|bundle [paths...]` runs the named validator only.
-- [ ] Exit code: `0` on all PASS or only WARN; `1` on any FAIL; `2` on validator-internal error.
+- [ ] `atomic validate spec [paths...]`, `atomic validate config`, and `atomic validate bundle` run the named validator only. `config` and `bundle` validate the whole repo; a path argument to either exits 2.
+- [ ] Exit code: `0` on all PASS or only WARN; `1` on any FAIL; `2` on validator-internal or usage error.
 - [ ] Findings emitted one per line, indexed, rule-ID-tagged.
 - [ ] Summary line ends each run: `<P> PASS, <W> WARN, <F> FAIL. exit <N>.` `<W>` and `<F>` count findings. `<P>` counts inspected files that produced no WARN and no FAIL, so a clean run reports how much was inspected. Unit per group:
     - spec: each `docs/spec/*.md` (or path argument) read.
@@ -269,6 +269,15 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 
 
 <!-- Drafting/refinement edits before approval are not logged. First entry is at v1 ship. -->
+
+
+### 2026-10-20 — `config` and `bundle` reject path arguments
+
+**What changed:** `atomic validate config` and `atomic validate bundle` take no path arguments; a path exits 2 and is named in the error. `--json` and `--suggest` are honored in any position. Contract: `docs/spec/cli-trailing-flags.md`.
+
+**Why:** Both validators always ran whole-repo and silently ignored any path given, while the body advertised `[paths...]`.
+
+**Superseded:** `atomic validate spec|config|bundle [paths...]`.
 
 
 ### 2026-10-19 — PASS counts clean inspected files

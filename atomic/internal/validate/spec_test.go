@@ -320,3 +320,32 @@ func TestDispatch_SpecOnAtomicValidateMd(t *testing.T) {
 		}
 	}
 }
+
+func TestDispatch_Spec_TrailingJSONHonored(t *testing.T) {
+	specFile := filepath.Join(t.TempDir(), "test.md")
+	content := `# Test Spec
+
+## Checkpoints
+
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | test | test.go | passes |
+
+## Change log
+
+<!-- empty -->
+`
+	if err := os.WriteFile(specFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	var buf strings.Builder
+	code := validate.RunWithOutput([]string{"spec", specFile, "--json"}, &buf)
+	out := buf.String()
+	if code != 0 {
+		t.Errorf("exit %d (want 0); --json must not be read as a spec path; output:\n%s", code, out)
+	}
+	if !strings.Contains(out, "schema_version") {
+		t.Errorf("trailing --json dropped, want JSON output:\n%s", out)
+	}
+}

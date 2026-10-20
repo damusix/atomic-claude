@@ -232,6 +232,36 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 
 `atomic where` reports independent axes: repo root and realm scope carry a `config.ScopeSource` provenance token (`none`, `marker`, `git`, `registry`, or `cwd`); repo-scope wiki presence and code-index scope report their own shape instead (`RepoScopeReport` has no `Source` field, and the code-index axis reuses `codeintel/realm`'s own scope enum). `atomic where --json` additionally reports the project-keyed state paths (`reports_root`, `reminders`, `archive`, unconditional) and, only when `report.RepoRoot.Path` itself holds a `.git` entry, `branch` and `reports` (a scope-marker root with no `.git` of its own omits both rather than guessing). `--repo <path>` relocates the whole report, branch and state paths included, to that path.
 
+### Argument parsing: flags in any position
+
+Every Cobra leaf sets `DisableFlagParsing` and hands raw argv to a stdlib `flag.FlagSet`, whose `Parse` stops at the first non-flag token. `cliutil.ParseInterspersed` re-parses after each positional, so a flag before, after, or between positionals reaches the `FlagSet`, and a stray positional surfaces where the verb can reject it instead of being dropped:
+
+```mermaid
+flowchart TD
+    %% source: atomic/internal/cliutil/args.go, atomic/internal/followups/cli.go
+    A["ParseInterspersed(fs, args)"] --> S["split at first bare --<br/>into head and tail"]
+    S --> P["fs.Parse(rest)"]
+    P -->|error| E["return err,<br/>caller picks exit code"]
+    P --> R{"fs.Args() empty?"}
+    R -->|no| T["move fs.Args()[0]<br/>to positional"]
+    T --> P
+    R -->|yes| O["return positional + tail"]
+    O --> V{"more positionals<br/>than the verb takes?"}
+    V -->|yes| U["UnexpectedArgs:<br/>name extras, print usage"]
+```
+
+Everything after the first `--` is positional verbatim, including tokens that look like flags. Stdlib grammar is otherwise unchanged: single-dash flags still parse, `-h`/`--help` returns `flag.ErrHelp`, and a flag's value token is taken verbatim even when it starts with `-`. `UnexpectedArgs(fs, cmd, extra)` writes `atomic <cmd>: unexpected argument(s): [...]` and the usage to `fs.Output()`, then returns the error without exiting, so each caller keeps its own exit code.
+
+| Verb | Positionals accepted | Usage-error exit |
+|------|----------------------|------------------|
+| `followups close` | exactly one `<id>`; `--reason` in any position | 2 |
+| `followups list`, `followups add` | none; flags in any position (`rejectArgs`) | 2 |
+| `followups render`, `followups path` | none, and no flags (`bareFlagSet`) | 2 |
+| `migrate` | one, only as `--show-log <since>` (`parseMigrateArgs`) | 2 |
+| `reminder add` | text words, joined; `--due`/`--transport` after the text (`parseReminderAddArgs`) | 1 |
+
+`reminder add` keeps exit 1 because that is the `reminder` verb's existing usage-error code. A reminder text word starting with `-` errors as an unknown flag; words after `--` stay literal.
+
 
 ## Where it lives
 
@@ -259,6 +289,8 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | [`atomic/internal/config/cli.go`](../../atomic/internal/config/cli.go) | `atomic config get\|set\|unset\|list\|path\|agents\|resolve` dispatch. Holds the `ApplyAgentsHook` seam. |
 | [`atomic/internal/config/render.go`](../../atomic/internal/config/render.go) | `Resolved(cfg)` flat dotted-key map, consumed by `atomic config list` and `atomic config get`. |
 | [`atomic/internal/config/statemigrate.go`](../../atomic/internal/config/statemigrate.go) | `MigrateUserState(home)`: legacy `~/.claude/.atomic` to `~/.atomic`, plus the compat symlink. |
+| [`atomic/internal/cliutil/args.go`](../../atomic/internal/cliutil/args.go) | `ParseInterspersed` (flags in any position, split at the first bare `--`) and `UnexpectedArgs` (names stray positionals, prints usage, returns the error for the caller's exit code). |
+| [`atomic/internal/cliutil/usage.go`](../../atomic/internal/cliutil/usage.go) | `SetUsage`: double-dash flag listing for a stdlib `FlagSet`'s usage output. |
 
 ### Scratchpad bundles
 
@@ -279,7 +311,7 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | [`atomic/internal/migrate/steps.go`](../../atomic/internal/migrate/steps.go), `steps_scanignore.go` | Earlier registered steps: the signals→[`docs/wiki/`](.) relocation and `.signalsignore`→`atomic.toml [scan]` conversion. |
 | [`atomic/internal/migrate/steps_scratchpad.go`](../../atomic/internal/migrate/steps_scratchpad.go) | The `1.2.0` repo-scope step: `scratchpadRelocate` (`relocateReportsAndReminders` + `redateScratchpadBundles`), and their helpers (`relocateTree`, `moveFileCrossDevice`, `pruneEmptyDirs`, `candidates`/`collisions`/`redateOne`). |
 | [`atomic/internal/migrate/log.go`](../../atomic/internal/migrate/log.go) | `FormatLog(registry, since)` — newest-first rendering of log-carrying `Migration` entries, filtered by semver or `YYYY-MM-DD` date. |
-| [`atomic/cmd/atomic/cmd_migrate.go`](../../atomic/cmd/atomic/cmd_migrate.go) | `atomic migrate [--repo <path>] [--realm <path>] [--show-log [<since>]]` routing, `migrateRepoAction`, `runMigrateRealm` (per-member confirm fan-out). |
+| [`atomic/cmd/atomic/cmd_migrate.go`](../../atomic/cmd/atomic/cmd_migrate.go) | `atomic migrate [--repo <path>] [--realm <path>] [--show-log [<since>]]` routing, `parseMigrateArgs` (interspersed parse, `<since>` the only positional, exit 2 on any usage error), `migrateRepoAction`, `runMigrateRealm` (per-member confirm fan-out). |
 
 ### Agent overrides
 
@@ -306,7 +338,8 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | [`atomic/internal/hooks/hooks.go`](../../atomic/internal/hooks/hooks.go), `hooks_hujson.go` | Session-start payload plus install/uninstall of the settings.json registration. `hujson` parses settings leniently. |
 | [`atomic/internal/hooks/outputstyle.go`](../../atomic/internal/hooks/outputstyle.go) | `SeedOutputStyle`, `ReadOutputStyle`, `RemoveOutputStyleIfAtomic`, `StyleInstalled`, `SeedEnabled` — the `outputStyle` key seed/read/remove primitives and their guards. |
 | [`atomic/internal/reminder/reminder.go`](../../atomic/internal/reminder/reminder.go) | File-based reminder CRUD behind `atomic reminder add\|list\|show\|rm`; `unionEntries` and `findWritableByID` implement the project-keyed/legacy union (see Coupling). |
-| [`atomic/internal/followups/`](../../atomic/internal/followups) | YAML-frontmatter entry parser, INDEX renderer, append-only `CLOSED.md`. Serves `atomic followups path\|render\|list\|add\|close`. |
+| [`atomic/cmd/atomic/cmd_reminder.go`](../../atomic/cmd/atomic/cmd_reminder.go) | `atomic reminder` dispatch; `parseReminderAddArgs` joins the positionals into the text and honors `--due`/`--transport` in any position (exit 1 on usage error). |
+| [`atomic/internal/followups/`](../../atomic/internal/followups) | YAML-frontmatter entry parser, INDEX renderer, append-only `CLOSED.md`. Serves `atomic followups path\|render\|list\|add\|close`; `cli.go` parses every verb through `cliutil.ParseInterspersed` and enforces its positional count (`rejectArgs`, `bareFlagSet`). |
 | [`atomic/internal/prompt/prompt.go`](../../atomic/internal/prompt/prompt.go) | Shared TTY abstraction over `huh`: `Confirm`, `Select[T]`, `IsInteractive` (stdin and stdout both terminals), and the `ErrNonInteractive`/`ErrAborted` sentinels. |
 
 ### Self-update
@@ -351,6 +384,7 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | [`docs/spec/agent-model-overrides.md`](../spec/agent-model-overrides.md) | The original flat tier map. Partially superseded by `agents-effort-config.md`. |
 | [`docs/spec/document-templates.md`](../spec/document-templates.md) | The `doctemplate` skeletons, the never-improvise rule for authoring commands, the `cliusage` lockstep requirement. |
 | [`docs/design/document-templates.md`](../design/document-templates.md) | Why skeletons are embedded rather than shipped as `context/_partials/*.md` files. |
+| [`docs/spec/cli-trailing-flags.md`](../spec/cli-trailing-flags.md) | The trailing-flag rule: `ParseInterspersed`, the per-verb positional limits, exit 2 (exit 1 for `reminder add`) on a stray argument, and the `--` terminator. |
 | [`docs/spec/follow-ups-folder.md`](../spec/follow-ups-folder.md) | Folder layout, frontmatter schema, `INDEX.md` generation, `CLOSED.md` audit trail. |
 | [`docs/spec/typed-followups.md`](../spec/typed-followups.md) | The `kind: finding` / `kind: plan` split and its staleness consequence. |
 | [`docs/spec/cron-workflow.md`](../spec/cron-workflow.md) | `/remind-me` and `/follow-up`, the scheduling tools, 5-field cron expressions, jitter, 7-day expiry. |
@@ -453,4 +487,5 @@ A download aborts only on sustained silence, never on total elapsed time, and th
 | → workflow | `/subagent-implementation` Phase 3 shells out to `atomic followups add`. Command templates seed structure via `atomic scratchpad new <slug> --purpose <p>` and `atomic template <name>`; skeletons come from the verb and are never improvised. |
 | → workflow | `atomic repo init` runs unguarded at these call sites, before the scratchpad or worktree they create: in [`context/_partials/worktree-setup.md`](../../context/_partials/worktree-setup.md) before `git worktree add`, in [`context/_partials/implement-loop.md`](../../context/_partials/implement-loop.md) and [`context/commands/deslop.md`](../../context/commands/deslop.md) before `atomic scratchpad new`, and in [`context/commands/subagent-diagnose.md`](../../context/commands/subagent-diagnose.md)'s create-scratchpad step. [`context/commands/setup-wiki.md`](../../context/commands/setup-wiki.md) proposes it as the single action covering missing [`.gitignore`](../../.gitignore) coverage for `tmp/`, [`.claude/.scratchpad/`](../../.claude/.scratchpad), and `.claude/worktrees/`. |
 | → bus | `bus/remote.Remotes` reads `[bus.remotes]` through `config.Load` and resolves `ca` with `config.ExpandHome`; `cmd_bus_remote.go` validates and writes entries through the `busremote.go` helpers and `WritePersist`, and `cmd_bus_gateway.go` checks enroll names with `ValidateBusRemoteName`. The CLI itself is documented in [`docs/wiki/bus.md`](bus.md). |
+| → doctor, code-intel, serve | `internal/cliutil` (this domain) is also called by `validate/validate.go` (`atomic validate` top-level parse), `codeintel/cli/code.go` (the `atomic code` positional verbs), and `serve/serve.go` (`parseFlags`, at most one `dir`). A change to `ParseInterspersed`'s grammar or `UnexpectedArgs`'s message lands in each of them. |
 | → reminder | `internal/reminder.unionEntries` reads both `config.RemindersDir` (project-keyed) and `config.RemindersDirLegacy`, unioning in any legacy entry whose id is absent from the project-keyed set; `findWritableByID` restricts mutation (`set-due`, `rm`) to the project-keyed directory alone and refuses a legacy-only id with a `run atomic migrate --repo` remedy rather than promoting it on write. |

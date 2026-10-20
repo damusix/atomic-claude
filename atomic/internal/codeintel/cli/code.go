@@ -398,11 +398,12 @@ func runSearch(ctx context.Context, eng *engine.Engine, args []string, stdout, s
 	var limit int
 	fs.BoolVar(&asJSON, "json", false, "emit JSON")
 	fs.IntVar(&limit, "limit", 20, "max results")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	query := strings.Join(fs.Args(), " ")
+	query := strings.Join(positional, " ")
 	if query == "" {
 		fmt.Fprintf(stderr, "atomic code search: query required\n")
 		return 1
@@ -454,11 +455,12 @@ func runSymbolGraph(ctx context.Context, eng *engine.Engine, args []string, stdo
 	var depth int
 	fs.BoolVar(&asJSON, "json", false, "emit JSON")
 	fs.IntVar(&depth, "depth", 3, "BFS depth")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	symbol := strings.Join(fs.Args(), " ")
+	symbol := strings.Join(positional, " ")
 	if symbol == "" {
 		fmt.Fprintf(stderr, "atomic code %s: symbol required\n", direction)
 		return 1
@@ -520,11 +522,12 @@ func runImpact(ctx context.Context, eng *engine.Engine, args []string, stdout, s
 	var depth int
 	fs.BoolVar(&asJSON, "json", false, "emit JSON")
 	fs.IntVar(&depth, "depth", 3, "BFS depth")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	symbol := strings.Join(fs.Args(), " ")
+	symbol := strings.Join(positional, " ")
 	if symbol == "" {
 		fmt.Fprintf(stderr, "atomic code impact: symbol required\n")
 		return 1
@@ -565,11 +568,12 @@ func runNode(ctx context.Context, eng *engine.Engine, args []string, stdout, std
 	fs.BoolVar(&asJSON, "json", false, "emit JSON")
 	fs.StringVar(&filterFile, "file", "", "filter by file path")
 	fs.IntVar(&filterLine, "line", 0, "filter by line number (requires --file)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	symbol := strings.Join(fs.Args(), " ")
+	symbol := strings.Join(positional, " ")
 	if symbol == "" {
 		fmt.Fprintf(stderr, "atomic code node: symbol required\n")
 		return 1
@@ -627,11 +631,12 @@ func runFiles(ctx context.Context, eng *engine.Engine, args []string, stdout, st
 	cliutil.SetUsage(fs, "atomic code files [pattern] [--json]")
 	var asJSON bool
 	fs.BoolVar(&asJSON, "json", false, "emit JSON")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	pattern := strings.Join(fs.Args(), " ")
+	pattern := strings.Join(positional, " ")
 
 	if err := openOrError(ctx, eng, stderr, "files"); err != nil {
 		return 1
@@ -683,7 +688,8 @@ func runAffected(ctx context.Context, eng *engine.Engine, args []string, stdin i
 	fs.IntVar(&depth, "depth", 5, "BFS depth for dependency traversal")
 	fs.StringVar(&testGlob, "test-glob", "", "glob pattern to identify test files (e.g. '_test.go')")
 	fs.BoolVar(&fromStdin, "stdin", false, "read changed file paths from stdin (one per line)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
@@ -697,7 +703,7 @@ func runAffected(ctx context.Context, eng *engine.Engine, args []string, stdin i
 			}
 		}
 	} else {
-		changedFiles = fs.Args()
+		changedFiles = positional
 	}
 
 	if len(changedFiles) == 0 {
@@ -790,11 +796,12 @@ func runExplore(ctx context.Context, eng *engine.Engine, args []string, stdout, 
 	cliutil.SetUsage(fs, "atomic code explore <query> [--json]")
 	var asJSON bool
 	fs.BoolVar(&asJSON, "json", false, "emit JSON (structured context)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	query := strings.Join(fs.Args(), " ")
+	query := strings.Join(positional, " ")
 	if query == "" {
 		fmt.Fprintf(stderr, "atomic code explore: query required\n")
 		return 1

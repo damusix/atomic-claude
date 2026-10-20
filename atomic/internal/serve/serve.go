@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 )
 
@@ -435,13 +436,17 @@ func parseFlags(args []string, stdout, stderr io.Writer) (Options, error) {
 	fs.BoolVar(&open, "open", false, "open the browser after startup (best-effort)")
 	fs.StringVar(&host, "host", "127.0.0.1", "bind address (use 0.0.0.0 to expose the read-only viewer on the LAN)")
 
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return Options{}, err
+	}
+	if len(positional) > 1 {
+		return Options{}, cliutil.UnexpectedArgs(fs, "serve", positional[1:])
 	}
 
 	targetDir := ""
-	if fs.NArg() > 0 {
-		targetDir = fs.Arg(0)
+	if len(positional) > 0 {
+		targetDir = positional[0]
 	}
 	if targetDir == "" {
 		var err error

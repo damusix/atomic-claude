@@ -56,7 +56,7 @@ atomic code impact --depth 2 validateToken # what breaks if you change it
 atomic code sync                           # refresh after edits
 ```
 
-Flags come before the positional argument — parsing stops at the first non-flag token, so trailing flags are read as part of the symbol.
+Flags go before or after the positional argument: `atomic code impact validateToken --depth 2` is the same call as `atomic code impact --depth 2 validateToken`. Words that are not flags join into the query or symbol. To pass a word that starts with `-` as part of the query, put it after `--`.
 
 This is a structural alternative to `grep` for the questions grep answers badly. `grep chargeCard` matches the string in comments, strings, and unrelated names; `atomic code callers chargeCard` returns the actual call sites from the parsed graph. The `callers`, `callees`, and `impact` verbs have no grep equivalent at all, because they traverse edges rather than text.
 

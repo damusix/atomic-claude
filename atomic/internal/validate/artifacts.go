@@ -1,7 +1,6 @@
 package validate
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -360,18 +359,4 @@ func runArtifactsCollect(repoRoot string) ([]Finding, summary, int) {
 		return nil, summary{}, 2
 	}
 	return findings, summarize(scanned, findings), 0
-}
-
-func parseArtifactsFlags(args []string, w io.Writer) (paths []string, jsonOut, suggest bool, ok bool) {
-	fs := flag.NewFlagSet("validate artifacts", flag.ContinueOnError)
-	fs.SetOutput(w)
-	fs.BoolVar(&jsonOut, "json", false, "emit JSON output")
-	fs.BoolVar(&suggest, "suggest", false, "print structural templates for content-FAIL rules")
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			ok = true
-		}
-		return nil, false, false, false
-	}
-	return fs.Args(), jsonOut, suggest, true
 }
