@@ -72,6 +72,9 @@ func TestLoadRepoConfig_UnknownTopLevelKeyWarns(t *testing.T) {
 	if !strings.Contains(warns[0].Message, "bogus") {
 		t.Errorf("warning %q does not mention unknown key %q", warns[0].Message, "bogus")
 	}
+	if warns[0].Key != "bogus" {
+		t.Errorf("Key = %q, want %q", warns[0].Key, "bogus")
+	}
 	if len(cfg.Code.Ignore) != 1 || cfg.Code.Ignore[0] != "vendor/**" {
 		t.Errorf("Code.Ignore = %v, want [vendor/**]", cfg.Code.Ignore)
 	}
@@ -91,7 +94,10 @@ func TestLoadRepoConfig_UnknownLeafKeyWarns(t *testing.T) {
 		t.Fatalf("LoadRepoConfig: %v", err)
 	}
 	if len(warns) != 1 || !strings.Contains(warns[0].Message, "code.bogus_leaf") {
-		t.Errorf("warns = %v, want one warning mentioning code.bogus_leaf", warns)
+		t.Fatalf("warns = %v, want one warning mentioning code.bogus_leaf", warns)
+	}
+	if warns[0].Key != "code.bogus_leaf" {
+		t.Errorf("Key = %q, want %q", warns[0].Key, "code.bogus_leaf")
 	}
 }
 
@@ -107,6 +113,54 @@ func TestLoadRepoConfig_MalformedTOML(t *testing.T) {
 	_, _, err := LoadRepoConfig(path)
 	if err == nil {
 		t.Fatal("LoadRepoConfig should error on malformed TOML, got nil")
+	}
+}
+
+// [realm] repos is a recognized key: it decodes in order and must not trip the
+// unknown-key warning that doctor and every config reader surface.
+func TestLoadRepoConfig_RealmRepos(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atomic.toml")
+	content := "scope = \"realm\"\n\n[realm]\nrepos = [\"agency\", \"{companya,companyb}\"]\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := LoadRepoConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRepoConfig: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	want := []string{"agency", "{companya,companyb}"}
+	if strings.Join(cfg.Realm.Repos, "|") != strings.Join(want, "|") {
+		t.Errorf("Realm.Repos = %v, want %v", cfg.Realm.Repos, want)
+	}
+}
+
+// Discovery treats an empty list differently from an absent key (warn and walk
+// the whole root vs. walk silently), so the decode must keep them apart.
+func TestLoadRepoConfig_RealmReposEmptyIsDistinctFromUnset(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atomic.toml")
+	if err := os.WriteFile(path, []byte("[realm]\nrepos = []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadRepoConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRepoConfig: %v", err)
+	}
+	if cfg.Realm.Repos == nil {
+		t.Error("repos = [] decoded as nil, indistinguishable from an unset key")
+	}
+
+	unset, _, err := LoadRepoConfig(filepath.Join(dir, "absent.toml"))
+	if err != nil {
+		t.Fatalf("LoadRepoConfig: %v", err)
+	}
+	if unset.Realm.Repos != nil {
+		t.Errorf("unset Realm.Repos = %v, want nil", unset.Realm.Repos)
 	}
 }
 

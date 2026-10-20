@@ -5,6 +5,7 @@ package wiki_test
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
@@ -208,6 +210,87 @@ func TestStale_RepoRemoved(t *testing.T) {
 	if !strings.Contains(out, "DRIFT removed repoB") {
 		t.Errorf("expected DRIFT removed repoB in output; got: %q", out)
 	}
+}
+
+// Narrowing [realm] repos after a scan must surface the dropped repo as drift,
+// and a discovery warning goes to stderr without polluting the DRIFT stream.
+func TestStale_RepoOutsideDeclaredPathsIsRemoved(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+	root := t.TempDir()
+	makeCommittedRepo(t, filepath.Join(root, "agency"), "repoA")
+	makeCommittedRepo(t, filepath.Join(root, "scratch"), "repoB")
+
+	runScan(t, root)
+
+	cfg := config.RepoConfigPath(root)
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte("[realm]\nrepos = [\"agency\", \"gone\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var code int
+	var out string
+	stderr := captureStderr(t, func() { code, out = runStale(t, root) })
+	if code != 1 {
+		t.Errorf("expected exit 1 (removed drift), got %d; stdout: %q", code, out)
+	}
+	if out != "DRIFT removed scratch/repoB\n" {
+		t.Errorf("stdout = %q, want only the removal of scratch/repoB", out)
+	}
+	if !strings.HasPrefix(stderr, "atomic wiki stale: warning: ") || !strings.Contains(stderr, `"gone"`) {
+		t.Errorf("stderr = %q, want a prefixed warning about \"gone\"", stderr)
+	}
+}
+
+func TestScan_PrintsDiscoveryWarningsToStderr(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+	root := t.TempDir()
+	makeCommittedRepo(t, filepath.Join(root, "agency"), "repoA")
+	cfg := config.RepoConfigPath(root)
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte("[realm]\nrepos = [\"agency\", \"gone\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stderr := captureStderr(t, func() { runScan(t, root) })
+	if !strings.HasPrefix(stderr, "atomic wiki scan: warning: ") || !strings.Contains(stderr, `"gone"`) {
+		t.Errorf("stderr = %q, want a prefixed warning about \"gone\"", stderr)
+	}
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	defer func() {
+		os.Stderr = old
+		w.Close()
+		r.Close()
+	}()
+	var captured []byte
+	var readErr error
+	done := make(chan struct{})
+	go func() {
+		captured, readErr = io.ReadAll(r)
+		close(done)
+	}()
+	fn()
+	w.Close()
+	<-done
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	return string(captured)
 }
 
 func TestStale_HardError(t *testing.T) {

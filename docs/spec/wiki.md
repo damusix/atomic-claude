@@ -28,7 +28,7 @@ Design: `docs/design/wiki.md`.
 
 - [ ] `atomic wiki scan` with no flag scaffolds `./wiki/` from cwd; `--root=<path>` uses `<path>`. The positional slot is reserved for verbs (`scan`, `stale`); `--root` is a flag.
 - [ ] Scaffold creates `wiki/index.md`, `wiki/README.md`, `wiki/repos/`, `wiki/concerns/`, and runs `git init` in `wiki/` (skipped if already a git repo).
-- [ ] Members = directories with a `.git` entry (dir or worktree file) found by recursing the root; recursion stops at each repo boundary; the root itself is never a member even when it is a git repo; junk dirs (`node_modules`, `dist`, `build`, `target`, `vendor`, `.worktrees`, `tmp`, `.git`) and the `wiki/` dir are skipped. `scan` classifies by signals-presence only and never reads git `HEAD`.
+- [ ] Members = directories with a `.git` entry (dir or worktree file) found by recursing the root, or only the roots matched by `[realm] repos` in `<root>/.claude/atomic.toml` when that list is non-empty; recursion stops at each repo boundary at or below the walk's starting directory (a declared root inside a member repo is still walked, unless another declared root contains it); the root itself is never a member even when it is a git repo; junk dirs (`node_modules`, `dist`, `build`, `target`, `vendor`, `.worktrees`, `tmp`, `.git`) and the `wiki/` dir are skipped. A bad `[realm] repos` entry warns on stderr and is skipped; the scan still exits 0. `scan` classifies by signals-presence only and never reads git `HEAD`.
 - [ ] Each member is classified `indexed` (has `.claude/project/signals.md`), `summarized` (no signals, but a summary exists on disk at `wiki/repos/<name>.md` or `wiki/repos/<name>/` containing at least one `.md`), or `pending` (neither) and recorded in a `<wiki-scan>` block with `path`, `status`, optional `signals`/`summary`. The open tag carries `root` and `generated` (date from injected clock). Membership + status only — no fingerprints in the block.
 - [ ] A member already recorded `summarized` whose summary file still exists keeps `summarized` on re-scan; otherwise status is re-derived (signals → `indexed`, then summary-on-disk → `summarized`, else `pending`). Disk discovery makes `summarized` reachable without a prior entry: `/refresh-wiki` writes summaries after its initial scan, and the next `atomic wiki scan` picks them up.
 - [ ] Re-running regenerates ONLY the `<wiki-scan>` block; a diff of `index.md` outside the block and of every file under `repos/`/`concerns/` is empty.
@@ -123,7 +123,9 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 ## Deterministic CLI contract
 
 
-**Repo discovery (shared `scan`/`stale`).** Recurse `<root>`'s children (never the root). Member iff `os.Lstat(<dir>/.git)` succeeds (dir or worktree file). On a member: record, don't descend. On a non-member: descend unless base name in the skip set or it's the `wiki/` dir. Sort for stable output.
+**Repo discovery (shared `scan`/`stale`).** Without a non-empty `[realm] repos` (next paragraph), recurse `<root>`'s children (never the root). Member iff `os.Lstat(<dir>/.git)` succeeds (dir or worktree file). On a member: record, don't descend. On a non-member: descend unless base name in the skip set or it's the `wiki/` dir. Sort for stable output.
+
+**Declared roots (`[realm] repos`).** When `<root>/.claude/atomic.toml` sets a non-empty `[realm] repos`, discovery walks only the directories its entries match instead of `<root>`'s children; each matched directory is walked the same way, so a matched repo is itself a member. Each entry is a root-relative path expanded as a doublestar glob over the root; wildcards never descend into a symbolic link, and every hit that is or passes through one is skipped with a warning. A matched root nested in another is dropped, and a match that is `wiki/`, under it, or has a skip-set segment is dropped silently. A `"."` match walks the whole root. A matched directory inside a member repo is still a root unless another match contains it, so a repo nested below it becomes a member. Unset key, absent file, `repos = []`, or a read, parse, or decode error walk the whole root. Problems are warnings, never failures: an entry that matches nothing, is empty, is absolute or leaves the root, or is an invalid pattern is skipped; a hit that is a file, a symbolic link, a path through one, or unreadable is skipped, and the entry's directory hits are still walked; `repos = []`, a read, parse, or decode error, and an unknown `realm.*` key also warn. When every entry is skipped, there are no members. `scan` prints warnings as `atomic wiki scan: warning: <msg>` and `stale` as `atomic wiki stale: warning: <msg>`, both on stderr; neither changes stdout nor the exit code. A recorded member outside the declared roots is reported by `stale` as `DRIFT removed <path>`. User-facing semantics and the warning table: `docs/reference/atomic-toml.md`.
 
 **Classification.** Precedence: prior `summarized` + summary file present → keep `summarized`; else `indexed` iff `<repo>/.claude/project/signals.md` exists; else `summarized` iff a summary exists on disk (`wiki/repos/<name>.md`, or `wiki/repos/<name>/` containing at least one `.md`, where `<name>` is the member's base name); else `pending`. Signals win over a leftover summary — a repo that graduates to signals stays `indexed`. `scan` never reads `HEAD`.
 
@@ -147,7 +149,8 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
-| Huge-tree recursion (home as root) | med | Stop at repo boundary + skip set + start from children; README notes `root` is a project container. |
+| Huge-tree recursion (home as root) | med | Stop at repo boundary + skip set (walk only; see `**` row) + start from children; README notes `root` is a project container. |
+| `**` in `[realm] repos` reads the whole subtree | med | Accepted: glob expansion runs before the repo-boundary and skip-set filters; the reference recommends fixed-depth `*`. |
 | `scan --out` regresses normal signals | med | `--out` is additive (default path unchanged); existing signals tests gate; checkpoint 3 covers it. |
 | Inferrer (wiki mode) writes into target repo | low | Substrate goes to `--out` (outside repo); mode-scoped don't-touch rule; reviewer checks. No write path into the repo remains. |
 | A summary or concern goes out of date unnoticed | med | Accepted: nothing tracks freshness. `/refresh-wiki` lists every existing artifact so the user can pick what to re-author. |
@@ -158,6 +161,14 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 ## Change log
 
+
+### 2026-10-18 — Discovery honors `[realm] repos`
+
+**What changed:** Repo discovery for `scan` and `stale` walks only the directories matched by `[realm] repos` in the realm root's `.claude/atomic.toml` when the list is non-empty, and reports bad entries as stderr warnings without failing. The discovery success criterion and the Deterministic CLI contract now describe the declared roots, and a Risks row records that `**` expansion reads the whole subtree below its prefix.
+
+**Why:** Issue #300. A git repo inside a capture bucket or notes folder became a member, and a realm laid out as `agency/`, `experiments/`, and one folder per company could not be described.
+
+**Superseded:** Discovery always recursed every child of the realm root.
 
 ### 2026-10-18 — Removed: realm wiki freshness tracking
 

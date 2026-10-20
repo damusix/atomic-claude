@@ -27,6 +27,7 @@ Contracts:
   - docs/spec/atomic-state-and-config.md
   - docs/spec/output-style-seed.md
 References:
+  - docs/reference/atomic-toml.md
   - docs/reference/conventions.md
 Designs:
   - docs/design/agents-effort-config.md

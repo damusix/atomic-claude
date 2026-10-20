@@ -244,7 +244,7 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 | `docs/reference/repl.md` | `atomic repl` persistent interpreter sessions, scope model, six verbs, exit codes, idle_timeout config | atomic-writing |
 | `docs/reference/retro.md` | `atomic retro extract`: flags, defaults, output shape, file:line convention, dropped rows, exit codes | atomic-writing |
 | `docs/reference/docs-index.md` | `atomic docs index`: `<bucket-docs>` region for any directory, `--check`, exit codes, frontmatter keys read | atomic-writing |
-| `docs/reference/atomic-toml.md` | repo-scoped `.claude/atomic.toml`: scope marker, code-index ignore globs, repl idle_timeout, lenient load contract | atomic-writing |
+| `docs/reference/atomic-toml.md` | repo-scoped `.claude/atomic.toml`: scope marker, code-index ignore globs, comments max_lines, repl idle_timeout, realm repos, lenient load contract | atomic-writing |
 | `docs/credits.md` | inspirations, prior-art credits | atomic-writing |
 | `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-writing |
 | `context/CLAUDE.md` | global contract, agent/command/skill registry | atomic-writing |
@@ -255,7 +255,7 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 - `docs/guides/getting-started.md` owns the first-session walkthrough (output style, repo setup, first task); `docs/reference/workflow.md` §0 compresses and points.
 - `docs/reference/concepts.md` owns harness detection and the state-path resolution order.
 - `docs/reference/code-intel.md` owns index setup and the `atomic code` verbs; guides show one invocation and point.
-- `docs/reference/atomic-toml.md` owns the `[scan]`, `[code]`, `[comments]`, and `[repl]` key semantics; `repo-wiki.md` and `code-intel.md` show their own table and point.
+- `docs/reference/atomic-toml.md` owns the `[scan]`, `[code]`, `[comments]`, `[repl]`, and `[realm]` key semantics; `repo-wiki.md` and `code-intel.md` show their own table and point, and `realm-wiki.md` points.
 
 
 ## Research notes (`docs/research/`)

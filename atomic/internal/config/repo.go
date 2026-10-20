@@ -40,6 +40,12 @@ type serveSection struct {
 	Schema *bool `toml:"schema"`
 }
 
+// realmSection is the [realm] table. Repos lists the realm-root-relative paths
+// and globs that wiki discovery walks; nil means walk the whole root.
+type realmSection struct {
+	Repos []string `toml:"repos"`
+}
+
 // replSection is the [repl] table — one leaf, idle_timeout — shared by RepoConfig
 // and the user-scoped Config. Same shape both places; only resolution precedence
 // differs (repo wins over user, see repl's resolveIdleTimeout).
@@ -90,6 +96,7 @@ type RepoConfig struct {
 	Comments commentsSection `toml:"comments"`
 	Scan     scanSection     `toml:"scan"`
 	Scope    string          `toml:"scope"`
+	Realm    realmSection    `toml:"realm"`
 	Repl     replSection     `toml:"repl"`
 	Serve    serveSection    `toml:"serve"`
 }
@@ -100,6 +107,7 @@ var repoKnownSections = map[string]bool{
 	"code":     true,
 	"comments": true,
 	"pi":       true,
+	"realm":    true,
 	"repl":     true,
 	"scan":     true,
 	"serve":    true,
@@ -116,6 +124,7 @@ var repoKnownTopLevelLeaves = map[string]bool{
 var repoKnownLeaves = map[string]bool{
 	"code.ignore":        true,
 	"comments.max_lines": true,
+	"realm.repos":        true,
 	"repl.idle_timeout":  true,
 	"scan.generated":     true,
 	"scan.ignore":        true,
@@ -167,6 +176,7 @@ func checkUnknownRepoKeys(m map[string]any, prefix string) []Warning {
 			if !repoKnownSections[k] {
 				warns = append(warns, Warning{
 					Message: fmt.Sprintf("config: unknown key %q (ignored)", dotted),
+					Key:     dotted,
 				})
 				continue
 			}
@@ -176,6 +186,7 @@ func checkUnknownRepoKeys(m map[string]any, prefix string) []Warning {
 		} else if !repoKnownLeaves[dotted] {
 			warns = append(warns, Warning{
 				Message: fmt.Sprintf("config: unknown key %q (ignored)", dotted),
+				Key:     dotted,
 			})
 			continue
 		}

@@ -5,13 +5,19 @@ package wiki
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
@@ -80,7 +86,10 @@ func Scan(root string, opts Options) ([]Member, error) {
 		return nil, fmt.Errorf("wiki scan: parse prior entries: %w", err)
 	}
 
-	rawMembers, err := discoverMembers(root, wikiDir)
+	rawMembers, warns, err := discoverMembers(root, wikiDir)
+	for _, w := range warns {
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: warning: %s\n", w)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("wiki scan: discover: %w", err)
 	}
@@ -209,9 +218,194 @@ func attrValue(line, attr string) string {
 	return line[start : start+end]
 }
 
-// discoverMembers walks root's children for git repos, returning sorted
-// relative paths. Root itself is never a member.
-func discoverMembers(root, wikiDir string) ([]string, error) {
+// discoverMembers returns sorted root-relative repo paths under the [realm] repos
+// roots, or all of root when unset, plus warnings. Root is never a member.
+func discoverMembers(root, wikiDir string) ([]string, []string, error) {
+	roots, warns := declaredRoots(root, wikiDir)
+	if roots == nil {
+		members, err := walkRoot(root, wikiDir)
+		return members, warns, err
+	}
+
+	var members []string
+	for _, r := range roots {
+		found, err := walkForRepos(root, filepath.Join(root, filepath.FromSlash(r)), wikiDir)
+		if err != nil {
+			return nil, warns, err
+		}
+		members = append(members, found...)
+	}
+	sort.Strings(members)
+	return slices.Compact(members), warns, nil
+}
+
+// declaredRoots expands [realm] repos into slash-separated roots to walk. nil
+// means walk all of root; empty non-nil means no entry was usable.
+func declaredRoots(root, wikiDir string) ([]string, []string) {
+	cfgPath := config.RepoConfigPath(root)
+	cfg, cfgWarns, err := config.LoadRepoConfig(cfgPath)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("%v; ignoring [realm] repos and scanning all of %s", err, root)}
+	}
+	var warns []string
+	for _, w := range cfgWarns {
+		if strings.HasPrefix(w.Key, "realm.") {
+			warns = append(warns, fmt.Sprintf("%s in %s", w.Message, cfgPath))
+		}
+	}
+	if cfg.Realm.Repos == nil {
+		return nil, warns
+	}
+	if len(cfg.Realm.Repos) == 0 {
+		return nil, append(warns, fmt.Sprintf("[realm] repos is empty; scanning all of %s; list repo paths in %s or remove the key", root, cfgPath))
+	}
+
+	warn := func(entry, problem string) {
+		warns = append(warns, fmt.Sprintf("[realm] repos entry %q %s (realm root %s); fix or remove it in %s", entry, problem, root, cfgPath))
+	}
+
+	wikiRel, _ := filepath.Rel(root, wikiDir)
+	wikiRel = filepath.ToSlash(wikiRel)
+	fsys := os.DirFS(root)
+	var matched []string
+	wholeRoot := false
+	for _, entry := range cfg.Realm.Repos {
+		if entry == "" {
+			warn(entry, "is empty")
+			continue
+		}
+		slashed := filepath.ToSlash(entry)
+		clean := path.Clean(slashed)
+		if path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
+			warn(entry, "must stay inside the realm root")
+			continue
+		}
+		// path.Clean drops a trailing "/", which doublestar needs to match directories only.
+		if strings.HasSuffix(slashed, "/") && clean != "." {
+			clean += "/"
+		}
+		hits, err := doublestar.Glob(fsys, clean, doublestar.WithNoFollow())
+		if err != nil {
+			warn(entry, "is not a valid pattern")
+			continue
+		}
+		if len(hits) == 0 {
+			warn(entry, "matches nothing")
+			continue
+		}
+		dirs, problems, whole := classifyHits(root, wikiRel, hits, strings.ContainsAny(clean, "*?[{"))
+		for _, p := range problems {
+			warn(entry, p)
+		}
+		wholeRoot = wholeRoot || whole
+		matched = append(matched, dirs...)
+	}
+	if wholeRoot {
+		return nil, warns
+	}
+
+	sort.Strings(matched)
+	roots := []string{}
+	for _, r := range matched {
+		if !slices.ContainsFunc(roots, func(outer string) bool { return outer == r || strings.HasPrefix(r, outer+"/") }) {
+			roots = append(roots, r)
+		}
+	}
+	return roots, warns
+}
+
+// classifyHits sorts one entry's glob hits into directory roots and at most one
+// problem per kind (symlinks, unreadable, files). wholeRoot reports a "." hit.
+func classifyHits(root, wikiRel string, hits []string, isPattern bool) (dirs, problems []string, wholeRoot bool) {
+	var files, linked, unreadable []string
+	var firstLink string
+	var firstErr error
+	for _, h := range hits {
+		h = strings.TrimSuffix(h, "/")
+		if h == "." {
+			wholeRoot = true
+			continue
+		}
+		if skippedRoot(h, wikiRel) {
+			continue
+		}
+		link, info, err := firstSymlink(root, h)
+		switch {
+		case err != nil:
+			if unreadable == nil {
+				firstErr = err
+			}
+			unreadable = append(unreadable, h)
+		case link != "":
+			if linked == nil {
+				firstLink = link
+			}
+			linked = append(linked, h)
+		case !info.IsDir():
+			files = append(files, h)
+		default:
+			dirs = append(dirs, h)
+		}
+	}
+	switch {
+	case len(linked) == 1 && linked[0] == firstLink:
+		problems = append(problems, fmt.Sprintf("matches %s, which is a symbolic link; declare the real path inside the realm root", firstLink))
+	case len(linked) == 1:
+		problems = append(problems, fmt.Sprintf("matches %s, which passes through the symbolic link %s; declare the real path inside the realm root", linked[0], firstLink))
+	case len(linked) > 1 && linked[0] == firstLink:
+		problems = append(problems, fmt.Sprintf("matches %d paths through symbolic links (first: %s); declare the real path inside the realm root", len(linked), firstLink))
+	case len(linked) > 1:
+		problems = append(problems, fmt.Sprintf("matches %d paths through symbolic links (first: %s, through %s); declare the real path inside the realm root", len(linked), linked[0], firstLink))
+	}
+	switch {
+	case len(unreadable) == 1:
+		problems = append(problems, fmt.Sprintf("matches %s, which could not be read: %v", unreadable[0], firstErr))
+	case len(unreadable) > 1:
+		problems = append(problems, fmt.Sprintf("matches %d paths that could not be read (first: %s: %v)", len(unreadable), unreadable[0], firstErr))
+	}
+	if len(files) > 0 {
+		problem := fmt.Sprintf("matches %s, which is not a directory", files[0])
+		if len(files) > 1 {
+			problem = fmt.Sprintf("matches %d files, not directories (first: %s)", len(files), files[0])
+		}
+		if isPattern {
+			problem += `; end the pattern with "/" to match directories only`
+		}
+		problems = append(problems, problem)
+	}
+	return dirs, problems, wholeRoot
+}
+
+// firstSymlink returns the shortest prefix of the slash-separated rel that is a
+// symbolic link, or "" and rel's own info when no segment is one.
+func firstSymlink(root, rel string) (string, fs.FileInfo, error) {
+	segs := strings.Split(rel, "/")
+	var info fs.FileInfo
+	for i := range segs {
+		prefix := strings.Join(segs[:i+1], "/")
+		var err error
+		info, err = os.Lstat(filepath.Join(root, filepath.FromSlash(prefix)))
+		if err != nil {
+			return "", nil, err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return prefix, info, nil
+		}
+	}
+	return "", info, nil
+}
+
+// skippedRoot reports whether a declared root is the wiki itself, under it, or
+// inside a directory the whole-root walk would never enter.
+func skippedRoot(rel, wikiRel string) bool {
+	if rel == wikiRel || strings.HasPrefix(rel, wikiRel+"/") {
+		return true
+	}
+	return slices.ContainsFunc(strings.Split(rel, "/"), func(seg string) bool { return skipDirs[seg] })
+}
+
+// walkRoot walks root's children for git repos, returning sorted relative paths.
+func walkRoot(root, wikiDir string) ([]string, error) {
 	var members []string
 
 	entries, err := os.ReadDir(root)
