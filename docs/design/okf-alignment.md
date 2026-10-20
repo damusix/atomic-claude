@@ -8,7 +8,7 @@ The wiki + serve subsystems independently reinvented ~70% of Google's [Open Know
 
 1. **Links.** serve layered Obsidian `[[wikilinks]]` on top of standard markdown links. OKF uses standard markdown links only; standard links are read by OKF consumers, Obsidian, GitHub, and goldmark natively, so `[[…]]` bought nothing OKF doesn't give for free.
 
-2. **No `type` frontmatter.** OKF's one required field is absent everywhere. serve's frontend already ships Cytoscape style selectors for `node[type="repo"|"concern"|"knowledge"|"bucket"|"external"]` (`atomic/internal/serve/templates/layout.html:45`), but `buildCytoElements` hardcodes `Type:"page"` for every node (`atomic/internal/serve/graphoverlay.go:93`). The color-by-type feature is ~90% built; only backend population is missing.
+2. **No `type` frontmatter.** OKF's one required field is absent everywhere. serve's frontend already ships Cytoscape style selectors for `node[type="repo"|"concern"|"bucket"|"external"]` (then in the htmx layout template, since replaced by the React frontend), but `buildCytoElements` then hardcoded `Type:"page"` for every node (`atomic/internal/serve/graphoverlay.go`). The color-by-type feature is ~90% built; only backend population is missing.
 
 Aligning to OKF makes bundles consumable by agents (progressive disclosure via `index.md`), interoperable with Obsidian/Notion/MkDocs and Google's tooling, and turns `atomic serve` from an our-wiki-only viewer into a general OKF viewer.
 
@@ -23,7 +23,7 @@ atomic is tailored to software development and git repositories. OKF is adopted 
 | **DROP `log.md`** | Git history IS the update log. Per-directory change logs are not in our wheelhouse. |
 | **Realm-root `index.md` → OKF listing** | Progressive-disclosure listing body, alongside the existing managed `<wiki-scan>` + `## Members` blocks. |
 | **Repo-summary pages: keep shape** | `wiki/repos/<name>.md` and their relative source links stay unchanged. Their link targets are source files in sibling repos (`../../repo/src/x.ts`), not bundle concepts — OKF's bundle-relative `/path.md` form doesn't apply there. |
-| **Standard markdown links between concepts** | New cross-links between OKF concepts (knowledge, concerns, index) use standard bundle-relative `[text](/path.md)`. serve keeps its `[[…]]` parser for back-compat tolerance (OKF: consumers MUST tolerate). |
+| **Standard markdown links between concepts** | New cross-links between OKF concepts (concerns, index) use standard bundle-relative `[text](/path.md)`. serve keeps its `[[…]]` parser for back-compat tolerance (OKF: consumers MUST tolerate). |
 | **Signals files unchanged** | Files under a code repo's `.claude/project/` keep their current shape. |
 
 
@@ -55,7 +55,7 @@ The central design fork. serve must attach a `type` to each graph node so the ex
 | # | Approach | Pros | Cons |
 |---|----------|------|------|
 | A | Read frontmatter `type` per page | OKF-conformant; honors producer intent; works for any OKF bundle | needs `type` on every concept; per-node frontmatter read |
-| B | Infer from path convention (`repos/`→repo, `concerns/`→concern, `knowledge/`→knowledge) | zero producer change; honors "keep repo shape"; FE class names already match these dirs | not OKF (type not in frontmatter); breaks for arbitrary OKF bundles |
+| B | Infer from path convention (`repos/`→repo, `concerns/`→concern) | zero producer change; honors "keep repo shape"; FE class names already match these dirs | not OKF (type not in frontmatter); breaks for arbitrary OKF bundles |
 | C | Hybrid: frontmatter `type` when present, else path-convention, else `page`/`external` | OKF-conformant where declared; zero churn on repo summaries; renders foreign OKF bundles; FE already built | two resolution paths |
 
 
@@ -69,7 +69,7 @@ The central design fork. serve must attach a `type` to each graph node so the ex
 - honors "keep repo shape" — repo-summary pages need zero changes and still color correctly via the path fallback,
 - makes serve a general OKF viewer (foreign bundles with frontmatter `type` just work).
 
-The producer writes `type` (+ `description`, `tags`) on **knowledge** and **concern** pages, where it is most useful for agents and consumers. Repo summaries optionally gain `type: Repo Summary` (additive frontmatter, not a structural change) — but the hybrid resolver means they color correctly even if left untouched, so this is low-stakes (see Open questions).
+The producer writes `type` (+ `description`, `tags`) on **concern** pages, where it is most useful for agents and consumers. Repo summaries optionally gain `type: Repo Summary` (additive frontmatter, not a structural change) — but the hybrid resolver means they color correctly even if left untouched, so this is low-stakes (see Open questions).
 
 
 ## Type vocabulary (producer-defined, sw-dev flavored)
@@ -79,7 +79,6 @@ The producer writes `type` (+ `description`, `tags`) on **knowledge** and **conc
 |------|--------|------------|---------------|
 | `wiki/repos/<name>.md` | `Repo Summary` (optional) | repo path / git remote (optional) | `repo` (via path fallback) |
 | `wiki/concerns/<name>.md` | `Concern` | absent (abstract) | `concern` |
-| `wiki/knowledge/<topic>.md` | `Knowledge` | absent (abstract) | `knowledge` |
 | `index.md` | none (OKF: no frontmatter except `okf_version`) | — | n/a |
 
 
@@ -99,31 +98,30 @@ Relative links (`./other.md`, `../x.md`, OKF §5.2) already resolve correctly �
 ## Producer → consumer flow
 
 
-Flow from the wiki producer (stamp / scan / agent) through the OKF bundle to serve as consumer.
+The model writes `type` on concern pages and code writes the index listing; serve resolves every node through one resolver:
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph producer["wiki producer"]
-        agent["atomic-wiki-inferrer<br/>(wiki-output / bucket-synth)"]
-        stamp["atomic wiki stamp<br/>writes type/description"]
+        agent["atomic-wiki-inferrer<br/>(wiki-output)"]
+        rw["/refresh-wiki<br/>writes type/description"]
         scan["atomic wiki scan<br/>OKF index listing"]
     end
     subgraph bundle["OKF bundle (wiki/)"]
-        idx["index.md<br/>OKF listing + wiki-scan block"]
+        idx["index.md<br/>OKF listing +<br/>wiki-scan block"]
         repos["repos/*.md<br/>shape unchanged"]
         concerns["concerns/*.md<br/>type: Concern"]
-        know["knowledge/*.md<br/>type: Knowledge"]
     end
     subgraph consumer["atomic serve"]
         gd["/graph/data<br/>hybrid type resolver"]
         rail["right rail<br/>resource link"]
         filt["type filter UI"]
     end
-    agent --> concerns & know
-    stamp --> concerns & know
+    agent --> repos
+    rw --> concerns
     scan --> idx
-    idx & repos & concerns & know --> gd --> filt
-    concerns & know --> rail
+    idx & repos & concerns --> gd --> filt
+    concerns --> rail
 ```
 
 
@@ -135,8 +133,8 @@ flowchart LR
 | `type: Repo Summary` on repo-summary pages? | **No** — leave repo pages byte-identical | Respects the user directive ("keep code-repo pages as they are"). serve's path-convention fallback colors them `repo` anyway. Trade-off (below) documented for opt-in later. |
 | `resource` on repo summaries? | **Omit** | Optional in OKF; no consumer need yet. |
 | `okf_version` in realm `index.md` frontmatter? | **Drop** | serve strips frontmatter before render (invisible in the one viewer we ship); collides with the managed-block writer that seeds the index body first-line; OKF makes it MAY-optional. Frontmatter-free index is *more* §6-conformant. |
-| Canonical node-type vocabulary | **Short lowercase** (`repo`/`concern`/`knowledge`) internally; producer writes human-readable title-case (`Knowledge`, `Concern`); serve maps long→short | The shipped CSS selectors are short lowercase; OKF examples are title-case. A mapping layer reconciles both. |
-| Who writes `type`/`description` frontmatter? | **The producer model** (signals-inferrer B3 for knowledge; `/refresh-wiki` orchestrator for concerns) — NOT `atomic wiki stamp` | `type`/`description` are producer-defined content (OKF §4.1), not computed fingerprints. Matches the existing model-writes-content / code-writes-fingerprints split (`title:` is already agent-written). Agent-written keys survive `stamp`'s round-trip. |
+| Canonical node-type vocabulary | **Short lowercase** (`repo`/`concern`) internally; producer writes human-readable title-case (`Concern`); serve maps long→short | The shipped CSS selectors are short lowercase; OKF examples are title-case. A mapping layer reconciles both. |
+| Who writes `type`/`description` frontmatter? | **The producer model** (`/refresh-wiki` orchestrator for concerns), not a code step | `type`/`description` are producer-defined content (OKF §4.1), not derived values. Matches the existing model-writes-content / code-writes-derived-values split (`title:` is already agent-written). |
 | `type` filter UI | **In scope** — real legend + click-to-toggle node visibility | Explicit user request; color-without-filter is low value. |
 
 
@@ -145,9 +143,21 @@ flowchart LR
 
 | Risk | Sev | Mitigation |
 |------|-----|------------|
-| R1 type-string mismatch silently no-ops coloring (`Knowledge` ≠ `knowledge`) | High | serve resolver maps long→short via explicit table; both frontmatter + path paths converge on short lowercase; serve test asserts `type: Knowledge` → node class `knowledge`. |
-| Three node-emission sites (`graphoverlay.go:93` global, `:195` local/rail, `:321` provenance) | Med | Fix `:93` + `:195` through the shared resolver; `:321` already emits real kinds. Test the rail mini-graph path too. |
+| R1 type-string mismatch silently no-ops coloring (`Concern` ≠ `concern`) | High | serve resolver maps long→short via explicit table; both frontmatter + path paths converge on short lowercase; serve test asserts `type: Concern` → node class `concern`. |
+| Two node-emission sites (`graphoverlay.go`, global and local/rail) | Med | Fix both through the shared resolver. Test the rail mini-graph path too. |
 | serve path-fallback disagrees with foreign OKF consumers on untyped repo pages | Med | Accepted per user directive; documented in PR as a one-line opt-in (`type: Repo Summary`) the user can enable. |
 | Concern pages typeless → §9 conformance gap | Med | `/refresh-wiki` orchestrator (the concern author) writes `type: Concern` + `description`. |
 | Sequencing: producer title-case `type` landing before serve mapping | Med | Land serve consumer pair (link fix + typed resolver+mapping) first; producer frontmatter is forward-compatible (path-fallback covers it). Regenerate bundle (`make bundle`) since the agent is a bundled artifact. |
 | Realm `index.md` carries non-OKF `<wiki-scan>` tags + member links escaping the bundle | Low | Tolerated by OKF §9 (unknown tags / broken-or-external links). `## Members` upgraded to §6 list form with descriptions; `<wiki-scan>` kept as a machine block a foreign consumer ignores. Cross-bundle member links are intentional (members are sibling repos, not bundle concepts). |
+
+
+## Change log
+
+
+### 2026-10-19 — Removed knowledge pages and `atomic wiki stamp`
+
+**What changed:** The type vocabulary, the producer-to-consumer flow, the producer and vocabulary decisions, and the risks no longer name `wiki/knowledge/` pages, the `Knowledge` type, the inferrer's bucket-synthesis mode, `atomic wiki stamp`, or the provenance node-emission site. The flow diagram shows the inferrer writing repo summaries and `/refresh-wiki` writing concern frontmatter.
+
+**Why:** Bucket synthesis, the `knowledge/` layer, `atomic wiki stamp`, and serve's provenance overlay were deleted with the realm wiki refresh tracking (`docs/spec/realm-wiki-drop-refresh.md`).
+
+**Removed:** knowledge pages as a typed concept, `stamp` as a frontmatter writer, and the provenance emission site.
