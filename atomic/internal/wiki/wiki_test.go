@@ -471,6 +471,98 @@ func TestScan_CollisionIndexMDMissingMarker(t *testing.T) {
 	}
 }
 
+// The documented setup flow is `wiki init --scope realm` then `wiki scan`;
+// init's own wiki/CLAUDE.md must not trip the collision guard.
+func TestScan_AfterInitRealmScopeSucceeds(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	if _, err := wiki.InitRealmScope(root); err != nil {
+		t.Fatal(err)
+	}
+	steeringPath := filepath.Join(root, "wiki", "CLAUDE.md")
+	steering, err := os.ReadFile(steeringPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, wiki.Options{Clock: fixedClock()}); err != nil {
+		t.Fatalf("scan after init: %v", err)
+	}
+
+	index, err := os.ReadFile(filepath.Join(root, "wiki", "index.md"))
+	if err != nil {
+		t.Fatalf("index.md not written: %v", err)
+	}
+	if !strings.Contains(string(index), "<wiki-scan") {
+		t.Errorf("index.md lacks the <wiki-scan> marker:\n%s", index)
+	}
+	after, err := os.ReadFile(steeringPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(steering) {
+		t.Errorf("scan rewrote init's CLAUDE.md: got %q, want %q", after, steering)
+	}
+}
+
+// The init exemption is exact: a wiki/ holding anything beyond init's own
+// CLAUDE.md is foreign content the guard must still protect.
+func TestScan_CollisionForeignContentBesideInit(t *testing.T) {
+	cases := map[string]func(t *testing.T, wikiDir string){
+		"edited CLAUDE.md": func(t *testing.T, wikiDir string) {
+			writeFile(t, wikiDir, "CLAUDE.md", "# my own notes\n")
+		},
+		"extra file": func(t *testing.T, wikiDir string) {
+			writeFile(t, wikiDir, "notes.md", "notes\n")
+		},
+		"nested dir": func(t *testing.T, wikiDir string) {
+			if err := os.MkdirAll(filepath.Join(wikiDir, "wiki"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"symlinked CLAUDE.md": func(t *testing.T, wikiDir string) {
+			steeringPath := filepath.Join(wikiDir, "CLAUDE.md")
+			scaffold, err := os.ReadFile(steeringPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(t.TempDir(), "CLAUDE.md")
+			if err := os.WriteFile(target, scaffold, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(steeringPath); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, steeringPath); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			makeGitRepo(t, root, "repoA")
+			if _, err := wiki.InitRealmScope(root); err != nil {
+				t.Fatal(err)
+			}
+			wikiDir := filepath.Join(root, "wiki")
+			setup(t, wikiDir)
+
+			_, err := wiki.Scan(root, wiki.Options{Clock: fixedClock()})
+			if err == nil {
+				t.Fatal("expected collision error, got nil")
+			}
+			if !strings.Contains(err.Error(), wikiDir) {
+				t.Errorf("error should name %s; got: %v", wikiDir, err)
+			}
+			if _, statErr := os.Stat(filepath.Join(wikiDir, "index.md")); !os.IsNotExist(statErr) {
+				t.Errorf("refused scan must not write index.md (stat err: %v)", statErr)
+			}
+		})
+	}
+}
+
 func TestScan_GitInitSkippedIfAlreadyRepo(t *testing.T) {
 	root := t.TempDir()
 	makeGitRepo(t, root, "repoA")

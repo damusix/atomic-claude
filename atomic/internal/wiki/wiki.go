@@ -73,7 +73,7 @@ type Member struct {
 // with an idempotent <wiki-scan> block, returning the classified members so
 // callers need no second filesystem walk.
 //
-// Refuses when wiki/ exists but index.md is absent or lacks a <wiki-scan> marker.
+// Refuses a wiki/ it does not own; see checkCollision.
 func Scan(root string, opts Options) ([]Member, error) {
 	wikiDir := filepath.Join(root, "wiki")
 
@@ -117,7 +117,8 @@ func Scan(root string, opts Options) ([]Member, error) {
 }
 
 // checkCollision refuses an existing wiki/ dir that this tool does not own,
-// i.e. whose index.md is absent or carries no <wiki-scan> marker.
+// i.e. whose index.md carries no <wiki-scan> marker, or is absent and the dir
+// is not exactly what `wiki init --scope realm` writes.
 func checkCollision(wikiDir string) error {
 	if _, err := os.Lstat(wikiDir); os.IsNotExist(err) {
 		return nil
@@ -127,6 +128,9 @@ func checkCollision(wikiDir string) error {
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if onlyInitScaffold(wikiDir) {
+				return nil
+			}
 			return fmt.Errorf("wiki scan: collision: %s exists but index.md is absent — refusing to overwrite", wikiDir)
 		}
 		return fmt.Errorf("wiki scan: read index.md: %w", err)
@@ -137,6 +141,15 @@ func checkCollision(wikiDir string) error {
 	}
 
 	return nil
+}
+
+func onlyInitScaffold(wikiDir string) bool {
+	entries, err := os.ReadDir(wikiDir)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "CLAUDE.md" || !entries[0].Type().IsRegular() {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(wikiDir, "CLAUDE.md"))
+	return err == nil && string(data) == realmSteeringScaffold
 }
 
 // priorEntry is one <repo> entry parsed from a previous scan block.
