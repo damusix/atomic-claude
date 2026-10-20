@@ -527,7 +527,7 @@ func TestRunUpdateCheck_BackgroundStagesWhenNewerAndEnabled(t *testing.T) {
 		t.Errorf("StageAttemptedFor = %q, want %q", got.Update.StageAttemptedFor, "2.0.0")
 	}
 	if got.Update.Staged.Version != "2.0.0" {
-		t.Errorf("Staged.Version = %q, want %q", got.Update.Staged.Version, "2.0.0")
+		t.Errorf("Staged.Version = %q, want %q (LastResult %q)", got.Update.Staged.Version, "2.0.0", got.Update.LastResult)
 	}
 	if got.Update.Staged.SHA256 == "" {
 		t.Error("Staged.SHA256 empty, want a recorded checksum")
@@ -769,7 +769,7 @@ func TestRunUpdateCheck_StagerCompletionDoesNotClobberForegroundTakeover(t *test
 		t.Errorf("StageAttemptedFor = %q, want %q even without lock ownership", got.Update.StageAttemptedFor, "2.0.0")
 	}
 	if got.Update.Staged.Version != "2.0.0" {
-		t.Errorf("Staged.Version = %q, want %q", got.Update.Staged.Version, "2.0.0")
+		t.Errorf("Staged.Version = %q, want %q (LastResult %q)", got.Update.Staged.Version, "2.0.0", got.Update.LastResult)
 	}
 }
 

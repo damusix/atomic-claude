@@ -27,9 +27,19 @@ Dispatch `atomic-investigator` to map the surface (files, call sites, tests, con
 
 ## Spec
 
-Topic slug from the task. `docs/spec/<topic>.md` exists → it is the brief's source and its checkpoint table is the loop. Its body must be current before any dispatch: a decision in this conversation that superseded part of it is fixed in the spec, never worked around in the brief.
+Topic slug from the task. The loop runs from a spec, or inline only when the work is small and obvious.
 
-No spec and the work is small and obvious → say `no spec; proceeding inline` and continue with a one-checkpoint brief. Otherwise → hand off to `/atomic-plan`.
+```mermaid
+flowchart TD
+    S{"Spec exists?"} -->|yes| U["Use the spec"]
+    S -->|no| W{"Small and obvious?"}
+    W -->|yes| I["Inline brief"]
+    W -->|no| P["Hand off to<br/>/atomic-plan"]
+```
+
+- **Spec exists?**: `docs/spec/<topic>.md`.
+- **Use the spec**: it is the brief's source and its checkpoint table is the loop. Its body must be current before any dispatch: a decision in this conversation that superseded part of it is fixed in the spec, never worked around in the brief.
+- **Inline brief**: say `no spec; proceeding inline` and continue with a one-checkpoint brief.
 
 {{ template "worktree-setup" . }}
 

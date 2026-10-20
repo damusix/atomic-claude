@@ -14,12 +14,12 @@ Wire the built `atomic code` engine into the atomic artifact system so disposabl
 
 ## Success criteria
 
-- [ ] A shared partial `templates/shared/agent-code-intel.md` exists, stating: index-present → use the `code search/callers/callees/impact` verbs with machine-parseable output for location/relationship questions; bounded queries (one symbol, no full-graph dump); and the degradation contract (binary absent / no DB / failed query → fall back to sg/grep).
+- [ ] A shared partial `templates/shared/agent-code-intel.md` exists, stating: index-present → use the `code search/callers/callees/impact` verbs with machine-parseable output for location/relationship questions; bounded queries (one symbol, no full-graph dump); and the degradation contract (no DB / failed query → fall back to sg/grep).
 - [ ] `agent-code-intel` is composed into `agent-implementer-workflow` (reaching builder + surgeon), `atomic-investigator`, `atomic-reviewer`, `atomic-haiku`, `atomic-wiki-inferrer` — verifiable in the rendered `agents/*.md`.
 - [ ] `agent-search-tooling` carries a one-line bridge naming code-intel as the top search tier when an index is present.
 - [ ] `atomic-investigator` uses `code search/callers/callees/impact` for location/relationship questions when an index exists, and falls back to sg/grep otherwise.
 - [ ] `atomic-wiki-inferrer` queries real import/call edges to inform domain clustering when an index exists, degrading to filename heuristics otherwise.
-- [ ] `/refresh-wiki` ensures the index is fresh before dispatching the inferrer: `code sync` when warm; auto-run `code index` when cold (no prompt — indexing is harmless and idempotent); proceed degraded on index error or binary absence.
+- [ ] `/refresh-wiki` ensures the index is fresh before dispatching the inferrer: `code sync` when warm; auto-run `code index` when cold (no prompt — indexing is harmless and idempotent); proceed degraded on index error.
 - [ ] `/refresh-wiki` syncs/indexes each member repo best-effort before summarizing, and degrades to summary-without-graph when a repo has no index.
 - [ ] `/subagent-implementation` and `/autopilot` index/sync once at task start and run `code sync` after each builder commit so the reviewer queries current working-tree state; both degrade when unavailable.
 - [ ] `/atomic-plan` delegates structural exploration to the investigator (which now carries code-intel); the main agent issues no inline `code` queries.
@@ -49,7 +49,7 @@ Wire the built `atomic code` engine into the atomic artifact system so disposabl
 | 2 | Compose into implementer + reviewer + haiku | `templates/shared/agent-implementer-workflow.md`, `templates/agents/atomic-reviewer.md`, `templates/agents/atomic-haiku.md`, rendered `agents/{atomic-builder,atomic-surgeon,atomic-reviewer,atomic-haiku}.md` | atomic-builder | ~7 | rendered builder/surgeon/reviewer/haiku carry the partial; bounded-query + degradation present |
 | 3 | Signals: inferrer query + `/refresh-wiki` lifecycle | `templates/agents/atomic-wiki-inferrer.md`, `templates/commands/refresh-wiki.md`, rendered outputs | atomic-builder | ~4 | inferrer uses import/call edges w/ degradation; refresh-signals syncs-if-warm / auto-indexes-if-cold (no prompt) before dispatch |
 | 4 | `/refresh-wiki` cross-repo index | `templates/commands/refresh-wiki.md`, rendered output | atomic-builder | ~2 | per-repo best-effort sync/index step; degrades to summary-without-graph |
-| 5 | Orchestrator lifecycle: `/subagent-implementation` + `/autopilot` | `templates/commands/subagent-implementation.md`, `templates/commands/autopilot.md`, rendered outputs | atomic-builder | ~4 | sync-if-warm at task start + sync-per-iteration (after each builder commit) steps. Cold-start is uniform: both auto-index best-effort at task start with no prompt (indexing is harmless and idempotent), degrading to grep on error or when the index/binary is unavailable. |
+| 5 | Orchestrator lifecycle: `/subagent-implementation` + `/autopilot` | `templates/commands/subagent-implementation.md`, `templates/commands/autopilot.md`, rendered outputs | atomic-builder | ~4 | sync-if-warm at task start + sync-per-iteration (after each builder commit) steps. Cold-start is uniform: both auto-index best-effort at task start with no prompt (indexing is harmless and idempotent), degrading to grep on error or when the index is unavailable. |
 | 6 | Parent-delegates: `/atomic-plan` + `/documentation` + `/gather-evidence` | `templates/commands/atomic-plan.md`, `templates/commands/documentation.md`, `templates/commands/gather-evidence.md`, rendered outputs | atomic-builder | ~6 | plan/doc delegate to subagent (no inline query); gather-evidence names code-intel Tier-1 |
 | 7 | Doctor index-freshness check | `atomic/internal/codeintel/...` (read-only status helper, mirroring how `checks_signals.go` calls `signals.Stale`), new doctor check file + test, doctor suite registration | atomic-builder | ~4 | `go test ./internal/doctor/...` green; PASS-absent / WARN-stale / PASS-fresh; never FAIL; doctor check appended (existing indices unchanged) |
 | 8 | Discoverability + docs + MCP page | `templates/commands/atomic-help.md`, `CLAUDE.md`, `README.md`, `docs/reference/*.md`, new MCP docs page | atomic-builder | ~6 | help-router verification zero `MISSING:`; docs build; bundle parity; "10 integrity checks" string in atomic-help bumped to "11" |
@@ -96,6 +96,14 @@ Built across 8 checkpoints via `/autopilot` (merge-verb `commit-only`). Commits 
 - Obsolete (2026-06-24): the cold-start index *offer* was removed in favor of uniform no-prompt auto-index, so memory-of-decline no longer applies — there is no decline to remember.
 
 ## Change log
+
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** The `agent-code-intel` degradation contract and the `/refresh-wiki` index step fall back on a missing DB, a failed query, or an index error; neither treats a missing binary as a case.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** both fell back to sg/grep or proceeded degraded when the binary was absent.
 
 ### 2026-06-24 — Cold-start indexing unified to no-prompt auto-index
 

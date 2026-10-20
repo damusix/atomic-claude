@@ -103,7 +103,7 @@ Each phase's working state lives in one `atomic scratchpad` bundle per task — 
 Wikis are how Claude learns a codebase once instead of every session. Two scopes:
 
 - **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes. Plus one pointer card per domain under `<state-root>/rules/wiki/` (default `.claude/rules/wiki/`), injected whenever Claude touches a file in that domain.
-- **Realm wiki**: a Karpathy-style knowledge base you compile with Claude instead of maintaining by hand. A folder holds your repos and the loose material around them; the `wiki/` beside them holds per-repo summaries, shared concerns, and knowledge pages synthesized from capture buckets.
+- **Realm wiki**: a Karpathy-style knowledge base you compile with Claude instead of maintaining by hand. A folder holds your repos and the loose material around them; the `wiki/` beside them holds per-repo summaries and shared concerns, and every folder in a capture bucket carries an index of what it holds.
 
 ```text
 ~/work/acme/       the realm: repos + the material around them
@@ -111,18 +111,16 @@ Wikis are how Claude learns a codebase once instead of every session. Two scopes
 ├─ billing-api/    repo · has its own wiki → linked
 ├─ gateway/        repo · has its own wiki → linked
 ├─ vendor-sdk/     repo · no wiki → summarized
-├─ research/       capture bucket: findings you write
-├─ raw/            capture bucket: PDFs, exports, pasted notes
+├─ research/       capture bucket: one folder per item, raw material in 01_raw/
 └─ wiki/           the map atomic compiles
    ├─ index.md     member registry + bucket listing
    ├─ repos/       summaries of members without their own wiki
-   ├─ concerns/    what cuts across repos
-   └─ knowledge/   digests synthesized from the buckets
+   └─ concerns/    what cuts across repos
 ```
 
 The scopes compose. A realm summarizes the repos under it without writing into them, and a member repo that keeps its own wiki is linked rather than re-summarized. Claude loads whichever scope the session sits in: a realm session sees the cross-repo picture, a repo session sees that repo's map. `atomic code index` layers a symbol graph onto either scope; at a realm root it indexes every member, and queries fan out across them.
 
-Two commands drive it. `/setup-wiki` audits a repo's conventions (ignore rules, docs layout, CLAUDE.md wiring) and proposes only what's missing. `/refresh-wiki` builds or refreshes the wiki at either scope: a deterministic scan captures the facts, an inference pass writes the summaries, and ship verbs mark the wiki dirty as the source tree changes, so a session-start nudge tells you when a refresh is due. → [realm wiki](docs/reference/realm-wiki.md) · [knowledge base](docs/guides/knowledge-base.md) · [repo wiki](docs/reference/repo-wiki.md)
+Two commands drive it. `/setup-wiki` audits a repo's conventions (ignore rules, docs layout, CLAUDE.md wiring) and proposes only what's missing. `/refresh-wiki` builds or refreshes the wiki at either scope: a deterministic scan captures the facts, and an inference pass writes the summaries. A repo wiki refreshes itself when an implementation loop or a commit changes the source tree; a realm wiki's summaries and concerns change only when you run `/refresh-wiki` on it. → [realm wiki](docs/reference/realm-wiki.md) · [knowledge base](docs/guides/knowledge-base.md) · [repo wiki](docs/reference/repo-wiki.md)
 
 
 ## 💭 Contributing & feedback
@@ -145,6 +143,7 @@ Atomic Claude dogfoods itself: [`context/`](context/) is both the shipped artifa
 | Bus hosting (rooms across machines) | [docs/guides/bus-hosting.md](docs/guides/bus-hosting.md) |
 | REPL (persistent interpreter sessions) | [docs/reference/repl.md](docs/reference/repl.md) |
 | Retro (`atomic retro extract`, session history for retrospectives) | [docs/reference/retro.md](docs/reference/retro.md) |
+| Docs index (`atomic docs index`, `<bucket-docs>` region for any directory) | [docs/reference/docs-index.md](docs/reference/docs-index.md) |
 | Code intelligence | [docs/reference/code-intel.md](docs/reference/code-intel.md) |
 | Code-intel MCP setup | [docs/guides/code-intel-mcp.md](docs/guides/code-intel-mcp.md) |
 | Concepts (how it flows) | [docs/reference/concepts.md](docs/reference/concepts.md) |

@@ -436,3 +436,56 @@ func TestSync_NotIndexed_ReturnsError(t *testing.T) {
 		t.Errorf("sync on un-indexed project should mention 'not initialized' or 'atomic code index'; got: %s", errOut)
 	}
 }
+
+func TestPositionalVerbs_TrailingJSONHonored(t *testing.T) {
+	dir := writeFixtureWithTest(t)
+	indexedEngine(t, dir)
+
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"search", "Greet", "--json"}, "Greet"},
+		{[]string{"callers", "Greet", "--json"}, "main"},
+		{[]string{"callees", "main", "--json"}, "Greet"},
+		{[]string{"impact", "Greet", "--json"}, "main"},
+		{[]string{"node", "Greet", "--json"}, "greeter.go"},
+		{[]string{"files", "greeter", "--json"}, "greeter.go"},
+		{[]string{"explore", "Greet", "--json"}, "Greet"},
+		{[]string{"affected", "greeter.go", "--json"}, "greeter_test.go"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.args[0], func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := codecli.RunCode(tc.args, dir, &stdout, &stderr, noStdin())
+			if code != 0 {
+				t.Fatalf("%v exit %d; stderr: %s", tc.args, code, stderr.String())
+			}
+			var v interface{}
+			if err := json.Unmarshal(stdout.Bytes(), &v); err != nil {
+				t.Fatalf("%v: trailing --json dropped, output is not JSON: %v\noutput: %s", tc.args, err, stdout.String())
+			}
+			if !strings.Contains(stdout.String(), tc.want) {
+				t.Errorf("%v: output lacks %q, so --json leaked into the positionals\noutput: %s", tc.args, tc.want, stdout.String())
+			}
+		})
+	}
+}
+
+func TestFiles_FlagAfterTerminatorStaysPositional(t *testing.T) {
+	dir := writeFixture(t)
+	indexedEngine(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := codecli.RunCode([]string{"files", "greeter", "--json", "--", "--json"}, dir, &stdout, &stderr, noStdin())
+	if code != 0 {
+		t.Fatalf("exit %d; stderr: %s", code, stderr.String())
+	}
+	var results []json.RawMessage
+	if err := json.Unmarshal(stdout.Bytes(), &results); err != nil {
+		t.Fatalf("stdout = %q, want JSON: the --json before -- is a flag: %v", stdout.String(), err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0: the --json after -- joins the pattern and matches nothing", len(results))
+	}
+}

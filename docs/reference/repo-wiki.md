@@ -11,6 +11,8 @@ Run `/refresh-wiki` to generate or update them:
 
 Both are committed, but only `index.md` auto-loads into sessions via an `@`-ref. `scan.md` can run to thousands of lines on a large repo, so the inferrer reads it on demand instead.
 
+`index.md` and the domain pages carry no count of things in the repo. They record structure, contracts, and coupling; counts of the current tree stay in `scan.md`, so the authored pages do not churn and parallel branches do not collide on them.
+
 
 ## The pipeline
 
@@ -37,8 +39,6 @@ Three things trigger a refresh: `/refresh-wiki` on demand; the implementation lo
 ::: tip The CLI verb is still called `signals`
 `atomic signals scan|show|stale|diff|linkify` is the deterministic half of this pipeline, and it writes `docs/wiki/scan.md`. The verb keeps its original name from before repo-scope context and the cross-repo wiki were unified into one concept. `/refresh-wiki` calls it for you; you rarely invoke it directly.
 :::
-
-Requires the `atomic` binary. Without it, `/refresh-wiki` stops and prints install instructions, and the ship-verb refresh skips silently.
 
 The result is a navigable markdown graph. The inferrer writes each path citation as a plain backtick path, then runs `atomic signals linkify` to render every one that resolves on disk into a relative link to the file it names. Open `docs/wiki/` in Obsidian, any markdown server, or `atomic serve` and click through the router into its domain files and out to the source. The linkifier is deterministic and idempotent, and a rendered `[text](path)` link is a plain markdown link, not an `@`-reference, so it stays inert until something reads it.
 

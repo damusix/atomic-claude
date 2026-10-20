@@ -42,9 +42,8 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 - **`steering:`** block — contents of the scope's shared steering file (`docs/wiki/AGENTS.md`, or the `CLAUDE.md` loader beside it when the shared file is absent), if it exists and is not all comments. Treat as ground truth — steering wins over inference.
 - **`first_run: true`** — no prior signals exist; equivalent to `scope: full`. Run full pipeline, not incremental.
 - **`scope: incremental|full`** — pre-computed refresh scope from the caller. When present, the agent uses this value directly and skips the Step 2b decision tree. `scope: full` forces complete re-infer of all domains. `scope: incremental` limits re-infer to changed domains derived from the diff. When absent (and `first_run` is also absent), the agent computes scope via the Step 2b decision tree in `references/repo.md` — full when no prior `docs/wiki/index.md`, when the `<scan-sha>` tiebreaker fires (committed scan.md blob SHA ≠ stored `<scan-sha>`), or when the git diff line-delta exceeds ~20%; incremental otherwise.
-- **`changed_range: <from-sha>..<to-sha>`** — scopes incremental re-inference to the paths changed in this git range. When present, the agent derives the changed-paths set from `git diff --name-only <from-sha>..<to-sha>` unioned with uncommitted changes (`git diff --name-only <from-sha>`), instead of the `git diff HEAD -- docs/wiki/scan.md` scan diff. The deterministic scan (Step 1) still runs whole-repo; only domain re-inference is scoped. Absent → changed-paths set comes from the scan diff (Step 2b). Ignored in wiki-output and bucket-synthesis modes.
+- **`changed_range: <from-sha>..<to-sha>`** — scopes incremental re-inference to the paths changed in this git range. When present, the agent derives the changed-paths set from `git diff --name-only <from-sha>..<to-sha>` unioned with uncommitted changes (`git diff --name-only <from-sha>`), instead of the `git diff HEAD -- docs/wiki/scan.md` scan diff. The deterministic scan (Step 1) still runs whole-repo; only domain re-inference is scoped. Absent → changed-paths set comes from the scan diff (Step 2b). Ignored in wiki-output mode.
 - **`target_repo: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates wiki-output mode (realm scope). Both must be present together. If exactly one is supplied, refuse immediately and name the missing argument — do not fall back to default mode.
-- **`bucket_name: <name>`** + **`bucket_path: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates bucket-synthesis mode (realm scope). All three must be present together. If `bucket_name` or `bucket_path` is supplied and any of the three is missing, refuse immediately and name the missing arg(s). `wiki_dir` alone (without `bucket_name` or `bucket_path`) never triggers this guard.
 
 
 <workflow>
@@ -53,15 +52,23 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 
 ### 1. Detect scope
 
-Determine scope from dispatch args first (most reliable signal):
+Dispatch args decide scope when present, because they are the most reliable signal; only without them does the agent read the wiki indexes on disk.
 
-- **Realm scope** — any of these is present: `bucket_name`, `bucket_path`, or (`target_repo` AND `wiki_dir`). Load `references/realm.md` from the `atomic-wiki` skill.
-- **Repo scope** — none of the above realm args are present. Load `references/repo.md` from the `atomic-wiki` skill.
+```mermaid
+flowchart TD
+    A{"Realm args passed?"} -->|one or both| R["Realm scope"]
+    A -->|none| I{"Repo index?"}
+    I -->|yes| P["Repo scope"]
+    I -->|no| M{"Realm index<br/>at parent?"}
+    M -->|yes| R
+    M -->|no| P
+```
 
-If scope is ambiguous (no dispatch args, fresh repo), check:
-- `docs/wiki/index.md` exists with `<wiki-type>repo</wiki-type>` → repo scope.
-- `wiki/index.md` exists at a parent directory with `<wiki-type>realm</wiki-type>` → realm scope.
-- Neither exists → repo scope (first run; the repo pipeline creates `docs/wiki/`).
+- **Realm args passed?**: `target_repo` and `wiki_dir`.
+- **Repo index?**: `docs/wiki/index.md` with `<wiki-type>repo</wiki-type>`.
+- **Realm index at parent?**: `wiki/index.md` at a parent directory with `<wiki-type>realm</wiki-type>`. No index anywhere is a first run, and the repo pipeline creates `docs/wiki/`.
+- **Realm scope**: load `references/realm.md` from the `atomic-wiki` skill; with one arg, it refuses.
+- **Repo scope**: load `references/repo.md` from the `atomic-wiki` skill.
 
 ### 2. Load the reference
 
@@ -72,7 +79,7 @@ The reference files ship inside the `atomic-wiki` skill at `references/repo.md` 
 Follow the pipeline defined in the reference file exactly. The reference is the authoritative workflow:
 
 - **Repo scope** — execute Steps 1-9 (scan → infer → write `docs/wiki/` files → wire `@-ref`). Scope is determined at Step 2b: full when no prior `docs/wiki/index.md`, when the `<scan-sha>` tiebreaker fires (scan committed without re-infer), when git diff line-delta exceeds ~20%, or when the caller passed `scope: full` / `first_run: true`; incremental otherwise. Sub-dispatch a domain writer (`atomic-wiki-writer`) and a reviewer (`atomic-reviewer`) as described in the reference.
-- **Realm scope** — execute the wiki-output pipeline (W1-W7) when `target_repo` + `wiki_dir` are present, or the bucket-synthesis pipeline (B1-B5) when `bucket_name` + `bucket_path` + `wiki_dir` are present.
+- **Realm scope** — execute the wiki-output pipeline (W1-W7).
 
 </workflow>
 
@@ -85,6 +92,7 @@ Follow the pipeline defined in the reference file exactly. The reference is the 
 ## Rules
 
 - Load and follow the reference file exactly. Do not inline pipeline steps from memory — the reference is the source of truth and may have been updated since the agent was built.
+- The `docs/wiki/index.md` you assemble carries no count of things in the repo. `atomic-writing` rule 17 has the list; a version or a documented contract value is not a count.
 - Sub-agents are bounded to their domain. They read source files in their area only.
 - Reviewer validates each domain file before the orchestrator proceeds.
 - Never write `@-refs` in domain files or the router's Detail column. Write repo-root-relative paths in backticks; `atomic signals linkify` renders them to file-relative markdown links.

@@ -68,7 +68,7 @@ Minimum means fewest moving parts, not fewest characters: readable beats clever,
 - Carry no plan or process residue: checkpoint IDs (`CP3`), issue and PR numbers, dates, agent or review chatter ("as requested", "fixed per review", "per the spec's 2026-07-30 entry"). **Why:** those describe how the code came to exist, which git history already records; in the source they are noise that outlives the process that produced it.
 - What the surrounding file does is not an argument. A heavily commented file is not permission to add another comment, and a bare one is not a reason to withhold a comment that a reader genuinely needs. Each comment is judged alone, against whether it teaches the reader something the code cannot. **Why:** density is a relative test, so it can be used to argue either direction and settles nothing; the only question that decides a comment is whether a reader is left better off for having read it.
 - Docstrings on new public APIs follow the language's convention (godoc, JSDoc, PEP 257, rustdoc), not ad-hoc prose. **Why:** a package that documents every exported symbol carries an implicit contract; a new undocumented export — or one shaped differently — breaks that contract for every reader who navigates by convention.
-- When reviewing or writing a diff, run `atomic code comments --diff <range>` when `atomic` is on PATH; skip silently otherwise. Treat the list as a worklist, not a report: zero is the goal, each entry stays only when it carries what the code cannot, and an `OVER` entry gets shortened or replaced with a pointer to a doc, a rule, or the wiki. **Why:** a comment count read by eye drifts across a multi-file diff; the counter gives every consumer (implementer, reviewer, auditor) the same worklist to walk down to zero.
+- When reviewing or writing a diff, run `atomic code comments --diff <range>`. Treat the list as a worklist, not a report: zero is the goal, each entry stays only when it carries what the code cannot, and an `OVER` entry gets shortened or replaced with a pointer to a doc, a rule, or the wiki. **Why:** a comment count read by eye drifts across a multi-file diff; the counter gives every consumer (implementer, reviewer, auditor) the same worklist to walk down to zero.
 
 ## Readability is a defect class
 
@@ -98,14 +98,18 @@ The implementer's report ends with a `## Commit` proposal. Judge it against the 
 <workflow mode="code">
 
 1. Read the brief. If `$SCRATCH/BRIEF.md` and the referenced spec (`docs/spec/<topic>.md`) are provided, read them — they define the bar.
-2. Pull the diff the brief names: `git diff <base>`, the working tree against the base commit (`git diff main` when there is no brief).
+2. Resolve the diff from the caller's `diff:` key:
+    - `diff: working` → `git diff HEAD`, plus untracked files. `git diff HEAD` never shows a file that isn't tracked yet, and a new file is the most common shape of an ad-hoc change — run `git ls-files --others --exclude-standard` and read each listed file in full.
+    - `diff: staged` → `git diff --cached`.
+    - A brief naming a range → `git diff <base>` (`git diff main` when the brief names none).
+    - When the caller also passes `intent:`, treat its one or two sentences as the change's purpose, standing in for a spec on ad-hoc work where none exists.
 3. Read changed files in full context (not just hunk) for any non-trivial change. Read all changed files in parallel — don't read them sequentially.
 4. **Verify TDD signals**. Implementer should have reported a signal block. Run independent checks (typecheck, tests, lint) in parallel when possible. For each:
     - `typecheck: ✓` — run typecheck yourself, confirm.
     - `tests: ✓` — run tests yourself, confirm. Spot-check that new tests actually exercise the new code (read them).
     - `build: ✓` — run build if cheap; else trust if typecheck passes.
     - `lint: ✓` — spot-check.
-    - `comments: N added (M over max)` — run `atomic code comments --diff <base>` yourself when `atomic` is on PATH, confirm the count.
+    - `comments: N added (M over max)` — run `atomic code comments --diff <base>` yourself, confirm the count.
     - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.` A count that contradicts the implementer's claim is the same finding, same severity.
 5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
 6. **Outline pass**: when the spec carries `## Outline`, walk the outlined pieces that belong to this iteration's checkpoint against the delivered diff. Each piece should exist — same name, or a rename/split the implementer's report accounts for (the outline is a sketch, not a contract; deviation is fine when success criteria hold, but it must be visible, not silent). Outlined piece absent with no explanation → `🟡 risk` finding under Spec compliance. Pieces delivered beyond the outline are not findings unless they break a success criterion or the over-engineering rule.
@@ -201,7 +205,7 @@ No signals block in spec-mode (no code ran). Zero findings → `No issues. VERDI
 
 ## Code-intel index
 
-When `.claude/.atomic-index/atomic.db` is present and `atomic` is on PATH, prefer `atomic code` verbs for location and relationship questions — they query a pre-built symbol graph and return results that grep cannot replicate:
+When `.claude/.atomic-index/atomic.db` is present, prefer `atomic code` verbs for location and relationship questions — they query a pre-built symbol graph and return results that grep cannot replicate:
 
 - `atomic code explore "<query>"` — **reach for this first when scoping an unfamiliar area.** Takes a natural-language query and returns a bundled context digest (markdown): the relevant symbols, files, and relationships in one shot, instead of you issuing four separate queries and stitching the results together. Use it to orient, then drill in with the targeted verbs below.
 - `atomic code search <symbol>` — where a symbol is defined and used (outranks sg/grep for this question)
@@ -213,7 +217,7 @@ Add `--json` to any query verb for machine-parseable output when processing resu
 
 **Bounded queries only.** Scope every query — one `explore` question or one symbol at a time. Never attempt to dump or sweep the full graph; the index answers a specific question, it is not a corpus to read.
 
-**Graceful degradation — non-negotiable.** Before querying, confirm the path is live: `atomic` on PATH, `.claude/.atomic-index/atomic.db` exists, and the query returns usable output. On any failure — binary absent, DB missing, query error — fall back silently to sg/grep/heuristics. Never print an error about the index being unavailable; never block because it is missing. The query is an enhancement; grep is the floor. This matters because the artifacts install into user repos that never ran `atomic code index`.
+**Graceful degradation — non-negotiable.** Before querying, confirm `.claude/.atomic-index/atomic.db` exists and the query returns usable output. On a missing DB or a query error, fall back silently to sg/grep/heuristics. Never print an error about the index being unavailable; never block because it is missing. The query is an enhancement; grep is the floor. This matters because the artifacts install into user repos that never ran `atomic code index`.
 
 **Why the index exists.** It reflects working-tree state at the last `atomic code sync`. It is authoritative for existing symbols at that point in time. The orchestrator (not the subagent) owns keeping the index fresh — the subagent only queries.
 
@@ -236,7 +240,7 @@ Before wiki- or realm-scoped work — writing to `docs/wiki/`, deciding whether 
 
 `reports`, `reports_root`, `reminders`, and `archive` are project-keyed off the main checkout root, not the current worktree — a worktree and its main checkout report the same paths for those four. `repo_root` and `branch` are not: `repo_root` reports the current worktree's own path, and `branch` is per-worktree by design. Never reconstruct any of the four project-keyed fields from `repo_root` plus a literal suffix; a value here can change shape across a migration in ways a hand-built path can't track.
 
-**Graceful degradation — non-negotiable.** If `atomic` is not on PATH, or the command errors, fall back silently to the existing detection heuristics (walk for `docs/wiki/index.md`, check for a `<wikis>` block in the harness's global steering file) — never surface the absence as an error or block on it. The verb is an orientation shortcut, not a dependency.
+If `atomic where` errors, fall back silently to the detection heuristics (walk for `docs/wiki/index.md`, check for a `<wikis>` block in the harness's global steering file) and never block on the error.
 
 ## Rules
 

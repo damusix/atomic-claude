@@ -196,7 +196,7 @@ README.md
 
 **Flow: retrospective history scan**
 
-1. `/retrospective-learning` pre-flight runs `atomic retro extract --shards 4 -o "$SCRATCH/history.md"`; `atomic` absent → announce and skip the history scan
+1. `/retrospective-learning` pre-flight runs `atomic retro extract --shards 4 -o "$SCRATCH/history.md"`; a non-zero exit → announce `history extract unavailable — history scan skipped` and narrow the scope to current-only
 2. Step 2b dispatches one Sonnet `general-purpose` runner per `history.<i>.md`, briefed to return `file:line | category | recurrence | atomic_meta | meta_target` rows where `meta_target` cites the `skill:` / `agent:` / `/verb` line that precedes the finding
 3. Step 4 runs `sed -n '<line>p' <file>` for every cited line and rejects rows whose line does not exist
 4. categorization continues unchanged from the recovered quotes
@@ -232,6 +232,14 @@ README.md
 **What changed:** The session heading takes the `cwd` of the first row that carries one, not the first row of the file. The Outline names `processUserRow`, `processAssistantRow`, and `decodeContent` in place of three finer pieces the code folds into them. The Change tree and Outline add `atomic/internal/cliutil/usage.go` and its test, `docs/reference/workflow.md`, and `README.md`.
 
 **Why:** Code diverged during the build. Real sessions open with bookkeeping rows that carry no `cwd`, so the first-row rule showed the slug; the `-o` alias printed as a `--o` long flag until `cliutil.SetUsage` learned to skip empty-usage flags; the workflow page and README rows were added at the docs step. Found by the audit over the loop range.
+
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** The history-scan flow skips only when `atomic retro extract` exits non-zero; it no longer checks whether `atomic` is present.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** the pre-flight announced and skipped the history scan when `atomic` was absent.
 
 
 ## Implementation log

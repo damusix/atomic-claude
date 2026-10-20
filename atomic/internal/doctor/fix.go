@@ -198,7 +198,7 @@ func repairPlan(r Result) (plan string, fixable bool) {
 	}
 	switch r.Name {
 	case "install":
-		return "run `atomic claude install --merge` to re-sync bundle", true
+		return "run `atomic claude install` to re-sync bundle", true
 	case "hooks":
 		return "run `atomic hooks install` to register session-start hook", true
 	case "signals":
@@ -281,7 +281,7 @@ func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, err
 		if err := rp.InstallFn(out); err != nil {
 			return "", err
 		}
-		return "re-synced bundle via `atomic claude install --merge`", nil
+		return "re-synced bundle via `atomic claude install`", nil
 	case "hooks":
 		if err := rp.HooksFn(out); err != nil {
 			return "", err

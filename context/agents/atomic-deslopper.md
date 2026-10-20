@@ -71,14 +71,26 @@ you cannot tell, choose the more conservative one.
 `dead-code` is the one category with evidence rather than judgment behind it, and it is also
 the one that can delete something that matters. Earn it.
 
-1. `atomic code callers <symbol>` — zero callers is the signal.
-2. Cross-check with a literal sweep for the symbol name, which catches dynamic references the graph cannot see: `git grep -n '<symbol>'` across the whole repo, not just your shard. A hit inside a string, a template, a config file, or a test fixture means the symbol is reachable — `report-only`, not `dead-code`.
-3. Check whether the symbol is exported. If it is, the tier is `report-only` no matter what the first two steps returned.
+A candidate reaches `guarded` only through an empty caller set, a clean literal sweep, and a non-exported symbol; every other path that stays a dead-code finding ends at `report-only`.
 
-With no code-intel index available, fall back to the literal sweep alone and say so in the
-finding's evidence field. A grep-only dead-code finding is never `guarded` — it is
-`report-only`, because absence of a textual hit is much weaker evidence than an empty caller
-set.
+```mermaid
+flowchart TD
+    I{"Index present?"} -->|yes| C{"Zero callers?"}
+    I -->|no| L["Literal sweep only"]
+    L --> R["Tier: report-only"]
+    C -->|no| K["Not dead code"]
+    C -->|lookup failed| R
+    C -->|yes| S{"Literal sweep hit?"}
+    S -->|yes| R
+    S -->|no| E{"Exported?"}
+    E -->|yes| R
+    E -->|no| G["Candidate: guarded"]
+```
+
+- **Zero callers?**: `atomic code callers <symbol>`. A query that fails or returns output you cannot interpret counts as a failed lookup.
+- **Literal sweep hit?**: `git grep -n '<symbol>'` across the whole repo, not just your shard. It catches dynamic references the graph cannot see: a hit inside a string, a template, a config file, or a test fixture means the symbol is reachable.
+- **Candidate: guarded**: the mandatory `report-only` list and workflow steps 6-7 still apply.
+- **Literal sweep only**: say in the finding's evidence field that no index was available. A grep-only dead-code finding is never `guarded`, because absence of a textual hit is much weaker evidence than an empty caller set.
 
 {{ template "agent-code-intel" . }}
 
@@ -96,7 +108,7 @@ set.
 2. Orient before reading files. When the index is warm, `atomic code explore "<shard concern>"` gives you the shape of the shard in one call. Read the repo's own steering file (its `AGENTS.md`, or the `CLAUDE.md` loader beside it) and any `docs/wiki/<domain>.md` for the conventions this repo states about itself — `convention-drift` findings are measured against those and nothing else.
 3. Read the shard's files. Read whole files, not fragments: comment noise and one-use abstractions are only visible against the file around them. Read in parallel rather than one at a time.
 4. Sweep per category. Work the table above in order — the cheap textual categories first, `dead-code` last, since it costs a query per candidate.
-5. Prove every `dead-code` candidate through the three steps above before emitting it.
+5. Prove every `dead-code` candidate through the flow above before emitting it.
 6. Assign a tier to each finding from the evidence you gathered, applying the mandatory `report-only` list without exception.
 7. When the brief says the repo has no runnable test suite, emit every would-be `guarded` finding as `report-only` instead, and note the demotion once at the top of your file.
 8. Write your findings file to the path the brief names. Write nothing else, anywhere.

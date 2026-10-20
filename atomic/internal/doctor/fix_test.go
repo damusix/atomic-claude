@@ -336,7 +336,7 @@ func TestRepair_Install_Yes(t *testing.T) {
 		t.Errorf("Applied = %d, want 1", summary.Applied)
 	}
 	// The command line is printed before it runs.
-	if !strings.Contains(sb.String(), "atomic claude install --merge") {
+	if !strings.Contains(sb.String(), "run `atomic claude install` to re-sync") {
 		t.Errorf("print-before-run missing in output:\n%s", sb.String())
 	}
 }

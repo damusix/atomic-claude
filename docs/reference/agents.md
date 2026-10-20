@@ -5,12 +5,12 @@ Agents are specialized workers that run in a fresh context. The orchestrator dis
 
 ## Who dispatches whom
 
-Three orchestration trees cover every dispatch. The implement loop fans out per checkpoint, implementer then reviewer, with the investigator scoping surfaces, the auditor gating the whole delivery once at the end, and the strategist called in only when the loop is stuck; `/quick-fix` drives the same implementer, reviewer, and auditor from a brief instead of a spec. The wiki pipeline fans out per domain, one writer per domain with the same reviewer gating each page. The deslop pass fans out per shard, one read-only auditor per wiki domain, and its second phase hands accepted findings back to the same implementer.
+Three orchestration trees drive the implementation lifecycle, and two ad-hoc exits route into the same reviewer outside them. The implement loop fans out per checkpoint, implementer then reviewer, with the investigator scoping surfaces, the auditor gating the whole delivery once at the end, and the strategist called in only when the loop is stuck; `/quick-fix` drives the same implementer, reviewer, and auditor from a brief instead of a spec. The wiki pipeline fans out per domain, one writer per domain with the same reviewer gating each page. The deslop pass fans out per shard, one read-only auditor per wiki domain, and its second phase hands accepted findings back to the same implementer.
 
 ```mermaid
 flowchart LR
     accTitle: Agent dispatch topology
-    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /quick-fix runs the same implementer, reviewer, and auditor without a spec. /implement dispatches no implementer at all, driving the reviewer once per checkpoint and the auditor once at the end. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer. /deslop fans out one deslopper per shard, and /deslop apply drives the implementer.
+    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /quick-fix runs the same implementer, reviewer, and auditor without a spec. /implement dispatches no implementer at all, driving the reviewer once per checkpoint and the auditor once at the end. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer. /deslop fans out one deslopper per shard, and /deslop apply drives the implementer. atomic-verify and the ship verbs' review gate each dispatch the reviewer on code the main agent wrote ad-hoc, outside any loop.
     SI["/subagent-implementation"] --> INV["atomic-investigator"]
     SI --> IMP["atomic-implementer"]
     SI --> REV["atomic-reviewer"]
@@ -26,9 +26,11 @@ flowchart LR
     WI --> REV
     DS["/deslop"] -->|one per shard| DSL["atomic-deslopper"]
     DSA["/deslop apply"] --> IMP
+    AV["atomic-verify"] -->|diff: working| REV
+    SC["ship verbs"] -->|diff: staged| REV
 ```
 
-`/quick-fix` and `/subagent-diagnose` reuse the implement loop's tree, `/autopilot` runs it end to end, and ship verbs dispatch the wiki-inferrer silently. `/implement` is the one implementation verb with no implementer dispatch: the main agent writes the code, so the reviewer runs per checkpoint and the auditor once at the end, as in the loop. `/atomic-plan` borrows the reviewer alone, in spec-mode. `/deslop` is the only tree whose two halves are separate invocations: the audit never reaches the implementer without a human accepting findings first.
+`/quick-fix` and `/subagent-diagnose` reuse the implement loop's tree, `/autopilot` runs it end to end, and ship verbs dispatch the wiki-inferrer silently. `/implement` is the one implementation verb with no implementer dispatch: the main agent writes the code, so the reviewer runs per checkpoint and the auditor once at the end, as in the loop. `/atomic-plan` borrows the reviewer alone, in spec-mode. `/deslop` is the only tree whose two halves are separate invocations: the audit never reaches the implementer without a human accepting findings first. Code the main agent writes ad-hoc, outside any of these trees, reaches the reviewer two ways: `atomic-verify` dispatches it against the working diff before a completion claim, and the ship verbs' review gate dispatches it against the staged diff before the commit.
 
 
 ## Code agents
@@ -38,7 +40,7 @@ These write, review, and gate code.
 | Agent | What it does | Execution |
 |-------|-------------|-------|
 | `atomic-implementer` | Dual-mode implementation agent. The orchestrator declares the mode at dispatch time. **feature mode**: implements a feature checkpoint — one cohesive slice across however many files it touches (controller + service + DTO + tests, etc.); refuses cross-cutting or ambiguous scope. **surgical mode**: small targeted edits with a hard cap of 2 files, test files excluded; bounces anything larger back to the orchestrator. Both modes write a failing test first. | Fresh context, one dispatch per checkpoint |
-| `atomic-reviewer` | Reviews a diff after each implementer pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. Flags suppression patterns — error-catching added to dodge a failure without investigating it. Flags over-engineering — reinvented stdlib, duplicate helpers, or one-implementation abstractions — and comment noise; both are 🟡 and drive the verdict, never nits. Runs `atomic code comments` on the diff and reports `comments: N added (M over max)` beside the other signals. Checks the implementer's proposed commit message against `atomic-git-discipline`. Also runs in spec-mode: reviews a draft spec against its design doc (coverage, voice, over-prescription) to gate the `/atomic-plan` spec loop. The ship verbs' review gate dispatches it a third way: on code the main agent wrote directly, outside any loop, before the commit lands. | Fresh context, one dispatch per gate |
+| `atomic-reviewer` | Reviews a diff after each implementer pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. Flags suppression patterns — error-catching added to dodge a failure without investigating it. Flags over-engineering — reinvented stdlib, duplicate helpers, or one-implementation abstractions — and comment noise; both are 🟡 and drive the verdict, never nits. Runs `atomic code comments` on the diff and reports `comments: N added (M over max)` beside the other signals. Checks the implementer's proposed commit message against `atomic-git-discipline`. Also runs in spec-mode: reviews a draft spec against its design doc (coverage, voice, over-prescription) to gate the `/atomic-plan` spec loop. Also gates code the main agent wrote outside any loop, at both `atomic-verify` (`diff: working`, before a completion claim) and the ship verbs' review gate (`diff: staged`, before the commit). | Fresh context, one dispatch per gate |
 | `atomic-auditor` | Final gate on a finished implementation, dispatched once after the loop goes green. Audits four things per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, commit types that misstate user-visible impact, and documentation that is current but says nothing. Never edits the repo; findings also land in `$SCRATCH/AUDIT.md`. Fresh context, ends with PASS or CHANGES_REQUESTED. | Fresh context, once after green |
 
 
@@ -72,7 +74,7 @@ The canonical agent definitions declare no model or effort. Each states behavior
 - **model** — a tier alias (`haiku`, `sonnet`, `opus`) or an exact Claude model id such as `claude-opus-4-8`, with no provider prefix. Validation is lenient: any well-formed value passes through, and the harness resolves it at runtime.
 - **effort** — `low`, `medium`, `high`, `xhigh`, or `max`. The harness downgrades per model at runtime when a model does not support the requested level.
 
-Any per-harness default is the adapter's policy, not the corpus's: with no override stored, the projected agent inherits the session's model.
+Any per-harness default is the adapter's policy, not the corpus's: with no override stored, the projected agent inherits the session's model. An override you store applies everywhere the agent is dispatched, including `atomic-verify` and the ship verbs' review gate, whose `review:` line names the model that ran.
 
 ### How an override travels
 

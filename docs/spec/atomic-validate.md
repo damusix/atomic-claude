@@ -39,11 +39,18 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 
 - [ ] `atomic validate` (no args) runs all v1 validators on the whole repo from repo root.
 - [ ] `atomic validate <paths...>` routes each path to the appropriate validator by location.
-- [ ] `atomic validate spec|config|bundle [paths...]` runs the named validator only.
-- [ ] Exit code: `0` on all PASS or only WARN; `1` on any FAIL; `2` on validator-internal error.
+- [ ] `atomic validate spec [paths...]`, `atomic validate config`, `atomic validate bundle`, and `atomic validate projections` run the named validator only. `config`, `bundle`, and `projections` validate the whole repo; a path argument to any of them exits 2.
+- [ ] Exit code: `0` on all PASS or only WARN; `1` on any FAIL; `2` on validator-internal or usage error.
 - [ ] Findings emitted one per line, indexed, rule-ID-tagged.
-- [ ] Summary line ends each run: `<P> PASS, <W> WARN, <F> FAIL. exit <N>.`
-- [ ] `--json` emits `{schema_version: 1, findings: [...], summary: {...}}`.
+- [ ] Summary line ends each run: `<P> PASS, <W> WARN, <F> FAIL. exit <N>.` `<W>` and `<F>` count findings. `<P>` counts inspected files that produced no WARN and no FAIL, so a clean run reports how much was inspected. Unit per group:
+    - spec: each `docs/spec/*.md` (or path argument) read.
+    - config: each file C3, C5, and C7 read; C9 counts none.
+    - artifacts: each file scanned.
+    - bundle: each embedded manifest entry.
+    - projections: each canonical corpus source the gate rendered.
+
+  Bare `atomic validate` prints one summary line per group; its `--json` `summary.pass` is the sum of the groups.
+- [ ] `--json` emits `{schema_version: 1, findings: [...], summary: {...}}`; `summary.pass` is `<P>`.
 - [ ] `--suggest` prints structural templates for content-level FAILs without editing files. No name suggestions, no fuzzy matching.
 - [ ] All validator code lives in `atomic/internal/validate/`; bundle-parity computation in `atomic/internal/manifestcheck/`; bundle inclusion predicates in `atomic/internal/bundlespec/`.
 - [ ] `bundlespec/` is a pure leaf: `artifacts.Load` applies its predicates while enumerating the canonical corpus, and `bundlemirror`/`manifestcheck` consume the result transitively — single source of truth.
@@ -66,7 +73,7 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 | `atomic validate spec [paths...]` | Spec structure | `docs/spec/*.md` |
 | `atomic validate config` | Cross-reference integrity | `AGENTS.md` + `agents/` + `commands/` + `skills/` + `claude.local.md` |
 | `atomic validate bundle` | Bundle parity | `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, steering `AGENTS.md` ↔ `atomic/internal/embedded/` |
-| `atomic validate artifacts [paths...]` | Artifact CLI-flag citations (rule A1) | Full artifact corpus via `artifacts.Load` (or explicit paths) |
+| `atomic validate artifacts [paths...]` | Artifact CLI verb/flag citations (rule A1) | Full artifact corpus via `artifacts.Load` (or explicit paths) |
 | `atomic validate projections` | Canonical corpus projection audit (rules P1–P6) | Full corpus via `artifacts.Load`, re-rendered through the Claude/OMP/Codex adapters |
 | `atomic validate` | All of the above | Whole repo |
 
@@ -77,18 +84,19 @@ v1.1 adds: `atomic validate design`, `atomic validate followups`.
 ### Artifact validator (rule A1)
 
 
-Scans artifact corpus for `atomic <verb> --flag` citations inside markdown inline code spans (`` `…` ``) and fenced code blocks. Source of truth is `internal/cliusage` — a structured command-surface table that also renders the binary's `--help`.
+Scans artifact corpus for `atomic <verb>` citations inside markdown inline code spans (`` `…` ``) and code blocks (fenced or indented, at any indentation, including under list items). Source of truth is `internal/cliusage` — a structured command-surface table that also renders the binary's `--help`.
 
 
 | Rule | Behavior | Severity |
 |------|----------|----------|
 | A1 | A cited `--flag` on a resolved verb-path is not in that command's flag set and is not a universal flag (`--help`, `-h`, `--version`, `-v`, `--repo`, `--no-update-check`) | FAIL |
+| A1 | A cited verb path is neither a command in the surface table nor a prefix of one | FAIL |
 
 
-**Resolution:** greedily matches the longest known verb-path prefix (handles multi-word paths such as `code search`, `signals scan`). Remaining lowercase word tokens after the matched path are treated as positional args and are not validated (covers arg-enum subcommands like `validate spec`). Citations whose verb-path does not resolve emit nothing (accepted false-negative — prevents false positives on namespace verbs with unknown subcommands).
+**Resolution:** greedily matches the longest known verb-path prefix (handles multi-word paths such as `code search`, `signals scan`). Remaining lowercase word tokens after the matched path are treated as positional args and are not validated (covers arg-enum subcommands like `validate spec`). A citation that resolves to no command is judged word by word, and FAILs on a path that is neither a command nor a namespace prefix. Full rules, including citation boundaries and placeholders: `docs/spec/validate-artifact-cli-flags.md`.
 
 
-**Scope:** citations in bare prose outside code spans are not checked. Only citations where the first token after `atomic` is a registered top-level verb qualify.
+**Scope:** citations in bare prose outside code spans and code blocks are not checked. Only citations where the first token after `atomic` is a registered top-level verb qualify.
 
 
 Honors `--json` and `--suggest` identically to the other subcommands. Included in bare `atomic validate` (whole-repo run) after bundle. In non-atomic-claude repos, runs unconditionally (unlike bundle, which is repo-dev-only).
@@ -184,7 +192,7 @@ atomic validate config — referential integrity
 [2] FAIL  C5  CLAUDE.md:118       @-ref .claude/missing.md does not resolve
 [3] WARN  C9  agents/AtomicBuilder.md missing atomic- prefix; will not bundle
 
-0 PASS, 1 WARN, 2 FAIL. exit 1.
+31 PASS, 1 WARN, 2 FAIL. exit 1.
 ```
 
 
@@ -197,7 +205,7 @@ JSON (`--json`):
   "findings": [
     {"index": 1, "severity": "FAIL", "rule": "C3", "path": "commands/foo.md", "line": 42, "message": "subagent_type \"bar\" — no agents/bar.md"}
   ],
-  "summary": {"pass": 0, "warn": 1, "fail": 2, "exit": 1}
+  "summary": {"pass": 31, "warn": 1, "fail": 2, "exit": 1}
 }
 ```
 
@@ -288,6 +296,39 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 <!-- Drafting/refinement edits before approval are not logged. First entry is at v1 ship. -->
 
 
+### 2026-10-20 — `projections` joins the PASS count and path rejection
+
+**What changed:** `atomic validate projections` counts each canonical corpus source it rendered with no finding as PASS, and rejects path arguments with exit 2, like `config` and `bundle`.
+
+**Why:** A clean projections run printed `0 PASS`, reading as an empty inspection, and a path argument was parsed past and silently ignored.
+
+**Superseded:** projections reported `0 PASS` on a clean run and re-parsed flags after the subcommand.
+
+### 2026-10-20 — A1 flags unknown verb paths and scans indented code blocks
+
+**What changed:** A1 gains a second FAIL condition, a cited verb path that is neither a command nor a namespace prefix. Code blocks are located by the markdown parse, so fences indented under list items and indented code blocks are scanned. Detail lives in `docs/spec/validate-artifact-cli-flags.md`.
+
+**Why:** a removed or never-registered verb passed the lint silently, and a fence under a list item was invisible to it.
+
+**Superseded:** unresolved verb paths emitted nothing; only column-0 fenced blocks were scanned.
+
+### 2026-10-20 — `config` and `bundle` reject path arguments
+
+**What changed:** `atomic validate config` and `atomic validate bundle` take no path arguments; a path exits 2 and is named in the error. `--json` and `--suggest` are honored in any position. Contract: `docs/spec/cli-trailing-flags.md`.
+
+**Why:** Both validators always ran whole-repo and silently ignored any path given, while the body advertised `[paths...]`.
+
+**Superseded:** `atomic validate spec|config|bundle [paths...]`.
+
+
+### 2026-10-19 — PASS counts clean inspected files
+
+**What changed:** `<P>` and `summary.pass` count inspected files that produced no WARN and no FAIL, with a defined unit per group (spec files, files C3/C5/C7 read, scanned artifacts, embedded manifest entries). The bare-form JSON `summary.pass` is the sum of the groups. The output examples show a non-zero PASS.
+
+**Why:** `<P>` was undefined and the implementation counted only findings whose severity was neither WARN nor FAIL, which no rule emits, so every run printed `0 PASS`. A clean run read as an empty inspection, and one reader concluded the gate was inert.
+
+**Superseded:** `<P>` was undefined in the body and always 0 in practice.
+
 ### 2026-09-18 — Add `atomic validate projections`
 
 **What changed:** A new `atomic validate projections` subcommand re-renders the complete canonical corpus through the Claude, OMP, and offline Codex adapters and audits every projection under rules P1–P6 (P0 for a render failure): dependency resolution, canonical identity and source digest, native metadata safety, projection-digest determinism, enforcement-tier accuracy against the CP0 record, and unclassified Claude-only wire tokens. The gate reuses the shipped `harness` projectors and the `harnessRuntimePatterns` suite rather than duplicating them; the `Subcommands` table, `Sources` column, repo-dev-only paragraph, success criteria, and `## Package layout` gained the new surface.
@@ -302,6 +343,7 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 **Why:** The cutover renamed the authored global source and moved partial expansion and enumeration into `artifacts.Load`, so the body's old source and enumerator names described the pre-cutover pipeline.
 
 **Superseded:** C5 scanned `CLAUDE.md`, `claude.local.md`, and `CLAUDE.local.md`; it now scans the authored global contract (`context/AGENTS.md`). `bundlespec` was described as imported directly by `bundlemirror` (build) and `manifestcheck` (runtime); it is now applied once by `artifacts.Load` and consumed transitively.
+
 
 ### 2026-07-21 — C5 email false-positive guard
 

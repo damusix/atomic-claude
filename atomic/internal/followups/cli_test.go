@@ -280,6 +280,153 @@ func TestCLIClose_MissingID(t *testing.T) {
 	}
 }
 
+func closeWithArgs(t *testing.T, args ...string) (code int, dir, stderr string) {
+	t.Helper()
+	root, dir, today := cliTestRepo(t)
+	if _, err := Add(dir, AddOpts{ID: "demo", Title: "Demo", Severity: "risk", Origin: "o", Today: today}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	var out, errOut strings.Builder
+	code = Run(append([]string{"close"}, args...), root, &out, &errOut, nowFixed(2026, 5, 22))
+	return code, dir, errOut.String()
+}
+
+func TestCLIClose_ReasonHonoredInAnyPosition(t *testing.T) {
+	cases := map[string][]string{
+		"trailing":    {"demo", "--reason", "fixed upstream"},
+		"leading":     {"--reason", "fixed upstream", "demo"},
+		"equals form": {"demo", "--reason=fixed upstream"},
+		"single dash": {"demo", "-reason", "fixed upstream"},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			code, dir, stderr := closeWithArgs(t, args...)
+			if code != 0 {
+				t.Fatalf("exit=%d, want 0; stderr=%s", code, stderr)
+			}
+			raw, err := os.ReadFile(filepath.Join(dir, "CLOSED.md"))
+			if err != nil {
+				t.Fatalf("read CLOSED.md: %v", err)
+			}
+			if !strings.Contains(string(raw), "fixed upstream") {
+				t.Errorf("CLOSED.md dropped the reason:\n%s", raw)
+			}
+		})
+	}
+}
+
+func TestCLIClose_ExtraPositionalRejectedAndEntryKept(t *testing.T) {
+	code, dir, stderr := closeWithArgs(t, "demo", "fixed upstream")
+	if code != 2 {
+		t.Errorf("exit=%d, want 2", code)
+	}
+	if !strings.Contains(stderr, `atomic followups close: unexpected argument(s): ["fixed upstream"]`) {
+		t.Errorf("stderr=%q, want the extra argument named", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "demo.md")); err != nil {
+		t.Errorf("demo.md removed on a rejected close: %v", err)
+	}
+}
+
+func TestCLIClose_FlagAfterTerminatorIsPositional(t *testing.T) {
+	code, dir, _ := closeWithArgs(t, "--", "demo", "--reason", "x")
+	if code != 2 {
+		t.Errorf("exit=%d, want 2", code)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "demo.md")); err != nil {
+		t.Errorf("demo.md removed on a rejected close: %v", err)
+	}
+}
+
+func TestCLIClose_NoIDIsUsage(t *testing.T) {
+	code, _, stderr := closeWithArgs(t, "--reason", "x")
+	if code != 2 {
+		t.Errorf("exit=%d, want 2", code)
+	}
+	if !strings.Contains(stderr, "Options:") {
+		t.Errorf("stderr=%q, want the full flag usage", stderr)
+	}
+}
+
+func TestCLI_FlagAfterTerminatorRejected(t *testing.T) {
+	cases := map[string][]string{
+		"list":   {"list", "--", "--json"},
+		"add":    {"add", "--", "--id", "x", "--title", "t", "--severity", "nit", "--origin", "o"},
+		"render": {"render", "--", "x"},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			root, dir, _ := cliTestRepo(t)
+			var out, errOut strings.Builder
+			code := Run(args, root, &out, &errOut, nowFixed(2026, 5, 22))
+			if code != 2 {
+				t.Errorf("exit=%d, want 2; stderr=%s", code, errOut.String())
+			}
+			if out.Len() != 0 {
+				t.Errorf("stdout=%q, want nothing on a rejected call", out.String())
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatalf("ReadDir: %v", err)
+			}
+			if len(entries) != 0 {
+				t.Errorf("followups dir has %d files after a rejected call", len(entries))
+			}
+		})
+	}
+}
+
+func TestCLIList_PositionalRejected(t *testing.T) {
+	root, _, _ := cliTestRepo(t)
+	var out, errOut strings.Builder
+	code := Run([]string{"list", "x", "--json"}, root, &out, &errOut, nowFixed(2026, 5, 22))
+	if code != 2 {
+		t.Errorf("exit=%d, want 2", code)
+	}
+	if out.Len() != 0 {
+		t.Errorf("stdout=%q, want nothing listed on a rejected call", out.String())
+	}
+}
+
+func TestCLIAdd_StrayPositionalRejectedAndNothingWritten(t *testing.T) {
+	root, dir, _ := cliTestRepo(t)
+	var out, errOut strings.Builder
+	code := Run([]string{
+		"add", "stray",
+		"--id", "stray-entry",
+		"--title", "t",
+		"--severity", "nit",
+		"--origin", "o",
+	}, root, &out, &errOut, nowFixed(2026, 5, 22))
+	if code != 2 {
+		t.Errorf("exit=%d, want 2", code)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "stray-entry.md")); err == nil {
+		t.Error("stray-entry.md written on a rejected add")
+	}
+}
+
+func TestCLIRenderAndPath_ExtraArgumentRejected(t *testing.T) {
+	for _, verb := range []string{"render", "path"} {
+		t.Run(verb, func(t *testing.T) {
+			root, dir, _ := cliTestRepo(t)
+			var out, errOut strings.Builder
+			code := Run([]string{verb, "x"}, root, &out, &errOut, nowFixed(2026, 5, 22))
+			if code != 2 {
+				t.Errorf("exit=%d, want 2", code)
+			}
+			if out.Len() != 0 {
+				t.Errorf("stdout=%q, want nothing printed", out.String())
+			}
+			if verb == "render" {
+				if _, err := os.Stat(filepath.Join(dir, "INDEX.md")); err == nil {
+					t.Error("INDEX.md written on a rejected render")
+				}
+			}
+		})
+	}
+}
+
 func TestCLIUnknownVerb(t *testing.T) {
 	root, _, _ := cliTestRepo(t)
 	var out strings.Builder

@@ -21,9 +21,8 @@ Only `repo` and `realm` are valid values. Any other value, and any file that
 fails to parse, is **not a marker of either kind**: discovery falls through to
 the pre-existing mechanism, which is the answer atomic gives today.
 
-`<wikis>` keeps its two other jobs unchanged — the session-start staleness
-nudge, and locating a realm's `wiki/index.md` for member data. A marker-declared
-realm absent from `<wikis>` therefore gets no staleness nudge. That is intended.
+`<wikis>` keeps its other job unchanged: locating a realm's `wiki/index.md` for
+member data.
 
 
 ### Discovery order
@@ -79,8 +78,8 @@ same cwd), an invalid value being ignored, and a malformed file being ignored.
 ### CP2 — both init verbs write the marker
 
 
-One writer, in `atomic/internal/config`, used by both verbs — `repoinit` and
-`wiki` both already may import `config` without a cycle.
+One writer, in `atomic/internal/config`, used by every marker-writing verb —
+`repoinit` and `wiki` both already may import `config` without a cycle.
 
     EnsureScopeMarker(root, scope string) (ScopeMarkerOutcome, error)
 
@@ -90,8 +89,9 @@ a different value — the file is left untouched).
 
 A conflicting marker is never rewritten. The declaration is the user's committed
 statement about their own tree; silently flipping it is the failure mode this
-whole feature exists to prevent. The caller surfaces the conflict and exits
-non-zero.
+whole feature exists to prevent. The init verbs surface the conflict and exit
+non-zero. `atomic wiki scan` warns on stderr and continues, because the marker
+is not required for anything else the scan does.
 
 **Insertion position is load-bearing.** `scope` is a top-level key, so it must be
 written above the first `[table]` header. Appending at EOF would land it inside
@@ -117,8 +117,11 @@ Wiring:
 - `wikiInitAction` calls `EnsureScopeMarker(absRoot, scope)` with the `--scope`
   value it already validates, and reports it alongside the steering scaffold
   line. Its existing scaffold no-op behavior is unchanged.
+- `wikiScanAction` calls `EnsureScopeMarker(absRoot, "realm")` after `Scan`
+  succeeds. A conflict or an error is a stderr warning, and the scan continues
+  to registration and the handoff.
 
-Both stay idempotent: a second run reports `ok` and writes nothing.
+All three stay idempotent: a second run reports `ok` and writes nothing.
 
 
 ### CP3 — `repoctx` marker-first
@@ -172,8 +175,9 @@ Output — human gains a first line and two provenance tokens:
     code-index scope: NoIndex
 
 When a realm resolved through `registry`, human output appends one hint line
-naming `atomic wiki init --scope realm` as the way to declare it. This is the
-feature's only backfill affordance; it is absent from JSON.
+naming `atomic wiki init --scope realm` as the way to declare it; it is absent
+from JSON. The other backfill path is `atomic wiki scan`, which `/refresh-wiki`
+runs on every realm refresh.
 
 JSON gains `repo_root` (`path`, `source`) and a `source` field on
 `realm_scope`. Existing fields keep their names and shapes.
@@ -233,8 +237,9 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
           repoinit.go        M  seventh guarantee: write scope = "repo"
           repoinit_test.go   M
         wiki/
-          action.go          M  wikiInitAction writes the --scope value
+          action.go          M  wikiInitAction writes the --scope value; wikiScanAction writes realm
           init_test.go       M
+          registry_test.go   M
         repoctx/
           repoctx.go         M  ResolveFrom; Resolve delegates
           repoctx_test.go    M
@@ -269,6 +274,7 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
     - `Init` — gains the seventh guarantee
 - `atomic/internal/wiki/action.go`
     - `wikiInitAction` — writes the marker for its validated `--scope`
+    - `wikiScanAction` — writes the realm marker; warns and continues on conflict or parse failure
 - `atomic/internal/repoctx/repoctx.go`
     - `ResolveFrom` — directory-parameterized resolution reporting provenance
     - `Resolve` — delegates over the process cwd
@@ -289,7 +295,7 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
 ## Flows
 
 
-**Writing a marker (`atomic repo init`, `atomic wiki init --scope <s>`)**
+**Writing a marker (`atomic repo init`, `atomic wiki init --scope <s>`, `atomic wiki scan`)**
 
 1. Verb resolves its root and calls `EnsureScopeMarker(root, scope)`.
 2. File absent → create it holding only the scope line. Outcome `created`.
@@ -297,8 +303,10 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
    zero; insert the line immediately above it, or at EOF when there is none.
    Outcome `added`.
 4. File present, key equals `scope` → write nothing. Outcome `ok`.
-5. File present, key differs → write nothing. Outcome `conflict`; the caller
-   reports it and exits non-zero.
+5. File present, key differs → write nothing. Outcome `conflict`; the init
+   verbs report it and exit non-zero, `wiki scan` warns and continues.
+6. File present but unparseable → write nothing; `EnsureScopeMarker` returns
+   an error. The init verbs exit non-zero, `wiki scan` warns and continues.
 
 **Resolving a root (`repoctx.ResolveFrom`, `where.Resolve`)**
 
@@ -449,3 +457,31 @@ opposite and was corrected with it.
   **Superseded:** the description named "the fixed-content CLAUDE.md scaffold";
   the scaffold content now lives in the pair's `AGENTS.md` and `CLAUDE.md` is
   the loader in both scopes.
+
+- 2026-09-30 — `atomic wiki scan` writes the realm marker
+
+  **What changed:** `atomic wiki scan` is a third marker writer, declaring
+  `scope = "realm"` at its root. On a conflicting or unparseable file it warns
+  and continues instead of exiting non-zero. The `where` hint is no longer the
+  only backfill path: every `/refresh-wiki` run backfills its realm.
+
+  **Why:** scan is the documented realm bootstrap, and no artifact calls
+  `wiki init --scope realm`, so realms set up the normal way never got a
+  marker. Contract detail: `docs/spec/wiki.md` change log, same date.
+
+  **Superseded:** "The caller surfaces the conflict and exits non-zero"
+  (now init verbs only); "This is the feature's only backfill affordance";
+  the writer flow, CP2 wiring, Change tree, and Outline naming only the two
+  init verbs. `docs/design/scope-marker.md`
+  decision 3 ("Backfill is manual") no longer holds for realms.
+
+- 2026-10-18 — Removed: the registry's session-start nudge job
+
+  **What changed:** The contract names one remaining `<wikis>` job, locating a
+  realm's `wiki/index.md`.
+
+  **Why:** The session-start wiki staleness nudge is deleted, so registry
+  membership no longer decides whether a realm is nudged.
+
+  **Removed:** the staleness-nudge job and the note that a marker-only realm
+  gets no nudge. See `docs/spec/realm-wiki-drop-refresh.md`.

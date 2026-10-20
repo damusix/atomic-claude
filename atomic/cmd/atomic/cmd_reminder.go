@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -12,8 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// The undocumented "set-due" verb has no cliusage entry; it reaches the handler
-// through the parent.s ArbitraryArgs fallback.
 func buildReminderCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runReminder(args, *repoOverride) }
 	parent := &cobra.Command{
@@ -45,6 +44,7 @@ func buildReminderCmd(repoOverride *string) *cobra.Command {
 	addSub("list", "List all reminders", "", nil)
 	addSub("show", "Print body of a reminder", "<id>", nil)
 	addSub("rm", "Delete a reminder", "<id>", nil)
+	addSub("set-due", "Rewrite a reminder's due: timestamp in place", "<id> <iso>", nil)
 	return parent
 }
 
@@ -63,30 +63,18 @@ func runReminder(args []string, repoOverride string) {
 	verb := args[0]
 	switch verb {
 	case "add":
-		fs := flag.NewFlagSet("reminder add", flag.ContinueOnError)
-		cliutil.SetUsage(fs, "atomic reminder add <text> [--due <RFC3339>] [--transport cron|routine|none]")
-		var due string
-		var transport string
-		fs.StringVar(&due, "due", "", "RFC3339 due timestamp (e.g. 2026-05-24T09:00:00Z)")
-		fs.StringVar(&transport, "transport", "", "transport kind: cron, routine, or none")
-		if err := fs.Parse(args[1:]); err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+		add, code := parseReminderAddArgs(args[1:], os.Stderr)
+		if code != 0 {
+			os.Exit(code)
 		}
-		remaining := fs.Args()
-		if len(remaining) == 0 {
-			fmt.Fprintf(os.Stderr, "Usage: atomic reminder add [--due <iso>] [--transport <kind>] <text>\n")
-			os.Exit(1)
-		}
-		text := strings.Join(remaining, " ")
 		var opts []reminder.Option
-		if due != "" {
-			opts = append(opts, reminder.WithDue(due))
+		if add.due != "" {
+			opts = append(opts, reminder.WithDue(add.due))
 		}
-		if transport != "" {
-			opts = append(opts, reminder.WithTransport(transport))
+		if add.transport != "" {
+			opts = append(opts, reminder.WithTransport(add.transport))
 		}
-		id, err := reminder.Add(root, text, opts...)
+		id, err := reminder.Add(root, add.text, opts...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
@@ -134,4 +122,27 @@ func runReminder(args []string, repoOverride string) {
 		fmt.Fprintf(os.Stderr, "atomic reminder: unknown verb %q\n", verb)
 		os.Exit(1)
 	}
+}
+
+type reminderAddOpts struct {
+	text, due, transport string
+}
+
+// parseReminderAddArgs keeps exit 1, the reminder verb's usage-error code, rather than the 2 other verbs use.
+func parseReminderAddArgs(args []string, stderr io.Writer) (opts reminderAddOpts, exitCode int) {
+	fs := flag.NewFlagSet("reminder add", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cliutil.SetUsage(fs, "atomic reminder add <text> [--due <RFC3339>] [--transport cron|routine|none]")
+	fs.StringVar(&opts.due, "due", "", "RFC3339 due timestamp (e.g. 2026-05-24T09:00:00Z)")
+	fs.StringVar(&opts.transport, "transport", "", "transport kind: cron, routine, or none")
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
+		return opts, 1
+	}
+	if len(positional) == 0 {
+		fs.Usage()
+		return opts, 1
+	}
+	opts.text = strings.Join(positional, " ")
+	return opts, 0
 }

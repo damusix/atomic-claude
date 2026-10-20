@@ -1,59 +1,54 @@
 {{define "doc-impact"}}<doc-impact>
 Check whether the staged changes affect any indexed documentation surfaces.
 
-**Step 1 — find the surfaces table.**
+Each documentation surface the staged diff makes stale gets its own prompt and the user's answer before the next one, and a repo with no surfaces table or no match passes through without blocking.
 
-Look for a `## Documentation surfaces` section in the steering files already loaded in context (the repo's own steering file — its `AGENTS.md`, or the `CLAUDE.md` loader beside it — plus any file it includes). If no such section exists, print exactly:
-
-```
-no documentation surfaces indexed. run /documentation to set up.
-```
-
-Then skip the remaining steps — no error, no blocking.
-
-**Step 2 — match staged diff against surfaces.**
-
-Run `git diff --cached` and read the output. For each row in the `## Documentation surfaces` table, use LLM judgment to decide whether the staged diff touches the domain described in that row's `Covers` column. Path overlap, changed symbols, and changed domain terms all count. This is a judgment call within the current context window — no separate dispatch.
-
-Ignore any surface entry where `impact_type` is `missing`. Maintenance mode never suggests new pages.
-
-If no surfaces match the diff, proceed silently. No output. No prompt.
-
-**Step 3 — walk matched surfaces.**
-
-For each surface that matches (stale or incomplete), print:
-
-```
-doc surface: <path> — <reason the diff makes this stale>
-proposed: <one sentence describing the targeted edit>
-
-  [y] Yes    — update now
-  [l] Later  — create a follow-up
-  [r] Remind — schedule a reminder
-  [s] Skip   — no action
+```mermaid
+flowchart TD
+    T{"Surfaces table<br/>in context?"} -->|no| N["Print setup hint"]
+    T -->|yes| M{"Matching surface<br/>left to walk?"}
+    M -->|no| C["Continue silently"]
+    M -->|yes| P["Prompt for surface"]
+    P --> A["Act on answer"]
+    A --> M
 ```
 
-Wait for the user's response per surface before continuing to the next.
+- **Surfaces table in context?**: a `## Documentation surfaces` section in the steering files already loaded in context (the repo's own steering file — its `AGENTS.md`, or the `CLAUDE.md` loader beside it — plus any file it includes).
+- **Print setup hint**: print exactly the line below, then skip the rest of this step. No error, no blocking.
 
-**Step 4 — act on response.**
+    ```
+    no documentation surfaces indexed. run /documentation to set up.
+    ```
 
-- **Yes** — invoke the `atomic-documentation` skill scoped to this surface. Pass the path, the diff context, and the proposed change as the prompt. The skill opens the file, makes the edit, and stages it with `git add <path>`. Do not proceed to the next surface until the skill completes.
+- **Matching surface left to walk?**: run `git diff --cached` and read the output. For each row in the `## Documentation surfaces` table, use LLM judgment to decide whether the staged diff touches the domain described in that row's `Covers` column, making the surface stale or incomplete. Path overlap, changed symbols, and changed domain terms all count. This is a judgment call within the current context window — no separate dispatch. Ignore any surface entry where `impact_type` is `missing`; maintenance mode never suggests new pages.
+- **Continue silently**: no output, no prompt.
+- **Prompt for surface**: print, then wait for the user's response:
 
-- **Later** — run:
+    ```
+    doc surface: <path> — <reason the diff makes this stale>
+    proposed: <one sentence describing the targeted edit>
 
-  ```
-  atomic followups add \
-    --id "doc-<slugified-path>-<short-hash>" \
-    --title "update <path> — <reason>" \
-    --severity nit \
-    --origin "ship-verb doc-impact"
-  ```
+      [y] Yes    — update now
+      [l] Later  — create a follow-up
+      [r] Remind — schedule a reminder
+      [s] Skip   — no action
+    ```
 
-  Use the first 6 characters of the HEAD commit SHA as `<short-hash>`. If `atomic` binary is absent, print the follow-up details as plain text and continue.
+- **Act on answer**:
+    - **Yes** — invoke the `atomic-documentation` skill scoped to this surface. Pass the path, the diff context, and the proposed change as the prompt. The skill opens the file, makes the edit, and stages it with `git add <path>`. Do not move to the next surface until the skill completes.
+    - **Later** — run:
 
-- **Remind** — prompt: `When should I remind you? (e.g. "after the PR", "tomorrow", "end of week")`. Accept natural-language input and invoke `/remind-me <timing> update <path> — <reason>`. Continue without blocking if no scheduling capability is available.
+        ```
+        atomic followups add \
+          --id "doc-<slugified-path>-<short-hash>" \
+          --title "update <path> — <reason>" \
+          --severity nit \
+          --origin "ship-verb doc-impact"
+        ```
 
-- **Skip** — no action, no record.
+        Use the first 6 characters of the HEAD commit SHA as `<short-hash>`.
+    - **Remind** — prompt: `When should I remind you? (e.g. "after the PR", "tomorrow", "end of week")`. Accept natural-language input and invoke `/remind-me <timing> update <path> — <reason>`. Continue without blocking if no scheduling capability is available.
+    - **Skip** — no action, no record.
 
 Run doc-impact before signals refresh. **Why:** new or updated doc files appear in the signals scan only if they're staged before the scan runs.
 </doc-impact>{{- end}}

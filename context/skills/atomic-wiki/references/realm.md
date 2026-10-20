@@ -1,25 +1,20 @@
 # Realm-scope wiki pipeline
 
-Full pipeline for realm-scope inference. Root: `<realm-root>/wiki/` (a separate git repo). Executed by `atomic-wiki-inferrer` in two modes:
+Full pipeline for realm-scope inference. Root: `<realm-root>/wiki/` (a separate git repo). Executed by `atomic-wiki-inferrer` in wiki-output mode, activated by `target_repo` + `wiki_dir` dispatch args. It summarizes a single member repo into `wiki/repos/`.
 
-- **Wiki-output mode** — activated by `target_repo` + `wiki_dir` dispatch args. Summarizes a single member repo into `wiki/repos/`.
-- **Bucket-synthesis mode** — activated by `bucket_name` + `bucket_path` + `wiki_dir` dispatch args. Synthesizes capture-bucket content into `wiki/knowledge/`.
-
-The realm orchestration (scan, stale check, interactive offers, linkify, commit) is handled by the `/refresh-wiki` command. This file covers only the inference-heavy sub-pipelines that the agent executes.
+The realm orchestration (scan, interactive offers, linkify, commit) is handled by the `/refresh-wiki` command. This file covers the inference pipeline, plus the bucket-doc contract `SKILL.md` points at.
 
 ---
 
 ## Wiki-output mode
 
-Activated when the caller provides **both** `target_repo` and `wiki_dir`. If exactly one is present, stop immediately:
+Activated when the caller provides **both** `target_repo` and `wiki_dir`; run W1–W7 below instead of the repo-scope default pipeline, which is not executed. If exactly one is present, print this and stop immediately:
 
 ```
 ERROR: wiki-output mode requires both target_repo and wiki_dir.
 Missing: <whichever is absent>.
 Aborting — not falling back to default signals mode.
 ```
-
-When both are present, run this pipeline instead of the repo-scope default pipeline. The default pipeline is not executed.
 
 ### W1 — Guard: read-only on target_repo
 
@@ -60,6 +55,7 @@ Only one pipeline reference is loaded per run, so the sub-agent instructions are
 ```
 <instructions>
 - Summaries are FACTS about current state — not instructions, rules, or intent. Every sentence must be verifiable by reading a source file in target_repo.
+- Never count things in the repo. `atomic-writing` rule 17 has the list; a version or a documented contract value is not a count.
 - Read the actual source files. Do not infer from filenames alone.
 - Invoke the `atomic-writing` skill and follow it. It governs three things here, not one: the page's reading order, when a shape gets drawn instead of written, and the sentence-level voice.
 - Draw every shape the repo has. A build pipeline, a request path, and a deploy flow are three claims and three diagrams, each with its own `###` sub-heading and a caption stating what it claims. There is no cap. Leaving a shape in prose is the failure to avoid, not drawing too many.
@@ -78,7 +74,6 @@ The output format is the **wiki summary format** (not the signals domain file fo
 title: <domain or repo name>
 repo: <repo-name>
 generated: <YYYY-MM-DD>
-# reflects_rev and reflects fields are intentionally absent — written by 'atomic wiki stamp'
 ---
 
 ## What it does
@@ -114,11 +109,9 @@ generated: <YYYY-MM-DD>
 
 Same reading order as a repo-scope domain file: what is this and why do I care, how does it work, where is it, what it is built on, what will bite me. A realm summary is read by someone deciding whether to open the repo at all, so a page that opens on a path list answers the question they have not asked yet.
 
-The `reflects_rev` frontmatter field is **intentionally left absent**. The code step `atomic wiki stamp` writes it after this agent completes. The agent does not compute or write any fingerprint values.
-
 ### W5 — Reviewer validates each summary file
 
-Same reviewer dispatch logic as the repo-scope Step 5. Reviewer checks that every claim is verifiable from source files in `target_repo`, and applies the same page-shape checks: sections present in order, `## What it does` opening on purpose rather than mechanism, every diagram captioned with a claim and every one past the first under its own sub-heading, `## Where it lives` as one table, every constraint naming what breaks. Diagram count is not capped; flag a diagram that restates its neighbour, and a shape left in prose that a picture would carry better. The reviewer also checks that every current-architecture diagram in a listed design doc appears in `## How it works`, redrawn with nodes that resolve to source in `target_repo`, or is named in `## Constraints` as stale; and that every Mermaid block passes the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md`. Iterate up to 3 times before flagging unresolved.
+Same reviewer dispatch logic as the repo-scope Step 5. Reviewer checks that every claim is verifiable from source files in `target_repo`, and applies the same page-shape checks: sections present in order, `## What it does` opening on purpose rather than mechanism, every diagram captioned with a claim and every one past the first under its own sub-heading, `## Where it lives` as one table, every constraint naming what breaks. Diagram count is not capped; flag a diagram that restates its neighbour, and a shape left in prose that a picture would carry better. The reviewer also checks that every current-architecture diagram in a listed design doc appears in `## How it works`, redrawn with nodes that resolve to source in `target_repo`, or is named in `## Constraints` as stale; that no count of things in the repo appears anywhere on the page, including diagram labels and table cells (`atomic-writing` rule 17 has the list; any such number is `CHANGES_REQUESTED`, named; the only exceptions are a version and a documented contract value); and that every Mermaid block passes the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md`. Iterate up to 3 times before flagging unresolved.
 
 ### W6 — Skip @-ref wiring
 
@@ -136,13 +129,13 @@ Do not print concerns in wiki-output mode — concerns are surfaced by the `/ref
 
 ---
 
-## Bucket-synthesis mode
+## Bucket docs
 
-Activated when the caller provides **all three** of `bucket_name`, `bucket_path`, and `wiki_dir`. When all three are present, run the bucket-synthesis pipeline below instead of Steps 1-9 or the wiki-output pipeline. The default and wiki-output pipelines are not executed.
+Buckets get no inference pass. Code builds their indexes from each doc's frontmatter.
 
 ### Bucket-doc frontmatter contract
 
-Bucket docs (`<bucket>/<slug>.md`, one topic per file) carry six recognized keys — read them structurally instead of re-deriving from prose:
+Bucket docs (any `.md` file in a bucket, including each folder's `index.md`) carry the recognized keys below:
 
 | Key | Writer | Notes |
 |-----|--------|-------|
@@ -153,99 +146,21 @@ Bucket docs (`<bucket>/<slug>.md`, one topic per file) carry six recognized keys
 | `status` | author | free-form (e.g. `active`, `done`) |
 | `created` | code (scaffold) | stamped by `atomic wiki bucket doc` at creation time |
 
-Every key is optional at index time — a doc with no frontmatter at all still indexes, under an `### Unindexed` heading. This contract is B1/B3 context: use `title`/`type`/`description`/`tags`/`status` to frame synthesis rather than re-inferring them from the doc body.
+Every key is optional at index time — a doc with no frontmatter at all still indexes, under an `### Unindexed` heading.
 
-### Two-level index (code-generated, read-only to this agent)
+### Per-folder indexes (code-generated, read-only)
 
-`atomic wiki scan` and `atomic wiki bucket index` maintain two managed regions from this frontmatter — never write to them:
+`atomic wiki scan` and `atomic wiki bucket index` maintain these managed regions from this frontmatter. Never write to them:
 
-- `<bucket>/index.md` — a `<bucket-docs>` region listing every topic in the bucket (title, description, tags, router/unindexed flags).
+- `<folder>/index.md`, in every folder of a bucket: a `<bucket-docs>` region listing that folder's direct `.md` files and subfolders (title, description, tags, unindexed flag). A subfolder entry links to its own `index.md`. Numbered stage folders (`01_raw`, `02_findings`) list in numeric order.
 - `wiki/index.md` — a `<wiki-bucket-list>` region listing every registered bucket with its description.
 
 Both regions are spliced idempotently by code; the inferrer never authors them.
-
-**Partial-arg guard.** Bucket intent = `bucket_name` or `bucket_path` supplied. If bucket intent is shown and any of the three args (`bucket_name`, `bucket_path`, `wiki_dir`) is missing, stop immediately:
-
-```
-ERROR: bucket-synthesis mode requires bucket_name, bucket_path, and wiki_dir.
-Missing: <whichever arg(s) are absent>.
-Aborting — not falling back to default or wiki-output mode.
-```
-
-`wiki_dir` alone (without `bucket_name` or `bucket_path`) shows no bucket intent — it is shared with wiki-output mode and never triggers this guard. When none of the three bucket args are present, skip this section entirely and proceed with default mode detection.
-
-### B1 — Read conventions context
-
-Read `<bucket_path>/index.md`. This file contains the bucket's purpose line and `## Conventions` block — it is the only description of what this bucket's content means. Use it as the framing context for all synthesis decisions: what topics are relevant, how to cluster files, what level of abstraction is appropriate.
-
-Do not modify `<bucket_path>/index.md` or any file inside `<bucket_path>/`. The bucket folder is read-only.
-
-### B2 — Read content files
-
-Read the changed/new files listed in the dispatch prompt (the orchestrator supplies the diff work list: new and changed files from `atomic wiki bucket diff`). Read files in parallel.
-
-`removed` files are listed for awareness only — do not attempt to read them (they may no longer exist). Do not auto-delete any knowledge content when files are removed; the orchestrator decides retraction.
-
-### B3 — Synthesize knowledge pages
-
-For each coherent topic found across the content files:
-
-1. Determine the topic name. Topic names must be kebab-case matching `[a-z0-9-]+\.md` (examples: `vendor-x.md`, `auth-patterns.md`, `api-design.md`). Code validates this at stamp time; emit conforming names — non-conforming names will be skipped by `atomic wiki stamp --knowledge`.
-
-2. Determine the target path: `<wiki_dir>/knowledge/<topic>.md`.
-
-3. If the file already exists, read it first, then **merge** new information into the existing content. Never duplicate facts already present. Preserve existing structure where it still applies; extend or refine as needed.
-
-4. If the file does not exist, create it. Write durable, topic-keyed knowledge content — not a raw dump, not a bullet list of file names. Synthesize facts, patterns, and relationships that persist beyond any single capture file.
-
-   When the body links to another concept in the bundle (a repo summary, concern, or another knowledge page), use a standard bundle-relative markdown link `[text](/path.md)` — not an Obsidian `[[wikilink]]`. **Why:** OKF §5.1 recommends bundle-relative `/path.md` as the canonical cross-link form; standard markdown links are portable across all consumers (serve, Obsidian, GitHub, goldmark).
-
-5. Write the frontmatter with the following fields:
-   - `title:` — the topic name in plain English.
-   - `type: Knowledge` — required OKF field (title-case; serve maps it to the `knowledge` graph node class).
-   - `description:` — a one-line summary of the topic.
-
-   Do NOT write `sources:` or any fingerprint/hash values — those are written by `atomic wiki stamp --knowledge` after synthesis completes. Do NOT write `reflects_rev:` or `reflects:` fields. **Why:** `type` and `description` are producer-defined content (OKF §4.1) and belong to the model, just as `title:` is already model-written; code computes and writes every fingerprint, and the model never declares hash values.
-
-6. Write the file.
-
-Knowledge pages are topic-keyed, not bucket-keyed. If content from this bucket covers the same topic as a prior synthesis from another bucket, merge into the shared topic page. Multiple buckets' files about the same topic converge to one page — this is intentional.
-
-### B4 — Never touch outside the knowledge dir
-
-Do NOT:
-- Modify any file inside `<bucket_path>/`
-- Write fingerprint or `sources:` values (code stamps after)
-- Modify `<wiki_dir>/index.md`
-- Run `atomic wiki bucket promote` (orchestrator's job, conditional on synthesis success)
-- Write to any path outside `<wiki_dir>/knowledge/`
-
-### B5 — Report
-
-Return a structured report listing each knowledge page written or updated, and which source files from the bucket fed that page. The orchestrator passes this source list to `atomic wiki stamp --knowledge`.
-
-```
-bucket synthesis complete: <bucket_name>
-
-knowledge pages written/updated:
-- <wiki_dir>/knowledge/<topic>.md  NEW | UPDATED
-  sources: <bucket_name>/<relpath>, <bucket_name>/<relpath>, …
-
-- <wiki_dir>/knowledge/<other-topic>.md  NEW | UPDATED
-  sources: <bucket_name>/<relpath>, …
-```
-
-If no content files were provided (empty diff), report:
-
-```
-bucket synthesis skipped: <bucket_name> — no changed files to synthesize
-```
 
 ---
 
 ## Rules
 
-- Never write fingerprint values manually. Always let `atomic wiki stamp` write them. **Why:** code-written fingerprints are verifiable; LLM-authored ones drift silently.
 - `target_repo` is always read-only in wiki-output mode. No writes, no edits, no file creation inside it. **Why:** wiki summarization is a read pass; mutations to the target repo are never the agent's responsibility.
 - Omit `<concerns_format>` from wiki-output sub-agent prompts. **Why:** concerns are discarded in wiki-output mode (W7); generating them wastes tokens.
-- Both `target_repo` and `wiki_dir` must be present together for wiki-output mode. Both `bucket_name`, `bucket_path`, and `wiki_dir` must all be present for bucket-synthesis mode. If any required arg is missing, stop immediately and name the missing arg(s). **Why:** partial args indicate a dispatch error; falling back to a different mode silently would produce the wrong output.
+- Both `target_repo` and `wiki_dir` must be present together for wiki-output mode. If either is missing, stop immediately and name it. **Why:** partial args indicate a dispatch error; falling back to a different mode silently would produce the wrong output.

@@ -111,6 +111,8 @@ would fire on correct setups.
 ### 3. Backfill is manual
 
 
+**Status (2026-09-30):** superseded for realms. `atomic wiki scan` now writes the realm marker, so every `/refresh-wiki` run backfills it; see the `docs/spec/scope-marker.md` change log. Repo roots are backfilled by the `atomic repo init` every loop command runs.
+
 Both init verbs are idempotent, so re-running them is the backfill path.
 `atomic migrate` does not do it automatically: `migrate` relocates per-user
 state under `~/.atomic`, and writing into a user's tracked repo without asking

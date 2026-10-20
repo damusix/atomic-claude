@@ -30,7 +30,7 @@ Each tab is one concept below.
 |-------------|--------------|
 | `atomic signals scan` | Walks the filesystem (tree, manifests, languages, lockfiles) into a reproducible facts file that grounds every inference about the repo |
 | `atomic code` | Builds and queries the symbol graph |
-| `atomic wiki` | Scaffolds, scans, and staleness-checks repo and realm wikis |
+| `atomic wiki` | Scaffolds repo and realm wikis, scans realms, and checks membership drift |
 | `atomic repo init`, `atomic template <name>` | Creates the harness layout once, idempotently; emits the fill-in skeleton for each workflow document so structure is copied, never reconstructed from memory |
 | `atomic install`, `atomic harness` | Enrolls a harness instance and converges its native surface; `list\|status\|enroll\|adopt\|repair\|diff\|uninstall` is the target lifecycle, `rules status\|sync` the rule surface |
 | `atomic state adopt` | Selects this repository's state root on the harness-neutral ladder |
@@ -115,8 +115,8 @@ A realm wiki maps how a folder of repos relate: shared libraries, contracts one 
 | Verb | Does |
 |------|------|
 | `/refresh-wiki` | Scan the realm; refresh repo summaries and cross-cutting concerns with cited evidence |
-| `atomic wiki bucket add <name>` | Register a folder of loose material (research, raw dumps, ticket exports); refresh synthesizes it into `wiki/knowledge/` |
-| `atomic wiki stale` | Report membership drift and stale content |
+| `atomic wiki bucket add <name>` | Register a folder of loose material (research items with their raw material, notes, ticket exports); the scan keeps an index in every folder |
+| `atomic wiki stale` | Report repos added, removed, or reclassified since the last scan |
 | `atomic serve` | Browse the realm as a navigable graph in the browser |
 
 An `AGENTS.md` at the realm root steers all of it (with a thin `CLAUDE.md` loader beside it for Claude Code), again through the harness: Claude Code walks up the directory tree loading every `CLAUDE.md` it finds, and the walk crosses repo boundaries. Rules that span repos go there once and reach every session inside the realm.
@@ -125,14 +125,14 @@ An `AGENTS.md` at the realm root steers all of it (with a thin `CLAUDE.md` loade
 ### Scope resolution
 
 
-A directory declares itself with `scope = "repo"` or `scope = "realm"` at the top of `.claude/atomic.toml` (`atomic repo init` writes the former, `atomic wiki init --scope <s>` either). A marker answers discovery on its own, but only a realm the wiki registry (`~/.atomic/wikis.md`) also lists gets the session-start staleness nudge:
+A directory declares itself with `scope = "repo"` or `scope = "realm"` at the top of `.claude/atomic.toml` (`atomic repo init` writes the former, `atomic wiki scan` the latter, `atomic wiki init --scope <s>` either). A marker answers discovery on its own; without one, atomic falls back to git for a repo root and to the wiki registry (`~/.atomic/wikis.md`) for a realm root:
 
 ```mermaid
 flowchart TD
     accTitle: How atomic resolves a repo root and a realm root
-    accDescr: A scope marker answers first. Without one, discovery falls back to git detection for a repo root and the wikis registry for a realm root. The staleness nudge is driven only by the registry.
+    accDescr: A scope marker answers first. Without one, discovery falls back to git detection for a repo root and the wikis registry for a realm root.
     %% source: atomic/internal/repoctx, atomic/internal/where
-    %% claim: a marker answers discovery, but the wikis registry still owns the staleness nudge
+    %% claim: a marker answers discovery; git and the wikis registry are the fallbacks
     Dir["a directory"] --> Marker{"nearest<br/>.claude/atomic.toml"}
     Marker -- "scope = repo" --> Repo["repo root"]
     Marker -- "scope = realm" --> Realm["realm root"]
@@ -140,12 +140,9 @@ flowchart TD
     Marker -- absent --> FallRealm["the wikis registry"]
     FallRepo --> Repo
     FallRealm --> Realm
-    Realm --> Reg{"listed in<br/>the wikis block?"}
-    Reg -- yes --> Nudged["resolves · staleness nudge fires"]
-    Reg -- no --> Quiet["resolves · no nudge"]
 ```
 
-The registry keeps two jobs a marker does not touch: the nudge, and locating a realm's `wiki/index.md` for member data. `atomic where` reports which mechanism answered each axis.
+The registry keeps one job a marker does not touch: locating a realm's `wiki/index.md` for member data. `atomic where` reports which mechanism answered each axis.
 
 See the [knowledge base guide](/guides/knowledge-base) and [realm wiki](/reference/realm-wiki).
 

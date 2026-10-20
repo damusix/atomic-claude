@@ -28,54 +28,65 @@ Anything starting with `apply` routes to Phase 2. Everything else is Phase 1.
 
 ## Pre-flight
 
-```bash
-git rev-parse --is-inside-work-tree
+Only a missing git repo stops the audit; a dirty tree or a cold index changes what the report says, not whether it runs.
+
+```mermaid
+flowchart TD
+    G{"Inside a git repo?"} -->|no| X["Stop"]
+    G -->|yes| S["Gather state"]
+    S --> I{"Index?"}
+    I -->|warm| Y["Sync index"]
+    I -->|cold| O["Offer one<br/>index run"]
+    Y --> T["Find test command"]
+    O --> T
 ```
 
-Not a git repo → `not a git repo. /deslop audits a versioned project.` Stop.
+- **Inside a git repo?**: `git rev-parse --is-inside-work-tree`. No: `not a git repo. /deslop audits a versioned project.`
+- **Gather state**: each as its own call:
 
-Gather, each as its own call:
+    ```bash
+    git rev-parse HEAD
+    git status --porcelain
+    test -f docs/wiki/index.md && echo wiki=yes || echo wiki=no
+    test -f .claude/.atomic-index/atomic.db && echo index=warm || echo index=cold
+    ```
 
-```bash
-git rev-parse HEAD
-git status --porcelain
-test -f docs/wiki/index.md && echo wiki=yes || echo wiki=no
-test -f .claude/.atomic-index/atomic.db && echo index=warm || echo index=cold
-```
-
-A dirty tree is not a refusal — the audit is read-only — but note it in the report header, since
-findings are anchored to lines that uncommitted edits may have moved.
-
-**Index.** Warm → `atomic code sync`. Cold → offer to run `atomic code index` once, and say why:
-`dead-code` findings are proof-based with an index and heuristic without one, and the agents
-degrade to grep either way. Never block on it. Skip silently when `atomic` is absent.
-
-**Test suite.** Read the build/test table in `docs/wiki/index.md` when it exists; otherwise
-detect from the project manifest (`package.json` scripts, `Makefile` targets, `go.mod`,
-`pyproject.toml`). You need one runnable test command, or the knowledge that there is none.
-Do not run it yet — Phase 1 changes nothing and does not need a baseline. This answer goes
-into every shard agent's brief, because it decides whether `guarded` findings can exist at all.
+    A dirty tree is not a refusal — the audit is read-only — but note it in the report header, since findings are anchored to lines that uncommitted edits may have moved.
+- **Sync index**: `atomic code sync`.
+- **Offer one index run**: offer `atomic code index` once, and say why: `dead-code` findings are proof-based with an index and heuristic without one, and the agents degrade to grep either way. Never block on it.
+- **Find test command**: read the build/test table in `docs/wiki/index.md` when it exists; otherwise detect from the project manifest (`package.json` scripts, `Makefile` targets, `go.mod`, `pyproject.toml`). You need one runnable test command, or the knowledge that there is none. Do not run it yet — Phase 1 changes nothing and does not need a baseline. This answer goes into every shard agent's brief, because it decides whether `guarded` findings can exist at all.
 
 ## Resolve shards
 
-A shard is one dispatch's worth of files. In order of preference:
+A shard is one dispatch's worth of files; wiki domains are preferred, and the fan-out never exceeds 8.
 
-1. **Wiki domains.** `docs/wiki/index.md` carries a domain table with a start-here path per domain. Each domain is a shard, and its paths come from that domain's own page. Domains are defined as things that break together, which is also the boundary that makes a duplicated helper visible.
-2. **Top-level source directories.** No wiki, or a path scope that cuts across domains: list the top-level directories holding source, and make each a shard.
-3. **One shard.** A small repo, or a `<path>` scope inside a single directory.
+```mermaid
+flowchart TD
+    W{"Wiki domains<br/>fit the scope?"} -->|yes| D["Shard per domain"]
+    W -->|no| S{"Small repo or<br/>one-directory scope?"}
+    S -->|no| T["Shard per<br/>top-level dir"]
+    S -->|yes| O["One shard"]
+    D --> C{"More than 8?"}
+    T --> C
+    O --> C
+    C -->|yes| M["Merge smallest"]
+    C -->|no| F["Fan out"]
+    M --> F
+```
+
+- **Wiki domains fit the scope?**: `docs/wiki/index.md` exists and the `<path>` scope does not cut across domains.
+- **Shard per domain**: the domain table carries a start-here path per domain; each domain's paths come from its own page. Domains are defined as things that break together, which is also the boundary that makes a duplicated helper visible.
+- **Shard per top-level dir**: the top-level directories holding source.
+- **Merge smallest**: merge the smallest by file count until 8 remain, and say in the report which shards were merged. A run that dispatches twenty agents costs more than the report is worth.
 
 Exclude from every shard: vendored and generated trees, build output, lockfiles, and anything
 `[code] ignore` in `.claude/atomic.toml` or `.gitignore` already excludes. Auditing generated
 files produces findings nobody can act on.
 
-Cap the fan-out at 8 shards per run. More than 8 → merge the smallest by file count until 8
-remain, and say in the report which shards were merged. A run that dispatches twenty agents
-costs more than the report is worth.
-
 ## Scratchpad
 
 ```bash
-command -v atomic >/dev/null 2>&1 && atomic repo init >/dev/null
+atomic repo init >/dev/null
 SCRATCH=$(atomic scratchpad new "deslop-$(date +%Y-%m-%d)" --purpose review)
 mkdir -p "$SCRATCH/findings"
 ```
@@ -134,25 +145,25 @@ offer to start fixing. The report is the deliverable and the gate is the point.
 
 # Phase 2 — Apply
 
-## Locate the report
+## Locate the report and check staleness
 
-Find the most recent `deslop-*` bundle via `atomic scratchpad list` and read its `REVIEW.md`.
+A finding is applied only while its file is unchanged since the audit SHA.
 
-No bundle or no `REVIEW.md` → `no deslop report found. run /deslop first.` Stop.
-
-## Staleness gate
-
-```bash
-git rev-parse HEAD
+```mermaid
+flowchart TD
+    R{"Report found?"} -->|no| X["Stop"]
+    R -->|yes| H{"HEAD moved since<br/>audit SHA?"}
+    H -->|no| S["Selection"]
+    H -->|yes| D["Drop accepted findings<br/>in changed files"]
+    D --> A{"Any left?"}
+    A -->|yes| S
+    A -->|no| X
 ```
 
-`HEAD` equal to the recorded audit SHA → proceed.
-
-`HEAD` moved → for each accepted finding, check whether its file changed since the audit SHA
-(`git diff --name-only <audit-sha>..HEAD`). Findings in untouched files still stand. Findings
-in changed files are dropped, named in one line each. All of them dropped → say so and stop;
-the report describes a tree that no longer exists, and re-running `/deslop` is cheaper than
-reconciling it.
+- **Report found?**: the most recent `deslop-*` bundle via `atomic scratchpad list`, and its `REVIEW.md`. No bundle or no `REVIEW.md`: `no deslop report found. run /deslop first.`
+- **HEAD moved since audit SHA?**: `git rev-parse HEAD` against the recorded audit SHA.
+- **Drop accepted findings in changed files**: `git diff --name-only <audit-sha>..HEAD`. Findings in untouched files still stand; name each dropped one in one line.
+- **Any left?**: none left → say so and stop; the report describes a tree that no longer exists, and re-running `/deslop` is cheaper than reconciling it.
 
 ## Selection
 
@@ -165,25 +176,34 @@ could not be established, and a user typing `all` is not new evidence.
 
 {{ template "worktree-setup" . }}
 
-## Baseline
-
-Run the test suite before touching anything.
-
-- Green → proceed, and record the command.
-- Red → stop. `baseline is red — <N> failures before any deslop change. fix or stash first.` A red baseline makes the whole guarantee unverifiable: nothing downstream can tell a pre-existing failure from one this run introduced.
-- No suite → only `safe` findings are selectable, and they need no baseline. Proceed with those alone.
-
-## Batch loop
+## Baseline and batch loop
 
 Group accepted findings by file, then batch so one dispatch is a coherent, small unit — a
 single file, or a few files sharing one finding category. Never batch across tiers.
 
-Per batch:
+The suite runs before any change and after every batch, and the first red result stops the whole run with earlier batches left committed.
 
-1. Dispatch `atomic-implementer` in **surgical** mode. The brief is the batch's findings verbatim from `REVIEW.md` — each one already names its path, line, category, problem, and fix. Add: `Apply exactly these findings. Change nothing else. No refactoring, no renaming, no reformatting of untouched lines. Behavior must be identical after your change.`
-2. Re-run the test suite. Skip only for a `safe` batch in a repo with no suite.
-3. Green → commit the batch. Red → **stop the whole run.** Report which batch failed and its output verbatim, leave the working tree as the implementer left it for inspection, and leave prior batches committed. Do not retry, do not let the implementer fix its own regression: a second attempt at a change that already broke the build is how a cleanup pass turns into an outage.
-4. Mark the applied findings in `REVIEW.md` so a resumed run does not redo them.
+```mermaid
+flowchart TD
+    B{"Baseline suite?"} -->|red| X["Stop"]
+    B -->|none| O["Safe findings only"]
+    B -->|green| I["Dispatch implementer"]
+    O --> I
+    I --> T{"Suite after batch?"}
+    T -->|red| X2["Stop the run"]
+    T -->|green or skipped| C["Commit, mark applied"]
+    C --> M{"More batches?"}
+    M -->|yes| I
+    M -->|no| F["Finish"]
+```
+
+- **Baseline suite?**: run the test suite before touching anything. Green: record the command.
+- **Stop**: `baseline is red — <N> failures before any deslop change. fix or stash first.` A red baseline makes the whole guarantee unverifiable: nothing downstream can tell a pre-existing failure from one this run introduced.
+- **Safe findings only**: with no suite only `safe` findings are selectable, and they need no baseline.
+- **Dispatch implementer**: `atomic-implementer` in **surgical** mode. The brief is the batch's findings verbatim from `REVIEW.md` — each one already names its path, line, category, problem, and fix. Add: `Apply exactly these findings. Change nothing else. No refactoring, no renaming, no reformatting of untouched lines. Behavior must be identical after your change.`
+- **Suite after batch?**: re-run the test suite. Skip only for a `safe` batch in a repo with no suite.
+- **Stop the run**: report which batch failed and its output verbatim, leave the working tree as the implementer left it for inspection, and leave prior batches committed. Do not retry, do not let the implementer fix its own regression: a second attempt at a change that already broke the build is how a cleanup pass turns into an outage.
+- **Commit, mark applied**: commit per the section below, then mark the applied findings in `REVIEW.md` so a resumed run does not redo them.
 
 ## Commit per batch
 

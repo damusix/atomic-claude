@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -35,10 +34,6 @@ func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 		return wikiScanAction(args[1:], claudeHome, cwd, out)
 	case "stale":
 		return wikiStaleAction(args[1:], cwd, out)
-	case "stamp":
-		return wikiStampAction(args[1:])
-	case "mark-dirty":
-		return wikiMarkDirtyAction(args[1:], claudeHome, cwd)
 	case "linkify":
 		return wikiLinkifyAction(args[1:], cwd)
 	case "bucket":
@@ -52,7 +47,7 @@ func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 }
 
 // wikiStaleAction implements `atomic wiki stale [--root=<path>]`: read-only,
-// exit 0 fresh / 1 stale / 2 hard error.
+// exit 0 no drift / 1 drift / 2 hard error.
 func wikiStaleAction(args []string, cwd string, out io.Writer) int {
 	fs := flag.NewFlagSet("wiki-stale", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -77,141 +72,6 @@ func wikiStaleAction(args []string, cwd string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic wiki stale: %v\n", err)
 	}
 	return code
-}
-
-// knowledgeTopicRE is the kebab-case naming contract for knowledge topic files.
-var knowledgeTopicRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*\.md$`)
-
-// wikiStampAction implements:
-//
-//	atomic wiki stamp <file> --repo <path>                          (summary mode)
-//	atomic wiki stamp <file> --root <wiki-root> --cites a,b,c      (concern mode)
-//	atomic wiki stamp <file> --knowledge --sources <entries>        (knowledge mode)
-func wikiStampAction(args []string) int {
-	fs := flag.NewFlagSet("wiki-stamp", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-
-	var repo string    // summary mode: repo whose HEAD to stamp
-	var root string    // concern mode: wiki root
-	var cites string   // concern mode: comma-separated cited repo ids
-	var knowledge bool // knowledge mode: stamp sources: list
-	var sources string // knowledge mode: comma-separated "<bucket>/<file>@<sha256>" entries
-
-	fs.StringVar(&repo, "repo", "", "repo path (summary mode)")
-	fs.StringVar(&root, "root", "", "wiki root (concern mode)")
-	fs.StringVar(&cites, "cites", "", "comma-separated cited repo ids (concern mode)")
-	fs.BoolVar(&knowledge, "knowledge", false, "knowledge page mode: stamp sources: list")
-	fs.StringVar(&sources, "sources", "", "comma-separated sources entries (knowledge mode)")
-
-	// flag.FlagSet stops at the first non-flag token, so flags placed after
-	// <file> would be dropped. Re-parse in a loop, peeling one positional at a
-	// time, so flags may appear anywhere.
-	//
-	// The bare "--" is split off first: fs.Parse honors a terminator only
-	// within the call that consumes it, so re-parsing the tail would revive
-	// flags the user meant as positional.
-	head := args
-	var tail []string
-	for i, a := range args {
-		if a == "--" {
-			head = args[:i]
-			tail = args[i+1:]
-			break
-		}
-	}
-
-	var positional []string
-	rest := head
-	for {
-		if err := fs.Parse(rest); err != nil {
-			return 2
-		}
-		rest = fs.Args()
-		if len(rest) == 0 {
-			break
-		}
-		positional = append(positional, rest[0])
-		rest = rest[1:]
-	}
-	positional = append(positional, tail...)
-	if len(positional) < 1 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic wiki stamp <file> --repo <path>\n")
-		fmt.Fprintf(os.Stderr, "       atomic wiki stamp <file> --root <wiki-root> --cites <ids>\n")
-		fmt.Fprintf(os.Stderr, "       atomic wiki stamp <file> --knowledge --sources <entries>\n")
-		return 1
-	}
-
-	filePath := positional[0]
-
-	absFile, err := filepath.Abs(filePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki stamp: resolve file path: %v\n", err)
-		return 1
-	}
-
-	switch {
-	case knowledge:
-		if sources == "" {
-			fmt.Fprintf(os.Stderr, "atomic wiki stamp: --knowledge requires --sources\n")
-			return 1
-		}
-		base := filepath.Base(absFile)
-		if !knowledgeTopicRE.MatchString(base) {
-			fmt.Fprintf(os.Stderr, "atomic wiki stamp: knowledge topic name %q does not conform to kebab-case [a-z0-9-]+.md — skipping\n", base)
-			return 0
-		}
-		entries := splitCites(sources)
-		if err := StampKnowledge(absFile, entries); err != nil {
-			fmt.Fprintf(os.Stderr, "atomic wiki stamp: %v\n", err)
-			return 1
-		}
-		return 0
-
-	case repo != "" && root == "" && cites == "":
-		absRepo, err := filepath.Abs(repo)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic wiki stamp: resolve --repo: %v\n", err)
-			return 1
-		}
-		if err := StampSummary(absFile, absRepo); err != nil {
-			fmt.Fprintf(os.Stderr, "atomic wiki stamp: %v\n", err)
-			return 1
-		}
-		return 0
-
-	case root != "" && cites != "":
-		absRoot, err := filepath.Abs(root)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic wiki stamp: resolve --root: %v\n", err)
-			return 1
-		}
-		ids := splitCites(cites)
-		if err := StampConcern(absFile, absRoot, ids); err != nil {
-			fmt.Fprintf(os.Stderr, "atomic wiki stamp: %v\n", err)
-			return 1
-		}
-		return 0
-
-	default:
-		fmt.Fprintf(os.Stderr, "atomic wiki stamp: supply either --repo (summary), --root + --cites (concern), or --knowledge + --sources (knowledge)\n")
-		return 1
-	}
-}
-
-// wikiMarkDirtyAction implements `atomic wiki mark-dirty`, an internal helper
-// for the signals-gate partial and not surfaced in /atomic-help. Exits 0 when
-// no registered root matches cwd.
-func wikiMarkDirtyAction(args []string, claudeHome, cwd string) int {
-	if len(args) > 0 {
-		fmt.Fprintf(os.Stderr, "atomic wiki mark-dirty: unexpected arguments: %v\n", args)
-		return 1
-	}
-
-	if err := MarkDirty(claudeHome, cwd); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki mark-dirty: %v\n", err)
-		return 1
-	}
-	return 0
 }
 
 // wikiLinkifyAction linkifies every wiki artifact under <root>/wiki/ in place.
@@ -304,22 +164,9 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 	return 0
 }
 
-// splitCites splits a comma-separated list into trimmed, non-empty ids.
-func splitCites(s string) []string {
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 func wikiBucketAction(args []string, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket <add|list|diff|promote|doc|skill|index> [--root=<path>] [args]\n")
+		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket <add|list|doc|skill|index> [--root=<path>] [args]\n")
 		return 1
 	}
 
@@ -329,10 +176,6 @@ func wikiBucketAction(args []string, cwd string, out io.Writer) int {
 		return wikiBucketAddAction(args[1:], cwd, out)
 	case "list":
 		return wikiBucketListAction(args[1:], cwd, out)
-	case "diff":
-		return wikiBucketDiffAction(args[1:], cwd, out)
-	case "promote":
-		return wikiBucketPromoteAction(args[1:], cwd, out)
 	case "doc":
 		return wikiBucketDocAction(args[1:], cwd, out)
 	case "skill":
@@ -478,12 +321,27 @@ func wikiBucketAddAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
+	if _, errs := RebuildBucketTree(bucketDir); reportTreeErrors("atomic wiki bucket add", errs) {
+		return 1
+	}
+
 	return 0
 }
 
-// wikiBucketListAction prints one tab-separated line per bucket —
-// name, path, file count or "(no baseline)", pending/fresh — and exits 0 even
-// when there are none.
+// reportTreeErrors prints each error on its own line and reports whether any
+// is worse than an unpaired region, which only warns.
+func reportTreeErrors(verb string, errs []error) (hard bool) {
+	for _, err := range errs {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", verb, err)
+		if !errors.Is(err, errUnpairedRegion) {
+			hard = true
+		}
+	}
+	return hard
+}
+
+// wikiBucketListAction prints one "<name>\t<path>" line per registered bucket
+// and exits 0 even when there are none.
 func wikiBucketListAction(args []string, cwd string, out io.Writer) int {
 	const usage = "Usage: atomic wiki bucket list [--root=<path>]\n"
 
@@ -509,164 +367,16 @@ func wikiBucketListAction(args []string, cwd string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket list: %v\n", err)
 		return 1
 	}
-	if len(entries) == 0 {
-		return 0
-	}
-
 	for _, e := range entries {
-		baselinePath := filepath.Join(wikiDir, ".buckets", e.Name, "baseline")
-		baseline, err := readManifest(baselinePath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic wiki bucket list: read baseline for %s: %v\n", e.Name, err)
-			continue
-		}
-
-		if baseline == nil {
-			// Never promoted, so every content file is pending — but an empty
-			// bucket is still fresh, which only the diff can tell us.
-			diff, err := bucketDiffReadOnly(wikiDir, e.Name, e.Path)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "atomic wiki bucket list: diff %s: %v\n", e.Name, err)
-				continue
-			}
-			var noBaselineStatus string
-			if len(diff.Added)+len(diff.Changed)+len(diff.Removed) > 0 {
-				noBaselineStatus = "pending"
-			} else {
-				noBaselineStatus = "fresh"
-			}
-			fmt.Fprintf(out, "%s\t%s\t(no baseline)\t(%s)\n", e.Name, e.Path, noBaselineStatus)
-			continue
-		}
-
-		// bucketDiffReadOnly never writes the current manifest: list is a
-		// status verb and must leave no trace on disk.
-		diff, err := bucketDiffReadOnly(wikiDir, e.Name, e.Path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic wiki bucket list: diff %s: %v\n", e.Name, err)
-			continue
-		}
-
-		baselineCount := len(baseline)
-		var status string
-		if len(diff.Added)+len(diff.Changed)+len(diff.Removed) > 0 {
-			status = "pending"
-		} else {
-			status = "fresh"
-		}
-		fmt.Fprintf(out, "%s\t%s\t%d files\t(%s)\n", e.Name, e.Path, baselineCount, status)
+		fmt.Fprintf(out, "%s\t%s\n", e.Name, e.Path)
 	}
 	return 0
-}
-
-// wikiBucketDiffAction prints "new|changed|removed <relpath>" lines and exits 1
-// when any were printed.
-func wikiBucketDiffAction(args []string, cwd string, out io.Writer) int {
-	const usage = "Usage: atomic wiki bucket diff [--root=<path>] <name>\n"
-
-	absRoot, positional, err := resolveWikiRoot(args, cwd)
-	if errors.Is(err, errUsageRequested) {
-		fmt.Fprintf(out, usage)
-		return 0
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket diff: %v\n", err)
-		return 2
-	}
-	if len(positional) == 0 {
-		fmt.Fprintf(os.Stderr, usage)
-		return 1
-	}
-	if len(positional) > 1 {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket diff: unexpected extra arguments: %v\n", positional[1:])
-		return 1
-	}
-	name := positional[0]
-
-	wikiDir := filepath.Join(absRoot, "wiki")
-	bucketDir := filepath.Join(absRoot, name)
-
-	result, err := BucketDiff(wikiDir, name, bucketDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket diff: %v\n", err)
-		return 1
-	}
-
-	var lines []string
-	for _, p := range result.Added {
-		lines = append(lines, "new "+p)
-	}
-	for _, p := range result.Changed {
-		lines = append(lines, "changed "+p)
-	}
-	for _, p := range result.Removed {
-		lines = append(lines, "removed "+p)
-	}
-
-	for _, l := range lines {
-		fmt.Fprintln(out, l)
-	}
-
-	if len(lines) > 0 {
-		return 1
-	}
-	return 0
-}
-
-func wikiBucketPromoteAction(args []string, cwd string, out io.Writer) int {
-	const usage = "Usage: atomic wiki bucket promote [--root=<path>] <name>\n"
-
-	absRoot, positional, err := resolveWikiRoot(args, cwd)
-	if errors.Is(err, errUsageRequested) {
-		fmt.Fprintf(out, usage)
-		return 0
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket promote: %v\n", err)
-		return 2
-	}
-	if len(positional) == 0 {
-		fmt.Fprintf(os.Stderr, usage)
-		return 1
-	}
-	if len(positional) > 1 {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket promote: unexpected extra arguments: %v\n", positional[1:])
-		return 1
-	}
-	name := positional[0]
-
-	wikiDir := filepath.Join(absRoot, "wiki")
-	bucketDir := filepath.Join(absRoot, name)
-
-	if err := PromoteBucket(wikiDir, name, bucketDir); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket promote: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
-// parseBucketDocArgs peels off the valueless --router and delegates the rest to
-// resolveWikiRoot, so flag and help classification has one implementation.
-func parseBucketDocArgs(args []string, cwd string) (absRoot string, positional []string, router bool, err error) {
-	filtered := make([]string, 0, len(args))
-	for _, arg := range args {
-		if arg == "--router" {
-			router = true
-			continue
-		}
-		filtered = append(filtered, arg)
-	}
-	absRoot, positional, err = resolveWikiRoot(filtered, cwd)
-	if err != nil {
-		return "", nil, false, err
-	}
-	return absRoot, positional, router, nil
 }
 
 func wikiBucketDocAction(args []string, cwd string, out io.Writer) int {
-	const usage = "Usage: atomic wiki bucket doc [--root=<path>] <bucket> <slug> [--router]\n"
+	const usage = "Usage: atomic wiki bucket doc [--root=<path>] <bucket> <slug>\n"
 
-	absRoot, positional, router, err := parseBucketDocArgs(args, cwd)
+	absRoot, positional, err := resolveWikiRoot(args, cwd)
 	if errors.Is(err, errUsageRequested) {
 		fmt.Fprintf(out, usage)
 		return 0
@@ -692,13 +402,15 @@ func wikiBucketDocAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
-	path, err := ScaffoldBucketDoc(bucketDir, slug, router, time.Now())
+	path, err := ScaffoldBucketDoc(bucketDir, slug, time.Now())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket doc: %v\n", err)
 		return 1
 	}
-
 	fmt.Fprintln(out, path)
+	if _, errs := RebuildBucketTree(bucketDir); reportTreeErrors("atomic wiki bucket doc", errs) {
+		return 1
+	}
 	return 0
 }
 
@@ -753,24 +465,8 @@ func wikiBucketSkillAction(args []string, cwd string, out io.Writer) int {
 	return 0
 }
 
-// printBucketIndexCounts writes one "<name>: N indexed, M unindexed" line,
-// walking topics the way RebuildBucketIndex does. A walk failure warns but
-// never blocks the caller's rebuild.
-func printBucketIndexCounts(out io.Writer, name, bucketDir string) {
-	topics, err := walkBucketTopics(bucketDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: count %s: %v\n", name, err)
-		return
-	}
-	var indexed, unindexed int
-	for _, t := range topics {
-		if t.Indexed {
-			indexed++
-		} else {
-			unindexed++
-		}
-	}
-	fmt.Fprintf(out, "%s: %d indexed, %d unindexed\n", name, indexed, unindexed)
+func printBucketIndexCounts(out io.Writer, name string, counts TopicCounts) {
+	fmt.Fprintf(out, "%s: %d indexed, %d unindexed\n", name, counts.Indexed, counts.Unindexed)
 }
 
 // wikiBucketIndexAction rebuilds every registered bucket, or just the named
@@ -805,15 +501,10 @@ func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
 			return 1
 		}
 
-		printBucketIndexCounts(out, name, bucketDir)
-
-		if rebErr := RebuildBucketIndex(bucketDir); rebErr != nil {
-			if errors.Is(rebErr, errUnpairedRegion) {
-				fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
-			} else {
-				fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
-				return 1
-			}
+		counts, rebErrs := RebuildBucketTree(bucketDir)
+		printBucketIndexCounts(out, name, counts)
+		if reportTreeErrors("atomic wiki bucket index", rebErrs) {
+			return 1
 		}
 
 		entries, rerr := readBucketEntries(indexPath)
@@ -833,22 +524,20 @@ func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rerr)
 		return 1
 	}
-	for _, e := range entries {
-		if !fileExists(e.Path) {
-			continue
-		}
-		printBucketIndexCounts(out, e.Name, e.Path)
-	}
 
-	if rebErr := RebuildAllBucketIndexes(absRoot, wikiDir); rebErr != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
+	results, rebErrs := RebuildAllBucketIndexes(absRoot, wikiDir)
+	for _, e := range entries {
+		if res, ok := results[e.Name]; ok {
+			printBucketIndexCounts(out, e.Name, res)
+		}
 	}
+	reportTreeErrors("atomic wiki bucket index", rebErrs)
 
 	return 0
 }
 
-// wikiScanAction runs Scan, registers the wiki in ~/.claude/CLAUDE.md, and
-// prints the deterministic stdout handoff.
+// wikiScanAction runs Scan, declares the realm scope marker, registers the wiki
+// in ~/.claude/CLAUDE.md, and prints the deterministic stdout handoff.
 func wikiScanAction(args []string, claudeHome, cwd string, out io.Writer) int {
 	fs := flag.NewFlagSet("wiki-scan", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -876,6 +565,13 @@ func wikiScanAction(args []string, claudeHome, cwd string, out io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki scan: %v\n", err)
 		return 1
+	}
+
+	switch markerOutcome, err := config.EnsureScopeMarker(absRoot, "realm"); {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: warning: scope marker not written: %v\n", err)
+	case markerOutcome == config.ScopeMarkerConflict:
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: warning: %s already declares a different scope — left unchanged\n", config.RepoConfigPath(absRoot))
 	}
 
 	wikiDir := filepath.Join(absRoot, "wiki")

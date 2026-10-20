@@ -256,15 +256,15 @@ A client that finds the daemon gone between commands (crashed, or stopped by ano
 | `1` | usage |
 | `2` | error |
 | `3` | not joined |
-| `4` | name taken: a `join` after one numeric-suffix retry, or `gateway enroll` on a name that already has a key |
+| `4` | name taken: a `join` after one numeric-suffix retry, or `gateway enroll` on a name that already has a key, or `remote add` on a saved name without `--force` |
 | `5` | no such room |
 | `6` | daemon unreachable (including version skew) |
 | `7` | room halted |
 
 `send --to <name>` still exits `0` after warning on stderr about an unknown addressee. See Addressed vs FYI. Every read verb (`who`, `rooms`, `recv`, `status`, `tail`, `read`) accepts `--json`.
 
-The same codes cover a remote target reached with `--host`. `6` also covers a gateway that cannot be
-dialed, an unknown `--host` name, and a frame the gateway refuses to open. The client cannot tell
+The same codes cover a remote target reached with `--host`. An unknown `--host` name exits `1`. `6` also covers a gateway that
+cannot be dialed and a frame the gateway refuses to open. The client cannot tell
 those apart from a plain daemon-down failure, and does not try to: distinguishing them would leak
 which check failed to whoever is on the other end. See Remote rooms below.
 
@@ -326,12 +326,21 @@ needs `http://` written explicitly. `atomic bus gateway enroll` prints the match
 A machine with no `[bus.remotes]` table behaves exactly as it does today; configuring one never
 changes what an unflagged verb does.
 
+Four client verbs manage `[bus.remotes]` so it never needs editing by hand:
+
+| Verb | Effect |
+|------|--------|
+| `atomic bus remote add [<name>] [--host <url>] [--key <hex>] [--ca <file>] [--force]` | Validate and write one entry. On a terminal, any missing name, host, or key opens a form prefilled from the flags; without one, a missing field is a usage error. A taken name exits `4` unless `--force`. |
+| `atomic bus remote list [--json]` | Name, host, and ca of each entry. Never prints a key. |
+| `atomic bus remote test [<name>]` | Send one sealed `ping` to the named entry, or to every entry, with a 5-second limit each. Prints `name  host  ok` or `FAIL <reason>` per entry. Exits `6` when any fails, `1` for an unknown name or when none is saved. A wrong key fails with `EOF`: the gateway closes the connection without writing a byte to a key it does not know. |
+| `atomic bus remote remove <name>` | Delete one entry. An unknown name exits `1`. |
+
 Two operator verbs manage the key each remote machine holds, run on the gateway host:
 
 | Verb | Effect |
 |---|---|
 | `atomic bus gateway [--addr <addr>] [--tls-cert <file>] [--tls-key <file>]` | Start the daemon and the gateway together, listening on `--addr` for `/v1/op`. Plain HTTP unless `--tls-cert` and `--tls-key` are both given. With `ATOMIC_BUS_KEY` set to 64 hex characters, the gateway also admits that key alongside every enrolled key; any other value refuses to start. |
-| `atomic bus gateway enroll [--tls-cert <file>] <name>` | Generate a key for `<name>` and print a `[bus.remotes]` TOML block, once — there is no way to recover the key afterward. `--tls-cert` sets the printed `host`'s scheme (`https://` when given, `http://` otherwise); it should match what this gateway is (or will be) run with. A `<name>` that already has a key is refused; to rotate, enroll a new name and revoke the old one. |
+| `atomic bus gateway enroll [--tls-cert <file>] <name>` | Generate a key for `<name>` and print a `[bus.remotes]` TOML block and the matching `atomic bus remote add` line, once — there is no way to recover the key afterward. `--tls-cert` sets the printed `host`'s scheme (`https://` when given, `http://` otherwise); it should match what this gateway is (or will be) run with. A `<name>` that already has a key is refused; to rotate, enroll a new name and revoke the old one. |
 | `atomic bus gateway revoke <name>` | Delete `<name>`'s key. The gateway notices on its next lookup; a live stream from that machine ends within one frame. |
 
 Full walkthrough, including the two deployment topologies and what the transport does and does not

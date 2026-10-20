@@ -1,5 +1,68 @@
 # Changelog
 
+## [6.9.0](https://github.com/damusix/atomic-claude/compare/v6.8.0...v6.9.0) (2026-09-24)
+
+
+### Features
+
+* **bus:** add atomic bus remote add|list|test|remove ([7d35cd1](https://github.com/damusix/atomic-claude/commit/7d35cd1de904b957432695985cd08da64a33bdb9))
+
+
+### Bug Fixes
+
+* **config:** keep [bus.remotes] across config writes ([7d35cd1](https://github.com/damusix/atomic-claude/commit/7d35cd1de904b957432695985cd08da64a33bdb9))
+* **config:** list and recognize every bundled agent ([7d35cd1](https://github.com/damusix/atomic-claude/commit/7d35cd1de904b957432695985cd08da64a33bdb9))
+
+## [6.8.0](https://github.com/damusix/atomic-claude/compare/v6.7.0...v6.8.0) (2026-09-21)
+
+
+### Features
+
+* **atomic-writing:** add structural AI tells reference ([be5fd01](https://github.com/damusix/atomic-claude/commit/be5fd01a62601c87411c12170336d9bd712a0966))
+* **bus:** shared gateway key via ATOMIC_BUS_KEY ([9598c82](https://github.com/damusix/atomic-claude/commit/9598c823cf9bbda18f42d8a42a3529cc2990cef2))
+* **code:** add atomic code comments verb and [comments] max_lines ([f4ecc46](https://github.com/damusix/atomic-claude/commit/f4ecc461186ac1d2f98ae8507ae0466bbf7bda39))
+* mermaid layout limits and design-diagram carry-over ([f6fd68f](https://github.com/damusix/atomic-claude/commit/f6fd68fd33686e38f3a2ea85ddcb15b299ee036a)), closes [#272](https://github.com/damusix/atomic-claude/issues/272)
+* **retro:** add atomic retro extract and point the retrospective at it ([1a2bd5a](https://github.com/damusix/atomic-claude/commit/1a2bd5a417be175dfaaf9487ad7bd57c4893a8b3)), closes [#270](https://github.com/damusix/atomic-claude/issues/270)
+* **review-gate:** gate ad-hoc completion claims with a named review ([f56ea06](https://github.com/damusix/atomic-claude/commit/f56ea068903b729fad39f8dab7e7a4a1dfd0e992)), closes [#271](https://github.com/damusix/atomic-claude/issues/271)
+* **wiki:** ban counts of repo things from wiki pages ([f35ce98](https://github.com/damusix/atomic-claude/commit/f35ce98e1434aa303ca60db903b957b02af4c8d2))
+
+
+### Bug Fixes
+
+* **atomic-writing:** name the replacement when splitting a so-join ([39d1494](https://github.com/damusix/atomic-claude/commit/39d1494ed71dbb2029543011e72773bb3a74885e))
+* **mdlink:** bracket link destinations with spaces ([ed00a6c](https://github.com/damusix/atomic-claude/commit/ed00a6c1e55bf3abdcbf85f2e3b7770b3b547e74)), closes [#262](https://github.com/damusix/atomic-claude/issues/262)
+* **release:** anchor the next channel on v6.7.0 ([ffca359](https://github.com/damusix/atomic-claude/commit/ffca3599cca45c00448c6ef63bb65afeaadc4417))
+* **release:** back-merge main into next and anchor on v6.7.0 ([d7e41a4](https://github.com/damusix/atomic-claude/commit/d7e41a44896699874a39c7c28f54ea297b9acbae))
+* **release:** re-base the next channel above 6.7.0 ([a9b750f](https://github.com/damusix/atomic-claude/commit/a9b750ff04c5be9fd9b3be030d578f5998d97d58))
+* **release:** restore the next channel's tagged anchor ([3691ee5](https://github.com/damusix/atomic-claude/commit/3691ee5a4b061c8d59215e75cd5daca2694fc9ec))
+* **wiki:** match &lt;wikis&gt; tags as whole lines when reading ([ed4e436](https://github.com/damusix/atomic-claude/commit/ed4e4369f4863a7088619a24c1149468bba68672)), closes [#263](https://github.com/damusix/atomic-claude/issues/263)
+
+## [6.7.0](https://github.com/damusix/atomic-claude/compare/v6.6.1...v6.7.0) (2026-09-16)
+
+
+### Features
+
+* add /deslop standing-code convention audit ([0e8d9a3](https://github.com/damusix/atomic-claude/commit/0e8d9a3e49715cf31ef5ed4c143f554116339c91))
+* add /implement, main-agent implementation loop ([7534167](https://github.com/damusix/atomic-claude/commit/753416712e268d3303fbad7d004335e060081bd9))
+* **bus:** host atomic bus over a network with per-machine keys ([2a0ce82](https://github.com/damusix/atomic-claude/commit/2a0ce82203b84fb56ffdb17cb1a180a3c6a1abc8))
+* **docs:** generate sitemap, bump vitepress to alpha.20 ([e1c1dae](https://github.com/damusix/atomic-claude/commit/e1c1dae029a2d8e7d9b77f0dba93daba40def59a))
+* gate main-agent code edits with a reviewer ([bd58f42](https://github.com/damusix/atomic-claude/commit/bd58f42e21a760acde847ce32e7c6d447859e9f2))
+* seed the atomic output style at the user level ([ec5ae5e](https://github.com/damusix/atomic-claude/commit/ec5ae5e9051b33cd59f08aa8c66d504f1fefdd74))
+* **serve:** sticky repo pick and plan provenance ([#235](https://github.com/damusix/atomic-claude/issues/235)) ([571ca70](https://github.com/damusix/atomic-claude/commit/571ca70797cbee39526b85afe2155e8b38dfddff)), closes [#234](https://github.com/damusix/atomic-claude/issues/234)
+* share one loop across implementation verbs ([6f6f955](https://github.com/damusix/atomic-claude/commit/6f6f95584f93f69cf072a85a1550910976afef06))
+* trim the output style and the global CLAUDE.md contract ([3211d2d](https://github.com/damusix/atomic-claude/commit/3211d2d8a3bff8ef2bdb069458be2252bcd7f88f))
+* **update:** add --pre prerelease channel ([12eda46](https://github.com/damusix/atomic-claude/commit/12eda46cc524c54d0131272ef996eb57220812c2))
+* **wiki:** path-scoped pointer cards per domain ([6469e19](https://github.com/damusix/atomic-claude/commit/6469e1957efe2e1e7e80de81b9e6bc67d8b86939))
+
+
+### Bug Fixes
+
+* **docs:** restore nav blur on vitepress alpha.20 ([a321b9a](https://github.com/damusix/atomic-claude/commit/a321b9ae14e4e3d0904d7fb38a7e805fd80c2dbc))
+* **git-discipline:** require a conventional PR title for squash merges ([8ab70e3](https://github.com/damusix/atomic-claude/commit/8ab70e38e0e550282158b98eebe73bfb520365bd))
+* stop two timing tests failing on CI hardware ([d8fce1f](https://github.com/damusix/atomic-claude/commit/d8fce1fa05a211b3d599d9c06e5a4f45a2d54030))
+* **update:** tick download progress every 100ms ([a50e873](https://github.com/damusix/atomic-claude/commit/a50e87322b7204981b8a1558c772f1cd7942b0e7))
+* **wiki:** nest pointer card collections one entry per line ([a116067](https://github.com/damusix/atomic-claude/commit/a116067445260eeefff08df69c95cf688215c07e))
+
 ## [6.6.1](https://github.com/damusix/atomic-claude/compare/v6.6.0...v6.6.1) (2026-08-24)
 
 

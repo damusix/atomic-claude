@@ -1,6 +1,6 @@
 ---
 type: Domain
-description: Two deterministic health gates: `atomic doctor` (24 integrity checks over the install and every enrolled target, opt-in repair) and `atomic validate` (static lint).
+description: Deterministic health gates: `atomic doctor` (integrity checks, opt-in repair) and `atomic validate` (static lint).
 tags: [health, cli]
 ---
 
@@ -10,7 +10,7 @@ tags: [health, cli]
 
 Most of what this system depends on fails quietly. An installed artifact drifts from the bundle, an `@`-ref goes missing so a session loses its project map, a spec loses the section a subagent reads. Nothing errors; the next run is just worse, and nobody knows why.
 
-This domain makes those failures loud on demand. `atomic doctor` runs a fixed registry of 24 checks over the installed harness targets, the user's `~/.atomic` state (including the enrollment ledger and its journals), and the current repo, then exits non-zero if any check FAILs. Categories 1-14 predate the multi-harness lifecycle; 15-23 are target-aware checks appended with it, and 24 (`codex`) reports the Codex surfaces CP0 could not prove. `atomic validate` is the static half: it lints spec structure, cross-reference integrity, bundle parity, canonical-corpus projections, and CLI-flag citations in artifacts, with the same exit-code contract. Neither writes anything unless you pass `atomic doctor --fix`.
+This domain makes those failures loud on demand. `atomic doctor` runs a fixed registry of checks over the installed `~/.claude` bundle, the user's `~/.atomic` state, and the current repo, then exits non-zero if any check FAILs. `atomic validate` is the static half: it lints spec structure, cross-reference integrity, bundle parity, and CLI verb/flag citations in artifacts, with the same exit-code contract. Neither writes anything unless you pass `atomic doctor --fix`.
 
 ## How it works
 
@@ -18,10 +18,10 @@ The exit code is decided twice under `--fix`: once from the checks, then again a
 
 ```mermaid
 flowchart TD
-    A["atomic doctor"] --> B{"~/.claude missing<br/>and no enrolled target?"}
-    B -->|yes| C["print 'not installed', exit 0"]
-    B -->|no| D["resolve RepoRoot once via git rev-parse"]
-    D --> E["run categories 1..24 in index order<br/>(minus --only / --skip / repo-dev-only)"]
+    A["atomic doctor"] --> B{"~/.claude exists?"}
+    B -->|no| C["print 'not installed', exit 0"]
+    B -->|yes| D["resolve RepoRoot once via git rev-parse"]
+    D --> E["run every category in index order<br/>(minus --only / --skip / repo-dev-only)"]
     E --> F["verdict = 1 if any FAIL, else 0"]
     F --> G["print human or --json"]
     G --> H{"--fix?"}
@@ -41,47 +41,37 @@ Indices are stable and never renumbered.
 
 | # | Name | File | Verifies | Fires as | `--fix` |
 |---|------|------|----------|----------|---------|
-| 1 | install | `checks_install.go` | Each embedded artifact against its installed copy under every enrolled Claude target root, via `claudeinstall.Diff`. | FAIL if any missing, WARN if any drifted, SKIP when a target root is absent or the ledger enrols no Claude target | `atomic claude install --merge`, or the ledger converge for an enrolled target |
-| 2 | hooks | `checks_hooks.go` | Session-start hook registered in every enrolled Claude target's `settings.json`; legacy wrapper-script form reported as drift. SKIP when the ledger enrols no Claude target. | WARN | `atomic hooks install`, or the ledger converge for an enrolled target |
+| 1 | install | `checks_install.go` | Each embedded artifact against its installed copy under `~/.claude`, via `claudeinstall.Diff`. | FAIL if any missing, WARN if any drifted, SKIP if `~/.claude` absent | `atomic claude install` |
+| 2 | hooks | `checks_hooks.go` | Session-start hook registered in `~/.claude/settings.json`; legacy wrapper-script form reported as drift. | WARN | `atomic hooks install` |
 | 3 | signals | `checks_signals.go` | Scan age against `--stale-days`, source-tree change since the scan, then router integrity: [`docs/wiki/index.md`](index.md) present, `@`-ref'd, every domain file in its table on disk, no orphan domain file. | WARN | no |
 | 4 | refs | `checks_refs.go` | `@docs/wiki/index.md` present in one of [`claude.local.md`](../../claude.local.md), [`CLAUDE.local.md`](../../CLAUDE.local.md), [`CLAUDE.md`](../../CLAUDE.md), [`claude.md`](../../claude.md). | FAIL | appends the ref block to a chosen candidate |
-| 5 | manifest | `checks_manifest.go` | Canonical corpus re-enumerated from the working tree against the binary's embedded `Manifest()`. Repo-dev only. | FAIL | `make -C atomic bundle` |
+| 5 | manifest | `checks_manifest.go` | Bundle mirror regenerated from the working tree against the committed `embedded.Manifest()`. Repo-dev only. | FAIL | `make -C atomic bundle` |
 | 6 | followups | `checks_followups.go` | Every entry's frontmatter parses, no entry past its `review_by`, `INDEX.md` byte-matches a fresh render. | WARN, SKIP when the folder is absent | INDEX drift only |
 | 7 | memory | `checks_memory.go` | Every relative markdown link in this project's `MEMORY.md` resolves inside the memory dir. | WARN | no |
 | 8 | binary | `checks_binary.go` | Running version against the latest release on the configured channel (`update.channel` in `~/.atomic/config.toml`, default `stable`), 5s timeout. On the `prerelease` channel, a tip that is not semver-newer is worded as available on that channel rather than misstated with `<`. A lookup error is WARN, never FAIL, so an offline machine does not break doctor. | WARN | no |
 | 9 | config | `checks_config.go` | `~/.atomic/config.toml` parses, keys are known, values validate. Folds in a chronic background-update failure read from `~/.atomic/state.json`. | FAIL on parse error or invalid value, WARN on unknown key or chronic failure | no |
-| 10 | profile | `checks_profile.go` | Four legs: `~/.atomic/profile.md` exists and is readable; `@~/.atomic/profile.md` is wired; its `lastcheck` stamp is under 30 days old; no candidate file still carries the legacy `@~/.claude/.atomic/profile.md` ref. Read per enrolled Claude target; SKIP when the ledger enrols no Claude target. | WARN | no |
+| 10 | profile | `checks_profile.go` | `~/.atomic/profile.md` exists and is readable; `@~/.atomic/profile.md` is wired; its `lastcheck` stamp is under 30 days old; no candidate file still carries the legacy `@~/.claude/.atomic/profile.md` ref. | WARN | no |
 | 11 | code-index | `checks_code_index.go` | Code-index DB mtime against `--stale-days`. At a wiki realm root, aggregates across every non-excluded member DB instead. | WARN; absence is an informational PASS | no |
 | 12 | migrate | `checks_migrate.go` | Binary version against `[install].version`; and whether `~/.claude/.atomic` is still a real directory. | WARN | no |
-| 13 | repo-config | `checks_repo_config.go` | `<root>/.claude/atomic.toml`: parses, keys known, `[code] ignore` globs valid, `scope` valid, `[repl] idle_timeout` parses, `[comments] max_lines` is a usable threshold. Dispatcher also flags `scope = "repo"` at a root the wiki registry registers as a realm. | WARN; absence is an informational PASS | no |
-| 14 | output-style | `checks_output_style.go` | User-level `outputStyle` key in every enrolled Claude target's `settings.json`: whether set, and to what value, never a computed effective style, since Claude Code's per-repo file-placement precedence isn't documented well enough to replicate. Appends a note to `Detail` when the repo's own `settings.json`/`settings.local.json` sets `outputStyle`, naming the file, as a possible override; skipped when `RepoRoot` is empty or the repo's own [`.claude`](../../.claude) dir resolves to the install target; SKIP when the ledger enrols no Claude target. | WARN when absent, or set to `"Atomic"` without the style file installed; PASS otherwise | for the not-installed / seeding-disabled qualifiers, message only; unqualified absence: `atomic doctor --fix` calls `defaultOutputStyleRepair` -> `hooks.SeedOutputStyleInDir`, the same seed the install path uses; an enrolled target's result instead converges through `atomic harness repair --yes` |
+| 13 | repo-config | `checks_repo_config.go` | `<root>/.claude/atomic.toml`: parses, keys known, `[code] ignore` globs valid, `scope` valid, `[repl] idle_timeout` parses. Dispatcher also flags `scope = "repo"` at a root registered as a realm in the `<wikis>` block. | WARN; absence is an informational PASS | no |
+| 14 | output-style | `checks_output_style.go` | User-level `outputStyle` key in `~/.claude/settings.json`: whether set, and to what value, never a computed effective style, since Claude Code's per-repo file-placement precedence isn't documented well enough to replicate. Appends a note to `Detail` when the repo's own `settings.json`/`settings.local.json` sets `outputStyle`, naming the file, as a possible override; skipped when `RepoRoot` is empty or the repo's own [`.claude`](../../.claude) dir resolves to the install target. | WARN when absent, or set to `"Atomic"` without the style file installed; PASS otherwise | for the not-installed / seeding-disabled qualifiers, message only; unqualified absence: `atomic doctor --fix` calls `defaultOutputStyleRepair` -> `hooks.SeedOutputStyle`, the same seed the install path uses |
 
-| 15 | targets | `checks_targets.go` | Enrolled target instances (ledger rows) against read-only discovery. Enrollment and native registration are separate facts, so both are listed and their disagreement is the defect: a target whose `native_root` is absent or that discovery does not report → WARN. A project-keyed target is never expected in profile discovery. | WARN | no |
-| 16 | resources | `checks_resources.go` | Every ledger-owned physical resource with its `consumers` (enrolled targets that depend on it) and `visible-to` (unenrolled instances that can merely see it). Visibility is not a dependency; a consumer the ledger does not enroll → WARN. | WARN | no |
-| 17 | journals | `checks_journals.go` | Unfinished lifecycle journals, previewed read-only via `installstate.SimulateRecoveries` (no lock, no write). A journal that cannot resolve to one safe result → WARN naming the conflicting units. | WARN | no |
-| 18 | capabilities | `checks_capabilities.go` | Each registered harness's CP0 capability record: promised rows against proven ones. Never reads a row without a retained observation as proof. | WARN | no |
-| 19 | rules | `checks_rules.go` | Every enrolled target's rule surface via the install engine's read-only `RulesStatus`: enforcement tier, owned rule resources with recorded and observed digests, and unproven delivery roles. A conflicting or missing rule resource → WARN. | WARN | no |
-| 20 | trust | `checks_trust.go` | Deliberate disablement and untrusted hook state: the Claude session-start registration via `hooks.IsInstalledInDir`, read per enrolled Claude target and reporting a skipped scope as a finding when the ledger enrols none; per-harness `skill-disablement` capability status; and OMP's unproven extension-disablement surface. A deliberate override is reported, never repaired. | WARN | no |
-| 21 | staleness | `checks_staleness.go` | Materialized resources whose recorded generation is behind the selected binary's projection, owned resources that are not on disk at all, and resources with no applied digest to compare. | WARN | no |
-| 22 | conflicts | `checks_conflicts.go` | Owned resources whose native bytes match neither the recorded generation nor the selected projection — a later derivative edit, a malformed managed block, or a conflicting project card. A repair never overwrites the conflicting bytes. | WARN | no |
-| 23 | shadowing | `checks_shadowing.go` | Projected resources a native copy duplicates: the same owned digest at two paths sharing a file name, or a Claude-native global `AGENTS.md` beside the projected [`CLAUDE.md`](../../CLAUDE.md). Shadowing is degraded or deliberately disabled delivery, so repair never overwrites the native copy. | WARN | no |
-| 24 | codex | `checks_codex.go` | The Codex native surfaces CP0 could not prove, read-only per discovered or enrolled `CODEX_HOME` root: plugin-hook trust, deliberate disablement, mediated coverage, payload spill, child delivery, and the last runtime proof, each with its evidence, plus the observed registration row from Codex's own registry and every unproven rule-delivery role. Enrollment publishes the plugin package only, so the registration row reports what Codex actually records. | WARN | no |
-
-Categories 11, 12, and 13 have no `repairPlan` case, so `--fix` prints `cannot auto-fix — unknown category` for them rather than a category-specific line. Categories 16, 18, 20, 22, and 23 are report-only by design (15, 17, 19, and 21 route through the converge planner below; 24 is report-only as well): a conflicting or shadowing native copy is reported and preserved, never overwritten, and an unproven Codex surface is reported rather than fabricated into a trust or coverage claim. Ledger-managed repairs (`targets`, `rules`, `staleness`, `journals` — 15, 17, 19, 21) route through the install engine's converge planner (`install.Steps.Converge` with `EnrolledOnly`): it takes the lifecycle lock, recovers unresolved journals oldest-first, re-observes, and converges only already-enrolled targets. A Claude-scoped result produced for ledger-enrolled roots (`install`, `hooks`, `output-style` — 1, 2, 14) also routes to that converge, because the legacy verbs resolve their own default root and would write outside the ledger; the seeding-disabled and style-not-installed output-style qualifiers stay non-fixable, so the converge cannot report an applied repair while the WARN stands.
+Categories 11, 12, and 13 have no `repairPlan` case, so `--fix` prints `cannot auto-fix — unknown category` for them rather than a category-specific line.
 
 ### The static lint
 
-Five modes, plus a bare invocation that runs all of them:
+`atomic validate` takes a mode, or runs every mode when given none:
 
 ```
-atomic validate                    -> spec + config + [bundle, repo-dev only] + artifacts + [projections, repo-dev only]
+atomic validate                    -> spec + config + [bundle, repo-dev only] + artifacts
 atomic validate spec [paths...]    -> S0 S1 S5 S6 over docs/spec/*.md
 atomic validate config             -> C3 C5 C7 C9, whole-repo only
 atomic validate bundle             -> manifest parity
-atomic validate artifacts [paths]  -> A1 over the canonical corpus
-atomic validate projections        -> P0-P6 over the re-rendered canonical corpus, repo-dev only
+atomic validate artifacts [paths]  -> A1 over the bundlemirror corpus
 atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, WARNs on anything else
 ```
+
+`RunWithOutput` parses the whole argv once with `cliutil.ParseInterspersed`, so `--json` and `--suggest` are honored before or after the subcommand and its paths, and `-h` on a subcommand prints usage and exits 0. The first positional picks the mode and the rest are its paths. `config` and `bundle` take no paths: a path given to either is reported through `cliutil.UnexpectedArgs` (`atomic validate config: unexpected argument(s): [...]` plus usage) and exits 2 before any validator runs.
 
 | Rule | Mode | Checks | Severity |
 |------|------|--------|----------|
@@ -90,18 +80,11 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 | S5 | spec | A `## Checkpoints` section whose table header carries `#`, `Checkpoint`, `Files/areas`, `Verifies` as an ordered subsequence. Extra columns are allowed. | FAIL |
 | S6 | spec | A `## Change log` section exists. Body may be empty. | FAIL |
 | C3 | config | Every `subagent_type: "name"` in `context/commands/*.md` prose resolves to `context/agents/<name>.md`, or is one of the built-ins `general-purpose`, `Explore`, `Plan`. | FAIL |
-| C5 | config | Every `@`-ref in [`context/AGENTS.md`](../../context/AGENTS.md) resolves to a file. | FAIL |
+| C5 | config | Every `@`-ref in [`context/CLAUDE.md`](../../context/CLAUDE.md) resolves to a file. | FAIL |
 | C7 | config | No duplicate `name:` across `context/agents/*.md` frontmatter. | FAIL |
 | C9 | config | [`context/agents/`](../../context/agents), [`context/skills/`](../../context/skills), [`context/output-styles/`](../../context/output-styles) entries carry the [`atomic`](../../atomic) prefix. Without it they never bundle. | WARN |
-| A1 | artifacts | Every `--flag` cited beside an `atomic <verb>` in an artifact's code spans and fenced blocks exists on that verb in the `cliusage` surface. | FAIL |
+| A1 | artifacts | Every `atomic <verb>` path cited in an artifact's code spans and code blocks (fenced or indented, including under list items) is a command or namespace in the `cliusage` surface, and every `--flag` beside a resolved verb exists on it. | FAIL |
 | bundle | bundle | Generated mirror against the committed manifest. Capped at 5 findings plus an overflow line. | FAIL |
-| P1 | projections | Every declared dependency resolves by stable identity in the canonical corpus. | FAIL |
-| P2 | projections | A projection carries its artifact's identity, and no canonical identity repeats. The authored source digest is not re-verified here: `artifacts.Load` stamps it from the same authored bytes the gate would read, so the comparison cannot fail. | FAIL |
-| P3 | projections | No model, effort, or tool-restriction key reaches a projected native document's metadata. Atomic's host frontmatter is deliberately more permissive than YAML, so a document whose metadata the parser cannot read is surfaced as a WARN instead of passing unchecked. | FAIL, WARN on unreadable metadata |
-| P4 | projections | Two renders of one artifact are byte-identical, and the projection digest describes the bytes. | FAIL |
-| P5 | projections | No projection claims an enforcement tier stronger than its CP0 record proves, and every canonical field a projection drops is reported unsupported. | FAIL |
-| P6 | projections | No Claude-only wire token reaches another target's projected bytes unclassified. | FAIL |
-| P0 | projections | An adapter could not render a projection at all — the gate's own render-failure surface, standing in for a silent skip. | FAIL |
 
 ## Where it lives
 
@@ -116,20 +99,19 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 | [`atomic/internal/doctor/fix.go`](../../atomic/internal/doctor/fix.go) | `Repairer` with injectable repair funcs, `repairPlan` (the per-category fixability table), the interactive y/N/a/q loop, `RepairSummary`. |
 | [`atomic/internal/doctor/fix_impls.go`](../../atomic/internal/doctor/fix_impls.go) | Production repair implementations. Streams subprocess output straight to the writer, no buffering. |
 | [`atomic/internal/doctor/stdin_prompter.go`](../../atomic/internal/doctor/stdin_prompter.go) | `Prompter` implementation. Maps `prompt.ErrAborted` to `DecisionAbort`, `prompt.ErrNonInteractive` to `DecisionSkip`. |
-| [`atomic/internal/doctor/shortcircuit.go`](../../atomic/internal/doctor/shortcircuit.go) | `ClaudeHomeMissing`, `HasEnrolledTargets`, and `ShortCircuit` (missing Claude home plus an empty ledger), plus the canonical message ``"atomic-claude not installed; run `atomic claude install`."`` Also resolves the Claude-scoped roots the categories read (`claudeScopeFor`) and merges their per-root results (`combineClaudeRoots`). |
+| [`atomic/internal/doctor/shortcircuit.go`](../../atomic/internal/doctor/shortcircuit.go) | `ClaudeHomeMissing` plus the canonical message ``"atomic-claude not installed; run `atomic claude install`."`` |
 | [`atomic/internal/doctor/repodev.go`](../../atomic/internal/doctor/repodev.go) | `IsRepoDev` / `gitToplevelFn`. Repo-dev marker is [`atomic/internal/bundlemirror/mirror.go`](../../atomic/internal/bundlemirror/mirror.go). |
-| [`atomic/internal/doctor/inode_unix.go`](../../atomic/internal/doctor/inode_unix.go) | Inode comparison, so a case-insensitive filesystem does not report [`CLAUDE.md`](../../CLAUDE.md) and [`claude.md`](../../claude.md) as two files. |
+| [`atomic/internal/doctor/inode_unix.go`](../../atomic/internal/doctor/inode_unix.go) | Inode comparison, so a case-insensitive filesystem does not report [`CLAUDE.md`](../../CLAUDE.md) and [`claude.md`](../../claude.md) as distinct files. |
 
 ### Static lint
 
 | Path | Role |
 |------|------|
-| [`atomic/internal/validate/validate.go`](../../atomic/internal/validate/validate.go) | Flag parse and subcommand dispatch. Exit 0 pass or warn, 1 any FAIL, 2 bad invocation or internal error. |
+| [`atomic/internal/validate/validate.go`](../../atomic/internal/validate/validate.go) | Flag parse (`cliutil.ParseInterspersed`, flags in any position) and subcommand dispatch; rejects paths on `config` and `bundle`. Exit 0 pass or warn, 1 any FAIL, 2 bad invocation, stray argument, or internal error. |
 | [`atomic/internal/validate/spec.go`](../../atomic/internal/validate/spec.go) | `RunSpecRules(path, src)` — pure, no filesystem access. |
 | [`atomic/internal/validate/config.go`](../../atomic/internal/validate/config.go) | `RunConfigRules(repoRoot)`, the `reAtRef` / `reSubagentType` grammars, and `isEmailLocalChar`. |
 | [`atomic/internal/validate/artifacts.go`](../../atomic/internal/validate/artifacts.go) | A1: code-span extraction, `longestMatch` verb-path resolution, flag comparison. `ScanArtifactText` is the pure seam. |
 | [`atomic/internal/validate/bundle.go`](../../atomic/internal/validate/bundle.go) | Wraps `manifestcheck.Compare` into findings. |
-| [`atomic/internal/validate/projection.go`](../../atomic/internal/validate/projection.go) | P0-P6: re-renders the canonical corpus for the Claude, OMP, and Codex adapters twice and audits identity, source and projection digests, determinism, native-metadata leakage, the CP0 enforcement-tier ceiling, and Claude-only wire tokens; also audits the OMP runtime extension module. Repo-dev only. |
 | [`atomic/internal/validate/dispatch.go`](../../atomic/internal/validate/dispatch.go) | Path-aware routing and `runWholeRepo`. |
 | [`atomic/internal/validate/finding.go`](../../atomic/internal/validate/finding.go) | `Finding`, deterministic sort by (path, line, rule), `summarize`, `exitCode`. |
 | [`atomic/internal/validate/output.go`](../../atomic/internal/validate/output.go) | Human and JSON formatters. JSON envelope is `schema_version: 1`. `--suggest` templates exist for S5 and S6 only. |
@@ -139,7 +121,8 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 | Path | Role |
 |------|------|
 | [`atomic/internal/cliusage/`](../../atomic/internal/cliusage) | The [`atomic`](../../atomic) command surface as structured data. `SetRoot` derives it from the live Cobra tree; `TopLevelVerbs` and `LookupByPath` serve A1. |
-| [`atomic/internal/manifestcheck/`](../../atomic/internal/manifestcheck) | `Compare(repoRoot, committed)` — re-enumerates the canonical corpus through `bundlemirror.Enumerate` and diffs SHA256 against the binary's embedded manifest. Writes nothing, spawns nothing. Used by check 5 and by `validate bundle`. |
+| [`atomic/internal/mdparse/`](../../atomic/internal/mdparse) | Goldmark-backed markdown reads shared by the validators. `InlineRefs` and `CodeBlockLines` (fenced and indented blocks, list- and blockquote-nested included, each line tagged with its fence language so A1 can skip `mermaid`) feed A1's citation extraction; `Sections`, `IsATXOnly`, and the table finders serve the spec rules. |
+| [`atomic/internal/manifestcheck/`](../../atomic/internal/manifestcheck) | `Compare(repoRoot, committed)` — walks the tree with `bundlemirror.Enumerate` and diffs SHA256 against the committed manifest. Writes nothing, spawns nothing. Used by check 5 and by `validate bundle`. |
 | [`atomic/internal/updatedoctor/`](../../atomic/internal/updatedoctor) | Post-update adapter. Calls `doctor.Run(Opts{Skip: []int{3, 8}})`, prints FAIL lines only, recovers panics, never changes the update exit code. |
 | [`atomic/internal/profile/`](../../atomic/internal/profile) | Detection registry and `DetectAll`, `RenderEnvironmentSection`, `Refresh` / `RefreshIfStale`, `ParseLastcheck` / `IsStale`. Check 10 reads it; `claudeinstall` and the session-start hook write through it. |
 | [`atomic/internal/followups/`](../../atomic/internal/followups) | `LoadEntriesWithErrors` is check 6's parse boundary; `Render` is what the INDEX byte-comparison compares against. |
@@ -150,7 +133,7 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 |------|------|
 | [`docs/spec/atomic-doctor.md`](../spec/atomic-doctor.md) | Canonical contract: every check category, fix functions, exit codes, `--fix` behavior. |
 | [`docs/design/atomic-doctor.md`](../design/atomic-doctor.md) | Design rationale for the check-registry architecture. |
-| [`docs/spec/atomic-validate.md`](../spec/atomic-validate.md) | `atomic validate` contract: the S, C, A, and P rule sets and their severities. |
+| [`docs/spec/atomic-validate.md`](../spec/atomic-validate.md) | `atomic validate` contract: the S, C, and A rule sets and their severities. |
 | [`docs/design/atomic-validate.md`](../design/atomic-validate.md) | Design rationale for the validate subcommand. |
 | [`docs/spec/validate-artifact-cli-flags.md`](../spec/validate-artifact-cli-flags.md) | A1 contract: the `cliusage` surface, scanner rules, known scope limits. Design at [`docs/design/validate-artifact-cli-flags.md`](../design/validate-artifact-cli-flags.md). |
 | [`docs/spec/verify-gate-validate.md`](../spec/verify-gate-validate.md) | How the `atomic-verify` skill gates on validate output. Design at [`docs/design/verify-gate-validate.md`](../design/verify-gate-validate.md). |
@@ -160,32 +143,32 @@ atomic validate <path>...          -> routes docs/spec/*.md to the spec rules, W
 
 ## Constraints
 
-- **`--fix` exits on the post-repair state, not the one it printed.** `postRepairExitCode` in [`atomic/cmd/atomic/cmd_doctor.go`](../../atomic/cmd/atomic/cmd_doctor.go) re-runs every check after the repair pass, so CI can gate on `atomic doctor --fix` in one run. The second pass is skipped when no repair was applied, and a re-check that errors keeps the pre-repair verdict rather than reporting health nobody observed. The printed report always reflects the state before repairs.
+- **`--fix` exits on the post-repair state, not the one it printed.** `postRepairExitCode` in [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) re-runs every check after the repair pass, so CI can gate on `atomic doctor --fix` in one run. The second pass is skipped when no repair was applied, and a re-check that errors keeps the pre-repair verdict rather than reporting health nobody observed. The printed report always reflects the state before repairs.
 - **`--fix` and `--json` are mutually exclusive**, rejected at flag-parse time with exit 2. So are a non-positive `--stale-days` and an unknown `--only`/`--skip` token.
-- **A missing `~/.claude` short-circuits only an empty ledger.** When no Claude home exists *and* the install ledger records no enrolled target, the run prints ``atomic-claude not installed; run `atomic claude install`.`` and exits 0 without running a check. Once any target is enrolled — an OMP-only home included — the harness categories 15-24 run and the Claude-scoped categories 1, 2, 10, and 14 resolve their roots from the ledger and report SKIP with `no Claude target enrolled; Claude-scoped checks not applicable` instead of a false WARN, so a green doctor on such a home reflects a real state. A ledger that enrols Claude targets is inspected at each target's own `native_root` rather than the default `~/.claude`, and only an unresolved ledger — one that cannot be read or predates enrollment — keeps the legacy default root. A ledger that cannot be read (unreadable, undecodable, or a newer schema) also lifts the gate: `HasEnrolledTargets` counts the read failure as enrollment so categories 15-24 run and report the unreadable state instead of swallowing it as "not installed".
-- **Repo-dev-only checks vanish outside this repo.** Check 5 is omitted entirely, not even reported as SKIP, unless you ask for it with `--only 5`. Same for `validate bundle` and `validate projections` inside a bare `atomic validate`. Users running in their own projects never see bundle noise.
+- **A missing `~/.claude` short-circuits the whole run.** It prints ``atomic-claude not installed; run `atomic claude install`.`` and exits 0 without running a single check. A green doctor is not proof of a healthy install; it can mean no install at all.
+- **Repo-dev-only checks vanish outside this repo.** Check 5 is omitted entirely, not even reported as SKIP, unless you ask for it with `--only 5`. Same for `validate bundle` inside a bare `atomic validate`. Users running in their own projects never see bundle noise.
 - **One git subprocess per run.** `Run` resolves `Opts.RepoRoot` once and every check reads that field. A new check that shells out to `git rev-parse` on its own breaks the invariant pinned by `gitcallcount_internal_test.go`.
-- **`validate`'s summary always reports 0 PASS.** `summarize` counts findings, and only WARN and FAIL findings are ever emitted, so the PASS column can never be non-zero. It is not a count of files inspected.
-- **The Claude-scoped categories merge per-root results, and three checks combine independent findings into one Result.** Categories 1, 2, 10, and 14 inspect every enrolled Claude root and collapse their per-root results into one: the worst severity wins, every root's detail and findings survive, and the enrolled root list is carried in `Scopes` so a repair targets what was inspected rather than the legacy default root. Check 9 appends a chronic update-failure detail to whatever the config-validity leg found, capped at WARN on its own. Check 12 concatenates version drift and legacy-state-dir details and takes the worse severity. Check 14 appends a project-override note to whatever the user-level leg found, without changing the severity. Reading only the severity loses half the signal; read `Detail`.
-- **C5 scans [`context/AGENTS.md`](../../context/AGENTS.md) only** (the authored global contract the Claude adapter renders as every user's `~/.claude/CLAUDE.md`), not the project-local root [`CLAUDE.md`](../../CLAUDE.md). The local overlays are deliberately excluded: they are user-owned and routinely contain backtick spans that look like `@`-refs, such as scoped npm package paths. C5 also skips any `@` preceded by an email local-part character, since RE2 has no lookbehind and `reAtRef` is loose on the right of the `@`.
-- **A1 prefers a false negative to a false positive.** A citation whose verb path resolves to nothing emits no finding at all, and the universal flags `--help`, `-h`, `--version`, `-v`, `--repo`, `--no-update-check` always pass. A1 catches wrong flags on known verbs, not unknown verbs.
+- **`validate`'s PASS is a count of inspected files with no finding.** A file with any WARN or FAIL is not a PASS, and the bare-form aggregate is the sum of the groups. The unit differs per group: spec counts each `docs/spec/*.md` read; config counts the files C3, C5, and C7 read (commands, [`context/CLAUDE.md`](../../context/CLAUDE.md), agents), not the skills/ and output-styles/ entries C9 only names; artifacts counts each scanned artifact; bundle counts compared manifest entries, taken before the five-diff cap so a hidden diff never counts. Path dispatch counts only spec paths, so a path with no validator is never a PASS.
+- **A check can combine independent findings into one Result.** Check 9 appends a chronic update-failure detail to whatever the config-validity leg found, capped at WARN on its own. Check 12 concatenates version drift and legacy-state-dir details and takes the worse severity. Check 14 appends a project-override note to whatever the user-level leg found, without changing the severity. Reading only the severity loses half the signal; read `Detail`.
+- **C5 scans [`context/CLAUDE.md`](../../context/CLAUDE.md) only** (the bundle source that installs as every user's global contract), not the project-local root [`CLAUDE.md`](../../CLAUDE.md). The local overlays are deliberately excluded: they are user-owned and routinely contain backtick spans that look like `@`-refs, such as scoped npm package paths. C5 also skips any `@` preceded by an email local-part character, since RE2 has no lookbehind and `reAtRef` is loose on the right of the `@`.
+- **A1 does not check flags on an unresolved citation.** A namespace reference (`atomic code`) or an alternation (`atomic code index|sync`) passes with whatever flags follow it. Prose inside a non-`mermaid` fence is read as code, so a file-tree line that puts a prose word after a namespace such as `code` FAILs. Citation boundaries and placeholders: [`docs/spec/validate-artifact-cli-flags.md`](../spec/validate-artifact-cli-flags.md).
 - **`cliusage`'s hardcoded slice is a fixture, not the runtime source.** `main` calls `SetRoot(rootCmd)` at startup, so production reads the live Cobra tree. Tests that never call `SetRoot` read the static slice, which is why the golden test is the thing keeping A1 honest.
 
 ## Coupling
 
-**bundle.** Five surfaces here read bundle-domain inclusion rules. Check 1 uses `claudeinstall.Diff`; check 5 and `validate bundle` both go through `manifestcheck.Compare`, which calls `bundlemirror.Enumerate`; A1 and `validate projections` both enumerate the canonical corpus directly through `artifacts.Load`; check 14 resolves its Claude roots through the ledger-scoped `claudeScopeFor` and uses `hooks.StyleInstalled` to confirm `output-styles/atomic.md` landed there. Change what bundles and these surfaces change with it.
+**bundle.** Check 1, check 5, `validate bundle`, A1, and check 14 all read bundle-domain inclusion rules. Check 1 uses `claudeinstall.Diff`; check 5 and `validate bundle` both go through `manifestcheck.Compare`, which calls `bundlemirror.Enumerate`; A1 scans that same enumeration as its artifact corpus; check 14 uses `claudeinstall.ResolveTarget` to locate the install target and `hooks.StyleInstalled` to confirm `output-styles/atomic.md` landed there. Change what bundles and these surfaces change with it.
 
-**signals and wiki.** Checks 3 and 4 own the `@docs/wiki/index.md` contract. `signalsRef` in `checks_refs.go` and `routerRef` in `checks_signals.go` are the constants; the signals domain's wiring convention must move with them. Check 3 additionally parses the router's Domains table, so a change to that table's shape breaks orphan and missing-file detection. Check 13's contradiction sub-check calls `wiki.RegisteredIndexPaths`.
+**signals and wiki.** Checks 3 and 4 own the `@docs/wiki/index.md` contract. `signalsRef` in `checks_refs.go` and `routerRef` in `checks_signals.go` are the constants; the signals domain's wiring convention must move with them. Check 3 additionally parses the router's Domains table, so a change to that table's shape breaks orphan and missing-file detection. Check 13's contradiction sub-check calls `wiki.ReadWikiIndexPaths`.
 
 **config.** Check 9 validates the user schema through `config.Load` and `config.Validate`; check 13 validates the repo schema through `config.LoadRepoConfig`, `config.NewIgnoreMatcher`, and `config.ValidScope`; check 10 resolves paths through `config.ProfilePath`; check 12 detects whether `config.MigrateUserState` completed; check 14 reads `output_style.seed` through `hooks.SeedEnabled`, which calls `config.Load` in turn. A new config key is not covered until one of these learns about it.
 
-**install and installstate.** Categories 15-24 read the enrollment ledger, the lifecycle journals, and each adapter's capability record through `internal/install` and `internal/installstate` — the same sources the lifecycle verbs mutate. A change to the ledger schema, a capability row, or a rule-delivery role lands in one of these checks. Ledger-managed `doctor --fix` reuses the install engine's converge planner rather than a separate repair path, so a new lifecycle invariant belongs in that planner, not in a doctor-only fork.
+**config (`cliutil`).** `validate.go` parses through `cliutil.ParseInterspersed` and reports stray paths through `cliutil.UnexpectedArgs`, both in [`atomic/internal/cliutil/args.go`](../../atomic/internal/cliutil/args.go). The trailing-flag grammar is shared with `atomic code` and `atomic serve`; its contract is [`docs/spec/cli-trailing-flags.md`](../spec/cli-trailing-flags.md).
 
 **repl.** Checks 9 and 13 both call `config.ValidateIdleTimeout`, the same validator `atomic repl` uses at spawn time, so an invalid `[repl] idle_timeout` surfaces in doctor before a session silently falls through a tier.
 
 **code-intel.** Check 11 locates the DB with `engine.IndexPath` and detects realm scope with `realm.Resolve` / `realm.LoadConfig`. If the engine's index-path convention changes, this check breaks silently.
 
-**workflow.** The `atomic-verify` skill is the consumer that matters: it runs `atomic validate spec` + `config` + `artifacts` when a spec or bundled artifact changed, and treats a FAIL as a gate failure equal to a failing test. `/subagent-implementation` and `/autopilot` invoke that gate at their finish line. `/retrospective-learning` runs `atomic doctor --json --skip signals,binary` and `atomic validate --json` into its scratchpad. All of them degrade silently when the [`atomic`](../../atomic) binary is absent, because these artifacts ship to repos that may not have it.
+**workflow.** The `atomic-verify` skill is the consumer that matters: it runs `atomic validate spec` + `config` + `artifacts` when a spec or bundled artifact changed, and treats a FAIL as a gate failure equal to a failing test. `/subagent-implementation` and `/autopilot` invoke that gate at their finish line. `/retrospective-learning` runs `atomic doctor --json --skip signals,binary` and `atomic validate --json` into its scratchpad, each with stderr discarded and `|| true`, then turns every doctor `FAIL`/`WARN` and every validate `FAIL` into a candidate finding. These artifacts call the binary unconditionally; none checks whether it is installed.
 
 **Lockstep contracts.**
 

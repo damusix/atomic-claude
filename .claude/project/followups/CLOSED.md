@@ -56,3 +56,20 @@
 - 2026-07-26 install-output-style-f-2 — "huh PointerAccessor read-timing risk on huh upgrade" — *(closed 2026-07-26)*
 - 2026-07-29 bus-member-naming-convention — "Bus member naming: position-derived names once scope markers land" — *(closed 2026-07-29)*
 - 2026-08-21 serve-plans-page-f6-picker-test-flake — "VersionPicker type-ahead test flakes under full-suite load" — *(closed 2026-08-21)*
+- 2026-10-19 wiki-fingerprint-legacy-signals-path — "Indexed-member fingerprint probes pre-relocation signals.md, silently falls back to HEAD" — *(closed 2026-10-19)*
+- 2026-10-19 atomic-validate-inspects-zero-files — "atomic validate always prints \"0 PASS\" — reads as nothing-inspected" — PASS now counts inspected files with no WARN or FAIL, per group and in the aggregate
+- 2026-10-19 validate-bare-skips-spec-rules — "Bare atomic validate exits 0 while validate spec finds S5 FAILs" — bare validate already runs the S-rules over docs/spec/*.md; a test now pins it
+- 2026-10-20 code-web-explorer — "Serve an htmx web UI to explore the atomic code index (DB schema + code graph)" — Done: atomic serve ships SchemaView and the Graph pages.
+- 2026-10-20 codeintel-bulk-wasm-walk — "Bulk in-WASM tree walk (deferred perf — not a bottleneck)" — Measured: extraction is not the bottleneck. Deferred indefinitely; issue #71 closed.
+- 2026-10-20 measure-subagent-loop-token-cost — "Measure token cost of the subagent implement-review loop" — Not pursuing: legibility outweighs token cost.
+- 2026-10-20 codeintel-dart-grammar-wall — "Dart call extraction blocked by grammar (needs grammar upgrade)" — Tracked by issue #72.
+- 2026-10-20 codeintel-fabric-native-impl — "React Native fabric-native-impl synthesis (cross-language, hard)" — Tracked by issue #73.
+- 2026-10-20 codeintel-go-grpc-impl — "Go gRPC stub-impl synthesis (needs Go interface extraction)" — Tracked by issue #74.
+- 2026-10-20 code-graph-hub-drag-unverified — "Code-graph drag-overlap unverified for max-degree hub-on-hub drags" — Accepted gap in a local gate script.
+- 2026-10-20 commit-escalation-early-stop — "/commit pr and squash merge stop before the next path" — Fixed in #313: a no-op push or squash step no longer ends the verb.
+- 2026-10-20 a1-unknown-verb-path-silent-pass — "A1 lint silently passes citations with unknown verb paths" — Fixed in #311: a cited verb path that is not a command now FAILs.
+- 2026-10-20 retro-extract-f-1 — "atomic validate artifacts skips fenced blocks indented under a list item" — Fixed in #311: fenced blocks indented under list items are scanned.
+- 2026-10-20 bus-daemon-room-name-validation — "Bus daemon accepts path-shaped room names (Hub.Join length-check only)" — Already fixed: validRoomName guards the daemon and getOrCreateRoom.
+- 2026-10-20 bus-truncated-field-never-set — "Envelope.truncated is declared but never set" — Not worth a ProtocolVersion bump; the doc row is corrected and the field is harmless.
+- 2026-10-20 realm-fanout-index-empty-db — "Realm-fanout atomic code index reports success but writes 0-byte member db" — Does not reproduce: realm indexes live at <realm>/.atomic/<key>.db by design. Remaining edges: a 0-byte member-local db shadows the realm db (realm/resolver.go), pending members are seeded exclude=true, and fan-out output never names the db path.
+- 2026-10-20 agent-config-effort-enum-stale — "agent-config.md effort enum stale (omits xhigh, lists int)" — Fixed: the effort row now lists low, medium, high, xhigh, max.

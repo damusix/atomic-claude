@@ -54,9 +54,20 @@ Read `$ARGUMENTS` as natural-language prose. Infer two things:
 - **`<duration>`** — when the reminder should fire. May be explicit (`3d`, `2h`, `2026-06-01`) or implicit ("tuesday", "next week", "before the release", "end of sprint", "tomorrow morning"). You are an LLM — compute relative dates from today's date in context. Round fuzzy phrases to the nearest canonical unit silently.
 - **`<body>`** — the user's intent, with any time-reference phrase removed. Strip glue prepositions (`in`, `after`, `within`, `by`, `before`, etc.) that only existed to connect the timing to the rest.
 
-Edge cases:
+A reminder needs a body; missing timing is inferred, never asked for.
 
-- **Arguments empty**: print usage hint and exit.
+```mermaid
+flowchart TD
+    B{"Body present?"} -->|no| U["Print usage, exit"]
+    B -->|yes| T{"Two reminders?"}
+    T -->|yes| A["Ask which"]
+    T -->|no| D{"Timing given?"}
+    D -->|yes| P["Use it"]
+    D -->|no| I["Infer timing"]
+```
+
+- **Body present?**: empty arguments and a duration with no body (e.g. `/remind-me 3d`) both count as no body.
+- **Print usage, exit**:
 
     ```
     usage: /remind-me <anything>
@@ -67,16 +78,11 @@ Edge cases:
       /remind-me follow up on the PR
     ```
 
-- **Input is only a duration, body empty** (e.g. `/remind-me 3d`): print the same usage hint — a reminder needs content.
-
-- **Two separate reminders in one input** (e.g. `"fix bug A by 3d, bug B by 1w"`): surface both interpretations and ask the user which they meant, or whether to create two separate reminders.
-
-- **No explicit timing, but body is present** (e.g. `/remind-me follow up on the PR`): infer from context. Use these heuristics in order:
-    1. If the body references a known deadline (sprint end, release date, review_by from a follow-up), align to that.
-    2. If the body implies urgency ("check if build passed", "see if deploy finished"), default to `1h`.
-    3. Otherwise, default to `3d` — a forgotten reminder is worse than a slightly-early one. State your inference: `inferred: 3 days (no timing specified). scheduling.`
-
-- **Both present**: proceed with the inferred `<duration>` and `<body>`.
+- **Ask which**: e.g. `"fix bug A by 3d, bug B by 1w"`. Surface both interpretations and ask which the user meant, or whether to create two separate reminders.
+- **Infer timing**: e.g. `/remind-me follow up on the PR`. First match wins:
+    1. The body references a known deadline (sprint end, release date, review_by from a follow-up) → align to it.
+    2. The body implies urgency ("check if build passed", "see if deploy finished") → `1h`.
+    3. Otherwise `3d` — a forgotten reminder is worse than a slightly-early one. State it: `inferred: 3 days (no timing specified). scheduling.`
 
 ### Step 1b — Verify inference
 
@@ -102,59 +108,42 @@ The `1h` boundary is inclusive: `1h` → `routine`. ISO dates are always `routin
 
 ### Step 4 — Store the reminder
 
-- **Binary present** (`command -v atomic` exits 0):
+```bash
+atomic reminder add --due "<iso>" --transport "<cron|routine>" "<body>"
+```
 
-    ```bash
-    atomic reminder add --due "<iso>" --transport "<cron|routine>" "<body>"
-    ```
-
-    Capture the id from stdout (e.g. `r-7b21ef`).
-
-- **Fallback** (binary absent — `atomic where --json`'s `reminders` field is unreachable without it, so this writes to the legacy scratchpad-scoped reminders dir instead, the exact path `reminder.List` already unions and `atomic migrate` already relocates; if what you find on disk does not match this path, run `atomic migrate --show-log` for the change history): generate an id (`r-` + 6 random hex chars):
-
-    ```bash
-    id="r-$(openssl rand -hex 3)"
-    mkdir -p .claude/.scratchpad/reminders/
-    ```
-
-    Write `.claude/.scratchpad/reminders/<today's date, YYYY-MM-DD>-<slug>.md` where `<slug>` is the first 4 words of `<body>` joined with hyphens, lowercased:
-
-    ```
-    ---
-    id: r-<hex>
-    created: <ISO 8601 timestamp>
-    due: <ISO 8601 timestamp>
-    transport: <cron|routine>
-    ---
-
-    <body>
-    ```
+Capture the id from stdout (e.g. `r-7b21ef`).
 
 ### Step 5 — Schedule via chosen transport
 
-In both cases, the cron/routine prompt is: `/follow-up due <id>`
+An unavailable scheduling surface degrades silently to a stored reminder that the session-start injection surfaces once past due.
 
-- **`cron` transport**: create a one-shot session schedule at `due` with the prompt above.
+```mermaid
+flowchart TD
+    T{"Transport?"} -->|cron| C{"Session scheduler<br/>available?"}
+    T -->|routine| R{"Durable scheduler<br/>configured?"}
+    C -->|yes| S["Schedule"]
+    R -->|yes| S
+    C -->|no| N["Mark transport none"]
+    R -->|no| N
+    N --> M["Print stored, exit"]
+    S --> K["Step 6: confirm"]
+```
 
-- **`routine` transport**: invoke the harness's durable-schedule surface with the same trigger time and prompt. Capture the returned schedule id if any.
-
-**Transport unavailable → silent degradation.** If the session scheduler is unavailable, or the durable scheduler is not configured:
-
-1. Rewrite `transport: none` in the reminder file's frontmatter via shell `sed` (works for both binary and fallback paths):
+- **Session scheduler available?**: the harness's session-scoped scheduler is available.
+- **Durable scheduler configured?**: the harness's durable-schedule surface is available and configured.
+- **Schedule**: the prompt is `/follow-up due <id>` either way. `cron`: create a one-shot session schedule at `due`. `routine`: invoke the harness's durable-schedule surface with the same trigger time and prompt; capture the returned schedule id if any.
+- **Mark transport none**: rewrite the reminder file's frontmatter, where `<reminders-dir>` is `atomic where --json`'s `reminders` field:
 
     ```bash
     sed -i '' 's/^transport: .*/transport: none/' <reminders-dir>/<file>
     ```
 
-    `<reminders-dir>` is `atomic where --json`'s `reminders` field when the binary is present, else the `.claude/.scratchpad/reminders/` fallback dir above.
-
-2. Do **not** raise an error. Print:
+- **Print stored, exit**: do **not** raise an error. Print:
 
     ```
     reminder stored. id: <id>. transport unavailable — will surface via session-start injection when past due (<human-readable due>).
     ```
-
-    Then exit. The session-start injection will re-surface the reminder once past-due.
 
 ### Step 6 — Confirm to the user
 

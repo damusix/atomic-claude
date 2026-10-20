@@ -408,17 +408,27 @@ func buildWikisBlock(paths []string) string {
 	return sb.String()
 }
 
-// writeFileAtomic writes data to path via a temp file + rename.
+// writeFileAtomic writes data to path via a temp file + rename, keeping an
+// existing file's permission bits and giving a new file 0644.
 func writeFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+	perm := os.FileMode(0o644)
+	if info, err := os.Stat(path); err == nil {
+		perm = info.Mode().Perm()
 	}
 	tmp, err := os.CreateTemp(dir, ".registry-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temp: %w", err)
 	}
 	tmpPath := tmp.Name()
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("chmod temp: %w", err)
+	}
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpPath)

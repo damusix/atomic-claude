@@ -7,111 +7,48 @@ Reverses one commit without losing the work. Equivalent to `git reset --soft HEA
 
 <workflow>
 
-## Pre-flight
+## Flow
 
 
-```bash
-git rev-parse --is-inside-work-tree
+Only a local, non-merge commit with a parent is undone, and only after the user confirms it.
+
+
+```mermaid
+flowchart TD
+    G{"Inside a git repo?"} -->|no| X["Stop with<br/>that message"]
+    G -->|yes| P{"HEAD has a parent?"}
+    P -->|no| X
+    P -->|yes| M{"HEAD is a merge?"}
+    M -->|yes| X
+    M -->|no| U{"HEAD already pushed?"}
+    U -->|yes| X
+    U -->|no| C{"User confirms?"}
+    C -->|no| K["Print kept."]
+    C -->|yes| R["Soft reset, report"]
 ```
 
 
-If not in a git repo, stop:
+- **Inside a git repo?**: `git rev-parse --is-inside-work-tree`. No: `not a git repo. /undo-commit requires a git repository.`
+- **HEAD has a parent?**: `git rev-parse HEAD^ 2>/dev/null` succeeds. No: `refused: HEAD is the initial commit. nothing to undo.`
+- **HEAD is a merge?**: `git rev-list --parents -n 1 HEAD | awk '{print NF-1}'` prints `2` or more. Undoing a merge is destructive in a non-obvious way, so it goes back to the user. Yes: `refused: HEAD is a merge commit. use git reset --hard ORIG_HEAD manually if you understand the consequences.`
+- **HEAD already pushed?**: a soft undo of a published commit would rewrite public history. `git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null` finds the tracking branch; with none, HEAD is not pushed. With one, `git merge-base --is-ancestor HEAD @{u}` exiting 0 means pushed. Yes: `refused: HEAD is already pushed to <upstream>. /undo-commit only undoes local commits. use git revert <sha> for a published commit.`
+- **User confirms?**: show what is about to be undone with `git log -n 1 --format='  %h %s%n  %an, %ar%n%n  Files:%n' HEAD` and `git diff --stat HEAD^..HEAD`, then ask the user:
 
+    ```
+    Undo this commit? Changes will be moved back to the staging area.
+    - Yes, undo
+    - No, keep it
+    ```
 
-```
-not a git repo. /undo-commit requires a git repository.
-```
+- **Print kept.**: print `kept.` and take no action.
+- **Soft reset, report**: `git reset --soft HEAD~1`, then print:
 
-
-Verify HEAD has a parent (can't undo the initial commit):
-
-
-```bash
-git rev-parse HEAD^ 2>/dev/null
-```
-
-
-If this fails: `refused: HEAD is the initial commit. nothing to undo.`
-
-
-Verify HEAD is not a merge commit (undoing a merge is destructive in a non-obvious way — bounce to the user):
-
-
-```bash
-git rev-list --parents -n 1 HEAD | awk '{print NF-1}'
-```
-
-
-If output `>= 2`: `refused: HEAD is a merge commit. use git reset --hard ORIG_HEAD manually if you understand the consequences.`
-
-
-Verify HEAD is not already on the remote (cannot soft-undo a published commit without rewriting public history):
-
-
-```bash
-git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null
-```
-
-
-If a tracking branch exists, check whether HEAD is reachable from upstream:
-
-
-```bash
-git merge-base --is-ancestor HEAD @{u}
-```
-
-
-If exit 0 (HEAD already on remote): `refused: HEAD is already pushed to <upstream>. /undo-commit only undoes local commits. use git revert <sha> for a published commit.`
-
-
-## Confirm
-
-
-Show what's about to be undone:
-
-
-```bash
-git log -n 1 --format='  %h %s%n  %an, %ar%n%n  Files:%n' HEAD
-git diff --stat HEAD^..HEAD
-```
-
-
-Ask the user:
-
-
-```
-Undo this commit? Changes will be moved back to the staging area.
-- Yes, undo
-- No, keep it
-```
-
-
-On `No`: print `kept.` and stop. No action.
-
-
-## Action
-
-
-On `Yes`:
-
-
-```bash
-git reset --soft HEAD~1
-```
-
-
-## Report
-
-
-Print:
-
-
-```
-undone. HEAD now at <new-sha-short>.
-prior commit's changes are staged. inspect with: git status, git diff --cached
-to re-commit: /commit
-to discard: git restore --staged <paths> then git restore <paths>
-```
+    ```
+    undone. HEAD now at <new-sha-short>.
+    prior commit's changes are staged. inspect with: git status, git diff --cached
+    to re-commit: /commit
+    to discard: git restore --staged <paths> then git restore <paths>
+    ```
 
 </workflow>
 

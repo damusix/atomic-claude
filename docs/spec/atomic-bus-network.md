@@ -85,6 +85,15 @@ closes remote rooms alongside local ones.
     `keys.json` present and alongside every enrolled key. The key is never written to `keys.json`,
     `revoke` never removes it, and a corrupt `keys.json` does not lock it out. Any other value
     refuses to start with a usage error before a socket is bound.
+19. `atomic bus remote add <name> --host <url> --key <hex>` writes a `[bus.remotes.<name>]` entry
+    that `--host <name>` resolves right away. With a name, host, or key missing, it opens a form on a
+    terminal and exits `1` without one. A taken name exits `4` unless `--force`. A key that is not 64
+    hex characters, a name outside `[A-Za-z0-9_-]` or not starting with a letter or digit, or a `--ca` file with no PEM certificate is
+    refused before anything is written, and a relative `--ca` is stored as an absolute path.
+    `remote list` never prints a key. `remote test [<name>]` sends one sealed `ping` per entry
+    (5-second limit each) and exits `6` when any fails, reporting every entry either way.
+20. Every config write (`config set|unset|agents`, `claude install`, `migrate`) keeps `[bus.remotes]`,
+    and `enroll`'s stdout parses as TOML. `enroll` refuses a name `remote add` would refuse.
 
 
 ## Approach
@@ -132,6 +141,17 @@ atomic/internal/serve/frontend/src/pages/Bus/
 └── Bus.tsx ................ M  (host on the room model, query param, EventSource URL)
 atomic/internal/serve/frontend/src/components/rail/
 └── BusRail.tsx ............ M  (sessions fetched from the open room's host)
+atomic/internal/prompt/
+└── prompt.go .............. M  (IsInteractive exported for the add form)
+atomic/internal/config/
+├── config.go .............. M  (Bus section on Config; [bus] a known section)
+├── busremote.go ........... A  (field validation, AddBusRemote, RemoveBusRemote, ExpandHome)
+└── bus_test.go ............ A  (config set keeps [bus.remotes]; validation cases)
+atomic/cmd/atomic/
+├── cmd_bus.go ............. M  (registers the remote group)
+├── cmd_bus_remote.go ...... A  (bus remote add|list|test|remove, the add form)
+├── cmd_bus_remote_test.go . A
+└── cmd_bus_gateway.go ..... M  (enroll prints the remote add line as TOML comments)
 atomic/cmd/atomic/main.go .. M  (bus gateway, enroll, revoke, end)
 atomic/cmd/atomic/main_test.go  M  (verb-count assertions)
 atomic/internal/cliusage/cliusage.go  M  (new bus entries)
@@ -163,7 +183,7 @@ atomic/internal/bus/remote/frame.go
   ErrOpen    — one opaque failure value; callers cannot branch on why
 
 atomic/internal/bus/remote/client.go
-  Remotes    — the [bus.remotes] table: host, key, optional ca
+  Remotes    — the [bus.remotes] table, read through config.Load: host, key, optional ca
   Resolve    — --host, else this session's membership host, else local
   Client     — one remote target
   Dial       — resolve and connect; never spawn a daemon
@@ -173,7 +193,7 @@ atomic/internal/bus/remote/client.go
 
 atomic/internal/gateway/keys.go
   Store      — keys.json, re-read when its mtime moves
-  Enroll     — 32 bytes from crypto/rand, id = truncated sha256, refuse a taken name, print a TOML block once
+  Enroll     — 32 bytes from crypto/rand, id = truncated sha256, refuse a taken name, print a TOML block and a commented remote add line once
   Revoke     — delete by name
   Pin        — one operator-supplied key held in memory beside the file
   Lookup     — key id to key and name, pinned key first; the seal path re-checks before every frame
@@ -201,12 +221,24 @@ atomic/internal/serve/api_bus.go
   handleLog   — empty backlog for a remote room; no bulk-history wire op exists
   handleRooms — fan out across configured remotes
 
+atomic/internal/config/busremote.go
+  ValidateBusRemote — name, host, 32-byte hex key, optional PEM ca
+  AddBusRemote      — refuse a taken name unless forced
+  RemoveBusRemote   — delete by name
+  ExpandHome        — "~/" against home, shared with remote.Remotes
+
+atomic/cmd/atomic/cmd_bus_remote.go
+  busRemoteAddAction    — flags, then the form for missing fields on a terminal; absolute ca
+  busRemoteListAction   — name, host, ca; never the key
+  busRemoteTestAction   — DoRemoteTimeout(ping) per entry; any failure exits 6
+  busRemoteRemoveAction — delete one entry
+
 docs/guides/bus-hosting.md
   What this gives you     — two machines, one room, no third party
   Before you start        — a host, an address, the binary, clocks within two minutes
   Run the gateway         — one command, one volume, one port
-  Enroll a machine        — enroll on the host, paste the block on the client
-  Share one key           — one env var, one block on every client, no per-machine revoke
+  Enroll a machine        — enroll on the host, `bus remote add` on the client
+  Share one key           — one env var, one remote add on every client, no per-machine revoke
   Run it in a container   — a copyable Dockerfile and one docker run
   Join from two machines  — the worked transcript
   Inside a VPN            — bind to the interface, no TLS needed
@@ -223,9 +255,11 @@ docs/guides/bus-hosting.md
 
 1. Operator runs `atomic bus gateway enroll web-api` on the host.
 2. Gateway generates 32 bytes from `crypto/rand`, derives the id as a truncated `sha256` of the key,
-   stores id, key and name in `~/.atomic/gateway/keys.json`, and prints a `[bus.remotes]` TOML block
-   once.
-3. Operator pastes the block into `~/.atomic/config.toml` on the client.
+   stores id, key and name in `~/.atomic/gateway/keys.json`, and prints, once, a `[bus.remotes]` TOML
+   block and the equivalent `atomic bus remote add <name> --host <scheme>://<host:port> --key <hex>`
+   line as TOML comments.
+3. Operator runs `atomic bus remote add` on the client, with flags or through its form, which writes
+   `[bus.remotes.<name>]` into `~/.atomic/config.toml`. Pasting the block by hand stays valid.
 
 **Flow: share one operator-supplied key**
 
@@ -233,7 +267,7 @@ docs/guides/bus-hosting.md
 2. Gateway decodes the value before binding any socket; anything but 64 hex characters exits with a
    usage error.
 3. Gateway pins the key in its store and admits it through the same ladder as an enrolled key.
-4. Operator writes one `[bus.remotes]` block with that key into `~/.atomic/config.toml` on every
+4. Operator runs `atomic bus remote add <name> --host <url> --key <hex>` with that key on every
    client.
 
 **Flow: send from a remote client**
@@ -290,6 +324,8 @@ docs/guides/bus-hosting.md
 | 6 | `atomic serve`. Per-room routing in `do`, `handleTail` on the remote stream, `handleLog` on `read`, `handleRooms` fanning out, host on the room model and the `EventSource` URL. Severable: nothing else depends on it. | `internal/serve/api_bus.go`, `frontend/src/pages/Bus/Bus.tsx` + tests | atomic-implementer (mode: feature) | ~6 | a remote room routes remotely on all four paths; two rooms named `potato` stay distinct in the UI; SSE to the browser unchanged; loopback guard intact |
 | 7 | Artifacts and docs. `docs/guides/bus-hosting.md` for both topologies, reference and wiki pages, the two sibling specs brought current, skill, help router, README, CLAUDE.md, then `make bundle`. | `docs/`, `context/`, `README.md` | atomic-implementer (mode: feature) | ~11 | help MISSING-scan clean; `atomic validate artifacts` passes; sibling spec bodies match the new contract; the guide walks nothing to two machines sharing a room |
 
+| 8 | Client remotes. `[bus]` modeled on `Config`, `remote.Remotes` through `config.Load`, `bus remote add\|list\|test\|remove` with the add form, enroll's commented `remote add` line and name check. | `internal/config/{config,busremote}.go`, `cmd/atomic/{cmd_bus,cmd_bus_remote,cmd_bus_gateway}.go`, `internal/prompt/prompt.go`, `cliusage.go` + tests | atomic-implementer (mode: feature) | ~9 | criteria 19 and 20: `config set` keeps `[bus.remotes]`; enroll's line is accepted by `remote add`; list never prints a key; `remote test` passes a live gateway and fails a wrong key |
+
 Checkpoints 1 and 2 are independent of each other and of the gateway, so the daemon hardening lands
 whether or not the network work does. Checkpoint 6 is severable.
 
@@ -316,6 +352,21 @@ whether or not the network work does. Checkpoint 6 is severable.
 
 ## Change log
 
+
+### 2026-09-23 — `atomic bus remote`, and `[bus]` in the config schema
+
+**What changed:** `atomic bus remote add [<name>] [--host] [--key] [--ca] [--force]` writes a
+`[bus.remotes.<name>]` entry, opening a form for missing fields on a terminal and exiting with a usage
+error without one; `list [--json]` prints name, host, and ca, never the key; `test [<name>]` pings each entry
+over the sealed transport; `remove <name>` deletes one. `enroll` also prints the matching `remote add` line, as TOML comments so its output still
+parses. `config.Config` models `[bus]`, and `remote.Remotes` reads it through `config.Load`, so a
+bad value elsewhere in `config.toml` now fails `--host` verbs with the decode error naming the key.
+Unknown-remote errors point at `atomic bus remote list` and `add`.
+
+**Why:** `[bus.remotes]` had to be pasted by hand, and because `Config` did not model `[bus]`, every
+config write (`config set`, `config agents`, `claude install`) deleted it.
+
+**Superseded:** the client step was pasting the enroll block into `~/.atomic/config.toml`.
 
 ### 2026-09-18 — operator-supplied shared key
 

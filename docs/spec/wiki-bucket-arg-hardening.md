@@ -17,19 +17,17 @@ rejected at registration rather than created.
   hand-rolled parsers in place.
 - Renaming, revalidating, or migrating already-registered buckets. Validation is
   register-time only.
-- Issues #157 (`wiki stale` summary derivation) and #158 (`wiki stamp` flag order) — separate
-  defects in the same package, out of scope here.
 
 
 ## Success criteria
 
 
 - [ ] `atomic wiki bucket add -h` prints usage to stdout, exits 0, and creates nothing: no
-      realm-root directory, no `wiki/.buckets/<name>/` manifest dir, no `<bucket>` entry in
+      realm-root directory, no `<bucket>` entry in
       `wiki/index.md`, no `## Capture surfaces` bullet in the realm `CLAUDE.md`
 - [ ] `atomic wiki bucket add --help` behaves identically
-- [ ] `-h` and `--help` behave identically for every bucket sub-verb: `list`, `diff`,
-      `promote`, `doc`, `skill`, `index`
+- [ ] `-h` and `--help` behave identically for every bucket sub-verb: `list`, `doc`,
+      `skill`, `index`
 - [ ] an unrecognized single-dash token (e.g. `-x`) is rejected with an error naming the
       token and exits 2 — parity with the existing `--x` behavior
 - [ ] `RegisterBucket` rejects an empty name, a name beginning with `-`, a name containing a
@@ -45,7 +43,7 @@ rejected at registration rather than created.
 
 
 No design doc: the defect and its remedy are prescribed by issue #164 and confirmed by
-reading both parsers. The only open choice was where the help intercept lives.
+reading the parser. The only open choice was where the help intercept lives.
 
 | # | Approach | Pros | Cons |
 |---|----------|------|------|
@@ -60,9 +58,8 @@ reading both parsers. The only open choice was where the help intercept lives.
 **Approach 1**, plus independent name validation in `RegisterBucket` — defense in depth: the
 parser guard protects the CLI path, the validation protects programmatic callers.
 
-`parseBucketDocArgs` currently duplicates `resolveWikiRoot`, differing only in its `--router`
-boolean. That duplication is why the defect has two sites. Collapse it to consume `--router`
-and delegate the rest to `resolveWikiRoot`, so the hardening lands in exactly one scanner.
+Every bucket verb, `doc` included, parses its arguments through `resolveWikiRoot`, so the
+hardening lands in exactly one scanner.
 
 
 ## Change tree
@@ -70,8 +67,8 @@ and delegate the rest to `resolveWikiRoot`, so the hardening lands in exactly on
 
     atomic/internal/wiki/
     ├── action.go .............. M  (resolveWikiRoot: help sentinel + single-dash reject;
-    │                                parseBucketDocArgs: delegate; 7 actions handle sentinel)
-    ├── action_test.go ......... A  (scanner table tests; also pins the --root --router delta)
+    │                                every bucket action handles the sentinel)
+    ├── action_test.go ......... A  (scanner table tests)
     ├── bucket.go .............. M  (RegisterBucket: name validation)
     ├── bucket_cli_test.go ..... M  (help-probe writes nothing, per mutation site)
     └── bucket_test.go ......... M  (name validation + back-compat cases)
@@ -85,10 +82,8 @@ and delegate the rest to `resolveWikiRoot`, so the hardening lands in exactly on
       errUsageRequested — sentinel signalling a help probe, checked by callers
       resolveWikiRoot — reject any unrecognized dash-prefixed token; return the
                         sentinel for -h/-help/--help
-      parseBucketDocArgs — consume --router, delegate remaining args to resolveWikiRoot
       wikiBucketAddAction — on sentinel: print usage to out, return 0
-      wikiBucketListAction / DiffAction / PromoteAction / DocAction / SkillAction /
-        IndexAction — same sentinel branch
+      wikiBucketListAction / DocAction / SkillAction / IndexAction — same sentinel branch
 
     atomic/internal/wiki/bucket.go
       validateBucketName — reject empty, leading dash, path separator, dot-names, reserved
@@ -97,10 +92,9 @@ and delegate the rest to `resolveWikiRoot`, so the hardening lands in exactly on
     atomic/internal/wiki/action_test.go
       help token yields sentinel — for -h, -help, --help
       unknown single-dash token rejected — parity with double-dash
-      --router still parsed in any position — delegation preserves behavior
 
     atomic/internal/wiki/bucket_cli_test.go
-      help probe writes nothing — asserts all four mutation sites untouched, per verb
+      help probe writes nothing — asserts every mutation site untouched, per verb
 
     atomic/internal/wiki/bucket_test.go
       RegisterBucket rejects unsafe names — table of rejected inputs
@@ -121,8 +115,8 @@ and delegate the rest to `resolveWikiRoot`, so the hardening lands in exactly on
 
     Flow: unsafe name reaching registration
     1. a caller invokes RegisterBucket with a name beginning with `-`
-    2. validateBucketName rejects it -> error returned before manifestDir is touched
-    3. no manifest dir is created; the caller reports the error and exits non-zero
+    2. validateBucketName rejects it -> error returned before any filesystem write
+    3. nothing is created; the caller reports the error and exits non-zero
 
 
 ## Checkpoints
@@ -130,8 +124,8 @@ and delegate the rest to `resolveWikiRoot`, so the hardening lands in exactly on
 
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|-------------|-------|------------|----------|
-| 1 | Harden the shared scanner: help sentinel, single-dash rejection, `parseBucketDocArgs` delegation, sentinel branch in all 7 bucket actions | `internal/wiki/action.go`, `action_test.go` | atomic-implementer (mode: feature) | ~2 | `go test ./internal/wiki/` — help tokens yield usage + exit 0; `-x` rejected exit 2; `--router` unchanged |
-| 2 | Validate bucket names in `RegisterBucket`; assert the help probe leaves all four mutation sites untouched; pin the `--root --router` delta | `internal/wiki/bucket.go`, `bucket_test.go`, `bucket_cli_test.go`, `action_test.go` | atomic-implementer (mode: surgical) | 1-2 | `go test ./internal/wiki/` — unsafe names rejected, ordinary names still accepted |
+| 1 | Harden the shared scanner: help sentinel, single-dash rejection, sentinel branch in every bucket action | `internal/wiki/action.go`, `action_test.go` | atomic-implementer (mode: feature) | ~2 | `go test ./internal/wiki/` — help tokens yield usage + exit 0; `-x` rejected exit 2 |
+| 2 | Validate bucket names in `RegisterBucket`; assert the help probe leaves all four mutation sites untouched | `internal/wiki/bucket.go`, `bucket_test.go`, `bucket_cli_test.go`, `action_test.go` | atomic-implementer (mode: surgical) | 1-2 | `go test ./internal/wiki/` — unsafe names rejected, ordinary names still accepted |
 | 3 | Document bucket name rules and the help behavior | `docs/reference/wiki-workflow.md` | atomic-implementer (mode: surgical) | 1 | prose matches shipped validation; no stale claim |
 
 
@@ -140,9 +134,8 @@ and delegate the rest to `resolveWikiRoot`, so the hardening lands in exactly on
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| Name validation rejects a bucket name already registered in a user realm | low | Validation is register-time only; existing manifests are never revalidated. Rules reject only unsafe shapes (leading dash, separators, dot-names), not ordinary kebab-case or underscored names. Back-compat guard test in checkpoint 2. |
+| Name validation rejects a bucket name already registered in a user realm | low | Validation is register-time only; existing registrations are never revalidated. Rules reject only unsafe shapes (leading dash, separators, dot-names), not ordinary kebab-case or underscored names. Back-compat guard test in checkpoint 2. |
 | Returning exit 0 for help changes script behavior for callers that relied on the old non-zero probe | low | The old behavior on `-h` was exit 0 *with a side effect*; on `--help` it was exit 2. Nothing can have depended on the destructive path. Exit 0 for an explicit help request is the conventional contract. |
-| Delegating `parseBucketDocArgs` silently changes `--router` handling | low | Dedicated test asserting `--router` is still honored in any position, including before and after positionals. |
 
 
 ## Implementation log
@@ -196,3 +189,19 @@ and delegate the rest to `resolveWikiRoot`, so the hardening lands in exactly on
   marks that file `A` rather than `M`. Collapsing `parseBucketDocArgs` into a delegate made
   `--root --router` an error instead of a silent `root="--router"`; that delta is deliberate
   and is pinned by a test in `action_test.go`, so checkpoint 2's file list now names it.
+
+### 2026-10-18 — Removed: bucket diff, bucket promote, manifest dir
+
+**What changed:** The help-probe criteria and outline cover `add`, `list`, `doc`, `skill`, and `index`; the manifest-dir checks in the criteria, flow, and risk row are gone. The non-goal naming the `wiki stale` summary and `wiki stamp` defects is dropped.
+
+**Why:** Realm wikis no longer track freshness, so the manifest directory and the verbs that read it are deleted.
+
+**Removed:** `bucket diff`, `bucket promote`, the per-bucket manifest directory, and `wiki stamp`. See `docs/spec/realm-wiki-drop-refresh.md`.
+
+### 2026-10-18 — Removed: `parseBucketDocArgs` and `--router`
+
+**What changed:** The recommendation, change tree, outline, checkpoints, and risks no longer describe `parseBucketDocArgs` or the `--router` flag. `bucket doc` parses through `resolveWikiRoot` like every other bucket verb.
+
+**Why:** `bucket doc` scaffolds a slug folder with numbered stages, so the router flag and its parser have no job.
+
+**Removed:** `parseBucketDocArgs`, which consumed `--router` and delegated the rest to `resolveWikiRoot`, and the tests pinning `--router` positions. See `docs/spec/bucket-icm-structure.md`.

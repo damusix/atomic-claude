@@ -5,13 +5,20 @@ package wiki
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
@@ -67,7 +74,7 @@ type Member struct {
 // with an idempotent <wiki-scan> block, returning the classified members so
 // callers need no second filesystem walk.
 //
-// Refuses when wiki/ exists but index.md is absent or lacks a <wiki-scan> marker.
+// Refuses a wiki/ it does not own; see checkCollision.
 func Scan(root string, opts Options) ([]Member, error) {
 	wikiDir := filepath.Join(root, "wiki")
 
@@ -80,7 +87,10 @@ func Scan(root string, opts Options) ([]Member, error) {
 		return nil, fmt.Errorf("wiki scan: parse prior entries: %w", err)
 	}
 
-	rawMembers, err := discoverMembers(root, wikiDir)
+	rawMembers, warns, err := discoverMembers(root, wikiDir)
+	for _, w := range warns {
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: warning: %s\n", w)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("wiki scan: discover: %w", err)
 	}
@@ -101,15 +111,15 @@ func Scan(root string, opts Options) ([]Member, error) {
 	}
 
 	// Non-fatal: a broken bucket region must not block membership.
-	if err := RebuildAllBucketIndexes(root, wikiDir); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki scan: bucket index rebuild: %v\n", err)
-	}
+	_, rebErrs := RebuildAllBucketIndexes(root, wikiDir)
+	reportTreeErrors("atomic wiki scan: bucket index rebuild", rebErrs)
 
 	return classified, nil
 }
 
 // checkCollision refuses an existing wiki/ dir that this tool does not own,
-// i.e. whose index.md is absent or carries no <wiki-scan> marker.
+// i.e. whose index.md carries no <wiki-scan> marker, or is absent and the dir
+// is not exactly what `wiki init --scope realm` writes.
 func checkCollision(wikiDir string) error {
 	if _, err := os.Lstat(wikiDir); os.IsNotExist(err) {
 		return nil
@@ -119,6 +129,9 @@ func checkCollision(wikiDir string) error {
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if onlyInitScaffold(wikiDir) {
+				return nil
+			}
 			return fmt.Errorf("wiki scan: collision: %s exists but index.md is absent — refusing to overwrite", wikiDir)
 		}
 		return fmt.Errorf("wiki scan: read index.md: %w", err)
@@ -129,6 +142,37 @@ func checkCollision(wikiDir string) error {
 	}
 
 	return nil
+}
+
+// onlyInitScaffold reports whether wikiDir holds exactly what InitRealmScope
+// writes: the AGENTS.md/CLAUDE.md loader pair, or the lone CLAUDE.md an install
+// from before the pair existed carries.
+func onlyInitScaffold(wikiDir string) bool {
+	entries, err := os.ReadDir(wikiDir)
+	if err != nil || len(entries) == 0 || len(entries) > 2 {
+		return false
+	}
+	files := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			return false
+		}
+		data, err := os.ReadFile(filepath.Join(wikiDir, e.Name()))
+		if err != nil {
+			return false
+		}
+		files[e.Name()] = string(data)
+	}
+
+	steering := bundlespec.ScopeSteering
+	switch len(files) {
+	case 1:
+		return files[steering.ClaudeTarget] == realmSteeringScaffold
+	case 2:
+		return files[steering.Source] == realmSteeringScaffold &&
+			files[steering.ClaudeTarget] == string(steering.LoaderDocument())
+	}
+	return false
 }
 
 // priorEntry is one <repo> entry parsed from a previous scan block.
@@ -154,6 +198,11 @@ func parsePriorEntries(indexPath string) (map[string]priorEntry, error) {
 		return nil, nil
 	}
 
+	return parseBlockMembers(blockContent), nil
+}
+
+// parseBlockMembers is the read counterpart to the <wiki-scan> block writer.
+func parseBlockMembers(blockContent string) map[string]priorEntry {
 	entries := map[string]priorEntry{}
 	for _, line := range strings.Split(blockContent, "\n") {
 		line = strings.TrimSpace(line)
@@ -167,8 +216,7 @@ func parsePriorEntries(indexPath string) (map[string]priorEntry, error) {
 			entries[path] = priorEntry{status: status, summaryAttr: summary}
 		}
 	}
-
-	return entries, nil
+	return entries
 }
 
 // extractBlockContent returns the content between <wiki-scan ...> and
@@ -206,9 +254,194 @@ func attrValue(line, attr string) string {
 	return line[start : start+end]
 }
 
-// discoverMembers walks root's children for git repos, returning sorted
-// relative paths. Root itself is never a member.
-func discoverMembers(root, wikiDir string) ([]string, error) {
+// discoverMembers returns sorted root-relative repo paths under the [realm] repos
+// roots, or all of root when unset, plus warnings. Root is never a member.
+func discoverMembers(root, wikiDir string) ([]string, []string, error) {
+	roots, warns := declaredRoots(root, wikiDir)
+	if roots == nil {
+		members, err := walkRoot(root, wikiDir)
+		return members, warns, err
+	}
+
+	var members []string
+	for _, r := range roots {
+		found, err := walkForRepos(root, filepath.Join(root, filepath.FromSlash(r)), wikiDir)
+		if err != nil {
+			return nil, warns, err
+		}
+		members = append(members, found...)
+	}
+	sort.Strings(members)
+	return slices.Compact(members), warns, nil
+}
+
+// declaredRoots expands [realm] repos into slash-separated roots to walk. nil
+// means walk all of root; empty non-nil means no entry was usable.
+func declaredRoots(root, wikiDir string) ([]string, []string) {
+	cfgPath := config.RepoConfigPath(root)
+	cfg, cfgWarns, err := config.LoadRepoConfig(cfgPath)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("%v; ignoring [realm] repos and scanning all of %s", err, root)}
+	}
+	var warns []string
+	for _, w := range cfgWarns {
+		if strings.HasPrefix(w.Key, "realm.") {
+			warns = append(warns, fmt.Sprintf("%s in %s", w.Message, cfgPath))
+		}
+	}
+	if cfg.Realm.Repos == nil {
+		return nil, warns
+	}
+	if len(cfg.Realm.Repos) == 0 {
+		return nil, append(warns, fmt.Sprintf("[realm] repos is empty; scanning all of %s; list repo paths in %s or remove the key", root, cfgPath))
+	}
+
+	warn := func(entry, problem string) {
+		warns = append(warns, fmt.Sprintf("[realm] repos entry %q %s (realm root %s); fix or remove it in %s", entry, problem, root, cfgPath))
+	}
+
+	wikiRel, _ := filepath.Rel(root, wikiDir)
+	wikiRel = filepath.ToSlash(wikiRel)
+	fsys := os.DirFS(root)
+	var matched []string
+	wholeRoot := false
+	for _, entry := range cfg.Realm.Repos {
+		if entry == "" {
+			warn(entry, "is empty")
+			continue
+		}
+		slashed := filepath.ToSlash(entry)
+		clean := path.Clean(slashed)
+		if path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
+			warn(entry, "must stay inside the realm root")
+			continue
+		}
+		// path.Clean drops a trailing "/", which doublestar needs to match directories only.
+		if strings.HasSuffix(slashed, "/") && clean != "." {
+			clean += "/"
+		}
+		hits, err := doublestar.Glob(fsys, clean, doublestar.WithNoFollow())
+		if err != nil {
+			warn(entry, "is not a valid pattern")
+			continue
+		}
+		if len(hits) == 0 {
+			warn(entry, "matches nothing")
+			continue
+		}
+		dirs, problems, whole := classifyHits(root, wikiRel, hits, strings.ContainsAny(clean, "*?[{"))
+		for _, p := range problems {
+			warn(entry, p)
+		}
+		wholeRoot = wholeRoot || whole
+		matched = append(matched, dirs...)
+	}
+	if wholeRoot {
+		return nil, warns
+	}
+
+	sort.Strings(matched)
+	roots := []string{}
+	for _, r := range matched {
+		if !slices.ContainsFunc(roots, func(outer string) bool { return outer == r || strings.HasPrefix(r, outer+"/") }) {
+			roots = append(roots, r)
+		}
+	}
+	return roots, warns
+}
+
+// classifyHits sorts one entry's glob hits into directory roots and at most one
+// problem per kind (symlinks, unreadable, files). wholeRoot reports a "." hit.
+func classifyHits(root, wikiRel string, hits []string, isPattern bool) (dirs, problems []string, wholeRoot bool) {
+	var files, linked, unreadable []string
+	var firstLink string
+	var firstErr error
+	for _, h := range hits {
+		h = strings.TrimSuffix(h, "/")
+		if h == "." {
+			wholeRoot = true
+			continue
+		}
+		if skippedRoot(h, wikiRel) {
+			continue
+		}
+		link, info, err := firstSymlink(root, h)
+		switch {
+		case err != nil:
+			if unreadable == nil {
+				firstErr = err
+			}
+			unreadable = append(unreadable, h)
+		case link != "":
+			if linked == nil {
+				firstLink = link
+			}
+			linked = append(linked, h)
+		case !info.IsDir():
+			files = append(files, h)
+		default:
+			dirs = append(dirs, h)
+		}
+	}
+	switch {
+	case len(linked) == 1 && linked[0] == firstLink:
+		problems = append(problems, fmt.Sprintf("matches %s, which is a symbolic link; declare the real path inside the realm root", firstLink))
+	case len(linked) == 1:
+		problems = append(problems, fmt.Sprintf("matches %s, which passes through the symbolic link %s; declare the real path inside the realm root", linked[0], firstLink))
+	case len(linked) > 1 && linked[0] == firstLink:
+		problems = append(problems, fmt.Sprintf("matches %d paths through symbolic links (first: %s); declare the real path inside the realm root", len(linked), firstLink))
+	case len(linked) > 1:
+		problems = append(problems, fmt.Sprintf("matches %d paths through symbolic links (first: %s, through %s); declare the real path inside the realm root", len(linked), linked[0], firstLink))
+	}
+	switch {
+	case len(unreadable) == 1:
+		problems = append(problems, fmt.Sprintf("matches %s, which could not be read: %v", unreadable[0], firstErr))
+	case len(unreadable) > 1:
+		problems = append(problems, fmt.Sprintf("matches %d paths that could not be read (first: %s: %v)", len(unreadable), unreadable[0], firstErr))
+	}
+	if len(files) > 0 {
+		problem := fmt.Sprintf("matches %s, which is not a directory", files[0])
+		if len(files) > 1 {
+			problem = fmt.Sprintf("matches %d files, not directories (first: %s)", len(files), files[0])
+		}
+		if isPattern {
+			problem += `; end the pattern with "/" to match directories only`
+		}
+		problems = append(problems, problem)
+	}
+	return dirs, problems, wholeRoot
+}
+
+// firstSymlink returns the shortest prefix of the slash-separated rel that is a
+// symbolic link, or "" and rel's own info when no segment is one.
+func firstSymlink(root, rel string) (string, fs.FileInfo, error) {
+	segs := strings.Split(rel, "/")
+	var info fs.FileInfo
+	for i := range segs {
+		prefix := strings.Join(segs[:i+1], "/")
+		var err error
+		info, err = os.Lstat(filepath.Join(root, filepath.FromSlash(prefix)))
+		if err != nil {
+			return "", nil, err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return prefix, info, nil
+		}
+	}
+	return "", info, nil
+}
+
+// skippedRoot reports whether a declared root is the wiki itself, under it, or
+// inside a directory the whole-root walk would never enter.
+func skippedRoot(rel, wikiRel string) bool {
+	if rel == wikiRel || strings.HasPrefix(rel, wikiRel+"/") {
+		return true
+	}
+	return slices.ContainsFunc(strings.Split(rel, "/"), func(seg string) bool { return skipDirs[seg] })
+}
+
+// walkRoot walks root's children for git repos, returning sorted relative paths.
+func walkRoot(root, wikiDir string) ([]string, error) {
 	var members []string
 
 	entries, err := os.ReadDir(root)
@@ -377,7 +610,7 @@ func discoverSummary(wikiDir, rel string) string {
 	return ""
 }
 
-// scaffold creates wiki/ with repos/, concerns/, .gitignore, README.md and
+// scaffold creates wiki/ with repos/, concerns/, README.md and
 // CLAUDE.md, then git-inits it. Nothing existing is overwritten; index.md
 // content is writeWikiScanBlock's job.
 func scaffold(wikiDir, root string) error {
@@ -391,13 +624,6 @@ func scaffold(wikiDir, root string) error {
 	// index.md at session start.
 	if _, err := InitRealmScope(root); err != nil {
 		return fmt.Errorf("init realm CLAUDE.md: %w", err)
-	}
-
-	gitignorePath := filepath.Join(wikiDir, ".gitignore")
-	if _, err := os.Lstat(gitignorePath); os.IsNotExist(err) {
-		if err := os.WriteFile(gitignorePath, []byte(".dirty\n"), 0o644); err != nil {
-			return fmt.Errorf("write .gitignore: %w", err)
-		}
 	}
 
 	readmePath := filepath.Join(wikiDir, "README.md")
@@ -619,8 +845,8 @@ func deriveSummaryFilePath(indexDir string, m Member) string {
 // DeriveMemberDescription reads a summary file and returns a one-line
 // description for an OKF §6 Members listing: the frontmatter "description"
 // key, else the first prose line of the body, else "" (link-only is valid per
-// §6 SHOULD semantics). Always single-line, truncated to 120 characters;
-// unreadable files return "".
+// §6 SHOULD semantics). Always single-line and at most 120 characters; a cut
+// lands at a word boundary and ends in "…". Unreadable files return "".
 func DeriveMemberDescription(summaryFilePath string) string {
 	data, err := os.ReadFile(summaryFilePath)
 	if err != nil {
@@ -754,13 +980,20 @@ func letterCount(s string) int {
 	return n
 }
 
-// truncate returns at most the first n runes of s, with no ellipsis.
+// truncate cuts s to at most n runes ending in "…", at a word boundary unless
+// the first word alone overflows.
 func truncate(s string, n int) string {
 	runes := []rune(s)
 	if len(runes) <= n {
 		return s
 	}
-	return string(runes[:n])
+	cut := string(runes[:n-1])
+	if runes[n-1] != ' ' {
+		if i := strings.LastIndexByte(cut, ' '); i > 0 {
+			cut = cut[:i]
+		}
+	}
+	return strings.TrimRight(cut, " ") + "…"
 }
 
 // buildMembersSection renders the `wiki-member-list` region body: a "## Members"

@@ -26,8 +26,7 @@ Tracked fields: `id`, `created`, `due`, `transport`. No `status`. No `snooze_cou
 
 
 - `<reminders>/<YYYY-MM-DD>-<slug>.md`, where `<reminders>` is `atomic where --json`'s
-  `.reminders` field — `~/.atomic/<project-key>/reminders/`. The binary-absent fallback
-  is the legacy `.claude/.scratchpad/reminders/` directory and no other location.
+  `.reminders` field — `~/.atomic/<project-key>/reminders/`.
 
 
 Outside the repository. Persists across sessions on the same machine. Never travels with the repo.
@@ -70,9 +69,7 @@ Retiring an `atomic scratchpad` bundle (via `atomic scratchpad archive`, run by 
 
     Strip the duration phrase from the body before saving, including any leading/trailing prepositions like `in` that only existed to glue the duration to the rest. The body in storage is the user's intent, not their raw phrasing.
 2. Compute `due = now + <duration>`. For day/week/month durations, the time component defaults to 09:00 local; for hour/second durations, use absolute time.
-3. Detect binary: `command -v atomic`.
-    - **Binary present**: `atomic reminder add --due "<iso>" --transport "<cron|routine|none>" "<text>"`. Capture the id from stdout. (Binary CLI must accept these new flags; see § Binary changes.)
-    - **Fallback**: generate id (`r-<6 random hex>`). `mkdir -p` the reminders dir. `Write` the file with frontmatter (`id`, `created`, `due`, `transport`) and the body.
+3. `atomic reminder add --due "<iso>" --transport "<cron|routine|none>" "<text>"`. Capture the id from stdout. (Binary CLI must accept these new flags; see § Binary changes.)
 4. **Pick transport by duration:**
 
     | Duration | Transport | Tool used |
@@ -109,9 +106,7 @@ Two invocation modes:
 #### Bare flow
 
 
-1. Detect binary.
-    - **Binary present**: `atomic reminder list`. Output is indexed and includes a `transport` column.
-    - **Fallback**: `ls <reminders>/*.md` against the legacy `.claude/.scratchpad/reminders/` directory, parse frontmatter fields (`id`, `created`, `transport`) via grep, build indexed list manually.
+1. `atomic reminder list`. Output is indexed and includes a `transport` column.
 2. Optionally enrich each entry with live schedule info — best-effort, skip silently if tools are unavailable:
     - **`cron` transport**: `CronList` → find entry whose prompt contains `/follow-up due <id>` → note next-fire time.
     - **`routine` transport**: query routine listing for matching prompt → note fire time if found.
@@ -140,11 +135,11 @@ Two invocation modes:
 
 5. Parse selection. Validate indices. Re-prompt on invalid input.
 6. Apply selected actions:
-    - `done <indices>`: for each index, cancel the schedule on the matching transport — `CronDelete` for `cron`, `schedule` skill delete intent for `routine`, no-op for `none` — then `atomic reminder rm <id>` (or `Bash rm` in fallback).
+    - `done <indices>`: for each index, cancel the schedule on the matching transport — `CronDelete` for `cron`, `schedule` skill delete intent for `routine`, no-op for `none` — then `atomic reminder rm <id>`.
     - `snooze <index> <duration>` and `reschedule <index> <when>`:
         1. Cancel old schedule on current transport (same logic as `done`).
         2. Compute new `due`. Pick new transport: `< 1h` → `cron`, `>= 1h` → `routine` (may differ from original).
-        3. Rewrite `due:` via `atomic reminder set-due <id> <iso>` (binary) or Bash `sed` (fallback).
+        3. Rewrite `due:` via `atomic reminder set-due <id> <iso>`.
         4. Rewrite `transport:` in the file via Bash `sed` to match the new transport.
         5. Schedule on the new transport (`CronCreate` or `schedule` skill). If unavailable, rewrite `transport: none` via Bash `sed`, then print the degradation message (see `## Degraded mode` in `commands/follow-up.md`). Session-start hook surfaces the reminder when past-due.
 7. Final report.
@@ -156,11 +151,11 @@ Two invocation modes:
 Claude wakes with this prompt when a reminder's cron or Routine fires.
 
 
-1. `atomic reminder show <id>` (or `Read` the file in fallback). Read the `transport:` field from frontmatter — needed for cancel routing. If file missing → log "reminder <id> not found; schedule entry may be stale" and exit.
+1. `atomic reminder show <id>`. Read the `transport:` field from frontmatter — needed for cancel routing. If file missing → log "reminder <id> not found; schedule entry may be stale" and exit.
 2. Surface the body to the user with a brief preamble: "reminder fires: <id>".
 3. Wait for user response. User options:
     - **Acknowledge / mark done**: cancel the schedule on the matching transport (`CronDelete` for `cron`, `schedule` skill delete intent for `routine`, no-op for `none`) + `atomic reminder rm <id>`.
-    - **Snooze N**: pick new transport from N (`< 1h` → cron, `>= 1h` → routine). Rewrite `due:` via `atomic reminder set-due <id> <iso>` (or Bash `sed`). Rewrite `transport:` via Bash `sed`. Schedule on the new transport; if unavailable, rewrite `transport: none` and print the degradation message (see `commands/follow-up.md § Degraded mode`).
+    - **Snooze N**: pick new transport from N (`< 1h` → cron, `>= 1h` → routine). Rewrite `due:` via `atomic reminder set-due <id> <iso>`. Rewrite `transport:` via Bash `sed`. Schedule on the new transport; if unavailable, rewrite `transport: none` and print the degradation message (see `commands/follow-up.md § Degraded mode`).
     - **Reschedule to specific time**: same steps as Snooze N but with the absolute time.
     - **Ignore** (user addresses something else, or the session ends without explicit action): no action. The reminder persists; next session-start hook surfaces it again. It will not re-fire on its own — the one-shot cron/routine already fired. The user must snooze it back into the registry or mark it done.
 
@@ -258,21 +253,18 @@ If a scheduling transport is unavailable, the slash commands degrade to file-onl
 ## Integration with `/setup-wiki`
 
 
-Add to the audit table (the "binary on PATH" row may already be present from the signals-workflow integration — `/setup-wiki` deduplicates by convention name):
+Add to the audit table:
 
 
 | Convention | Check |
 |-----------|-------|
-| `atomic` binary on PATH | `command -v atomic` |
 | `SessionStart` hook registered in `.claude/settings.json` (command `atomic hooks session-start`) | grep / parse for the registration |
 
 
 Proposed actions when missing:
 
 
-- Binary missing → print install instructions.
-- Script + registration missing, binary present → action: `atomic hooks install`.
-- Script + registration missing, binary missing → write the fallback script manually AND manually edit `settings.json` to register it.
+- Registration missing → action: `atomic hooks install`.
 - Script present but registration missing → action: `atomic hooks install` (idempotent — re-runs both write steps; existing script is overwritten with the canonical content, settings entry is added).
 
 
@@ -302,7 +294,6 @@ Proposed actions when missing:
 - Marking a reminder `done` via `/follow-up` deletes the file AND cancels the schedule on the appropriate transport.
 - Snoozing a reminder rewrites the file's `due:` field and reschedules on the appropriate transport for the new duration (may change transport — e.g. snoozing a routine reminder by `30m` should rebook as cron).
 - An ignored reminder remains durable; every session-start hook re-surfaces it until `done`.
-- Without the binary, slash commands fall back to Bash file operations.
 - Without `CronCreate` or `schedule`/Routines, files are still created with `transport: none`; no error printed; hook surfaces them past-due.
 
 
@@ -311,8 +302,8 @@ Proposed actions when missing:
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| C-1 | `/remind-me` command (binary + fallback + `CronCreate`) | `commands/remind-me.md`, `atomic/internal/reminder/` | |
-| C-2 | `/follow-up` command (binary + fallback + `CronCreate`/`CronDelete`/`CronList`) | `commands/follow-up.md` | |
+| C-1 | `/remind-me` command (binary + `CronCreate`) | `commands/remind-me.md`, `atomic/internal/reminder/` | |
+| C-2 | `/follow-up` command (binary + `CronCreate`/`CronDelete`/`CronList`) | `commands/follow-up.md` | |
 | C-3 | Session-start hook (inline command) installable via `atomic hooks install`; manual fallback documented | `atomic/internal/hooks/` | |
 | C-4 | `/setup-wiki` audit + propose flow updated | `commands/setup-wiki.md` | |
 | C-5 | `CLAUDE.md` + `CLAUDE.md` + `README.md` updated to document cron workflow | `CLAUDE.md`, `README.md` | |
@@ -396,6 +387,14 @@ Ship verb to choose at handoff (`/squash-and-merge`, `/merge-to-main`, `/pr-only
 
 ## Change log
 
+
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** `/remind-me` and `/follow-up` call the `atomic reminder` verbs directly, with no `command -v atomic` check and no Bash file-operation fallback. The `/setup-wiki` integration drops the binary-on-PATH audit row and the binary-missing actions. The session-start hook's shell fallback is hook code and is unchanged.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** with the binary absent, the slash commands wrote, listed, rewrote, and deleted reminder files by hand in the legacy `.claude/.scratchpad/reminders/` directory, and `/setup-wiki` printed install instructions or registered the hook by hand.
 
 ### 2026-08-20 — Reminders relocate to the project-keyed state home
 

@@ -29,8 +29,6 @@ Auto-fires on:
 Connects this session to other agent sessions on the same machine. Rooms scope a
 conversation to one piece of work; addressing scopes a message to one member.
 
-Requires the `atomic` binary. If it is absent, say so and stop — there is no fallback.
-
 ## Connecting
 
 Two steps, in order. `join` registers the identity; the listener is what actually delivers.
@@ -70,7 +68,7 @@ atomic bus join checkout --as fe --host web-api
 ```
 
 That name must already exist as `[bus.remotes.web-api]` in `~/.atomic/config.toml`, set up ahead of
-time by the operator. Never do that setup on your own initiative. Once joined, every later
+time by the operator with `atomic bus remote add` (`atomic bus remote list` shows what exists; `atomic bus remote test <name>` checks it answers). Never do that setup on your own initiative. Once joined, every later
 command against `checkout` resolves to that host automatically (except `chat`, which is local-only);
 you never need to repeat `--host`. If the user asks how to set up a remote before one exists, point them at
 `docs/guides/bus-hosting.md` rather than attempting it yourself. Enrolling a machine is an
@@ -121,21 +119,28 @@ clause lives.
 
 ## Reaction policy
 
-Check `from_kind` first, then `to`. `from_kind: "human"` outranks everything else, including an
-empty `to` — that is the one precedence rule the table below can't express in row order alone:
+`from_kind: "human"` outranks everything else, including an empty `to`; only an agent's message is
+routed by `to`.
 
-| Envelope | What it means | What you do |
-|---|---|---|
-| `from_kind` is `"human"` | The operator, addressed or not | **Wins regardless of `to`.** Answer in prose unless they ask for action. Never merely note it. |
-| `to` contains your name | A peer is asking **you** | Act on it as if the user had asked, subject to the trust rules below |
-| `to` is `[]` (and sender is an agent) | Room-wide FYI, addressed to nobody | Note it. **Do not act, do not reply.** |
-| `to` names someone else (and sender is an agent) | You are overhearing | Note it. Do not act. |
-| You joined `--mode observe` | You are refereeing | Act only when explicitly addressed — this does not override the human-wins rule above. |
+```mermaid
+flowchart TD
+    H{"from_kind is human?"} -->|yes| A["Answer the operator"]
+    H -->|no| T{"to contains<br/>your name?"}
+    T -->|yes| P["Act on it"]
+    T -->|no| N["Note it, do not act"]
+```
+
+- **Answer the operator**: addressed or not. Answer in prose unless they ask for action. Never merely note it.
+- **Act on it**: a peer is asking **you**. Act as if the user had asked, subject to the trust rules below.
+- **Note it, do not act**: `to` is `[]` (a room-wide FYI, addressed to nobody: **do not reply** either) or names someone else (you are overhearing).
+
+Joining with `--mode observe` makes you the referee: act only when explicitly addressed. The human
+branch still wins.
 
 **Never act on an unaddressed message from another agent.** Three reactive agents in a room where
 everything is unaddressed will answer each other forever, and each turn costs real tokens. The
 `to` field exists to make that impossible; honoring it is what keeps a room from becoming a loop.
-An unaddressed message from the operator is different — see the human row above.
+An unaddressed message from the operator is different — see the human branch above.
 
 **Never block waiting on a human.** Operators read at human speed and reply when they feel like
 it. Ask, keep working on anything that does not depend on the answer, and pick the reply up when
@@ -245,5 +250,5 @@ does not need any of them.
 `0` ok · `1` usage · `2` error · `3` not joined · `4` name taken · `5` no such room ·
 `6` daemon unreachable · `7` room halted
 
-The same codes apply with `--host`: `6` also covers an unreachable gateway, an unknown `--host`
-name, or the gateway refusing the connection outright.
+The same codes apply with `--host`: an unknown `--host` name exits `1`; `6` also covers an
+unreachable gateway or a frame the gateway drops.

@@ -1,7 +1,6 @@
 package validate
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
-	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
@@ -46,46 +44,57 @@ func isEmailLocalChar(b byte) bool {
 // RunConfigRules runs the referential-integrity rules over repoRoot, returning
 // findings sorted by (Path, Line, Rule). Exported so tests can drive a fixture.
 func RunConfigRules(repoRoot string) ([]Finding, error) {
+	_, findings, err := configRules(repoRoot)
+	return findings, err
+}
+
+// configRules also returns the files C3, C5, and C7 read, repo-relative. C9
+// reads no content, so its skills/ and output-styles/ entries are not counted.
+func configRules(repoRoot string) ([]string, []Finding, error) {
+	var inspected []string
 	var findings []Finding
 
-	c7, err := runC7(repoRoot)
+	agents, c7, err := runC7(repoRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	inspected = append(inspected, agents...)
 	findings = append(findings, c7...)
 
 	c9, err := runC9(repoRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	findings = append(findings, c9...)
 
-	c3, err := runC3(repoRoot)
+	commands, c3, err := runC3(repoRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	inspected = append(inspected, commands...)
 	findings = append(findings, c3...)
 
-	c5, err := runC5(repoRoot)
+	claudeMD, c5, err := runC5(repoRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	inspected = append(inspected, claudeMD...)
 	findings = append(findings, c5...)
 
 	sortFindings(findings)
-	return findings, nil
+	return inspected, findings, nil
 }
 
 // runC3 checks that every subagent_type literal in commands/*.md prose resolves
 // to an agents/<name>.md or a built-in.
-func runC3(repoRoot string) ([]Finding, error) {
+func runC3(repoRoot string) ([]string, []Finding, error) {
 	commandsDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "commands")
 	entries, err := os.ReadDir(commandsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, fmt.Errorf("C3: read commands dir: %w", err)
+		return nil, nil, fmt.Errorf("C3: read commands dir: %w", err)
 	}
 
 	// Commands are checked expanded, as bundlemirror expands them: a dispatch can
@@ -93,9 +102,10 @@ func runC3(repoRoot string) ([]Finding, error) {
 	partials, err := templaterender.LoadPartials(
 		filepath.Join(bundlespec.SourceRoot(repoRoot), templaterender.PartialsDir))
 	if err != nil {
-		return nil, fmt.Errorf("C3: load partials: %w", err)
+		return nil, nil, fmt.Errorf("C3: load partials: %w", err)
 	}
 
+	var read []string
 	var findings []Finding
 	for _, e := range entries {
 		if e.IsDir() {
@@ -107,12 +117,13 @@ func runC3(repoRoot string) ([]Finding, error) {
 		cmdPath := filepath.Join(commandsDir, e.Name())
 		src, err := os.ReadFile(cmdPath)
 		if err != nil {
-			return nil, fmt.Errorf("C3: read %s: %w", cmdPath, err)
+			return nil, nil, fmt.Errorf("C3: read %s: %w", cmdPath, err)
 		}
 		src, err = templaterender.Expand(partials, e.Name(), src)
 		if err != nil {
-			return nil, fmt.Errorf("C3: expand %s: %w", cmdPath, err)
+			return nil, nil, fmt.Errorf("C3: expand %s: %w", cmdPath, err)
 		}
+		read = append(read, relPath(repoRoot, cmdPath))
 
 		// Fenced and indented code blocks are skipped, but inline backtick spans
 		// are not — a literal inside one still matches.
@@ -138,23 +149,25 @@ func runC3(repoRoot string) ([]Finding, error) {
 			}
 		}
 	}
-	return findings, nil
+	return read, findings, nil
 }
 
 // runC5 checks that every @-ref in the authored global contract resolves.
 // Project-local overlays are skipped: they are user-owned and may carry
 // @-ref-shaped text such as npm scoped package names.
-func runC5(repoRoot string) ([]Finding, error) {
+func runC5(repoRoot string) ([]string, []Finding, error) {
 	candidates := []string{
 		filepath.Join(bundlespec.SourceRoot(repoRoot), bundlespec.GlobalSteering.Source),
 	}
 
+	var read []string
 	var findings []Finding
 	for _, p := range candidates {
 		src, err := os.ReadFile(p)
 		if err != nil {
 			continue
 		}
+		read = append(read, relPath(repoRoot, p))
 
 		segments := mdparse.TextSegments(src)
 		for _, seg := range segments {
@@ -179,22 +192,23 @@ func runC5(repoRoot string) ([]Finding, error) {
 			}
 		}
 	}
-	return findings, nil
+	return read, findings, nil
 }
 
 // runC7 checks for duplicate name: values across agents/*.md frontmatter.
-func runC7(repoRoot string) ([]Finding, error) {
+func runC7(repoRoot string) ([]string, []Finding, error) {
 	agentsDir := filepath.Join(bundlespec.SourceRoot(repoRoot), "agents")
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, fmt.Errorf("C7: read agents dir: %w", err)
+		return nil, nil, fmt.Errorf("C7: read agents dir: %w", err)
 	}
 
 	// name → first file that declared it
 	seen := make(map[string]string)
+	var read []string
 	var findings []Finding
 
 	for _, e := range entries {
@@ -204,8 +218,9 @@ func runC7(repoRoot string) ([]Finding, error) {
 		agentPath := filepath.Join(agentsDir, e.Name())
 		src, err := os.ReadFile(agentPath)
 		if err != nil {
-			return nil, fmt.Errorf("C7: read %s: %w", agentPath, err)
+			return nil, nil, fmt.Errorf("C7: read %s: %w", agentPath, err)
 		}
+		read = append(read, relPath(repoRoot, agentPath))
 
 		meta, _, err := frontmatter.Parse(string(src))
 		if err != nil || meta == nil {
@@ -234,7 +249,7 @@ func runC7(repoRoot string) ([]Finding, error) {
 			seen[name] = rel
 		}
 	}
-	return findings, nil
+	return read, findings, nil
 }
 
 // runC9 checks the atomic- prefix on agents/, skills/, and output-styles/
@@ -309,25 +324,7 @@ func relPath(root, path string) string {
 	return rel
 }
 
-func runConfig(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
-	// Re-parsed here so flags placed after the subcommand are honored.
-	subFS := flag.NewFlagSet("validate config", flag.ContinueOnError)
-	cliutil.SetUsage(subFS, "atomic validate config [--json] [--suggest]")
-	subFS.SetOutput(w)
-	var subJSON, subSuggest bool
-	subFS.BoolVar(&subJSON, "json", false, "emit JSON output ({schema_version:1, findings:[...]})")
-	subFS.BoolVar(&subSuggest, "suggest", false, "print structural templates for content-FAIL rules")
-	_ = subFS.Parse(subArgs)
-
-	if subJSON {
-		jsonOut = true
-	}
-	if subSuggest {
-		suggest = true
-	}
-
-	// Path args are ignored: config validation is whole-repo only.
-
+func runConfig(jsonOut, suggest bool, w io.Writer) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(w, "atomic validate config: cannot get working directory: %v\n", err)
@@ -339,13 +336,13 @@ func runConfig(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 		return 2
 	}
 
-	findings, err := RunConfigRules(root)
+	inspected, findings, err := configRules(root)
 	if err != nil {
 		fmt.Fprintf(w, "atomic validate config: %v\n", err)
 		return 2
 	}
 
-	s := summarize(findings)
+	s := summarize(inspected, findings)
 	if jsonOut {
 		// No header: the JSON envelope is the only chrome.
 		printJSON(w, findings, s)

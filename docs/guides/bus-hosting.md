@@ -81,8 +81,8 @@ room's log. Mount one volume there and the gateway survives a restart with nothi
 ## Enroll a machine
 
 
-Enrollment is one command on the host and one paste on the client, and the gateway generates the
-key. To choose one key yourself and give it to every machine instead, see "Share one key" below.
+Enrollment is one command on the host and one on the client, and the gateway generates the key. To
+choose one key yourself and give it to every machine instead, see "Share one key" below.
 
 ```mermaid
 sequenceDiagram
@@ -91,8 +91,8 @@ sequenceDiagram
     participant C as client machine
 
     O->>G: atomic bus gateway enroll web-api
-    G-->>O: prints a [bus.remotes] TOML block, once
-    O->>C: paste it into ~/.atomic/config.toml
+    G-->>O: prints the key and a remote add line, once
+    O->>C: atomic bus remote add web-api --host … --key …
 ```
 
 On the host:
@@ -101,12 +101,14 @@ On the host:
 atomic bus gateway enroll web-api
 ```
 
-This prints a block like:
+This prints:
 
-```toml
+```
 [bus.remotes.web-api]
 host = "http://<this gateway's reachable host:port>"
 key  = "…"
+# or run on the client:
+#   atomic bus remote add web-api --host http://<host:port> --key …
 ```
 
 The scheme matters: a `host` with no `://` is treated as `https`, so a plain-HTTP gateway (the
@@ -118,25 +120,41 @@ you run (or will run) the gateway with — and it prints `https://` instead:
 atomic bus gateway enroll web-api --tls-cert cert.pem
 ```
 
-Replace the host after the scheme with the address the client machine reaches: the VPN address or
-the public hostname, matching whichever topology you deployed. Paste the block into
-`~/.atomic/config.toml` on the client machine. That machine can now reach any room on this gateway.
+On the client machine, run the printed `remote add` line without its leading `#`. Replace
+`<host:port>` with the address the client reaches: the VPN address or the public hostname, matching
+whichever topology you deployed. Run `atomic bus remote add` with no arguments instead to fill in name, host, key, and an
+optional CA file through a form. Either writes `[bus.remotes.web-api]` into
+`~/.atomic/config.toml`; pasting the block there by hand does the same. Check it:
 
-The name after `bus.remotes.` is a local label, the one you pass to `--host`; rename it freely. The
-key alone tells the gateway which machine is calling, so each machine gets its own enrollment. For a
-second machine, enroll it under a new name:
+```bash
+atomic bus remote test web-api
+```
+
+| Result | Meaning |
+|--------|---------|
+| `ok` | Address and key both work; this machine can reach any room on the gateway. |
+| `FAIL … EOF` | The gateway dropped the frame: a wrong or revoked key, or a clock off by more than two minutes. |
+| `FAIL … connection refused` | Wrong address, or the gateway is not running. |
+
+Run `atomic bus remote test` with no name to check every saved gateway. `atomic bus remote list`
+shows each one without its key, and `atomic bus remote remove <name>` deletes one.
+
+The name you give `remote add` is a local label, the one you pass to `--host`; it need not match the
+enrolled name. The key alone tells the gateway which machine is calling, so each machine gets its
+own enrollment. For a second machine, enroll it under a new name:
 
 ```bash
 atomic bus gateway enroll web-api-b
 ```
 
-Paste that block on the second machine with its table renamed from `[bus.remotes.web-api-b]` to
-`[bus.remotes.web-api]`. Both machines now reach this gateway with `--host web-api`, and
-`atomic bus gateway revoke web-api-b` cuts off the second machine without touching the first.
+On the second machine, run `atomic bus remote add web-api --host … --key <web-api-b's key>`. Both
+machines now reach this gateway with `--host web-api`, and `atomic bus gateway revoke web-api-b` cuts
+off the second machine without touching the first.
 
 The key is printed exactly once. If you lose it, enroll a new name; there is no way to recover a key
 from the store afterward. `enroll` refuses a name that already has a key, because `revoke` removes
-every key under a name. To rotate a key, enroll a new name, paste its block, then revoke the old one.
+every key under a name. To rotate a key, enroll a new name, run `atomic bus remote add --force` with
+its key on the client, then revoke the old one.
 
 
 ## Share one key
@@ -150,12 +168,10 @@ export ATOMIC_BUS_KEY=$(openssl rand -hex 32)
 atomic bus gateway --addr :8443
 ```
 
-Every client gets the same block:
+Every client adds it with the same key:
 
-```toml
-[bus.remotes.web-api]
-host = "http://bus.example.com:8443"
-key  = "<the same 64 hex characters>"
+```bash
+atomic bus remote add web-api --host http://bus.example.com:8443 --key <the same 64 hex characters>
 ```
 
 Sharing trades away per-machine control:
@@ -203,8 +219,8 @@ docker build -t atomic-bus .
 docker run -d --name atomic-bus -p 8443:8443 -v atomic-bus:/home/atomic/.atomic -e ATOMIC_BUS_KEY atomic-bus
 ```
 
-Give each client the block from "Share one key" with that value. To enroll machines instead, leave
-`ATOMIC_BUS_KEY` out and run `docker exec atomic-bus atomic bus gateway enroll <name>`.
+On each client, run the `remote add` line from "Share one key" with that value. To enroll machines
+instead, leave `ATOMIC_BUS_KEY` out and run `docker exec atomic-bus atomic bus gateway enroll <name>`.
 
 
 ## Join from two machines
@@ -279,16 +295,13 @@ streaming verb like `recv` or `tail` to work:
 Give the client its own certificate only if the proxy's certificate is not in the system trust
 store: a self-signed cert, or an internal CA.
 
-```toml
-[bus.remotes.web-api]
-host = "https://bus.example.com"
-key  = "…"
-ca   = "~/.atomic/bus/web-api-ca.pem"
+```bash
+atomic bus remote add web-api --host https://bus.example.com --key … --ca ~/.atomic/bus/web-api-ca.pem
 ```
 
 `enroll` on this host prints `http://`, since the gateway process itself still speaks plain HTTP —
-it has no way to know a proxy sits in front terminating TLS. Change the scheme to `https://` and the
-host to the proxy's public address by hand; leave `ca` out entirely when the proxy's certificate is
+it has no way to know a proxy sits in front terminating TLS. Give `remote add` the `https://` scheme
+and the proxy's public address instead; leave `--ca` out entirely when the proxy's certificate is
 publicly trusted.
 
 
@@ -336,6 +349,7 @@ own clock, in either direction. Keep the host and every client machine's clock w
 NTP, or whatever time sync your platform already runs, is enough.
 
 A machine whose clock has drifted past the window cannot connect, and the failure is silent: no
-error naming the skew, only a frame the gateway drops with nothing written back. From the client's
-side that is indistinguishable from the gateway being down entirely. If a machine that enrolled
-successfully suddenly cannot reach any room, check its clock before anything else.
+error naming the skew, only a frame the gateway drops with nothing written back. `atomic bus remote
+test` reports it as `EOF`, the same as a wrong key, while a stopped gateway shows as `connection
+refused`. If a machine that enrolled successfully starts failing with `EOF`, check its clock before
+anything else.

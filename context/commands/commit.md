@@ -17,16 +17,34 @@ Token → escalation mapping:
 | `squash` (without `merge`) | commit + squash branch |
 | `squash merge` (both tokens) | commit + squash + merge to base |
 
-If the args contain none of the tokens above, run the commit step, then prompt (see "Interactive path" below).
+## Route
+
+The commit always runs first when there is something to commit, and a token decides how far to ship without asking.
+
+```mermaid
+flowchart TD
+    C{"Anything to commit?"} -->|yes| K["Commit"]
+    C -->|no| H{"Ahead of base?"}
+    H -->|no| S["Stop"]
+    H -->|yes| T{"Escalation token?"}
+    K --> T
+    T -->|no| Q["Ask: ship further?"]
+    T -->|yes| X["Escalation path"]
+    Q -->|Done| S
+    Q -->|other| X
+```
+
+- **Commit**: the `## Commit` section.
+- **Ask: ship further?**: the `## Interactive path` prompt. Drop its "Committed." line when no commit ran.
+- **Escalation path**: the `###` section under `## Escalation` that matches the token or the answer.
 
 ## Commit
 
 {{ template "commit-flow" . }}
 
-If nothing to commit and branch has commits ahead of base, skip to the escalation step.
-If nothing to commit and branch is up to date with base, stop.
-
 ## Escalation
+
+A `Stop` node ends the verb. A `Skip` inside a gate (review, doc impact, signals refresh) stays inside that gate. Any other `Skip` ends its whole ship step (all of push, or all of squash including its steps); the path's next ship step runs, and when none follows, the verb ends.
 
 <constraints>
 If there is an open PR and the escalation requires a merge, the new commit must be pushed before `gh pr merge` so the server-side merge includes it. Push to the PR's existing branch — do not create a new PR.
@@ -58,7 +76,7 @@ If there is an open PR and the escalation requires a merge, the new commit must 
 
 ## Interactive path
 
-If no escalation token was present in args, after the commit completes, ask the user:
+Ask the user:
 
 > Committed. Ship further?
 > - Done — just the commit
@@ -66,7 +84,5 @@ If no escalation token was present in args, after the commit completes, ask the 
 > - Open PR
 > - Merge to base
 > - Squash + merge
-
-Route the answer to the matching escalation path above. "Done" stops immediately.
 
 {{ template "git-safety" . }}

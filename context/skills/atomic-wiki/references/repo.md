@@ -21,7 +21,7 @@ Every sentence in a signals file must be verifiable by reading the source. If it
 
 ### Step 1 — Scan
 
-Run `atomic signals scan`. This writes `docs/wiki/scan.md` and copies the prior content to `tmp/.scan.prev.md` (gitignored). The `tmp/.scan.prev.md` copy is a fallback diff source for environments where git is unavailable; in repos with a committed `docs/wiki/scan.md`, the scope-computation step (Step 2b) uses `git diff HEAD -- docs/wiki/scan.md` as the canonical diff baseline instead.
+Run `atomic signals scan`. This writes `docs/wiki/scan.md` and copies the prior content to `tmp/.scan.prev.md` (gitignored). The `tmp/.scan.prev.md` copy is a fallback diff source for environments where git is unavailable; in repos with a committed `docs/wiki/scan.md`, the scope-computation step (Step 2b) uses `git diff HEAD -- docs/wiki/scan.md` as the canonical diff baseline instead. When `atomic signals scan` exits non-zero, quote its error and end the run without inferring.
 
 ### Step 2 — Read inputs
 
@@ -35,15 +35,27 @@ Naming continuity check: read existing `docs/wiki/*.md` domain filenames (exclud
 
 Determine `scope` (`full` or `incremental`) once, before any sub-dispatch. If the caller already passed `scope: full` or `scope: incremental` in the dispatch brief, use that value and skip this step. `first_run: true` in the brief is equivalent to `scope: full`.
 
-**Decision tree (stop at the first match):**
+The first decision that fires sets `scope`; only a small diff against a committed, matching `scan.md` yields `incremental`.
 
-1. **No prior `docs/wiki/index.md`** → `scope = full` (first run; no diff baseline exists).
-2. **`<scan-sha>` tiebreaker** — Read the `<scan-sha>` value stored in `docs/wiki/index.md` (the blob SHA written at the last successful INFER). Run `git rev-parse HEAD:docs/wiki/scan.md` to get the committed blob SHA of the current `scan.md`. If the two values differ, `docs/wiki/scan.md` was committed without a matching re-infer (double-scan or stale-scan) → `scope = full`. **This check is the sole purpose of `<scan-sha>`; it is not consulted in any other staleness decision.**
-3. **Git diff line-delta** — Run `git diff HEAD -- docs/wiki/scan.md` to compare the committed `scan.md` against the working-tree `scan.md`. Count lines added plus lines removed. If the delta exceeds ~20% of the committed file's total line count → `scope = full` (large change; full re-infer is safer). Otherwise → `scope = incremental`.
+```mermaid
+flowchart TD
+    I{"Prior index.md?"} -->|no| F["scope = full"]
+    I -->|yes| S{"scan-sha vs<br/>HEAD blob?"}
+    S -->|differ| F
+    S -->|match| D{"Line delta<br/>over ~20%?"}
+    D -->|yes| F
+    D -->|no| N["scope = incremental"]
+    S -->|rev-parse fails| W["Log warning"]
+    W --> G{"Stale check exit?"}
+    G -->|1| F
+    G -->|0| K["Skip infer"]
+```
 
-**Fallback (git unavailable or scan.md not yet committed):**
-
-When `git rev-parse HEAD:docs/wiki/scan.md` exits non-zero (scan.md is untracked, the repo has no such commit, or the working tree is not a git repo at all), log a warning: `"git diff unavailable for docs/wiki/scan.md; defaulting to full re-infer"`. Set `scope = full`. Consult `atomic signals stale` as a sanity gate: exit 0 (content-hash fresh) → nothing changed, infer can be skipped entirely; exit 1 (stale) → proceed. The `tmp/.scan.prev.md` copy written by Step 1 remains available as the change-set source for any future incremental path in this environment; it is not used when scope is `full`.
+- **Prior index.md?**: `docs/wiki/index.md`. Without it this is a first run, with no diff baseline.
+- **scan-sha vs HEAD blob?**: compare the `<scan-sha>` value stored in `docs/wiki/index.md` (the blob SHA written at the last successful INFER) with `git rev-parse HEAD:docs/wiki/scan.md`. Differing values mean `docs/wiki/scan.md` was committed without a matching re-infer (double-scan or stale-scan). **This check is the sole purpose of `<scan-sha>`; it is not consulted in any other staleness decision.** `rev-parse` exits non-zero when scan.md is untracked, the repo has no such commit, or the working tree is not a git repo at all.
+- **Line delta over ~20%?**: `git diff HEAD -- docs/wiki/scan.md` compares the committed `scan.md` against the working-tree `scan.md`. Count lines added plus lines removed against the committed file's total line count; a large change makes a full re-infer safer.
+- **Log warning**: `"git diff unavailable for docs/wiki/scan.md; defaulting to full re-infer"`.
+- **Stale check exit?**: `atomic signals stale` as a sanity gate. Exit 0 (content-hash fresh) means nothing changed. The `tmp/.scan.prev.md` copy written by Step 1 remains available as the change-set source for any future incremental path in this environment; it is not used when scope is `full`.
 
 ### Step 3 — Infer domain partitioning (vertical slices)
 
@@ -51,7 +63,7 @@ Partition by functional concern, not by file type or directory structure. Each d
 
 Heuristic: identify commands, skills, or agents that form a cohesive unit. Find the Go packages that serve them and the docs that describe them. Things that break together belong together. Structural signals (top-level dirs, workspaces, co-located tests) inform the grouping but do not dictate it.
 
-**Code-intel corroboration (when index is present).** If `.claude/.atomic-index/atomic.db` exists and `atomic` is on PATH, query the real import and call graph to corroborate and refine the grouping. Actual dependency edges are stronger evidence for domain boundaries than directory names: files that import each other heavily, or that share a dense call cluster, belong in the same domain even if their paths look disparate. Use broader structural queries here — the inferrer is a disposable subagent consuming output to produce a compact `docs/wiki/index.md`, not a bounded one-symbol probe. Queries to consider: `atomic code explore "<domain or subsystem>"` for a one-shot context digest of an area, `atomic code callers <entrypoint> --json` to find all consumers of a key symbol, or `atomic code callees <package-init> --json` to map what a package depends on. If the index, the DB, or the binary is absent, fall back fully to the filename/path heuristics above — code-intel is corroborating evidence, never a hard dependency.
+**Code-intel corroboration (when index is present).** If `.claude/.atomic-index/atomic.db` exists, query the real import and call graph to corroborate and refine the grouping. Actual dependency edges are stronger evidence for domain boundaries than directory names: files that import each other heavily, or that share a dense call cluster, belong in the same domain even if their paths look disparate. Use broader structural queries here — the inferrer is a disposable subagent consuming output to produce a compact `docs/wiki/index.md`, not a bounded one-symbol probe. Queries to consider: `atomic code explore "<domain or subsystem>"` for a one-shot context digest of an area, `atomic code callers <entrypoint> --json` to find all consumers of a key symbol, or `atomic code callees <package-init> --json` to map what a package depends on. If the index DB is absent, fall back fully to the filename/path heuristics above — code-intel is corroborating evidence, never a hard dependency.
 
 Record the partitioning basis as the one-line intro above the router's `## Domains` table.
 
@@ -81,6 +93,7 @@ Design docs for this domain: <list, or none>
 
 <instructions>
 - Signals are FACTS about current state — not instructions, rules, or intent. Every sentence must be verifiable by reading a source file.
+- Never count things in the repo. `atomic-writing` rule 17 has the list; a version or a documented contract value is not a count.
 - Read the actual source files listed above. Do not infer from filenames alone.
 - Skip any entries marked [generated].
 - Write a domain file conforming to the domain file schema below.
@@ -164,11 +177,24 @@ Check:
 - OKF frontmatter present (`type: Domain` and `description:`) at the top of the file.
 - No @-refs (repo-root-relative paths in backticks only — a code linkify step renders them to relative links later; a `[text](path)` link is not an @-ref).
 - Fact-shaped, not steering-shaped.
+- No count of things in the repo, anywhere on the page, including diagram labels and table cells (`atomic-writing` rule 17 has the list). Any such number is `CHANGES_REQUESTED`, named. The only exceptions are a version and a documented contract value.
 
 Return VERDICT: PASS or VERDICT: CHANGES_REQUESTED with specific corrections."
 ```
 
-If reviewer returns `CHANGES_REQUESTED`, dispatch the sub-agent again with the reviewer's corrections. Iterate until `PASS`. Maximum 3 iterations per domain before flagging as unresolved and continuing. Report the unresolved domain and its iteration count in the Step 9 orchestrator output — that is run state for the caller, not a fact about the codebase, so it stays out of the committed wiki files.
+A domain file is rewritten until the reviewer passes it, at most three rounds, and an unresolved domain does not stop the run.
+
+```mermaid
+flowchart TD
+    W["Writer writes<br/>domain file"] --> R{"Reviewer verdict?"}
+    R -->|PASS| N["Next domain"]
+    R -->|CHANGES_REQUESTED| I{"Third round?"}
+    I -->|no| W
+    I -->|yes| F["Flag unresolved,<br/>continue"]
+```
+
+- **Writer writes domain file**: on a repeat round, dispatch the sub-agent again with the reviewer's corrections.
+- **Flag unresolved, continue**: report the unresolved domain and its iteration count in the Step 9 orchestrator output — that is run state for the caller, not a fact about the codebase, so it stays out of the committed wiki files.
 
 ### Step 6 — Wire cross-domain references
 
@@ -230,7 +256,23 @@ Then write the router body (see **Router shape** below) starting with `# Project
 
 After `docs/wiki/index.md` is assembled, emit one path-scoped pointer card per domain to `<state-root>/rules/wiki/<domain>.md`, where `<state-root>` is the selected repository-state root (`.claude` by default). These are the canonical wiki-producer rule records: each card is parsed through the `rules` package as `rules/wiki/<domain>.md` with identity `wiki:<project-key>:<domain>`, and the harness's native `paths:` glob match injects it into context whenever a session touches that domain, so the session gets a link to the domain's wiki page without loading wiki content by default.
 
-**Scope.** Bootstrap (`<state-root>/rules/wiki/` absent, or holds no cards): first run Step 3's domain partition for every router-table domain (classification only, no writer dispatch), giving each domain a disjoint `<source_paths>` block to derive its card's globs from, then emit a card for every domain regardless of `scope`. No fallback to the Start-here directory or any other approximation; a domain with no `<source_paths>` after the partition is a pipeline error to report, not a guess. Otherwise (cards already exist): `scope: full` emits every domain's card; `scope: incremental` emits only the cards of domains re-dispatched this run, leaving a non-re-dispatched domain's card and `paths:` untouched until its next re-dispatch. In all cases, delete any card whose domain is absent from the current router table.
+**Scope.** Only an incremental run over existing cards emits a subset; every path ends by deleting the cards of domains the router no longer lists.
+
+```mermaid
+flowchart TD
+    C{"Cards exist?"} -->|no| P["Partition every<br/>router domain"]
+    P --> A["Emit every card"]
+    C -->|yes| S{"scope?"}
+    S -->|full| A
+    S -->|incremental| R["Emit re-dispatched<br/>domains' cards"]
+    A --> D["Delete orphan cards"]
+    R --> D
+```
+
+- **Cards exist?**: no when `<state-root>/rules/wiki/` is absent or holds no cards (bootstrap).
+- **Partition every router domain**: Step 3's domain partition for every router-table domain (classification only, no writer dispatch), giving each domain a disjoint `<source_paths>` block to derive its card's globs from. No fallback to the Start-here directory or any other approximation; a domain with no `<source_paths>` after the partition is a pipeline error to report, not a guess.
+- **Emit re-dispatched domains' cards**: a non-re-dispatched domain's card and `paths:` stay untouched until its next re-dispatch.
+- **Delete orphan cards**: any card whose domain is absent from the current router table.
 
 **Card contract.** One file per domain, wholly pipeline-owned:
 
@@ -270,18 +312,19 @@ Consult the map before changing behavior here. Behavior changes stale the pages 
 
 Only `docs/wiki/index.md` is `@-ref`'d — it is the compact router that every session needs. `docs/wiki/scan.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. The wiki steering file is also NOT `@-ref`'d — it lazy-loads as nested memory whenever the harness reads a file under `docs/wiki/`.
 
-Check, in order, for `@docs/wiki/index.md` in any of:
+The ref is appended only when no candidate file carries it, and the project-local override file wins over the shared steering `AGENTS.md` when it exists.
 
-- a project-local override steering file (gitignored — preferred when present)
-- the shared project steering `AGENTS.md`
-- the native `CLAUDE.md` loader alongside it
+```mermaid
+flowchart TD
+    F{"Ref in any<br/>candidate file?"} -->|yes| K["Skip this step"]
+    F -->|no| L{"Override file exists?"}
+    L -->|yes| A["Append to override file"]
+    L -->|no| C["Append to AGENTS.md"]
+```
 
-If the ref is found in ANY of those files, the wiring is already done — skip this step entirely.
-
-If no file contains the ref:
-
-- If a project-local override steering file exists, append the block to it (preferred).
-- Else, append to the shared project steering `AGENTS.md` (create it only if it does not exist and the repo has `docs/wiki/`).
+- **Ref in any candidate file?**: check, in order, for `@docs/wiki/index.md` in a project-local override steering file (gitignored — preferred when present), the shared project steering `AGENTS.md`, and the native `CLAUDE.md` loader alongside it.
+- **Append to override file**: the project-local override steering file, when one exists (preferred).
+- **Append to AGENTS.md**: the shared project steering `AGENTS.md`; create it only if it does not exist and the repo has `docs/wiki/`.
 
 **Placement:** position the `@-ref` block BEFORE behavioral rules/instructions in the target file. Signals are reference data (facts about the codebase), not instructions.
 
@@ -311,7 +354,7 @@ atomic signals linkify
 
 This renders every repo-root-relative backtick path citation that resolves on disk (in `docs/wiki/index.md` and every `docs/wiki/*.md` domain file, excluding `docs/wiki/scan.md` and the wiki steering file) into a file-relative markdown link `[`path`](relpath)`. Base = repo root. It is idempotent — re-running produces a byte-identical file. Fenced code blocks are never touched, and a `[text](path)` link is not an @-ref.
 
-Run this in **both** interactive and silent modes. (Realm wiki-output mode does NOT run it — `/refresh-wiki` runs `atomic wiki linkify` post-stamp instead.)
+Run this in **both** interactive and silent modes. (Realm wiki-output mode does NOT run it — `/refresh-wiki` runs `atomic wiki linkify` after the realm pass instead.)
 
 ### Step 8c — Bootstrap the wiki steering scaffold (first run only)
 
@@ -339,11 +382,19 @@ In **silent mode**, produce no output beyond writing the files.
 
 Triggered when: Step 2b produced `incremental` (prior `docs/wiki/index.md` exists, `<scan-sha>` tiebreaker did not fire, and git diff line-delta is below the threshold), and the caller did not override to `full`.
 
-The **change set** (the set of repo paths that changed) is sourced, in priority order:
+The **change set** (the set of repo paths that changed) comes from the first source available: a caller's range, then the git scan diff, then the prior-scan copy.
 
-1. **`changed_range` from caller** — when `changed_range: <from>..<to>` was passed in the brief, run `git diff --name-only <from>..<to>` unioned with `git diff --name-only <from>` for uncommitted changes. This scopes by code-change range rather than scan-diff range.
-2. **`git diff HEAD -- docs/wiki/scan.md`** (primary, git available) — extract the repo paths that appear in added or removed lines of the committed→working-tree scan diff.
-3. **`tmp/.scan.prev.md` vs `docs/wiki/scan.md` diff** (fallback, git unavailable) — compare the two files line-by-line to extract changed repo paths.
+```mermaid
+flowchart TD
+    R{"changed_range<br/>passed?"} -->|yes| C["Diff the range"]
+    R -->|no| G{"git available?"}
+    G -->|yes| S["Diff scan.md<br/>against HEAD"]
+    G -->|no| P["Diff the prior<br/>scan copy"]
+```
+
+- **Diff the range**: for `changed_range: <from>..<to>`, run `git diff --name-only <from>..<to>` unioned with `git diff --name-only <from>` for uncommitted changes. This scopes by code-change range rather than scan-diff range.
+- **Diff scan.md against HEAD**: `git diff HEAD -- docs/wiki/scan.md`; extract the repo paths that appear in added or removed lines of the committed→working-tree scan diff.
+- **Diff the prior scan copy**: compare `tmp/.scan.prev.md` and `docs/wiki/scan.md` line-by-line to extract changed repo paths.
 
 Once the change set is available:
 
@@ -360,23 +411,11 @@ Triggered when: no prior `docs/wiki/index.md` exists (first run), the `<scan-sha
 Run the complete pipeline across all inferred domains.
 
 
-## Fallback flow (no binary)
-
-When the caller indicates the `atomic` binary is absent (or when `atomic signals scan` fails):
-
-1. Skip the staleness check — always regenerate.
-2. Run `find . -type f -not -path './node_modules/*' -not -path './.git/*' | head -200 > docs/wiki/scan.md`.
-3. Skip the inferrer — it requires structured input from the binary.
-4. Print: `fallback mode produced a tree-only signals doc. install atomic for full functionality.`
-
-The fallback is deliberately limited.
-
-
 ## Router shape
 
 `docs/wiki/index.md` is a complete orientation document. Two zones:
 
-**Zone 1 — Orientation, then the map.** Fixed cost, does not scale with repo size. Lead with what the repo *is* and how its pieces flow, so a reader who has never opened it can place everything that follows; put the domain map next, because that is what a session actually navigates by. Reference detail (stack, commands, counts) sits below the map — needed, but not what someone reads first.
+**Zone 1 — Orientation, then the map.** Fixed cost, does not scale with repo size. Lead with what the repo *is* and how its pieces flow, so a reader who has never opened it can place everything that follows; put the domain map next, because that is what a session actually navigates by. Reference detail (stack, commands) sits below the map — needed, but not what someone reads first.
 
 ```markdown
 # Project signals
@@ -406,12 +445,6 @@ The fallback is deliberately limited.
 <command table rows>
 
 <CI gate notes>
-
-## Language breakdown
-
-| Language | LOC | Files | % |
-|----------|-----|-------|---|
-<rows from deterministic scan>
 
 ## DevOps & CI
 
@@ -444,11 +477,11 @@ Write every path citation — the `Start here` column AND the `Detail` column �
 
 The router is `@-ref`'d into every session; domain files are read on demand. That split is the budget model — the router's cost is paid on every turn of every session, a domain file's cost only when a task reaches for it. Write each fact where the session that needs it will find it, so the model pulls detail as the task requires it instead of carrying all of it from the first turn.
 
-- **R1 — Put a fact where it is discovered.** A fact about one domain belongs in that domain's file, where the session working on that domain will read it. The router carries what every session needs regardless of task: stack, build commands, language mix, and the map of where to look next.
+- **R1 — Put a fact where it is discovered.** A fact about one domain belongs in that domain's file, where the session working on that domain will read it. The router carries what every session needs regardless of task: stack, build commands, and the map of where to look next.
 - **R2 — Cross-domain facts live in the `## Coupling` section of the domain that owns them.** A session reading about the code graph learns there how it relates to the skills that drive it, at the moment that relationship matters. State the fact once in the owning domain; from other domains, point at it.
 - **R3 — Touch only what changed.** A section whose facts still hold is left exactly as it is — an idempotent refresh produces a byte-identical file. Rewrite a section only when a fact in it no longer holds.
-- **R4 — The router describes the present.** Commit SHAs, branch names, PR numbers, and LOC deltas between refreshes answer "how did this get here" — `git log` answers that on demand, better. A present-tense "known stale" note naming a doc that contradicts current code is a current fact and stays.
-- **R5 — Language breakdown is the scan's table**, plus at most 2 lines on how the numbers are counted.
+- **R4 — The router describes the present.** Commit SHAs, branch names, and PR numbers answer "how did this get here" — `git log` answers that on demand, better. A present-tense "known stale" note naming a doc that contradicts current code is a current fact and stays.
+- **R5 — No counts.** The router carries no LOC total, percentage, or count of repo things. `atomic-writing`'s rule 17 states the ban and its version-and-contract-value boundary.
 - **R6 — A changed fact is rewritten where it is stated.** Edit the sentence that is now wrong rather than appending a paragraph describing the change — an appended delta leaves both the stale claim and its correction in context, and the reader cannot tell which one is current. The router states current truth; its history lives in git. (Same body-is-truth standard `rules/specs/spec-currency.md` applies to `docs/spec/**`.)
 - **R7 — One row per domain** in the `## Domains` table. Dedupe by domain name before writing; merge duplicates into the newer description.
 - **R8 — Budget: ~200 lines.** The router points and summarizes; detail lives one hop away. Over budget, shorten the pointers — the domain map stays complete.
@@ -562,4 +595,4 @@ The deterministic substrate (`docs/wiki/scan.md`) is written by the scan step. N
 - Never write `@-refs` in domain files or the router's Detail column — write repo-root-relative paths in backticks; `atomic signals linkify` renders them to file-relative markdown links (a `[text](path)` link is not an `@-ref`). **Why:** `@-refs` are eager and transitive — they load the referenced file into every session that reads signals, defeating the lazy-load budget model; relative links are inert until explicitly `Read`.
 - Never modify files outside `docs/wiki/`, `<state-root>/rules/wiki/` (per-domain pointer cards), an ignore file's rules/wiki negation append, or the single `@-ref` target file for wiring. **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
 - Errors quoted exact. No paraphrasing. **Why:** paraphrased errors lose the exact token needed to `grep` for the root cause.
-- Never block a commit — if the scan fails, log and continue. **Why:** signals are supplemental context, not a build gate.
+- Never block a commit — if the scan fails, log it and end the run; the commit proceeds. **Why:** signals are supplemental context, not a build gate.

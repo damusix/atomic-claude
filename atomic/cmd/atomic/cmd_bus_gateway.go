@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bus"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/gateway"
 )
 
@@ -69,11 +70,11 @@ func gatewayAction(args []string, home string, out, errOut io.Writer) int {
 
 	store := gateway.NewStore(gatewayKeysPath(home))
 	if v := os.Getenv(gatewayKeyEnv); v != "" {
-		key, err := hex.DecodeString(v)
-		if err != nil || len(key) != 32 {
+		if config.ValidateBusRemoteKey(v) != nil {
 			fmt.Fprintf(errOut, "atomic bus gateway: %s must be 64 hex characters; generate one with: openssl rand -hex 32\n", gatewayKeyEnv)
 			return int(bus.ExitUsage)
 		}
+		key, _ := hex.DecodeString(v)
 		store.Pin(gatewayKeyEnv, key)
 	}
 
@@ -132,6 +133,10 @@ func gatewayEnrollAction(args []string, home string, out, errOut io.Writer) int 
 		return int(bus.ExitUsage)
 	}
 	name := positional[0]
+	if err := config.ValidateBusRemoteName(name); err != nil {
+		fmt.Fprintf(errOut, "atomic bus gateway enroll: %v\n", err)
+		return int(bus.ExitUsage)
+	}
 
 	store := gateway.NewStore(gatewayKeysPath(home))
 	rec, err := store.Enroll(name)
@@ -147,7 +152,9 @@ func gatewayEnrollAction(args []string, home string, out, errOut io.Writer) int 
 	if certFile != "" {
 		scheme = "https"
 	}
-	fmt.Fprintf(out, "[bus.remotes.%s]\nhost = %q\nkey  = %q\n", name, scheme+"://<this gateway's reachable host:port>", hex.EncodeToString(rec.Key))
+	key := hex.EncodeToString(rec.Key)
+	fmt.Fprintf(out, "[bus.remotes.%s]\nhost = %q\nkey  = %q\n", name, scheme+"://<this gateway's reachable host:port>", key)
+	fmt.Fprintf(out, "# or run on the client:\n#   atomic bus remote add %s --host %s://<host:port> --key %s\n", name, scheme, key)
 	return int(bus.ExitOK)
 }
 

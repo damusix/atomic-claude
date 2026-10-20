@@ -6,7 +6,9 @@ package wiki
 
 import (
 	"embed"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,81 +24,65 @@ var bucketTemplatesFS embed.FS
 func bucketTemplate(name string) (string, error) {
 	data, err := bucketTemplatesFS.ReadFile("templates/" + name + ".md")
 	if err != nil {
-		return "", fmt.Errorf("bucket doc: embedded template %q: %w", name, err)
+		return "", fmt.Errorf("embedded template %q: %w", name, err)
 	}
 	return string(data), nil
 }
 
-// slugPattern matches knowledge topic naming — see docs/spec/wiki-buckets.md.
+// slugPattern is the bucket-doc slug contract in docs/spec/bucket-icm-structure.md.
 var slugPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 func validateSlug(slug string) error {
 	if !slugPattern.MatchString(slug) {
-		return fmt.Errorf("bucket doc: invalid slug %q — must match [a-z0-9-]+ (lowercase letters, digits, hyphens)", slug)
+		return fmt.Errorf("invalid slug %q — must match [a-z0-9-]+ (lowercase letters, digits, hyphens)", slug)
+	}
+	if skipDirs[slug] {
+		return fmt.Errorf("slug %q names a folder the bucket index skips", slug)
 	}
 	return nil
 }
 
-// ScaffoldBucketDoc writes <bucketDir>/<slug>.md, and with router also its
-// sibling subtree. An existing <slug>.md aborts before any write, so a
-// collision never leaves a half-built router behind.
-func ScaffoldBucketDoc(bucketDir, slug string, router bool, now time.Time) (string, error) {
+// ScaffoldBucketDoc writes <slug>/index.md and <slug>/01_raw/index.md under
+// bucketDir, returning the first. Any existing <slug> path aborts before a write.
+func ScaffoldBucketDoc(bucketDir, slug string, now time.Time) (string, error) {
 	if err := validateSlug(slug); err != nil {
 		return "", err
 	}
 
-	target := filepath.Join(bucketDir, slug+".md")
-	if _, err := os.Lstat(target); err == nil {
-		return "", fmt.Errorf("bucket doc: %s already exists — refusing to overwrite", target)
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("bucket doc: stat %s: %w", target, err)
+	slugDir := filepath.Join(bucketDir, slug)
+	if err := os.Mkdir(slugDir, 0o755); errors.Is(err, fs.ErrExist) {
+		return "", fmt.Errorf("%s already exists — refusing to overwrite", slugDir)
+	} else if err != nil {
+		return "", err
 	}
-
-	tmpl, err := bucketTemplate("bucket-doc")
-	if err != nil {
+	// slugDir is this call's own, so removing it loses nothing and keeps a
+	// retry from refusing a half-built folder.
+	fail := func(err error) (string, error) {
+		if rmErr := os.RemoveAll(slugDir); rmErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove partial %s: %w", slugDir, rmErr))
+		}
 		return "", err
 	}
 
-	content := strings.NewReplacer(
+	replacer := strings.NewReplacer(
 		"{{CREATED}}", now.Format("2006-01-02"),
 		"{{TITLE}}", slug,
-	).Replace(tmpl)
-
-	if err := writeFileAtomic(target, []byte(content)); err != nil {
-		return "", err
+	)
+	files := []struct{ template, path string }{
+		{"bucket-doc", filepath.Join(slugDir, "index.md")},
+		{"bucket-stage", filepath.Join(slugDir, "01_raw", "index.md")},
 	}
-
-	if router {
-		if err := routerScaffold(bucketDir, slug); err != nil {
-			return "", err
+	for _, f := range files {
+		tmpl, err := bucketTemplate(f.template)
+		if err != nil {
+			return fail(err)
+		}
+		if err := writeFileAtomic(f.path, []byte(replacer.Replace(tmpl))); err != nil {
+			return fail(err)
 		}
 	}
 
-	return target, nil
-}
-
-// routerScaffold creates the <slug>/ subtree and its CLAUDE.md stub, never
-// overwriting either.
-func routerScaffold(bucketDir, slug string) error {
-	subtreeDir := filepath.Join(bucketDir, slug)
-	if err := os.MkdirAll(subtreeDir, 0o755); err != nil {
-		return fmt.Errorf("bucket doc: mkdir %s: %w", subtreeDir, err)
-	}
-
-	claudePath := filepath.Join(subtreeDir, "CLAUDE.md")
-	if _, err := os.Lstat(claudePath); err == nil {
-		return nil // already present — never overwrite
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("bucket doc: stat %s: %w", claudePath, err)
-	}
-
-	tmpl, err := bucketTemplate("bucket-router-claude")
-	if err != nil {
-		return err
-	}
-	content := strings.ReplaceAll(tmpl, "{{SLUG}}", slug)
-
-	return writeFileAtomic(claudePath, []byte(content))
+	return files[0].path, nil
 }
 
 // ScaffoldBucketSkill writes the bucket's per-realm SKILL.md. A pre-existing

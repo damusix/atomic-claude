@@ -26,7 +26,7 @@ Add to the agent's **Caller-provided context** list:
 Wire it into the **Incremental vs full mode → Incremental** section: step 1's changed-paths
 source becomes "the `changed_range` git diff when the caller supplied one, else the prev/current
 `docs/wiki/scan.md` diff." No other incremental logic changes. `changed_range` is
-ignored in wiki-output and bucket-synthesis modes (those have their own pipelines).
+ignored in wiki-output mode (it has its own pipeline).
 
 ### C2 — Commit-time gate skips docs-only commits (partial: `signals-gate`)
 
@@ -57,13 +57,11 @@ refreshed: a fresh stored signals file returns exit 0.
   1 and store it in `STATE.md` as `Loop base SHA: <sha>`. This is the `from-sha` for the range.
 - **Phase 3 finalize — new step, after `/documentation`, before deleting `$SCRATCH`:** refresh
   signals scoped to the loop's range.
-  1. `command -v atomic` absent → skip.
-  2. `atomic signals stale` exit 0 → skip (nothing material changed). Exit 2 → report + skip.
-  3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and
-     `changed_range: <loop-base>..HEAD` (HEAD after docs commits). Run `atomic wiki mark-dirty`
-     best-effort. Stage `docs/wiki/scan.md`, `docs/wiki/index.md`, and any other
+  1. `atomic signals stale` exit 0 → skip (nothing material changed). Exit 2 → report + skip.
+  2. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and
+     `changed_range: <loop-base>..HEAD` (HEAD after docs commits). Stage `docs/wiki/scan.md`, `docs/wiki/index.md`, and any other
      `docs/wiki/*.md` domain files the refresh wrote.
-  4. Commit as a dedicated `chore(signals): refresh after <topic>` commit. Record the SHA in
+  3. Commit as a dedicated `chore(signals): refresh after <topic>` commit. Record the SHA in
      `STATE.md`.
 
 This refresh is **not** per-iteration — it runs once at finalize over the whole task range.
@@ -168,6 +166,22 @@ references with the `tmp/.scan.prev.md` vs `docs/wiki/scan.md` diff.
 `docs/spec/wiki-storage-relocation.md`, landed after this spec was written; the old paths no longer
 exist on disk (verified: `.claude/project/signals.md` and `.claude/project/deterministic-signals.md`
 are absent from the tree), so a fresh reader would build against a stale layout.
+
+### 2026-10-18 — Removed: realm wiki marker step
+
+**What changed:** The C3 finalize refresh no longer runs `atomic wiki mark-dirty`, and C1 no longer names a bucket-synthesis inferrer mode.
+
+**Why:** Realm wikis no longer track freshness, so a ship inside a member repo has no marker to set.
+
+**Removed:** the best-effort `atomic wiki mark-dirty` call and the bucket-synthesis mode reference. See `docs/spec/realm-wiki-drop-refresh.md`.
+
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** The C3 finalize refresh starts at `atomic signals stale`; it no longer checks `command -v atomic` first.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** step 1 skipped the refresh when `command -v atomic` found no binary.
 
 ## Implementation log
 

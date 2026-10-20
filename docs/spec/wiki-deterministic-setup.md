@@ -11,7 +11,7 @@ A new `atomic wiki init --scope repo|realm --root <path>` CLI verb writes the fi
 
 
 - No redesign of the `docs/wiki/AGENTS.md` scaffold content — moved verbatim from the existing heredocs.
-- No change to the realm-scope `<wikis>` global registry (`atomic/internal/wiki/registry.go` `RegisterWiki`) — unrelated concern (cross-realm staleness tracking), stays as-is.
+- No change to the realm-scope `<wikis>` global registry (`atomic/internal/wiki/registry.go` `RegisterWiki`) — unrelated concern (it locates realm `wiki/index.md` files), stays as-is.
 - No `atomic migrate` involvement — this is an always-idempotent bootstrap verb, not a version-gated migration step.
 - No fix to `templates/commands/setup-wiki.md`'s broader pre-relocation `.claude/project/signals.md` / `deterministic-signals.md` references (audit table, `.gitignore` proposal, `CLAUDE.md` survey `@-ref` block) beyond the `signals-steering.md` rows. That staleness predates this workstream and is a separate, larger gap — out of scope here.
 - No new slash command and no `/atomic-help` router restructuring — only a one-line mention of the new binary verb in the existing `binary`/`cli` topic row.
@@ -76,6 +76,14 @@ New `atomic wiki init --scope repo|realm --root <path>` CLI verb, following the 
 **Why:** the multi-harness compatibility work made the repository and realm steering pair the canonical shape — guidance authored in `AGENTS.md` with a thin Claude loader beside it — but this verb still produced the pre-pair single-file layout, so a fresh `wiki init` disagreed with every other steering writer and with the shipped `setup-wiki`/`atomic-wiki` prose.
 
 **Superseded:** `wiki init` wrote `<path>/docs/wiki/CLAUDE.md` with the full scaffold (repo) and `<path>/wiki/CLAUDE.md` containing only `@index.md` (realm); the scaffold now lives in the adjacent `AGENTS.md` and `CLAUDE.md` is the blank-bracketed loader in both scopes.
+
+### 2026-10-18 — `<wikis>` registry purpose corrected
+
+**What changed:** the `<wikis>` registry non-goal describes the registry as locating realm `wiki/index.md` files.
+
+**Why:** realm wiki staleness tracking was deleted.
+
+**Removed:** "cross-realm staleness tracking" as the registry's purpose; see `docs/spec/realm-wiki-drop-refresh.md`.
 
 
 ## Implementation log

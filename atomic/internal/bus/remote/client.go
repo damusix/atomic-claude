@@ -14,12 +14,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
-	"github.com/pelletier/go-toml/v2"
 )
 
 // RemoteConfig is one [bus.remotes.<name>] entry from ~/.atomic/config.toml.
@@ -38,49 +36,20 @@ type RemoteConfig struct {
 // "unconfigured means local" contract in "Local versus remote": nothing about
 // remotes existing changes what an unflagged verb does.
 func Remotes(home string) (map[string]RemoteConfig, error) {
-	path := config.TOMLPath(home)
-	data, err := os.ReadFile(path)
+	cfg, _, err := config.Load(config.TOMLPath(home))
 	if err != nil {
-		if os.IsNotExist(err) {
-			return map[string]RemoteConfig{}, nil
-		}
-		return nil, fmt.Errorf("remote: read %s: %w", path, err)
+		return nil, fmt.Errorf("remote: %w", err)
 	}
 
-	var raw struct {
-		Bus struct {
-			Remotes map[string]struct {
-				Host string `toml:"host"`
-				Key  string `toml:"key"`
-				CA   string `toml:"ca,omitempty"`
-			} `toml:"remotes"`
-		} `toml:"bus"`
-	}
-	if err := toml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("remote: parse %s: %w", path, err)
-	}
-
-	out := make(map[string]RemoteConfig, len(raw.Bus.Remotes))
-	for name, r := range raw.Bus.Remotes {
+	out := make(map[string]RemoteConfig, len(cfg.Bus.Remotes))
+	for name, r := range cfg.Bus.Remotes {
 		key, err := hex.DecodeString(r.Key)
 		if err != nil {
 			return nil, fmt.Errorf("remote: [bus.remotes.%s].key: %w", name, err)
 		}
-		out[name] = RemoteConfig{Name: name, Host: r.Host, Key: key, CA: expandHome(r.CA, home)}
+		out[name] = RemoteConfig{Name: name, Host: r.Host, Key: key, CA: config.ExpandHome(r.CA, home)}
 	}
 	return out, nil
-}
-
-// expandHome resolves a leading "~/" against home, the same convention the
-// design's [bus.remotes] example uses for ca.
-func expandHome(path, home string) string {
-	if path == "~" {
-		return home
-	}
-	if strings.HasPrefix(path, "~/") {
-		return filepath.Join(home, path[2:])
-	}
-	return path
 }
 
 // keyIDBytes truncates sha256(key) to 16 bytes (128 bits) before hex

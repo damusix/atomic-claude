@@ -10,25 +10,29 @@ Opt-in only. Does not auto-fire.
 
 <workflow>
 
-## Refuse to run if
+## Flow
 
-- Working tree clean AND no unstaged changes since last commit → `refused: no changes since last commit — nothing to report.`
+A report is written only when the tree has changes, and a detached HEAD scopes it to the commit SHA instead of a branch.
 
-## Steps
+```mermaid
+flowchart TD
+    C{"Changes since<br/>last commit?"} -->|no| X["Refuse"]
+    C -->|yes| B{"On a branch?"}
+    B -->|no| W["Warn, key by SHA"]
+    B -->|yes| P["Compute path"]
+    W --> P
+    P --> G["Gather signal"]
+    G --> R["Write report"]
+    R --> O["Report path"]
+```
 
-1. **Determine branch scope key:**
-    - `git branch --show-current`. If empty (detached HEAD), use `git rev-parse --short HEAD` and warn the user: `detached HEAD — report scoped to <sha> not a branch.`
-2. **Compute paths:**
-    - Dir: `atomic where --json`'s `reports` field — already branch-scoped, with the legacy fallback folded in. Never construct it by hand.
-    - Filename: `<YYYY-MM-DD-HHMM>-<slug>.md`. Slug from `$ARGUMENTS` if provided; otherwise infer from the most prominent change in the working tree (one or two kebab-case words).
-    - On filename collision (same minute + same slug): append `-2`, `-3`, etc.
-3. **Gather signal:**
-    - `git status --porcelain` — list of touched files (staged + unstaged).
-    - `git diff --stat` and `git diff --cached --stat` — magnitude per file.
-    - Recent conversation context — what was tried, what was rejected, what the user clarified mid-flight.
-4. **Write the report**: seed the computed path from the embedded template — `atomic template session-report > <path>` — then fill every `<angle-bracket>` placeholder (frontmatter + `## What changed` + `## Why` + optional `## Open threads`) and delete the guidance comment. If `atomic` is absent or the verb errors, stop: `document template unavailable (atomic template session-report failed) — install/update the atomic binary. cannot proceed.`
-
-5. **Report path** to the user: `wrote <reports-dir>/<file>.md`, using the `reports` path from `atomic where --json`.
+- **Changes since last commit?**: `git status --porcelain` prints anything. No: `refused: no changes since last commit — nothing to report.`
+- **On a branch?**: `git branch --show-current` prints a name.
+- **Warn, key by SHA**: use `git rev-parse --short HEAD` and warn `detached HEAD — report scoped to <sha> not a branch.`
+- **Compute path**: dir is `atomic where --json`'s `reports` field — already branch-scoped, with the legacy fallback folded in. Never construct it by hand. Filename `<YYYY-MM-DD-HHMM>-<slug>.md`; slug from `$ARGUMENTS` if provided, otherwise inferred from the most prominent change in the working tree (one or two kebab-case words). On a collision (same minute + same slug) append `-2`, `-3`, etc.
+- **Gather signal**: `git status --porcelain` (touched files, staged + unstaged), `git diff --stat` and `git diff --cached --stat` (magnitude per file), and recent conversation context — what was tried, what was rejected, what the user clarified mid-flight.
+- **Write report**: seed the path from the embedded template — `atomic template session-report > <path>` — then fill every `<angle-bracket>` placeholder (frontmatter + `## What changed` + `## Why` + optional `## Open threads`) and delete the guidance comment.
+- **Report path**: print `wrote <reports-dir>/<file>.md`, using the `reports` path from `atomic where --json`.
 
 </workflow>
 
@@ -48,7 +52,7 @@ If a branch is abandoned without a commit, `/git-cleanup` reaps its reports imme
 
 - **`atomic-git-discipline` skill** — receives the concatenated reports for the current branch as supplemental context when synthesizing the commit message.
 - **Ship verb that consumes reports:** `/commit` (all escalation paths). Reads all reports for the current branch before message synthesis and deletes the branch's reports dir after a successful commit.
-- **Exempt paths** (no commit-message generation): `/commit push` / `/commit pr` / `/commit merge` when run with commits already ahead of base and nothing to commit — these ship existing commits unchanged.
+- **Exempt paths** (no commit-message generation): `/commit push` / `/commit pr` / `/commit merge` when run with commits already ahead of base and nothing to commit, and `/commit squash merge` on a single-commit branch with nothing to commit — these ship existing commits unchanged.
 - **Full spec:** `docs/spec/session-report.md`.
 
 </output_format>

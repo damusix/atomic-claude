@@ -24,8 +24,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 // routes[urlSubstring] -> response body (or a function of the URL, for
 // tests that need per-member schema payloads keyed on ?member=). "/nav" is
 // always stubbed so the member store resolves without each test wiring it.
+// "/code/index" too: a 500 there is retried by the shared engine after the
+// test ends, landing on the next test file's fetch mock.
 function mockFetch(routes: Record<string, unknown | ((url: string) => unknown)>, missingStatus = 500) {
-  const withNav = { "/nav": NAV_FIXTURE, ...routes };
+  const withNav = { "/nav": NAV_FIXTURE, "/code/index": { state: "idle" }, ...routes };
   globalThis.fetch = mock(async (input: RequestInfo | URL) => {
     const url = requestURL(input);
     for (const [needle, body] of Object.entries(withNav)) {

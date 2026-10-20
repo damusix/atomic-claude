@@ -1,4 +1,4 @@
-// Status — /status page: wiki staleness + code-index health dashboard.
+// Status — /status page: wiki membership drift + code-index health dashboard.
 // Fetches /api/status (health.go: apiStatusResponse) and mirrors
 // health.go's carried healthTmpl fragment (badge-per-item lists, severity
 // badge, all-fresh summary).
@@ -6,9 +6,6 @@ import { useApi } from "../utils/api";
 
 interface ApiWikiStatus {
   staleRepos: string[];
-  staleConcerns: string[];
-  staleBuckets: string[];
-  bucketDiffKeys: string[];
   allFresh: boolean;
 }
 
@@ -52,24 +49,14 @@ export function Status() {
 
       {data.isRealmScope ? (
         <section className="health-section">
-          <h3>Wiki Staleness</h3>
+          <h3>Wiki Membership Drift</h3>
           {data.wiki.allFresh ? (
-            <p className="health-ok">All wiki artifacts are fresh.</p>
+            <p className="health-ok">Wiki membership matches the last scan.</p>
           ) : (
             <ul className="health-list">
-              {data.wiki.staleRepos.map((name) => (
-                <li key={`repo:${name}`}>
-                  <span className="badge badge-stale">stale repo</span> {name}
-                </li>
-              ))}
-              {data.wiki.staleConcerns.map((name) => (
-                <li key={`concern:${name}`}>
-                  <span className="badge badge-stale">stale concern</span> {name}
-                </li>
-              ))}
-              {data.wiki.bucketDiffKeys.map((name) => (
-                <li key={`bucket:${name}`}>
-                  <span className="badge badge-diff">bucket diff</span> {name}
+              {data.wiki.staleRepos.map((path) => (
+                <li key={path}>
+                  <span className="badge badge-stale">membership drift</span> {path}
                 </li>
               ))}
             </ul>

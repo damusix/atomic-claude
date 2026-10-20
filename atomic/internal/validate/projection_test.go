@@ -1,11 +1,13 @@
 package validate_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/validate"
 )
 
@@ -156,5 +158,51 @@ func TestProjection_RealCorpusPasses(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "0 FAIL") {
 		t.Errorf("expected a clean summary, got:\n%s", buf.String())
+	}
+}
+
+// A clean run counts every rendered canonical source as PASS, so it reports how
+// much the gate inspected rather than an empty-looking "0 PASS".
+func TestProjection_CleanRunCountsEverySourceAsPass(t *testing.T) {
+	root := writeProjectionCorpus(t, map[string]string{
+		"agents/atomic-sample.md":        "---\nname: atomic-sample\ndescription: Sample agent.\n---\nAgent body.\n",
+		"commands/sample.md":             "---\ndescription: Sample command.\n---\nRun `atomic code search --json`.\n",
+		"skills/atomic-sample/SKILL.md":  "---\nname: atomic-sample\ndescription: Sample skill.\n---\nSkill body.\n",
+		"output-styles/atomic-sample.md": "Sample style.\n",
+		"rules/sample.md":                "---\npaths:\n  - \"**/*.go\"\n---\nRule body.\n",
+	})
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	addRepoDevMarker(t, root)
+	cat, err := artifacts.Load(root)
+	if err != nil {
+		t.Fatalf("artifacts.Load: %v", err)
+	}
+
+	code, out := runFromDir(t, root, []string{"projections", "--json"})
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	var env struct {
+		Summary struct {
+			Pass int `json:"pass"`
+			Fail int `json:"fail"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("--json output is not JSON: %v\n%s", err, out)
+	}
+	if env.Summary.Fail != 0 || env.Summary.Pass == 0 || env.Summary.Pass != len(cat.Artifacts) {
+		t.Errorf("summary = %+v, want pass %d (one per canonical source) and fail 0", env.Summary, len(cat.Artifacts))
+	}
+}
+
+// projections always audits the whole corpus, so a path argument is a usage
+// error rather than a filter it would silently ignore.
+func TestProjection_RejectsPathArguments(t *testing.T) {
+	var buf strings.Builder
+	if code := validate.RunWithOutput([]string{"projections", "context/agents"}, &buf); code != 2 {
+		t.Errorf("projections with a path: exit %d, want 2\n%s", code, buf.String())
 	}
 }

@@ -97,6 +97,8 @@ dir = ".claude"             # LEGACY: migration evidence only while state.dir is
 
 Current keys: `output.signals.max_depth`, `update.run_doctor`, `update.check`, `update.stage`, `update.channel`, `state.dir`, `output_style.seed`. Legacy `harness.dir` stays readable as migration evidence only while `state.dir` is unset. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
 
+`[bus.remotes.<name>]` tables (`host`, `key`, optional `ca`) are modeled on `Config` but are not `atomic config set` keys: `atomic bus remote add|remove` writes them and `internal/bus/remote` reads them through `config.Load`. `bus` is an opaque section, so arbitrary remote names load without unknown-key warnings. Modeling it is what keeps every other config write from deleting it, since `WritePersist` serializes `Config` alone. Contract: [`atomic-bus-network.md`](./atomic-bus-network.md).
+
 `update.check` and `update.stage` (bool, default `true`) gate the two halves of the detached background-update child described in [`selfupdate-state.md`](./selfupdate-state.md): `update.check` enables the hourly GitHub lookup that any invoked verb may spawn; `update.stage` enables that child's once-per-version download-and-checksum-verify into `~/.cache/atomic/staged/`. Both are user-level only — no repo-scoped equivalent.
 
 `update.channel` (string, default `stable`; valid `stable`, `prerelease`) selects the release channel every update path reads: the background check, the banner, `atomic update`, and doctor's binary check. Stored empty means unset and resolves to `stable`. `atomic update --pre` (or `--channel`) overrides it for one invocation and never writes it back, so a pinned machine can still take a single update from the other channel. A stored value outside the enum fails `Validate`; the update paths fall back to `stable` rather than blocking on it. User-level only — no repo-scoped equivalent.
@@ -203,6 +205,13 @@ A relative rung value must be one safe path segment (`ValidateStateDirSegment` r
 
 
 ## Change log
+
+
+### 2026-09-23 — Model [bus.remotes] on Config
+
+**What changed:** `Config` gained a `Bus` section holding `[bus.remotes.<name>]`, and `bus` joined the opaque sections.
+
+**Why:** `[bus.remotes]` lived in `config.toml` but not in `Config`, so `config set`, `config agents`, `claude install`, and `migrate` deleted it on every write.
 
 
 ### 2026-09-08 — Add output_style.seed config key

@@ -67,7 +67,9 @@ an unknown key and ignored.
 
 `AgentWarnings` (`config.go`):
 
-- Preserve the existing unknown-agent warning (agent name not in the installed/known set).
+- Preserve the existing unknown-agent warning (agent name not in the known set). The known set is
+  `[install.artifacts].agents` matched by basename (`claude install` records `agents/<name>.md`),
+  else `bundledAgents()`.
 - Add a malformed-model warning when `Model` is non-empty and contains internal whitespace
   or control characters: `config: claude.agents.<name>.model: questionable value "<v>"; passed through as-is`.
   Never blocks loading or install.
@@ -105,7 +107,7 @@ shape — the SHA comparison must reflect both patched keys so install/plan agre
 ## Interactive form (`internal/config/agents.go`, `cli.go`)
 
 
-`atomic config agents` presents, per bundled agent (the fixed 5 in `agentOrder`):
+`atomic config agents` presents, per bundled agent (every `agent` entry in the embedded bundle manifest, in manifest order, via `bundledAgents()`):
 
 - a **model** `huh.NewInput()` — free text, empty = no override, validated with the lenient
   model-format helper (empty passes; non-empty must have no internal whitespace). Placeholder
@@ -190,6 +192,7 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
 - `render.go`
   - `Render` — per-agent `.model`/`.effort` dotted keys, byte-stable
 - `agents.go`
+  - `bundledAgents` — every `agent` entry in `embedded.Manifest()`, in manifest order
   - `validateModelInput` — wraps validModelFormat with the empty-is-ok rule + error message
   - `defaultAgentTierSelector` — model Input + effort Select per agent, returns `map[string]AgentOverride`
   - `applyAgentOverrides` — merge selections into cfg.Agents; both-empty deletes; validate on store
@@ -305,3 +308,13 @@ not shipped.
 **Superseded:** the prior contract accepted a flat `agents.<name> = "<tier>"` scalar via
 `encoding.TextUnmarshaler` and auto-migrated it to nested tables on the next config write, under
 a top-level `[agents]` table. None of that remains.
+
+
+### 2026-09-23 — agent list follows the bundle
+
+**What changed:** the form's agent list and `AgentWarnings`' fallback known set come from the embedded
+bundle manifest instead of the hardcoded `agentOrder` / `knownAtomicAgents` lists. `AgentWarnings`
+matches install-manifest entries by basename, since `claude install` records `agents/<name>.md`.
+
+**Why:** the lists held 5 names while the bundle shipped 8, so new agents never appeared in the form;
+the manifest match flagged every override on an installed machine as an unknown agent.

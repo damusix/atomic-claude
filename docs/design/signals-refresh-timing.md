@@ -113,6 +113,18 @@ range is `loop-base..HEAD` after docs settle, so the refresh sees code + doc com
 ## Non-goals
 
 - No change to `atomic signals scan` / `stale` / `diff` Go code.
-- No change to wiki-output or bucket-synthesis modes of the inferrer.
+- No change to the inferrer's wiki-output mode.
 - No new config key or memory value (the behavior is a fixed contract, not a tunable —
   axiom 2 graduation triggers not met).
+
+
+## Change log
+
+
+### 2026-10-19 — Removed the bucket-synthesis mode reference
+
+**What changed:** The non-goal names only the inferrer's wiki-output mode.
+
+**Why:** The bucket-synthesis mode was deleted (`docs/spec/realm-wiki-drop-refresh.md`).
+
+**Removed:** the bucket-synthesis mode.

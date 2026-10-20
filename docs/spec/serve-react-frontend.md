@@ -168,7 +168,7 @@ Conventions (every `/api/*` endpoint):
 | `GET /api/code/files?member=` | `{files: [{path, language, nodeCount}]}` — `types.FileRecord` |
 | `GET /api/code/schema?member=` | `{tables: [{node, columns: [node], fkSources: [node], writers: [node]}], degraded?}` — `tableSchema` (codeexplorer.go:580); `degraded` set (tables empty) when no index is available, per the soft-state convention |
 | `GET /api/code/file?path=&member=` | `{path, member, nodes: [{id, name, kind, startLine}], degraded?: "<reason>"}` — degraded carries today's inline not-indexed/no-intel messages (codeexplorer.go:837) |
-| `GET /api/status` | `{isRealmScope, wiki: {staleRepos, staleConcerns, staleBuckets, bucketDiffKeys, allFresh}, index: {severity, detail, freshCount, staleMembers, notIndexed}}` — `healthData` (health.go:250) |
+| `GET /api/status` | `{isRealmScope, wiki: {staleRepos, allFresh}, index: {severity, detail, freshCount, staleMembers, notIndexed}}` — `healthData` (health.go:250) |
 | `GET /api/external` | `{entries: [{url, sources: [relpath], firstSeen \| null}]}` — `ExternalEntry` (external.go:94) |
 | `GET /events` | unchanged carried contract: unnamed events, `{fp, changed?}` (changed capped at 100, omitted over cap) |
 
@@ -272,6 +272,14 @@ Flow: theme toggle retheme cascade
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+
+### 2026-10-18 — Removed: wiki content and bucket staleness from `/api/status`
+
+**What changed:** The `/api/status` `wiki` object carries `staleRepos` and `allFresh` only.
+
+**Why:** `atomic wiki stale` reports membership drift only, so there are no stale concerns or buckets to report.
+
+**Removed:** the `staleConcerns`, `staleBuckets`, and `bucketDiffKeys` fields. See `docs/spec/realm-wiki-drop-refresh.md`.
 
 ### 2026-07-18 — /api/code/schema not-indexed becomes a soft state (F-4)
 

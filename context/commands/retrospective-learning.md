@@ -25,7 +25,7 @@ You orchestrate a retrospective audit. Subagents do the scanning (read-only). Yo
     ```
     atomic retro extract --shards 4 --out "$SCRATCH/history.md"
     ```
-    Default `--since` is the last retrospective run (30 days on first run); the binary names which on stderr. If `atomic` is absent or exits non-zero, announce `history extract unavailable — history scan skipped` and set the scope to current-only for Step 2b.
+    Default `--since` is the last retrospective run (30 days on first run); the binary names which on stderr. If it exits non-zero, announce `history extract unavailable — history scan skipped` and set the scope to current-only for Step 2b.
 4. Read `$LEARNINGS` if it exists. It carries: acceptance rates per category, modify-signal patterns, deprioritized finding types. Apply as soft weights during Phase 4 categorization. If absent, proceed — it will be created at the end of the run.
 
 ## Step 1 — Pick scope
@@ -223,14 +223,19 @@ Parse the outputs:
 
 These findings carry the binary's own remediation text — the LLM does not paraphrase it. Recommendations are the binary's verbatim `--fix` suggestion when present.
 
-If `atomic` is not on `PATH` (binary not installed in this project), skip this step entirely and announce `atomic binary absent — deterministic audits skipped, falling through to LLM checks only.` Continue.
-
 ### 5a. Enforcement-gap detection → hook proposal
 
-For each rule in `CLAUDE.md` / `~/.claude/CLAUDE.md` / skills:
+For each rule in `CLAUDE.md` / `~/.claude/CLAUDE.md` / skills, a single violation strengthens the wording and a repeated one proposes a hook.
 
-- Did the current conversation violate it? Single violation → propose **strengthen** (NEVER/ALWAYS prefix, move higher).
-- Did history scan show 2+ violations across sessions, OR did current conversation violate it 2+ times? Propose **convert to hook**.
+```mermaid
+flowchart TD
+    V{"Violations?"} -->|none| K["No finding"]
+    V -->|one, this session| S["Propose strengthen"]
+    V -->|repeated| H["Propose hook"]
+```
+
+- **Violations?**: repeated means 2+ across sessions in the history scan, or 2+ in the current conversation.
+- **Propose strengthen**: NEVER/ALWAYS prefix, move higher.
 
 When proposing a hook, generate the full `.claude/settings.json` patch ready to paste. Pick the right event:
 
@@ -462,11 +467,47 @@ On "Accept new": append the new fact to the matching section in `~/.atomic/profi
 
 **Sub-option findings** (e.g. hook conversion in `critical` tier): after Accept, follow up with a second `AskUserQuestion` for the sub-option (strengthen / hook-project / hook-global / both).
 
+### 6c. Walk the picked findings
+
+Each picked finding is answered and recorded before the next one, and the walk reaches the apply step only when every pick is recorded or the user stops at a checkpoint.
+
+```mermaid
+flowchart TD
+    N["Next picked finding"] --> Q{"Answer?"}
+    Q -->|open issue| P["Print the command"]
+    Q -->|modify| MF["Modify flow"]
+    Q -->|other| R["Record decision"]
+    P --> R
+    MF --> R
+    R --> C{"Checkpoint<br/>says stop?"}
+    C -->|yes| SK["Skip the rest"]
+    C -->|no| M{"More picked?"}
+    M -->|yes| N
+    M -->|no| AP["Step 7: apply"]
+    SK --> AP
+```
+
+- **Answer?**: per finding type in 6b.
+- **Print the command**: per the atomic-meta block in 6b.
+- **Modify flow**: below.
+- **Checkpoint says stop?**: after every 5 findings walked, offer `5 findings walked, K remaining. Continue, or apply what we have and skip the rest?`
+- **Skip the rest**: record the remaining indices as `disposition: "skip"` (not `suppressed` — the user actively chose to stop, the signal is "audit fatigue this session").
+
 **Modify flow** (turn-boundary, not inline read).
 
-`AskUserQuestion` does not collect free-text, and there is no inline-read primitive in the harness. The only way to get the user's replacement wording is to **end the assistant turn** and resume from their next message. The flow:
+`AskUserQuestion` does not collect free-text, and there is no inline-read primitive in the harness, so the only way to get the user's replacement wording is to end the assistant turn and resume from their next message. The apply phase cannot run until every Modify has resolved.
 
-1. When the user picks `Modify` in the AskUserQuestion for finding `[N]`, persist the pending state to `$SCRATCH/pending-modify.json`:
+```mermaid
+flowchart TD
+    S["Save pending state"] --> P["Print modify prompt"]
+    P --> E["End the turn"]
+    E --> R{"Next message<br/>is wording?"}
+    R -->|yes| C["Capture, resume walk"]
+    R -->|no| A["Record skip, resume"]
+```
+
+- **Save pending state**: write `$SCRATCH/pending-modify.json`:
+
     ```json
     {
       "finding_index": N,
@@ -474,39 +515,51 @@ On "Accept new": append the new fact to the matching section in `~/.atomic/profi
       "remaining_indices": [<list of unwalked findings>]
     }
     ```
-2. Print exactly:
+
+- **Print modify prompt**: print exactly:
+
     ```
     Modify [N]: <one-line finding summary>
     Original recommendation: <text>
 
     Paste your replacement wording in your next message. It will be used verbatim when applying.
     ```
-3. End the assistant turn. Do not call further tools.
-4. On the next user message, read `$SCRATCH/pending-modify.json`, capture the user's entire message as `decision.modified_content`, delete the pending file, and resume the indexed walk at the next pending finding.
 
-This is a real turn boundary — the apply phase cannot run until every Modify has resolved. If the user instead replies with something off-script (a question, a redirect), abandon the Modify (record as `disposition: "skip"` with a note `"modify abandoned: user redirected"`) and continue the walk from where it stopped.
-
-After every 5 findings walked, offer a checkpoint: `5 findings walked, K remaining. Continue, or apply what we have and skip the rest?` Skip-the-rest records remaining indices as `disposition: "skip"` (not `suppressed` — the user actively chose to stop, the signal is "audit fatigue this session").
+- **End the turn**: do not call further tools.
+- **Next message is wording?**: an off-script reply (a question, a redirect) is not wording.
+- **Capture, resume walk**: read `$SCRATCH/pending-modify.json`, capture the user's entire message as `decision.modified_content`, delete the pending file, and resume the indexed walk at the next pending finding.
+- **Record skip, resume**: `disposition: "skip"` with the note `"modify abandoned: user redirected"`, then continue the walk from where it stopped.
 
 ## Step 7 — Apply
 
 Announce: `Applying K approved changes across J files.`
 
-For each approved decision, in priority order:
+Decisions apply in priority order, and every write is verified after the fact.
 
-1. Read the target file.
-2. Decide the `verify_phrase` **before** writing — patch-unique, not concept-unique. Pick a literal substring of the bytes you are about to write that would not exist if the change were absent. For a hook patch, that's the exact `grep -qE '<PATTERN>' && { echo 'blocked: <REASON>'` slice — not the rule name (`--no-verify`), which exists in many places. For a CLAUDE.md sentence add, the verbatim new sentence. For a memory consolidation, a distinctive phrase from the merged content. The test: would this exact substring exist in the target file *only because the change was applied*? If not, pick a longer slice.
+```mermaid
+flowchart TD
+    D["Next decision"] --> K{"Skip or<br/>routed-to-issue?"}
+    K -->|yes| L["Log only"]
+    K -->|no| V["Read target, pick<br/>verify phrase"]
+    V --> A["Apply change"]
+    A --> C{"Verify passes?"}
+    C -->|no| F["Mark failed, warn"]
+    C -->|yes| M{"More decisions?"}
+    L --> M
+    F --> M
+    M -->|yes| D
+    M -->|no| P["Print changes table"]
+```
 
-   **Inverted case for deletes.** Memory-file consolidation deletes the source file. There is nothing to grep for. Record `verify_phrase: null` and `verify_absence: true` with `target_file` = the deleted path. Next run's prior-retro audit treats this as: landed if the file is absent, drifted if the file reappeared with similar content.
+- **Log only**: no file write; the decision is persisted in the run log. A skip carries its `signal_keywords` so future runs can detect recurrence. A routed-to-issue decision is the user's to file with `/report-issue-with-atomic`.
+- **Read target, pick verify phrase**: decide the `verify_phrase` **before** writing — patch-unique, not concept-unique. Pick a literal substring of the bytes you are about to write that would not exist if the change were absent. For a hook patch, that's the exact `grep -qE '<PATTERN>' && { echo 'blocked: <REASON>'` slice — not the rule name (`--no-verify`), which exists in many places. For a CLAUDE.md sentence add, the verbatim new sentence. For a memory consolidation, a distinctive phrase from the merged content. The test: would this exact substring exist in the target file *only because the change was applied*? If not, pick a longer slice.
 
-   **Acceptable side effect.** If the user later edits the change in good faith — softens "NEVER" to "Avoid", reformats the hook with `jq --indent 2` — the next prior-retro audit fires `drifted` on it. That is correct behavior. Drift means "the original change is gone." Whether it was replaced by something better is a separate signal not in scope.
-3. For Modify decisions, use the user's text from `$SCRATCH/pending-modify.json` instead of the original recommendation.
-4. Apply the change (edit / append / new file / hook patch).
-5. **Verify-after-apply.** Re-read the target file (or `ls` for delete cases) and grep for the `verify_phrase` recorded in step 2. If absent (or if a delete target still exists), the write failed silently — set `decision.disposition = "failed"`, capture stderr / the apply error in `decision.failure_reason`, surface a one-line warning to the user (`[N] write failed: <reason> — finding will re-surface in next run`), and continue to the next decision. Do NOT include failed items in the changes-applied table. The verify step is non-negotiable: a silent write failure is worse than a loud one because the user thinks the change landed and the next run's drift audit will report `drifted` ambiguously (as if the change was rolled back, not as if it never landed).
-6. For "convert to hook" — see the merge recipe below. Sub-step 4 (Apply) becomes the jq-merge sequence; sub-step 5 (Verify) greps for the hook command-line in the resulting `.hooks.<event>` array.
-7. For memory consolidation that deletes files — first integrate content into the target (skill or CLAUDE.md), confirm by re-reading, then delete the source memory file and update `MEMORY.md`. Sub-step 5 (Verify) tests the deleted-path-still-absent condition.
-8. For "skip" decisions — no file write. Just persisted in the run log with `signal_keywords` so future runs can detect recurrence. Sub-steps 3-5 are skipped.
-9. For "routed-to-issue" decisions (atomic-meta tier) — no file write. The user runs `/report-issue-with-atomic` themselves. Just persisted in the run log. Sub-steps 3-5 are skipped.
+    **Inverted case for deletes.** Memory-file consolidation deletes the source file. There is nothing to grep for. Record `verify_phrase: null` and `verify_absence: true` with `target_file` = the deleted path. Next run's prior-retro audit treats this as: landed if the file is absent, drifted if the file reappeared with similar content.
+
+    **Acceptable side effect.** If the user later edits the change in good faith — softens "NEVER" to "Avoid", reformats the hook with `jq --indent 2` — the next prior-retro audit fires `drifted` on it. That is correct behavior. Drift means "the original change is gone." Whether it was replaced by something better is a separate signal not in scope.
+- **Apply change**: edit / append / new file / hook patch. A Modify decision uses the user's text from `$SCRATCH/pending-modify.json` instead of the original recommendation. A hook conversion uses the merge recipe below. A memory consolidation that deletes files first integrates the content into the target (skill or CLAUDE.md), confirms by re-reading, then deletes the source memory file and updates `MEMORY.md`.
+- **Verify passes?**: re-read the target file (or `ls` for delete cases) and grep for the `verify_phrase`. A hook conversion greps for the hook command-line in the resulting `.hooks.<event>` array; a delete passes while the deleted path stays absent. Non-negotiable: a silent write failure is worse than a loud one, because the user thinks the change landed and the next run's drift audit reports `drifted` ambiguously (as if the change was rolled back, not as if it never landed).
+- **Mark failed, warn**: set `decision.disposition = "failed"`, capture stderr / the apply error in `decision.failure_reason`, and warn `[N] write failed: <reason> — finding will re-surface in next run`. Failed items stay out of the changes-applied table.
 
 ### Hook merge recipe
 

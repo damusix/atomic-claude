@@ -1,6 +1,6 @@
 # Mermaid: choosing a type, and what breaks rendering
 
-Read this before writing a diagram into a `docs/` file. It covers the three things that go wrong that knowing Mermaid syntax does not prevent: picking the type that does not carry the claim, writing a label the parser rejects, and a layout that renders but stays illegible.
+Read this before writing a diagram into a `docs/` file or a prompt artifact (a command, agent, skill, rule, or `CLAUDE.md`, or its source under `context/`). It covers the three things that go wrong that knowing Mermaid syntax does not prevent: picking the type that does not carry the claim, writing a label the parser rejects, and a layout that renders but stays illegible.
 
 The diagram contract itself (one claim per diagram, the caption states it, node budgets, real identifiers, shape over color) lives in the skill body. This file is the mechanics.
 

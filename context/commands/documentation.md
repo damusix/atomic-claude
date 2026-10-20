@@ -30,101 +30,81 @@ Add this section to your shared project steering file (`AGENTS.md`, or the `CLAU
 
 ## Step 1 — Detect mode
 
-Check whether a `## Documentation surfaces` table exists in the project's steering files. Search order: a local override file → the shared project steering `AGENTS.md` → any adjacent native loader (e.g. `CLAUDE.md`). First file containing the heading wins.
+A missing surfaces table, or `--discover`, runs bootstrap; anything else runs authoring.
 
-- **Table absent OR `--discover` flag present** → run bootstrap mode (Step 2).
-- **Table present AND no `--discover` flag** → run authoring mode (Step 5).
-
-## Step 2 — Bootstrap: scan doc files
-
-Run the deterministic scan:
-
-```bash
-atomic docs scan 2>/dev/null
+```mermaid
+flowchart TD
+    T{"Surfaces table<br/>present?"} -->|no| B["Bootstrap: Steps 2–4"]
+    T -->|yes| D{"--discover?"}
+    D -->|yes| B
+    D -->|no| A["Authoring: Step 5"]
 ```
 
-If `atomic` is absent or returns a non-zero exit, fall back to:
+- **Surfaces table present?**: a `## Documentation surfaces` table in the project's steering files. Search order: a local override file → the shared project steering `AGENTS.md` → any adjacent native loader (e.g. `CLAUDE.md`). First file containing the heading wins.
 
-```bash
-find docs/ doc/ documentation/ wiki/ ADR/ adr/ decisions/ -name '*.md' 2>/dev/null
-find . -maxdepth 3 -name 'README.md' 2>/dev/null | grep -v node_modules | grep -v .git
+## Steps 2–4 — Bootstrap
+
+Bootstrap indexes only the doc files the user selects, and ends after writing the table.
+
+```mermaid
+flowchart TD
+    S{"Scan exits 0?"} -->|no| E["Print stderr, stop"]
+    S -->|yes| F{"Doc files found?"}
+    F -->|no| X["Print none, exit"]
+    F -->|yes| L["Print numbered list"]
+    L --> P{"Selection?"}
+    P -->|none| X2["Print none indexed"]
+    P -->|indices or all| C["Confirm covers"]
+    C --> W["Append, stage, exit"]
 ```
 
-Read the cache file written to `.claude/project/doc-surfaces.md` (or use the find output directly if the binary is absent).
+- **Scan exits 0?**: `atomic docs scan`, then read the cache file it writes to `.claude/project/doc-surfaces.md`.
+- **Print none, exit**: `no documentation files found. Run with --discover after adding docs.`
+- **Print numbered list**: axiom 4 — plain-text indexed selection:
 
-If no doc files are found, print:
+    <example>
+    ```
+    Discovered N documentation files. Index these in your project steering file?
 
-```
-no documentation files found. Run with --discover after adding docs.
-```
+      [1] docs/architecture/payments.md — Payments / Webhook Flow / Stripe Integration
+      [2] docs/models/README.md — Data Model / Entity Relationships / Migration History
+      [3] README.md — (no headings extracted)
+      ...
 
-and exit.
+    Type: all | 1 3 5 | none
+    ```
+    </example>
 
-## Step 3 — Bootstrap: present discovered surfaces
+- **Selection?**: accept `all`, space-separated indices (`1 3 5`), comma-separated (`1,3,5`), ranges (`1-3`), mixed (`1-3 5`), `none`.
+- **Print none indexed**: `no surfaces indexed.`
+- **Confirm covers**: for each selected surface, suggest a `Covers` annotation derived from headings (H1 + first 3 H2s) and ask the user to confirm or replace:
 
-Print a numbered list (axiom 4 — plain-text indexed selection):
+    ```
+    [1] docs/architecture/payments.md
+    Suggested covers: payments, webhook flow, Stripe integration
+    Accept or type replacement (Enter to accept):
+    ```
 
-<example>
-```
-Discovered N documentation files. Index these in your project steering file?
+- **Append, stage, exit**: after confirming all selected surfaces, locate the target project steering file: the shared steering file (`AGENTS.md`) at the git root, or the native loader beside it, whichever exists; if neither exists, create the shared `AGENTS.md`. Append the section, then `git add <steering-file>`:
 
-  [1] docs/architecture/payments.md — Payments / Webhook Flow / Stripe Integration
-  [2] docs/models/README.md — Data Model / Entity Relationships / Migration History
-  [3] README.md — (no headings extracted)
-  ...
+    ```markdown
+    ## Documentation surfaces
 
-Type: all | 1 3 5 | none
-```
-</example>
+    | Path | Covers | Voice |
+    |------|--------|-------|
+    | `docs/architecture/payments.md` | payments, webhook flow, Stripe integration | atomic-writing |
+    ```
 
-Wait for user input. Accept: `all`, space-separated indices (`1 3 5`), comma-separated (`1,3,5`), ranges (`1-3`), mixed (`1-3 5`), `none`.
+    Then print and exit:
 
-If `none`, print `no surfaces indexed.` and exit.
-
-## Step 4 — Bootstrap: write the surfaces table
-
-For each selected surface:
-
-1. Suggest a `Covers` annotation derived from headings (H1 + first 3 H2s). Ask the user to confirm or replace:
-
-   ```
-   [1] docs/architecture/payments.md
-   Suggested covers: payments, webhook flow, Stripe integration
-   Accept or type replacement (Enter to accept):
-   ```
-
-2. After confirming all selected surfaces, locate the target project steering file:
-   - Use the shared steering file (`AGENTS.md`) at the git root, or the native loader beside it, whichever exists.
-   - If neither exists, create the shared `AGENTS.md`.
-
-3. Append the `## Documentation surfaces` section to that file:
-
-   ```markdown
-   ## Documentation surfaces
-
-   | Path | Covers | Voice |
-   |------|--------|-------|
-   | `docs/architecture/payments.md` | payments, webhook flow, Stripe integration | atomic-writing |
-   ```
-
-4. Stage the file:
-
-   ```bash
-   git add <steering-file>
-   ```
-
-5. Print:
-
-   ```
-   indexed N surfaces in the project steering file.
-   Run /documentation again to walk stale or missing docs.
-   ```
-
-Exit. Bootstrap complete.
+    ```
+    indexed N surfaces in the project steering file.
+    Run /documentation again to walk stale or missing docs.
+    ```
 
 ## Step 5 — Authoring: check for unindexed docs
 
-Run `atomic docs scan` (or the Bash fallback from Step 2). Compare the scan results against the paths already in the `## Documentation surfaces` table.
+Run `atomic docs scan`; on a non-zero exit, print its stderr and stop. Compare the scan results against the paths already in the `## Documentation surfaces` table.
 
 If unindexed doc files are found, present them as a numbered list:
 
@@ -137,25 +117,26 @@ Found N doc files not in your surfaces table. Add them?
 Type: all | 1 3 5 | none
 ```
 
-For selected items, run Step 4's annotation + append loop, then continue.
+For selected items, run the bootstrap **Confirm covers** step and the append and stage of **Append, stage, exit**, then continue.
 
 ## Step 6 — Authoring: resolve the diff range
 
-If the user supplied a `<range>` argument, use it verbatim.
+An empty diff skips stale detection but still runs missing detection.
 
-If no argument was supplied, resolve the base:
-
-```bash
-git merge-base HEAD main 2>/dev/null || echo "main"
+```mermaid
+flowchart TD
+    R{"Range given?"} -->|yes| D["Diff the range"]
+    R -->|no| M["Resolve base"]
+    M --> D
+    D --> E{"Diff empty?"}
+    E -->|yes| K["Step 7,<br/>missing only"]
+    E -->|no| S["Step 7"]
 ```
 
-Then run:
-
-```bash
-git diff <base>..HEAD
-```
-
-If the diff is empty, print `no changes in range; skipping stale detection.` and proceed to Step 7 (missing detection).
+- **Range given?**: a `<range>` argument is used verbatim.
+- **Resolve base**: `git merge-base HEAD main 2>/dev/null || echo "main"`; the range is `<base>..HEAD`.
+- **Diff the range**: `git diff <range>`.
+- **Step 7, missing only**: print `no changes in range; skipping stale detection.`
 
 ## Step 7 — Authoring: classify surfaces
 
@@ -165,7 +146,7 @@ Read the `## Documentation surfaces` table. For each surface:
 - **Incomplete** — the diff adds something (new entity, new endpoint, new step) related to the surface's covers, but the surface doesn't mention it yet.
 - **Missing** — domains identified in project signals (`docs/wiki/index.md`) that have 5+ source files with no corresponding doc surface within two directory levels. Only suggest new pages in authoring mode; never during commit flow.
 
-**Code-intel blast-radius (when index is present).** If a code-intel index exists (`atomic code search` responds without error), the changed-symbol impact sweep — determining which symbols from the diff affect which doc surfaces — should be DELEGATED to a subagent (`atomic-investigator`, or a generic subagent on the economical reasoning tier). Brief it with the list of changed symbols and ask it to run `atomic code impact <symbol>` for each and return a compact "symbol → affected surfaces" digest. The main `/documentation` agent must NOT run `atomic code impact` inline — these queries are token-heavy and belong in a disposable subagent thread. Consume the returned digest to refine stale/incomplete classification. **Degrade:** when no index is present or the subagent reports the binary is absent, fall back to the existing diff-vs-covers judgment above (no code-intel path, no error).
+**Code-intel blast-radius (when index is present).** If a code-intel index exists (`atomic code search` responds without error), the changed-symbol impact sweep — determining which symbols from the diff affect which doc surfaces — should be DELEGATED to a subagent (`atomic-investigator`, or a generic subagent on the economical reasoning tier). Brief it with the list of changed symbols and ask it to run `atomic code impact <symbol>` for each and return a compact "symbol → affected surfaces" digest. The main `/documentation` agent must NOT run `atomic code impact` inline — these queries are token-heavy and belong in a disposable subagent thread. Consume the returned digest to refine stale/incomplete classification. **Degrade:** when no index is present, fall back to the existing diff-vs-covers judgment above (no code-intel path, no error).
 
 If `--dry-run` was supplied, print the classifications and exit:
 
@@ -242,8 +223,6 @@ atomic followups add \
   --severity nit \
   --origin "/documentation authoring"
 ```
-
-If `atomic` is absent, print the follow-up details and ask the user to add it manually.
 
 ### Remind (`r`)
 

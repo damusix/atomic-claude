@@ -56,7 +56,7 @@ atomic code impact --depth 2 validateToken # what breaks if you change it
 atomic code sync                           # refresh after edits
 ```
 
-Flags come before the positional argument — parsing stops at the first non-flag token, so trailing flags are read as part of the symbol.
+Flags go before or after the positional argument: `atomic code impact validateToken --depth 2` is the same call as `atomic code impact --depth 2 validateToken`. Words that are not flags join into the query or symbol. To pass a word that starts with `-` as part of the query, put it after `--`.
 
 This is a structural alternative to `grep` for the questions grep answers badly. `grep chargeCard` matches the string in comments, strings, and unrelated names; `atomic code callers chargeCard` returns the actual call sites from the parsed graph. The `callers`, `callees`, and `impact` verbs have no grep equivalent at all, because they traverse edges rather than text.
 
@@ -174,7 +174,7 @@ flowchart TD
     impl -->|impact before edit| db
     rev -->|blast-radius check| db
     sig -->|real import/call edges| db
-    db -.->|absent / failed / no binary| grep
+    db -.->|absent / failed| grep
 ```
 
 What each consumer does with the graph:
@@ -188,7 +188,7 @@ What each consumer does with the graph:
 | `/atomic-plan`, `/documentation` | Delegate structural exploration to a subagent — never query inline. |
 | `/gather-evidence` | Treat `atomic code callers`/`impact` as a Tier-1 (primary-source) answer to "X is called from N places" / "changing X affects Y". |
 
-Every consumer degrades the same way: if the binary is absent, the database does not exist, or a query fails, it falls back to `sg`/`grep`/heuristics and never blocks.
+Every consumer degrades the same way: if the database does not exist or a query fails, it falls back to `sg`/`grep`/heuristics and never blocks.
 
 
 ## MCP for the interactive session

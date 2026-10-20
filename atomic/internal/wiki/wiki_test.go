@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
@@ -111,7 +112,7 @@ func TestScan_HappyPath(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 
-	for _, sub := range []string{"wiki/index.md", "wiki/README.md", "wiki/.gitignore", "wiki/repos", "wiki/concerns"} {
+	for _, sub := range []string{"wiki/index.md", "wiki/README.md", "wiki/CLAUDE.md", "wiki/repos", "wiki/concerns"} {
 		p := filepath.Join(root, sub)
 		if _, err := os.Lstat(p); err != nil {
 			t.Errorf("expected scaffold path %s to exist: %v", sub, err)
@@ -124,13 +125,8 @@ func TestScan_HappyPath(t *testing.T) {
 		t.Errorf("wiki/.git not found — git init not run: %v", err)
 	}
 
-	// .gitignore ignores .dirty
-	gi, err := os.ReadFile(filepath.Join(root, "wiki", ".gitignore"))
-	if err != nil {
-		t.Fatalf("read .gitignore: %v", err)
-	}
-	if !strings.Contains(string(gi), ".dirty") {
-		t.Error(".gitignore does not contain .dirty")
+	if _, err := os.Lstat(filepath.Join(root, "wiki", ".gitignore")); err == nil {
+		t.Error("scan wrote wiki/.gitignore; the wiki has no ignored state")
 	}
 
 	content := readIndexMD(t, root)
@@ -472,6 +468,124 @@ func TestScan_CollisionIndexMDMissingMarker(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), indexPath) && !strings.Contains(err.Error(), "wiki") {
 		t.Errorf("error should name the path; got: %v", err)
+	}
+}
+
+// The documented setup flow is `wiki init --scope realm` then `wiki scan`;
+// init's own AGENTS.md and CLAUDE.md loader must not trip the collision guard.
+func TestScan_AfterInitRealmScopeSucceeds(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	if _, err := wiki.InitRealmScope(root); err != nil {
+		t.Fatal(err)
+	}
+	steeringPath := filepath.Join(root, "wiki", "CLAUDE.md")
+	steering, err := os.ReadFile(steeringPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, wiki.Options{Clock: fixedClock()}); err != nil {
+		t.Fatalf("scan after init: %v", err)
+	}
+
+	index, err := os.ReadFile(filepath.Join(root, "wiki", "index.md"))
+	if err != nil {
+		t.Fatalf("index.md not written: %v", err)
+	}
+	if !strings.Contains(string(index), "<wiki-scan") {
+		t.Errorf("index.md lacks the <wiki-scan> marker:\n%s", index)
+	}
+	after, err := os.ReadFile(steeringPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(steering) {
+		t.Errorf("scan rewrote init's CLAUDE.md: got %q, want %q", after, steering)
+	}
+}
+
+// A wiki/ initialized before the loader pair holds only a scaffold CLAUDE.md;
+// upgrading the binary must not turn that documented setup into a collision.
+func TestScan_AfterPrePairInitSucceeds(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+	if _, err := wiki.InitRealmScope(root); err != nil {
+		t.Fatal(err)
+	}
+	wikiDir := filepath.Join(root, "wiki")
+	scaffold, err := os.ReadFile(filepath.Join(wikiDir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(wikiDir, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, wikiDir, "CLAUDE.md", string(scaffold))
+
+	if _, err := wiki.Scan(root, wiki.Options{Clock: fixedClock()}); err != nil {
+		t.Fatalf("scan after pre-pair init: %v", err)
+	}
+}
+
+// The init exemption is exact: a wiki/ holding anything beyond init's own
+// unedited files is foreign content the guard must still protect.
+func TestScan_CollisionForeignContentBesideInit(t *testing.T) {
+	cases := map[string]func(t *testing.T, wikiDir string){
+		"edited CLAUDE.md": func(t *testing.T, wikiDir string) {
+			writeFile(t, wikiDir, "CLAUDE.md", "# my own notes\n")
+		},
+		"edited AGENTS.md": func(t *testing.T, wikiDir string) {
+			writeFile(t, wikiDir, "AGENTS.md", "# my own notes\n")
+		},
+		"extra file": func(t *testing.T, wikiDir string) {
+			writeFile(t, wikiDir, "notes.md", "notes\n")
+		},
+		"nested dir": func(t *testing.T, wikiDir string) {
+			if err := os.MkdirAll(filepath.Join(wikiDir, "wiki"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"symlinked CLAUDE.md": func(t *testing.T, wikiDir string) {
+			steeringPath := filepath.Join(wikiDir, "CLAUDE.md")
+			scaffold, err := os.ReadFile(steeringPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(t.TempDir(), "CLAUDE.md")
+			if err := os.WriteFile(target, scaffold, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(steeringPath); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, steeringPath); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			makeGitRepo(t, root, "repoA")
+			if _, err := wiki.InitRealmScope(root); err != nil {
+				t.Fatal(err)
+			}
+			wikiDir := filepath.Join(root, "wiki")
+			setup(t, wikiDir)
+
+			_, err := wiki.Scan(root, wiki.Options{Clock: fixedClock()})
+			if err == nil {
+				t.Fatal("expected collision error, got nil")
+			}
+			if !strings.Contains(err.Error(), wikiDir) {
+				t.Errorf("error should name %s; got: %v", wikiDir, err)
+			}
+			if _, statErr := os.Stat(filepath.Join(wikiDir, "index.md")); !os.IsNotExist(statErr) {
+				t.Errorf("refused scan must not write index.md (stat err: %v)", statErr)
+			}
+		})
 	}
 }
 
@@ -871,8 +985,8 @@ func TestDeriveMemberDescription_LengthBound(t *testing.T) {
 	}
 
 	got := wiki.DeriveMemberDescription(summaryPath)
-	if len(got) > 120 {
-		t.Errorf("description must be <= 120 chars, got %d: %q", len(got), got)
+	if n := utf8.RuneCountInString(got); n > 120 {
+		t.Errorf("description must be <= 120 chars, got %d: %q", n, got)
 	}
 }
 
@@ -1704,7 +1818,7 @@ func TestScan_RebuildsBucketIndexesAndSurvivesBrokenBucket(t *testing.T) {
 	if !strings.Contains(after, "<wiki-bucket-list>") {
 		t.Errorf("wiki/index.md missing <wiki-bucket-list> region:\n%s", after)
 	}
-	if !strings.Contains(after, "- [research](../research) - Research capture bucket") {
+	if !strings.Contains(after, "- [research](../research/index.md) - Research capture bucket") {
 		t.Errorf("realm bucket list missing research entry:\n%s", after)
 	}
 

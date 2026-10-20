@@ -174,8 +174,8 @@ func TestLoadUnknownKeyWarn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if len(warns) == 0 {
-		t.Error("expected at least one warning for unknown key, got none")
+	if len(warns) != 1 || warns[0].Key != "unknown_section" {
+		t.Errorf("want one warning with Key %q, got %+v", "unknown_section", warns)
 	}
 }
 
@@ -197,13 +197,13 @@ func TestLoadUnknownLeafKeyWarn(t *testing.T) {
 	}
 	found := false
 	for _, w := range warns {
-		if strings.Contains(w.Message, "output.foo") {
+		if strings.Contains(w.Message, "output.foo") && w.Key == "output.foo" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected warning mentioning 'output.foo', got: %v", warns)
+		t.Errorf("expected warning naming 'output.foo' with Key set, got: %v", warns)
 	}
 	got, err := Get(cfg, "output.signals.max_depth")
 	if err != nil {
@@ -1006,10 +1006,11 @@ func TestAgentsFableIsValid(t *testing.T) {
 	}
 }
 
-// The install manifest takes precedence over the static known-agent set.
+// The install manifest takes precedence over the bundle, and `claude install`
+// records target paths (agents/<name>.md), not bare filenames.
 func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
 	cfg := Default()
-	cfg.Install.Artifacts.Agents = []string{"custom-agent.md", "atomic-implementer.md"}
+	cfg.Install.Artifacts.Agents = []string{"agents/custom-agent.md", "agents/atomic-implementer.md"}
 	cfg.Claude.Agents = map[string]AgentOverride{
 		"custom-agent":       {Model: "haiku"}, // in manifest → known
 		"atomic-implementer": {Model: "sonnet"},

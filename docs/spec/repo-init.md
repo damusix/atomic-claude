@@ -88,15 +88,14 @@ ignored: `.claude/agents/x`, `.claude/commands/other.md`, `.claude/output-styles
 ## Template strip
 
 Rule: templates stop doing layout-guarantee work (gitignore verify/append, standalone layout
-mkdirs). Task-specific leaf `mkdir -p` stays as the degradation path for binary-absent repos.
-Each stripped site gains a best-effort init call: run `atomic repo init` if `command -v atomic`
-succeeds; skip silently otherwise.
+mkdirs). Task-specific leaf `mkdir -p` stays. Each stripped site gains an init call: run
+`atomic repo init`.
 
 | Template | Change |
 |----------|--------|
-| `templates/commands/subagent-implementation.md` | Replace the "`.claude/.scratchpad/` must be gitignored — verify, add if missing" step with the best-effort init call. Keep `mkdir -p "$SCRATCH"`. |
+| `templates/commands/subagent-implementation.md` | Replace the "`.claude/.scratchpad/` must be gitignored — verify, add if missing" step with the init call. Keep `mkdir -p "$SCRATCH"`. |
 | `templates/commands/subagent-diagnose.md` | Same replacement at both gitignore-verify sites. Keep the `mkdir -p` calls. |
-| `templates/commands/setup-wiki.md` | Gitignore-audit rows for `tmp/`, `.claude/.scratchpad/`, `.claude/worktrees/`, and the signals prev-file delegate to `atomic repo init` (binary present) with the manual append retained only as the binary-absent fallback. Drop the `.claude/project/.deterministic-signals.prev.md` row entirely — no Go code writes that path anymore. |
+| `templates/commands/setup-wiki.md` | Gitignore-audit rows for `tmp/`, `.claude/.scratchpad/`, `.claude/worktrees/`, and the signals prev-file delegate to `atomic repo init`, with no manual append. Drop the `.claude/project/.deterministic-signals.prev.md` row entirely — no Go code writes that path anymore. |
 | `templates/shared/worktree-setup.md` | Single `atomic repo init` call at the top of the create-and-enter step. No gitignore-verify section, no manual append fallback, no ignore-file commit ceremony. |
 | `templates/commands/atomic-help.md` | Mention `atomic repo init` in the `cli` topic row set. |
 
@@ -124,10 +123,10 @@ atomic/
 ├── cmd/atomic/main.go                         M  repo command build + dispatch
 .gitignore                                     M  drop the fifteen .claude/* lines (three spans)
 .claude/.gitignore                             A  tracked; translated rules
-templates/commands/subagent-implementation.md  M  gitignore-verify step → best-effort init call
+templates/commands/subagent-implementation.md  M  gitignore-verify step → init call
 templates/commands/subagent-diagnose.md        M  same, two sites
 templates/commands/setup-wiki.md               M  gitignore-audit rows delegate to init
-templates/shared/worktree-setup.md             M  single best-effort init call; no fallback
+templates/shared/worktree-setup.md             M  single init call; no fallback
 templates/commands/atomic-help.md              M  cli topic mentions atomic repo init
 commands/*.md                                  M  rendered outputs (make render)
 atomic/internal/embedded/                      M  regenerated bundle (make bundle)
@@ -158,9 +157,7 @@ atomic/internal/embedded/                      M  regenerated bundle (make bundl
    missing, else no-op → print one `created`/`ok` line per item → exit 0 (non-zero only on I/O
    error).
 2. **Command template needs the layout** (e.g. `/subagent-implementation` scratchpad setup):
-   `command -v atomic` succeeds → run `atomic repo init` (quiet, idempotent) → `mkdir -p` the
-   task-specific leaf dir → proceed. Binary absent → `mkdir -p` the leaf dir only (degradation
-   path).
+   run `atomic repo init` (quiet, idempotent) → `mkdir -p` the task-specific leaf dir → proceed.
 3. **Degraded environment** (no git binary or root not a work tree): `Init` answers "is it
    ignored" by scanning the target ignore file for the literal rule line; everything else
    unchanged.
@@ -204,3 +201,10 @@ atomic/internal/embedded/                      M  regenerated bundle (make bundl
   `atomic repo init`'s concern, not the implement loop's, and the binary can be assumed present —
   these artifacts install only via `atomic claude install`. **Superseded:** the row kept a
   binary-absent manual append plus an `atomic-git-discipline` commit of the changed ignore file.
+- 2026-10-19 — Artifacts assume atomic is installed. **What changed:** every stripped site,
+  including `setup-wiki`'s gitignore-audit rows, runs `atomic repo init` with no
+  `command -v atomic` check, and Flow 2 has no binary-absent branch. **Why:** issue #298:
+  artifacts ship inside and install through the `atomic` binary, so the binary is always present
+  when they run; see `docs/spec/artifacts-mermaid-flows.md`. **Superseded:** the init call ran
+  only when `command -v atomic` succeeded and was skipped silently otherwise, leaf `mkdir -p` was
+  the binary-absent degradation path, and `setup-wiki` kept a manual append for that case.

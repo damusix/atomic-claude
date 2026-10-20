@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeTopicFile writes content to path, creating parent directories as needed.
@@ -181,6 +183,42 @@ func TestReadTopicMeta_DescriptionProseLineRung(t *testing.T) {
 	}
 }
 
+func TestListEntry_LongDescriptionCutAtWordBoundary(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sources.md")
+	desc := strings.Repeat("word ", 23) + "remove or replace a source and restart its crawl."
+	writeTopicFile(t, path, "---\ndescription: "+desc+"\ntags: [ingest]\n---\n")
+
+	topic := readTopicMeta(path)
+	topic.Path = "sources.md"
+	want := "- [sources](sources.md) - " + strings.Repeat("word ", 22) + "word… · tags: ingest"
+	if got := listEntry(topic); got != want {
+		t.Errorf("got entry\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	words := strings.Repeat("abcd ", 23)
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"cut at word end keeps the word", words + "abcd more words", words + "abcd…"},
+		{"double space at cut leaves no space before ellipsis", words + "abc  more", words + "abc…"},
+		{"single long word cut mid-word", strings.Repeat("x", 130), strings.Repeat("x", 119) + "…"},
+		{"leading space before long word cut mid-word", " " + strings.Repeat("x", 130), " " + strings.Repeat("x", 118) + "…"},
+		{"exactly at limit in runes is unchanged", strings.Repeat("é ", 59) + "éé", strings.Repeat("é ", 59) + "éé"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := truncate(c.in, 120); got != c.want {
+				t.Errorf("got\n%q\nwant\n%q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestReadTopicMeta_DescriptionExhaustedIsLinkOnly(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "call-notes-2026-07-11.md")
@@ -283,7 +321,7 @@ func TestRenderBucketDocs_NoUnindexedOmitsHeading(t *testing.T) {
 	}
 }
 
-func TestRebuildBucketIndex_PreservesOutsideProseWithArbitraryEdits(t *testing.T) {
+func TestRebuildBucketTree_PreservesOutsideProseWithArbitraryEdits(t *testing.T) {
 	dir := t.TempDir()
 	writeTopicFile(t, filepath.Join(dir, "seo.md"), "---\ntitle: SEO\ndescription: Technical SEO checklist.\n---\n\nBody.\n")
 
@@ -297,8 +335,8 @@ func TestRebuildBucketIndex_PreservesOutsideProseWithArbitraryEdits(t *testing.T
 		"A user-typed trailer paragraph.\n"
 	writeTopicFile(t, filepath.Join(dir, "index.md"), original)
 
-	if err := RebuildBucketIndex(dir); err != nil {
-		t.Fatalf("RebuildBucketIndex: %v", err)
+	if _, errs := RebuildBucketTree(dir); errs != nil {
+		t.Fatalf("RebuildBucketTree: %v", errs)
 	}
 
 	got, err := os.ReadFile(filepath.Join(dir, "index.md"))
@@ -320,20 +358,20 @@ func TestRebuildBucketIndex_PreservesOutsideProseWithArbitraryEdits(t *testing.T
 	}
 }
 
-func TestRebuildBucketIndex_Idempotent(t *testing.T) {
+func TestRebuildBucketTree_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 	writeTopicFile(t, filepath.Join(dir, "seo.md"), "---\ntitle: SEO\ndescription: Technical SEO checklist.\n---\n\nBody.\n")
 
-	if err := RebuildBucketIndex(dir); err != nil {
-		t.Fatalf("first rebuild: %v", err)
+	if _, errs := RebuildBucketTree(dir); errs != nil {
+		t.Fatalf("first rebuild: %v", errs)
 	}
 	first, err := os.ReadFile(filepath.Join(dir, "index.md"))
 	if err != nil {
 		t.Fatalf("read after first rebuild: %v", err)
 	}
 
-	if err := RebuildBucketIndex(dir); err != nil {
-		t.Fatalf("second rebuild: %v", err)
+	if _, errs := RebuildBucketTree(dir); errs != nil {
+		t.Fatalf("second rebuild: %v", errs)
 	}
 	second, err := os.ReadFile(filepath.Join(dir, "index.md"))
 	if err != nil {
@@ -345,12 +383,12 @@ func TestRebuildBucketIndex_Idempotent(t *testing.T) {
 	}
 }
 
-func TestRebuildBucketIndex_AbsentIndexAppendsRegion(t *testing.T) {
+func TestRebuildBucketTree_AbsentIndexAppendsRegion(t *testing.T) {
 	dir := t.TempDir()
 	writeTopicFile(t, filepath.Join(dir, "seo.md"), "---\ntitle: SEO\ndescription: Technical SEO checklist.\n---\n\nBody.\n")
 
-	if err := RebuildBucketIndex(dir); err != nil {
-		t.Fatalf("RebuildBucketIndex: %v", err)
+	if _, errs := RebuildBucketTree(dir); errs != nil {
+		t.Fatalf("RebuildBucketTree: %v", errs)
 	}
 
 	got, err := os.ReadFile(filepath.Join(dir, "index.md"))
@@ -363,15 +401,15 @@ func TestRebuildBucketIndex_AbsentIndexAppendsRegion(t *testing.T) {
 	}
 }
 
-func TestRebuildBucketIndex_UnpairedRegionLeavesFileUntouched(t *testing.T) {
+func TestRebuildBucketTree_UnpairedRegionLeavesFileUntouched(t *testing.T) {
 	dir := t.TempDir()
 	writeTopicFile(t, filepath.Join(dir, "seo.md"), "---\ntitle: SEO\n---\n\nBody.\n")
 
 	original := "# research\n\n<bucket-docs>\n\nstray content with no close tag\n"
 	writeTopicFile(t, filepath.Join(dir, "index.md"), original)
 
-	err := RebuildBucketIndex(dir)
-	if !errors.Is(err, errUnpairedRegion) {
+	_, errs := RebuildBucketTree(dir)
+	if err := errors.Join(errs...); !errors.Is(err, errUnpairedRegion) {
 		t.Fatalf("expected errUnpairedRegion, got %v", err)
 	}
 
@@ -381,6 +419,263 @@ func TestRebuildBucketIndex_UnpairedRegionLeavesFileUntouched(t *testing.T) {
 	}
 	if string(got) != original {
 		t.Errorf("index.md must be left untouched on unpaired region\ngot:  %q\nwant: %q", got, original)
+	}
+}
+
+func readIndex(t *testing.T, dir string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "index.md"))
+	if err != nil {
+		t.Fatalf("read %s/index.md: %v", dir, err)
+	}
+	return string(data)
+}
+
+// An agent descends a bucket one index.md at a time, so every walkable
+// directory needs its own listing, created when absent.
+func TestRebuildBucketTree_IndexesEveryWalkableDirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeTopicFile(t, filepath.Join(dir, "seo-audit", "01_raw", "crawl.md"), "---\ntitle: Crawl\n---\n")
+	writeTopicFile(t, filepath.Join(dir, "seo-audit", "01_raw", "deep", "page.md"), "---\ntitle: Page\n---\n")
+	writeTopicFile(t, filepath.Join(dir, "node_modules", "pkg", "readme.md"), "x\n")
+	writeTopicFile(t, filepath.Join(dir, ".obsidian", "notes.md"), "x\n")
+	writeTopicFile(t, filepath.Join(dir, "seo-audit", ".cache", "c.md"), "x\n")
+
+	if _, errs := RebuildBucketTree(dir); errs != nil {
+		t.Fatalf("RebuildBucketTree: %v", errs)
+	}
+
+	for _, d := range []string{"", "seo-audit", "seo-audit/01_raw", "seo-audit/01_raw/deep"} {
+		got := readIndex(t, filepath.Join(dir, d))
+		if state, _ := findRegion(got, "bucket-docs"); state != regionWellFormed {
+			t.Errorf("%q/index.md has no well-formed <bucket-docs> region:\n%s", d, got)
+		}
+	}
+	if !strings.Contains(readIndex(t, filepath.Join(dir, "seo-audit", "01_raw")), "[Crawl](crawl.md)") {
+		t.Errorf("01_raw listing missing its file")
+	}
+	if !strings.Contains(readIndex(t, filepath.Join(dir, "seo-audit", "01_raw", "deep")), "[Page](page.md)") {
+		t.Errorf("deep listing missing its file")
+	}
+
+	for _, skipped := range []string{"node_modules", "node_modules/pkg", ".obsidian", "seo-audit/.cache"} {
+		if _, err := os.Stat(filepath.Join(dir, skipped, "index.md")); !os.IsNotExist(err) {
+			t.Errorf("skipped directory %q gained an index.md (err %v)", skipped, err)
+		}
+	}
+	root := readIndex(t, dir)
+	if strings.Contains(root, "node_modules") || strings.Contains(root, ".obsidian") {
+		t.Errorf("skipped directories listed in root index:\n%s", root)
+	}
+}
+
+func TestWalkDirChildren_FilesAndSubdirectories(t *testing.T) {
+	dir := t.TempDir()
+	writeTopicFile(t, filepath.Join(dir, "index.md"), "# self\n")
+	writeTopicFile(t, filepath.Join(dir, "notes.md"), "---\ntitle: Notes\n---\n")
+	writeTopicFile(t, filepath.Join(dir, "report.pdf"), "binary")
+	writeTopicFile(t, filepath.Join(dir, ".DS_Store"), "junk")
+	writeTopicFile(t, filepath.Join(dir, "titled", "index.md"), "---\ntitle: Titled stage\ndescription: Collected sources.\ntags: [raw]\n---\n")
+	writeTopicFile(t, filepath.Join(dir, "bare", "index.md"), "---\ncustom: x\n---\n")
+	if err := os.MkdirAll(filepath.Join(dir, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := walkDirChildren(dir)
+	if err != nil {
+		t.Fatalf("walkDirChildren: %v", err)
+	}
+
+	byPath := map[string]BucketTopic{}
+	for _, e := range entries {
+		byPath[e.Path] = e
+	}
+	if len(entries) != 4 {
+		t.Fatalf("got %d entries, want notes.md, titled, bare, empty: %+v", len(entries), entries)
+	}
+
+	titled := byPath["titled"]
+	if !titled.Dir || titled.Title != "Titled stage" || titled.Description != "Collected sources." || !titled.Indexed || len(titled.Tags) != 1 {
+		t.Errorf("subdirectory entry must take its meta from its index.md: %+v", titled)
+	}
+	if got, want := listEntry(titled), "- [Titled stage](titled/index.md) - Collected sources. · tags: raw"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if empty := byPath["empty"]; !empty.Dir || empty.Title != "empty" || empty.Indexed {
+		t.Errorf("subdirectory with no index.md falls back to its name and is unindexed: %+v", empty)
+	}
+	if bare := byPath["bare"]; bare.Title != "bare" || bare.Indexed {
+		t.Errorf("subdirectory whose index.md has no recognized key is unindexed: %+v", bare)
+	}
+
+	rendered := renderBucketDocs(entries)
+	unindexed := rendered[strings.Index(rendered, "### Unindexed"):]
+	if !strings.Contains(unindexed, "[bare](bare/index.md)") {
+		t.Errorf("unrecognized-frontmatter subdirectory must list under ### Unindexed:\n%s", rendered)
+	}
+}
+
+// macOS writes AppleDouble "._<name>" companions onto non-HFS volumes.
+func TestWalkDirChildren_SkipsDotPrefixedFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeTopicFile(t, filepath.Join(dir, "notes.md"), "---\ntitle: Notes\n---\n")
+	writeTopicFile(t, filepath.Join(dir, "._notes.md"), "\x00\x05\x16\x07")
+	writeTopicFile(t, filepath.Join(dir, ".draft.md"), "x\n")
+
+	entries, err := walkDirChildren(dir)
+	if err != nil {
+		t.Fatalf("walkDirChildren: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Path != "notes.md" {
+		t.Errorf("dot-prefixed files must be skipped: %+v", entries)
+	}
+}
+
+func TestChildLess_NumericPrefixOrder(t *testing.T) {
+	names := []string{"zeta", "10_publish", "alpha", "9_x", "02_findings", "01_raw", "1_a", "01_a"}
+	sort.Slice(names, func(i, j int) bool { return childLess(names[i], names[j]) })
+	want := []string{"01_a", "01_raw", "1_a", "02_findings", "9_x", "10_publish", "alpha", "zeta"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Errorf("got %v, want %v", names, want)
+	}
+}
+
+func TestChildLess_HugeNumericPrefix(t *testing.T) {
+	big := "99999999999999999999999_x"
+	if !childLess("2_x", big) || childLess(big, "2_x") {
+		t.Errorf("an integer prefix beyond int64 must still order by value")
+	}
+}
+
+// Buckets list a same-slug file and folder side by side; the docs-index router
+// collapse does not apply.
+func TestRebuildBucketTree_FlatSlugBesideDirectoryListsBoth(t *testing.T) {
+	dir := t.TempDir()
+	writeTopicFile(t, filepath.Join(dir, "seo.md"), "---\ntitle: SEO\n---\n")
+	writeTopicFile(t, filepath.Join(dir, "seo", "extra.md"), "---\ntitle: Extra\n---\n")
+
+	if _, errs := RebuildBucketTree(dir); errs != nil {
+		t.Fatalf("RebuildBucketTree: %v", errs)
+	}
+	root := readIndex(t, dir)
+	if !strings.Contains(root, "[SEO](seo.md)") || !strings.Contains(root, "[seo](seo/index.md)") {
+		t.Errorf("want both the file and the directory listed:\n%s", root)
+	}
+	if strings.Contains(root, "router") || strings.Contains(root, "orphan") {
+		t.Errorf("router/orphan markers must not appear in a bucket listing:\n%s", root)
+	}
+}
+
+func TestRebuildBucketTree_SecondRebuildWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	writeTopicFile(t, filepath.Join(dir, "index.md"), "# research\n\nUser prose.\n")
+	writeTopicFile(t, filepath.Join(dir, "item", "index.md"), "---\ntitle: Item\n---\n\n# Item\n\nItem prose kept as written.\n")
+	writeTopicFile(t, filepath.Join(dir, "item", "01_raw", "a.md"), "---\ntitle: A\n---\n")
+
+	if _, errs := RebuildBucketTree(dir); errs != nil {
+		t.Fatalf("first rebuild: %v", errs)
+	}
+
+	paths := []string{
+		filepath.Join(dir, "index.md"),
+		filepath.Join(dir, "item", "index.md"),
+		filepath.Join(dir, "item", "01_raw", "index.md"),
+	}
+	past := time.Now().Add(-time.Hour).Truncate(time.Second)
+	before := map[string]string{}
+	for _, p := range paths {
+		if err := os.Chtimes(p, past, past); err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(p)
+		before[p] = string(data)
+	}
+	if !strings.HasPrefix(before[paths[1]], "---\ntitle: Item\n---\n\n# Item\n\nItem prose kept as written.\n") {
+		t.Errorf("text outside the region changed:\n%s", before[paths[1]])
+	}
+
+	if _, errs := RebuildBucketTree(dir); errs != nil {
+		t.Fatalf("second rebuild: %v", errs)
+	}
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.ModTime().Equal(past) {
+			t.Errorf("%s rewritten on an unchanged rebuild (mtime %v)", p, info.ModTime())
+		}
+		data, _ := os.ReadFile(p)
+		if string(data) != before[p] {
+			t.Errorf("%s content changed on an unchanged rebuild", p)
+		}
+	}
+}
+
+func TestRebuildBucketTree_UnpairedNestedIndexIsolated(t *testing.T) {
+	dir := t.TempDir()
+	brokenOriginal := "# broken\n\n<bucket-docs>\n\nno close tag\n"
+	writeTopicFile(t, filepath.Join(dir, "broken", "index.md"), brokenOriginal)
+	writeTopicFile(t, filepath.Join(dir, "broken", "child", "c.md"), "---\ntitle: C\n---\n")
+	writeTopicFile(t, filepath.Join(dir, "sibling", "s.md"), "---\ntitle: S\n---\n")
+
+	_, errs := RebuildBucketTree(dir)
+	if len(errs) != 1 || !errors.Is(errs[0], errUnpairedRegion) {
+		t.Fatalf("expected one errUnpairedRegion, got %v", errs)
+	}
+	if err := errs[0]; !strings.Contains(err.Error(), filepath.Join(dir, "broken", "index.md")) {
+		t.Errorf("warning must name the broken file: %v", err)
+	}
+	if got := readIndex(t, filepath.Join(dir, "broken")); got != brokenOriginal {
+		t.Errorf("unpaired index.md must be untouched\ngot:  %q\nwant: %q", got, brokenOriginal)
+	}
+	if !strings.Contains(readIndex(t, filepath.Join(dir, "broken", "child")), "[C](c.md)") {
+		t.Errorf("child of the broken directory must still be indexed")
+	}
+	if !strings.Contains(readIndex(t, filepath.Join(dir, "sibling")), "[S](s.md)") {
+		t.Errorf("sibling of the broken directory must still be indexed")
+	}
+	if !strings.Contains(readIndex(t, dir), "(broken/index.md)") {
+		t.Errorf("root must still be indexed and list the broken directory")
+	}
+}
+
+func TestRebuildBucketTree_SumsCountsAcrossTree(t *testing.T) {
+	dir := t.TempDir()
+	writeTopicFile(t, filepath.Join(dir, "a.md"), "---\ntitle: A\n---\n")
+	writeTopicFile(t, filepath.Join(dir, "item", "index.md"), "---\ntitle: Item\n---\n")
+	writeTopicFile(t, filepath.Join(dir, "item", "b.md"), "no frontmatter\n")
+	writeTopicFile(t, filepath.Join(dir, "item", "01_raw", "c.md"), "---\ntitle: C\n---\n")
+
+	res, errs := RebuildBucketTree(dir)
+	if errs != nil {
+		t.Fatalf("RebuildBucketTree: %v", errs)
+	}
+	// root: a.md, item (indexed). item: b.md (unindexed), 01_raw (no
+	// frontmatter, unindexed). 01_raw: c.md (indexed).
+	if res.Indexed != 3 || res.Unindexed != 2 {
+		t.Errorf("got %d indexed, %d unindexed; want 3, 2", res.Indexed, res.Unindexed)
+	}
+}
+
+func TestRebuildAllBucketIndexes_WalksNestedDirectories(t *testing.T) {
+	root := t.TempDir()
+	wikiDir := filepath.Join(root, "wiki")
+	bucketDir := filepath.Join(root, "research")
+	writeTopicFile(t, filepath.Join(bucketDir, "item", "01_raw", "a.md"), "---\ntitle: A\n---\n")
+	if err := spliceBucketEntry(filepath.Join(wikiDir, "index.md"), "research", bucketDir); err != nil {
+		t.Fatal(err)
+	}
+
+	results, errs := RebuildAllBucketIndexes(root, wikiDir)
+	if len(errs) > 0 {
+		t.Fatalf("RebuildAllBucketIndexes: %v", errs)
+	}
+	if !strings.Contains(readIndex(t, filepath.Join(bucketDir, "item", "01_raw")), "[A](a.md)") {
+		t.Errorf("nested stage directory not indexed by the all-bucket rebuild")
+	}
+	if results["research"].Indexed != 1 || results["research"].Unindexed != 2 {
+		t.Errorf("got %+v, want 1 indexed, 2 unindexed", results["research"])
 	}
 }
 
@@ -404,9 +699,9 @@ func TestRenderBucketList_SortedWithDescriptionsAndMissing(t *testing.T) {
 
 	got := renderBucketList(wikiDir, entries)
 	want := "## Buckets\n\n" +
-		"- [alpha](../alpha) - Alpha bucket description sentence here.\n" +
+		"- [alpha](../alpha/index.md) - Alpha bucket description sentence here.\n" +
 		"- [missing](../missing) · (missing)\n" +
-		"- [zeta](../zeta) - Zeta bucket frontmatter description"
+		"- [zeta](../zeta/index.md) - Zeta bucket frontmatter description"
 
 	if got != want {
 		t.Errorf("renderBucketList mismatch\ngot:  %q\nwant: %q", got, want)
@@ -441,8 +736,8 @@ func TestRebuildAllBucketIndexes_SplicesRealmListAndSkipsMissingDir(t *testing.T
 		t.Fatalf("register ghost: %v", err)
 	}
 
-	if err := RebuildAllBucketIndexes(root, wikiDir); err != nil {
-		t.Fatalf("RebuildAllBucketIndexes: %v", err)
+	if _, errs := RebuildAllBucketIndexes(root, wikiDir); len(errs) > 0 {
+		t.Fatalf("RebuildAllBucketIndexes: %v", errs)
 	}
 
 	alphaIndex, err := os.ReadFile(filepath.Join(alphaDir, "index.md"))
@@ -462,7 +757,7 @@ func TestRebuildAllBucketIndexes_SplicesRealmListAndSkipsMissingDir(t *testing.T
 	if !strings.Contains(realm, "<wiki-bucket-list>") {
 		t.Errorf("realm index.md missing <wiki-bucket-list> region:\n%s", realm)
 	}
-	if !strings.Contains(realm, "- [alpha](../alpha) - Alpha bucket for research notes") {
+	if !strings.Contains(realm, "- [alpha](../alpha/index.md) - Alpha bucket for research notes") {
 		t.Errorf("realm bucket list missing alpha entry with description:\n%s", realm)
 	}
 	if !strings.Contains(realm, "- [ghost](../ghost) · (missing)") {
@@ -474,6 +769,36 @@ func TestRebuildAllBucketIndexes_SplicesRealmListAndSkipsMissingDir(t *testing.T
 	}
 	if !strings.Contains(realm, fmt.Sprintf(`<bucket name="ghost" path=%q/>`, ghostDir)) {
 		t.Errorf("<wiki-buckets> ghost entry mutated or missing:\n%s", realm)
+	}
+}
+
+func TestRebuildAllBucketIndexes_UnchangedRebuildLeavesRealmIndexAlone(t *testing.T) {
+	root := t.TempDir()
+	wikiDir := filepath.Join(root, "wiki")
+	indexPath := filepath.Join(wikiDir, "index.md")
+	bucketDir := filepath.Join(root, "research")
+	writeTopicFile(t, filepath.Join(bucketDir, "a.md"), "---\ntitle: A\n---\n")
+	if err := spliceBucketEntry(indexPath, "research", bucketDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, errs := RebuildAllBucketIndexes(root, wikiDir); len(errs) > 0 {
+		t.Fatalf("first rebuild: %v", errs)
+	}
+
+	past := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(indexPath, past, past); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, errs := RebuildAllBucketIndexes(root, wikiDir); len(errs) > 0 {
+		t.Fatalf("second rebuild: %v", errs)
+	}
+	info, err := os.Stat(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.ModTime().Equal(past) {
+		t.Errorf("realm index.md rewritten on an unchanged rebuild (mtime %v)", info.ModTime())
 	}
 }
 
@@ -499,9 +824,9 @@ func TestRebuildAllBucketIndexes_BrokenBucketDoesNotBlockOthersOrRealmSplice(t *
 		t.Fatalf("register ok: %v", err)
 	}
 
-	err := RebuildAllBucketIndexes(root, wikiDir)
-	if !errors.Is(err, errUnpairedRegion) {
-		t.Fatalf("expected errUnpairedRegion surfaced, got %v", err)
+	_, errs := RebuildAllBucketIndexes(root, wikiDir)
+	if len(errs) != 1 || !errors.Is(errs[0], errUnpairedRegion) {
+		t.Fatalf("expected one errUnpairedRegion surfaced, got %v", errs)
 	}
 
 	brokenAfter, readErr := os.ReadFile(filepath.Join(brokenDir, "index.md"))
@@ -529,6 +854,27 @@ func TestRebuildAllBucketIndexes_BrokenBucketDoesNotBlockOthersOrRealmSplice(t *
 	}
 }
 
+func TestRebuildAllBucketIndexes_EveryErrorLineNamesItsBucket(t *testing.T) {
+	root := t.TempDir()
+	wikiDir := filepath.Join(root, "wiki")
+	bucketDir := filepath.Join(root, "research")
+	writeTopicFile(t, filepath.Join(bucketDir, "a", "index.md"), "<bucket-docs>\n")
+	writeTopicFile(t, filepath.Join(bucketDir, "b", "index.md"), "<bucket-docs>\n")
+	if err := spliceBucketEntry(filepath.Join(wikiDir, "index.md"), "research", bucketDir); err != nil {
+		t.Fatal(err)
+	}
+
+	_, errs := RebuildAllBucketIndexes(root, wikiDir)
+	if len(errs) != 2 {
+		t.Fatalf("want one error per broken directory, got %v", errs)
+	}
+	for _, err := range errs {
+		if !strings.HasPrefix(err.Error(), `bucket "research": `) {
+			t.Errorf("error lacks its bucket context: %q", err)
+		}
+	}
+}
+
 func TestRebuildAllBucketIndexes_ZeroBucketsNoSplice(t *testing.T) {
 	root := t.TempDir()
 	wikiDir := filepath.Join(root, "wiki")
@@ -541,8 +887,8 @@ func TestRebuildAllBucketIndexes_ZeroBucketsNoSplice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := RebuildAllBucketIndexes(root, wikiDir); err != nil {
-		t.Fatalf("RebuildAllBucketIndexes: %v", err)
+	if _, errs := RebuildAllBucketIndexes(root, wikiDir); len(errs) > 0 {
+		t.Fatalf("RebuildAllBucketIndexes: %v", errs)
 	}
 
 	got, err := os.ReadFile(indexPath)
@@ -554,5 +900,98 @@ func TestRebuildAllBucketIndexes_ZeroBucketsNoSplice(t *testing.T) {
 	}
 	if strings.Contains(string(got), "<wiki-bucket-list>") {
 		t.Errorf("must not splice an empty ## Buckets region:\n%s", got)
+	}
+}
+
+func writeTwoConcepts(t *testing.T, dir string) {
+	t.Helper()
+	writeTopicFile(t, filepath.Join(dir, "sources.md"), "---\ntitle: Sources\ndescription: Register and crawl a source.\ntags: [ingest]\n---\n\nBody.\n")
+	writeTopicFile(t, filepath.Join(dir, "jobs.md"), "---\ntitle: Jobs\ndescription: Read the worker queue.\n---\n\nBody.\n")
+}
+
+func TestIndexDir_WritesRegionAndCounts(t *testing.T) {
+	dir := t.TempDir()
+	writeTwoConcepts(t, dir)
+	writeTopicFile(t, filepath.Join(dir, "draft.md"), "# Draft\n\nNo frontmatter.\n")
+	writeTopicFile(t, filepath.Join(dir, "index.md"), "# Admin help\n\nIntro.\n\n<bucket-docs>\n\nold\n\n</bucket-docs>\n\nTrailer.\n")
+
+	res, err := IndexDir(dir, false)
+	if err != nil {
+		t.Fatalf("IndexDir: %v", err)
+	}
+	if res.Indexed != 2 || res.Unindexed != 1 {
+		t.Errorf("got %d indexed, %d unindexed; want 2, 1", res.Indexed, res.Unindexed)
+	}
+	if !res.Stale {
+		t.Errorf("region differed before the write; want Stale")
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "index.md"))
+	if err != nil {
+		t.Fatalf("read index.md: %v", err)
+	}
+	want := "# Admin help\n\nIntro.\n\n<bucket-docs>\n\n## Docs\n\n" +
+		"- [Jobs](jobs.md) - Read the worker queue.\n" +
+		"- [Sources](sources.md) - Register and crawl a source. · tags: ingest\n\n" +
+		"### Unindexed\n\n- [Draft](draft.md)\n\n" +
+		"</bucket-docs>\n\nTrailer.\n"
+	if string(got) != want {
+		t.Errorf("index.md\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestIndexDir_CheckStaleLeavesFile(t *testing.T) {
+	dir := t.TempDir()
+	writeTwoConcepts(t, dir)
+	original := "# Admin help\n\n<bucket-docs>\n\n## Docs\n\n- stale\n\n</bucket-docs>\n"
+	writeTopicFile(t, filepath.Join(dir, "index.md"), original)
+
+	res, err := IndexDir(dir, true)
+	if err != nil {
+		t.Fatalf("IndexDir: %v", err)
+	}
+	if !res.Stale {
+		t.Errorf("region differs from a fresh render; want Stale")
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "index.md"))
+	if err != nil {
+		t.Fatalf("read index.md: %v", err)
+	}
+	if string(got) != original {
+		t.Errorf("check must not write\ngot:  %q\nwant: %q", got, original)
+	}
+}
+
+func TestIndexDir_CheckFreshAfterWrite(t *testing.T) {
+	dir := t.TempDir()
+	writeTwoConcepts(t, dir)
+
+	if _, err := IndexDir(dir, false); err != nil {
+		t.Fatalf("write run: %v", err)
+	}
+	res, err := IndexDir(dir, true)
+	if err != nil {
+		t.Fatalf("check run: %v", err)
+	}
+	if res.Stale {
+		t.Errorf("check right after a write must report fresh")
+	}
+}
+
+func TestIndexDir_MissingDirErrors(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "absent")
+
+	for _, check := range []bool{false, true} {
+		_, err := IndexDir(dir, check)
+		if err == nil {
+			t.Fatalf("check=%v: want an error for a missing directory", check)
+		}
+		if !strings.Contains(err.Error(), dir) {
+			t.Errorf("check=%v: error must name the directory: %v", check, err)
+		}
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("a missing directory must not be created: %v", err)
 	}
 }

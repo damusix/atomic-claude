@@ -2,11 +2,11 @@ package wiki
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
@@ -217,37 +217,25 @@ func TestRegisterWiki_NonConventionalRootWritesProjectionOnly(t *testing.T) {
 	}
 }
 
-// Staleness reads the authority even when the conventional CLAUDE.md projection
-// does not exist.
-func TestCheckStaleness_ReadsRegistryAuthority(t *testing.T) {
-	home := t.TempDir()
-	claudeHome := filepath.Join(home, ".claude")
-	if err := os.MkdirAll(claudeHome, 0o755); err != nil {
+// makeIndex writes a scanned wikiDir/index.md and returns its path.
+func makeIndex(t *testing.T, wikiDir string) string {
+	t.Helper()
+	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	indexPath := makeIndexWithGenerated(t, filepath.Join(t.TempDir(), "realm", "wiki"), "2000-01-01")
-	if _, _, err := NewWikiRegistry(home).Add(indexPath); err != nil {
-		t.Fatalf("register authority: %v", err)
+	indexPath := filepath.Join(wikiDir, "index.md")
+	content := fmt.Sprintf("<wiki-scan root=%q>\n</wiki-scan>\n", wikiDir)
+	if err := os.WriteFile(indexPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
-
-	var runner recordingRunner
-	nudges, err := CheckStaleness(claudeHome, 30, runner.Run, func() time.Time { return fixedNow })
-	if err != nil {
-		t.Fatalf("CheckStaleness: %v", err)
-	}
-	if len(nudges) != 1 || !strings.Contains(nudges[0], indexPath) {
-		t.Fatalf("nudges = %v, want one for %s", nudges, indexPath)
-	}
-	if runner.CallCount() != 0 {
-		t.Errorf("staleness spawned %d git calls", runner.CallCount())
-	}
+	return indexPath
 }
 
 // The pre-authority install is the <wikis> block in the installed CLAUDE.md. The
 // first authority write — `atomic wiki scan` registering one more realm — adopts
 // that block first, so realms registered before the authority survive in both
 // ~/.atomic/wikis.md and the derived projection, and the readers that prefer the
-// authority (staleness, `where`, the realm resolver) still see all of them.
+// authority (`where`, the realm resolver, doctor) still see all of them.
 func TestWikiScan_SeedsAuthorityFromLegacyBlock(t *testing.T) {
 	home := t.TempDir()
 	claudeHome := filepath.Join(home, ".claude")
@@ -257,8 +245,8 @@ func TestWikiScan_SeedsAuthorityFromLegacyBlock(t *testing.T) {
 	claudeMD := filepath.Join(claudeHome, "CLAUDE.md")
 
 	legacy := []string{
-		makeIndexWithGenerated(t, filepath.Join(t.TempDir(), "one", "wiki"), "2000-01-01"),
-		makeIndexWithGenerated(t, filepath.Join(t.TempDir(), "two", "wiki"), "2000-01-01"),
+		makeIndex(t, filepath.Join(t.TempDir(), "one", "wiki")),
+		makeIndex(t, filepath.Join(t.TempDir(), "two", "wiki")),
 	}
 	if err := os.WriteFile(claudeMD, []byte(buildWikisBlock(legacy)), 0o644); err != nil {
 		t.Fatal(err)
@@ -272,7 +260,7 @@ func TestWikiScan_SeedsAuthorityFromLegacyBlock(t *testing.T) {
 	if code := wikiAction([]string{"scan", "--root=" + root}, claudeHome, root, &buf); code != 0 {
 		t.Fatalf("wiki scan exit = %d:\n%s", code, buf.String())
 	}
-	scanned := makeIndexWithGenerated(t, filepath.Join(root, "wiki"), "2000-01-01")
+	scanned := makeIndex(t, filepath.Join(root, "wiki"))
 	want := append(append([]string{}, legacy...), scanned)
 
 	authority, err := NewWikiRegistry(home).Load()
@@ -305,26 +293,5 @@ func TestWikiScan_SeedsAuthorityFromLegacyBlock(t *testing.T) {
 	}
 	if !samePaths(resolved, want) {
 		t.Fatalf("registry resolution = %v, want %v", resolved, want)
-	}
-
-	var runner recordingRunner
-	nudges, err := CheckStaleness(claudeHome, 30, runner.Run, func() time.Time { return fixedNow })
-	if err != nil {
-		t.Fatalf("CheckStaleness: %v", err)
-	}
-	if len(nudges) != 3 {
-		t.Fatalf("nudges = %v, want one per realm (3)", nudges)
-	}
-	for _, indexPath := range want {
-		found := false
-		for _, nudge := range nudges {
-			if strings.Contains(nudge, indexPath) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("no staleness nudge for %s", indexPath)
-		}
 	}
 }

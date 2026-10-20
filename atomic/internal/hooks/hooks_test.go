@@ -15,7 +15,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/where"
-	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
 // TestMain sandboxes every test in this package under a temp $HOME, since
@@ -80,17 +79,6 @@ func addReminderWithDate(t *testing.T, root, body string, daysAgo int) string {
 	return ""
 }
 
-// stubNoWikiStaleness keeps empty-output assertions off the test machine's real
-// <wikis> registry, which may list dirty wikis.
-func stubNoWikiStaleness(t *testing.T) {
-	t.Helper()
-	orig := hooks.WikiCheckStaleness
-	hooks.WikiCheckStaleness = func(_ string, _ int, _ func(string, ...string) error, _ func() time.Time) ([]string, error) {
-		return nil, nil
-	}
-	t.Cleanup(func() { hooks.WikiCheckStaleness = orig })
-}
-
 // stubNoWherePosition pins the plain no-wiki/no-realm case, keeping empty-output
 // assertions off the real registry and the test process's own ancestor tree.
 func stubNoWherePosition(t *testing.T) {
@@ -114,7 +102,6 @@ func tempHome(t *testing.T) string {
 }
 
 func TestSessionStart_EmptyReminders(t *testing.T) {
-	stubNoWikiStaleness(t)
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
@@ -261,7 +248,6 @@ func TestSessionStart_FormatText(t *testing.T) {
 }
 
 func TestSessionStart_FormatText_EmptyReminders(t *testing.T) {
-	stubNoWikiStaleness(t)
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
@@ -382,7 +368,6 @@ func patchDueField(t *testing.T, root, id, dueValue string) {
 }
 
 func TestSessionStart_FutureDue_Silent(t *testing.T) {
-	stubNoWikiStaleness(t)
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
@@ -1301,7 +1286,6 @@ func TestSessionStartText_SeedOutputStyleCalled(t *testing.T) {
 // The seed is silent: it contributes nothing to the payload, whether the
 // style file is installed and the key gets written or not.
 func TestSessionStart_SeedOutputStyle_PayloadUnaffected(t *testing.T) {
-	stubNoWikiStaleness(t)
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	home := tempHome(t)
@@ -1343,7 +1327,6 @@ func TestSessionStart_SeedOutputStyle_PayloadUnaffected(t *testing.T) {
 // A malformed settings.json must never block SessionStart, even when the
 // style is installed and the seed would otherwise write to it.
 func TestSessionStart_SeedOutputStyle_MalformedSettings_NeverBlocks(t *testing.T) {
-	stubNoWikiStaleness(t)
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	home := tempHome(t)
@@ -1383,123 +1366,8 @@ func TestSessionStart_SeedOutputStyle_MalformedSettings_NeverBlocks(t *testing.T
 	}
 }
 
-// Nudges from the seam must reach additionalContext.
-func TestSessionStart_WikiNudgesInjected(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-
-	addReminderWithDate(t, root, "existing reminder", 0)
-
-	hooks.WikiCheckStaleness = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
-		return []string{"wiki /some/path/wiki/index.md is stale: not refreshed in 45 days — run /refresh-wiki"}, nil
-	}
-	t.Cleanup(func() { hooks.WikiCheckStaleness = hooks.DefaultWikiCheckStaleness })
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected non-empty output")
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-	hso := payload["hookSpecificOutput"].(map[string]any)
-	ctx := hso["additionalContext"].(string)
-
-	if !strings.Contains(ctx, "wiki /some/path/wiki/index.md is stale") {
-		t.Errorf("wiki nudge missing from additionalContext: %q", ctx)
-	}
-}
-
-func TestSessionStart_WikiNudgesOnly_NoReminders(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-
-	hooks.WikiCheckStaleness = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
-		return []string{"wiki /home/user/wiki/index.md is stale: uncommitted changes since last refresh (.dirty) — run /refresh-wiki"}, nil
-	}
-	t.Cleanup(func() { hooks.WikiCheckStaleness = hooks.DefaultWikiCheckStaleness })
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected non-empty output when only wiki nudges are present")
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
-	}
-	hso := payload["hookSpecificOutput"].(map[string]any)
-	ctx := hso["additionalContext"].(string)
-	if !strings.Contains(ctx, "wiki /home/user/wiki/index.md is stale") {
-		t.Errorf("wiki nudge missing from additionalContext: %q", ctx)
-	}
-}
-
-// Wiki staleness is best-effort: a read failure must not break the session.
-func TestSessionStart_WikiError_NeverBlocks(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	addReminderWithDate(t, root, "must still surface despite wiki error", 0)
-
-	hooks.WikiCheckStaleness = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
-		return nil, fmt.Errorf("simulated wiki staleness failure")
-	}
-	t.Cleanup(func() { hooks.WikiCheckStaleness = hooks.DefaultWikiCheckStaleness })
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart returned error despite best-effort wiki check: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected reminder output even when wiki check fails")
-	}
-	if !strings.Contains(out, "must still surface despite wiki error") {
-		t.Errorf("reminder text missing from output: %q", out)
-	}
-}
-
-// The seam gets the 30-day deterministic floor.
-func TestSessionStart_WikiSeamReceivesThreshold30(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-
-	var gotThreshold int
-	called := false
-	hooks.WikiCheckStaleness = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
-		called = true
-		gotThreshold = thresholdDays
-		return nil, nil
-	}
-	t.Cleanup(func() { hooks.WikiCheckStaleness = hooks.DefaultWikiCheckStaleness })
-
-	_, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-
-	if !called {
-		t.Fatal("WikiCheckStaleness seam was never invoked")
-	}
-	if gotThreshold != 30 {
-		t.Errorf("WikiCheckStaleness called with thresholdDays=%d, want 30", gotThreshold)
-	}
-}
-
 // A plain position emits nothing — the hook stays silent unless relevant.
 func TestSessionStart_WhereSuppressed_PlainPosition(t *testing.T) {
-	stubNoWikiStaleness(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 
@@ -1519,7 +1387,6 @@ func TestSessionStart_WhereSuppressed_PlainPosition(t *testing.T) {
 
 // A repo-scope wiki surfaces one orientation line on its own.
 func TestSessionStart_WhereSurfaced_RepoScopeFound(t *testing.T) {
-	stubNoWikiStaleness(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 
@@ -1567,7 +1434,6 @@ func TestSessionStart_WhereSurfaced_RepoScopeFound(t *testing.T) {
 // Realm-only position: the sibling test covers RepoScope.Found alone, leaving
 // isPlainPosition's RealmScope clause and whereNudgeLine's switch unreached.
 func TestSessionStart_WhereSurfaced_RealmMember(t *testing.T) {
-	stubNoWikiStaleness(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 
@@ -1603,7 +1469,6 @@ func TestSessionStart_WhereSurfaced_RealmMember(t *testing.T) {
 
 // Covers whereNudgeLine's RealmRoot case.
 func TestSessionStart_WhereSurfaced_RealmRoot(t *testing.T) {
-	stubNoWikiStaleness(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 
@@ -1639,7 +1504,6 @@ func TestSessionStart_WhereSurfaced_RealmRoot(t *testing.T) {
 
 // Covers whereNudgeLine's RealmOrphaned case.
 func TestSessionStart_WhereSurfaced_RealmOrphaned(t *testing.T) {
-	stubNoWikiStaleness(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 
@@ -1675,7 +1539,6 @@ func TestSessionStart_WhereSurfaced_RealmOrphaned(t *testing.T) {
 
 // The seam gets repoRoot as cwd, not the hook process's own working directory.
 func TestSessionStart_WhereSeamReceivesRepoRoot(t *testing.T) {
-	stubNoWikiStaleness(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 
@@ -1696,7 +1559,6 @@ func TestSessionStart_WhereSeamReceivesRepoRoot(t *testing.T) {
 
 // Orientation is best-effort: a seam error must not block the session.
 func TestSessionStart_WhereError_NeverBlocks(t *testing.T) {
-	stubNoWikiStaleness(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	addReminderWithDate(t, root, "must still surface despite where error", 0)
@@ -1831,41 +1693,5 @@ func TestUninstall_MalformedSettings_Refuses(t *testing.T) {
 	raw, _ := os.ReadFile(settingsPath)
 	if string(raw) != "{ broken" {
 		t.Errorf("malformed settings.json was modified")
-	}
-}
-
-// Session-start wiki staleness reads the authoritative ~/.atomic/wikis.md even
-// when no CLAUDE.md projection exists at all — the registry is harness-neutral.
-func TestSessionStart_WikiNudgesFromRegistryAuthority(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	now := time.Now().UTC()
-
-	orig := hooks.ProfileRefresh
-	hooks.ProfileRefresh = func(string, string, int) (bool, error) { return false, nil }
-	t.Cleanup(func() { hooks.ProfileRefresh = orig })
-
-	addReminderWithDate(t, root, "existing reminder", 0)
-
-	wikiDir := filepath.Join(t.TempDir(), "realm", "wiki")
-	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	indexPath := filepath.Join(wikiDir, "index.md")
-	if err := os.WriteFile(indexPath, []byte("<wiki-scan root=\"/r\" generated=\"2000-01-01\">\n</wiki-scan>\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := wiki.NewWikiRegistry(home).Add(indexPath); err != nil {
-		t.Fatalf("register authority: %v", err)
-	}
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	if !strings.Contains(out, indexPath) {
-		t.Errorf("authority-registered wiki missing from session output: %q", out)
 	}
 }

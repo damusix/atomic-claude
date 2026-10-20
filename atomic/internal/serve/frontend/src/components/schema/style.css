@@ -510,7 +510,7 @@
 .code-schema-reindex-error {
   flex-basis: 100%;
   margin: 0;
-  color: var(--c-knowledge-ink, var(--ink-faint));
+  color: var(--alert-ink, var(--ink-faint));
   font-size: 12px;
 }
 

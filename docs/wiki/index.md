@@ -4,7 +4,7 @@ description: Repo-local project wiki for atomic-claude — framework signals and
 ---
 
 <wiki-type>repo</wiki-type>
-<scan-sha>3b6a97f6b7b0dfa21c45dd44ab1f4316b55e328c</scan-sha>
+<scan-sha>90c174f9593c9f05e1052feff96b105e91d10cf8</scan-sha>
 <wiki-schema>1</wiki-schema>
 
 # Project signals
@@ -38,10 +38,10 @@ Domains are vertical slices by feature concern, not horizontal layers by file ty
 | workflow | [`context/commands/`](../../context/commands) | Plan, implement, review, ship — and the subagent loop that drives it. | [`docs/wiki/workflow.md`](workflow.md) |
 | config | [`atomic/internal/config/`](../../atomic/internal/config) | User and repo config, state at `~/.atomic`, hooks, follow-ups, self-update. | [`docs/wiki/config.md`](config.md) |
 | docs-meta | [`context/skills/atomic-writing/`](../../context/skills/atomic-writing) | Writing voice and diff-driven documentation routing. | [`docs/wiki/docs-meta.md`](docs-meta.md) |
-| wiki | [`atomic/internal/wiki/`](../../atomic/internal/wiki) | Cross-repo knowledge layer: scan, classify, synthesize, capture buckets. | [`docs/wiki/wiki.md`](wiki.md) |
+| wiki | [`atomic/internal/wiki/`](../../atomic/internal/wiki) | Cross-repo wiki: scan, classify, re-author picked pages, capture buckets. | [`docs/wiki/wiki.md`](wiki.md) |
 | code-intel | [`atomic/internal/codeintel/`](../../atomic/internal/codeintel) | Tree-sitter symbol graph, the `atomic code` verbs, and the MCP server. | [`docs/wiki/code-intel.md`](code-intel.md) |
 | serve | [`atomic/internal/serve/`](../../atomic/internal/serve) | Local read-only web UI over the wiki and the code graph. | [`docs/wiki/serve.md`](serve.md) |
-| bus | [`atomic/internal/bus/`](../../atomic/internal/bus) | Messaging between concurrent agent sessions over named rooms, local or gateway-hosted; 23 verbs. | [`docs/wiki/bus.md`](bus.md) |
+| bus | [`atomic/internal/bus/`](../../atomic/internal/bus) | Messaging between concurrent agent sessions over named rooms, local or gateway-hosted. | [`docs/wiki/bus.md`](bus.md) |
 | repl | [`atomic/internal/repl/`](../../atomic/internal/repl) | Persistent Python and Node interpreter sessions an agent drives. | [`docs/wiki/repl.md`](repl.md) |
 
 ## Framework & runtime
@@ -87,25 +87,8 @@ CI has no drift gates: both [`atomic/internal/embedded/`](../../atomic/internal/
 
 The CI test job installs Bun (`oven-sh/setup-bun@v2`, pinned `1.3.13`) and runs `bun install --frozen-lockfile` in [`atomic/internal/serve/frontend/`](../../atomic/internal/serve/frontend) before that step — `go generate ./...` runs the Bun frontend build via the `go:generate` directive in [`atomic/internal/serve/frontend_dist.go`](../../atomic/internal/serve/frontend_dist.go).
 
-## Language breakdown
-
-| Language | LOC | Files | % |
-|----------|-----|-------|---|
-| Go | 241828 | 789 | 65% |
-| Markdown | 58575 | 431 | 15% |
-| TypeScript | 46389 | 301 | 12% |
-| JavaScript | 10670 | 20 | 2% |
-| CSS | 7804 | 15 | 2% |
-| JSON | 3582 | 14 | 0% |
-| Shell | 939 | 8 | 0% |
-| Vue | 782 | 3 | 0% |
-| YAML | 530 | 10 | 0% |
-| Python | 329 | 2 | 0% |
-
-Counts come from `atomic signals scan`, which writes the full per-file substrate to [`docs/wiki/scan.md`](scan.md). C sources (`tsbinding/src/`) are vendored on demand rather than committed, so they do not appear here.
-
 ## DevOps & CI
 
-- **CI**: GitHub Actions ([`.github/workflows/`](../../.github/workflows)). Four workflows — `ci.yml` (test, vet, fmt, frontend build + tests), `docs.yml` (VitePress build and deploy), `release-please.yml` (changelog), `release.yml` (goreleaser on tag).
+- **CI**: GitHub Actions ([`.github/workflows/`](../../.github/workflows)). Workflows — `ci.yml` (test, vet, fmt, frontend build + tests), `docs.yml` (VitePress build and deploy), `release-please.yml` (changelog), `release.yml` (goreleaser on tag).
 - **Release**: goreleaser builds `linux/darwin x amd64/arm64` with CGO disabled, version stamped from `internal/version` via ldflags; release-please owns the version bump and tag on push to main.
 - **Pre-commit hook** ([`.githooks/pre-commit`](../../.githooks/pre-commit)): one stage, firing only when a follow-ups entry file is staged — regenerate follow-ups `INDEX.md`. Neither the bundle, a rendered artifact copy, nor `serve/frontend/dist` is a pre-commit stage, since none is committed. Install with `make hooks`.

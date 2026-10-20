@@ -6,7 +6,6 @@
 package validate
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -62,14 +61,23 @@ type projGate struct {
 // audits the results. It requires the atomic-claude corpus (context/), so
 // callers gate on repoDev before invoking it.
 func RunProjectionRules(repoRoot string) ([]Finding, error) {
+	_, findings, err := projectionRules(repoRoot)
+	return findings, err
+}
+
+// projectionRules also returns the canonical sources it audited, keyed by
+// context-relative Source so summarize can count the ones no finding names as PASS.
+func projectionRules(repoRoot string) ([]string, []Finding, error) {
 	cat, err := artifacts.Load(repoRoot)
 	if err != nil {
-		return nil, fmt.Errorf("enumerate corpus: %w", err)
+		return nil, nil, fmt.Errorf("enumerate corpus: %w", err)
 	}
 
 	g := &projGate{root: repoRoot, cat: cat, ids: make(map[string]bool, len(cat.Artifacts))}
+	inspected := make([]string, 0, len(cat.Artifacts))
 	for _, a := range cat.Artifacts {
 		g.ids[a.ID] = true
+		inspected = append(inspected, a.Source)
 	}
 
 	g.checkCorpus()
@@ -80,23 +88,7 @@ func RunProjectionRules(repoRoot string) ([]Finding, error) {
 	g.checkRules()
 
 	sortFindings(g.findings)
-	return g.findings, nil
-}
-
-// parseProjectionsFlags reads flags placed after the subcommand, so
-// `atomic validate projections --json` behaves like the other subcommands.
-func parseProjectionsFlags(args []string, w io.Writer) (jsonOut, suggest, ok bool) {
-	fs := flag.NewFlagSet("validate projections", flag.ContinueOnError)
-	fs.SetOutput(w)
-	fs.BoolVar(&jsonOut, "json", false, "emit JSON output")
-	fs.BoolVar(&suggest, "suggest", false, "print structural templates for content-FAIL rules")
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return false, false, true
-		}
-		return false, false, false
-	}
-	return jsonOut, suggest, true
+	return inspected, g.findings, nil
 }
 
 // runProjections discovers the repo root and renders it for the audit.
@@ -123,13 +115,13 @@ func runProjectionsAt(repoRoot string, jsonOut, suggest bool, w io.Writer) int {
 		return 0
 	}
 
-	findings, err := RunProjectionRules(repoRoot)
+	inspected, findings, err := projectionRules(repoRoot)
 	if err != nil {
 		fmt.Fprintf(w, "atomic validate projections: %v\n", err)
 		return 2
 	}
 
-	s := summarize(findings)
+	s := summarize(inspected, findings)
 	if jsonOut {
 		printJSON(w, findings, s)
 	} else {
@@ -142,11 +134,11 @@ func runProjectionsAt(repoRoot string, jsonOut, suggest bool, w io.Writer) int {
 // runProjectionsCollect returns findings without printing, so runWholeRepo can
 // aggregate before emitting its own block.
 func runProjectionsCollect(repoRoot string) ([]Finding, summary, int) {
-	findings, err := RunProjectionRules(repoRoot)
+	inspected, findings, err := projectionRules(repoRoot)
 	if err != nil {
 		return nil, summary{}, 2
 	}
-	return findings, summarize(findings), 0
+	return findings, summarize(inspected, findings), 0
 }
 
 func (g *projGate) fail(rule, path, format string, args ...any) {
