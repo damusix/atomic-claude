@@ -1,7 +1,7 @@
 {{define "squash-flow-preflight"}}
 <squash-preflight>
 
-A squash runs only on a clean feature branch carrying two or more commits.
+A squash runs only on a clean feature branch and is skipped when the branch carries a single commit.
 
 ```mermaid
 flowchart TD
@@ -9,7 +9,7 @@ flowchart TD
     B -->|no| D{"Dirty tree?"}
     D -->|yes| S2["Stop: commit<br/>or stash first"]
     D -->|no| C{"One commit only?"}
-    C -->|yes| S1
+    C -->|yes| K1["Skip: one commit,<br/>nothing to squash"]
     C -->|no| K["Squash steps"]
 ```
 
@@ -17,6 +17,7 @@ flowchart TD
    {{ template "base-resolution" . }}
 - **Dirty tree?**: `git status --porcelain`.
 - **One commit only?**: `git rev-list --count <base>..HEAD` prints `1`.
+- **Skip: one commit, nothing to squash**: skip the squash steps below. On the squash + merge path, merge-flow still runs.
 
 </squash-preflight>{{- end}}
 

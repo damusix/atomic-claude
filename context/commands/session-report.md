@@ -52,7 +52,7 @@ If a branch is abandoned without a commit, `/git-cleanup` reaps its reports imme
 
 - **`atomic-git-discipline` skill** — receives the concatenated reports for the current branch as supplemental context when synthesizing the commit message.
 - **Ship verb that consumes reports:** `/commit` (all escalation paths). Reads all reports for the current branch before message synthesis and deletes the branch's reports dir after a successful commit.
-- **Exempt paths** (no commit-message generation): `/commit push` / `/commit pr` / `/commit merge` when run with commits already ahead of base and nothing to commit — these ship existing commits unchanged.
+- **Exempt paths** (no commit-message generation): `/commit push` / `/commit pr` / `/commit merge` when run with commits already ahead of base and nothing to commit, and `/commit squash merge` on a single-commit branch with nothing to commit — these ship existing commits unchanged.
 - **Full spec:** `docs/spec/session-report.md`.
 
 </output_format>
