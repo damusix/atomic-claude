@@ -201,7 +201,7 @@ atomic wiki bucket list            # research<TAB>/Users/you/work/acme/research
 
 **Help.** `-h`, `-help`, and `--help` work on every bucket sub-verb (`add`, `list`, `doc`, `skill`, `index`). Each prints usage and exits 0 without creating or modifying anything.
 
-**Bucket index.** Each bucket has an `index.md` at its root describing what the bucket is for and what conventions its content follows. `atomic wiki bucket add` creates a stub; you fill it in, or let the `/refresh-wiki` bucket offer ask you on first use. Below your description, the index carries a code-generated `<bucket-docs>` listing of the bucket's direct children: its markdown files and its subfolders. Every subfolder that is not skipped gets its own `index.md` with the same kind of listing, created if absent. An agent reads the root index and descends one `index.md` at a time, loading only the layers it needs. The buckets get no model pass: the per-folder indexes are the only output the wiki derives from them.
+**Bucket index.** Each bucket has an `index.md` at its root describing what the bucket is for and what conventions its content follows. `atomic wiki bucket add` creates a stub whose `## Conventions` section prompts for the stage folders the bucket's items use and what each stage's output looks like. Fill it in, or let the `/refresh-wiki` bucket offer ask you on first use. Below your description, the index carries a code-generated `<bucket-docs>` listing of the bucket's direct children: its markdown files and its subfolders. Every subfolder that is not skipped gets its own `index.md` with the same kind of listing, created if absent. An agent reads the root index and descends one `index.md` at a time, loading only the layers it needs. The buckets get no model pass: the per-folder indexes are the only output the wiki derives from them.
 
 | Listing rule | Behavior |
 |--------------|----------|
@@ -216,7 +216,7 @@ atomic wiki bucket list            # research<TAB>/Users/you/work/acme/research
 
 ### Authoring bucket docs
 
-A bucket item is a folder: `<bucket>/<slug>/index.md` describes it, and its work lives in numbered stage folders. `01_raw/` collects source material, and later stages you add, such as `02_findings/` or `10_publish/`, build on the one before. Raw material and research share one bucket this way; each item keeps its sources in its own `01_raw/`.
+A bucket item is a folder: `<bucket>/<slug>/index.md` describes it, and its work lives in numbered stage folders. `01_raw/` collects source material, and later stages you add, such as `02_findings/` or `10_publish/`, build on the one before. Raw material and research share one bucket this way; each item keeps its sources in its own `01_raw/`. The [knowledge base guide](/guides/knowledge-base#example-a-tickets-bucket-with-triage) works through a tickets bucket whose items add a `02_triage/` stage.
 
 The index recognizes six frontmatter keys on each doc, including every `index.md`, all optional at index time:
 
@@ -241,7 +241,7 @@ atomic wiki bucket index [research]          # rebuild every folder's listing (s
 
 `atomic wiki bucket doc <bucket> <slug>` accepts a slug of `[a-z0-9-]+` and refuses a slug that names a skipped folder (`build`, `dist`, `target`, `tmp`, `vendor`), since the index would never list it. It also refuses if `<bucket>/<slug>` already exists as a file or folder. It writes `<slug>/index.md` (six-key frontmatter, `created` pre-stamped, a comment describing the stage layout) and `<slug>/01_raw/index.md`, prints the path of `<slug>/index.md`, then rebuilds the bucket's indexes. Add later stages as numbered folders by hand; the next rebuild indexes them.
 
-`atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line and the frontmatter contract above, so the bucket's own authoring conventions travel with it as a skill Claude can pick up automatically in that realm. It is a no-op if the file already exists.
+`atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line, the frontmatter contract above, and a `## Stages` placeholder for the stage folders the bucket's items use. The bucket's authoring conventions then travel with it as a skill that loads in sessions started at the realm root. A member-repo session reaches `<bucket>/index.md` instead, through the bucket's bullet under `## Capture surfaces` in the realm `CLAUDE.md`. `bucket skill` is a no-op if the file already exists.
 
 `atomic wiki bucket index [<bucket>]` walks every folder of the named bucket (or every registered bucket, when no name is given) and rebuilds the `<bucket-docs>` region in each folder's `index.md`, then the `<wiki-bucket-list>` region in `wiki/index.md`, which links each bucket's root `index.md`. It prints one `<name>: N indexed, M unindexed` line per bucket, counting entries across the bucket's whole tree. An `index.md` with an unpaired `<bucket-docs>` tag is reported and left alone; the walk continues with the rest. `atomic wiki scan` runs this rebuild as part of its own pass, so you rarely need to call `bucket index` directly.
 

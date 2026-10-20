@@ -421,6 +421,41 @@ func TestBucketIndexStub_CreatesStub(t *testing.T) {
 	}
 }
 
+// TestBucketIndexStub_ConventionsPromptsForStages verifies that Conventions asks for the
+// bucket's stages and names no bucket, since code has no bucket semantics.
+func TestBucketIndexStub_ConventionsPromptsForStages(t *testing.T) {
+	dir := t.TempDir()
+	bucketDir := filepath.Join(dir, "alpha")
+	if err := os.MkdirAll(bucketDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := createBucketIndexStub(bucketDir, "alpha"); err != nil {
+		t.Fatalf("createBucketIndexStub: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(bucketDir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	_, conventions, ok := strings.Cut(content, "## Conventions\n")
+	if !ok {
+		t.Fatalf("expected ## Conventions section, got:\n%s", content)
+	}
+	conventions, _, _ = strings.Cut(conventions, "<bucket-docs")
+
+	for _, want := range []string{"Stages:", "01_raw/", "output"} {
+		if !strings.Contains(conventions, want) {
+			t.Errorf("Conventions placeholder missing %q:\n%s", want, conventions)
+		}
+	}
+	for _, gone := range []string{"ticket", "triage", "research", "alpha"} {
+		if strings.Contains(strings.ToLower(conventions), gone) {
+			t.Errorf("Conventions placeholder names a bucket (%q):\n%s", gone, conventions)
+		}
+	}
+}
+
 // TestBucketIndexStub_CarriesOKFFrontmatterAndEmptyRegion verifies the
 // reshaped stub carries OKF frontmatter (title, type: Bucket, description
 // placeholder) plus a well-formed, empty <bucket-docs> region.

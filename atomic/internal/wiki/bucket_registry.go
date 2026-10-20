@@ -242,6 +242,7 @@ func createBucketIndexStub(bucketDir, name string) error {
 	sb.WriteString("<!-- Describe what this bucket is for -->\n\n")
 	sb.WriteString("## Conventions\n\n")
 	sb.WriteString("<!-- Add conventions for files in this bucket -->\n\n")
+	sb.WriteString("<!-- Stages: list each numbered stage folder this bucket's items use, starting with 01_raw/, and what that stage's output looks like -->\n\n")
 	sb.WriteString(renderManagedRegion(managedRegion{tag: "bucket-docs"}))
 	sb.WriteString("\n")
 

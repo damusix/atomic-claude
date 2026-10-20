@@ -22,6 +22,10 @@ before and list in numeric order. Scaffold a new item with:
 Every folder carries an `index.md`. Atomic rebuilds the `<bucket-docs>`
 listing in each one; write only outside that region.
 
+## Stages
+
+<!-- List each stage folder used by items in {{BUCKET}}/, starting with 01_raw/, and what that stage's output contains. -->
+
 ## Frontmatter contract
 
 Six recognized keys. `created` is stamped by the scaffold; the rest are

@@ -267,6 +267,45 @@ func TestScaffoldBucketSkill_DescribesSlugFoldersAndStages(t *testing.T) {
 	}
 }
 
+// TestScaffoldBucketSkill_HasStagesPlaceholderAfterDocShape verifies that ## Stages, after ## Doc shape,
+// holds the bucket's stage convention and names no other bucket, since code has no bucket semantics.
+func TestScaffoldBucketSkill_HasStagesPlaceholderAfterDocShape(t *testing.T) {
+	realmRoot := t.TempDir()
+	bucketDir := filepath.Join(realmRoot, "alpha")
+	if err := os.MkdirAll(bucketDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := ScaffoldBucketSkill(realmRoot, "alpha", bucketDir)
+	if err != nil {
+		t.Fatalf("ScaffoldBucketSkill: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	docShape := strings.Index(content, "## Doc shape")
+	stagesAt := strings.Index(content, "## Stages\n")
+	if stagesAt < 0 || docShape < 0 || stagesAt < docShape {
+		t.Fatalf("expected ## Stages after ## Doc shape, got:\n%s", content)
+	}
+	stages := content[stagesAt+len("## Stages\n"):]
+	stages, _, _ = strings.Cut(stages, "\n## ")
+
+	for _, want := range []string{"<!--", "01_raw/", "output"} {
+		if !strings.Contains(stages, want) {
+			t.Errorf("Stages placeholder missing %q:\n%s", want, stages)
+		}
+	}
+	for _, gone := range []string{"ticket", "triage", "research"} {
+		if strings.Contains(strings.ToLower(stages), gone) {
+			t.Errorf("Stages placeholder names a bucket (%q):\n%s", gone, stages)
+		}
+	}
+}
+
 func TestScaffoldBucketSkill_NoOpWhenPresent(t *testing.T) {
 	realmRoot := t.TempDir()
 	bucketDir := filepath.Join(realmRoot, "research")
