@@ -10,7 +10,7 @@ tags: [artifacts, lifecycle, cli]
 ## What it does
 
 
-Atomic authors one corpus under [`context/`](../../context), but a user runs one of three harnesses: Claude Code, OMP, or Codex. This domain turns that corpus into a running install in each. A session working here gains an install path, `atomic install`, that writes harness-native files from explicitly selected targets and records what it wrote, plus a ledger that separates Atomic-owned bytes from the user's own. Nothing else records which bytes Atomic wrote: a ledger row holds the digest Atomic last applied, which is what later makes a changed file per-resource drift instead of silent corruption.
+Atomic authors one corpus under [`context/`](../../context), but a user runs Claude Code, OMP, or Codex. This domain turns that corpus into a running install in each. A session working here gains an install path, `atomic install`, that writes harness-native files from explicitly selected targets and records what it wrote, plus a ledger that separates Atomic-owned bytes from the user's own. Nothing else records which bytes Atomic wrote: a ledger row holds the digest Atomic last applied, which is what later makes a changed file per-resource drift instead of silent corruption.
 
 The mechanism: discovery reads native roots and never enrolls; enrollment is a deliberate, approved act; convergence plans one target's writes, journals and backs up the pre-mutation state, stages and validates every projection, applies one native commit unit, verifies effective content, and only then commits ledger state. Each harness adapter owns its native envelope; the shared engine owns the ordering.
 
@@ -25,7 +25,7 @@ The name does not match the paths. The `harness` domain is not one directory. Th
 Discovery never enrolls, and the ledger records a target only after its native bytes verify, so an interrupted operation is recoverable instead of half-recorded.
 
 ```mermaid
-flowchart LR
+flowchart TD
     %% source: atomic/internal/install/install.go, atomic/internal/harness/lifecycle.go, atomic/internal/installstate/transaction.go
     DISC["discover + select"] --> PLAN["Adapter.Project<br/>plan, claims, blockers"]
     PLAN --> APPR{"blocked?"}
@@ -41,29 +41,111 @@ flowchart LR
 
 A dry run opens no lock and writes nothing: it reports the same blockers and classification, simulates a journal's intended writes in memory, and leaves the filesystem byte-identical.
 
-### The adapter model: one corpus, three native projections
+### The adapter model: one corpus, one native projection per harness
 
 Every harness projects the same once-rendered corpus into its own native envelope, so one source edit reaches Claude, OMP, and Codex through a single generation and no adapter re-renders a body.
 
 ```mermaid
-flowchart LR
+flowchart TD
     %% source: atomic/internal/artifacts/catalog.go, atomic/internal/artifacts/renderer.go, atomic/internal/harness/{claude,omp,codex}
     CTX["context/ corpus"] --> REN["artifacts.Renderer<br/>partials expanded once"]
     REN --> CL["claude adapter"]
     REN --> OMP["omp adapter"]
     REN --> CX["codex adapter"]
-    CL --> CLN["~/.claude/CLAUDE.md, rules/, agents/, skills/"]
-    OMP --> OMPN["profile agent root: AGENTS.md + extensions/atomic.ts<br/>~/.atomic/packages/omp/atomic (corpus store)"]
-    CX --> CXN["~/.atomic/packages/codex/atomic plugin tree"]
+    CL --> CLN["~/.claude/"]
+    OMP --> OMPN["profile agent root<br/>~/.atomic/packages/omp"]
+    CX --> CXN["~/.atomic/packages/codex"]
 ```
 
-The adapter contract is `Adapter` in [`atomic/internal/harness/harness.go`](../../atomic/internal/harness/harness.go): `Discover`, `Capabilities`, and `Lifecycle`. `Registry` in [`atomic/internal/harness/registry.go`](../../atomic/internal/harness/registry.go) resolves one adapter per kind; a kind whose native root the adapter refuses to guess at (Codex without `CODEX_HOME`) contributes no instance to a broad walk and reports the refusal only when named. Each adapter records a versioned `CapabilityMatrix` from CP0 runtime evidence: Claude Code `2.1.273`, OMP `18.1.18`, Codex CLI `0.147.0`, observed `2026-09-15`.
+Claude receives [`CLAUDE.md`](../../CLAUDE.md), `rules/`, `agents/`, and `skills/` under its native root. OMP receives `AGENTS.md` and `extensions/atomic.ts` under the profile agent root, with `~/.atomic/packages/omp/atomic` as the corpus store. Codex receives the plugin tree at `~/.atomic/packages/codex/atomic`.
+
+The adapter contract is `Adapter` in [`atomic/internal/harness/harness.go`](../../atomic/internal/harness/harness.go): `Discover`, `Capabilities`, and `Lifecycle`. `Registry` in [`atomic/internal/harness/registry.go`](../../atomic/internal/harness/registry.go) resolves one adapter per kind; a kind whose native root the adapter refuses to guess at (Codex without `CODEX_HOME`) contributes no instance to a broad walk and reports the refusal only when named. Each adapter records a versioned `CapabilityMatrix` from runtime evidence, recorded in [`docs/research/harness-capability-matrix.md`](../research/harness-capability-matrix.md): Claude Code `2.1.273`, OMP `18.1.18`, Codex CLI `0.147.0`, observed `2026-09-15`.
 
 A target's identity is `harness:instance` (kind plus instance), the pair the ledger keys rows by, defined once in [`atomic/internal/installstate/target.go`](../../atomic/internal/installstate/target.go) and delegated to from [`atomic/internal/harness/target.go`](../../atomic/internal/harness/target.go). One physical resource has one ownership row even when several targets can see it; the operation that moves a shared resource — the OMP package or the Codex plugin tree — rewrites every enrolled consumer's row in the same commit, and [`atomic/internal/harness/generation.go`](../../atomic/internal/harness/generation.go) refuses only a genuine pin: a row for a target the ledger does not enroll whose key still parses.
 
+### Global steering: one `AGENTS.md` source, a different native shape per harness
+
+The authored global contract is [`context/AGENTS.md`](../../context/AGENTS.md), and each harness receives it in the only shape its runtime evidence proves: Claude gets the file verbatim, OMP gets an import-free composition, and Codex gets nothing.
+
+```mermaid
+flowchart TD
+    %% source: atomic/internal/artifacts/catalog.go, atomic/internal/bundlemirror/mirror.go, atomic/internal/harness/claude/artifacts.go, atomic/internal/harness/claude/migration.go, atomic/internal/artifacts/renderer.go, atomic/internal/harness/omp/steering.go, atomic/internal/harness/codex/plugin.go
+    SRC["context/AGENTS.md<br/>KindSteering"] --> CAT["artifacts.Load<br/>partials expanded"]
+    STYLE["output-styles/atomic.md"] --> OS
+    CAT --> CT["claudeTarget into<br/>embedded manifest"]
+    CT --> GA["claude.GlobalArtifacts<br/>KindBlock"]
+    GA --> AD["installstate.Adopt<br/>native root CLAUDE.md"]
+    CAT --> OS["Renderer.OMPSteering"]
+    OS --> SB["omp.SteeringBlock<br/>agent root AGENTS.md"]
+    CAT -.-> CX["codex steeringGap<br/>no file written"]
+```
+
+`bundlespec.GlobalSteering` names the pair: source `AGENTS.md`, Claude target [`CLAUDE.md`](../../CLAUDE.md), `Loader` false. `artifacts.Load` reads it first as the `KindSteering` artifact, and steering is one of the kinds (with commands and agents) whose partials expand. `Renderer.Steering` refuses a corpus that does not carry exactly one steering artifact.
+
+- **Claude.** The contract's own bytes reach the native root's [`CLAUDE.md`](../../CLAUDE.md) through the embedded bundle: `bundlemirror.claudeTarget` maps the steering artifact to that target in the manifest, `claude.GlobalArtifacts` reads it back as a `KindBlock` resource, and `claude.Migrate` hands it to `installstate.Adopt`. `Renderer.ClaudeGlobal` has no production caller; it is the test-side renderer that pins the same bytes for parity. In the managed file, the `<atomic>...</atomic>` block is Atomic-owned and every byte outside it stays the user's. There is no user-level `AGENTS.md`; `GlobalLoaderPath` exists so the adapter can refuse a manifest that maps anything there.
+- **OMP.** `OMPSteering` takes only the content inside the contract's `<atomic>` block and drops every whole-line `@` import with `ImportFree`, so `@~/.atomic/profile.md` is not carried. It appends one blank line, then the Atomic output-style body with its YAML frontmatter excluded. `omp.SteeringBlock` wraps that in one managed block for the profile's `AGENTS.md`, and `SteeringDigest` records the block digest, never the whole file's.
+- **Codex.** Runtime evidence proved no `AGENTS.md` discovery or precedence, so the adapter writes no steering file and reports `native AGENTS.md instruction materialization` as a plugin gap.
+
+### Scope steering: the `AGENTS.md` and [`CLAUDE.md`](../../CLAUDE.md) loader pair
+
+A repository or realm wiki scope keeps its guidance in `AGENTS.md` and gives Claude a thin [`CLAUDE.md`](../../CLAUDE.md) that imports it, so the guidance loads once and a harness that reads `AGENTS.md` sees the same bytes.
+
+```text
+docs/wiki/              repo scope; the realm scope is <root>/wiki/
+├── AGENTS.md           the scope's guidance (ScopeSteering.Source)
+└── CLAUDE.md           <atomic> block holding "@AGENTS.md" (ScopeSteering.LoaderDocument)
+```
+
+`bundlespec.ScopeSteering` is the same name pair with `Loader` true. `LoaderBody` is exactly `@AGENTS.md` plus a newline, and `LoaderDocument` brackets it in blank lines inside the managed block so the block's HTML tags cannot swallow the import. `Renderer.LoaderPair` has no production caller, and its `DeliveryLoader` projection carries the bare `LoaderBody`, not the `LoaderDocument` that `initSteeringPair` and `MigrateScope` write. `wiki.InitRepoScope` and `wiki.InitRealmScope`, behind `atomic wiki init --scope repo|realm`, write the pair without a transaction. An existing [`CLAUDE.md`](../../CLAUDE.md) makes the whole pair a no-op, and an existing `AGENTS.md` is preserved while only the missing loader is written.
+
+`claude.MigrateScope` is the transactional path for an existing scope, and it never guesses at a managed-block boundary.
+
+```mermaid
+flowchart TD
+    %% source: atomic/internal/harness/claude/steering.go
+    M["MigrateScope<br/>AcquireLock,<br/>RecoverJournals"] --> C{"classifyShape<br/>on both files"}
+    C -->|"ambiguous tags"| R["refuse the scope"]
+    C -->|"absent, plain, or blocked"| RL{"Relocate?"}
+    RL -->|"no"| SP["mergeOwned: splice or<br/>append each block"]
+    RL -->|"yes"| MV["prose to AGENTS.md,<br/>CLAUDE.md becomes<br/>loader"]
+    SP --> EQ{"bytes already<br/>intended?"}
+    MV --> EQ
+    EQ -->|"yes"| CV["ScopeConverged"]
+    EQ -->|"no"| TX["stage, publish,<br/>Complete,<br/>verifyEffective"]
+```
+
+Without `Relocate`, unowned [`CLAUDE.md`](../../CLAUDE.md) prose stays byte-identical and the loader block is added beside it. With `Relocate`, the prose moves into `AGENTS.md` in the same directory, so a relative reference still resolves. The whole file is published, but the `AGENTS.md` ownership row records only the block digest, so a later uninstall strips the block and leaves the prose. A scope that resolves, through symlinks, to the global native root is refused before any write. `claude.Migrate` runs each entry of `MigrationRequest.Scopes` as its own operation after the global adoption commits. No production caller sets `Scopes`: neither `install.Steps.Adopt` nor the Claude adapter's `converge` in [`atomic/internal/harness/claude/lifecycle.go`](../../atomic/internal/harness/claude/lifecycle.go) passes any, so `MigrateScope` runs only under tests.
+
+### Agent projection: portable frontmatter only
+
+A canonical agent reaches each harness with only the metadata that harness proves, and an agent that tries to set model policy is refused rather than projected.
+
+```mermaid
+flowchart TD
+    %% source: atomic/internal/harness/agent.go, atomic/internal/artifacts/catalog.go
+    A["agents/atomic-*.md"] --> CK{"checkedAgent"}
+    CK -->|"UserPolicyKeys key,<br/>no name, or<br/>skill missing"| X["refuse"]
+    CK -->|"ok"| T{"target"}
+    T -->|"claude"| CL["ClaudeAgent<br/>validate audit only"]
+    T -->|"omp"| OM["OMPAgent<br/>name, description"]
+    T -->|"codex"| CD["CodexAgent<br/>agents/name.toml"]
+```
+
+`checkedAgent` runs `Catalog.ValidateAgent`, which resolves every `skills:` entry as a `SkillID`, then requires a name and rejects any of `UserPolicyKeys`: `model`, `effort`, `tools`, `disallowedTools`, `mcpServers`. Those belong to the user's own harness configuration.
+
+| Canonical key | Claude (`ClaudeAgent`) | OMP (`OMPAgent`) | Codex (`CodexAgent`) |
+|---|---|---|---|
+| `name`, `description` | carried as authored | re-emitted as frontmatter | TOML `name`, `description` |
+| `skills` | carried as authored | dropped, reported in `Unsupported` | dropped, reported in `Unsupported` |
+| body | unchanged | unchanged under the new frontmatter | TOML `developer_instructions`, decodes byte-for-byte |
+| `UserPolicyKeys` | refused | refused | refused |
+| native path | `agents/<file>.md` | `agents/<file>.md` | `agents/<name>.toml` |
+
+[`atomic/internal/harness/omp/package.go`](../../atomic/internal/harness/omp/package.go) calls `OMPAgent` and [`atomic/internal/harness/codex/plugin.go`](../../atomic/internal/harness/codex/plugin.go) calls `CodexAgent` while building their package trees. `ClaudeAgent` has no install-path caller: Claude agents ship byte-for-byte from the embedded manifest through `claude.GlobalArtifacts`. [`atomic/internal/validate/projection.go`](../../atomic/internal/validate/projection.go) calls all three to audit every projected document for a policy-key leak.
+
 ### Rule enforcement tiers
 
-A rule's enforcement tier comes from the target's CP0 evidence, not from intent: only a proven static scope reads as `native-scope`, a proven pre-operation event with context return reads as `hook-required`, and anything less reports `unsupported`.
+A rule's enforcement tier comes from the target's runtime evidence, not from intent: only a proven static scope reads as `native-scope`, a proven pre-operation event with context return reads as `hook-required`, and anything less reports `unsupported`.
 
 ```mermaid
 flowchart TD
@@ -75,7 +157,7 @@ flowchart TD
     P -->|"no"| UN["tier: unsupported"]
 ```
 
-`rules.Select` in [`atomic/internal/rules/project.go`](../../atomic/internal/rules/project.go) maps a `RuleRecord` onto a target's native scope from an `Evidence` value the adapter derives from its capability matrix. The four tiers are constants in [`atomic/internal/artifacts/artifact.go`](../../atomic/internal/artifacts/artifact.go): `native-scope`, `hook-required`, `deny-enforced`, and `unsupported`. `deny-enforced` is deliberately unreachable from a prose record: only an exact machine predicate on a mediated operation can deny, and a prose rule carries none. A capability row that is missing, partial, or never exercised is false, so unproven behavior can never read as support; `harness.Capability` returns `unsupported` for a role with no row, and `RuleGaps` reports every unproven rule-delivery surface. A plan, a converge report, a status report, and a rules report each carry their projection's unproven surfaces as `surface: evidence` lines, so a converged target never reads as fully delivered.
+`rules.Select` in [`atomic/internal/rules/project.go`](../../atomic/internal/rules/project.go) maps a `RuleRecord` onto a target's native scope from an `Evidence` value the adapter derives from its capability matrix. The tiers are constants in [`atomic/internal/artifacts/artifact.go`](../../atomic/internal/artifacts/artifact.go): `native-scope`, `hook-required`, `deny-enforced`, and `unsupported`. `deny-enforced` is deliberately unreachable from a prose record: only an exact machine predicate on a mediated operation can deny, and a prose rule carries none. A capability row that is missing, partial, or never exercised is false, so unproven behavior can never read as support; `harness.Capability` returns `unsupported` for a role with no row, and `RuleGaps` reports every unproven rule-delivery surface. A plan, a converge report, a status report, and a rules report each carry their projection's unproven surfaces as `surface: evidence` lines, so a converged target never reads as fully delivered.
 
 The rule corpus parses into checkout-independent `RuleRecord`s ([`atomic/internal/rules/parse.go`](../../atomic/internal/rules/parse.go)): a producer-qualified identity (`shipped:<source>` or `wiki:<project-key>:<domain>`), a class, a `repository-root` base kind, ordered `paths:` globs, a frontmatter-free body, and a source digest. `RuleInstance` binds one record to a project key and an absolute, symlink-resolved base without changing the record or its digest. Parsing rejects unknown scope keys, absolute patterns, parent-escaping patterns (including one hidden in a character class or brace alternative), and malformed frontmatter before any target mutation. The matcher in [`atomic/internal/rules/match.go`](../../atomic/internal/rules/match.go) accepts only an exact repository-relative candidate, verifies resolved containment (so an escaping symlink does not match), and returns every overlapping record in stable identity order.
 
@@ -97,7 +179,7 @@ The durable state is one tree under `~/.atomic/`, described by the path helpers 
 └── <project-key>/state-location.json  per-clone state selection, shared by worktrees
 ```
 
-The ledger and every journal carry a `Header` with `SchemaVersion` 1 and `MinimumReader` 1 ([`atomic/internal/installstate/schema.go`](../../atomic/internal/installstate/schema.go)); a binary refuses state written by a newer schema before mutating. [`atomic/internal/installstate/classify.go`](../../atomic/internal/installstate/classify.go) classifies an observed installation read-only into one of seven states: `absent`, `legacy-complete`, `legacy-partial`, `v2-clean`, `v2-in-flight`, `v2-orphaned`, `mixed`. [`atomic/internal/installstate/recovery.go`](../../atomic/internal/installstate/recovery.go) reconciles an unresolved journal digest-first: applied bytes are ledger-committed only after they verify, proven-unused staging is discarded, and a backup is restored only when current bytes still equal what Atomic published, so a later edit becomes a conflict rather than a rollback. An absent generated-tree destination is resolved from the publication crash window instead: the staged tree still matching the intended digest finishes the interrupted rename, otherwise the digest-verified transaction backup restores it, and a ledger row that already records the intended bytes at that path makes the absence a later deletion and a conflict. `atomic harness recover` runs that reconciliation over every unresolved journal, rolling forward by default or restoring the backups under `--rollback`.
+The ledger and every journal carry a `Header` with `SchemaVersion` 1 and `MinimumReader` 1 ([`atomic/internal/installstate/schema.go`](../../atomic/internal/installstate/schema.go)); a binary refuses state written by a newer schema before mutating. [`atomic/internal/installstate/classify.go`](../../atomic/internal/installstate/classify.go) classifies an observed installation read-only into one of these states: `absent`, `legacy-complete`, `legacy-partial`, `v2-clean`, `v2-in-flight`, `v2-orphaned`, `mixed`. [`atomic/internal/installstate/recovery.go`](../../atomic/internal/installstate/recovery.go) reconciles an unresolved journal digest-first: applied bytes are ledger-committed only after they verify, proven-unused staging is discarded, and a backup is restored only when current bytes still equal what Atomic published, so a later edit becomes a conflict rather than a rollback. An absent generated-tree destination is resolved from the publication crash window instead: the staged tree still matching the intended digest finishes the interrupted rename, otherwise the digest-verified transaction backup restores it, and a ledger row that already records the intended bytes at that path makes the absence a later deletion and a conflict. `atomic harness recover` runs that reconciliation over every unresolved journal, rolling forward by default or restoring the backups under `--rollback`.
 
 Repository state is selected by a harness-neutral ladder in [`atomic/internal/config/statelocation.go`](../../atomic/internal/config/statelocation.go): `ATOMIC_STATE_DIR`, then `~/.atomic/<project-key>/state-location.json`, then (on the quiet repo-local resolution) the repository's single populated state candidate when exactly one exists, a former harness root such as `.pi` included, then the user `state.dir` default, then [`.claude`](../../.claude). `atomic state adopt` records a selection; the retired `ATOMIC_HARNESS` variable is never an alias, and the root command refuses before any verb runs while it is set.
 
@@ -110,6 +192,8 @@ Repository state is selected by a harness-neutral ladder in [`atomic/internal/co
 |Path|Role|
 |---|---|
 |[`atomic/internal/harness/harness.go`](../../atomic/internal/harness/harness.go)|`Kind`, `Instance`, the `Adapter` interface, and the shared errors (`ErrUnsupported`, `ErrPlanNotApproved`, `ErrEvidenceConflict`, `ErrSharedResource`).|
+|[`atomic/internal/harness/enrollment.go`](../../atomic/internal/harness/enrollment.go)|`Enroll`: assesses every claim read-only and records enrollment and ownership only inside an approved plan; conflicting evidence refuses the whole enrollment.|
+|[`atomic/internal/harness/evidence.go`](../../atomic/internal/harness/evidence.go), [`atomic/internal/harness/resource.go`](../../atomic/internal/harness/resource.go)|Re-exported `Claim`/`Assessment`/`Evidence` from `managedfile`; `Resource` with its `Consumers` (enrolled dependents) kept apart from `VisibleTo` (unenrolled instances).|
 |[`atomic/internal/harness/registry.go`](../../atomic/internal/harness/registry.go)|`Registry`: one adapter per kind; read-only `Discover`, explicit `Select`.|
 |[`atomic/internal/harness/lifecycle.go`](../../atomic/internal/harness/lifecycle.go)|`Lifecycle` hook set (`Project`, `Converge`, `Verify`, `Remove`) and `Plan`/`PlanRequest`/`Convergence`/`Removal`.|
 |[`atomic/internal/harness/capability.go`](../../atomic/internal/harness/capability.go)|`CapabilityMatrix` and the per-version records `ClaudeCapabilities`, `OMPCapabilities`, `CodexCapabilities`.|
@@ -117,27 +201,29 @@ Repository state is selected by a harness-neutral ladder in [`atomic/internal/co
 |[`atomic/internal/harness/selection.go`](../../atomic/internal/harness/selection.go)|`Selector`; refuses an empty or ambiguous instance selection instead of guessing.|
 |[`atomic/internal/harness/generation.go`](../../atomic/internal/harness/generation.go)|`SharedConsumers` and `EnsureSharedGeneration` (refusing only a pinned row for an unenrolled target whose key parses; an unparseable key is rewritten with the rest) plus `AssertSharedConsumers`.|
 |[`atomic/internal/harness/provider.go`](../../atomic/internal/harness/provider.go)|`ProviderID` rejects a concrete provider or model token from generated bytes.|
-|[`atomic/internal/harness/`](../../atomic/internal/harness) (`agent.go`, `skill.go`, `rule.go`)|Offline projections: canonical agent, skill, and rule artifacts to native documents, each reporting unproven surfaces as gaps.|
+|[`atomic/internal/harness/agent.go`](../../atomic/internal/harness/agent.go)|`ClaudeAgent`, `OMPAgent`, `CodexAgent`, `CodexAgentDoc`, and `UserPolicyKeys`: offline agent projections that carry only proven frontmatter.|
+|[`atomic/internal/harness/`](../../atomic/internal/harness) (`skill.go`, `rule.go`)|Offline skill and rule projections to native documents, each reporting unproven surfaces as gaps.|
+|[`atomic/internal/harness/uninstall.go`](../../atomic/internal/harness/uninstall.go)|`PlanTargetRemoval`, `RemoveTargetResources`, and the row-only variants behind target uninstall.|
 |[`atomic/internal/harness/status.go`](../../atomic/internal/harness/status.go)|`RowStatus`, `TargetStatus`, and `Resources`, which merge ledger rows with discovered instances into one record per physical resource.|
 
 ### Harness adapters
 
 |Path|Role|
 |---|---|
-|[`atomic/internal/harness/claude/`](../../atomic/internal/harness/claude)|Claude adapter: discovery over `CLAUDE_CONFIG_DIR`, direct global [`CLAUDE.md`](../../CLAUDE.md), narrow `settings.json` mutations, and the legacy migration engine.|
-|[`atomic/internal/harness/omp/`](../../atomic/internal/harness/omp)|OMP adapter: profiles resolved via `omp config path` (the ambient `OMP_PROFILE` selector included), the generated shared package as Atomic's corpus store, the profile `AGENTS.md` block, the profile-owned `extensions/atomic.ts` module OMP discovers under its agent root, recorded as its own ledger resource, and `.omp/rules/` card projection.|
+|[`atomic/internal/harness/claude/`](../../atomic/internal/harness/claude)|Claude adapter: discovery over `CLAUDE_CONFIG_DIR`, direct global [`CLAUDE.md`](../../CLAUDE.md), narrow `settings.json` mutations, the legacy migration engine ([`atomic/internal/harness/claude/migration.go`](../../atomic/internal/harness/claude/migration.go)), and the scope loader-pair migration `MigrateScope` ([`atomic/internal/harness/claude/steering.go`](../../atomic/internal/harness/claude/steering.go)).|
+|[`atomic/internal/harness/omp/`](../../atomic/internal/harness/omp)|OMP adapter: profiles resolved via `omp config path` (the ambient `OMP_PROFILE` selector included), the generated shared package as Atomic's corpus store, the profile `AGENTS.md` block composed by `SteeringBlock` ([`atomic/internal/harness/omp/steering.go`](../../atomic/internal/harness/omp/steering.go)), the profile-owned `extensions/atomic.ts` module OMP discovers under its agent root, recorded as its own ledger resource, and `.omp/rules/` card projection.|
 |[`atomic/internal/harness/codex/`](../../atomic/internal/harness/codex)|Codex adapter: `CODEX_HOME`, generated marketplace and plugin tree, the plugin cache registration materializes as an owned tree resource, TOML agents, rule index and matcher; emits no hook configuration and refuses to re-enable a plugin the user disabled.|
 
 ### Install orchestration and CLI
 
 |Path|Role|
 |---|---|
-|[`atomic/internal/install/install.go`](../../atomic/internal/install/install.go)|`Steps`: discover, plan, approve, converge, report; `DefaultRegistry` composes the three adapters.|
+|[`atomic/internal/install/install.go`](../../atomic/internal/install/install.go)|`Steps`: discover, plan, approve, converge, report; `DefaultRegistry` composes the Claude, OMP, and Codex adapters.|
 |[`atomic/internal/install/report.go`](../../atomic/internal/install/report.go)|`List`, `Status`, and `Diff`.|
 |[`atomic/internal/install/rules.go`](../../atomic/internal/install/rules.go)|`RulesStatus` (tier, gaps, per-resource state) and `RulesSync`.|
 |[`atomic/internal/install/uninstall.go`](../../atomic/internal/install/uninstall.go)|`UninstallTarget` (a raw ledger key that does not parse into a target included), `UninstallAll`, and their read-only dry-run plans, plus the `Recover`/`PreviewRecovery` entry points behind `atomic harness recover` and the `--discard-changed` options.|
 |[`atomic/cmd/atomic/cmd_install.go`](../../atomic/cmd/atomic/cmd_install.go)|`atomic install` and its flags (`--harness`, `--instance`, `--all`, `--replace`, `--leave-unowned`, `--dry-run`, `--yes`, `--json`).|
-|[`atomic/cmd/atomic/cmd_harness.go`](../../atomic/cmd/atomic/cmd_harness.go)|`atomic harness list`, `status`, `enroll`, `adopt`, `repair`, `diff`, `uninstall` (`--discard-changed`), `recover` (`--rollback`), and `rules` (`status`, `sync`).|
+|[`atomic/cmd/atomic/cmd_harness.go`](../../atomic/cmd/atomic/cmd_harness.go)|`atomic harness list`, `status`, `enroll`, `adopt`, `repair`, `diff`, `uninstall` (`--discard-changed`), `recover` (`--rollback`), and `rules` (`status`, `sync`); `adopt` also takes `--acknowledge-snapshot`.|
 |[`atomic/cmd/atomic/cmd_state.go`](../../atomic/cmd/atomic/cmd_state.go)|`atomic state adopt` (`--dir`, `--clear`, `--dry-run`, `--json`).|
 
 ### Durable state and write primitives
@@ -150,10 +236,11 @@ Repository state is selected by a harness-neutral ladder in [`atomic/internal/co
 |[`atomic/internal/installstate/target.go`](../../atomic/internal/installstate/target.go)|`TargetRecord` and the `harness:instance` key.|
 |[`atomic/internal/installstate/journal.go`](../../atomic/internal/installstate/journal.go)|The per-operation journal.|
 |[`atomic/internal/installstate/transaction.go`](../../atomic/internal/installstate/transaction.go)|`Transaction`: journal and backups before mutation, verification before ledger commit.|
+|[`atomic/internal/installstate/legacy.go`](../../atomic/internal/installstate/legacy.go)|`PlanAdoption`/`Adopt` (the adoption engine `claude.Migrate` drives) and `RecoverJournals`/`RollbackJournals` with their in-memory simulations.|
 |[`atomic/internal/installstate/recovery.go`](../../atomic/internal/installstate/recovery.go)|Digest-driven `Recover`, including finishing an interrupted generated-tree publication or restoring its displaced backup, and `Rollback`.|
-|[`atomic/internal/installstate/classify.go`](../../atomic/internal/installstate/classify.go)|The seven-state read-only classifier and the per-resource drift it reports.|
+|[`atomic/internal/installstate/classify.go`](../../atomic/internal/installstate/classify.go)|The read-only installation-state classifier and the per-resource drift it reports.|
 |[`atomic/internal/installstate/retention.go`](../../atomic/internal/installstate/retention.go)|`Retention` and `Cleanup` for target and full uninstall.|
-|[`atomic/internal/managedfile/managedfile.go`](../../atomic/internal/managedfile/managedfile.go)|Line-anchored block boundaries, `Digest`, and block splice/append helpers.|
+|[`atomic/internal/managedfile/managedfile.go`](../../atomic/internal/managedfile/managedfile.go)|`BlockOpen`/`BlockClose` (`<atomic>`, `</atomic>`), line-anchored block boundaries, `Digest`, and block splice/append helpers.|
 |[`atomic/internal/managedfile/observe.go`](../../atomic/internal/managedfile/observe.go)|`Observe` (current bytes, digest, conflict), `TreeDigest`, and resource-bytes digests.|
 |[`atomic/internal/managedfile/evidence.go`](../../atomic/internal/managedfile/evidence.go)|`Claim`/`Assessment`: selection bytes, one parseable block, or bytes the ledger recorded applying prove ownership; a block file that has never carried Atomic tags is adopted by appending.|
 |[`atomic/internal/managedfile/publish.go`](../../atomic/internal/managedfile/publish.go)|Atomic file writes and journaled generated-directory publication.|
@@ -163,16 +250,27 @@ Repository state is selected by a harness-neutral ladder in [`atomic/internal/co
 
 |Path|Role|
 |---|---|
-|[`atomic/internal/artifacts/catalog.go`](../../atomic/internal/artifacts/catalog.go)|`Catalog.Load` enumerates [`context/`](../../context); only command, agent, and steering artifacts pass through the template engine.|
-|[`atomic/internal/artifacts/renderer.go`](../../atomic/internal/artifacts/renderer.go)|`ClaudeGlobal`, `LoaderPair`, and `OMPSteering` native renderers.|
+|[`atomic/internal/artifacts/catalog.go`](../../atomic/internal/artifacts/catalog.go)|`artifacts.Load` enumerates [`context/`](../../context); only command, agent, and steering artifacts pass through the template engine.|
+|[`atomic/internal/artifacts/renderer.go`](../../atomic/internal/artifacts/renderer.go)|`Steering`, `OutputStyle`, the `OMPSteering` native renderer, `ImportFree`, and `ClaudeGlobal` and `LoaderPair`, which have no production caller.|
+|[`atomic/internal/bundlespec/bundlespec.go`](../../atomic/internal/bundlespec/bundlespec.go)|`GlobalSteering` and `ScopeSteering` (`AGENTS.md` source, [`CLAUDE.md`](../../CLAUDE.md) Claude target), `LoaderBody`, and `LoaderDocument`.|
 |[`atomic/internal/artifacts/artifact.go`](../../atomic/internal/artifacts/artifact.go)|`Kind`, `Target`, `Delivery`, `EnforcementTier`, and `ProjectionDigest`.|
 |[`atomic/internal/rules/parse.go`](../../atomic/internal/rules/parse.go)|`LoadShipped`/`LoadWiki` and the strict `paths:` parser.|
 |[`atomic/internal/rules/match.go`](../../atomic/internal/rules/match.go)|`Matcher`: exact candidate paths, resolved containment, stable all-match order.|
 |[`atomic/internal/rules/pattern.go`](../../atomic/internal/rules/pattern.go)|`CompileGlob`: one-way glob translation for non-Go runtimes, pinned to the canonical matcher by test.|
-|[`atomic/internal/rules/project.go`](../../atomic/internal/rules/project.go)|`Select`: CP0 evidence to a target-native `Projection`.|
+|[`atomic/internal/rules/project.go`](../../atomic/internal/rules/project.go)|`Select`: runtime evidence to a target-native `Projection`.|
 |[`atomic/internal/runtimeproof/runtimeproof.go`](../../atomic/internal/runtimeproof/runtimeproof.go)|Isolated harness scenario runner: bounded launch, credential-stripped env, retained events and file bytes.|
 |[`atomic/internal/embeddedcorpus/embeddedcorpus.go`](../../atomic/internal/embeddedcorpus/embeddedcorpus.go)|Loads the canonical corpus from the embedded bundle with no checkout to read.|
 |[`atomic/internal/ids/ids.go`](../../atomic/internal/ids/ids.go)|`Slug` and `ShortID` for generated operation and resource names.|
+
+### Docs
+
+|Path|Covers|
+|---|---|
+|[`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md)|Implementation contract for the adapter model, enrollment, and rule tiers.|
+|[`docs/spec/install-workflow.md`](../spec/install-workflow.md)|The Claude global steering projection and the [`CLAUDE.md`](../../CLAUDE.md) merge.|
+|[`docs/spec/uninstall.md`](../spec/uninstall.md)|The uninstall decision.|
+|[`docs/design/omp-plugin-compatibility.md`](../design/omp-plugin-compatibility.md)|The architecture and the write-authority table.|
+|[`docs/research/harness-capability-matrix.md`](../research/harness-capability-matrix.md)|The versioned runtime evidence every projection is gated by; a capability row can reduce a surface to `unsupported` but does not reopen the architecture.|
 
 
 ## Constraints
@@ -184,6 +282,9 @@ Repository state is selected by a harness-neutral ladder in [`atomic/internal/co
 - **One physical resource, one ownership row.** Shared packages and native-root files both key on identity, and the operation that moves one rewrites every enrolled consumer's row in the same commit, so a consumer's recorded generation is what Atomic last wrote rather than a requirement. `EnsureSharedGeneration` refuses before mutation only on a genuine pin — a row for a target the ledger does not enroll whose key still parses — and rewrites a row whose key does not parse, so an older writer's stale record is clearable rather than blocking ([`atomic/internal/harness/generation.go`](../../atomic/internal/harness/generation.go)).
 - **A managed block is never guessed at.** `BlockBoundaries` rejects a missing, unclosed, repeated, or out-of-order tag shape; an ambiguous file may not receive an appended block, because its boundary cannot be determined. A file carrying no Atomic tags at all is not ambiguous: adoption appends the block and preserves every existing byte ([`atomic/internal/managedfile/managedfile.go`](../../atomic/internal/managedfile/managedfile.go)).
 - **Ownership is proven by bytes, not by name.** Selection bytes, one parseable Atomic block, and bytes the ledger recorded applying all prove ownership; the ledger digest is looked up by resource identity and never by path, so a row naming the same path under a different resource id is reported as a mismatch rather than read as ownership or as unowned bytes. A resource name, a legacy config path, and a legacy version string prove nothing ([`atomic/internal/managedfile/evidence.go`](../../atomic/internal/managedfile/evidence.go), [`atomic/internal/installstate/classify.go`](../../atomic/internal/installstate/classify.go)).
+- **Claude never gets a user-level `AGENTS.md`.** The global contract renders straight into the native root's [`CLAUDE.md`](../../CLAUDE.md); `GlobalArtifacts` refuses an embedded manifest that maps any artifact to `AGENTS.md` there, and the doctor `shadowing` category reports one found beside the projected [`CLAUDE.md`](../../CLAUDE.md) ([`atomic/internal/harness/claude/artifacts.go`](../../atomic/internal/harness/claude/artifacts.go)).
+- **A scope loader pair is never written into the global native root.** `MigrateScope` and `Migrate` compare symlink-resolved directories and refuse before any write, because a second [`CLAUDE.md`](../../CLAUDE.md) loader there would sit beside the global steering ([`atomic/internal/harness/claude/steering.go`](../../atomic/internal/harness/claude/steering.go)).
+- **An agent never carries model policy.** A canonical agent that declares `model`, `effort`, `tools`, `disallowedTools`, or `mcpServers` is refused by every projection, and a `skills:` list is carried only where the target proves it (Claude); elsewhere it is dropped and reported in `Unsupported` ([`atomic/internal/harness/agent.go`](../../atomic/internal/harness/agent.go)).
 - **A tier is reported from evidence, not intent.** `hook-required` and `unsupported` behavior must never be labeled native parity, and `deny-enforced` is unreachable from a prose record. Overstating a tier ships a boundary the harness does not enforce ([`atomic/internal/rules/project.go`](../../atomic/internal/rules/project.go)).
 - **A dry run is byte-identical.** It opens no lock and recovers no journal; it previews unresolved journals in memory and reports `blocked_on_recovery` rather than planning around bytes it could not reconcile ([`atomic/internal/install/install.go`](../../atomic/internal/install/install.go), [`atomic/internal/install/uninstall.go`](../../atomic/internal/install/uninstall.go)).
 - **Uninstall touches only resources it still owns.** A resource whose bytes drifted underneath Atomic is skipped and keeps its claim while the rest of the target still uninstalls; `--discard-changed` releases that claim after confirming each skipped resource by name, deleting a file or tree, stripping a block, or leaving bytes Atomic cannot remove in place with the claim dropped. A resource another enrolled consumer depends on is retained, and an emptied native container directory is pruned while an occupied one is left. Visibility by an unenrolled instance is not a dependency ([`atomic/internal/harness/uninstall.go`](../../atomic/internal/harness/uninstall.go)).
@@ -193,14 +294,10 @@ Repository state is selected by a harness-neutral ladder in [`atomic/internal/co
 ## Coupling
 
 
-**bundle.** `bundle` renders [`context/`](../../context) once into the binary's embedded corpus; this domain consumes that output. [`atomic/internal/artifacts/catalog.go`](../../atomic/internal/artifacts/catalog.go) and `renderer.go` enumerate and project it, and [`atomic/internal/embeddedcorpus/`](../../atomic/internal/embeddedcorpus) loads it with no checkout. The embed and mirror mechanics (`make bundle`, `//go:embed bundle`) belong to `bundle`; the adapter projections belong here. Contract: [`docs/wiki/bundle.md`](bundle.md).
+**bundle.** `bundle` renders [`context/`](../../context) once into the binary's embedded corpus; this domain consumes that output. [`atomic/internal/artifacts/catalog.go`](../../atomic/internal/artifacts/catalog.go) and [`atomic/internal/artifacts/renderer.go`](../../atomic/internal/artifacts/renderer.go) enumerate and project it, and [`atomic/internal/embeddedcorpus/`](../../atomic/internal/embeddedcorpus) loads it with no checkout. The embed and mirror mechanics (`make bundle`, `//go:embed bundle`) belong to `bundle`; the adapter projections belong here. Contract: [`docs/wiki/bundle.md`](bundle.md).
 
-**config.** The `~/.atomic` layout, the enrollment ledger path, and the state-selection ladder are documented in this domain and resolved through [`atomic/internal/config/`](../../atomic/internal/config). `atomic state adopt` selects a root; `config` owns the `state.dir` key and mutable-path authorities. Contract: [`docs/wiki/config.md`](config.md).
+**config.** The `~/.atomic` layout, the enrollment ledger path, and the state-selection ladder are documented in this domain and resolved through [`atomic/internal/config/`](../../atomic/internal/config). `atomic state adopt` selects a root; `config` owns the `state.dir` key and mutable-path authorities. `atomic update` is the only caller of `Steps.ConvergeEnrolled`, and it auto-converges every enrolled target after a binary swap: after binary selection, [`atomic/cmd/atomic/cmd_update.go`](../../atomic/cmd/atomic/cmd_update.go) runs `install.Steps.ConvergeEnrolled`, which writes only already-enrolled targets, so a target that is not enrolled is never silently written. Contract: [`docs/wiki/config.md`](config.md).
 
-**doctor.** Doctor categories 15 to 24 read this domain's ledger, journals, capability records, and rule status read-only, and ledger-managed `atomic doctor --fix` reuses this engine's converge planner rather than a separate repair path. A change to the ledger schema, a capability row, or a rule-delivery role lands in a doctor check. Contract: [`docs/wiki/doctor.md`](doctor.md).
+**doctor.** The doctor categories `targets`, `resources`, `journals`, `capabilities`, `rules`, `trust`, `staleness`, `conflicts`, `shadowing`, and `codex` read this domain's ledger, journals, capability records, and rule status read-only, and ledger-managed `atomic doctor --fix` reuses this engine's converge planner rather than a separate repair path. A change to the ledger schema, a capability row, or a rule-delivery role lands in a doctor check. Contract: [`docs/wiki/doctor.md`](doctor.md).
 
-**signals and wiki.** Repository wiki refresh is the second canonical rule producer: it writes `wiki:<project-key>:<domain>` pointer cards under `<state-root>/rules/wiki/`, which this domain parses and projects. Realm refresh produces no scoped pointer rules. An operation without a proven native scoped-rule surface receives no matched body and reports `unsupported`.
-
-**workflow.** `/refresh-wiki` and the ship verbs auto-converge only already-enrolled targets, so a target that is not enrolled is never silently written. Enrolled-target convergence (`ConvergeEnrolled`) is what an update runs after binary selection.
-
-**Lockstep contracts.** [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md) is the implementation contract for the adapter model, enrollment, and rule tiers. [`docs/design/omp-plugin-compatibility.md`](../design/omp-plugin-compatibility.md) carries the architecture and the write-authority table. [`docs/research/harness-capability-matrix.md`](../research/harness-capability-matrix.md) holds the versioned native-behavior evidence every projection is gated by; a capability row can reduce a surface to `unsupported` but does not reopen the architecture.
+**signals and wiki.** `atomic wiki init` writes the scope loader pair through `wiki.InitRepoScope` and `wiki.InitRealmScope` using `bundlespec.ScopeSteering`, the same descriptor `MigrateScope` converges. Repository wiki refresh is the second canonical rule producer: it writes `wiki:<project-key>:<domain>` pointer cards under `<state-root>/rules/wiki/`, which this domain parses and projects. Realm refresh produces no scoped pointer rules. An operation without a proven native scoped-rule surface receives no matched body and reports `unsupported`.

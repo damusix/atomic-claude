@@ -174,7 +174,7 @@ telling them apart would leak which admission check failed.
 
 | Path | Role |
 |------|------|
-| [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) | Auto-fires on connect/join/message-another-session language. Owns the connect flow (join, then a Monitor on `recv`), the reaction policy, the trust posture for peer messages, and the truncated-notification recovery path. |
+| [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) | Auto-fires on connect/join/message-another-session language. Owns the connect flow (join, then a persistent background listener on `recv`), the reaction policy, the trust posture for peer messages, and the truncated-notification recovery path. |
 
 ### Go packages
 
