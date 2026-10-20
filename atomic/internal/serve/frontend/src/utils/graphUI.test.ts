@@ -86,9 +86,9 @@ describe("utils/graphUI", () => {
 
   test("openPageModal fills chip/title/desc and fetches /page/<id> for the body", async () => {
     mockFetchOnce({ html: "<p>loaded body</p>" });
-    openPageModal("wiki/index.md", { type: "knowledge", title: "Index" });
+    openPageModal("wiki/index.md", { type: "index", title: "Index" });
 
-    expect(document.getElementById("cy-modal-chip")?.textContent).toBe("knowledge");
+    expect(document.getElementById("cy-modal-chip")?.textContent).toBe("index");
     expect(document.getElementById("cy-modal-title")?.textContent).toBe("Index");
     expect(document.getElementById("cy-page-modal-scrim")?.classList.contains("open")).toBe(true);
 

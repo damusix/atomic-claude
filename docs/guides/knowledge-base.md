@@ -3,12 +3,12 @@
 
 Atomic documents code. A [wiki](/reference/realm-wiki) compiles a folder of repositories into one map. It points at the repos that already have their own wiki, summarizes the ones that do not, and writes up the concerns they share. That is the code side of a realm.
 
-Real work is not only code. A client engagement accumulates tickets, research you wrote chasing a problem, an email thread with the one detail that explains a bug, a PDF someone sent, a Slack export. This material is the knowledge side, and atomic manages it the same way it manages code. You drop the material into folders and register them as capture buckets; `/refresh-wiki` fingerprints what changed and synthesizes it into `wiki/knowledge/`. Atomic runs the pipeline; you provide the material and the conventions.
+Real work is not only code. A client engagement accumulates tickets, research you wrote chasing a problem, an email thread with the one detail that explains a bug, a PDF someone sent, a Slack export. This material is the knowledge side. You drop it into folders and register them as capture buckets. The realm `CLAUDE.md` lists each bucket folder, and the folder's `index.md` lists its docs.
 
 | | Provided by atomic | Yours to provide |
 |---|---|---|
-| **Code side** | `/refresh-wiki` documents the repos and writes `wiki/` (summaries, concerns, knowledge pages); the `atomic wiki` subcommands (`scan`, `stale`, `linkify`, `bucket`) maintain it. | The member repos. |
-| **Knowledge side** | Bucket registration (`atomic wiki bucket add`), the SHA-256 fingerprint engine (`diff`/`promote`), and the synthesis pass that writes `wiki/knowledge/`. | The capture folders, the material in them, and each bucket's `index.md` conventions. |
+| **Code side** | `/refresh-wiki` documents the repos and writes `wiki/` (summaries, concerns); `scan`, `linkify`, and `bucket` maintain it; `stale` reports membership drift. | The member repos. |
+| **Knowledge side** | Bucket registration (`atomic wiki bucket add`), doc scaffolds (`bucket doc`, `bucket skill`), and the generated per-bucket indexes (`bucket index`, also run by every scan). | The capture folders, the material in them, and each bucket's `index.md` conventions. |
 | **Glue** | The realm `CLAUDE.md` walk is a Claude Code behavior atomic relies on. | The contents of that `CLAUDE.md`: your rules, paths, and conventions. |
 
 The result is a Karpathy-style wiki: a knowledge base you compile with Claude instead of maintaining by hand.
@@ -32,9 +32,7 @@ A realm is a folder that holds repositories and the loose material around them. 
 └─ wiki/              the map atomic compiles — its own git repo
    ├─ index.md        member registry + <wiki-buckets> block
    ├─ repos/          summaries of repos without their own wiki
-   ├─ concerns/       what cuts across repos
-   ├─ knowledge/      digests synthesized from the buckets
-   └─ .buckets/       SHA-256 manifests, one dir per bucket
+   └─ concerns/       what cuts across repos
 ```
 
 The repos and the `wiki/` folder are git repositories; the realm root and the capture folders are not. You commit inside each member and inside `wiki/`, never at the realm root. The capture folder names are your convention: `research`, `raw`, and `history` are examples, so register whatever folders fit how you already organize work.
@@ -54,7 +52,7 @@ Different material enters through different doors. Sort it by how processed it i
 | `history/` | Scraped pages and time-stamped captures of source documents. | Timestamp-named. |
 | Tickets | Live issue tracker state. | Not a folder — read through MCP. |
 
-Each bucket carries an `index.md` describing what it holds and the convention its files follow. `atomic wiki bucket add` creates the stub; you fill it in (or let the `/refresh-wiki` offer flow guide you on first use). The synthesis pass reads this file as context before it distills anything. The same file also carries a generated listing of the bucket's own docs, covered below in "Browsing a bucket's own docs".
+Each bucket carries an `index.md` describing what it holds and the convention its files follow. `atomic wiki bucket add` creates the stub; you fill it in, or let the `/refresh-wiki` bucket offer ask you on first use. The same file also carries a generated listing of the bucket's own docs, covered below in "Browsing a bucket's own docs".
 
 Tickets are the one surface that does not need a folder. Wire your tracker as an MCP server in the realm `.mcp.json` and Claude reads issues live:
 
@@ -66,73 +64,49 @@ Tickets are the one surface that does not need a folder. Wire your tracker as an
 }
 ```
 
-GitHub, Jira, and Linear all expose MCP servers. With one wired at the realm root, "what is blocking ticket ACME-412" is answerable from any session in the realm. A synthesis pass can fold a ticket's resolution into `knowledge/` alongside the research that informed it. When a tracker has no MCP server, export the tickets and drop the export in `raw/` like any other dump.
+GitHub, Jira, and Linear all expose MCP servers. With one wired at the realm root, "what is blocking ticket ACME-412" is answerable from any session in the realm. When a tracker has no MCP server, export the tickets and drop the export in `raw/` like any other dump.
 
 
 ### Browsing a bucket's own docs
 
 
-A bucket is not only a synthesis input. Its `index.md` also carries a `## Docs` listing of the bucket's own topics, and the realm `wiki/index.md` carries a `## Buckets` listing of every registered bucket. Both are generated by code and rewritten on every `atomic wiki scan`, or on demand with `atomic wiki bucket index`. A bucket's contents stay browsable without you maintaining a table of contents by hand.
+A bucket's `index.md` carries a `## Docs` listing of the bucket's own topics, and the realm `wiki/index.md` carries a `## Buckets` listing of every registered bucket. Both are generated by code and rewritten on every `atomic wiki scan`, or on demand with `atomic wiki bucket index`. A bucket's contents stay browsable without you maintaining a table of contents by hand.
 
-The listing is derived from each doc's frontmatter. A bucket doc carries six keys: `title`, `type`, `description`, `tags`, and `status`, which you write, and `created`, which the scaffold stamps. Files with no frontmatter are not rejected; they still list, under an `### Unindexed` heading, with a title taken from the first heading and a description from the first line. Capture stays as frictionless as before.
+The listing is derived from each doc's frontmatter. A bucket doc carries six keys: `title`, `type`, `description`, `tags`, and `status`, which you write, and `created`, which the scaffold stamps. Files with no frontmatter are not rejected; they still list, under an `### Unindexed` heading, with a title taken from the first heading and a description from the first line.
 
 Scaffold a doc with `atomic wiki bucket doc <bucket> <slug>`. It writes the frontmatter, stamps `created`, and leaves the rest for you to fill. Keep one topic per file. When a topic outgrows a single file, run the same command with `--router`: it adds a `<slug>/` subtree for the subtopics and keeps `<slug>.md` as the summary. In the listing that topic shows as one entry flagged `router (N docs)`, so the subtree stays navigable without cluttering the index.
 
 To keep a bucket's conventions in one place, `atomic wiki bucket skill <bucket>` scaffolds a `.claude/skills/<bucket>-management/` skill prefilled with the bucket's purpose. Fill in the rules for that bucket once, and they load automatically whenever you work in the realm.
 
 
-## The synthesis flow
+## How a session finds material
 
 
-Capture surfaces collect material. Knowledge is what atomic distills from them. The flow is one-way:
-
-```text
-research/ + raw/   →   /refresh-wiki bucket synthesis   →   wiki/knowledge/
-```
-
-A digest in `wiki/knowledge/` is the durable artifact: the thing you read later instead of re-reading the four sources behind it. The sources stay where they are. Synthesis reads them and writes a compressed, cross-linked result into the wiki. Each page carries `sources:` provenance, so you can trace a digest back to the files that produced it.
-
-
-## Only synthesize what changed
-
-
-`/refresh-wiki` reprocesses only the material that changed since the last run. That deduplication is the bucket fingerprint engine, and you do not build it:
-
-```bash
-atomic wiki bucket diff research      # new / changed / removed since last synthesis (read-only)
-atomic wiki bucket promote research   # advance the baseline, after synthesis lands
-```
-
-`diff` computes a SHA-256 manifest of the folder and compares it to the stored baseline, reporting new, changed, and removed files. `promote` advances the baseline to the current manifest. `/refresh-wiki` runs `diff` to find the work, synthesizes only the new and changed files, and `promote`s after each bucket succeeds. An aborted run leaves the work pending instead of marking it done. The manifests live in `wiki/.buckets/<name>/` (`baseline`, `previous`, `current`) and are versioned with the wiki, so a clone is self-describing.
-
-`atomic wiki stale` reports `STALE bucket <name>` for any bucket with a non-empty diff, alongside its repo and concern staleness lines.
+The indexes are the only thing atomic derives from a bucket. No model pass reads the bucket, so a session reads your files directly when it needs them. Each entry in a bucket's `index.md` carries the doc's one-line description, so write a clear `description:` on each doc; without one, the listing falls back to the doc's first prose line.
 
 
 ## Running it
 
 
-The whole pipeline is one command:
+1. `atomic wiki bucket add research` registers the folder once. It creates the bucket's `index.md` stub, adds the bucket to `wiki/index.md`, and writes the `## Capture surfaces` entry in the realm `CLAUDE.md`.
+2. Drop material into `research/`, `raw/`, and the rest as work happens. `atomic wiki bucket doc research <slug>` scaffolds a doc with its frontmatter.
+3. `atomic wiki scan` (or `/refresh-wiki`, which runs it) rebuilds every bucket's listing.
 
-1. `atomic wiki bucket add research` — register the folder once. It creates the bucket's `index.md` stub and its manifest directory.
-2. Drop material into `research/`, `raw/`, and the rest as work happens.
-3. `/refresh-wiki` — scans the repos, then for each bucket with a non-empty diff dispatches `atomic-wiki-inferrer` to synthesize the changed files into `wiki/knowledge/<topic>.md`, stamps `sources:` provenance, promotes the baseline, and offers to commit the wiki.
-
-No fingerprint script, no custom synthesis command. On first run in a realm with no buckets, `/refresh-wiki` offers to create them.
+On first run in a realm with no buckets, `/refresh-wiki` offers to create them.
 
 
 ## Browsing the result
 
 
-Everything in a realm is markdown in folders, so an Obsidian vault, any markdown server, or `atomic serve` renders it as a navigable graph. Three things make it click together:
+Everything in a realm is markdown in folders, so an Obsidian vault, any markdown server, or `atomic serve` renders it as a navigable graph. Two things make it click together:
 
 - An `index.md` in every surface, listing its contents with links. These are the entry points.
-- Cross-links written during synthesis. When a knowledge digest cites the research and the repo wiki behind it, those become links you can follow.
 - `atomic wiki linkify`, which turns the path citations in repo summaries and concern docs into relative markdown links. `/refresh-wiki` runs it for you.
 
-`atomic serve` renders the realm read-only in the browser, colored by concept type, with federated code search across members. Open it and click from a concern, to the repo it touches, to that repo's wiki, to the research that explains a decision in it.
+`atomic serve` renders the realm read-only in the browser, colored by concept type, with federated code search across members. Open it and click from a concern, to the repo it touches, to that repo's wiki.
 
 
 ## Where the line is
 
 
-You own the material and the conventions: what goes in each bucket, the bucket's `index.md`, and the realm `CLAUDE.md`. Atomic writes only the `index.md` stub when you register a bucket and the manifests under `wiki/.buckets/`; the material you drop in is yours and untouched. The [wiki workflow reference](/reference/realm-wiki) documents the full mechanism.
+You own the material and the conventions: what goes in each bucket, the bucket's `index.md` description, and the realm `CLAUDE.md`. When you register a bucket, Atomic writes its `index.md` stub and the `## Capture surfaces` entry in the realm `CLAUDE.md`. It also writes the generated `<bucket-docs>` listing inside the stub; the material you drop in is yours and untouched. The [wiki workflow reference](/reference/realm-wiki) documents the full mechanism.

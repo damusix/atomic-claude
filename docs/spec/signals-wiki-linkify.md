@@ -35,7 +35,7 @@ Make signals and wiki markdown navigable as a graph in Obsidian, a generic markd
 ### Signals
 
 - [ ] `atomic signals linkify` linkifies `.claude/project/signals.md` and every file under `.claude/project/signals/`, with base = repo root. Idempotent; safe to re-run.
-- [ ] The `atomic-wiki-inferrer` agent runs `atomic signals linkify` as the final action of **default mode** only, after all files are written/reviewed. The agent still writes plain repo-root-relative paths in backticks (facts); linkify renders them. (Wiki-output mode does NOT linkify — `/refresh-wiki` runs `atomic wiki linkify` post-stamp instead.)
+- [ ] The `atomic-wiki-inferrer` agent runs `atomic signals linkify` as the final action of **default mode** only, after all files are written/reviewed. The agent still writes plain repo-root-relative paths in backticks (facts); linkify renders them. (Wiki-output mode does NOT linkify — `/refresh-wiki` runs `atomic wiki linkify` after the inferrer returns instead.)
 - [ ] The router `## Domains` table Detail column and Repo-paths column, and every domain file's `## Artifacts` / `## CLI code` / `## Docs` / `## Coupling` path citation, are linkified when they resolve on disk.
 - [ ] Doctor's router check (`parseRouterDomains` in `checks_signals.go`) extracts the on-disk domain-file path from a linkified Detail cell and still validates existence + orphans. Existing doctor signals tests stay green.
 
@@ -43,8 +43,8 @@ Make signals and wiki markdown navigable as a graph in Obsidian, a generic markd
 
 - [ ] `atomic wiki scan` writes a managed, linked member list into `index.md` (a `## Members` managed section, spliced idempotently like the `<wiki-scan>` block, content outside untouched): `indexed` → link to `../<repo>/.claude/project/signals.md`; `summarized` → link to `repos/<repo>.md`; `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
 - [ ] `atomic wiki linkify --root=<path>` linkifies wiki artifacts: each `repos/<repo>(/<domain>).md` with base = `<realm>/<repo>` (repo read from the summary's `repo:` frontmatter); each `concerns/*.md` and the `index.md` narrative with base = realm root. Idempotent.
-- [ ] `/refresh-wiki` runs `atomic wiki linkify` after summaries/concerns are (re)authored and stamped, before the commit offer.
-- [ ] Linkify never alters `reflects_*` frontmatter and runs after `atomic wiki stamp`, so it does not affect `atomic wiki stale` verdicts (staleness is HEAD/hash-based, not body-based).
+- [ ] `/refresh-wiki` runs `atomic wiki linkify` after summaries/concerns are written, before the wiki commit.
+- [ ] Linkify never alters frontmatter.
 
 ### Discovery, gates, pipeline
 
@@ -84,7 +84,6 @@ Approach A. Relative-prefix computation is a deterministic transform — code's 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
 | Token detection links a non-path that happens to resolve | low | Only inline-code spans are candidates; non-paths rarely sit in backticks and rarely resolve from base |
-| Linkify churns wiki staleness | low | Runs after `stamp`; staleness is HEAD/hash-based, not body-based |
 | Doctor parser breaks on linkified Detail | med | Checkpoint 1 updates `parseRouterDomains` + keeps existing tests green |
 | Re-run produces non-idempotent diffs | med | Skip-already-linked rule; checkpoint 1 asserts byte-identical re-run |
 
@@ -113,3 +112,11 @@ Approach A. Relative-prefix computation is a deterministic transform — code's 
 **Why:** Issue #262. A repo with a top-level `My Project/` directory got 280 links across 16 wiki pages that GitHub rendered as literal text, because a bare destination ends at the first space. The repair exception lets a re-run of `atomic signals linkify` or `atomic wiki linkify` fix pages written before this change.
 
 **Superseded:** Every resolved token was written as `` [`path`](relpath) `` with `relpath` bare.
+
+### 2026-10-18 — Removed: linkify ordering against wiki stamping
+
+**What changed:** The wiki criteria no longer order `atomic wiki linkify` after `atomic wiki stamp` or tie it to `atomic wiki stale` verdicts, and the matching risk row is gone. Linkify still runs after summaries and concerns are written and still leaves frontmatter alone.
+
+**Why:** Realm wikis no longer carry fingerprints, so there is no stamp step to order against and no content staleness to disturb.
+
+**Removed:** the post-stamp ordering rule and the `reflects_*` preservation rationale. See `docs/spec/realm-wiki-drop-refresh.md`.

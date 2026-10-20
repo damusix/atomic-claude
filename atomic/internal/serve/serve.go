@@ -167,7 +167,7 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	mux.Handle("/api/file/", NewAPIFileHandler(opts.TargetDir))
 	mux.Handle("/api/rail/", NewAPIRailHandler(navRoot, store))
 	mux.Handle("/api/nav", NewAPINavHandler(navOpts))
-	// The staleness walk takes seconds on a real realm and /api/nav is the
+	// The staleness walk covers the whole realm and /api/nav is the
 	// shell's first request, so warm it here. If it has not finished by the
 	// time the request lands, the request computes it itself.
 	if isRealmScope && navOpts.StalenessFn == nil {

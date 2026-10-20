@@ -112,7 +112,7 @@ func TestScan_HappyPath(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 
-	for _, sub := range []string{"wiki/index.md", "wiki/README.md", "wiki/.gitignore", "wiki/repos", "wiki/concerns"} {
+	for _, sub := range []string{"wiki/index.md", "wiki/README.md", "wiki/CLAUDE.md", "wiki/repos", "wiki/concerns"} {
 		p := filepath.Join(root, sub)
 		if _, err := os.Lstat(p); err != nil {
 			t.Errorf("expected scaffold path %s to exist: %v", sub, err)
@@ -125,13 +125,8 @@ func TestScan_HappyPath(t *testing.T) {
 		t.Errorf("wiki/.git not found — git init not run: %v", err)
 	}
 
-	// .gitignore ignores .dirty
-	gi, err := os.ReadFile(filepath.Join(root, "wiki", ".gitignore"))
-	if err != nil {
-		t.Fatalf("read .gitignore: %v", err)
-	}
-	if !strings.Contains(string(gi), ".dirty") {
-		t.Error(".gitignore does not contain .dirty")
+	if _, err := os.Lstat(filepath.Join(root, "wiki", ".gitignore")); err == nil {
+		t.Error("scan wrote wiki/.gitignore; the wiki has no ignored state")
 	}
 
 	content := readIndexMD(t, root)

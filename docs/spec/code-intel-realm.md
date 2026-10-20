@@ -90,7 +90,7 @@ role fulfills either.
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|-----------|---------------|-------|-----------|---------|
 | 1 | **Engine internal decouple** — accept explicit db path from caller, separate from source root; repo-scope default path unchanged; no public flag, no meta row | `atomic/internal/codeintel/engine/engine.go` (`:52-56` consts, `:81-88` `New`/`indexPath`, `:103-145` `Init`/`open` at `:131`, `:176-177` `IndexPath`); `atomic/internal/codeintel/cli/code.go` (`:36-96` `RunCode`, `:59` engine init, `:865-867` not-initialized guard); `atomic/cmd/atomic/main.go` (`~:1017` `runCode`) | `atomic-surgeon` | 3 | SC 2 (repo path unchanged, no meta row); SC 13 (amend `code-intel-engine.md` db-path binding) |
-| 2 | **Realm detection + `code.toml` parser** — resolver walks cwd → realm root; position-sensing (realm root vs inside member); TOML config struct | `repoctx.Resolve`; `wiki/staleness.go:39-73` `ReadWikiIndexPaths` + `:228-238` `isUnder`; `config/config.go:78-146` `Load` as parser template; package layout implementer's choice | `atomic-builder` | 3–4 | SC 1 (position-sensing: cwd at realm root → fan out; cwd inside member → query that member alone; outside all → error); SC 3 (config at `<realm>/.atomic/code.toml`) |
+| 2 | **Realm detection + `code.toml` parser** — resolver walks cwd → realm root; position-sensing (realm root vs inside member); TOML config struct | `repoctx.Resolve`; `wiki/staleness.go` `ReadWikiIndexPaths` + `where/where.go` `isUnder`; `config/config.go:78-146` `Load` as parser template; package layout implementer's choice | `atomic-builder` | 3–4 | SC 1 (position-sensing: cwd at realm root → fan out; cwd inside member → query that member alone; outside all → error); SC 3 (config at `<realm>/.atomic/code.toml`) |
 | 3 | **Realm `index` + fan-out query verbs + `--only`/`--exclude` + seeding** | `atomic/internal/codeintel/cli/code.go` (`runIndex`, `runSearch`, `runCallers`, `runCallees`, `runImpact`, `runExplore`); fan-out orchestrator (package layout implementer's choice) | `atomic-builder` | 4–6 | SC 3 (dbs at `<realm>/.atomic/<key>.db`; no member repo written); SC 4 (partial failure: skip + warn); SC 5 (`[key]` grouping, `--json`, `--only`/`--exclude`); SC 6 (seed: exclude pending/trash, append-don't-overwrite); SC 12 (no language filter) |
 | 4 | **`<code-index>` XML block writer + `cliusage` flag registration** | `atomic/internal/wiki/wiki.go` (`:457-479` `writeWikiScanBlock` as XML-block precedent, `:589-636` `rewriteMembersSection` as idempotent-splice template); new block writer; `atomic/internal/cliusage/cliusage.go` (`:242-306` code-verb entries, `:15-28` `Command` struct — add `--only`, `--exclude`) | `atomic-builder` | 3 | SC 7 (XML block idempotent, regen only on membership/key change); SC 9 (`atomic validate artifacts` passes; no `--db`) |
 | 5 | **Global `<atomic>` instruction ¶ + `agent-code-intel` partial realm/fan-out guidance + render + bundle** | `CLAUDE.md` (new ¶ in `## Code-intel engine`); `templates/shared/agent-code-intel.md` (scope-by-position + fan-out guidance); `make render` → `agents/`; `make -C atomic bundle` → `atomic/internal/embedded/` | `atomic-surgeon` | 4–6 | SC 8 (instruction in installed CLAUDE.md); SC 10 (`make render && git diff --exit-code`; `make bundle && git diff --exit-code`) |
@@ -117,7 +117,11 @@ None.
 
 ## Change log
 
-(none — initial spec)
+### 2026-10-18 — isUnder citation repointed
+
+**What changed:** Checkpoint 2 cites `where/where.go` `isUnder` and drops the line numbers on `wiki/staleness.go` `ReadWikiIndexPaths`.
+
+**Why:** The `isUnder` copy in `wiki/staleness.go` is deleted (`docs/spec/realm-wiki-drop-refresh.md`), and the file's remaining line numbers moved.
 
 
 ## Implementation log

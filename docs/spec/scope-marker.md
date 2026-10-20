@@ -21,9 +21,8 @@ Only `repo` and `realm` are valid values. Any other value, and any file that
 fails to parse, is **not a marker of either kind**: discovery falls through to
 the pre-existing mechanism, which is the answer atomic gives today.
 
-`<wikis>` keeps its two other jobs unchanged — the session-start staleness
-nudge, and locating a realm's `wiki/index.md` for member data. A marker-declared
-realm absent from `<wikis>` therefore gets no staleness nudge. That is intended.
+`<wikis>` keeps its other job unchanged: locating a realm's `wiki/index.md` for
+member data.
 
 
 ### Discovery order
@@ -458,3 +457,14 @@ opposite and was corrected with it.
   the writer flow, CP2 wiring, Change tree, and Outline naming only the two
   init verbs. `docs/design/scope-marker.md`
   decision 3 ("Backfill is manual") no longer holds for realms.
+
+- 2026-10-18 — Removed: the registry's session-start nudge job
+
+  **What changed:** The contract names one remaining `<wikis>` job, locating a
+  realm's `wiki/index.md`.
+
+  **Why:** The session-start wiki staleness nudge is deleted, so registry
+  membership no longer decides whether a realm is nudged.
+
+  **Removed:** the staleness-nudge job and the note that a marker-only realm
+  gets no nudge. See `docs/spec/realm-wiki-drop-refresh.md`.

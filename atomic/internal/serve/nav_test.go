@@ -11,17 +11,14 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// buildMinimalWikiRealm seeds a two-member <wiki-scan> plus one concern and one
-// knowledge page, the smallest realm the nav groups can render.
+// buildMinimalWikiRealm seeds a two-member <wiki-scan> plus one concern, the
+// smallest realm the nav groups can render.
 func buildMinimalWikiRealm(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 
 	wikiDir := filepath.Join(root, "wiki")
 	if err := os.MkdirAll(filepath.Join(wikiDir, "concerns"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(wikiDir, "knowledge"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(wikiDir, "repos"), 0o755); err != nil {
@@ -40,8 +37,6 @@ Some narrative.
 	writeFile(t, filepath.Join(wikiDir, "index.md"), indexContent)
 
 	writeFile(t, filepath.Join(wikiDir, "concerns", "foo.md"), "# Foo concern\n")
-
-	writeFile(t, filepath.Join(wikiDir, "knowledge", "bar.md"), "# Bar knowledge\n")
 
 	return root
 }
@@ -88,7 +83,7 @@ func TestAPINav_ProductionStalenessPath(t *testing.T) {
 	root := t.TempDir()
 	wikiDir := filepath.Join(root, "wiki")
 
-	for _, sub := range []string{"concerns", "knowledge", "repos", ".buckets/research"} {
+	for _, sub := range []string{"concerns", "repos"} {
 		if err := os.MkdirAll(filepath.Join(wikiDir, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -99,9 +94,6 @@ func TestAPINav_ProductionStalenessPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(bucketDir, "note.md"), "# Research note\n")
-
-	// Empty baseline, so every bucket file reads as Added.
-	writeFile(t, filepath.Join(wikiDir, ".buckets", "research", "baseline"), "")
 
 	// Listed but absent on disk, which is what drift looks like.
 	indexContent := `<wiki-scan root="` + root + `" generated="2026-01-01">
@@ -146,7 +138,7 @@ func TestAPINav_ProductionStalenessPath(t *testing.T) {
 		t.Fatalf("unmarshal: %v; body=%s", err, rr.Body.String())
 	}
 
-	var ghostStale, bucketDiff bool
+	var ghostStale, bucketStale bool
 	for _, g := range got.Groups {
 		if g.Name == "Repos" {
 			for _, it := range g.Items {
@@ -158,7 +150,7 @@ func TestAPINav_ProductionStalenessPath(t *testing.T) {
 		if g.Name == "Buckets" {
 			for _, it := range g.Items {
 				if it.Label == "research" && it.Stale {
-					bucketDiff = true
+					bucketStale = true
 				}
 			}
 		}
@@ -166,12 +158,15 @@ func TestAPINav_ProductionStalenessPath(t *testing.T) {
 	if !ghostStale {
 		t.Errorf("production path: expected stale=true for drifted member 'ghost'; groups=%+v", got.Groups)
 	}
-	if !bucketDiff {
-		t.Errorf("production path: expected stale=true (diff) for bucket 'research'; groups=%+v", got.Groups)
+	// Bucket contents carry no freshness, so a bucket full of files is never
+	// badged.
+	if bucketStale {
+		t.Errorf("production path: bucket 'research' badged stale; groups=%+v", got.Groups)
 	}
 }
 
-// StalenessFn shells out to git, too costly to run on every live-reload refetch.
+// StalenessFn walks the whole realm, too costly to run on every live-reload
+// refetch.
 func TestAPINav_SSETriggeredRequestSkipsStaleness(t *testing.T) {
 	root := buildMinimalWikiRealm(t)
 
@@ -180,9 +175,9 @@ func TestAPINav_SSETriggeredRequestSkipsStaleness(t *testing.T) {
 		RealmRoot:     root,
 		IsRealmScope:  true,
 		WikiIndexPath: filepath.Join(root, "wiki", "index.md"),
-		StalenessFn: func(_, _ string) (map[string]bool, map[string]bool) {
+		StalenessFn: func(_, _ string) map[string]bool {
 			calls++
-			return map[string]bool{}, map[string]bool{}
+			return map[string]bool{}
 		},
 	})
 

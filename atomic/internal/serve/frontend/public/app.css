@@ -175,10 +175,6 @@
     --c-concern-ink:  var(--ramp-plum-dusky-5);
     --c-concern-wash: color-mix(in srgb, var(--c-concern) 12%, var(--paper));
     --c-concern-edge: color-mix(in srgb, var(--c-concern) 34%, var(--paper));
-    --c-knowledge:      var(--ramp-magenta-dusky-2);
-    --c-knowledge-ink:  var(--ramp-magenta-dusky-5);
-    --c-knowledge-wash: color-mix(in srgb, var(--c-knowledge) 12%, var(--paper));
-    --c-knowledge-edge: color-mix(in srgb, var(--c-knowledge) 34%, var(--paper));
     --c-bucket:      var(--ramp-terra-dusky-2);
     --c-bucket-ink:  var(--ramp-terra-dusky-5);
     --c-bucket-wash: color-mix(in srgb, var(--c-bucket) 12%, var(--paper));
@@ -206,6 +202,7 @@
        live dot previously borrowed --c-repo-ink, which is slate, so it read
        blue while the comment beside it claimed green. */
     --conn-live:      #3f8f5f;
+    --alert-ink:      var(--ramp-magenta-dusky-5);
 
     /* Graph surface */
     --graph-bg:       #fdfdfd;
@@ -223,8 +220,6 @@
     /* Badge theme tokens */
     --badge-stale-bg:  var(--amber-wash);
     --badge-stale-ink: var(--amber);
-    --badge-diff-bg:   var(--c-page-wash);
-    --badge-diff-ink:  var(--c-page-ink);
 
     /* Grain accents */
     --grain-a:      rgba(176,125,24,0.025);
@@ -406,10 +401,6 @@
     --c-concern-ink:  var(--ramp-plum-dusky-1);
     --c-concern-wash: color-mix(in srgb, var(--c-concern) 20%, var(--paper-sunk));
     --c-concern-edge: color-mix(in srgb, var(--c-concern) 42%, var(--paper-sunk));
-    --c-knowledge:      var(--ramp-magenta-dusky-2);
-    --c-knowledge-ink:  var(--ramp-magenta-dusky-1);
-    --c-knowledge-wash: color-mix(in srgb, var(--c-knowledge) 20%, var(--paper-sunk));
-    --c-knowledge-edge: color-mix(in srgb, var(--c-knowledge) 42%, var(--paper-sunk));
     --c-bucket:      var(--ramp-terra-dusky-2);
     --c-bucket-ink:  var(--ramp-terra-dusky-1);
     --c-bucket-wash: color-mix(in srgb, var(--c-bucket) 20%, var(--paper-sunk));
@@ -434,6 +425,7 @@
     --cc-other: var(--ramp-gray-2);
 
     --conn-live:      #6fc38c;
+    --alert-ink:      var(--ramp-magenta-dusky-1);
 
     /* Near-black, warm rather than neutral so it still belongs to the amber
        palette (2026-08-16 user feedback). The canvas is the one surface that
@@ -456,8 +448,6 @@
     /* Badge theme tokens */
     --badge-stale-bg:  var(--amber-wash);
     --badge-stale-ink: var(--amber-bright);
-    --badge-diff-bg:   var(--c-page-wash);
-    --badge-diff-ink:  var(--c-page-ink);
 
     --color-bg:           var(--paper);
     --color-surface:      var(--paper-raised);
@@ -711,9 +701,7 @@ a { color: inherit; text-decoration: none; }
 [data-theme="dark"] .theme-toggle .i-moon { display: none; }
 
 /* Live-reload connectivity indicator (dot + label reflecting the /events
-   EventSource's live / reconnecting / disconnected state). Colors reuse the
-   existing repo (green) and knowledge (red) type-identity hues rather than
-   introducing new tokens. */
+   EventSource's live / reconnecting / disconnected state). */
 .conn-indicator {
     display: flex;
     align-items: center;
@@ -741,7 +729,7 @@ a { color: inherit; text-decoration: none; }
     animation: conn-dot-pulse 1.2s ease-in-out infinite;
 }
 
-.conn-indicator[data-conn-state="disconnected"] .conn-dot { background: var(--c-knowledge-ink); }
+.conn-indicator[data-conn-state="disconnected"] .conn-dot { background: var(--alert-ink); }
 
 @keyframes conn-dot-pulse {
     0%, 100% { opacity: 1; }
@@ -899,7 +887,6 @@ details:not([open]) > summary.nav-group::before { content: "▸ "; color: var(--
 
 .nav-dot-repo     { background: var(--c-repo); }
 .nav-dot-concern  { background: var(--c-concern); }
-.nav-dot-knowledge { background: var(--c-knowledge); }
 .nav-dot-page     { background: var(--c-page); }
 .nav-dot-external { background: var(--c-external); }
 
@@ -941,11 +928,6 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
 .badge-stale {
     background: var(--badge-stale-bg);
     color: var(--badge-stale-ink);
-}
-
-.badge-diff {
-    background: var(--badge-diff-bg);
-    color: var(--badge-diff-ink);
 }
 
 /* ── middle column: main pane (no content-header bar) ───────── */
@@ -1198,12 +1180,6 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
     text-transform: capitalize;
 }
 
-.rail-type-chip.type-knowledge {
-    color: var(--c-knowledge-ink);
-    background: var(--c-knowledge-wash);
-    border: 1px solid var(--c-knowledge-edge);
-}
-
 .rail-type-chip.type-repo {
     color: var(--c-repo-ink);
     background: var(--c-repo-wash);
@@ -1321,7 +1297,6 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
     flex-shrink: 0;
 }
 
-.ttag.knowledge { color: var(--c-knowledge-ink); background: var(--c-knowledge-wash); }
 .ttag.repo      { color: var(--c-repo-ink);      background: var(--c-repo-wash); }
 .ttag.concern   { color: var(--c-concern-ink);   background: var(--c-concern-wash); }
 .ttag.page      { color: var(--c-page-ink);      background: var(--c-page-wash); }
@@ -2946,8 +2921,6 @@ ul.dir-listing .dir-entry { margin: 0; }
 }
 
 /* Per-type chip colors reuse the ttag palette vars */
-.cy-pc-chip.knowledge { color: var(--c-knowledge-ink); background: var(--c-knowledge-wash); border: 1px solid var(--c-knowledge-edge); }
-.cy-pc-chip.knowledge::before { background: var(--c-knowledge); }
 .cy-pc-chip.repo      { color: var(--c-repo-ink);      background: var(--c-repo-wash);      border: 1px solid var(--c-repo-edge); }
 .cy-pc-chip.repo::before      { background: var(--c-repo); }
 .cy-pc-chip.concern   { color: var(--c-concern-ink);   background: var(--c-concern-wash);   border: 1px solid var(--c-concern-edge); }
@@ -3100,8 +3073,6 @@ ul.dir-listing .dir-entry { margin: 0; }
 }
 
 /* Per-type modal chip colors */
-.cy-modal-chip.knowledge { color: var(--c-knowledge-ink); background: var(--c-knowledge-wash); border: 1px solid var(--c-knowledge-edge); }
-.cy-modal-chip.knowledge::before { background: var(--c-knowledge); box-shadow: 0 0 0 3px var(--c-knowledge-wash); }
 .cy-modal-chip.repo      { color: var(--c-repo-ink);      background: var(--c-repo-wash);      border: 1px solid var(--c-repo-edge); }
 .cy-modal-chip.repo::before      { background: var(--c-repo);      box-shadow: 0 0 0 3px var(--c-repo-wash); }
 .cy-modal-chip.concern   { color: var(--c-concern-ink);   background: var(--c-concern-wash);   border: 1px solid var(--c-concern-edge); }

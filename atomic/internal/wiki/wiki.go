@@ -154,6 +154,11 @@ func parsePriorEntries(indexPath string) (map[string]priorEntry, error) {
 		return nil, nil
 	}
 
+	return parseBlockMembers(blockContent), nil
+}
+
+// parseBlockMembers is the read counterpart to the <wiki-scan> block writer.
+func parseBlockMembers(blockContent string) map[string]priorEntry {
 	entries := map[string]priorEntry{}
 	for _, line := range strings.Split(blockContent, "\n") {
 		line = strings.TrimSpace(line)
@@ -167,8 +172,7 @@ func parsePriorEntries(indexPath string) (map[string]priorEntry, error) {
 			entries[path] = priorEntry{status: status, summaryAttr: summary}
 		}
 	}
-
-	return entries, nil
+	return entries
 }
 
 // extractBlockContent returns the content between <wiki-scan ...> and
@@ -377,7 +381,7 @@ func discoverSummary(wikiDir, rel string) string {
 	return ""
 }
 
-// scaffold creates wiki/ with repos/, concerns/, .gitignore, README.md and
+// scaffold creates wiki/ with repos/, concerns/, README.md and
 // CLAUDE.md, then git-inits it. Nothing existing is overwritten; index.md
 // content is writeWikiScanBlock's job.
 func scaffold(wikiDir, root string) error {
@@ -391,13 +395,6 @@ func scaffold(wikiDir, root string) error {
 	// index.md at session start.
 	if _, err := InitRealmScope(root); err != nil {
 		return fmt.Errorf("init realm CLAUDE.md: %w", err)
-	}
-
-	gitignorePath := filepath.Join(wikiDir, ".gitignore")
-	if _, err := os.Lstat(gitignorePath); os.IsNotExist(err) {
-		if err := os.WriteFile(gitignorePath, []byte(".dirty\n"), 0o644); err != nil {
-			return fmt.Errorf("write .gitignore: %w", err)
-		}
 	}
 
 	readmePath := filepath.Join(wikiDir, "README.md")

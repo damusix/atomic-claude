@@ -17,8 +17,8 @@
 
 ## Success criteria
 
-- [ ] A single walk produces the realm fingerprint, nav paths, and link graph — no independent per-request nav walk and no startup-frozen link graph remain; the full-view graph JSON and the provenance DAG stay lazily assembled on `/graph/data` demand, unchanged from today.
-- [ ] The tick path, when the fingerprint is unchanged, performs a stat-only walk only — no content reads, no provenance work, no git subprocess calls. On a fingerprint change, a tick rebuilds nav paths and the link graph only; it does not assemble graph JSON or the provenance DAG.
+- [ ] A single walk produces the realm fingerprint, nav paths, and link graph — no independent per-request nav walk and no startup-frozen link graph remain; the full-view graph JSON stays lazily assembled on `/graph/data` demand.
+- [ ] The tick path, when the fingerprint is unchanged, performs a stat-only walk only — no content reads, no git subprocess calls. On a fingerprint change, a tick rebuilds nav paths and the link graph only; it does not assemble graph JSON.
 - [ ] A rebuild still in flight when the next tick fires causes that tick to skip (non-blocking check) rather than queue a second rebuild.
 - [ ] A file whose mtime is within the quiet window (~2s) of now is excluded from the fingerprint manifest; the quiet window and tick interval are constructor parameters, not a user-facing flag.
 - [ ] A file deleted between stat and content read during a rebuild is skipped without error for that rebuild; the deletion is reflected on the following tick.
@@ -194,6 +194,14 @@ atomic/internal/serve/
 **Why:** CP5 was built against the Cytoscape system-graph client (`mountSystemGraph`, `window.__systemCy`). The cosmos engine swap (PR #123) replaced that client wholesale, and the two branches merged after both had shipped — the Cytoscape-specific reconcile had no surviving attachment point. Rebuilding reconcile against cosmos is real new work, tracked by follow-up `cosmos-graph-live-reload-reconcile`.
 
 **Superseded:** CP5's implementation (commit `5c6dbc3`, plus its `systemMountInFlight`/abort-ownership polish in `78d75be`) and success criteria as shipped 2026-07-05; server-side flows (snapshot store, `/events`, page-mode reconcile) are untouched and remain current.
+
+### 2026-10-18 — Removed: provenance DAG from the snapshot criteria
+
+**What changed:** The single-walk and tick-path criteria name the graph JSON only.
+
+**Why:** `atomic serve` no longer builds a provenance DAG, so there is nothing to keep lazy or off the tick path.
+
+**Removed:** the provenance DAG and "provenance work" clauses. See `docs/spec/realm-wiki-drop-refresh.md`.
 
 ## Implementation log
 

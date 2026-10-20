@@ -27,7 +27,7 @@ func bucketTemplate(name string) (string, error) {
 	return string(data), nil
 }
 
-// slugPattern matches knowledge topic naming — see docs/spec/wiki-buckets.md.
+// slugPattern is the bucket-doc slug contract in docs/spec/bucket-doc-management.md.
 var slugPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 func validateSlug(slug string) error {

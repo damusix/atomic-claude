@@ -198,7 +198,6 @@ All of the above delegate to the `signals-gate` partial — the same probe `/com
 1. `command -v atomic` — skip silently if the binary is absent.
 2. `atomic signals stale` — act on the exit code (0 fresh → skip; 1 stale → refresh mandatory; 2 error → report and skip). Content-based, not mtime-based. **Why:** this staleness check also acts as the no-op guard when the implementation loop already refreshed — a fresh stored signals file returns exit 0, so ship-verb dispatch is skipped automatically.
 3. On exit 1, dispatch `atomic-wiki-inferrer` in silent mode, then stage `.claude/project/deterministic-signals.md` + `.claude/project/signals.md`.
-4. `atomic wiki mark-dirty` (best-effort) so a registered wiki's next session nudge fires.
 
 
 **Primary refresh point.** The `signals-gate` probe is the ad-hoc fallback. The implementation loop (`/subagent-implementation`, `/autopilot`) is the primary refresh: it runs once at finalize, scoped to the loop's SHA range via `changed_range`. Full timing contract: [`docs/spec/signals-refresh-timing.md`](./signals-refresh-timing.md).
@@ -380,3 +379,12 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **What changed:** Added a "Post-merge / post-squash integration" section. The spec previously contracted only the `/commit-only` pre-op gate; the post-op defense-in-depth refresh in `/merge-to-main`, `/commit-and-merge`, `/squash-and-merge`, `/squash-only`, and `/commit-and-squash` was implemented in the `merge-flow-steps` / `squash-flow-steps` partials but unspecced. The new section documents the verb set, the shared `signals-gate` probe they delegate to, the separate-follow-up-commit convention (`chore(signals): refresh after merge of <feature>` / `chore(signals): refresh after squash`), and why `/pr-only` is exempt (clean-working-tree precondition means nothing to refresh).
 
 **Why:** The pattern lived in code with no canonical contract, so a contributor editing those verbs had no spec to follow. Documenting it closes the spec gap flagged by follow-up `nits-spec-the-post-merge-f-4`. No behavior changed — this is documentation of the existing implementation.
+
+
+### 2026-10-18 — Removed: `signals-gate` wiki marker step
+
+**What changed:** The `signals-gate` probe ends at staging the refreshed signals files; step 4 is gone.
+
+**Why:** Realm wikis no longer track freshness, so nothing reads a marker set at ship time.
+
+**Removed:** step 4, the best-effort `atomic wiki mark-dirty` call that fed the session-start wiki nudge. See `docs/spec/realm-wiki-drop-refresh.md`.

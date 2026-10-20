@@ -376,8 +376,8 @@ func TestAPINav_RealmScope_StaleBadge(t *testing.T) {
 		RealmRoot:     root,
 		IsRealmScope:  true,
 		WikiIndexPath: filepath.Join(root, "wiki", "index.md"),
-		StalenessFn: func(_, _ string) (map[string]bool, map[string]bool) {
-			return map[string]bool{"alpha": true}, map[string]bool{}
+		StalenessFn: func(_, _ string) map[string]bool {
+			return map[string]bool{"alpha": true}
 		},
 	})
 

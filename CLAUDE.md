@@ -225,7 +225,7 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 | `README.md` | project overview, install, commands, agents, skills | atomic-writing |
 | `docs/guides/install.md` | installation, updating, uninstalling | atomic-writing |
 | `docs/guides/getting-started.md` | first-session quickstart, output style, repo setup, first task, updating | atomic-writing |
-| `docs/guides/knowledge-base.md` | karpathy realm, capture surfaces (research/raw/tickets), fingerprint synthesis to wiki/knowledge | atomic-writing |
+| `docs/guides/knowledge-base.md` | karpathy realm, capture surfaces (research/raw/tickets), per-bucket doc indexes | atomic-writing |
 | `docs/guides/contributing.md` | contributing, build pipeline, testing | atomic-writing |
 | `docs/guides/evaluations.md` | Docker eval environment, testing setup | atomic-writing |
 | `docs/guides/code-intel-mcp.md` | code-intel MCP server setup, .mcp.json, tools | atomic-writing |
@@ -239,7 +239,7 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 | `docs/reference/concepts.md` | how atomic-claude fits together, the atomic binary, code intelligence flow | atomic-writing |
 | `docs/reference/conventions.md` | atomic style scope, CLAUDE.md hygiene, commit bylines, scratchpad/tmp rules, worktree auto-detect | atomic-writing |
 | `docs/reference/serve.md` | `atomic serve` usage, scope resolution, browsing wiki + code graph locally | atomic-writing |
-| `docs/reference/realm-wiki.md` | realm-scope wiki: setup, repo states, registry, staleness, capture buckets | atomic-writing |
+| `docs/reference/realm-wiki.md` | realm-scope wiki: setup, repo states, registry, membership drift, capture buckets | atomic-writing |
 | `docs/reference/bus.md` | `atomic bus` room model, addressed vs FYI, envelope, daemon lifecycle, exit codes, operator verbs | atomic-writing |
 | `docs/reference/repl.md` | `atomic repl` persistent interpreter sessions, scope model, six verbs, exit codes, idle_timeout config | atomic-writing |
 | `docs/reference/retro.md` | `atomic retro extract`: flags, defaults, output shape, file:line convention, dropped rows, exit codes | atomic-writing |

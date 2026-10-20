@@ -36,9 +36,8 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 - **`steering:`** block — contents of `docs/wiki/CLAUDE.md`, if it exists. Treat as ground truth — steering wins over inference.
 - **`first_run: true`** — no prior signals exist; equivalent to `scope: full`. Run full pipeline, not incremental.
 - **`scope: incremental|full`** — pre-computed refresh scope from the caller. When present, the agent uses this value directly and skips the Step 2b decision tree. `scope: full` forces complete re-infer of all domains. `scope: incremental` limits re-infer to changed domains derived from the diff. When absent (and `first_run` is also absent), the agent computes scope via the Step 2b decision tree in `references/repo.md` — full when no prior `docs/wiki/index.md`, when the `<scan-sha>` tiebreaker fires (committed scan.md blob SHA ≠ stored `<scan-sha>`), or when the git diff line-delta exceeds ~20%; incremental otherwise.
-- **`changed_range: <from-sha>..<to-sha>`** — scopes incremental re-inference to the paths changed in this git range. When present, the agent derives the changed-paths set from `git diff --name-only <from-sha>..<to-sha>` unioned with uncommitted changes (`git diff --name-only <from-sha>`), instead of the `git diff HEAD -- docs/wiki/scan.md` scan diff. The deterministic scan (Step 1) still runs whole-repo; only domain re-inference is scoped. Absent → changed-paths set comes from the scan diff (Step 2b). Ignored in wiki-output and bucket-synthesis modes.
+- **`changed_range: <from-sha>..<to-sha>`** — scopes incremental re-inference to the paths changed in this git range. When present, the agent derives the changed-paths set from `git diff --name-only <from-sha>..<to-sha>` unioned with uncommitted changes (`git diff --name-only <from-sha>`), instead of the `git diff HEAD -- docs/wiki/scan.md` scan diff. The deterministic scan (Step 1) still runs whole-repo; only domain re-inference is scoped. Absent → changed-paths set comes from the scan diff (Step 2b). Ignored in wiki-output mode.
 - **`target_repo: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates wiki-output mode (realm scope). Both must be present together. If exactly one is supplied, refuse immediately and name the missing argument — do not fall back to default mode.
-- **`bucket_name: <name>`** + **`bucket_path: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates bucket-synthesis mode (realm scope). All three must be present together. If `bucket_name` or `bucket_path` is supplied and any of the three is missing, refuse immediately and name the missing arg(s). `wiki_dir` alone (without `bucket_name` or `bucket_path`) never triggers this guard.
 
 
 <workflow>
@@ -49,7 +48,7 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 
 Determine scope from dispatch args first (most reliable signal):
 
-- **Realm scope** — any of these is present: `bucket_name`, `bucket_path`, or (`target_repo` AND `wiki_dir`). Load `~/.claude/skills/atomic-wiki/references/realm.md`.
+- **Realm scope** — `target_repo` or `wiki_dir` is present. Load `~/.claude/skills/atomic-wiki/references/realm.md`.
 - **Repo scope** — none of the above realm args are present. Load `~/.claude/skills/atomic-wiki/references/repo.md`.
 
 If scope is ambiguous (no dispatch args, fresh repo), check:
@@ -78,7 +77,7 @@ Read /Users/alice/.claude/skills/atomic-wiki/references/realm.md  ← realm scop
 Follow the pipeline defined in the reference file exactly. The reference is the authoritative workflow:
 
 - **Repo scope** — execute Steps 1-9 (scan → infer → write `docs/wiki/` files → wire `@-ref`). Scope is determined at Step 2b: full when no prior `docs/wiki/index.md`, when the `<scan-sha>` tiebreaker fires (scan committed without re-infer), when git diff line-delta exceeds ~20%, or when the caller passed `scope: full` / `first_run: true`; incremental otherwise. Sub-dispatch domain writers (`general-purpose`) and reviewer (`atomic-reviewer`) as described in the reference.
-- **Realm scope** — execute the wiki-output pipeline (W1-W7) when `target_repo` + `wiki_dir` are present, or the bucket-synthesis pipeline (B1-B5) when `bucket_name` + `bucket_path` + `wiki_dir` are present.
+- **Realm scope** — execute the wiki-output pipeline (W1-W7).
 
 </workflow>
 

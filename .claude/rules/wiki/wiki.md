@@ -8,11 +8,12 @@ paths:
   - "context/skills/atomic-wiki/references/realm.md"
 ---
 
-Domain: wiki. Cross-repo knowledge layer: scan, classify, synthesize, capture buckets.
+Domain: wiki. Cross-repo wiki: scan, classify, re-author picked pages, capture buckets.
 
 Map:
   - docs/wiki/wiki.md
 Contracts:
+  - docs/spec/realm-wiki-drop-refresh.md
   - docs/spec/wiki-buckets.md
   - docs/spec/wiki.md
 References:
