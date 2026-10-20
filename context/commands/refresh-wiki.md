@@ -209,7 +209,7 @@ Parse the stdout handoff:
 
 Record the member list (path, status) for use in Step 7.
 
-`atomic wiki scan` also rebuilds the two bucket-doc index levels as part of this pass — the `<bucket-docs>` region in each registered bucket's `index.md`, and the `<wiki-bucket-list>` region in `wiki/index.md`. No separate call is needed here.
+`atomic wiki scan` also rebuilds the `<bucket-docs>` region in every folder of each registered bucket, plus the `<wiki-bucket-list>` region in `wiki/index.md`. No separate call is needed here.
 
 If `atomic wiki scan` exits non-zero, stop and surface the error verbatim. The most common cause is a `wiki/` directory with a missing or malformed `index.md` — the error message names the path.
 
@@ -228,11 +228,11 @@ If the block is **absent**: present the following offer to the user:
 ```
 This wiki has no capture buckets registered yet.
 
-Buckets are named capture folders at the realm root (e.g. research/, raw/, tickets/).
-The wiki indexes their docs: each folder's index.md lists what it holds.
+Buckets are named capture folders at the realm root (e.g. research/, notes/, tickets/).
+The wiki indexes their docs: every folder's index.md lists what it holds.
 
 Would you like to create any capture buckets now?
-Enter bucket names (space-separated, e.g. "research raw tickets"), or press Enter to skip:
+Enter bucket names (space-separated, e.g. "research notes tickets"), or press Enter to skip:
 ```
 
 **On named input** (user supplies one or more names):
@@ -243,7 +243,7 @@ For each bucket name, run:
 atomic wiki bucket add --root <resolved-root> <name>
 ```
 
-`bucket add` creates the bucket folder and its `index.md` stub, registers a `<bucket name="<name>" path="<abs-path>"/>` entry in the `<wiki-buckets>` block in `wiki/index.md`, and writes the `## Capture surfaces` section (with `<!-- describe what this bucket is for -->` placeholder) to the realm `CLAUDE.md`.
+`bucket add` creates the bucket folder and its `index.md` stub, registers a `<bucket name="<name>" path="<abs-path>"/>` entry in the `<wiki-buckets>` block in `wiki/index.md`, and writes the `## Capture surfaces` section (with `<!-- describe what this bucket is for -->` placeholder) to the realm `CLAUDE.md`. It then rebuilds the bucket's indexes, so every folder the walk reaches in an existing bucket folder gains an `index.md`.
 
 **On blank/skip input** (user presses Enter or types nothing): record the decline by writing a `<wiki-buckets declined="true"></wiki-buckets>` block into `wiki/index.md`. Use an Edit to insert the block after the last line of content (or append if file ends without a trailing newline). This prevents the offer from re-firing on future runs.
 

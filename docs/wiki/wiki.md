@@ -107,11 +107,11 @@ A version and a documented contract value are the only carve-out. This repo's [`
 | `stale` | `--root` | Read-only membership-drift report: `DRIFT added\|removed\|status` lines. Exit 0 no drift, 1 drift, 2 hard error. |
 | `init` | `--scope repo\|realm`, `--root` | `repo` writes the fixed-content steering file [`docs/wiki/CLAUDE.md`](CLAUDE.md); `realm` writes `wiki/CLAUDE.md` holding only the `@index.md` self-reference. Both also write the `scope` marker in [`.claude/atomic.toml`](../../.claude/atomic.toml). An existing file is left as is. |
 | `linkify` | `--root` | Rewrite path citations under `wiki/` as relative markdown links. Idempotent; never touches fenced code. |
-| `bucket add <name>` | `--root` | Register a bucket: folder, `index.md` stub, `<wiki-buckets>` registry entry, capture-surfaces bullet in `<root>/CLAUDE.md`. Refuses a name already in the registry. |
+| `bucket add <name>` | `--root` | Register a bucket: folder, `index.md` stub, `<wiki-buckets>` registry entry, capture-surfaces bullet in `<root>/CLAUDE.md`, then a `RebuildBucketTree` pass. Refuses a name already in the registry. |
 | `bucket list` | `--root` | One `<name>\t<path>` line per registered bucket. Exit 0 even when none are registered. |
-| `bucket doc <bucket> <slug>` | `--root`, `--router` | Scaffold `<bucket>/<slug>.md` from the embedded template. Refuses a collision. |
+| `bucket doc <bucket> <slug>` | `--root` | Scaffold the item folder `<bucket>/<slug>/index.md` plus its `<slug>/01_raw/index.md` stage, print the `<slug>/index.md` path, then rebuild the bucket's indexes. Refuses an existing `<slug>` path. |
 | `bucket skill <bucket>` | `--root` | Scaffold `<realm>/.claude/skills/<bucket>-management/SKILL.md`. No-op if present. |
-| `bucket index [<bucket>]` | `--root` | Force a rebuild of the `<bucket-docs>` and `<wiki-bucket-list>` index regions outside a scan, printing `<name>: N indexed, M unindexed` per bucket. |
+| `bucket index [<bucket>]` | `--root` | Force a rebuild of the `<bucket-docs>` region in every directory of one bucket (or every registered bucket) and the `<wiki-bucket-list>` region outside a scan, printing `<name>: N indexed, M unindexed` per bucket, summed over the whole tree. |
 
 ### Member classification
 
@@ -154,12 +154,23 @@ A bucket is a user-named capture folder at the realm root, beside `wiki/`. It ha
 2. The bucket folder and its `index.md` stub (`createBucketIndexStub`) are created.
 3. `spliceBucketEntry` adds `<bucket name="…" path="…"/>` to the registry.
 4. `writeCaptureSurfacesSection` adds the bucket's bullet under `## Capture surfaces` in the realm [`CLAUDE.md`](../../CLAUDE.md).
+5. `RebuildBucketTree` fills the new folder's `<bucket-docs>` region.
 
-`atomic wiki scan` and `atomic wiki bucket index` rebuild each registered bucket's `<bucket-docs>` region, then the realm `<wiki-bucket-list>` region. Buckets get no inference pass.
+`atomic wiki scan` and an all-bucket `atomic wiki bucket index` rebuild every directory of each registered bucket through `RebuildAllBucketIndexes`, then the realm `<wiki-bucket-list>` region. A named `atomic wiki bucket index <bucket>` runs `RebuildBucketTree` on that bucket alone, then `rebuildRealmBucketList`. Buckets get no inference pass.
+
+An item is a folder, not a file. `atomic wiki bucket doc` (`ScaffoldBucketDoc`) writes two files from the embedded templates, and later stages are numbered folders the user adds (`02_findings/`, `10_publish/`):
+
+    <bucket>/
+      <slug>/
+        index.md          bucket-doc.md: frontmatter keys below, created stamped
+        01_raw/
+          index.md        bucket-stage.md: title Raw, created stamped
+
+`ScaffoldBucketDoc` creates `<slug>/` with `os.Mkdir`, so an existing path aborts before any write, and on a later failure it removes the folder it made, so a retry does not refuse a half-built item.
 
 ### Bucket-doc frontmatter
 
-`<bucket>/<slug>.md` is one topic per file. The recognized keys:
+Every listed `.md` file and every folder's `index.md` (an item's `<slug>/index.md` included) is read for the same keys:
 
 | Key | Writer | Fallback when absent |
 |-----|--------|----------------------|
@@ -170,9 +181,34 @@ A bucket is a user-named capture folder at the realm root, beside `wiki/`. It ha
 | `status` | author | none; free-form |
 | `created` | code | stamped by `atomic wiki bucket doc` at scaffold time |
 
-Every key is optional. A doc carrying none of them is still listed, under an `### Unindexed` heading, rather than dropped.
+Every key is optional. A doc or folder carrying none of them is still listed, under an `### Unindexed` heading, rather than dropped. `deriveTitle` takes the frontmatter `title`, then the first H1 outside a fence, then the directory name for a folder whose `index.md` is absent or carries neither.
 
-The topic walk (`walkBucketTopics`) covers the bucket root plus one directory level, and skips `.DS_Store`, `Thumbs.db`, the bucket-root `index.md`, and any directory in `skipDirs`. A directory beside a matching `<slug>.md` collapses into that entry as a **router**; a directory with no sibling file lists as an **orphan** subtree.
+### Bucket tree index
+
+Each directory's `index.md` is rebuilt before any of its subdirectories is visited, and a region that renders unchanged is not written, so a rebuild over an unchanged bucket writes no file.
+
+```mermaid
+flowchart TD
+    %% source: atomic/internal/wiki/bucketindex.go, atomic/internal/wiki/action.go, atomic/internal/wiki/wiki.go, atomic/internal/wiki/registry.go, docs/spec/bucket-icm-structure.md
+    ALL["RebuildAllBucketIndexes<br/>Scan, all-bucket<br/>wikiBucketIndexAction"] --> RBT["RebuildBucketTree"]
+    ONE["wikiBucketAddAction<br/>wikiBucketDocAction<br/>wikiBucketIndexAction"] -->|"named bucket"| RBT
+    RBT --> WDC["walkDirChildren(dir)<br/>sorted by childLess"]
+    WDC --> IOD["indexOneDir<br/>spliceManagedRegion"]
+    IOD --> CH{"bucket-docs<br/>region changed?"}
+    CH -->|"yes"| WFA["writeFileAtomic<br/>dir/index.md"]
+    CH -->|"no: no write"| SUB{"child with<br/>Dir set?"}
+    WFA --> SUB
+    SUB -->|"yes, per child"| WDC
+    RBT -.->|"returned once,<br/>after the walk"| SUM["summed TopicCounts<br/>plus per-dir errors"]
+```
+
+`walkDirChildren` lists a directory's direct children: each `.md` file other than `index.md`, and each subdirectory not in `skipDirs`. Dot-prefixed names of either kind are skipped, and their subtrees are never walked. A subdirectory entry reads its metadata from its own `index.md` and links to `<name>/index.md`. A `<slug>.md` beside a `<slug>/` lists as two separate entries.
+
+`childLess` puts names with a leading digit run first, ordered by that number's value (`9_x` before `10_x`, compared as digit strings so a prefix past int64 still orders), ties broken by full name; names without a prefix follow in byte order. `indexOneDir` creates `index.md` holding only the region when none exists.
+
+A directory that fails to list, read, splice, or write adds one error; a directory that cannot be listed is not descended into, and the walk continues with its siblings. `reportTreeErrors` prints each one; `bucket doc`, `bucket add`, and a named `bucket index` exit 1 on any error other than `errUnpairedRegion`, while `scan` and an all-bucket `bucket index` only report.
+
+`IndexDir` is a different walk, kept for `atomic docs index`: `walkBucketTopics` lists one directory, collapsing a subdirectory beside a matching `<slug>.md` into that entry as a **router** and listing a subdirectory with no sibling file as an **orphan** subtree. Neither rule applies inside a bucket.
 
 ### Managed regions
 
@@ -210,7 +246,7 @@ XML-tag regions (`<tag>…</tag>`) delimit every code-generated splice in a wiki
 | [`context/agents/atomic-wiki-writer.md`](../../context/agents/atomic-wiki-writer.md) | The page author, one dispatch per domain. Declares `skills: [atomic-writing]`, so the page contract loads as context instead of arriving as a request, and holds no `Agent` tool, so it cannot fan out. Redraws every current-architecture diagram from the domain's `<design_docs>` list into the page, checked against source, as its own workflow step ("Redraw the design diagrams") ahead of the concerns step. Composes the `agent-atomic-voice` and `agent-code-intel` partials from [`context/_partials/`](../../context/_partials), expanded by `make bundle`. |
 | [`context/skills/atomic-wiki/SKILL.md`](../../context/skills/atomic-wiki/SKILL.md) | Conversational entry point: realm resolution, bucket creation, bucket-doc authoring, membership-drift queries. No command invokes it. |
 | [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md) | Repo-scope pipeline (Steps 1-9): the domain-page shape, the reviewer checklist, the incremental-vs-full scope rule, the router shape, and (Step 3) the per-domain assignment of `docs/design/*.md` files passed to Step 4's writer dispatch as `<design_docs>`. |
-| [`context/skills/atomic-wiki/references/realm.md`](../../context/skills/atomic-wiki/references/realm.md) | Realm-scope wiki-output pipeline (W1-W7), the bucket-doc frontmatter contract and two-level index, and (W3/W4) the same design-doc-to-domain assignment and writer redraw responsibility for `target_repo`'s design docs. |
+| [`context/skills/atomic-wiki/references/realm.md`](../../context/skills/atomic-wiki/references/realm.md) | Realm-scope wiki-output pipeline (W1-W7), the bucket-doc frontmatter contract and the per-folder `index.md` listing, and (W3/W4) the same design-doc-to-domain assignment and writer redraw responsibility for `target_repo`'s design docs. |
 
 ### Package files
 
@@ -221,11 +257,11 @@ XML-tag regions (`<tag>…</tag>`) delimit every code-generated splice in a wiki
 | [`atomic/internal/wiki/scan_members.go`](../../atomic/internal/wiki/scan_members.go) | `ReadScanMembers`: lists members from the `<wiki-scan>` block without a filesystem walk. |
 | [`atomic/internal/wiki/bucket.go`](../../atomic/internal/wiki/bucket.go) | `validateBucketName` and `RegisterBucket`, the registry-backed duplicate check. |
 | [`atomic/internal/wiki/bucket_registry.go`](../../atomic/internal/wiki/bucket_registry.go) | `<wiki-buckets>` registry splice and read (`readBucketEntries`, exported `ReadBucketEntries`), `## Capture surfaces` section in `<root>/CLAUDE.md`, and `createBucketIndexStub`. |
-| [`atomic/internal/wiki/bucketindex.go`](../../atomic/internal/wiki/bucketindex.go) | Topic-granularity walk plus the `<bucket-docs>` and `<wiki-bucket-list>` region renderers. `IndexDir` rebuilds one directory's `<bucket-docs>` region, or with `check` reports without writing. `RebuildAllBucketIndexes` joins per-bucket failures rather than stopping. |
-| [`atomic/internal/wiki/bucketdoc.go`](../../atomic/internal/wiki/bucketdoc.go) | `ScaffoldBucketDoc` / `ScaffoldBucketSkill`, backed by `//go:embed templates/*.md`. |
-| [`atomic/internal/wiki/templates/`](../../atomic/internal/wiki/templates) | Scaffold templates (`bucket-doc.md`, `bucket-router-claude.md`, `bucket-skill.md`) with `{{TOKEN}}` placeholders. |
+| [`atomic/internal/wiki/bucketindex.go`](../../atomic/internal/wiki/bucketindex.go) | The `<bucket-docs>` and `<wiki-bucket-list>` region renderers. `RebuildBucketTree` (`walkDirChildren`, `childLess`) indexes every directory of a bucket; `RebuildAllBucketIndexes` runs it per registered bucket and returns counts by name plus every error. `IndexDir` (`walkBucketTopics`) is the one-level router/orphan listing for `atomic docs index`, or with `check` reports without writing. |
+| [`atomic/internal/wiki/bucketdoc.go`](../../atomic/internal/wiki/bucketdoc.go) | `ScaffoldBucketDoc` (item folder plus `01_raw/` stage) / `ScaffoldBucketSkill`, and `validateSlug`, backed by `//go:embed templates/*.md`. |
+| [`atomic/internal/wiki/templates/`](../../atomic/internal/wiki/templates) | Scaffold templates (`bucket-doc.md`, `bucket-stage.md`, `bucket-skill.md`) with `{{TOKEN}}` placeholders. |
 | [`atomic/internal/wiki/managedregion.go`](../../atomic/internal/wiki/managedregion.go) | The XML-tag region primitive behind the `wiki-member-list`, `<wiki-bucket-list>`, and `<bucket-docs>` splices. |
-| [`atomic/internal/wiki/registry.go`](../../atomic/internal/wiki/registry.go) | `RegisterWiki` writes the realm index path into the `<wikis>` block of `~/.claude/CLAUDE.md`; `PrintHandoff` renders the scan stdout contract. |
+| [`atomic/internal/wiki/registry.go`](../../atomic/internal/wiki/registry.go) | `RegisterWiki` writes the realm index path into the `<wikis>` block of `~/.claude/CLAUDE.md`; `PrintHandoff` renders the scan stdout contract. Also holds `writeFileAtomic`, the temp-file-and-rename writer behind the region splices and the bucket scaffolds. |
 | [`atomic/internal/wiki/staleness.go`](../../atomic/internal/wiki/staleness.go) | `ReadWikiIndexPaths`: reads the `<wikis>` block, matching whole-line tags only. |
 | [`atomic/internal/wiki/linkify.go`](../../atomic/internal/wiki/linkify.go) | `LinkifyWiki`. Base resolution: `repos/**` uses each summary's `repo:` frontmatter, `concerns/*.md` and `index.md` use the realm root. |
 | [`atomic/internal/wiki/init.go`](../../atomic/internal/wiki/init.go) | The steering scaffolds written by `wiki init`. |
@@ -239,14 +275,15 @@ XML-tag regions (`<tag>…</tag>`) delimit every code-generated splice in a wiki
 | [`docs/spec/wiki.md`](../spec/wiki.md) | Core contract: `scan`, `linkify`, `stale`, `signals scan --out`, and `/refresh-wiki` success criteria, classification rules, `<wiki-scan>` block format, `<wikis>` registry. |
 | [`docs/spec/realm-wiki-drop-refresh.md`](../spec/realm-wiki-drop-refresh.md) | The removal of realm freshness tracking and bucket synthesis, and the pick-list realm `/refresh-wiki` flow. |
 | [`docs/spec/wiki-buckets.md`](../spec/wiki-buckets.md) | Bucket contract: `add`/`list`, `<wiki-buckets>` format, capture surfaces, the one-time `/refresh-wiki` bucket offer. |
-| [`docs/spec/bucket-doc-management.md`](../spec/bucket-doc-management.md) | Child of `wiki-buckets`. Frontmatter contract, the topic walk, both managed regions, the `doc`/`skill`/`index` verbs. |
+| [`docs/spec/bucket-doc-management.md`](../spec/bucket-doc-management.md) | Child of `wiki-buckets`. Frontmatter contract, both managed regions, the `doc`/`skill`/`index` verbs. |
+| [`docs/spec/bucket-icm-structure.md`](../spec/bucket-icm-structure.md) | The bucket folder tree: an `index.md` in every directory, numeric-prefix ordering, item folders with `01_raw/`, removal of `--router`. |
 | [`docs/spec/wiki-bucket-arg-hardening.md`](../spec/wiki-bucket-arg-hardening.md) | Help probes must never mutate state; bucket names must be safe path segments. |
 | [`docs/spec/wiki-storage-relocation.md`](../spec/wiki-storage-relocation.md) | The [`docs/wiki/`](.) layout, OKF frontmatter, and the `<wiki-type>`/`<scan-sha>`/`<wiki-schema>` control blocks. |
 | [`docs/spec/wiki-drift-scope.md`](../spec/wiki-drift-scope.md) | How a repo-scope refresh chooses incremental versus full re-infer. |
 | [`docs/spec/wiki-deterministic-setup.md`](../spec/wiki-deterministic-setup.md) | The `atomic wiki init` verb. |
 | [`docs/spec/signals-wiki-linkify.md`](../spec/signals-wiki-linkify.md) | The linkify contract shared by `signals linkify` and `wiki linkify`. |
 | [`docs/spec/wiki-durable-facts.md`](../spec/wiki-durable-facts.md) | The no-counts ban and where each pipeline enforces it. |
-| [`docs/design/wiki.md`](../design/wiki.md), [`docs/design/wiki-buckets.md`](../design/wiki-buckets.md), [`docs/design/bucket-doc-management.md`](../design/bucket-doc-management.md), [`docs/design/signals-wiki-unification.md`](../design/signals-wiki-unification.md), [`docs/design/wiki-durable-facts.md`](../design/wiki-durable-facts.md) | Rationale and rejected alternatives behind the specs above. |
+| [`docs/design/wiki.md`](../design/wiki.md), [`docs/design/wiki-buckets.md`](../design/wiki-buckets.md), [`docs/design/bucket-doc-management.md`](../design/bucket-doc-management.md), [`docs/design/signals-wiki-unification.md`](../design/signals-wiki-unification.md), [`docs/design/wiki-durable-facts.md`](../design/wiki-durable-facts.md) | Rationale and rejected alternatives behind the specs above. The per-topic router walk in [`docs/design/bucket-doc-management.md`](../design/bucket-doc-management.md) is superseded by [`docs/spec/bucket-icm-structure.md`](../spec/bucket-icm-structure.md). |
 | [`docs/reference/realm-wiki.md`](../reference/realm-wiki.md) | User-facing guide: realm mental model, disk layout, repo states, membership drift, re-authoring summaries and concerns, the inert leftovers on an upgraded realm, bucket authoring, bucket-name rules. |
 | [`docs/guides/knowledge-base.md`](../guides/knowledge-base.md) | The realm layout, capture surfaces, and how a session finds material. |
 | [`docs/reference/concepts.md`](../reference/concepts.md) | `## Wikis` section: repo versus realm scope and the realm verbs. |
@@ -263,11 +300,13 @@ XML-tag regions (`<tag>…</tag>`) delimit every code-generated splice in a wiki
 
 **Bucket names must be safe single path segments:** not empty or whitespace, not `-`-prefixed, no `/` or `\`, not `.` or `..`, and not the reserved `wiki`. `validateBucketName` is the register-time backstop for programmatic callers; the CLI scanner rejects dash tokens first.
 
-**Bucket-doc slugs must match `[a-z0-9-]+`** and `ScaffoldBucketDoc` fails hard on a mismatch.
+**Bucket-doc slugs must match `[a-z0-9-]+` and must not name a `skipDirs` folder** (`build`, `dist`, `target`, `tmp`, `vendor`); `validateSlug` fails hard on either, since the tree walk would never index such an item.
+
+**`writeFileAtomic` keeps an existing file's permission bits** and gives a new file `0644`, so a region rebuild never resets the mode of a user's `index.md`.
 
 **`resolveWikiRoot` is the single arg scanner behind every `bucket` verb.** It accepts `--root` in any position, recognizes `-h`/`-help`/`--help` anywhere and returns a sentinel that makes the verb print usage and exit 0 with no filesystem write, and rejects any other dash-prefixed token rather than letting it become a positional. `scan`, `stale`, `linkify`, and `init` use a plain `flag.FlagSet` and do not share this behavior.
 
-**`ScaffoldBucketDoc` refuses a collision; `ScaffoldBucketSkill` treats one as a silent no-op.** A doc-slug collision usually means a naming mistake worth surfacing; re-running the skill scaffold on a realm that already has it is the expected outcome.
+**`ScaffoldBucketDoc` refuses an existing `<slug>` path; `ScaffoldBucketSkill` treats an existing file as a silent no-op.** A doc-slug collision usually means a naming mistake worth surfacing; re-running the skill scaffold on a realm that already has it is the expected outcome.
 
 **Realm scope has no `<wiki-type>` sentinel.** `atomic-wiki-inferrer` and `/refresh-wiki` Step 0 both name `<wiki-type>realm</wiki-type>` in `wiki/index.md` as a realm signal, but no code path writes that block. Repo scope gets `<wiki-type>repo</wiki-type>` in [`docs/wiki/index.md`](index.md) from [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md) Step 7, and from [`atomic/internal/migrate/`](../../atomic/internal/migrate) on upgrade. In practice realm scope is reached through Step 0's other tests: a supplied `[root]`, or a `wiki/` directory at a cwd outside any git repo. The inferrer itself picks realm scope from the `target_repo`/`wiki_dir` dispatch args.
 
@@ -278,7 +317,7 @@ XML-tag regions (`<tag>…</tag>`) delimit every code-generated splice in a wiki
 
 
 - **signals domain** owns the entire repo-scope implementation. `atomic signals scan --out <dir>` is a direct dependency of realm wiki-output mode: the inferrer redirects the scan so it never writes into the member repo. A change to that flag or to `scan.md`'s format breaks member summarization. `atomic signals linkify` handles [`docs/wiki/`](.); `atomic wiki linkify` handles `wiki/`. Neither covers the other's tree.
-- **docs-meta domain** owns the page shape both pipeline references encode. The domain-page order in [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md) and the realm summary shape in [`context/skills/atomic-wiki/references/realm.md`](../../context/skills/atomic-wiki/references/realm.md) are the `atomic-writing` skill's `## Structure before sentences` order applied to each. Change one without the other and the contract forks. The same domain owns `~/.claude/skills/atomic-writing/references/mermaid.md`, which both the writer (validating a redrawn design diagram) and the reviewer (checking every Mermaid block on the page) apply, and rule 17, the no-counts ban both reviewers enforce. `atomic docs index` in [`atomic/cmd/atomic/cmd_docs.go`](../../atomic/cmd/atomic/cmd_docs.go) calls `wiki.IndexDir` to build a `<bucket-docs>` region in each directory it is given.
+- **docs-meta domain** owns the page shape both pipeline references encode. The domain-page order in [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md) and the realm summary shape in [`context/skills/atomic-wiki/references/realm.md`](../../context/skills/atomic-wiki/references/realm.md) are the `atomic-writing` skill's `## Structure before sentences` order applied to each. Change one without the other and the contract forks. The same domain owns `~/.claude/skills/atomic-writing/references/mermaid.md`, which both the writer (validating a redrawn design diagram) and the reviewer (checking every Mermaid block on the page) apply, and rule 17, the no-counts ban both reviewers enforce. `atomic docs index` in [`atomic/cmd/atomic/cmd_docs.go`](../../atomic/cmd/atomic/cmd_docs.go) calls `wiki.IndexDir` to build a `<bucket-docs>` region in each directory it is given, one level deep with the router and orphan rules; it shares `indexOneDir` and `writeFileAtomic` with the bucket tree walk.
 - **Design-doc ownership is decided per file, at partition time.** `repo.md` Step 3 assigns each `docs/design/*.md` file to a domain (its `domain:` frontmatter, or the domain whose paths it describes) and hands that list to the domain's writer dispatch as `<design_docs>`; `realm.md` W3/W4 do the same for a member repo's design docs. A design doc's owning domain is therefore whatever that assignment produces, not fixed by directory location, and can differ from the domain that happens to read this page.
 - **config domain** owns `~/.claude/CLAUDE.md` and [`.claude/atomic.toml`](../../.claude/atomic.toml). `RegisterWiki` writes the `<wikis>` block there and `ReadWikiIndexPaths` reads it, and `atomic claude install` writes the same file — the `claude-merge` cold-op brief preserves `<wikis>` verbatim for that reason. `wikiInitAction` and `wikiScanAction` call `config.EnsureScopeMarker`; under `init` a root already marked with the other scope exits 1 without touching either file, and under `scan` it only warns. `atomic where` and `repoctx` prefer that marker over this domain's `<wikis>` registry.
 - **workflow domain** owns the ship verbs. No ship verb touches a realm wiki. `/refresh-wiki` Step 10 commits the wiki through the `atomic-git-discipline` skill.

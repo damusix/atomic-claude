@@ -137,7 +137,7 @@ Buckets get no inference pass. Code builds their indexes from each doc's frontma
 
 ### Bucket-doc frontmatter contract
 
-Bucket docs (`<bucket>/<slug>.md`, one topic per file) carry the recognized keys below:
+Bucket docs (any `.md` file in a bucket, including each folder's `index.md`) carry the recognized keys below:
 
 | Key | Writer | Notes |
 |-----|--------|-------|
@@ -150,11 +150,11 @@ Bucket docs (`<bucket>/<slug>.md`, one topic per file) carry the recognized keys
 
 Every key is optional at index time — a doc with no frontmatter at all still indexes, under an `### Unindexed` heading.
 
-### Two-level index (code-generated, read-only)
+### Per-folder indexes (code-generated, read-only)
 
-`atomic wiki scan` and `atomic wiki bucket index` maintain two managed regions from this frontmatter — never write to them:
+`atomic wiki scan` and `atomic wiki bucket index` maintain these managed regions from this frontmatter. Never write to them:
 
-- `<bucket>/index.md` — a `<bucket-docs>` region listing every topic in the bucket (title, description, tags, router/unindexed flags).
+- `<folder>/index.md`, in every folder of a bucket: a `<bucket-docs>` region listing that folder's direct `.md` files and subfolders (title, description, tags, unindexed flag). A subfolder entry links to its own `index.md`. Numbered stage folders (`01_raw`, `02_findings`) list in numeric order.
 - `wiki/index.md` — a `<wiki-bucket-list>` region listing every registered bucket with its description.
 
 Both regions are spliced idempotently by code; the inferrer never authors them.

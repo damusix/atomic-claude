@@ -42,6 +42,49 @@ func writeBucketCLIFile(t *testing.T, path, content string) {
 	}
 }
 
+// writeUnreadableAndUnpairedDirs puts an unreadable directory beside one whose
+// index.md has an unpaired <bucket-docs>: a hard error next to a warning.
+func writeUnreadableAndUnpairedDirs(t *testing.T, bucketDir string) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits don't block reads")
+	}
+	writeBucketCLIFile(t, filepath.Join(bucketDir, "broken", "index.md"), "<bucket-docs>\n\nno close tag\n")
+	locked := filepath.Join(bucketDir, "locked")
+	writeBucketCLIFile(t, filepath.Join(locked, "a.md"), "x\n")
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+}
+
+func TestBucketAdd_HardErrorBesideUnpairedRegionExitsNonzero(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
+	writeUnreadableAndUnpairedDirs(t, filepath.Join(root, "notes"))
+
+	var out bytes.Buffer
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, t.TempDir(), root, &out); code != 1 {
+		t.Errorf("an unpaired region must not mask an unreadable directory: exit %d, want 1", code)
+	}
+}
+
+// A malformed region in the user's own index.md is theirs to fix; it must not
+// fail the registration.
+func TestBucketAdd_UnpairedRegionAloneExitsZero(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
+	writeBucketCLIFile(t, filepath.Join(root, "notes", "broken", "index.md"), "<bucket-docs>\n\nno close tag\n")
+
+	var out bytes.Buffer
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, t.TempDir(), root, &out); code != 0 {
+		t.Errorf("unpaired region alone: exit %d, want 0", code)
+	}
+	if _, err := os.Stat(filepath.Join(root, "notes", "index.md")); err != nil {
+		t.Errorf("bucket root index.md not written: %v", err)
+	}
+}
+
 // `bucket add -h` once created a bucket named "-h"; a help probe must leave
 // every site a real add writes untouched.
 func TestBucketAdd_HelpProbeLeavesAllMutationSitesUntouched(t *testing.T) {
@@ -224,8 +267,9 @@ func TestCaptureSurfacesSection_CreatesFileWhenAbsent(t *testing.T) {
 	if !strings.Contains(content, "## Capture surfaces") {
 		t.Error("expected ## Capture surfaces section")
 	}
-	if !strings.Contains(content, "research") {
-		t.Error("expected bucket path in section")
+	// Sessions enter a bucket at its index.md (docs/spec/bucket-icm-structure.md).
+	if want := "`" + filepath.Join(dir, "research", "index.md") + "`"; !strings.Contains(content, want) {
+		t.Errorf("expected bullet %s in section, got %q", want, content)
 	}
 	if !strings.Contains(content, "<!-- describe what this bucket is for -->") {
 		t.Error("expected purpose placeholder")
@@ -301,6 +345,41 @@ func TestCaptureSurfacesSection_AppendsNewBulletWhenSectionExists(t *testing.T) 
 	}
 	if !strings.Contains(content, "raw") {
 		t.Error("second bucket missing")
+	}
+}
+
+func TestCaptureSurfacesSection_Dedupe(t *testing.T) {
+	cases := []struct {
+		name, seed, bucket string
+		wantWrite          bool
+	}{
+		{"same bucket twice", "", "research", false},
+		{"folder-form bullet already present", "## Capture surfaces\n\n- `{dir}/research` <!-- notes -->\n", "research", false},
+		{"prefix sibling is a different bucket", "", "res", true},
+		{"path mentioned outside the section", "Notes on `{dir}/research/index.md`.\n\n## Capture surfaces\n\n- `{dir}/other/index.md`\n", "research", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			claudeMD := filepath.Join(dir, "CLAUDE.md")
+			if tc.seed != "" {
+				writeBucketCLIFile(t, claudeMD, strings.ReplaceAll(tc.seed, "{dir}", dir))
+			} else if err := writeCaptureSurfacesSection(claudeMD, "research", filepath.Join(dir, "research")); err != nil {
+				t.Fatal(err)
+			}
+			before, _ := os.ReadFile(claudeMD)
+
+			if err := writeCaptureSurfacesSection(claudeMD, tc.bucket, filepath.Join(dir, tc.bucket)); err != nil {
+				t.Fatal(err)
+			}
+			after, _ := os.ReadFile(claudeMD)
+
+			bullet := "`" + filepath.Join(dir, tc.bucket, "index.md") + "`"
+			gotWrite := strings.Count(string(after), bullet) > strings.Count(string(before), bullet)
+			if gotWrite != tc.wantWrite {
+				t.Errorf("bullet %s added = %v, want %v\nbefore: %q\nafter:  %q", bullet, gotWrite, tc.wantWrite, before, after)
+			}
+		})
 	}
 }
 
@@ -382,7 +461,7 @@ func TestBucketIndexStub_CarriesOKFFrontmatterAndEmptyRegion(t *testing.T) {
 }
 
 // TestBucketIndexStub_ThenRebuildFillsRegion verifies that a subsequent
-// RebuildBucketIndex call fills the stub's empty <bucket-docs> region in
+// RebuildBucketTree call fills the stub's empty <bucket-docs> region in
 // place (well-formed replace) rather than appending a second region.
 func TestBucketIndexStub_ThenRebuildFillsRegion(t *testing.T) {
 	dir := t.TempDir()
@@ -395,8 +474,8 @@ func TestBucketIndexStub_ThenRebuildFillsRegion(t *testing.T) {
 	}
 	writeTopicFile(t, filepath.Join(bucketDir, "seo.md"), "---\ntitle: SEO\ndescription: Technical SEO checklist.\n---\n\nBody.\n")
 
-	if err := RebuildBucketIndex(bucketDir); err != nil {
-		t.Fatalf("RebuildBucketIndex: %v", err)
+	if _, errs := RebuildBucketTree(bucketDir); errs != nil {
+		t.Fatalf("RebuildBucketTree: %v", errs)
 	}
 
 	data, err := os.ReadFile(filepath.Join(bucketDir, "index.md"))
@@ -468,6 +547,36 @@ func TestBucketAdd_RegistersAndSplices(t *testing.T) {
 	// index.md stub created.
 	if _, err := os.Lstat(filepath.Join(bucketDir, "index.md")); err != nil {
 		t.Errorf("bucket index.md stub not created: %v", err)
+	}
+}
+
+func TestBucketAdd_ExistingMaterialIndexedAtEveryLevel(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	claudeHome := t.TempDir()
+	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
+	notes := filepath.Join(root, "notes")
+	userFile := filepath.Join(notes, "meetings", "kickoff.md")
+	userContent := "---\ntitle: Kickoff\n---\n\nUser notes.\n"
+	writeBucketCLIFile(t, userFile, userContent)
+
+	var out bytes.Buffer
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, root, &out); code != 0 {
+		t.Fatalf("bucket add returned %d", code)
+	}
+
+	rootIndex, _ := os.ReadFile(filepath.Join(notes, "index.md"))
+	if !strings.Contains(string(rootIndex), "(meetings/index.md)") {
+		t.Errorf("bucket root index must list the existing subfolder:\n%s", rootIndex)
+	}
+	sub, err := os.ReadFile(filepath.Join(notes, "meetings", "index.md"))
+	if err != nil {
+		t.Fatalf("existing subfolder not indexed on registration: %v", err)
+	}
+	if !strings.Contains(string(sub), "[Kickoff](kickoff.md)") {
+		t.Errorf("subfolder index missing its file:\n%s", sub)
+	}
+	if got, _ := os.ReadFile(userFile); string(got) != userContent {
+		t.Errorf("user file changed by registration:\n%s", got)
 	}
 }
 

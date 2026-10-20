@@ -267,7 +267,7 @@ atomic code mcp                   start MCP server exposing graph as tools; daem
 atomic wiki scan [--root=<path>]  scaffold + classify member repos; mark realm scope; register wiki; write ## Members links
 atomic wiki stale [--root=<path>] read-only membership drift: DRIFT added|removed|status lines
 atomic wiki bucket add|list       register a capture folder; list registered buckets (name, path)
-atomic wiki bucket doc|skill|index  doc: scaffold a topic file (--router for a subtree); skill: scaffold the per-bucket SKILL.md; index: rebuild the bucket + realm listing regions
+atomic wiki bucket doc|skill|index  doc: scaffold <slug>/index.md and its 01_raw/ stage; skill: scaffold the per-bucket SKILL.md; index: rebuild every folder's index.md listing + the realm bucket list
 atomic signals linkify          render signals path citations as navigable relative md links (inferrer runs it)
 atomic wiki linkify --root        same for wiki summaries/concerns/index (/refresh-wiki runs it)
 /refresh-wiki [root]              realm wiki pass: summaries for pending repos + re-author the summaries/concerns you pick

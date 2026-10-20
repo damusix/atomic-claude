@@ -13,6 +13,8 @@ Domain: wiki. Cross-repo wiki: scan, classify, re-author picked pages, capture b
 Map:
   - docs/wiki/wiki.md
 Contracts:
+  - docs/spec/bucket-doc-management.md
+  - docs/spec/bucket-icm-structure.md
   - docs/spec/realm-wiki-drop-refresh.md
   - docs/spec/wiki-buckets.md
   - docs/spec/wiki.md

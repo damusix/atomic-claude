@@ -108,7 +108,7 @@ A realm wiki maps how a folder of repos relate: shared libraries, contracts one 
 | Verb | Does |
 |------|------|
 | `/refresh-wiki` | Scan the realm; refresh repo summaries and cross-cutting concerns with cited evidence |
-| `atomic wiki bucket add <name>` | Register a folder of loose material (research, raw dumps, ticket exports); the scan keeps an index of its docs |
+| `atomic wiki bucket add <name>` | Register a folder of loose material (research items with their raw material, notes, ticket exports); the scan keeps an index in every folder |
 | `atomic wiki stale` | Report repos added, removed, or reclassified since the last scan |
 | `atomic serve` | Browse the realm as a navigable graph in the browser |
 

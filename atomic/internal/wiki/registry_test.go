@@ -510,3 +510,44 @@ func TestWikiAction_ScanWarnsOnUnusableScopeMarker(t *testing.T) {
 		})
 	}
 }
+
+// A rewrite through a temp file must not silently tighten a user's file to
+// the temp file's 0600.
+func TestWriteFileAtomic_RewriteKeepsExistingMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "index.md")
+	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o664); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeFileAtomic(path, []byte("new\n")); err != nil {
+		t.Fatalf("writeFileAtomic: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o664 {
+		t.Errorf("mode after rewrite = %o, want 664", got)
+	}
+}
+
+// Generated wiki files are shared documents, readable by group and other.
+func TestWriteFileAtomic_NewFileIs0644(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "index.md")
+
+	if err := writeFileAtomic(path, []byte("new\n")); err != nil {
+		t.Fatalf("writeFileAtomic: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o644 {
+		t.Errorf("mode of new file = %o, want 644", got)
+	}
+}

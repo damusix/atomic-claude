@@ -101,9 +101,9 @@ var wantDelegatedSubcommandMeta = []struct {
 	// wiki bucket (3-level)
 	{[]string{"wiki", "bucket", "add"}, "<name>", "Register a capture bucket; create its folder and index.md stub"},
 	{[]string{"wiki", "bucket", "list"}, "", "List registered buckets as name<TAB>path"},
-	{[]string{"wiki", "bucket", "doc"}, "<bucket> <slug>", "Scaffold <bucket>/<slug>.md from the embedded doc template; --router also scaffolds the sibling subtree"},
+	{[]string{"wiki", "bucket", "doc"}, "<bucket> <slug>", "Scaffold <bucket>/<slug>/index.md and its 01_raw/ stage, then rebuild the bucket's indexes"},
 	{[]string{"wiki", "bucket", "skill"}, "<bucket>", "Scaffold the realm per-bucket SKILL.md for <bucket> (no-op if present)"},
-	{[]string{"wiki", "bucket", "index"}, "[<bucket>]", "Rebuild the <bucket-docs> region for one bucket (or all when omitted) plus the realm bucket list"},
+	{[]string{"wiki", "bucket", "index"}, "[<bucket>]", "Rebuild the <bucket-docs> region in every directory of one bucket (or all when omitted) plus the realm bucket list"},
 	// followups subcommands
 	{[]string{"followups", "list"}, "", "List open follow-up entries"},
 	{[]string{"followups", "add"}, "", "Create entry"},

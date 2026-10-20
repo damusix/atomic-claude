@@ -4,11 +4,12 @@ package wiki
 // CLI verbs (action.go's wikiBucketDocAction / wikiBucketSkillAction /
 // wikiBucketIndexAction). Exercises the CLI dispatch layer only — the
 // underlying scaffold/index logic (ScaffoldBucketDoc, ScaffoldBucketSkill,
-// RebuildBucketIndex, RebuildAllBucketIndexes) is covered by bucketdoc_test.go
+// RebuildBucketTree, RebuildAllBucketIndexes) is covered by bucketdoc_test.go
 // and bucketindex_test.go.
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,7 @@ func registerBucketCLI(t *testing.T, root, claudeHome, name string) {
 	}
 }
 
-func TestBucketDoc_HappyPathWritesFile(t *testing.T) {
+func TestBucketDoc_HappyPathScaffoldsAndIndexesTheSlug(t *testing.T) {
 	root := t.TempDir()
 	claudeHome := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "wiki"), 0o755); err != nil {
@@ -40,20 +41,27 @@ func TestBucketDoc_HappyPathWritesFile(t *testing.T) {
 		t.Fatalf("bucket doc: expected exit 0, got %d; output: %q", code, out.String())
 	}
 
-	target := filepath.Join(root, "research", "seo.md")
-	data, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("scaffolded doc not written: %v", err)
+	target := filepath.Join(root, "research", "seo", "index.md")
+	if strings.TrimSpace(out.String()) != target {
+		t.Errorf("expected only the slug index path on stdout, got: %q", out.String())
 	}
-	if !strings.Contains(string(data), "title: seo") {
-		t.Errorf("expected title placeholder derived from slug, got:\n%s", string(data))
-	}
-	if !strings.Contains(out.String(), target) {
-		t.Errorf("expected written path printed to stdout, got: %q", out.String())
+
+	for file, link := range map[string]string{
+		filepath.Join(root, "research", "index.md"): "(seo/index.md)",
+		target: "(01_raw/index.md)",
+		filepath.Join(root, "research", "seo", "01_raw", "index.md"): "<bucket-docs>",
+	} {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		if !strings.Contains(string(data), link) {
+			t.Errorf("%s: want %q after the rebuild, got:\n%s", file, link, data)
+		}
 	}
 }
 
-func TestBucketDoc_CollisionRefusesOverwrite(t *testing.T) {
+func TestBucketDoc_ExistingSlugFolderRefusesAndLeavesItUntouched(t *testing.T) {
 	root := t.TempDir()
 	claudeHome := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "wiki"), 0o755); err != nil {
@@ -61,22 +69,83 @@ func TestBucketDoc_CollisionRefusesOverwrite(t *testing.T) {
 	}
 	registerBucketCLI(t, root, claudeHome, "research")
 
-	target := filepath.Join(root, "research", "seo.md")
-	original := "# pre-existing content\n"
-	writeBucketCLIFile(t, target, original)
+	note := filepath.Join(root, "research", "seo", "note.md")
+	writeBucketCLIFile(t, note, "# pre-existing content\n")
 
-	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo"}, claudeHome, root, &out)
-	if code == 0 {
-		t.Fatal("expected non-zero exit on collision")
-	}
-
-	data, err := os.ReadFile(target)
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != original {
-		t.Errorf("collision must never overwrite; got:\n%s", string(data))
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = oldStderr })
+
+	var out bytes.Buffer
+	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo"}, claudeHome, root, &out)
+
+	w.Close()
+	os.Stderr = oldStderr
+	stderrBytes, _ := io.ReadAll(r)
+	stderrOutput := string(stderrBytes)
+
+	if code != 1 {
+		t.Fatalf("expected exit 1 on an existing slug folder, got %d", code)
+	}
+	if strings.Count(stderrOutput, "bucket doc:") != 1 {
+		t.Errorf("want the verb prefix exactly once on stderr, got: %q", stderrOutput)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "research", "seo", "index.md")); err == nil {
+		t.Error("refused scaffold still wrote seo/index.md")
+	}
+	data, err := os.ReadFile(note)
+	if err != nil {
+		t.Fatalf("read note.md: %v", err)
+	}
+	if string(data) != "# pre-existing content\n" {
+		t.Errorf("refused scaffold modified note.md: %q", data)
+	}
+}
+
+// The scaffold is on disk before the rebuild runs, so a failed rebuild must
+// still tell the caller where it is.
+func TestBucketDoc_RebuildHardErrorPrintsPathAndExitsNonzero(t *testing.T) {
+	root := t.TempDir()
+	claudeHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "wiki"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registerBucketCLI(t, root, claudeHome, "research")
+	writeUnreadableAndUnpairedDirs(t, filepath.Join(root, "research"))
+
+	var out bytes.Buffer
+	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo"}, claudeHome, root, &out)
+	if code != 1 {
+		t.Errorf("hard rebuild error: exit %d, want 1", code)
+	}
+	target := filepath.Join(root, "research", "seo", "index.md")
+	if strings.TrimSpace(out.String()) != target {
+		t.Errorf("want the scaffolded path on stdout despite the rebuild error, got: %q", out.String())
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("scaffold missing after a rebuild error: %v", err)
+	}
+}
+
+func TestBucketDoc_RouterFlagIsUnrecognized(t *testing.T) {
+	root := t.TempDir()
+	claudeHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "wiki"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registerBucketCLI(t, root, claudeHome, "research")
+
+	var out bytes.Buffer
+	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo", "--router"}, claudeHome, root, &out)
+	if code != 2 {
+		t.Fatalf("bucket doc --router: got exit %d, want 2", code)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "research", "seo")); err == nil {
+		t.Error("--router must be rejected before anything is written")
 	}
 }
 
@@ -87,7 +156,7 @@ func TestBucketDoc_UnregisteredBucketRejectedListingNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	registerBucketCLI(t, root, claudeHome, "research")
-	registerBucketCLI(t, root, claudeHome, "raw")
+	registerBucketCLI(t, root, claudeHome, "notes")
 
 	var out bytes.Buffer
 	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "ghost", "seo"}, claudeHome, root, &out)
@@ -95,29 +164,8 @@ func TestBucketDoc_UnregisteredBucketRejectedListingNames(t *testing.T) {
 		t.Fatal("expected non-zero exit for unregistered bucket")
 	}
 
-	// Nothing should have been written.
 	if _, err := os.Lstat(filepath.Join(root, "ghost")); err == nil {
 		t.Error("unregistered bucket dir must not be created")
-	}
-}
-
-func TestBucketDoc_RouterFlagScaffoldsSubtree(t *testing.T) {
-	root := t.TempDir()
-	claudeHome := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "wiki"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	registerBucketCLI(t, root, claudeHome, "research")
-
-	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo", "--router"}, claudeHome, root, &out)
-	if code != 0 {
-		t.Fatalf("bucket doc --router: expected exit 0, got %d; output: %q", code, out.String())
-	}
-
-	subtreeClaude := filepath.Join(root, "research", "seo", "CLAUDE.md")
-	if _, err := os.Lstat(subtreeClaude); err != nil {
-		t.Errorf("router subtree CLAUDE.md not created: %v", err)
 	}
 }
 
@@ -221,7 +269,7 @@ func TestBucketIndex_AllRebuildsEveryBucketAndRealmList(t *testing.T) {
 		t.Fatal(err)
 	}
 	registerBucketCLI(t, root, claudeHome, "research")
-	registerBucketCLI(t, root, claudeHome, "raw")
+	registerBucketCLI(t, root, claudeHome, "notes")
 	writeBucketCLIFile(t, filepath.Join(root, "research", "seo.md"), "---\ntitle: SEO\ndescription: Technical SEO checklist.\n---\n\nBody.\n")
 
 	var out bytes.Buffer
@@ -234,8 +282,8 @@ func TestBucketIndex_AllRebuildsEveryBucketAndRealmList(t *testing.T) {
 	if !strings.Contains(out.String(), "research: 1 indexed, 0 unindexed") {
 		t.Errorf("expected research counts in output, got: %q", out.String())
 	}
-	if !strings.Contains(out.String(), "raw: 0 indexed, 0 unindexed") {
-		t.Errorf("expected raw counts in output, got: %q", out.String())
+	if !strings.Contains(out.String(), "notes: 0 indexed, 0 unindexed") {
+		t.Errorf("expected notes counts in output, got: %q", out.String())
 	}
 
 	// Bucket index.md region actually rebuilt.
@@ -255,7 +303,7 @@ func TestBucketIndex_AllRebuildsEveryBucketAndRealmList(t *testing.T) {
 	if !strings.Contains(string(realmData), "<wiki-bucket-list>") {
 		t.Errorf("expected <wiki-bucket-list> region in wiki/index.md, got:\n%s", string(realmData))
 	}
-	if !strings.Contains(string(realmData), "[research]") || !strings.Contains(string(realmData), "[raw]") {
+	if !strings.Contains(string(realmData), "[research]") || !strings.Contains(string(realmData), "[notes]") {
 		t.Errorf("expected both buckets listed in realm list, got:\n%s", string(realmData))
 	}
 }
@@ -286,6 +334,47 @@ func TestBucketIndex_SingleBucketReportsCountsAndRebuildsOnlyThatRegion(t *testi
 	}
 	if !strings.Contains(string(data), "### Unindexed") {
 		t.Errorf("expected Unindexed sub-heading in rebuilt region, got:\n%s", string(data))
+	}
+}
+
+func TestBucketIndex_CountsSumEveryIndexInTheTree(t *testing.T) {
+	root := t.TempDir()
+	claudeHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "wiki"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registerBucketCLI(t, root, claudeHome, "research")
+	writeBucketCLIFile(t, filepath.Join(root, "research", "seo-audit", "index.md"), "---\ntitle: SEO audit\n---\n")
+	writeBucketCLIFile(t, filepath.Join(root, "research", "seo-audit", "01_raw", "crawl.md"), "---\ntitle: Crawl\n---\n")
+
+	// root: seo-audit (indexed). seo-audit: 01_raw (unindexed). 01_raw: crawl.md (indexed).
+	for _, args := range [][]string{{"research"}, {}} {
+		var out bytes.Buffer
+		argv := append([]string{"bucket", "index", "--root=" + root}, args...)
+		if code := wikiAction(argv, claudeHome, root, &out); code != 0 {
+			t.Fatalf("%v: exit %d; output: %q", argv, code, out.String())
+		}
+		if !strings.Contains(out.String(), "research: 2 indexed, 1 unindexed") {
+			t.Errorf("%v: want tree-summed counts, got: %q", argv, out.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "research", "seo-audit", "01_raw", "index.md")); err != nil {
+		t.Errorf("nested stage directory not indexed: %v", err)
+	}
+}
+
+func TestBucketIndex_HardErrorBesideUnpairedRegion(t *testing.T) {
+	root := t.TempDir()
+	claudeHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "wiki"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registerBucketCLI(t, root, claudeHome, "research")
+	writeUnreadableAndUnpairedDirs(t, filepath.Join(root, "research"))
+
+	var out bytes.Buffer
+	if code := wikiAction([]string{"bucket", "index", "--root=" + root, "research"}, claudeHome, root, &out); code != 1 {
+		t.Errorf("single bucket: an unpaired region must not mask an unreadable directory: exit %d, want 1", code)
 	}
 }
 
