@@ -11,7 +11,9 @@ func TestPrintHumanTwoFindings(t *testing.T) {
 		{Severity: "FAIL", Rule: "C3", Path: "commands/foo.md", Line: 42, Message: `subagent_type "bar" — no agents/bar.md`},
 		{Severity: "WARN", Rule: "C9", Path: "agents/AtomicBuilder.md", Line: 0, Message: "agents/AtomicBuilder.md missing atomic- prefix; will not bundle"},
 	}
-	s := summarize(findings)
+	// Only the file with no finding passes; a WARN or FAIL file never does.
+	inspected := []string{"commands/foo.md", "agents/AtomicBuilder.md", "agents/atomic-clean.md"}
+	s := summarize(inspected, findings)
 
 	var buf bytes.Buffer
 	printHuman(&buf, findings, s, false)
@@ -20,7 +22,7 @@ func TestPrintHumanTwoFindings(t *testing.T) {
 	wantLines := []string{
 		`[1] FAIL  C3   commands/foo.md:42  subagent_type "bar" — no agents/bar.md`,
 		`[2] WARN  C9   agents/AtomicBuilder.md  agents/AtomicBuilder.md missing atomic- prefix; will not bundle`,
-		`0 PASS, 1 WARN, 1 FAIL. exit 1.`,
+		`1 PASS, 1 WARN, 1 FAIL. exit 1.`,
 	}
 	for _, want := range wantLines {
 		if !strings.Contains(got, want) {
@@ -34,7 +36,7 @@ func TestPrintJSONTwoFindings(t *testing.T) {
 		{Severity: "FAIL", Rule: "C3", Path: "commands/foo.md", Line: 42, Message: `subagent_type "bar" — no agents/bar.md`},
 		{Severity: "WARN", Rule: "C9", Path: "agents/AtomicBuilder.md", Line: 0, Message: "agents/AtomicBuilder.md missing atomic- prefix; will not bundle"},
 	}
-	s := summarize(findings)
+	s := summarize([]string{"commands/foo.md", "agents/AtomicBuilder.md", "agents/atomic-clean.md"}, findings)
 
 	var buf bytes.Buffer
 	printJSON(&buf, findings, s)
@@ -50,7 +52,7 @@ func TestPrintJSONTwoFindings(t *testing.T) {
 		`"severity": "WARN"`,
 		`"rule": "C9"`,
 		`"summary":`,
-		`"pass": 0`,
+		`"pass": 1`,
 		`"warn": 1`,
 		`"fail": 1`,
 		`"exit": 1`,
@@ -68,7 +70,7 @@ func TestPrintJSONTwoFindings(t *testing.T) {
 
 func TestPrintHumanEmpty(t *testing.T) {
 	var findings []Finding
-	s := summarize(findings)
+	s := summarize(nil, findings)
 
 	var buf bytes.Buffer
 	printHuman(&buf, findings, s, false)
@@ -86,7 +88,7 @@ func TestPrintHumanEmpty(t *testing.T) {
 
 func TestPrintJSONEmpty(t *testing.T) {
 	var findings []Finding
-	s := summarize(findings)
+	s := summarize(nil, findings)
 
 	var buf bytes.Buffer
 	printJSON(&buf, findings, s)
@@ -104,7 +106,7 @@ func TestPrintHumanSuggestS5(t *testing.T) {
 	findings := []Finding{
 		{Severity: "FAIL", Rule: "S5", Path: "docs/spec/foo.md", Line: 0, Message: "missing `## Checkpoints` section"},
 	}
-	s := summarize(findings)
+	s := summarize(nil, findings)
 
 	var buf bytes.Buffer
 	printHuman(&buf, findings, s, true)
@@ -127,7 +129,7 @@ func TestPrintHumanSuggestS6(t *testing.T) {
 	findings := []Finding{
 		{Severity: "FAIL", Rule: "S6", Path: "docs/spec/bar.md", Line: 0, Message: "missing `## Change log` section"},
 	}
-	s := summarize(findings)
+	s := summarize(nil, findings)
 
 	var buf bytes.Buffer
 	printHuman(&buf, findings, s, true)
@@ -146,7 +148,7 @@ func TestPrintHumanSuggestS5PreambleHint(t *testing.T) {
 	findings := []Finding{
 		{Severity: "FAIL", Rule: "S5", Path: "docs/spec/foo.md", Line: 0, Message: "missing `## Checkpoints` section"},
 	}
-	s := summarize(findings)
+	s := summarize(nil, findings)
 
 	var buf bytes.Buffer
 	printHuman(&buf, findings, s, true)
@@ -161,7 +163,7 @@ func TestEmptyOutputPath(t *testing.T) {
 	var buf bytes.Buffer
 	printHeader(&buf, "spec", "structural integrity")
 	var findings []Finding
-	s := summarize(findings)
+	s := summarize(nil, findings)
 	printHuman(&buf, findings, s, false)
 	got := buf.String()
 

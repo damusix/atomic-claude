@@ -29,12 +29,12 @@ func runPathDispatch(paths []string, jsonOut, suggest bool, w io.Writer) int {
 		return 2
 	}
 
-	findings, errCode := dispatchPaths(paths, root, w)
+	inspected, findings, errCode := dispatchPaths(paths, root, w)
 	if errCode != 0 {
 		return errCode
 	}
 
-	s := summarize(findings)
+	s := summarize(inspected, findings)
 	if jsonOut {
 		printJSON(w, findings, s)
 	} else {
@@ -47,7 +47,9 @@ func runPathDispatch(paths []string, jsonOut, suggest bool, w io.Writer) int {
 // dispatchPaths routes docs/spec/*.md to the spec validator and WARNs on
 // anything else. The config and bundle validators are whole-repo, never
 // per-file, so a path cannot reach them — only their explicit subcommands can.
-func dispatchPaths(paths []string, repoRoot string, w io.Writer) ([]Finding, int) {
+// Only spec paths count as inspected; a path no validator reads is never a PASS.
+func dispatchPaths(paths []string, repoRoot string, w io.Writer) ([]string, []Finding, int) {
+	var inspected []string
 	var all []Finding
 
 	for _, p := range paths {
@@ -71,13 +73,14 @@ func dispatchPaths(paths []string, repoRoot string, w io.Writer) ([]Finding, int
 			src, err := os.ReadFile(abs)
 			if err != nil {
 				fmt.Fprintf(w, "atomic validate: cannot read %s: %v\n", p, err)
-				return nil, 2
+				return nil, nil, 2
 			}
 			findings, err := RunSpecRules(rel, src)
 			if err != nil {
 				fmt.Fprintf(w, "atomic validate: %v\n", err)
-				return nil, 2
+				return nil, nil, 2
 			}
+			inspected = append(inspected, rel)
 			all = append(all, findings...)
 		} else {
 			all = append(all, Finding{
@@ -91,7 +94,7 @@ func dispatchPaths(paths []string, repoRoot string, w io.Writer) ([]Finding, int
 	}
 
 	sortFindings(all)
-	return all, 0
+	return inspected, all, 0
 }
 
 // isSpecPath reports whether rel is a docs/spec/*.md path.
@@ -119,6 +122,7 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 		fmt.Fprintf(w, "atomic validate: spec glob error: %v\n", err)
 		return 2
 	}
+	var specInspected []string
 	var specFindings []Finding
 	for _, p := range specPaths {
 		src, err := os.ReadFile(p)
@@ -132,26 +136,27 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 			fmt.Fprintf(w, "atomic validate: %v\n", err)
 			return 2
 		}
+		specInspected = append(specInspected, rel)
 		specFindings = append(specFindings, ff...)
 	}
 	sortFindings(specFindings)
-	specSummary := summarize(specFindings)
+	specSummary := summarize(specInspected, specFindings)
 
-	configFindings, err := RunConfigRules(root)
+	configInspected, configFindings, err := configRules(root)
 	if err != nil {
 		fmt.Fprintf(w, "atomic validate: config error: %v\n", err)
 		return 2
 	}
-	configSummary := summarize(configFindings)
+	configSummary := summarize(configInspected, configFindings)
 
 	// Skipped silently outside the atomic-claude repo: a user's own project has
 	// no embedded source snapshot to compare against.
-	var bundleFindings []Finding
+	var bundleResults []Finding
 	var bundleSummary summary
 	includeBundle := repoDev(root)
 	if includeBundle {
 		var bundleErr int
-		bundleFindings, bundleSummary, bundleErr = runBundleCollect(root)
+		bundleResults, bundleSummary, bundleErr = bundleFindings(root)
 		if bundleErr != 0 {
 			fmt.Fprintf(w, "atomic validate: bundle check failed: internal error (exit %d)\n", bundleErr)
 			return 2
@@ -167,7 +172,7 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	var allFindings []Finding
 	allFindings = append(allFindings, specFindings...)
 	allFindings = append(allFindings, configFindings...)
-	allFindings = append(allFindings, bundleFindings...)
+	allFindings = append(allFindings, bundleResults...)
 	allFindings = append(allFindings, artifactsFindings...)
 
 	aggSummary := summary{
@@ -192,7 +197,7 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	if includeBundle {
 		fmt.Fprintln(w)
 		printHeader(w, "bundle", "manifest parity")
-		printHuman(w, bundleFindings, bundleSummary, suggest)
+		printHuman(w, bundleResults, bundleSummary, suggest)
 	}
 
 	fmt.Fprintln(w)

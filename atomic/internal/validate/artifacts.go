@@ -265,33 +265,43 @@ func formatFlagList(flags []string) string {
 // RunArtifactRules scans for A1 violations. A non-empty paths limits the scan;
 // otherwise the whole artifact corpus is enumerated.
 func RunArtifactRules(repoRoot string, paths []string) ([]Finding, error) {
+	_, findings, err := artifactRules(repoRoot, paths)
+	return findings, err
+}
+
+// artifactRules also returns the scanned files, keyed as Finding.Path is: the
+// context-relative Target for the corpus, repo-relative for explicit paths.
+func artifactRules(repoRoot string, paths []string) ([]string, []Finding, error) {
 	if len(paths) > 0 {
 		return runArtifactPaths(repoRoot, paths)
 	}
 	return runArtifactCorpus(repoRoot)
 }
 
-func runArtifactCorpus(repoRoot string) ([]Finding, error) {
+func runArtifactCorpus(repoRoot string) ([]string, []Finding, error) {
 	artifacts, err := bundlemirror.Enumerate(repoRoot)
 	if err != nil {
-		return nil, fmt.Errorf("enumerate artifacts: %w", err)
+		return nil, nil, fmt.Errorf("enumerate artifacts: %w", err)
 	}
 
+	var scanned []string
 	var all []Finding
 	for _, a := range artifacts {
 		srcPath := filepath.Join(bundlespec.SourceRoot(repoRoot), a.Target)
 		src, err := os.ReadFile(srcPath)
 		if err != nil {
-			return nil, fmt.Errorf("read artifact %s: %w", a.Target, err)
+			return nil, nil, fmt.Errorf("read artifact %s: %w", a.Target, err)
 		}
+		scanned = append(scanned, a.Target)
 		ff := scanArtifactBytes(a.Target, src)
 		all = append(all, ff...)
 	}
 	sortFindings(all)
-	return all, nil
+	return scanned, all, nil
 }
 
-func runArtifactPaths(repoRoot string, paths []string) ([]Finding, error) {
+func runArtifactPaths(repoRoot string, paths []string) ([]string, []Finding, error) {
+	var scanned []string
 	var all []Finding
 	for _, p := range paths {
 		abs := p
@@ -300,7 +310,7 @@ func runArtifactPaths(repoRoot string, paths []string) ([]Finding, error) {
 		}
 		src, err := os.ReadFile(abs)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", p, err)
+			return nil, nil, fmt.Errorf("read %s: %w", p, err)
 		}
 		rel := p
 		if filepath.IsAbs(p) {
@@ -308,11 +318,12 @@ func runArtifactPaths(repoRoot string, paths []string) ([]Finding, error) {
 				rel = r
 			}
 		}
+		scanned = append(scanned, rel)
 		ff := scanArtifactBytes(rel, src)
 		all = append(all, ff...)
 	}
 	sortFindings(all)
-	return all, nil
+	return scanned, all, nil
 }
 
 func runArtifacts(paths []string, jsonOut, suggest bool, w io.Writer) int {
@@ -327,13 +338,13 @@ func runArtifacts(paths []string, jsonOut, suggest bool, w io.Writer) int {
 		return 2
 	}
 
-	findings, err := RunArtifactRules(root, paths)
+	scanned, findings, err := artifactRules(root, paths)
 	if err != nil {
 		fmt.Fprintf(w, "atomic validate artifacts: %v\n", err)
 		return 2
 	}
 
-	s := summarize(findings)
+	s := summarize(scanned, findings)
 	if jsonOut {
 		printJSON(w, findings, s)
 	} else {
@@ -344,11 +355,11 @@ func runArtifacts(paths []string, jsonOut, suggest bool, w io.Writer) int {
 }
 
 func runArtifactsCollect(repoRoot string) ([]Finding, summary, int) {
-	findings, err := RunArtifactRules(repoRoot, nil)
+	scanned, findings, err := artifactRules(repoRoot, nil)
 	if err != nil {
 		return nil, summary{}, 2
 	}
-	return findings, summarize(findings), 0
+	return findings, summarize(scanned, findings), 0
 }
 
 func parseArtifactsFlags(args []string, w io.Writer) (paths []string, jsonOut, suggest bool, ok bool) {

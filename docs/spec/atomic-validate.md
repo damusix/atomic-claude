@@ -42,8 +42,14 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 - [ ] `atomic validate spec|config|bundle [paths...]` runs the named validator only.
 - [ ] Exit code: `0` on all PASS or only WARN; `1` on any FAIL; `2` on validator-internal error.
 - [ ] Findings emitted one per line, indexed, rule-ID-tagged.
-- [ ] Summary line ends each run: `<P> PASS, <W> WARN, <F> FAIL. exit <N>.`
-- [ ] `--json` emits `{schema_version: 1, findings: [...], summary: {...}}`.
+- [ ] Summary line ends each run: `<P> PASS, <W> WARN, <F> FAIL. exit <N>.` `<W>` and `<F>` count findings. `<P>` counts inspected files that produced no WARN and no FAIL, so a clean run reports how much was inspected. Unit per group:
+    - spec: each `docs/spec/*.md` (or path argument) read.
+    - config: each file C3, C5, and C7 read; C9 counts none.
+    - artifacts: each file scanned.
+    - bundle: each embedded manifest entry.
+
+  Bare `atomic validate` prints one summary line per group; its `--json` `summary.pass` is the sum of the groups.
+- [ ] `--json` emits `{schema_version: 1, findings: [...], summary: {...}}`; `summary.pass` is `<P>`.
 - [ ] `--suggest` prints structural templates for content-level FAILs without editing files. No name suggestions, no fuzzy matching.
 - [ ] All validator code lives in `atomic/internal/validate/`; bundle-parity computation in `atomic/internal/manifestcheck/`; bundle inclusion predicates in `atomic/internal/bundlespec/`.
 - [ ] `bundlespec/` is imported by both `bundlemirror/mirror.go` (build) and `manifestcheck/` (runtime) — single source of truth.
@@ -162,7 +168,7 @@ atomic validate config — referential integrity
 [2] FAIL  C5  CLAUDE.md:118       @-ref .claude/missing.md does not resolve
 [3] WARN  C9  agents/AtomicBuilder.md missing atomic- prefix; will not bundle
 
-0 PASS, 1 WARN, 2 FAIL. exit 1.
+31 PASS, 1 WARN, 2 FAIL. exit 1.
 ```
 
 
@@ -175,7 +181,7 @@ JSON (`--json`):
   "findings": [
     {"index": 1, "severity": "FAIL", "rule": "C3", "path": "commands/foo.md", "line": 42, "message": "subagent_type \"bar\" — no agents/bar.md"}
   ],
-  "summary": {"pass": 0, "warn": 1, "fail": 2, "exit": 1}
+  "summary": {"pass": 31, "warn": 1, "fail": 2, "exit": 1}
 }
 ```
 
@@ -263,6 +269,15 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 
 
 <!-- Drafting/refinement edits before approval are not logged. First entry is at v1 ship. -->
+
+
+### 2026-10-19 — PASS counts clean inspected files
+
+**What changed:** `<P>` and `summary.pass` count inspected files that produced no WARN and no FAIL, with a defined unit per group (spec files, files C3/C5/C7 read, scanned artifacts, embedded manifest entries). The bare-form JSON `summary.pass` is the sum of the groups. The output examples show a non-zero PASS.
+
+**Why:** `<P>` was undefined and the implementation counted only findings whose severity was neither WARN nor FAIL, which no rule emits, so every run printed `0 PASS`. A clean run read as an empty inspection, and one reader concluded the gate was inert.
+
+**Superseded:** `<P>` was undefined in the body and always 0 in practice.
 
 
 ### 2026-07-21 — C5 email false-positive guard

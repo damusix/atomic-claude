@@ -14,12 +14,17 @@ func RunBundleCheckAt(repoRoot string, w io.Writer) int {
 	return runBundleAt(repoRoot, false, false, w)
 }
 
-// bundleFindings converts manifestcheck drift into Findings. exit is 0 or 2;
-// the caller derives the final exit from the summary.
-func bundleFindings(repoRoot string) ([]Finding, int) {
-	result, err := manifestcheck.Compare(repoRoot, embedded.Manifest())
+// bundleFindings converts manifestcheck drift into Findings; exit is 0 or 2.
+// PASS counts undrifted manifest entries, taken before the cap hides diffs.
+func bundleFindings(repoRoot string) ([]Finding, summary, int) {
+	committed := embedded.Manifest()
+	result, err := manifestcheck.Compare(repoRoot, committed)
 	if err != nil {
-		return nil, 2
+		return nil, summary{}, 2
+	}
+	compared := append([]string(nil), result.Extra...)
+	for _, a := range committed {
+		compared = append(compared, a.Target)
 	}
 
 	var findings []Finding
@@ -51,6 +56,8 @@ func bundleFindings(repoRoot string) ([]Finding, int) {
 		})
 	}
 
+	pass := summarize(compared, findings).Pass
+
 	// A synthetic overflow entry keeps the cap visible in both output modes.
 	if len(findings) > 5 {
 		overflow := len(findings) - 5
@@ -62,17 +69,9 @@ func bundleFindings(repoRoot string) ([]Finding, int) {
 			Message:  fmt.Sprintf("%d more diffs not shown", overflow),
 		})
 	}
-	return findings, 0
-}
-
-// runBundleCollect returns findings without printing, so runWholeRepo can
-// aggregate before emitting its own block.
-func runBundleCollect(repoRoot string) ([]Finding, summary, int) {
-	findings, exit := bundleFindings(repoRoot)
-	if exit != 0 {
-		return nil, summary{}, exit
-	}
-	return findings, summarize(findings), 0
+	s := summarize(nil, findings)
+	s.Pass = pass
+	return findings, s, 0
 }
 
 // runBundleImpl discovers repoRoot from cwd and delegates to runBundleAt.
@@ -102,13 +101,11 @@ func runBundleAt(repoRoot string, jsonOut, suggest bool, w io.Writer) int {
 		return 0
 	}
 
-	findings, exit := bundleFindings(repoRoot)
+	findings, s, exit := bundleFindings(repoRoot)
 	if exit != 0 {
 		fmt.Fprintf(w, "atomic validate bundle: internal error\n")
 		return exit
 	}
-
-	s := summarize(findings)
 
 	if jsonOut {
 		printJSON(w, findings, s)
