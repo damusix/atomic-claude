@@ -34,7 +34,7 @@ Design: `docs/design/wiki.md`.
 - [ ] Re-running regenerates ONLY the `<wiki-scan>` block; a diff of `index.md` outside the block and of every file under `repos/`/`concerns/` is empty.
 - [ ] The `index.md` path is written to a `<wikis>` block in `~/.claude/CLAUDE.md`. Three insertion cases: block present (add line iff absent, dedup by normalized path), block absent (append after `</atomic>`, or EOF when none), file absent (create). A registry write never alters the `<atomic>` block (diff outside `<wikis>` is empty).
 - [ ] `scan` declares `scope = "realm"` in `<root>/.claude/atomic.toml`, creating the file or inserting the key when absent. A file already declaring another scope, or one that fails to parse, is left byte-identical with a warning on stderr; the scan still registers the wiki, prints the handoff, and exits 0.
-- [ ] If `<root>/wiki/` exists but `index.md` is absent or lacks a `<wiki-scan>` marker, `scan` refuses with a non-zero exit and a message naming the path.
+- [ ] If `<root>/wiki/` has an `index.md` without a `<wiki-scan>` marker, or has no `index.md` and holds anything other than exactly the one `CLAUDE.md` that `wiki init --scope realm` writes, `scan` refuses with a non-zero exit and a message naming the path. An empty `wiki/` is refused. A `wiki/` holding only that unedited `CLAUDE.md` is scanned normally.
 - [ ] `scan` prints a stdout handoff: summary (`<N> repos · <M> indexed · <K> pending`), per-repo list (`<status> <path> [→ signals path]`), `NEXT STEPS` naming each `pending` repo. Labels stable (orientation for `/refresh-wiki`).
 - [ ] `scan` writes a managed `## Members` linked section into `index.md` inside a `<wiki-member-list>` region (`docs/spec/bucket-doc-management.md`), spliced idempotently like the `<wiki-scan>` block (content outside the region untouched): `indexed` → link to the repo's signals file found by classification (`../<repo>/docs/wiki/index.md`, or the legacy `../<repo>/.claude/project/signals.md`); `summarized` → link to the recorded summary path (`repos/<repo>.md`, or `repos/<repo>/` for a domain-split summary); `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
 
@@ -141,7 +141,7 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 **`atomic wiki stale`.** Read-only. Exit `0`/`1`/`2`. Per-finding literal prefix: `DRIFT added <path>`, `DRIFT removed <path>`, `DRIFT status <path> <old>→<new>`. Exit 1 iff any line. Missing `wiki/`, missing `index.md`, or no `<wiki-scan>` block → exit 2.
 
-**Root collision.** `<root>/wiki/` exists but `index.md` absent or lacks the marker → refuse, non-zero exit, message names the path.
+**Root collision.** `<root>/wiki/` exists and either `index.md` lacks the marker, or `index.md` is absent and the directory holds anything beyond a single regular `CLAUDE.md` whose bytes equal the `wiki init --scope realm` scaffold → refuse, non-zero exit, message names the path. An empty `wiki/` is refused. A `wiki/` holding only init's unedited `CLAUDE.md` is not a collision, so `init` followed by `scan` completes the scaffold.
 
 
 ## Risks
@@ -161,6 +161,14 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 ## Change log
 
+
+### 2026-10-20 — `scan` accepts the `wiki/` that `init` wrote
+
+**What changed:** The collision criterion and the Root collision contract exempt a `wiki/` whose only entry is the unedited `CLAUDE.md` that `wiki init --scope realm` writes. Every other `wiki/` without `index.md`, including an empty one, is still refused.
+
+**Why:** Bug. The documented setup, `atomic wiki init --scope realm` then `atomic wiki scan`, failed: init writes `wiki/CLAUDE.md`, and scan refused any `wiki/` without `index.md`.
+
+**Superseded:** Any existing `wiki/` without `index.md` was refused.
 
 ### 2026-10-19 — Correction: indexed repos are found by `docs/wiki/index.md` first
 

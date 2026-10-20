@@ -23,7 +23,7 @@ flowchart TD
 - **Stop**: on base, stop. Dirty, tell the user to commit first.
 - **Read what ships**: `git log <base>..HEAD --oneline` and `git diff <base>...HEAD --stat`, in parallel.
 - **PR already open?**: `gh pr view --json url 2>/dev/null` prints a URL.
-- **Push if needed**: `git push -u origin <branch>` with no upstream, `git push` when behind.
+- **Push if needed**: `git push -u <remote> <branch>` when `<ref>` is missing or HEAD is ahead of it, with `<ref>` and `<remote>` resolved as in push-flow.
 - **Rendered surface?**: a UI, a docs-site page, or terminal output.
 - **Collect screenshots**: the PNGs the session produced (the task scratchpad, `tmp/`, files the user supplied), or capture them now against the built result. The skill's body carries one `![<caption>](<local path>)` line per image; pass the same path once per file as `--attach '<local path>#<caption>'`. Two read-only preconditions gate the upload: `gh --version` is 2.99.0 or newer (older `gh` has no `--attach`; print `brew upgrade gh` and ship the body without the image lines rather than blocking), and `gh api repos/<owner>/<repo> --jq .permissions.push` prints `true` (uploads need push access on the base repo). Images are capped at 10 MB and 50 per command.
 - **Create the PR**:

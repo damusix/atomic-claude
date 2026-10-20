@@ -21,7 +21,7 @@ func resolveHome() (string, error) {
 	return os.UserHomeDir()
 }
 
-// applyInstallRepair mirrors `atomic claude install --merge`: idempotent, so
+// applyInstallRepair mirrors `atomic claude install`: idempotent, so
 // unchanged files no-op and changed ones are backed up before being overwritten.
 func applyInstallRepair(targetDir, home string) error {
 	plan, err := claudeinstall.Install(targetDir, home, false, claudeinstall.RealClock)
@@ -53,7 +53,7 @@ func applyHooksRepair() error {
 }
 
 func defaultInstallRepair(out io.Writer) error {
-	fmt.Fprintln(out, "$ atomic claude install --merge")
+	fmt.Fprintln(out, "$ atomic claude install")
 	target, err := resolveClaudeHome()
 	if err != nil {
 		return err

@@ -71,7 +71,7 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 | `atomic validate spec [paths...]` | Spec structure | `docs/spec/*.md` |
 | `atomic validate config` | Cross-reference integrity | `CLAUDE.md` + `agents/` + `commands/` + `skills/` + `claude.local.md` |
 | `atomic validate bundle` | Bundle parity | `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md` ↔ `atomic/internal/embedded/` |
-| `atomic validate artifacts [paths...]` | Artifact CLI-flag citations (rule A1) | Full artifact corpus via `bundlemirror.Enumerate` (or explicit paths) |
+| `atomic validate artifacts [paths...]` | Artifact CLI verb/flag citations (rule A1) | Full artifact corpus via `bundlemirror.Enumerate` (or explicit paths) |
 | `atomic validate` | All of the above | Whole repo |
 
 
@@ -81,18 +81,19 @@ v1.1 adds: `atomic validate design`, `atomic validate followups`.
 ### Artifact validator (rule A1)
 
 
-Scans artifact corpus for `atomic <verb> --flag` citations inside markdown inline code spans (`` `…` ``) and fenced code blocks. Source of truth is `internal/cliusage` — a structured command-surface table that also renders the binary's `--help`.
+Scans artifact corpus for `atomic <verb>` citations inside markdown inline code spans (`` `…` ``) and code blocks (fenced or indented, at any indentation, including under list items). Source of truth is `internal/cliusage` — a structured command-surface table that also renders the binary's `--help`.
 
 
 | Rule | Behavior | Severity |
 |------|----------|----------|
 | A1 | A cited `--flag` on a resolved verb-path is not in that command's flag set and is not a universal flag (`--help`, `-h`, `--version`, `-v`, `--repo`, `--no-update-check`) | FAIL |
+| A1 | A cited verb path is neither a command in the surface table nor a prefix of one | FAIL |
 
 
-**Resolution:** greedily matches the longest known verb-path prefix (handles multi-word paths such as `code search`, `signals scan`). Remaining lowercase word tokens after the matched path are treated as positional args and are not validated (covers arg-enum subcommands like `validate spec`). Citations whose verb-path does not resolve emit nothing (accepted false-negative — prevents false positives on namespace verbs with unknown subcommands).
+**Resolution:** greedily matches the longest known verb-path prefix (handles multi-word paths such as `code search`, `signals scan`). Remaining lowercase word tokens after the matched path are treated as positional args and are not validated (covers arg-enum subcommands like `validate spec`). A citation that resolves to no command is judged word by word, and FAILs on a path that is neither a command nor a namespace prefix. Full rules, including citation boundaries and placeholders: `docs/spec/validate-artifact-cli-flags.md`.
 
 
-**Scope:** citations in bare prose outside code spans are not checked. Only citations where the first token after `atomic` is a registered top-level verb qualify.
+**Scope:** citations in bare prose outside code spans and code blocks are not checked. Only citations where the first token after `atomic` is a registered top-level verb qualify.
 
 
 Honors `--json` and `--suggest` identically to the other subcommands. Included in bare `atomic validate` (whole-repo run) after bundle. In non-atomic-claude repos, runs unconditionally (unlike bundle, which is repo-dev-only).
@@ -270,6 +271,14 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 
 <!-- Drafting/refinement edits before approval are not logged. First entry is at v1 ship. -->
 
+
+### 2026-10-20 — A1 flags unknown verb paths and scans indented code blocks
+
+**What changed:** A1 gains a second FAIL condition, a cited verb path that is neither a command nor a namespace prefix. Code blocks are located by the markdown parse, so fences indented under list items and indented code blocks are scanned. Detail lives in `docs/spec/validate-artifact-cli-flags.md`.
+
+**Why:** a removed or never-registered verb passed the lint silently, and a fence under a list item was invisible to it.
+
+**Superseded:** unresolved verb paths emitted nothing; only column-0 fenced blocks were scanned.
 
 ### 2026-10-20 — `config` and `bundle` reject path arguments
 

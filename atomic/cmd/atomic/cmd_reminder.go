@@ -13,8 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// The undocumented "set-due" verb has no cliusage entry; it reaches the handler
-// through the parent.s ArbitraryArgs fallback.
 func buildReminderCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runReminder(args, *repoOverride) }
 	parent := &cobra.Command{
@@ -46,6 +44,7 @@ func buildReminderCmd(repoOverride *string) *cobra.Command {
 	addSub("list", "List all reminders", "", nil)
 	addSub("show", "Print body of a reminder", "<id>", nil)
 	addSub("rm", "Delete a reminder", "<id>", nil)
+	addSub("set-due", "Rewrite a reminder's due: timestamp in place", "<id> <iso>", nil)
 	return parent
 }
 

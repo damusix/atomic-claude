@@ -128,7 +128,7 @@ docs/spec/<guard-describing specs>
 1. The `/commit pr` command expands `commit-flow`, `push-flow`, and `pr-flow` into one prompt.
 2. The model reads each flowchart from the start node, answers each decision from `git` and `gh` output, and follows the matching edge.
 3. At each action node it runs the exact command the keyed text names under that node's label.
-4. A stop node prints the error string the keyed text names and ends the flow.
+4. A stop node prints the error string the keyed text names and ends the verb. A skip node inside a gate (review, doc impact, signals refresh) stays inside that gate. Any other skip node ends its whole ship step (all of `push-flow`, or all of `squash-flow` including its steps), and the path's next ship step runs; when none follows, the verb ends.
 
 **Flow: the signals gate runs after a commit**
 
@@ -188,6 +188,14 @@ docs/spec/<guard-describing specs>
 **Why:** Reviewers found two places where removing a presence guard also removed the runtime-failure branch beside it.
 
 **Superseded:** Flow step 3 described the absence of a presence check rather than the behavior.
+
+### 2026-10-20 — Skip nodes end a ship step, stop nodes end the verb
+
+**What changed:** Flow step 4 distinguishes a stop node, which ends the verb, from a skip node, which ends its ship step (all of `push-flow` or all of `squash-flow`) so the path's next ship step runs. A skip inside a gate stays inside that gate. `push-flow`'s up-to-date branch and `squash-flow`'s single-commit branch are skip nodes, and `push-flow` draws a branch behind or diverged from its remote branch as a stop. `push-flow` and `pr-flow` measure and push the remote branch of the same name: `@{u}` when it names `<branch>`, else `origin/<branch>`, always with `git push -u <remote> <branch>`.
+
+**Why:** `/commit pr` on an already-pushed branch ended in `push-flow` and never opened the PR, and `/commit squash merge` on a single-commit branch ended in `squash-flow` and never merged. Telling behind from up to date needs a two-sided count, and a branch created from `origin/<base>` has `@{u}` = `origin/<base>`, which bare `git push` refuses under `push.default=simple`. `@{u}` is kept when it names `<branch>` so a named fork remote keeps its upstream; an upstream stored as a URL (`gh pr checkout` without a named remote) falls back to `origin`, as it did before.
+
+**Superseded:** every stop node ended the flow, which ended the whole verb; `push-flow` read `git log @{u}..HEAD` and ran bare `git push` whenever an upstream existed.
 
 
 ## Implementation log

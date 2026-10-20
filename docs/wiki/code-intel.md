@@ -122,7 +122,7 @@ graph/          Manager: BFS callers/callees, impact, paths, dead code
 search/         FTS5 -> LIKE -> fuzzy tiers
 codectx/        markdown context digest assembled from a subgraph
 engine/         facade over everything above; the only type CLI and MCP compile against
-cli/            atomic code verbs + realm fan-out
+cli/            CLI verbs under atomic code, plus realm fan-out
 mcp/            MCP server, daemon, proxy
 realm/          scope resolution across wiki-realm members
 validation/     tests only, no production code
