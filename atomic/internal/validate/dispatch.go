@@ -201,7 +201,7 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	}
 
 	fmt.Fprintln(w)
-	printHeader(w, "artifacts", "CLI-flag citation integrity")
+	printHeader(w, "artifacts", "CLI verb/flag citation integrity")
 	printHuman(w, artifactsFindings, artifactsSummary, suggest)
 
 	return exitCode(aggSummary)

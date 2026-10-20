@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bundlemirror"
@@ -32,137 +34,89 @@ func ScanArtifactText(path, src string) []Finding {
 
 func scanArtifactBytes(path string, src []byte) []Finding {
 	topVerbs := cliusage.TopLevelVerbs()
-	spans := extractCodeSpans(src)
 
 	var findings []Finding
-	for _, span := range spans {
-		ff := checkSpan(path, span.text, span.line, topVerbs)
-		findings = append(findings, ff...)
+	for _, c := range extractCitations(src) {
+		findings = append(findings, checkSpan(path, c.Text, c.Line, topVerbs)...)
 	}
 	return findings
 }
 
-type codeSpanEntry struct {
-	text string
-	line int
-}
-
-// extractCodeSpans returns inline code spans plus fenced block contents, each
-// carrying its 1-indexed line.
-func extractCodeSpans(src []byte) []codeSpanEntry {
-	var out []codeSpanEntry
-
-	// InlineRefs skips fenced and indented code block subtrees.
+// extractCitations returns inline code spans plus one entry per code-block
+// line, so a flag on one line is never attributed to a verb on another.
+func extractCitations(src []byte) []mdparse.CodeLine {
+	var out []mdparse.CodeLine
 	refs, _ := mdparse.InlineRefs(src)
 	for _, r := range refs {
 		if r.Kind == "code" {
-			out = append(out, codeSpanEntry{text: r.Text, line: r.Line})
+			out = append(out, mdparse.CodeLine{Text: r.Text, Line: r.Line})
 		}
 	}
-
-	out = append(out, extractFencedBlocks(src)...)
+	for _, c := range mdparse.CodeBlockLines(src) {
+		if c.Lang != "mermaid" {
+			out = append(out, c)
+		}
+	}
 	return out
 }
 
-// extractFencedBlocks emits one entry per content line, so a flag token on one
-// line is never attributed to a citation on another.
-func extractFencedBlocks(src []byte) []codeSpanEntry {
-	lines := strings.Split(string(src), "\n")
-	var out []codeSpanEntry
+var shellSeparators = map[string]bool{"|": true, "||": true, "&&": true, ";": true, "&": true, `\`: true}
 
-	inFence := false
-	var fenceMarker byte
-	var fenceLen int
+const trailingPunct = ",;:.)]\"'"
 
-	for i, raw := range lines {
-		lineNum := i + 1
-		rawBytes := []byte(raw)
+var boundaryPrefixes = []string{">", "2>", "1>", "&>", "$(", "`", "#"}
 
-		if ch, flen := fenceOpenByte(rawBytes); !inFence && flen > 0 {
-			inFence = true
-			fenceMarker = ch
-			fenceLen = flen
+// isShellBoundary judges t, the first of tokens. A `<` opens an input redirect
+// unless a token from t on closes it as a `<multi word>` placeholder.
+func isShellBoundary(tokens []string) bool {
+	t := tokens[0]
+	if shellSeparators[t] {
+		return true
+	}
+	if strings.HasPrefix(t, "<") {
+		return !slices.ContainsFunc(tokens, func(s string) bool {
+			return strings.HasSuffix(strings.TrimRight(s, trailingPunct), ">")
+		})
+	}
+	for _, p := range boundaryPrefixes {
+		if strings.HasPrefix(t, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// citationTokens returns the original-case tokens after the first "atomic", up
+// to the first shell boundary; later tokens belong to another command.
+func citationTokens(text string) []string {
+	tokens := strings.Fields(text)
+	for i, t := range tokens {
+		if !strings.EqualFold(t, "atomic") {
 			continue
 		}
-		if inFence {
-			if isFenceCloseByte(rawBytes, fenceMarker, fenceLen) {
-				inFence = false
-				fenceMarker = 0
-				fenceLen = 0
-				continue
-			}
-			if strings.TrimSpace(raw) != "" {
-				out = append(out, codeSpanEntry{
-					text: raw,
-					line: lineNum,
-				})
+		rest := tokens[i+1:]
+		for j := range rest {
+			if isShellBoundary(rest[j:]) {
+				return rest[:j]
 			}
 		}
+		return rest
 	}
-	return out
+	return nil
 }
 
-func fenceOpenByte(line []byte) (marker byte, length int) {
-	if len(line) == 0 {
-		return 0, 0
-	}
-	ch := line[0]
-	if ch != '`' && ch != '~' {
-		return 0, 0
-	}
-	n := 0
-	for n < len(line) && line[n] == ch {
-		n++
-	}
-	if n < 3 {
-		return 0, 0
-	}
-	return ch, n
-}
-
-func isFenceCloseByte(line []byte, marker byte, fenceLen int) bool {
-	n := 0
-	for n < len(line) && line[n] == marker {
-		n++
-	}
-	if n < fenceLen {
-		return false
-	}
-	rest := strings.TrimRight(string(line[n:]), " \t\r")
-	return len(rest) == 0
-}
-
-// checkSpan reports A1 violations in one already-extracted code span.
+// checkSpan reports A1 violations in one citation: an inline code span or a
+// code-block line.
 func checkSpan(path, text string, line int, topVerbs map[string]bool) []Finding {
-	tokens := tokenize(text)
-	if len(tokens) == 0 {
-		return nil
-	}
-
-	atomicIdx := -1
-	for i, t := range tokens {
-		if t == "atomic" {
-			atomicIdx = i
-			break
-		}
-	}
-	if atomicIdx < 0 {
-		return nil
-	}
-
-	rest := tokens[atomicIdx+1:]
-	if len(rest) == 0 {
-		return nil
-	}
-
-	if !topVerbs[rest[0]] {
+	raw := citationTokens(text)
+	rest := lowerAll(raw)
+	if len(rest) == 0 || !topVerbs[rest[0]] {
 		return nil
 	}
 
 	cmd := longestMatch(rest)
 	if cmd == nil {
-		// No known path matches — accepted false negative.
-		return nil
+		return checkUnresolved(path, line, pathWords(raw))
 	}
 
 	known := make(map[string]bool, len(cmd.Flags))
@@ -170,19 +124,16 @@ func checkSpan(path, text string, line int, topVerbs map[string]bool) []Finding 
 		known[f] = true
 	}
 
-	matched := cmd.Path
-	flagTokens := rest[len(matched):]
-
 	var findings []Finding
-	for _, tok := range flagTokens {
+	for _, tok := range rest[len(cmd.Path):] {
+		if tok == "--" {
+			break
+		}
 		if !looksLikeFlag(tok) {
 			continue
 		}
 		normalized := normalizeFlag(tok)
-		if universalFlags[normalized] {
-			continue
-		}
-		if known[normalized] {
+		if universalFlags[normalized] || known[normalized] {
 			continue
 		}
 		findings = append(findings, Finding{
@@ -199,6 +150,90 @@ func checkSpan(path, text string, line int, topVerbs map[string]bool) []Finding 
 		})
 	}
 	return findings
+}
+
+// checkUnresolved judges a citation that names no full command, per the rules
+// in docs/spec/validate-artifact-cli-flags.md.
+func checkUnresolved(path string, line int, words []string) []Finding {
+	commands := cliusage.Commands()
+	var findings []Finding
+	namespaces := [][]string{nil}
+	for _, w := range words {
+		var next [][]string
+		for _, ns := range namespaces {
+			for _, alt := range strings.FieldsFunc(w, func(r rune) bool { return r == '|' || r == '/' }) {
+				p := append(slices.Clone(ns), alt)
+				if cliusage.LookupByPath(p) != nil {
+					continue
+				}
+				if len(subcommands(commands, p)) > 0 {
+					next = append(next, p)
+					continue
+				}
+				msg := fmt.Sprintf(
+					"unknown command `atomic %s`; known subcommands of `atomic %s`: %s",
+					strings.Join(p, " "),
+					strings.Join(ns, " "),
+					strings.Join(subcommands(commands, ns), ", "),
+				)
+				findings = append(findings, Finding{Severity: "FAIL", Rule: "A1", Path: path, Line: line, Message: msg})
+			}
+		}
+		namespaces = next
+	}
+	return findings
+}
+
+// pathWords returns the lowercased verb-path words of original-case tokens;
+// capitals mark a placeholder, so case is judged before lowering.
+func pathWords(tokens []string) []string {
+	var words []string
+	for _, t := range tokens {
+		if t == "--" || looksLikeFlag(t) || isPlaceholder(t) {
+			break
+		}
+		w := strings.TrimRight(t, trailingPunct)
+		if isAllCaps(w) {
+			break
+		}
+		if w != "" {
+			words = append(words, strings.ToLower(w))
+		}
+		if w != t {
+			break
+		}
+	}
+	return words
+}
+
+func isPlaceholder(t string) bool {
+	return strings.ContainsAny(t[:1], "<[{($\"'") || strings.Contains(t, "…")
+}
+
+func isAllCaps(w string) bool {
+	if len(w) < 2 || strings.IndexFunc(w, func(r rune) bool { return r >= 'A' && r <= 'Z' }) < 0 {
+		return false
+	}
+	return strings.IndexFunc(w, func(r rune) bool {
+		return !(r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-')
+	}) < 0
+}
+
+// subcommands is sorted, and empty when prefix is not a namespace.
+func subcommands(commands []cliusage.Command, prefix []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range commands {
+		if len(c.Path) <= len(prefix) || !slices.Equal(c.Path[:len(prefix)], prefix) {
+			continue
+		}
+		if next := c.Path[len(prefix)]; !seen[next] {
+			seen[next] = true
+			out = append(out, next)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // longestMatch returns the Command whose Path is the longest matching prefix
@@ -244,13 +279,10 @@ func normalizeFlag(token string) string {
 	return token
 }
 
-func tokenize(text string) []string {
-	raw := strings.Fields(text)
-	out := make([]string, 0, len(raw))
-	for _, t := range raw {
-		if t != "" {
-			out = append(out, strings.ToLower(t))
-		}
+func lowerAll(tokens []string) []string {
+	out := make([]string, len(tokens))
+	for i, t := range tokens {
+		out[i] = strings.ToLower(t)
 	}
 	return out
 }
@@ -348,7 +380,7 @@ func runArtifacts(paths []string, jsonOut, suggest bool, w io.Writer) int {
 	if jsonOut {
 		printJSON(w, findings, s)
 	} else {
-		printHeader(w, "artifacts", "CLI-flag citation integrity")
+		printHeader(w, "artifacts", "CLI verb/flag citation integrity")
 		printHuman(w, findings, s, suggest)
 	}
 	return exitCode(s)
