@@ -46,6 +46,12 @@ Walk the Cobra root command tree to produce `[]cliusage.Command` (design decisio
 
 Top-level-only (no subcommands): the remaining 5 of the 17 (e.g. `doctor`, `update`, `validate`, `serve`, `prompt` — confirm against the slice). Each ported subcommand routes to its EXISTING handler unchanged (no behavior change). Each carries `Annotations["args_hint"]` = its `Args` string (e.g. `<query>`, `[pattern]`) and registers its existing `--flags` so `deriveCommands` reproduces `Command{Path, Args, Flags, Description}` exactly.
 
+## Argument parsing in leaf handlers
+
+This section describes behavior added after the migration; the contract is `docs/spec/cli-trailing-flags.md`.
+
+Every leaf sets `DisableFlagParsing`, so Cobra never parses a leaf's flags; the handler parses raw argv with a stdlib `flag.FlagSet`, and `FlagSet.Parse` stops at the first positional. The verbs listed in `docs/spec/cli-trailing-flags.md` parse with `cliutil.ParseInterspersed`: flags are honored before, after, or between positionals, a bare `--` ends the verb's own flag parsing, and an argument the verb does not take exits 2 and is named in the error. The verbs in that spec's Non-goals keep the parsers they have.
+
 ## Checkpoints
 
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
@@ -94,3 +100,9 @@ Top-level-only (no subcommands): the remaining 5 of the 17 (e.g. `doctor`, `upda
 **Why:** Realm wikis no longer track freshness, so the verbs that wrote and compared fingerprints are deleted.
 
 **Removed:** `wiki stamp`, `wiki mark-dirty`, `wiki bucket diff`, and `wiki bucket promote` from the inventory. See `docs/spec/realm-wiki-drop-refresh.md`.
+
+### 2026-10-20 — Argument parsing in leaf handlers
+
+**What changed:** Added § Argument parsing in leaf handlers: leaves that take positionals and flags parse with `cliutil.ParseInterspersed`; on the verbs `docs/spec/cli-trailing-flags.md` lists, an argument the verb does not take exits 2.
+
+**Why:** With `DisableFlagParsing` on every leaf, stdlib parsing stopped at the first positional and `atomic followups close <id> --reason "<text>"` dropped the reason with exit 0.

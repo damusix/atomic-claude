@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -289,5 +290,52 @@ func TestRunMigrateRealmAbortedSkipsMemberNotRealm(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(member, ".claude", "project", "signals.md")); err != nil {
 		t.Errorf("old signals.md should still exist (member was skipped): %v", err)
+	}
+}
+
+// An ignored stray positional would let the install-scope migration run on a typo.
+func TestParseMigrateArgs_ExtraPositionalRejected(t *testing.T) {
+	for _, args := range [][]string{
+		{"extra"},
+		{"--repo", "r", "extra"},
+		{"--show-log", "1.2.0", "extra"},
+	} {
+		var stderr strings.Builder
+		if _, code := parseMigrateArgs(args, &stderr); code != 2 {
+			t.Errorf("parseMigrateArgs(%q) = %d, want 2", args, code)
+		}
+		if !strings.Contains(stderr.String(), `"extra"`) {
+			t.Errorf("parseMigrateArgs(%q): stderr %q does not name the extra argument", args, stderr.String())
+		}
+	}
+}
+
+func TestParseMigrateArgs_ShowLogSinceAnyOrder(t *testing.T) {
+	for _, args := range [][]string{
+		{"--show-log", "1.2.0"},
+		{"1.2.0", "--show-log"},
+	} {
+		opts, code := parseMigrateArgs(args, io.Discard)
+		if code != 0 || !opts.showLog || opts.since != "1.2.0" {
+			t.Errorf("parseMigrateArgs(%q) = %+v, %d; want showLog since 1.2.0", args, opts, code)
+		}
+	}
+}
+
+func TestParseMigrateArgs_TrailingRepoAfterSinceStillConflicts(t *testing.T) {
+	var stderr strings.Builder
+	opts, code := parseMigrateArgs([]string{"--show-log", "1.2.0", "--repo", "r"}, &stderr)
+	if code != 2 {
+		t.Fatalf("code = %d, want 2", code)
+	}
+	if opts.repo != "r" || !strings.Contains(stderr.String(), "cannot be combined") {
+		t.Errorf("trailing --repo was not parsed as a flag: opts %+v, stderr %q", opts, stderr.String())
+	}
+}
+
+func TestParseMigrateArgs_FlagAfterTerminatorIsPositional(t *testing.T) {
+	opts, code := parseMigrateArgs([]string{"--", "--repo", "r"}, io.Discard)
+	if code != 2 || opts.repo != "" {
+		t.Errorf("after --, --repo must be a rejected positional: opts %+v, code %d", opts, code)
 	}
 }

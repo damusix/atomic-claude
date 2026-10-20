@@ -140,12 +140,14 @@ Stale = `today > review_by`. Header counts include stale.
 | `atomic followups list --stale` | Open entries past `review_by` only | 0 |
 | `atomic followups list --json` | Machine-readable | 0 |
 | `atomic followups add --id <id> --title <t> --severity <s> --origin <o> [--file <f>] [--body -]` | Deterministic creation: validate args, compute `review_by`, write file with frontmatter (+ optional stdin body via `--body -`), regen INDEX, print path | 0; 1 on validation error |
-| `atomic followups close <id> [--reason <r>]` | Append entry to `CLOSED.md` (with reason if supplied), delete `<id>.md`, regen INDEX | 0; 1 if id missing |
+| `atomic followups close <id> [--reason <r>]` | Append entry to `CLOSED.md` (with reason if supplied), delete `<id>.md`, regen INDEX | 0; 1 if no entry `<id>` exists; 2 without exactly one `<id>` argument |
 | `atomic followups render` | Regenerate INDEX.md from current folder contents | 0 |
 | `atomic followups migrate [--dry-run] [--accept-fallback-dates]` | Split legacy `followups.md` → per-entry files + CLOSED.md; rewrite @-ref; render INDEX; delete old file. `--dry-run` prints plan only; `--accept-fallback-dates` required when any entry lacks a parseable date | 0; 2 on refusal; idempotent |
 | `atomic followups path` | Print absolute path to the folder | 0 |
 
 All commands resolve folder via the repo's `.claude/project/followups/` (cwd anchored to git toplevel, same as `signals` subcommand).
+
+Flags are accepted before, after, or between positionals: `close <id> --reason <r>` and `close --reason <r> <id>` are the same call. A bare `--` ends the verb's own flag parsing; the global `--repo` is still read from any position. An argument a verb does not take (a second `<id>`, any positional to `list`, `add`, `render`, or `path`) exits 2, names the extra arguments, prints usage, and changes nothing on disk. Contract: `docs/spec/cli-trailing-flags.md`.
 
 `add` is the deterministic-creation entrypoint: invoking artifacts (notably `/subagent-implementation` Phase 3 defer disposition) shell out to it rather than authoring frontmatter directly. Eliminates the hallucination surface — LLM only writes the body, never the structured fields.
 
@@ -330,6 +332,14 @@ Migration's rewrite step is exact-line anchored: it matches `@.claude/project/fo
 ### 2026-05-23 — Correction: stale signals filename in directory listing
 
 **Correction:** The sample `.claude/project/` directory tree showed `inferred-signals.md` which was renamed to `signals.md` when the signals router shipped. Corrected to `signals.md`.
+
+### 2026-10-20 — Argument order: flags after positionals honored, stray arguments exit 2
+
+**What changed:** § CLI surface states that flags are accepted in any position, `--` ends flag parsing, and an argument a verb does not take exits 2. `close` lists exit 2 for a missing or extra `<id>`.
+
+**Why:** `atomic followups close <id> --reason "<text>"` exited 0 and wrote a marker-only `CLOSED.md` line: stdlib flag parsing stopped at `<id>` and the reason was never read.
+
+**Superseded:** extra arguments and flags after the first positional were silently ignored.
 
 ## Implementation log
 

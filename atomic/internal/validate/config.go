@@ -1,7 +1,6 @@
 package validate
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
-	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
@@ -326,25 +324,7 @@ func relPath(root, path string) string {
 	return rel
 }
 
-func runConfig(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
-	// Re-parsed here so flags placed after the subcommand are honored.
-	subFS := flag.NewFlagSet("validate config", flag.ContinueOnError)
-	cliutil.SetUsage(subFS, "atomic validate config [--json] [--suggest]")
-	subFS.SetOutput(w)
-	var subJSON, subSuggest bool
-	subFS.BoolVar(&subJSON, "json", false, "emit JSON output ({schema_version:1, findings:[...]})")
-	subFS.BoolVar(&subSuggest, "suggest", false, "print structural templates for content-FAIL rules")
-	_ = subFS.Parse(subArgs)
-
-	if subJSON {
-		jsonOut = true
-	}
-	if subSuggest {
-		suggest = true
-	}
-
-	// Path args are ignored: config validation is whole-repo only.
-
+func runConfig(jsonOut, suggest bool, w io.Writer) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(w, "atomic validate config: cannot get working directory: %v\n", err)

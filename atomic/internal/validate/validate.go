@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 )
 
 // Run reports an exit code: 0 ok, 1 FAIL findings, 2 validator error.
@@ -29,7 +31,7 @@ func RunWithOutput(args []string, w io.Writer) int {
 		fmt.Fprintf(w, "Usage: atomic validate [flags] [spec|config|bundle|artifacts] [paths...]\n\n")
 		fmt.Fprintf(w, "Subcommands:\n")
 		fmt.Fprintf(w, "  spec       [paths...]  Validate spec structure (S0,S1,S5,S6)\n")
-		fmt.Fprintf(w, "  config     [paths...]  Validate cross-reference integrity (C3,C5,C7,C9)\n")
+		fmt.Fprintf(w, "  config                 Validate cross-reference integrity (C3,C5,C7,C9)\n")
 		fmt.Fprintf(w, "  bundle                 Validate bundle parity vs committed embedded/\n")
 		fmt.Fprintf(w, "  artifacts  [paths...]  Lint atomic CLI verb/flag citations in artifacts\n")
 		fmt.Fprintf(w, "\nFlags:\n")
@@ -37,14 +39,13 @@ func RunWithOutput(args []string, w io.Writer) int {
 		fmt.Fprintln(w, "  --suggest  print structural templates for content-FAIL rules")
 	}
 
-	if err := fs.Parse(args); err != nil {
+	remaining, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		if err == flag.ErrHelp {
 			return 0
 		}
 		return 2
 	}
-
-	remaining := fs.Args()
 
 	if len(remaining) == 0 {
 		return runWholeRepo(jsonOut, suggest, w)
@@ -63,23 +64,22 @@ func RunWithOutput(args []string, w io.Writer) int {
 	case "spec":
 		return runSpec(subArgs, jsonOut, suggest, w)
 	case "config":
-		return runConfig(subArgs, jsonOut, suggest, w)
-	case "bundle":
-		return runBundle(subArgs, jsonOut, suggest, w)
-	case "artifacts":
-		paths, jOut, sug, ok := parseArtifactsFlags(subArgs, w)
-		if !ok {
+		if len(subArgs) > 0 {
+			cliutil.UnexpectedArgs(fs, "validate config", subArgs)
 			return 2
 		}
-		return runArtifacts(paths, jOut || jsonOut, sug || suggest, w)
+		return runConfig(jsonOut, suggest, w)
+	case "bundle":
+		if len(subArgs) > 0 {
+			cliutil.UnexpectedArgs(fs, "validate bundle", subArgs)
+			return 2
+		}
+		return runBundleImpl(jsonOut, suggest, w)
+	case "artifacts":
+		return runArtifacts(subArgs, jsonOut, suggest, w)
 	default:
 		fmt.Fprintf(w, "atomic validate: unknown subcommand %q\n", sub)
 		fmt.Fprintf(w, "  subcommands: spec, config, bundle, artifacts\n")
 		return 2
 	}
-}
-
-func runBundle(paths []string, jsonOut, suggest bool, w io.Writer) int {
-	_ = paths
-	return runBundleImpl(jsonOut, suggest, w)
 }

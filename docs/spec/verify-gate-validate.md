@@ -29,7 +29,7 @@ Same addition to the finalize gate (step 1, which invokes `atomic-verify`): name
 
 ## Constraints
 
-- No change to `atomic validate` Go code, rules, or flags. Interface used as-is: `atomic validate spec [paths...]`, `atomic validate config [paths...]`; `--json`, `--suggest`.
+- No change to `atomic validate` Go code, rules, or flags. Interface used as-is: `atomic validate spec [paths...]`, `atomic validate config`; `--json`, `--suggest`.
 - No `/atomic-plan` template change (out of scope — S5 already passes the 6-column header).
 - Bundle sources change → `make render` then `make -C atomic bundle` must run, and the regenerated `commands/` + `atomic/internal/embedded/` outputs committed in the same change.
 - This is a behavior change to existing artifacts, not a new artifact. The `/atomic-help` router needs no new row (no new verb/agent/skill), but verify the existing autopilot / subagent-implementation descriptions still read true.
@@ -50,3 +50,4 @@ Same addition to the finalize gate (step 1, which invokes `atomic-verify`): name
 
 - 2026-06-10 — Initial spec. Scope narrowed from the originating followup: cause 2 (reconcile `/atomic-plan` 6-column checkpoint table to 4 columns) dropped as moot — commit `0d24f22` relaxed S5 to allow extra columns, verified empirically (6-column header passes with 0 FAIL). Only cause 1 (the root fix: `atomic validate` in the verify gate) is in scope.
 - 2026-10-19 — Artifacts assume atomic is installed. **What changed:** the `atomic-verify` contract runs `atomic validate` with no binary-presence check, and the success criterion for silent degradation is removed. **Why:** issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run; see `docs/spec/artifacts-mermaid-flows.md`. **Superseded:** the skill skipped `atomic validate` silently when the binary was not on PATH or no matching files existed.
+- 2026-10-20 — **Correction:** the non-goals interface line listed `atomic validate config [paths...]`; `config` takes no path arguments and a path exits 2 (see `docs/spec/atomic-validate.md`). Corrected to `atomic validate config`.

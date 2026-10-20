@@ -15,6 +15,7 @@ paths:
   - "atomic/internal/coldprompt/**"
   - "atomic/internal/doctemplate/**"
   - "atomic/internal/dockerinit/**"
+  - "atomic/internal/cliutil/**"
   - "atomic/cmd/atomic/main.go"
 ---
 
@@ -25,6 +26,7 @@ Map:
 Contracts:
   - docs/spec/agents-effort-config.md
   - docs/spec/atomic-state-and-config.md
+  - docs/spec/cli-trailing-flags.md
   - docs/spec/output-style-seed.md
 References:
   - docs/reference/atomic-toml.md

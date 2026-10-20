@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -43,38 +44,12 @@ func buildMigrateCmd() *cobra.Command {
 //	atomic migrate --realm <path>           → install-scope + fan-out to member repos
 //	atomic migrate --show-log [<since>]     → print the migration log, newest first
 func runMigrate(args []string) {
-	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	cliutil.SetUsage(fs, "atomic migrate [--repo <path>] [--realm <path>] [--show-log [<since>]]")
-	var repoPath string
-	var realmPath string
-	var showLog bool
-	fs.StringVar(&repoPath, "repo", "", "run repo-scope migrations on this path")
-	fs.StringVar(&realmPath, "realm", "", "run install-scope + repo fan-out under this realm root")
-	fs.BoolVar(&showLog, "show-log", false, "print dated migration log entries, optionally since a version or date")
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
+	opts, code := parseMigrateArgs(args, os.Stderr)
+	if code != 0 {
+		os.Exit(code)
 	}
-	// The optional <since> is a bare positional following the bool flag
-	// (`--show-log 1.2.0`), not a `--show-log=1.2.0` value — Go's flag
-	// package leaves it in fs.Args() rather than attaching it to the bool.
-	// fs.Parse also stops consuming at the first positional, so a flag typed
-	// after <since> (`--show-log 1.2.0 --repo x`) never reaches repoPath —
-	// it lands unconsumed in fs.Args() instead of being silently dropped.
-	remaining := fs.Args()
-	var showLogSince string
-	if showLog && len(remaining) > 0 {
-		showLogSince = remaining[0]
-		remaining = remaining[1:]
-	}
-	if showLog {
-		// --show-log lists global log entries; a target repo or realm has no
-		// bearing on that, so the combination is rejected rather than one
-		// side winning silently.
-		if repoPath != "" || realmPath != "" || len(remaining) > 0 {
-			fmt.Fprintln(os.Stderr, "atomic migrate: --show-log cannot be combined with --repo or --realm")
-			os.Exit(2)
-		}
-		out, err := migrate.FormatLog(migrate.Registry, showLogSince)
+	if opts.showLog {
+		out, err := migrate.FormatLog(migrate.Registry, opts.since)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic migrate: %v\n", err)
 			os.Exit(1)
@@ -88,8 +63,8 @@ func runMigrate(args []string) {
 	}
 
 	switch {
-	case repoPath != "":
-		absRepo, err := filepath.Abs(repoPath)
+	case opts.repo != "":
+		absRepo, err := filepath.Abs(opts.repo)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic migrate: resolve --repo path: %v\n", err)
 			os.Exit(1)
@@ -99,8 +74,8 @@ func runMigrate(args []string) {
 			os.Exit(1)
 		}
 
-	case realmPath != "":
-		absRealm, err := filepath.Abs(realmPath)
+	case opts.realm != "":
+		absRealm, err := filepath.Abs(opts.realm)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic migrate: resolve --realm path: %v\n", err)
 			os.Exit(1)
@@ -130,6 +105,42 @@ func runMigrate(args []string) {
 			os.Exit(1)
 		}
 	}
+}
+
+type migrateOpts struct {
+	repo, realm string
+	showLog     bool
+	since       string
+}
+
+// parseMigrateArgs returns exit code 2 on any usage error, 0 otherwise.
+func parseMigrateArgs(args []string, stderr io.Writer) (migrateOpts, int) {
+	var opts migrateOpts
+	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cliutil.SetUsage(fs, "atomic migrate [--repo <path>] [--realm <path>] [--show-log [<since>]]")
+	fs.StringVar(&opts.repo, "repo", "", "run repo-scope migrations on this path")
+	fs.StringVar(&opts.realm, "realm", "", "run install-scope + repo fan-out under this realm root")
+	fs.BoolVar(&opts.showLog, "show-log", false, "print dated migration log entries, optionally since a version or date")
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
+		return opts, 2
+	}
+	// <since> is a positional, not a value: a bool flag never takes the next token.
+	if opts.showLog && len(positional) > 0 {
+		opts.since = positional[0]
+		positional = positional[1:]
+	}
+	if len(positional) > 0 {
+		cliutil.UnexpectedArgs(fs, "migrate", positional)
+		return opts, 2
+	}
+	// The log is global, so a target repo or realm is rejected rather than ignored.
+	if opts.showLog && (opts.repo != "" || opts.realm != "") {
+		fmt.Fprintln(stderr, "atomic migrate: --show-log cannot be combined with --repo or --realm")
+		return opts, 2
+	}
+	return opts, 0
 }
 
 // runMigrateInstall works across two roots: config.toml lives under
