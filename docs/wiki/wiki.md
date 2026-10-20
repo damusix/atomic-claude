@@ -245,7 +245,7 @@ XML-tag regions (`<tag>…</tag>`) delimit every code-generated splice in a wiki
 - A blank line on each side of the region content is mandatory, not cosmetic. CommonMark parses a tag alone on a line as an HTML block running to the next blank line, so unpadded content renders as raw text. `renderManagedRegion` is the only emitter of that padding; `rewriteScanBlock` adds none.
 - An unpaired `wiki-member-list` fails the scan: `writeMembersSection` returns the `errUnpairedRegion`, and `Scan` errors with `wiki scan: write members section`. An unpaired `<bucket-docs>` or `<wiki-bucket-list>` warns to stderr and the run continues.
 - `atomic wiki scan` is idempotent: it rewrites only the managed regions. Content outside them, and everything under `repos/` and `concerns/`, is untouched. A fresh scan scaffolds `index.md`, [`README.md`](../../README.md), [`CLAUDE.md`](../../CLAUDE.md), `repos/`, and `concerns/`, and `git init`s `wiki/`; it overwrites none of them when present.
-- Scan refuses to run when `wiki/` exists but `index.md` is absent or carries no `<wiki-scan>` marker, and names the path in the error.
+- Scan refuses a `wiki/` whose `index.md` lacks the `<wiki-scan>` marker, or which has no `index.md` and holds anything but the one unedited `CLAUDE.md` that `wiki init --scope realm` writes. An empty `wiki/` is refused. The error names the path.
 
 ### Membership drift
 
