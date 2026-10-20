@@ -210,7 +210,7 @@ One verb covers all ship paths:
 /commit squash merge      — commit + squash + merge to base
 ```
 
-With no pending changes and commits already ahead of base, `/commit` skips straight to the ship step, so `/commit merge` on a clean branch just merges. The merge and squash-merge paths run tests on the merged result and prompt to clean up the worktree if you used one; squash alone rewrites the branch without re-running tests.
+With no pending changes and commits already ahead of base, `/commit` skips straight to the ship step, so `/commit merge` on a clean branch just merges. `/commit pr` on a branch that is already pushed still reaches the PR step, and `/commit squash merge` on a single-commit branch skips the squash and merges. The merge and squash-merge paths run tests on the merged result and prompt to clean up the worktree if you used one; squash alone rewrites the branch without re-running tests.
 
 
 ## 5. Track what's deferred
