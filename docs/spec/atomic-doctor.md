@@ -190,7 +190,7 @@ Per-item confirm (axiom 3). Each repair idempotent. Print every shell command be
 
 | # | Category | Repair action |
 |---|----------|---------------|
-| 1 | `install`   | `atomic claude install --merge` (re-uses existing merge-required guard for `CLAUDE.md`). |
+| 1 | `install`   | `atomic claude install` (re-uses existing merge-required guard for `CLAUDE.md`). |
 | 2 | `hooks`     | `atomic hooks install`. |
 | 3 | `signals`   | **Cannot auto-fix.** Print: `run /refresh-wiki from Claude Code to refresh signals.` |
 | 4 | `refs`      | Ask user which file to patch (numbered list per axiom 4 if >1 candidate); append `@`-ref block. |
@@ -298,6 +298,13 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 **What changed:** New check category 14 (`output-style`) reads the user-level `outputStyle` key from the install target's `settings.json`. Absent with seeding enabled → WARN, repairable. Absent with `output_style.seed = false`, or set to `"Atomic"` while the style file is missing → WARN reported as **cannot auto-fix**, since seeding cannot resolve either. Any other present value → PASS, qualified as not verified against an installed style file. Any `outputStyle` found in the current repo's `.claude/settings.json` or `.claude/settings.local.json` is appended to the detail as a possible override, naming the file — never a computed effective value. `--fix` seeds the user level only, via `hooks.SeedOutputStyle`, and only for the repairable case.
 
 **Why:** `docs/spec/output-style-seed.md` — most sessions default to the stock output style because the user-level key is never set; doctor is the diagnostic that answers "what output style will I actually get, and which file decided that" without the user grepping settings files by hand.
+
+### 2026-10-20 — Correction: install repair names `atomic claude install`
+
+**What changed:** the Repair-mode row for category 1 names `atomic claude install`. The repair itself is unchanged: it runs the install in process.
+
+**Correction:** the row cited `claude install --merge`, a flag that does not exist (`claude install` takes `--dry-run`, `--no-hooks`, `--target`). The hardened A1 rule in `atomic validate artifacts` found it; the `--fix` output strings in `fix.go` and `fix_impls.go` were corrected with it.
+
 
 ### 2026-09-08 — Correction: category 14 skips a self-referential override scan
 

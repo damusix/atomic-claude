@@ -188,7 +188,7 @@ Members come from two sources, unioned. Realm federation is a `<code-index>` blo
 
 ### SQL schema view
 
-For an index holding tables and views, `/code/schema` renders each with its columns, its foreign-key sources, and the routines that write to it. It is derived from the graph rather than computed on request, which is why there is no `atomic code schema` verb to run.
+For an index holding tables and views, `/code/schema` renders each with its columns, its foreign-key sources, and the routines that write to it. It is derived from the graph rather than computed on request, which is why there is no `code schema` verb to run.
 
 ### External links
 

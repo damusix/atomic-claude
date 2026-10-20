@@ -313,6 +313,12 @@ var commands = []Command{
 		Description: "Delete a reminder",
 	},
 	{
+		Path:        []string{"reminder", "set-due"},
+		Args:        "<id> <iso>",
+		Flags:       nil,
+		Description: "Rewrite a reminder's due: timestamp in place",
+	},
+	{
 		Path:        []string{"scratchpad", "new"},
 		Args:        "<slug>",
 		Flags:       []string{"--purpose"},
