@@ -50,15 +50,11 @@ func scanNoUpdateCheck(argv []string) (found bool, cleaned []string) {
 //
 //	migrate --repo <path>            : repo-scope migration target
 //	config resolve --repo <root>     : the repo to resolve Pi config for
-//	wiki stamp <file> --repo <path>  : summary-mode repo whose HEAD to stamp
 var repoFlagExemptions = [][]string{
 	{"migrate"},
 	{"config", "resolve"},
-	{"wiki", "stamp"},
 }
 
-// repoFlagExempt matches on prefix, not equality: `wiki stamp` takes a
-// positional <file> before its flags, and must still match.
 func repoFlagExempt(argv []string) bool {
 	prefix := verbPrefix(argv)
 	for _, exempt := range repoFlagExemptions {

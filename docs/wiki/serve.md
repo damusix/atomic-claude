@@ -10,9 +10,9 @@ tags: [web-ui, daemon, code-graph]
 ## What it does
 
 
-A wiki realm is a set of markdown files and a set of SQLite symbol graphs. Read as files, the links between them stay invisible: nothing shows which pages reference each other, which repos are stale, or what a symbol connects to across members.
+A wiki realm is a set of markdown files and a set of SQLite symbol graphs. Read as files, the links between them stay invisible: nothing shows which pages reference each other, which members have drifted from the last wiki scan, or what a symbol connects to across members.
 
-`atomic serve [path] [--port N] [--host H] [--open]` renders all of it in a browser (default port 4500, default bind `127.0.0.1`). Go serves a JSON API; the UI is a React + TypeScript SPA built by Bun, committed as `frontend/dist/` and embedded with `go:embed`, so `go build` never invokes Bun or Node.
+`atomic serve [path] [--port N] [--host H] [--open]` renders all of it in a browser (default port 4500, default bind `127.0.0.1`). Go serves a JSON API; the UI is a React + TypeScript SPA built by Bun into the gitignored `frontend/dist/` (`make -C atomic frontend`) and embedded with `go:embed`, so `go build` itself never invokes Bun or Node.
 
 Serve is read-only with respect to realm and repo content. The `/api/bus/*` chat endpoints are the one exception: they write to the bus daemon's own state (room membership and messages), never to files, and every one of them is refused unless the request's TCP peer is loopback.
 
@@ -43,19 +43,19 @@ flowchart LR
 | `GET /api/page/<relpath>` | Rendered markdown as HTML-in-JSON, plus title, breadcrumb segments, `hasMermaid`. Empty relpath serves the scope landing (realm index, else [`README.md`](../../README.md)). A directory with no index file returns `{dir, entries}` |
 | `GET /api/file/<relpath>` | Chroma line-table HTML for a source file |
 | `GET /api/rail/<relpath>` | One payload: `properties`, `out`, `in`, `graphDataURL` |
-| `GET /api/nav` | Realm scope: the Realm, Repos, Concerns, Knowledge, Buckets, and External groups, with staleness badges. Repo scope: docs file tree |
+| `GET /api/nav` | Realm scope: the Realm, Repos, Concerns, Buckets, and External groups, with a membership-drift badge on a repo that `wiki.Stale` reports as drifted. Repo scope: docs file tree plus a Code placeholder |
 | `GET /api/search/md?q=` | Literal case-insensitive substring search over `*.md`, capped at 50 results |
 | `GET /api/code/search?q=&only=&exclude=` | Federated symbol search, grouped per member. An unindexed member returns `indexed:false` with empty results, not an error |
 | `GET /api/search/stream?q=&src=` | SSE: one `md` event, one `code` event per member as its search completes, terminal `end` |
 | `GET /api/code/{node,callers,callees,impact,files,schema,file}` | Code-explorer JSON, backing the code modal and SQL schema view |
-| `GET /api/status` | Realm health: wiki staleness plus code-index health |
+| `GET /api/status` | Realm health: wiki membership drift (`staleRepos`, `allFresh`) plus code-index health |
 | `GET /api/external` | External-link registry with first-seen dates |
 | `GET /api/plans[?member=<key>]` | One row per plan slug, aggregated across every git worktree of the target repo (realm root or a named member). `<key>` matches a member's `Prefix` first, its `Key` second — `findPlansMember` (`api_plans.go`) |
 | `GET /api/plans/page?worktree=<id>&path=<relpath>[&raw=1]` | One committed doc or bundle file, resolved by worktree id rather than the served root. `raw=1` streams the file's own bytes with `Content-Security-Policy: sandbox` (`sandbox allow-scripts` for an `.html`/`.htm` file) |
 | `GET /api/plans/members` | Every repo Plans can aggregate — empty outside realm scope, where the page renders no picker |
 | `GET /api/bus/*` | Bus chat facade, loopback-only (routes below) |
 | `GET /events` | Live-reload SSE, `{fp, changed}` |
-| `GET /graph/data[?node=&depth=]` | Docs link graph as Cytoscape elements. `node=` gives a BFS subgraph, default depth 2. Edge classes: `md-link`, `wikilink`, `fingerprint` |
+| `GET /graph/data[?node=&depth=]` | Docs link graph as Cytoscape elements. `node=` gives a BFS subgraph, default depth 2. Edge classes: `md-link`, `wikilink` |
 | `GET /code/graph/data[?member=]` | One member's entire symbol graph as flat JSON, plus a content fingerprint |
 | `GET /code/graph/members` | Realm members with indexed state, for the code view's member picker |
 | `GET /*` | Static file from `frontend/dist/`, else `index.html` |
@@ -210,8 +210,7 @@ Go, all in [`atomic/internal/serve/`](../../atomic/internal/serve):
 | `events.go` | `/events` SSE endpoint and the subscriber-gated ticker |
 | `graphoverlay.go` | `/graph/data` Cytoscape element assembly |
 | `graphcache.go` | Fingerprint-invalidated cache for the whole-realm graph payload |
-| `provenance.go` | Provenance DAG from `reflects:` / `sources:` frontmatter, feeding the `fingerprint` edge class |
-| `nav.go` | Realm and repo nav group builders, `computeStaleness` |
+| `nav.go` | Realm and repo nav group builders, `computeStaleness` (the drifted-member set behind the repo badges) |
 | `rail_handler.go` | Rail properties from key-ordered YAML frontmatter |
 | `search_md.go`, `search_stream.go` | Markdown search and the SSE framing around it |
 | `codesearch.go` | Federated symbol-search fan-out across members |
@@ -221,7 +220,8 @@ Go, all in [`atomic/internal/serve/`](../../atomic/internal/serve):
 | `code_members.go` | `memberResolver` — realm federation union self-index discovery; `codeMember`, reused by `plansMembers` |
 | `health.go` | `/api/status` realm health |
 | `external.go` | `BuildExternalRegistry`, `GitOrMtimeDateFn` |
-| `stale.go` | Sole parser for `wiki.Stale` output |
+| `stale.go` | Sole parser for `wiki.Stale` output, reading `DRIFT` lines only |
+| `staleness_cache.go` | `navStalenessCache`: one `wiki.Stale` walk shared by `/api/nav` and `/api/status`; an aged answer is served while a background refresh runs |
 | `walk.go` | `shouldSkipDir`, shared by every file walker in the package |
 | `plans.go` | `plansAggregator` — the worktree enumeration, content-SHA version grouping, bundle collection, `rowUpdatedAt` (newest mtime across a row's doc versions and bundle files, rows sorted descending with a slug tiebreak), and the stat-only fingerprint cache the Plans surface reads from |
 | `api_plans.go` | `/api/plans` and `/api/plans/members`; `plansRegistry` sharing one `plansAggregator` per root and indexing worktree ids across every aggregator built |
@@ -301,7 +301,7 @@ Docs:
 
 **`public/` is copied verbatim into `dist/` by `build.ts`; `public/` is committed, `dist/` is gitignored.** Editing `public/code-graph.js` without re-running `make -C atomic frontend` leaves the served copy stale in a binary you built earlier — `make build|test|vet` rebuild it first, a bare `go build` does not. CI has a dedicated frontend job that runs `bun test` and `bun run build.ts`; there is no committed copy to diff against.
 
-**The build disables identifier minification on purpose.** At this dependency-graph size the renamer's tie-breaker is non-deterministic, which would make the dist drift gate fail on identical input. Whitespace and syntax minification stay on.
+**The build disables identifier minification on purpose.** At this dependency-graph size the renamer's tie-breaker is non-deterministic, which would make otherwise-identical builds differ byte-for-byte. Whitespace and syntax minification stay on.
 
 **`bun:test` does not reset modules between test files.** `loadScript`'s `loaded` cache and `railCytoscapeStyle`'s `window.__railCy` global both leak across files, so `src/test/setup.testing.ts` resets them in a global `afterEach` on top of whatever individual suites do.
 
@@ -315,7 +315,7 @@ Docs:
 ## Coupling
 
 
-- **wiki domain.** `serve` calls `wiki.Stale`, `wiki.ReadScanMembers`, `wiki.ReadBucketEntries`, `wiki.ResolveFingerprint`, and `wiki.FileSHA256`. The `DRIFT` / `STALE` line grammar is a wire format between them: a change to it breaks `stale.go`, and with it the nav badges and `/api/status`. `plansMembers` also calls `wiki.ReadScanMembers` to enumerate every wiki-scanned member Plans can aggregate, alongside `realm.Resolve`'s declared members.
+- **wiki domain.** `serve` calls `wiki.Stale`, `wiki.ReadScanMembers`, and `wiki.ReadBucketEntries`. The `DRIFT added|removed <path>` / `DRIFT status <path> <old>→<new>` line grammar is a wire format between them: `parseStaleLines` keys on the third field, so a change to it breaks `stale.go`, and with it the nav badges and `/api/status`. `plansMembers` also calls `wiki.ReadScanMembers` to enumerate every wiki-scanned member Plans can aggregate, alongside `realm.Resolve`'s declared members.
 - **code-intel domain.** `serve` calls `realm.Resolve` for scope, opens per-member indexes through `engine.NewWithDBPath`, and talks to the engine only through the `CodeEngine` interface in `codeexplorer.go`. Adding a method there means every fake in `codeexplorer_fakes_test.go` grows too. `api_plans.go` reuses `realm.Resolve` and the `codeMember` type from `code_members.go` to build its member list, rather than defining a second one.
 - **bus domain.** `api_bus.go` imports `internal/bus` in-process, not as a subprocess, and uses `bus.JoinIdentity`, `bus.Dial`, `bus.EnsureDaemon`, and `bus.RoomLogPath`. The wire types `bus.Request`, `bus.Response`, `bus.Envelope`, `bus.RoomInfo`, `bus.Member`, and `bus.Error` cross the boundary with no translation layer, so their JSON shapes are also serve's contract with the `/bus` frontend. `bus.Error.Code` drives the HTTP status mapping.
 - **doctor domain.** `health.go` calls `doctor.RunCheckCodeIndexRealmWith` and `doctor.RunCheckCodeIndexWith` for the code-index half of `/api/status`. Separately, `atomic validate artifacts` lints `atomic serve` citations against `cliusage.go`, so a new flag has to be registered there or valid citations start failing.

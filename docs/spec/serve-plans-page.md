@@ -70,7 +70,6 @@ An `atomic scratchpad` verb owns creation, lookup, listing, and archival of one 
 **Artifact migration**
 
 - [ ] `/atomic-plan`, `/subagent-implementation`, `/quick-fix`, `/subagent-diagnose`, `/challenge-swarm`, and the partials they share construct zero scratchpad or report paths directly — every path comes from `atomic scratchpad new` / `path` or `atomic where --json`.
-- [ ] When the `atomic` binary is absent, `/remind-me` and `/follow-up` degrade to the **legacy** reminders directory — `<scratchpad-root>/reminders/`, the exact path `config.RemindersDirLegacy` names — and to no other location. That is the one directory `reminder.List` already unions and `atomic migrate` already relocates, so a reminder written without the binary is picked up the moment a binary appears. A fallback to any third path would be written once and read never.
 - [ ] Each of those artifacts carries one durable line — current shape, plus a pointer to `atomic migrate --show-log` for anything that doesn't match — instead of conditional prose describing specific past migrations.
 - [ ] `retrospective-learning.md` drops its hand-built `$(date +%Y-%m-%d)-retro` scratchpad path and gets no `--purpose` in its place: a retro run is a run workspace, not a unit of work, so it moves to `tmp/`-class scratch instead of a scratchpad bundle — exempt from the verb, never seeded by it, and never a row in `atomic scratchpad list` or the Plans page.
 - [ ] No command retires a bundle at close-out, by deletion or by relocation: `/quick-fix` already retains its bundle (no change needed); `/subagent-diagnose` stops moving it to a local `.claude/.scratchpad/.archive/<topic>/` (`context/commands/subagent-diagnose.md:217`) and `/challenge-swarm` stops deleting it (`context/commands/challenge-swarm.md:306`); `/subagent-implementation` stops deleting `$SCRATCH` at finalize (`context/commands/subagent-implementation.md:247`); `/autopilot` Phase 6 stops `rm -rf`'ing the task scratchpad (`context/commands/autopilot.md:28,127`); `/atomic-plan`'s spec loop stops deleting its bundle on `PASS` (`context/commands/atomic-plan.md:198`). A bundle is retired only via `/git-cleanup` reaping its worktree, a ship-verb worktree cleanup, or an explicit `atomic scratchpad archive`. `/subagent-diagnose`'s local `.claude/.scratchpad/.archive/` namespace is retired outright in favor of `~/.atomic/<project-key>/archive/` — two archive namespaces is exactly the confusion this design removes.
@@ -207,7 +206,7 @@ context/commands/
 ├── git-cleanup.md ........................ M  (archives reaped-worktree bundles only; sweeps
 │                                               gone branches' reports via `reports_root`)
 ├── remind-me.md .......................... M  (drops hardcoded old reminders path from storage
-│                                               prose and no-binary fallback)
+│                                               prose)
 ├── retrospective-learning.md ............. M  (drops hand-built `$(date +%Y-%m-%d)-retro`
 │                                               path; retro moves to `tmp/`-class scratch,
 │                                               not a scratchpad bundle)
@@ -783,6 +782,14 @@ legacy-only reminder could be listed but not shown, edited, or removed.
 **Why:** On a realm whose root is not a git repository, the realm entry rendered "No plans found" while the root held ten docs. A reader mid-work wants the version being worked on rather than the merged one.
 
 **Superseded:** the realm-root entry was justified by "it is a git repo"; the no-hold default was the merged version, else the newest.
+
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** The artifact-migration criterion pinning a binary-absent write path for `/remind-me` and `/follow-up` is removed; both commands always write through `atomic reminder`. `reminder.List` still unions the legacy directory, which is Go read-side behavior and unchanged.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Removed:** the criterion that sent binary-absent writes to `<scratchpad-root>/reminders/`, the path `config.RemindersDirLegacy` names.
 
 ## Implementation log
 

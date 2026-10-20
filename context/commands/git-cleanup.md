@@ -8,14 +8,25 @@ You orchestrate git cleanup. A generic subagent runs `atomic prompt git-cleanup`
 
 ## Pre-flight
 
-1. Verify inside a git repo: `git rev-parse --is-inside-work-tree`. If not: refuse with `not in a git repo.` and stop.
-2. Determine base branch (used by scout):
+Outside a git repo the command refuses; inside one it records the two values the scout needs.
+
+```mermaid
+flowchart TD
+    G{"Inside a git repo?"} -->|no| X["Refuse"]
+    G -->|yes| B["Resolve base"]
+    B --> W["Record current<br/>worktree"]
+```
+
+- **Inside a git repo?**: `git rev-parse --is-inside-work-tree`. No: `not in a git repo.`
+- **Resolve base**: used by the scout:
+
     ```
     BASE=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null \
       || git config init.defaultBranch \
       || echo main)
     ```
-3. Determine the orchestrator's current worktree path: `git rev-parse --show-toplevel`. Scout must skip this from candidates.
+
+- **Record current worktree**: `git rev-parse --show-toplevel`. The scout must skip it from candidates.
 
 ## Step 1 — Resolve staleness threshold
 
@@ -27,9 +38,7 @@ If during execution the user says something like "remember N days as my stalenes
 
 ## Step 2 — Determine scope
 
-If `$ARGUMENTS` is non-empty: target = `.claude/worktrees/<$ARGUMENTS>/` (the specific worktree). Branch + worktree inspected together. Skip step 3 (single-target runs don't need the remote question).
-
-If `$ARGUMENTS` is empty: target = `all`. Continue to step 3.
+If arguments are given, target = `.claude/worktrees/<$ARGUMENTS>/` (branch + worktree inspected together) and skip to Step 4; otherwise target = `all` and continue to Step 3.
 
 ## Step 3 — Ask about remote scope
 
@@ -88,20 +97,23 @@ Your selection:
 
 ## Step 6 — Parse selection
 
-Wait for user input. Accept:
+The user is re-prompted until every index in the selection is selectable, or exits with `none`.
 
-- Space-separated: `1 3 5`
-- Comma-separated: `1,3,5`
-- Ranges: `1-3` expands to `1 2 3`
-- `all` → every candidate with `action ∈ {remove, delete, prune, ask}`. (Skips `flag` and `skip`.)
-- `none` → exit, no action.
-- Mixed: `1-3 5 7`.
+```mermaid
+flowchart TD
+    S{"Selection?"} -->|none| X["Exit, no action"]
+    S -->|indices or all| V{"Every index<br/>selectable?"}
+    V -->|no| E["Name it, re-prompt"]
+    E --> S
+    V -->|yes| C["Step 7"]
+```
 
-Validate each index against the scout's report:
-
-- Index not in report → tell user `invalid index <N>. retry your selection.` and re-prompt.
-- Index points at `action=flag` → tell user `[<N>] is flag-only, cannot be cleaned. retry.` and re-prompt.
-- Index points at `action=skip` → tell user `[<N>] is blocked (<reason>). retry.` and re-prompt.
+- **Selection?**: wait for user input. Accept space-separated `1 3 5`, comma-separated `1,3,5`, ranges (`1-3` expands to `1 2 3`), mixed `1-3 5 7`, and `all` → every candidate with `action ∈ {remove, delete, prune, ask}` (skips `flag` and `skip`).
+- **Every index selectable?**: validate each index against the scout's report.
+- **Name it, re-prompt**:
+    - Index not in report: `invalid index <N>. retry your selection.`
+    - Index points at `action=flag`: `[<N>] is flag-only, cannot be cleaned. retry.`
+    - Index points at `action=skip`: `[<N>] is blocked (<reason>). retry.`
 
 ## Step 7 — Confirm `ask` items individually
 
@@ -130,13 +142,9 @@ cd "$MAIN_ROOT"
 # archive this worktree's scratchpad bundle(s) BEFORE removal — the worktree is the only
 # thing that attributes a bundle to this branch (meta.toml carries no branch field), so
 # once it's gone there's no way left to find what to archive
-if command -v atomic >/dev/null 2>&1; then
-  for slug in $(atomic scratchpad list --repo <path> --json | jq -r '.[].slug'); do
-    atomic scratchpad archive "$slug" --repo <path>
-  done
-else
-  echo "atomic not found — removing worktree without archiving any scratchpad bundles"
-fi
+for slug in $(atomic scratchpad list --repo <path> --json | jq -r '.[].slug'); do
+  atomic scratchpad archive "$slug" --repo <path>
+done
 
 git worktree remove <path>
 git branch -d <branch>            # or -D if user confirmed in step 7 for an unmerged branch
@@ -168,20 +176,16 @@ Same as the corresponding `remove` / `delete` — use `-D` instead of `-d` for b
 No grace window — once a branch is gone there is no future commit to consume its report, unlike the 30-day staleness window above that protects a still-open branch.
 
 ```bash
-if command -v atomic >/dev/null 2>&1; then
-  REPORTS_ROOT=$(atomic where --json | jq -r '.reports_root // empty')
-  if [ -n "$REPORTS_ROOT" ] && [ -d "$REPORTS_ROOT" ]; then
-    # Report directories are named with '/' flattened to '-' (feature/x -> feature-x),
-    # so flatten the live branch list the same way before comparing.
-    live=$(git branch -a --format='%(refname:short)' | sed 's|^origin/||; s|/|-|g' | sort -u)
-    for dir in "$REPORTS_ROOT"/*/; do
-      [ -d "$dir" ] || continue
-      name=$(basename "$dir")
-      printf '%s\n' "$live" | grep -qx "$name" || rm -rf "$dir"
-    done
-  fi
-else
-  echo "atomic not found — skipping session report reaping"
+REPORTS_ROOT=$(atomic where --json | jq -r '.reports_root // empty')
+if [ -n "$REPORTS_ROOT" ] && [ -d "$REPORTS_ROOT" ]; then
+  # Report directories are named with '/' flattened to '-' (feature/x -> feature-x),
+  # so flatten the live branch list the same way before comparing.
+  live=$(git branch -a --format='%(refname:short)' | sed 's|^origin/||; s|/|-|g' | sort -u)
+  for dir in "$REPORTS_ROOT"/*/; do
+    [ -d "$dir" ] || continue
+    name=$(basename "$dir")
+    printf '%s\n' "$live" | grep -qx "$name" || rm -rf "$dir"
+  done
 fi
 ```
 

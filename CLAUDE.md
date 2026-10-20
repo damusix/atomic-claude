@@ -225,7 +225,7 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 | `README.md` | project overview, install, commands, agents, skills | atomic-writing |
 | `docs/guides/install.md` | installation, updating, uninstalling | atomic-writing |
 | `docs/guides/getting-started.md` | first-session quickstart, output style, repo setup, first task, updating | atomic-writing |
-| `docs/guides/knowledge-base.md` | karpathy realm, capture surfaces (research/raw/tickets), fingerprint synthesis to wiki/knowledge | atomic-writing |
+| `docs/guides/knowledge-base.md` | karpathy realm, capture surfaces (research items with `01_raw/` stages, history captures, tickets), per-folder bucket indexes | atomic-writing |
 | `docs/guides/contributing.md` | contributing, build pipeline, testing | atomic-writing |
 | `docs/guides/evaluations.md` | Docker eval environment, testing setup | atomic-writing |
 | `docs/guides/code-intel-mcp.md` | code-intel MCP server setup, .mcp.json, tools | atomic-writing |
@@ -239,12 +239,12 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 | `docs/reference/concepts.md` | how atomic-claude fits together, the atomic binary, code intelligence flow | atomic-writing |
 | `docs/reference/conventions.md` | atomic style scope, CLAUDE.md hygiene, commit bylines, scratchpad/tmp rules, worktree auto-detect | atomic-writing |
 | `docs/reference/serve.md` | `atomic serve` usage, scope resolution, browsing wiki + code graph locally | atomic-writing |
-| `docs/reference/realm-wiki.md` | realm-scope wiki: setup, repo states, registry, staleness, capture buckets | atomic-writing |
+| `docs/reference/realm-wiki.md` | realm-scope wiki: setup, repo states, registry, membership drift, capture buckets | atomic-writing |
 | `docs/reference/bus.md` | `atomic bus` room model, addressed vs FYI, envelope, daemon lifecycle, exit codes, operator verbs | atomic-writing |
 | `docs/reference/repl.md` | `atomic repl` persistent interpreter sessions, scope model, six verbs, exit codes, idle_timeout config | atomic-writing |
 | `docs/reference/retro.md` | `atomic retro extract`: flags, defaults, output shape, file:line convention, dropped rows, exit codes | atomic-writing |
 | `docs/reference/docs-index.md` | `atomic docs index`: `<bucket-docs>` region for any directory, `--check`, exit codes, frontmatter keys read | atomic-writing |
-| `docs/reference/atomic-toml.md` | repo-scoped `.claude/atomic.toml`: scope marker, code-index ignore globs, repl idle_timeout, lenient load contract | atomic-writing |
+| `docs/reference/atomic-toml.md` | repo-scoped `.claude/atomic.toml`: scope marker, code-index ignore globs, comments max_lines, repl idle_timeout, realm repos, lenient load contract | atomic-writing |
 | `docs/credits.md` | inspirations, prior-art credits | atomic-writing |
 | `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-writing |
 | `context/CLAUDE.md` | global contract, agent/command/skill registry | atomic-writing |
@@ -255,7 +255,7 @@ Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md`
 - `docs/guides/getting-started.md` owns the first-session walkthrough (output style, repo setup, first task); `docs/reference/workflow.md` §0 compresses and points.
 - `docs/reference/concepts.md` owns harness detection and the state-path resolution order.
 - `docs/reference/code-intel.md` owns index setup and the `atomic code` verbs; guides show one invocation and point.
-- `docs/reference/atomic-toml.md` owns the `[scan]`, `[code]`, `[comments]`, and `[repl]` key semantics; `repo-wiki.md` and `code-intel.md` show their own table and point.
+- `docs/reference/atomic-toml.md` owns the `[scan]`, `[code]`, `[comments]`, `[repl]`, and `[realm]` key semantics; `repo-wiki.md` and `code-intel.md` show their own table and point, and `realm-wiki.md` points.
 
 
 ## Research notes (`docs/research/`)

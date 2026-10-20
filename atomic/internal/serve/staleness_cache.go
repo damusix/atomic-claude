@@ -8,10 +8,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// wiki.Stale walks the realm and hashes every bucket manifest — seconds on a
-// five-member realm — and both /api/nav and /api/status want it per request.
-// One walk serves both, and only the very first caller ever blocks on it: a
-// cached-but-aged answer is served now and refreshed in the background.
+// wiki.Stale walks the whole realm for both /api/nav and /api/status. Only the
+// first caller blocks; an aged answer is served while a background refresh runs.
 //
 // Serving a stale answer is deliberate. The value is a set of "out of date"
 // badges, and the live-reload path skips the computation entirely, so these
@@ -89,17 +87,13 @@ func walkStaleness(realmRoot string) staleSets {
 	var buf strings.Builder
 	code, err := wiki.Stale(realmRoot, &buf)
 	if err != nil || code == wiki.StaleCodeError {
-		return staleSets{Members: map[string]bool{}, Buckets: map[string]bool{}, Concerns: map[string]bool{}}
+		return staleSets{Members: map[string]bool{}}
 	}
 	return parseStaleLines(buf.String())
 }
 
 func copyStaleSets(src staleSets) staleSets {
-	return staleSets{
-		Members:  copyBoolSet(src.Members),
-		Buckets:  copyBoolSet(src.Buckets),
-		Concerns: copyBoolSet(src.Concerns),
-	}
+	return staleSets{Members: copyBoolSet(src.Members)}
 }
 
 func copyBoolSet(src map[string]bool) map[string]bool {

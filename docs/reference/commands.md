@@ -47,7 +47,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | Command | What it does |
 |---------|-------------|
 | `/setup-wiki` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
-| `/refresh-wiki` | Refresh the project wiki; scope is auto-detected. Repo scope: generate or update the `docs/wiki/` pages that teach Claude your repo's shape, plus one path-scoped pointer card per domain under `.claude/rules/wiki/` that names the domain's page and docs whenever Claude touches a file in it. Realm scope: run `atomic wiki scan` to classify member repos (scaffolding included), refresh stale or pending artifacts, and synthesize capture-bucket material into `wiki/knowledge/` pages. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. After repo summaries, dispatches `atomic-wiki-inferrer` in bucket-synthesis mode for each bucket with a non-empty diff; code stamps `sources:` frontmatter via `atomic wiki stamp --knowledge`. Prints a per-artifact disposition and commits the wiki automatically when done — its git history is the changelog. Idempotent. |
+| `/refresh-wiki` | Refresh the project wiki; scope is auto-detected. Repo scope: generate or update the `docs/wiki/` pages that teach Claude your repo's shape, plus one path-scoped pointer card per domain under `.claude/rules/wiki/` that names the domain's page and docs whenever Claude touches a file in it. Realm scope: run `atomic wiki scan` to classify member repos (scaffolding included), write summaries for pending repos, then re-author only the existing summaries and concerns you pick from a numbered list, and re-scan so `index.md` records the new summaries. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. Prints a per-artifact disposition and commits the wiki automatically when done — its git history is the changelog. Idempotent. |
 
 
 ## Maintenance
@@ -80,7 +80,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | Family | What it covers | Reference |
 |--------|----------------|-----------|
 | `atomic code` | Build and query the symbol graph — where a symbol is defined, what calls it, what breaks if it changes. Also serves the graph over MCP. | [Code intelligence](/reference/code-intel) |
-| `atomic wiki` | Scan and maintain the cross-repo wiki, and register capture buckets that feed its knowledge layer. | [Wiki workflow](/reference/realm-wiki) |
+| `atomic wiki` | Scan and maintain the cross-repo wiki, and register capture buckets whose docs it indexes. | [Wiki workflow](/reference/realm-wiki) |
 | `atomic bus` | Message between concurrent Claude Code sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
 | `atomic repl` | Drive a named Python or Node interpreter session that survives across separate Bash calls. | [REPL](/reference/repl) |
 | `atomic retro` | `atomic retro extract` writes session history since a date as one numbered markdown file for `/retrospective-learning`. | [Retro](/reference/retro) |

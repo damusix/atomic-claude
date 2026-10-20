@@ -1,6 +1,6 @@
 # atomic docs index
 
-`atomic docs index` rebuilds the `<bucket-docs>` region of `<dir>/index.md` from the frontmatter of the markdown files beside it, for any directory you name. It uses the renderer behind `atomic wiki bucket index`, without the requirement that the directory be a registered wiki bucket. Everything outside the region stays byte-identical. `--check` renders without writing, so CI can fail a pull request whose index lags its files.
+`atomic docs index` rebuilds the `<bucket-docs>` region of `<dir>/index.md` from the frontmatter of the markdown files beside it, for any directory you name. It writes the same region as `atomic wiki bucket index` and reads frontmatter the same way. It handles subdirectories, ordering, and dot-prefixed names by its own rules, listed under [Frontmatter it reads](#frontmatter-it-reads). Everything outside the region stays byte-identical. `--check` renders without writing, so CI can fail a pull request whose index lags its files.
 
 
 ## Usage
@@ -56,4 +56,10 @@ Across several directories the highest code wins, so under `--check` an error ou
 | `description` | Text after the link. Past 120 characters it is cut at the last whole word and ends in `…`. Falls back to the first prose line of 15 or more letters; with none, the entry is link-only. |
 | `tags` | ` · tags: a, b` suffix. A YAML string list or a single string; any other shape is ignored. |
 
-A file whose frontmatter carries none of `title`, `type`, `description`, `tags`, `status`, or `created` is listed under `### Unindexed` and counted as unindexed. `index.md` itself is never listed. A subdirectory with a sibling `<slug>.md` collapses into that entry as a router; a subdirectory without one is listed as an orphan subtree and counted as unindexed. The listing rules are the same ones [`atomic wiki bucket index`](/reference/realm-wiki) applies to capture buckets.
+A file whose frontmatter carries none of `title`, `type`, `description`, `tags`, `status`, or `created` is listed under `### Unindexed` and counted as unindexed. `index.md` itself is never listed. A subdirectory with a sibling `<slug>.md` collapses into that entry as a router; a subdirectory without one is listed as an orphan subtree and counted as unindexed. The frontmatter rules are the same ones [`atomic wiki bucket index`](/reference/realm-wiki) applies to capture buckets. Bucket listings differ in three ways:
+
+- **Subdirectories.** A bucket lists each subdirectory as its own entry linked to `<name>/index.md`, with no router or orphan handling, and recurses so every subdirectory gets an index. `atomic docs index` indexes only the directories you name, one level each.
+- **Order.** A bucket sorts a name with a leading number by that number, so `9_x` comes before `10_x`. `atomic docs index` sorts by plain path.
+- **Dot-prefixed names.** A bucket leaves out dot-prefixed files and folders. `atomic docs index` lists dot-prefixed files, and a dot-prefixed folder such as `.obsidian/` as an orphan subtree.
+
+Do not point `atomic docs index` at a registered bucket or any folder inside one. `atomic wiki scan` and `atomic wiki bucket index` rebuild every bucket folder under the bucket rules, so the two verbs overwrite each other's listing, and `--check` reports a freshly rebuilt bucket folder as `STALE`.

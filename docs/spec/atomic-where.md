@@ -17,8 +17,8 @@ interesting-only nudge line when the position is non-trivial.
 
 ## Non-goals
 
-- No refactor of the `isUnder` duplication across `wiki` and `codeintel/realm`.
-  A third private copy inside the new package is acceptable.
+- No refactor of the `isUnder` helper in `codeintel/realm`. A second private
+  copy inside the new package is acceptable.
 - No caching or daemon layer — detection is a handful of stat calls per
   invocation.
 - No change to the `<wikis>` registry format or to `codeintel/realm`'s
@@ -67,8 +67,7 @@ interesting-only nudge line when the position is non-trivial.
       its existing meaning (the checkout you are in) and its existing
       resolution ladder.
 - [ ] The upward walk for repo-scope detection performs no `git` subprocess
-      spawns — pure filesystem stats, matching the zero-git-spawn contract
-      already established in `wiki/staleness.go`. Branch resolution for the
+      spawns — pure filesystem stats. Branch resolution for the
       new `branch` field holds the same contract: it reads `<gitdir>/HEAD`
       directly (`<root>/.git/HEAD` for the main checkout,
       `<path>/.git/worktrees/<name>/HEAD` for a worktree) rather than
@@ -82,13 +81,15 @@ interesting-only nudge line when the position is non-trivial.
 - [ ] The session-start hook appends one orientation nudge line when the
       resolved position is not the plain no-wiki/no-realm case, and appends
       nothing when it is — matching the hook's existing silent-unless-relevant
-      behavior (see `wikiNudges` / `buildBody` precedent).
+      behavior (see `buildBody` in
+      `atomic/internal/hooks/hooks.go`).
 - [ ] A shared agent-prompt partial documents the convention: agents run
-      `atomic where` for orientation before wiki/realm-scoped work, with
-      graceful degradation when the binary is absent — mirroring
-      `agent-code-intel`'s existing "lead with `atomic code explore`"
-      convention. Composed into the same agents that already receive
-      `agent-code-intel` (or a documented subset, if scope differs).
+      `atomic where` for orientation before wiki/realm-scoped work,
+      falling back to the repo-scope walk and `<wikis>` heuristics when the
+      verb errors — mirroring `agent-code-intel`'s existing "lead with
+      `atomic code explore`" convention. Composed into the same agents
+      that already receive `agent-code-intel` (or a documented subset, if
+      scope differs).
 - [ ] `templates/commands/atomic-help.md`'s `binary`/`cli` topic row mentions
       `atomic where [--json]`.
 - [ ] `templates/commands/atomic-help.md`'s Stage 4 tour block (the maintenance
@@ -116,7 +117,7 @@ one `atomic where` verb — see
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|-------------|-------|------------|----------|
 | 1 | `internal/where` package (new git-boundary upward walk for repo-scope wiki detection, reuse of `wiki.ReadWikiIndexPaths` for realm roots + `wiki.ReadScanMembers` for realm member paths — the wiki's own `<wiki-scan>` registry, distinct from `codeintel/realm`'s separate `code.toml`, which code-index scope reads via `realm.Resolve` unmodified — plus a local `isUnder` copy, for realm-scope root/member/orphaned/none, reuse of `codeintel/realm.Resolve` unmodified for code-index scope, one composed report type) + `atomic where [--json]` CLI verb, Cobra registration mirroring `buildDoctorCmd()` (`atomic/cmd/atomic/main.go:760-779`), `cliusage.go` entry (top-level single-token `Path`, pattern at `atomic/internal/cliusage/cliusage.go:110` `["doctor"]` / `:380` `["serve"]`), `main_test.go` golden-fixture wiring (`atomic/cmd/atomic/main_test.go:149-171` `TestDeriveCommandsGolden`, `:80-124` `cp3WantMeta`), package tests | new `atomic/internal/where/` (detector + tests), `atomic/cmd/atomic/main.go` (`buildWhereCmd()` + registration alongside `main.go:186-218`), `atomic/internal/cliusage/cliusage.go`, `atomic/cmd/atomic/main_test.go` | atomic-implementer (feature) | 6 | All repo-scope/realm-scope/composite/code-index/`--json` success criteria; zero-git-spawn constraint; `go test ./...`, `go vet`, `gofmt -l` clean; `TestDeriveCommandsGolden` passes |
-| 2 | Session-start hook integration: one new orientation-nudge source, interesting-only suppression | `atomic/internal/hooks/hooks.go` (`buildBody`, `:100-160` `SessionStart`, `:165-175` `SessionStartText` — new nudge source alongside `checkWikiStaleness` at `:62-75`), new/extended hook test coverage | atomic-implementer (surgical) | 2-3 | Nudge appears only for non-trivial position, matching `wikiNudges` precedent; existing hook tests still pass |
+| 2 | Session-start hook integration: one new orientation-nudge source, interesting-only suppression | `atomic/internal/hooks/hooks.go` (`buildBody`, `:100-160` `SessionStart`, `:165-175` `SessionStartText` — new nudge source `checkWherePosition`), new/extended hook test coverage | atomic-implementer (surgical) | 2-3 | Nudge appears only for non-trivial position; existing hook tests still pass |
 | 3 | Agent-prompt convention (shared partial telling agents to run `atomic where` for orientation, mirroring `templates/shared/agent-code-intel.md`) + `/atomic-help` `binary`/`cli` topic-row mention + render/bundle regen | `templates/shared/agent-code-intel.md` or a new `templates/shared/agent-where.md` partial + the agent templates composing it (grep `agent-code-intel` across `templates/agents/` and `templates/shared/` for the full current composition set — includes at least `templates/agents/atomic-reviewer.md:160`, `atomic-investigator.md:21`, `atomic-wiki-inferrer.md:77`, and `atomic-implementer.md` indirectly via `templates/shared/agent-implementer-workflow.md:14`), `templates/commands/atomic-help.md` (`binary`/`cli` topic row, ~line 125, and Stage 4 tour block, ~line 211-231), rendered `commands/atomic-help.md` + `agents/*.md` (via `make render`), `atomic/internal/embedded/bundle/**` (via `make -C atomic bundle`) | atomic-implementer (feature) | 5-6 | Agent partial success criterion; topic-row success criterion; Stage 4 tour-line success criterion; MISSING-scan zero lines; `make render` + `make -C atomic bundle` parity clean |
 
 ## Risks
@@ -125,7 +126,7 @@ one `atomic where` verb — see
 |------|-----------|-----------|
 | `cliusage.go`'s static table and the live Cobra tree diverge, breaking `TestDeriveCommandsGolden` | High (fires if either is edited alone) | CP1 updates `cliusage.go`, `buildWhereCmd()`, and `main_test.go`'s golden fixture in the same commit; run `go test ./...` before proceeding |
 | Upward walk false-positives against an unrelated ancestor's `docs/wiki/` when cwd is deeply nested with no `.git` in reach (e.g. run outside any repo) | Med | Stop the walk at the first `.git` found, or at filesystem root if none — same boundary rule the design doc specifies |
-| Third `isUnder` copy invites a future "just consolidate them" temptation mid-implementation | Low | Non-goals explicitly permits the third copy; reviewer should not flag it as a defect |
+| Second `isUnder` copy (alongside `codeintel/realm`'s) invites a future "just consolidate them" temptation mid-implementation | Low | Non-goals explicitly permits the second copy; reviewer should not flag it as a defect |
 | Session-start hook nudge line becomes noisy if "interesting" is defined too broadly (e.g. fires for every repo-scope-wiki-only cwd, which is the common case) | Med | CP2 tests both the suppressed case (plain no-wiki/no-realm) and at least one surfaced case explicitly |
 | `agent-where` guidance duplicates rather than complements `agent-code-intel`'s degradation language, producing redundant partials | Low | CP3 checks whether extending `agent-code-intel` (single partial, two concerns) reads more cohesively than a new sibling partial before committing to either |
 
@@ -138,6 +139,22 @@ one `atomic where` verb — see
 **Why:** `docs/spec/serve-plans-page.md` grows `atomic where` into the single verb prompt artifacts (`/session-report`, ship-verb partials) resolve project-keyed paths through, rather than each artifact constructing or branching on those paths itself.
 
 **Superseded:** no prior JSON field list existed in this spec's body to describe the addition against — the `--json` success criterion was general ("emits the same information as machine-readable JSON") and gains a companion bullet naming the new fields explicitly.
+
+### 2026-10-18 — Wiki staleness references removed
+
+**What changed:** the body no longer cites the wiki package's `isUnder` copy, the zero-git-spawn contract in `wiki/staleness.go`, or the `checkWikiStaleness` / `wikiNudges` hook source. The `isUnder` non-goal and risk now name `codeintel/realm` as the only other copy, the hook criterion points at `buildBody`, and the checkpoint at `checkWherePosition`.
+
+**Why:** those pieces were deleted with realm wiki staleness tracking.
+
+**Removed:** citations to `wiki/staleness.go`, the wiki `isUnder` copy, and the wiki-staleness nudge source; see `docs/spec/realm-wiki-drop-refresh.md`.
+
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** The `agent-where` partial criterion no longer covers a missing binary; agents run `atomic where` directly.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** the partial also fell back when `atomic` was absent; the fallback on a failed `atomic where` stays.
 
 ## Implementation log
 

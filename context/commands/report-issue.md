@@ -2,25 +2,39 @@
 description: Open a atomic GitHub issue via gh. Bug report or feature request — auto-detect from user's description.
 ---
 
-## Prereqs
-
-- `command -v gh` — if missing: tell user to install (`brew install gh` / `winget install --id GitHub.cli` / https://cli.github.com/) then `gh auth login`. Stop.
-- `gh auth status` — if unauthed: tell user `gh auth login`. Stop.
-
 ## Steps
 
 <workflow>
 
-1. Read user's description. Classify: **bug** vs **feature/enhancement** vs **question**. If ambiguous, ask once.
-2. Check repo: `gh repo view --json nameWithOwner,hasIssuesEnabled`. If issues disabled, stop.
-3. List existing issue templates: `gh issue create --help` notes `--template`. Check `.github/ISSUE_TEMPLATE/` — if templates exist, prefer `--template <file>` and let user fill in via editor. Otherwise build body inline.
-4. Search for duplicates: `gh issue list --search "<key terms>" --state all --limit 5`. If close match exists, surface URL + ask before opening new.
-5. Draft title — imperative for features (`Add X`), declarative for bugs (`X crashes when Y`). ≤70 chars. No "Bug:" / "Feature:" prefix unless repo convention demands.
-6. Draft body per shape below (HEREDOC). Atomic tone — drop filler, exact symbols in backticks, no hedging, no AI bylines. Redact per the **Privacy** section as you draft — never write raw PII, secrets, or third-party identifiers into the body.
-7. Map classification → label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Verify the label exists on the repo first: `gh label list --search <name>`. Skip the label if it doesn't exist (don't auto-create). User-specified labels stack on top.
-8. Preview: print the full rendered issue — title, body, target repo, labels — and get an explicit go-ahead from the user before creating. See **Privacy**.
-9. `gh issue create --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`.
-10. Print issue URL.
+An issue is created only after `gh` is ready, no duplicate stops it, and the user approves the rendered preview.
+
+```mermaid
+flowchart TD
+    G{"gh installed<br/>and authed?"} -->|no| S["Stop"]
+    G -->|yes| K["Classify"]
+    K --> I{"Issues enabled?"}
+    I -->|no| S
+    I -->|yes| D{"Close duplicate?"}
+    D -->|yes| A{"User still files?"}
+    D -->|no| F["Draft title,<br/>body, label"]
+    A -->|no| S
+    A -->|yes| F
+    F --> P{"Preview approved?"}
+    P -->|no| S
+    P -->|yes| C["Create, print URL"]
+```
+
+- **gh installed and authed?**: `command -v gh` — if missing, tell the user to install (`brew install gh` / `winget install --id GitHub.cli` / https://cli.github.com/) then `gh auth login`. `gh auth status` — if unauthed, tell the user `gh auth login`.
+- **Classify**: read the user's description: **bug** vs **feature/enhancement** vs **question**. If ambiguous, ask once.
+- **Issues enabled?**: `gh repo view --json nameWithOwner,hasIssuesEnabled`.
+- **Close duplicate?**: `gh issue list --search "<key terms>" --state all --limit 5`. On a close match, surface its URL and ask before opening a new one.
+- **Draft title, body, label**:
+    - Templates: `gh issue create --help` notes `--template`. When `.github/ISSUE_TEMPLATE/` has templates, prefer `--template <file>` and let the user fill in via editor; otherwise build the body inline.
+    - Title: imperative for features (`Add X`), declarative for bugs (`X crashes when Y`). ≤70 chars. No "Bug:" / "Feature:" prefix unless repo convention demands.
+    - Body: per the shape below (HEREDOC). Atomic tone — drop filler, exact symbols in backticks, no hedging, no AI bylines. Redact per the **Privacy** section as you draft — never write raw PII, secrets, or third-party identifiers into the body.
+    - Label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Verify it exists first with `gh label list --search <name>`; skip it if it doesn't (don't auto-create). User-specified labels stack on top.
+- **Preview approved?**: print the full rendered issue — title, body, target repo, labels — and get an explicit go-ahead before creating. See **Privacy**.
+- **Create, print URL**: `gh issue create --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`, then print the issue URL.
 
 </workflow>
 

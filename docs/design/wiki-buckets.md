@@ -2,87 +2,78 @@
 
 ## Problem
 
-Realms accumulate working knowledge outside their member repos: research notes, raw dumps (exports, transcripts, PDFs), business-facing work items. Today this is hand-managed per realm — ad-hoc folders, a per-workspace fingerprint script (bun/zx), conventions re-explained in a prompt document every time a new realm adopts the pattern. The synthesis pipeline (capture → distill into `wiki/knowledge/`) exists conceptually (`docs/guides/knowledge-base.md`) but has no tooling: every adopter reinstalls a runtime, copies a script, and hopes the conventions hold.
+Realms accumulate working knowledge outside their member repos: research notes, raw dumps (exports, transcripts, PDFs), business-facing work items. Without tooling this is hand-managed per realm: ad-hoc folders, conventions re-explained in a prompt document every time a new realm adopts the pattern, and no listing an agent can read to find out what a folder holds.
 
-The wiki feature already solves the identical problem for *repos*: code computes what changed (`scan`/`stale`/`stamp`), the model decides what it means. Buckets are the same contract applied to non-repo content, keyed on SHA-256 manifests because capture folders have no git HEAD.
+The wiki already gives repos a code-owned registry and listing (`<wiki-scan>`, `## Members`). Buckets apply the same split to non-repo content: code registers the folder and builds its indexes, and the model or the user writes what the folder is for.
+
+Code writes every structural file and listing; the model writes only the bucket's meaning:
 
 ```mermaid
-flowchart LR
-    subgraph capture [capture - realm root]
-        B1["bucket A/"]
-        B2["bucket B/"]
-    end
-    subgraph code [code - deterministic]
-        D["bucket diff<br/>(work list)"]
-        P["bucket promote<br/>(advance baseline)"]
-        S["stamp sources:"]
-    end
-    subgraph model [model - judgment]
-        SY["synthesize into<br/>wiki/knowledge/topic.md"]
-    end
-    B1 --> D
-    B2 --> D
-    D --> SY
-    SY --> P
-    SY --> S
-    S --> C["concerns/ may cite<br/>knowledge pages"]
+flowchart TD
+    ADD["atomic wiki bucket add<br/>(code)"] --> REG["&lt;wiki-buckets&gt; entry,<br/>## Capture surfaces<br/>bullet"]
+    ADD --> STUB["&lt;bucket&gt;/index.md stub"]
+    STUB --> FILL["purpose + ## Conventions<br/>(model or user)"]
+    DOC["atomic wiki bucket doc<br/>(code)"] --> ITEM["&lt;slug&gt;/index.md,<br/>&lt;slug&gt;/01_raw/index.md"]
+    SCAN["atomic wiki scan /<br/>bucket index (code)"] --> IDX["&lt;bucket-docs&gt; listing<br/>in every folder"]
 ```
 
 ## Goals / Non-goals
 
 - Goals:
-  - Zero-dependency bucket tooling: `atomic wiki bucket add | list | diff | promote` (Go, ports the fingerprint script's semantics exactly).
-  - Buckets carry **no semantics in code** — a bucket is a registered folder with a manifest; its meaning lives in its own `index.md` conventions block, which synthesis reads as context.
-  - One staleness surface: `atomic wiki stale` reports bucket pending work alongside repo/concern staleness.
-  - `/refresh-wiki` offers bucket creation once per realm and runs bucket synthesis as a phase.
-  - Knowledge pages get the same fingerprint-based staleness story as repo summaries (`sources:` frontmatter, code-stamped).
+  - Zero-dependency bucket tooling: `atomic wiki bucket add | list | doc | index | skill`, all Go.
+  - Buckets carry **no semantics in code**: a bucket is a registered folder; its meaning lives in its own `index.md`.
+  - An `index.md` in every folder of a bucket, rebuilt by code, so an agent descends one index at a time.
+  - `/refresh-wiki` offers bucket creation once per realm and prompts for the purpose lines the stubs leave blank.
 - Non-goals:
-  - The wiki/wiki scan refuse guard — independent fix, ships separately before this work.
-  - Auto-retraction of knowledge when a source file is removed (v1 reports `removed`; human/model decides).
-  - Per-bucket slash commands (`/wiki-from-research` etc.) — synthesis is one generic phase.
-  - Hardcoded bucket names or per-name behavior (`research`/`raw`/`tickets` are prompt examples only).
+  - Per-bucket slash commands (`/wiki-from-research` etc.).
+  - Hardcoded bucket names or per-name behavior (`research`/`notes`/`tickets` are prompt examples only).
   - Any relationship to `atomic followups` — buckets are arbitrary user folders; no shared tooling or taxonomy.
   - Versioning capture content itself — buckets are working material; only the wiki repo is versioned.
+  - Any model pass over bucket content, and any fingerprint, manifest, or freshness state for a bucket.
 
 ## Concepts
 
 | Concept | Definition |
 |---------|-----------|
-| Bucket | User-named folder at the **realm root** (sibling of `wiki/`). Registered, fingerprinted, synthesized. Never nested inside `wiki/`. |
-| Manifest | SHA-256 snapshot of bucket content files: `current` / `baseline` / `previous`. Lives at `wiki/.buckets/<name>/` — baseline is "what the wiki has consumed", i.e. wiki-side state, versioned with the wiki repo. |
-| Two-phase contract | `diff` = read-only work list (current vs baseline: new/changed/removed). `promote` = rotate baseline→previous, current→baseline — run only after successful synthesis. Re-running `diff` without `promote` never loses the work list. |
-| Registry | Machine: managed `<wiki-buckets>` block in `wiki/index.md` (code-owned, spliced like `<wiki-scan>`). Narrative: `## Capture surfaces` section in realm `CLAUDE.md` — created with the file if `CLAUDE.md` is absent, appended (existing content preserved) if present, written on first `bucket add` (the upward CLAUDE.md walk makes it visible to member-repo sessions too). Code writes the structure with purpose placeholders; the `/refresh-wiki` offer flow prompts the model to fill in what each bucket is for. |
-| Bucket index | `<bucket>/index.md` — purpose line + `## Conventions` block the user fills. Load-bearing: the only place a bucket's meaning exists; synthesis reads it as context. No status column — status is implied by the manifest diff. |
-| Knowledge page | `wiki/knowledge/<topic>.md` — **topic-keyed**, not bucket-keyed. Multiple buckets' files about the same topic merge into one page. Provenance lives in `sources:` frontmatter (`<bucket>/<file>@<sha256>`), stamped by code from the manifest. |
-| Citation DAG | capture → knowledge → concerns. Concerns may cite `knowledge/<topic>.md@<sha256>` (new resolver id type) but **never bucket files directly** — one synthesis boundary, one staleness path per fact. |
+| Bucket | User-named folder at the **realm root** (sibling of `wiki/`). Registered and indexed. Never nested inside `wiki/`. |
+| Registry | Machine: managed `<wiki-buckets>` block in `wiki/index.md` (code-owned, spliced like `<wiki-scan>`). Narrative: `## Capture surfaces` section in the realm root's `CLAUDE.md`, created with the file if absent, appended (existing content preserved) if present, written on first `bucket add`. The upward CLAUDE.md walk makes it visible to member-repo sessions too. |
+| Bucket index | `<bucket>/index.md`: purpose line plus a `## Conventions` block the user or model fills, and a code-generated `<bucket-docs>` listing. The only place a bucket's meaning exists. |
+| Folder index | Every folder below the bucket root also carries an `index.md` whose `<bucket-docs>` region lists its direct children: markdown files and subfolders, with title and description from frontmatter or the fallback ladder. Numbered folders list in numeric order. |
+| Item | A slug folder scaffolded by `bucket doc`: `<slug>/index.md` describes it, and its work lives in numbered stage folders starting at `01_raw/`. Raw material and the research built on it share one bucket. |
+
+The folder and listing contract: `docs/spec/bucket-icm-structure.md` and `docs/design/bucket-doc-management.md`.
 
 ## Business rules
 
-- Code computes/writes/compares every fingerprint; the model only declares *which* sources/citations apply. Same axiom as `atomic wiki stamp` today.
-- Baseline advances only on `promote` after successful synthesis. A failed or aborted synthesis leaves the work list intact.
-- Manifest content files exclude infrastructure: the bucket's `index.md` and OS junk. Manifests are never hand-edited.
 - Bucket names are user-defined; the only reserved name collision is `wiki` itself.
-- The bucket-creation offer fires once: `/refresh-wiki` on a realm with no `<wiki-buckets>` block prompts (with `research`/`raw`/`tickets` as examples); a decline is recorded in the block so the offer never re-nags. `atomic wiki bucket add` works any time after.
+- The bucket-creation offer fires once: `/refresh-wiki` on a realm with no `<wiki-buckets>` block prompts (with `research`/`notes`/`tickets` as examples); a decline is recorded in the block so the offer never re-nags. `atomic wiki bucket add` works any time after.
 - Code writes structure, the model writes meaning: `bucket add` stubs the `CLAUDE.md` section and bucket `index.md` with purpose placeholders; the `/refresh-wiki` offer flow prompts the model (asking the user where needed) to describe what each bucket is for in both places. Unfilled placeholders surface in the disposition output.
-- `removed` files are reported in the diff and surfaced during synthesis; nothing is auto-deleted from `wiki/knowledge/`.
-- Phase order inside `/refresh-wiki` is upstream-before-downstream: repo summaries → bucket synthesis (knowledge) → concern staleness recheck against fresh hashes → concern re-author → stamp-as-written → linkify. The DAG guarantees one pass converges; no fixpoint loop.
-- Bucket synthesis is dispatched to `atomic-wiki-inferrer` in a new bucket-synthesis mode — fresh context per bucket (raw dumps can be large), consistent with repo summaries in wiki mode.
+- Code writes only the `<bucket-docs>` region of an existing `index.md`; text outside it survives every rebuild byte-for-byte.
+- `atomic wiki scan` rebuilds every bucket's indexes on each run, writing a file only when its content changes.
 
 ## Approaches
 
 | # | Approach | Pros | Cons |
 |---|----------|------|------|
-| A | Status quo: per-workspace zx script + prompt doc | No atomic changes | Runtime dep (bun/zx) per realm; manual setup; conventions drift; script copies fork |
-| B | Go verbs (`atomic wiki bucket …`) + inferrer synthesis phase in `/refresh-wiki` | Zero deps; one staleness surface; reuses stamp/stale/registry patterns verbatim; semantics stay user-side | New verb family + agent mode to maintain |
+| A | Status quo: per-workspace script + prompt doc | No atomic changes | Runtime dependency per realm; manual setup; conventions drift; script copies fork |
+| B | Go verbs (`atomic wiki bucket …`) with code-built folder indexes | Zero deps; reuses the registry splice pattern; semantics stay user-side | New verb family to maintain |
 | C | Per-bucket slash commands (`/wiki-from-research` …) | Mirrors original setup | Hardcodes bucket semantics into artifacts; N commands for N buckets; contradicts "no semantics in code" |
-| D | Bucket-keyed output (`knowledge/<bucket>/`) | Trivial provenance | Defeats synthesis — same topic split across buckets never merges; wiki becomes a mirror of capture |
+| D | B plus model synthesis into a topic-keyed `wiki/knowledge/` layer, tracked by content manifests | Distilled pages beside the raw capture | Built and removed: per-folder indexes give progressive disclosure at no model cost and never drift, so synthesis was unneeded, and it carried a manifest store, a two-phase promote, and fingerprint stamping |
 
 ## Recommendation
 
-**B**, with topic-keyed knowledge output (rejecting D) and provenance via `sources:` frontmatter. Evidence: the repo-side machinery this extends already exists and is tested — `StampConcern`/`resolveFingerprint` (`atomic/internal/wiki/stamp.go:44-56`) needs one new id type; `<wiki-scan>`/`## Members` splicing (`atomic/internal/wiki/wiki.go`) is the registry pattern to copy; `atomic wiki stale` already walks `reflects:` lists and recomputes fingerprints live. The fingerprint script's semantics (two-phase promote, previous-rotation, ignore set) are proven in two live realms and port 1:1 to Go.
-
-Manifest location decision: `wiki/.buckets/<name>/` over `<bucket>/.fingerprints/` — the baseline answers "what has the wiki consumed", which is wiki state; storing it in the wiki repo makes the wiki self-describing (clone it, know exactly what it reflects) and keeps capture folders pure content. Supersedes the reference doc's layout; existing realms migrate by moving manifests once.
+**B.** The registry splice is the `<wiki-scan>` / `## Members` pattern in `atomic/internal/wiki/wiki.go`, and the listing reuses the frontmatter description ladder `DeriveMemberDescription` already applies to member summaries. Buckets stay plain folders: no state under `wiki/` beyond the registry entry, and nothing a rebuild cannot reproduce.
 
 ## Open questions
 
-- Binary files in buckets (PDFs, images): hashed like any file, but synthesis cannot read them — v1 relies on the user describing them in the bucket `index.md`. A future `bucket describe` helper or OCR pass is out of scope.
+- Binary files in buckets (PDFs, images): not listed, since the index lists only markdown. Today the user describes them in the item's `index.md` or its `01_raw/index.md`. A `bucket describe` helper or OCR pass is out of scope.
+
+## Change log
+
+### 2026-10-19 — Buckets without synthesis, indexed at every level
+
+**What changed:** Rewrote the Problem, diagram, Goals, Concepts, Business rules, Approaches, Recommendation, and Open questions to the current design: buckets are registered folders with a code-built `index.md` in every folder, items are slug folders with numbered stage folders starting at `01_raw/`, and raw material and research share one bucket. The verb family is `add | list | doc | index | skill`.
+
+**Why:** Bucket synthesis and its manifests were deleted with the realm wiki refresh tracking (`docs/spec/realm-wiki-drop-refresh.md`), and per-folder indexes replaced the one-level bucket index (`docs/spec/bucket-icm-structure.md`).
+
+**Removed:** SHA-256 manifests under `wiki/.buckets/`, the two-phase `bucket diff` / `bucket promote` contract, `wiki/knowledge/` pages with `sources:` frontmatter, the capture → knowledge → concerns citation DAG, bucket staleness in `atomic wiki stale`, the bucket-synthesis inferrer mode, and the `/refresh-wiki` synthesis phase order.

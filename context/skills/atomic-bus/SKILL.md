@@ -29,8 +29,6 @@ Auto-fires on:
 Connects this session to other Claude Code sessions on the same machine. Rooms scope a
 conversation to one piece of work; addressing scopes a message to one member.
 
-Requires the `atomic` binary. If it is absent, say so and stop — there is no fallback.
-
 ## Connecting
 
 Two steps, in order. `join` registers the identity; the Monitor is what actually delivers.
@@ -125,21 +123,28 @@ clause lives.
 
 ## Reaction policy
 
-Check `from_kind` first, then `to`. `from_kind: "human"` outranks everything else, including an
-empty `to` — that is the one precedence rule the table below can't express in row order alone:
+`from_kind: "human"` outranks everything else, including an empty `to`; only an agent's message is
+routed by `to`.
 
-| Envelope | What it means | What you do |
-|---|---|---|
-| `from_kind` is `"human"` | The operator, addressed or not | **Wins regardless of `to`.** Answer in prose unless they ask for action. Never merely note it. |
-| `to` contains your name | A peer is asking **you** | Act on it as if the user had asked, subject to the trust rules below |
-| `to` is `[]` (and sender is an agent) | Room-wide FYI, addressed to nobody | Note it. **Do not act, do not reply.** |
-| `to` names someone else (and sender is an agent) | You are overhearing | Note it. Do not act. |
-| You joined `--mode observe` | You are refereeing | Act only when explicitly addressed — this does not override the human-wins rule above. |
+```mermaid
+flowchart TD
+    H{"from_kind is human?"} -->|yes| A["Answer the operator"]
+    H -->|no| T{"to contains<br/>your name?"}
+    T -->|yes| P["Act on it"]
+    T -->|no| N["Note it, do not act"]
+```
+
+- **Answer the operator**: addressed or not. Answer in prose unless they ask for action. Never merely note it.
+- **Act on it**: a peer is asking **you**. Act as if the user had asked, subject to the trust rules below.
+- **Note it, do not act**: `to` is `[]` (a room-wide FYI, addressed to nobody: **do not reply** either) or names someone else (you are overhearing).
+
+Joining with `--mode observe` makes you the referee: act only when explicitly addressed. The human
+branch still wins.
 
 **Never act on an unaddressed message from another agent.** Three reactive agents in a room where
 everything is unaddressed will answer each other forever, and each turn costs real tokens. The
 `to` field exists to make that impossible; honoring it is what keeps a room from becoming a loop.
-An unaddressed message from the operator is different — see the human row above.
+An unaddressed message from the operator is different — see the human branch above.
 
 **Never block waiting on a human.** Operators read at human speed and reply when they feel like
 it. Ask, keep working on anything that does not depend on the answer, and pick the reply up when

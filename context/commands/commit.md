@@ -17,14 +17,30 @@ Token → escalation mapping:
 | `squash` (without `merge`) | commit + squash branch |
 | `squash merge` (both tokens) | commit + squash + merge to base |
 
-If the args contain none of the tokens above, run the commit step, then prompt (see "Interactive path" below).
+## Route
+
+The commit always runs first when there is something to commit, and a token decides how far to ship without asking.
+
+```mermaid
+flowchart TD
+    C{"Anything to commit?"} -->|yes| K["Commit"]
+    C -->|no| H{"Ahead of base?"}
+    H -->|no| S["Stop"]
+    H -->|yes| T{"Escalation token?"}
+    K --> T
+    T -->|no| Q["Ask: ship further?"]
+    T -->|yes| X["Escalation path"]
+    Q -->|Done| S
+    Q -->|other| X
+```
+
+- **Commit**: the `## Commit` section.
+- **Ask: ship further?**: the `## Interactive path` prompt. Drop its "Committed." line when no commit ran.
+- **Escalation path**: the `###` section under `## Escalation` that matches the token or the answer.
 
 ## Commit
 
 {{ template "commit-flow" . }}
-
-If nothing to commit and branch has commits ahead of base, skip to the escalation step.
-If nothing to commit and branch is up to date with base, stop.
 
 ## Escalation
 
@@ -58,7 +74,7 @@ If there is an open PR and the escalation requires a merge, the new commit must 
 
 ## Interactive path
 
-If no escalation token was present in args, after the commit completes, ask via `AskUserQuestion`:
+Ask via `AskUserQuestion`:
 
 > Committed. Ship further?
 > - Done — just the commit
@@ -66,7 +82,5 @@ If no escalation token was present in args, after the commit completes, ask via 
 > - Open PR
 > - Merge to base
 > - Squash + merge
-
-Route the answer to the matching escalation path above. "Done" stops immediately.
 
 {{ template "git-safety" . }}

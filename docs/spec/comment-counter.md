@@ -32,7 +32,7 @@ Implementation contract for GitHub issue #269. Design: `docs/design/comment-coun
 - [ ] Exit 0 when nothing exceeds the maximum, 1 when something does, 2 on a bad flag or a `git` error, with the error on stderr.
 - [ ] The verb runs from a subdirectory, from a realm root, and in a repo with no index; it never opens the SQLite index.
 - [ ] `atomic code --help` and `atomic --help` list the verb with `--diff` and `--json`; `TestDeriveCommandsGolden` passes; `atomic validate artifacts` passes on the corpus.
-- [ ] `agent-comment-discipline` tells its consumers to run the counter on their diff and treat the list as a deletion worklist, skipping silently when `atomic` is absent; `atomic-implementer` names `--diff {BASE_SHA}` and reports `comments: N added` in its signals block; `atomic-reviewer` runs it in the code-quality pass, reports `comments: N added (M over max)` under Signals verified, and treats a count that contradicts the implementer's claim as 🔴; `atomic-auditor` runs it over `<loop-base>..HEAD` in the coherence pass.
+- [ ] `agent-comment-discipline` tells its consumers to run the counter on their diff and treat the list as a deletion worklist; `atomic-implementer` names `--diff {BASE_SHA}` and reports `comments: N added` in its signals block; `atomic-reviewer` runs it in the code-quality pass, reports `comments: N added (M over max)` under Signals verified, and treats a count that contradicts the implementer's claim as 🔴; `atomic-auditor` runs it over `<loop-base>..HEAD` in the coherence pass.
 - [ ] `context/skills/atomic-review/SKILL.md` Comment noise section instructs running the verb on the diff under review and walking its list, rather than reading the diff for comments by eye.
 - [ ] `context/CLAUDE.md` lists the verb under Atomic binary and the key in the `.claude/atomic.toml` row; `context/commands/atomic-help.md` carries the verb in the binary job table and Stage 4; the help-coverage loop prints zero `MISSING:` lines.
 - [ ] `docs/reference/atomic-toml.md` documents the key; `docs/reference/code-intel.md` documents the verb; `docs/spec/comment-discipline.md` gains a pointer section and a dated log entry; the root `CLAUDE.md` ownership bullet for `atomic-toml.md` names `[comments]`.
@@ -223,7 +223,13 @@ CLAUDE.md (root)
 
 ## Change log
 
-<!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** `agent-comment-discipline` runs the counter unconditionally; the success criterion no longer carries a skip for a missing binary.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** consumers skipped the counter silently when `atomic` was absent.
 
 
 ## Implementation log

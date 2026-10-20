@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
@@ -16,17 +17,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
 
-// WikiStaleResult is the parsed wiki staleness output.
+// WikiStaleResult is the parsed wiki membership-drift output.
 type WikiStaleResult struct {
-	// StaleRepos lists members with a STALE summary or DRIFT line.
+	// StaleRepos lists members with a DRIFT line.
 	StaleRepos []string
-	// StaleConcerns lists concern files flagged stale.
-	StaleConcerns []string
-	// StaleBuckets lists buckets flagged stale.
-	StaleBuckets []string
-	// BucketDiffKeys usually matches StaleBuckets, kept separate so the UI can
-	// distinguish the two.
-	BucketDiffKeys []string
 }
 
 // IndexHealthResult is the parsed code-index health check.
@@ -75,26 +69,10 @@ func productionWikiStale(realmRoot string) WikiStaleResult {
 	sets := navStalenessCache.get(realmRoot)
 
 	var result WikiStaleResult
-
-	// sets.Members is keyed by both base name and raw path, so dedupe.
-	seen := map[string]bool{}
-	for key := range sets.Members {
-		base := key
-		if !seen[base] {
-			seen[base] = true
-			result.StaleRepos = append(result.StaleRepos, base)
-		}
+	for path := range sets.Members {
+		result.StaleRepos = append(result.StaleRepos, path)
 	}
-
-	for name := range sets.Buckets {
-		result.StaleBuckets = append(result.StaleBuckets, name)
-		result.BucketDiffKeys = append(result.BucketDiffKeys, name)
-	}
-
-	for name := range sets.Concerns {
-		result.StaleConcerns = append(result.StaleConcerns, name)
-	}
-
+	sort.Strings(result.StaleRepos)
 	return result
 }
 
@@ -191,25 +169,18 @@ func healthDataFor(opts HealthOptions) healthData {
 
 	indexResult := opts.IndexHealthSeam(opts.RealmRoot)
 
-	allFreshWiki := len(staleResult.StaleRepos) == 0 &&
-		len(staleResult.StaleConcerns) == 0 &&
-		len(staleResult.BucketDiffKeys) == 0
-
 	return healthData{
 		IsRealmScope: opts.IsRealmScope,
 		StaleResult:  staleResult,
 		IndexResult:  indexResult,
-		AllFreshWiki: allFreshWiki,
+		AllFreshWiki: len(staleResult.StaleRepos) == 0,
 	}
 }
 
 // apiWikiStatus is the /api/status "wiki" field.
 type apiWikiStatus struct {
-	StaleRepos     []string `json:"staleRepos"`
-	StaleConcerns  []string `json:"staleConcerns"`
-	StaleBuckets   []string `json:"staleBuckets"`
-	BucketDiffKeys []string `json:"bucketDiffKeys"`
-	AllFresh       bool     `json:"allFresh"`
+	StaleRepos []string `json:"staleRepos"`
+	AllFresh   bool     `json:"allFresh"`
 }
 
 // apiIndexStatus is the /api/status "index" field.
@@ -286,11 +257,8 @@ func NewAPIStatusHandler(opts HealthOptions) http.Handler {
 			UptimeSeconds:   int64(Uptime().Seconds()),
 			IsRealmScope:    data.IsRealmScope,
 			Wiki: apiWikiStatus{
-				StaleRepos:     nonNilStrings(data.StaleResult.StaleRepos),
-				StaleConcerns:  nonNilStrings(data.StaleResult.StaleConcerns),
-				StaleBuckets:   nonNilStrings(data.StaleResult.StaleBuckets),
-				BucketDiffKeys: nonNilStrings(data.StaleResult.BucketDiffKeys),
-				AllFresh:       data.AllFreshWiki,
+				StaleRepos: nonNilStrings(data.StaleResult.StaleRepos),
+				AllFresh:   data.AllFreshWiki,
 			},
 			Index: apiIndexStatus{
 				Severity:     data.IndexResult.Severity,

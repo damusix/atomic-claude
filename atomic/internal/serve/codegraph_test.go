@@ -13,8 +13,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
-// Named apart from provenance_test.go's graphDataResponse, which shares this
-// package.
 type codeGraphResp struct {
 	Fingerprint string `json:"fingerprint"`
 	Nodes       []struct {

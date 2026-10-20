@@ -100,7 +100,7 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `setup` / `install` | First-run flow: `/setup-wiki` audits conventions, then `/refresh-wiki` generates project context. |
 | `signals` | `/refresh-wiki` — idempotent, initializes or refreshes. The implement loop / `/autopilot` refreshes at finalize (scoped to the task's SHA range); ship verbs are the ad-hoc fallback and skip docs-only commits. A repo-scope refresh also emits one path-scoped pointer card per domain to `.claude/rules/wiki/<domain>.md`. |
-| `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, synthesizes capture-bucket material into `wiki/knowledge/` pages, refreshes only stale artifacts, commits the wiki (its git history is the changelog). Run `atomic wiki scan` first to scaffold. Use `atomic wiki bucket add/list/diff/promote` to manage capture folders. `atomic-wiki` skill is the conversational entry point — fires on "I want a place for notes/tickets", "add a bucket", "what does my wiki know", "is my wiki stale". |
+| `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, re-authors the existing summaries and concerns you pick, commits the wiki (its git history is the changelog). Run `atomic wiki scan` first to scaffold. Use `atomic wiki bucket add/list/doc/skill/index` to manage capture folders and their doc indexes. `atomic-wiki` skill is the conversational entry point — fires on "I want a place for notes/tickets", "add a bucket", "what does my wiki know", "is my wiki stale". |
 | `worktree` | Worktree creation is built into the implement loop — `/subagent-implementation` and `/autopilot` both offer (or auto-create) `.claude/worktrees/<branch>/` via the `worktree-setup` shared partial (Claude Code's native worktree home — `EnterWorktree` and `claude --worktree` manage the same directory). Cleanup via `/git-cleanup`. |
 | `bus` / `coordination` / `rooms` | `atomic bus` — peer messaging between concurrent Claude Code sessions over named rooms. `join <room> --as <name>` then a Monitor on `recv` delivers peer messages as prompts (always streams; no `--follow` flag, no replay of past traffic). `to` distinguishes addressed (act) from FYI (note only); `human`/`agent` kind and `--mode observe` shape who acts. Operator reaches a room without joining via `tail`/`say`/`read`/`chat`/`halt`/`resume`/`end`; `read <room> <msg-id>` recovers one message's full text from the room log. Daemon auto-spawns on first use, rehydrates its roster on restart; `start`/`stop`/`restart` control it explicitly — no idle shutdown. `atomic bus gateway` hosts rooms across machines behind one HTTP endpoint; `gateway enroll`/`gateway revoke` issue and end a machine's key, `remote add|list|test|remove` saves and checks a gateway on the client (form or flags); every verb except `chat` (local-only) and `shutdown` (refused) reaches it with `--host <name>` — see the [hosting guide](../../docs/guides/bus-hosting.md). The `atomic-bus` skill carries the connect flow and reaction policy. See `docs/reference/bus.md`. |
 | `session` | `/session-report [<slug>]` captures branch session, written under `~/.atomic/<project-key>/reports/<branch>/` (resolved via `atomic where --json`). Read + deleted by next commit-message ship verb. |
@@ -179,7 +179,26 @@ Examples of correct routing:
 
 When `$ARGUMENTS` is exactly `tour` (or `--tour`, or `walkthrough`), enter tour mode. Skip Steps 1 routing; just run the tour.
 
-The tour is four stages. After each stage, prompt the user via `AskUserQuestion` with three options: continue / dive deeper here / exit tour. Keep each stage to ≤15 lines of output.
+The tour is four stages, ≤15 lines of output each, and it advances only on the user's pick after each one.
+
+```mermaid
+flowchart TD
+    S["Show stage"] --> P{"User picks?"}
+    P -->|continue| L{"Last stage?"}
+    L -->|no| N["Go to stage"]
+    P -->|re-run| N
+    N --> S
+    L -->|yes| C["Print tour complete"]
+    P -->|end tour| C
+    P -->|dive or recap| D["Detail, re-prompt"]
+    D --> P
+    P -->|exit| X["Exit tour"]
+```
+
+- **User picks?**: `AskUserQuestion` with the three options on the stage's `Prompt:` line: continue / dive deeper here / exit tour. At Stage 4 they are end tour / get a specific topic recap / re-run tour: `end tour` goes to **Print tour complete**, `topic recap` to **Detail, re-prompt**, and `re-run tour` back to Stage 1.
+- **Go to stage**: the next stage on continue, Stage 1 on re-run.
+- **Detail, re-prompt**: the picked detail, then the same stage's prompt again. Stage 2's own line below sets its budget.
+- **Print tour complete**: the closing block after Stage 4.
 
 **Stage 1 — What atomic-claude is.**
 
@@ -238,8 +257,6 @@ docs/spec/<topic>.md                  implementation contract (committed; body k
 wiki layout:
   wiki/repos/         summaries of no-signals repos
   wiki/concerns/      cross-cutting docs
-  wiki/knowledge/     topic-keyed digests from capture buckets
-  wiki/.buckets/<n>/  SHA-256 manifests for capture folder <n> (current/baseline/previous)
   <realm>/<bucket>/   capture folder (user-maintained; registered via `atomic wiki bucket add`)
 
 Refresh project map any time: /refresh-wiki (syncs code-intel index when warm)
@@ -267,12 +284,12 @@ atomic code comments [--diff <range>]   list the comments a diff adds (path:line
 atomic serve [path] [--port N]    local read-only HTTP server: Obsidian-style page view + right-rail graph/links, system-graph toggle, code-file modal, a Plans view aggregating design/spec docs and scratchpad bundles across every worktree, md|code|plans search (default port 4500; --open opens browser)
 atomic code mcp                   start MCP server exposing graph as tools; daemon self-syncs every 10s (--no-watch disables, --watch-interval overrides); use `atomic --repo <abs-path> code mcp` to serve any repo cwd-independently — one entry per repo in .mcp.json; realm members resolve to their realm db
 atomic wiki scan [--root=<path>]  scaffold + classify member repos; mark realm scope; register wiki; write ## Members links
-atomic wiki stale [--root=<path>] read-only freshness verdict; reports STALE bucket lines alongside repo/concern drift
-atomic wiki bucket add|list|diff|promote  manage capture folders: register, inspect status, diff vs baseline, advance baseline
-atomic wiki bucket doc|skill|index  doc: scaffold a topic file (--router for a subtree); skill: scaffold the per-bucket SKILL.md; index: rebuild the bucket + realm listing regions
+atomic wiki stale [--root=<path>] read-only membership drift: DRIFT added|removed|status lines
+atomic wiki bucket add|list       register a capture folder; list registered buckets (name, path)
+atomic wiki bucket doc|skill|index  doc: scaffold <slug>/index.md and its 01_raw/ stage; skill: scaffold the per-bucket SKILL.md; index: rebuild every folder's index.md listing + the realm bucket list
 atomic signals linkify          render signals path citations as navigable relative md links (inferrer runs it)
-atomic wiki linkify --root        same for wiki summaries/concerns/knowledge/index (/refresh-wiki runs it post-stamp)
-/refresh-wiki [root]              incremental wiki refresh — re-authors stale/pending repos + synthesizes capture buckets
+atomic wiki linkify --root        same for wiki summaries/concerns/index (/refresh-wiki runs it)
+/refresh-wiki [root]              realm wiki pass: summaries for pending repos + re-author the summaries/concerns you pick
 /deslop [<path>]                  audit standing code for slop (sharded read-only fan-out) → report in a scratchpad
 /deslop apply <ids|tier>          fix accepted findings behind a green baseline; report-only tier never auto-fixed
 atomic prompt claude-merge        emit claude-merge brief for use inside a subagent (migration: file has no <atomic> block)
@@ -313,11 +330,22 @@ alternatives:
 ```
 </output_format>
 
-If freeform intent maps cleanly to one verb, drop `alternatives:` (keep the tour line only when `fresh_repo`).
+The mode and the state decide how much of the three-block format is printed.
 
-If the user is on base + clean with no clear next move, ask: `what are you trying to do — start new work, review existing, or clean up?` Single line, no menu.
+```mermaid
+flowchart TD
+    M{"Mode?"} -->|tour| T["Prose blocks"]
+    M -->|A, B, or C| R{"Base + clean, no<br/>clear next move?"}
+    R -->|yes| Q["Ask one line"]
+    R -->|no| F{"Freeform maps<br/>to one verb?"}
+    F -->|yes| D["Drop alternatives"]
+    F -->|no| B["All three blocks"]
+```
 
-For tour mode (D), use prose blocks + `AskUserQuestion` transitions, not the three-block format.
+- **Prose blocks**: tour mode (D) uses prose blocks + `AskUserQuestion` transitions, not the three-block format.
+- **Base + clean, no clear next move?**: a feature-branch user is never asked.
+- **Ask one line**: `what are you trying to do — start new work, review existing, or clean up?` Single line, no menu.
+- **Drop alternatives**: drop `alternatives:`; keep the tour line only when `fresh_repo`.
 
 </workflow>
 

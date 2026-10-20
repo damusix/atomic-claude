@@ -10,26 +10,40 @@ Hardcoded target: `damusix/atomic-claude`. Do **not** infer the target from `gh 
 
 **Invoked from `/retrospective-learning`.** The retrospective audit routes its atomic-meta tier (finding tier 3 — frustration positionally co-located with an atomic artifact in the session) to this command. When the user opts "Open issue" on a meta finding, the audit prints the runnable `/report-issue-with-atomic <one-line summary>` and lets the user invoke it themselves with the surrounding context. Auto-invocation is forbidden — per axiom 3, issue creation is a public action and the user submits the body. See `commands/retrospective-learning.md` for the upstream contract.
 
-## Prereqs
-
-- `command -v gh` — if missing: tell user to install (`brew install gh` / `winget install --id GitHub.cli` / https://cli.github.com/) then `gh auth login`. Stop.
-- `gh auth status` — if unauthed: tell user `gh auth login`. Stop.
-
 ## Steps
 
 <workflow>
 
-1. Read user's description. Classify: **bug** vs **feature/enhancement** vs **question**. If ambiguous, ask once.
-2. Confirm target with one sentence: "Filing against `damusix/atomic-claude` (not your current repo)." Proceed unless user objects.
-3. Capture installed version: run `atomic --version` if the binary is on PATH. Include in body. If missing, note "atomic binary not found on PATH".
-4. Search for duplicates: `gh issue list --repo damusix/atomic-claude --search "<key terms>" --state all --limit 5`. If close match exists, surface URL + ask before opening new.
-5. Check repo templates: `gh api repos/damusix/atomic-claude/contents/.github/ISSUE_TEMPLATE 2>/dev/null` — if templates exist, prefer `--template <file>`. Otherwise build body inline.
-6. Draft title — imperative for features (`Add X`), declarative for bugs (`/commit skips signals refresh on staged-only changes`). ≤70 chars. No "Bug:" / "Feature:" prefix.
-7. Draft body per shape below (HEREDOC). Atomic tone — drop filler, exact symbols in backticks, no hedging, no AI bylines. Redact per the **Privacy** section as you draft — never write raw PII, secrets, or third-party identifiers into the body. This target repo is public, so redaction is not optional.
-8. Map classification → label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Verify the label exists on the target repo first: `gh label list --repo damusix/atomic-claude --search <name>`. Skip the label if it doesn't exist (don't auto-create). User-specified labels stack on top.
-9. Preview: print the full rendered issue — title, body, target repo, labels — and get an explicit go-ahead from the user before creating. See **Privacy**.
-10. `gh issue create --repo damusix/atomic-claude --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`.
-11. Print issue URL.
+An issue is created only after `gh` is ready, the user accepts the target, no duplicate stops it, and the user approves the rendered preview.
+
+```mermaid
+flowchart TD
+    G{"gh installed<br/>and authed?"} -->|no| S["Stop"]
+    G -->|yes| K["Classify"]
+    K --> T{"User objects<br/>to target?"}
+    T -->|yes| S
+    T -->|no| D{"Close duplicate?"}
+    D -->|yes| A{"User still files?"}
+    D -->|no| F["Draft title,<br/>body, label"]
+    A -->|no| S
+    A -->|yes| F
+    F --> P{"Preview approved?"}
+    P -->|no| S
+    P -->|yes| C["Create, print URL"]
+```
+
+- **gh installed and authed?**: `command -v gh` — if missing, tell the user to install (`brew install gh` / `winget install --id GitHub.cli` / https://cli.github.com/) then `gh auth login`. `gh auth status` — if unauthed, tell the user `gh auth login`.
+- **Classify**: read the user's description: **bug** vs **feature/enhancement** vs **question**. If ambiguous, ask once.
+- **User objects to target?**: say one sentence: "Filing against `damusix/atomic-claude` (not your current repo)." Proceed unless the user objects.
+- **Close duplicate?**: `gh issue list --repo damusix/atomic-claude --search "<key terms>" --state all --limit 5`. On a close match, surface its URL and ask before opening a new one.
+- **Draft title, body, label**:
+    - Version: run `atomic --version` and include it in the body.
+    - Templates: `gh api repos/damusix/atomic-claude/contents/.github/ISSUE_TEMPLATE 2>/dev/null` — when templates exist, prefer `--template <file>`; otherwise build the body inline.
+    - Title: imperative for features (`Add X`), declarative for bugs (`/commit skips signals refresh on staged-only changes`). ≤70 chars. No "Bug:" / "Feature:" prefix.
+    - Body: per the shape below (HEREDOC). Atomic tone — drop filler, exact symbols in backticks, no hedging, no AI bylines. Redact per the **Privacy** section as you draft — never write raw PII, secrets, or third-party identifiers into the body. This target repo is public, so redaction is not optional.
+    - Label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Verify it exists first with `gh label list --repo damusix/atomic-claude --search <name>`; skip it if it doesn't (don't auto-create). User-specified labels stack on top.
+- **Preview approved?**: print the full rendered issue — title, body, target repo, labels — and get an explicit go-ahead before creating. See **Privacy**.
+- **Create, print URL**: `gh issue create --repo damusix/atomic-claude --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`, then print the issue URL.
 
 </workflow>
 

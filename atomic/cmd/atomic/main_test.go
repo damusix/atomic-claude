@@ -95,18 +95,15 @@ var wantDelegatedSubcommandMeta = []struct {
 	{[]string{"config", "resolve"}, "", "Resolve Pi agent configuration"},
 	// wiki subcommands
 	{[]string{"wiki", "scan"}, "", "Scaffold wiki/, scan repos, mark realm scope, register in ~/.claude/CLAUDE.md"},
-	{[]string{"wiki", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)"},
+	{[]string{"wiki", "stale"}, "", "Report membership drift: exit 0 none, 1 drift, 2 error (DRIFT lines on stdout)"},
 	{[]string{"wiki", "linkify"}, "", "Linkify path tokens in wiki artifacts in-place"},
 	{[]string{"wiki", "init"}, "", "Write the fixed-content CLAUDE.md scaffold and the scope marker for --scope repo|realm (idempotent)"},
-	{[]string{"wiki", "stamp"}, "<file>", "Write reflects_rev/reflects/sources fingerprint frontmatter (summary|concern|knowledge)"},
 	// wiki bucket (3-level)
-	{[]string{"wiki", "bucket", "add"}, "<name>", "Register a capture bucket; create index.md stub and manifest dir"},
-	{[]string{"wiki", "bucket", "list"}, "", "List registered buckets with baseline count and pending/fresh status"},
-	{[]string{"wiki", "bucket", "diff"}, "<name>", "Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty"},
-	{[]string{"wiki", "bucket", "promote"}, "<name>", "Snapshot bucket and rotate baseline→previous, current→baseline"},
-	{[]string{"wiki", "bucket", "doc"}, "<bucket> <slug>", "Scaffold <bucket>/<slug>.md from the embedded doc template; --router also scaffolds the sibling subtree"},
+	{[]string{"wiki", "bucket", "add"}, "<name>", "Register a capture bucket; create its folder and index.md stub"},
+	{[]string{"wiki", "bucket", "list"}, "", "List registered buckets as name<TAB>path"},
+	{[]string{"wiki", "bucket", "doc"}, "<bucket> <slug>", "Scaffold <bucket>/<slug>/index.md and its 01_raw/ stage, then rebuild the bucket's indexes"},
 	{[]string{"wiki", "bucket", "skill"}, "<bucket>", "Scaffold the realm per-bucket SKILL.md for <bucket> (no-op if present)"},
-	{[]string{"wiki", "bucket", "index"}, "[<bucket>]", "Rebuild the <bucket-docs> region for one bucket (or all when omitted) plus the realm bucket list"},
+	{[]string{"wiki", "bucket", "index"}, "[<bucket>]", "Rebuild the <bucket-docs> region in every directory of one bucket (or all when omitted) plus the realm bucket list"},
 	// followups subcommands
 	{[]string{"followups", "list"}, "", "List open follow-up entries"},
 	{[]string{"followups", "add"}, "", "Create entry"},

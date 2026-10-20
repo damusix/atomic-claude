@@ -41,8 +41,8 @@ Walk the Cobra root command tree to produce `[]cliusage.Command` (design decisio
 | `docs` | scan, stale | main.go / docs pkg |
 | `profile` | refresh | main.go / profile pkg |
 | `code` | index, sync, status, search, callers, callees, impact, node (per code.go switch) | codeintel/cli/code.go |
-| `wiki` | scan, stale, stamp, mark-dirty (+ any others per action.go switch) | wiki/action.go |
-| `wiki bucket` | add, list, diff, promote (3-level nesting) | wiki/action.go |
+| `wiki` | scan, stale, linkify, init (+ any others per action.go switch) | wiki/action.go |
+| `wiki bucket` | add, list, doc, skill, index (3-level nesting) | wiki/action.go |
 
 Top-level-only (no subcommands): the remaining 5 of the 17 (e.g. `doctor`, `update`, `validate`, `serve`, `prompt` — confirm against the slice). Each ported subcommand routes to its EXISTING handler unchanged (no behavior change). Each carries `Annotations["args_hint"]` = its `Args` string (e.g. `<query>`, `[pattern]`) and registers its existing `--flags` so `deriveCommands` reproduces `Command{Path, Args, Flags, Description}` exactly.
 
@@ -86,3 +86,11 @@ Top-level-only (no subcommands): the remaining 5 of the 17 (e.g. `doctor`, `upda
 **Why:** Workstreams C (`atomic migrate`) and F (`atomic config agents`) added a top-level verb and a `config` subcommand after this spec was written. The hardcoded 16/56 counts no longer match `cliusage.Commands()`. Deriving the assertion from the current slice keeps A behavior-preserving regardless of how many verbs exist at migration time.
 
 **Superseded:** the 16-top-level-verb / 56-command-path hardcoded counts in SC3, SC4, CP1, and the A1 mitigation.
+
+### 2026-10-18 — Removed: wiki stamp, mark-dirty, bucket diff, bucket promote
+
+**What changed:** The nested-command inventory lists the current `wiki` and `wiki bucket` subcommands.
+
+**Why:** Realm wikis no longer track freshness, so the verbs that wrote and compared fingerprints are deleted.
+
+**Removed:** `wiki stamp`, `wiki mark-dirty`, `wiki bucket diff`, and `wiki bucket promote` from the inventory. See `docs/spec/realm-wiki-drop-refresh.md`.

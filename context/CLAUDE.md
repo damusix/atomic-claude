@@ -82,7 +82,7 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 | `.claude/worktrees/<branch>/` | Isolated branches (`EnterWorktree`, `claude --worktree`). Gitignored; prompt to delete on merge. |
 | `.claude/project/followups/<id>.md` | Committed follow-ups managed by `atomic followups`; `INDEX.md` is the `@-ref`. |
 | `.claude/rules/wiki/<domain>.md` | Path-scoped pointer cards from `/refresh-wiki`. Pipeline-owned; never hand-edit. |
-| `.claude/atomic.toml` | Committed repo config: `[scan]`, `[code] ignore`, `[comments] max_lines`, `[repl] idle_timeout`. Reference: `docs/reference/atomic-toml.md`. |
+| `.claude/atomic.toml` | Committed repo or realm config: `[scan]`, `[code] ignore`, `[comments] max_lines`, `[repl] idle_timeout`, `[realm] repos`. Reference: `docs/reference/atomic-toml.md`. |
 | `docs/design/<topic>.md`, `docs/spec/<topic>.md` | Design workspace and the implementation contract derived from it. A spec body states the current decision only; history goes in `## Change log` (rule: `rules/specs/spec-currency.md`, auto-loaded on touch). |
 | `tmp/` | Scratch. Gitignored. |
 | `~/.atomic/` | Per-user state: config, profile, backups, plus per-project `reports/`, `reminders/`, `archive/`. `atomic where --json` prints the paths. Never committed. |
