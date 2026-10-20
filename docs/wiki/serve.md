@@ -243,7 +243,7 @@ Frontend, all under [`atomic/internal/serve/frontend/`](../../atomic/internal/se
 | `src/routes.tsx` | `/`, `/page/*`, `/graph`, `/plans`, `/plans/:slug/*`, `/bus`, `/search`, `/status`, `/external`, `/code/schema` |
 | `src/layouts/Shell/` | Three-pane shell (top bar, nav tree, content, rail); installs `window.AtomicGraphUI` |
 | `src/pages/` | Route screens, including `Graph/` (Docs and Code views), `Bus/`, `Plans.tsx` and `PlansSlug.tsx` (thin wrappers over `components/plans/`) |
-| `src/components/` | `nav`, `rail`, `search`, `code-modal`, `schema`, `plans`, and generic `ui` primitives |
+| `src/components/` | `nav`, `rail`, `search`, `code-modal`, `mermaid-lightbox`, `schema`, `plans`, and generic `ui` primitives |
 | `src/components/plans/PlansView.tsx` | The `/plans` list: sticky toolbar, one row per slug with `updatedAt`, ⌘F-captured client-side filter (`filterPlanRows`), member picker, `chipsFor` (design/spec/brief/state/followups/findings/options chips from what a row actually carries) |
 | `src/components/plans/SlugView.tsx` | The opened slug: owns the sticky `?at=` write and its yield via `usePlansScope`, fetches the active doc or bundle file, mounts mermaid, emits page headings for the rail's Contents tab |
 | `src/components/plans/usePlansScope.ts` | The one hook that reads and writes `?at=` and the `/plans/:slug/*` route (member selection lives in `utils/memberStore.ts`, not here); every other Plans component reads its fields or calls its writers instead of `react-router` directly |
@@ -262,7 +262,7 @@ Frontend, all under [`atomic/internal/serve/frontend/`](../../atomic/internal/se
 | `src/utils/typeColors.ts` | Single-source type-to-color derivation, exposed on `window` for the carried scripts |
 | `public/graph-core.js` | View-agnostic cosmos.gl engine: mount, teardown, retheme, WebGL2 detection, IndexedDB layout cache, label overlay, drag |
 | `public/system-graph.js`, `public/code-graph.js` | The docs and code profiles: data fetch, palette, cache key, hover and click hooks |
-| `public/vendor/` | `cosmos-graph.js`, `cytoscape.min.js`, `mermaid.min.js` |
+| `public/vendor/` | `cosmos-graph.js`, `cytoscape.min.js`, `mermaid.min.js`, and `mermaid-layout-elk/` (ES module chunks for mermaid's ELK layout, imported at runtime by `src/utils/mermaidElk.ts`), each with a `*.provenance.txt` where one exists |
 
 Outside the package:
 

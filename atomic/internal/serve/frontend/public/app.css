@@ -41,6 +41,14 @@
        --ink. */
     --ink-on-fill: #1a1712;
 
+    /* Diagram canvas and connectors, read by utils/mermaid.ts. Node fills and
+       borders are theme-independent and live there. */
+    --diagram-canvas: #fff6e5;
+    --diagram-dot:    #f4b6b6;
+    --diagram-line:   #000000;
+    --diagram-label:  #000000;
+    --diagram-shadow: rgba(0, 0, 0, 0.35);
+
     /* Code window. Deep ramp shades, because they sit on light paper. */
     --cw-bg:     var(--paper-raised);
     --cw-bar:    var(--paper-sunk);
@@ -459,6 +467,12 @@
     --color-link:         var(--c-page-ink);
     --color-link-hover:   var(--c-page);
     --color-link-visited: var(--c-concern-ink);
+
+    --diagram-canvas: var(--paper);
+    --diagram-dot:    #3a2e26;
+    --diagram-line:   #8c7e70;
+    --diagram-label:  #b8a888;
+    --diagram-shadow: rgba(0, 0, 0, 0.85);
 
     color-scheme: dark;
 }
@@ -1656,26 +1670,13 @@ pre {
    MERMAID
    ============================================================ */
 
-/* ER attribute rows. Mermaid 11.15 renders entities through the unified node
-   renderer, which derives the two alternating row fills from `background` by
-   lightness and ignores attributeBackgroundColorOdd/Even — so in dark mode the
-   rows come out near-white while the text stays light on light. The fills are
-   presentation attributes, which any CSS rule outranks. */
-.md-content pre.mermaid g.row-rect-odd > path {
-    fill: var(--paper-raised);
-}
-
-.md-content pre.mermaid g.row-rect-even > path {
-    fill: var(--paper-sunk);
-}
-
 /* Kanban column headers and journey labels are painted, not inherited:
    mermaid colors them with `textColor`, which is --ink because that same
    variable carries titles, legends and edge labels sitting on the page. On a
    categorical fill --ink is the wrong end of the scale, so these two name it
    back. Both splits are structural rather than by class name, because the
    correct color depends on what the text sits on: kanban headers are under
-   g.sections while its cards (a dark surface, already right) are under
+   g.sections while its cards are node fills styled in utils/mermaid.ts, under
    g.items; journey's section and task labels sit on fills while its legend
    sits on the page. */
 .md-content pre.mermaid g.sections g.cluster-label :is(div, span, p),
@@ -1688,8 +1689,7 @@ pre {
 
    These are `!important` because mermaid scopes its own rules by the diagram's
    generated id, so they carry id-level specificity that outranks any class
-   selector here. The ER rows above need no such thing: those fills are
-   presentation attributes, which any rule beats.
+   selector here.
 
    Packet carries no theme at all: 11.15 paints the rect #efefef and every label
    #000 regardless of the palette, so in dark mode it is a slab of white. */
@@ -1904,7 +1904,7 @@ pre {
 /* ============================================================
    MERMAID DIAGRAMS
    Colors are supplied at render time from CSS vars (theme:'base' +
-   themeVariables in layout.html), so only layout/flash styling lives here.
+   themeVariables in utils/mermaid.ts), so only layout/flash styling lives here.
    ============================================================ */
 
 .md-content pre.mermaid {
@@ -1939,106 +1939,50 @@ pre {
     color: inherit;
 }
 
+/* Here, not in themeCSS, which mermaid scopes under the svg's id. overflow lets
+   node shadows paint into the padding instead of being cut at the viewBox. */
 .md-content pre.mermaid svg {
     max-width: 100%;
     height: auto;
+    padding: 12px;
+    border-radius: 10px;
+    background-color: var(--diagram-canvas);
+    background-image: radial-gradient(var(--diagram-dot) 1px, transparent 1px);
+    background-size: 18px 18px;
+    overflow: visible;
 }
 
-/* Expand control. A diagram is usually the widest thing on the page, so it
-   gets a way to take the screen. Quiet until the block is hovered or the
-   button is focused, because it sits on top of the drawing. */
+/* Clicking a diagram opens components/mermaid-lightbox. */
+.md-content pre.mermaid[data-processed="true"] svg {
+    cursor: zoom-in;
+}
+
+/* The keyboard path to the same viewer, shown only while it has focus. */
 .md-content pre.mermaid {
     position: relative;
 }
 
-.mermaid-expand {
+.mermaid-open {
     position: absolute;
     top: 8px;
     right: 8px;
-    width: 28px;
-    height: 28px;
-    padding: 0;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.mermaid-open:focus-visible {
+    width: auto;
+    height: auto;
+    clip-path: none;
+    padding: 4px 10px;
     border: 1px solid var(--hairline-2);
     border-radius: 7px;
     background: var(--paper-raised);
-    color: var(--ink-faint);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.12s, color 0.12s;
-}
-
-.md-content pre.mermaid:hover .mermaid-expand,
-.mermaid-expand:focus-visible {
-    opacity: 1;
-}
-
-.mermaid-expand:hover {
     color: var(--ink);
-}
-
-/* Two corner brackets, drawn rather than shipped as an icon file. */
-.mermaid-expand::before,
-.mermaid-expand::after {
-    content: "";
-    position: absolute;
-    width: 7px;
-    height: 7px;
-    border: 1.5px solid currentColor;
-}
-
-.mermaid-expand::before {
-    top: 7px;
-    left: 7px;
-    border-right: 0;
-    border-bottom: 0;
-}
-
-.mermaid-expand::after {
-    right: 7px;
-    bottom: 7px;
-    border-left: 0;
-    border-top: 0;
-}
-
-/* Fullscreen paints its own black backdrop, so the block has to restate the
-   page surface and center what is now a small drawing in a large box. The
-   centered position is also the zoom's identity: clearing the transform is the
-   same as fitting to screen.
-
-   overflow: a transformed child still contributes scrollable overflow, so a
-   zoomed diagram would otherwise grow scrollbars inside the fullscreen box.
-   user-select and touch-action hand pointer drags to the pan handler instead
-   of to text selection and native scrolling. */
-.md-content pre.mermaid:fullscreen {
-    display: grid;
-    place-items: center;
-    padding: 32px;
-    background: var(--paper);
-    border-radius: 0;
-    overflow: hidden;
-    user-select: none;
-    -webkit-user-select: none;
-    touch-action: none;
-    cursor: grab;
-}
-
-.md-content pre.mermaid:fullscreen.is-panning {
-    cursor: grabbing;
-}
-
-/* Focused on entry so the keyboard zoom lands without a click first; the ring
-   would frame the whole screen. */
-.md-content pre.mermaid:fullscreen:focus {
-    outline: none;
-}
-
-.md-content pre.mermaid:fullscreen svg {
-    max-width: 100%;
-    max-height: 100%;
-}
-
-.md-content pre.mermaid:fullscreen .mermaid-expand {
-    opacity: 1;
+    font: 12px var(--sans);
 }
 
 /* ============================================================

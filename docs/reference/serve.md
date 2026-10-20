@@ -66,7 +66,7 @@ The UI is a single persistent shell. Navigating never reloads it; only the focus
 
 The middle pane renders the focused markdown page; the right rail shows that page's context. Navigating to another page updates the content, the breadcrumb, and all four rail slots at once.
 
-Markdown is GitHub Flavored, rendered server-side with syntax highlighting. Fenced ` ```mermaid ` blocks render as diagrams.
+Markdown is GitHub Flavored, rendered server-side with syntax highlighting. Fenced ` ```mermaid ` blocks render as diagrams. Click one, or tab to its "Open diagram viewer" button, to open it over the page, where scrolling, pinching or `+`/`-` zooms, dragging pans, `0` resets, and Esc closes.
 
 In-page links are resolved against the realm root, not the browser's current URL. Three link forms are supported:
 

@@ -1,0 +1,1 @@
+import{d as a}from"./chunk-RPKWB5KU.js";var r=a(async()=>await import("./chunk-QEZWUXNR.js"),"loader"),l=["elk.stress","elk.force","elk.mrtree","elk.sporeOverlap"],o=[{name:"elk",loader:r,algorithm:"elk.layered"},...l.map(e=>({name:e,loader:r,algorithm:e}))],t=o;export{t as default};

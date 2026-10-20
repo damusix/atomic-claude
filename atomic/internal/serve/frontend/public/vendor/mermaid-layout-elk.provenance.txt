@@ -1,0 +1,46 @@
+mermaid-layout-elk/ — vendored @mermaid-js/layout-elk ES module build
+=====================================================================
+
+Package
+    @mermaid-js/layout-elk@0.2.3  (last release with peerDependency
+    mermaid ^11; 1.x requires mermaid 12)
+
+Entry and export
+    mermaid-layout-elk/mermaid-layout-elk.js, an ES module whose default
+    export is the layout loader array passed to
+    window.mermaid.registerLayoutLoaders. utils/mermaidElk.ts imports it at
+    runtime by URL; the Bun build never sees it.
+
+Bundler
+    esbuild 0.28.1 (pinned via `npx esbuild@0.28.1`), ESM with code
+    splitting, so a page fetches only the chunks the ELK renderer needs.
+
+Exact command
+    mkdir /tmp/elk-vendor && cd /tmp/elk-vendor
+    npm init -y
+    npm install @mermaid-js/layout-elk@0.2.3
+    echo "export { default } from '@mermaid-js/layout-elk';" > entry-esm.js
+    npx --yes esbuild@0.28.1 entry-esm.js --bundle --format=esm \
+        --splitting --minify --outdir=split \
+        --entry-names=mermaid-layout-elk '--chunk-names=chunk-[hash]'
+    cp split/*.js <frontend>/public/vendor/mermaid-layout-elk/
+
+Output
+    106 files, ~5.0 MiB total on disk. The package ships its own copy of
+    mermaid 11.17.0's internals with every diagram type's lazy chunk, which
+    is where the size comes from; a page fetches about 1.5 MiB of it.
+
+Resolved dependency pins
+    @mermaid-js/layout-elk@0.2.3
+    elkjs@0.9.3
+    d3@7.9.0
+
+Landmine
+    The bundled mermaid copy registers its own window "load" listener with
+    startOnLoad true. Evaluated before that event fires, it re-runs every
+    `.mermaid` element from its rendered SVG text and replaces the diagram
+    with a syntax error. utils/mermaidElk.ts imports this module only after
+    document.readyState is "complete".
+
+Version coupling
+    Upgrade together with mermaid.min.js (see mermaid.provenance.txt).

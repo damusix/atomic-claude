@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Outlet, ScrollRestoration, useNavigate } from "react-router";
 import { CodeModal } from "../../components/code-modal/CodeModal";
+import { MermaidLightbox } from "../../components/mermaid-lightbox/MermaidLightbox";
 import { IconRail } from "../../components/nav/IconRail";
 import { NavDrawer } from "../../components/nav/NavDrawer";
 import { TopBar } from "../../components/nav/TopBar";
@@ -78,6 +79,7 @@ export function Shell() {
       </div>
       <PageModal />
       <CodeModal />
+      <MermaidLightbox />
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} />
       <ScrollRestoration />
     </>

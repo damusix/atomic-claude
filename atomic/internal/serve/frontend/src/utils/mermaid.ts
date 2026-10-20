@@ -4,12 +4,17 @@
 // atomicMermaidThemeVars()/atomicMermaidRetheme() — initial mount
 // (mountMermaid, CP6) plus the light/dark retheme re-run (rethemeMermaid,
 // CP11's useTheme retheme cascade).
-import { attempt } from "@logosdx/utils";
+import { attempt, attemptSync } from "@logosdx/utils";
 import { loadScript } from "./loadScript";
+import { registerElkLayouts } from "./mermaidElk";
+import { usesElk, withElk } from "./mermaidLayout";
+import { chipLabels, makeRoomForPadding } from "./mermaidSvg";
 
 interface MermaidLike {
   initialize(config: Record<string, unknown>): void;
-  run(opts?: { nodes: NodeListOf<Element> }): void | Promise<void>;
+  run(opts?: { nodes: ArrayLike<HTMLElement> }): void | Promise<void>;
+  registerLayoutLoaders(loaders: unknown[]): void;
+  detectType(text: string): string;
 }
 
 declare global {
@@ -59,6 +64,15 @@ function rampSeries(s: CSSStyleDeclaration, shade: number): string[] {
 const INK_ON_FILL_FALLBACK = "#1a1712";
 const PAPER_ON_FILL = "#ffffff";
 
+// Fills cycled across every `.node`, plus sequence actors and notes. Theme-
+// independent: each takes a black label and border; only the canvas changes.
+const NODE_FILLS = ["#ff6b6b", "#feca57", "#48dbfb", "#ff9ff3", "#1dd1a1"] as const;
+const NODE_INK = "#000000";
+
+function readCanvas(s: CSSStyleDeclaration): string {
+  return readVar(s, "--diagram-canvas", "#fff6e5");
+}
+
 function relativeLuminance(hex: string): number {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
   if (!m || !m[1]) return 0.5;
@@ -83,9 +97,8 @@ function labelOn(s: CSSStyleDeclaration, fill: string): string {
 
 // Mermaid keeps a separate palette variable family per diagram type, and every
 // family it is not given falls back on its own: the categorical ones
-// (pie1-12, git0-7, cScale0-11) derive from primaryColor, which is a surface
-// color here, so every slice and branch comes out the same near-monochrome
-// tone; the fixed ones (ER attribute rows, gantt crit bars, sankey links) fall
+// (pie1-12, git0-7, cScale0-11) derive from primaryColor, so every slice and
+// branch comes out the same tone; the fixed ones (ER attribute rows, gantt crit bars, sankey links) fall
 // back to defaults that ignore the theme — white rows under light-on-dark ink,
 // a pure #ff0000 bar. Naming each family is what keeps a diagram inside the
 // palette. Indexed entries are expanded from the ramp below.
@@ -101,6 +114,10 @@ function mermaidThemeVars(): Record<string, unknown> {
   const sans = readVar(s, "--sans", '"Inter", system-ui, sans-serif');
   const amber = readVar(s, "--amber", "#b07d18");
   const amberEdge = readVar(s, "--amber-edge", "#ecd9aa");
+  const canvas = readCanvas(s);
+  const diagramLine = readVar(s, "--diagram-line", line);
+  const diagramLabel = readVar(s, "--diagram-label", ink);
+  const [fill0, fill1, fill2, fill3] = NODE_FILLS;
 
   const series = rampSeries(s, CATEGORICAL_SHADE);
   // Whatever contrasts with the ramp in this theme. Single-valued label
@@ -110,53 +127,58 @@ function mermaidThemeVars(): Record<string, unknown> {
 
   const vars: Record<string, unknown> = {
     background: paper,
-    mainBkg: surface,
-    primaryColor: surface,
-    primaryTextColor: ink,
-    primaryBorderColor: border,
+    mainBkg: fill0,
+    primaryColor: fill0,
+    primaryTextColor: NODE_INK,
+    primaryBorderColor: NODE_INK,
     secondaryColor: sunk,
     secondaryTextColor: ink,
     secondaryBorderColor: border,
     tertiaryColor: paper,
     tertiaryTextColor: ink,
     tertiaryBorderColor: border,
-    nodeBorder: border,
-    nodeTextColor: ink,
-    lineColor: line,
+    nodeBorder: NODE_INK,
+    nodeTextColor: NODE_INK,
+    lineColor: diagramLine,
     textColor: ink,
     titleColor: ink,
-    edgeLabelBackground: surface,
-    clusterBkg: sunk,
-    clusterBorder: border,
+    edgeLabelBackground: canvas,
+    clusterBkg: canvas,
+    clusterBorder: NODE_INK,
     fontFamily: sans,
     fontSize: "14px",
 
-    // Entity relationship attribute rows are not here: 11.15 moved ER onto the
-    // unified node renderer, which derives the two row fills from `background`
-    // by lightness and never reads attributeBackgroundColorOdd/Even. app.css
-    // overrides g.row-rect-odd/even instead.
+    // State.
+    transitionColor: diagramLine,
+    transitionLabelColor: diagramLabel,
+    stateLabelColor: NODE_INK,
+    labelBackgroundColor: canvas,
+    specialStateColor: fill0,
+
+    // No ER row variables: mermaid derives row fills from `background`, which puts
+    // the black labels on near-black in dark mode. nodeStyleCSS sets them light.
 
     // Sequence.
-    actorBkg: surface,
-    actorBorder: border,
-    actorTextColor: ink,
-    actorLineColor: line,
-    signalColor: ink,
+    actorBkg: fill1,
+    actorBorder: NODE_INK,
+    actorTextColor: NODE_INK,
+    actorLineColor: diagramLine,
+    signalColor: diagramLine,
     signalTextColor: ink,
-    labelBoxBkgColor: sunk,
-    labelBoxBorderColor: border,
-    labelTextColor: ink,
+    labelBoxBkgColor: fill0,
+    labelBoxBorderColor: NODE_INK,
+    labelTextColor: NODE_INK,
     loopTextColor: ink,
-    noteBkgColor: readVar(s, "--amber-wash", "#fbf3e0"),
-    noteBorderColor: amberEdge,
-    noteTextColor: ink,
-    activationBkgColor: sunk,
-    activationBorderColor: border,
+    noteBkgColor: fill2,
+    noteBorderColor: NODE_INK,
+    noteTextColor: NODE_INK,
+    activationBkgColor: fill3,
+    activationBorderColor: NODE_INK,
     sequenceNumberColor: onFill,
 
     // Gantt.
     sectionBkgColor: sunk,
-    altSectionBkgColor: paper,
+    altSectionBkgColor: canvas,
     sectionBkgColor2: sunk,
     gridColor: border,
     taskBkgColor: series[1],
@@ -208,7 +230,7 @@ function mermaidThemeVars(): Record<string, unknown> {
     // xychart and radar read nested objects rather than flat keys, and both
     // otherwise fall back to a stock palette that ignores the theme.
     xyChart: {
-      backgroundColor: paper,
+      backgroundColor: canvas,
       titleColor: ink,
       xAxisLabelColor: ink,
       xAxisTitleColor: ink,
@@ -253,202 +275,115 @@ function mermaidThemeVars(): Record<string, unknown> {
   return vars;
 }
 
-const ZOOM_MIN = 0.2;
-const ZOOM_MAX = 8;
-// Below this much pointer travel nothing is intercepted, so a click still
-// reaches whatever mermaid bound to a node (securityLevel is "loose", so
-// diagrams may carry click handlers and links).
-const PAN_THRESHOLD_PX = 4;
+// Every node outline: path covers the hand-drawn shapes (cylinder, stadium, class
+// and ER boxes). The state-start dot, ER rows and class dividers keep their own.
+const NODE_SHAPE =
+  ":is(rect, polygon, path, circle):not(.state-start):not(:is(.row-rect-odd, .row-rect-even, .divider) *)";
 
-interface ZoomState {
-  x: number;
-  y: number;
-  k: number;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-// The transform lives as an inline style on the svg, so state and element share
-// a fate: a re-render replaces the svg and the transform goes with it. Origin
-// is pinned to the top-left so anchoring a zoom on the cursor is plain
-// arithmetic rather than an offset correction.
-function applyTransform(node: HTMLElement, state: ZoomState): void {
-  const svg = node.querySelector<SVGSVGElement>("svg");
-  if (!svg) return;
-  svg.style.transformOrigin = "0 0";
-  svg.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.k})`;
-}
-
-// Identity is also fit-to-screen: :fullscreen caps the svg at 100% of the box
-// and centers it, so dropping the transform restores the fitted view.
-function clearTransform(node: HTMLElement): void {
-  const svg = node.querySelector<SVGSVGElement>("svg");
-  if (!svg) return;
-  svg.style.removeProperty("transform");
-  svg.style.removeProperty("transform-origin");
-}
-
-// Pan and zoom, wired only while a diagram is fullscreen. Inline would mean
-// taking the wheel away from page scrolling, and swallowing ctrl+wheel there
-// would block browser page zoom over any diagram.
-//
-// Every listener is scoped to one fullscreen session and torn down by one
-// AbortController. The <pre> outlives re-renders, so anything left attached to
-// it would stack up a set of handlers per theme toggle.
-function beginZoomSession(node: HTMLElement): void {
-  const controller = new AbortController();
-  const { signal } = controller;
-  const state: ZoomState = { x: 0, y: 0, k: 1 };
-
-  const reset = (): void => {
-    state.x = 0;
-    state.y = 0;
-    state.k = 1;
-    clearTransform(node);
-  };
-
-  const zoomAbout = (clientX: number, clientY: number, factor: number): void => {
-    const rect = node.getBoundingClientRect();
-    const px = clientX - rect.left;
-    const py = clientY - rect.top;
-    const next = clamp(state.k * factor, ZOOM_MIN, ZOOM_MAX);
-    const ratio = next / state.k;
-    state.x = px - (px - state.x) * ratio;
-    state.y = py - (py - state.y) * ratio;
-    state.k = next;
-    applyTransform(node, state);
-  };
-
-  node.addEventListener(
-    "wheel",
-    (event) => {
-      // preventDefault needs a non-passive listener. ctrl+wheel is handled the
-      // same as a plain wheel, which is what makes a trackpad pinch work.
-      event.preventDefault();
-      // Multiplicative, so Firefox reporting deltas in lines rather than
-      // pixels changes the step size rather than the behavior.
-      zoomAbout(event.clientX, event.clientY, Math.exp(-event.deltaY * 0.002));
-    },
-    { passive: false, signal },
-  );
-
-  let pointerId = -1;
-  let panning = false;
-  let startX = 0;
-  let startY = 0;
-  let originX = 0;
-  let originY = 0;
-
-  node.addEventListener(
-    "pointerdown",
-    (event) => {
-      if (event.button !== 0) return;
-      pointerId = event.pointerId;
-      startX = event.clientX;
-      startY = event.clientY;
-      originX = state.x;
-      originY = state.y;
-      panning = false;
-    },
-    { signal },
-  );
-
-  node.addEventListener(
-    "pointermove",
-    (event) => {
-      if (event.pointerId !== pointerId) return;
-      const dx = event.clientX - startX;
-      const dy = event.clientY - startY;
-      if (!panning) {
-        if (Math.hypot(dx, dy) < PAN_THRESHOLD_PX) return;
-        panning = true;
-        node.classList.add("is-panning");
-        node.setPointerCapture(pointerId);
-      }
-      state.x = originX + dx;
-      state.y = originY + dy;
-      applyTransform(node, state);
-    },
-    { signal },
-  );
-
-  const endPan = (event: PointerEvent): void => {
-    if (event.pointerId !== pointerId) return;
-    if (panning && node.hasPointerCapture(pointerId)) {
-      node.releasePointerCapture(pointerId);
+// Styles mermaid has no theme variable for. Mermaid scopes this under each
+// diagram's svg id, so the canvas behind the diagram lives in app.css instead.
+function nodeStyleCSS(): string {
+  const s = getComputedStyle(document.documentElement);
+  const line = readVar(s, "--diagram-line", NODE_INK);
+  const label = readVar(s, "--diagram-label", NODE_INK);
+  const shadow = readVar(s, "--diagram-shadow", "rgba(0, 0, 0, 0.35)");
+  const cycle = NODE_FILLS.map(
+    (fill, i) => `.node:nth-child(${NODE_FILLS.length}n+${i + 1}) ${NODE_SHAPE} { fill: ${fill}; }`,
+  ).join("\n");
+  return `
+    .node ${NODE_SHAPE}, rect.actor, rect.note, .cluster rect, .labelBox {
+      stroke-width: 3px;
+      rx: 8px;
+      ry: 8px;
+      filter: drop-shadow(3px 5px 8px ${shadow});
     }
-    node.classList.remove("is-panning");
-    panning = false;
-    pointerId = -1;
-  };
-  node.addEventListener("pointerup", endPan, { signal });
-  node.addEventListener("pointercancel", endPan, { signal });
-
-  node.addEventListener("dblclick", reset, { signal });
-
-  node.addEventListener(
-    "keydown",
-    (event) => {
-      const rect = node.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      if (event.key === "+" || event.key === "=") zoomAbout(cx, cy, 1.2);
-      else if (event.key === "-") zoomAbout(cx, cy, 1 / 1.2);
-      else if (event.key === "0") reset();
-      else return;
-      event.preventDefault();
-    },
-    { signal },
-  );
-
-  // On the document rather than the node: a live-reload refetch can remove the
-  // fullscreen block outright, and the exit then fires on the document while
-  // the node sits disconnected. This one edge covers the button, Esc, browser
-  // chrome and element removal alike.
-  document.addEventListener(
-    "fullscreenchange",
-    () => {
-      if (document.fullscreenElement === node) return;
-      reset();
-      controller.abort();
-    },
-    { signal },
-  );
-
-  node.tabIndex = -1;
-  node.focus();
+    ${cycle}
+    .nodeLabel { font-weight: 600; color: ${NODE_INK}; }
+    .state-start { stroke: ${NODE_INK} !important; stroke-width: 3px; filter: drop-shadow(2px 3px 5px ${shadow}); }
+    .flowchart-link, .edgePath > path, .transition, .messageLine0, .messageLine1 { stroke-width: 2.5px; }
+    .row-rect-odd > path { fill: #ffffff; }
+    .row-rect-even > path { fill: #f3efe6; }
+    .actor-line { stroke-width: 2px; stroke-dasharray: 6 4; }
+    .loopLine { stroke: ${line}; stroke-width: 2px; }
+    marker:is([id$="-pointEnd"], [id$="-pointStart"]) { overflow: visible; }
+    marker[id$="-pointEnd"] .arrowMarkerPath { transform-origin: 10px 5px; transform: translateX(-1px) scale(1.6); }
+    marker[id$="-pointStart"] .arrowMarkerPath { transform-origin: 0 5px; transform: translateX(1px) scale(1.6); }
+    .edgeLabel, .edgeLabel p, .labelBkg { background-color: transparent; color: ${label}; font-weight: 600; }
+  `;
 }
 
-// A diagram is often the widest thing on the page and the one thing a reader
-// wants to fill the screen. The control is added after every run, because both
-// the initial mount and the theme re-render replace the block's contents.
-function addFullscreenControls(nodes: NodeListOf<Element>): void {
-  nodes.forEach((el) => {
-    const node = el as HTMLElement;
-    if (!node.querySelector("svg")) return;
-    if (node.querySelector(".mermaid-expand")) return;
+function mermaidConfig(): Record<string, unknown> {
+  return {
+    startOnLoad: false,
+    securityLevel: "loose",
+    theme: "base",
+    flowchart: { padding: 16, diagramPadding: 20 },
+    sequence: { diagramMarginX: 20, diagramMarginY: 20 },
+    themeVariables: mermaidThemeVars(),
+    themeCSS: nodeStyleCSS(),
+  };
+}
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "mermaid-expand";
-    button.title = "Expand diagram — scroll to zoom, drag to pan, 0 to reset";
-    button.setAttribute("aria-label", "Expand diagram");
-    button.addEventListener("click", () => {
-      if (document.fullscreenElement === node) {
-        void document.exitFullscreen();
-        return;
-      }
-      // Not supported everywhere, and rejects when the gesture is not trusted;
-      // the diagram stays inline in that case rather than throwing.
-      void attempt(() => node.requestFullscreen()).then(([, err]) => {
-        if (err) return;
-        beginZoomSession(node);
-      });
-    });
-    node.appendChild(button);
-  });
+// Mermaid sizes each node box by measuring its label as it renders. Measured
+// in the fallback face before Inter arrives, labels overflow once it swaps in.
+async function fontsReady(): Promise<void> {
+  if (!document.fonts) return;
+  const sans = readVar(getComputedStyle(document.documentElement), "--sans", "Inter, sans-serif");
+  await Promise.allSettled(["400", "600"].map((weight) => document.fonts.load(`${weight} 14px ${sans}`)));
+}
+
+function setSource(node: HTMLElement, text: string): void {
+  node.removeAttribute("data-processed");
+  node.textContent = text;
+}
+
+// Keyboard path to the viewer; pointer users click the diagram itself. Named
+// for its diagram so a list of a page's buttons tells them apart.
+function addOpenButton(node: HTMLElement, svg: SVGSVGElement, position: number): void {
+  if (node.querySelector(".mermaid-open")) return;
+  const title = svg.querySelector(":scope > title")?.textContent?.trim();
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "mermaid-open";
+  button.textContent = title ? `Open “${title}” in viewer` : `Open diagram ${position} in viewer`;
+  node.appendChild(button);
+}
+
+function finish(node: HTMLElement, canvas: string, position: number): void {
+  const svg = node.querySelector("svg");
+  if (!svg) return;
+  makeRoomForPadding(svg);
+  chipLabels(svg, canvas);
+  addOpenButton(node, svg, position);
+}
+
+// One node per run: run throws when a diagram fails, and only a per-node throw
+// says which one. An ELK failure can leave a half-drawn svg with no error marker.
+async function runOne(mermaid: MermaidLike, node: HTMLElement): Promise<boolean> {
+  const [, err] = await attempt(async () => mermaid.run({ nodes: [node] }));
+  return !err;
+}
+
+async function render(mermaid: MermaidLike, nodes: HTMLElement[]): Promise<void> {
+  const elkReady = await registerElkLayouts((loaders) => mermaid.registerLayoutLoaders(loaders));
+  // Before detectType: initialize is what registers the diagram detectors.
+  mermaid.initialize(mermaidConfig());
+  const canvas = readCanvas(getComputedStyle(document.documentElement));
+
+  for (const [i, node] of nodes.entries()) {
+    const src = node.dataset.mermaidSrc ?? "";
+    const [type] = attemptSync(() => mermaid.detectType(src));
+    const elk = elkReady && usesElk(type ?? null);
+    // ELK routes edges orthogonally with rounded corners.
+    setSource(node, elk ? withElk(src) : src);
+    let ok = await runOne(mermaid, node);
+    if (!ok && elk) {
+      setSource(node, src);
+      ok = await runOne(mermaid, node);
+    }
+    // Malformed diagram source keeps mermaid's own error output, unadjusted.
+    if (ok) finish(node, canvas, i + 1);
+  }
 }
 
 // mountMermaid lazy-loads the carried mermaid vendor script (once per page
@@ -457,7 +392,7 @@ function addFullscreenControls(nodes: NodeListOf<Element>): void {
 // only — a page swap must not re-render diagrams belonging to a page that's
 // no longer mounted.
 export async function mountMermaid(container: HTMLElement): Promise<void> {
-  const nodes = container.querySelectorAll("pre.mermaid");
+  const nodes = [...container.querySelectorAll<HTMLElement>("pre.mermaid")];
   if (nodes.length === 0) return;
 
   const [, loadErr] = await attempt(() => loadScript("/vendor/mermaid.min.js"));
@@ -467,49 +402,25 @@ export async function mountMermaid(container: HTMLElement): Promise<void> {
     // of the mount effect.
     return;
   }
-  if (!window.mermaid) return;
+  const mermaid = window.mermaid;
+  if (!mermaid) return;
 
-  nodes.forEach((el) => {
-    const node = el as HTMLElement;
+  for (const node of nodes) {
     if (!node.dataset.mermaidSrc) node.dataset.mermaidSrc = node.textContent ?? "";
-  });
+  }
 
-  window.mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "loose",
-    theme: "base",
-    themeVariables: mermaidThemeVars(),
-  });
-  // Malformed diagram source — leave the raw <pre> visible rather than
-  // throwing out of the mount effect.
-  await attempt(async () => window.mermaid?.run({ nodes }));
-  addFullscreenControls(nodes);
+  await fontsReady();
+  await render(mermaid, nodes);
 }
 
 // rethemeMermaid re-runs every already-mounted diagram in the document
 // (data-mermaid-src stashed by mountMermaid) against the now-flipped CSS
-// vars: restores each diagram's stashed source, drops mermaid's own
-// data-processed flag, re-initializes with the new palette, and re-runs
-// scoped to those nodes. A no-op with nothing mounted or the vendor script
-// never loaded (page view with no diagrams, or theme toggled before any
-// mermaid mount completed).
+// vars. A no-op with nothing mounted or the vendor script never loaded (page
+// view with no diagrams, or theme toggled before any mermaid mount completed).
 export async function rethemeMermaid(): Promise<void> {
-  if (!window.mermaid) return;
-  const nodes = document.querySelectorAll("pre.mermaid[data-mermaid-src]");
+  const mermaid = window.mermaid;
+  if (!mermaid) return;
+  const nodes = [...document.querySelectorAll<HTMLElement>("pre.mermaid[data-mermaid-src]")];
   if (nodes.length === 0) return;
-
-  nodes.forEach((el) => {
-    const node = el as HTMLElement;
-    node.removeAttribute("data-processed");
-    node.innerHTML = node.dataset.mermaidSrc ?? "";
-  });
-
-  window.mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "loose",
-    theme: "base",
-    themeVariables: mermaidThemeVars(),
-  });
-  await attempt(async () => window.mermaid?.run({ nodes }));
-  addFullscreenControls(nodes);
+  await render(mermaid, nodes);
 }
