@@ -103,7 +103,7 @@ atomic code impact --depth 2 --json MyFunction
 atomic code search --json "UserService"
 ```
 
-The `agent-code-intel` partial instructs each subagent when and how to use these verbs, with a degradation contract: binary absent, no DB, or failed query → fall back to `sg`/`grep`. Investigator, reviewer, and wiki-inferrer compose it directly; the implementer (feature and surgical modes) receives it transitively through `agent-implementer-workflow`.
+The `agent-code-intel` partial instructs each subagent when and how to use these verbs, with a degradation contract: no DB or failed query → fall back to `sg`/`grep`. Investigator, reviewer, and wiki-inferrer compose it directly; the implementer (feature and surgical modes) receives it transitively through `agent-implementer-workflow`.
 
 
 ## Degradation

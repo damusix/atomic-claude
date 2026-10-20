@@ -37,13 +37,21 @@ Wrote code before a failing test? Delete it. Start over. **Why:** keeping existi
 
 ## The cycle
 
-| Step | Action | Verify |
-|------|--------|--------|
-| RED | Write one minimal failing test | Run it. Must fail for the right reason — feature missing, not a typo. If it passes immediately, the test is wrong. Fix the test. |
-| GREEN | Write the smallest code that makes the test pass | Run all tests. Must be green. No "while I'm here" extras. |
-| REFACTOR | Clean up only after green | Re-run. Must stay green. No behavior changes. |
+A behavior reaches Green only after its test fails for the right reason in Red, and Refactor only after every test passes.
 
-Repeat for the next behavior.
+```mermaid
+stateDiagram-v2
+    [*] --> Red
+    Red --> Red: passes or wrong failure
+    Red --> Green: fails for the right reason
+    Green --> Refactor: all tests green
+    Refactor --> Red: next behavior
+    Refactor --> [*]: no behavior left
+```
+
+- **Red**: write one minimal failing test and run it. The right reason is the feature missing, not a typo. A test that passes immediately is wrong: fix the test.
+- **Green**: write the smallest code that makes the test pass, then run all tests. No "while I'm here" extras.
+- **Refactor**: clean up and re-run. The suite must stay green, with no behavior change.
 
 </workflow>
 

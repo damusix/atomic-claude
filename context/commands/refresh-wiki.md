@@ -12,30 +12,33 @@ description: >
 
 ## Step 0 — Detect scope
 
-Determine which pipeline to run:
+A supplied `[root]`, a `wiki/` outside a git repo, or a realm-typed `wiki/` means realm scope, a plain git repo means repo scope, and a git repo with an untyped `wiki/` beside it is the user's call.
 
-**Repo scope** — all of the following:
-- No `[root]` argument supplied, AND
-- `docs/wiki/index.md` exists in the current repo (check `test -f docs/wiki/index.md`), OR `docs/wiki/` exists but is empty / no index yet (first run).
-
-Specifically: if no `[root]` was supplied and the cwd is inside a git repo, this is repo scope. Continue to the **Repo scope** steps.
-
-**Realm scope** — any of the following:
-- `[root]` argument was supplied, OR
-- No `[root]` was supplied but a `wiki/` directory exists at the cwd that contains an `index.md` with `<wiki-type>realm</wiki-type>`, OR
-- The current working directory is not inside a git repo but a `wiki/` directory is present.
-
-Continue to the **Realm scope** steps.
-
-**Ambiguous** — cwd is a git repo AND a sibling `wiki/` directory exists (repo + `wiki/` co-located). Ask via `AskUserQuestion`:
-
-```
-This directory is a git repo and has a wiki/ sibling. Which scope?
-- Repo scope (refresh docs/wiki/ inside this repo)
-- Realm scope (refresh wiki/ as a cross-repo wiki)
+```mermaid
+flowchart TD
+    A{"root given?"} -->|yes| RL["Realm scope"]
+    A -->|no| G{"Inside a git repo?"}
+    G -->|no| W{"wiki/ present?"}
+    W -->|yes| RL
+    W -->|no| RP["Repo scope"]
+    G -->|yes| S{"wiki/ beside it?"}
+    S -->|no| RP
+    S -->|yes| K{"Realm-typed index?"}
+    K -->|yes| RL
+    K -->|no| Q{"User picks?"}
+    Q -->|repo| RP
+    Q -->|realm| RL
 ```
 
-Treat as repo scope on cancel or ambiguous input.
+- **Repo scope**: covers a first run too, where `docs/wiki/` is empty or has no index yet. Outside a git repo the R1 pre-flight stops it.
+- **Realm-typed index?**: `wiki/index.md` contains `<wiki-type>realm</wiki-type>`.
+- **User picks?**: `AskUserQuestion`; cancel or ambiguous input means repo scope:
+
+    ```
+    This directory is a git repo and has a wiki/ sibling. Which scope?
+    - Repo scope (refresh docs/wiki/ inside this repo)
+    - Realm scope (refresh wiki/ as a cross-repo wiki)
+    ```
 
 ---
 
@@ -51,18 +54,6 @@ If not inside a git repo, stop:
 
 ```
 not a git repo. /refresh-wiki (repo scope) requires a git repository.
-```
-
-```bash
-command -v atomic
-```
-
-If `atomic` is not on `$PATH`, stop:
-
-```
-atomic binary not found on $PATH.
-install: curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
-then re-run /refresh-wiki.
 ```
 
 ### R2 — Bootstrap check
@@ -91,13 +82,10 @@ If the file already exists (no output from the command), read its contents for t
 
 ### R4 — Code-intel index lifecycle
 
-Ensure the code-intel index is current before dispatching the inferrer, so domain clustering can use real dependency edges rather than filename heuristics alone.
+Bring the code-intel index current before dispatching the inferrer, so domain clustering can use real dependency edges rather than filename heuristics alone. A failed sync or index never blocks the refresh.
 
-- If `atomic` is not on `$PATH` (already checked in R1): skip this step silently and proceed. The inferrer degrades to heuristic-only clustering.
-- If `.claude/.atomic-index/atomic.db` **exists** (warm index): run `atomic code sync` to bring it up to date with the current working tree. This is incremental and cheap. On sync error, print a warning and proceed degraded — a stale index is still useful and never blocks the refresh.
-- If `.claude/.atomic-index/atomic.db` **does not exist** (cold — no index yet): run `atomic code index` directly — do **not** prompt. Indexing is cheap, idempotent, and harmless, so assume the user wants it. Print a one-line "Building code index (first run may take seconds to minutes)…" notice before running so a slow first index isn't a surprise. On index error, print a warning and proceed degraded.
-
-A missing index (binary absent, or a failed index/sync) never blocks the refresh. The inferrer uses filename/path heuristics in that case and produces valid signals — the index is an enhancement, not a requirement.
+- If `.claude/.atomic-index/atomic.db` **exists** (warm index): run `atomic code sync` — incremental and cheap. On error, print a warning and proceed; a stale index is still useful.
+- If it **does not exist** (cold): run `atomic code index` directly — do **not** prompt. Indexing is cheap, idempotent, and harmless, so assume the user wants it. Print a one-line "Building code index (first run may take seconds to minutes)…" notice first so a slow first index isn't a surprise. On error, print a warning and proceed; the inferrer falls back to filename/path heuristics and still produces valid signals.
 
 ### R5 — Dispatch agent
 
@@ -173,25 +161,23 @@ Use "initialized" if R2 found no existing signals; "refreshed" otherwise.
 
 ## Realm scope
 
-### Step 1 — Resolve root and pre-flight
+A failed scan stops the run, and a run with nothing to refresh goes straight to the commit step.
 
-Resolve the wiki root:
-
-- If `[root]` was supplied, use it as the realm root. Otherwise default to the current working directory. `[root]` is the realm root (the parent of `wiki/`), never the `wiki/` directory itself — `atomic wiki scan --root <resolved-root>` creates `wiki/` underneath it, and the rest of this workflow appends `wiki/` to `<resolved-root>` (e.g. `<resolved-root>/wiki/index.md`).
-
-Check that the `atomic` binary is available:
-
-```bash
-command -v atomic
+```mermaid
+flowchart TD
+    R["Step 1: resolve root"] --> S{"Step 2: scan ok?"}
+    S -->|no| X["Stop"]
+    S -->|yes| B["Steps 3–4: buckets"]
+    B --> A{"Step 5:<br/>anything to do?"}
+    A -->|no| C["Step 10: commit"]
+    A -->|yes| P["Steps 6–7: repo pass"]
+    P --> K["Steps 8–9: record,<br/>report"]
+    K --> C
 ```
 
-If not found, stop:
+### Step 1 — Resolve root
 
-```
-atomic binary not found on $PATH.
-install: curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
-then re-run /refresh-wiki.
-```
+If `[root]` was supplied, use it as the realm root. Otherwise default to the current working directory. `[root]` is the realm root (the parent of `wiki/`), never the `wiki/` directory itself — `atomic wiki scan --root <resolved-root>` creates `wiki/` underneath it, and the rest of this workflow appends `wiki/` to `<resolved-root>` (e.g. `<resolved-root>/wiki/index.md`).
 
 ### Step 2 — Scan (deterministic)
 
@@ -215,37 +201,32 @@ If `atomic wiki scan` exits non-zero, stop and surface the error verbatim. The m
 
 ### Step 3 — One-time bucket offer (judgment)
 
-Check whether `wiki/index.md` already contains a `<wiki-buckets` block:
+The offer fires only while `wiki/index.md` has no `<wiki-buckets` block, and either answer writes one, so it never fires twice.
 
-```bash
-grep -q '<wiki-buckets' <resolved-root>/wiki/index.md && echo "present" || echo "absent"
+```mermaid
+flowchart TD
+    B{"Buckets block<br/>present?"} -->|yes| K["Skip step"]
+    B -->|no| O["Offer buckets"]
+    O --> N{"Names given?"}
+    N -->|yes| A["Add each bucket"]
+    N -->|no| D["Record decline"]
 ```
 
-If the block is **present** (populated or declined): skip this step entirely — the offer never re-fires.
+- **Buckets block present?**: `grep -q '<wiki-buckets' <resolved-root>/wiki/index.md && echo "present" || echo "absent"`. Present means populated or declined.
+- **Offer buckets**:
 
-If the block is **absent**: present the following offer to the user:
+    ```
+    This wiki has no capture buckets registered yet.
 
-```
-This wiki has no capture buckets registered yet.
+    Buckets are named capture folders at the realm root (e.g. research/, notes/, tickets/).
+    The wiki indexes their docs: every folder's index.md lists what it holds.
 
-Buckets are named capture folders at the realm root (e.g. research/, notes/, tickets/).
-The wiki indexes their docs: every folder's index.md lists what it holds.
+    Would you like to create any capture buckets now?
+    Enter bucket names (space-separated, e.g. "research notes tickets"), or press Enter to skip:
+    ```
 
-Would you like to create any capture buckets now?
-Enter bucket names (space-separated, e.g. "research notes tickets"), or press Enter to skip:
-```
-
-**On named input** (user supplies one or more names):
-
-For each bucket name, run:
-
-```bash
-atomic wiki bucket add --root <resolved-root> <name>
-```
-
-`bucket add` creates the bucket folder and its `index.md` stub, registers a `<bucket name="<name>" path="<abs-path>"/>` entry in the `<wiki-buckets>` block in `wiki/index.md`, and writes the `## Capture surfaces` section (with `<!-- describe what this bucket is for -->` placeholder) to the realm `CLAUDE.md`. It then rebuilds the bucket's indexes, so every folder the walk reaches in an existing bucket folder gains an `index.md`.
-
-**On blank/skip input** (user presses Enter or types nothing): record the decline by writing a `<wiki-buckets declined="true"></wiki-buckets>` block into `wiki/index.md`. Use an Edit to insert the block after the last line of content (or append if file ends without a trailing newline). This prevents the offer from re-firing on future runs.
+- **Add each bucket**: `atomic wiki bucket add --root <resolved-root> <name>` per name. It creates the bucket folder and its `index.md` stub, registers a `<bucket name="<name>" path="<abs-path>"/>` entry in the `<wiki-buckets>` block in `wiki/index.md`, and writes the `## Capture surfaces` section (with `<!-- describe what this bucket is for -->` placeholder) to the realm `CLAUDE.md`. It then rebuilds the bucket's indexes, so every folder the walk reaches in an existing bucket folder gains an `index.md`.
+- **Record decline**: blank input. Write a `<wiki-buckets declined="true"></wiki-buckets>` block into `wiki/index.md` with an Edit after the last line of content (or append if the file ends without a trailing newline).
 
 ### Step 4 — Placeholder fill (judgment)
 
@@ -312,8 +293,6 @@ test -f <member-repo-path>/.claude/.atomic-index/atomic.db
   The `--repo` global flag goes BEFORE `code`. On any non-zero exit, skip silently and continue to the inferrer dispatch — the inferrer degrades to heuristic summarization.
 
 - **Cold** (no DB) → do NOT auto-index and do NOT prompt. Indexing is opt-in: the user runs `atomic --repo <member-repo-path> code index` themselves when they want graph-grounded summaries. The inferrer will degrade to summary-without-graph for this repo.
-
-- **`atomic` binary absent** → skip the sync step silently, proceed to the inferrer dispatch.
 
 Code-intel grounding is best-effort per repo. A repo without an index still gets summarized via heuristics — absence of an index is never a blocker for the wiki refresh.
 

@@ -49,17 +49,25 @@ The Mermaid types listed as not used in these docs each paint a fixed palette th
 
 `SKILL.md` rule 1 points at this table after its per-diagram-type node budgets (9 nodes for a flowchart, 6 participants for a sequence, 8 entities for an ER or class diagram), and its pre-save checklist checks a `flowchart LR` misuse, more than 4 nodes side by side, and any `style`/`fill:` line against it. The worked "Prose that should have been a diagram" example in `SKILL.md`'s `## Examples` section now draws `flowchart TD`.
 
+### Diagram form by surface
+
+`SKILL.md` rule 1's form table draws a branching process and a state machine as Mermaid in prompt artifacts (`commands/`, `agents/`, `skills/`, `rules/`, [`context/CLAUDE.md`](../../context/CLAUDE.md)) as well as in [`docs/`](..); steps between actors and entity relations keep their ASCII forms in prompt artifacts. In a prompt artifact, steps that branch, loop, stop early, or route on a verdict, exit code, or mode become a Mermaid block that replaces the numbered steps. The threshold is two or more decisions, a loop, or a multi-way route; a single two-way condition stays one sentence of prose. A bulleted list keyed by node label (`**<label>**: …`) under the block carries only what a label cannot: exact commands, flags, error strings, output lines, and rules. A straight sequence with no branch stays a numbered list on either surface.
+
 ### Routing a diff to a page
 
-Every branch below ends in a decision the user made, which is why nothing here writes a page unprompted.
+Only a ship verb prints the setup hint; `/documentation` with no surfaces table bootstraps one instead, and every page edit waits on the user's answer, so nothing here writes a page unprompted.
 
 ```mermaid
 flowchart TD
     A["ship verb (staged diff)"] --> T
-    B["/documentation (git range)"] --> T
-    T{"## Documentation surfaces<br/>table present?"}
-    T -->|no| H["print hint, proceed silently"]
-    T -->|yes| M["match diff paths and symbols<br/>against each row's Covers column"]
+    B["/documentation (git range)"] --> D
+    T{"surfaces table<br/>in context?"}
+    T -->|no| H["print setup hint, proceed"]
+    T -->|yes| M
+    D{"table present,<br/>no --discover?"}
+    D -->|no| BS["bootstrap:<br/>index doc files"]
+    D -->|yes| M
+    M["match diff paths and symbols<br/>against each row's Covers column"]
     M --> C["classify stale / incomplete / missing"]
     C --> P["prompt, one surface at a time"]
     P -->|Yes| E["atomic-documentation edits the file, git add"]
@@ -107,7 +115,7 @@ flowchart LR
 |------|------|
 | [`context/output-styles/atomic.md`](../../context/output-styles/atomic.md) | Atomic TUI reply style: drop-list, the verbatim mannered-prose rule, the phrases-readers-hate list, the `[thing] [action] [reason]` pattern, a 120-word default length, the `# Format routing` table, the Auto-Clarity escape hatch, and the `# Boundaries` voice split. |
 | [`context/skills/atomic-writing/SKILL.md`](../../context/skills/atomic-writing/SKILL.md) | The voice for files. A `## Structure before sentences` section fixing the page reading order, numbered sentence-level rules, an avoid/use replacement table, a per-surface length table, and a pre-save checklist; rule 1 and the checklist both point at `references/mermaid.md`'s layout table. |
-| [`context/skills/atomic-writing/references/mermaid.md`](../../context/skills/atomic-writing/references/mermaid.md) | Loaded on demand when a diagram is being written: type selection from the reader's question, a layout section (direction, width, density, color; see above), and the label and syntax rules that decide whether a block renders or ships as a raw fence. |
+| [`context/skills/atomic-writing/references/mermaid.md`](../../context/skills/atomic-writing/references/mermaid.md) | Loaded on demand before a Mermaid block goes into a [`docs/`](..) file or a prompt artifact: type selection from the reader's question, a layout section (direction, width, density, color; see above), and the label and syntax rules that decide whether a block renders or ships as a raw fence. |
 | [`context/_partials/agent-atomic-voice.md`](../../context/_partials/agent-atomic-voice.md) | Response-voice rule for subagents replying to an orchestrator. Composed by every agent source under [`context/agents/`](../../context/agents). |
 | [`docs/spec/legible-output.md`](../spec/legible-output.md) | Format-routing contract for [`context/output-styles/atomic.md`](../../context/output-styles/atomic.md) and [`docs/reference/output-style.md`](../reference/output-style.md). |
 | [`docs/design/legible-output.md`](../design/legible-output.md) | The pattern-verdict table folding the candidate patterns down to the kept routes, plus the out-of-scope rejection of rendered-HTML reply surfaces. |

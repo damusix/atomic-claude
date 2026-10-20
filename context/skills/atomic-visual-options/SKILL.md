@@ -43,55 +43,39 @@ Apply this test per question, not per session. A planning conversation might hav
 
 <workflow>
 
-### 1. Compose
+One file is rewritten in place until the user stops asking for changes, and only the chosen codes and their meanings are recorded.
 
-Identify the decision dimensions. Each dimension becomes a **panel** (e.g. Layout, Color scheme, Navigation placement). For each panel:
-
-- Assign a letter starting at A (panel A, panel B, panel C…).
-- Generate 2–4 options. Label each with the panel letter + option number: `A1`, `A2`, `A3`. No more than four options per panel — beyond four the comparison stops being useful.
-- Assign each option a short, descriptive title (e.g. "A2 — Two-column with sidebar").
-
-### 2. Write
-
-Write ONE self-contained HTML file to the scratchpad bundle:
-
-```
-$(atomic scratchpad path <topic>)/options.html
+```mermaid
+flowchart TD
+    C["Compose panels"] --> W["Write options.html"]
+    W --> H["Hand off, end turn"]
+    H --> P["Read the pick"]
+    P --> I{"Change wanted?"}
+    I -->|yes| W
+    I -->|no| R{"Inside /atomic-plan?"}
+    R -->|yes| D["Record in design doc"]
+    R -->|no| S["State pick in terminal"]
 ```
 
-Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
+- **Compose panels**: identify the decision dimensions. Each dimension becomes a **panel** (e.g. Layout, Color scheme, Navigation placement). For each panel:
+    - Assign a letter starting at A (panel A, panel B, panel C…).
+    - Generate 2–4 options. Label each with the panel letter + option number: `A1`, `A2`, `A3`. No more than four options per panel — beyond four the comparison stops being useful.
+    - Assign each option a short, descriptive title (e.g. "A2 — Two-column with sidebar").
+- **Write options.html**: ONE self-contained HTML file in the scratchpad bundle, at `$(atomic scratchpad path <topic>)/options.html`. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history. A change request overwrites the same file — no versioning, the file is throwaway scratch. The file must satisfy these constraints:
+    - Starts with `<!DOCTYPE html>`.
+    - All CSS inline in a `<style>` block — no external stylesheets.
+    - No external requests: no CDN links, no web fonts loaded from a remote host, no remote images. Default to CSS geometry and SVG for wireframe placeholders so the file renders fully offline. If a real raster image is genuinely required for fidelity, embed it as a base64 `data:` URI — the file must remain self-contained and work without a network connection.
+    - No client-side JavaScript. The selection is typed in the terminal; the page is pure display.
+    - Honors `prefers-color-scheme` for light and dark mode via a `@media (prefers-color-scheme: dark)` block.
+- **Hand off, end turn**: print the `file://` path to the file. Do not auto-open the browser. Tell the user: open the file, pick one code per panel (e.g. `A2 B3`), and reply with those codes. After an overwrite, tell them to refresh the browser instead.
+- **Read the pick**: next turn, parse the codes the user typed. Accept space- or comma-separated, one code per panel. Map each code back to its option title and description.
+- **Record in design doc**: write the chosen codes and what each option meant into `docs/design/<topic>.md`. Example entry:
 
-The file must satisfy these constraints:
+    ```
+    Chose A2 (two-column layout with sidebar), B3 (high-contrast blue/white palette), C1 (top navigation bar).
+    ```
 
-- Starts with `<!DOCTYPE html>`.
-- All CSS inline in a `<style>` block — no external stylesheets.
-- No external requests: no CDN links, no web fonts loaded from a remote host, no remote images. Default to CSS geometry and SVG for wireframe placeholders so the file renders fully offline. If a real raster image is genuinely required for fidelity, embed it as a base64 `data:` URI — the file must remain self-contained and work without a network connection.
-- No client-side JavaScript. The selection is typed in the terminal; the page is pure display.
-- Honors `prefers-color-scheme` for light and dark mode via a `@media (prefers-color-scheme: dark)` block.
-
-### 3. Hand off
-
-Print the `file://` path to the file. Do not auto-open the browser. End the turn.
-
-Tell the user: open the file, pick one code per panel (e.g. `A2 B3`), and reply with those codes.
-
-### 4. Read the pick
-
-Next turn, parse the codes the user typed. Accept space- or comma-separated, one code per panel. Map each code back to its option title and description.
-
-### 5. Iterate
-
-If the user wants a panel changed or wants to see a different variant, overwrite the same file and tell them to refresh the browser. No versioning — the file is throwaway scratch.
-
-### 6. Record
-
-**Inside a `/atomic-plan` session:** write the chosen codes and what each option meant into `docs/design/<topic>.md`. Example entry:
-
-```
-Chose A2 (two-column layout with sidebar), B3 (high-contrast blue/white palette), C1 (top navigation bar).
-```
-
-**Standalone (not inside a plan):** state the chosen codes and what each option meant directly in the terminal so the decision is captured in the conversation history. If a `docs/design/<topic>.md` for the topic already exists, append the decision there too.
+- **State pick in terminal**: state the chosen codes and what each option meant directly in the terminal so the decision is captured in the conversation history. If a `docs/design/<topic>.md` for the topic already exists, append the decision there too.
 
 The HTML file is disposable and will be cleaned up with the scratchpad. The decision is what persists.
 

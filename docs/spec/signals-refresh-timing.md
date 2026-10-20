@@ -57,12 +57,11 @@ refreshed: a fresh stored signals file returns exit 0.
   1 and store it in `STATE.md` as `Loop base SHA: <sha>`. This is the `from-sha` for the range.
 - **Phase 3 finalize — new step, after `/documentation`, before deleting `$SCRATCH`:** refresh
   signals scoped to the loop's range.
-  1. `command -v atomic` absent → skip.
-  2. `atomic signals stale` exit 0 → skip (nothing material changed). Exit 2 → report + skip.
-  3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and
+  1. `atomic signals stale` exit 0 → skip (nothing material changed). Exit 2 → report + skip.
+  2. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and
      `changed_range: <loop-base>..HEAD` (HEAD after docs commits). Stage `docs/wiki/scan.md`, `docs/wiki/index.md`, and any other
      `docs/wiki/*.md` domain files the refresh wrote.
-  4. Commit as a dedicated `chore(signals): refresh after <topic>` commit. Record the SHA in
+  3. Commit as a dedicated `chore(signals): refresh after <topic>` commit. Record the SHA in
      `STATE.md`.
 
 This refresh is **not** per-iteration — it runs once at finalize over the whole task range.
@@ -175,6 +174,14 @@ are absent from the tree), so a fresh reader would build against a stale layout.
 **Why:** Realm wikis no longer track freshness, so a ship inside a member repo has no marker to set.
 
 **Removed:** the best-effort `atomic wiki mark-dirty` call and the bucket-synthesis mode reference. See `docs/spec/realm-wiki-drop-refresh.md`.
+
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** The C3 finalize refresh starts at `atomic signals stale`; it no longer checks `command -v atomic` first.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** step 1 skipped the refresh when `command -v atomic` found no binary.
 
 ## Implementation log
 

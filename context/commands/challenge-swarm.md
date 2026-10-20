@@ -25,16 +25,33 @@ hunch → /gather-evidence → /pressure-test → /atomic-plan → /challenge-sw
 ## Parse arguments
 
 
-`$ARGUMENTS` may be empty, a topic phrase, or a target document reference. Classify with this precedence (first match wins, single pass):
+`$ARGUMENTS` is empty, a topic phrase, or a target document reference, and every route ends on one target document or a question for the user.
 
 
-1. Token starts with `@` → strip the `@`, treat the remainder as a path. Resolve relative to cwd; absolute allowed. Must exist and end in `.md` → **target document**. Otherwise print one line: `path '<x>' not found (or not markdown) — pass a design/spec path or topic.` and continue classifying the rest.
-2. Token ends in `.md` and exists on disk → **target document** (same checks).
-3. Anything else → **topic phrase**. Glob `docs/design/*<slug>*.md` and `docs/spec/*<slug>*.md`. One match → use it, confirm in one line. Multiple → numbered list, typed selection. Zero → ask for a path.
-4. Empty `$ARGUMENTS` → list candidates: design/spec files changed on the current branch (`git diff --name-only <base>...HEAD -- docs/design docs/spec`), newest first, numbered, typed selection. No candidates → ask: *"Which document should the swarm challenge?"*
+```mermaid
+flowchart TD
+    A{"Argument shape?"} -->|path| V{"Valid document?"}
+    V -->|yes| T["Target document"]
+    V -->|no| N["Note, drop token"]
+    N --> A
+    A -->|prose| G{"Glob matches?"}
+    G -->|one| T
+    G -->|several| L["Typed selection"]
+    G -->|none| Q["Ask for a path"]
+    L --> T
+    A -->|empty| B{"Branch changed<br/>design or spec?"}
+    B -->|yes| L
+    B -->|no| Q
+```
 
 
-**Path safety.** Resolve the final absolute path. If it falls outside `git rev-parse --show-toplevel`, reject with the same one-line message and drop the token.
+- **Argument shape?**: first match wins, single pass. A token starting with `@` is a path (strip the `@`); a token ending in `.md` that exists on disk is a path; anything else is a topic phrase. Paths resolve relative to cwd; absolute allowed.
+- **Valid document?**: the file exists, ends in `.md`, and its final absolute path falls inside `git rev-parse --show-toplevel`.
+- **Note, drop token**: print one line, `path '<x>' not found (or not markdown) — pass a design/spec path or topic.`, then classify the remaining tokens.
+- **Glob matches?**: `docs/design/*<slug>*.md` and `docs/spec/*<slug>*.md`. One match: use it and confirm in one line.
+- **Typed selection**: a numbered list; branch-changed candidates are listed newest first.
+- **Branch changed design or spec?**: `git diff --name-only <base>...HEAD -- docs/design docs/spec`.
+- **Ask for a path**: from an empty argument, ask *"Which document should the swarm challenge?"*
 
 
 The target is any written artifact worth challenging before it gets acted on: a design doc, a spec, an implementation plan, an ADR — or a non-software artifact like a pricing proposal, an analysis plan, or a process change.
@@ -293,19 +310,34 @@ Severity order within sections. Every finding carries its evidence. Keep it shor
 ## Close-out
 
 
-Numbered offers, typed selection:
+The close-out menu repeats after every pick until the user picks `5`.
 
 
+```mermaid
+flowchart TD
+    O["Offer menu"] --> P{"Pick?"}
+    P -->|rerun or add| R["Dispatch named lens"]
+    R --> M["Rebuild map"]
+    M --> O
+    P -->|file or fold| F["Act"]
+    F --> O
+    P -->|done| X["Stop, keep bundle"]
 ```
-1. rerun a lens         — edit lenses/<name>.md first if you want it re-aimed
-2. add the missing lens — <name from the report>
-3. file as follow-ups   — atomic followups add --kind finding, one per accepted finding
-4. fold into the design — /atomic-plan @<target> to encode the decisions (spec-currency rule applies)
-5. done                 — stop here
-```
 
 
-On `5`, stop — the bundle stays. It is retired only via `/git-cleanup` reaping its worktree/branch, or an explicit `atomic scratchpad archive <slug>`, never by this command. On `1`/`2`, dispatch only the named lens (same pointer prompt, same `model: sonnet`) and rebuild the map. On `3`/`4`, act, then re-offer.
+- **Offer menu**: numbered offers, typed selection:
+
+    ```
+    1. rerun a lens         — edit lenses/<name>.md first if you want it re-aimed
+    2. add the missing lens — <name from the report>
+    3. file as follow-ups   — atomic followups add --kind finding, one per accepted finding
+    4. fold into the design — /atomic-plan @<target> to encode the decisions (spec-currency rule applies)
+    5. done                 — stop here
+    ```
+
+- **Dispatch named lens**: `1` or `2`. Only the named lens, with the same pointer prompt and the same `model: sonnet`.
+- **Act**: `3` or `4`.
+- **Stop, keep bundle**: `5`. The bundle is retired only via `/git-cleanup` reaping its worktree/branch, or an explicit `atomic scratchpad archive <slug>`, never by this command.
 
 </workflow>
 

@@ -8,15 +8,13 @@ The realm orchestration (scan, interactive offers, linkify, commit) is handled b
 
 ## Wiki-output mode
 
-Activated when the caller provides **both** `target_repo` and `wiki_dir`. If exactly one is present, stop immediately:
+Activated when the caller provides **both** `target_repo` and `wiki_dir`; run W1–W7 below instead of the repo-scope default pipeline, which is not executed. If exactly one is present, print this and stop immediately:
 
 ```
 ERROR: wiki-output mode requires both target_repo and wiki_dir.
 Missing: <whichever is absent>.
 Aborting — not falling back to default signals mode.
 ```
-
-When both are present, run this pipeline instead of the repo-scope default pipeline. The default pipeline is not executed.
 
 ### W1 — Guard: read-only on target_repo
 

@@ -102,15 +102,16 @@ Not every document needs all five, and a surface with its own defined structure 
     | Content | Form | In `docs/` | In prompt artifacts |
     |---------|------|-----------|---------------------|
     | Steps passing between actors | sequence | Mermaid `sequenceDiagram` | numbered steps with `->` effects |
-    | Branching process | flowchart | Mermaid `flowchart` | ASCII arrow chain |
+    | Branching process | flowchart | Mermaid `flowchart` | Mermaid `flowchart` |
     | Entities and relations | ER | Mermaid `erDiagram` | crow's-foot ASCII |
-    | States and transitions | state machine | Mermaid `stateDiagram-v2` | `Draft -> Paid -> Shipped` |
+    | States and transitions | state machine | Mermaid `stateDiagram-v2` | Mermaid `stateDiagram-v2` |
+    | Straight sequence, no branch | list | numbered list | numbered list |
     | Containment or nesting | tree | indented tree | indented tree |
     | Options against criteria | table | table | table |
 
-    Prompt artifacts may use Mermaid when the flow carries the instruction and prose would take more lines; otherwise use the ASCII form, which costs fewer tokens at equal clarity. For the full route vocabulary and the discipline caps, see `output-styles/atomic.md`.
+    In a prompt artifact, steps that branch, loop, stop early, or route on a verdict, exit code, or mode are drawn as Mermaid, and the diagram replaces the steps rather than sitting beside them. A section with a single two-way condition stays one sentence of prose; the diagram starts at two or more decisions, a loop, or a multi-way route. Under the diagram, a bulleted list keyed by node label (`**<label>**: …`) carries only what a label cannot: exact commands, flags, error strings, output lines, and rules. For the full route vocabulary and the discipline caps of the ASCII forms, see `output-styles/atomic.md`.
 
-    **Every diagram makes one claim, and the caption above it states that claim.** "The signals pipeline" is a title. "The scan runs before the infer step, so a domain writer never reads a stale substrate" is a claim. If the only caption available is "here is the system", the content is an inventory: write the table instead. The prose must stand without the picture, because a reader on a renderer that does not support Mermaid gets the raw fenced block. The diagram compresses; it does not carry.
+    **Every diagram makes one claim, and the caption above it states that claim.** "The signals pipeline" is a title. "The scan runs before the infer step, so a domain writer never reads a stale substrate" is a claim. If the only caption available is "here is the system", the content is an inventory: write the table instead. In a `docs/` file, the prose must stand without the picture, because a reader on a renderer that does not support Mermaid gets the raw fenced block; there the diagram compresses, it does not carry.
 
     **Draw as many diagrams as the subject has shapes.** A pipeline, a lifecycle, and a request path are three claims, so they are three diagrams, and collapsing them into one canvas or into prose loses all three. There is no cap on how many a page carries; the cap is per diagram, on how much any one of them tries to say.
 
@@ -124,7 +125,7 @@ Not every document needs all five, and a surface with its own defined structure 
 
     Label nodes with the real identifier (`pruneDeleted`, `AuthGuard.verify()`), not a generic noun ("cleanup", "check auth"). A renamed symbol then turns up in grep; a vague label goes stale in silence. Encode distinctions in shape or line style, not color: `{diamond}` for a decision, `[(cylinder)]` for a store, `-.->` for async. Color encodes nothing, breaks on dark backgrounds, and fails colorblind readers.
 
-    Before writing a Mermaid block into a `docs/` file, read `references/mermaid.md`: it picks the type from the reader's question and lists what breaks rendering. Identifier labels are the reason it matters here, since a bare `verify(token)` is a parse error and `verify("token")` is not.
+    Before writing a Mermaid block into a `docs/` file or a prompt artifact, read `references/mermaid.md`: it picks the type from the reader's question and lists what breaks rendering. Identifier labels are the reason it matters here, since a bare `verify(token)` is a parse error and `verify("token")` is not.
 
     **Diagrams belong to explanation and reference.** A concepts page or a design doc is where a claim about how something works earns a picture, and a reference page earns one for a data model or a type hierarchy. A how-to is ordered steps the reader is executing, not modeling, so it rarely wants one. A tutorial almost never does: a learner on rails does not need a map of the territory, and a diagram invites exactly the decision-making a tutorial exists to remove.
 
@@ -288,7 +289,7 @@ Read the page twice. The first read covers the first five checks. The second cov
 
 ## Reference files
 
-- `references/mermaid.md` — picking a diagram type from the reader's question, the layout limits (direction, width, density, color), and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file.
+- `references/mermaid.md` — picking a diagram type from the reader's question, the layout limits (direction, width, density, color), and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file or a prompt artifact.
 - `references/exemplar-reference-page.md` — the shape of a finished reference page for a config file, format, or subsystem. Read before writing a `docs/reference/` page a reader will use for lookup.
 - `references/exemplar-tool-page.md` — the shape of a finished tool reference: worked example first, then the model, then per-verb lookup. Read before writing a page for a CLI tool, daemon, or protocol.
 

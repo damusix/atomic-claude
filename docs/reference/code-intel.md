@@ -174,7 +174,7 @@ flowchart TD
     impl -->|impact before edit| db
     rev -->|blast-radius check| db
     sig -->|real import/call edges| db
-    db -.->|absent / failed / no binary| grep
+    db -.->|absent / failed| grep
 ```
 
 What each consumer does with the graph:
@@ -188,7 +188,7 @@ What each consumer does with the graph:
 | `/atomic-plan`, `/documentation` | Delegate structural exploration to a subagent — never query inline. |
 | `/gather-evidence` | Treat `atomic code callers`/`impact` as a Tier-1 (primary-source) answer to "X is called from N places" / "changing X affects Y". |
 
-Every consumer degrades the same way: if the binary is absent, the database does not exist, or a query fails, it falls back to `sg`/`grep`/heuristics and never blocks.
+Every consumer degrades the same way: if the database does not exist or a query fails, it falls back to `sg`/`grep`/heuristics and never blocks.
 
 
 ## MCP for the interactive session

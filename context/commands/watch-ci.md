@@ -6,29 +6,26 @@ description: Spawn a background Haiku-backed subagent to watch CI for the curren
 
 ## Step 1 — Pre-flight
 
-```bash
-git rev-parse --is-inside-work-tree
+Only a missing git repo stops the command; missing signals only warn, because the subagent can still detect the provider from the file tree.
+
+```mermaid
+flowchart TD
+    G{"Inside a git repo?"} -->|no| X["Stop"]
+    G -->|yes| S{"Signals present?"}
+    S -->|no| W["Warn"]
+    S -->|yes| C["Capture context"]
+    W --> C
 ```
 
-If not inside a git repo, stop:
+- **Inside a git repo?**: `git rev-parse --is-inside-work-tree`. No: `not a git repo. /watch-ci needs a versioned project with a CI provider.`
+- **Signals present?**: `test -f docs/wiki/index.md`; the subagent uses it to identify the CI provider.
+- **Warn**:
 
-```
-not a git repo. /watch-ci needs a versioned project with a CI provider.
-```
-
-Check signals are available — the subagent uses them to identify the CI provider:
-
-```bash
-test -f docs/wiki/index.md
-```
-
-If missing, warn (don't stop):
-
-```
-note: no docs/wiki/index.md found. subagent will fall back to file-tree heuristics
-(.github/, .gitlab-ci.yml, .circleci/, Jenkinsfile, etc.).
-suggest running /refresh-wiki after to improve future runs.
-```
+    ```
+    note: no docs/wiki/index.md found. subagent will fall back to file-tree heuristics
+    (.github/, .gitlab-ci.yml, .circleci/, Jenkinsfile, etc.).
+    suggest running /refresh-wiki after to improve future runs.
+    ```
 
 ## Step 2 — Capture context for the brief
 

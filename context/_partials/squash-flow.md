@@ -1,11 +1,22 @@
 {{define "squash-flow-preflight"}}
 <squash-preflight>
 
-1. Determine base:
+A squash runs only on a clean feature branch carrying two or more commits.
+
+```mermaid
+flowchart TD
+    B{"On base?"} -->|yes| S1["Stop: nothing<br/>to squash"]
+    B -->|no| D{"Dirty tree?"}
+    D -->|yes| S2["Stop: commit<br/>or stash first"]
+    D -->|no| C{"One commit only?"}
+    C -->|yes| S1
+    C -->|no| K["Squash steps"]
+```
+
+- **On base?**: compare `git branch --show-current` with the base from:
    {{ template "base-resolution" . }}
-2. `git branch --show-current` — if on base, stop: nothing to squash.
-3. `git status --porcelain` — if dirty, stop: commit or stash first.
-4. Count commits: `git rev-list --count <base>..HEAD` — if only 1, stop: nothing to squash.
+- **Dirty tree?**: `git status --porcelain`.
+- **One commit only?**: `git rev-list --count <base>..HEAD` prints `1`.
 
 </squash-preflight>{{- end}}
 

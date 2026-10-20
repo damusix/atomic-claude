@@ -4,7 +4,7 @@
 The signals workflow keeps Claude aware of the *current* shape of a project without hallucination. A Go binary (`atomic signals scan`) produces a deterministic, machine-generated snapshot. A subagent reads that snapshot and writes an inferred companion. Both files are auto-referenced from the project's `CLAUDE.md` so the harness loads them on every session.
 
 
-This spec depends on [`atomic-binary.md`](./atomic-binary.md) — the `atomic` binary must be installed for the primary path. A markdown-only fallback exists for users without the binary.
+This spec depends on [`atomic-binary.md`](./atomic-binary.md) — the `atomic` binary is installed wherever the artifacts are, because they install through it.
 
 
 ## Files produced
@@ -29,7 +29,7 @@ Both files are gitignored (project-specific, regenerated on demand). They are au
 | ~~`/initialize-signals`~~ | ~~command~~ | ~~`commands/initialize-signals.md`~~ — **removed**, replaced by `/refresh-wiki` |
 | `/refresh-wiki` | command | `commands/refresh-wiki.md` — dispatches `atomic-wiki-inferrer` agent |
 | `/commit-only` (edit) | command | `commands/commit-only.md` — dispatches agent pre-commit when source changed |
-| `/setup-wiki` (edit) | command | `commands/setup-wiki.md` — propose binary install + `/refresh-wiki` |
+| `/setup-wiki` (edit) | command | `commands/setup-wiki.md` — propose `/refresh-wiki` |
 | `CLAUDE.md` (edit) | bundled global | this repo's root `CLAUDE.md` (the one that ships as `~/.claude/CLAUDE.md` via the embed bundle) gets a section mentioning the signals workflow so users know it exists |
 
 
@@ -148,23 +148,19 @@ source: .claude/project/deterministic-signals.md
 ## Integration with `/commit-only`
 
 
-Ship verbs dispatch the `atomic-wiki-inferrer` agent in silent mode before the commit, gated on `atomic` being installed and signals being stale:
+Ship verbs dispatch the `atomic-wiki-inferrer` agent in silent mode before the commit, gated on signals being stale:
 
 
 ```
 1. Stage check (existing).
-2. If atomic is installed AND atomic signals stale exits 1:
+2. If atomic signals stale exits 1:
    - Dispatch atomic-wiki-inferrer agent in silent mode.
    - If signals regenerated, stage the resulting deterministic-signals.md + signals.md.
 3. Continue with existing commit flow.
 ```
 
 
-Skip if:
-
-
-- `atomic` binary not installed.
-- Signals are already fresh per `atomic signals stale`.
+Skip if signals are already fresh per `atomic signals stale`.
 
 
 No file-extension allowlist. `atomic signals stale` is the source of truth: it is content-based — it reassembles the deterministic snapshot and compares it to the stored one, returning fresh on prose-only or no-op commits because the snapshot is unchanged, and catching structural shifts an extension list would miss (a new `commands/*.md` file, a renamed `agents/` directory). Comparing content rather than mtimes means an idempotent regeneration (e.g. `make bundle` rewriting `manifest.go` with identical bytes) does not trip a false stale.
@@ -195,9 +191,8 @@ All of the above delegate to the `signals-gate` partial — the same probe `/com
 
 
 0. **docs-only guard.** Inspect the staged set (`git diff --cached --name-only`). If the set is empty, fall through to the staleness check (empty staged set does not mean all paths are documentation). If the set is non-empty and **every** staged path is documentation (`docs/` subtree, or a top-level `README*`/`CHANGELOG*`/`CONTRIBUTING*`/`CODE_OF_CONDUCT*`/`SECURITY*`/`LICENSE*` file), skip the refresh entirely. Any other path — source, config, `CLAUDE.md`, bundled-artifact `.md` under `agents/` `commands/` `skills/` `rules/` `output-styles/` — means it is NOT docs-only; continue. Full guard spec: [`docs/spec/signals-refresh-timing.md`](./signals-refresh-timing.md) §C2.
-1. `command -v atomic` — skip silently if the binary is absent.
-2. `atomic signals stale` — act on the exit code (0 fresh → skip; 1 stale → refresh mandatory; 2 error → report and skip). Content-based, not mtime-based. **Why:** this staleness check also acts as the no-op guard when the implementation loop already refreshed — a fresh stored signals file returns exit 0, so ship-verb dispatch is skipped automatically.
-3. On exit 1, dispatch `atomic-wiki-inferrer` in silent mode, then stage `.claude/project/deterministic-signals.md` + `.claude/project/signals.md`.
+1. `atomic signals stale` — act on the exit code (0 fresh → skip; 1 stale → refresh mandatory; 2 error → report and skip). Content-based, not mtime-based. **Why:** this staleness check also acts as the no-op guard when the implementation loop already refreshed — a fresh stored signals file returns exit 0, so ship-verb dispatch is skipped automatically.
+2. On exit 1, dispatch `atomic-wiki-inferrer` in silent mode, then stage `.claude/project/deterministic-signals.md` + `.claude/project/signals.md`.
 
 
 **Primary refresh point.** The `signals-gate` probe is the ad-hoc fallback. The implementation loop (`/subagent-implementation`, `/autopilot`) is the primary refresh: it runs once at finalize, scoped to the loop's SHA range via `changed_range`. Full timing contract: [`docs/spec/signals-refresh-timing.md`](./signals-refresh-timing.md).
@@ -220,7 +215,6 @@ Edit `/setup-wiki` audit table to include:
 
 | Convention | Check |
 |-----------|-------|
-| `atomic` binary on PATH | `command -v atomic` |
 | `.claude/project/deterministic-signals.md` | `test -f` |
 | `CLAUDE.md` references signals file | grep for `@.claude/project/signals.md` |
 
@@ -228,9 +222,8 @@ Edit `/setup-wiki` audit table to include:
 Proposed actions:
 
 
-- Binary missing → action: print install command (`curl ... install.sh | bash`). Setup itself does not install — user runs the curl.
-- Signals files missing but binary present → action: run `/initialize-signals` as a follow-up.
-- `CLAUDE.md` missing `@-refs` → action: append the auto-load section (after binary + scan done).
+- Signals files missing → action: run `/initialize-signals` as a follow-up.
+- `CLAUDE.md` missing `@-refs` → action: append the auto-load section (after the scan is done).
 
 
 ## Open follow-ups
@@ -249,7 +242,7 @@ Proposed actions:
 - A `/commit-only` that touches `src/foo.ts` regenerates signals and stages the updated docs alongside the commit.
 - A `/commit-only` that only touches `README.md` does NOT regenerate signals.
 - A `/commit-only` that touches `package.json` (or any other manifest on the trigger list) regenerates signals and stages the updated docs alongside the commit.
-- Removing the binary and re-running produces the fallback message and a degraded-but-non-empty signals file.
+- When `atomic signals scan` exits non-zero, the pipeline quotes the error and ends without inferring.
 - When `package.json` changes its `scripts.test` value, the agent's incremental path: (a) `atomic signals diff` returns the `Manifests` hunk after `atomic signals scan`, (b) the inferrer reads only that diff + the cited manifests, and (c) `signals.md` updates only `Build / test / lint commands`. Other sections of `signals.md` are byte-identical to the previous run.
 
 
@@ -388,3 +381,11 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **Why:** Realm wikis no longer track freshness, so nothing reads a marker set at ship time.
 
 **Removed:** step 4, the best-effort `atomic wiki mark-dirty` call that fed the session-start wiki nudge. See `docs/spec/realm-wiki-drop-refresh.md`.
+
+### 2026-10-19 — Artifacts assume atomic is installed
+
+**What changed:** The `signals-gate` probe starts at `atomic signals stale`; the `/commit-only` integration, the `/setup-wiki` audit, and the success criteria no longer branch on whether the binary is installed. A non-zero `atomic signals scan` exit stays a runtime failure: the pipeline quotes the error and ends without inferring.
+
+**Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
+
+**Superseded:** the probe's `command -v atomic` skip, the "binary not installed" skip condition, the markdown-only fallback, the `/setup-wiki` binary-on-PATH row with its install-command action, the artifact inventory's `/setup-wiki` "propose binary install" entry, and the criterion that removing the binary produced a fallback message.
