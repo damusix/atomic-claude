@@ -78,9 +78,57 @@ function escapeVueSyntax(src: string): string {
     return result.join('\n')
 }
 
-// withMermaid renders fenced ```mermaid blocks as diagrams. No `mermaid.theme` is
-// pinned on purpose: left unset, the plugin swaps between the light and dark themes
-// with VitePress, which is what keeps a diagram legible in both.
+const fills = ['#FF6B6B', '#FECA57', '#48DBFB', '#FF9FF3', '#1DD1A1']
+const ink = '#F0E8D8'
+const line = '#8C7E70'
+const label = '#B8A888'
+const bg = '#141210'
+const shadow = 'rgba(0, 0, 0, 0.85)'
+const nodeShape = ':is(rect, polygon, path, circle):not(.state-start)'
+
+// The plugin forces `theme: 'dark'` under the dark class, so no `theme` key here;
+// themeVariables and themeCSS still apply on top of it.
+const mermaid = {
+    // Mermaid sizes node boxes by measuring labels in this font; page CSS cannot set it.
+    fontFamily: '"Geist", ui-sans-serif, system-ui, sans-serif',
+    // Orthogonal edges with rounded corners; the loaders register in theme/index.ts.
+    layout: 'elk',
+    flowchart: { padding: 16, diagramPadding: 20 },
+    sequence: { diagramMarginX: 20, diagramMarginY: 20 },
+    themeVariables: {
+        fontSize: '15px', background: bg,
+        primaryColor: fills[0], primaryBorderColor: '#000', primaryTextColor: '#000',
+        mainBkg: fills[0], nodeBorder: '#000', lineColor: line, textColor: ink,
+        clusterBkg: bg, clusterBorder: '#000', edgeLabelBackground: bg,
+        actorBkg: fills[1], actorBorder: '#000', actorTextColor: '#000', actorLineColor: line,
+        signalColor: line, signalTextColor: ink, labelBoxBkgColor: fills[0], labelBoxBorderColor: '#000',
+        labelTextColor: '#000', loopTextColor: ink, noteBkgColor: fills[2], noteBorderColor: '#000',
+        noteTextColor: '#000', activationBkgColor: fills[3], activationBorderColor: '#000',
+        transitionColor: line, transitionLabelColor: label, stateLabelColor: '#000',
+        labelBackgroundColor: bg, specialStateColor: fills[0],
+    },
+    // Scoped under each svg's id, so it cannot reach the <svg> itself; the canvas is in custom.css.
+    themeCSS: `
+        .node ${nodeShape}, rect.actor, rect.note, .cluster rect, .labelBox {
+            stroke-width: 3px;
+            rx: 8px;
+            ry: 8px;
+            filter: drop-shadow(3px 5px 8px ${shadow});
+        }
+        ${fills.map((f, i) => `
+        .node:nth-child(${fills.length}n+${i + 1}) ${nodeShape} { fill: ${f}; }`).join('')}
+        .nodeLabel { font-weight: 700; color: #000; }
+        .state-start { stroke: #000 !important; stroke-width: 3px; filter: drop-shadow(2px 3px 5px ${shadow}); }
+        .flowchart-link, .transition, .messageLine0, .messageLine1 { stroke-width: 2.5px; }
+        .actor-line { stroke-width: 2px; stroke-dasharray: 6 4; }
+        .loopLine { stroke: ${line}; stroke-width: 2px; }
+        marker:is([id$="-pointEnd"], [id$="-pointStart"]) { overflow: visible; }
+        marker[id$="-pointEnd"] .arrowMarkerPath { transform-origin: 10px 5px; transform: translateX(-1px) scale(1.6); }
+        marker[id$="-pointStart"] .arrowMarkerPath { transform-origin: 0 5px; transform: translateX(1px) scale(1.6); }
+        .edgeLabel, .edgeLabel p, .labelBkg { background-color: ${bg}; color: ${label}; font-weight: 600; }
+    `,
+}
+
 export default withMermaid(defineConfig({
     markdown: {
         theme: {
@@ -113,6 +161,10 @@ export default withMermaid(defineConfig({
         ],
     },
     appearance: 'force-dark',
+    mermaid,
+    // Not "mermaid": @mermaid-js/layout-elk bundles a second Mermaid copy whose
+    // window-load auto-run re-renders every `.mermaid` element from its SVG text.
+    mermaidPlugin: { class: 'ac-mermaid' },
     title: 'Atomic Claude',
     description: 'Code graphs, wikis, and research-backed agentic coding. Deterministic tools for nondeterministic workflows, in one opinionated Claude Code config.',
     srcDir: 'docs',

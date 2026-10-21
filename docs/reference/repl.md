@@ -28,14 +28,14 @@ stateDiagram-v2
     accTitle: repl session lifecycle
     accDescr: start creates a Running session. stop, the idle timeout, and an eval timeout kill all remove it cleanly. A crash leaves its socket files behind as a Dead session. start is the way back from either terminal state.
     [*] --> Running: start
-    Running --> Running: eval (state survives) / reset (state cleared)
-    Running --> Gone: stop / idle timeout / eval timeout kill
-    Running --> Dead: crash, socket files left on disk
+    Running --> Running: eval, reset
+    Running --> Gone: stop, idle, timeout kill
+    Running --> Dead: crash
     Gone --> Running: start
     Dead --> Running: start
 ```
 
-A verb against Gone exits 2 (not found), against Dead exits 5 (socket unreachable), and against a live harness whose wire version is older than the client exits 7; the remedy for 2 and 5 is `start`, and for 7 it is `stop` then `start`. The full code table is under Exit codes below.
+A crash leaves the session's socket files on disk, which is what separates Dead from Gone. A verb against Gone exits 2 (not found), against Dead exits 5 (socket unreachable), and against a live harness whose wire version is older than the client exits 7; the remedy for 2 and 5 is `start`, and for 7 it is `stop` then `start`. The full code table is under Exit codes below.
 
 
 ## Scope: which sessions a call can see
