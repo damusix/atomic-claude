@@ -91,8 +91,6 @@ const nodeShape = ':is(rect, polygon, path, circle):not(.state-start)'
 const mermaid = {
     // Mermaid sizes node boxes by measuring labels in this font; page CSS cannot set it.
     fontFamily: '"Geist", ui-sans-serif, system-ui, sans-serif',
-    // Orthogonal edges with rounded corners; the loaders register in theme/index.ts.
-    layout: 'elk',
     flowchart: { padding: 16, diagramPadding: 20 },
     sequence: { diagramMarginX: 20, diagramMarginY: 20 },
     themeVariables: {
@@ -125,7 +123,7 @@ const mermaid = {
         marker:is([id$="-pointEnd"], [id$="-pointStart"]) { overflow: visible; }
         marker[id$="-pointEnd"] .arrowMarkerPath { transform-origin: 10px 5px; transform: translateX(-1px) scale(1.6); }
         marker[id$="-pointStart"] .arrowMarkerPath { transform-origin: 0 5px; transform: translateX(1px) scale(1.6); }
-        .edgeLabel, .edgeLabel p, .labelBkg { background-color: ${bg}; color: ${label}; font-weight: 600; }
+        .edgeLabel, .edgeLabel p, .labelBkg { background-color: transparent; color: ${label}; font-weight: 600; }
     `,
 }
 

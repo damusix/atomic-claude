@@ -1,0 +1,76 @@
+/* Above the top bar and every other modal. */
+.mermaid-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+}
+
+.mermaid-lightbox-viewport {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    background: color-mix(in srgb, var(--paper) 90%, transparent);
+    backdrop-filter: blur(4px);
+    cursor: grab;
+}
+
+.mermaid-lightbox-viewport:active {
+    cursor: grabbing;
+}
+
+.mermaid-lightbox-viewport:focus {
+    outline: none;
+}
+
+.mermaid-lightbox-stage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+}
+
+/* Same canvas as the inline diagram (app.css), so edge-label chips, which are
+   filled with the canvas color, blend in rather than showing as boxes. */
+.mermaid-lightbox-stage svg {
+    display: block;
+    overflow: visible;
+    border-radius: 10px;
+    background-color: var(--diagram-canvas);
+    background-image: radial-gradient(var(--diagram-dot) 1px, transparent 1px);
+    background-size: 18px 18px;
+}
+
+.mermaid-lightbox-close {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--hairline-2);
+    background: var(--paper-raised);
+    color: var(--ink);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.mermaid-lightbox-close:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+}
+
+.mermaid-lightbox-hint {
+    position: fixed;
+    bottom: 16px;
+    left: 0;
+    right: 0;
+    margin: 0;
+    text-align: center;
+    font-size: 12px;
+    color: var(--ink-faint);
+    pointer-events: none;
+}

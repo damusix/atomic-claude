@@ -5,6 +5,7 @@ import SessionPlayer from './SessionPlayer.vue'
 import { SESSION } from './session-script'
 import { setupScrollAnimations } from './scroll-animate'
 import { setupMermaidZoom } from './mermaid-zoom'
+import { routeMermaidLayouts, setupMermaidLabels } from './mermaid-render'
 import mermaid from 'mermaid'
 import elkLayouts from '@mermaid-js/layout-elk'
 import '@fortawesome/fontawesome-free/css/solid.min.css'
@@ -18,7 +19,9 @@ export default {
         if (!import.meta.env.SSR) {
             document.documentElement.classList.add('ac-js')
             setupMermaidZoom()
+            setupMermaidLabels()
             mermaid.registerLayoutLoaders(elkLayouts)
+            routeMermaidLayouts(mermaid)
             // On a cold load diagrams render before Geist arrives and are sized for the
             // fallback font; the plugin re-renders on any <html> attribute change.
             Promise.allSettled(['400', '600', '700'].map(w => document.fonts.load(`${w} 15px Geist`)))
