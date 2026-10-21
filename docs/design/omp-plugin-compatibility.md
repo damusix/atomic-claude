@@ -8,6 +8,8 @@ Atomic authors one configuration corpus under `context/`, but the current bundle
 
 The feature must preserve one authored policy and workflow corpus while delivering each harness through its native steering, artifact, configuration, and lifecycle surfaces. Existing user guidance, profile data, wiki registrations, model choices, disabled integrations, and repository state remain authoritative throughout migration and uninstall.
 
+Three more places treat Claude's conventions as the common case. Repository and realm state lives under `.claude/`. Agents carry Claude-shaped model and tool policy, and only Claude can apply a user's model choice. Nothing tells Atomic which harness is running, so verbs that must act on the active harness hard-code `~/.claude`. This design moves state to a harness-neutral `.atomic/`, lets a user override each agent's model and effort on every harness, and orients from the environment each harness sets. The workflow choices that vary by user (source control, issue tracker, follow-ups, worktree placement) are in `docs/design/workflow-preferences.md`.
+
 One steering source produces native files without turning instructions into rules:
 
 ```mermaid
@@ -37,16 +39,20 @@ The existing system already supplies reusable mechanics. `artifacts.Load` enumer
   - Deliver the OMP artifact the capability record proved discovery for — the generated extension module under the profile agent root — plus an import-free profile `AGENTS.md` composed from Atomic steering followed by the output-style body. The generated package is Atomic's corpus store; package install, registration, and artifact discovery are unsupported on the tested version and reported as such.
   - Keep commands, agents, skills, actual path-scoped rules, session behavior, and model preferences native to each supported harness.
   - Track explicit target enrollment, physical resource ownership, shared visibility, desired generations, interruption recovery, and safe target uninstall.
-  - Select one repository-state tree independently of the active harness.
+  - Keep repository and realm state in one harness-neutral tree, `.atomic/` by default, at a location the user can change, and migrate existing `.claude/` state into it.
+  - Orient from the environment each harness sets, with an explicit `ATOMIC_HARNESS` override.
+  - Let the user override every Atomic agent's model and effort on every harness, with no tool restriction in any agent.
+  - Deliver Atomic's agents to the native agent location of each harness that reads one.
+  - Deliver session context (orientation and resolved workflow preferences) on every harness.
   - Preserve unowned prose and authoritative profile/wiki data through migration and target removal.
   - Prove the adapter boundary with an offline Codex agent projection before OMP release, then add Codex runtime support as a separate milestone.
 - Non-goals:
   - A universal workflow interpreter or a common runtime tool API.
   - Separate authored Claude, OMP, and Codex prompt trees.
   - Treating global steering or output style as a rule.
-  - Selecting concrete provider or model IDs for users.
+  - Choosing a provider or model for the user. Atomic stores and relays the user's choice.
+  - Restricting an agent's tools. Write scope is stated as instruction, not enforced by a tool allowlist.
   - Publishing the generated OMP package to a registry in the first milestone.
-  - Renaming existing repository-state directories during the first milestone.
   - Windows support.
 
 
@@ -64,7 +70,7 @@ The existing system already supplies reusable mechanics. `artifacts.Load` enumer
 ## Recommendation
 
 
-Use approach D. Keep authored instruction bodies in `context/`, render them once, and let each adapter own only native envelopes, discovery, configuration, and lifecycle operations. The current exact `CLAUDE.md` bundle predicate (`atomic/internal/bundlespec/bundlespec.go:47-50`) and five-rung harness-dependent state resolver (`atomic/internal/config/harness.go:37-48`) are the first boundaries to replace.
+Use approach D. Keep authored instruction bodies in `context/`, render them once, and let each adapter own only native envelopes, discovery, configuration, and lifecycle operations. The exact `CLAUDE.md` bundle predicate (`bundlespec.MatchesRule`) and the harness-dependent state resolver (`config.stateRoot` and its fingerprint ladder) were the first boundaries to replace.
 
 ### Steering composition
 
@@ -74,6 +80,10 @@ Use approach D. Keep authored instruction bodies in `context/`, render them once
 The renderer captures canonical steering, `~/.atomic/profile.md`, and the byte-preserving `<wikis>` registry at `~/.atomic/wikis.md` under one generation. Claude receives direct global steering plus repository and realm loaders. OMP receives an import-free `AGENTS.md` containing that rendered steering, one blank line, and the output-style body after parsed YAML frontmatter is removed. Codex receives a native materialization within its documented instruction surface.
 
 Global steering and output style are never rules. Only actual scoped rule bodies enter the rule pipeline.
+
+### Native vocabulary
+
+Canonical commands name behaviors: "dispatch `atomic-reviewer` in a fresh context", "ask the user", "enter the worktree", "listen in the background". Each adapter appends a short paragraph to the steering it renders that names the native tool for every behavior it has proven. For Claude Code that is the Agent tool with `subagent_type` set to the agent's name (an omitted one falls to a general-purpose agent without the agent's skills), the question tool, the worktree-entry tool, and the persistent background-listener tool with its timeout and stop tool. OMP and Codex add a name only when a capability row proves it. The paragraph is adapter output with a golden file, sits inside the Atomic-owned block, and carries tool names only, never policy. The canonical corpus stays harness-neutral and expands once.
 
 ### Rule model and scope semantics
 
@@ -94,7 +104,7 @@ Atomic keeps the existing Markdown rule files as authored source, but parses eac
 
 At projection or match time, Atomic creates a `RuleInstance` that binds one immutable `RuleRecord` to a project key and an absolute, symlink-resolved base selected by `base_kind`. Candidate paths resolve through that instance. The `RuleRecord` ID and source digest stay identical when the same shipped rule is used in two repositories or worktrees; only instance identity and runtime base differ. Matching supplies every overlapping rule in stable `RuleRecord.id` order. Filesystem case behavior is recorded by CP0 and cannot change canonical matching silently.
 
-Repository wiki refresh is the second canonical rule producer. It writes domain pointer rules under `<state-root>/rules/wiki/`, where `<state-root>` is the selected harness-neutral repository-state directory. The default remains `.claude`, so existing `.claude/rules/wiki/**` checkouts remain valid without relocation. These pipeline-owned cards use `wiki:<project-key>:<domain>` identity and bind to their producing repository through `RuleInstance`. Realm refresh does not produce scoped pointer rules because one realm spans multiple repository bases.
+Repository wiki refresh is the second canonical rule producer. It writes domain pointer rules under `<state-root>/rules/wiki/`, where `<state-root>` is the selected harness-neutral repository-state directory, `.atomic` by default. Existing `.claude/rules/wiki/**` checkouts move there through the state migration. These pipeline-owned cards use `wiki:<project-key>:<domain>` identity and bind to their producing repository through `RuleInstance`. Realm refresh does not produce scoped pointer rules because one realm spans multiple repository bases.
 
 ### Rule projection and enforcement
 
@@ -112,7 +122,7 @@ Each adapter consumes four CP0 capability roles rather than assuming a product A
 
 | Harness | Native materialization | Scoped activation | Deterministic enforcement | Explicit limits |
 |---|---|---|---|---|
-| Claude | Shipped rules under `~/.claude/rules/atomic/`; generated wiki cards use `<state-root>/rules/wiki/` directly when that root is `.claude`, otherwise a managed `.claude/rules/atomic-wiki/` projection | Native scoped-rule behavior after CP0 proves matching, precedence, lifetime, resume, and child delivery | Only separate validators and hooks with machine predicates | Rule prose is guidance, not a sandbox boundary |
+| Claude | Shipped rules under `~/.claude/rules/atomic/`; generated wiki cards project from `<state-root>/rules/wiki/` into a managed `.claude/rules/atomic-wiki/`, because Claude loads path-scoped rules only from `.claude/rules/` | Native scoped-rule behavior after CP0 proves matching, precedence, lifetime, resume, and child delivery | Only separate validators and hooks with machine predicates | Rule prose is guidance, not a sandbox boundary |
 | OMP | Shipped rules in the Atomic extension package and repository-generated cards under the CP0-proven project rule surface | Adapter translates canonical `paths:` into the CP0-selected native scope fields. If static scope is only advisory, the CP0-selected pre-operation event must inject every matched body before supported read/edit/write operations | A proven deny result may block only an exact machine predicate on an event it mediates | Missing target paths, unsupported tools, sticky lifetime, and child behavior remain explicit gaps until runtime proof |
 | Codex | Atomic plugin contains the matcher, rule index, and CP0-selected hook registration; project cards remain in the selected state root | CP0-selected session-baseline events provide bounded baseline context; a synchronous pre-operation event with structured target paths supplies matched bodies through the proven context-return field | A proven deny result may block only machine-checkable predicates with exact target paths | Hosted or local tools without a mediated event and recoverable path are `unsupported`; semantic prose compliance cannot be hard-enforced |
 
@@ -128,8 +138,9 @@ One path has one authority. Native harness files are projections unless the row 
 | State or resource | Authority and writer | Conflict, commit, and removal contract |
 |---|---|---|
 | `context/**` embedded in the selected binary | Immutable release authority; written only by the Atomic build | Rendered once per operation; source digest enters every projection |
-| `~/.atomic/config.toml` | User configuration; written by explicit `atomic config` and lifecycle settings operations | Preserve unknown/user keys; preserve on target and full uninstall |
-| `~/.atomic/profile.md` | Mutable user authority; written by profile refresh and explicit edits | Legacy native import occurs once during adoption; later divergent native copies are conflicts |
+| `~/.atomic/config.toml` | User configuration, including per-harness agent overrides `[claude\|omp\|codex.agents.<name>]`; written by explicit `atomic config` and lifecycle settings operations | Preserve unknown/user keys; preserve on target and full uninstall |
+| `~/.atomic/profile.md` | Mutable user authority; written by profile refresh and explicit edits. Its `## Workflow preferences` block is machine-filled only on lines marked `# detected` | Legacy native import occurs once during adoption; later divergent native copies are conflicts |
+| `<state-root>/**` in a repository or realm | Repository state: scratchpad, code index, follow-ups, wiki pointer cards, `atomic.toml`, `workflow-preferences.md`; written by the owning verb | Preserved by every uninstall; moved only by `atomic state migrate`; `workflow-preferences.md` is never written except by `atomic workflow set` or a hand edit |
 | `~/.atomic/wikis.md` | Mutable registry authority; written first by wiki registration/removal operations | Projection failure marks targets stale; it never rolls registry authority back |
 | `~/.atomic/install/ledger.json` | Enrollment, physical-resource, consumer, generation, and last-applied authority | Commit only after native verification; full uninstall retains rows referenced by unresolved journals until recovery completes |
 | `~/.atomic/install/operation.lock` | Ephemeral lifecycle serialization; real mutating operations hold a platform advisory lock and record operation ID plus writer version | Dry-run never opens it; closing releases the lock; the inert path may persist and has no ownership meaning |
@@ -140,6 +151,8 @@ One path has one authority. Native harness files are projections unless the row 
 | `~/.atomic/packages/omp/atomic/` | Atomic-owned generated OMP corpus store | Published as a generated directory; no OMP discovery surface reads it, so package install, registration, and artifact discovery stay `unsupported`; shared visibility and consumers recorded separately |
 | `~/.atomic/packages/codex/atomic/` | Atomic-owned generated Codex plugin | CP0-proven native registration and hook trust verified per enrolled `CODEX_HOME`; trust is never fabricated |
 | Claude, OMP, and Codex native roots | Derived target state written only by the owning adapter | Changed owned bytes conflict; unowned bytes and user settings win |
+| OMP `<profile>/agents/*.md` and Codex `$CODEX_HOME/agents/*.toml` | Derived agent files with the user's overrides applied; written only by the owning adapter | One ledger resource per file; the claim carries the digest of the overlaid bytes, so a changed override converges and a hand edit conflicts |
+| Codex `$CODEX_HOME/hooks.json` owned members | Written only when the Codex adapter converges a target: the `SessionStart` entry | Same member-wise ownership as Claude `settings.json`; trust is never fabricated |
 | Claude `settings.json` owned members | Written only when the Claude adapter converges a target (converge or legacy adopt): the inline `SessionStart` registration and the `outputStyle` seed | One ledger resource whose digest covers only the owned members, so unrelated user keys never conflict and a user edit to an owned member conflicts; target and full uninstall strip exactly those members |
 | Repository/realm steering and repository rule projections | Shared `AGENTS.md` managed blocks, thin Claude loaders, and target-native generated directories | Canonical writes precede projection; one failed target becomes stale without rolling back other targets |
 
@@ -173,7 +186,7 @@ Per-target convergence writes:
 | Target | Global writes |
 |---|---|
 | Claude | Atomic block in `~/.claude/CLAUDE.md`, commands, agents, skills, output style, shipped rules, narrow `settings.json` hook/style mutations, and ledger records |
-| OMP | Shared Atomic package (corpus store), profile-owned `AGENTS.md` block and profile-owned extension module at the agent root, role defaults only where user settings are absent, session hook state, and consumer records |
+| OMP | Shared Atomic package (corpus store), profile-owned `AGENTS.md` block and profile-owned extension module at the agent root, ledger-owned agent files under `agents/`, session hook state, and consumer records |
 | Codex | Atomic plugin package, CP0-proven native registration state, global `AGENTS.md` managed block, proven event configuration, skills/agents, trust-pending status, and target records |
 
 An OMP package may be visible to unenrolled profiles when OMP's native package surface is shared. That visibility is reported separately from enrollment and consumer ownership. One physical package holds one generation, so the plan that moves it converges every enrolled consumer of that resource in the same operation — a consumer's older recorded generation is stale, not a requirement — and refuses before mutation only when a recorded claim belongs to a target the operation cannot enroll.
@@ -246,7 +259,7 @@ Dry-run performs the same pre-recovery discovery, classification, capability che
 
 Partial v2 recovery is digest-driven. Uncommitted staging is discarded only when a journal proves ownership and no native unit used it. Applied-but-unrecorded bytes equal to the intended digest are verified and ledger-committed. Automatic rollback restores a transaction backup only when current bytes still equal the journal's applied digest; a later edit turns rollback into conflict. Completed ledger generations are never implicitly rolled back. Post-commit restoration is a separate explicit removal or restore decision.
 
-Repository-state migration is adopt-in-place. Candidate discovery requires actual Atomic state signatures and ignores empty `.claude` or `.pi` directories. A legacy explicit `harness.dir` may supply evidence for the initial `state.dir` selection, but Pi agent configuration remains independent. The selected `state-location.json` is written and fsynced before resolution changes. `ATOMIC_STATE_DIR` affects only the current process and never rewrites the persisted choice. A failed migration removes or restores the selection record only if no later state write used it; otherwise recovery reports conflict.
+Explicit state-location adoption (`atomic state adopt`) records a choice in place and moves no files; moving files is `atomic state migrate`, described under Repository-state selection below. Candidate discovery requires actual Atomic state signatures and ignores empty candidate directories. The legacy `harness.dir` key no longer feeds the ladder: its value is read only as one more candidate name, and doctor warns that `state.dir` supersedes it. Pi agent configuration remains independent. The selected `state-location.json` is written and fsynced before resolution changes. `ATOMIC_STATE_DIR` affects only the current process and never rewrites the persisted choice. A failed adoption removes or restores the selection record only if no later state write used it; otherwise recovery reports conflict.
 
 Ledger and journal formats carry schema version, `writer_version`, and minimum reader version. A new binary refuses state written by a newer incompatible schema. Update re-executes the replacement before convergence. An old Claude-only binary cannot participate in the v2 lock or journal protocol after cutover; invoking it is unsupported. Its later native writes are detected as drift or conflict by doctor/repair, and users are warned not to run the old `atomic claude uninstall` after migration.
 
@@ -258,11 +271,101 @@ Repository-state selection uses this order:
 ```text
 ATOMIC_STATE_DIR
   -> ~/.atomic/<project-key>/state-location.json
+  -> the one populated candidate in the repository
   -> user state.dir default
-  -> .claude
+  -> .atomic
 ```
 
-The selected path never depends on Claude, OMP, Codex, or Pi process fingerprints. An unambiguous existing populated root can be adopted without moving files. Multiple populated candidates, conflicting configuration, or an obsolete override require explicit user selection. Pi's existing agent configuration remains separate.
+The selected path never depends on Claude, OMP, Codex, or Pi process fingerprints. Candidate names are `.atomic`, the configured `state.dir` path, `.claude`, and `.pi`. A directory is populated when it holds an Atomic signature: `atomic.toml`, `.atomic-index`, `.scratchpad`, `project`, or `rules/wiki`. Harness-native entries such as `worktrees`, settings, and agents are not signatures, so a repository that only ever used Claude Code's worktrees does not read as holding Atomic state. Candidate names also include the value of a stored legacy `harness.dir`, as a candidate only. Multiple populated candidates or conflicting configuration require explicit user selection. Pi's existing agent configuration remains separate.
+
+`.atomic/` is the recommendation, not a requirement. `state.dir` accepts a repository-relative path of one or more safe segments (`.config/atomic`), set once for the user. A single repository can name any location, absolute or relative, with `atomic state adopt --dir <path>`, which persists the choice for every worktree of that clone. `ATOMIC_STATE_DIR` overrides both for one process. Every helper that builds a state path receives the repository root, so the persisted choice and the candidate rung apply to `atomic repo init`, the `.gitignore` writer, and the signals scan, none of which may resolve a path from an empty root.
+
+Realm roots follow the same ladder. The realm code-intel federation files (`code.toml` and the per-member databases) live in the resolved realm state root, and its `.gitignore` ignores `/*.db`. Until the migration runs, a federation reader also accepts the legacy `<realm>/.atomic/` location, which is where those files sit today. When the destination is `.atomic` they are already in place; a custom destination moves them with the rest. A realm root that is not a Git repository migrates with plain renames.
+
+Wiki pointer cards stay canonical at `<state-root>/rules/wiki/`. Each harness reads them from its own native rules location: Claude from a managed `.claude/rules/atomic-wiki/` projection, OMP from `.omp/rules/atomic-wiki/`, Codex through the matcher index. A canonical card is never hand-copied into a native folder. A projection is generated and ledger-owned per user, so the adapter that writes it also adds `/rules/atomic-wiki/` to the `.gitignore` beside it (`.claude/.gitignore`, `.omp/.gitignore`), creating that file when absent, and commits nothing.
+
+Worktrees are not state. Claude Code creates `.claude/worktrees/` itself and keeps doing so. Where other harnesses place them is a recommendation in the git skill and a `worktrees` workflow preference, never a state-root decision. `atomic repo init` still ignores a `worktrees/` directory inside the state root, because the recommended location for OMP and Codex is `<state-root>/worktrees/`, and ignores `.claude/worktrees/` in `.claude/.gitignore` only when `.claude/` exists or a Claude target is enrolled, so an OMP-only or Codex-only repository never gains a `.claude/` directory; a linked worktree must never appear as an untracked nested repository.
+
+### Repository-state migration
+
+`atomic state migrate` moves Atomic's state from a legacy root (`.claude` or `.pi`) into the destination root. The destination is the ladder's answer with the legacy candidates excluded: `ATOMIC_STATE_DIR`, a selection record, `state.dir`, else `.atomic`. When `ATOMIC_STATE_DIR`, a selection record, or `state.dir` names the legacy root itself, the user chose it and nothing moves. It moves `atomic.toml`, `workflow-preferences.md`, `project/`, `rules/wiki/`, and `.scratchpad/`. It leaves `worktrees/` and every harness-native entry where they are. It does not move the code index: the SQLite index, its write-ahead files, and the MCP socket and lock sit in one directory, and a running daemon holds the database open. The migration removes the legacy index directory only when it can take the daemon lock; while the lock is held it leaves the directory, reports it, and `atomic code index` builds a fresh index at the destination.
+
+Tracked files move with `git mv` so history follows; ignored files move with a plain rename, and the command falls back to copy-and-remove across devices. It never commits and prints the renames left unstaged. It writes no `state-location.json`: a record is shared by every worktree of a clone, and a linked worktree whose branch still holds `.claude/project/**` would otherwise resolve to an empty `.atomic/`. Presence decides until the user adopts a location explicitly.
+
+Mutating verbs (`atomic repo init`, `wiki`, `followups add`, `scratchpad new`, `code index`, `workflow set`) run the migration once, with a notice, when a legacy root holds an Atomic signature and the selected root holds none. Read-only verbs (`where`, `doctor` without `--fix`, `serve`) never move files and resolve to the populated legacy root until the migration runs. A repository with both roots populated is ambiguous and refuses with the `atomic state adopt` instruction. The migration reports, but does not rewrite, references the user wired by hand, such as an `@.claude/project/followups/INDEX.md` import in a steering file.
+
+### Harness orientation
+
+Atomic reads the environment each harness sets for the processes it spawns and uses it to add or remove behavior. The state ladder deliberately ignores this; it decides only what must follow the harness.
+
+Detection is one pure function over an environment map. It returns the harness, a confidence, the evidence names (never values), and the candidates when ambiguous.
+
+```text
+detect(env):
+    if env.ATOMIC_HARNESS in {claude, omp, codex}:  return explicit(that kind)
+    if env.ATOMIC_HARNESS is set to anything else:  error     # verbs exit 2; hook entrypoints ignore it
+    strong = kinds with a strong marker in env
+    if len(strong) == 1:  return strong(kind)
+    if len(strong) > 1:   return ambiguous(strong)             # callers refuse to guess
+    if a weak marker matches:  return weak(kind)
+    return none                                                # plain terminal
+```
+
+| Harness | Strong markers | Weak markers | Never a marker |
+|---------|----------------|--------------|----------------|
+| Claude Code | `CLAUDECODE=1`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_SESSION_ID`, `AI_AGENT` starting `claude-code` | | `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_CONFIG_DIR` |
+| Codex | `CODEX_THREAD_ID`, `CODEX_CI=1` | `CODEX_SANDBOX` | `CODEX_HOME` |
+| OMP | | `AGENT=1` with `CI=true` | `PI_CODING_AGENT`, `PI_CODING_AGENT_DIR`, `OMP_PROFILE` |
+
+Environment markers inherit into child processes, and a Codex process started under Claude Code keeps every Claude marker, so nesting is undecidable from the environment. Detection reports `ambiguous` and never guesses. Registration sites know their harness and pass `--harness` explicitly, so a hook entrypoint or the OMP extension never depends on detection. Verbs a model runs from a shell use detection; when it is ambiguous or `none`, a verb that writes into a harness root refuses and asks for `--harness`, and a verb that only adds context adds nothing.
+
+Verbs that consult detection: `atomic config agents` (default harness), `atomic retro extract` (which session history to read), `atomic where --json` (worktree recommendation), `atomic bus` (session identity from `CLAUDE_CODE_SESSION_ID` or `CODEX_THREAD_ID`), and `atomic doctor` (the active-harness leg). `atomic wiki` does not consult detection: it writes the registry authority first and projects the `<wikis>` block into the steering of every enrolled target. The session-start verb refreshes `~/.atomic/profile.md` on every harness, because the profile and the workflow-preference autodetect are harness-neutral; only the output-style seed, which writes Claude's `settings.json`, is Claude-only. An install on any harness creates the profile stub when it is absent.
+
+One rule governs a detection result. `explicit` and `strong` act. `weak` acts only for a verb that reads or adds context, never for one that writes into a harness root. `weak`, `ambiguous`, and `none` make a verb that writes into a harness root refuse and ask for `--harness`, with one exception: `atomic config agents` uses the single enrolled harness when exactly one is enrolled, because it writes into a harness root only through lifecycle convergence of targets that are already enrolled.
+
+### Agent model policy
+
+Canonical agents declare no model, effort, or tools. Each states intent, required capabilities, write scope, and execution preference, and the write scope is an instruction. A user override is configuration, applied after projection.
+
+```toml
+[claude.agents.atomic-reviewer]
+model  = "opus"
+effort = "xhigh"
+
+[omp.agents.atomic-reviewer]
+model  = "anthropic/claude-sonnet-5"
+effort = "high"
+
+[codex.agents.atomic-reviewer]
+model  = "gpt-6.1-sol"
+effort = "high"
+```
+
+| Harness | Agent file | Model key | Effort key | Model value format |
+|---------|-----------|-----------|------------|--------------------|
+| Claude Code | `<root>/agents/NAME.md` | `model` | `effort` | alias, full id, or `inherit` |
+| OMP | `<profile>/agents/NAME.md` | `model` | `thinking` | `provider/model[:level]`, `@role`, or a comma list |
+| Codex | `$CODEX_HOME/agents/NAME.toml` | `model` | `model_reasoning_effort` | plain model slug |
+
+The user writes `model` and `effort` in every table; the adapter owns the native key. One cross-harness table is rejected because the values are not portable. An empty field writes no key, so the harness inherits the session's model.
+
+A pure overlay function takes the projected bytes and the override and returns the bytes written and the bytes the ledger digests, so drift detection and doctor agree by construction. The overlay runs after the offline projection and its gates, so canonical agents still never declare policy and the projection goldens do not change. A user's own harness setting outranks Atomic's frontmatter on OMP (`task.agentModelOverrides`), which matches the rule that user settings stay authoritative.
+
+Delivery is part of the feature. Today OMP and Codex receive Atomic's agents only inside the generated package and plugin tree, where neither harness reads them. Codex discovers role files in its user, project, and system layers and its plugin manifest carries no agents component; OMP documents `<profile>/agents/` as the native location. The adapters write ledger-owned agent files at those locations, and a probe proves each harness lists the agent and uses the configured model before a delivery claim is made.
+
+`atomic config agents` takes `--harness claude|omp|codex|all`. With one harness enrolled it uses that one; with several it asks, or refuses in a non-interactive run. A change converges through the lifecycle lock, journal, and ledger. The review gate dispatches `atomic-reviewer` by name with no model argument, because precedence differs by harness (a per-call model beats the file on Claude and loses to it on Codex) and an explicit model would defeat the user's override. `atomic config list` shows the active overrides.
+
+### Session context delivery
+
+The session-start builder emits two sections: orientation and the resolved workflow preferences (`docs/design/workflow-preferences.md`).
+
+| Harness | Registration | Status before this design |
+|---------|--------------|---------------------------|
+| Claude | `SessionStart` member of `settings.json`, ledger-owned | works |
+| OMP | A handler in the generated extension runs the verb at `session_start` and appends the text to the `before_agent_start` system prompt | missing |
+| Codex | A `SessionStart` member of `$CODEX_HOME/hooks.json`, ledger-owned, trust never fabricated | missing |
+
+The verb takes `--harness` and `--cwd`, because it must not read the repository from the process directory on OMP, and resolves the repository, realm, and profile levels from that directory. Stdin is optional. A hook that fails or times out adds nothing and never blocks the session.
 
 ### Delivery milestones
 
@@ -270,6 +373,8 @@ The selected path never depends on Claude, OMP, Codex, or Pi process fingerprint
 Milestone A establishes capability evidence, ownership, state selection, the canonical rule model, safe instruction migration, live Claude and OMP adapters, global and wiki lifecycle flows, doctor coverage, and runtime proof. An offline Codex TOML agent and hook payload golden prove the artifact and rule models are not tied to Markdown or one runtime.
 
 Milestone B adds Codex enrollment, the Atomic plugin and hooks, shared skills, TOML agents, native instruction materialization, rule activation and deterministic deny behavior supported by runtime evidence, lifecycle integration, and isolated runtime proof.
+
+The harness-neutral state root, state migration, harness orientation, per-harness agent overrides and native agent delivery, and session context delivery ship with their Claude and OMP halves in Milestone A and extend to Codex in Milestone B. A Codex half that depends on an unproven capability (agent discovery, hook trust) reports `unsupported` until its probe passes.
 
 
 ## Resolved strategy and CP0 evidence
@@ -311,6 +416,12 @@ The strategist closed the product choices below. CP0 still records exact runtime
 **Decision:** Skills are not commands. Atomic does not claim command parity through skill discovery. A workflow may ship as an explicit-only skill, reported as a skill, by disabling implicit invocation. Commands remain unsupported until CP0 proves a non-deprecated native explicit invocation surface with argument delivery and no ambient trigger.
 
 **Evidence boundary:** Current Codex skill documentation supports explicit `$skill` or `/skills` selection, implicit selection by description, and `allow_implicit_invocation: false`. Custom prompt slash commands exist but are deprecated, so Atomic does not build a new command surface on them: [Codex skills](https://learn.chatgpt.com/docs/build-skills) and [custom prompts](https://learn.chatgpt.com/docs/custom-prompts).
+
+### Agent discovery and session hooks
+
+**Decision:** Agent delivery to a native path, and a session-start hook on OMP and Codex, are capability rows like every other: each reports `unsupported` until its probe passes. A user's stored override for a harness whose agent files are not yet delivered is reported by doctor as a no-op, never silently ignored.
+
+**Evidence boundary:** Codex discovers role files only in its system, user (`$CODEX_HOME/agents/**/*.toml`), and project layers, and its plugin manifest has no agents component (source at `rust-v0.147.0`). OMP documents `<profile>/agents/*.md` and reads `model` and `thinking` frontmatter (source at `v18.1.18`). Neither was probed at runtime; CP0 holds no agent row. Codex `SessionStart` hooks need per-hash user trust, and delivery of their context is documented but unobserved in `0.147.0`. OMP's `before_agent_start` `systemPrompt` carrier is runtime-proven.
 
 ### Projection limits, overrides, and registration
 
