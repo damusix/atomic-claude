@@ -1,4 +1,4 @@
-// utils/mermaidElk — loads the vendored ELK layout (public/vendor/mermaid-layout-elk/)
+// utils/mermaidElk — loads the ELK layout that build.ts writes to dist/vendor/mermaid-layout-elk/
 // once per page and registers it; resolves false so the caller falls back to dagre.
 import { attempt } from "@logosdx/utils";
 
