@@ -26,6 +26,7 @@
  <img src="https://img.shields.io/badge/status-stable-brightgreen" alt="Status" />
  <a href="https://github.com/damusix/atomic-claude/releases/latest"><img src="https://img.shields.io/github/v/release/damusix/atomic-claude?label=latest" alt="Latest Release" /></a>
  <a href="./LICENSE"><img src="https://img.shields.io/github/license/damusix/atomic-claude" alt="License" /></a>
+ <a href="https://deepwiki.com/damusix/atomic-claude"><img src="https://deepwiki.com/badge-maker?url=https://deepwiki.com/damusix/atomic-claude" alt="Ask DeepWiki"></a>
 </p>
 
 <p align="center">
