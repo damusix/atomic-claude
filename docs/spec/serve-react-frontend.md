@@ -53,7 +53,7 @@ Additive-then-cutover migration to a Bun-toolchained React + TypeScript SPA, com
     │   ├── tsconfig.json ................... A
     │   ├── index.html ...................... A  (before-paint theme init inline script)
     │   ├── src/ ............................. A  (layouts, pages, components, hooks, utils — domain-scoped, see Outline)
-    │   ├── public/ ........................... A  (carried assets, copied here at CP1: app.css [htmx-specific selectors pruned at cutover], graph-core.js, system-graph.js, code-graph.js, vendor/cosmos-graph.js, vendor/cytoscape.min.js, vendor/mermaid.min.js, logo.png, fonts — NOT htmx.min.js, which is not carried)
+    │   ├── public/ ........................... A  (carried assets, copied here at CP1: app.css [htmx-specific selectors pruned at cutover], graph-core.js, system-graph.js, code-graph.js, vendor/cosmos-graph.js, vendor/cytoscape.min.js, logo.png, fonts — NOT htmx.min.js, which is not carried)
     │   └── dist/ ............................. A  (committed build output)
     ├── frontend_dist.go ..................... A  (go:embed source for frontend/dist)
     ├── context_handler.go ................... M  (adds /api/page JSON; pre-cutover HTML path removed at cutover)
@@ -272,6 +272,14 @@ Flow: theme toggle retheme cascade
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+
+### 2026-10-21 — mermaid.min.js leaves public/
+
+**What changed:** The change tree's `public/` row no longer lists `vendor/mermaid.min.js`. `build.ts` copies it from the pinned `mermaid` dependency into `dist/vendor/`, alongside the ELK layout it builds (contract: `docs/spec/atomic-serve.md`).
+
+**Why:** Committed third-party build output duplicated what the lockfile pins.
+
+**Superseded:** `public/` carried `vendor/mermaid.min.js`.
 
 ### 2026-10-18 — Removed: wiki content and bucket staleness from `/api/status`
 

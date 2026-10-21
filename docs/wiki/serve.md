@@ -238,7 +238,7 @@ Frontend, all under [`atomic/internal/serve/frontend/`](../../atomic/internal/se
 | Path | Role |
 |------|------|
 | [`atomic/internal/serve/frontend/CLAUDE.md`](../../atomic/internal/serve/frontend/CLAUDE.md) | The workspace's own conventions: Bun only, LogosDX for data, Ark UI for primitives, one folder per component |
-| `build.ts` | `Bun.build` into `dist/assets/`, copies `public/` verbatim, writes `dist/index.html` |
+| `build.ts` | `Bun.build` into `dist/assets/`, copies `public/` verbatim, writes `dist/index.html`; copies `mermaid.min.js` from the pinned `mermaid` dependency and builds `@mermaid-js/layout-elk` into split ES module chunks, both into `dist/vendor/` |
 | `index.html` | SPA shell, loads the carried scripts |
 | `src/routes.tsx` | `/`, `/page/*`, `/graph`, `/plans`, `/plans/:slug/*`, `/bus`, `/search`, `/status`, `/external`, `/code/schema` |
 | `src/layouts/Shell/` | Three-pane shell (top bar, nav tree, content, rail); installs `window.AtomicGraphUI` |
@@ -262,7 +262,8 @@ Frontend, all under [`atomic/internal/serve/frontend/`](../../atomic/internal/se
 | `src/utils/typeColors.ts` | Single-source type-to-color derivation, exposed on `window` for the carried scripts |
 | `public/graph-core.js` | View-agnostic cosmos.gl engine: mount, teardown, retheme, WebGL2 detection, IndexedDB layout cache, label overlay, drag |
 | `public/system-graph.js`, `public/code-graph.js` | The docs and code profiles: data fetch, palette, cache key, hover and click hooks |
-| `public/vendor/` | `cosmos-graph.js`, `cytoscape.min.js`, `mermaid.min.js`, and `mermaid-layout-elk/` (ES module chunks for mermaid's ELK layout, imported at runtime by `src/utils/mermaidElk.ts`), each with a `*.provenance.txt` where one exists |
+| `public/vendor/` | `cosmos-graph.js` and `cytoscape.min.js`, each with a `*.provenance.txt` where one exists |
+| `mermaid-layout-elk.entry.ts` | Re-exports `@mermaid-js/layout-elk` as the ELK build's entry; `src/utils/mermaidElk.ts` imports the built entry at runtime |
 
 Outside the package:
 
@@ -303,7 +304,7 @@ Docs:
 
 **`public/` is copied verbatim into `dist/` by `build.ts`; `public/` is committed, `dist/` is gitignored.** Editing `public/code-graph.js` without re-running `make -C atomic frontend` leaves the served copy stale in a binary you built earlier — `make build|test|vet` rebuild it first, a bare `go build` does not. CI has a dedicated frontend job that runs `bun test` and `bun run build.ts`; there is no committed copy to diff against.
 
-**The build disables identifier minification on purpose.** At this dependency-graph size the renamer's tie-breaker is non-deterministic, which would make otherwise-identical builds differ byte-for-byte. Whitespace and syntax minification stay on.
+**The `main.js` build disables identifier minification on purpose.** At this dependency-graph size the renamer's tie-breaker is non-deterministic, which would make otherwise-identical builds differ byte-for-byte. Whitespace and syntax minification stay on.
 
 **`bun:test` does not reset modules between test files.** `loadScript`'s `loaded` cache and `railCytoscapeStyle`'s `window.__railCy` global both leak across files, so `src/test/setup.testing.ts` resets them in a global `afterEach` on top of whatever individual suites do.
 

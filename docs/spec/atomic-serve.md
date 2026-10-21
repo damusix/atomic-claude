@@ -350,7 +350,7 @@ None.
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| Vendored JS (~9.8 MB: mermaid 3.57, mermaid's ELK layout 5.0 as split ES modules, cosmos-graph.js 0.82, cytoscape 0.44) inflates the `atomic` binary | High (certain) | Accepted per design (graph is the point; ELK gives diagrams orthogonal edges). A diagram page fetches ~1.5 MB of the ELK chunks, the rest only sit in the binary. Embed via `go:embed`; consider gzip-at-rest + serve decompressed only if binary size becomes a complaint. Documented, not silent. |
+| Embedded third-party JS (~9.8 MB: mermaid 3.57, mermaid's ELK layout 5.0 as split ES modules, cosmos-graph.js 0.82, cytoscape 0.44) inflates the `atomic` binary | High (certain) | Accepted per design (graph is the point; ELK gives diagrams orthogonal edges). Mermaid and its ELK layout are pinned frontend dependencies that `make frontend` copies and builds into the gitignored `dist/vendor/`; cosmos-graph.js and cytoscape are committed under `public/vendor/`. A diagram page fetches ~1.5 MB of the ELK chunks, the rest only sit in the binary. Embed via `go:embed`; consider gzip-at-rest + serve decompressed only if binary size becomes a complaint. Documented, not silent. |
 | Vendor script order wrong (`system-graph.js`/`code-graph.js` reference the global `Cosmos` that `cosmos-graph.js` exports, and both profiles depend on the shared `graph-core.js` mounting before them) → the mount throws a `ReferenceError` and the graph pane renders blank | Medium | `layout.html` loads `cytoscape.min.js` (rail), then `cosmos-graph.js`, then `graph-core.js`, then `system-graph.js`, then `code-graph.js`, in that order. `TestShellLoadsGraphScriptsInOrder` asserts the scripts are present and the removed ELK/cola artifacts are gone; it does not assert relative ordering, so verify the sequence manually on any script-tag reshuffle. The committed headless-Chromium gate harness (`scripts/graph-gates.mjs`; contract: `docs/spec/code-graph.md` SC3) runs mount/settle/drag/cache/hover gates against both the Docs and Code views and catches a load-order regression at the mount gate. |
 | `mdlink.ExtractLinks` diverges from `Linkify`'s fence handling → links matched inside code spans | Medium | CP4 reuses the existing fence-tracking internals rather than a fresh regex; test with fenced/inline-code fixtures. |
 | Run scope is large (11 checkpoints) — partial completion | High | Commit-per-green: each checkpoint lands committed and independently valuable. Foundation (CP1–6) is usable without the code/graph layers. Report remaining checkpoints honestly. |
@@ -360,6 +360,14 @@ None.
 
 
 ## Change log
+
+### 2026-10-21 — Mermaid and its ELK layout built from npm, not committed
+
+**What changed:** The embedded-JS risk row says where mermaid and the ELK layout come from: pinned dependencies (`mermaid@11.17.0`, `@mermaid-js/layout-elk@0.2.3`) that `build.ts` copies and builds into `dist/vendor/`. The served URLs and the binary footprint are unchanged.
+
+**Why:** Committed build output (~8.4 MB, 107 files) duplicated what the lockfile already pins, and upgrading meant hand-running a recorded command.
+
+**Superseded:** "Vendored JS (~9.8 MB ...) inflates the `atomic` binary", with every file committed under `public/vendor/`.
 
 ### 2026-10-20 — Vendored footprint gains mermaid's ELK layout
 
