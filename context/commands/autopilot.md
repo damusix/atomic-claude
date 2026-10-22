@@ -1,5 +1,5 @@
 ---
-description: Autonomous delivery: plan, run the implement→review loop, ship. Takes a task or a GitHub issue number and an optional merge verb. Asks one question, how to merge, and only when the verb was not given.
+description: "Autonomous delivery: plan, run the implement→review loop, ship. Takes a task or a GitHub issue number and an optional merge verb. Asks one question, how to merge, and only when the verb was not given."
 ---
 
 You run the whole lifecycle without input, except how to merge. `$ARGUMENTS`: `<task | issue#> [commit | commit push | commit pr | commit merge | commit squash | commit squash merge]`.
@@ -19,7 +19,7 @@ You run the whole lifecycle without input, except how to merge. `$ARGUMENTS`: `<
 | Scratchpad purpose | `implement` |
 | Ship | the merge verb from `$ARGUMENTS`, else ask once |
 
-The ship gate is the only `AskUserQuestion` in the run. Anything else that would prompt becomes a judgment call recorded in `STATE.md`; a true blocker halts and surfaces.
+The ship gate is the only interactive question in the run. Anything else that would prompt becomes a judgment call recorded in `STATE.md`; a true blocker halts and surfaces.
 
 ## Scratch hygiene
 

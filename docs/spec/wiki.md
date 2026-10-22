@@ -34,7 +34,7 @@ Design: `docs/design/wiki.md`.
 - [ ] Re-running regenerates ONLY the `<wiki-scan>` block; a diff of `index.md` outside the block and of every file under `repos/`/`concerns/` is empty.
 - [ ] The `index.md` path is written to a `<wikis>` block in `~/.claude/CLAUDE.md`. Three insertion cases: block present (add line iff absent, dedup by normalized path), block absent (append after `</atomic>`, or EOF when none), file absent (create). A registry write never alters the `<atomic>` block (diff outside `<wikis>` is empty).
 - [ ] `scan` declares `scope = "realm"` in `<root>/.claude/atomic.toml`, creating the file or inserting the key when absent. A file already declaring another scope, or one that fails to parse, is left byte-identical with a warning on stderr; the scan still registers the wiki, prints the handoff, and exits 0.
-- [ ] If `<root>/wiki/` has an `index.md` without a `<wiki-scan>` marker, or has no `index.md` and holds anything other than exactly the one `CLAUDE.md` that `wiki init --scope realm` writes, `scan` refuses with a non-zero exit and a message naming the path. An empty `wiki/` is refused. A `wiki/` holding only that unedited `CLAUDE.md` is scanned normally.
+- [ ] If `<root>/wiki/` has an `index.md` without a `<wiki-scan>` marker, or has no `index.md` and holds anything other than exactly what `wiki init --scope realm` writes, `scan` refuses with a non-zero exit and a message naming the path. Init writes the `AGENTS.md` scaffold plus a `CLAUDE.md` loader; a lone scaffold `CLAUDE.md` from an install that predates the pair is also accepted. An empty `wiki/` is refused. A `wiki/` holding only those unedited init files is scanned normally.
 - [ ] `scan` prints a stdout handoff: summary (`<N> repos · <M> indexed · <K> pending`), per-repo list (`<status> <path> [→ signals path]`), `NEXT STEPS` naming each `pending` repo. Labels stable (orientation for `/refresh-wiki`).
 - [ ] `scan` writes a managed `## Members` linked section into `index.md` inside a `<wiki-member-list>` region (`docs/spec/bucket-doc-management.md`), spliced idempotently like the `<wiki-scan>` block (content outside the region untouched): `indexed` → link to the repo's signals file found by classification (`../<repo>/docs/wiki/index.md`, or the legacy `../<repo>/.claude/project/signals.md`); `summarized` → link to the recorded summary path (`repos/<repo>.md`, or `repos/<repo>/` for a domain-split summary); `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
 
@@ -141,7 +141,7 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 **`atomic wiki stale`.** Read-only. Exit `0`/`1`/`2`. Per-finding literal prefix: `DRIFT added <path>`, `DRIFT removed <path>`, `DRIFT status <path> <old>→<new>`. Exit 1 iff any line. Missing `wiki/`, missing `index.md`, or no `<wiki-scan>` block → exit 2.
 
-**Root collision.** `<root>/wiki/` exists and either `index.md` lacks the marker, or `index.md` is absent and the directory holds anything beyond a single regular `CLAUDE.md` whose bytes equal the `wiki init --scope realm` scaffold → refuse, non-zero exit, message names the path. An empty `wiki/` is refused. A `wiki/` holding only init's unedited `CLAUDE.md` is not a collision, so `init` followed by `scan` completes the scaffold.
+**Root collision.** `<root>/wiki/` exists and either `index.md` lacks the marker, or `index.md` is absent and the directory holds anything beyond the regular files `wiki init --scope realm` writes, byte-equal to what it wrote → refuse, non-zero exit, message names the path. Accepted init shapes: `AGENTS.md` equal to the realm scaffold plus `CLAUDE.md` equal to the loader document, or a lone `CLAUDE.md` equal to the scaffold. An empty `wiki/` is refused. A `wiki/` holding only init's unedited files is not a collision, so `init` followed by `scan` completes the scaffold.
 
 
 ## Risks
@@ -161,6 +161,14 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 ## Change log
 
+
+### 2026-10-20 — `scan` accepts init's loader pair
+
+**What changed:** The collision exemption accepts the `AGENTS.md` scaffold plus `CLAUDE.md` loader that `wiki init --scope realm` now writes, alongside the lone scaffold `CLAUDE.md` an earlier init wrote.
+
+**Why:** The multi-harness steering change (`docs/spec/omp-plugin-compatibility.md`) moved scope guidance to `AGENTS.md` with a thin `CLAUDE.md` loader, so the single-file exemption refused the pair and `init` then `scan` failed again.
+
+**Superseded:** The exemption covered only a single `CLAUDE.md` equal to the scaffold.
 
 ### 2026-10-20 — `scan` accepts the `wiki/` that `init` wrote
 

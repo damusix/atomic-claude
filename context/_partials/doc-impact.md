@@ -13,7 +13,7 @@ flowchart TD
     A --> M
 ```
 
-- **Surfaces table in context?**: a `## Documentation surfaces` section in the CLAUDE instructions already loaded in context (`CLAUDE.md`, `claude.local.md`, or any `@`-included file).
+- **Surfaces table in context?**: a `## Documentation surfaces` section in the steering files already loaded in context (the repo's own steering file — its `AGENTS.md`, or the `CLAUDE.md` loader beside it — plus any file it includes).
 - **Print setup hint**: print exactly the line below, then skip the rest of this step. No error, no blocking.
 
     ```
@@ -47,7 +47,7 @@ flowchart TD
         ```
 
         Use the first 6 characters of the HEAD commit SHA as `<short-hash>`.
-    - **Remind** — prompt: `When should I remind you? (e.g. "after the PR", "tomorrow", "end of week")`. Accept natural-language input and invoke `/remind-me <timing> update <path> — <reason>`. Continue without blocking if `CronCreate` is unavailable.
+    - **Remind** — prompt: `When should I remind you? (e.g. "after the PR", "tomorrow", "end of week")`. Accept natural-language input and invoke `/remind-me <timing> update <path> — <reason>`. Continue without blocking if no scheduling capability is available.
     - **Skip** — no action, no record.
 
 Run doc-impact before signals refresh. **Why:** new or updated doc files appear in the signals scan only if they're staged before the scan runs.

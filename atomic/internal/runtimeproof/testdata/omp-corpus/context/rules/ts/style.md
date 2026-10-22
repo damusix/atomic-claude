@@ -1,0 +1,6 @@
+---
+paths:
+  - "**/*.{ts,tsx}"
+---
+
+# TypeScript

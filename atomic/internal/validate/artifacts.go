@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/damusix/atomic-claude/atomic/internal/bundlemirror"
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
@@ -301,7 +301,7 @@ func RunArtifactRules(repoRoot string, paths []string) ([]Finding, error) {
 }
 
 // artifactRules also returns the scanned files, keyed as Finding.Path is: the
-// context-relative Target for the corpus, repo-relative for explicit paths.
+// context-relative Source for the corpus, repo-relative for explicit paths.
 func artifactRules(repoRoot string, paths []string) ([]string, []Finding, error) {
 	if len(paths) > 0 {
 		return runArtifactPaths(repoRoot, paths)
@@ -310,21 +310,21 @@ func artifactRules(repoRoot string, paths []string) ([]string, []Finding, error)
 }
 
 func runArtifactCorpus(repoRoot string) ([]string, []Finding, error) {
-	artifacts, err := bundlemirror.Enumerate(repoRoot)
+	catalog, err := artifacts.Load(repoRoot)
 	if err != nil {
 		return nil, nil, fmt.Errorf("enumerate artifacts: %w", err)
 	}
 
 	var scanned []string
 	var all []Finding
-	for _, a := range artifacts {
-		srcPath := filepath.Join(bundlespec.SourceRoot(repoRoot), a.Target)
+	for _, a := range catalog.Artifacts {
+		srcPath := filepath.Join(bundlespec.SourceRoot(repoRoot), filepath.FromSlash(a.Source))
 		src, err := os.ReadFile(srcPath)
 		if err != nil {
-			return nil, nil, fmt.Errorf("read artifact %s: %w", a.Target, err)
+			return nil, nil, fmt.Errorf("read artifact %s: %w", a.Source, err)
 		}
-		scanned = append(scanned, a.Target)
-		ff := scanArtifactBytes(a.Target, src)
+		scanned = append(scanned, a.Source)
+		ff := scanArtifactBytes(a.Source, src)
 		all = append(all, ff...)
 	}
 	sortFindings(all)

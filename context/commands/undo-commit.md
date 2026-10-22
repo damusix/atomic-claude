@@ -32,7 +32,7 @@ flowchart TD
 - **HEAD has a parent?**: `git rev-parse HEAD^ 2>/dev/null` succeeds. No: `refused: HEAD is the initial commit. nothing to undo.`
 - **HEAD is a merge?**: `git rev-list --parents -n 1 HEAD | awk '{print NF-1}'` prints `2` or more. Undoing a merge is destructive in a non-obvious way, so it goes back to the user. Yes: `refused: HEAD is a merge commit. use git reset --hard ORIG_HEAD manually if you understand the consequences.`
 - **HEAD already pushed?**: a soft undo of a published commit would rewrite public history. `git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null` finds the tracking branch; with none, HEAD is not pushed. With one, `git merge-base --is-ancestor HEAD @{u}` exiting 0 means pushed. Yes: `refused: HEAD is already pushed to <upstream>. /undo-commit only undoes local commits. use git revert <sha> for a published commit.`
-- **User confirms?**: show what is about to be undone with `git log -n 1 --format='  %h %s%n  %an, %ar%n%n  Files:%n' HEAD` and `git diff --stat HEAD^..HEAD`, then ask via `AskUserQuestion`:
+- **User confirms?**: show what is about to be undone with `git log -n 1 --format='  %h %s%n  %an, %ar%n%n  Files:%n' HEAD` and `git diff --stat HEAD^..HEAD`, then ask the user:
 
     ```
     Undo this commit? Changes will be moved back to the staging area.

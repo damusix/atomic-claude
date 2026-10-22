@@ -2,30 +2,33 @@ package doctor
 
 import (
 	"fmt"
-	"os"
+	"path/filepath"
 
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 )
 
-// checkHooks implements category 2: session-start hook installed. Any missing
-// or legacy-wrapper registration WARNs.
-//
-// The scope root is $HOME, not ~/.claude: hooks.IsInstalled appends
-// ".claude/settings.json" itself, so passing ~/.claude doubles the segment.
-func checkHooks(_ Opts) Result {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve home: %v", err)}
+// checkHooks implements category 2: session-start hook installed in every
+// enrolled Claude target. Any missing or legacy-wrapper registration WARNs. A
+// machine whose ledger enrols no Claude target is skipped rather than warned
+// about an un-enrolled ~/.claude.
+func checkHooks(opts Opts) Result {
+	scope := claudeScopeFor(opts)
+	if scope.Skip {
+		return Result{Severity: SKIP, Detail: scope.Detail}
 	}
-	return RunCheckHooksWith(home)
+	results := make([]Result, 0, len(scope.Roots))
+	for _, root := range scope.Roots {
+		results = append(results, RunCheckHooksInDir(root))
+	}
+	return combineClaudeRoots(scope, results)
 }
 
-// RunCheckHooksWith runs the hooks check against an explicit scopeRoot.
-// Exported for testing.
-func RunCheckHooksWith(scopeRoot string) Result {
-	installed, drifted, err := hooks.IsInstalled(scopeRoot)
+// RunCheckHooksInDir runs the hooks check against an explicit Claude config
+// directory's settings.json. Exported for testing.
+func RunCheckHooksInDir(configDir string) Result {
+	installed, drifted, err := hooks.IsInstalledInDir(configDir)
 	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("could not read settings.json: %v", err)}
+		return Result{Severity: WARN, Detail: fmt.Sprintf("could not read %s: %v", filepath.Join(configDir, "settings.json"), err)}
 	}
 
 	switch {
@@ -36,4 +39,10 @@ func RunCheckHooksWith(scopeRoot string) Result {
 	default:
 		return Result{Severity: PASS, Detail: "session-start hook installed"}
 	}
+}
+
+// RunCheckHooksWith runs the hooks check against an explicit scope root, the
+// $HOME the legacy user-scope registration resolves. Exported for testing.
+func RunCheckHooksWith(scopeRoot string) Result {
+	return RunCheckHooksInDir(filepath.Join(scopeRoot, ".claude"))
 }

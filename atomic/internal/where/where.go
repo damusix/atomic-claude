@@ -73,10 +73,11 @@ type Report struct {
 	CodeIndex  realm.Resolution
 }
 
-// Resolve computes the full orientation report for cwd, reading the <wikis>
-// registry from claudeMDPath (conventionally <claudeHome>/CLAUDE.md). An
-// absent CLAUDE.md or <wikis> block is not an error — it resolves to RealmNone;
-// a non-nil error means a genuine I/O failure.
+// Resolve computes the full orientation report for cwd. Realm detection reads
+// the authoritative ~/.atomic/wikis.md registry, falling back to the <wikis>
+// block at claudeMDPath (conventionally <claudeHome>/CLAUDE.md) for a
+// non-conventional install root or before adoption. An absent registry is not an
+// error — it resolves to RealmNone; a non-nil error means a genuine I/O failure.
 func Resolve(cwd, claudeMDPath string) (Report, error) {
 	cwd = filepath.Clean(cwd)
 
@@ -168,10 +169,11 @@ func resolveRealmScopeFromMarker(cwd string) (RealmScopeReport, bool, error) {
 	return report, true, err
 }
 
-// resolveRealmScopeFromRegistry reads realm roots from the <wikis> block —
+// resolveRealmScopeFromRegistry reads realm roots from the wiki registry — the
+// authoritative ~/.atomic/wikis.md, falling back to the <wikis> block —
 // distinct from codeintel/realm's separate code.toml registry.
 func resolveRealmScopeFromRegistry(cwd, claudeMDPath string) (RealmScopeReport, error) {
-	indexPaths, err := wiki.ReadWikiIndexPaths(claudeMDPath)
+	indexPaths, err := wiki.RegisteredIndexPaths(claudeMDPath)
 	if err != nil {
 		return RealmScopeReport{}, err
 	}

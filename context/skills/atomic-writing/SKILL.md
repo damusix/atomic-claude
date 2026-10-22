@@ -2,7 +2,7 @@
 name: atomic-writing
 description: >
   One voice for every file the repo ships: README, docs/guides/, docs/reference/,
-  docs/spec/, docs/design/, docs/research/, docs/wiki/, CLAUDE.md, and the prompt
+  docs/spec/, docs/design/, docs/research/, docs/wiki/, AGENTS.md, and the prompt
   artifacts under commands/, agents/, skills/, rules/, and output-styles/. Clear,
   direct, technical, and visual wherever the content has a shape. No marketing
   language, no AI-tell phrases, no em dashes in prose, no throat-clearing. The voice
@@ -39,12 +39,12 @@ The reason is a contract that reads well to only one party is broken. A spec an 
 
 | | Atomic output style | Atomic-writing (this skill) |
 |---|---|---|
-| **Governs** | How Claude talks in the terminal | What Claude writes into files |
+| **Governs** | How the assistant talks in the terminal | What the assistant writes into files |
 | **Where** | TUI replies to the user | Every `.md` file that ships in the repo |
 | **Form** | Fragments OK, drop articles, ASCII only | Full sentences where prose is right, Mermaid where a picture is right |
 | **Lives in** | `output-styles/atomic.md` | This skill |
 
-Nothing else splits. There is no separate "terse technical" voice for specs, designs, `CLAUDE.md`, or agent prompts.
+Nothing else splits. There is no separate "terse technical" voice for specs, designs, `AGENTS.md`, or agent prompts.
 
 ## Same voice, different length
 
@@ -57,7 +57,7 @@ Length is set by the job the surface does, not by a compression quota and not by
 | `docs/spec/`, `docs/design/` | Carry a contract a human approves and an agent implements | Shortest that carries the contract in full; the structure is the contract |
 | `docs/wiki/` | Orient a reader to a codebase | Dense. Facts with paths, no throat-clearing |
 | `docs/research/` | Record what was found and why a path was chosen | As long as the evidence needs |
-| `CLAUDE.md`, `rules/` | Instruct, in every session | Tightest. Every line costs tokens on every turn |
+| `AGENTS.md`, `rules/` | Instruct, in every session | Tightest. Every line costs tokens on every turn |
 | `commands/`, `agents/`, `skills/`, `output-styles/` | Instruct an agent mid-task | Tight. Instruct plainly, cut rationale that only defends the instruction |
 
 Tight is not cryptic. Cutting filler is always right. Cutting the contract to save a line is never right.
@@ -181,7 +181,7 @@ Not every document needs all five, and a surface with its own defined structure 
 
 15. **Let length follow content.** Do not compress a five-sentence explanation into a fragment because compression is a virtue, and do not pad a table into paragraphs because prose feels more finished. Mix forms by what the content is: paragraphs carry reasoning and motivation, lists carry enumerable things, diagrams carry shapes, tables carry comparisons. A page built from one form alone is usually the wrong page.
 
-16. **Instruct plainly in prompt artifacts.** In `commands/`, `agents/`, `skills/`, `rules/`, and `CLAUDE.md`, give the instruction and the constraint. Rationale earns its place when it changes what the reader does at the edges, which is what a `**Why:**` line is for. Rationale that only defends the instruction against an imagined objection is noise, and it costs tokens on every turn.
+16. **Instruct plainly in prompt artifacts.** In `commands/`, `agents/`, `skills/`, `rules/`, and `AGENTS.md`, give the instruction and the constraint. Rationale earns its place when it changes what the reader does at the edges, which is what a `**Why:**` line is for. Rationale that only defends the instruction against an imagined objection is noise, and it costs tokens on every turn.
 
 17. **A wiki page never counts things in the repo.** No LOC totals, file counts, percentages, or language tables, and no count of verbs, artifacts, domains, checks, resolvers, steps, lenses, icons, registry entries, tests, or sections. Name the things, or let the list that follows stand on its own. A version and a documented contract value are not counts and stay: `Go 1.25`, a pinned dependency, a 3s timeout, a 16 MiB buffer, a 500-file gate, a port.
 
@@ -264,9 +264,9 @@ Read the page twice. The first read covers the first five checks. The second cov
 
 **False agency and adverbs:**
 
-> Before: *The signals workflow inherently keeps Claude genuinely informed about the codebase as it evolves.*
+> Before: *The signals workflow inherently keeps the assistant genuinely informed about the codebase as it evolves.*
 >
-> After: *The signals workflow refreshes a snapshot of the codebase whenever the source tree changes, so each Claude session opens with a current map of the project.*
+> After: *The signals workflow refreshes a snapshot of the codebase whenever the source tree changes, so each session opens with a current map of the project.*
 
 **Defensive rationale in an artifact:**
 
@@ -280,12 +280,12 @@ Read the page twice. The first read covers the first five checks. The second cov
 
 ## Boundaries
 
-- **Scope: file contents.** Claude's TUI replies follow the atomic output style, not this skill. Everything the repo writes to a file follows this skill.
+- **Scope: file contents.** The assistant's TUI replies follow the atomic output style, not this skill. Everything the repo writes to a file follows this skill.
 - **Structure passes through unchanged.** Frontmatter, fenced code, command examples, file paths, identifier names, error strings, and Mermaid node labels: never reformat or rephrase. This skill governs prose and chooses between prose and picture. It does not restyle a contract.
 - **Spec checkpoint tables, `## Change tree`, `## Outline`, and `## Flows` keep their defined formats.** Those formats are specified in `rules/specs/spec-currency.md` and are the contract itself. This skill governs the prose around them and encourages a diagram alongside them, never a replacement for them.
 - **Do not rewrite a file's voice as a side effect of an unrelated edit.** Voice work is its own change. Editing one section of a spec does not license rewriting the other twelve.
 - **CHANGELOG entries follow the project's existing tone.** This skill nudges new entries toward plainness but does not rewrite older entries on sight.
-- **Comments in source code follow the comment rules in `CLAUDE.md`, not this skill.** This skill is for markdown files, not inline code comments.
+- **Comments in source code follow the comment rules in `AGENTS.md`, not this skill.** This skill is for markdown files, not inline code comments.
 
 ## Reference files
 

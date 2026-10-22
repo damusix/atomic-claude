@@ -179,7 +179,7 @@ The only decision is the merge method at the end. Pass a merge verb (`/autopilot
 
 ### Editing directly, outside any verb
 
-Editing code by hand with no command around it at all skips the loop entirely — there is no builder, no reviewer inside a loop, no checkpoint. Two exits still gate it: `atomic-verify` blocks a "ready" claim, and the ship verbs' review gate blocks the commit. Both dispatch `atomic-reviewer` on the diff, with an explicit `model:` override to the session's model, and report a `review: <verdict> (atomic-reviewer on <model>)` line before the claim or the commit lands.
+Editing code by hand with no command around it at all skips the loop entirely — there is no builder, no reviewer inside a loop, no checkpoint. Two exits still gate it: `atomic-verify` blocks a "ready" claim, and the ship verbs' review gate blocks the commit. Both dispatch `atomic-reviewer` on the diff and report a `review: <verdict> (atomic-reviewer on <model>)` line before the claim or the commit lands.
 
 
 ### What the loop costs

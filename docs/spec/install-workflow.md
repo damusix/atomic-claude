@@ -1,186 +1,95 @@
-# Spec: install workflow (CLAUDE.md merge)
+# Spec: install workflow (Claude steering projection and CLAUDE.md merge)
 
 
-The `atomic claude install` / `atomic claude update` binary commands handle file writes mechanically: copy embedded atomic-prefixed artifacts into `~/.claude/`, back up replaced files. For `~/.claude/CLAUDE.md` the binary is block-aware: when the on-disk file carries exactly one parseable `<atomic>...</atomic>` block, the binary compares and replaces only that block (backing up the whole file first) and treats user content outside the block as out of scope — no drift, no merge. See [`atomic-binary.md`](./atomic-binary.md) § CLAUDE.md handling for the deterministic path.
+The authored global Atomic contract is `context/AGENTS.md`. The Claude adapter renders it directly into `~/.claude/CLAUDE.md`: there is no user-level `AGENTS.md` artifact and no global loader. The multi-harness architecture that produces this projection is [`omp-plugin-compatibility.md`](./omp-plugin-compatibility.md); this spec covers the Claude install surface that carries it and the one merge case still left to the model.
 
+`atomic claude install` and `atomic claude update` write the embedded artifact bundle mechanically and treat the global steering file as block-aware: the `<atomic>...</atomic>` block is Atomic-owned, everything outside it is user-owned. The install/update orchestration and the sibling verbs (`list`, `diff`, `uninstall`) live in [`atomic-binary.md`](./atomic-binary.md); this spec owns the `CLAUDE.md` comparison, the proposed-file fallback, and the cold-op merge brief that resolves it.
 
-Only when the on-disk `CLAUDE.md` has no parseable `<atomic>` block (pre-tag installs, unclosed or duplicate tags) does the binary fall back to writing the new version to `~/.atomic/proposed/CLAUDE.md` and deferring the merge to a Claude Agent. This spec defines that merge surface: a slash command (`/atomic-claude-merge`), a subagent (`atomic-claude-merger`), and the conventions they follow.
 
+## Global steering projection
 
-This spec depends on [`atomic-binary.md`](./atomic-binary.md) for the install/update orchestration and the proposed-file convention.
 
+`context/AGENTS.md` is the sole authored global Atomic contract. The manifest maps it to the Claude target `CLAUDE.md`, so the adapter renders the contract's own bytes straight into the harness's user-level file — no importer file at user scope and no path referring to one.
 
-## Artifacts to build
+The rendered document carries exactly one `<atomic>...</atomic>` block. That block is Atomic-owned; user prose around it is out of scope, and a difference outside the block never registers as drift for install, update, or `diff`.
 
 
-| Artifact | Type | Path (in this repo, before install) |
-|----------|------|------|
-| `/atomic-claude-merge` | command | `commands/atomic-claude-merge.md` |
-| `atomic-claude-merger` | agent | `agents/atomic-claude-merger.md` |
+## Artifact bundle install (block-aware `CLAUDE.md`)
 
 
-Both ship in the embedded bundle via `atomic claude install`. They live at `~/.claude/commands/atomic-claude-merge.md` and `~/.claude/agents/atomic-claude-merger.md` after install.
+`atomic claude install` and `atomic claude update` plan each embedded artifact against its on-disk target, applying any configured agent `model`/`effort` overrides first so the planned bytes match what is written. Every artifact except `CLAUDE.md` is compared and written whole, and a changed file is backed up under `~/.atomic/backups/<timestamp>/` before the write. `CLAUDE.md` takes one of two paths.
 
 
-## Trigger
+### Block path
 
 
-User-initiated, always. Two paths:
+When the embedded source and the on-disk file each carry exactly one parseable `<atomic>` block — line-anchored tags, with no missing, unclosed, or duplicate tag:
 
+- Equal blocks → `unchanged`. No write, no proposed file, and user content outside the block does not register as drift.
+- Different blocks → back up the whole file under `~/.atomic/backups/<timestamp>/CLAUDE.md`, then splice the embedded block over the on-disk block byte-for-byte, preserving every byte outside it. Reported as `block replaced`.
 
-1. **After install/update, migration only**. When the on-disk `~/.claude/CLAUDE.md` has no parseable `<atomic>` block, `atomic claude install` or `atomic claude update` writes `~/.atomic/proposed/CLAUDE.md` and prints `run /atomic-claude-merge inside any Claude Code session when ready`. The user runs the slash command when they decide it's the right time — minutes later, the next day, or never. (Files that already carry the block are updated deterministically by the binary; no proposed file is written.)
-2. **Ad-hoc**. User types `/atomic-claude-merge` directly in any Claude Code session. Covers re-runs after aborting a prior merge, or running merges out of band.
+User edits inside the block are overwritten; the backup is the recovery path. Atomic-owned content is a versioned contract, and silently preserving divergent edits inside it would leave the user running a patched version they cannot diff against upstream.
 
 
-The binary never spawns Claude. The destructive-confirm guard (axiom 3) is inside this slash command (step 3 of the flow below — `AskUserQuestion` Accept / Show diff / Open editor / Abort).
+### No parseable block
 
 
-## `/atomic-claude-merge` command
+When the on-disk `CLAUDE.md` has no parseable block — a pre-tag install, unclosed or duplicate tags — code cannot draw the ownership boundary safely, so the binary writes the embedded content to `~/.atomic/proposed/CLAUDE.md` and reports the target as `merge required (proposed at <path>)`. It never overwrites the live file.
 
+The install summary prints the next step: in a Claude Code session, run `atomic prompt claude-merge` to merge the config. The binary never spawns Claude and never merges on its own — the user runs the merge on their own schedule.
 
-### Pre-flight
+A first-time install, with no on-disk `CLAUDE.md` at all, writes the embedded content directly: no proposed file, no merge step.
 
 
-1. Check `~/.atomic/proposed/CLAUDE.md` exists. If not, print `nothing to merge. ~/.atomic/proposed/CLAUDE.md not found.` and exit.
-2. Check `~/.claude/CLAUDE.md` exists. If not, this is a first-time install case the binary handled directly — print `~/.claude/CLAUDE.md is missing. moving proposed file into place.` Run `mv ~/.atomic/proposed/CLAUDE.md ~/.claude/CLAUDE.md` and exit.
+## Cold-op merge brief (`atomic prompt claude-merge`)
 
 
-### Flow
+`atomic prompt` emits built-in cold-op briefs to stdout, one per name (`git-cleanup`, `claude-merge`, `implementer`, `reviewer`). `atomic prompt claude-merge` emits the brief that merges `~/.atomic/proposed/CLAUDE.md` into `~/.claude/CLAUDE.md`; the user pastes it into a Claude Code session, which runs it as a generic subagent task.
 
+The brief's contract:
 
-1. Dispatch the `atomic-claude-merger` agent with prompt:
+- Replace the `<atomic>...</atomic>` block with the proposed block verbatim; Atomic always wins inside its boundary.
+- Preserve everything outside the block byte-for-byte, and preserve any `<wikis>...</wikis>` block at its original position.
+- Write the result to `~/.claude/CLAUDE.md.atomic-merged` and never modify the live file. The dispatcher — the user's interactive session — presents the report, requires explicit acceptance, and applies the staging file only on accept.
+- Report the block action, the preserved user content, and the apply command.
 
-    > Read `~/.claude/CLAUDE.md` (the user's current global) and `~/.atomic/proposed/CLAUDE.md` (the new atomic-claude version). Produce a merged version that (a) preserves every user customization that does not directly conflict with the proposed atomic sections, (b) updates atomic-owned sections to match the proposed version, (c) adds new atomic sections from the proposed file. Write the merged result to `~/.claude/CLAUDE.md.atomic-merged`. Do not modify `~/.claude/CLAUDE.md` directly. Report which sections you preserved, replaced, added, and any conflicts you flagged.
+The brief is a built-in asset of the binary, so the merge surface ships in the same embedded bundle as the rest of the install. The former merge slash command and its dedicated agent were removed; the cold-op is now a binary-emitted prompt.
 
-2. After the agent returns, present the user a side-by-side diff: `diff ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.atomic-merged`.
-3. Ask via `AskUserQuestion`:
 
-    | Option | Effect |
-    |--------|--------|
-    | Accept | `mv ~/.claude/CLAUDE.md.atomic-merged ~/.claude/CLAUDE.md`; `rm ~/.atomic/proposed/CLAUDE.md` |
-    | Show diff again | Re-print the diff, re-ask |
-    | Open editor | `$EDITOR ~/.claude/CLAUDE.md.atomic-merged` then re-ask |
-    | Abort | Leave all three files in place (`CLAUDE.md`, `.atomic/proposed/CLAUDE.md`, `.atomic-merged`). The user can sort it out manually. |
+## Scope steering loader pairs
 
-4. On Accept, back up the prior `CLAUDE.md` to `~/.atomic/backups/<accept-timestamp>/CLAUDE.md` using a fresh ISO timestamp generated at accept time (not the binary's install-run timestamp — the install may have happened days ago, and we want the backup timestamp to reflect when the user actually authorized the overwrite). Create the `.atomic/backups/` dir if it does not exist.
-5. Report final state.
 
+Repository and nested-realm Claude steering is a loader pair: authored guidance in `AGENTS.md` plus an adjacent thin `CLAUDE.md` whose managed-block body is `@AGENTS.md`. The import sits as a top-level markdown paragraph bracketed by blank lines so Claude's memory parser resolves it; an import placed immediately inside the block's tags would be swallowed by the HTML block those tags open and deliver nothing.
 
-### Refusals
+Both files carry managed blocks: the owned block is spliced into the observed bytes and unowned prose survives byte-for-byte. A scope whose directory resolves — symlinks included — to the Claude native root is refused, because the global projection owns that file and a second loader there would deliver the contract twice.
 
 
-- Both files identical (sha256 match) → print `no changes needed.` and remove `.atomic/proposed/CLAUDE.md`. Skip the agent.
+## Milestone A adoption
 
 
-## `atomic-claude-merger` agent
-
-
-### Frontmatter
-
-
-```yaml
----
-name: atomic-claude-merger
-description: Merges the user's current ~/.claude/CLAUDE.md with the proposed ~/.atomic/proposed/CLAUDE.md produced by `atomic claude install/update`. Preserves user customizations, replaces atomic-owned sections, flags conflicts. Read/Write/Edit scoped to ~/.claude/.
-tools: Read, Write, Edit
-model: sonnet
----
-```
-
-
-### Inputs
-
-
-- `~/.claude/CLAUDE.md` — the user's current global. May contain atomic sections from a prior install plus user additions.
-- `~/.atomic/proposed/CLAUDE.md` — the new atomic version, fresh from the embedded bundle.
-
-
-### Output
-
-
-- `~/.claude/CLAUDE.md.atomic-merged` — the proposed merged result.
-- A structured report (in the agent's final message back to the orchestrator) of what was preserved / replaced / added / flagged.
-
-
-### Section taxonomy
-
-
-A CLAUDE.md is a markdown doc with `##` top-level sections. The merger classifies each section as one of:
-
-
-| Class | How to detect | How to merge |
-|-------|---------------|--------------|
-| **atomic-owned** | Section title appears in the proposed file with identical heading, OR section title matches an atomic-known list (`## Principles`, `## Shell tools for repetitive edits`, `## Design axioms`, `## Where things live`, `## Subagents available for dispatch`, `## Workflow (canonical lifecycle)`) | Replace with the proposed version. |
-| **user-only** | Section title appears in current but not proposed, and is not in the atomic-known list | Preserve verbatim. |
-| **atomic-new** | Section title appears in proposed but not current | Append to merged output in the order the proposed file dictates. |
-| **conflict** | Same section title in both, but the user has clearly edited inside an atomic-owned section (heuristic: more than 10% of non-whitespace bytes differ from the prior atomic baseline) | Flag in the report. Default action: use proposed, but note the override. The user can inspect and revert via the Open editor path. |
-
-
-**Retired titles.** A section atomic once owned and has since renamed must stay recognizable, or a legacy file keeps both the old section and its replacement. Current retired titles: `## Bash over Read+Write` → `## Shell tools for repetitive edits`. A retired title in the current file is atomic-owned, never user-only: drop it and take the proposed replacement. This list only matters on the migration path — a file with a parseable `<atomic>` block has the whole block replaced, so renames inside it need no mapping.
-
-A retired title is exempt from the conflict heuristic below, which compares same-titled sections and so can never fire across a rename. Report the drop under **Sections replaced**, naming the old title and its replacement, so a user who had edited the retired section can see what went and recover it from the backup.
-
-The merger does NOT need the prior atomic baseline to detect conflict perfectly — it can use a simpler heuristic: if a section is atomic-owned and the on-disk version differs from the proposed version, assume the user edited and flag it. The user makes the final call via the slash command's accept/edit/abort prompt.
-
-
-### Rules
-
-
-- Never modify `~/.claude/CLAUDE.md` directly. Output goes to `~/.claude/CLAUDE.md.atomic-merged`.
-- Preserve heading order from the proposed file where possible. User-only sections retain their original relative position when they sit between recognizable anchor sections; otherwise they go at the end.
-- Preserve the exact whitespace and code-block formatting of preserved sections. The atomic style of "double newline after headings" applies to the merged output as a whole, but do not reflow individual user sections.
-- Frontmatter (if any) follows the proposed version.
-- Output is plain markdown. No prose hedging. No "I merged this for you" preambles in the file itself.
-
-
-### Report format
-
-
-```
-Sections preserved (user-only):
-  - ## My personal aliases
-  - ## Project-specific overrides for repo X
-
-Sections replaced (atomic-owned, in-sync):
-  - ## Principles
-  - ## Shell tools for repetitive edits
-  - ## Design axioms
-
-Sections added (atomic-new):
-  - ## Self-update guidance
-
-Conflicts flagged:
-  - ## Where things live — user version differs from atomic baseline. Used proposed. Diff:
-      <unified diff snippet>
-```
-
-
-## Open follow-ups
-
-
-- A future `atomic claude rollback` verb could restore the most recent backup automatically. Out of scope for v0.1.0; user runs `cp` manually.
-- The merger's conflict heuristic (10% byte change) is rough. Revisit if false positives are common.
-- For users who keep extensive customization in `~/.claude/CLAUDE.md`, consider a future `--strategy ours/theirs/manual` flag on `/atomic-claude-merge` for batch acceptance. Not in v0.1.0.
+Under Milestone A a legacy Claude install converges through the generic adoption engine rather than through the `claude` verb: `atomic install --harness claude` and `atomic harness adopt|repair` acquire the single lifecycle lock, recover unresolved journals oldest-first, treat bytes the ledger recorded applying as owned while batching the genuine older-version replace-or-leave-unowned decisions, preserve the write-once legacy pre-install snapshot, and import `profile.md`/`wikis.md` into `~/.atomic` once while the authority is absent. A steering file with no Atomic tag at all is "no block yet" and is adopted by appending the block; tags that do not parse to one block still refuse. Canonical contract: [`omp-plugin-compatibility.md`](./omp-plugin-compatibility.md).
 
 
 ## Success criteria
 
 
-- Running `atomic claude install` for the first time on a machine with no `~/.claude/CLAUDE.md` writes the embedded version directly; `/atomic-claude-merge` is unnecessary.
-- Running `atomic claude update` against a `~/.claude/CLAUDE.md` that carries an `<atomic>` block updates the block in place (or no-ops when current) without producing `.atomic/proposed/CLAUDE.md`; user sections outside the block survive verbatim.
-- Running `atomic claude update` against a `~/.claude/CLAUDE.md` with no `<atomic>` block produces `.atomic/proposed/CLAUDE.md`; `/atomic-claude-merge` produces `.atomic-merged` that preserves the user's custom sections verbatim and replaces atomic-owned sections.
-- The user can Open editor → tweak the merged file → Accept; the accepted file becomes `~/.claude/CLAUDE.md`.
-- Abort leaves all three files in place; nothing is destroyed.
-- A second run of `/atomic-claude-merge` when no `.atomic/proposed/CLAUDE.md` exists exits cleanly with `nothing to merge`.
+- A first-time install on a machine with no `~/.claude/CLAUDE.md` writes the rendered global contract directly; no proposed file and no merge step.
+- `atomic claude update` against a `CLAUDE.md` carrying exactly one parseable `<atomic>` block updates the block in place, or no-ops when the blocks are equal; no proposed file is written and user content outside the block survives byte-for-byte.
+- `atomic claude update` against a `CLAUDE.md` with no parseable block writes `~/.atomic/proposed/CLAUDE.md` and prints the `atomic prompt claude-merge` step; the live file is never overwritten.
+- `atomic prompt claude-merge` prints the merge brief to stdout; a session following it stages `~/.claude/CLAUDE.md.atomic-merged` and overwrites the live file only after explicit user acceptance.
+- A scope loader pair delivers its guidance exactly once: `AGENTS.md` carries the guidance block, `CLAUDE.md` carries only the `@AGENTS.md` import. A scope resolving to the Claude native root is refused.
 
 
 ## Checkpoints
 
 
+Checkpoints I-1 through I-3 record the removed global-steering merge command and its dedicated agent. The deterministic `<atomic>` block path replaced them, except when the on-disk file has no parseable block, where the binary-emitted cold-op brief applies. The rows stay as the build record; do not treat them as work to do. See the 2026-09-19 change-log entry.
+
+
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| I-1 | `atomic-claude-merger` agent | `agents/atomic-claude-merger.md` | |
-| I-2 | `/atomic-claude-merge` command | `commands/atomic-claude-merge.md` | |
+| I-1 | Global-steering merge agent (removed) | merge agent source (removed) | |
+| I-2 | Global-steering merge slash command (removed) | merge command source (removed) | |
 | I-3 | Both artifacts wired into the embedded bundle manifest in the Go binary (so `atomic claude install` ships them) | `atomic/internal/embedded/` | |
 | I-4 | `CLAUDE.md` + `CLAUDE.md` + `README.md` updated to mention the install workflow | `CLAUDE.md`, `README.md` | |
 
@@ -266,3 +175,13 @@ Built across 3 implementer iterations plus a docs/bundle catch-up on branch `ins
 **Superseded:** the atomic-known list was a flat set of current titles with no notion of a former one, so a rename silently converted the old section into user-only content.
 
 - 2026-09-06 — **Change:** the global contract was condensed and several `<atomic>` sections were renamed or folded. Retired titles for the migration path: `## Shell tools for repetitive edits` and `## ast-grep over regex grep` → `## Editing and searching files`; `## Workflow (canonical lifecycle)` → `## Workflow`; `## Inter-session messaging`, `## Persistent REPL sessions`, `## Code-intel engine`, and `## Atomic binary subcommands` → `## Atomic binary`; `## Specs` folded into the `## Where things live` table. Files carrying a parseable `<atomic>` block are unaffected.
+
+
+### 2026-09-19 — Global steering projects from `context/AGENTS.md`; merge taxonomy retired
+
+**What changed:** The body now states the current install and merge contract. The authored global contract is `context/AGENTS.md`, rendered directly into the harness's user-level `CLAUDE.md` by the Claude adapter, with no user-level importer artifact and no global loader. `atomic claude install`/`update` keep the mechanical bundle write and the block-aware path: one parseable `<atomic>` block → compare and splice in place after backing up the whole file; equal blocks → `unchanged`; no parseable block → write `~/.atomic/proposed/CLAUDE.md` and print the cold-op step. The cold-op is the built-in brief emitted by `atomic prompt claude-merge`. Repository and realm steering is a loader pair — authored `AGENTS.md` plus a thin adjacent `CLAUDE.md` whose managed body is `@AGENTS.md`, with a scope resolving to the native root refused. Milestone A adoption is a one-line delta pointing at `omp-plugin-compatibility.md`. Removed the merge-taxonomy prose (section taxonomy, Atomic-known title list, retired-title map, 10%-byte conflict heuristic, report format), the artifacts-to-build section, and the command/agent sections; rephrased the three Checkpoints rows that named the removed artifacts.
+
+**Why:** the deterministic `<atomic>` block path replaced the whole-file model merge — it is kept only for files with no parseable block, where code cannot draw the ownership boundary — and Milestone A moved authored global steering to `context/AGENTS.md`. A fresh reader of the old body would have built a removed slash command, a removed agent, and a superseded section-classification heuristic.
+
+**Superseded:** prior contract defined a `/atomic-claude-merge` slash command plus a dedicated merger agent, a `##`-section taxonomy with an Atomic-known-title list and a retired-title map, a 10% byte-difference conflict heuristic, and a report format, triggered whenever install/update could not update the block in place. It also described global steering as authored `context/CLAUDE.md` and listed the two artifacts to build.
+

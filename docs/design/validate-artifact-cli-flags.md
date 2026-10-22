@@ -2,7 +2,7 @@
 
 ## Problem
 
-Artifacts (agents, commands, skills, output-styles, rules, `CLAUDE.md`) cite `atomic <verb> [--flags]` invocations in their prose and code spans. Nothing verifies those citations against the real binary, so a wrong verb or flag ships silently and only fails when a user runs the example.
+Artifacts (commands, agents, skills, output-styles, rules, steering `AGENTS.md`) cite `atomic <verb> [--flags]` invocations in their prose and code spans. Nothing verifies those citations against the real binary, so a wrong verb or flag ships silently and only fails when a user runs the example.
 
 Concrete instance that motivated this: `atomic code … --format json` was authored into six agent prompts; the real flag is `--json`. It passed render, bundle, and review undetected — caught by chance during a docs pass. `.claude/skills/atomic-cli-contrib/SKILL.md` "Common mistakes" #7 mitigates it with a *manual* verification rule. This design automates that rule.
 
@@ -49,7 +49,7 @@ A new rule (`A1`) and subcommand `atomic validate artifacts [paths...]`, also ru
 
 Scanner, kept conservative to stay trustworthy as a CI gate (favor false-negatives over false-positives):
 
-1. **Corpus** — `bundlemirror.Enumerate(repoRoot)` walks agents, commands, skills, output-styles, rules, `CLAUDE.md`. The check reads each artifact's text.
+1. **Corpus** — `artifacts.Load(repoRoot)` enumerates the canonical corpus (commands, agents, skills, output-styles, rules, steering `AGENTS.md`). The check reads each artifact's text.
 2. **Candidate spans** — only citations inside markdown **inline code spans** (`` `…` ``) or **fenced code blocks** are considered. Prose mentions of the word "atomic" (e.g. "atomic style", "atomic operations") are ignored. This gate kills the dominant false-positive source. Trade-off: a bare-prose citation outside code is not checked — an accepted false-negative, logged in the spec as a known scope limit.
 3. **Parse** — within a candidate span, find `atomic <tokens…>`. Only proceed when the first token after `atomic` is a registered top-level verb (`code`, `signals`, `validate`, `wiki`, `followups`, `claude`, `config`, `docs`, `doctor`, `update`, `profile`, `hooks`, `reminder`, `docker`). Otherwise skip (false-friend like "atomic commit").
 4. **Resolve** — greedily match the longest known verb-path prefix from `cliusage` against the leading word tokens (handles multi-word paths like `claude install`, `code search`, `signals scan`).

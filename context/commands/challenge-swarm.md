@@ -1,5 +1,5 @@
 ---
-description: Multi-lens design challenger. Reads a design/spec/plan/proposal, profiles it (who can reach it, whose data, what being wrong costs), then seats 3-6 expert lenses from a ~30-lens catalog spanning engineering, data/ML, business, finance, communication, and delivery — each seated only with a cited stake, reflexive picks benched out loud. Lenses run as isolated parallel subagents; findings merge into a contradiction map — where lenses conflict, where they independently agree, and what they all assumed. Post-design gate — follows /atomic-plan, precedes /subagent-implementation. Complements /pressure-test: that is dialogue with you; this attacks the written artifact.
+description: "Multi-lens design challenger. Reads a design/spec/plan/proposal, profiles it (who can reach it, whose data, what being wrong costs), then seats 3-6 expert lenses from a ~30-lens catalog spanning engineering, data/ML, business, finance, communication, and delivery — each seated only with a cited stake, reflexive picks benched out loud. Lenses run as isolated parallel subagents; findings merge into a contradiction map — where lenses conflict, where they independently agree, and what they all assumed. Post-design gate — follows /atomic-plan, precedes /subagent-implementation. Complements /pressure-test: that is dialogue with you; this attacks the written artifact."
 argument-hint: "[<path-to.md> | @<path> | <topic-phrase>]"
 ---
 
@@ -34,7 +34,7 @@ flowchart TD
     V -->|yes| T["Target document"]
     V -->|no| N["Note, drop token"]
     N --> A
-    A -->|prose| G{"Glob matches?"}
+    A -->|prose| G{"Slug matches?"}
     G -->|one| T
     G -->|several| L["Typed selection"]
     G -->|none| Q["Ask for a path"]
@@ -48,7 +48,7 @@ flowchart TD
 - **Argument shape?**: first match wins, single pass. A token starting with `@` is a path (strip the `@`); a token ending in `.md` that exists on disk is a path; anything else is a topic phrase. Paths resolve relative to cwd; absolute allowed.
 - **Valid document?**: the file exists, ends in `.md`, and its final absolute path falls inside `git rev-parse --show-toplevel`.
 - **Note, drop token**: print one line, `path '<x>' not found (or not markdown) — pass a design/spec path or topic.`, then classify the remaining tokens.
-- **Glob matches?**: `docs/design/*<slug>*.md` and `docs/spec/*<slug>*.md`. One match: use it and confirm in one line.
+- **Slug matches?**: match the slug against `docs/design/*<slug>*.md` and `docs/spec/*<slug>*.md`. One match: use it and confirm in one line.
 - **Typed selection**: a numbered list; branch-changed candidates are listed newest first.
 - **Branch changed design or spec?**: `git diff --name-only <base>...HEAD -- docs/design docs/spec`.
 - **Ask for a path**: from an empty argument, ask *"Which document should the swarm challenge?"*
@@ -68,7 +68,7 @@ Read the target end-to-end and orient in the source material it touches (project
 ### Profile
 
 
-Answer these from the artifact and its source material, never from genre assumptions. When the artifact leaves an axis unsettled, ask the user in one `AskUserQuestion` batch instead of assuming — an unstated deployment model is a question, not a license to assume production.
+Answer these from the artifact and its source material, never from genre assumptions. When the artifact leaves an axis unsettled, ask the user in one batched question block instead of assuming — an unstated deployment model is a question, not a license to assume production.
 
 
 | # | Question | Gates |
@@ -184,7 +184,7 @@ $(atomic scratchpad new <slug> --purpose review)/
 
 `atomic scratchpad new <slug> --purpose review` extends the same bundle a plan or implementation used for this slug, rather than opening a second one. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 
-Write `lens-instructions.md` verbatim from the block below, then one role file per lens. Dispatch **one `general-purpose` subagent per lens, all in a single message** so they run in parallel, and pass **`model: sonnet` on every dispatch** — the role file carries the specialization; a heavier tier may add insight, but it definitely adds cost. Use a different tier only when the user explicitly asks for one this run; never inherit the session model by omission — on a premium session tier (Opus, Fable) an unpinned dispatch multiplies spend across 3-6 agents.
+Write `lens-instructions.md` verbatim from the block below, then one role file per lens. Dispatch **one isolated subagent per lens, all in a single message** so they run in parallel, and pin **an economical reasoning tier on every dispatch** — the role file carries the specialization; a heavier tier may add insight, but it definitely adds cost. Use a different tier only when the user explicitly asks for one this run; never inherit the session's default tier by omission — an unpinned dispatch multiplies spend across 3-6 agents.
 
 
 The dispatch prompt is deliberately just pointers — identical for every lens except two paths:
@@ -335,7 +335,7 @@ flowchart TD
     5. done                 — stop here
     ```
 
-- **Dispatch named lens**: `1` or `2`. Only the named lens, with the same pointer prompt and the same `model: sonnet`.
+- **Dispatch named lens**: `1` or `2`. Only the named lens, with the same pointer prompt and the same pinned tier.
 - **Act**: `3` or `4`.
 - **Stop, keep bundle**: `5`. The bundle is retired only via `/git-cleanup` reaping its worktree/branch, or an explicit `atomic scratchpad archive <slug>`, never by this command.
 
@@ -350,9 +350,9 @@ flowchart TD
 2. **Isolation is inviolable.** Never paste one lens's findings into another lens's prompt or role file; never run a "respond to lens X" round. Cross-lens synthesis happens only in Step 3, in the main context.
 3. **Evidence per finding.** A finding that arrives without file:line, design-section, or reasoning-chain evidence gets cut at aggregation.
 4. **Filler dies at aggregation.** Dedupe, drop no-stake findings, keep the report shorter than the design.
-5. **Verify before asserting.** Contested checkable claims get resolved with tool calls before they appear in the map (same rule as `<investigate_before_answering>` in `CLAUDE.md`).
+5. **Verify before asserting.** Contested checkable claims get resolved with tool calls before they appear in the map (same rule as the global contract's `<investigate_before_answering>` block).
 6. **The roster is judgment, not a checklist.** 3-6 lenses with cited stakes beat 7 that pad it — and a benched reflexive pick is printed, never silently dropped.
-7. **Sonnet, pinned.** Every lens dispatch passes `model: sonnet`. Only an explicit user request for a different tier overrides it — never the session model.
+7. **Economical tier, pinned.** Every lens dispatch names its tier explicitly. Only an explicit user request for a different tier overrides it — never the session's default by omission.
 
 
 ## What this command does not do

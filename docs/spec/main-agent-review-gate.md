@@ -2,7 +2,7 @@
 
 ## Goal
 
-Code the main agent writes outside a loop command meets one independent reader before it is called done. The gate lives in `context/CLAUDE.md`, which loads every session, and takes the form of a required line in the completion claim — `review: <verdict> (<agent> on <model>)` — so a skipped gate is a visibly incomplete answer rather than a silent omission. Both ad-hoc exits, `atomic-verify` before "ready" and the ship verbs' `review-gate` before the commit, dispatch `atomic-reviewer` in code mode with an explicit model override, so the gate runs on the session's model rather than the agent's frontmatter default.
+Code the main agent writes outside a loop command meets one independent reader before it is called done. The gate lives in `context/AGENTS.md`, which loads every session, and takes the form of a required line in the completion claim — `review: <verdict> (<agent> on <model>)` — so a skipped gate is a visibly incomplete answer rather than a silent omission. Both ad-hoc exits, `atomic-verify` before "ready" and the ship verbs' `review-gate` before the commit, dispatch `atomic-reviewer` in code mode in a fresh context. The reviewer carries no model pin, so the gate runs on the session's model unless the user's own agent policy sets one, and the `review:` line names whichever model ran.
 
 ## Non-goals
 
@@ -10,25 +10,25 @@ Code the main agent writes outside a loop command meets one independent reader b
 - No Go changes. No new binary verb, no doctor check, no install step.
 - No new path-scoped rule under `context/rules/`.
 - No change to `atomic-auditor`. Its contract stays the finished whole, once, after a loop goes green.
-- No change to any agent's `model:` frontmatter. The pins stay as defaults; the ad-hoc gate overrides at dispatch.
+- No per-dispatch model selection. Model choice is user policy (`atomic config agents`), never the corpus's; see `docs/spec/omp-plugin-compatibility.md`.
 - No change to the loop gates: `/implement`, `/subagent-implementation`, `/quick-fix`, `/autopilot`, and `/subagent-diagnose` keep `atomic-reviewer` per checkpoint or iteration.
 - No gate on documentation-only changes.
 - No new artifact of any kind: every change is to a file that already exists, plus the design and this spec.
 
 ## Success criteria
 
-- [ ] `context/CLAUDE.md` carries a `<completion_claim>` block inside `<atomic>`, adjacent to `<quality_gates>`, that states the required line verbatim — `review: <PASS|CHANGES_REQUESTED> (<agent> on <model>)` — names `atomic-reviewer` as what the gate dispatches and the session's model as what it runs on, names the five loop commands whose work is exempt because a reviewer already read it, and exempts documentation-only changes. Under 15 lines.
+- [ ] `context/AGENTS.md` carries a `<completion_claim>` block inside `<atomic>`, adjacent to `<quality_gates>`, that states the required line verbatim — `review: <PASS|CHANGES_REQUESTED> (<agent> on <model>)` — names `atomic-reviewer` as what the gate dispatches, names the five loop commands whose work is exempt because a reviewer already read it, and exempts documentation-only changes. Under 15 lines.
 - [ ] The `<completion_claim>` block states the requirement as a property of the reply ("a completion claim without this line is incomplete"), not as an instruction to run a review. No sentence in it is an imperative telling the model to review its work.
-- [ ] `context/CLAUDE.md`'s `## Workflow` **Implement** bullet names the `review:` line as the ad-hoc exit gate instead of a bare "Ad-hoc edits get their review gate at the exits" clause.
-- [ ] `context/skills/atomic-verify/SKILL.md`'s `## Verification discipline` list no longer carries the long "When you wrote the code yourself, outside …" bullet. It is deleted, not reworded: the surface never loaded at claim time, and `context/CLAUDE.md` now states the contract.
-- [ ] `context/skills/atomic-verify/SKILL.md`'s claim table row for `code I wrote myself is ready` dispatches `atomic-reviewer` in code mode on the working diff with an explicit model override, and states the `review:` line, in one line consistent with the `context/CLAUDE.md` block.
+- [ ] `context/AGENTS.md`'s `## Workflow` **Implement** bullet names the `review:` line as the ad-hoc exit gate instead of a bare "Ad-hoc edits get their review gate at the exits" clause.
+- [ ] `context/skills/atomic-verify/SKILL.md`'s `## Verification discipline` list no longer carries the long "When you wrote the code yourself, outside …" bullet. It is deleted, not reworded: the surface never loaded at claim time, and `context/AGENTS.md` now states the contract.
+- [ ] `context/skills/atomic-verify/SKILL.md`'s claim table row for `code I wrote myself is ready` dispatches `atomic-reviewer` in code mode on the working diff, and states the `review:` line, in one line consistent with the `context/AGENTS.md` block.
 - [ ] `context/skills/atomic-verify/SKILL.md`'s `description` names `atomic-reviewer` as the agent it dispatches, so the dispatch is inspectable from the always-loaded skill roster.
-- [ ] `context/_partials/review-gate.md` dispatches `atomic-reviewer` (`subagent_type: "atomic-reviewer"`) in code mode on the staged diff with an explicit model override, and its report step names the `review:` line. It passes no `surfaces:` key.
+- [ ] `context/_partials/review-gate.md` dispatches `atomic-reviewer` in a fresh context, in code mode on the staged diff, and its report step names the `review:` line. It passes no `surfaces:` key.
 - [ ] `context/_partials/review-gate.md`'s already-reviewed guard gains a bullet: skip when the claim gate already reviewed this same tree and nothing has changed since.
 - [ ] Both ad-hoc dispatch sites resolve the diff scope rather than leaving it to the agent: working → `git diff HEAD` plus `git ls-files --others --exclude-standard` with each untracked file read in full; staged → `git diff --cached`.
-- [ ] `context/agents/atomic-reviewer.md`'s `description` names the ad-hoc gate at both exits and states that callers override the model at dispatch. Its `model: claude-sonnet-5` frontmatter is unchanged, and its loop, `/implement`-checkpoint, and spec-mode uses are unchanged.
+- [ ] `context/agents/atomic-reviewer.md`'s `description` names the ad-hoc gate at both exits. Its frontmatter carries no model pin, and its loop, `/implement`-checkpoint, and spec-mode uses are unchanged.
 - [ ] `context/agents/atomic-auditor.md` describes one contract: the finished whole, once, after a loop goes green. It documents no ad-hoc mode, no `diff:` key, and no conditional on `scratch:`, and `docs/reference/agents.md`'s row for it says the same.
-- [ ] `docs/wiki/workflow.md` describes the current contract: the `<completion_claim>` block in `context/CLAUDE.md` as the ad-hoc rule's home, the `review:` line, and all four `review-gate` skip conditions.
+- [ ] `docs/wiki/workflow.md` describes the current contract: the `<completion_claim>` block in `context/AGENTS.md` as the ad-hoc rule's home, the `review:` line, and all four `review-gate` skip conditions.
 - [ ] `context/commands/atomic-help.md`'s `review` topic row, `agents` topic row, and tour Stage 2 name `atomic-reviewer` as the ad-hoc gate at both exits and the `review:` line, and no row claims `atomic-auditor` gates a single ad-hoc diff.
 - [ ] The `/atomic-help` verification loop from the root `CLAUDE.md` prints zero `MISSING:` lines.
 - [ ] `docs/reference/agents.md`'s dispatch-topology mermaid block and its `accDescr` show both ad-hoc exits reaching `atomic-reviewer`; its `atomic-auditor` row describes the whole-delivery-once contract only; its `atomic-reviewer` row names the ad-hoc gate at both exits.
@@ -41,7 +41,7 @@ Code the main agent writes outside a loop command meets one independent reader b
 
 ## Approach
 
-Relocate the gate from an unloaded skill body to the always-loaded `context/CLAUDE.md`, restated as a required output line rather than a behavior instruction, and point both ad-hoc exits at `atomic-reviewer` with a per-dispatch model override — see [docs/design/main-agent-review-gate.md](../design/main-agent-review-gate.md) § Chosen.
+Relocate the gate from an unloaded skill body to the always-loaded `context/AGENTS.md`, restated as a required output line rather than a behavior instruction, and point both ad-hoc exits at `atomic-reviewer` — see [docs/design/main-agent-review-gate.md](../design/main-agent-review-gate.md) § Chosen.
 
 ## Change tree
 
@@ -66,7 +66,7 @@ docs/
 ## Outline
 
 ```
-context/CLAUDE.md
+context/AGENTS.md
   <completion_claim> — the required review line, its exemptions, what produces the verdict
   ## Workflow / Implement bullet — ad-hoc exits named by the line they emit
 
@@ -77,11 +77,11 @@ context/skills/atomic-verify/SKILL.md
 
 context/_partials/review-gate.md
   Already-reviewed guard — new bullet for a tree the claim gate already read
-  Dispatch — atomic-reviewer, code mode, staged diff, model override
+  Dispatch — atomic-reviewer, code mode, staged diff
   Report — the review line beside the totals
 
 context/agents/atomic-reviewer.md
-  description — the ad-hoc gate at both exits, model overridden at dispatch
+  description — the ad-hoc gate at both exits
 
 context/commands/atomic-help.md
   review topic row — both ad-hoc exits and their agent
@@ -116,8 +116,8 @@ docs/wiki/workflow.md
 
 1. User asks for a change in conversation; no lifecycle command runs.
 2. Main agent edits code directly and runs the project's verification.
-3. Main agent begins the completion claim. `context/CLAUDE.md` is in context, as it is every session, and states that the claim is incomplete without a `review:` line.
-4. Main agent dispatches `atomic-reviewer` in code mode with an explicit model override to the session's model, on `git diff HEAD` plus the untracked files `git ls-files --others --exclude-standard` lists, each read in full.
+3. Main agent begins the completion claim. `context/AGENTS.md` is in context, as it is every session, and states that the claim is incomplete without a `review:` line.
+4. Main agent dispatches `atomic-reviewer` in code mode, in a fresh context, on `git diff HEAD` plus the untracked files `git ls-files --others --exclude-standard` lists, each read in full.
 5. Reviewer runs its code-mode passes, re-runs the project's signals, runs `atomic code comments` over the same diff, and returns `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED` with findings.
 6. Main agent acts on the verdict: 🔴 fixed before the claim, 🟡 fixed or justified in one line, 🔵 mentioned.
 7. Completion claim includes `review: <verdict> (<agent> on <model>)`.
@@ -127,7 +127,7 @@ docs/wiki/workflow.md
 
 1. User runs `/commit` or an escalation.
 2. `review-gate` checks its guards: work from a loop command, a change this gate already read, a tree the claim gate already reviewed with no edits since, or an all-documentation staged set → skip.
-3. Otherwise dispatch `atomic-reviewer` in code mode on `git diff --cached`, with an explicit model override.
+3. Otherwise dispatch `atomic-reviewer` in code mode on `git diff --cached`.
 4. Act on the verdict, then report the totals line and `review: <verdict> (<agent> on <model>)` before the commit message is written.
 
 **Flow: exempt paths**
@@ -140,7 +140,7 @@ docs/wiki/workflow.md
 
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|-------------|-------|------------|----------|
-| 1 | Contract and both exits: `<completion_claim>` block and Workflow bullet in `context/CLAUDE.md`; delete the superseded `atomic-verify` bullet and rewrite its table row and description; repoint `review-gate` at `atomic-reviewer` with the new guard, the resolved staged diff, and the reported line; restore the ad-hoc clause to `atomic-reviewer`'s description | `context/CLAUDE.md`, `context/skills/atomic-verify/SKILL.md`, `context/_partials/review-gate.md`, `context/agents/atomic-reviewer.md` | atomic-implementer (mode: feature) | 4 | `grep -n 'completion_claim' context/CLAUDE.md` non-empty; `grep -c 'When you wrote the code yourself' context/skills/atomic-verify/SKILL.md` returns 0; `grep -n 'atomic-reviewer' context/_partials/review-gate.md` non-empty; `make -C atomic bundle` succeeds; `atomic validate config` and `atomic validate artifacts` report 0 FAIL |
+| 1 | Contract and both exits: `<completion_claim>` block and Workflow bullet in `context/AGENTS.md`; delete the superseded `atomic-verify` bullet and rewrite its table row and description; repoint `review-gate` at `atomic-reviewer` with the new guard, the resolved staged diff, and the reported line; restore the ad-hoc clause to `atomic-reviewer`'s description | `context/AGENTS.md`, `context/skills/atomic-verify/SKILL.md`, `context/_partials/review-gate.md`, `context/agents/atomic-reviewer.md` | atomic-implementer (mode: feature) | 4 | `grep -n 'completion_claim' context/AGENTS.md` non-empty; `grep -c 'When you wrote the code yourself' context/skills/atomic-verify/SKILL.md` returns 0; `grep -n 'atomic-reviewer' context/_partials/review-gate.md` non-empty; `make -C atomic bundle` succeeds; `atomic validate config` and `atomic validate artifacts` report 0 FAIL |
 | 2 | Discovery and documentation: `/atomic-help` `review` row, `agents` row, and tour Stage 2; `docs/reference/agents.md` topology diagram plus auditor and reviewer rows; `docs/reference/commands.md` `/commit` row; `docs/reference/skills.md` intro and `atomic-verify` row; `docs/reference/workflow.md` ship-commands bullet, `§2` subsection, gate paragraph, and `✓†` footnote | `context/commands/atomic-help.md`, `docs/reference/agents.md`, `docs/reference/commands.md`, `docs/reference/skills.md`, `docs/reference/workflow.md` | atomic-implementer (mode: feature) | 5 | The root `CLAUDE.md` `/atomic-help` verification loop prints zero `MISSING:` lines; `grep -rn 'audit:' context/ docs/reference/` shows no ad-hoc-gate claim; `make -C atomic bundle` succeeds |
 
 ## Risks
@@ -150,10 +150,18 @@ docs/wiki/workflow.md
 | The `review:` line gets emitted without the dispatch actually running — the model writes the shape and invents a verdict | med | The line names the agent and the model, so a fabricated one is checkable against the transcript; `atomic-verify`'s iron rule (no claim without a fresh command in this turn) already covers invented evidence, and the dispatch is a visible tool call |
 | The line fires on replies that are not completion claims, adding noise to every answer | med | The block scopes it to a claim about code the main agent wrote, exempts documentation-only changes and loop-produced work, and `atomic-verify`'s existing boundaries already separate progress reports from completion claims |
 | Two reviews per change, one at each exit | med | The commit gate skips when the claim gate already read the same unchanged tree, so the normal path pays one review; the commit gate fires only when the claim gate did not run or the tree moved after it |
-| A caller forgets the model override and the gate silently runs on the frontmatter default | med | The `review:` line names the model, so a downgrade is visible in the claim rather than silent; both dispatch sites state the override |
-| `context/CLAUDE.md` grows toward the 200-line adherence ceiling Claude Code documents | med | Accepted, not mitigated away: the block adds 12 lines to a file that loads every session in every repo, and instruction text across `context/` is up on balance (+599 / −401 words). The 15-line cap on the block bounds it, and deleting the `atomic-verify` bullet keeps a second copy from drifting, but the cost is real and is the price of the rule being present when the claim is written |
+| The user's agent policy pins `atomic-reviewer` below the session's model and the gate runs on that pin | low | The `review:` line names the model, so a downgrade is visible in the claim rather than silent |
+| `context/AGENTS.md` grows toward the 200-line adherence ceiling Claude Code documents | med | Accepted, not mitigated away: the block adds 12 lines to a file that loads every session in every repo, and instruction text across `context/` is up on balance (+599 / −401 words). The 15-line cap on the block bounds it, and deleting the `atomic-verify` bullet keeps a second copy from drifting, but the cost is real and is the price of the rule being present when the claim is written |
 
 ## Change log
+
+### 2026-10-20 — Unpinned reviewer; contract block in context/AGENTS.md
+
+**What changed:** Both ad-hoc exits dispatch `atomic-reviewer` without a per-dispatch model override, and the `<completion_claim>` block lives in `context/AGENTS.md`, which installs as `~/.claude/CLAUDE.md`.
+
+**Why:** The multi-harness corpus (`docs/spec/omp-plugin-compatibility.md`) removed every agent's `model:`, `effort:`, and `tools:` frontmatter and renamed the steering source. An unpinned reviewer already runs on the session's model, and an override would name a parameter that only one harness's dispatch accepts.
+
+**Superseded:** both exits passing an explicit model override to the session's model; `atomic-reviewer` keeping its `model: claude-sonnet-5` pin as the default; the block's home in `context/CLAUDE.md`.
 
 ### 2026-09-21 — Caller vocabulary defined on the receiving agent
 

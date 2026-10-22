@@ -9,7 +9,8 @@ import (
 )
 
 // setupMinimalRepo builds the smallest context/ tree enumerate can walk without
-// erroring: every expected directory, a CLAUDE.md, and one agent file.
+// erroring: every expected directory, the authored global steering source, and
+// one agent file.
 func setupMinimalRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -19,8 +20,9 @@ func setupMinimalRepo(t *testing.T) string {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(ctx, "CLAUDE.md"), []byte("# CLAUDE\n"), 0o644); err != nil {
-		t.Fatalf("write CLAUDE.md: %v", err)
+	steering := []byte("# Atomic\n\n<atomic>\n\nContract.\n\n</atomic>\n")
+	if err := os.WriteFile(filepath.Join(ctx, bundlespec.GlobalSteering.Source), steering, 0o644); err != nil {
+		t.Fatalf("write %s: %v", bundlespec.GlobalSteering.Source, err)
 	}
 	agentContent := []byte("# atomic-test-agent\n")
 	if err := os.WriteFile(filepath.Join(ctx, "agents", "atomic-test-agent.md"), agentContent, 0o644); err != nil {
@@ -29,9 +31,9 @@ func setupMinimalRepo(t *testing.T) string {
 	return root
 }
 
-// Proves the single-read contract: Data matches disk and the SHA is taken over
-// those same bytes.
-func TestEnumerate_SrcPathAndData(t *testing.T) {
+// Proves the projection contract: Data is the rendered body and the SHA is
+// taken over those same bytes.
+func TestEnumerate_DataAndDigest(t *testing.T) {
 	root := setupMinimalRepo(t)
 
 	items, err := enumerate(root)
@@ -43,21 +45,11 @@ func TestEnumerate_SrcPathAndData(t *testing.T) {
 	}
 
 	for _, it := range items {
-		wantSrc := filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(it.Target))
-		if it.SrcPath != wantSrc {
-			t.Errorf("artifact %q: SrcPath = %q, want %q", it.Target, it.SrcPath, wantSrc)
-		}
-
-		diskBytes, err := os.ReadFile(wantSrc)
-		if err != nil {
-			t.Fatalf("read %s for comparison: %v", wantSrc, err)
-		}
-		if string(it.Data) != string(diskBytes) {
-			t.Errorf("artifact %q: Data does not match disk content", it.Target)
-		}
-
 		if got := SHA256Hex(it.Data); got != it.SHA256 {
 			t.Errorf("artifact %q: SHA256 %q does not match SHA256Hex(Data) %q", it.Target, it.SHA256, got)
+		}
+		if it.Source != "bundle/"+it.Target {
+			t.Errorf("artifact %q: Source = %q, want %q", it.Target, it.Source, "bundle/"+it.Target)
 		}
 	}
 }
@@ -74,9 +66,8 @@ func TestEnumerate_AgentPresent(t *testing.T) {
 	for _, it := range items {
 		if it.Target == "agents/atomic-test-agent.md" {
 			found = true
-			wantSrc := filepath.Join(bundlespec.SourceRoot(root), "agents", "atomic-test-agent.md")
-			if it.SrcPath != wantSrc {
-				t.Errorf("SrcPath = %q, want %q", it.SrcPath, wantSrc)
+			if it.Canonical != "agents/atomic-test-agent.md" {
+				t.Errorf("Canonical = %q, want %q", it.Canonical, "agents/atomic-test-agent.md")
 			}
 			wantData := []byte("# atomic-test-agent\n")
 			if string(it.Data) != string(wantData) {
@@ -86,5 +77,35 @@ func TestEnumerate_AgentPresent(t *testing.T) {
 	}
 	if !found {
 		t.Error("agent artifact atomic-test-agent.md not found in enumerate output")
+	}
+}
+
+// The global steering source ships as Claude's user-level CLAUDE.md, and no
+// artifact is sourced from a CLAUDE.md in context/.
+func TestEnumerate_SteeringProjectsToClaudeGlobal(t *testing.T) {
+	root := setupMinimalRepo(t)
+
+	items, err := enumerate(root)
+	if err != nil {
+		t.Fatalf("enumerate: %v", err)
+	}
+
+	var steering *enumeratedArtifact
+	for i := range items {
+		if items[i].Kind == "claude-md" {
+			steering = &items[i]
+		}
+		if items[i].Canonical == "CLAUDE.md" {
+			t.Errorf("artifact %q is still sourced from a context/CLAUDE.md", items[i].Target)
+		}
+	}
+	if steering == nil {
+		t.Fatal("no claude-md artifact in enumerate output")
+	}
+	if steering.Target != bundlespec.GlobalSteering.ClaudeTarget {
+		t.Errorf("steering Target = %q, want %q", steering.Target, bundlespec.GlobalSteering.ClaudeTarget)
+	}
+	if steering.Canonical != bundlespec.GlobalSteering.Source {
+		t.Errorf("steering Canonical = %q, want %q", steering.Canonical, bundlespec.GlobalSteering.Source)
 	}
 }

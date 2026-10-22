@@ -97,7 +97,7 @@ var wantDelegatedSubcommandMeta = []struct {
 	{[]string{"wiki", "scan"}, "", "Scaffold wiki/, scan repos, mark realm scope, register in ~/.claude/CLAUDE.md"},
 	{[]string{"wiki", "stale"}, "", "Report membership drift: exit 0 none, 1 drift, 2 error (DRIFT lines on stdout)"},
 	{[]string{"wiki", "linkify"}, "", "Linkify path tokens in wiki artifacts in-place"},
-	{[]string{"wiki", "init"}, "", "Write the fixed-content CLAUDE.md scaffold and the scope marker for --scope repo|realm (idempotent)"},
+	{[]string{"wiki", "init"}, "", "Write the steering loader pair and the scope marker for --scope repo|realm (idempotent)"},
 	// wiki bucket (3-level)
 	{[]string{"wiki", "bucket", "add"}, "<name>", "Register a capture bucket; create its folder and index.md stub"},
 	{[]string{"wiki", "bucket", "list"}, "", "List registered buckets as name<TAB>path"},
@@ -223,8 +223,8 @@ func TestRootCmdExact24Verbs(t *testing.T) {
 
 	want := []string{
 		"bus", "claude", "code", "config", "docker", "docs", "doctor",
-		"followups", "hooks", "migrate", "profile", "prompt", "reminder",
-		"repl", "repo", "retro", "scratchpad", "serve", "signals", "template", "update", "validate", "where", "wiki",
+		"followups", "harness", "hooks", "install", "migrate", "profile", "prompt", "reminder",
+		"repl", "repo", "retro", "scratchpad", "serve", "signals", "state", "template", "update", "validate", "where", "wiki",
 	}
 
 	var visible []string

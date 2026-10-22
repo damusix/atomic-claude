@@ -28,6 +28,7 @@ Contracts:
   - docs/spec/atomic-state-and-config.md
   - docs/spec/cli-trailing-flags.md
   - docs/spec/output-style-seed.md
+  - docs/spec/omp-plugin-compatibility.md
 References:
   - docs/reference/atomic-toml.md
   - docs/reference/conventions.md

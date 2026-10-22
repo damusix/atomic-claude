@@ -43,6 +43,12 @@ func Resolved(cfg *Config) map[string]string {
 	if harnessDirVal == "" {
 		harnessDirVal = harnessDirDefault
 	}
+	// An empty state.dir means unset: display the segment the ladder lands on
+	// before the built-in fallback.
+	stateDirVal := cfg.State.Dir
+	if stateDirVal == "" {
+		stateDirVal = stateDirDefault
+	}
 	// An empty idle_timeout means unset — display the same default
 	// resolveIdleTimeout falls back to.
 	idleTimeoutVal := cfg.Repl.IdleTimeout
@@ -63,6 +69,7 @@ func Resolved(cfg *Config) map[string]string {
 		"update.stage":             fmt.Sprintf("%t", updateStage),
 		"output_style.seed":        fmt.Sprintf("%t", outputStyleSeed),
 		"harness.dir":              harnessDirVal,
+		"state.dir":                stateDirVal,
 		"repl.idle_timeout":        idleTimeoutVal,
 	}
 }

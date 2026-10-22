@@ -48,12 +48,12 @@ func buildMinimalRepo(t *testing.T) string {
 		t.Fatalf("write good-spec.md: %v", err)
 	}
 
-	claudeMD := `# CLAUDE.md
+	agentsMD := `# Atomic
 
 Minimal config for test.
 `
-	if err := os.WriteFile(filepath.Join(root, "context", "CLAUDE.md"), []byte(claudeMD), 0o644); err != nil {
-		t.Fatalf("write CLAUDE.md: %v", err)
+	if err := os.WriteFile(filepath.Join(root, "context", "AGENTS.md"), []byte(agentsMD), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
 	}
 
 	return root

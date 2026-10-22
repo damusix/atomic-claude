@@ -33,6 +33,9 @@ features:
     - icon: "\uF086"
       title: Channels for your agents
       details: "`atomic bus` gives concurrent Claude sessions named rooms. Every message carries an addressee list, so a room of agents notes the news instead of answering it forever."
+    - icon: "\uF5FD"
+      title: One corpus, three harnesses
+      details: "The same commands, agents, skills, and rules project natively into Claude Code, Oh My Pi, and Codex CLI. Enroll a harness explicitly; `atomic update` reconverges the ones already enrolled."
 ---
 
 <div class="vp-doc home-extra">

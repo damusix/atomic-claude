@@ -187,11 +187,14 @@ func extractLinkTarget(cell string) (string, bool) {
 }
 
 // excludedWikiFiles are never domain files — the router itself, the raw scan
-// dump, and the steering file — so they are not orphans when unreferenced.
+// dump, and the steering loader pair (the shared AGENTS.md guidance file with
+// its thin CLAUDE.md loader beside it) — so they are not orphans when
+// unreferenced.
 var excludedWikiFiles = map[string]bool{
 	"index.md":  true,
 	"scan.md":   true,
 	"CLAUDE.md": true,
+	"AGENTS.md": true,
 }
 
 // findOrphanDomains lists docs/wiki/ files absent from the router table. The

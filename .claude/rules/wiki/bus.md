@@ -9,7 +9,7 @@ paths:
   - "context/skills/atomic-bus/**"
 ---
 
-Domain: bus. Messaging between concurrent Claude sessions over named rooms.
+Domain: bus. Messaging between concurrent agent sessions over named rooms, local or gateway-hosted.
 
 Map:
   - docs/wiki/bus.md

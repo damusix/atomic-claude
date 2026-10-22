@@ -17,6 +17,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
@@ -143,13 +144,35 @@ func checkCollision(wikiDir string) error {
 	return nil
 }
 
+// onlyInitScaffold reports whether wikiDir holds exactly what InitRealmScope
+// writes: the AGENTS.md/CLAUDE.md loader pair, or the lone CLAUDE.md an install
+// from before the pair existed carries.
 func onlyInitScaffold(wikiDir string) bool {
 	entries, err := os.ReadDir(wikiDir)
-	if err != nil || len(entries) != 1 || entries[0].Name() != "CLAUDE.md" || !entries[0].Type().IsRegular() {
+	if err != nil || len(entries) == 0 || len(entries) > 2 {
 		return false
 	}
-	data, err := os.ReadFile(filepath.Join(wikiDir, "CLAUDE.md"))
-	return err == nil && string(data) == realmSteeringScaffold
+	files := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			return false
+		}
+		data, err := os.ReadFile(filepath.Join(wikiDir, e.Name()))
+		if err != nil {
+			return false
+		}
+		files[e.Name()] = string(data)
+	}
+
+	steering := bundlespec.ScopeSteering
+	switch len(files) {
+	case 1:
+		return files[steering.ClaudeTarget] == realmSteeringScaffold
+	case 2:
+		return files[steering.Source] == realmSteeringScaffold &&
+			files[steering.ClaudeTarget] == string(steering.LoaderDocument())
+	}
+	return false
 }
 
 // priorEntry is one <repo> entry parsed from a previous scan block.

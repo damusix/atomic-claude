@@ -472,7 +472,7 @@ func TestScan_CollisionIndexMDMissingMarker(t *testing.T) {
 }
 
 // The documented setup flow is `wiki init --scope realm` then `wiki scan`;
-// init's own wiki/CLAUDE.md must not trip the collision guard.
+// init's own AGENTS.md and CLAUDE.md loader must not trip the collision guard.
 func TestScan_AfterInitRealmScopeSucceeds(t *testing.T) {
 	root := t.TempDir()
 	makeGitRepo(t, root, "repoA")
@@ -506,12 +506,38 @@ func TestScan_AfterInitRealmScopeSucceeds(t *testing.T) {
 	}
 }
 
+// A wiki/ initialized before the loader pair holds only a scaffold CLAUDE.md;
+// upgrading the binary must not turn that documented setup into a collision.
+func TestScan_AfterPrePairInitSucceeds(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+	if _, err := wiki.InitRealmScope(root); err != nil {
+		t.Fatal(err)
+	}
+	wikiDir := filepath.Join(root, "wiki")
+	scaffold, err := os.ReadFile(filepath.Join(wikiDir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(wikiDir, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, wikiDir, "CLAUDE.md", string(scaffold))
+
+	if _, err := wiki.Scan(root, wiki.Options{Clock: fixedClock()}); err != nil {
+		t.Fatalf("scan after pre-pair init: %v", err)
+	}
+}
+
 // The init exemption is exact: a wiki/ holding anything beyond init's own
-// CLAUDE.md is foreign content the guard must still protect.
+// unedited files is foreign content the guard must still protect.
 func TestScan_CollisionForeignContentBesideInit(t *testing.T) {
 	cases := map[string]func(t *testing.T, wikiDir string){
 		"edited CLAUDE.md": func(t *testing.T, wikiDir string) {
 			writeFile(t, wikiDir, "CLAUDE.md", "# my own notes\n")
+		},
+		"edited AGENTS.md": func(t *testing.T, wikiDir string) {
+			writeFile(t, wikiDir, "AGENTS.md", "# my own notes\n")
 		},
 		"extra file": func(t *testing.T, wikiDir string) {
 			writeFile(t, wikiDir, "notes.md", "notes\n")

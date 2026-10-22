@@ -48,6 +48,7 @@ func nopRepairer() doctor.Repairer {
 		ManifestFn:        func(io.Writer) error { return nil },
 		FollowupsRenderFn: func(io.Writer) error { return nil },
 		OutputStyleFn:     func(io.Writer) error { return nil },
+		ConvergeFn:        func(string, io.Writer) error { return nil },
 		HomeFn:            func() (string, error) { return os.TempDir(), nil },
 		IsRepoDevFn:       func() (bool, error) { return true, nil },
 		RepoRootFn:        func() string { return os.TempDir() },
@@ -244,6 +245,37 @@ func TestRepair_OutputStyle_StyleFileMissing_NonFixable(t *testing.T) {
 	}
 	if strings.Contains(sb.String(), "✓ fixed") {
 		t.Errorf("output claims fixed, got:\n%s", sb.String())
+	}
+}
+
+// A seed-disabled output-style WARN on a ledger-enrolled Claude target stays
+// non-fixable: routing it through the scoped converge would report an applied
+// repair while the WARN stands, because the converge cannot seed a style whose
+// seeding the user disabled. The config guidance must be shown instead.
+func TestRepair_OutputStyle_SeedDisabledScoped_NonFixable(t *testing.T) {
+	converged := false
+	rp := nopRepairer()
+	rp.ConvergeFn = func(string, io.Writer) error { converged = true; return nil }
+
+	results := []doctor.Result{{
+		Index:    14,
+		Name:     "output-style",
+		Severity: doctor.WARN,
+		Detail:   "output style not set at user level; seeding is disabled (output_style.seed = false)",
+		Scopes:   []string{"/relocated/.claude"},
+	}}
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+
+	if converged {
+		t.Error("scoped converge ran for a seed-disabled output-style WARN")
+	}
+	if summary.Applied != 0 || summary.NonFixable != 1 {
+		t.Errorf("Applied/NonFixable = %d/%d, want 0/1", summary.Applied, summary.NonFixable)
+	}
+	if !strings.Contains(sb.String(), "atomic config set output_style.seed true") {
+		t.Errorf("the seed-disabled config guidance is missing, got:\n%s", sb.String())
 	}
 }
 

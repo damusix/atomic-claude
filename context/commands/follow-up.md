@@ -1,5 +1,5 @@
 ---
-description: Review and act on pending reminders. Bare invocation shows all reminders as an indexed list; cron-fired invocation (/follow-up due <id>) surfaces the specific reminder and waits for a response; /follow-up review lists stale project follow-up entries for per-item disposition (extend/close/promote/skip). Transport-aware: handles both cron and Routines schedules.
+description: "Review and act on pending reminders. Bare invocation shows all reminders as an indexed list; cron-fired invocation (/follow-up due <id>) surfaces the specific reminder and waits for a response; /follow-up review lists stale project follow-up entries for per-item disposition (extend/close/promote/skip). Transport-aware: handles both session-scoped (cron) and durable schedules."
 ---
 
 Handle pending reminders and project follow-up entries. Three modes: bare (`/follow-up`), cron-fired (`/follow-up due <id>`), and review (`/follow-up review`).
@@ -7,6 +7,10 @@ Handle pending reminders and project follow-up entries. Three modes: bare (`/fol
 Spec: `docs/spec/cron-workflow.md § /follow-up`
 
 `<reminders-dir>` below is `atomic where --json`'s `reminders` field. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
+
+`<followups-dir>` below is the follow-ups directory under the selected repository state root. The `atomic followups` CLI owns the exact path — prefer its verbs over hand-constructing entry paths.
+
+Transport vocabulary: the `cron` transport is the harness's session-scoped one-shot scheduler; the `routine` transport is the harness's durable scheduler (survives the session). Both are accessed through the harness's scheduling surface — the adapter owns the concrete tool names. When neither is available, the reminder degrades to `none` and surfaces through the session-start injection only.
 
 ## Mode detection
 
@@ -34,11 +38,11 @@ Output is indexed and includes the `transport` column. Capture it. No reminders 
 
 For each reminder, attempt to find its live schedule entry:
 
-- **`cron` transport**: call `CronList` and search for an entry whose prompt contains `/follow-up due <id>`. If found, note the next-fire time as "fires in X" or "fires at <time>".
-- **`routine` transport**: if a routine listing is accessible, search for an entry with the matching prompt. Note fire time if found.
-- **`none` transport**: no schedule lookup needed. The reminder will surface via the session-start hook only.
+- **`cron` transport**: list the harness's session schedules and search for an entry whose prompt contains `/follow-up due <id>`. If found, note the next-fire time as "fires in X" or "fires at <time>".
+- **`routine` transport**: if the harness's durable-schedule listing is accessible, search for an entry with the matching prompt. Note fire time if found.
+- **`none` transport**: no schedule lookup needed. The reminder will surface via the session-start injection only.
 
-Skip enrichment silently if the listing tool is unavailable or returns no match — both are expected.
+Skip enrichment silently if the listing surface is unavailable or returns no match — both are expected.
 
 ### Step 3 — Print the indexed list
 
@@ -97,8 +101,8 @@ For each index in the selection:
 
 1. Look up the reminder id and its `transport` from the indexed list.
 2. **Cancel the schedule** based on transport:
-    - **`cron`**: call `CronList`. Find the entry whose prompt contains `/follow-up due <id>`. If found, call `CronDelete` on that cron id.
-    - **`routine`**: invoke the `schedule` skill with a delete intent for the entry whose prompt contains `/follow-up due <id>`. If the skill does not expose a deletion interface at this level, list routines, identify the matching one by prompt content, and ask the user to confirm which routine to cancel before deleting. Note: the routine cancellation contract may differ from `CronDelete` — see `docs/spec/cron-workflow.md § Open follow-ups`.
+    - **`cron`**: list the harness's session schedules. Find the entry whose prompt contains `/follow-up due <id>`. If found, cancel that schedule through the same surface.
+    - **`routine`**: invoke the harness's durable-schedule surface with a delete intent for the entry whose prompt contains `/follow-up due <id>`. If the surface does not expose a deletion interface at this level, list durable schedules, identify the matching one by prompt content, and ask the user to confirm which one to cancel before deleting. Note: the durable-schedule cancellation contract may differ from the session scheduler's — see `docs/spec/cron-workflow.md § Open follow-ups`.
     - **`none`**: no schedule to cancel; skip to deletion.
 3. Delete the reminder: `atomic reminder rm <id>`
 4. Report: `[<index>] r-<id> — done.`
@@ -123,13 +127,13 @@ flowchart TD
 - **Cancel old schedule**: by current transport, same logic as `done` step 2 above.
 - **Compute due, pick transport**: same time-component rules as `/remind-me` (09:00 local for day-granularity, absolute for hour-granularity). `< 1h` → `cron`, `>= 1h` → `routine`. This may differ from the original transport (e.g. snoozing a routine reminder by `30m` switches to cron).
 - **Rewrite due**: `atomic reminder set-due <id> <iso>`.
-- **Schedule, rewrite transport**: `cron`: `CronCreate` with a one-shot trigger at the new `due`, prompt `/follow-up due <id>`. `routine`: the `schedule` skill with the new trigger time and the same prompt. Then rewrite `transport:` even when it did not change, so the file matches the actual scheduling outcome:
+- **Schedule, rewrite transport**: `cron`: create a one-shot session schedule at the new `due`, prompt `/follow-up due <id>`. `routine`: invoke the harness's durable-schedule surface with the new trigger time and the same prompt. Then rewrite `transport:` even when it did not change, so the file matches the actual scheduling outcome:
 
     ```bash
     sed -i '' 's/^transport: .*/transport: <new-transport>/' <reminders-dir>/<file>
     ```
 
-- **Mark none, print degraded**: the same `sed` with `transport: none`, then the message from `## Degraded mode`. The session-start hook surfaces the reminder once past due.
+- **Mark none, print degraded**: the same `sed` with `transport: none`, then the message from `## Degraded mode`. The session-start injection surfaces the reminder once past due.
 - **Report**: `[<index>] r-<id> — rescheduled. fires: <human-readable when>. transport: <new-transport>.`
 
 #### `show <index>`
@@ -153,7 +157,7 @@ Rescheduled:
 
 ## Cron-fired flow (`/follow-up due <id>`)
 
-Claude wakes with this prompt when a reminder's cron or Routine fires. A fired reminder changes only on an explicit user action; ignoring it leaves it stored and unscheduled.
+The session wakes with this prompt when a reminder's session or durable schedule fires. A fired reminder changes only on an explicit user action; ignoring it leaves it stored and unscheduled.
 
 ```mermaid
 flowchart TD
@@ -174,9 +178,9 @@ flowchart TD
     <body text>
     ```
 
-- **Cancel, remove**: cancel on the matching transport — `cron`: `CronList` → the entry matching `/follow-up due <id>` → `CronDelete`; `routine`: the `schedule` skill's delete intent for the matching entry (bare flow `done` step 2 covers the case where deletion is not directly available); `none`: nothing to cancel. Then `atomic reminder rm <id>` and print `r-<id> — marked done.`
+- **Cancel, remove**: cancel on the matching transport — `cron`: list the harness's session schedules → the entry matching `/follow-up due <id>` → cancel it; `routine`: the harness's durable-schedule delete intent for the matching entry (bare flow `done` step 2 covers the case where deletion is not directly available); `none`: nothing to cancel. Then `atomic reminder rm <id>` and print `r-<id> — marked done.`
 - **Reschedule**: snooze takes `now + N`, reschedule a specific absolute time. Run the bare-flow snooze steps from **Compute due, pick transport** through **Mark none, print degraded**; the fired one-shot needs no cancel. Print `r-<id> — rescheduled. fires: <human-readable when>. transport: <new-transport>.`
-- **No action**: the user addresses something else, or the session ends. The reminder persists in storage and keeps appearing in bare `/follow-up` and the session-start hook, but it will not re-fire on its own — the one-shot cron/routine already fired. The user must snooze it back into the registry or mark it done. This is intentional; no silent auto-reschedule.
+- **No action**: the user addresses something else, or the session ends. The reminder persists in storage and keeps appearing in bare `/follow-up` and the session-start injection, but it will not re-fire on its own — the one-shot schedule already fired. The user must snooze it back into the registry or mark it done. This is intentional; no silent auto-reschedule.
 
 ---
 
@@ -220,7 +224,7 @@ flowchart TD
     B --> R
 ```
 
-- **Disposition?**: ask via `AskUserQuestion` with choices `["extend", "close", "promote", "skip"]` — a small-choice decision per axiom 4 guidance:
+- **Disposition?**: ask the user in a batched question block with choices `["extend", "close", "promote", "skip"]` — a small-choice decision per axiom 4 guidance:
 
     ```
     [<N>] <id> — <title>
@@ -228,8 +232,8 @@ flowchart TD
     ```
 
 - **Confirmed?**:
-    - `close`: `AskUserQuestion` — "Close <id>? This writes to CLOSED.md and deletes the entry file. Yes / No". On Yes, optionally ask for a reason — `AskUserQuestion`: "Reason (optional — leave blank to skip):"
-    - `promote`: `AskUserQuestion` — "Promote <id> to a GitHub issue? This creates a gh issue and then closes the entry. Yes / No"
+    - `close`: ask the user in a batched question block — "Close <id>? This writes to CLOSED.md and deletes the entry file. Yes / No". On Yes, optionally ask for a reason — a batched question block: "Reason (optional — leave blank to skip):"
+    - `promote`: ask the user in a batched question block — "Promote <id> to a GitHub issue? This creates a gh issue and then closes the entry. Yes / No"
 - **Apply to the rest**: typed text instead of an option, to avoid fatigue when many entries are stale. `extend all` / `extend rest` extends this and all remaining entries; `skip all` / `skip rest` skips this and all remaining; `done` / `stop` stops reviewing and skips the rest.
 - **Apply**: per Step R4. A declined confirm applies as `skip`.
 
@@ -239,10 +243,10 @@ flowchart TD
 
 - Read TTL from user memory key `feedback_followups_ttl` (format `Nd`). Default: `60d`.
 - Compute new date: today + N days, formatted `YYYY-MM-DD`.
-- Edit the frontmatter line `review_by: <old>` to `review_by: <new>` via Bash `sed`:
+- Edit the frontmatter line `review_by: <old>` to `review_by: <new>` via shell `sed`:
 
     ```bash
-    sed -i '' "s/^review_by: .*/review_by: $(date -v+60d +%Y-%m-%d)/" .claude/project/followups/<id>.md
+    sed -i '' "s/^review_by: .*/review_by: $(date -v+60d +%Y-%m-%d)/" <followups-dir>/<id>.md
     ```
 
     Substitute the correct N in the `+Nd` expression from the TTL value.
@@ -263,7 +267,7 @@ Print: `[<N>] <id> — closed.`
 1. Run:
 
     ```bash
-    gh issue create --title "<title>" --body "Origin: <origin>\n\nSee .claude/project/followups/<id>.md"
+    gh issue create --title "<title>" --body "Origin: <origin>\n\nSee <followups-dir>/<id>.md"
     ```
 
 2. Capture the issue URL from stdout. On success:
@@ -304,7 +308,7 @@ Review complete.
 
 ## Degraded mode
 
-If scheduling tools (`CronList`, `CronDelete`, `CronCreate`, or the `schedule` skill) are unavailable for a given step:
+If the harness's scheduling surface (session schedules or durable schedules) is unavailable for a given step:
 
 - File operations still proceed (delete or `set-due` rewrite).
 - Skip the schedule cancel/create call (do not raise an error on the missing tool).
@@ -322,7 +326,7 @@ If scheduling tools (`CronList`, `CronDelete`, `CronCreate`, or the `schedule` s
 
 - Never delete a reminder file without the user explicitly selecting `done` or acknowledging in the cron-fired flow.
 - Never auto-reschedule. The user drives all scheduling decisions.
-- The cron/routine lookup key is the prompt content containing the reminder id (`/follow-up due <id>`). Match this string when searching `CronList` results or routine listings.
+- The cron/routine lookup key is the prompt content containing the reminder id (`/follow-up due <id>`). Match this string when searching session-schedule or durable-schedule listings.
 - Transport changes on snooze/reschedule are intentional: a reminder originally set for `1w` snoozed by `30m` correctly moves from routine to cron.
 - `atomic reminder set-due <id> <iso>` is the canonical way to rewrite `due:`.
 - Reminder storage is project-scoped, at the `reminders` path `atomic where --json` reports. Persists across sessions and worktrees of the same clone. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.

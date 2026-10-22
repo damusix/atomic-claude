@@ -3,7 +3,11 @@
 // a markdown render of resolved values.
 package config
 
-import "path/filepath"
+import (
+	"os"
+	"path/filepath"
+	"sort"
+)
 
 // Dir returns <home>/.atomic — the root of atomic-owned state.
 func Dir(home string) string {
@@ -39,6 +43,24 @@ func ProfilePath(home string) string {
 	return filepath.Join(Dir(home), "profile.md")
 }
 
+// WikisPath returns ~/.atomic/wikis.md — the authoritative wiki registry. The
+// <wikis> block in an installed CLAUDE.md is a derived projection of this file.
+func WikisPath(home string) string {
+	return filepath.Join(Dir(home), "wikis.md")
+}
+
+// PackagesDir returns ~/.atomic/packages — the root of Atomic-owned generated
+// harness packages.
+func PackagesDir(home string) string {
+	return filepath.Join(Dir(home), "packages")
+}
+
+// PackageRoot returns ~/.atomic/packages/<harness>/atomic — one generated
+// harness package's published directory.
+func PackageRoot(home, harness string) string {
+	return filepath.Join(PackagesDir(home), harness, "atomic")
+}
+
 // ProfileRelPath returns profile.md's home-relative path with forward slashes,
 // matching how pre-install manifests store it. Compare against manifest entries
 // through this, never a hardcoded string.
@@ -50,4 +72,89 @@ func ProfileRelPath() string {
 // for update-check cadence, staged downloads, and swap-lock coordination.
 func StatePath(home string) string {
 	return filepath.Join(Dir(home), "state.json")
+}
+
+// InstallDir returns ~/.atomic/install — the root of lifecycle operation state:
+// the advisory operation lock, the enrollment ledger, unresolved journals, and
+// per-operation transaction staging.
+func InstallDir(home string) string {
+	return filepath.Join(Dir(home), "install")
+}
+
+// OperationLockPath returns ~/.atomic/install/operation.lock — the advisory
+// file every mutating lifecycle operation flocks. The inert path may persist;
+// it carries no ownership meaning of its own.
+func OperationLockPath(home string) string {
+	return filepath.Join(InstallDir(home), "operation.lock")
+}
+
+// LedgerPath returns ~/.atomic/install/ledger.json — enrollment, physical
+// resource, consumer, generation, tier, and last-applied authority.
+func LedgerPath(home string) string {
+	return filepath.Join(InstallDir(home), "ledger.json")
+}
+
+// JournalsDir returns ~/.atomic/install/journals — one JSON journal per
+// in-flight operation.
+func JournalsDir(home string) string {
+	return filepath.Join(InstallDir(home), "journals")
+}
+
+// JournalPath returns ~/.atomic/install/journals/<operation-id>.json.
+func JournalPath(home, operationID string) string {
+	return filepath.Join(JournalsDir(home), operationID+".json")
+}
+
+// TransactionsDir returns ~/.atomic/install/transactions — per-operation
+// staging and transaction backups.
+func TransactionsDir(home string) string {
+	return filepath.Join(InstallDir(home), "transactions")
+}
+
+// TransactionDir returns ~/.atomic/install/transactions/<operation-id>.
+func TransactionDir(home, operationID string) string {
+	return filepath.Join(TransactionsDir(home), operationID)
+}
+
+// TransactionStageDir returns the per-operation staging directory, published
+// into place only after its bytes validate.
+func TransactionStageDir(home, operationID string) string {
+	return filepath.Join(TransactionDir(home, operationID), "stage")
+}
+
+// TransactionBackupDir returns the per-operation backup directory holding the
+// pre-mutation copies an unresolved journal still owns.
+func TransactionBackupDir(home, operationID string) string {
+	return filepath.Join(TransactionDir(home, operationID), "backup")
+}
+
+// BackupStampDir returns ~/.atomic/backups/<stamp> — one timestamped backup set.
+func BackupStampDir(home, stamp string) string {
+	return filepath.Join(BackupDir(home), stamp)
+}
+
+// BackupStamps lists the timestamped backup sets under ~/.atomic/backups,
+// oldest-first by name. A missing backups root is an empty list, not an error.
+func BackupStamps(home string) ([]string, error) {
+	entries, err := os.ReadDir(BackupDir(home))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var stamps []string
+	for _, e := range entries {
+		if e.IsDir() {
+			stamps = append(stamps, e.Name())
+		}
+	}
+	sort.Strings(stamps)
+	return stamps, nil
+}
+
+// RemoveBackupStamp removes one timestamped backup set. A missing set is a
+// no-op so cleanup stays replayable.
+func RemoveBackupStamp(home, stamp string) error {
+	return os.RemoveAll(BackupStampDir(home, stamp))
 }

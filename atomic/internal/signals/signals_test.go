@@ -2113,8 +2113,10 @@ func TestLinkifyFiles_NoOp_WhenNoFiles(t *testing.T) {
 	}
 }
 
-// Linkifying scan.md would corrupt the raw dump's structure, and CLAUDE.md is
-// steering rather than a domain narrative — both are excluded by name.
+// Linkifying scan.md would corrupt the raw dump's structure, and the steering
+// loader pair — the shared AGENTS.md guidance file with its CLAUDE.md loader
+// beside it — is steering rather than a domain narrative; all three are
+// excluded by name.
 func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
 	root := t.TempDir()
 
@@ -2143,6 +2145,12 @@ func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	agentsContent := "# steering\n\n`agents/atomic-builder.md` referenced.\n"
+	agentsPath := filepath.Join(wikiDir, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte(agentsContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := signals.LinkifyFilesWithBase(root, root); err != nil {
 		t.Fatalf("LinkifyFilesWithBase: %v", err)
 	}
@@ -2161,6 +2169,14 @@ func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
 	}
 	if string(gotClaude) != claudeContent {
 		t.Errorf("CLAUDE.md was modified; must be excluded:\ngot: %q\nwant: %q", gotClaude, claudeContent)
+	}
+
+	gotAgents, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotAgents) != agentsContent {
+		t.Errorf("AGENTS.md was modified; must be excluded:\ngot: %q\nwant: %q", gotAgents, agentsContent)
 	}
 }
 

@@ -2,8 +2,8 @@
 name: atomic-documentation
 description: >
   Diff-driven documentation surface classifier. Given a diff (staged, branch, or
-  range), reads the project's indexed ## Documentation surfaces table from CLAUDE
-  instructions, matches the diff against it, and emits a structured list of
+  range), reads the project's indexed ## Documentation surfaces table from its
+  instruction files, matches the diff against it, and emits a structured list of
   proposed edits. Two modes: maintenance (commit flow — stale/incomplete only,
   never suggests new pages) and authoring (/documentation explicit — full
   discovery, gap detection, content generation). Auto-fires on "doc this change",
@@ -28,14 +28,14 @@ This skill reads the project's indexed documentation surfaces, matches a diff ag
 
 | Surface | Where | Style |
 |---------|-------|-------|
-| **How Claude talks** | TUI replies | Atomic output style: terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. |
-| **How files are written** | All file content | The `atomic-writing` skill, everywhere: README, guides, reference, specs, designs, wiki pages, `CLAUDE.md`, and the prompt artifacts under `commands/`, `agents/`, `skills/`, `rules/`. One voice; length is set by what the surface carries. |
+| **How the assistant talks** | TUI replies | Atomic output style: terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. |
+| **How files are written** | All file content | The `atomic-writing` skill, everywhere: README, guides, reference, specs, designs, wiki pages, `AGENTS.md`, and the prompt artifacts under `commands/`, `agents/`, `skills/`, `rules/`. One voice; length is set by what the surface carries. |
 
 There is no separate terse-technical voice. A spec and a README differ in length and structure, not in voice, and either one prefers a diagram over a paragraph when the content has a shape.
 
 ## How surface routing works
 
-The skill reads the `## Documentation surfaces` table from the project's CLAUDE instructions. Search order: `claude.local.md` or `CLAUDE.local.md` (treated as a pair) → `CLAUDE.md`. First file containing the heading wins.
+The skill reads the `## Documentation surfaces` table from the project's instruction files. Search order: a local override file → the shared project steering `AGENTS.md` → any adjacent native loader. First file containing the heading wins.
 
 Expected table format:
 
@@ -110,7 +110,7 @@ flowchart TD
 - **Suggest new pages**: for domains identified by signals with no doc surface and 5+ files (heuristic gate — small utility modules don't need a page).
 - **Walk each surface**: with the user, per surface:
     - **Stale/incomplete** → same Yes/Later/Remind/Skip as maintenance mode. "Yes" generates the full content immediately.
-    - **Missing** → `[n] New` generates a full page draft (ERDs, flowcharts, prose, tables as appropriate), writes the file, offers to add it to the surfaces table in CLAUDE.md, notes where to link it (index, sidebar, README).
+    - **Missing** → `[n] New` generates a full page draft (ERDs, flowcharts, prose, tables as appropriate), writes the file, offers to add it to the surfaces table in the project instructions, notes where to link it (index, sidebar, README).
 - **Stage and summarize**: stage edited/created files, then emit the summary: edited / deferred / skipped / created.
 
 </authoring_mode>
@@ -138,7 +138,7 @@ Generate a full draft using the doc type that fits the content:
 - **New multi-step process** → flow doc: Mermaid flowchart (happy path → error/edge paths), step descriptions.
 - **Architectural decision** → ADR: context, decision, consequences. Short. Point-in-time.
 
-After generating: write the file, offer to add it to the `## Documentation surfaces` table in CLAUDE.md, note where to link it.
+After generating: write the file, offer to add it to the `## Documentation surfaces` table in the project instructions, note where to link it.
 
 ### Mermaid generation
 

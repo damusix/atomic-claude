@@ -11,7 +11,7 @@ func buildValidateCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                "validate",
 		Short:              "Lint repo artifacts",
-		Annotations:        map[string]string{"args_hint": "[flags] [spec|config|bundle|artifacts] [paths...]"},
+		Annotations:        map[string]string{"args_hint": "[flags] [spec|config|bundle|artifacts|projections] [paths...]"},
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			os.Exit(validate.Run(args))

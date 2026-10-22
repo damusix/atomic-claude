@@ -35,7 +35,7 @@ flowchart TD
     ```
 
 - **Continue in place**: keep the current working tree and skip the rest of this section.
-- **Create a worktree?**: hands-off mode (auto-create) answers yes without asking. Interactive mode (ask-if-unspecified) asks via `AskUserQuestion` unless the caller already decided:
+- **Create a worktree?**: hands-off mode (auto-create) answers yes without asking. Interactive mode (ask-if-unspecified) asks the user unless the caller already decided:
 
     ```
     Significant work ahead. Use an isolated worktree?
@@ -53,7 +53,7 @@ flowchart TD
     git worktree add .claude/worktrees/<branch> -b <branch>
     ```
 
-    The explicit `git worktree add` pins the branch name and bases it on the current HEAD, so a just-committed spec is carried forward; the `EnterWorktree` tool's own creation mode names the branch itself and bases it per the `worktree.baseRef` setting. A permission or sandbox error is `blocked`: print `sandbox blocked worktree creation. working in place.` and run no setup or tests.
+    The explicit `git worktree add` pins the branch name and bases it on the current HEAD, so a just-committed spec is carried forward, which a harness's own worktree command does not guarantee (it may name the branch itself and base it on a configured ref). A permission or sandbox error is `blocked`: print `sandbox blocked worktree creation. working in place.` and run no setup or tests.
 - **Enter and set up**: the flow under **Enter and set up** below.
 
 **Carry forward spec.** A worktree branches from `HEAD`, so an uncommitted spec or design is committed first or the implementer cannot read it from the worktree and the loop fails before iteration 1.
@@ -69,7 +69,7 @@ flowchart TD
 ```
 
 - **Uncommitted spec candidate?**: only `docs/spec/` and `docs/design/` files qualify. A candidate is a spec path the caller passed that `git status --porcelain -- <path>` reports untracked or modified, or a `docs/spec/*.md` or `docs/design/*.md` this conversation produced that is untracked or modified and whose basename matches or is closely related to the branch name. Run the flow once per candidate.
-- **User choice?**: `AskUserQuestion` with options `commit now (recommended)` / `skip`:
+- **User choice?**: ask the user, with options `commit now (recommended)` / `skip`:
 
     ```
     Spec `<path>` is uncommitted. Commit it before creating the worktree so
@@ -95,7 +95,7 @@ flowchart TD
     V --> R
 ```
 
-- **Enter worktree**: call the `EnterWorktree` tool with `path: .claude/worktrees/<branch>`. The session's working directory is now the worktree, so file edits and shell commands land in it with no `cd`. If the tool is unavailable in this session, run all subsequent commands from inside the worktree directory.
+- **Enter worktree**: when the harness exposes a worktree-entry capability, invoke it with the path `.claude/worktrees/<branch>`. The session's working directory is now the worktree, so file edits and shell commands land in it with no `cd`. If no such capability is available, run all subsequent commands from inside the worktree directory.
 - **Run setup**: the first match wins.
     - `pnpm-lock.yaml` exists alongside `package.json` → `pnpm install`
     - `yarn.lock` exists alongside `package.json` → `yarn install`

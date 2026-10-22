@@ -24,7 +24,7 @@ flowchart TD
     - This gate already ran on the same change earlier in the flow — a squash of commits the commit-time gate reviewed, or a ship verb escalating after its own commit step. Review once per change, not once per step.
     - The claim gate already reviewed this same tree in this session (`atomic-verify`'s dispatch) and nothing has changed since.
 - **Every staged path is docs?**: `git diff --cached --name-only`, judged by the documentation-path test from the signals refresh step of this same flow — same paths, same treatment of bundled artifact `.md` files as source rather than docs. Prose belongs to the doc-impact step, not to a code reviewer.
-- **Dispatch reviewer**: `atomic-reviewer` (`subagent_type: "atomic-reviewer"`) in code mode on the staged diff (`diff: staged`), with an explicit model override to the session's model and a one-line `intent:` describing what the change was meant to do. There is no spec for ad-hoc work — say so rather than inventing one; the `intent:` stands in for it.
+- **Dispatch reviewer**: `atomic-reviewer`, fresh context, in code mode on the staged diff (`diff: staged`), with a one-line `intent:` describing what the change was meant to do. There is no spec for ad-hoc work — say so rather than inventing one; the `intent:` stands in for it.
 - **Findings?**: `VERDICT: PASS` with no findings is `none`; otherwise act on each 🔴 bug, 🟡 risk, and 🔵 nit.
 - **Fix, re-stage**: fix the 🔴 bug. Do not commit around a red finding.
 - **Fix or justify**: fix the 🟡 risk, or state in one line why it stands. Never carry one silently.

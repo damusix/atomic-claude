@@ -6,6 +6,7 @@ paths:
   - "atomic/internal/cliusage/**"
   - "atomic/internal/updatedoctor/**"
   - "atomic/internal/profile/**"
+  - "atomic/internal/mdparse/**"
 ---
 
 Domain: doctor. Integrity checks and static artifact validation.

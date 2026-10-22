@@ -237,17 +237,14 @@ func newE2EEnv(t *testing.T, bin, repoConfig string) *e2eEnv {
 		repo: repo,
 		env: []string{
 			// The sandbox itself: os.UserHomeDir reads HOME, so every path under
-			// ~/.atomic/repl resolves inside the temp dir.
+			// ~/.atomic/repl resolves inside the temp dir, and repository-state
+			// resolution lands on the built-in `.claude` default — which is where
+			// the config above is written.
 			"HOME=" + home,
 			"PATH=" + os.Getenv("PATH"),
 			// os.Getwd prefers PWD when it names the same directory as ".", keeping
 			// the scope root spelled exactly as asserted.
 			"PWD=" + repo,
-			// This env is the child's whole environment, so harness.dir would land
-			// on the built-in default anyway. Pinning it states the fixture's
-			// dependency out loud: the config above is written to
-			// ".claude/atomic.toml", and this is what says the binary looks there.
-			"ATOMIC_HARNESS=.claude",
 		},
 	}
 }

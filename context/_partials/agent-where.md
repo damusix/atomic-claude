@@ -14,5 +14,5 @@ Before wiki- or realm-scoped work — writing to `docs/wiki/`, deciding whether 
 
 `reports`, `reports_root`, `reminders`, and `archive` are project-keyed off the main checkout root, not the current worktree — a worktree and its main checkout report the same paths for those four. `repo_root` and `branch` are not: `repo_root` reports the current worktree's own path, and `branch` is per-worktree by design. Never reconstruct any of the four project-keyed fields from `repo_root` plus a literal suffix; a value here can change shape across a migration in ways a hand-built path can't track.
 
-If `atomic where` errors, fall back silently to the detection heuristics (walk for `docs/wiki/index.md`, check for a `<wikis>` block in `CLAUDE.md`) and never block on the error.
+If `atomic where` errors, fall back silently to the detection heuristics (walk for `docs/wiki/index.md`, check for a `<wikis>` block in the harness's global steering file) and never block on the error.
 {{- end -}}

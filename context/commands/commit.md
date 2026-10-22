@@ -76,7 +76,7 @@ If there is an open PR and the escalation requires a merge, the new commit must 
 
 ## Interactive path
 
-Ask via `AskUserQuestion`:
+Ask the user:
 
 > Committed. Ship further?
 > - Done — just the commit

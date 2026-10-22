@@ -51,7 +51,7 @@ flowchart TD
     ```
 
 - **Surface needs locating?**: yes when the suspect code is not mapped in the conversation (no `file:line` references, no recent reads of the relevant module). No when the symptom names the exact file:line (e.g. the stack trace pinpoints it), the bug is in code already in context, or the symptom is too abstract to map (e.g. "the build is slow" — there's no surface yet, hypotheses come first).
-- **Locate the surface**: code-intel first when an index is present. Try `atomic code explore "<symptom as a natural-language query>"` for a one-shot digest of the failure neighborhood, or `atomic code callers <suspect-fn>` when the symptom names a symbol. One shell command is cheaper than spawning an investigator, and it returns caller-graph context grep would have to reconstruct. When the index is absent or the query returns nothing useful, dispatch `atomic-investigator` before forming the hypothesis table. It is Haiku-backed and read-only, so it is cheap. Give it a focused brief:
+- **Locate the surface**: code-intel first when an index is present. Try `atomic code explore "<symptom as a natural-language query>"` for a one-shot digest of the failure neighborhood, or `atomic code callers <suspect-fn>` when the symptom names a symbol. One shell command is cheaper than spawning an investigator, and it returns caller-graph context grep would have to reconstruct. When the index is absent or the query returns nothing useful, dispatch `atomic-investigator` before forming the hypothesis table. It is read-only, so it is cheap. Give it a focused brief:
 
     ```
     Locate <symptom-relevant surface>. Report file:line table.
@@ -59,7 +59,7 @@ flowchart TD
     Example: "Locate the request pipeline for POST /users — middleware order, body parsing, auth check. Report file:line table."
     ```
 
-    Use its `file:line — what` table as the evidence base for the hypothesis table. The investigator spends Haiku tokens so the main context (running this skill) doesn't burn Sonnet/Opus on grep work.
+    Use its `file:line — what` table as the evidence base for the hypothesis table. The investigator runs in its own context, so the session running this skill keeps its context for the hypothesis work instead of spending it on grep.
 
 - **Hypothesis table**: 3-5 candidates ranked by likelihood × cheapness to test, highest (likelihood / cost) first. Don't list more than 5 — if you have more, you're guessing.
 

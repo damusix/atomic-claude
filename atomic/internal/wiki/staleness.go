@@ -27,12 +27,10 @@ func ReadWikiIndexPaths(claudeMDPath string) ([]string, error) {
 	var paths []string
 	for _, line := range strings.Split(blockContent, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || !strings.HasPrefix(line, "- ") {
+		if !strings.HasPrefix(line, "- ") {
 			continue
 		}
-		p := strings.TrimPrefix(line, "- ")
-		p = strings.TrimSpace(p)
-		if p != "" {
+		if p := strings.TrimSpace(strings.TrimPrefix(line, "- ")); p != "" {
 			paths = append(paths, p)
 		}
 	}

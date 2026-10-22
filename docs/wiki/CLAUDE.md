@@ -16,7 +16,7 @@ This directory is the repo-local project wiki for atomic-claude, written and mai
 | [`scan.md`](scan.md) | Deterministic snapshot written by `atomic signals scan`. Runs to thousands of lines. | Never in context; the inferrer reads it on demand |
 | `CLAUDE.md` | This file. Nested-memory steering for anything read under `docs/wiki/`. | Whenever a file here is read |
 
-Domains: signals, bundle, doctor, workflow, config, docs-meta, wiki, code-intel, serve, bus, repl.
+Domains: signals, bundle, doctor, workflow, config, docs-meta, wiki, code-intel, serve, bus, repl, harness.
 
 ## Writing a page here
 

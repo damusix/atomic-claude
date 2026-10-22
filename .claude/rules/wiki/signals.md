@@ -6,13 +6,14 @@ paths:
   - "context/_partials/signals-gate.md"
 ---
 
-Domain: signals. Scan, infer, and wire the project context Claude loads each session.
+Domain: signals. Scan, infer, and wire the project context a session loads each turn.
 
 Map:
   - docs/wiki/signals.md
 Contracts:
   - docs/spec/signals-refresh-timing.md
   - docs/spec/signals-workflow.md
+  - docs/spec/wiki-pointer-rules.md
 References:
   - docs/reference/repo-wiki.md
 Designs:

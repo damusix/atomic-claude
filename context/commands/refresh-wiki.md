@@ -32,7 +32,7 @@ flowchart TD
 
 - **Repo scope**: covers a first run too, where `docs/wiki/` is empty or has no index yet. Outside a git repo the R1 pre-flight stops it.
 - **Realm-typed index?**: `wiki/index.md` contains `<wiki-type>realm</wiki-type>`.
-- **User picks?**: `AskUserQuestion`; cancel or ambiguous input means repo scope:
+- **User picks?**: ask the user in one batched question block; cancel or ambiguous input means repo scope:
 
     ```
     This directory is a git repo and has a wiki/ sibling. Which scope?
@@ -76,9 +76,9 @@ Set `first_run=true`. Continue to R3.
 atomic wiki init --scope repo
 ```
 
-This is idempotent: it writes `docs/wiki/CLAUDE.md` with the default scaffold if the file does not exist, and no-ops silently if it already exists. On creation the command prints `created <path>` on stdout — relay that line, followed by `(edit to steer the inferrer).`
+This is idempotent: it writes the wiki steering scaffold if it does not exist, and no-ops silently if it already does. On creation the command prints `created <path>` on stdout — relay that line, followed by `(edit to steer the inferrer).`
 
-If the file already exists (no output from the command), read its contents for the dispatch prompt.
+The scaffold's canonical home is the wiki steering pair: the shared `docs/wiki/AGENTS.md`, with the `CLAUDE.md` loader beside it. Read whichever the command created — the shared file where present, otherwise the loader beside it — for the dispatch prompt.
 
 ### R4 — Code-intel index lifecycle
 
@@ -89,38 +89,38 @@ Bring the code-intel index current before dispatching the inferrer, so domain cl
 
 ### R5 — Dispatch agent
 
-Dispatch the `atomic-wiki-inferrer` agent via the `Agent` tool. Build the prompt:
+Dispatch `atomic-wiki-inferrer`, fresh context. Prompt:
 
 ```
 mode: interactive
 first_run: <true if R2 found no existing signals, false otherwise>
 
 <steering>
-<contents of docs/wiki/CLAUDE.md, if it exists and is not all comments>
+<contents of the wiki steering file, if it exists and is not all comments>
 </steering>
 ```
 
-Wait for the agent to complete. The agent reads `skills/atomic-wiki/references/repo.md` and executes the full repo-scope pipeline (scan → infer → write `docs/wiki/` files → linkify → wire `@-ref`).
+Wait for the agent to complete. The agent reads the `atomic-wiki` skill's `references/repo.md` and executes the full repo-scope pipeline (scan → infer → write `docs/wiki/` files → linkify → wire the steering reference).
 
 ### R6 — Surface concerns
 
-If the agent returned a `## Concerns` table (judgment observations found during inference), present them to the user as a numbered list. Ask via `AskUserQuestion`: "The signals scan found N potential issues. Create follow-ups for any?" with options:
+If the agent returned a `## Concerns` table (judgment observations found during inference), present them to the user as a numbered list and ask, in one batched question block: "The signals scan found N potential issues. Create follow-ups for any?" with options:
 
 - "All" — create follow-ups for every concern via `atomic followups add`
 - "Pick" — print the indexed list, accept space/comma-separated indices, create only those
 - "Skip" — discard, no follow-ups created
 
-### R7 — No CLAUDE.md at all
+### R7 — No project steering file at all
 
-If no `CLAUDE.md` exists after the agent runs (the agent could not wire the `@-ref`), ask via `AskUserQuestion`:
+If no project steering file exists after the agent runs (the agent could not wire the `@-ref`), ask the user:
 
 ```
-No CLAUDE.md found. Create a starter with signals @-ref?
-- Yes (writes minimal starter with @-ref)
+No project steering file found. Create a starter with the signals reference?
+- Yes (writes a minimal shared steering file with the @-ref)
 - No, skip
 ```
 
-On "Yes": write a minimal `CLAUDE.md` at repo root containing only:
+On "Yes": write a minimal shared steering file (`AGENTS.md`) at repo root containing only:
 
 ```markdown
 <atomic-signals>
@@ -143,17 +143,17 @@ signals <refreshed | initialized>.
 
   scan (raw):    docs/wiki/scan.md
   index:         docs/wiki/index.md
-  CLAUDE.md:     <updated with @-refs | unchanged (already wired) | not created (skipped)>
+  steering:      <updated with the @-ref | unchanged (already wired) | not created (skipped)>
   cards:         <P> emitted, <Q> deleted<ignore-edit>
 
 suggested next step:
   git add -A docs/wiki/*.md
-  [ ! -d .claude/rules/wiki ] || git add -A .claude/rules/wiki/
-  (and CLAUDE.md and any amended ignore file if modified)
+  [ ! -d <state-root>/rules/wiki ] || git add -A <state-root>/rules/wiki/
+  (and the steering file and any amended ignore file if modified)
   then: /commit
 ```
 
-`<ignore-edit>` is empty when Step 9 reported no ignore-file change, or `, <path> amended for rules/wiki` when it did, appended to the same line, matching `skills/atomic-wiki/references/repo.md` Step 9.
+`<ignore-edit>` is empty when Step 9 reported no ignore-file change, or `, <path> amended for rules/wiki` when it did, appended to the same line, matching the `atomic-wiki` skill's `references/repo.md` Step 9.
 
 Use "initialized" if R2 found no existing signals; "refreshed" otherwise.
 
@@ -225,14 +225,14 @@ flowchart TD
     Enter bucket names (space-separated, e.g. "research notes tickets"), or press Enter to skip:
     ```
 
-- **Add each bucket**: `atomic wiki bucket add --root <resolved-root> <name>` per name. It creates the bucket folder and its `index.md` stub, registers a `<bucket name="<name>" path="<abs-path>"/>` entry in the `<wiki-buckets>` block in `wiki/index.md`, and writes the `## Capture surfaces` section (with `<!-- describe what this bucket is for -->` placeholder) to the realm `CLAUDE.md`. It then rebuilds the bucket's indexes, so every folder the walk reaches in an existing bucket folder gains an `index.md`.
+- **Add each bucket**: `atomic wiki bucket add --root <resolved-root> <name>` per name. It creates the bucket folder and its `index.md` stub, registers a `<bucket name="<name>" path="<abs-path>"/>` entry in the `<wiki-buckets>` block in `wiki/index.md`, and writes the `## Capture surfaces` section (with `<!-- describe what this bucket is for -->` placeholder) to the realm's shared steering file (`AGENTS.md`, with the `CLAUDE.md` loader beside it). It then rebuilds the bucket's indexes, so every folder the walk reaches in an existing bucket folder gains an `index.md`.
 - **Record decline**: blank input. Write a `<wiki-buckets declined="true"></wiki-buckets>` block into `wiki/index.md` with an Edit after the last line of content (or append if the file ends without a trailing newline).
 
 ### Step 4 — Placeholder fill (judgment)
 
 If new buckets were just created in Step 3, ask the user what each bucket is for (or infer from their Step 3 answers if they described purpose while naming). Then:
 
-1. Replace the `<!-- describe what this bucket is for -->` placeholder in the realm `CLAUDE.md` `## Capture surfaces` section for each bucket.
+1. Replace the `<!-- describe what this bucket is for -->` placeholder in the realm's shared steering file (`AGENTS.md`) `## Capture surfaces` section for each bucket.
 2. Write the bucket's `index.md` purpose line and update the `## Conventions` block to describe naming and content conventions for that bucket.
 
 Code writes structure; the model writes meaning. A bucket whose placeholder survives this step (user declined to describe it) is flagged in the Step 9 disposition output as `PLACEHOLDER (unfilled)` — it is not a blocker for the rest of the run.
@@ -296,16 +296,14 @@ test -f <member-repo-path>/.claude/.atomic-index/atomic.db
 
 Code-intel grounding is best-effort per repo. A repo without an index still gets summarized via heuristics — absence of an index is never a blocker for the wiki refresh.
 
-Dispatch `atomic-wiki-inferrer` in wiki-output mode:
+Dispatch `atomic-wiki-inferrer`, fresh context, in wiki-output mode. Prompt:
 
 ```
-subagent_type: "atomic-wiki-inferrer"
-prompt:
-  target_repo: <abs-path-to-repo>
-  wiki_dir: <abs-path-to-wiki-root>
+target_repo: <abs-path-to-repo>
+wiki_dir: <abs-path-to-wiki-root>
 ```
 
-Wait for the agent to complete. The inferrer reads `skills/atomic-wiki/references/realm.md` and executes the wiki-output pipeline (W1-W7). It writes EITHER a single file `<wiki-root>/repos/<repo-name>.md` (small repo) OR multiple files under `<wiki-root>/repos/<repo-name>/<domain>.md` (large repo, domain-split). Check which shape was produced.
+Wait for the agent to complete. The inferrer reads the `atomic-wiki` skill's `references/realm.md` and executes the wiki-output pipeline (W1-W7). It writes EITHER a single file `<wiki-root>/repos/<repo-name>.md` (small repo) OR multiple files under `<wiki-root>/repos/<repo-name>/<domain>.md` (large repo, domain-split). Check which shape was produced.
 
 Print: `NEW  <summary-file-path>`
 

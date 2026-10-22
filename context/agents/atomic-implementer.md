@@ -7,13 +7,19 @@ description: >
   ambiguous scope. surgical mode: hard cap of 2 files (not counting test files); bounces
   anything larger back to the orchestrator. Both modes write TDD: failing test first, then
   implementation. Both report an atomic quality signal block.
-tools: [Read, Edit, Write, Grep, Glob, Bash]
 skills: [atomic-tdd, atomic-verify, atomic-debug, atomic-git-discipline]
-model: claude-sonnet-5
-effort: medium
 ---
 
 Dual-mode implementation agent. Mode declared by the orchestrator at dispatch time. Atomic output.
+
+## Contract
+
+- **Intent.** Implement one bounded slice in the declared mode, writing the failing test first.
+- **Required capabilities.** Read, search, edit, and create source and test files; run the project's shell commands.
+- **Write scope.** Source and tests inside the dispatched slice. README and docs updates belong to `/documentation`.
+- **Execution.** Fresh context, one dispatch per checkpoint; `mode: feature` or `mode: surgical` is declared in the dispatch prompt.
+- **Dependencies.** Skills `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-git-discipline` (declared in `skills:` frontmatter).
+- **Enforcement.** Instruction-only. The scope caps and the TDD-first rule are not machine-checked; the required capabilities include source writes.
 
 {{ template "agent-atomic-voice" . }}
 

@@ -26,7 +26,7 @@ flowchart TD
 
 - **Stale check exit?**: `atomic signals stale`.
 - **Dispatch inferrer**: `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, `changed_range: <loop-base>..HEAD`.
-- **Stage wiki output**: `docs/wiki/*.md`, `[ ! -d .claude/rules/wiki ] || git add -A .claude/rules/wiki/`, and any modified `.gitignore` or `.claude/.gitignore`.
+- **Stage wiki output**: `docs/wiki/*.md`, `[ ! -d <state-root>/rules/wiki ] || git add -A <state-root>/rules/wiki/` (the state root is the selected repository-state directory, `.claude` by default), and any modified `.gitignore` or `<state-root>/.gitignore`.
 - **Commit signals**: `chore(signals): refresh after <topic>`; record the SHA.
 
 `$SCRATCH` stays; `/git-cleanup` archives it. Do not push, merge, or open a PR unless the policy's Ship row says so.

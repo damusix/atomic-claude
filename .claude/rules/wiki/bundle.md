@@ -6,13 +6,13 @@ paths:
   - "atomic/internal/templaterender/**"
   - "atomic/internal/embedded/**"
   - "atomic/internal/tools/bundle-mirror/**"
-  - "atomic/internal/claudeinstall/**"
   - "atomic/internal/manifestcheck/**"
+  - "atomic/internal/claudeinstall/**"
   - "context/rules/**"
-  - "context/CLAUDE.md"
+  - "context/AGENTS.md"
 ---
 
-Domain: bundle. Render templates, embed them in the binary, install into `~/.claude`.
+Domain: bundle. Expand `context/` into the embedded binary and map it to Claude-native targets.
 
 Map:
   - docs/wiki/bundle.md

@@ -108,21 +108,32 @@ func TestMatchesRule(t *testing.T) {
 	}
 }
 
-func TestIsClaudeMd(t *testing.T) {
+func TestIsGlobalSteeringSource(t *testing.T) {
 	cases := []struct {
 		name string
 		want bool
 	}{
-		{"CLAUDE.md", true},
-		{"claude.md", false},
-		{"Claude.md", false},
-		{"CLAUDE.MD", false},
-		{"path/CLAUDE.md", false},
+		{"AGENTS.md", true},
+		{"agents.md", false},
+		{"CLAUDE.md", false},
+		{"path/AGENTS.md", false},
 	}
 	for _, tc := range cases {
-		got := bundlespec.IsClaudeMd(tc.name)
+		got := bundlespec.IsGlobalSteeringSource(tc.name)
 		if got != tc.want {
-			t.Errorf("IsClaudeMd(%q) = %v, want %v", tc.name, got, tc.want)
+			t.Errorf("IsGlobalSteeringSource(%q) = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestSteeringContract(t *testing.T) {
+	if bundlespec.GlobalSteering.Loader {
+		t.Error("global steering must render directly, not through a loader")
+	}
+	if !bundlespec.ScopeSteering.Loader {
+		t.Error("repository and realm steering must use an adjacent loader")
+	}
+	if got := bundlespec.ScopeSteering.LoaderBody(); got != "@AGENTS.md\n" {
+		t.Errorf("LoaderBody() = %q, want %q", got, "@AGENTS.md\n")
 	}
 }

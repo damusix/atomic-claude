@@ -61,20 +61,34 @@ func TestInitRepoScope_WritesGoldenScaffold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitRepoScope: %v", err)
 	}
-	if !created {
-		t.Error("expected created=true on first write")
+	wantPaths := []string{
+		filepath.Join(root, "docs", "wiki", "AGENTS.md"),
+		filepath.Join(root, "docs", "wiki", "CLAUDE.md"),
+	}
+	if len(created) != len(wantPaths) || created[0] != wantPaths[0] || created[1] != wantPaths[1] {
+		t.Errorf("created = %v, want %v", created, wantPaths)
 	}
 
-	path := filepath.Join(root, "docs", "wiki", "CLAUDE.md")
-	got, err := os.ReadFile(path)
+	got, err := os.ReadFile(wantPaths[0])
 	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
+		t.Fatalf("read %s: %v", wantPaths[0], err)
 	}
 	if string(got) != goldenRepoScaffold {
-		t.Errorf("content mismatch:\ngot:\n%s\nwant:\n%s", got, goldenRepoScaffold)
+		t.Errorf("AGENTS.md content mismatch:\ngot:\n%s\nwant:\n%s", got, goldenRepoScaffold)
+	}
+
+	loader, err := os.ReadFile(wantPaths[1])
+	if err != nil {
+		t.Fatalf("read %s: %v", wantPaths[1], err)
+	}
+	if !strings.Contains(string(loader), "<atomic>\n\n@AGENTS.md\n\n</atomic>") {
+		t.Errorf("CLAUDE.md is not the blank-bracketed AGENTS.md loader:\n%s", loader)
 	}
 }
 
+// A CLAUDE.md-direct install (the shape before the loader pair existed) keeps
+// its bytes and gains nothing: redirecting it into a pair would duplicate the
+// guidance and change the file the maintainer already edits.
 func TestInitRepoScope_NoopWhenFileExists(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "docs", "wiki", "CLAUDE.md")
@@ -90,8 +104,8 @@ func TestInitRepoScope_NoopWhenFileExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitRepoScope: %v", err)
 	}
-	if created {
-		t.Error("expected created=false when file already exists")
+	if len(created) != 0 {
+		t.Errorf("created = %v, want nothing when CLAUDE.md already exists", created)
 	}
 
 	got, err := os.ReadFile(path)
@@ -100,6 +114,9 @@ func TestInitRepoScope_NoopWhenFileExists(t *testing.T) {
 	}
 	if string(got) != existing {
 		t.Errorf("existing file was overwritten:\ngot:\n%s\nwant:\n%s", got, existing)
+	}
+	if _, err := os.Stat(filepath.Join(root, "docs", "wiki", "AGENTS.md")); !os.IsNotExist(err) {
+		t.Error("a CLAUDE.md-direct install gained an AGENTS.md it does not import")
 	}
 }
 
@@ -110,17 +127,28 @@ func TestInitRealmScope_WritesIndexReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitRealmScope: %v", err)
 	}
-	if !created {
-		t.Error("expected created=true on first write")
+	wantPaths := []string{
+		filepath.Join(root, "wiki", "AGENTS.md"),
+		filepath.Join(root, "wiki", "CLAUDE.md"),
+	}
+	if len(created) != len(wantPaths) || created[0] != wantPaths[0] || created[1] != wantPaths[1] {
+		t.Errorf("created = %v, want %v", created, wantPaths)
 	}
 
-	path := filepath.Join(root, "wiki", "CLAUDE.md")
-	got, err := os.ReadFile(path)
+	agents, err := os.ReadFile(wantPaths[0])
 	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
+		t.Fatalf("read %s: %v", wantPaths[0], err)
 	}
-	if string(got) != "@index.md\n" {
-		t.Errorf("content = %q, want %q", got, "@index.md\n")
+	if string(agents) != "@index.md\n" {
+		t.Errorf("AGENTS.md content = %q, want %q", agents, "@index.md\n")
+	}
+
+	loader, err := os.ReadFile(wantPaths[1])
+	if err != nil {
+		t.Fatalf("read %s: %v", wantPaths[1], err)
+	}
+	if !strings.Contains(string(loader), "@AGENTS.md") {
+		t.Errorf("CLAUDE.md does not import the adjacent AGENTS.md:\n%s", loader)
 	}
 }
 
@@ -139,8 +167,8 @@ func TestInitRealmScope_NoopWhenFileExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitRealmScope: %v", err)
 	}
-	if created {
-		t.Error("expected created=false when file already exists")
+	if len(created) != 0 {
+		t.Errorf("created = %v, want nothing when file already exists", created)
 	}
 
 	got, err := os.ReadFile(path)
@@ -220,13 +248,21 @@ func TestWikiInitAction_RealmScope_ViaCLI(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0, output:\n%s", code, buf.String())
 	}
 
-	path := filepath.Join(root, "wiki", "CLAUDE.md")
-	got, err := os.ReadFile(path)
+	agentsPath := filepath.Join(root, "wiki", "AGENTS.md")
+	agents, err := os.ReadFile(agentsPath)
 	if err != nil {
-		t.Fatalf("expected %s to exist: %v", path, err)
+		t.Fatalf("expected %s to exist: %v", agentsPath, err)
 	}
-	if string(got) != "@index.md\n" {
-		t.Errorf("content = %q, want %q", got, "@index.md\n")
+	if string(agents) != "@index.md\n" {
+		t.Errorf("AGENTS.md content = %q, want %q", agents, "@index.md\n")
+	}
+	loaderPath := filepath.Join(root, "wiki", "CLAUDE.md")
+	loader, err := os.ReadFile(loaderPath)
+	if err != nil {
+		t.Fatalf("expected %s to exist: %v", loaderPath, err)
+	}
+	if !strings.Contains(string(loader), "@AGENTS.md") {
+		t.Errorf("CLAUDE.md does not import the adjacent AGENTS.md:\n%s", loader)
 	}
 
 	markerPath := filepath.Join(root, ".claude", "atomic.toml")
@@ -309,13 +345,21 @@ func TestScan_ScaffoldsRealmClaudeMD(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 
-	path := filepath.Join(root, "wiki", "CLAUDE.md")
-	got, err := os.ReadFile(path)
+	agentsPath := filepath.Join(root, "wiki", "AGENTS.md")
+	agents, err := os.ReadFile(agentsPath)
 	if err != nil {
-		t.Fatalf("expected Scan to scaffold %s: %v", path, err)
+		t.Fatalf("expected Scan to scaffold %s: %v", agentsPath, err)
 	}
-	if string(got) != "@index.md\n" {
-		t.Errorf("content = %q, want %q", got, "@index.md\n")
+	if string(agents) != "@index.md\n" {
+		t.Errorf("AGENTS.md content = %q, want %q", agents, "@index.md\n")
+	}
+	loaderPath := filepath.Join(root, "wiki", "CLAUDE.md")
+	loader, err := os.ReadFile(loaderPath)
+	if err != nil {
+		t.Fatalf("expected Scan to scaffold %s: %v", loaderPath, err)
+	}
+	if !strings.Contains(string(loader), "@AGENTS.md") {
+		t.Errorf("Scan's CLAUDE.md loader does not import the adjacent AGENTS.md:\n%s", loader)
 	}
 }
 
