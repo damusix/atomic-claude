@@ -63,7 +63,7 @@ Look for:
 For each artifact: path, one-line purpose, char count, line count.
 Do NOT propose changes. Inventory only.
 
-Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Technical terms exact. Inventory table only — no preamble, no echo of this brief.
+Drop filler, pleasantries, hedging. Fragments OK. Technical terms exact. Inventory table only — no preamble, no echo of this brief.
 ```
 
 Dispatch with `subagent_type: "atomic-investigator"`. Prompt: `Read $SCRATCH/discovery-brief.md and return the inventory.`
@@ -109,7 +109,7 @@ Return a table:
 
 Mark recurring patterns (same complaint in 2+ sessions). No raw transcripts. Read-only.
 
-Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Findings only — no preamble, no echo of this brief.
+Drop filler, pleasantries, hedging. Fragments OK. Findings only — no preamble, no echo of this brief.
 ```
 
 Dispatch one runner per shard file that exists, in the same message: `subagent_type: "general-purpose"`, `model: sonnet`. Prompt each: `Read $SCRATCH/history-brief.md. Your shard is $SCRATCH/history.<i>.md. Execute. Read-only.`
@@ -138,7 +138,7 @@ Return:
 
 Plus a separate list of `drifted` and `missing` items for re-surfacing (with target file and verify phrase), and a list of `skipped` + `suppressed` items whose `signal_keywords` reappear in the current run.
 
-Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Audit table + re-surface list only — no preamble, no echo of this brief.
+Drop filler, pleasantries, hedging. Fragments OK. Audit table + re-surface list only — no preamble, no echo of this brief.
 ```
 
 Dispatch with `subagent_type: "general-purpose"`, `model: sonnet`. Prompt: `Read $SCRATCH/prior-retro-brief.md.`

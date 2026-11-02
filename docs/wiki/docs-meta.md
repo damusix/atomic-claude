@@ -22,7 +22,7 @@ There is no third voice. A spec and a README differ in length and structure, not
 |---|---|---|
 | Governs | how Claude talks | what Claude writes into files |
 | Applies to | main-agent TUI replies | every `.md` file the repo ships, prompt artifacts included |
-| Form | fragments, dropped articles, ASCII only | full sentences where prose fits, Mermaid where a picture fits |
+| Form | fragments in labels, list items, and status lines; full sentences in explanations; ASCII only | full sentences where prose fits, Mermaid where a picture fits |
 | Defined in | [`context/output-styles/atomic.md`](../../context/output-styles/atomic.md) | [`context/skills/atomic-writing/SKILL.md`](../../context/skills/atomic-writing/SKILL.md) |
 | Reaches subagents | no | yes |
 
@@ -105,7 +105,7 @@ flowchart LR
 
 | Path | Role |
 |------|------|
-| [`context/output-styles/atomic.md`](../../context/output-styles/atomic.md) | Atomic TUI reply style: drop-list, the verbatim mannered-prose rule, the phrases-readers-hate list, the `[thing] [action] [reason]` pattern, a 120-word default length, the `# Format routing` table, the Auto-Clarity escape hatch, and the `# Boundaries` voice split. |
+| [`context/output-styles/atomic.md`](../../context/output-styles/atomic.md) | Atomic TUI reply style: drop-list, the `# Keep parseable` table, the verbatim mannered-prose rule, the phrases-readers-hate list, the `[thing] [action] [reason]` pattern, a 120-word default length, the `# Format routing` table, the Auto-Clarity escape hatch, and the `# Boundaries` voice split. |
 | [`context/skills/atomic-writing/SKILL.md`](../../context/skills/atomic-writing/SKILL.md) | The voice for files. A `## Structure before sentences` section fixing the page reading order, numbered sentence-level rules, an avoid/use replacement table, a per-surface length table, and a pre-save checklist; rule 1 and the checklist both point at `references/mermaid.md`'s layout table. |
 | [`context/skills/atomic-writing/references/mermaid.md`](../../context/skills/atomic-writing/references/mermaid.md) | Loaded on demand when a diagram is being written: type selection from the reader's question, a layout section (direction, width, density, color; see above), and the label and syntax rules that decide whether a block renders or ships as a raw fence. |
 | [`context/_partials/agent-atomic-voice.md`](../../context/_partials/agent-atomic-voice.md) | Response-voice rule for subagents replying to an orchestrator. Composed by every agent source under [`context/agents/`](../../context/agents). |

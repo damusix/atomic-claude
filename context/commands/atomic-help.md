@@ -186,7 +186,7 @@ The tour is four stages. After each stage, prompt the user via `AskUserQuestion`
 ```
 atomic-claude — opinionated Claude Code config. Five surfaces compose:
 
-  output style    terse TUI replies (atomic — drop filler, fragments OK)
+  output style    plain TUI replies (atomic — drop filler, keep grammar)
   skills          10 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing, visual options, bus messaging)
   commands        ~24 explicit verbs (/autopilot, /atomic-plan, /commit, ...)
   agents          7 dispatchable subagents (implementer, reviewer, auditor, ...)
@@ -330,6 +330,6 @@ For tour mode (D), use prose blocks + `AskUserQuestion` transitions, not the thr
 - Do not invoke or execute any verb. Recommend only — the user types it. Tour mode is the same: describe, do not run.
 - If state probes fail (not a git repo, etc.), say so plainly and recommend `/setup-wiki` or `git init` as appropriate.
 - Tour mode advances one stage at a time; never dump all four stages at once. Each stage waits for user input.
-- Atomic style applies to your output (terse, fragments, drop articles). Tour prose still terse — fragments and one-line descriptions, not paragraphs.
+- Atomic style applies to your output (plain sentences, no filler). Tour prose still terse: short sentences and one-line descriptions, not paragraphs.
 
 </constraints>

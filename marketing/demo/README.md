@@ -68,7 +68,7 @@ All optional, read from the environment.
 
 The bus room name is fixed at `atomic-demo` in both tapes and `scenes/chat.mjs`; change all three together. Before the chat scene the runner closes that room, stops the daemon, and deletes `~/.atomic/rooms/atomic-demo.log` so old traffic never appears. No other room is touched.
 
-## What bites
+## What can go wrong
 
 - A scene that throws stops the run with the scene name, keeps `out/raw/<scene>.webm`, and writes `out/raw/<scene>.failed.png`. Fix, then `--scene <name>`.
 - Playwright never draws the OS pointer. `lib/overlay.mjs` injects a cursor that follows real `mousemove` events, so use its `click`/`glide`/`type` helpers rather than `locator.click()`, or the recording shows things happening with no hand. `click` is a single `mouse.click` on purpose: a held press lets outside-pointerdown dismissers (the search palette) unmount the target before mouseup.
