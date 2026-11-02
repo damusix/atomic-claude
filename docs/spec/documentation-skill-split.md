@@ -48,7 +48,7 @@ The skill is the canonical home for this table. Today it lives partially in `CLA
 
 | Voice | Surface | Audience | Style rules |
 |-------|---------|----------|-------------|
-| **Atomic TUI** | Claude's chat replies | The human at the terminal, right now | Terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. Never appears in files. |
+| **Atomic TUI** | Claude's chat replies | The human at the terminal, right now | Fragments in labels, list items, and status lines; full sentences in explanations. Governed by `output-styles/atomic.md`. Never appears in files. |
 | **Atomic-writing** | `README.md`, `docs/guides/*`, CHANGELOG narrative | Humans skimming for what + why + how | Clear, specific, active-voice technical prose. No em dashes, no marketing, no AI-tell. Skill `atomic-writing` enforces. |
 | **Terse technical prose** | `docs/spec/*`, `docs/design/*` | Future implementers + agents | Tables, Mermaid, terse bullets. Prose only where a contract needs sentences. Token-cost-aware. Append-mostly for specs. **Never** invokes `atomic-writing`. |
 | **Terse technical prose** | `CLAUDE.md`, `CLAUDE.md`, `.claude/project/*-signals.md`, `claude.local.md` | Future Claude sessions | Technical-imperative. Conventions, paths, dispatch contracts. No restating code, no tutorial, no narrative. Lean: every line earns its slot. |
@@ -236,6 +236,12 @@ Rejected: `atomic-doc-impact`, `atomic-docs`, `atomic-doc-review`. The skill is 
 - Should `/documentation` gain a `--dry-run` flag that prints the skill's proposal without applying? Probably yes; defer to checkpoint 4 author's discretion since it's a small addition.
 
 ## Change log
+
+### 2026-11-01 — Atomic TUI keeps grammar
+
+**What changed:** The Atomic TUI row no longer says to drop articles or allow fragments everywhere.
+
+**Why:** `docs/research/ai-language-processing-cost.md`.
 
 ### 2026-05-27 — Simplify to two-voice model
 

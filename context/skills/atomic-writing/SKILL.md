@@ -9,7 +9,7 @@ description: >
   is constant; length is set by what the surface has to carry. Prefer a diagram,
   table, or tree over a paragraph when the content has a shape, because a drawn flow
   carries a logic better than a paragraph does for a human reader and a model alike.
-  Structure comes before sentences: a page answers what-is-this, how, where, what-bites,
+  Structure comes before sentences: a page answers what-is-this, how, where, what-can-go-wrong,
   what-else, in that order. references/mermaid.md carries diagram type selection, the
   layout limits (direction, width, density, color), and the rules that decide whether a
   block renders; references/exemplar-*.md carry finished page shapes to imitate per
@@ -41,7 +41,7 @@ The reason is a contract that reads well to only one party is broken. A spec an 
 |---|---|---|
 | **Governs** | How Claude talks in the terminal | What Claude writes into files |
 | **Where** | TUI replies to the user | Every `.md` file that ships in the repo |
-| **Form** | Fragments OK, drop articles, ASCII only | Full sentences where prose is right, Mermaid where a picture is right |
+| **Form** | Fragments in labels, list items, and status lines; full sentences in explanations; ASCII only | Full sentences where prose is right, Mermaid where a picture is right |
 | **Lives in** | `output-styles/atomic.md` | This skill |
 
 Nothing else splits. There is no separate "terse technical" voice for specs, designs, `CLAUDE.md`, or agent prompts.
@@ -71,7 +71,7 @@ A document answers the reader's questions in the order the reader asks them:
 1. **What is this, and why do I care?** Purpose in the reader's terms: what they gain, or what breaks without it. Not mechanism.
 2. **How does it work?** The shape. One diagram or one worked flow, plus the reasoning that connects it.
 3. **Where is it?** Paths, symbols, and entry points, in one table rather than several lists.
-4. **What will bite me?** The constraints where being wrong is expensive.
+4. **What can go wrong?** The constraints where being wrong is expensive.
 5. **What else does this touch?** Pointers to adjacent surfaces.
 
 Not every document needs all five, and a surface with its own defined structure (a spec's checkpoint table, a reference page's lookup tables) keeps that structure. The order does not invert. A page that opens on a path inventory and reaches its purpose in the last paragraph is backwards, however well each paragraph is written.
@@ -185,6 +185,8 @@ Not every document needs all five, and a surface with its own defined structure 
 
 17. **A wiki page never counts things in the repo.** No LOC totals, file counts, percentages, or language tables, and no count of verbs, artifacts, domains, checks, resolvers, steps, lenses, icons, registry entries, tests, or sections. Name the things, or let the list that follows stand on its own. A version and a documented contract value are not counts and stay: `Go 1.25`, a pinned dependency, a 3s timeout, a 16 MiB buffer, a 500-file gate, a port.
 
+18. **Keep the grammar.** When text must shrink, remove a whole idea first. Prior reading studies link most of the constructions below to harder parsing. Keep articles, and keep `that` where the next words are hard to predict. Limit noun stacks to two ("the timeout for job retries", not "job retry timeout"). Use a conventional verb rather than an ad-hoc noun ("add a footnote", not "footnote it"); `commit` and `index` are conventional. Keep the subject next to its verb. Prefer the common phrase over a coined pair ("reader-patience budget"). Identifiers keep their exact form.
+
 ## Structural tells
 
 Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `docs/research/`, and the prose in `docs/reference/`. Skip `docs/spec/` and `docs/wiki/`, and lookup tables on any page.
@@ -193,7 +195,7 @@ Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `doc
 - Closing line that states what the section proved? Cut it.
 - Summary or Conclusion section restating the page? End on the last fact.
 - Every fact serves one claim, and no exception appears? Put the dropped exception back. If none exists, the check passes; add no hedge.
-- Nothing on the page the reader would not have guessed? Name the likely wrong assumption in the what-will-bite-me section.
+- Nothing on the page the reader would not have guessed? Name the likely wrong assumption in the what-can-go-wrong section.
 - Same register from first line to last? Quote the page's transcript or error string. Do not roughen prose on purpose.
 - Consecutive sentences opening the same way? Vary the openers.
 - Sentence over 30 words, or an aside nested inside a clause? Split it where a clause ends, and move the aside to its own sentence. Keep a `, so` or colon join when the result stays under 30 words; do not bridge a split with `therefore`, `thus`, `nonetheless`, or `This means`. A short parenthetical that replaces an em dash (rule 7) stays.
@@ -202,7 +204,7 @@ Read the page twice. The first read covers the first five checks. The second cov
 
 ## Quick checklist before saving
 
-- Read the headings alone, in order. Do they answer what-is-this, how, where, what-bites, what-else? If the first one is an inventory, the page is upside down.
+- Read the headings alone, in order. Do they answer what-is-this, how, where, what-can-go-wrong, what-else? If the first one is an inventory, the page is upside down.
 - A heading that admits anything ("Notes", "Other", "worth knowing")? Rename it after the question it answers, or redistribute its contents.
 - One concern split into parallel lists by file type? Merge into one table grouped by responsibility.
 - Content has a shape and no diagram? Consider drawing it. Diagram that only restates the prose? Cut it.
@@ -224,7 +226,8 @@ Read the page twice. The first read covers the first five checks. The second cov
 - Three-item rhythm list (`speed, quality, cost`)? Drop to two, or break the rhythm.
 - Marketing word (game-changer, lean into, deep dive)? Replace.
 - Stock AI phrase or reveal formula (load-bearing, it's worth noting, what nobody tells you)? Cut it and state the fact it was decorating.
-- Inanimate noun doing a human verb? Name the human.
+- Inanimate noun doing a human verb? Name the human, or use the literal verb ("returns False", not "swallows").
+- Three nouns in a row, an ad-hoc noun used as a verb, or a dropped article? Rewrite per rule 18.
 - Throat-clearing opener ("Here's the thing")? Cut.
 - Binary-contrast structure ("not X. Y.")? State Y.
 - In a prompt artifact: paragraph that only defends an instruction? Cut it.

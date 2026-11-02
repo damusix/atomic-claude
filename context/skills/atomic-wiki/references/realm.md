@@ -107,7 +107,7 @@ generated: <YYYY-MM-DD>
 </output_format>
 ```
 
-Same reading order as a repo-scope domain file: what is this and why do I care, how does it work, where is it, what it is built on, what will bite me. A realm summary is read by someone deciding whether to open the repo at all, so a page that opens on a path list answers the question they have not asked yet.
+Same reading order as a repo-scope domain file: what is this and why do I care, how does it work, where is it, what it is built on, what can go wrong. A realm summary is read by someone deciding whether to open the repo at all, so a page that opens on a path list answers the question they have not asked yet.
 
 ### W5 — Reviewer validates each summary file
 

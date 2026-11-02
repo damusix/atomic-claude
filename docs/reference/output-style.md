@@ -1,6 +1,6 @@
 # Output style
 
-The output style is the communication layer. Its goal is clarity, and a paragraph is one instrument, not the only one. When an answer has parts that compare, nest, or sequence, replies reach for a table, an indented tree, or an ASCII flow so the structure carries the meaning instead of a wall of prose. Filler is dropped, fragments are fine, and short synonyms win, but compression serves the structure, it does not lead. Technical terms and code blocks are never altered.
+The output style is the communication layer. Its goal is clarity, and a paragraph is one instrument, not the only one. When an answer has parts that compare, nest, or sequence, replies reach for a table, an indented tree, or an ASCII flow so the structure carries the meaning instead of a wall of prose. Filler is dropped and common words win, but grammar stays. Technical terms and code blocks are never altered.
 
 A shorter reply that reads worse is a failure, not a win. When a structure communicates faster than sentences (three components with a hierarchy, a sequence that branches across actors), the style picks the structure. When a paragraph is genuinely the clearest form, it stays a paragraph.
 
@@ -15,23 +15,24 @@ It is also the most optional part of atomic-claude. The skills, commands, agents
 | Skills | TDD, verification, debugging, commit messages | ✓ |
 | Commands | Workflow orchestration (plan, implement, ship) | When invoked |
 | Agents | Specialized workers with their own prompts | When dispatched |
-| **Output style** | **Clarity: drop filler, fragments OK, structured output (tables, trees, ASCII flow)** | **When selected** |
+| **Output style** | **Clarity: drop filler, keep grammar, structured output (tables, trees, ASCII flow)** | **When selected** |
 
 The first four layers carry the load. The output style shapes how Claude communicates the result.
 
 
 ## Sentence rules
 
-The drop-list covers filler, pleasantries, hedging, preamble, closing recaps, em-dashes, and articles where the noun is predictable. Articles stay when the content surprises: "Rollback deletes the backup" is a warning, and a warning must parse on first read. Beyond the drop-list, four rules shape the reply:
+The drop-list covers filler, pleasantries, hedging, preamble, closing recaps, and em-dashes. Fragments are for labels, list items, and status lines; explanations get full sentences. Beyond the drop-list, five rules shape the reply:
 
-- **Say what you mean.** Mannered prose is removed outright. It makes the reader work harder so the writer can perform, and a metaphor drags in connotations the writer did not choose. When a literal phrase is available, it is used.
-- **Phrases readers hate.** The style file carries a short list of stock AI phrases ("here's the thing", "load-bearing", "not X, it's Y", and their siblings). None are used; the fact they were decorating is stated instead.
-- **Answer first, condition before instruction.** "If index stale, re-run indexer" scans in execution order. The trailing-condition form risks the reader acting before reading the guard.
+- **Keep it parseable.** Articles stay, and `that` stays where the next words are hard to predict. The style avoids stacked nouns, ad-hoc nouns used as verbs, inanimate subjects with human verbs ("this bites"), coined word pairs, and a subject far from its verb. Models overuse most of these constructions, and prior studies link them to harder reading. Evidence: [`docs/research/ai-language-processing-cost.md`](../research/ai-language-processing-cost.md).
+- **Say what you mean.** Mannered prose is removed outright. It makes the reader work harder so the writer can perform, and a metaphor drags in connotations that the writer did not choose. When a literal phrase is available, it is used.
+- **Phrases readers hate.** The style file carries a short list of stock AI phrases ("here's the thing", "load-bearing", "not X, it's Y", and their siblings). None are used; the fact that they were decorating is stated instead.
+- **Answer first, condition before instruction.** "If the index is stale, re-run the indexer" scans in execution order. The trailing-condition form risks the reader acting before reading the guard.
 - **Say it once, in the user's terms.** Restatement is the filler that word-cutting misses. Renaming the user's concepts mid-answer forces a mental cross-reference for zero gain.
 
 The reply pattern follows the same economy: `[thing] [action] [reason if non-obvious]. [next step].` A reason appears only when the reader cannot derive it, and when code fully answers the question, code is the whole reply.
 
-A reply defaults to under 120 words. Only a report, review, or plan runs longer, and then structure carries the length rather than paragraphs.
+A reply defaults to under 120 words. Only a report, review, or plan runs longer, and then structure carries the length rather than paragraphs. When the default and the grammar rules collide, the grammar wins: a reply that must shrink removes a whole idea first.
 
 The style file carries three bad/good example pairs, so the model learns the contrast, not just the instruction.
 
@@ -73,7 +74,7 @@ To opt out, run `atomic config set output_style.seed false`. **Deleting the `out
 
 ## Safety always wins
 
-Five Auto-Clarity triggers revert the style to full prose: security warnings, irreversible-action confirmations, multi-step sequences where fragment order could be misread, cases where the compression itself creates technical ambiguity, and the user asking to clarify or repeating a question. Clarity is the point, and these are the cases where a terse fragment could be misread. Atomic style resumes once the clear part is done.
+Four Auto-Clarity triggers revert the style to full prose with no fragments: security warnings, irreversible-action confirmations, multi-step sequences where a misread order would cause harm, and the user asking to clarify or repeating a question. Clarity is the point, and these are the cases where a terse fragment could be misread. Atomic style resumes once the clear part is done.
 
 
 ## Two surfaces, one file voice
