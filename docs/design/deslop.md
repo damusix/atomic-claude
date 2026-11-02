@@ -148,7 +148,7 @@ sees this repository; it does not see a downstream consumer importing the packag
 An unreferenced export is therefore evidence of nothing on its own, which is why
 public surface never leaves the report.
 
-## What bites
+## What can go wrong
 
 - **Findings age.** The report is a snapshot against a SHA. It records the SHA it was taken at, and `/deslop apply` refuses to run against a materially different tree rather than editing lines that moved.
 - **A large repo produces a large report.** Findings are grouped by tier and category with counts up front, so the user can accept a whole tier without reading every line.

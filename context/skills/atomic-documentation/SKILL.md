@@ -28,7 +28,7 @@ This skill reads the project's indexed documentation surfaces, matches a diff ag
 
 | Surface | Where | Style |
 |---------|-------|-------|
-| **How Claude talks** | TUI replies | Atomic output style: terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. |
+| **How Claude talks** | TUI replies | Atomic output style: fragments in labels, list items, and status lines; full sentences in explanations. Governed by `output-styles/atomic.md`. |
 | **How files are written** | All file content | The `atomic-writing` skill, everywhere: README, guides, reference, specs, designs, wiki pages, `CLAUDE.md`, and the prompt artifacts under `commands/`, `agents/`, `skills/`, `rules/`. One voice; length is set by what the surface carries. |
 
 There is no separate terse-technical voice. A spec and a README differ in length and structure, not in voice, and either one prefers a diagram over a paragraph when the content has a shape.

@@ -131,7 +131,7 @@ tags: [<2-3 tags from the wiki's existing vocabulary>]
 </output_format>
 
 <page_order>
-The five sections answer, in order: what is this and why do I care, how does it work, where is it, what will bite me, what else does it touch. Write `## What it does` last and move it to the top — a purpose written before the mechanism is understood comes out as mechanism.
+The five sections answer, in order: what is this and why do I care, how does it work, where is it, what can go wrong, what else does it touch. Write `## What it does` last and move it to the top — a purpose written before the mechanism is understood comes out as mechanism.
 </page_order>
 
 <constraints>
@@ -500,7 +500,7 @@ Every wiki file is read by a session mid-task, not studied start to finish. Writ
 
 ## Domain file shape
 
-Required sections per domain file (vertical slice), in this order. The order is the reading order: what is this and why do I care, how does it work, where is it, what will bite me, what else does it touch. A domain page is read by a session mid-task, and a page that opens on a path inventory makes that session read to the end before it knows whether it is in the right file.
+Required sections per domain file (vertical slice), in this order. The order is the reading order: what is this and why do I care, how does it work, where is it, what can go wrong, what else does it touch. A domain page is read by a session mid-task, and a page that opens on a path inventory makes that session read to the end before it knows whether it is in the right file.
 
 ```markdown
 ---
