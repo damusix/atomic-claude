@@ -9,6 +9,7 @@ paths:
   - "context/agents/atomic-auditor.md"
   - "context/agents/atomic-investigator.md"
   - "context/agents/atomic-strategist.md"
+  - "context/agents/atomic-deslopper.md"
   - "context/skills/atomic-tdd/**"
   - "context/skills/atomic-verify/**"
   - "context/skills/atomic-git-discipline/**"

@@ -149,7 +149,7 @@ signals <refreshed | initialized>.
 suggested next step:
   git add -A docs/wiki/*.md
   [ ! -d .claude/rules/wiki ] || git add -A .claude/rules/wiki/
-  (and CLAUDE.md and any amended ignore file if modified)
+  (and CLAUDE.md and any amended ignore file if modified or untracked)
   then: /commit
 ```
 
