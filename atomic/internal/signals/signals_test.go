@@ -1109,6 +1109,58 @@ func TestEnumerateFiles_ExcludesDocsWiki(t *testing.T) {
 	})
 }
 
+func TestScanTree_ExcludesWikiRuleCards(t *testing.T) {
+	files := map[string]string{
+		"main.go":                            "package main\n",
+		".claude/rules/wiki/carddomain.md":   "# card\n",
+		".claude/rules/authoring/sibling.md": "# sibling rule\n",
+	}
+	check := func(t *testing.T, root string) {
+		out, err := signals.ScanTree(root)
+		if err != nil {
+			t.Fatalf("ScanTree: %v", err)
+		}
+		if strings.Contains(out, "carddomain.md") {
+			t.Errorf(".claude/rules/wiki/ should be excluded:\n%s", out)
+		}
+		if !strings.Contains(out, "sibling.md") {
+			t.Errorf("skip must be scoped to rules/wiki/, not all of .claude/rules/:\n%s", out)
+		}
+	}
+
+	t.Run("walkdir", func(t *testing.T) {
+		check(t, makeRepo(t, files))
+	})
+	t.Run("git", func(t *testing.T) {
+		root := makeRepo(t, files)
+		initGit(t, root)
+		exec.Command("git", "-C", root, "add", ".").Run()
+		exec.Command("git", "-C", root, "commit", "-m", "init").Run()
+		check(t, root)
+	})
+}
+
+func TestStale_FreshAfterWikiRuleCardWritten(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"main.go": "package main\n",
+	})
+	if err := signals.Scan(root); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	card := filepath.Join(root, ".claude", "rules", "wiki", "newdomain.md")
+	if err := os.MkdirAll(filepath.Dir(card), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(card, []byte("Domain: new.\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if _, err := signals.Stale(root); err != nil {
+		t.Errorf("expected fresh after writing a wiki rule card, got: %v", err)
+	}
+}
+
 func TestScanLanguages_FileCountFormat(t *testing.T) {
 	root := makeRepo(t, map[string]string{
 		"a.go": "package main\n\nfunc A() {}\n",

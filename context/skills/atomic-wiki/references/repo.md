@@ -21,7 +21,7 @@ Every sentence in a signals file must be verifiable by reading the source. If it
 
 ### Step 1 — Scan
 
-Run `atomic signals scan`. This writes `docs/wiki/scan.md` and copies the prior content to `tmp/.scan.prev.md` (gitignored). The `tmp/.scan.prev.md` copy is a fallback diff source for environments where git is unavailable; in repos with a committed `docs/wiki/scan.md`, the scope-computation step (Step 2b) uses `git diff HEAD -- docs/wiki/scan.md` as the canonical diff baseline instead. When `atomic signals scan` exits non-zero, quote its error and end the run without inferring.
+Run `atomic signals scan`. This writes `docs/wiki/scan.md` and, when `scan.md` changes, copies the prior content to `tmp/.scan.prev.md` (gitignored). The `tmp/.scan.prev.md` copy is a fallback diff source for environments where git is unavailable; in repos with a committed `docs/wiki/scan.md`, the scope-computation step (Step 2b) uses `git diff HEAD -- docs/wiki/scan.md` as the canonical diff baseline instead. When `atomic signals scan` exits non-zero, quote its error and end the run without inferring.
 
 ### Step 2 — Read inputs
 
@@ -55,7 +55,7 @@ flowchart TD
 - **scan-sha vs HEAD blob?**: compare the `<scan-sha>` value stored in `docs/wiki/index.md` (the blob SHA written at the last successful INFER) with `git rev-parse HEAD:docs/wiki/scan.md`. Differing values mean `docs/wiki/scan.md` was committed without a matching re-infer (double-scan or stale-scan). **This check is the sole purpose of `<scan-sha>`; it is not consulted in any other staleness decision.** `rev-parse` exits non-zero when scan.md is untracked, the repo has no such commit, or the working tree is not a git repo at all.
 - **Line delta over ~20%?**: `git diff HEAD -- docs/wiki/scan.md` compares the committed `scan.md` against the working-tree `scan.md`. Count lines added plus lines removed against the committed file's total line count; a large change makes a full re-infer safer.
 - **Log warning**: `"git diff unavailable for docs/wiki/scan.md; defaulting to full re-infer"`.
-- **Stale check exit?**: `atomic signals stale` as a sanity gate. Exit 0 (content-hash fresh) means nothing changed. The `tmp/.scan.prev.md` copy written by Step 1 remains available as the change-set source for any future incremental path in this environment; it is not used when scope is `full`.
+- **Stale check exit?**: `atomic signals stale` as a sanity gate. Exit 0 (content-hash fresh) means nothing changed. The `tmp/.scan.prev.md` copy written by each scan that changes `scan.md` remains available as the change-set source for any future incremental path in this environment; it is not used when scope is `full`.
 
 ### Step 3 — Infer domain partitioning (vertical slices)
 
@@ -247,7 +247,7 @@ description: <concise repo summary — one line>
 
 where:
 - `<wiki-type>repo</wiki-type>` — literal `repo` (this agent runs in repo scope).
-- `<scan-sha>SHA</scan-sha>` — compute the blob sha of `docs/wiki/scan.md` via `git hash-object docs/wiki/scan.md` and substitute the output. This records the content fingerprint of `scan.md` **as of this successful INFER**. On future refreshes, the Step 2b scope-computation compares this stored value against the committed blob SHA (`git rev-parse HEAD:docs/wiki/scan.md`): a mismatch means `scan.md` was committed without a matching re-infer, triggering `scope = full`. This is the only role of `<scan-sha>`; routine diff decisions use `git diff HEAD -- docs/wiki/scan.md` directly.
+- `<scan-sha>SHA</scan-sha>` — compute the blob sha of `docs/wiki/scan.md` via `git hash-object docs/wiki/scan.md` and substitute the output. This records the content fingerprint of `scan.md` **as of this successful INFER**; Step 8d re-stamps it when it re-scans. On future refreshes, the Step 2b scope-computation compares this stored value against the committed blob SHA (`git rev-parse HEAD:docs/wiki/scan.md`): a mismatch means `scan.md` was committed without a matching re-infer, triggering `scope = full`. This is the only role of `<scan-sha>`; routine diff decisions use `git diff HEAD -- docs/wiki/scan.md` directly.
 - `<wiki-schema>1</wiki-schema>` — literal `1`.
 
 Then write the router body (see **Router shape** below) starting with `# Project signals`.
@@ -366,9 +366,13 @@ atomic wiki init --scope repo
 
 This is idempotent: it writes `docs/wiki/CLAUDE.md` with OKF frontmatter and the commented steering scaffold if the file does not exist, and no-ops silently if it already exists. On creation the command prints `created <path>` on stdout.
 
+### Step 8d — Re-scan after post-scan writes
+
+Run this step only when Step 7b appended to an ignore file or Step 8 appended the `@-ref` block; those are the only post-Step-1 writes to files the scan reads. Skipping it otherwise keeps source edits made during the run out of a scan the inferrer never read. Run `atomic signals scan` again, then recompute `<scan-sha>` in `docs/wiki/index.md` with `git hash-object docs/wiki/scan.md`; `docs/wiki/` is scan-excluded, so the re-stamp does not change the scan. When the scan exits non-zero, quote its error, leave `<scan-sha>` as Step 7 wrote it, and continue to Step 9: every page and card is already written, and the commit is never blocked.
+
 ### Step 9 — Report (interactive only)
 
-Print one-line summary: `signals refreshed. <N> sections changed. inferrer updated <M> sections. <P> cards emitted, <Q> cards deleted<ignore-edit>.` where `<ignore-edit>` is empty when Step 7b made no ignore-file change, or `, <path> amended for rules/wiki` (e.g. `, .claude/.gitignore amended for rules/wiki`) when it did, appended to the same line, never printed as a second line. If concerns were found, return the concerns table for the caller to surface.
+Print one-line summary, counting `<N>` from `git diff HEAD -- docs/wiki/scan.md` (every section when `scan.md` is not yet committed; `unknown` when git is unavailable; never from `tmp/.scan.prev.md`, which Step 8d's re-scan can replace): `signals refreshed. <N> sections changed. inferrer updated <M> sections. <P> cards emitted, <Q> cards deleted<ignore-edit>.` where `<ignore-edit>` is empty when Step 7b made no ignore-file change, or `, <path> amended for rules/wiki` (e.g. `, .claude/.gitignore amended for rules/wiki`) when it did, appended to the same line, never printed as a second line. If concerns were found, return the concerns table for the caller to surface.
 
 In **silent mode**, produce no output beyond writing the files.
 
@@ -570,7 +574,7 @@ docs/wiki/
 └── cli.md            # domain file, OKF type: Domain
 ```
 
-Domain files are flat — one `docs/wiki/<domain>.md` per functional concern. `tmp/.scan.prev.md` holds the prior scan content (written by Step 1) as a fallback diff source for environments where git is unavailable; the primary change-set source is `git diff HEAD -- docs/wiki/scan.md`.
+Domain files are flat — one `docs/wiki/<domain>.md` per functional concern. `tmp/.scan.prev.md` holds the prior scan content (written by each scan that changes `scan.md`) as a fallback diff source for environments where git is unavailable; the primary change-set source is `git diff HEAD -- docs/wiki/scan.md`.
 
 
 ## Scope rule

@@ -45,16 +45,14 @@ var skipDirs = map[string]bool{
 	"vendor":       true,
 }
 
-// skippedPrefixes excludes, in every enumeration mode: the harness-relative
-// scratchpad (working memory) and project (legacy signals output) dirs, and the
-// fixed docs/wiki/ path. Scanning docs/wiki/ would be self-referential — the
-// inferrer stamps a <scan-sha> into index.md, changing its blob SHA, changing
-// the scan tree, leaving `atomic signals stale` at exit 1 forever.
+// skippedPrefixes hold no source. docs/wiki/index.md stamps scan.md's SHA, so
+// scanning the wiki or its rules/wiki cards makes the scan depend on itself.
 func skippedPrefixes() []string {
 	return []string{
-		config.ScratchpadDir("") + "/",
-		config.ProjectDir("") + "/",
+		config.ScratchpadDir("") + "/", // working memory
+		config.ProjectDir("") + "/",    // followups and doc-surfaces cache
 		"docs/wiki/",
+		".claude/rules/wiki/",
 	}
 }
 
