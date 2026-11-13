@@ -9,16 +9,16 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
+	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// writeRepoConfig writes content to <root>/.claude/atomic.toml.
 func writeRepoConfig(t *testing.T, root, content string) {
 	t.Helper()
-	dir := filepath.Join(root, ".claude")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	path := config.RepoConfigPath(root)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("writeRepoConfig mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "atomic.toml"), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("writeRepoConfig write: %v", err)
 	}
 }
@@ -26,7 +26,7 @@ func writeRepoConfig(t *testing.T, root, content string) {
 // The repo config is optional: without one, indexing proceeds unfiltered, so
 // absence must read as an informational PASS rather than a WARN.
 func TestCheckRepoConfigAbsent(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -39,29 +39,33 @@ func TestCheckRepoConfigAbsent(t *testing.T) {
 	}
 }
 
-func TestCheckRepoConfigAbsent_UnderNonDefaultHarnessDir(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
+func TestCheckRepoConfigAbsent_UnderNonDefaultStateDir(t *testing.T) {
+	root := t.TempDir()
+	defaultRel, err := filepath.Rel(root, config.RepoConfigPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
-	root := t.TempDir()
 	r := doctor.RunCheckRepoConfigWith(root)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %v, want PASS when repo config absent", r.Severity)
 	}
-	if !strings.Contains(r.Detail, ".pi/atomic.toml") {
-		t.Errorf("Detail = %q, want mention of the harness-aware path \".pi/atomic.toml\"", r.Detail)
+	if !strings.Contains(r.Detail, ".state/atomic.toml") {
+		t.Errorf("Detail = %q, want mention of the state-root path \".state/atomic.toml\"", r.Detail)
 	}
-	if strings.Contains(r.Detail, ".claude/atomic.toml") {
-		t.Errorf("Detail = %q, must not show the default-harness literal under a .pi harness", r.Detail)
+	if strings.Contains(r.Detail, defaultRel) {
+		t.Errorf("Detail = %q, must not show the unpinned path %q under a pinned state dir", r.Detail, defaultRel)
 	}
 }
 
-func TestCheckRepoConfigValid_UnderNonDefaultHarnessDir(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
+func TestCheckRepoConfigValid_UnderNonDefaultStateDir(t *testing.T) {
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
-	dir := filepath.Join(root, ".pi")
+	dir := filepath.Join(root, ".state")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -73,13 +77,13 @@ func TestCheckRepoConfigValid_UnderNonDefaultHarnessDir(t *testing.T) {
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %v, want PASS; detail: %s", r.Severity, r.Detail)
 	}
-	if !strings.Contains(r.Detail, ".pi/atomic.toml") {
-		t.Errorf("Detail = %q, want mention of \".pi/atomic.toml\"", r.Detail)
+	if !strings.Contains(r.Detail, ".state/atomic.toml") {
+		t.Errorf("Detail = %q, want mention of \".state/atomic.toml\"", r.Detail)
 	}
 }
 
 func TestCheckRepoConfigValid(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -97,7 +101,7 @@ func TestCheckRepoConfigValid(t *testing.T) {
 // Unparseable TOML only degrades indexing to unfiltered, so doctor mirrors
 // that severity with WARN rather than FAIL.
 func TestCheckRepoConfigMalformed(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -113,7 +117,7 @@ func TestCheckRepoConfigMalformed(t *testing.T) {
 }
 
 func TestCheckRepoConfigUnknownKey(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -129,7 +133,7 @@ func TestCheckRepoConfigUnknownKey(t *testing.T) {
 }
 
 func TestCheckRepoConfigInvalidGlob(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -145,7 +149,7 @@ func TestCheckRepoConfigInvalidGlob(t *testing.T) {
 }
 
 func TestCheckRepoConfigValid_ScopeInDetail(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -161,7 +165,7 @@ func TestCheckRepoConfigValid_ScopeInDetail(t *testing.T) {
 }
 
 func TestCheckRepoConfigInvalidScope(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -180,7 +184,7 @@ func TestCheckRepoConfigInvalidScope(t *testing.T) {
 }
 
 func TestCheckRepoConfigValid_IdleTimeout(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -193,7 +197,7 @@ func TestCheckRepoConfigValid_IdleTimeout(t *testing.T) {
 }
 
 func TestCheckRepoConfigInvalidIdleTimeout(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -210,7 +214,7 @@ func TestCheckRepoConfigInvalidIdleTimeout(t *testing.T) {
 
 // A zero duration is invalid, not a way to disable the timeout.
 func TestCheckRepoConfigInvalidIdleTimeout_ZeroRejected(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -226,7 +230,7 @@ func TestCheckRepoConfigInvalidIdleTimeout_ZeroRejected(t *testing.T) {
 }
 
 func TestCheckRepoConfigValid_MaxLines(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -239,7 +243,7 @@ func TestCheckRepoConfigValid_MaxLines(t *testing.T) {
 }
 
 func TestCheckRepoConfigInvalidMaxLines(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -278,7 +282,7 @@ func writeWikisClaudeMD(t *testing.T, root string) string {
 
 // Marker and registry make incompatible claims about one directory.
 func TestCheckRepoConfig_WikisContradiction(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -295,7 +299,7 @@ func TestCheckRepoConfig_WikisContradiction(t *testing.T) {
 }
 
 func TestCheckRepoConfig_WikisContradiction_EmptyClaudeMDPathSkips(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -310,8 +314,53 @@ func TestCheckRepoConfig_WikisContradiction_EmptyClaudeMDPathSkips(t *testing.T)
 	}
 }
 
+// A changed <wikis> projection must not silence the contradiction, because the
+// ~/.atomic/wikis.md authority decides.
+func TestCheckRepoConfig_WikisContradiction_AuthorityWinsOverProjection(t *testing.T) {
+	restore := config.SetStateDirForTest(".state")
+	defer restore()
+
+	home := t.TempDir()
+	root := filepath.Join(home, "realm")
+	if err := os.MkdirAll(filepath.Join(root, "wiki"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realmIndex := filepath.Join(root, "wiki", "index.md")
+	if err := os.WriteFile(realmIndex, []byte("# realm\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wiki.NewWikiRegistry(home).Save([]string{realmIndex}); err != nil {
+		t.Fatalf("seed authority: %v", err)
+	}
+
+	other := filepath.Join(home, "other", "wiki", "index.md")
+	if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("# other\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	claudeMD := filepath.Join(home, ".claude", "CLAUDE.md")
+	if err := os.MkdirAll(filepath.Dir(claudeMD), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(claudeMD, []byte(fmt.Sprintf("<wikis>\n- %s\n</wikis>\n", other)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writeRepoConfig(t, root, "scope = \"repo\"\n")
+
+	r := doctor.RunCheckRepoConfig(doctor.Opts{RepoRoot: root, ClaudeMDPath: claudeMD})
+	if r.Severity != doctor.WARN || !strings.Contains(r.Detail, "realm") {
+		t.Fatalf("severity = %v detail = %q, want WARN from the authority registration, not the changed projection", r.Severity, r.Detail)
+	}
+	if strings.Contains(r.Detail, claudeMD) {
+		t.Fatalf("detail = %q, want the wiki registry named, not the changed projection %s", r.Detail, claudeMD)
+	}
+}
+
 func TestCheckRepoConfig_WikisContradiction_ScopeRealmNoWarn(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -330,7 +379,7 @@ func TestCheckRepoConfig_WikisContradiction_ScopeRealmNoWarn(t *testing.T) {
 // from the same t.TempDir() string, so only this one can tell a symlink-aware
 // comparison from an Abs+Clean-only one.
 func TestCheckRepoConfig_WikisContradiction_SymlinkedRoot(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	base := t.TempDir()
@@ -375,7 +424,7 @@ func TestCheckRepoConfig_WikisContradiction_SymlinkedRoot(t *testing.T) {
 // The silence here is deliberate, not a gap: the marker outranks <wikis>, and
 // absence from <wikis> only costs the realm its staleness nudge.
 func TestCheckRepoConfig_ScopeRealm_NoWikisRegistrationsSilent(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -395,7 +444,7 @@ func TestCheckRepoConfig_ScopeRealm_NoWikisRegistrationsSilent(t *testing.T) {
 
 // RunCheckRepoConfigWith stays root-only so its callers need no ClaudeMDPath.
 func TestRunCheckRepoConfigWith_NoWikisSubCheck(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	root := t.TempDir()
@@ -411,7 +460,7 @@ func TestRunCheckRepoConfigWith_NoWikisSubCheck(t *testing.T) {
 // A repo-config problem degrades indexing to unfiltered; it never blocks the
 // doctor run.
 func TestCheckRepoConfigNeverFail(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
 	cases := []struct {

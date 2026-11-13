@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
@@ -472,7 +473,7 @@ func TestScan_CollisionIndexMDMissingMarker(t *testing.T) {
 }
 
 // The documented setup flow is `wiki init --scope realm` then `wiki scan`;
-// init's own wiki/CLAUDE.md must not trip the collision guard.
+// init's own AGENTS.md and CLAUDE.md loader must not trip the collision guard.
 func TestScan_AfterInitRealmScopeSucceeds(t *testing.T) {
 	root := t.TempDir()
 	makeGitRepo(t, root, "repoA")
@@ -506,12 +507,38 @@ func TestScan_AfterInitRealmScopeSucceeds(t *testing.T) {
 	}
 }
 
+// A wiki/ initialized before the loader pair holds only a scaffold CLAUDE.md;
+// upgrading the binary must not turn that documented setup into a collision.
+func TestScan_AfterPrePairInitSucceeds(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+	if _, err := wiki.InitRealmScope(root); err != nil {
+		t.Fatal(err)
+	}
+	wikiDir := filepath.Join(root, "wiki")
+	scaffold, err := os.ReadFile(filepath.Join(wikiDir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(wikiDir, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, wikiDir, "CLAUDE.md", string(scaffold))
+
+	if _, err := wiki.Scan(root, wiki.Options{Clock: fixedClock()}); err != nil {
+		t.Fatalf("scan after pre-pair init: %v", err)
+	}
+}
+
 // The init exemption is exact: a wiki/ holding anything beyond init's own
-// CLAUDE.md is foreign content the guard must still protect.
+// unedited files is foreign content the guard must still protect.
 func TestScan_CollisionForeignContentBesideInit(t *testing.T) {
 	cases := map[string]func(t *testing.T, wikiDir string){
 		"edited CLAUDE.md": func(t *testing.T, wikiDir string) {
 			writeFile(t, wikiDir, "CLAUDE.md", "# my own notes\n")
+		},
+		"edited AGENTS.md": func(t *testing.T, wikiDir string) {
+			writeFile(t, wikiDir, "AGENTS.md", "# my own notes\n")
 		},
 		"extra file": func(t *testing.T, wikiDir string) {
 			writeFile(t, wikiDir, "notes.md", "notes\n")
@@ -1287,6 +1314,60 @@ func TestScan_IndexedByOldLayout_BackCompat(t *testing.T) {
 	// The Members section must still link to the old signals.md path.
 	if !strings.Contains(content, ".claude/project/signals.md") {
 		t.Errorf("old-layout indexed repoA should still link to .claude/project/signals.md; content:\n%s", content)
+	}
+}
+
+// The legacy router lives under the member's state root, which is .atomic once
+// a repo has moved off .claude.
+func TestScan_IndexedByLegacySignalsUnderStateRoot(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	p := filepath.Join(repoA, ".atomic", "project", "signals.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# signals\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, wiki.Options{Clock: fixedClock()}); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `status="indexed"`) || !strings.Contains(content, ".atomic/project/signals.md") {
+		t.Errorf("repoA with .atomic/project/signals.md should be indexed and linked; content:\n%s", content)
+	}
+}
+
+// A member whose state root is ambiguous still holds its legacy router in one
+// of the candidates; refusing to pick a root must not demote it to pending.
+func TestScan_IndexedByLegacySignalsInAnAmbiguousMember(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".atomic"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".atomic", "config.toml"), []byte("[state]\ndir = \".state\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(config.SetHomeDirForTest(home))
+
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	if err := os.MkdirAll(filepath.Join(repoA, ".atomic", "project"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSignals(t, repoA)
+	if _, ok := config.QuietStateDir(repoA); ok {
+		t.Fatal("fixture must make the member's state root ambiguous")
+	}
+
+	if _, err := wiki.Scan(root, wiki.Options{Clock: fixedClock()}); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `status="indexed"`) || !strings.Contains(content, ".claude/project/signals.md") {
+		t.Errorf("ambiguous repoA with .claude/project/signals.md should be indexed; content:\n%s", content)
 	}
 }
 

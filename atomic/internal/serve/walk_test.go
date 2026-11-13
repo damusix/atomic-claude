@@ -1,13 +1,16 @@
 package serve_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
@@ -53,6 +56,149 @@ func TestBuildLinkGraph_IncludesClaudeExcludesOtherSkipDirs(t *testing.T) {
 			t.Errorf("BuildLinkGraph: %q must not be included in graph nodes (hidden/skip dir)", f)
 		}
 	}
+}
+
+func graphNodeSet(root string) map[string]bool {
+	set := map[string]bool{}
+	for _, n := range serve.BuildLinkGraph(root).Nodes() {
+		set[n] = true
+	}
+	return set
+}
+
+func assertNodes(t *testing.T, nodes map[string]bool, want, forbidden []string) {
+	t.Helper()
+	for _, w := range want {
+		if !nodes[w] {
+			t.Errorf("expected %q in graph nodes, got %v", w, nodes)
+		}
+	}
+	for _, f := range forbidden {
+		if nodes[f] {
+			t.Errorf("%q must not be in graph nodes", f)
+		}
+	}
+}
+
+// Pointer cards and follow-ups live in the state root; wiki links cite them.
+func TestBuildLinkGraph_IncludesDefaultStateRoot(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".atomic", "rules", "wiki", "x.md"), "# Card\n")
+	writeFile(t, filepath.Join(root, ".atomic", "project", "followups", "y.md"), "# Followup\n")
+	writeFile(t, filepath.Join(root, ".atomic", ".cache", "z.md"), "# Cache\n")
+	writeFile(t, filepath.Join(root, ".git", "h.md"), "# Git\n")
+	writeFile(t, filepath.Join(root, ".vscode", "v.md"), "# VSCode\n")
+	writeFile(t, filepath.Join(root, ".foo", "f.md"), "# Foo\n")
+
+	assertNodes(t, graphNodeSet(root),
+		[]string{".atomic/rules/wiki/x.md", ".atomic/project/followups/y.md"},
+		[]string{".atomic/.cache/z.md", ".git/h.md", ".vscode/v.md", ".foo/f.md"})
+}
+
+func TestBuildLinkGraph_IncludesNestedCustomStateRoot(t *testing.T) {
+	t.Setenv(config.StateDirEnvVar, ".state/atomic")
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".state", "atomic", "rules", "wiki", "x.md"), "# Card\n")
+	writeFile(t, filepath.Join(root, ".state", "atomic", ".cache", "z.md"), "# Cache\n")
+	writeFile(t, filepath.Join(root, ".state", "other", "o.md"), "# Other\n")
+	writeFile(t, filepath.Join(root, ".state", "loose.md"), "# Loose\n")
+	writeFile(t, filepath.Join(root, ".atomic", "rules", "wiki", "n.md"), "# Not the root\n")
+
+	assertNodes(t, graphNodeSet(root),
+		[]string{".state/atomic/rules/wiki/x.md"},
+		[]string{".state/atomic/.cache/z.md", ".state/other/o.md", ".state/loose.md", ".atomic/rules/wiki/n.md"})
+}
+
+// .claude is walked on its own merit, so a state root nested in it must not
+// fence off its other docs.
+func TestBuildLinkGraph_StateRootUnderClaudeKeepsClaudeDocs(t *testing.T) {
+	t.Setenv(config.StateDirEnvVar, ".claude/atomic")
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".claude", "atomic", "rules", "wiki", "x.md"), "# Card\n")
+	writeFile(t, filepath.Join(root, ".claude", "docs", "a.md"), "# Doc\n")
+
+	assertNodes(t, graphNodeSet(root),
+		[]string{".claude/atomic/rules/wiki/x.md", ".claude/docs/a.md"}, nil)
+}
+
+// Claude loads the cards through a .claude/rules/atomic link into the state
+// root; walking .claude must not list them a second time through it.
+func TestBuildLinkGraph_ClaudeCardLinkDoesNotDuplicateCards(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".atomic", "rules", "wiki", "x.md"), "# Card\n")
+	writeFile(t, filepath.Join(root, ".claude", "skills", "notes-management", "SKILL.md"), "# Skill\n")
+	if err := os.MkdirAll(filepath.Join(root, ".claude", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "..", ".atomic", "rules"), filepath.Join(root, ".claude", "rules", "atomic")); err != nil {
+		t.Fatal(err)
+	}
+
+	assertNodes(t, graphNodeSet(root),
+		[]string{".atomic/rules/wiki/x.md", ".claude/skills/notes-management/SKILL.md"},
+		[]string{".claude/rules/atomic/wiki/x.md"})
+}
+
+func TestBuildLinkGraph_StateRootUnderBuildDump(t *testing.T) {
+	t.Setenv(config.StateDirEnvVar, "tmp/atomic")
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "tmp", "atomic", "rules", "wiki", "x.md"), "# Card\n")
+	writeFile(t, filepath.Join(root, "tmp", "other", "o.md"), "# Other\n")
+	writeFile(t, filepath.Join(root, "tmp", "junk.md"), "# Junk\n")
+
+	assertNodes(t, graphNodeSet(root),
+		[]string{"tmp/atomic/rules/wiki/x.md"},
+		[]string{"tmp/other/o.md", "tmp/junk.md"})
+}
+
+// A long-running serve must follow `atomic state migrate` without a restart.
+func TestBuildLinkGraph_FollowsMigratedStateRoot(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, ".atomic", "rules", "wiki", "a.md"), "# Old\n")
+	writeFile(t, filepath.Join(root, ".state", "atomic", "rules", "wiki", "b.md"), "# New\n")
+
+	assertNodes(t, graphNodeSet(root),
+		[]string{".atomic/rules/wiki/a.md"}, []string{".state/atomic/rules/wiki/b.md"})
+
+	if _, err := config.PersistStateSelection(root, ".state/atomic"); err != nil {
+		t.Fatal(err)
+	}
+	assertNodes(t, graphNodeSet(root),
+		[]string{".state/atomic/rules/wiki/b.md"}, []string{".atomic/rules/wiki/a.md"})
+}
+
+// Serve only visits members; leftover-state warnings belong to verbs run there.
+func TestBuildLinkGraph_MemberLeftoverStateIsSilent(t *testing.T) {
+	var warnings bytes.Buffer
+	defer config.SetStateWarnOutForTest(&warnings)()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "member", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "member", ".atomic", "rules", "wiki", "c.md"), "# Card\n")
+	writeFile(t, filepath.Join(root, "member", ".claude", "project", "p.md"), "# Leftover\n")
+
+	graphNodeSet(root)
+	if warnings.Len() != 0 {
+		t.Errorf("walk printed state warnings: %q", warnings.String())
+	}
+}
+
+// Each realm member resolves its own state root.
+func TestBuildLinkGraph_IncludesMemberStateRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "member", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "member", ".atomic", "rules", "wiki", "c.md"), "# Card\n")
+	writeFile(t, filepath.Join(root, "member", ".foo", "f.md"), "# Foo\n")
+
+	assertNodes(t, graphNodeSet(root),
+		[]string{"member/.atomic/rules/wiki/c.md"},
+		[]string{"member/.foo/f.md"})
 }
 
 // walkMarkdownFilesRecursive is unexported, so it is driven through the nav

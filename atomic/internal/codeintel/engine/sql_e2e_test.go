@@ -11,6 +11,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // sqlEdgeClassFixture exercises one instance of every SQL edge class: inline FK,
@@ -55,7 +56,7 @@ func TestSQLEdgesEndToEnd(t *testing.T) {
 	if err := os.WriteFile(sqlPath, []byte(sqlEdgeClassFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	idxDir := filepath.Join(root, ".claude", ".atomic-index")
+	idxDir := config.IndexDir(root)
 	if err := os.MkdirAll(idxDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -208,7 +209,7 @@ func TestSQLWritesVsReadsEndToEnd(t *testing.T) {
 	if err := os.WriteFile(sqlPath, []byte(sqlWritesVsReadsFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	idxDir := filepath.Join(root, ".claude", ".atomic-index")
+	idxDir := config.IndexDir(root)
 	if err := os.MkdirAll(idxDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -352,15 +353,15 @@ ALTER TABLE ONLY public.orders
     ADD CONSTRAINT fk_orders_employees FOREIGN KEY (employee_id) REFERENCES public.employees;
 `
 
-// TestSQLCP6AlterTableFKResolution asserts the pg_dump FK form still resolves to
+// TestSQLAlterTableFKResolution asserts the pg_dump FK form still resolves to
 // references edges between the two tables.
-func TestSQLCP6AlterTableFKResolution(t *testing.T) {
+func TestSQLAlterTableFKResolution(t *testing.T) {
 	root := t.TempDir()
 	sqlPath := filepath.Join(root, "schema.sql")
 	if err := os.WriteFile(sqlPath, []byte(sqlPgDumpFKFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	idxDir := filepath.Join(root, ".claude", ".atomic-index")
+	idxDir := config.IndexDir(root)
 	if err := os.MkdirAll(idxDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -488,7 +489,7 @@ func TestSQLEndToEnd(t *testing.T) {
 	if err := os.WriteFile(sqlPath, []byte(sqlE2EFixture), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	idxDir := filepath.Join(root, ".claude", ".atomic-index")
+	idxDir := config.IndexDir(root)
 	if err := os.MkdirAll(idxDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

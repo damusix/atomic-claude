@@ -3,9 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"slices"
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 	"github.com/damusix/atomic-claude/atomic/internal/repoinit"
 	"github.com/spf13/cobra"
@@ -21,7 +26,7 @@ func buildRepoCmd(repoOverride *string) *cobra.Command {
 	}
 	initCmd := &cobra.Command{
 		Use:                "init",
-		Short:              "Scaffold .claude/ layout: dirs + nested .claude/.gitignore + root ignore rules (idempotent)",
+		Short:              "Scaffold the state-root layout: dirs + state-root .gitignore + root ignore rules (idempotent)",
 		Annotations:        map[string]string{"args_hint": ""},
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -31,6 +36,44 @@ func buildRepoCmd(repoOverride *string) *cobra.Command {
 	}
 	parent.AddCommand(initCmd)
 	return parent
+}
+
+// claudeEnrolled reports whether the ledger enrolls a Claude target; an
+// unreadable ledger warns and reads as not enrolled.
+func claudeEnrolled(home string, warn io.Writer) bool {
+	kinds, err := harness.EnrolledKinds(home)
+	if err != nil {
+		fmt.Fprintf(warn, "atomic repo init: warning: %v; treating Claude as not enrolled\n", err)
+		return false
+	}
+	return slices.Contains(kinds, harness.KindClaude)
+}
+
+// repoInit migrates legacy state first, so the layout lands in the new root.
+func repoInit(root, home string, out, errOut io.Writer) error {
+	if err := migrateStateIfPending(root, errOut); err != nil {
+		return err
+	}
+	enrolled := home != "" && claudeEnrolled(home, errOut)
+	actions, err := repoinit.Init(root, enrolled)
+	if err != nil {
+		return err
+	}
+	for _, a := range actions {
+		fmt.Fprintf(out, "%-8s %s\n", string(a.Kind), a.Name)
+		if a.Detail != "" {
+			fmt.Fprintf(out, "         %s\n", a.Detail)
+		}
+	}
+	if err := convergeSteeringMode(home, root, out); err != nil {
+		return err
+	}
+	stateRoot, err := config.RepositoryStateDir(root)
+	if err != nil {
+		return err
+	}
+	_, err = os.Stat(filepath.Join(root, ".claude"))
+	return convergeRepoCards(home, root, stateRoot, cardWrite{link: err == nil}, out)
 }
 
 func runRepo(args []string, repoOverride string) {
@@ -53,15 +96,10 @@ func runRepo(args []string, repoOverride string) {
 			fmt.Fprintf(os.Stderr, "atomic repo init: %v\n", err)
 			os.Exit(1)
 		}
-
-		actions, err := repoinit.Init(root)
-		if err != nil {
+		home, _ := os.UserHomeDir()
+		if err := repoInit(root, home, os.Stdout, os.Stderr); err != nil {
 			fmt.Fprintf(os.Stderr, "atomic repo init: %v\n", err)
 			os.Exit(1)
-		}
-
-		for _, a := range actions {
-			fmt.Printf("%-8s %s\n", string(a.Kind), a.Name)
 		}
 
 	default:

@@ -6,7 +6,8 @@ You work out of a folder. Call it a realm: a client engagement, a team's set of 
 
 ```
 ~/work/acme/                the realm
-├─ CLAUDE.md           realm rules · ## Capture surfaces written by bucket add
+├─ AGENTS.md           realm rules · ## Capture surfaces written by bucket add
+├─ CLAUDE.md           thin loader importing AGENTS.md (loader mode)
 ├─ billing-api/        repo · has its own wiki → indexed
 ├─ gateway/            repo · has its own wiki → indexed
 ├─ vendor-sdk/         repo · no wiki → summarized
@@ -29,16 +30,16 @@ Two layers fill a wiki, and they differ by who drives them.
 
 **Atomic drives the repo layer.** `/refresh-wiki` walks the realm, finds the repositories, and documents them. A repo that already has its own wiki is documented in place; the realm references it and cites the path, never copying them. A repo without one is opt-in, the kind that needs a deeper dive: you pick which ones get promoted to their own wiki, and the rest Claude summarizes into `repos/` from a read-only pass that never writes back to the source. `concerns/` holds what cuts across them.
 
-**You drive the capture layer through buckets.** Atomic never touches `research/` or any other user-maintained folder until you register it as a capture bucket. The realm `CLAUDE.md` lists each bucket folder, and every folder in a bucket has an `index.md` listing what it holds.
+**You drive the capture layer through buckets.** Atomic never touches `research/` or any other user-maintained folder until you register it as a capture bucket. The realm steering file lists each bucket folder, and every folder in a bucket has an `index.md` listing what it holds.
 
-**You manage the realm from a `CLAUDE.md`.** Keep one at the realm root, holding your rules for the realm and a pointer to the wiki. Claude Code walks up the directory tree when it loads `CLAUDE.md`, and the walk crosses repo boundaries, so a realm-root file stays in context from anywhere inside the realm, including a session you start in a member repo. The realm level is where that earns its place: cross-cutting concerns, or a feature or bug you are tracing across several services, work that spans repos instead of sitting in one. Start there to organize `research/`, manage `experiments/`, or reason across the repos at once.
+**You manage the realm from a steering pair.** Keep `AGENTS.md` at the realm root, holding your rules for the realm and a pointer to the wiki, with the thin `CLAUDE.md` loader beside it for Claude Code. The `[steering] claude` key ([`atomic-toml`](/reference/atomic-toml)) can drop the loader (`agents-md`) or keep only `CLAUDE.md` (`claude-md`). The harness walks up the directory tree loading steering, and the walk crosses repo boundaries, so a realm-root file stays in context from anywhere inside the realm, including a session you start in a member repo. The realm level is where that earns its place: cross-cutting concerns, or a feature or bug you are tracing across several services, work that spans repos instead of sitting in one. Start there to organize `research/`, manage `experiments/`, or reason across the repos at once.
 
-This draws the boundary. Atomic stays on the code side: it documents repos, keeps their wikis current, runs the plan-implement-ship lifecycle, and indexes the capture folders you register. The non-code work is yours to direct from the realm `CLAUDE.md`, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
+This draws the boundary. Atomic stays on the code side: it documents repos, keeps their wikis current, runs the plan-implement-ship lifecycle, and indexes the capture folders you register. The non-code work is yours to direct from the realm steering file, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
 
 Deterministic CLI verbs and one command do the work:
 
-- **`atomic wiki scan [--root=<path>]`** — scaffolds the wiki, scans the root for member repos, classifies each, declares `scope = "realm"` in the root's `.claude/atomic.toml`, and registers the wiki globally. A marker file that names another scope or fails to parse is warned about and left unchanged. Deterministic, no model.
-- **`atomic wiki init --scope repo|realm [--root=<path>]`** — writes the fixed-content `CLAUDE.md` scaffold for the given scope, and declares that root's identity: it writes `scope = "repo"` or `scope = "realm"` into `.claude/atomic.toml`, the same marker `atomic repo init` writes on the repo side. `atomic where`'s realm axis prefers this marker over the `<wikis>` registry below; `repoctx` prefers the repo marker over git detection. Idempotent; a root whose marker already names a different scope is left untouched and reported as a conflict. At realm scope the only file it writes under `wiki/` is `wiki/CLAUDE.md`; run `atomic wiki scan` afterwards to complete the scaffold. Scan accepts a `wiki/` that holds only that unedited file, and refuses any other `wiki/` that has no `index.md`.
+- **`atomic wiki scan [--root=<path>]`** — scaffolds the wiki, scans the root for member repos, classifies each, declares `scope = "realm"` in the root's `.atomic/atomic.toml` (`<state-root>/atomic.toml`; [resolution order](/reference/concepts#state-root-resolution-order)), and registers the wiki globally. A marker file that names another scope or fails to parse is warned about and left unchanged. Deterministic, no model.
+- **`atomic wiki init --scope repo|realm [--root=<path>]`** — writes the fixed-content steering scaffold for the given scope (`AGENTS.md`, shaped by the `[steering] claude` mode: a `CLAUDE.md` loader beside it by default), and declares that root's identity: it writes `scope = "repo"` or `scope = "realm"` into `.atomic/atomic.toml`, the same marker `atomic repo init` writes on the repo side. `atomic where`'s realm axis prefers this marker over the `<wikis>` registry below; `repoctx` prefers the repo marker over git detection. Idempotent; a root whose marker already names a different scope is left untouched and reported as a conflict. At realm scope the only files it writes under `wiki/` are the steering pair (`wiki/AGENTS.md` and its `CLAUDE.md` loader); run `atomic wiki scan` afterwards to complete the scaffold. Scan accepts a `wiki/` that holds only that unedited pair, and refuses any other `wiki/` that has no `index.md`.
 - **`atomic wiki stale [--root=<path>]`** — a read-only membership check. Reports `DRIFT added`, `DRIFT removed`, and `DRIFT status` lines for repos that differ from the last scan. Exits `0` no drift, `1` drift, `2` error. See [Membership drift](#membership-drift).
 - **`atomic wiki linkify --root=<path>`** — renders the path citations in summaries, concerns, and the index into file-relative markdown links. Deterministic, idempotent, no model.
 - **`atomic wiki bucket add|list|doc|skill|index`** — manage capture buckets. `add` registers a folder and splices the `<wiki-buckets>` block; `list` prints each registered bucket's name and path. See [Capture buckets](#capture-buckets) below.
@@ -73,7 +74,7 @@ The scan is idempotent. Re-running regenerates only the managed regions — the 
 
 ### Choosing which repos are members
 
-By default the scan walks the whole realm root and makes every git repo it finds a member. To keep out a repo sitting in a capture bucket or a notes folder, list your repos, or the folders that hold them, under `[realm] repos` in the realm root's `.claude/atomic.toml`:
+By default the scan walks the whole realm root and makes every git repo it finds a member. To keep out a repo sitting in a capture bucket or a notes folder, list your repos, or the folders that hold them, under `[realm] repos` in the realm root's `.atomic/atomic.toml`:
 
 ```toml
 [realm]
@@ -89,7 +90,8 @@ The scan and `atomic wiki stale` then walk only those paths. Entries accept glob
 <root>/wiki/
 ├── index.md      # managed <wiki-scan> + <wiki-buckets> blocks (CLI) + narrative (LLM)
 ├── README.md     # written by the scan
-├── CLAUDE.md     # steering, written by the scan
+├── AGENTS.md     # steering, written by the scan
+├── CLAUDE.md     # thin loader importing AGENTS.md (loader mode)
 ├── repos/        # summaries — only for repos without their own wiki
 │   ├── legacy-cron.md
 │   └── vendor-sdk/<domain>.md   # large repos are split by domain
@@ -97,7 +99,7 @@ The scan and `atomic wiki stale` then walk only those paths. Entries accept glob
     └── shared-auth.md
 ```
 
-The scan writes `index.md`, `README.md`, `CLAUDE.md`, and the empty `repos/` and `concerns/` folders. `/refresh-wiki` writes the summaries and re-authors existing concerns. You write a new concern by hand.
+The scan writes `index.md`, `README.md`, the steering pair (`AGENTS.md` and its `CLAUDE.md` loader), and the empty `repos/` and `concerns/` folders. `/refresh-wiki` writes the summaries and re-authors existing concerns. You write a new concern by hand.
 
 The wiki is its own git repository: `atomic wiki scan` runs `git init` for you. There is no in-file change log; the wiki's git history is the change log. `/refresh-wiki` ends by committing the wiki repo without asking.
 
@@ -129,7 +131,7 @@ When the refresh pass meets a `pending` repo, it presents the repos without one 
 
 ## The registry
 
-Each wiki registers its `index.md` path in a `<wikis>` block inside `~/.claude/CLAUDE.md`:
+Each wiki registers its `index.md` path in the authoritative registry at `~/.atomic/wikis.md`. That file is the source of truth; the harness global steering file carries a derived `<wikis>` projection of it:
 
 ```
 <wikis>
@@ -138,7 +140,7 @@ Each wiki registers its `index.md` path in a `<wikis>` block inside `~/.claude/C
 </wikis>
 ```
 
-The block sits outside the `<atomic>` block, so `atomic claude update` preserves it. It is not `@`-referenced: `atomic where`, realm code intelligence, and cross-wiki links read it on demand, so it adds no context to a session. The scan writes the entry idempotently: no duplicates on re-run, and the `<atomic>` block is never touched.
+The projection sits outside the `<atomic>` block, so `atomic claude update` preserves it. It is not `@`-referenced: `atomic where`, realm code intelligence, and cross-wiki links read it on demand, so it adds no context to a session. Registration writes the authority first and reprojects: no duplicates on re-run, and the `<atomic>` block is never touched. A registry that predates the authority file is seeded from the installed `<wikis>` block once; after that a changed projection is a conflict, never an import.
 
 
 ## Membership drift
@@ -195,7 +197,15 @@ atomic wiki bucket add research    # register ~/work/acme/research/
 atomic wiki bucket list            # research<TAB>/Users/you/work/acme/research
 ```
 
-`bucket add` creates the folder if it is missing, writes an `index.md` stub inside it unless one exists, adds a `<bucket>` entry to the `<wiki-buckets>` block in `wiki/index.md`, and writes a `## Capture surfaces` bullet naming `<bucket>/index.md` into the realm `CLAUDE.md`. It then adds a `<bucket-docs>` region to each folder's `index.md`, the bucket root included, creating the file when absent. Files other than `index.md` are not touched. Skipped folders, listed under the bucket index rules below, get no `index.md`. Registering a name that is already in the `<wiki-buckets>` block exits `1`. `bucket list` prints one `<name>\t<path>` line per registered bucket and exits `0`.
+`bucket add` creates the folder if it is missing, writes an `index.md` stub inside it unless one exists, adds a `<bucket>` entry to the `<wiki-buckets>` block in `wiki/index.md`, and writes a `## Capture surfaces` bullet naming `<bucket>/index.md`, with a `<!-- describe what this bucket is for -->` placeholder.
+
+The bullet goes into the first realm-root file that fits:
+
+1. The `AGENTS.md` or `CLAUDE.md` that already holds `## Capture surfaces`, `AGENTS.md` first. When that is `AGENTS.md` and a `CLAUDE.md` beside it does not import it, `bucket add` prints a warning naming that `CLAUDE.md`: it needs an `@AGENTS.md` line before Claude loads the section.
+2. A `CLAUDE.md` that does not import `@AGENTS.md`.
+3. The mode's guidance file: `AGENTS.md` under `loader` (with the thin `CLAUDE.md` loader written beside it when the realm has none) and `agents-md`, `CLAUDE.md` under `claude-md`.
+
+It edits no existing text outside that section. It then adds a `<bucket-docs>` region to each folder's `index.md`, the bucket root included, creating the file when absent. Files other than `index.md` are not touched. Skipped folders, listed under the bucket index rules below, get no `index.md`. Registering a name that is already in the `<wiki-buckets>` block exits `1`. `bucket list` prints one `<name>\t<path>` line per registered bucket and exits `0`.
 
 **Bucket names.** `atomic wiki bucket add <name>` rejects an empty or whitespace-only name, a name that starts with `-`, a name containing `/` or `\`, the names `.` and `..`, and the reserved name `wiki`. Any other name registers: hyphenated, underscored, digits, and mixed case all work.
 
@@ -241,7 +251,7 @@ atomic wiki bucket index [research]          # rebuild every folder's listing (s
 
 `atomic wiki bucket doc <bucket> <slug>` accepts a slug of `[a-z0-9-]+` and refuses a slug that names a skipped folder (`build`, `dist`, `target`, `tmp`, `vendor`), since the index would never list it. It also refuses if `<bucket>/<slug>` already exists as a file or folder. It writes `<slug>/index.md` (six-key frontmatter, `created` pre-stamped, a comment describing the stage layout) and `<slug>/01_raw/index.md`, prints the path of `<slug>/index.md`, then rebuilds the bucket's indexes. Add later stages as numbered folders by hand; the next rebuild indexes them.
 
-`atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line, the frontmatter contract above, and a `## Stages` placeholder for the stage folders the bucket's items use. The bucket's authoring conventions then travel with it as a skill that loads in sessions started at the realm root. A member-repo session reaches `<bucket>/index.md` instead, through the bucket's bullet under `## Capture surfaces` in the realm `CLAUDE.md`. `bucket skill` is a no-op if the file already exists.
+`atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line, the frontmatter contract above, and a `## Stages` placeholder for the stage folders the bucket's items use. The bucket's authoring conventions then travel with it as a skill that loads in sessions started at the realm root. A member-repo session reaches `<bucket>/index.md` instead, through the bucket's bullet under `## Capture surfaces` in the realm steering file. `bucket skill` is a no-op if the file already exists.
 
 `atomic wiki bucket index [<bucket>]` walks every folder of the named bucket (or every registered bucket, when no name is given) and rebuilds the `<bucket-docs>` region in each folder's `index.md`, then the `<wiki-bucket-list>` region in `wiki/index.md`, which links each bucket's root `index.md`. It prints one `<name>: N indexed, M unindexed` line per bucket, counting entries across the bucket's whole tree. An `index.md` with an unpaired `<bucket-docs>` tag is reported and left alone; the walk continues with the rest. `atomic wiki scan` runs this rebuild as part of its own pass, so you rarely need to call `bucket index` directly.
 

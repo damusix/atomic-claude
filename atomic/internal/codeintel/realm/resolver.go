@@ -54,14 +54,33 @@ type Resolution struct {
 
 	// Config is nil when code.toml is absent or the scope is not a realm.
 	Config *Config
+
+	// StateRoot is the realm's resolved state root; empty outside realm scopes.
+	StateRoot string
 }
 
-// DBPath is meaningful only in realm scopes.
+// ForRealm builds the realm-wide Resolution for a root known to be a realm,
+// refusing an ambiguous state root.
+func ForRealm(realmRoot string) (Resolution, error) {
+	state, err := stateRoot(realmRoot)
+	if err != nil {
+		return Resolution{}, err
+	}
+	return Resolution{Scope: ScopeRealmAll, RealmRoot: realmRoot, StateRoot: state}, nil
+}
+
+// DBPath is the read path, legacy <realm>/.atomic/ included. sync updates a
+// legacy database in place because a fresh one loses incremental state.
 func (r Resolution) DBPath(key string) string {
-	return filepath.Join(r.RealmRoot, ".atomic", key+".db")
+	state := r.StateRoot
+	if state == "" {
+		state = legacyStateDir(r.RealmRoot)
+	}
+	return readPath(r.RealmRoot, state, key+".db")
 }
 
-// Resolve picks a scope from cwd and the <wikis> registry at claudeMDPath. A
+// Resolve picks a scope from cwd and the wiki registry (authoritative
+// ~/.atomic/wikis.md, falling back to the <wikis> block at claudeMDPath). A
 // local index wins outright; otherwise cwd's position within a registered realm
 // decides. Sitting under a realm root but under no member is deliberately
 // ScopeNoIndex, guarding against a false realm match.
@@ -73,7 +92,7 @@ func Resolve(cwd, claudeMDPath string) (Resolution, error) {
 		return Resolution{Scope: ScopeRepo}, nil
 	}
 
-	indexPaths, err := wiki.ReadWikiIndexPaths(claudeMDPath)
+	indexPaths, err := wiki.RegisteredIndexPaths(claudeMDPath)
 	if err != nil {
 		// An absent block or file comes back (nil, nil), so any error here is a
 		// real read failure and must not be mistaken for "no realms registered".
@@ -92,12 +111,17 @@ func Resolve(cwd, claudeMDPath string) (Resolution, error) {
 		if cfgErr != nil {
 			return Resolution{}, cfgErr
 		}
+		state, stateErr := stateRoot(realmRoot)
+		if stateErr != nil {
+			return Resolution{}, stateErr
+		}
 
 		if cwd == realmRoot {
 			res := Resolution{
 				Scope:     ScopeRealmAll,
 				RealmRoot: realmRoot,
 				Config:    cfg,
+				StateRoot: state,
 			}
 			if cfg != nil {
 				res.Members = nonExcluded(cfg.Members)
@@ -114,6 +138,7 @@ func Resolve(cwd, claudeMDPath string) (Resolution, error) {
 						RealmRoot: realmRoot,
 						Members:   []MemberEntry{m},
 						Config:    cfg,
+						StateRoot: state,
 					}, nil
 				}
 			}

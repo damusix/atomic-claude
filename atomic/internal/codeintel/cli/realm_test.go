@@ -12,6 +12,7 @@ import (
 	codecli "github.com/damusix/atomic-claude/atomic/internal/codeintel/cli"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 func writeGoFile(t *testing.T, path, content string) {
@@ -122,12 +123,93 @@ func TestRunCodeRealm_Index_SeedsConfigAndWritesRealmDBs(t *testing.T) {
 		}
 	}
 
-	// No .claude/.atomic-index/ must exist in any member dir.
 	for _, name := range []string{"alpha", "beta"} {
-		memberLocal := filepath.Join(realmRoot, "repos", name, ".claude", ".atomic-index")
+		memberLocal := config.IndexDir(filepath.Join(realmRoot, "repos", name))
 		if _, err := os.Stat(memberLocal); err == nil {
-			t.Errorf("member dir %q had .claude/.atomic-index/ created — violates SC 3", name)
+			t.Errorf("member dir %q had %s created — violates SC 3", name, memberLocal)
 		}
+	}
+}
+
+// A realm whose selection record names a custom root keeps code.toml and the
+// member databases there, ignores the databases, and queries them back.
+func TestRunCodeRealm_CustomRealmRootCarriesFederation(t *testing.T) {
+	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha"})
+	if _, err := config.PersistStateSelection(realmRoot, "custom/state"); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(realmRoot, "custom", "state")
+
+	var stdout, stderr bytes.Buffer
+	if code := codecli.RunCodeWithRealm([]string{"index"}, realmRoot, claudeMD, &stdout, &stderr, noStdin()); code != 0 {
+		t.Fatalf("realm index failed (exit %d);\nstdout: %s\nstderr: %s", code, stdout.String(), stderr.String())
+	}
+
+	for _, name := range []string{"code.toml", "alpha.db", ".gitignore"} {
+		if _, err := os.Stat(filepath.Join(state, name)); err != nil {
+			t.Errorf("%s missing from the custom realm root: %v", name, err)
+		}
+	}
+	if data, _ := os.ReadFile(filepath.Join(state, ".gitignore")); !strings.Contains(string(data), "/*.db") {
+		t.Errorf("custom realm root .gitignore lacks /*.db:\n%s", data)
+	}
+	if _, err := os.Stat(filepath.Join(realmRoot, ".atomic")); err == nil {
+		t.Error("nothing may be written to <realm>/.atomic/ when the record names another root")
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := codecli.RunCodeWithRealm([]string{"search", "Hello"}, realmRoot, claudeMD, &stdout, &stderr, noStdin()); code != 0 || !strings.Contains(stdout.String(), "[alpha]") {
+		t.Errorf("query against the custom root failed (exit %d): %s%s", code, stdout.String(), stderr.String())
+	}
+}
+
+// A realm whose only state is the legacy .claude/atomic.toml marker indexes
+// into <realm>/.atomic/, leaving nothing federation-shaped under .claude/.
+func TestRunCodeRealm_LegacyClaudeRealmIndexesIntoDotAtomic(t *testing.T) {
+	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha"})
+	writeGoFile(t, filepath.Join(realmRoot, ".claude", "atomic.toml"), "scope = \"realm\"\n")
+
+	var stdout, stderr bytes.Buffer
+	if code := codecli.RunCodeWithRealm([]string{"index"}, realmRoot, claudeMD, &stdout, &stderr, noStdin()); code != 0 {
+		t.Fatalf("realm index failed (exit %d);\nstdout: %s\nstderr: %s", code, stdout.String(), stderr.String())
+	}
+
+	for _, name := range []string{"code.toml", "alpha.db", ".gitignore"} {
+		if _, err := os.Stat(filepath.Join(realmRoot, ".atomic", name)); err != nil {
+			t.Errorf("%s missing from <realm>/.atomic/: %v", name, err)
+		}
+		if _, err := os.Stat(filepath.Join(realmRoot, ".claude", name)); err == nil {
+			t.Errorf("%s must not be written under .claude/", name)
+		}
+	}
+}
+
+// sync on a realm with a legacy database updates it in place; a fresh database
+// in the resolved root would discard its incremental state.
+func TestRunCodeRealm_SyncUpdatesLegacyDatabaseInPlace(t *testing.T) {
+	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha"})
+	if _, err := config.PersistStateSelection(realmRoot, "custom/state"); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(realmRoot, ".atomic")
+	writeGoFile(t, filepath.Join(legacy, "code.toml"), "[[member]]\nkey = \"alpha\"\npath = \"repos/alpha\"\n")
+	indexMember(t, filepath.Join(realmRoot, "repos", "alpha"), filepath.Join(legacy, "alpha.db"))
+	writeGoFile(t, filepath.Join(realmRoot, "repos", "alpha", "added.go"), "package alpha\n\nfunc FreshlyAdded() {}\n")
+
+	var stdout, stderr bytes.Buffer
+	if code := codecli.RunCodeWithRealm([]string{"sync"}, realmRoot, claudeMD, &stdout, &stderr, noStdin()); code != 0 {
+		t.Fatalf("realm sync failed (exit %d);\nstdout: %s\nstderr: %s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	codecli.RunCodeWithRealm([]string{"search", "FreshlyAdded"}, realmRoot, claudeMD, &stdout, &stderr, noStdin())
+	if !strings.Contains(stdout.String(), "FreshlyAdded") {
+		t.Errorf("the legacy database was not updated in place:\n%s%s", stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(realmRoot, "custom", "state", "alpha.db")); err == nil {
+		t.Error("sync must not create a second database in the custom root")
 	}
 }
 
@@ -428,9 +510,9 @@ func TestRunCodeRealm_MemberIndex_NoWriteIntoMemberDir(t *testing.T) {
 		t.Fatalf("member index failed (exit %d);\nstdout: %s\nstderr: %s", code, stdout.String(), stderr.String())
 	}
 
-	memberLocal := filepath.Join(alphaCWD, ".claude", ".atomic-index")
+	memberLocal := config.IndexDir(alphaCWD)
 	if _, err := os.Stat(memberLocal); err == nil {
-		t.Errorf("member dir had .claude/.atomic-index/ created — violates SC 3")
+		t.Errorf("member dir had %s created — violates SC 3", memberLocal)
 	}
 	if _, err := os.Stat(filepath.Join(alphaCWD, ".gitignore")); err == nil {
 		// The fixture writes none, so any file here came from the indexer.
@@ -566,8 +648,9 @@ func TestRunCodeRealm_ScopeRealmMember_Sync(t *testing.T) {
 		t.Errorf("expected 'synced:' in member sync output; got stdout: %s\nstderr: %s", stdout.String(), stderr.String())
 	}
 	// Sync must never create a local index inside the member repo.
-	if _, err := os.Stat(filepath.Join(alphaCWD, ".claude", ".atomic-index")); err == nil {
-		t.Errorf("member sync created .claude/.atomic-index/ inside the member repo — must write to the realm db only")
+	memberLocal := config.IndexDir(alphaCWD)
+	if _, err := os.Stat(memberLocal); err == nil {
+		t.Errorf("member sync created %s inside the member repo — must write to the realm db only", memberLocal)
 	}
 }
 
@@ -593,7 +676,7 @@ func TestRunCodeRealm_ScopeRealmMember_StatusReportsRealmDB(t *testing.T) {
 	if !strings.Contains(out, realmDB) {
 		t.Errorf("member status should report the realm db path %q; got: %s", realmDB, out)
 	}
-	if strings.Contains(out, filepath.Join(alphaCWD, ".claude")) {
+	if strings.Contains(out, filepath.Dir(config.IndexDir(alphaCWD))) {
 		t.Errorf("member status reported a member-local index path; it must report the realm db; got: %s", out)
 	}
 }

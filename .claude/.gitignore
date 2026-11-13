@@ -1,5 +1,4 @@
 # managed by atomic repo init; rules are relative to .claude/
-/.scratchpad/
 /agents/
 /commands/*
 !/commands/triage-issues.md
@@ -12,8 +11,6 @@
 /rules/*
 !/rules/authoring/
 !/rules/authoring/**
-!/rules/wiki/
-!/rules/wiki/**
+!/rules/atomic
 !/settings.local.json
-/.atomic-index/
 /worktrees/

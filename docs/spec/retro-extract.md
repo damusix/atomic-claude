@@ -15,13 +15,14 @@
 - No `subagents/` transcripts.
 - No `--json` output; markdown only.
 - No writes to `~/.atomic/retro-runs/`; the extractor only reads it for the default date.
-- No projects root other than `$HOME/.claude/projects`.
+- No projects root other than `<Claude config root>/projects` (`CLAUDE_CONFIG_DIR` when set, else `$HOME/.claude`), and no reader for OMP or Codex session history.
 
 
 ## Success criteria
 
 
-- [ ] `atomic retro extract --since 2026-08-19 -o out.md` walks every `~/.claude/projects/*/` dir, reads only `*.jsonl` files that are direct children of a project dir, and keeps those whose mtime is at or after local midnight of the date.
+- [ ] `atomic retro extract --since 2026-08-19 -o out.md` walks every `<Claude config root>/projects/*/` dir, reads only `*.jsonl` files that are direct children of a project dir, and keeps those whose mtime is at or after local midnight of the date.
+- [ ] The history source follows harness detection (`docs/spec/omp-plugin-compatibility.md`). Claude, or no harness detected on a home whose ledger enrolls a Claude target or no target, reads `<Claude config root>/projects`, where the root is `CLAUDE_CONFIG_DIR` when set, else `$HOME/.claude`. OMP or Codex detected, or no harness detected on a home that enrolls only OMP or Codex targets, reports `unsupported: no reader for <harness> session history` and exits 1. Ambiguous detection refuses, naming the candidates, and exits 1.
 - [ ] With no `--since`, the date is the `run_ts` of the newest `~/.atomic/retro-runs/*.json` (by name); with no such file, 30 days before now, and stderr names the fallback date either way.
 - [ ] `--project <glob>` keeps only project dirs whose basename matches a shell-style glob (`*`, `?`, `[...]`).
 - [ ] Each kept session with at least one entry is one section: a heading with the session date and the project directory (`cwd` of the first row that carries one, else the slug), then a line with the session id, first and last timestamp over all user/assistant rows, and the entry count. Sessions are ordered by first timestamp. Timestamps are the rows' UTC values passed through unchanged: RFC 3339 in the session line, `MM-DD HH:MM` in entry prefixes. Only the `--since` boundary is local midnight.
@@ -33,7 +34,7 @@
 - [ ] Rows longer than 64 KiB parse; a malformed row is skipped and counted, never fatal.
 - [ ] `--shards N` with `-o out.md` writes `out.1.md` … `out.K.md` where `K = min(N, sessions)`, sessions are never split across files, assignment balances rendered byte size, each file is chronological within itself and its header names `shard i/K`. `--shards` without `-o` is a usage error.
 - [ ] Without `-o`, the single file goes to stdout. The summary always goes to stderr: files scanned with total bytes, projects scanned, sessions kept, unparsable rows, and per output file its path, byte size, and line count.
-- [ ] Exit codes: 0 success; 2 usage (unparsable `--since`, `--shards < 1`, `--shards` without `-o`, unknown verb or flag); 1 runtime (projects dir unreadable, output unwritable).
+- [ ] Exit codes: 0 success; 2 usage (unparsable `--since`, `--shards < 1`, `--shards` without `-o`, unknown verb or flag); 1 runtime (projects dir unreadable, output unwritable, unsupported or ambiguous history source).
 - [ ] The built binary run over the real `~/.claude/projects` (about 130 files, 740 MB) finishes in under 30 seconds; input and output sizes and the wall time are recorded in the implementation log, with no transcript text.
 - [ ] `atomic retro extract` appears in `cliusage`'s golden table, `TestDeriveCommandsGolden` and the root verb-count test pass, and `atomic validate artifacts` accepts every citation of the verb in the artifacts.
 - [ ] `context/commands/retrospective-learning.md` runs the extractor in pre-flight (`--shards 4`, into the scratchpad), briefs one Sonnet scanner per shard file to answer with `file:line + category` and no re-typed quotes, runs the prior-retro auditor on Sonnet, and recovers each cited line with `sed` in Step 4. Scope wording no longer says "last 5 sessions" or reads `SESSIONS_DIR`.
@@ -58,6 +59,7 @@ atomic/
 │   ├── render.go                                A  markdown, numbering, truncation, sharding
 │   ├── render_test.go                           A
 │   ├── lastrun.go                               A  default --since from ~/.atomic/retro-runs
+│   ├── history.go                               A  history source per detected harness
 │   ├── lastrun_test.go                          A
 │   └── testdata/projects/                       A  synthetic sessions, one row per shape
 ├── internal/cliusage/cliusage.go                M  {retro, extract} golden entry
@@ -106,6 +108,10 @@ atomic/internal/retro/render.go
 
 atomic/internal/retro/lastrun.go
   LastRunSince — run_ts of the newest retro-runs file, or absent
+
+atomic/internal/retro/history.go
+  HistoryDir — Claude projects dir for the detected or enrolled harness; unsupported or ambiguous otherwise
+  UnsupportedError — names the harness with no history reader
 
 atomic/internal/retro/extract_test.go
   row rules — one case per fixture shape from the design table
@@ -174,7 +180,7 @@ README.md
 **Flow: extract to one file**
 
 1. agent runs `atomic retro extract --since 2026-08-19 -o out.md`
-2. CLI resolves `$HOME/.claude/projects`; unreadable → exit 1
+2. CLI resolves the history source from harness detection, else the ledger; OMP, Codex, or ambiguous → message and exit 1; otherwise `<Claude config root>/projects` (`CLAUDE_CONFIG_DIR`, else `$HOME/.claude`), unreadable → exit 1
 3. CLI lists each project dir, takes `*.jsonl` direct children whose mtime ≥ local midnight of the date, and applies `--project` to the dir basename
 4. for each file, `parseSession` streams rows; user rows pass the drop rules or render as `user:` / `/verb` entries; assistant rows contribute `skill:` / `agent:` entries; every user/assistant row extends the session span
 5. sessions with at least one entry are sorted by first timestamp and rendered: document header, one section per session, every line prefixed with its physical number
@@ -240,6 +246,23 @@ README.md
 **Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
 
 **Superseded:** the pre-flight announced and skipped the history scan when `atomic` was absent.
+
+
+### 2026-11-10 — History source follows harness detection
+
+**What changed:** `atomic retro extract` picks its history source from harness detection, falling back to the install ledger when nothing is detected. Only Claude has a reader; OMP and Codex report `unsupported` naming the harness, and ambiguous detection refuses. Both exit 1.
+
+**Why:** On OMP-only and Codex-only homes the verb failed on a missing `~/.claude/projects` instead of saying the harness has no reader (`docs/spec/omp-plugin-compatibility.md`, P-47 and P-60).
+
+**Superseded:** the verb always read `$HOME/.claude/projects`.
+
+### 2026-11-11 — Claude history follows CLAUDE_CONFIG_DIR
+
+**What changed:** the Claude history source is `<Claude config root>/projects`, resolved through `config.ClaudeConfigDir`: `CLAUDE_CONFIG_DIR` when set, else `$HOME/.claude`.
+
+**Why:** Claude Code keeps its transcripts under `CLAUDE_CONFIG_DIR`, and install, doctor, and the session-start hook already resolve Claude's root that way.
+
+**Superseded:** the Claude history source was always `$HOME/.claude/projects`.
 
 
 ## Implementation log

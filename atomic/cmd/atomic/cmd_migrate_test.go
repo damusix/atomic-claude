@@ -179,9 +179,10 @@ func makeRealmWithMember(t *testing.T, setup func(memberRoot string)) (realmRoot
 func TestRunMigrateInstall_TwoRootSplit(t *testing.T) {
 	home := t.TempDir()
 
-	// Gives migrate.Run a "0.0.0" floor to migrate up from.
 	cfgPath := config.TOMLPath(home)
-	if err := config.WritePersist(cfgPath, config.Default()); err != nil {
+	seed := config.Default()
+	seed.Install.Version = "0.0.1"
+	if err := config.WritePersist(cfgPath, seed); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
 
@@ -219,6 +220,39 @@ func TestRunMigrateInstall_TwoRootSplit(t *testing.T) {
 	legacyCfgPath := config.TOMLPath(wantClaudeHome)
 	if _, err := os.Stat(legacyCfgPath); !os.IsNotExist(err) {
 		t.Errorf("expected no config.toml under <home>/.claude/.atomic, stat err = %v", err)
+	}
+}
+
+// The update trigger keys on [install].version, so a home with no legacy
+// record (v2-only, OMP-only) must not gain one from a migration.
+func TestRunMigrateInstall_NoLegacyRecordWritesNone(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := config.TOMLPath(home)
+	if err := config.WritePersist(cfgPath, config.Default()); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	origRegistry := migrate.Registry
+	defer func() { migrate.Registry = origRegistry }()
+	ran := false
+	migrate.Registry = append(append([]migrate.Migration{}, origRegistry...), migrate.Migration{
+		TargetVersion: "99.0.0",
+		Scope:         "install",
+		Up:            func(*migrate.Context) error { ran = true; return nil },
+	})
+
+	if err := runMigrateInstall(home); err != nil {
+		t.Fatalf("runMigrateInstall: %v", err)
+	}
+	if ran {
+		t.Error("an install-scope step ran on a home with no legacy record")
+	}
+	cfg, _, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Install.Version != "" {
+		t.Errorf("Install.Version = %q, want empty: a home without a legacy record must not gain one", cfg.Install.Version)
 	}
 }
 

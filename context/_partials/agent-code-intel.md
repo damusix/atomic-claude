@@ -1,7 +1,7 @@
 {{- define "agent-code-intel" -}}
 ## Code-intel index
 
-When `.claude/.atomic-index/atomic.db` is present, prefer `atomic code` verbs for location and relationship questions — they query a pre-built symbol graph and return results that grep cannot replicate:
+When `<state-root>/.atomic-index/atomic.db` is present (`<state-root>` is the `state_root` field of `atomic where --json`, `.atomic` by default), prefer `atomic code` verbs for location and relationship questions — they query a pre-built symbol graph and return results that grep cannot replicate:
 
 - `atomic code explore "<query>"` — **reach for this first when scoping an unfamiliar area.** Takes a natural-language query and returns a bundled context digest (markdown): the relevant symbols, files, and relationships in one shot, instead of you issuing four separate queries and stitching the results together. Use it to orient, then drill in with the targeted verbs below.
 - `atomic code search <symbol>` — where a symbol is defined and used (outranks sg/grep for this question)
@@ -13,11 +13,11 @@ Add `--json` to any query verb for machine-parseable output when processing resu
 
 **Bounded queries only.** Scope every query — one `explore` question or one symbol at a time. Never attempt to dump or sweep the full graph; the index answers a specific question, it is not a corpus to read.
 
-**Graceful degradation — non-negotiable.** Before querying, confirm `.claude/.atomic-index/atomic.db` exists and the query returns usable output. On a missing DB or a query error, fall back silently to sg/grep/heuristics. Never print an error about the index being unavailable; never block because it is missing. The query is an enhancement; grep is the floor. This matters because the artifacts install into user repos that never ran `atomic code index`.
+**Graceful degradation — non-negotiable.** Before querying, confirm `<state-root>/.atomic-index/atomic.db` exists and the query returns usable output. On a missing DB or a query error, fall back silently to sg/grep/heuristics. Never print an error about the index being unavailable; never block because it is missing. The query is an enhancement; grep is the floor. This matters because the artifacts install into user repos that never ran `atomic code index`.
 
 **Why the index exists.** It reflects working-tree state at the last `atomic code sync`. It is authoritative for existing symbols at that point in time. The orchestrator (not the subagent) owns keeping the index fresh — the subagent only queries.
 
-**Repo-scoped ignore.** A committed `.claude/atomic.toml` with `[code]` `ignore = ["<glob>", ...]` excludes matching files from the index. When a user asks to hide vendored/minified/generated files from the graph, write or extend that file and re-run `atomic code index`.
+**Repo-scoped ignore.** A committed `<state-root>/atomic.toml` with `[code]` `ignore = ["<glob>", ...]` excludes matching files from the index. When a user asks to hide vendored/minified/generated files from the graph, write or extend that file and re-run `atomic code index`.
 
-**Wiki realm fan-out.** If a `<code-index>` block is present in CLAUDE.md, the working directory is a wiki realm with N independently indexed member repos. `atomic code` queries fan out across all members at the realm root (results grouped under `[<key>]` headers; add `--json` for a `{ "<key>": … }` object); inside a member directory, only that member is queried. Use `--only <keys>` or `--exclude <keys>` to filter the fan-out set. Graceful degradation to `sg`/`grep` applies to realm queries as well.
+**Wiki realm fan-out.** If a `<code-index>` block is present in the project's steering file, the working directory is a wiki realm with N independently indexed member repos. `atomic code` queries fan out across all members at the realm root (results grouped under `[<key>]` headers; add `--json` for a `{ "<key>": … }` object); inside a member directory, only that member is queried. Use `--only <keys>` or `--exclude <keys>` to filter the fan-out set. Graceful degradation to `sg`/`grep` applies to realm queries as well.
 {{- end -}}

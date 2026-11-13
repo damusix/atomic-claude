@@ -42,7 +42,7 @@ func makeRepo(t *testing.T, artifacts map[string][]byte) string {
 func committedFrom(arts []bundlemirror.Artifact) []embedded.Artifact {
 	out := make([]embedded.Artifact, len(arts))
 	for i, a := range arts {
-		out[i] = embedded.Artifact{Kind: a.Kind, Source: a.Source, Target: a.Target, SHA256: a.SHA256}
+		out[i] = embedded.Artifact{Kind: a.Kind, Source: a.Source, Target: a.Target, Canonical: a.Canonical, SHA256: a.SHA256}
 	}
 	return out
 }
@@ -52,7 +52,7 @@ func TestCompare_OK(t *testing.T) {
 	root := makeRepo(t, map[string][]byte{
 		"agents/atomic-foo.md": content,
 		"commands/bar.md":      []byte("# command\n"),
-		"CLAUDE.md":            []byte("# claude\n"),
+		"AGENTS.md":            []byte("# atomic\n"),
 	})
 
 	live, err := bundlemirror.Enumerate(root)
@@ -83,7 +83,7 @@ func TestCompare_Drift(t *testing.T) {
 	original := []byte("# agent original\n")
 	root := makeRepo(t, map[string][]byte{
 		"agents/atomic-foo.md": original,
-		"CLAUDE.md":            []byte("# claude\n"),
+		"AGENTS.md":            []byte("# atomic\n"),
 	})
 
 	live, err := bundlemirror.Enumerate(root)
@@ -123,7 +123,7 @@ func TestCompare_Drift(t *testing.T) {
 func TestCompare_Missing(t *testing.T) {
 	root := makeRepo(t, map[string][]byte{
 		"agents/atomic-foo.md": []byte("# agent\n"),
-		"CLAUDE.md":            []byte("# claude\n"),
+		"AGENTS.md":            []byte("# atomic\n"),
 	})
 
 	live, err := bundlemirror.Enumerate(root)
@@ -164,7 +164,7 @@ func TestCompare_Missing(t *testing.T) {
 func TestCompare_Extra(t *testing.T) {
 	root := makeRepo(t, map[string][]byte{
 		"agents/atomic-foo.md": []byte("# agent\n"),
-		"CLAUDE.md":            []byte("# claude\n"),
+		"AGENTS.md":            []byte("# atomic\n"),
 	})
 
 	live, err := bundlemirror.Enumerate(root)
@@ -206,7 +206,7 @@ func TestCompare_Combined(t *testing.T) {
 	root := makeRepo(t, map[string][]byte{
 		"agents/atomic-foo.md": []byte("# original\n"),
 		"agents/atomic-bar.md": []byte("# bar\n"),
-		"CLAUDE.md":            []byte("# claude\n"),
+		"AGENTS.md":            []byte("# atomic\n"),
 	})
 
 	live, err := bundlemirror.Enumerate(root)

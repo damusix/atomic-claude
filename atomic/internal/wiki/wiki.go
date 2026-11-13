@@ -17,8 +17,10 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
 
 // skipDirs mirrors the skip set in internal/signals/tree.go, plus .worktrees.
@@ -63,7 +65,7 @@ type Member struct {
 	// Status is one of "indexed", "pending", or "summarized".
 	Status string
 	// SignalsPath is the absolute router path when Status == "indexed":
-	// docs/wiki/index.md, or the legacy .claude/project/signals.md.
+	// docs/wiki/index.md, or the legacy <state-root>/project/signals.md.
 	SignalsPath string
 	// SummaryPath is the wiki-relative summary path when Status == "summarized".
 	SummaryPath string
@@ -143,13 +145,36 @@ func checkCollision(wikiDir string) error {
 	return nil
 }
 
+// onlyInitScaffold reports whether wikiDir holds exactly what InitRealmScope
+// writes in any steering mode, or the lone CLAUDE.md an older install carries.
 func onlyInitScaffold(wikiDir string) bool {
 	entries, err := os.ReadDir(wikiDir)
-	if err != nil || len(entries) != 1 || entries[0].Name() != "CLAUDE.md" || !entries[0].Type().IsRegular() {
+	if err != nil || len(entries) == 0 || len(entries) > 2 {
 		return false
 	}
-	data, err := os.ReadFile(filepath.Join(wikiDir, "CLAUDE.md"))
-	return err == nil && string(data) == realmSteeringScaffold
+	files := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			return false
+		}
+		data, err := os.ReadFile(filepath.Join(wikiDir, e.Name()))
+		if err != nil {
+			return false
+		}
+		files[e.Name()] = string(data)
+	}
+
+	steering := bundlespec.ScopeSteering
+	switch len(files) {
+	case 1:
+		return files[steering.ClaudeTarget] == realmSteeringScaffold ||
+			files[steering.ClaudeTarget] == string(managedfile.BracketedBlockDocument([]byte(realmSteeringScaffold))) ||
+			files[steering.Source] == realmSteeringScaffold
+	case 2:
+		return files[steering.Source] == realmSteeringScaffold &&
+			files[steering.ClaudeTarget] == string(steering.LoaderDocument())
+	}
+	return false
 }
 
 // priorEntry is one <repo> entry parsed from a previous scan block.
@@ -503,7 +528,7 @@ func fileExists(path string) bool {
 
 // classifyMembers derives each member's status, first rule wins:
 //  1. prior "summarized" whose summary file still exists → keep "summarized".
-//  2. docs/wiki/index.md, else legacy .claude/project/signals.md → "indexed".
+//  2. docs/wiki/index.md, else legacy <state-root>/project/signals.md → "indexed".
 //     A leftover summary must not demote a repo that has graduated.
 //  3. a summary already on disk under wiki/repos/ → "summarized". Needed
 //     because /refresh-wiki writes summaries after the scan that ordered them.
@@ -535,7 +560,7 @@ func classifyMembers(root, wikiDir string, members []string, prior map[string]pr
 			})
 			continue
 		}
-		if signalsAbs := filepath.Join(absRepo, ".claude", "project", "signals.md"); fileExists(signalsAbs) {
+		if signalsAbs := legacySignals(absRepo); signalsAbs != "" {
 			result = append(result, Member{
 				Path:        rel,
 				Status:      "indexed",
@@ -560,6 +585,17 @@ func classifyMembers(root, wikiDir string, members []string, prior map[string]pr
 	}
 
 	return result
+}
+
+// legacySignals returns the first project/signals.md under repo's state roots,
+// or "".
+func legacySignals(repo string) string {
+	for _, root := range config.QuietStateRoots(repo) {
+		if p := filepath.Join(root, "project", "signals.md"); fileExists(p) {
+			return p
+		}
+	}
+	return ""
 }
 
 // discoverSummary returns the wiki-relative summary path for member rel, or ""
@@ -587,8 +623,8 @@ func discoverSummary(wikiDir, rel string) string {
 	return ""
 }
 
-// scaffold creates wiki/ with repos/, concerns/, README.md and
-// CLAUDE.md, then git-inits it. Nothing existing is overwritten; index.md
+// scaffold creates wiki/ with repos/, concerns/, README.md and a steering pair
+// when it has none, then git-inits it. Nothing existing is overwritten; index.md
 // content is writeWikiScanBlock's job.
 func scaffold(wikiDir, root string) error {
 	for _, sub := range []string{wikiDir, filepath.Join(wikiDir, "repos"), filepath.Join(wikiDir, "concerns")} {
@@ -598,9 +634,19 @@ func scaffold(wikiDir, root string) error {
 	}
 
 	// Realm self-reference, so cd'ing straight into the wiki repo auto-loads
-	// index.md at session start.
-	if _, err := InitRealmScope(root); err != nil {
-		return fmt.Errorf("init realm CLAUDE.md: %w", err)
+	// index.md at session start. Create-only: reshaping an existing pair is
+	// `atomic repo init` and `atomic update`'s job.
+	if !hasSteeringFiles(wikiDir) {
+		if _, err := InitRealmScope(root); err != nil {
+			// A malformed atomic.toml was already reported as a scan warning and scans
+			// in loader shape; a readable one with a bad steering value fails.
+			if _, _, loadErr := config.LoadRepoConfig(config.RepoConfigPath(root)); loadErr == nil {
+				return fmt.Errorf("init realm CLAUDE.md: %w", err)
+			}
+			if _, _, err := initSteeringPair(wikiDir, realmSteeringScaffold, bundlespec.SteeringLoader); err != nil {
+				return fmt.Errorf("init realm CLAUDE.md: %w", err)
+			}
+		}
 	}
 
 	readmePath := filepath.Join(wikiDir, "README.md")

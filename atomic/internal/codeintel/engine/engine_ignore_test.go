@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // With no config present, every file is indexed and no warning is recorded.
@@ -32,7 +33,7 @@ func TestIndexAll_AbsentIgnoreConfig_OutputUnchanged(t *testing.T) {
 	}
 
 	if warns := e.IgnoreWarnings(); len(warns) != 0 {
-		t.Errorf("no .claude/atomic.toml present: expected no ignore warnings, got %v", warns)
+		t.Errorf("no repo config present: expected no ignore warnings, got %v", warns)
 	}
 
 	files, err := e.GetFiles(ctx)
@@ -52,7 +53,7 @@ func TestIndexAll_AbsentIgnoreConfig_OutputUnchanged(t *testing.T) {
 // warning rather than failing the run, and is not counted as compiled.
 func TestIndexAll_IgnoreConfigFiltersAndWarns(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(config.RepoConfigPath(dir)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeGoFile(t, dir, "main.go", "func Main() {}")
@@ -61,7 +62,7 @@ func TestIndexAll_IgnoreConfigFiltersAndWarns(t *testing.T) {
 	writeGoFile(t, dir, filepath.Join("external", "lib.go"), "func Lib() {}")
 
 	tomlContent := "[code]\nignore = [\"external/**\", \"vendor[/**\"]\n"
-	if err := os.WriteFile(filepath.Join(dir, ".claude", "atomic.toml"), []byte(tomlContent), 0o644); err != nil {
+	if err := os.WriteFile(config.RepoConfigPath(dir), []byte(tomlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,7 +104,7 @@ func TestIndexAll_IgnoreConfigFiltersAndWarns(t *testing.T) {
 	if count != 1 {
 		t.Errorf("IgnorePatternInfo count = %d, want 1 (only external/** compiles)", count)
 	}
-	wantPath := filepath.Join(dir, ".claude", "atomic.toml")
+	wantPath := config.RepoConfigPath(dir)
 	if path != wantPath {
 		t.Errorf("IgnorePatternInfo path = %q, want %q", path, wantPath)
 	}

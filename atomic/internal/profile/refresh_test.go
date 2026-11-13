@@ -5,6 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/workflow"
 )
 
 func TestParseDuration_Valid(t *testing.T) {
@@ -100,7 +104,7 @@ func TestRefresh_WritesNewFile(t *testing.T) {
 	home := t.TempDir()
 	date := "2026-05-28"
 
-	wrote, err := Refresh(home, date)
+	wrote, err := refresh(home, date, quiet(home))
 	if err != nil {
 		t.Fatalf("Refresh: unexpected error: %v", err)
 	}
@@ -140,7 +144,7 @@ func TestRefresh_RewritesExistingEnvironmentSection(t *testing.T) {
 	}
 
 	date := "2026-05-28"
-	wrote, err := Refresh(home, date)
+	wrote, err := refresh(home, date, quiet(home))
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
@@ -178,7 +182,7 @@ func TestRefresh_IfStale_NoOpWhenFresh(t *testing.T) {
 
 	statBefore, _ := os.Stat(profilePath)
 
-	wrote, err := RefreshIfStale(home, date, 7)
+	wrote, err := refreshIfStale(home, date, 7, quiet(home))
 	if err != nil {
 		t.Fatalf("RefreshIfStale: %v", err)
 	}
@@ -211,7 +215,7 @@ func TestRefresh_IfStale_RefreshesWhenStale(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wrote, err := RefreshIfStale(home, today, 7)
+	wrote, err := refreshIfStale(home, today, 7, quiet(home))
 	if err != nil {
 		t.Fatalf("RefreshIfStale: %v", err)
 	}
@@ -240,11 +244,118 @@ func TestRefresh_IfStale_NoLastcheck_Refreshes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wrote, err := RefreshIfStale(home, today, 7)
+	wrote, err := refreshIfStale(home, today, 7, quiet(home))
 	if err != nil {
 		t.Fatalf("RefreshIfStale: %v", err)
 	}
 	if !wrote {
 		t.Error("RefreshIfStale: expected wrote=true for v1-format file (no lastcheck)")
 	}
+}
+
+// `atomic workflow set` can write the profile while a refresh is probing; the
+// refresh must not overwrite that value with the content it read first.
+func TestRefresh_KeepsAProfileWriteThatLandsDuringTheProbes(t *testing.T) {
+	home := t.TempDir()
+	if _, err := refresh(home, "2026-05-01", quiet(home)); err != nil {
+		t.Fatal(err)
+	}
+	path := config.ProfilePath(home)
+	probe := probeFor(home)
+	var wroteMidway bool
+	probe.Getenv = func(string) string {
+		if !wroteMidway {
+			wroteMidway = true
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			content, err := workflow.SetValue(string(raw), workflow.LevelProfile,
+				workflow.KeyIssueTrackerProject, "ACME", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return ""
+	}
+	opts, _ := quietOpts(probe)
+	if _, err := refresh(home, "2026-05-28", opts); err != nil {
+		t.Fatal(err)
+	}
+	got := readProfile(t, path)
+	if !strings.Contains(got, "- issue-tracker-project: ACME") {
+		t.Errorf("the concurrent set was lost:\n%s", got)
+	}
+	if !strings.Contains(got, "<deterministic lastcheck=2026-05-28>") {
+		t.Errorf("the refresh was lost:\n%s", got)
+	}
+}
+
+func TestRefresh_WaitsForTheProfileLock(t *testing.T) {
+	home := t.TempDir()
+	opts := quiet(home)
+	unlock, err := LockProfile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error)
+	go func() {
+		_, err := refresh(home, "2026-05-28", opts)
+		done <- err
+	}()
+	select {
+	case <-done:
+		t.Fatal("refresh finished while the lock was held")
+	case <-time.After(200 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("refresh never finished after the lock was released")
+	}
+}
+
+func TestLockProfile_ASecondHolderWaitsForTheFirst(t *testing.T) {
+	home := t.TempDir()
+	unlock, err := LockProfile(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquired := make(chan func())
+	go func() {
+		second, err := LockProfile(home)
+		if err != nil {
+			t.Error(err)
+			second = func() {}
+		}
+		acquired <- second
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("second holder acquired the lock while the first held it")
+	case <-time.After(100 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case second := <-acquired:
+		second()
+	case <-time.After(5 * time.Second):
+		t.Fatal("second holder never acquired the released lock")
+	}
+}
+
+func readProfile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

@@ -51,8 +51,7 @@ func TestGitIgnores_SkipsBuildOutputButNotMemberRepos(t *testing.T) {
 
 // TestGitIgnores_SkipsLinkedWorktree covers the reported bug: a worktree under
 // .claude/worktrees is a whole second checkout of the same repository, so
-// enumerating it duplicates every file the main checkout already serves. It is
-// told apart from a member repo by its .git being a file, not a directory.
+// enumerating it duplicates every file the main checkout already serves.
 func TestGitIgnores_SkipsLinkedWorktree(t *testing.T) {
 	root := t.TempDir()
 	mkRepo(t, root)
@@ -128,6 +127,165 @@ func TestWalkMarkdown_ExcludesWorktreeCopies(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != "docs/guide.md" {
 		t.Errorf("walk = %v, want exactly [docs/guide.md]", got)
+	}
+}
+
+// commitAll makes the one commit `git worktree add` needs.
+func commitAll(t *testing.T, repo string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"add", "-A"},
+		{"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+}
+
+func addWorktree(t *testing.T, repo, dir string) {
+	t.Helper()
+	cmd := exec.Command("git", "worktree", "add", "-q", "-b", filepath.Base(dir), dir)
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("git worktree unavailable: %v: %s", err, out)
+	}
+}
+
+// A realm member checked out as a linked worktree of a repository kept
+// elsewhere is still a member: it is walked and its state root is listed.
+func TestGitIgnores_ServesMemberThatIsLinkedWorktree(t *testing.T) {
+	origin := filepath.Join(t.TempDir(), "origin")
+	mkRepo(t, origin)
+	write(t, filepath.Join(origin, "readme.md"), "# origin")
+	commitAll(t, origin)
+
+	realm := t.TempDir()
+	mkRepo(t, realm)
+	write(t, filepath.Join(realm, ".gitignore"), "/member/\n")
+	member := filepath.Join(realm, "member")
+	addWorktree(t, origin, member)
+	write(t, filepath.Join(member, ".atomic", "rules", "wiki", "c.md"), "# Card\n")
+
+	if newGitIgnores(realm).skipDir(member) {
+		t.Error("linked-worktree member was skipped")
+	}
+	if !BuildLinkGraph(realm).Has("member/.atomic/rules/wiki/c.md") {
+		t.Error("linked-worktree member's state root is missing from the graph")
+	}
+	entries, ok := listDirEntries(realm, "member")
+	if !ok {
+		t.Fatal("listDirEntries(member) failed")
+	}
+	found := false
+	for _, e := range entries {
+		found = found || (e.Folder && e.Name == ".atomic")
+	}
+	if !found {
+		t.Errorf("member listing lacks .atomic: %+v", entries)
+	}
+}
+
+// Serving from a linked worktree, a worktree nested inside it shares its
+// repository and is a second copy.
+func TestGitIgnores_ServedWorktreeSkipsNestedWorktree(t *testing.T) {
+	origin := filepath.Join(t.TempDir(), "origin")
+	mkRepo(t, origin)
+	write(t, filepath.Join(origin, "readme.md"), "# origin")
+	commitAll(t, origin)
+	served := filepath.Join(t.TempDir(), "served")
+	addWorktree(t, origin, served)
+	nested := filepath.Join(served, ".claude", "worktrees", "x")
+	addWorktree(t, origin, nested)
+
+	if !newGitIgnores(served).skipDir(nested) {
+		t.Error("a worktree nested in the served worktree was walked")
+	}
+}
+
+// Sibling realm members that are a checkout and its linked worktree are both
+// members, whichever the walk reaches first.
+func TestGitIgnores_WalksSiblingWorktreeMembersInEitherOrder(t *testing.T) {
+	for _, names := range [][2]string{{"a", "b"}, {"b", "a"}} {
+		mainName, wtName := names[0], names[1]
+		t.Run(mainName+"-main", func(t *testing.T) {
+			realm := t.TempDir()
+			main := filepath.Join(realm, mainName)
+			mkRepo(t, main)
+			write(t, filepath.Join(main, "main.md"), "# main")
+			commitAll(t, main)
+			addWorktree(t, main, filepath.Join(realm, wtName))
+			write(t, filepath.Join(realm, wtName, "wt.md"), "# wt")
+
+			g := BuildLinkGraph(realm)
+			for _, want := range []string{mainName + "/main.md", wtName + "/wt.md"} {
+				if !g.Has(want) {
+					t.Errorf("%s missing from the graph", want)
+				}
+			}
+		})
+	}
+}
+
+// A linked worktree inside a repository the walk already serves is a second
+// copy of it, whatever ignores it.
+func TestGitIgnores_SkipsUnignoredWorktreeOfServedRepo(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root")
+	mkRepo(t, root)
+	write(t, filepath.Join(root, "readme.md"), "# root")
+	commitAll(t, root)
+	wt := filepath.Join(root, "copies", "feature")
+	addWorktree(t, root, wt)
+
+	if !newGitIgnores(root).skipDir(wt) {
+		t.Error("a worktree copy of the served repository was walked")
+	}
+}
+
+// A submodule's .git file also points under the parent's .git/, but it is
+// distinct content, not a second checkout, so it is walked.
+func TestGitIgnores_WalksSubmodule(t *testing.T) {
+	sub := filepath.Join(t.TempDir(), "sub")
+	mkRepo(t, sub)
+	write(t, filepath.Join(sub, "doc.md"), "# Sub doc\n")
+	commitAll(t, sub)
+
+	parent := filepath.Join(t.TempDir(), "parent")
+	mkRepo(t, parent)
+	cmd := exec.Command("git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "lib")
+	cmd.Dir = parent
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("git submodule unavailable: %v: %s", err, out)
+	}
+
+	if newGitIgnores(parent).skipDir(filepath.Join(parent, "lib")) {
+		t.Error("submodule was skipped as a worktree copy")
+	}
+	if !BuildLinkGraph(parent).Has("lib/doc.md") {
+		t.Error("submodule doc is missing from the graph")
+	}
+}
+
+// A folder listing reads only the state-root exemption, so it must not pay
+// for listing every ignored path in the repository on each click.
+func TestStateRoots_ExemptsStateRootWithoutIgnoreListing(t *testing.T) {
+	root := t.TempDir()
+	mkRepo(t, root)
+	write(t, filepath.Join(root, ".gitignore"), "/dist/\n")
+	write(t, filepath.Join(root, "dist", "doc.md"), "generated")
+	write(t, filepath.Join(root, ".atomic", "rules", "wiki", "x.md"), "# Card\n")
+
+	g := newStateRoots(root)
+	if len(g.paths) != 0 {
+		t.Errorf("state-root filter loaded the ignore listing: %v", g.paths)
+	}
+	if g.hiddenDir(filepath.Join(root, ".atomic")) {
+		t.Error("state root is hidden")
+	}
+	if !g.hiddenDir(filepath.Join(root, ".foo")) {
+		t.Error("an unrelated dot directory is shown")
 	}
 }
 

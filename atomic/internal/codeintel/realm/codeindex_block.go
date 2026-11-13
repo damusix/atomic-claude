@@ -1,42 +1,55 @@
 package realm
 
-// The <code-index> block in the realm CLAUDE.md lists indexed members, so a
-// Claude session opened in any member repo picks up realm awareness through the
-// upward CLAUDE.md walk, which crosses git boundaries.
+// The <code-index> block sits in the realm file the steering mode makes Claude
+// load, so a session in any member repo sees the realm through the upward walk.
 //
 // The block carries no timestamp: one would diff on every index run, defeating
 // the regen-only-on-change rule.
-//
-// The splice logic duplicates wiki's rather than importing it, since wiki →
-// codeintel would be a dependency cycle.
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-const codeIndexMarkerOpen = "<code-index>"
+// guidanceFiles returns the file that carries the block in the steering mode and
+// the other one; under agents-md a CLAUDE.md would hide AGENTS.md.
+func guidanceFiles(realmRoot string) (target, other string, err error) {
+	mode, err := config.ResolveSteeringMode(config.ProjectHome(), realmRoot)
+	if err != nil {
+		return "", "", err
+	}
+	steering := bundlespec.ScopeSteering
+	target, other = steering.ClaudeTarget, steering.Source
+	if mode == bundlespec.SteeringAgentsMD {
+		target, other = other, target
+	}
+	return filepath.Join(realmRoot, target), filepath.Join(realmRoot, other), nil
+}
 
-const codeIndexMarkerClose = "</code-index>"
-
-// WriteCodeIndexBlock rewrites the block in <realmRoot>/CLAUDE.md, creating the
-// file if absent. Idempotent: a second call with the same members writes
-// nothing. members must arrive already filtered to the non-excluded set.
+// WriteCodeIndexBlock rewrites the block in the mode's realm file, creating it.
+// Idempotent. members must arrive already filtered to the non-excluded set.
 func WriteCodeIndexBlock(realmRoot string, members []MemberEntry) error {
-	claudeMDPath := filepath.Join(realmRoot, "CLAUDE.md")
+	guidancePath, _, err := guidanceFiles(realmRoot)
+	if err != nil {
+		return err
+	}
 	block := buildCodeIndexBlock(members)
 
-	existing, err := os.ReadFile(claudeMDPath)
+	existing, err := os.ReadFile(guidancePath)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("realm: read %s: %w", claudeMDPath, err)
+		return fmt.Errorf("realm: read %s: %w", guidancePath, err)
 	}
 
 	var newContent string
 	if os.IsNotExist(err) || len(existing) == 0 {
 		// Add a stub alongside the block so a fresh file is usable as-is.
-		newContent = block + "\n" + codeIndexDefaultStub()
+		newContent = block + "\n" + wiki.CodeIndexStub
 	} else {
 		newContent = rewriteCodeIndexBlock(string(existing), block)
 	}
@@ -46,48 +59,80 @@ func WriteCodeIndexBlock(realmRoot string, members []MemberEntry) error {
 		return nil
 	}
 
-	return os.WriteFile(claudeMDPath, []byte(newContent), 0o644)
+	return os.WriteFile(guidancePath, []byte(newContent), 0o644)
+}
+
+// MoveCodeIndexBlock moves the block and its stub to the mode's realm file after
+// a mode change, removing the file it empties. It returns the paths it changed.
+func MoveCodeIndexBlock(realmRoot string) (changed []string, err error) {
+	target, other, err := guidanceFiles(realmRoot)
+	if err != nil {
+		return nil, err
+	}
+	otherData, err := os.ReadFile(other)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("realm: read %s: %w", other, err)
+	}
+	content := string(otherData)
+	start, end, ok := wiki.FindCodeIndexBlock(content)
+	if !ok {
+		return nil, nil
+	}
+	block := content[start:end]
+	rest := wiki.StripCodeIndex(content)
+
+	existing, err := os.ReadFile(target)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("realm: read %s: %w", target, err)
+	}
+	merged := block + "\n" + wiki.CodeIndexStub
+	if len(existing) > 0 {
+		merged = rewriteCodeIndexBlock(string(existing), block)
+	}
+	if string(existing) != merged {
+		if err := os.WriteFile(target, []byte(merged), 0o644); err != nil {
+			return nil, err
+		}
+		changed = append(changed, target)
+	}
+
+	if strings.TrimSpace(rest) == "" {
+		err = os.Remove(other)
+	} else {
+		err = os.WriteFile(other, []byte(rest), 0o644)
+	}
+	if err != nil {
+		return changed, err
+	}
+	return append(changed, other), nil
 }
 
 // buildCodeIndexBlock must stay byte-identical across runs with the same
 // membership, so nothing time- or order-varying may enter it.
 func buildCodeIndexBlock(members []MemberEntry) string {
 	var sb strings.Builder
-	sb.WriteString(codeIndexMarkerOpen)
+	sb.WriteString(wiki.CodeIndexOpen)
 	sb.WriteString("\n")
 	for _, m := range members {
 		fmt.Fprintf(&sb, "<member key=%q path=%q />\n", m.Key, m.Path)
 	}
-	sb.WriteString(codeIndexMarkerClose)
+	sb.WriteString(wiki.CodeIndexClose)
 	return sb.String()
 }
 
 // rewriteCodeIndexBlock preserves everything outside the block byte-for-byte,
 // appending when no block exists yet.
 func rewriteCodeIndexBlock(content, newBlock string) string {
-	openIdx := strings.Index(content, codeIndexMarkerOpen)
-	if openIdx == -1 {
+	start, end, ok := wiki.FindCodeIndexBlock(content)
+	if !ok {
 		result := content
 		if !strings.HasSuffix(result, "\n") {
 			result += "\n"
 		}
 		return result + "\n" + newBlock
 	}
-
-	closeIdx := strings.Index(content[openIdx:], codeIndexMarkerClose)
-	if closeIdx == -1 {
-		// Open tag with no close: replace through EOF rather than nest a block.
-		return content[:openIdx] + newBlock
-	}
-
-	blockEnd := openIdx + closeIdx + len(codeIndexMarkerClose)
-
-	before := content[:openIdx]
-	after := content[blockEnd:]
-
-	return before + newBlock + after
-}
-
-func codeIndexDefaultStub() string {
-	return "\n<!-- Realm CLAUDE.md — managed by `atomic code index`. Edit below this block freely. -->\n"
+	return content[:start] + newBlock + content[end:]
 }

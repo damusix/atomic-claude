@@ -4,11 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/install"
 	"github.com/spf13/cobra"
 )
 
@@ -55,11 +58,13 @@ func buildClaudeCmd() *cobra.Command {
 	return parent
 }
 
-// HooksError is non-fatal here; the caller decides whether to warn.
+// installResult is what one `atomic claude install|update` run reports. Report is
+// the install-engine output for an enrolled root; the legacy path fills Plan.
 type installResult struct {
 	Plan           []claudeinstall.FileAction
 	HooksInstalled bool
 	HooksError     error
+	Report         string
 }
 
 // runClaudeInstall is split out of the cmd switch so it is testable without
@@ -68,6 +73,10 @@ type installResult struct {
 // independently: a custom --target does not move where config state lives. The
 // hook's scopeRoot is targetDir's parent, mirroring `hooks install --scope`.
 func runClaudeInstall(targetDir, home, verb string, dryRun, noHooks bool) (installResult, error) {
+	if converged, result, err := convergeEnrolledClaude(targetDir, home, dryRun, noHooks); converged {
+		return result, err
+	}
+
 	var plan []claudeinstall.FileAction
 	var err error
 	if verb == "update" {
@@ -84,8 +93,7 @@ func runClaudeInstall(targetDir, home, verb string, dryRun, noHooks bool) (insta
 		return result, nil
 	}
 
-	scopeRoot := filepath.Dir(targetDir)
-	skipped, err := hooks.Install(scopeRoot, scopeRoot)
+	skipped, err := hooks.InstallInDir(targetDir)
 	if err != nil {
 		result.HooksError = err
 		return result, nil
@@ -96,6 +104,50 @@ func runClaudeInstall(targetDir, home, verb string, dryRun, noHooks bool) (insta
 	}
 	result.HooksInstalled = true
 	return result, nil
+}
+
+// convergeEnrolledClaude converges a ledger-enrolled Claude root through the install
+// engine; the legacy writer left adopted targets mixed and unrepairable.
+func convergeEnrolledClaude(targetDir, home string, dryRun, noHooks bool) (bool, installResult, error) {
+	target := harness.Target{Kind: harness.KindClaude, Instance: targetDir}
+	enrolled, err := install.TargetEnrolled(home, target)
+	if err != nil {
+		return false, installResult{}, err
+	}
+	if !enrolled {
+		return false, installResult{}, nil
+	}
+
+	steps := install.DefaultSteps(home)
+	steps.DryRun = dryRun
+	steps.SkipHooks = noHooks
+	// `atomic claude install|update` is the user's explicit consent, so the plan
+	// is auto-approved exactly as `atomic update` auto-approves it.
+	steps.AssumeYes = true
+	reports, err := steps.Converge(install.ConvergeRequest{
+		Selection: install.Selection{EnrolledOnly: true, Kind: harness.KindClaude, Instance: targetDir},
+	})
+	if err != nil {
+		return true, installResult{}, err
+	}
+
+	var b strings.Builder
+	var blocked []string
+	for _, r := range reports {
+		switch {
+		case len(r.Blockers) > 0:
+			blocked = append(blocked, fmt.Sprintf("%s: %s", r.Target.Key(), strings.Join(r.Blockers, "; ")))
+			fmt.Fprintf(&b, "%s\t%s\t%s\n", r.Target.Key(), r.Status, strings.Join(r.Blockers, "; "))
+		case r.Applied:
+			fmt.Fprintf(&b, "%s\t%s\tapplied\n", r.Target.Key(), r.Status)
+		default:
+			fmt.Fprintf(&b, "%s\t%s\n", r.Target.Key(), r.Status)
+		}
+	}
+	if len(blocked) > 0 {
+		return true, installResult{Report: b.String()}, fmt.Errorf("%s", strings.Join(blocked, "; "))
+	}
+	return true, installResult{Report: b.String()}, nil
 }
 
 // runClaudeUninstall returns the markdown prompt Claude should execute. Split
@@ -116,6 +168,15 @@ func runClaudeUninstall(targetDir, home string, out *os.File) (string, error) {
 	}
 
 	return claudeinstall.GenerateUninstallPrompt(targetDir, home, plan), nil
+}
+
+// resolveClaudeTarget maps --target onto the Claude artifact root. The default comes
+// from the Claude adapter so CLAUDE_CONFIG_DIR relocates it as the lifecycle verbs do.
+func resolveClaudeTarget(target, home string) (string, error) {
+	if target == "" || target == "~/.claude" {
+		return claude.DefaultConfigDir(home), nil
+	}
+	return claudeinstall.ResolveTarget(target)
 }
 
 // printPostInstallHint covers what install cannot automate: per-repo signals
@@ -146,19 +207,19 @@ func runClaude(args []string) {
 		var noHooks bool
 		fs.BoolVar(&dryRun, "dry-run", false, "print what would happen; make no changes")
 		fs.StringVar(&target, "target", "~/.claude", "target directory (default ~/.claude)")
-		fs.BoolVar(&noHooks, "no-hooks", false, "skip session-start hook installation")
+		fs.BoolVar(&noHooks, "no-hooks", false, "skip session-start hook registration; a hook already registered stays")
 		if err := fs.Parse(args[1:]); err != nil {
 			os.Exit(2)
 		}
 
-		targetDir, err := claudeinstall.ResolveTarget(target)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
-			os.Exit(1)
-		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude %s: resolve home dir: %v\n", verb, err)
+			os.Exit(1)
+		}
+		targetDir, err := resolveClaudeTarget(target, home)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
 			os.Exit(1)
 		}
 
@@ -171,7 +232,11 @@ func runClaude(args []string) {
 		if dryRun {
 			fmt.Println("(dry-run — no changes written)")
 		}
-		fmt.Print(claudeinstall.Report(result.Plan, targetDir))
+		if result.Report != "" {
+			fmt.Print(result.Report)
+		} else {
+			fmt.Print(claudeinstall.Report(result.Plan, targetDir))
+		}
 
 		if !dryRun {
 			if result.HooksInstalled {
@@ -198,14 +263,14 @@ func runClaude(args []string) {
 			os.Exit(2)
 		}
 
-		targetDir, err := claudeinstall.ResolveTarget(target)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic claude diff: %v\n", err)
-			os.Exit(1)
-		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude diff: resolve home dir: %v\n", err)
+			os.Exit(1)
+		}
+		targetDir, err := resolveClaudeTarget(target, home)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude diff: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -227,14 +292,14 @@ func runClaude(args []string) {
 			os.Exit(2)
 		}
 
-		targetDir, err := claudeinstall.ResolveTarget(target)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic claude uninstall: %v\n", err)
-			os.Exit(1)
-		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude uninstall: resolve home dir: %v\n", err)
+			os.Exit(1)
+		}
+		targetDir, err := resolveClaudeTarget(target, home)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude uninstall: %v\n", err)
 			os.Exit(1)
 		}
 

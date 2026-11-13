@@ -1,10 +1,13 @@
 # Spec: project detection in `atomic signals`
 
 
+**Status:** unbuilt. No checkpoint has landed: `atomic/internal/signals/frameworks.go` does not exist and the manifest bullets carry none of the annotations below.
+
+
 ## Goal
 
 
-Enrich `## Manifests` bullets in `deterministic-signals.md` with two new annotations: detected framework/project type, and a capped list of runtime dependency names. Add a committed `.claude/project/atomic.toml` for per-repo scan tuning (tree depth, excluded dirs). LLM readers (and humans) can identify project shape and key dependencies in monorepos without reading every manifest.
+Enrich `## Manifests` bullets in `deterministic-signals.md` with two new annotations: detected framework/project type, and a capped list of runtime dependency names. Add a committed `<state-root>/atomic.toml` (`.atomic/atomic.toml` by default) for per-repo scan tuning (tree depth, excluded dirs). LLM readers (and humans) can identify project shape and key dependencies in monorepos without reading every manifest.
 
 
 ## Non-goals
@@ -22,7 +25,7 @@ Enrich `## Manifests` bullets in `deterministic-signals.md` with two new annotat
 ## Success criteria
 
 
-- [ ] `.claude/project/atomic.toml` is read on every `atomic signals` run; missing file = defaults applied silently; malformed file = exit non-zero with parse error location.
+- [ ] `<state-root>/atomic.toml` is read on every `atomic signals` run; missing file = defaults applied silently; malformed file = warning with the parse error, then defaults.
 - [ ] `## Manifests` bullets gain `framework=<name>` annotation when a rule matches; multiple manifests in a monorepo each annotate independently.
 - [ ] `## Manifests` bullets gain `deps=[a, b, c, ...] (+N more)` showing runtime dependency names from `dependencies` / `[dependencies]` / `require` / `[project.dependencies]`. Capped at 25 names; overflow indicator when truncated. `devDependencies` excluded from output.
 - [ ] Workspace-root manifests gain `workspace=true` annotation (npm/pnpm/yarn `workspaces`, Cargo `[workspace]`).
@@ -78,10 +81,10 @@ After:
 Annotation order is fixed: existing fields first, then `framework=`, `workspace=`, `deps=`. Absent annotations are omitted (no `framework=none`).
 
 
-## Configuration: `.claude/project/atomic.toml`
+## Configuration: `<state-root>/atomic.toml`
 
 
-Committed to the repo. Defaults applied silently when file is absent.
+Committed to the repo. `<state-root>` is the repository state root that `atomic where --json` prints as `state_root`, `.atomic` by default. Defaults applied silently when file is absent.
 
 ```toml
 [scan]
@@ -89,7 +92,7 @@ tree_max_depth = 3              # int; current hardcoded value
 exclude_dirs = []               # list of repo-relative path prefixes; appended to built-in skipPrefixes
 ```
 
-Parsed via `github.com/BurntSushi/toml`. Unknown keys → log warning to stderr, continue. Malformed TOML → exit 1 with parser error message including line number. Schema validation: unknown keys warned, missing keys defaulted, type mismatches error.
+Parsed by `config.LoadRepoConfig` (`github.com/pelletier/go-toml/v2`), which owns the `[scan]` table; the two keys above are added there. Unknown keys → log warning to stderr, continue. Malformed TOML → warn with the parser error and fall back to defaults, per the lenient contract in `docs/reference/atomic-toml.md`. Missing keys are defaulted.
 
 `tree_max_depth` overrides the current `maxDepth = 3` constant in `tree.go`. `exclude_dirs` extends `skipPrefixes` — entries match as path prefix (e.g. `"packages/legacy"`).
 
@@ -218,7 +221,7 @@ Parsed via `github.com/BurntSushi/toml`. Unknown keys → log warning to stderr,
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| 1 | Add `BurntSushi/toml` dep; create `internal/atomicconfig/config.go` loading `.claude/project/atomic.toml` with defaults + validation | `atomic/go.mod`, `atomic/internal/atomicconfig/` | Unit test: missing file → defaults; valid file → parsed values; malformed → error with line number; unknown keys → warning |
+| 1 | Add `tree_max_depth` and `exclude_dirs` to the `[scan]` table that `config.LoadRepoConfig` already loads, with defaults + validation | `atomic/internal/config/repo.go` | Unit test: missing file → defaults; valid file → parsed values; malformed → warning with the parse error and defaults; unknown keys → warning |
 | 2 | Wire config into `signals.go` and `tree.go`: pass `tree_max_depth` and `exclude_dirs` through | `atomic/internal/signals/{signals,tree}.go` | Existing tree test + new test asserting depth override + exclude_dirs prefix skip |
 | 3 | Add `internal/signals/frameworks.go` with `FrameworkRule` struct + 55-rule table organized by language | `atomic/internal/signals/frameworks.go` | Compile + lint; table-length assertion |
 | 4 | Extend manifest parsers to expose `deps()` (runtime) and `allDeps()` (runtime + dev) on a unified `ParsedManifest` interface; parsers: `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, `pom.xml`, `build.gradle{,.kts}`, `requirements.txt`, `Gemfile`, `go.mod`, `dbt_project.yml` (new) | `atomic/internal/signals/manifests.go` | Unit tests per parser: dep names extracted, devDeps separable; dbt_project.yml: name/version/profile extracted |
@@ -236,7 +239,7 @@ Parsed via `github.com/BurntSushi/toml`. Unknown keys → log warning to stderr,
 | `atomic signals diff` churn when rules added/changed | high | Stability commitment: new rules in minor versions only, removals require major bump; document in `atomic-binary.md` |
 | False positives from dep-name matches (e.g. `next` pulled as a tool dep without being a Next.js app) | med | Accept. Cost of one wrong label is low; complex disambiguation isn't worth it. Marker-file rules don't have this problem |
 | Dep list inflates signals file in monorepos with large `package.json` files | med | Cap at 25 names + overflow indicator; `devDependencies` excluded from print |
-| Parser brittleness on hand-rolled `Gradle`/`pom.xml`/`pyproject.toml` formats | med | Use real TOML parser (`BurntSushi/toml`) for `Cargo.toml`, `pyproject.toml`, `atomic.toml`; keep `pom.xml`/Gradle/Gemfile as line-scanned best-effort; document limitation |
+| Parser brittleness on hand-rolled `Gradle`/`pom.xml`/`pyproject.toml` formats | med | Use the real TOML parser already in the module (`go-toml/v2`) for `Cargo.toml`, `pyproject.toml`, `atomic.toml`; keep `pom.xml`/Gradle/Gemfile as line-scanned best-effort; document limitation |
 | `atomic.toml` schema drift across versions | low | Unknown keys warn-not-error; document schema in `atomic-binary.md`; version the schema if it grows past trivial |
 | Detection table maintenance burden | low | v1 capped at 55 rules with documented "what gets in" criteria (>5% language share, distinct project shape, not a library); PRs gate additions |
 | Workspace detection conflates root with member packages | low | Workspace flag only set on the *root* manifest (the one declaring `workspaces`/`[workspace]`); member manifests don't carry it |
@@ -256,3 +259,19 @@ None — surfaced concerns from `/atomic-plan` clarify round were resolved befor
 **What changed:** Added `## Change log` section (was missing).
 
 **Why:** `atomic validate spec` rule S6 flagged the file when the validator landed (CP-5 of `atomic-validate`).
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The goal, the config success criterion, the configuration section, and checkpoint 1 name the scan config as `<state-root>/atomic.toml`, `.atomic/atomic.toml` by default, with `<state-root>` read from `atomic where --json` `state_root`.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the body placed the scan config at `.claude/project/atomic.toml`.
+
+### 2026-11-12 — Mark the spec unbuilt, reuse the repo config loader
+
+**What changed:** A status line says no checkpoint has landed. The config section and checkpoint 1 extend `config.LoadRepoConfig` with `go-toml/v2` instead of adding `internal/atomicconfig/` and `BurntSushi/toml`. A malformed `atomic.toml` warns and falls back to defaults.
+
+**Why:** `<state-root>/atomic.toml` is already parsed by `config.LoadRepoConfig` with a `[scan]` table of `ignore` and `generated`, under the lenient contract in `docs/reference/atomic-toml.md`; a second loader would diverge from it.
+
+**Superseded:** Checkpoint 1 added the `BurntSushi/toml` dependency and an `atomicconfig` package, and a malformed file exited 1 with the parse error location.

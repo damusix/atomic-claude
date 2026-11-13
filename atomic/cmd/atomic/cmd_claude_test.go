@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
 
 // Install must lay the bundle and register the session-start hook in one shot;
@@ -223,5 +226,90 @@ func TestRunClaudeUninstall_ProducesPrompt(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "CLAUDE.md") {
 		t.Errorf("prompt missing 'CLAUDE.md'")
+	}
+}
+
+// Both re-apply verbs write the stored override on an enrolled root, and the
+// ledger records the written bytes, so drift and doctor agree.
+func TestEnrolledClaudeInstallAndRepairWriteOverlaidAgents(t *testing.T) {
+	home := t.TempDir()
+	if out, code := runAtomicCLI(t, home, "install", "--harness", "claude", "--yes"); code != 0 {
+		t.Fatalf("install exited %d:\n%s", code, out)
+	}
+	root := filepath.Join(home, ".claude")
+	agentPath := filepath.Join(root, "agents", "atomic-implementer.md")
+
+	for _, step := range []struct {
+		model string
+		args  []string
+	}{
+		{"opus", []string{"claude", "install"}},
+		{"haiku", []string{"harness", "repair", "--harness", "claude", "--yes"}},
+	} {
+		cfg, _, err := config.Load(config.TOMLPath(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Claude.Agents = map[string]config.AgentOverride{"atomic-implementer": {Model: step.model}}
+		if err := config.WritePersist(config.TOMLPath(home), cfg); err != nil {
+			t.Fatal(err)
+		}
+		if out, code := runAtomicCLI(t, home, step.args...); code != 0 {
+			t.Fatalf("%v exited %d:\n%s", step.args, code, out)
+		}
+		data, err := os.ReadFile(agentPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "\nmodel: "+step.model+"\n") {
+			t.Fatalf("%v left the agent without model %s:\n%s", step.args, step.model, data)
+		}
+		ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		row, ok := ledger.Find("claude:"+root, "agents/atomic-implementer.md")
+		if !ok || row.Applied.Digest != managedfile.Digest(data) {
+			t.Errorf("%v: ledger row %+v does not record the written bytes", step.args, row.Applied)
+		}
+	}
+}
+
+// TestRunClaudeInstallRoutesEnrolledTargetThroughConverge exists because the legacy
+// writer silently overwrote drifted owned bytes on an enrolled root.
+func TestRunClaudeInstallRoutesEnrolledTargetThroughConverge(t *testing.T) {
+	home := t.TempDir()
+	if out, code := runAtomicCLI(t, home, "install", "--harness", "claude", "--yes"); code != 0 {
+		t.Fatalf("install exited %d:\n%s", code, out)
+	}
+	root := filepath.Join(home, ".claude")
+
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatalf("ledger: %v", err)
+	}
+	var victim string
+	for _, row := range ledger.Rows {
+		if row.Target == "claude:"+root && row.Applied.Path != "" && row.Applied.Kind == managedfile.KindFile {
+			victim = row.Applied.Path
+			break
+		}
+	}
+	if victim == "" {
+		t.Fatal("enrollment recorded no owned file resource")
+	}
+	if err := os.WriteFile(victim, []byte("user drift the ledger cannot verify\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runClaudeInstall(root, home, "install", false, false)
+	if err == nil {
+		t.Fatalf("an enrolled target with a drifted owned resource converged silently: %+v", result)
+	}
+	if result.Report == "" {
+		t.Error("the enrolled target did not route through the install planner")
+	}
+	if got, readErr := os.ReadFile(victim); readErr != nil || string(got) != "user drift the ledger cannot verify\n" {
+		t.Errorf("the legacy writer overwrote the drifted owned file: %q (%v)", got, readErr)
 	}
 }

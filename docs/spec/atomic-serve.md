@@ -142,6 +142,19 @@ control — the whole-realm system graph above, and a per-repo code-intel symbol
 sharing one cosmos.gl core (`graph-core.js`) with a docs profile (`system-graph.js`) and a
 code profile (`code-graph.js`); contract at `docs/spec/code-graph.md`.
 
+### Enumeration and state roots
+
+Every walker (nav, search, the link graph, the external-link registry, the snapshot, and folder listings) applies one rule set:
+
+- Skipped: dot directories, `node_modules`, `vendor`, `tmp`, and git-ignored directories that are not checkouts of their own.
+- Exempt from the dot rule: each visited repository's resolved state root, plus the directories on the path to it, and `.claude`. `.claude` stays because it holds Claude-native project markdown that wiki links cite: the capture-bucket skills `atomic wiki` writes, rules, and commands. Walkers do not follow directory symlinks, so the cards Claude loads through `.claude/rules/atomic` list once, from the state root.
+- A directory holding `.git` (a directory, or the file a linked worktree or submodule carries) is a checkout, walked under its own ignore rules. The exception is a second copy: a checkout that lies inside the tree of a checkout the walk already loaded and shares its git common dir (the gitdir, followed through a linked worktree's `commondir`). That holds for a worktree nested in the served root, including when the served root is itself a linked worktree. A submodule has its own common dir, so it is walked. Sibling realm members are never inside one another, so a member is walked even when it is a linked worktree of another member, whatever the walk order.
+
+State-root refusals (an ambiguous root, an unreadable selection record) never exit a running server:
+
+- A served root that refuses stops `atomic serve` at startup, before anything listens.
+- A visited checkout or realm member that refuses loses its plan bundles or self-index, with a warning, and the rest of the page renders.
+
 
 ## Checkpoints
 
@@ -360,6 +373,14 @@ None.
 
 
 ## Change log
+
+### 2026-11-12 — Enumeration rules and state-root refusals written down
+
+**What changed:** Approach gains "Enumeration and state roots". It settles that `.claude` stays exempt from the dot-directory skip beside the resolved state root, counts a linked worktree or submodule as a checkout, skips only a checkout nested inside a loaded checkout that shares its git common dir, and states that a refusing state root no longer exits a running server.
+
+**Why:** The state root moved to `.atomic` and became configurable, which left the `.claude` exemption unexplained. A realm member checked out as a linked worktree was neither walked nor listed. One ambiguous worktree or member exited the whole server through the path helpers' fatal backstop.
+
+**Superseded:** only a directory `.git` counted as a checkout, so every linked worktree was skipped.
 
 ### 2026-10-21 — Mermaid and its ELK layout built from npm, not committed
 

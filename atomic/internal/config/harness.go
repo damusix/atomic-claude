@@ -4,130 +4,134 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 )
 
-// harnessDirOnce resolves harnessDirCached once per process, unless
-// harnessDirOverride is set — the test seam takes priority and touches neither
-// os.UserHomeDir nor the Once.
-var (
-	harnessDirOnce     sync.Once
-	harnessDirCached   string
-	harnessDirOverride *string
-)
-
-// harnessDir resolves the effective harness.dir via resolveHarnessDir's ladder,
-// cached per process: repo-local path helpers call this on every invocation, and
-// env is process-stable, so re-reading config.toml each time would be waste.
-func harnessDir() string {
-	if harnessDirOverride != nil {
-		return *harnessDirOverride
+// WriteAmbiguousStateForTest pins state.dir to .state in home's config and
+// populates repo's .claude and .atomic, so repo's state root refuses.
+func WriteAmbiguousStateForTest(home, repo string) error {
+	cfg := Default()
+	if err := Set(cfg, "state.dir", ".state"); err != nil {
+		return err
 	}
-	harnessDirOnce.Do(func() {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			harnessDirCached = harnessDirDefault
-			return
-		}
-		harnessDirCached = resolveHarnessDir(home)
-	})
-	return harnessDirCached
-}
-
-// resolveHarnessDir walks a five-rung ladder, most specific first:
-//
-//  1. ATOMIC_HARNESS env — a leading "." is tolerated and normalized; an
-//     invalid value falls through rather than erroring.
-//  2. PI_CODING_AGENT == "true" → ".pi"
-//  3. CLAUDECODE == "1" → ".claude"
-//  4. the user config's harness.dir, if set
-//  5. the built-in default
-//
-// Rung 2 precedes rung 3 deliberately: a pi agent launched from within Claude
-// Code exposes both fingerprints, and PI_CODING_AGENT is the more specific one.
-func resolveHarnessDir(home string) string {
-	if raw := os.Getenv("ATOMIC_HARNESS"); raw != "" {
-		dir := "." + strings.TrimPrefix(raw, ".")
-		if validateHarnessDir(dir) == nil {
-			return dir
+	if err := WritePersist(TOMLPath(home), cfg); err != nil {
+		return err
+	}
+	for _, seg := range []string{".claude", ".atomic"} {
+		if err := os.MkdirAll(filepath.Join(repo, seg, "project"), 0o755); err != nil {
+			return err
 		}
 	}
-	if os.Getenv("PI_CODING_AGENT") == "true" {
-		return ".pi"
-	}
-	if os.Getenv("CLAUDECODE") == "1" {
-		return ".claude"
-	}
-	return resolveHarnessDirFromHome(home)
+	return nil
 }
 
-// resolveHarnessDirFromHome returns home's configured harness.dir, else the
-// default. Lenient on any load error. It re-validates a stored value with the
-// rules Set enforces at write time, because Load itself does not validate — a
-// config.toml hand-edited into something like ".." would otherwise reach
-// filepath.Join unchecked in the repo-local helpers. home is a parameter so this
-// can be exercised against a temp home.
+// stateDirOverride is the test seam over the repository-state segment; it
+// outranks every neutral rung and touches no home or process cache.
+var stateDirOverride *string
+
+// resolveHarnessDirFromHome returns state.dir when set, else the built-in
+// default, never an environment fingerprint; tests pass their own home.
 func resolveHarnessDirFromHome(home string) string {
-	cfg, _, err := Load(TOMLPath(home))
+	return segmentFromConfig(TOMLPath(home))
+}
+
+// segmentFromConfig reads state.dir from one config file; any load or
+// validation failure yields the built-in default.
+func segmentFromConfig(path string) string {
+	cfg, _, err := Load(path)
 	if err != nil {
-		return harnessDirDefault
+		return stateDirDefault
 	}
-	if cfg.Harness.Dir == "" {
-		return harnessDirDefault
+	if cfg.State.Dir != "" && ValidateStateDirPath(cfg.State.Dir) == nil {
+		return cfg.State.Dir
 	}
-	if err := validateHarnessDir(cfg.Harness.Dir); err != nil {
-		return harnessDirDefault
-	}
-	return cfg.Harness.Dir
+	return stateDirDefault
 }
 
-// SetHarnessDirForTest overrides the effective harness.dir, bypassing the Once
-// and os.UserHomeDir so tests never touch the real home. Returns a restore func
-// (nil if no override was active) that the caller should defer immediately.
-func SetHarnessDirForTest(dir string) func() {
-	prev := harnessDirOverride
-	harnessDirOverride = &dir
-	return func() { harnessDirOverride = prev }
+// SetStateDirForTest overrides the repository-state segment so tests never touch
+// the real home. The caller should defer the returned restore func immediately.
+func SetStateDirForTest(dir string) func() {
+	prev := stateDirOverride
+	stateDirOverride = &dir
+	return func() { stateDirOverride = prev }
 }
 
-// ScratchpadDir returns <root>/<harness.dir>/.scratchpad.
+// stateRoot returns <root>/<repository-state dir>. An empty root yields the
+// relative segment callers use for repo-relative paths.
+func stateRoot(root string) string {
+	dir, err := repositoryStateDir(root)
+	if err != nil {
+		stateRefusalExit(err)
+		panic(err)
+	}
+	return dir
+}
+
+// RepoRelative returns abs relative to root, and false when abs lies outside
+// root — a state root a record or ATOMIC_STATE_DIR placed elsewhere.
+func RepoRelative(root, abs string) (string, bool) {
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
+}
+
+// ScratchpadDir returns <state-root>/.scratchpad.
 func ScratchpadDir(root string) string {
-	return filepath.Join(root, harnessDir(), ".scratchpad")
+	return filepath.Join(stateRoot(root), ".scratchpad")
 }
 
-// ProjectDir returns <root>/<harness.dir>/project.
+// ProjectDir returns <state-root>/project.
 func ProjectDir(root string) string {
-	return filepath.Join(root, harnessDir(), "project")
+	return filepath.Join(stateRoot(root), "project")
 }
 
-// FollowupsDir returns <root>/<harness.dir>/project/followups.
+// FollowupsDir returns <state-root>/project/followups.
 func FollowupsDir(root string) string {
 	return filepath.Join(ProjectDir(root), "followups")
 }
 
-// IndexDir returns <root>/<harness.dir>/.atomic-index.
+// IndexDir returns <state-root>/.atomic-index.
 func IndexDir(root string) string {
-	return filepath.Join(root, harnessDir(), ".atomic-index")
+	return filepath.Join(stateRoot(root), ".atomic-index")
 }
 
-// IndexDBPath returns <root>/<harness.dir>/.atomic-index/atomic.db.
+// IndexDBName is the code-index database file inside an index directory.
+const IndexDBName = "atomic.db"
+
+// IndexDBPath returns <state-root>/.atomic-index/atomic.db.
 func IndexDBPath(root string) string {
-	return filepath.Join(IndexDir(root), "atomic.db")
+	return filepath.Join(IndexDir(root), IndexDBName)
 }
 
-// WorktreesDir returns <root>/<harness.dir>/worktrees.
-func WorktreesDir(root string) string {
-	return filepath.Join(root, harnessDir(), "worktrees")
+// WorktreeDir is the one worktree helper: a preference path wins and "off" is
+// returned verbatim; else .claude/worktrees for Claude, <state-root>/worktrees.
+func WorktreeDir(root, harness, preference string) string {
+	switch {
+	case preference == "off":
+		return preference
+	case filepath.IsAbs(preference):
+		return preference
+	case preference != "":
+		return filepath.Join(root, preference)
+	case harness == "claude":
+		return filepath.Join(root, stateDirLegacy, "worktrees")
+	}
+	return filepath.Join(stateRoot(root), "worktrees")
 }
 
-// RepoConfigPath returns <root>/<harness.dir>/atomic.toml — the repo-scoped
-// config file LoadRepoConfig reads.
+// RepoConfigPath returns <state-root>/atomic.toml — the repo-scoped config file
+// LoadRepoConfig reads.
 func RepoConfigPath(root string) string {
-	return filepath.Join(root, harnessDir(), "atomic.toml")
+	return filepath.Join(stateRoot(root), "atomic.toml")
 }
 
-// RemindersDir returns the project-keyed reminders directory. RemindersDirLegacy
-// resolves the pre-relocation path this used to return directly.
-func RemindersDir(root string) string {
-	return ProjectRemindersDir(root)
+// WorkflowPrefsPath returns <state-root>/workflow-preferences.md. An ambiguous
+// state root is an error, not an exit, so the resolver can skip the level.
+func WorkflowPrefsPath(root string) (string, error) {
+	dir, err := repositoryStateDir(root)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "workflow-preferences.md"), nil
 }

@@ -10,14 +10,15 @@ import (
 
 	codecli "github.com/damusix/atomic-claude/atomic/internal/codeintel/cli"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 func TestIndex_RepoConfigWarning_PrintsOneLine(t *testing.T) {
 	dir := writeFixture(t)
-	must(t, os.MkdirAll(filepath.Join(dir, ".claude"), 0o755))
+	must(t, os.MkdirAll(filepath.Dir(config.RepoConfigPath(dir)), 0o755))
 	// Same malformed-bracket pattern proven invalid in config/repo_test.go.
 	toml := "[code]\nignore = [\"vendor[/**\"]\n"
-	must(t, os.WriteFile(filepath.Join(dir, ".claude", "atomic.toml"), []byte(toml), 0o644))
+	must(t, os.WriteFile(config.RepoConfigPath(dir), []byte(toml), 0o644))
 
 	var stdout, stderr bytes.Buffer
 	code := codecli.RunCode([]string{"index"}, dir, &stdout, &stderr, noStdin())
@@ -42,9 +43,9 @@ func TestIndex_RepoConfigWarning_PrintsOneLine(t *testing.T) {
 
 func TestStatus_IgnorePatternCount(t *testing.T) {
 	dir := t.TempDir()
-	must(t, os.MkdirAll(filepath.Join(dir, ".claude"), 0o755))
+	must(t, os.MkdirAll(filepath.Dir(config.RepoConfigPath(dir)), 0o755))
 	toml := "[code]\nignore = [\"vendor/**\", \"*.min.js\"]\n"
-	must(t, os.WriteFile(filepath.Join(dir, ".claude", "atomic.toml"), []byte(toml), 0o644))
+	must(t, os.WriteFile(config.RepoConfigPath(dir), []byte(toml), 0o644))
 
 	// Init without IndexAll is enough: the pattern read is pool-free, so a
 	// status-only test need not pay the indexer.s boot cost.
@@ -65,7 +66,7 @@ func TestStatus_IgnorePatternCount(t *testing.T) {
 	if s.IgnorePatternCount != 2 {
 		t.Errorf("IgnorePatternCount = %d, want 2", s.IgnorePatternCount)
 	}
-	wantPath := filepath.Join(dir, ".claude", "atomic.toml")
+	wantPath := config.RepoConfigPath(dir)
 	if s.IgnoreConfigPath != wantPath {
 		t.Errorf("IgnoreConfigPath = %q, want %q", s.IgnoreConfigPath, wantPath)
 	}

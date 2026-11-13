@@ -34,14 +34,14 @@ Make signals and wiki markdown navigable as a graph in Obsidian, a generic markd
 
 ### Signals
 
-- [ ] `atomic signals linkify` linkifies `.claude/project/signals.md` and every file under `.claude/project/signals/`, with base = repo root. Idempotent; safe to re-run.
+- [ ] `atomic signals linkify` linkifies `docs/wiki/index.md` and every other `docs/wiki/*.md` except `scan.md` and the `AGENTS.md`/`CLAUDE.md` steering pair, with base = repo root. Idempotent; safe to re-run.
 - [ ] The `atomic-wiki-inferrer` agent runs `atomic signals linkify` as the final action of **default mode** only, after all files are written/reviewed. The agent still writes plain repo-root-relative paths in backticks (facts); linkify renders them. (Wiki-output mode does NOT linkify — `/refresh-wiki` runs `atomic wiki linkify` after the inferrer returns instead.)
 - [ ] The router `## Domains` table Detail column and Repo-paths column, and every domain file's `## Artifacts` / `## CLI code` / `## Docs` / `## Coupling` path citation, are linkified when they resolve on disk.
 - [ ] Doctor's router check (`parseRouterDomains` in `checks_signals.go`) extracts the on-disk domain-file path from a linkified Detail cell and still validates existence + orphans. Existing doctor signals tests stay green.
 
 ### Wiki
 
-- [ ] `atomic wiki scan` writes a managed, linked member list into `index.md` (a `## Members` managed section, spliced idempotently like the `<wiki-scan>` block, content outside untouched): `indexed` → link to `../<repo>/.claude/project/signals.md`; `summarized` → link to `repos/<repo>.md`; `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
+- [ ] `atomic wiki scan` writes a managed, linked member list into `index.md` (a `## Members` managed section, spliced idempotently like the `<wiki-scan>` block, content outside untouched): `indexed` → link to `../<repo>/docs/wiki/index.md`, or to the legacy `../<repo>/<state-root>/project/signals.md` when only that router exists; `summarized` → link to `repos/<repo>.md`; `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
 - [ ] `atomic wiki linkify --root=<path>` linkifies wiki artifacts: each `repos/<repo>(/<domain>).md` with base = `<realm>/<repo>` (repo read from the summary's `repo:` frontmatter); each `concerns/*.md` and the `index.md` narrative with base = realm root. Idempotent.
 - [ ] `/refresh-wiki` runs `atomic wiki linkify` after summaries/concerns are written, before the wiki commit.
 - [ ] Linkify never alters frontmatter.
@@ -120,3 +120,19 @@ Approach A. Relative-prefix computation is a deterministic transform — code's 
 **Why:** Realm wikis no longer carry fingerprints, so there is no stamp step to order against and no content staleness to disturb.
 
 **Removed:** the post-stamp ordering rule and the `reflects_*` preservation rationale. See `docs/spec/realm-wiki-drop-refresh.md`.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** **Correction:** `atomic signals linkify` targets `docs/wiki/index.md` and the other `docs/wiki/*.md` domain files (`signals.LinkifyFilesWithBase`), and an `indexed` member links to `../<repo>/docs/wiki/index.md`, falling back to the legacy `.claude/project/signals.md` router only when that is the one present (`memberLinkTarget`).
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`; the repo-scope wiki already lives in `docs/wiki/`, and the body still named the `.claude/project/` signals files as current.
+
+**Superseded:** the body linkified `.claude/project/signals.md` and `.claude/project/signals/`, and linked `indexed` members to `../<repo>/.claude/project/signals.md`.
+
+### 2026-11-12 — Legacy router under the member's state root
+
+**What changed:** An `indexed` member's legacy fallback link points at `<state-root>/project/signals.md`, the member's resolved state root.
+
+**Why:** `atomic wiki scan` now reads the legacy router there (`docs/spec/wiki.md`).
+
+**Superseded:** the fallback was always `.claude/project/signals.md`.

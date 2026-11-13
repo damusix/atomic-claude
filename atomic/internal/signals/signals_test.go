@@ -73,18 +73,20 @@ func TestScanTree_SingleFile(t *testing.T) {
 }
 
 func TestScanTree_SkipDirs(t *testing.T) {
+	projectDir := config.ProjectDir("")
+	stateDir := filepath.Dir(projectDir)
 	root := makeRepo(t, map[string]string{
 		"main.go":                      "package main\n",
 		".git/HEAD":                    "ref: refs/heads/main\n",
 		"node_modules/lodash/index.js": "// lodash\n",
-		".claude/project/signals.md":   "---\n---\n",
+		projectDir + "/signals.md":     "---\n---\n",
 		"vendor/lib/lib.go":            "package lib\n",
 	})
 	out, err := signals.ScanTree(root)
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	for _, bad := range []string{".git", "node_modules", ".claude", "vendor"} {
+	for _, bad := range []string{".git", "node_modules", stateDir, "vendor"} {
 		if strings.Contains(out, bad) {
 			t.Errorf("ScanTree should skip %s, but found it in:\n%s", bad, out)
 		}
@@ -995,8 +997,8 @@ func TestEnumerateFiles_GitShowsDotfiles(t *testing.T) {
 func TestEnumerateFiles_GitExcludesScratchpad(t *testing.T) {
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
-		".claude/.scratchpad/2026-01-01-task/BRIEF.md": "# brief\n",
-		".claude/rules/ts.md":                          "# ts\n",
+		config.ScratchpadDir("") + "/2026-01-01-task/BRIEF.md": "# brief\n",
+		".claude/rules/ts.md": "# ts\n",
 	})
 	initGit(t, root)
 	exec.Command("git", "-C", root, "add", ".").Run()
@@ -1014,17 +1016,18 @@ func TestEnumerateFiles_GitExcludesScratchpad(t *testing.T) {
 	}
 }
 
-// skipPrefixes threads the resolved harness dir, so a ".pi" harness excludes
-// .pi/.scratchpad/ and stops excluding .claude/.scratchpad/.
+// skippedPrefixes uses the resolved state segment, so a ".pi" pin excludes
+// .pi/.scratchpad/ and stops excluding the default scratchpad.
 func TestEnumerateFiles_GitExcludesScratchpad_UnderNonDefaultHarnessDir(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
+	leftover := config.ScratchpadDir("") + "/leftover.md"
+	restore := config.SetStateDirForTest(".pi")
 	defer restore()
 
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
 		".pi/.scratchpad/2026-01-01-task/BRIEF.md": "# brief\n",
 		".pi/rules/ts.md":                          "# ts\n",
-		".claude/.scratchpad/leftover.md":          "# leftover\n",
+		leftover:                                   "# leftover\n",
 	})
 	initGit(t, root)
 	exec.Command("git", "-C", root, "add", ".").Run()
@@ -1041,7 +1044,49 @@ func TestEnumerateFiles_GitExcludesScratchpad_UnderNonDefaultHarnessDir(t *testi
 		t.Errorf("expected .pi to appear (has rules/):\n%s", out)
 	}
 	if !strings.Contains(out, "leftover.md") {
-		t.Errorf("expected .claude/.scratchpad/leftover.md to survive under a .pi harness:\n%s", out)
+		t.Errorf("expected the default scratchpad to survive under a .pi harness:\n%s", out)
+	}
+}
+
+// A selection record naming a custom root moves the skip list with it, in both
+// enumeration modes, and stops skipping the default root.
+func TestScanTree_SkipListFollowsSelectionRecord(t *testing.T) {
+	for _, mode := range []string{"git", "walk"} {
+		t.Run(mode, func(t *testing.T) {
+			root := makeRepo(t, map[string]string{
+				"main.go":                          "package main\n",
+				"custom/state/.scratchpad/B.md":    "# brief\n",
+				"custom/state/project/signals.md":  "# legacy\n",
+				".atomic/.scratchpad/leftover.md":  "# leftover\n",
+				"custom/state/rules/keep-me-ts.md": "# rule\n",
+			})
+			if _, err := config.PersistStateSelection(root, "custom/state"); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "git" {
+				initGit(t, root)
+				for _, args := range [][]string{{"add", "."}, {"commit", "-m", "init"}} {
+					if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+						t.Fatalf("git %v: %v\n%s", args, err, out)
+					}
+				}
+			}
+
+			out, err := signals.ScanTree(root)
+			if err != nil {
+				t.Fatalf("ScanTree: %v", err)
+			}
+			for _, skipped := range []string{"B.md", "signals.md"} {
+				if strings.Contains(out, skipped) {
+					t.Errorf("%s under the custom root should be skipped:\n%s", skipped, out)
+				}
+			}
+			for _, kept := range []string{"keep-me-ts.md", "leftover.md"} {
+				if !strings.Contains(out, kept) {
+					t.Errorf("%s should still be scanned:\n%s", kept, out)
+				}
+			}
+		})
 	}
 }
 
@@ -1109,33 +1154,68 @@ func TestEnumerateFiles_ExcludesDocsWiki(t *testing.T) {
 	})
 }
 
+// The cards are wiki output, so they skip at whichever state root resolves,
+// including a legacy .claude one that has not migrated yet.
 func TestScanTree_ExcludesWikiRuleCards(t *testing.T) {
+	defaultState, err := config.RepositoryStateDir("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{defaultState, ".claude"} {
+		files := map[string]string{
+			"main.go":                             "package main\n",
+			state + "/rules/wiki/carddomain.md":   "# card\n",
+			state + "/rules/authoring/sibling.md": "# sibling rule\n",
+		}
+		check := func(t *testing.T, root string) {
+			out, err := signals.ScanTree(root)
+			if err != nil {
+				t.Fatalf("ScanTree: %v", err)
+			}
+			if strings.Contains(out, "carddomain.md") {
+				t.Errorf("%s/rules/wiki/ should be excluded:\n%s", state, out)
+			}
+			if !strings.Contains(out, "sibling.md") {
+				t.Errorf("skip must be scoped to rules/wiki/, not all of %s/rules/:\n%s", state, out)
+			}
+		}
+		t.Run(state+"/walkdir", func(t *testing.T) {
+			check(t, makeRepo(t, files))
+		})
+		t.Run(state+"/git", func(t *testing.T) {
+			root := makeRepo(t, files)
+			initGit(t, root)
+			exec.Command("git", "-C", root, "add", ".").Run()
+			exec.Command("git", "-C", root, "commit", "-m", "init").Run()
+			check(t, root)
+		})
+	}
+}
+
+// The OMP card copies are untracked refresh output, so a scan that counted them
+// would report stale again right after a refresh republished them.
+func TestScanTree_ExcludesOMPCardCopies(t *testing.T) {
 	files := map[string]string{
-		"main.go":                            "package main\n",
-		".claude/rules/wiki/carddomain.md":   "# card\n",
-		".claude/rules/authoring/sibling.md": "# sibling rule\n",
+		"main.go":                        "package main\n",
+		".omp/rules/atomic-wiki-core.md": "# card copy\n",
+		".omp/rules/mine.md":             "# repository rule\n",
 	}
 	check := func(t *testing.T, root string) {
 		out, err := signals.ScanTree(root)
 		if err != nil {
 			t.Fatalf("ScanTree: %v", err)
 		}
-		if strings.Contains(out, "carddomain.md") {
-			t.Errorf(".claude/rules/wiki/ should be excluded:\n%s", out)
+		if strings.Contains(out, "atomic-wiki-core.md") {
+			t.Errorf("the OMP card copy should be excluded:\n%s", out)
 		}
-		if !strings.Contains(out, "sibling.md") {
-			t.Errorf("skip must be scoped to rules/wiki/, not all of .claude/rules/:\n%s", out)
+		if !strings.Contains(out, "mine.md") {
+			t.Errorf("the repository's own OMP rule should be scanned:\n%s", out)
 		}
 	}
-
-	t.Run("walkdir", func(t *testing.T) {
-		check(t, makeRepo(t, files))
-	})
+	t.Run("walkdir", func(t *testing.T) { check(t, makeRepo(t, files)) })
 	t.Run("git", func(t *testing.T) {
 		root := makeRepo(t, files)
 		initGit(t, root)
-		exec.Command("git", "-C", root, "add", ".").Run()
-		exec.Command("git", "-C", root, "commit", "-m", "init").Run()
 		check(t, root)
 	})
 }
@@ -1148,7 +1228,11 @@ func TestStale_FreshAfterWikiRuleCardWritten(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 
-	card := filepath.Join(root, ".claude", "rules", "wiki", "newdomain.md")
+	state, err := config.RepositoryStateDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := filepath.Join(state, "rules", "wiki", "newdomain.md")
 	if err := os.MkdirAll(filepath.Dir(card), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -2165,8 +2249,8 @@ func TestLinkifyFiles_NoOp_WhenNoFiles(t *testing.T) {
 	}
 }
 
-// Linkifying scan.md would corrupt the raw dump's structure, and CLAUDE.md is
-// steering rather than a domain narrative — both are excluded by name.
+// Linkifying scan.md would corrupt the raw dump, and the AGENTS.md and CLAUDE.md
+// loader pair is steering rather than a domain narrative.
 func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
 	root := t.TempDir()
 
@@ -2195,6 +2279,12 @@ func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	agentsContent := "# steering\n\n`agents/atomic-builder.md` referenced.\n"
+	agentsPath := filepath.Join(wikiDir, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte(agentsContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := signals.LinkifyFilesWithBase(root, root); err != nil {
 		t.Fatalf("LinkifyFilesWithBase: %v", err)
 	}
@@ -2213,6 +2303,14 @@ func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
 	}
 	if string(gotClaude) != claudeContent {
 		t.Errorf("CLAUDE.md was modified; must be excluded:\ngot: %q\nwant: %q", gotClaude, claudeContent)
+	}
+
+	gotAgents, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotAgents) != agentsContent {
+		t.Errorf("AGENTS.md was modified; must be excluded:\ngot: %q\nwant: %q", gotAgents, agentsContent)
 	}
 }
 
@@ -2253,7 +2351,7 @@ func TestScanWithOptions_DoesNotMutateOpts(t *testing.T) {
 	}
 }
 
-// The substrate lives alongside committed wiki output, not under .claude/project/.
+// The substrate lives beside committed wiki output, not in the state root.
 func TestNewStoragePaths_PathConstants(t *testing.T) {
 	root := t.TempDir()
 	wantScanPath := filepath.Join(root, "docs", "wiki", "scan.md")

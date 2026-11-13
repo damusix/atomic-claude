@@ -30,7 +30,7 @@ You orchestrate a retrospective audit. Subagents do the scanning (read-only). Yo
 
 ## Step 1 — Pick scope
 
-Prompt via `AskUserQuestion`:
+Ask the user a question:
 
 ```
 Question: What scope should this retrospective cover?
@@ -43,7 +43,7 @@ Store the answer as `$SCOPE`.
 
 ## Step 2 — Dispatch background agents in parallel
 
-Single message, two or three `Agent` tool calls. Briefs live in `$SCRATCH/`.
+Single message, one dispatch per agent below. Briefs live in `$SCRATCH/`.
 
 ### 2a. Discovery — `atomic-investigator` (always)
 
@@ -57,7 +57,7 @@ Catalog every config-shaped file at BOTH installed (~/.claude) and project level
 Look for:
 
 - Global: ~/.claude/CLAUDE.md, ~/.claude/CLAUDE.local.md, ~/.claude/commands/, ~/.claude/agents/, ~/.claude/skills/, ~/.claude/output-styles/, ~/.claude/rules/, ~/.claude/settings.json, ~/.claude/settings.local.json, ~/.atomic/config.toml, ~/.atomic/profile.md
-- Project: ./CLAUDE.md, ./CLAUDE.local.md, .claude/commands/, .claude/agents/, .claude/skills/, .claude/settings.json, .claude/settings.local.json, docs/wiki/index.md, .claude/project/followups/INDEX.md, .claude/project/followups/*.md
+- Project: ./CLAUDE.md, ./CLAUDE.local.md, .claude/commands/, .claude/agents/, .claude/skills/, .claude/settings.json, .claude/settings.local.json, docs/wiki/index.md, <state-root>/project/followups/INDEX.md, <state-root>/project/followups/*.md (<state-root> is the state_root field of `atomic where --json`, .atomic by default)
 - Memory: ~/.claude/projects/${PROJECT_SLUG}/memory/MEMORY.md and topic files
 
 For each artifact: path, one-line purpose, char count, line count.
@@ -66,20 +66,20 @@ Do NOT propose changes. Inventory only.
 Drop filler, pleasantries, hedging. Fragments OK. Technical terms exact. Inventory table only — no preamble, no echo of this brief.
 ```
 
-Dispatch with `subagent_type: "atomic-investigator"`. Prompt: `Read $SCRATCH/discovery-brief.md and return the inventory.`
+Dispatch `atomic-investigator`. Prompt: `Read $SCRATCH/discovery-brief.md and return the inventory.`
 
-### 2b. History scan — one Sonnet runner per shard (full scope only)
+### 2b. History scan — one runner per shard (full scope only)
 
 Skip if `$SCOPE = "current-only"`.
 
-`$SCRATCH/history.1.md` … `history.4.md` hold the extract from Pre-flight step 3: numbered lines, one `## <date> · <project dir>` section per session, and inside each section one entry per line: `[MM-DD HH:MM] user: <text>`, `/verb args`, `[MM-DD HH:MM] skill: <skill> <args>`, or `[MM-DD HH:MM] agent: <subagent_type> — <description>`.
+`$SCRATCH/history.1.md` … `history.4.md` hold the extract from Pre-flight step 3: numbered lines, one `## <date> · <project dir>` section per session, and inside each section one entry per line: `[MM-DD HH:MM] user: <text>`, `/verb args`, `[MM-DD HH:MM] skill: <skill> <args>`, or `[MM-DD HH:MM] agent: <agent name> — <description>`.
 
 Write `$SCRATCH/history-brief.md`, shared by every shard runner (each is told its own file path in the dispatch prompt):
 
 ```markdown
 # History scan brief
 
-Read the assigned shard file. Each line is prefixed `<N> | ` with its own physical line number. Every entry is one of: `user:` (typed text), `/verb args` (slash command), `skill: <name> <args>`, or `agent: <subagent_type> — <description>`.
+Read the assigned shard file. Each line is prefixed `<N> | ` with its own physical line number. Every entry is one of: `user:` (typed text), `/verb args` (slash command), `skill: <name> <args>`, or `agent: <agent name> — <description>`.
 
 Filter for:
 
@@ -112,9 +112,9 @@ Mark recurring patterns (same complaint in 2+ sessions). No raw transcripts. Rea
 Drop filler, pleasantries, hedging. Fragments OK. Findings only — no preamble, no echo of this brief.
 ```
 
-Dispatch one runner per shard file that exists, in the same message: `subagent_type: "general-purpose"`, `model: sonnet`. Prompt each: `Read $SCRATCH/history-brief.md. Your shard is $SCRATCH/history.<i>.md. Execute. Read-only.`
+Dispatch one runner per shard file that exists, in the same message: the harness's default general agent, by name, on the economical reasoning tier. Prompt each: `Read $SCRATCH/history-brief.md. Your shard is $SCRATCH/history.<i>.md. Execute. Read-only.`
 
-### 2c. Prior-retro audit — one Sonnet runner (full scope only, and only if `$RUNS_DIR` has entries)
+### 2c. Prior-retro audit — one runner (full scope only, and only if `$RUNS_DIR` has entries)
 
 Skip if no prior runs exist.
 
@@ -141,7 +141,7 @@ Plus a separate list of `drifted` and `missing` items for re-surfacing (with tar
 Drop filler, pleasantries, hedging. Fragments OK. Audit table + re-surface list only — no preamble, no echo of this brief.
 ```
 
-Dispatch with `subagent_type: "general-purpose"`, `model: sonnet`. Prompt: `Read $SCRATCH/prior-retro-brief.md.`
+Dispatch the harness's default general agent, by name, on the economical reasoning tier. Prompt: `Read $SCRATCH/prior-retro-brief.md.`
 
 ## Step 3 — Analyze current conversation (foreground, while agents run)
 
@@ -241,7 +241,7 @@ When proposing a hook, generate the full `.claude/settings.json` patch ready to 
 
 | Rule shape | Hook event |
 |------------|-----------|
-| Forbidden bash flag or command pattern | `PreToolUse` matcher `Bash`, command greps tool_input, exits 2 on match |
+| Forbidden bash flag or command pattern | `PreToolUse` matcher on the shell tool's name, command greps tool_input, exits 2 on match |
 | Forbidden tool entirely | `PreToolUse` matcher `<ToolName>`, command exits 2 unconditionally |
 | Required follow-up after a tool ran | `PostToolUse` matcher `<ToolName>`, command runs validation |
 | Periodic announcement / reminder | `Notification` |
@@ -416,7 +416,7 @@ For each selected item, you will be asked per-finding individually (per axiom 3 
 Your selection:
 ```
 
-Validate indices the same way `/git-cleanup` does. After valid selection, walk each picked finding one at a time via `AskUserQuestion`.
+Validate indices the same way `/git-cleanup` does. After valid selection, walk each picked finding one at a time, asking the user a question for each.
 
 **Standard findings** (most tiers):
 
@@ -465,7 +465,7 @@ On "Accept new": append the new fact to the matching section in `~/.atomic/profi
 
 `<deterministic>` section facts are excluded — they should never appear here.
 
-**Sub-option findings** (e.g. hook conversion in `critical` tier): after Accept, follow up with a second `AskUserQuestion` for the sub-option (strengthen / hook-project / hook-global / both).
+**Sub-option findings** (e.g. hook conversion in `critical` tier): after Accept, ask the user a second question for the sub-option (strengthen / hook-project / hook-global / both).
 
 ### 6c. Walk the picked findings
 
@@ -495,7 +495,7 @@ flowchart TD
 
 **Modify flow** (turn-boundary, not inline read).
 
-`AskUserQuestion` does not collect free-text, and there is no inline-read primitive in the harness, so the only way to get the user's replacement wording is to end the assistant turn and resume from their next message. The apply phase cannot run until every Modify has resolved.
+A question to the user offers fixed options and does not collect free text, and there is no inline-read primitive in the harness, so the only way to get the user's replacement wording is to end the assistant turn and resume from their next message. The apply phase cannot run until every Modify has resolved.
 
 ```mermaid
 flowchart TD
@@ -582,7 +582,7 @@ PROPOSED=$(jq --argjson patch "$PATCH" --arg ev "$EVENT" \
 echo "$PROPOSED" | jq .hooks
 ```
 
-Then confirm with the user via `AskUserQuestion`: `Apply this hook merge to <TARGET>? (yes / no)`. On yes:
+Then ask the user a question to confirm: `Apply this hook merge to <TARGET>? (yes / no)`. On yes:
 
 ```bash
 echo "$PROPOSED" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
@@ -693,7 +693,7 @@ Atomic. No narration. Print every shell command before running it (axiom 3). Fin
 ## Rules
 
 - Always full sweep. `$ARGUMENTS` weights priority, never narrows scope. **Why:** narrowing skips audits the user didn't know to ask for; the value is surfacing the unknown unknowns.
-- Indexed selection (axiom 4) when finding count >4. `AskUserQuestion` only for per-item Accept/Modify/Skip (or Open-issue/Skip for atomic-meta tier) after the indexed pick. **Why:** paginating 12 findings through 4-option widgets is worse UX than one printed list.
+- Indexed selection (axiom 4) when finding count >4. A question to the user only for per-item Accept/Modify/Skip (or Open-issue/Skip for atomic-meta tier) after the indexed pick. **Why:** paginating 12 findings through 4-option widgets is worse UX than one printed list.
 - Atomic-meta findings never write files in this command. They route to `/report-issue-with-atomic` — the user runs it. **Why:** issue creation is a public action with persistent state on GitHub; per axiom 3 (destructive ops), the user invokes the publishing verb themselves so they can edit the body before submission.
 - Per-item confirm before any file write or hook patch (axiom 3). No "apply all" shortcut. **Why:** advisory rules getting promoted to enforcement hooks change tool behavior globally; batch-accepting hides the blast radius.
 - Memory consolidation: never delete a memory file before grep-verifying that the content lives in the target. The consolidate-then-clean order is mandatory. **Why:** unverified redundancy claims silently destroy rules.
@@ -701,7 +701,7 @@ Atomic. No narration. Print every shell command before running it (axiom 3). Fin
 - Prior-retro drifted/missing findings re-enter the current run at tier 1. Previously skipped OR suppressed findings re-enter at tier 2 only when their `signal_keywords` match a current-run signal. **Why:** the audit-trail is itself a deliverable; users want confidence that past accepts stuck, and skipped/suppressed items shouldn't nag unless the underlying friction is still present. Suppressed re-surfaces are weighted equally with skipped re-surfaces — the user never had the chance to actively decline a suppressed item.
 - Never edit `~/.claude/settings.json` or `.claude/settings.json` without printing the JSON patch first and confirming. Delegate to `/update-config` skill when present. **Why:** settings.json changes affect tool permissions and hook execution — they need a visible diff.
 - No commits. End by suggesting `/commit`; let the user inspect first. **Why:** mixed audit + ship is opaque; separating them keeps the diff reviewable.
-- Read-only agents only — discovery, history scan, prior-retro audit all use read-only agents (`atomic-investigator`, plus Sonnet-backed `general-purpose` runners). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
+- Read-only agents only — discovery, history scan, prior-retro audit all use read-only agents (`atomic-investigator`, plus runners on the harness's default general agent). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
 - Atomic-tier carve-out for state: `retro-runs/` and `retro-learnings.md` live in `~/.atomic/`, not in memory (axiom 2 carve-out for shell-readable durable state). **Why:** the next run needs to grep past run logs deterministically; memory is conversational and not addressable from a shell.
 
 ## Open behaviors

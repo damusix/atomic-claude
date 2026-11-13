@@ -1,8 +1,9 @@
 package mdlink
 
 import (
-	"os/exec"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // LinkifyFile adds a gitignore-aware layer over Linkify: inside a git work tree
@@ -20,34 +21,7 @@ var gitIgnored = defaultGitIgnored
 // defaultGitIgnored never errors: the layer is best-effort and must not break
 // linkification. A non-nil empty map covers git absent, no repo, and none ignored.
 func defaultGitIgnored(baseDir string, tokens []string) map[string]bool {
-	res := map[string]bool{}
-	if len(tokens) == 0 {
-		return res
-	}
-	if _, err := exec.LookPath("git"); err != nil {
-		return res
-	}
-	out, err := exec.Command("git", "-C", baseDir, "rev-parse", "--is-inside-work-tree").Output()
-	if err != nil || strings.TrimSpace(string(out)) != "true" {
-		return res
-	}
-
-	// One batched check-ignore call; it echoes each ignored path verbatim.
-	cmd := exec.Command("git", "-C", baseDir, "check-ignore", "--stdin")
-	cmd.Stdin = strings.NewReader(strings.Join(tokens, "\n") + "\n")
-	stdout, err := cmd.Output()
-	if err != nil {
-		// Exit 1 means "nothing ignored", not a failure.
-		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
-			return res
-		}
-	}
-	for _, line := range strings.Split(strings.TrimSpace(string(stdout)), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			res[line] = true
-		}
-	}
-	return res
+	return config.GitIgnoredSet(baseDir, tokens)
 }
 
 // extractTokens mirrors Linkify's fence and inline-span recognition, so the

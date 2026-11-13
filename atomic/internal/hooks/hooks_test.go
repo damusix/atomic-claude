@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -12,71 +13,58 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
-	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/where"
+	"github.com/damusix/atomic-claude/atomic/internal/workflow"
 )
 
-// TestMain sandboxes every test in this package under a temp $HOME, since
-// reminder.Add/List (which SessionStart drives) resolve their directory
-// relative to the real home via config.ProjectRemindersDir. The real $HOME
-// env var is overridden too, since os.UserHomeDir() (what seedOutputStyleSilent
-// and refreshProfile both resolve against) reads it directly — without this,
-// a machine with atomic-claude already installed would have SessionStart
-// tests write into its real ~/.claude/settings.json.
+// SessionStart writes under $HOME and its profile refresh detects logins from
+// the env, so both are sandboxed: no real ~/.claude, no inherited tokens.
 func TestMain(m *testing.M) {
 	home, err := os.MkdirTemp("", "hooks-test-home")
 	if err != nil {
 		panic(err)
 	}
 	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", home)
+	if err := os.Setenv("HOME", home); err != nil {
+		panic(err)
+	}
+	if err := os.Unsetenv(config.StateDirEnvVar); err != nil {
+		panic(err)
+	}
+	for _, name := range profile.WorkflowEnvVars() {
+		if err := os.Unsetenv(name); err != nil {
+			panic(err)
+		}
+	}
 	restore := config.SetHomeDirForTest(home)
 	code := m.Run()
 	restore()
-	os.Setenv("HOME", origHome)
+	if err := os.Setenv("HOME", origHome); err != nil {
+		panic(err)
+	}
 	os.RemoveAll(home)
 	os.Exit(code)
 }
 
-// addReminderWithDate backdates a new reminder's frontmatter created date.
-func addReminderWithDate(t *testing.T, root, body string, daysAgo int) string {
+func legacyRemindersDir(root string) string {
+	return filepath.Join(config.ProjectStateDir(root), "reminders")
+}
+
+// addReminderWithDate writes a reminder-like file where reminders used to live.
+func addReminderWithDate(t *testing.T, root, body string, daysAgo int) {
 	t.Helper()
-	id, err := reminder.Add(root, body)
-	if err != nil {
-		t.Fatalf("addReminderWithDate: Add: %v", err)
+	dir := legacyRemindersDir(root)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if daysAgo == 0 {
-		return id
+	created := time.Now().UTC().AddDate(0, 0, -daysAgo).Format("2006-01-02")
+	name := fmt.Sprintf("%s-note-%d.md", created, daysAgo)
+	content := "---\ncreated: " + created + "\n---\n" + body + "\n"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	dir := config.ProjectRemindersDir(root)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("addReminderWithDate: ReadDir: %v", err)
-	}
-	target := time.Now().UTC().AddDate(0, 0, -daysAgo).Format("2006-01-02")
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		p := filepath.Join(dir, e.Name())
-		raw, _ := os.ReadFile(p)
-		content := string(raw)
-		today := time.Now().UTC().Format("2006-01-02")
-		patched := strings.Replace(content, "created: "+today, "created: "+target, 1)
-		if patched == content {
-			continue
-		}
-		if !strings.Contains(content, "id: "+id) {
-			continue
-		}
-		if err := os.WriteFile(p, []byte(patched), 0o644); err != nil {
-			t.Fatalf("addReminderWithDate: WriteFile: %v", err)
-		}
-		return id
-	}
-	t.Fatalf("addReminderWithDate: could not find file for id %q", id)
-	return ""
 }
 
 // stubNoWherePosition pins the plain no-wiki/no-realm case, keeping empty-output
@@ -101,556 +89,6 @@ func tempHome(t *testing.T) string {
 	return home
 }
 
-func TestSessionStart_EmptyReminders(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	if out != "" {
-		t.Errorf("expected empty output with no reminders, got %q", out)
-	}
-}
-
-func TestSessionStart_OneFreshReminder_JSONEnvelope(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	addReminderWithDate(t, root, "fix the auth race in middleware", 0)
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected non-empty output")
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
-	}
-
-	if suppress, ok := payload["suppressOutput"].(bool); !ok || !suppress {
-		t.Errorf("expected suppressOutput=true, got %v", payload["suppressOutput"])
-	}
-
-	hso, ok := payload["hookSpecificOutput"].(map[string]any)
-	if !ok {
-		t.Fatalf("hookSpecificOutput missing or wrong type: %v", payload["hookSpecificOutput"])
-	}
-	if hso["hookEventName"] != "SessionStart" {
-		t.Errorf("hookEventName = %q, want SessionStart", hso["hookEventName"])
-	}
-	ctx, _ := hso["additionalContext"].(string)
-	if !strings.Contains(ctx, "fix the auth race in middleware") {
-		t.Errorf("additionalContext missing reminder text: %q", ctx)
-	}
-	if !strings.Contains(ctx, "Pending reminders (1)") {
-		t.Errorf("additionalContext missing header: %q", ctx)
-	}
-	if !strings.Contains(ctx, "today") {
-		t.Errorf("additionalContext missing 'today': %q", ctx)
-	}
-
-	if _, has := payload["systemMessage"]; has {
-		t.Errorf("unexpected systemMessage for fresh reminder: %v", payload["systemMessage"])
-	}
-}
-
-func TestSessionStart_TwelveReminders_CappedAtTen(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	for i := range 12 {
-		addReminderWithDate(t, root, strings.Repeat("x", i+1)+" reminder body", 0)
-	}
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-	hso := payload["hookSpecificOutput"].(map[string]any)
-	ctx := hso["additionalContext"].(string)
-
-	if !strings.Contains(ctx, "Pending reminders (12)") {
-		t.Errorf("header should show total count 12: %q", ctx)
-	}
-	if !strings.Contains(ctx, "(and 2 more)") {
-		t.Errorf("expected '(and 2 more)' in context: %q", ctx)
-	}
-	lines := strings.Split(ctx, "\n")
-	bulletCount := 0
-	for _, l := range lines {
-		if strings.HasPrefix(l, "- [") {
-			bulletCount++
-		}
-	}
-	if bulletCount != 10 {
-		t.Errorf("expected 10 reminder bullets, got %d", bulletCount)
-	}
-}
-
-func TestSessionStart_OldReminder_SystemMessage(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	addReminderWithDate(t, root, "revisit error handling in ingest", 15)
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-
-	sm, ok := payload["systemMessage"].(string)
-	if !ok || sm == "" {
-		t.Fatalf("expected systemMessage for old reminder, got %v", payload["systemMessage"])
-	}
-	if !strings.Contains(sm, "1 reminders pending") && !strings.Contains(sm, "1 reminder pending") {
-		t.Errorf("systemMessage should mention count: %q", sm)
-	}
-	if !strings.Contains(sm, "days old") {
-		t.Errorf("systemMessage should mention days old: %q", sm)
-	}
-}
-
-func TestSessionStart_FormatText(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	addReminderWithDate(t, root, "benchmark the new query plan", 2)
-
-	out, err := hooks.SessionStartText(root, now)
-	if err != nil {
-		t.Fatalf("SessionStartText: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected non-empty text output")
-	}
-	if strings.HasPrefix(strings.TrimSpace(out), "{") {
-		t.Errorf("text format should not be JSON: %q", out)
-	}
-	if !strings.Contains(out, "benchmark the new query plan") {
-		t.Errorf("text missing reminder: %q", out)
-	}
-}
-
-func TestSessionStart_FormatText_EmptyReminders(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	out, err := hooks.SessionStartText(root, now)
-	if err != nil {
-		t.Fatalf("SessionStartText: %v", err)
-	}
-	if out != "" {
-		t.Errorf("expected empty text output with no reminders, got %q", out)
-	}
-}
-
-func TestSessionStart_BodyTruncated(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	longBody := strings.Repeat("a", 100)
-	addReminderWithDate(t, root, longBody, 0)
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-
-	var payload map[string]any
-	json.Unmarshal([]byte(out), &payload)
-	hso := payload["hookSpecificOutput"].(map[string]any)
-	ctx := hso["additionalContext"].(string)
-
-	if !strings.Contains(ctx, "…") {
-		t.Errorf("expected ellipsis in truncated body: %q", ctx)
-	}
-	if strings.Contains(ctx, longBody) {
-		t.Errorf("expected body to be truncated, found full text: %q", ctx)
-	}
-}
-
-func TestSessionStart_AgoBuckets(t *testing.T) {
-	stubNoWherePosition(t)
-	cases := []struct {
-		days int
-		want string
-	}{
-		{0, "today"},
-		{1, "yesterday"},
-		{2, "2 days ago"},
-		{6, "6 days ago"},
-		{7, "1 week ago"},
-		{13, "1 week ago"},
-		{14, "2 weeks ago"},
-		{29, "4 weeks ago"},
-		{30, "1 month ago"},
-		{89, "2 months ago"},
-		{100, "3 months ago"},
-	}
-	for _, c := range cases {
-		t.Run(strings.ReplaceAll(c.want, " ", "_"), func(t *testing.T) {
-			root := t.TempDir()
-			now := time.Now().UTC()
-			addReminderWithDate(t, root, "test reminder body", c.days)
-			out, err := hooks.SessionStart(root, now)
-			if err != nil {
-				t.Fatalf("SessionStart: %v", err)
-			}
-			if out == "" {
-				t.Fatal("expected non-empty output")
-			}
-			var payload map[string]any
-			json.Unmarshal([]byte(out), &payload)
-			hso := payload["hookSpecificOutput"].(map[string]any)
-			ctx := hso["additionalContext"].(string)
-			if !strings.Contains(ctx, c.want) {
-				t.Errorf("days=%d: expected %q in context, got: %q", c.days, c.want, ctx)
-			}
-		})
-	}
-}
-
-// addReminderWithDue offsets due from now; daysOffset may be negative.
-func addReminderWithDue(t *testing.T, root, body string, daysOffset int) string {
-	t.Helper()
-	due := time.Now().UTC().AddDate(0, 0, daysOffset).Format(time.RFC3339)
-	id, err := reminder.Add(root, body, reminder.WithDue(due))
-	if err != nil {
-		t.Fatalf("addReminderWithDue: Add: %v", err)
-	}
-	return id
-}
-
-// patchDueField rewrites a reminder's due: line, malformed values included.
-func patchDueField(t *testing.T, root, id, dueValue string) {
-	t.Helper()
-	dir := config.ProjectRemindersDir(root)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("patchDueField: ReadDir: %v", err)
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		p := filepath.Join(dir, e.Name())
-		raw, _ := os.ReadFile(p)
-		content := string(raw)
-		if !strings.Contains(content, "id: "+id) {
-			continue
-		}
-		lines := strings.Split(content, "\n")
-		for i, l := range lines {
-			if strings.HasPrefix(l, "due: ") {
-				lines[i] = "due: " + dueValue
-			}
-		}
-		os.WriteFile(p, []byte(strings.Join(lines, "\n")), 0o644)
-		return
-	}
-	t.Fatalf("patchDueField: could not find file for id %q", id)
-}
-
-func TestSessionStart_FutureDue_Silent(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	addReminderWithDue(t, root, "future reminder should be silent", +1)
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	if out != "" {
-		t.Errorf("expected empty output for future-due reminder, got %q", out)
-	}
-}
-
-func TestSessionStart_PastDue_InOutput(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	addReminderWithDue(t, root, "past due reminder", -1)
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected non-empty output for past-due reminder")
-	}
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-	hso := payload["hookSpecificOutput"].(map[string]any)
-	ctx := hso["additionalContext"].(string)
-	if !strings.Contains(ctx, "past due reminder") {
-		t.Errorf("past-due reminder missing from context: %q", ctx)
-	}
-	if !strings.Contains(ctx, "should-remind-user: true") {
-		t.Errorf("should-remind-user marker missing from context: %q", ctx)
-	}
-}
-
-func TestSessionStart_LegacyNoDue_InOutput(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	addReminderWithDate(t, root, "legacy reminder no due field", 0)
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected non-empty output for legacy reminder (no due field)")
-	}
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-	hso := payload["hookSpecificOutput"].(map[string]any)
-	ctx := hso["additionalContext"].(string)
-	if !strings.Contains(ctx, "legacy reminder no due field") {
-		t.Errorf("legacy reminder missing from context: %q", ctx)
-	}
-	if !strings.Contains(ctx, "should-remind-user: true") {
-		t.Errorf("should-remind-user marker missing from context for legacy reminder: %q", ctx)
-	}
-}
-
-func TestSessionStart_MalformedDue_InOutput(t *testing.T) {
-	// Corrupting a real due: field exercises filterPastDue's parse-error branch
-	// rather than its legacy Due=="" branch.
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	id := addReminderWithDue(t, root, "malformed due reminder", -1)
-	patchDueField(t, root, id, "not-a-valid-iso")
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected non-empty output for malformed-due reminder")
-	}
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-	hso := payload["hookSpecificOutput"].(map[string]any)
-	ctx := hso["additionalContext"].(string)
-	if !strings.Contains(ctx, "malformed due reminder") {
-		t.Errorf("malformed-due reminder missing from context: %q", ctx)
-	}
-	if !strings.Contains(ctx, "should-remind-user: true") {
-		t.Errorf("should-remind-user marker missing for malformed-due reminder: %q", ctx)
-	}
-}
-
-// systemMessage counts surfaced reminders, not everything stored.
-func TestSessionStart_OldReminder_SystemMessage_CountsOnlySurfaced(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	addReminderWithDate(t, root, "old past due reminder", 15)
-	for i := range 5 {
-		addReminderWithDue(t, root, strings.Repeat("f", i+1)+" future silent", +1)
-	}
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-
-	sm, ok := payload["systemMessage"].(string)
-	if !ok || sm == "" {
-		t.Fatalf("expected systemMessage for old reminder, got %v", payload["systemMessage"])
-	}
-	if strings.Contains(sm, "6 reminders") {
-		t.Errorf("systemMessage over-counts (includes future reminders): %q", sm)
-	}
-	if !strings.Contains(sm, "1 reminders pending") && !strings.Contains(sm, "1 reminder pending") {
-		t.Errorf("systemMessage should report 1 surfaced reminder, got: %q", sm)
-	}
-}
-
-func TestSessionStart_MixedDue_OnlyPastDue(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	addReminderWithDue(t, root, "past due visible", -2)
-	addReminderWithDue(t, root, "future silent", +2)
-	addReminderWithDate(t, root, "legacy visible", 0)
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected non-empty output")
-	}
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-	hso := payload["hookSpecificOutput"].(map[string]any)
-	ctx := hso["additionalContext"].(string)
-
-	if !strings.Contains(ctx, "past due visible") {
-		t.Errorf("past-due reminder missing: %q", ctx)
-	}
-	if !strings.Contains(ctx, "legacy visible") {
-		t.Errorf("legacy reminder missing: %q", ctx)
-	}
-	if strings.Contains(ctx, "future silent") {
-		t.Errorf("future reminder must be silent but appeared: %q", ctx)
-	}
-}
-
-func TestSessionStart_CapAppliedToPastDueSet(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	for i := range 12 {
-		addReminderWithDue(t, root, strings.Repeat("p", i+1)+" past due", -1)
-	}
-	for i := range 5 {
-		addReminderWithDue(t, root, strings.Repeat("f", i+1)+" future", +1)
-	}
-
-	out, err := hooks.SessionStart(root, now)
-	if err != nil {
-		t.Fatalf("SessionStart: %v", err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-	hso := payload["hookSpecificOutput"].(map[string]any)
-	ctx := hso["additionalContext"].(string)
-
-	if !strings.Contains(ctx, "Pending reminders (12)") {
-		t.Errorf("header should show past-due count 12, not total 17: %q", ctx)
-	}
-	if !strings.Contains(ctx, "(and 2 more)") {
-		t.Errorf("expected '(and 2 more)' overflow line: %q", ctx)
-	}
-	lines := strings.Split(ctx, "\n")
-	bulletCount := 0
-	for _, l := range lines {
-		if strings.HasPrefix(l, "- [") {
-			bulletCount++
-		}
-	}
-	if bulletCount != 10 {
-		t.Errorf("expected 10 reminder bullets, got %d", bulletCount)
-	}
-	if strings.Contains(ctx, "future") {
-		t.Errorf("future reminders must not appear in output: %q", ctx)
-	}
-}
-
-func TestSessionStartText_PastDueFilter(t *testing.T) {
-	stubNoWherePosition(t)
-	root := t.TempDir()
-	now := time.Now().UTC()
-	addReminderWithDue(t, root, "past due text check", -1)
-	addReminderWithDue(t, root, "future text silent", +1)
-
-	out, err := hooks.SessionStartText(root, now)
-	if err != nil {
-		t.Fatalf("SessionStartText: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected non-empty text output")
-	}
-	if !strings.Contains(out, "past due text check") {
-		t.Errorf("past-due reminder missing from text: %q", out)
-	}
-	if strings.Contains(out, "future text silent") {
-		t.Errorf("future reminder must be silent in text: %q", out)
-	}
-	if !strings.Contains(out, "should-remind-user: true") {
-		t.Errorf("should-remind-user marker missing from text output: %q", out)
-	}
-}
-
-// systemMessage says "reminder" for one and "reminders" for more.
-func TestSessionStart_SystemMessage_Pluralization(t *testing.T) {
-	stubNoWherePosition(t)
-	t.Run("singular", func(t *testing.T) {
-		root := t.TempDir()
-		now := time.Now().UTC()
-		addReminderWithDate(t, root, "one old reminder", 15)
-
-		out, err := hooks.SessionStart(root, now)
-		if err != nil {
-			t.Fatalf("SessionStart: %v", err)
-		}
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(out), &payload); err != nil {
-			t.Fatalf("not valid JSON: %v", err)
-		}
-		sm, ok := payload["systemMessage"].(string)
-		if !ok || sm == "" {
-			t.Fatalf("expected systemMessage, got %v", payload["systemMessage"])
-		}
-		if strings.Contains(sm, "1 reminders") {
-			t.Errorf("grammar bug: got %q, want '1 reminder pending'", sm)
-		}
-		if !strings.Contains(sm, "1 reminder pending") {
-			t.Errorf("expected '1 reminder pending' in systemMessage, got: %q", sm)
-		}
-	})
-
-	t.Run("plural", func(t *testing.T) {
-		root := t.TempDir()
-		now := time.Now().UTC()
-		addReminderWithDate(t, root, "old reminder one", 15)
-		addReminderWithDate(t, root, "old reminder two", 15)
-
-		out, err := hooks.SessionStart(root, now)
-		if err != nil {
-			t.Fatalf("SessionStart: %v", err)
-		}
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(out), &payload); err != nil {
-			t.Fatalf("not valid JSON: %v", err)
-		}
-		sm, ok := payload["systemMessage"].(string)
-		if !ok || sm == "" {
-			t.Fatalf("expected systemMessage, got %v", payload["systemMessage"])
-		}
-		if !strings.Contains(sm, "2 reminders pending") {
-			t.Errorf("expected '2 reminders pending' in systemMessage, got: %q", sm)
-		}
-	})
-}
-
 func TestInstall_EmptyDir_RegistersInlineCommand(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
@@ -669,8 +107,8 @@ func TestInstall_EmptyDir_RegistersInlineCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings.json not found: %v", err)
 	}
-	if cmd := sessionStartCommandIn(t, raw); cmd != "atomic hooks session-start" {
-		t.Errorf("registered command = %q, want %q", cmd, "atomic hooks session-start")
+	if cmd := sessionStartCommandIn(t, raw); cmd != "atomic hooks session-start --harness claude" {
+		t.Errorf("registered command = %q, want %q", cmd, "atomic hooks session-start --harness claude")
 	}
 }
 
@@ -793,6 +231,21 @@ func TestInstall_MalformedSettings_Refuses(t *testing.T) {
 	}
 }
 
+// An unparseable settings.json must block a legacy adoption's plan, not pass
+// it and fail later in the settings writer.
+func TestSettingsShapeError_ReportsUnparseableFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte("{ not valid json "), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := hooks.SettingsShapeError(path); err == nil {
+		t.Fatal("SettingsShapeError = nil for an unparseable file, want its parse error")
+	}
+	if err := hooks.SettingsShapeError(filepath.Join(t.TempDir(), "absent.json")); err != nil {
+		t.Errorf("SettingsShapeError on an absent file = %v, want nil", err)
+	}
+}
+
 func TestInstall_ScopeProject_WritesUnderClaudeDir(t *testing.T) {
 	projectRoot := t.TempDir()
 	if _, err := hooks.Install(projectRoot, projectRoot); err != nil {
@@ -803,7 +256,7 @@ func TestInstall_ScopeProject_WritesUnderClaudeDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings.json not found under project root: %v", err)
 	}
-	if cmd := sessionStartCommandIn(t, raw); cmd != "atomic hooks session-start" {
+	if cmd := sessionStartCommandIn(t, raw); cmd != "atomic hooks session-start --harness claude" {
 		t.Errorf("registered command = %q, want inline command", cmd)
 	}
 }
@@ -1141,7 +594,7 @@ func TestInstall_MigratesLegacyRegistration(t *testing.T) {
 	if len(ss) != 1 {
 		t.Fatalf("expected 1 SessionStart entry after migration, got %d", len(ss))
 	}
-	if cmd := sessionStartCommandIn(t, raw); cmd != "atomic hooks session-start" {
+	if cmd := sessionStartCommandIn(t, raw); cmd != "atomic hooks session-start --harness claude" {
 		t.Errorf("post-migration command = %q, want inline command", cmd)
 	}
 
@@ -1172,7 +625,7 @@ func TestSessionStart_ProfileRefreshCalled(t *testing.T) {
 	}
 	t.Cleanup(func() { hooks.ProfileRefresh = hooks.DefaultProfileRefresh })
 
-	_, err := hooks.SessionStart(root, now)
+	_, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart: %v", err)
 	}
@@ -1201,52 +654,46 @@ func TestSessionStartText_ProfileRefreshCalled(t *testing.T) {
 	}
 	t.Cleanup(func() { hooks.ProfileRefresh = hooks.DefaultProfileRefresh })
 
-	_, err := hooks.SessionStartText(root, now)
-	if err != nil {
-		t.Fatalf("SessionStartText: %v", err)
-	}
+	hooks.SessionStartText(root, "claude", now)
 	if !called {
 		t.Error("profileRefresh seam was not called by SessionStartText")
 	}
 }
 
-// The refresh is best-effort: a disk failure must not break reminder injection.
+// The refresh is best-effort: a disk failure must not drop session context.
 func TestSessionStart_ProfileRefreshError_NeverBlocks(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
-	addReminderWithDate(t, root, "must still surface despite refresh error", 0)
 
 	hooks.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
 		return false, fmt.Errorf("simulated refresh failure")
 	}
 	t.Cleanup(func() { hooks.ProfileRefresh = hooks.DefaultProfileRefresh })
 
-	out, err := hooks.SessionStart(root, now)
+	out, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart returned error despite best-effort refresh: %v", err)
 	}
-	if out == "" {
-		t.Fatal("expected reminder output even when refresh fails")
-	}
-	if !strings.Contains(out, "must still surface despite refresh error") {
-		t.Errorf("reminder text missing from output: %q", out)
+	if !strings.Contains(out, "## Workflow preferences") {
+		t.Errorf("workflow section missing despite refresh failure: %q", out)
 	}
 }
 
 func TestSessionStart_SeedOutputStyleCalled(t *testing.T) {
 	stubNoWherePosition(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	root := t.TempDir()
 	now := time.Now().UTC()
 
-	var gotScopeRoot, gotTargetDir, gotHome string
-	hooks.SeedOutputStyleFn = func(scopeRoot, targetDir, home string) (bool, error) {
-		gotScopeRoot, gotTargetDir, gotHome = scopeRoot, targetDir, home
+	var gotSettingsDir, gotTargetDir, gotHome string
+	hooks.SeedOutputStyleFn = func(settingsDir, targetDir, home string) (bool, error) {
+		gotSettingsDir, gotTargetDir, gotHome = settingsDir, targetDir, home
 		return false, nil
 	}
 	t.Cleanup(func() { hooks.SeedOutputStyleFn = hooks.DefaultSeedOutputStyle })
 
-	if _, err := hooks.SessionStart(root, now); err != nil {
+	if _, err := hooks.SessionStart(root, "claude", now); err != nil {
 		t.Fatalf("SessionStart: %v", err)
 	}
 
@@ -1254,12 +701,43 @@ func TestSessionStart_SeedOutputStyleCalled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.UserHomeDir: %v", err)
 	}
-	if gotScopeRoot != home || gotHome != home {
-		t.Errorf("seed called with scopeRoot=%q home=%q, want both %q", gotScopeRoot, gotHome, home)
-	}
 	wantTarget := filepath.Join(home, ".claude")
+	if gotSettingsDir != wantTarget || gotHome != home {
+		t.Errorf("seed called with settingsDir=%q home=%q, want %q and %q", gotSettingsDir, gotHome, wantTarget, home)
+	}
 	if gotTargetDir != wantTarget {
 		t.Errorf("seed called with targetDir=%q, want %q", gotTargetDir, wantTarget)
+	}
+}
+
+// Install writes the Claude root CLAUDE_CONFIG_DIR names, so the session-start
+// hook must seed and read that root, not ~/.claude.
+func TestSessionStart_FollowsClaudeConfigDir(t *testing.T) {
+	home := tempHome(t)
+	configDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+
+	var gotSettingsDir, gotTargetDir, gotClaudeMD string
+	hooks.SeedOutputStyleFn = func(settingsDir, targetDir, _ string) (bool, error) {
+		gotSettingsDir, gotTargetDir = settingsDir, targetDir
+		return false, nil
+	}
+	t.Cleanup(func() { hooks.SeedOutputStyleFn = hooks.DefaultSeedOutputStyle })
+	orig := hooks.WherePosition
+	hooks.WherePosition = func(_, claudeMDPath string) (where.Report, error) {
+		gotClaudeMD = claudeMDPath
+		return where.Report{}, nil
+	}
+	t.Cleanup(func() { hooks.WherePosition = orig })
+
+	if _, err := hooks.SessionStart(t.TempDir(), "claude", time.Now().UTC()); err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if gotSettingsDir != configDir || gotTargetDir != configDir {
+		t.Errorf("seed settings=%q target=%q, want both %q (home %q)", gotSettingsDir, gotTargetDir, configDir, home)
+	}
+	if want := filepath.Join(configDir, "CLAUDE.md"); gotClaudeMD != want {
+		t.Errorf("where position read %q, want %q", gotClaudeMD, want)
 	}
 }
 
@@ -1275,11 +753,37 @@ func TestSessionStartText_SeedOutputStyleCalled(t *testing.T) {
 	}
 	t.Cleanup(func() { hooks.SeedOutputStyleFn = hooks.DefaultSeedOutputStyle })
 
-	if _, err := hooks.SessionStartText(root, now); err != nil {
-		t.Fatalf("SessionStartText: %v", err)
-	}
+	hooks.SessionStartText(root, "claude", now)
 	if !called {
 		t.Error("seedOutputStyleSilent seam was not called by SessionStartText")
+	}
+}
+
+// The profile and preferences are harness-neutral, but the style seed writes
+// Claude's settings.json, so only a Claude session may run it.
+func TestSessionStartText_RefreshesProfileEverywhereSeedsStyleOnlyForClaude(t *testing.T) {
+	stubNoWherePosition(t)
+	for _, tc := range []struct {
+		harness  string
+		wantSeed bool
+	}{{"claude", true}, {"omp", false}, {"codex", false}} {
+		t.Run(tc.harness, func(t *testing.T) {
+			refreshed, seeded := false, false
+			hooks.ProfileRefresh = func(_, _ string, _ int) (bool, error) { refreshed = true; return false, nil }
+			hooks.SeedOutputStyleFn = func(_, _, _ string) (bool, error) { seeded = true; return false, nil }
+			t.Cleanup(func() {
+				hooks.ProfileRefresh = hooks.DefaultProfileRefresh
+				hooks.SeedOutputStyleFn = hooks.DefaultSeedOutputStyle
+			})
+
+			hooks.SessionStartText(t.TempDir(), tc.harness, time.Now().UTC())
+			if !refreshed {
+				t.Error("profile was not refreshed")
+			}
+			if seeded != tc.wantSeed {
+				t.Errorf("style seeded = %v, want %v", seeded, tc.wantSeed)
+			}
+		})
 	}
 }
 
@@ -1290,9 +794,8 @@ func TestSessionStart_SeedOutputStyle_PayloadUnaffected(t *testing.T) {
 	root := t.TempDir()
 	home := tempHome(t)
 	now := time.Now().UTC()
-	addReminderWithDate(t, root, "seed must not alter the payload", 0)
 
-	outBefore, err := hooks.SessionStart(root, now)
+	outBefore, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart (style not installed): %v", err)
 	}
@@ -1305,7 +808,7 @@ func TestSessionStart_SeedOutputStyle_PayloadUnaffected(t *testing.T) {
 		t.Fatalf("write atomic.md: %v", err)
 	}
 
-	outAfter, err := hooks.SessionStart(root, now)
+	outAfter, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart (style installed): %v", err)
 	}
@@ -1331,7 +834,6 @@ func TestSessionStart_SeedOutputStyle_MalformedSettings_NeverBlocks(t *testing.T
 	root := t.TempDir()
 	home := tempHome(t)
 	now := time.Now().UTC()
-	addReminderWithDate(t, root, "must still surface despite malformed settings", 0)
 
 	claudeDir := filepath.Join(home, ".claude")
 	styleDir := filepath.Join(claudeDir, "output-styles")
@@ -1354,19 +856,19 @@ func TestSessionStart_SeedOutputStyle_MalformedSettings_NeverBlocks(t *testing.T
 	}
 	t.Cleanup(func() { hooks.SeedOutputStyleFn = hooks.DefaultSeedOutputStyle })
 
-	out, err := hooks.SessionStart(root, now)
+	out, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart returned error despite malformed settings.json: %v", err)
 	}
 	if !called {
 		t.Error("expected the seed to be attempted against the malformed settings file")
 	}
-	if !strings.Contains(out, "must still surface despite malformed settings") {
-		t.Errorf("reminder text missing from output: %q", out)
+	if !strings.Contains(out, "## Workflow preferences") {
+		t.Errorf("workflow section missing despite malformed settings: %q", out)
 	}
 }
 
-// A plain position emits nothing — the hook stays silent unless relevant.
+// A plain position adds no orientation section.
 func TestSessionStart_WhereSuppressed_PlainPosition(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now().UTC()
@@ -1376,12 +878,12 @@ func TestSessionStart_WhereSuppressed_PlainPosition(t *testing.T) {
 	}
 	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
 
-	out, err := hooks.SessionStart(root, now)
+	out, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart: %v", err)
 	}
-	if out != "" {
-		t.Errorf("expected empty output for plain position, got %q", out)
+	if ctx := additionalContext(t, out); !strings.HasPrefix(ctx, "## Workflow preferences\n") {
+		t.Errorf("expected the workflow section alone for plain position, got %q", ctx)
 	}
 }
 
@@ -1397,7 +899,7 @@ func TestSessionStart_WhereSurfaced_RepoScopeFound(t *testing.T) {
 	}
 	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
 
-	out, err := hooks.SessionStart(root, now)
+	out, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart: %v", err)
 	}
@@ -1419,7 +921,8 @@ func TestSessionStart_WhereSurfaced_RepoScopeFound(t *testing.T) {
 		t.Errorf("orientation nudge missing pointer to `atomic where`: %q", ctx)
 	}
 
-	lines := strings.Split(ctx, "\n")
+	orientation, _, _ := strings.Cut(ctx, "\n\n")
+	lines := strings.Split(orientation, "\n")
 	bulletCount := 0
 	for _, l := range lines {
 		if strings.HasPrefix(l, "- ") {
@@ -1444,7 +947,7 @@ func TestSessionStart_WhereSurfaced_RealmMember(t *testing.T) {
 	}
 	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
 
-	out, err := hooks.SessionStart(root, now)
+	out, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart: %v", err)
 	}
@@ -1479,7 +982,7 @@ func TestSessionStart_WhereSurfaced_RealmRoot(t *testing.T) {
 	}
 	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
 
-	out, err := hooks.SessionStart(root, now)
+	out, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart: %v", err)
 	}
@@ -1514,7 +1017,7 @@ func TestSessionStart_WhereSurfaced_RealmOrphaned(t *testing.T) {
 	}
 	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
 
-	out, err := hooks.SessionStart(root, now)
+	out, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart: %v", err)
 	}
@@ -1549,7 +1052,7 @@ func TestSessionStart_WhereSeamReceivesRepoRoot(t *testing.T) {
 	}
 	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
 
-	if _, err := hooks.SessionStart(root, now); err != nil {
+	if _, err := hooks.SessionStart(root, "claude", now); err != nil {
 		t.Fatalf("SessionStart: %v", err)
 	}
 	if gotCwd != root {
@@ -1561,22 +1064,18 @@ func TestSessionStart_WhereSeamReceivesRepoRoot(t *testing.T) {
 func TestSessionStart_WhereError_NeverBlocks(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now().UTC()
-	addReminderWithDate(t, root, "must still surface despite where error", 0)
 
 	hooks.WherePosition = func(_, _ string) (where.Report, error) {
 		return where.Report{}, fmt.Errorf("simulated where resolution failure")
 	}
 	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
 
-	out, err := hooks.SessionStart(root, now)
+	out, err := hooks.SessionStart(root, "claude", now)
 	if err != nil {
 		t.Fatalf("SessionStart returned error despite best-effort where check: %v", err)
 	}
-	if out == "" {
-		t.Fatal("expected reminder output even when where resolution fails")
-	}
-	if !strings.Contains(out, "must still surface despite where error") {
-		t.Errorf("reminder text missing from output: %q", out)
+	if ctx := additionalContext(t, out); !strings.HasPrefix(ctx, "## Workflow preferences\n") {
+		t.Errorf("expected the workflow section alone after a where error, got %q", ctx)
 	}
 }
 
@@ -1693,5 +1192,177 @@ func TestUninstall_MalformedSettings_Refuses(t *testing.T) {
 	raw, _ := os.ReadFile(settingsPath)
 	if string(raw) != "{ broken" {
 		t.Errorf("malformed settings.json was modified")
+	}
+}
+
+func stubRepoScopeWiki(t *testing.T) {
+	t.Helper()
+	hooks.WherePosition = func(_, _ string) (where.Report, error) {
+		return where.Report{
+			RepoScope: where.RepoScopeReport{Found: true, Path: "/r/docs/wiki/index.md"},
+		}, nil
+	}
+	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
+}
+
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	return repo
+}
+
+func additionalContext(t *testing.T, out string) string {
+	t.Helper()
+	var payload struct {
+		HookSpecificOutput struct {
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("payload is not JSON: %v\n%s", err, out)
+	}
+	return payload.HookSpecificOutput.AdditionalContext
+}
+
+// The worktree path differs by harness, so "omp" proves the flag reaches the
+// resolver rather than a hard-coded Claude default.
+func TestSessionStart_WorkflowSectionFollowsOrientation(t *testing.T) {
+	stubRepoScopeWiki(t)
+	home := tempHome(t)
+	root := gitRepo(t)
+
+	out, err := hooks.SessionStart(root, "omp", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	resolved, err := workflow.Resolve(workflow.Options{Dir: root, Home: home, Harness: "omp"})
+	if err != nil {
+		t.Fatalf("workflow.Resolve: %v", err)
+	}
+	block := strings.TrimRight(workflow.RenderText(resolved), "\n")
+	if !strings.Contains(block, ".atomic/worktrees") {
+		t.Fatalf("fixture: omp block lacks its worktree path:\n%s", block)
+	}
+
+	ctx := additionalContext(t, out)
+	section := "## Workflow preferences\n" + block
+	if !strings.HasPrefix(ctx, "## Orientation\n") || !strings.HasSuffix(ctx, "\n\n"+section) {
+		t.Errorf("want orientation, then\n%s\ngot:\n%s", section, ctx)
+	}
+
+	if text := hooks.SessionStartText(root, "omp", time.Now().UTC()); text != ctx {
+		t.Errorf("text form differs from additionalContext:\n%s\nvs\n%s", text, ctx)
+	}
+}
+
+// The hook never blocks the session, so an unresolvable directory drops only
+// the workflow section.
+func TestSessionStart_ResolverFailureOmitsWorkflowSection(t *testing.T) {
+	stubRepoScopeWiki(t)
+	tempHome(t)
+	missing := filepath.Join(t.TempDir(), "gone")
+
+	out, err := hooks.SessionStart(missing, "claude", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("SessionStart returned an error on resolver failure: %v", err)
+	}
+	ctx := additionalContext(t, out)
+	if !strings.HasPrefix(ctx, "## Orientation\n") || strings.Contains(ctx, "Workflow preferences") {
+		t.Errorf("want orientation only, got:\n%s", ctx)
+	}
+
+	if text := hooks.SessionStartText(missing, "claude", time.Now().UTC()); text != ctx {
+		t.Errorf("text form differs from additionalContext:\n%s\nvs\n%s", text, ctx)
+	}
+}
+
+// Pending reminder files stay on disk untouched and no part of the payload
+// mentions them.
+func TestSessionStart_PendingRemindersProduceNoNotice(t *testing.T) {
+	stubNoWherePosition(t)
+	tempHome(t)
+	root := gitRepo(t)
+	addReminderWithDate(t, root, "fresh pending note", 0)
+	addReminderWithDate(t, root, "stale pending note", 30)
+	dir := legacyRemindersDir(root)
+	before := snapshotDir(t, dir)
+
+	out, err := hooks.SessionStart(root, "claude", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("payload is not JSON: %v\n%s", err, out)
+	}
+	if _, has := payload["systemMessage"]; has {
+		t.Errorf("payload carries systemMessage: %v", payload["systemMessage"])
+	}
+	if strings.Contains(strings.ToLower(out), "remind") || strings.Contains(out, "pending note") {
+		t.Errorf("payload mentions reminders:\n%s", out)
+	}
+
+	if text := hooks.SessionStartText(root, "claude", time.Now().UTC()); strings.Contains(strings.ToLower(text), "remind") {
+		t.Errorf("text form mentions reminders:\n%s", text)
+	}
+
+	if after := snapshotDir(t, dir); fmt.Sprint(before) != fmt.Sprint(after) {
+		t.Errorf("reminder files changed:\nbefore %v\nafter  %v", before, after)
+	}
+}
+
+// Tests that skip tempHome run the real profile refresh, so a developer's or
+// CI's login must never reach workflow detection.
+func TestWorkflowEnvVarsAreClearedForTests(t *testing.T) {
+	for _, name := range profile.WorkflowEnvVars() {
+		if _, ok := os.LookupEnv(name); ok {
+			t.Errorf("%s leaked into the test process", name)
+		}
+	}
+}
+
+func snapshotDir(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	files := map[string]string{}
+	for _, e := range entries {
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[e.Name()] = string(raw)
+	}
+	return files
+}
+
+func TestInstallInDirRefusesNonObjectHooks(t *testing.T) {
+	dir := t.TempDir()
+	path := hooks.SettingsPathInDir(dir)
+	body := `{"hooks":[]}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := hooks.InstallInDir(dir)
+	if err == nil || !strings.Contains(err.Error(), `"hooks" must be an object; found array`) {
+		t.Fatalf("install err = %v, want the shape message", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != body {
+		t.Errorf("bytes changed to %s", got)
+	}
+	obs, err := hooks.ObserveSettingsOwnedInDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.Conflict != managedfile.ConflictMalformedSettings {
+		t.Errorf("observation = %+v, want a malformed-settings conflict", obs)
 	}
 }

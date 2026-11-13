@@ -235,6 +235,34 @@ func TestRun_list_human_after_set(t *testing.T) {
 	}
 }
 
+func TestRun_list_groupsAgentOverridesByHarness(t *testing.T) {
+	home := t.TempDir()
+	cfg := Default()
+	setOverrides(cfg, "omp", map[string]AgentOverride{"atomic-reviewer": {Model: "@slow"}})
+	setOverrides(cfg, "claude", map[string]AgentOverride{"atomic-reviewer": {Effort: "high"}, "atomic-implementer": {Model: "opus"}})
+	if err := WritePersist(TOMLPath(home), cfg); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := runCLI(t, home, "list")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	var agentLines []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, ".agents.") {
+			agentLines = append(agentLines, line)
+		}
+	}
+	want := []string{
+		"claude.agents.atomic-implementer.model=opus",
+		"claude.agents.atomic-reviewer.effort=high",
+		"omp.agents.atomic-reviewer.model=@slow",
+	}
+	if strings.Join(agentLines, "\n") != strings.Join(want, "\n") {
+		t.Errorf("agent lines = %q, want %q", agentLines, want)
+	}
+}
+
 func TestRun_list_json(t *testing.T) {
 	home := t.TempDir()
 	code, out, _ := runCLI(t, home, "list", "--json")
@@ -264,49 +292,11 @@ func TestRun_list_json_sorted_keys(t *testing.T) {
 	}
 }
 
-// --- harness.dir ---
-
-func TestRun_harness_dir_set_get_unset(t *testing.T) {
+func TestRun_harness_dir_is_unknown_key(t *testing.T) {
 	home := t.TempDir()
-	if code, _, _ := runCLI(t, home, "set", "harness.dir", ".pi"); code != 0 {
-		t.Fatal("set failed")
-	}
-	code, out, _ := runCLI(t, home, "get", "harness.dir")
-	if code != 0 || strings.TrimSpace(out) != ".pi" {
-		t.Fatalf("get after set: code=%d out=%q", code, out)
-	}
-	if code, _, _ := runCLI(t, home, "unset", "harness.dir"); code != 0 {
-		t.Fatal("unset failed")
-	}
-	code, out, _ = runCLI(t, home, "get", "harness.dir")
-	if code != 0 || strings.TrimSpace(out) != ".claude" {
-		t.Fatalf("get after unset: code=%d out=%q", code, out)
-	}
-}
-
-func TestRun_harness_dir_invalid_value(t *testing.T) {
-	home := t.TempDir()
-	code, _, stderr := runCLI(t, home, "set", "harness.dir", "foo/bar")
-	if code != 1 {
-		t.Fatalf("expected exit 1, got %d", code)
-	}
-	if !strings.Contains(stderr, "foo/bar") {
-		t.Fatalf("expected 'foo/bar' in stderr, got %q", stderr)
-	}
-}
-
-func TestRun_list_json_includes_harness_dir(t *testing.T) {
-	home := t.TempDir()
-	code, out, _ := runCLI(t, home, "list", "--json")
-	if code != 0 {
-		t.Fatalf("expected exit 0, got %d", code)
-	}
-	var m map[string]string
-	if err := json.Unmarshal([]byte(out), &m); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if m["harness.dir"] != ".claude" {
-		t.Fatalf("expected harness.dir=.claude in JSON, got %q", m["harness.dir"])
+	code, _, stderr := runCLI(t, home, "set", "harness.dir", "x")
+	if code != 1 || !strings.Contains(stderr, "unknown key") {
+		t.Fatalf("code=%d stderr=%q, want exit 1 with unknown key", code, stderr)
 	}
 }
 
@@ -348,5 +338,15 @@ func TestRun_set_creates_parent_dirs(t *testing.T) {
 	}
 	if _, err := os.Stat(atomicDir); err != nil {
 		t.Fatalf(".atomic dir not created: %v", err)
+	}
+}
+
+func TestConfigResolveIsAnUnknownVerb(t *testing.T) {
+	code, out, stderr := runCLI(t, t.TempDir(), "resolve", "--repo", t.TempDir(), "--json")
+	if code != 2 {
+		t.Errorf("exit = %d, want 2", code)
+	}
+	if out != "" || !strings.Contains(stderr, `unknown verb "resolve"`) {
+		t.Errorf("stdout=%q stderr=%q, want unknown verb \"resolve\"", out, stderr)
 	}
 }

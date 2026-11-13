@@ -38,14 +38,14 @@ The resolved scope reaches the client as `GET /api/status`'s `isRealmScope` fiel
 
 The nav tree, markdown search, the docs graph, and the change-detection fingerprint all walk the same tree and share one exclusion rule.
 
-Skipped: dot-directories, `node_modules`, `vendor`, `tmp`, and anything git ignores. `.claude` is the deliberate exception to the dot-directory rule. It holds servable project docs that wiki links cite across members, so skipping it would break valid links.
+Skipped: dot-directories, `node_modules`, `vendor`, `tmp`, and anything git ignores. `.claude` and each repository's state root (`.atomic` by default, else the root the [resolution order](/reference/concepts#state-root-resolution-order) picks) are the deliberate exceptions to the dot-directory rule. They hold servable project docs that wiki links cite across members, so skipping them would break valid links.
 
 Git-ignored is not on its own enough to skip, because a realm gitignores its member repositories. From the realm's point of view they carry their own history and are disposable, yet they are the very thing a realm exists to serve. An ignored directory is nonetheless walked when it is a repository in its own right (when it holds a `.git` **directory**). This still leaves out a second copy of content already reachable somewhere else:
 
 | Ignored path | `.git` entry | Enumerated |
 |---|---|---|
 | a realm's member repo | directory | yes — it is its own repository |
-| `.claude/worktrees/<branch>/` | file | no — a second checkout of the same repo |
+| `.claude/worktrees/<branch>/` (Claude Code) or `.atomic/worktrees/<branch>/` (other harnesses) | file | no — a second checkout of the same repo |
 | `bin/`, build mirrors, caches | none | no |
 
 A linked worktree carries `.git` as a file pointing back at the repository it duplicates, which is what tells it apart from a member repo. Before this rule, a repo with eight worktrees showed every doc nine times in nav, search, and the graph.
@@ -184,7 +184,7 @@ Results stream in rather than landing at once. The markdown block arrives first,
 
 In realm scope, code search spans every member and groups results under `[key]` headers. A member with no index is skipped with a visible "not indexed" note rather than aborting the others, and `only` / `exclude` filter the member set. In repo or member scope it targets the single index.
 
-Members come from two sources, unioned. Realm federation is a `<code-index>` block in CLAUDE.md, with per-member dbs under `<realm>/.atomic/`; per-member self-indexes are written by a plain `cd <member> && atomic code index`. Code search and the code modal therefore work in any realm whose members were indexed individually, with no federation setup at all.
+Members come from two sources, unioned. Realm federation is a `<code-index>` block in the realm root file Claude loads (`AGENTS.md` under the `agents-md` steering mode, else `CLAUDE.md`), with per-member dbs under `<realm>/.atomic/`; per-member self-indexes are written by a plain `cd <member> && atomic code index`. Code search and the code modal therefore work in any realm whose members were indexed individually, with no federation setup at all.
 
 ### SQL schema view
 

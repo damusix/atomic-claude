@@ -3,12 +3,14 @@
 
 ## Worktree
 
-A new worktree is created only outside existing isolation and on a branch name that is not taken; a taken name stops the flow, and a sandbox or permission block falls back to working in place.
+A new worktree is created only outside existing isolation, when the `worktrees` preference is not `off`, and on a branch name that is not taken; a taken name stops the flow, and a sandbox or permission block falls back to working in place. Read the `atomic-git-discipline` reference `references/worktrees.md` before creating or entering one.
 
 ```mermaid
 flowchart TD
     I{"Already isolated?"} -->|yes| P["Continue in place"]
-    I -->|no| A{"Create a worktree?"}
+    I -->|no| O{"Worktrees off?"}
+    O -->|yes| P
+    O -->|no| A{"Create a worktree?"}
     A -->|no| P
     A -->|yes| N["Resolve branch name"]
     N --> C["Carry forward spec"]
@@ -35,11 +37,12 @@ flowchart TD
     ```
 
 - **Continue in place**: keep the current working tree and skip the rest of this section.
-- **Create a worktree?**: hands-off mode (auto-create) answers yes without asking. Interactive mode (ask-if-unspecified) asks via `AskUserQuestion` unless the caller already decided:
+- **Worktrees off?**: read the `worktrees` field of `atomic where --json` as `<dir>`. An empty value means `worktrees: off`: print `worktrees: off. working in place.` and continue in place. When `atomic` is absent or the command exits non-zero, print `worktree location unresolved. working in place.` and continue in place.
+- **Create a worktree?**: hands-off mode (auto-create) answers yes without asking. Interactive mode (ask-if-unspecified) asks the user unless the caller already decided:
 
     ```
     Significant work ahead. Use an isolated worktree?
-    - Yes, new branch → create and enter .claude/worktrees/<derived-name>/
+    - Yes, new branch → create and enter <dir>/<derived-name>/
     - No, work in place
     ```
 
@@ -47,13 +50,13 @@ flowchart TD
 - **Carry forward spec**: the flow under **Carry forward spec** below.
 - **Branch exists?**: `git rev-parse --verify <branch>` exits 0.
 - **Stop: branch exists**: print `branch <name> already exists. pick a different name or checkout existing.` and stop.
-- **Create worktree**: run `atomic repo init` first (idempotent; guarantees the `.claude/` layout and its ignore rules), then:
+- **Create worktree**: run `atomic repo init` first (idempotent; it ignores the default worktree locations). When `<dir>` is repository-relative and `git check-ignore -q <dir>/probe` still fails, it is an explicit path: print `add to .gitignore: /<dir>/` for the user and never write it. Then:
 
     ```bash
-    git worktree add .claude/worktrees/<branch> -b <branch>
+    git worktree add <dir>/<branch> -b <branch>
     ```
 
-    The explicit `git worktree add` pins the branch name and bases it on the current HEAD, so a just-committed spec is carried forward; the `EnterWorktree` tool's own creation mode names the branch itself and bases it per the `worktree.baseRef` setting. A permission or sandbox error is `blocked`: print `sandbox blocked worktree creation. working in place.` and run no setup or tests.
+    The explicit `git worktree add` pins the branch name and bases it on the current HEAD, so a just-committed spec is carried forward, which a harness's own worktree command does not guarantee (it may name the branch itself and base it on a configured ref). A permission or sandbox error is `blocked`: print `sandbox blocked worktree creation. working in place.` and run no setup or tests.
 - **Enter and set up**: the flow under **Enter and set up** below.
 
 **Carry forward spec.** A worktree branches from `HEAD`, so an uncommitted spec or design is committed first or the implementer cannot read it from the worktree and the loop fails before iteration 1.
@@ -69,7 +72,7 @@ flowchart TD
 ```
 
 - **Uncommitted spec candidate?**: only `docs/spec/` and `docs/design/` files qualify. A candidate is a spec path the caller passed that `git status --porcelain -- <path>` reports untracked or modified, or a `docs/spec/*.md` or `docs/design/*.md` this conversation produced that is untracked or modified and whose basename matches or is closely related to the branch name. Run the flow once per candidate.
-- **User choice?**: `AskUserQuestion` with options `commit now (recommended)` / `skip`:
+- **User choice?**: ask the user, with options `commit now (recommended)` / `skip`:
 
     ```
     Spec `<path>` is uncommitted. Commit it before creating the worktree so
@@ -95,7 +98,7 @@ flowchart TD
     V --> R
 ```
 
-- **Enter worktree**: call the `EnterWorktree` tool with `path: .claude/worktrees/<branch>`. The session's working directory is now the worktree, so file edits and shell commands land in it with no `cd`. If the tool is unavailable in this session, run all subsequent commands from inside the worktree directory.
+- **Enter worktree**: when the harness exposes a worktree-entry capability, invoke it with the path `<dir>/<branch>`. The session's working directory is now the worktree, so file edits and shell commands land in it with no `cd`. If no such capability is available, change into `<dir>/<branch>` and run all subsequent commands from there.
 - **Run setup**: the first match wins.
     - `pnpm-lock.yaml` exists alongside `package.json` → `pnpm install`
     - `yarn.lock` exists alongside `package.json` → `yarn install`
@@ -122,7 +125,7 @@ flowchart TD
 - **Report**:
 
     ```
-    Worktree: .claude/worktrees/<branch>/
+    Worktree: <dir>/<branch>/
     Branch:   <branch>
     Setup:    <command run> | skipped (no manifest) | skipped (sandboxed)
     Baseline: <N> tests pass | <N> failures | skipped

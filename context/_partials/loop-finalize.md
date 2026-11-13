@@ -8,8 +8,8 @@ Once, after the last checkpoint passes. Run the steps the policy's Finalize row 
 1. **Verify.** Invoke `atomic-verify` and run the full suite yourself. When `docs/spec/**`, `docs/design/**`, or a bundled artifact changed, also run `atomic validate spec` and `atomic validate config`.
 2. **Docs.** Invoke `/documentation` in authoring mode, scoped to `<loop-base>..HEAD`, so a capability this change introduced gets its own page rather than a patch to an existing one. A hands-off run answers every surface prompt `Yes` and records what it touched in `STATE.md`. Commit as `docs: <topic>`.
 3. **Audit.** Dispatch `atomic-auditor` once with `spec:` (or `brief: $SCRATCH/BRIEF.md`), `range: <loop-base>..HEAD`, `state: $SCRATCH/STATE.md`, `scratch: $SCRATCH`, and the `## Documentation surfaces` table when the project has one. `CHANGES_REQUESTED` → one implement→review→commit iteration against its findings, then continue. Never a second audit.
-4. **Follow-ups.** For every open `F-N` in `FOLLOWUPS.md`, ask the user: `fix-now` (one more iteration), `defer`, `issue` (`/report-issue`), or `drop` (state why). `defer` runs `printf '%s' "<body>" | atomic followups add --id <topic>-F-<N> --title "<title>" --severity <risk|nit|question> --origin "<spec or brief>, iter <N> reviewer" --file "<path:line>" --body -` and commits `docs(followups): defer <id>`. Skipped when the ledger is empty.
-5. **Log.** When a spec exists, append `## Implementation log` to it from `atomic template implementation-log`: SHAs from `STATE.md`, deferrals from step 4.
+4. **Follow-ups.** For every open `F-N` in `FOLLOWUPS.md`, ask the user: `fix-now` (one more iteration), `defer`, or `drop` (state why), with the sink preview for `defer` in the same question. `defer` records through the **Follow-up sink** below, with id `<topic>-F-<N>`, the entry's title and severity, kind `finding`, origin `<spec or brief>, iter <N> reviewer`, and file `<path:line>`. When the sink wrote a ledger file that Git does not ignore (`git check-ignore -q <path>` exits 1, with `<path>` from the filesystem `issue-create` output), stage `<path>` and the folder's `INDEX.md`, then commit `docs(followups): defer <id>`. Skipped when the ledger is empty.
+5. **Log.** When a spec exists, append `## Implementation log` to it from `atomic template implementation-log`: SHAs from `STATE.md`, and each deferral from step 4 with its issue URL or key, or its ledger entry id.
 6. **Signals.** The flow under **Signals** below.
 7. **Report.** What shipped, iterations with SHAs, what was verified and how, the audit verdict, follow-up dispositions, what is left. When the policy omitted the docs step and a touched file matches a row of the project's `## Documentation surfaces` table, end with one line: `/documentation — N doc surfaces may be stale`.
 
@@ -26,8 +26,10 @@ flowchart TD
 
 - **Stale check exit?**: `atomic signals stale`.
 - **Dispatch inferrer**: `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, `changed_range: <loop-base>..HEAD`.
-- **Stage wiki output**: `docs/wiki/*.md`, `[ ! -d .claude/rules/wiki ] || git add -A .claude/rules/wiki/`, and any modified or untracked `.gitignore`, `.claude/.gitignore`, or `CLAUDE.md` (the `@-ref` append).
+- **Stage wiki output**: `docs/wiki/*.md`, `[ ! -d <state-root>/rules/wiki ] || git add -A <state-root>/rules/wiki/` (`<state-root>` is the `state_root` field of `atomic where --json`, `.atomic` by default), and any modified or untracked `.gitignore`, `<state-root>/.gitignore`, `.claude/.gitignore`, `.omp/.gitignore`, `.claude/rules/atomic` (the card link), `AGENTS.md`, or `CLAUDE.md` (the `@-ref` append and its loader). Stage the OMP card links: the symlinks from `find .omp/rules -maxdepth 1 -name 'atomic-wiki-*.md' -type l` (skip when the directory is absent) plus the pruned ones from `git ls-files --deleted -- '.omp/rules/atomic-wiki-*.md'`, each through `git add --`, leaving out any path `git check-ignore -q` reports so `git add` never exits 1. Never stage a regular file there: that is the generated copy kept when the state root lies outside the repository.
 - **Commit signals**: `chore(signals): refresh after <topic>`; record the SHA.
+
+{{ template "followup-sink" . }}
 
 `$SCRATCH` stays; `/git-cleanup` archives it. Do not push, merge, or open a PR unless the policy's Ship row says so.
 

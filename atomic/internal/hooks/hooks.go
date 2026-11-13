@@ -10,9 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
+	harnesskind "github.com/damusix/atomic-claude/atomic/internal/harness/kind"
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
-	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/where"
+	"github.com/damusix/atomic-claude/atomic/internal/workflow"
 )
 
 // ProfileRefresh is a test seam — spying on it avoids real tool detection and
@@ -21,7 +23,7 @@ var DefaultProfileRefresh = profile.RefreshIfStale
 
 var ProfileRefresh = profile.RefreshIfStale
 
-// refreshProfile swallows errors: reminder context is the hook's job, and the
+// refreshProfile swallows errors: session context is the hook's job, and the
 // refresh only rides along.
 func refreshProfile(now time.Time) {
 	home, err := os.UserHomeDir()
@@ -34,9 +36,9 @@ func refreshProfile(now time.Time) {
 
 // DefaultSeedOutputStyle lets a test restore SeedOutputStyleFn to production
 // behavior by name.
-var DefaultSeedOutputStyle = SeedOutputStyle
+var DefaultSeedOutputStyle = SeedOutputStyleInDir
 
-// SeedOutputStyleFn is a test seam over SeedOutputStyle so SessionStart tests
+// SeedOutputStyleFn is a test seam over SeedOutputStyleInDir so SessionStart tests
 // don't touch the developer's real ~/.claude/settings.json.
 var SeedOutputStyleFn = DefaultSeedOutputStyle
 
@@ -50,8 +52,8 @@ func seedOutputStyleSilent() {
 	if err != nil {
 		return
 	}
-	targetDir := filepath.Join(home, ".claude")
-	_, _ = SeedOutputStyleFn(home, targetDir, home)
+	configDir := config.ClaudeConfigDir(home)
+	_, _ = SeedOutputStyleFn(configDir, configDir, home)
 }
 
 type WherePositionFn func(cwd, claudeMDPath string) (where.Report, error)
@@ -69,7 +71,7 @@ func checkWherePosition(cwd string) []string {
 	if err != nil {
 		return nil
 	}
-	claudeMDPath := filepath.Join(home, ".claude", "CLAUDE.md")
+	claudeMDPath := filepath.Join(config.ClaudeConfigDir(home), "CLAUDE.md")
 	report, err := WherePosition(cwd, claudeMDPath)
 	if err != nil {
 		return nil
@@ -103,39 +105,23 @@ func whereNudgeLine(report where.Report) string {
 const (
 	// Registered inline: Claude Code runs hook commands through a shell, so this
 	// resolves `atomic` on PATH without a wrapper script.
-	sessionStartCommand = "atomic hooks session-start"
+	sessionStartCommand = "atomic hooks session-start --harness claude"
+
+	// Registered by installs that predate --harness; still Atomic's.
+	unflaggedSessionStartCommand = "atomic hooks session-start"
 
 	// The pre-inline wrapper script older installs registered. Retained only so
 	// Install can migrate it away and Uninstall can clean it up.
-	legacyScriptName  = "session-start-reminders.sh"
-	legacyHooksSubdir = ".claude/hooks"
+	legacyScriptName = "session-start-reminders.sh"
+	hooksSubdir      = "hooks"
 
-	settingsRelPath = ".claude/settings.json"
-	maxReminders    = 10
-	previewMaxLen   = 80
-	oldThresholdDay = 14
+	settingsFileName = "settings.json"
 )
 
 // SessionStart returns the JSON hook payload, or "" when there is nothing to
-// surface. now is the reference time for relative date formatting.
-func SessionStart(repoRoot string, now time.Time) (string, error) {
-	refreshProfile(now)
-	seedOutputStyleSilent()
-
-	whereNudges := checkWherePosition(repoRoot)
-
-	// Filter once, so the body builder and the systemMessage count agree.
-	rows, err := reminder.List(repoRoot)
-	if err != nil {
-		return "", err
-	}
-
-	pastDue := filterPastDue(rows, now)
-
-	body, err := buildBody(pastDue, whereNudges, now)
-	if err != nil {
-		return "", err
-	}
+// surface. kind is the harness (claude, omp, codex) the session runs under.
+func SessionStart(repoRoot, kind string, now time.Time) (string, error) {
+	body := SessionStartText(repoRoot, kind, now)
 	if body == "" {
 		return "", nil
 	}
@@ -147,31 +133,6 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 		},
 		"suppressOutput": true,
 	}
-
-	// Age is measured over the surfaced set only — systemMessage warns about what
-	// Claude actually sees.
-	oldestDays := 0
-	for _, r := range pastDue {
-		d, err := parseDateDays(r.Created, now)
-		if err != nil {
-			continue
-		}
-		if d > oldestDays {
-			oldestDays = d
-		}
-	}
-	if oldestDays > oldThresholdDay {
-		n := len(pastDue)
-		word := "reminders"
-		if n == 1 {
-			word = "reminder"
-		}
-		payload["systemMessage"] = fmt.Sprintf(
-			"%d %s pending, oldest is %d days old",
-			n, word, oldestDays,
-		)
-	}
-
 	out, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("hooks session-start: marshal: %w", err)
@@ -180,35 +141,26 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 }
 
 // SessionStartText is SessionStart without the JSON envelope.
-func SessionStartText(repoRoot string, now time.Time) (string, error) {
+func SessionStartText(repoRoot, kind string, now time.Time) string {
 	refreshProfile(now)
-	seedOutputStyleSilent()
-
-	whereNudges := checkWherePosition(repoRoot)
-
-	rows, err := reminder.List(repoRoot)
-	if err != nil {
-		return "", fmt.Errorf("hooks session-start: list reminders: %w", err)
+	if kind == string(harnesskind.Claude) {
+		seedOutputStyleSilent()
 	}
-	return buildBody(filterPastDue(rows, now), whereNudges, now)
+	return buildBody(repoRoot, kind)
 }
 
-// buildBody orders orientation, then reminders.
-func buildBody(pastDue []reminder.Row, whereNudges []string, now time.Time) (string, error) {
-	reminderBody, err := buildBodyFromPastDue(pastDue, now)
-	if err != nil {
-		return "", err
-	}
-
+// buildBody drops a section that fails rather than blocking the session.
+func buildBody(repoRoot, kind string) string {
 	var sections []string
-	if len(whereNudges) > 0 {
+	if whereNudges := checkWherePosition(repoRoot); len(whereNudges) > 0 {
 		sections = append(sections, buildNudgeSection("## Orientation", whereNudges))
 	}
-	if reminderBody != "" {
-		sections = append(sections, reminderBody)
+	resolved, err := workflow.Resolve(workflow.Options{Dir: repoRoot, Harness: kind})
+	if err == nil {
+		sections = append(sections, "## Workflow preferences\n"+
+			strings.TrimRight(workflow.RenderText(resolved), "\n"))
 	}
-
-	return strings.Join(sections, "\n\n"), nil
+	return strings.Join(sections, "\n\n")
 }
 
 func buildNudgeSection(header string, nudges []string) string {
@@ -220,121 +172,26 @@ func buildNudgeSection(header string, nudges []string) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// buildBodyFromPastDue applies the maxReminders cap to an already-filtered slice.
-func buildBodyFromPastDue(pastDue []reminder.Row, now time.Time) (string, error) {
-	if len(pastDue) == 0 {
-		return "", nil
-	}
-
-	total := len(pastDue)
-	shown := pastDue
-	overflow := 0
-	if total > maxReminders {
-		shown = pastDue[:maxReminders]
-		overflow = total - maxReminders
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "## Pending reminders (%d)\n", total)
-	for _, r := range shown {
-		preview := truncate(r.Preview, previewMaxLen)
-		ago := relativeAge(r.Created, now)
-		fmt.Fprintf(&sb, "- [%s] should-remind-user: true — %s (created %s)\n", r.ID, preview, ago)
-	}
-	if overflow > 0 {
-		fmt.Fprintf(&sb, "- (and %d more)\n", overflow)
-	}
-
-	return strings.TrimRight(sb.String(), "\n"), nil
+// configDirForScope is the `.claude` directory a scope root owns, under a project
+// root or under $HOME for the user scope.
+func configDirForScope(scopeRoot string) string {
+	return filepath.Join(scopeRoot, ".claude")
 }
 
-// filterPastDue keeps rows at or past their due time. A missing or unparseable
-// Due surfaces the row rather than dropping it silently.
-func filterPastDue(rows []reminder.Row, now time.Time) []reminder.Row {
-	out := make([]reminder.Row, 0, len(rows))
-	for _, r := range rows {
-		if r.Due == "" {
-			out = append(out, r)
-			continue
-		}
-		due, err := time.Parse(time.RFC3339, r.Due)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "hooks: reminder %q has malformed due %q: %v; treating as past-due\n", r.ID, r.Due, err)
-			out = append(out, r)
-			continue
-		}
-		if !now.Before(due) {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-// relativeAge renders "today", "3 days ago", "1 month ago", and so on.
-func relativeAge(createdDate string, now time.Time) string {
-	days, err := parseDateDays(createdDate, now)
-	if err != nil {
-		return "unknown"
-	}
-	switch {
-	case days == 0:
-		return "today"
-	case days == 1:
-		return "yesterday"
-	case days < 7:
-		return fmt.Sprintf("%d days ago", days)
-	case days < 14:
-		return "1 week ago"
-	case days < 30:
-		weeks := days / 7
-		return fmt.Sprintf("%d weeks ago", weeks)
-	default:
-		months := days / 30
-		return fmt.Sprintf("%d month%s ago", months, pluralS(months))
-	}
-}
-
-func pluralS(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
-}
-
-// parseDateDays returns how many days ago createdDate (YYYY-MM-DD) was, both
-// sides truncated to a UTC date so partial days never count.
-func parseDateDays(createdDate string, now time.Time) (int, error) {
-	t, err := time.Parse("2006-01-02", createdDate)
-	if err != nil {
-		return 0, err
-	}
-	created := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	diff := today.Sub(created)
-	days := int(diff.Hours() / 24)
-	if days < 0 {
-		days = 0
-	}
-	return days, nil
-}
-
-// truncate caps s at maxLen runes, appending "…" when it cuts.
-func truncate(s string, maxLen int) string {
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	return string(runes[:maxLen]) + "…"
-}
-
-func legacyScriptPath(scopeRoot string) string {
-	return filepath.Join(scopeRoot, legacyHooksSubdir, legacyScriptName)
+func legacyScriptPath(configDir string) string {
+	return filepath.Join(configDir, hooksSubdir, legacyScriptName)
 }
 
 // SettingsPath resolves a scope root to its settings.json. Exported so
 // claudeinstall does not rebuild the literal a third time.
 func SettingsPath(scopeRoot string) string {
-	return filepath.Join(scopeRoot, settingsRelPath)
+	return SettingsPathInDir(configDirForScope(scopeRoot))
+}
+
+// SettingsPathInDir resolves a Claude config directory to its settings file. It
+// appends no `.claude`, so a CLAUDE_CONFIG_DIR root resolves its own file.
+func SettingsPathInDir(configDir string) string {
+	return filepath.Join(configDir, settingsFileName)
 }
 
 // SameDir reports whether two paths name the same directory. Callers ask this
@@ -368,14 +225,18 @@ func resolveDir(path string) string {
 	return abs
 }
 
-// Install registers the inline command under scopeRoot; repoRoot is unused here.
-// Any older wrapper-script registration is removed first so the hook cannot
-// double-fire. Idempotent. skipped reports a read-only settings.json left
-// untouched, so a caller can tell that from a genuine success.
+// Install registers the inline command under scopeRoot's config directory;
+// repoRoot is unused. skipped reports a read-only settings.json left untouched.
 func Install(repoRoot, scopeRoot string) (skipped bool, err error) {
-	sfPath := SettingsPath(scopeRoot)
+	return InstallInDir(configDirForScope(scopeRoot))
+}
 
-	if skipped, err := migrateLegacy(sfPath, scopeRoot); err != nil || skipped {
+// InstallInDir registers the inline command in an explicit Claude config
+// directory's settings.json, never the default target beside it.
+func InstallInDir(configDir string) (skipped bool, err error) {
+	sfPath := SettingsPathInDir(configDir)
+
+	if skipped, err := migrateLegacy(sfPath, configDir); err != nil || skipped {
 		return skipped, err
 	}
 
@@ -385,11 +246,17 @@ func Install(repoRoot, scopeRoot string) (skipped bool, err error) {
 // Uninstall removes the registration and any lingering legacy wrapper script.
 // skipped reports a read-only settings.json left untouched.
 func Uninstall(repoRoot, scopeRoot string) (skipped bool, err error) {
-	if err := os.Remove(legacyScriptPath(scopeRoot)); err != nil && !os.IsNotExist(err) {
+	return UninstallInDir(configDirForScope(scopeRoot))
+}
+
+// UninstallInDir removes the registration from an explicit Claude config
+// directory, reaching only that root's settings.json.
+func UninstallInDir(configDir string) (skipped bool, err error) {
+	if err := os.Remove(legacyScriptPath(configDir)); err != nil && !os.IsNotExist(err) {
 		return false, fmt.Errorf("hooks uninstall: remove legacy script: %w", err)
 	}
 
-	sfPath := SettingsPath(scopeRoot)
+	sfPath := SettingsPathInDir(configDir)
 	if _, err := os.Stat(sfPath); os.IsNotExist(err) {
 		return false, nil
 	}
@@ -397,37 +264,45 @@ func Uninstall(repoRoot, scopeRoot string) (skipped bool, err error) {
 	if skipped, err := unregisterFromSettings(sfPath, sessionStartCommand); err != nil || skipped {
 		return skipped, err
 	}
-	if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil || skipped {
+	if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(configDir)); err != nil || skipped {
 		return skipped, err
 	}
 
 	// This uninstall never deletes the style file itself, so the key is removed
 	// only once the file it names is already gone. See the "Remove on uninstall"
 	// flow in docs/spec/output-style-seed.md.
-	_, skipped, err = RemoveOutputStyleIfAtomic(scopeRoot)
+	_, skipped, err = RemoveOutputStyleIfAtomicInDir(configDir)
 	return skipped, err
 }
 
 // migrateLegacy is a no-op when no wrapper-script install exists. A malformed
 // settings.json errors, so Install refuses to proceed.
-func migrateLegacy(sfPath, scopeRoot string) (skipped bool, err error) {
+func migrateLegacy(sfPath, configDir string) (skipped bool, err error) {
 	if _, err := os.Stat(sfPath); err == nil {
-		if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil || skipped {
+		if skipped, err := unregisterFromSettings(sfPath, legacyScriptPath(configDir)); err != nil || skipped {
 			return skipped, err
 		}
 	}
-	if err := os.Remove(legacyScriptPath(scopeRoot)); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(legacyScriptPath(configDir)); err != nil && !os.IsNotExist(err) {
 		return false, fmt.Errorf("hooks install: remove legacy script: %w", err)
 	}
 	return false, nil
 }
 
+func commandMatches(want string, got any) bool {
+	return got == want || (want == sessionStartCommand && got == unflaggedSessionStartCommand)
+}
+
 func hasRegistration(settings map[string]any, command string) bool {
+	return hasEventHandler(settings, "SessionStart", command)
+}
+
+func hasEventHandler(settings map[string]any, event, command string) bool {
 	hooksMap, ok := settings["hooks"].(map[string]any)
 	if !ok {
 		return false
 	}
-	ss, ok := hooksMap["SessionStart"].([]any)
+	ss, ok := hooksMap[event].([]any)
 	if !ok {
 		return false
 	}
@@ -445,7 +320,7 @@ func hasRegistration(settings map[string]any, command string) bool {
 			if !ok {
 				continue
 			}
-			if hm["command"] == command {
+			if commandMatches(command, hm["command"]) {
 				return true
 			}
 		}
@@ -453,18 +328,24 @@ func hasRegistration(settings map[string]any, command string) bool {
 	return false
 }
 
-// IsInstalled reports registration state in scopeRoot/.claude/settings.json.
+// IsInstalled reports registration state in scopeRoot's config directory.
 // drifted means the hook still fires but through a legacy wrapper-script (or a
 // half-migrated pair), and `atomic hooks install` should be re-run.
 func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
-	sfPath := SettingsPath(scopeRoot)
+	return IsInstalledInDir(configDirForScope(scopeRoot))
+}
+
+// IsInstalledInDir reports registration state in an explicit Claude config
+// directory's settings.json.
+func IsInstalledInDir(configDir string) (installed bool, drifted bool, err error) {
+	sfPath := SettingsPathInDir(configDir)
 	settings, _, _, readErr := readSettingsHujson(sfPath)
 	if readErr != nil {
 		return false, false, readErr
 	}
 
 	inline := hasRegistration(settings, sessionStartCommand)
-	legacy := hasRegistration(settings, legacyScriptPath(scopeRoot))
+	legacy := hasRegistration(settings, legacyScriptPath(configDir))
 
 	switch {
 	case inline && !legacy:
@@ -485,14 +366,14 @@ func malformedSettingsError(sfPath, command string) error {
   "hooks": {
     "SessionStart": [
       {
-        "matcher": ".*",
+        "matcher": %q,
         "hooks": [
           { "type": "command", "command": %q }
         ]
       }
     ]
   }
-}`, command)
+}`, sessionStartMatcher(command), command)
 	return fmt.Errorf(
 		"hooks: %s contains malformed JSON; refusing to write.\n"+
 			"Add the following manually under the \"hooks\" key:\n%s",

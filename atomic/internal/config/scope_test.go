@@ -29,6 +29,21 @@ func TestLoadRepoConfig_ScopeParses(t *testing.T) {
 	}
 }
 
+func TestLoadRepoConfig_RetiredPiTableLoadsSilently(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "atomic.toml")
+	if err := os.WriteFile(path, []byte("[pi.agents.scout]\nmodel = \"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := LoadRepoConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRepoConfig: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("warnings = %v, want none", warns)
+	}
+}
+
 func TestLoadRepoConfig_ScopeAlongsideCode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atomic.toml")
@@ -78,7 +93,7 @@ func TestValidScope(t *testing.T) {
 // above it. The by-kind walk must resolve both from the same cwd, continuing
 // past the marker of the other kind.
 func TestFindScopeRoot_NestingByKind(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	realmRoot := t.TempDir()
@@ -102,10 +117,62 @@ func TestFindScopeRoot_NestingByKind(t *testing.T) {
 	}
 }
 
+// The walk visits ancestors the user is not in, so it must not warn about
+// their state roots or fail on them.
+func TestFindScopeRoot_AncestorStateRootsAreSilent(t *testing.T) {
+	home := withHome(t)
+	writeStateDirConfig(t, home, ".state")
+	warnings := captureStateWarnings(t)
+	ancestor := t.TempDir()
+	populate(t, ancestor, ".atomic")
+	populate(t, ancestor, ".claude")
+	start := filepath.Join(ancestor, "child")
+	if err := os.MkdirAll(start, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	FindScopeRoot(start, "repo")
+	if warnings.Len() != 0 {
+		t.Errorf("scope walk wrote to stderr:\n%s", warnings)
+	}
+}
+
+// An ambiguous directory still holds its marker; refusing to pick a state root
+// must not hide a realm or repo the user is standing in.
+func TestFindScopeRoot_FindsMarkerInAnAmbiguousDirectory(t *testing.T) {
+	home := withHome(t)
+	writeStateDirConfig(t, home, ".state")
+	realm := t.TempDir()
+	populate(t, realm, ".atomic")
+	populate(t, realm, ".claude")
+	if err := os.WriteFile(filepath.Join(realm, ".claude", "atomic.toml"), []byte("scope = \"realm\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start := filepath.Join(realm, "child")
+	if err := os.MkdirAll(start, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if root, ok := FindScopeRoot(start, "realm"); !ok || root != realm {
+		t.Errorf("FindScopeRoot = %q, %v; want %q", root, ok, realm)
+	}
+}
+
+func TestFindScopeRoot_FindsMarkerInTheLegacyRoot(t *testing.T) {
+	withHome(t)
+	repo := t.TempDir()
+	populate(t, repo, ".claude")
+	if err := os.WriteFile(filepath.Join(repo, ".claude", "atomic.toml"), []byte("scope = \"repo\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if root, ok := FindScopeRoot(repo, "repo"); !ok || root != repo {
+		t.Errorf("FindScopeRoot = %q, %v; want %q", root, ok, repo)
+	}
+}
+
 // A scope value that is neither kind never acts as a marker — the walk continues
 // to a valid marker higher up.
 func TestFindScopeRoot_InvalidValueIgnored(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	realmRoot := t.TempDir()
@@ -130,7 +197,7 @@ func TestFindScopeRoot_InvalidValueIgnored(t *testing.T) {
 
 // Unparseable TOML at an intermediate level is skipped, not a hard failure.
 func TestFindScopeRoot_MalformedFileIgnored(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	realmRoot := t.TempDir()
@@ -150,7 +217,7 @@ func TestFindScopeRoot_MalformedFileIgnored(t *testing.T) {
 }
 
 func TestFindScopeRoot_NoMarker(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	dir := t.TempDir()
@@ -162,7 +229,7 @@ func TestFindScopeRoot_NoMarker(t *testing.T) {
 // filepath.Dir on a relative path short-circuits at "." instead of walking up,
 // so a relative startDir used to never reach a marker at a real ancestor.
 func TestFindScopeRoot_RelativeStartDir(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -195,8 +262,8 @@ func TestFindScopeRoot_RelativeStartDir(t *testing.T) {
 	}
 }
 
-// writeAtomicToml writes content to <root>/.claude/atomic.toml; the caller pins
-// the harness dir via SetHarnessDirForTest.
+// writeAtomicToml writes content to <root>/.claude/atomic.toml; the caller
+// pins the state dir via SetStateDirForTest.
 func writeAtomicToml(t *testing.T, root, content string) {
 	t.Helper()
 	path := RepoConfigPath(root)
@@ -211,7 +278,7 @@ func writeAtomicToml(t *testing.T, root, content string) {
 // --- EnsureScopeMarker ---
 
 func TestEnsureScopeMarker_CreatesWhenAbsent(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -237,7 +304,7 @@ func TestEnsureScopeMarker_CreatesWhenAbsent(t *testing.T) {
 // land above the header: appending at EOF would put it inside [code] and parse
 // as code.scope.
 func TestEnsureScopeMarker_InsertsAboveFirstTable(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -280,7 +347,7 @@ func TestEnsureScopeMarker_InsertsAboveFirstTable(t *testing.T) {
 // A file with no table header has the line appended, with a separating newline
 // when the file lacked a trailing one.
 func TestEnsureScopeMarker_NoTableHeader_AppendsAtEOF(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -307,7 +374,7 @@ func TestEnsureScopeMarker_NoTableHeader_AppendsAtEOF(t *testing.T) {
 
 // Already declaring this exact scope writes nothing, byte-for-byte.
 func TestEnsureScopeMarker_OKWhenAlreadyPresent(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -333,7 +400,7 @@ func TestEnsureScopeMarker_OKWhenAlreadyPresent(t *testing.T) {
 
 // A different declared scope reports conflict and changes not one byte.
 func TestEnsureScopeMarker_ConflictLeavesFileUntouched(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -358,7 +425,7 @@ func TestEnsureScopeMarker_ConflictLeavesFileUntouched(t *testing.T) {
 }
 
 func TestEnsureScopeMarker_Idempotent(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -389,7 +456,7 @@ func TestEnsureScopeMarker_Idempotent(t *testing.T) {
 
 // A malformed existing file is never blindly written into.
 func TestEnsureScopeMarker_MalformedFileErrors(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -414,7 +481,7 @@ func TestEnsureScopeMarker_MalformedFileErrors(t *testing.T) {
 // producing unparseable TOML. A line counts as a table header only at bracket
 // depth zero.
 func TestEnsureScopeMarker_MultilineArrayOfArrays_NotMistakenForHeader(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -452,7 +519,7 @@ func TestEnsureScopeMarker_MultilineArrayOfArrays_NotMistakenForHeader(t *testin
 // The inserted line matches the file's dominant line ending, so a CRLF-authored
 // file does not get one LF line spliced in.
 func TestEnsureScopeMarker_PreservesCRLFLineEnding(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()

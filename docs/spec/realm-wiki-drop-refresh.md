@@ -109,7 +109,7 @@ atomic/internal/wiki/action.go
   wikiBucketAction — verbs: add, list, doc, skill, index
   wikiBucketListAction — name<TAB>path per entry
 atomic/internal/hooks/hooks.go
-  buildBody — orientation, then reminders
+  buildBody — orientation, then workflow preferences
 atomic/internal/serve/stale.go
   staleSets — Members only
   parseStaleLines — DRIFT lines only
@@ -132,7 +132,7 @@ context/commands/refresh-wiki.md
 **Session start on a machine with registered realm wikis**
 
 1. Claude Code runs the session-start hook.
-2. The hook builds orientation and reminder sections and emits them; no wiki staleness section is computed or printed.
+2. The hook builds orientation and workflow-preferences sections and emits them; no wiki staleness section is computed or printed.
 
 **Explicit `/refresh-wiki` on a realm**
 
@@ -199,6 +199,14 @@ context/commands/refresh-wiki.md
 **Why:** The realm flow's re-author step only offers existing `concerns/*.md` files; no step creates one, and none is added.
 
 **Superseded:** The Goal said concerns were written only by an explicit `/refresh-wiki`.
+
+### 2026-11-11 — Reminders removed
+
+**What changed:** The `buildBody` outline line and the session-start flow name orientation and workflow-preferences sections.
+
+**Why:** `docs/spec/workflow-preferences.md` drops the reminder feature.
+
+**Removed:** the reminder section of the session-start hook body.
 
 ## Implementation log
 

@@ -98,7 +98,7 @@ echo
 
 # ---- step 1: fresh index ----
 echo "--- step 1: index corpus ---"
-rm -rf "$CORPUS_DIR/.claude/.atomic-index"
+rm -rf "$CORPUS_DIR/.atomic/.atomic-index" "$CORPUS_DIR/.claude/.atomic-index"
 "$ATOMIC_BIN" --repo "$CORPUS_DIR" code index 2>&1 | tail -5
 ISTAT=$?
 if [ $ISTAT -ne 0 ]; then
@@ -106,7 +106,8 @@ if [ $ISTAT -ne 0 ]; then
   exit 1
 fi
 
-DB="$CORPUS_DIR/.claude/.atomic-index/atomic.db"
+DB="$CORPUS_DIR/.atomic/.atomic-index/atomic.db"
+[ -f "$DB" ] || DB="$CORPUS_DIR/.claude/.atomic-index/atomic.db"
 if [ ! -f "$DB" ]; then
   echo "FATAL: DB not found at $DB after index"
   exit 1

@@ -5,12 +5,25 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
 
-// candidateFiles is the @-ref search order; the first file carrying the ref wins.
+// candidateFiles is the Claude steering @-ref search order; the first file
+// carrying the ref wins.
 var candidateFiles = []string{
 	"claude.local.md",
 	"CLAUDE.local.md",
+	"CLAUDE.md",
+	"claude.md",
+}
+
+// repoRefFiles is the repository order the wiki pipeline wires the router ref
+// by: the shared AGENTS.md sits ahead of the CLAUDE.md loader that imports it.
+var repoRefFiles = []string{
+	"claude.local.md",
+	"CLAUDE.local.md",
+	"AGENTS.md",
 	"CLAUDE.md",
 	"claude.md",
 }
@@ -35,19 +48,27 @@ func checkRefs(opts Opts) Result {
 // RunCheckRefsWith runs the refs check against an explicit repo root.
 // Exported for testing.
 func RunCheckRefsWith(repoRoot string) Result {
-	for _, name := range candidateFiles {
-		path := filepath.Join(repoRoot, name)
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		if strings.Contains(string(raw), signalsRef) {
-			return Result{Severity: PASS, Detail: fmt.Sprintf("ref wired in %s", name)}
-		}
+	if name, ok := wiredRefFile(repoRoot, signalsRef); ok {
+		return Result{Severity: PASS, Detail: fmt.Sprintf("ref wired in %s", name)}
 	}
-
 	return Result{
 		Severity: FAIL,
-		Detail:   "ref not present in CLAUDE.md, claude.local.md, CLAUDE.local.md, or claude.md",
+		Detail:   "ref not present in claude.local.md, CLAUDE.local.md, AGENTS.md (when CLAUDE.md is absent or imports it), CLAUDE.md, or claude.md",
 	}
+}
+
+// wiredRefFile returns the first repoRefFiles entry under root that carries ref
+// and that Claude loads; see bundlespec.SteeringSource.LoaderWithoutImport.
+func wiredRefFile(root, ref string) (string, bool) {
+	for _, name := range repoRefFiles {
+		raw, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil || !strings.Contains(string(raw), ref) {
+			continue
+		}
+		if name == "AGENTS.md" && bundlespec.ScopeSteering.LoaderWithoutImport(root) != "" {
+			continue
+		}
+		return name, true
+	}
+	return "", false
 }

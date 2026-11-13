@@ -3,7 +3,7 @@
 
 ## Goal
 
-Every repo-scope wiki refresh emits one path-scoped pointer card per domain to `.claude/rules/wiki/<domain>.md`, so touching any file in a domain injects a link to that domain's wiki page and its related docs, in the main session and in subagents, without loading wiki content by default.
+Every repo-scope wiki refresh emits one path-scoped pointer card per domain to `<state-root>/rules/wiki/<domain>.md` (`<state-root>` is the `state_root` field of `atomic where --json`, `.atomic` by default; Claude loads the cards through the committed `.claude/rules/atomic -> ../../.atomic/rules` link), so touching any file in a domain injects a link to that domain's wiki page and its related docs, in the main session and in subagents, without loading wiki content by default.
 
 
 ## Non-goals
@@ -16,19 +16,19 @@ Every repo-scope wiki refresh emits one path-scoped pointer card per domain to `
 
 ## Success criteria
 
-- [ ] `context/skills/atomic-wiki/references/repo.md` documents a new Step 7b (after Step 7 index assembly, before Step 8 `@-ref` wiring) whose scope has three branches: if `.claude/rules/wiki/` is absent or holds no cards, this is a bootstrap run — before emitting, run Step 3's domain partition for every domain in the router table (classification only, no writer dispatch) so each domain has a `<source_paths>` block, then emit a card for every domain regardless of the run's `scope`, with no fallback to the router table's Start-here directory (an unavailable `<source_paths>` is a pipeline error to report, not a guess); otherwise, scope follows the run's `scope`: full rewrites every domain's card; incremental rewrites only the cards of the domains re-dispatched in that run, leaving a non-re-dispatched domain's card untouched with its persisted `paths:` standing until that domain's next re-dispatch. All three branches delete any card whose domain is absent from the current router table.
+- [ ] `context/skills/atomic-wiki/references/repo.md` documents a new Step 7b (after Step 7 index assembly, before Step 8 `@-ref` wiring) whose scope has three branches: if `<state-root>/rules/wiki/` is absent or holds no cards, this is a bootstrap run — before emitting, run Step 3's domain partition for every domain in the router table (classification only, no writer dispatch) so each domain has a `<source_paths>` block, then emit a card for every domain regardless of the run's `scope`, with no fallback to the router table's Start-here directory (an unavailable `<source_paths>` is a pipeline error to report, not a guess); otherwise, scope follows the run's `scope`: full rewrites every domain's card; incremental rewrites only the cards of the domains re-dispatched in that run, leaving a non-re-dispatched domain's card untouched with its persisted `paths:` standing until that domain's next re-dispatch. All three branches delete any card whose domain is absent from the current router table.
 - [ ] The new step's card contract text specifies `paths:` frontmatter derived from the Step 4 `<source_paths>` block only (`dir` → `dir/**`, a file path stays a file). The partition behind `<source_paths>` is disjoint: each path belongs to exactly one primary domain, the domain that owns the file's behavior, not every domain that couples to it, so a `dir/**` glob belongs to at most one card. A page's `## Where it lives` table and `## Coupling` section are never glob sources. The tie-break for a path whose behavior spans domains is a three-rung ladder: (1) the domain whose router "Start here" directory is the longest path prefix of the file wins (mechanical, covering every file under a Start-here tree); (2) otherwise the domain whose page's `## How it works` section describes the file's behavior; (3) otherwise the domain with the narrower `source_paths` set. Rung 1 is deterministic; rungs 2 and 3 are judgment, so byte-identical partitions across refreshes are guaranteed only for files under a Start-here tree. No exclusion globs, since `paths:` documents no negation syntax.
 - [ ] The card contract places the generated marker as a YAML comment inside the frontmatter block, never in the body — the body injects into context on every matching read and the harness strips frontmatter from injection.
 - [ ] The card contract specifies a typed pointer index: a one-line domain description identical to the router table's, including any inline code spans it carries (e.g. `~/.claude`), then one labeled block per non-empty category with its links nested beneath it, two spaces in, one `- link` per line — `Map:` with exactly one link to `docs/wiki/<domain>.md` and still in nested form, plus `Contracts:` (`docs/spec/`), `References:` (`docs/reference/`), `Guides:` (`docs/guides/`), `Research:` (`docs/research/`), `Designs:` (`docs/design/`), and `Related:` as catch-all for linked docs outside those families, in that order. Candidates come from the domain page's own doc links and doc surfaces the project's CLAUDE.md couples to the domain (a wiring rule or contract citation naming a `docs/` file for that domain's flow); category is assigned by path family; every link is existence-verified on disk before inclusion.
 - [ ] The card contract fixes the closing line as a verbatim literal — `Consult the map before changing behavior here. Behavior changes stale the pages above. Renames or removals stale mentions beyond them: grep the old name across docs/ before shipping.` — one physical line, and pins the rest of the body to deterministic text (description verbatim from the router table including inline code spans, links sorted by path within each category in `LC_ALL=C` byte order) so an unchanged domain regenerates a byte-identical card. Body budget ≤ 12 links across the seven category blocks, which is 24 lines after frontmatter at the ceiling: a fixed five-line skeleton plus one label line per non-empty category and one line per link.
-- [ ] The new step documents the `git check-ignore -v .claude/rules/wiki` probe and, when ignored, appending the negation pair `!/rules/wiki/` and `!/rules/wiki/**` to the ignore file `git check-ignore -v` names as the match. The edit is named in the interactive Step 9 report only; silent mode produces no output, per the pipeline's existing rule.
-- [ ] The scoped-writes widening lands at all three touchpoints, in matching wording: `context/agents/atomic-wiki-inferrer.md` frontmatter `description:`, the agent's `<constraints>` section line, which names `.claude/rules/wiki/` (per-domain pointer cards) and an ignore file's rules/wiki negation append as writable alongside the active wiki root, and the scoped-writes sentence in `context/skills/atomic-wiki/references/repo.md`'s Rules section. The criterion fails if the `<constraints>` line still states the narrow scope (`grep -c 'rules/wiki' context/agents/atomic-wiki-inferrer.md` ≥ 2, one hit in `description:`, one in `<constraints>`).
-- [ ] `context/_partials/signals-gate.md` step 3 stages `.claude/rules/wiki/` AND any ignore file the refresh modified, detected mechanically (`git status --short -- .gitignore .claude/.gitignore`) with no dependency on inferrer output — in the same `git add` invocation (or an adjacent one) that stages `docs/wiki/*.md` after a silent refresh. Falsifiable: a silent refresh that edits an ignore file leaves no unstaged ignore-file diff after the gate's `git add` (`git diff --name-only` excludes it).
+- [ ] The new step documents the `git check-ignore -v <state-root>/rules/wiki` probe and, when ignored, appending the negation pair `!/rules/wiki/` and `!/rules/wiki/**` to the ignore file `git check-ignore -v` names as the match. The edit is named in the interactive Step 9 report only; silent mode produces no output, per the pipeline's existing rule.
+- [ ] The scoped-writes widening lands at all three touchpoints, in matching wording: `context/agents/atomic-wiki-inferrer.md` frontmatter `description:`, the agent's `<constraints>` section line, which names `<state-root>/rules/wiki/` (per-domain pointer cards) and an ignore file's rules/wiki negation append as writable alongside the active wiki root, and the scoped-writes sentence in `context/skills/atomic-wiki/references/repo.md`'s Rules section. The criterion fails if the `<constraints>` line still states the narrow scope (`grep -c 'rules/wiki' context/agents/atomic-wiki-inferrer.md` ≥ 2, one hit in `description:`, one in `<constraints>`).
+- [ ] `context/_partials/signals-gate.md` step 3 stages `<state-root>/rules/wiki/` AND any ignore file the refresh modified, detected mechanically (`git status --short -- .gitignore <state-root>/.gitignore`) with no dependency on inferrer output — in the same `git add` invocation (or an adjacent one) that stages `docs/wiki/*.md` after a silent refresh. Falsifiable: a silent refresh that edits an ignore file leaves no unstaged ignore-file diff after the gate's `git add` (`git diff --name-only` excludes it).
 - [ ] In interactive mode, Step 9's one-line summary gains cards emitted, cards deleted, and any ignore-file edit, and `context/commands/refresh-wiki.md`'s R8 report step names all three in its printed summary. Silent mode returns nothing, consistent with Step 9's existing rule; nothing downstream depends on inferrer output.
-- [ ] Staging symmetry: `context/commands/subagent-implementation.md`'s finalize step and `context/commands/autopilot.md`'s Phase 4 step both stage `.claude/rules/wiki/`, guarded on the directory existing, AND any ignore file `git status --short -- .gitignore .claude/.gitignore` reports modified, alongside `docs/wiki/*.md`, in the same wording `context/_partials/signals-gate.md` step 3 uses. Falsifiable: `grep -n 'rules/wiki' context/commands/subagent-implementation.md context/commands/autopilot.md` finds the guarded staging in both.
+- [ ] Staging symmetry: `context/commands/subagent-implementation.md`'s finalize step and `context/commands/autopilot.md`'s Phase 4 step both stage `<state-root>/rules/wiki/`, guarded on the directory existing, AND any ignore file `git status --short -- .gitignore <state-root>/.gitignore` reports modified, alongside `docs/wiki/*.md`, in the same wording `context/_partials/signals-gate.md` step 3 uses. Falsifiable: `grep -n 'rules/wiki' context/commands/subagent-implementation.md context/commands/autopilot.md` finds the guarded staging in both.
 - [ ] `docs/reference/repo-wiki.md` carries a new section documenting the pointer-rules layer: what a card contains, where it lives, and that it regenerates every refresh.
-- [ ] A follow-up entry exists at `.claude/project/followups/wiki-rules-doctor-validation.md` (kind: plan) recording the deferred doctor check for rule-card files, and is listed in `.claude/project/followups/INDEX.md` after `atomic followups render`.
-- [ ] Dogfood: running `/refresh-wiki` in this repo after implementation produces `.claude/rules/wiki/*.md`, one file per domain in `docs/wiki/index.md`'s `## Domains` table (11 today), and `.claude/.gitignore` gains the `!/rules/wiki/` / `!/rules/wiki/**` negation pair, both committed (`git ls-files .claude/rules/wiki/ | wc -l` matches the domain count; `git show HEAD:.claude/.gitignore | grep -c 'rules/wiki'` = 2).
+- [ ] A follow-up entry exists at `<state-root>/project/followups/wiki-rules-doctor-validation.md` (kind: plan) recording the deferred doctor check for rule-card files, and is listed in `<state-root>/project/followups/INDEX.md` after `atomic followups render`.
+- [ ] Dogfood: running `/refresh-wiki` in this repo after implementation produces `<state-root>/rules/wiki/*.md`, one file per domain in `docs/wiki/index.md`'s `## Domains` table, committed (`git ls-files <state-root>/rules/wiki/ | wc -l` matches the domain count; `git check-ignore -q <state-root>/rules/wiki/x` exits non-zero).
 
 
 ## Approach
@@ -41,15 +41,14 @@ Wiki pipeline emits pointer cards as a new orchestration step (Approach A) — s
 ```
 context/skills/atomic-wiki/references/repo.md ... M  (new Step 7b: emit rule cards; bootstrap runs Step 3 partition for every domain)
 context/agents/atomic-wiki-inferrer.md ......... M  (description + <constraints>: widen scoped-writes)
-context/_partials/signals-gate.md .............. M  (stage .claude/rules/wiki/)
+context/_partials/signals-gate.md .............. M  (stage <state-root>/rules/wiki/)
 context/commands/refresh-wiki.md ............... M  (report cards emitted/deleted/ignore-edit)
 context/commands/subagent-implementation.md .... M  (finalize staging: mirror signals-gate step 3)
 context/commands/autopilot.md .................. M  (Phase 4 staging: mirror signals-gate step 3)
 docs/reference/repo-wiki.md .................... M  (new pointer-rules section)
-.claude/project/followups/wiki-rules-doctor-validation.md . A  (new follow-up entry, kind: plan)
-.claude/project/followups/INDEX.md ............. M  (rendered)
-.claude/rules/wiki/<domain>.md ................. A  (dogfood output, 11 files, pipeline-generated)
-.claude/.gitignore .............................. M  (dogfood: negation pair for rules/wiki)
+<state-root>/project/followups/wiki-rules-doctor-validation.md . A  (new follow-up entry, kind: plan)
+<state-root>/project/followups/INDEX.md ......... M  (rendered)
+<state-root>/rules/wiki/<domain>.md ............ A  (dogfood output, one per domain, pipeline-generated)
 ```
 
 
@@ -63,28 +62,28 @@ context/skills/atomic-wiki/references/repo.md
     git check-ignore probe and negation-pair append
     report — cards emitted, cards deleted, ignore-file edit added to Step 9's interactive summary line; silent mode stays silent
   Rules (existing section)
-    scoped-writes sentence — widened to include .claude/rules/wiki/
+    scoped-writes sentence — widened to include <state-root>/rules/wiki/
 
 context/agents/atomic-wiki-inferrer.md
   description frontmatter — widened scoped-writes clause
-  <constraints> section — scoped-writes line widened to include .claude/rules/wiki/
+  <constraints> section — scoped-writes line widened to include <state-root>/rules/wiki/
 
 context/_partials/signals-gate.md
-  step 3 — git add extended to .claude/rules/wiki/ and any ignore file git status shows modified
+  step 3 — git add extended to <state-root>/rules/wiki/ and any ignore file git status shows modified
 
 context/commands/refresh-wiki.md
   repo-scope report step — cards emitted/deleted, ignore-file edit line
 
 context/commands/subagent-implementation.md
-  finalize signals-refresh staging — extended to .claude/rules/wiki/ and any ignore file git status shows modified
+  finalize signals-refresh staging — extended to <state-root>/rules/wiki/ and any ignore file git status shows modified
 
 context/commands/autopilot.md
-  Phase 4 signals-refresh staging — extended to .claude/rules/wiki/ and any ignore file git status shows modified
+  Phase 4 signals-refresh staging — extended to <state-root>/rules/wiki/ and any ignore file git status shows modified
 
 docs/reference/repo-wiki.md
   Pointer rules (new ## section) — card shape, location, regeneration, read/write payoff
 
-.claude/project/followups/wiki-rules-doctor-validation.md
+<state-root>/project/followups/wiki-rules-doctor-validation.md
   entry — deferred doctor validation of rule-card files
 ```
 
@@ -94,30 +93,30 @@ docs/reference/repo-wiki.md
 **Flow: pointer-card emission (Step 7b, every refresh)**
 
 1. `atomic-wiki-inferrer` finishes Step 7 (`docs/wiki/index.md` assembled, every domain page and its links final).
-2. If `.claude/rules/wiki/` is absent or holds no cards (bootstrap run), the inferrer first runs Step 3's domain partition for every domain in the router table (classification only, no writer dispatch), so every domain has a `<source_paths>` block before any card is built — there is no Start-here fallback, and an unavailable `<source_paths>` after this partition is a pipeline error to report. For each domain in scope (every domain on a bootstrap or full run; the re-dispatched domains only on an incremental run once cards already exist — a non-re-dispatched domain's card is left untouched), the inferrer builds a card: `paths:` globs from that domain's disjoint Step 4 `<source_paths>` block, the YAML-comment marker in frontmatter, the router's one-line description, the typed pointer index (`Map:` with exactly one link to `docs/wiki/<domain>.md`; `Contracts:`/`References:`/`Guides:`/`Research:`/`Designs:`/`Related:` blocks, each holding its links nested one per line and present only when non-empty, candidates pulled from the domain page's own linked docs and from doc surfaces the project's CLAUDE.md couples to the domain, category by path family, each link checked to exist on disk with missing targets dropped, links sorted by path), and the fixed-literal closing line.
-3. The inferrer probes `git check-ignore -v .claude/rules/wiki`. If it reports a match, the inferrer appends `!/rules/wiki/` and `!/rules/wiki/**` to the matched ignore file.
-4. The inferrer writes `.claude/rules/wiki/<domain>.md` for every in-scope domain and deletes any existing card file whose domain is absent from the current router table.
+2. If `<state-root>/rules/wiki/` is absent or holds no cards (bootstrap run), the inferrer first runs Step 3's domain partition for every domain in the router table (classification only, no writer dispatch), so every domain has a `<source_paths>` block before any card is built — there is no Start-here fallback, and an unavailable `<source_paths>` after this partition is a pipeline error to report. For each domain in scope (every domain on a bootstrap or full run; the re-dispatched domains only on an incremental run once cards already exist — a non-re-dispatched domain's card is left untouched), the inferrer builds a card: `paths:` globs from that domain's disjoint Step 4 `<source_paths>` block, the YAML-comment marker in frontmatter, the router's one-line description, the typed pointer index (`Map:` with exactly one link to `docs/wiki/<domain>.md`; `Contracts:`/`References:`/`Guides:`/`Research:`/`Designs:`/`Related:` blocks, each holding its links nested one per line and present only when non-empty, candidates pulled from the domain page's own linked docs and from doc surfaces the project's CLAUDE.md couples to the domain, category by path family, each link checked to exist on disk with missing targets dropped, links sorted by path), and the fixed-literal closing line.
+3. The inferrer probes `git check-ignore -v <state-root>/rules/wiki`. If it reports a match, the inferrer appends `!/rules/wiki/` and `!/rules/wiki/**` to the matched ignore file.
+4. The inferrer writes `<state-root>/rules/wiki/<domain>.md` for every in-scope domain and deletes any existing card file whose domain is absent from the current router table.
 5. In interactive mode, Step 9's summary line reports cards emitted, cards deleted, and any ignore-file edit. In silent mode the inferrer returns nothing.
 6. Step 8 (`@-ref` wiring) proceeds unchanged.
 
 **Flow: read-path payoff**
 
 1. A session (main or subagent) opens or edits a file under a domain's `source_paths`.
-2. Claude Code's `paths:` glob match injects that domain's pointer card into context.
+2. Claude Code's `paths:` glob match (through the `.claude/rules/atomic` link) injects that domain's pointer card into context.
 3. The card names `docs/wiki/<domain>.md` and its related docs; the session reads the map on demand instead of guessing or re-deriving domain facts.
 
 **Flow: write-path payoff / ship-time staging**
 
 1. A ship verb or the implementation loop runs a silent signals refresh (`signals-gate` partial).
-2. After the refresh, the gate stages `docs/wiki/*.md`, `.claude/rules/wiki/`, and any ignore file `git status --short -- .gitignore .claude/.gitignore` shows modified, in the same commit.
+2. After the refresh, the gate stages `docs/wiki/*.md`, `<state-root>/rules/wiki/`, and any ignore file `git status --short -- .gitignore <state-root>/.gitignore` shows modified, in the same commit.
 3. The committed diff carries the domain page changes, any regenerated pointer cards, and any ignore-file edit together, so a reviewer sees them as one unit and no ignore-file edit is left unstaged.
 
 **Flow: ignore-file remediation (first run in a repo that ignores `/rules/*`)**
 
-1. Step 7b probes `git check-ignore -v .claude/rules/wiki` before writing.
-2. The probe reports a match against `.claude/.gitignore`'s `/rules/*` line.
-3. The inferrer appends `!/rules/wiki/` and `!/rules/wiki/**` to `.claude/.gitignore`.
-4. The refresh report (interactive) names the ignore-file edit; the `signals-gate` partial (silent) detects the modified ignore file via `git status` and stages it alongside `.claude/rules/wiki/` so it isn't a silent, unstaged side effect.
+1. Step 7b probes `git check-ignore -v <state-root>/rules/wiki` before writing.
+2. The probe reports a match against the `/rules/*` line of `<state-root>/.gitignore`.
+3. The inferrer appends `!/rules/wiki/` and `!/rules/wiki/**` to `<state-root>/.gitignore`.
+4. The refresh report (interactive) names the ignore-file edit; the `signals-gate` partial (silent) detects the modified ignore file via `git status` and stages it alongside `<state-root>/rules/wiki/` so it isn't a silent, unstaged side effect.
 
 
 ## Checkpoints
@@ -125,9 +124,9 @@ docs/reference/repo-wiki.md
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|-------------|-------|------------|----------|
 | 1 | Document Step 7b (scope-aware card emission contract, globs from Step 4 source_paths, fixed-literal closing line, interactive-only report line) in the repo pipeline reference and widen the inferrer's scoped-writes contract (frontmatter `description:` + `<constraints>` section) to match | `context/skills/atomic-wiki/references/repo.md`, `context/agents/atomic-wiki-inferrer.md` | atomic-implementer (mode: feature) | 2 | `grep -n 'Step 7b' context/skills/atomic-wiki/references/repo.md` finds the new step; `grep -c 'rules/wiki' context/agents/atomic-wiki-inferrer.md` ≥ 2 (description + `<constraints>`); `sed -n '/^## Rules/,$p' context/skills/atomic-wiki/references/repo.md \| grep -c 'rules/wiki'` ≥ 1 (Rules section, not Step 7b's own prose) |
-| 2 | Wire the ship-path: stage `.claude/rules/wiki/` AND any modified ignore file (mechanical `git status` check) in `signals-gate`, report cards emitted/deleted/ignore-edit in `/refresh-wiki` R8 | `context/_partials/signals-gate.md`, `context/commands/refresh-wiki.md` | atomic-implementer (mode: surgical) | 2 | `grep -n 'rules/wiki' context/_partials/signals-gate.md` finds the extended `git add`; the same step stages any ignore file `git status --short -- .gitignore .claude/.gitignore` reports modified; `grep -n 'rules/wiki\|card' context/commands/refresh-wiki.md` finds the report line |
-| 3 | Document the pointer-rules layer in the repo-wiki reference page; file the deferred doctor-validation follow-up | `docs/reference/repo-wiki.md`, `.claude/project/followups/wiki-rules-doctor-validation.md` (new entry), `.claude/project/followups/INDEX.md` (mechanical `atomic followups render` output) | atomic-implementer (mode: feature) | 2-3 | `grep -n '^## ' docs/reference/repo-wiki.md` shows a new pointer-rules section; `atomic followups list` (or `INDEX.md` after render) includes `wiki-rules-doctor-validation` |
-| 4 | Dogfood: run `/refresh-wiki` in this repo, confirm cards emit for all 11 domains and the ignore negation lands, commit | `.claude/rules/wiki/*.md`, `.claude/.gitignore` | orchestrator — main session dispatches `atomic-wiki-inferrer` via `/refresh-wiki`, after Checkpoints 1-3 land | ~12 | `ls .claude/rules/wiki/*.md \| wc -l` matches the domain count in `docs/wiki/index.md`; `grep -c 'rules/wiki' .claude/.gitignore` = 2; `git status --short .claude/rules/wiki .claude/.gitignore` clean after commit |
+| 2 | Wire the ship-path: stage `<state-root>/rules/wiki/` AND any modified ignore file (mechanical `git status` check) in `signals-gate`, report cards emitted/deleted/ignore-edit in `/refresh-wiki` R8 | `context/_partials/signals-gate.md`, `context/commands/refresh-wiki.md` | atomic-implementer (mode: surgical) | 2 | `grep -n 'rules/wiki' context/_partials/signals-gate.md` finds the extended `git add`; the same step stages any ignore file `git status --short -- .gitignore <state-root>/.gitignore` reports modified; `grep -n 'rules/wiki\|card' context/commands/refresh-wiki.md` finds the report line |
+| 3 | Document the pointer-rules layer in the repo-wiki reference page; file the deferred doctor-validation follow-up | `docs/reference/repo-wiki.md`, `<state-root>/project/followups/wiki-rules-doctor-validation.md` (new entry), `<state-root>/project/followups/INDEX.md` (mechanical `atomic followups render` output) | atomic-implementer (mode: feature) | 2-3 | `grep -n '^## ' docs/reference/repo-wiki.md` shows a new pointer-rules section; `atomic followups list` (or `INDEX.md` after render) includes `wiki-rules-doctor-validation` |
+| 4 | Dogfood: run `/refresh-wiki` in this repo, confirm a card emits for every domain, commit | `<state-root>/rules/wiki/*.md`, any ignore file the probe amends | orchestrator — main session dispatches `atomic-wiki-inferrer` via `/refresh-wiki`, after Checkpoints 1-3 land | ~12 | `ls <state-root>/rules/wiki/*.md \| wc -l` matches the domain count in `docs/wiki/index.md`; `git check-ignore -q <state-root>/rules/wiki/x` exits non-zero; `git status --short <state-root>/rules/wiki` clean after commit |
 
 
 ## Risks
@@ -136,12 +135,20 @@ docs/reference/repo-wiki.md
 |------|-----------|-----------|
 | Agent-authored `paths:` globs drift from a domain's real `source_paths` between refreshes | med | Card is fully pipeline-owned and rewritten every refresh; doctor validation follow-up (Checkpoint 3) closes the gap later |
 | A domain page's doc links include paths that don't exist on disk, producing a dead pointer-index link | low | Step 7b existence-checks every candidate link before inclusion and drops missing ones |
-| `.claude/.gitignore` negation append runs on every refresh instead of once, causing duplicate lines | med | Step 7b's `git check-ignore -v` probe only appends when the path currently resolves as ignored; once the negation lands, the probe reports "not ignored" and skips the append |
+| The ignore-file negation append runs on every refresh instead of once, causing duplicate lines | med | Step 7b's `git check-ignore -v` probe only appends when the path currently resolves as ignored; once the negation lands, the probe reports "not ignored" and skips the append |
 | Regenerated cards differ in wording between refreshes, adding diff noise to every ship commit | med | Every body line is deterministic: router sentence verbatim, fixed-literal closing line, links sorted by path; an unchanged domain yields a byte-identical card |
 | The three-rung tie-break misassigns an ambiguous shared file to the wrong domain | low | Rung 1 (Start-here prefix match) covers most files mechanically; a misassignment via rungs 2-3 self-corrects on the domain's next re-dispatch, which recomputes `<source_paths>` and rewrites the card |
 
 
 ## Change log
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The Goal, success criteria, Change tree, Outline, Flows, Checkpoints, and Risks name `<state-root>/rules/wiki/<domain>.md` (`.atomic` by default) for cards, `<state-root>/project/followups/` for the follow-up entry, and `<state-root>/.gitignore` for the staging probe and the ignore-file remediation. Claude loads the cards through the committed `.claude/rules/atomic` link. The dogfood criterion and Checkpoint 4 check a card per domain and that the cards are not ignored, with no fixed domain count and no required negation pair.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** cards at `.claude/rules/wiki/`, follow-ups under `.claude/project/`, and a dogfood run that required the `!/rules/wiki/` negation pair in `.claude/.gitignore`.
 
 ### 2026-09-02 — Collections nest one entry per line; category labels pluralized
 

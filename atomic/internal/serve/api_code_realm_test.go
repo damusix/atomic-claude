@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
@@ -59,6 +60,7 @@ func (e *realmRecordingEngine) GetAllEdges(context.Context) ([]types.Edge, error
 func (e *realmRecordingEngine) Close()                                            {}
 
 func TestAPICodeFile_RealmSelfIndex_OpensMemberDBWithRelativePath(t *testing.T) {
+	t.Cleanup(config.SetStateDirForTest(".state"))
 	realmRoot, claudeMDPath := buildSelfIndexedRealm(t, "monorepo")
 
 	rec := &realmRecordingEngine{
@@ -85,7 +87,7 @@ func TestAPICodeFile_RealmSelfIndex_OpensMemberDBWithRelativePath(t *testing.T) 
 		t.Fatalf("status %d; body: %s", rr.Code, rr.Body.String())
 	}
 	// The realm-root db does not exist; only the member's self-index does.
-	wantDB := filepath.Join(realmRoot, "monorepo", ".claude", ".atomic-index", "atomic.db")
+	wantDB := filepath.Join(realmRoot, "monorepo", ".state", ".atomic-index", "atomic.db")
 	if openedDB != wantDB {
 		t.Errorf("opened db %q, want member self-index %q", openedDB, wantDB)
 	}
@@ -113,10 +115,11 @@ func TestAPICodeFile_RealmSelfIndex_OpensMemberDBWithRelativePath(t *testing.T) 
 }
 
 func TestAPICodeSearch_RealmSelfIndex_FindsMemberWithPrefix(t *testing.T) {
+	t.Cleanup(config.SetStateDirForTest(".state"))
 	realmRoot, claudeMDPath := buildSelfIndexedRealm(t, "monorepo")
 
 	// Hits only on the member's own db path, so a federation db would find nothing.
-	wantDB := filepath.Join(realmRoot, "monorepo", ".claude", ".atomic-index", "atomic.db")
+	wantDB := filepath.Join(realmRoot, "monorepo", ".state", ".atomic-index", "atomic.db")
 	searchFn := func(_ context.Context, _ /*memberPath*/, dbPath, _ string) ([]types.SearchResult, error) {
 		if dbPath != wantDB {
 			return nil, nil

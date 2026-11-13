@@ -42,7 +42,7 @@ func TestSQLStringMatchEndToEnd(t *testing.T) {
 		}
 	}
 
-	idxDir := filepath.Join(root, ".claude", ".atomic-index")
+	idxDir := config.IndexDir(root)
 	if err := os.MkdirAll(idxDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

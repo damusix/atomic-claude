@@ -10,6 +10,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/retro"
 	"github.com/spf13/cobra"
 )
@@ -97,8 +98,13 @@ func retroExtractAction(args []string, home string, now time.Time) int {
 		return 2
 	}
 
+	projectsDir, err := retro.HistoryDir(home, harness.Detect(harness.Environ()))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic retro extract: %v\n", err)
+		return 1
+	}
 	opts := retro.Options{
-		ProjectsDir: filepath.Join(home, ".claude", "projects"),
+		ProjectsDir: projectsDir,
 		Since:       since,
 		ProjectGlob: projectGlob,
 	}

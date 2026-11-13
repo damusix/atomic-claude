@@ -9,6 +9,7 @@ import (
 )
 
 func TestClaudeHomeMissingWhenAbsent(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	home := t.TempDir()
 	if !doctor.ClaudeHomeMissing(home) {
 		t.Error("ClaudeHomeMissing = false, want true when ~/.claude absent")
@@ -16,6 +17,7 @@ func TestClaudeHomeMissingWhenAbsent(t *testing.T) {
 }
 
 func TestClaudeHomeMissingWhenPresent(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	home := t.TempDir()
 	if err := os.Mkdir(filepath.Join(home, ".claude"), 0o755); err != nil {
 		t.Fatalf("mkdir .claude: %v", err)

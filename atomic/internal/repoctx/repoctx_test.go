@@ -1,6 +1,7 @@
 package repoctx_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,7 +127,7 @@ func TestResolveFrom_OverrideNotExist(t *testing.T) {
 }
 
 func TestResolveFrom_MarkerWinsOverNoGit(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -151,7 +152,7 @@ func TestResolveFrom_MarkerWinsOverNoGit(t *testing.T) {
 }
 
 func TestResolveFrom_MarkerWinsOverGitToplevel(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	gitRoot := t.TempDir()
@@ -183,7 +184,7 @@ func TestResolveFrom_MarkerWinsOverGitToplevel(t *testing.T) {
 }
 
 func TestResolveFrom_MarkerWithRelativeDir(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -227,7 +228,7 @@ func TestResolveFrom_MarkerWithRelativeDir(t *testing.T) {
 }
 
 func TestResolveFrom_GitFallback_NoMarker(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -261,7 +262,7 @@ func TestResolveFrom_GitFallback_NoMarker(t *testing.T) {
 
 // Skips when t.TempDir() happens to sit inside a git tree.
 func TestResolveFrom_CwdFallback_NoMarkerNoGit(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	dir := t.TempDir()
@@ -286,7 +287,7 @@ func TestResolveFrom_CwdFallback_NoMarkerNoGit(t *testing.T) {
 // git must run in dir, not the process cwd, or the dir parameter is a lie: the
 // process stays inside repoA throughout while dir=repoB must win.
 func TestResolveFrom_GitRunsInGivenDir_NotProcessCwd(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	repoA := t.TempDir()
@@ -325,5 +326,40 @@ func TestResolveFrom_GitRunsInGivenDir_NotProcessCwd(t *testing.T) {
 	}
 	if gotResolved != wantB {
 		t.Errorf("ResolveFrom ran git in the process cwd instead of dir: got %q, want repoB's toplevel %q", got, repoB)
+	}
+}
+
+// ambiguousRepo holds two populated non-destination roots, so resolving its
+// repository state refuses.
+func ambiguousRepo(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Cleanup(config.SetHomeDirForTest(home))
+	repo := t.TempDir()
+	if err := config.WriteAmbiguousStateForTest(home, repo); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
+// A verb must stop before it writes into a root the resolver would not pick.
+func TestResolve_RefusesAmbiguousStateRoots(t *testing.T) {
+	repo := ambiguousRepo(t)
+
+	if _, err := repoctx.Resolve(repo); !errors.Is(err, config.ErrAmbiguousStateRoot) {
+		t.Fatalf("Resolve error = %v, want ErrAmbiguousStateRoot", err)
+	}
+	if _, _, err := repoctx.ResolveFrom(repo, ""); !errors.Is(err, config.ErrAmbiguousStateRoot) {
+		t.Fatalf("ResolveFrom error = %v, want ErrAmbiguousStateRoot", err)
+	}
+}
+
+// `atomic state adopt --dir` is how ambiguity is resolved, so it must reach it.
+func TestResolveUnchecked_ToleratesAmbiguousStateRoots(t *testing.T) {
+	repo := ambiguousRepo(t)
+
+	got, err := repoctx.ResolveUnchecked(repo)
+	if err != nil || got != repo {
+		t.Fatalf("ResolveUnchecked = %q, %v; want %q", got, err, repo)
 	}
 }

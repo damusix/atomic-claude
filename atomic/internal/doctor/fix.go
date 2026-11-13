@@ -5,7 +5,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // Decision is the user's per-item response in fix mode.
@@ -41,6 +45,7 @@ type Repairer struct {
 	ManifestFn        func(io.Writer) error
 	FollowupsRenderFn func(io.Writer) error
 	OutputStyleFn     func(io.Writer) error
+	ConvergeFn        func(home string, out io.Writer) error
 	HomeFn            func() (string, error)
 	IsRepoDevFn       func() (bool, error)
 	RepoRootFn        func() string
@@ -54,6 +59,7 @@ func DefaultRepairer() Repairer {
 		ManifestFn:        defaultManifestRepair,
 		FollowupsRenderFn: defaultFollowupsRenderRepair,
 		OutputStyleFn:     defaultOutputStyleRepair,
+		ConvergeFn:        defaultConvergeRepair,
 		HomeFn:            resolveHome,
 		IsRepoDevFn:       defaultIsRepoDev,
 		RepoRootFn:        defaultRepoRoot,
@@ -160,8 +166,33 @@ func summarizeAndPrint(s RepairSummary, out io.Writer) RepairSummary {
 	return s
 }
 
+// outputStyleNonFixable runs before the scoped-repair guard: a converge cannot
+// clear these WARNs, so routing them there would report a repair that did nothing.
+func outputStyleNonFixable(r Result) (plan string, nonFixable bool) {
+	if r.Name != "output-style" {
+		return "", false
+	}
+	switch {
+	case strings.Contains(r.Detail, "seeding is disabled"):
+		return "cannot auto-fix — output_style.seed is disabled; run `atomic config set output_style.seed true` to enable", true
+	case strings.Contains(r.Detail, "is not installed"):
+		return "cannot auto-fix — run `atomic claude update` to reinstall the style", true
+	}
+	return "", false
+}
+
+// claudeConvergePlan repairs a ledger-enrolled Claude result. The legacy verbs
+// resolve their own default root and would miss a relocated or adopted target.
+const claudeConvergePlan = "converge the enrolled Claude target via `atomic harness repair --all --yes`"
+
 // repairPlan returns a human-readable plan description and whether auto-fix is available.
 func repairPlan(r Result) (plan string, fixable bool) {
+	if plan, nonFixable := outputStyleNonFixable(r); nonFixable {
+		return plan, false
+	}
+	if scopedRepair(r) {
+		return claudeConvergePlan, true
+	}
 	switch r.Name {
 	case "install":
 		return "run `atomic claude install` to re-sync bundle", true
@@ -189,14 +220,24 @@ func repairPlan(r Result) (plan string, fixable bool) {
 	case "profile":
 		return "run `atomic claude install` to create the profile stub; @-ref insertion is bundle-source-driven and updates with `atomic claude install/update`", false
 	case "output-style":
-		switch {
-		case strings.Contains(r.Detail, "seeding is disabled"):
-			return "cannot auto-fix — output_style.seed is disabled; run `atomic config set output_style.seed true` to enable", false
-		case strings.Contains(r.Detail, "is not installed"):
-			return "cannot auto-fix — run `atomic claude update` to reinstall the style", false
-		default:
-			return "seed the user-level outputStyle key", true
+		return "seed the user-level outputStyle key", true
+	case "targets", "rules", "staleness", "journals":
+		if r.ManualOnly {
+			return "cannot auto-fix — " + r.Remediation, false
 		}
+		// The converge takes the lifecycle lock and recovers journals first.
+		return "converge enrolled targets via `atomic harness repair --all --yes`", true
+	case "codex":
+		// Repairing an unproven Codex surface would fabricate trust or coverage.
+		return "cannot auto-fix — Codex native surfaces are reported, never repaired", false
+	case "card-link":
+		plan := "cannot auto-fix — the link is a tracked repository file"
+		if r.Remediation != "" {
+			plan += "; " + r.Remediation
+		}
+		return plan, false
+	case "steering":
+		return "cannot auto-fix — " + r.Remediation, false
 	default:
 		return "cannot auto-fix — unknown category", false
 	}
@@ -206,8 +247,35 @@ func repairPlan(r Result) (plan string, fixable bool) {
 // this context. Callers count it as NonFixable, not Skipped.
 var errNonFixable = fmt.Errorf("cannot auto-fix in this context")
 
+// scopedRepair is shared by the plan and the apply so they cannot disagree on
+// whether a result routes to the converge instead of a legacy verb.
+func scopedRepair(r Result) bool {
+	if len(r.Scopes) == 0 {
+		return false
+	}
+	switch r.Name {
+	case "install", "hooks", "output-style":
+		return true
+	default:
+		return false
+	}
+}
+
 // applyRepair runs the repair for a fixable category and returns a summary line.
 func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, error) {
+	if _, nonFixable := outputStyleNonFixable(r); nonFixable || r.ManualOnly {
+		return "", errNonFixable
+	}
+	if scopedRepair(r) {
+		home, err := rp.HomeFn()
+		if err != nil {
+			return "", fmt.Errorf("resolve home: %w", err)
+		}
+		if err := rp.ConvergeFn(home, out); err != nil {
+			return "", err
+		}
+		return "converged the enrolled Claude target through the install planner", nil
+	}
 	switch r.Name {
 	case "install":
 		if err := rp.InstallFn(out); err != nil {
@@ -244,6 +312,15 @@ func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, err
 			return "", err
 		}
 		return "seeded user-level outputStyle", nil
+	case "targets", "rules", "staleness", "journals":
+		home, err := rp.HomeFn()
+		if err != nil {
+			return "", fmt.Errorf("resolve home: %w", err)
+		}
+		if err := rp.ConvergeFn(home, out); err != nil {
+			return "", err
+		}
+		return "converged enrolled targets through the install planner", nil
 	default:
 		return "", fmt.Errorf("no repair for %q", r.Name)
 	}
@@ -277,12 +354,20 @@ const refsBlock = "\n## Project wiki (auto-loaded)\n\n@docs/wiki/index.md\n"
 // name. The user picks only when more than one candidate exists.
 func (rp Repairer) applyRefsRepair(p Prompter, out io.Writer) (string, error) {
 	root := rp.RepoRootFn()
+	home, err := rp.HomeFn()
+	if err != nil {
+		return "", err
+	}
+	mode, err := config.ResolveSteeringMode(home, root)
+	if err != nil {
+		return "", err
+	}
 
 	// Dedupe by inode: on case-insensitive filesystems CLAUDE.md and claude.md
 	// both stat but are the same file.
 	var existing []string
 	seenInode := make(map[uint64]bool)
-	for _, name := range candidateFiles {
+	for _, name := range repoRefFiles {
 		path := filepath.Join(root, name)
 		info, err := os.Stat(path)
 		if err != nil {
@@ -293,7 +378,20 @@ func (rp Repairer) applyRefsRepair(p Prompter, out io.Writer) (string, error) {
 			continue
 		}
 		seenInode[key] = true
+		if mode == bundlespec.SteeringLoader && isOwnedLoader(path) {
+			continue
+		}
 		existing = append(existing, name)
+	}
+	// The mode's file leads the non-override candidates; the local override
+	// files stay first because the wiki pipeline prefers them.
+	if guidance := bundlespec.ScopeSteering.GuidanceFile(mode); slices.Contains(existing, guidance) {
+		overrides := 0
+		for overrides < len(existing) && isOverrideFile(existing[overrides]) {
+			overrides++
+		}
+		rest := slices.DeleteFunc(slices.Clone(existing[overrides:]), func(n string) bool { return n == guidance })
+		existing = append(append(slices.Clone(existing[:overrides]), guidance), rest...)
 	}
 
 	var chosenFile string
@@ -301,7 +399,7 @@ func (rp Repairer) applyRefsRepair(p Prompter, out io.Writer) (string, error) {
 	switch len(existing) {
 	case 0:
 		// Nothing to pick from; the outer prompt already confirmed the write.
-		chosenFile = "CLAUDE.md"
+		chosenFile = bundlespec.ScopeSteering.GuidanceFile(mode)
 	case 1:
 		chosenFile = existing[0]
 	default:
@@ -319,7 +417,56 @@ func (rp Repairer) applyRefsRepair(p Prompter, out io.Writer) (string, error) {
 	if err := appendRefsIfMissing(targetPath); err != nil {
 		return "", err
 	}
+	if mode == bundlespec.SteeringLoader && chosenFile == bundlespec.ScopeSteering.Source {
+		if err := ensureLoader(root); err != nil {
+			return "", err
+		}
+	}
 	return chosenFile, nil
+}
+
+func isOverrideFile(name string) bool {
+	return name == "claude.local.md" || name == "CLAUDE.local.md"
+}
+
+// isOwnedLoader reports whether path's Atomic block is the thin loader, the
+// file a mode conversion treats as Atomic's own.
+func isOwnedLoader(path string) bool {
+	raw, err := os.ReadFile(path)
+	return err == nil && bundlespec.ScopeSteering.OwnsLoader(raw)
+}
+
+// ensureLoader makes a ref appended to AGENTS.md reach the session: it writes
+// the loader when none exists and adds the import to one that lacks it.
+func ensureLoader(root string) error {
+	steering := bundlespec.ScopeSteering
+	for _, name := range []string{steering.ClaudeTarget, strings.ToLower(steering.ClaudeTarget)} {
+		if _, err := os.Stat(filepath.Join(root, name)); err == nil {
+			if path := steering.LoaderWithoutImport(root); path != "" && !isSymlink(path) {
+				return appendLine(path, steering.LoaderBody())
+			}
+			return nil
+		}
+	}
+	return os.WriteFile(filepath.Join(root, steering.ClaudeTarget), steering.LoaderDocument(), 0o644)
+}
+
+// isSymlink reports whether path is a symlink; a loader that links to AGENTS.md
+// is that file, so it needs no import.
+func isSymlink(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink != 0
+}
+
+func appendLine(path, line string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if len(raw) > 0 && raw[len(raw)-1] != '\n' {
+		raw = append(raw, '\n')
+	}
+	return os.WriteFile(path, append(append(raw, '\n'), line...), 0o644)
 }
 
 // appendRefsIfMissing appends the @-ref block unless already present.

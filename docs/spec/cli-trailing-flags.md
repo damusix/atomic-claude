@@ -2,18 +2,18 @@
 
 ## Goal
 
-On every verb under Scope, a flag placed after a positional argument is either honored or rejected with a usage error (exit 2; exit 1 for `reminder add`, its existing usage-error code), and an argument the verb does not take exits 2. Neither is silently ignored.
+On every verb under Scope, a flag placed after a positional argument is either honored or rejected with a usage error (exit 2), and an argument the verb does not take exits 2. Neither is silently ignored.
 
 Every Cobra leaf in `atomic` sets `DisableFlagParsing` and hands raw argv to a stdlib `flag.FlagSet`. `FlagSet.Parse` stops at the first non-flag token, so in `atomic followups close <id> --reason "x"` the `--reason "x"` pair lands in `fs.Args()`. The handler reads only `fs.Args()[0]`, exits 0, and `CLOSED.md` gets a marker-only line. The same shape affects every verb listed under Scope.
 
 ## Non-goals
 
 - No new verbs, no new flags, no flag renames.
-- No change to exit codes other than: turning a silent drop into exit 2 (usage); honoring `-h` on `validate <sub>` (prints usage, exits 0); and a dash-leading word that used to be accepted as query, symbol, or reminder text now erroring as an unknown flag (exit 2 for `code`, exit 1 for `reminder add`, its existing usage-error code).
-- Verbs that take no positional and only flags (`where`, `update`, `doctor`, `hooks *`, `claude *`, `signals scan|linkify`, `code index|sync|status|mcp|comments`, `wiki scan|stale|linkify|init`, `config list`, `repo init`, `docker init`, `profile refresh`, `retro extract`, `scratchpad list`) stay as they are. Outside `followups`, they are not in this change.
-- Verbs that take positionals and no flags (`config get|set|unset`, `prompt`, `template`, `reminder show|rm|set-due`, `scratchpad path|archive`) stay as they are: they read their positionals and ignore anything after them.
+- No change to exit codes other than: turning a silent drop into exit 2 (usage); honoring `-h` on `validate <sub>` (prints usage, exits 0); and a dash-leading word that used to be accepted as query or symbol text now erroring as an unknown flag (exit 2).
+- Verbs that take no positional and only flags (`where`, `install`, `update`, `doctor`, `hooks *`, `claude *`, `signals scan|linkify`, `code index|sync|status|mcp|comments`, `wiki scan|stale|linkify|init`, `config list`, `repo init`, `docker init`, `profile refresh`, `retro extract`, `scratchpad list`) stay as they are. Outside `followups`, they are not in this change.
+- Verbs that take positionals and no flags (`config get|set|unset`, `prompt`, `template`, `scratchpad path|archive`) stay as they are: they read their positionals and ignore anything after them.
 - `atomic bus`, `atomic repl`, `atomic wiki bucket`, `atomic scratchpad new`, and `atomic docs index` already honor or reject trailing flags; their parsers are untouched.
-- The global flags `--repo`, `--no-update-check`, and `-v`/`--version` are read from any position in argv before the verb runs, including after `--`, except on `migrate` and `config resolve`, where `--repo` is the verb's own flag. So are `--only` and `--exclude` on `code` verbs run at a realm root.
+- The global flags `--repo`, `--no-update-check`, and `-v`/`--version` are read from any position in argv before the verb runs, including after `--`, except on `migrate`, where `--repo` is the verb's own flag. So are `--only` and `--exclude` on `code` verbs run at a realm root.
 - No change to the `cliusage` golden or the A1 linter.
 
 ## Approach
@@ -36,7 +36,6 @@ One helper, `cliutil.ParseInterspersed(fs, args) ([]string, error)`. It splits a
 | `validate` (+ `spec`, `artifacts`, path dispatch) | subcommand and paths | `--json`/`--suggest` honored in any position; a flag token is never read as a path |
 | `validate config`, `validate bundle` | none after the subcommand | flags honored in any position; any path → exit 2 |
 | `migrate` | 0–1, only as `--show-log <since>` | flags honored after `<since>`; any other positional → exit 2 |
-| `reminder add` | text words | `--due`/`--transport` honored after the text; positionals still join into the text |
 
 ## Success criteria
 
@@ -50,7 +49,7 @@ One helper, `cliutil.ParseInterspersed(fs, args) ([]string, error)`. It splits a
 8. A bare `--` ends the verb's own flag scanning for every verb in scope: a verb flag after it is a positional.
 9. Tests, one per affected verb, state why: a trailing flag is honored or rejected, never dropped. `go test ./...`, `go vet ./...`, and `gofmt -l .` are clean.
 10. `docs/spec/follow-ups-folder.md` and `docs/spec/cli-cobra.md` describe the argument-order rule.
-11. `atomic reminder add "<text>" --due <ts>` stores the due timestamp and the text without the flag; `validate config x` and `validate bundle x` exit 2.
+11. `validate config x` and `validate bundle x` exit 2.
 
 ## Checkpoints
 
@@ -59,7 +58,7 @@ One helper, `cliutil.ParseInterspersed(fs, args) ([]string, error)`. It splits a
 | 1 | Helper + every `followups` verb | `cliutil/args.go`, `followups/cli.go`, tests | implementer | 2 + tests | SC1, SC2, SC3, SC8 for followups |
 | 2 | `serve`, `code` positional verbs, `validate`, `migrate` | `serve/serve.go`, `codeintel/cli/code.go`, `validate/*.go`, `cmd_migrate.go`, tests | implementer | 5–7 + tests | SC4–SC8 |
 | 3 | Spec and doc amendments | `docs/spec/follow-ups-folder.md`, `docs/spec/cli-cobra.md`, `docs/reference/code-intel.md` | implementer | 3 | SC10 |
-| 4 | `reminder add`; `validate config`/`validate bundle` reject paths | `cmd_reminder.go`, `validate/validate.go`, `docs/spec/atomic-validate.md`, `docs/spec/verify-gate-validate.md`, tests | implementer | 4 + tests | SC11 |
+| 4 | `validate config`/`validate bundle` reject paths | `validate/validate.go`, `docs/spec/atomic-validate.md`, `docs/spec/verify-gate-validate.md`, tests | implementer | 3 + tests | SC11 |
 
 ## Change tree
 
@@ -83,8 +82,6 @@ atomic/internal/validate/
 atomic/cmd/atomic/
   M cmd_migrate.go         parseMigrateArgs; positional only as --show-log <since>
   M cmd_migrate_test.go
-  M cmd_reminder.go        parseReminderAddArgs
-  M cmd_reminder_test.go
 docs/reference/
   M code-intel.md          flags before or after the positional
 docs/spec/
@@ -116,8 +113,6 @@ validate/spec.go, config.go, artifacts.go
 cmd_migrate.go
   parseMigrateArgs — interspersed parse; positional allowed only as --show-log <since>
   runMigrate — act on the parsed options
-cmd_reminder.go
-  parseReminderAddArgs — interspersed parse; text from the joined positionals
 ```
 
 ## Flows
@@ -139,12 +134,6 @@ cmd_reminder.go
 1. User runs `atomic followups close -- demo --reason x`.
 2. Positionals are `[demo --reason x]`; `runClose` exits 2.
 
-**Reminder with a trailing due**
-
-1. User runs `atomic reminder add "check the build" --due 2026-11-01T09:00:00Z`.
-2. `parseReminderAddArgs` returns text `check the build` and sets `due`.
-3. `reminder.Add` stores both; the reminder id prints; exit 0.
-
 **Path given to a whole-repo validator**
 
 1. User runs `atomic validate config docs/spec/x.md`.
@@ -155,7 +144,7 @@ cmd_reminder.go
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
-| A query, symbol, or reminder-text word starting with `-` (`code search foo -bar`, `reminder add fix the -x output`) parses as a flag and errors | Low | The error is loud ("flag provided but not defined"; exit 2 for `code`, exit 1 for `reminder add`); put the words after `--` to keep them literal |
+| A query or symbol word starting with `-` (`code search foo -bar`) parses as a flag and errors | Low | The error is loud ("flag provided but not defined"; exit 2); put the words after `--` to keep them literal |
 | A `validate` subcommand reads a flag token as a path | Medium | Only the top level parses flags; subcommands receive positionals only. Tests cover a flag before and after the subcommand |
 | A script relied on extra positionals being ignored | Low | That script was already losing input silently; exit 2 names the extra arguments |
 
@@ -166,3 +155,19 @@ cmd_reminder.go
 **What changed:** New spec for honoring or rejecting trailing flags on the verbs listed under Scope.
 
 **Why:** `atomic followups close <id> --reason "<text>"` exited 0 and dropped the reason. Issue #158 fixed the same class for the since-removed `wiki stamp`.
+
+### 2026-11-10 — `config resolve` removed; `install` flags named
+
+**What changed:** the global-flag exception list drops `config resolve`, and the no-positional verb list names `install`, whose `--harness` narrows a bare `atomic install` to one harness.
+
+**Why:** the Pi extension's `atomic config resolve` verb was removed, so only `migrate` keeps `--repo` as its own flag; the install verb now selects harnesses by detection.
+
+**Superseded:** the exception list `migrate` and `config resolve`.
+
+### 2026-11-11 — Reminders removed
+
+**What changed:** Goal, Non-goals, Scope, SC11, Checkpoint 4, Change tree, Outline, Flows, and Risks drop `reminder add` and `reminder show|rm|set-due`. Every usage error in scope exits 2.
+
+**Why:** `docs/spec/workflow-preferences.md` drops the reminder feature.
+
+**Removed:** the `reminder add` trailing `--due`/`--transport` row, its exit-1 usage code, `parseReminderAddArgs`, and the reminder flow.

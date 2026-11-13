@@ -109,6 +109,7 @@ func writeInstallManifest(home string, plan []FileAction) error {
 		cfg.Install.Version = version.Version
 	}
 
+	cfg.Install.Adopted = false
 	cfg.Install.Artifacts.Agents = nil
 	cfg.Install.Artifacts.Commands = nil
 	cfg.Install.Artifacts.Skills = nil

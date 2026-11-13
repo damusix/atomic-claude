@@ -4,6 +4,8 @@ package doctor
 
 import (
 	"os"
+
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
 )
 
 // Severity represents the outcome of a single check.
@@ -25,6 +27,11 @@ type Result struct {
 
 	Findings    []string // per-item lines; printed only when Verbose
 	Remediation string   // fix hint; printed on WARN/FAIL regardless of Verbose
+	ManualOnly  bool     // only the user can act on Remediation; --fix skips it
+
+	// Scopes names the enrolled native roots this result inspected. A scoped
+	// result is repaired by the ledger converge; an empty one by the legacy verb.
+	Scopes []string
 }
 
 // Opts holds the parsed CLI flags passed to Run.
@@ -43,6 +50,17 @@ type Opts struct {
 	// RepoRoot is resolved once per Run so no check spawns its own git
 	// subprocess. Tests calling RunWith may set it to avoid git entirely.
 	RepoRoot string
+
+	// Home is the OS home directory holding lifecycle state. Empty falls back to
+	// os.UserHomeDir.
+	Home string
+
+	// Harness is the detected harness: Claude's leg inspects an unenrolled
+	// Claude root, OMP's and Codex's flag a missing enrollment (category 15).
+	Harness harness.Kind
+
+	// cache lets several categories share one discovery and ledger read per Run.
+	cache *statusCache
 }
 
 // CheckFunc is the signature every check implementation must satisfy.
@@ -78,6 +96,18 @@ var categories = []Category{
 	{Index: 12, Name: "migrate", Severity: WARN, Run: checkMigrateDrift},
 	{Index: 13, Name: "repo-config", Severity: WARN, Run: checkRepoConfig},
 	{Index: 14, Name: "output-style", Severity: WARN, Run: checkOutputStyle},
+	{Index: 15, Name: "targets", Severity: WARN, Run: checkTargets},
+	{Index: 16, Name: "resources", Severity: WARN, Run: checkResources},
+	{Index: 17, Name: "journals", Severity: WARN, Run: checkJournals},
+	{Index: 18, Name: "capabilities", Severity: WARN, Run: checkCapabilities},
+	{Index: 19, Name: "rules", Severity: WARN, Run: checkRules},
+	{Index: 20, Name: "trust", Severity: WARN, Run: checkTrust},
+	{Index: 21, Name: "staleness", Severity: WARN, Run: checkStaleness},
+	{Index: 22, Name: "conflicts", Severity: WARN, Run: checkConflicts},
+	{Index: 23, Name: "shadowing", Severity: WARN, Run: checkShadowing},
+	{Index: 24, Name: "codex", Severity: WARN, Run: checkCodex},
+	{Index: 25, Name: "card-link", Severity: WARN, Run: checkCardLink},
+	{Index: 26, Name: "steering", Severity: WARN, Run: checkSteering},
 }
 
 // Categories returns the registry. Callers must not mutate it.
@@ -112,6 +142,9 @@ func RunWith(opts Opts, repoDev bool) ([]Result, error) {
 		if cwd, err := os.Getwd(); err == nil {
 			opts.RepoRoot = gitToplevelFn(cwd)
 		}
+	}
+	if opts.cache == nil {
+		opts.cache = &statusCache{}
 	}
 
 	onlySet := indexSet(opts.Only)

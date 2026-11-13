@@ -125,14 +125,24 @@ func TestRail_ReflectsBacklinkFromFileAddedAfterStartup(t *testing.T) {
 	writeFile(t, spokePath, "# Spoke\n\nSee [[hub]].\n")
 	backdateFile(t, spokePath)
 
-	resp2, err := http.Get(baseURL + "/api/rail/hub.md")
-	if err != nil {
-		t.Fatalf("GET /api/rail/hub.md (after add): %v", err)
-	}
-	defer resp2.Body.Close()
-	after, err := io.ReadAll(resp2.Body)
-	if err != nil {
-		t.Fatalf("read after rail body: %v", err)
+	// The startup graphDataCache.warm goroutine can hold the rebuild gate; the
+	// loser serves the old snapshot by design, so poll for the change.
+	var after []byte
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		resp2, err := http.Get(baseURL + "/api/rail/hub.md")
+		if err != nil {
+			t.Fatalf("GET /api/rail/hub.md (after add): %v", err)
+		}
+		after, err = io.ReadAll(resp2.Body)
+		resp2.Body.Close()
+		if err != nil {
+			t.Fatalf("read after rail body: %v", err)
+		}
+		if strings.Contains(string(after), "spoke.md") || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	if !strings.Contains(string(after), "spoke.md") {

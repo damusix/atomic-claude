@@ -365,7 +365,7 @@ func joinAction(args []string, home, cwd string, out io.Writer) int {
 	fs.StringVar(&as, "as", "", "role suffix on the derived position name (optional)")
 	fs.StringVar(&mode, "mode", "participate", "participate or observe")
 	fs.StringVar(&kind, "kind", KindAgent, "agent or human")
-	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&session, "session", "", "override the session id (CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID)")
 	fs.StringVar(&host, "host", "", "join on this remote instead of the local daemon (see [bus.remotes] in ~/.atomic/config.toml)")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
@@ -467,7 +467,7 @@ func leaveAction(args []string, home string, out io.Writer) int {
 	fs := flag.NewFlagSet("bus-leave", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var session, host string
-	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&session, "session", "", "override the session id (CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID)")
 	fs.StringVar(&host, "host", "", "leave on this remote (default: the host this room was joined on, see [bus.remotes])")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
@@ -537,7 +537,7 @@ func sendAction(args []string, home string, out io.Writer) int {
 	var jsonOut bool
 	fs.StringVar(&to, "to", "", "comma-separated addressee names (omitted means FYI to the whole room)")
 	fs.StringVar(&replyTo, "reply-to", "", "id of the message being replied to")
-	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&session, "session", "", "override the session id (CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID)")
 	fs.StringVar(&host, "host", "", "send on this remote (default: the host this room was joined on, see [bus.remotes])")
 	fs.BoolVar(&jsonOut, "json", false, "emit the full envelope as JSON (captures the id for --reply-to)")
 	positional, err := parseFlags(fs, args)
@@ -641,7 +641,7 @@ func recvAction(args []string, home string, out io.Writer) int {
 	var jsonOut bool
 	var session, host string
 	fs.BoolVar(&jsonOut, "json", false, "no-op: recv always streams one JSON envelope per line")
-	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&session, "session", "", "override the session id (CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID)")
 	fs.StringVar(&host, "host", "", "receive from this remote (default: the host this room was joined on, see [bus.remotes])")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
@@ -1045,7 +1045,7 @@ func statusAction(args []string, home string, out io.Writer) int {
 	var jsonOut bool
 	var session, host string
 	fs.BoolVar(&jsonOut, "json", false, "emit JSON")
-	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&session, "session", "", "override the session id (CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID)")
 	fs.StringVar(&host, "host", "", "report this remote's reachability instead of the local daemon (see [bus.remotes])")
 	if err := fs.Parse(args); err != nil {
 		return int(ExitUsage)
@@ -1950,7 +1950,7 @@ func readAction(args []string, home string, out io.Writer) int {
 	var host, session string
 	fs.BoolVar(&jsonOut, "json", false, "emit the raw envelope JSON")
 	fs.StringVar(&host, "host", "", "read from this remote (see [bus.remotes] in ~/.atomic/config.toml) instead of the local room log")
-	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (used only to resolve --host precedence)")
+	fs.StringVar(&session, "session", "", "override the session id (CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID), used only to resolve --host precedence")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -2037,7 +2037,7 @@ func chatAction(args []string, home, cwd string, out io.Writer) int {
 	fs.SetOutput(os.Stderr)
 	var as, session string
 	fs.StringVar(&as, "as", "", "member name to claim in the room (default: $USER)")
-	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	fs.StringVar(&session, "session", "", "override the session id (CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID)")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)

@@ -100,6 +100,8 @@ Nothing here needs code. The binary would only be re-stating a rule the model al
 ## Which agent the gate dispatches
 
 
+**Status, 2026-10-20:** the override is gone. Under the multi-harness corpus no agent carries a model pin, so an unpinned `atomic-reviewer` already runs on the session's model; see the 2026-10-20 entry in `docs/spec/main-agent-review-gate.md`. The choice of agent below stands.
+
 `atomic-reviewer`, dispatched with an explicit model override.
 
 The issue asks for the gate to run on Opus or Fable, and notes that `atomic-reviewer` is pinned to `claude-sonnet-5` while `atomic-auditor` has no `model:` field. That reads as a reason to prefer the auditor. It is not, because **the frontmatter pin is not binding on the caller.** The Agent tool's `model` parameter "takes precedence over the agent definition's model frontmatter", and a probe confirms it: `atomic-reviewer`, pinned to Sonnet, dispatched with `model: opus`, reports running as `claude-opus-5[1m]`. The pin is a default, not a ceiling.

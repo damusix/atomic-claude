@@ -27,14 +27,14 @@ Design: `docs/design/wiki.md`.
 ### `atomic wiki scan`
 
 - [ ] `atomic wiki scan` with no flag scaffolds `./wiki/` from cwd; `--root=<path>` uses `<path>`. The positional slot is reserved for verbs (`scan`, `stale`); `--root` is a flag.
-- [ ] Scaffold creates `wiki/index.md`, `wiki/README.md`, `wiki/CLAUDE.md`, `wiki/repos/`, `wiki/concerns/`, and runs `git init` in `wiki/` (skipped if already a git repo).
-- [ ] Members = directories with a `.git` entry (dir or worktree file) found by recursing the root, or only the roots matched by `[realm] repos` in `<root>/.claude/atomic.toml` when that list is non-empty; recursion stops at each repo boundary at or below the walk's starting directory (a declared root inside a member repo is still walked, unless another declared root contains it); the root itself is never a member even when it is a git repo; junk dirs (`node_modules`, `dist`, `build`, `target`, `vendor`, `.worktrees`, `tmp`, `.git`) and the `wiki/` dir are skipped. A bad `[realm] repos` entry warns on stderr and is skipped; the scan still exits 0. `scan` classifies by signals-presence only and never reads git `HEAD`.
-- [ ] Each member is classified `indexed` (has `docs/wiki/index.md`, or failing that the legacy `.claude/project/signals.md`), `summarized` (no signals, but a summary exists on disk at `wiki/repos/<name>.md` or `wiki/repos/<name>/` containing at least one `.md`), or `pending` (neither) and recorded in a `<wiki-scan>` block with `path`, `status`, optional `signals`/`summary`. The open tag carries `root` and `generated` (date from injected clock). Membership + status only — no fingerprints in the block.
+- [ ] Scaffold creates `wiki/index.md`, `wiki/README.md`, the `wiki/AGENTS.md` and `wiki/CLAUDE.md` loader pair, `wiki/repos/`, `wiki/concerns/`, and runs `git init` in `wiki/` (skipped if already a git repo).
+- [ ] Members = directories with a `.git` entry (dir or worktree file) found by recursing the root, or only the roots matched by `[realm] repos` in the realm root's `<state-root>/atomic.toml` (`<root>/.atomic/atomic.toml` by default) when that list is non-empty; recursion stops at each repo boundary at or below the walk's starting directory (a declared root inside a member repo is still walked, unless another declared root contains it); the root itself is never a member even when it is a git repo; junk dirs (`node_modules`, `dist`, `build`, `target`, `vendor`, `.worktrees`, `tmp`, `.git`) and the `wiki/` dir are skipped. A bad `[realm] repos` entry warns on stderr and is skipped; the scan still exits 0. `scan` classifies by signals-presence only and never reads git `HEAD`.
+- [ ] Each member is classified `indexed` (has `docs/wiki/index.md`, or failing that the legacy `<state-root>/project/signals.md` under the member's state root, which `config.QuietStateRoots` resolves; when the ladder refuses, every populated candidate root is probed), `summarized` (no signals, but a summary exists on disk at `wiki/repos/<name>.md` or `wiki/repos/<name>/` containing at least one `.md`), or `pending` (neither) and recorded in a `<wiki-scan>` block with `path`, `status`, optional `signals`/`summary`. The open tag carries `root` and `generated` (date from injected clock). Membership + status only — no fingerprints in the block.
 - [ ] A member already recorded `summarized` whose summary file still exists keeps `summarized` on re-scan; otherwise status is re-derived (signals → `indexed`, then summary-on-disk → `summarized`, else `pending`). Disk discovery makes `summarized` reachable without a prior entry: `/refresh-wiki` writes summaries after its initial scan, and the next `atomic wiki scan` picks them up.
 - [ ] Re-running regenerates ONLY the `<wiki-scan>` block; a diff of `index.md` outside the block and of every file under `repos/`/`concerns/` is empty.
-- [ ] The `index.md` path is written to a `<wikis>` block in `~/.claude/CLAUDE.md`. Three insertion cases: block present (add line iff absent, dedup by normalized path), block absent (append after `</atomic>`, or EOF when none), file absent (create). A registry write never alters the `<atomic>` block (diff outside `<wikis>` is empty).
-- [ ] `scan` declares `scope = "realm"` in `<root>/.claude/atomic.toml`, creating the file or inserting the key when absent. A file already declaring another scope, or one that fails to parse, is left byte-identical with a warning on stderr; the scan still registers the wiki, prints the handoff, and exits 0.
-- [ ] If `<root>/wiki/` has an `index.md` without a `<wiki-scan>` marker, or has no `index.md` and holds anything other than exactly the one `CLAUDE.md` that `wiki init --scope realm` writes, `scan` refuses with a non-zero exit and a message naming the path. An empty `wiki/` is refused. A `wiki/` holding only that unedited `CLAUDE.md` is scanned normally.
+- [ ] The `index.md` path is registered in `~/.atomic/wikis.md`, the registry's authority, first, then projected as a `<wikis>` block, a derived view of that file, into the global steering file of each target the install ledger enrolls (Claude's `CLAUDE.md` at its enrolled root, OMP's steering file; Codex has none), chosen by enrollment, never by harness detection. A ledger with no targets projects into an existing `<Claude config root>/CLAUDE.md` only (`CLAUDE_CONFIG_DIR` when set, else `~/.claude`); no Claude steering file is created without a Claude target. A projection failure leaves the `wikis.md` registration in place. Insertion into a steering file: block present (add line iff absent, dedup by normalized path), block absent (append after `</atomic>`, or EOF when none). A registry write never alters the `<atomic>` block (diff outside `<wikis>` is empty).
+- [ ] `scan` declares `scope = "realm"` in the realm root's `<state-root>/atomic.toml`, creating the file or inserting the key when absent. A file already declaring another scope, or one that fails to parse, is left byte-identical with a warning on stderr; the scan still registers the wiki, prints the handoff, and exits 0.
+- [ ] If `<root>/wiki/` has an `index.md` without a `<wiki-scan>` marker, or has no `index.md` and holds anything other than exactly what `wiki init --scope realm` writes, `scan` refuses with a non-zero exit and a message naming the path. Init writes the `AGENTS.md` scaffold plus a `CLAUDE.md` loader; a lone scaffold `CLAUDE.md` from an install that predates the pair is also accepted. An empty `wiki/` is refused. A `wiki/` holding only those unedited init files is scanned normally.
 - [ ] `scan` prints a stdout handoff: summary (`<N> repos · <M> indexed · <K> pending`), per-repo list (`<status> <path> [→ signals path]`), `NEXT STEPS` naming each `pending` repo. Labels stable (orientation for `/refresh-wiki`).
 - [ ] `scan` writes a managed `## Members` linked section into `index.md` inside a `<wiki-member-list>` region (`docs/spec/bucket-doc-management.md`), spliced idempotently like the `<wiki-scan>` block (content outside the region untouched): `indexed` → link to the repo's signals file found by classification (`../<repo>/docs/wiki/index.md`, or the legacy `../<repo>/.claude/project/signals.md`); `summarized` → link to the recorded summary path (`repos/<repo>.md`, or `repos/<repo>/` for a domain-split summary); `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
 
@@ -45,7 +45,7 @@ Design: `docs/design/wiki.md`.
 
 ### `atomic signals scan --out`
 
-- [ ] `atomic signals scan --out <dir>` writes the deterministic substrate to `<dir>` instead of `<root>/.claude/project/`; the scanned repo is never written to. Without `--out`, behavior is unchanged (existing signals tests stay green).
+- [ ] `atomic signals scan --out <dir>` writes the deterministic substrate under `<dir>` (`<dir>/docs/wiki/scan.md`) instead of under `<root>`; the scanned repo is never written to. Without `--out`, behavior is unchanged (existing signals tests stay green).
 
 ### `atomic wiki stale`
 
@@ -76,13 +76,13 @@ Adapted from `docs/design/wiki.md`.
 
 | # | Decision | Chosen |
 |---|----------|--------|
-| 1 | Registry | `<wikis>` block in `~/.claude/CLAUDE.md`, not `@-ref`'d |
+| 1 | Registry | `~/.atomic/wikis.md`, projected as a `<wikis>` block into each enrolled target's steering, not `@-ref`'d |
 | 2 | No-signals explorer | `atomic-wiki-inferrer` wiki mode, fed by `signals scan --out` (substrate outside repo), output into the wiki, no new agent |
 | 3 | index.md | two-zone single file: `<wiki-scan>` block + narrative |
 | 4 | Concern synthesis | `/refresh-wiki` orchestrator; per-repo summaries by the inferrer |
 | 5 | Cross-realm refs | LLM-curated, linked via the registry — no CLI membership |
 | 6 | Knowledge routing | pointer to in-repo signals; summary only when absent |
-| 7 | Registry write | CLI splices `<wikis>` directly into CLAUDE.md |
+| 7 | Registry write | CLI writes `~/.atomic/wikis.md`, then splices `<wikis>` into each enrolled steering file |
 | 8 | Freshness | none tracked; `atomic wiki stale` reports membership drift, and the user picks which artifacts to re-author |
 
 
@@ -104,7 +104,7 @@ New `atomic/internal/wiki/` package mirroring `internal/signals/` (Options + inj
 | 7 | **inferrer wiki mode**: caller-context branch — substrate via `signals scan --out`, write to `wiki_dir/repos/<repo>(/<domain>)`, skip @-ref wiring, never touch target repo, fail-loud partial args | `context/agents/atomic-wiki-inferrer.md` | body has the wiki-mode branch (substrate redirect, wiki output, skip wiring, don't-touch-target, fail-loud); `go test ./...` stays green; reviewer confirms default-mode unchanged |
 | 8 | **/refresh-wiki command**: scan, numbered pending-repo offer, inferrer dispatch, numbered re-author selection, closing scan, linkify, disposition output, automatic wiki commit | `context/commands/refresh-wiki.md` | `description` present; body names `atomic wiki scan`, both numbered selections, inferrer wiki-mode dispatch, linkify, disposition output, the wiki commit; an unselected artifact is reported `SKIPPED (not selected)` and left unmodified |
 | 9 | **contracts + discovery + docs**: `CLAUDE.md` feature + `<wikis>` contract + inferrer role; `/atomic-help` rows (`/refresh-wiki`, `atomic wiki scan`/`stale`, `signals scan --out`) + tour; merger-template preserve note; `README.md`; `docs/reference/commands.md` | `CLAUDE.md`, `templates/commands/atomic-help.md`→render, `templates/agents/atomic-claude-merger.md`→render, `README.md`, `docs/reference/commands.md` | help-coverage no `MISSING:`; `grep` for `/refresh-wiki`, `atomic wiki scan`, and `atomic wiki stale` in the help template all hit; no live `<wikis>` path in `CLAUDE.md`; `npm run docs:build` clean |
-| 10 | **bundle + signals** | `atomic/internal/embedded/**`, `.claude/project/signals*` | `make -C atomic bundle && git diff --exit-code` clean; `/refresh-wiki` → `signals.md` lists a `wiki` domain |
+| 10 | **bundle + signals** | `atomic/internal/embedded/**`, `docs/wiki/*` | `make -C atomic bundle` succeeds; `/refresh-wiki` → `docs/wiki/index.md` lists a `wiki` domain |
 
 
 ## Agent roles
@@ -125,7 +125,7 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 **Repo discovery (shared `scan`/`stale`).** Without a non-empty `[realm] repos` (next paragraph), recurse `<root>`'s children (never the root). Member iff `os.Lstat(<dir>/.git)` succeeds (dir or worktree file). On a member: record, don't descend. On a non-member: descend unless base name in the skip set or it's the `wiki/` dir. Sort for stable output.
 
-**Declared roots (`[realm] repos`).** When `<root>/.claude/atomic.toml` sets a non-empty `[realm] repos`, discovery walks only the directories its entries match instead of `<root>`'s children; each matched directory is walked the same way, so a matched repo is itself a member. Each entry is a root-relative path expanded as a doublestar glob over the root; wildcards never descend into a symbolic link, and every hit that is or passes through one is skipped with a warning. A matched root nested in another is dropped, and a match that is `wiki/`, under it, or has a skip-set segment is dropped silently. A `"."` match walks the whole root. A matched directory inside a member repo is still a root unless another match contains it, so a repo nested below it becomes a member. Unset key, absent file, `repos = []`, or a read, parse, or decode error walk the whole root. Problems are warnings, never failures: an entry that matches nothing, is empty, is absolute or leaves the root, or is an invalid pattern is skipped; a hit that is a file, a symbolic link, a path through one, or unreadable is skipped, and the entry's directory hits are still walked; `repos = []`, a read, parse, or decode error, and an unknown `realm.*` key also warn. When every entry is skipped, there are no members. `scan` prints warnings as `atomic wiki scan: warning: <msg>` and `stale` as `atomic wiki stale: warning: <msg>`, both on stderr; neither changes stdout nor the exit code. A recorded member outside the declared roots is reported by `stale` as `DRIFT removed <path>`. User-facing semantics and the warning table: `docs/reference/atomic-toml.md`.
+**Declared roots (`[realm] repos`).** When the realm root's `<state-root>/atomic.toml` (`.atomic` by default) sets a non-empty `[realm] repos`, discovery walks only the directories its entries match instead of `<root>`'s children; each matched directory is walked the same way, so a matched repo is itself a member. Each entry is a root-relative path expanded as a doublestar glob over the root; wildcards never descend into a symbolic link, and every hit that is or passes through one is skipped with a warning. A matched root nested in another is dropped, and a match that is `wiki/`, under it, or has a skip-set segment is dropped silently. A `"."` match walks the whole root. A matched directory inside a member repo is still a root unless another match contains it, so a repo nested below it becomes a member. Unset key, absent file, `repos = []`, or a read, parse, or decode error walk the whole root. Problems are warnings, never failures: an entry that matches nothing, is empty, is absolute or leaves the root, or is an invalid pattern is skipped; a hit that is a file, a symbolic link, a path through one, or unreadable is skipped, and the entry's directory hits are still walked; `repos = []`, a read, parse, or decode error, and an unknown `realm.*` key also warn. When every entry is skipped, there are no members. `scan` prints warnings as `atomic wiki scan: warning: <msg>` and `stale` as `atomic wiki stale: warning: <msg>`, both on stderr; neither changes stdout nor the exit code. A recorded member outside the declared roots is reported by `stale` as `DRIFT removed <path>`. User-facing semantics and the warning table: `docs/reference/atomic-toml.md`.
 
 **Classification.** Precedence: prior `summarized` + summary file present → keep `summarized`; else `indexed` iff `<repo>/docs/wiki/index.md` exists, or failing that the legacy `<repo>/.claude/project/signals.md`; else `summarized` iff a summary exists on disk (`wiki/repos/<name>.md`, or `wiki/repos/<name>/` containing at least one `.md`, where `<name>` is the member's base name); else `pending`. Signals win over a leftover summary — a repo that graduates to signals stays `indexed`. `scan` never reads `HEAD`.
 
@@ -135,13 +135,13 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 **`<wiki-scan>` block.** Literal `<wiki-scan ...>` / `</wiki-scan>` boundary. Open attrs `root`, `generated` (injected clock — no wall-clock reads). One `<repo .../>` per member: `path`, `status`, optional `signals`/`summary`. No fingerprints. Target `wiki/index.md`; idempotent in-place; content outside untouched. `generated` records the last scan; nothing reads it as a freshness signal.
 
-**`<wikis>` block.** `~/.claude/CLAUDE.md`, literal `<wikis>`/`</wikis>`, each tag alone on its line. Every reader and the writer match the tags as whole lines only, because the installed `<atomic>` block names `<wikis>` inline in prose before the real block. One `- <abs index.md path>` per wiki. Present → add iff absent (dedup by normalized path = `filepath.Abs` then `filepath.Clean`, no symlink resolution); absent → append after `</atomic>` (or EOF); file absent → create. `<atomic>` never touched.
+**`<wikis>` block.** Registration writes `~/.atomic/wikis.md` first, then projects the block into each enrolled target's global steering file, selected from the install ledger without harness detection (Codex has none). A zero-target ledger projects into `<Claude config root>/CLAUDE.md` (`CLAUDE_CONFIG_DIR` when set, else `~/.claude`) only when it exists; nothing creates a Claude steering file without a Claude target. A failed projection keeps the `wikis.md` registration and exits non-zero. In each steering file: literal `<wikis>`/`</wikis>`, each tag alone on its line. Every reader and the writer match the tags as whole lines only, because the installed `<atomic>` block names `<wikis>` inline in prose before the real block. One `- <abs index.md path>` per wiki. Present → add iff absent (dedup by `filepath.Clean` of absolute entries, no symlink resolution), inserted just before the `</wikis>` line with the block's own line terminator, every other byte of the block kept, so a resolver that takes the first match keeps its earlier winner; absent → append after `</atomic>` (or EOF). `<atomic>` never touched. A relative block entry is never resolved against the working directory: it is not seeded, not matched, and always counts as a divergence. A block entry `~/.atomic/wikis.md` does not register is a divergence: `scan` leaves it in place, never imports it, and prints one stderr warning per entry naming the steering file, the authority, and the entry.
 
-**`atomic signals scan --out <dir>`.** Writes the deterministic substrate to `<dir>` instead of `<root>/.claude/project/`. With `--out`, the scanned repo is never written to. Without it, unchanged.
+**`atomic signals scan --out <dir>`.** Writes the deterministic substrate under `<dir>` (`<dir>/docs/wiki/scan.md`) instead of under `<root>`. With `--out`, the scanned repo is never written to. Without it, unchanged.
 
 **`atomic wiki stale`.** Read-only. Exit `0`/`1`/`2`. Per-finding literal prefix: `DRIFT added <path>`, `DRIFT removed <path>`, `DRIFT status <path> <old>→<new>`. Exit 1 iff any line. Missing `wiki/`, missing `index.md`, or no `<wiki-scan>` block → exit 2.
 
-**Root collision.** `<root>/wiki/` exists and either `index.md` lacks the marker, or `index.md` is absent and the directory holds anything beyond a single regular `CLAUDE.md` whose bytes equal the `wiki init --scope realm` scaffold → refuse, non-zero exit, message names the path. An empty `wiki/` is refused. A `wiki/` holding only init's unedited `CLAUDE.md` is not a collision, so `init` followed by `scan` completes the scaffold.
+**Root collision.** `<root>/wiki/` exists and either `index.md` lacks the marker, or `index.md` is absent and the directory holds anything beyond the regular files `wiki init --scope realm` writes, byte-equal to what it wrote → refuse, non-zero exit, message names the path. Accepted init shapes: `AGENTS.md` equal to the realm scaffold plus `CLAUDE.md` equal to the loader document, or a lone `CLAUDE.md` equal to the scaffold. An empty `wiki/` is refused. A `wiki/` holding only init's unedited files is not a collision, so `init` followed by `scan` completes the scaffold.
 
 
 ## Risks
@@ -161,6 +161,64 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 ## Change log
 
+
+### 2026-11-12 — Legacy signals router follows the member's state root
+
+**What changed:** The `indexed` classification reads the legacy router at `<state-root>/project/signals.md`, resolving each member's state root through `config.QuietStateRoots`, which probes every populated candidate when the ladder refuses.
+
+**Why:** a member whose state moved to `.atomic` kept its legacy router there and classified as `pending`.
+
+**Superseded:** the legacy router was always read from `.claude/project/signals.md`.
+
+
+### 2026-11-11 — Zero-target projection follows CLAUDE_CONFIG_DIR
+
+**What changed:** with no target enrolled, the `<wikis>` projection goes to an existing `<Claude config root>/CLAUDE.md`, resolved through `config.ClaudeConfigDir`: `CLAUDE_CONFIG_DIR` when set, else `~/.claude`.
+
+**Why:** an unadopted Claude install under `CLAUDE_CONFIG_DIR` keeps its steering there, and install, doctor, and the session-start hook already resolve Claude's root that way.
+
+**Superseded:** the zero-target projection always targeted `~/.claude/CLAUDE.md`.
+
+### 2026-11-11 — Correction: registry authority named in the scan criterion
+
+**What changed:** The registration criterion names `~/.atomic/wikis.md` as the registry's authority and the `<wikis>` block as a derived view of it, matching the Deterministic CLI contract. The scaffold criterion names the `wiki/AGENTS.md` and `wiki/CLAUDE.md` loader pair that `scaffold` writes through `InitRealmScope`.
+
+**Why:** Correction. A review of the branch flagged the registration criterion as still reading like the block was the registry, and `scaffold` has written the loader pair since the `scan accepts init's loader pair` entry below.
+
+**Superseded:** The scaffold criterion listed a lone `wiki/CLAUDE.md`.
+
+### 2026-11-11 — Projection adds entries and reports divergence
+
+**What changed:** Projecting `<wikis>` into a steering file inserts only the entries the block lacks, just before the `</wikis>` line with the block's line terminator, and keeps every other byte. Relative entries are never resolved against the working directory: they are not seeded or matched and always count as a divergence. `scan` warns on stderr about each block entry `~/.atomic/wikis.md` does not register and leaves it in place.
+
+**Why:** Audit rows P-15 and P-16 in `docs/research/harness-parity-audit.md`: the projection re-rendered the whole block, so a hand-added line, comments, blank lines, and entry spellings were lost without a word.
+
+**Superseded:** Each registration rewrote the block from the authority's entries.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The member-discovery and scope-marker criteria and the Declared roots section read `[realm] repos` and write `scope = "realm"` in the realm root's `<state-root>/atomic.toml` (`.atomic` by default). Checkpoint 10 names `docs/wiki/*`. **Correction:** the `atomic signals scan --out <dir>` criterion and section now say the substrate lands under `<dir>` (`<dir>/docs/wiki/scan.md`) instead of under `<root>`; `signals.ScanWithOptions` joins `docs/wiki/scan.md` onto the output root. The legacy `.claude/project/signals.md` classification fallback stays.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the realm config at `<root>/.claude/atomic.toml` and a scan substrate described as `<root>/.claude/project/`.
+
+### 2026-11-10 — Registration writes `wikis.md` and projects by enrollment
+
+**What changed:** `scan` registers the wiki in `~/.atomic/wikis.md` first, then projects `<wikis>` into each enrolled target's global steering file, chosen from the install ledger without harness detection. A zero-target ledger updates an existing `~/.claude/CLAUDE.md` only. A projection failure keeps the registration and exits non-zero.
+
+**Why:** Multi-harness support (`docs/spec/omp-plugin-compatibility.md`): an OMP-only install must receive the block in its own steering and must not grow a Claude file.
+
+**Superseded:** The `<wikis>` block lived only in `~/.claude/CLAUDE.md`, which registration created when absent.
+
+
+### 2026-10-20 — `scan` accepts init's loader pair
+
+**What changed:** The collision exemption accepts the `AGENTS.md` scaffold plus `CLAUDE.md` loader that `wiki init --scope realm` now writes, alongside the lone scaffold `CLAUDE.md` an earlier init wrote.
+
+**Why:** The multi-harness steering change (`docs/spec/omp-plugin-compatibility.md`) moved scope guidance to `AGENTS.md` with a thin `CLAUDE.md` loader, so the single-file exemption refused the pair and `init` then `scan` failed again.
+
+**Superseded:** The exemption covered only a single `CLAUDE.md` equal to the scaffold.
 
 ### 2026-10-20 — `scan` accepts the `wiki/` that `init` wrote
 

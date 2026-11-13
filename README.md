@@ -42,11 +42,12 @@
 | Feature | What it does |
 |---|---|
 | **Repo-aware sessions** | One scan builds a standing map of your codebase that Claude reads before your code, so it stops inventing `npm` scripts. |
+| **Multi-harness install** | One authored corpus projects into Claude Code, Oh My Pi (OMP), and Codex CLI through native adapters. `atomic install` detects the harnesses you have; `atomic update` reconverges the ones already enrolled. |
 | **Code graph** | A tree-sitter symbol graph across 31 languages and 23 web frameworks answers callers, call sites, and blast radius, no compiler required. |
 | **SQL in the graph** | Procedures, views, foreign keys, and lineage across Postgres, MySQL, T-SQL, and Snowflake, plus dbt models and macros, read from `.sql` files with no database connection. |
 | **Autopilot** | `/autopilot` takes an issue to a merged PR: plans, tests first, reviews its own diff, ships. Your only decision is how to merge. |
 | **Self-sharpening config** | `/retrospective-learning` mines your corrections for friction and edits its own skills and rules, only with your say-so. |
-| **Inter-session bus** | Concurrent Claude Code sessions message each other over named rooms: delegate work to a peer session, watch or halt a room as the operator. `atomic bus gateway` hosts rooms across machines behind sealed keys. |
+| **Inter-session bus** | Concurrent agent sessions message each other over named rooms: delegate work to a peer session, watch or halt a room as the operator. `atomic bus gateway` hosts rooms across machines behind sealed keys. |
 | **Persistent REPLs** | Named Python and Node interpreter sessions hold state across separate Bash calls, so agents stop re-running setup code to get back to where they were. |
 | **Structured replies** | Tables, trees, and ASCII flows replace walls of prose when they explain faster. |
 | **Incremental adoption** | One install; every layer is optional, from clearer replies up to full autopilot. |
@@ -55,6 +56,16 @@
 ## 🚀 Usage
 
 Everything below is opt-in and composes into one lifecycle. Lost? `/atomic-help` reads your git state and names one next command; `/atomic-help tour` walks the whole system.
+
+### Install and harnesses
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
+atomic install                       # every installed harness: Claude Code, OMP, Codex when CODEX_HOME names an existing directory
+atomic install --harness omp         # narrow to one harness
+```
+
+Atomic ships one authored corpus — `context/AGENTS.md` plus commands, agents, skills, and rules — and projects it into a harness through a native adapter. Claude Code receives a direct global `CLAUDE.md`, repository and realm `AGENTS.md` loader pairs, native artifacts, and path-scoped rules. OMP receives a profile `AGENTS.md` that keeps its `@` imports, plus the generated extension module, commands, skills, and agent files under the profile's agent root; commands, skills, and rule bodies also ship in `~/.atomic/packages/omp/atomic` as Atomic's corpus store, and agent delivery, output-style selection, package installation, and registration are reported `unsupported` rather than assumed. A bare `atomic install` detects the installed harnesses and prints what it found; `--harness` narrows it to one. `atomic harness list` marks each instance discovered or enrolled, `atomic harness status` reports one target and the shared resources it consumes, `atomic harness repair` reconverges it, and `atomic update` never enrolls a new harness on its own. The one exception is a Claude install an older version wrote: the first `atomic update` adopts it once and, when it meets user content it will not overwrite, stops and names the file. Codex resolves its root from `CODEX_HOME` and receives a managed block in `$CODEX_HOME/AGENTS.md`, its agents, and one generated plugin package that install registers with the `codex` CLI so Codex lists its skills. Codex also receives a `SessionStart` member in `$CODEX_HOME/hooks.json` that adds the session context, and a `PreToolUse` member that delivers wiki cards for edited paths, once you trust each in Codex's `/hooks`; `atomic doctor` reports that trust. Commands, `@` imports, and rule bodies read `WARN unsupported`, and `atomic doctor`'s `codex` category gives each unsupported surface its evidence and a fix. → [install guide](docs/guides/install.md)
 
 ### The workflow
 
@@ -84,18 +95,20 @@ clean up what's already there
 
 Fresh-context subagents drive the loop as a maker/checker split (Anthropic's evaluator-optimizer pattern): the implementer writes a failing test before any code, the reviewer re-runs tests and gates the diff against the spec, and work commits per green checkpoint. → [workflow](docs/reference/workflow.md)
 
-Each phase's working state lives in one `atomic scratchpad` bundle per task — later phases join the same bundle rather than scattering new directories. `atomic serve`'s Plans view lists every bundle and its docs across your worktrees, so you can check what's in flight without `cd`-ing anywhere. → [conventions](docs/reference/conventions.md) · [serve](docs/reference/serve.md)
+Ship verbs, `/report-issue`, and follow-ups act on your resolved workflow preferences: the source-control provider (GitHub, GitLab, Bitbucket, Codeberg), the issue tracker (GitHub, GitLab, or Codeberg issues, Linear, Jira, Trello, or the local follow-up ledger), and where worktrees go. The `origin` remote and your signed-in CLI usually decide them; `atomic workflow resolve` prints the result and `atomic workflow set` overrides one key per profile, realm, or repo. → [workflow preferences](docs/reference/concepts.md#workflow-preferences)
+
+Each phase's working state lives in one `atomic scratchpad` bundle per task — later phases join the same bundle rather than scattering new directories. Bundles sit in the repository's state root, `.atomic/` by default ([resolution order](docs/reference/concepts.md#state-root-resolution-order)); `atomic state migrate` moves Atomic's state out of legacy `.claude` (into `.atomic` by default), and new worktrees go in `.claude/worktrees/` under Claude Code and `.atomic/worktrees/` elsewhere. `atomic serve`'s Plans view lists every bundle and its docs across your worktrees, so you can check what's in flight without `cd`-ing anywhere. → [conventions](docs/reference/conventions.md) · [serve](docs/reference/serve.md)
 
 ### Wikis
 
 Wikis are how Claude learns a codebase once instead of every session. Two scopes:
 
-- **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes. Plus one pointer card per domain under `.claude/rules/wiki/`, injected whenever Claude touches a file in that domain.
+- **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes. Plus one pointer card per domain under `<state-root>/rules/wiki/` (default `.atomic/rules/wiki/`), injected whenever Claude touches a file in that domain.
 - **Realm wiki**: a Karpathy-style knowledge base you compile with Claude instead of maintaining by hand. A folder holds your repos and the loose material around them; the `wiki/` beside them holds per-repo summaries and shared concerns, and every folder in a capture bucket carries an index of what it holds.
 
 ```text
 ~/work/acme/       the realm: repos + the material around them
-├─ CLAUDE.md       realm rules, loaded from any session inside
+├─ AGENTS.md       realm rules (plus a thin CLAUDE.md loader) — loaded from any session inside
 ├─ billing-api/    repo · has its own wiki → linked
 ├─ gateway/        repo · has its own wiki → linked
 ├─ vendor-sdk/     repo · no wiki → summarized
@@ -113,7 +126,7 @@ Two commands drive it. `/setup-wiki` audits a repo's conventions (ignore rules, 
 
 ## 💭 Contributing & feedback
 
-Atomic Claude dogfoods itself: the root artifacts are both the live config and the bundle source. Bugs and ideas are welcome via [Issues](https://github.com/damusix/atomic-claude/issues). To work on the config, see [docs/guides/contributing.md](docs/guides/contributing.md).
+Atomic Claude dogfoods itself: [`context/`](context/) is both the shipped artifact source and the live config this repo runs on. Bugs and ideas are welcome via [Issues](https://github.com/damusix/atomic-claude/issues). To work on the config, see [docs/guides/contributing.md](docs/guides/contributing.md).
 
 
 ## 📖 Further reading

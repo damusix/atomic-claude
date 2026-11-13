@@ -12,7 +12,7 @@ import (
 )
 
 // TestMain sandboxes every test in this package under a temp $HOME and a
-// fixed harness dir, since relocateReportsAndReminders/redateScratchpadBundles
+// fixed harness dir, since scratchpadRelocate/redateScratchpadBundles
 // resolve project-keyed state via config.ProjectStateDir, which defaults to
 // the real ~/.atomic without this.
 func TestMain(m *testing.M) {
@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	restoreHome := config.SetHomeDirForTest(home)
-	restoreHarness := config.SetHarnessDirForTest(".claude")
+	restoreHarness := config.SetStateDirForTest(".claude")
 	code := m.Run()
 	restoreHarness()
 	restoreHome()
@@ -63,12 +63,10 @@ func writeDoc(t *testing.T, root, kind, slug string) {
 
 // --- relocation ---
 
-func TestScratchpadRelocateMovesReportsAndReminders(t *testing.T) {
+func TestScratchpadRelocateMovesReports(t *testing.T) {
 	root := t.TempDir()
 	legacyReports := filepath.Join(config.ScratchpadDir(root), "session-reports", "main")
 	writeFile(t, filepath.Join(legacyReports, "2026-08-01-note.md"), "report body")
-	legacyReminders := config.RemindersDirLegacy(root)
-	writeFile(t, filepath.Join(legacyReminders, "r1.md"), "reminder body")
 
 	if err := scratchpadRelocate(&Context{Root: root}); err != nil {
 		t.Fatalf("scratchpadRelocate: %v", err)
@@ -78,22 +76,33 @@ func TestScratchpadRelocateMovesReportsAndReminders(t *testing.T) {
 	if data, err := os.ReadFile(newReport); err != nil || string(data) != "report body" {
 		t.Fatalf("expected report relocated to %s, err=%v", newReport, err)
 	}
-	newReminder := filepath.Join(config.ProjectRemindersDir(root), "r1.md")
-	if data, err := os.ReadFile(newReminder); err != nil || string(data) != "reminder body" {
-		t.Fatalf("expected reminder relocated to %s, err=%v", newReminder, err)
-	}
 	if _, err := os.Stat(filepath.Join(config.ScratchpadDir(root), "session-reports")); !os.IsNotExist(err) {
 		t.Errorf("expected legacy session-reports dir removed, err=%v", err)
 	}
-	if _, err := os.Stat(legacyReminders); !os.IsNotExist(err) {
-		t.Errorf("expected legacy reminders dir removed, err=%v", err)
+}
+
+// Atomic has no reminder feature, so files left by the old one stay put.
+func TestScratchpadRelocateLeavesLegacyRemindersInPlace(t *testing.T) {
+	root := t.TempDir()
+	legacy := filepath.Join(config.ScratchpadDir(root), "reminders", "r1.md")
+	writeFile(t, legacy, "reminder body")
+
+	if err := scratchpadRelocate(&Context{Root: root}); err != nil {
+		t.Fatalf("scratchpadRelocate: %v", err)
+	}
+
+	if data, err := os.ReadFile(legacy); err != nil || string(data) != "reminder body" {
+		t.Fatalf("legacy reminder moved or altered: err=%v data=%q", err, data)
+	}
+	moved := filepath.Join(config.ProjectStateDir(root), "reminders")
+	if _, err := os.Stat(moved); !os.IsNotExist(err) {
+		t.Errorf("reminders dir created at %s, err=%v", moved, err)
 	}
 }
 
 func TestScratchpadRelocateSecondRunNoops(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(config.ScratchpadDir(root), "session-reports", "main", "note.md"), "x")
-	writeFile(t, filepath.Join(config.RemindersDirLegacy(root), "r1.md"), "y")
 
 	if err := scratchpadRelocate(&Context{Root: root}); err != nil {
 		t.Fatalf("first run: %v", err)
@@ -110,8 +119,8 @@ func TestScratchpadRelocateSecondRunNoops(t *testing.T) {
 
 func TestScratchpadRelocateSkipsDestinationCollision(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(config.ScratchpadDir(root), "reminders", "r1.md"), "new content")
-	writeFile(t, filepath.Join(config.ProjectRemindersDir(root), "r1.md"), "existing content")
+	writeFile(t, filepath.Join(config.ScratchpadDir(root), "session-reports", "main", "r1.md"), "new content")
+	writeFile(t, filepath.Join(config.ReportsRoot(root), "main", "r1.md"), "existing content")
 
 	out := captureStdout(t, func() {
 		if err := scratchpadRelocate(&Context{Root: root}); err != nil {
@@ -123,12 +132,12 @@ func TestScratchpadRelocateSkipsDestinationCollision(t *testing.T) {
 		t.Errorf("expected skip report naming r1.md, got %q", out)
 	}
 	// left in source, untouched
-	data, err := os.ReadFile(filepath.Join(config.ScratchpadDir(root), "reminders", "r1.md"))
+	data, err := os.ReadFile(filepath.Join(config.ScratchpadDir(root), "session-reports", "main", "r1.md"))
 	if err != nil || string(data) != "new content" {
 		t.Fatalf("expected colliding file left in source: err=%v data=%q", err, data)
 	}
 	// destination copy never overwritten
-	data, err = os.ReadFile(filepath.Join(config.ProjectRemindersDir(root), "r1.md"))
+	data, err = os.ReadFile(filepath.Join(config.ReportsRoot(root), "main", "r1.md"))
 	if err != nil || string(data) != "existing content" {
 		t.Fatalf("expected destination file untouched: err=%v data=%q", err, data)
 	}

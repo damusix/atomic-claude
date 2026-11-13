@@ -119,21 +119,6 @@ func TestScanNoUpdateCheck(t *testing.T) {
 	}
 }
 
-// The refresh renews an existing hook registration and never creates one.
-func TestArtifactRefreshArgs(t *testing.T) {
-	got := artifactRefreshArgs(true)
-	want := []string{"claude", "update", "--no-update-check"}
-	if strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Errorf("hooksInstalled=true: args = %v, want %v", got, want)
-	}
-
-	got = artifactRefreshArgs(false)
-	want = []string{"claude", "update", "--no-update-check", "--no-hooks"}
-	if strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Errorf("hooksInstalled=false: args = %v, want %v", got, want)
-	}
-}
-
 func TestStripBackgroundCheckMarker(t *testing.T) {
 	cases := []struct {
 		name      string

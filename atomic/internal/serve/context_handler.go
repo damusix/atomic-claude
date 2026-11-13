@@ -145,11 +145,16 @@ func listDirEntries(root, dirRel string) (entries []dirEntry, ok bool) {
 		return nil, false
 	}
 
+	repo, top := abs, resolveDir(root)
+	for repo != top && !isGitRepoRoot(repo) && filepath.Dir(repo) != repo {
+		repo = filepath.Dir(repo)
+	}
+	filter := newStateRoots(repo)
 	var dirs, files []string
 	for _, e := range rawEntries {
 		name := e.Name()
 		if e.IsDir() {
-			if shouldSkipDir(name) {
+			if filter.hiddenDir(filepath.Join(abs, name)) {
 				continue
 			}
 			dirs = append(dirs, name)

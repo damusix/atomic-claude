@@ -37,7 +37,7 @@ func TestDaemonConstants(t *testing.T) {
 }
 
 func TestSocketAndLockPath_UnderNonDefaultHarnessDir(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
+	restore := config.SetStateDirForTest(".pi")
 	defer restore()
 
 	root := "/repo"
@@ -284,7 +284,7 @@ func TestRegistry_Reap_DropsIdleNotFresh(t *testing.T) {
 
 func TestAutoStart_SpawnCalledOnce(t *testing.T) {
 	dir := tmpShortDir(t, "as")
-	dbPath := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
+	dbPath := config.IndexDBPath(dir)
 
 	var spawnCount atomic.Int32
 	stub := func(sourceRoot, db string, _ codemcp.WatchOptions) error {
@@ -321,7 +321,7 @@ func TestAutoStart_SpawnCalledOnce(t *testing.T) {
 
 func TestAutoStart_StaleSocketRemoved(t *testing.T) {
 	dir := tmpShortDir(t, "stale")
-	dbPath := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
+	dbPath := config.IndexDBPath(dir)
 
 	sockPath := codemcp.SocketPath(dir)
 	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
@@ -747,7 +747,7 @@ func newEmptyEngine(t *testing.T, dir string) *engine.Engine {
 // canonical db location under projectRoot.
 func startInProcessDaemon(t *testing.T, projectRoot string) error {
 	t.Helper()
-	dbPath := filepath.Join(projectRoot, ".claude", ".atomic-index", "atomic.db")
+	dbPath := config.IndexDBPath(projectRoot)
 	return startInProcessDaemonWithDB(t, projectRoot, dbPath)
 }
 

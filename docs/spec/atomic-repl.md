@@ -90,7 +90,8 @@ surviving between calls, and `atomic repl stop`/idle timeout end it.
 - [ ] A session with no `eval` activity for longer than its idle window self-terminates —
       the harness removes its own socket and meta files and exits 0, with no daemon or reaper
       process involved. The window resolves repo-first: `[repl] idle_timeout` in
-      `.claude/atomic.toml`, else `[repl] idle_timeout` in `~/.atomic/config.toml`, else `1h`.
+      `<state-root>/atomic.toml` (`.atomic/atomic.toml` by default), else `[repl] idle_timeout`
+      in `~/.atomic/config.toml`, else `1h`.
       A reaped session's name and a name that was never `start`ed produce the identical
       not-found message and exit code — no marker distinguishes "used to exist" from
       "never existed", so an agent always gets the same "run `atomic repl start`" remedy.
@@ -427,6 +428,14 @@ Flow: dead-session detection
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The repo tier of the idle-window resolution reads `[repl] idle_timeout` from `<state-root>/atomic.toml` (`.atomic/atomic.toml` by default).
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the repo tier read `.claude/atomic.toml`.
 
 ### 2026-08-08 — user-level idle_timeout fallback
 
