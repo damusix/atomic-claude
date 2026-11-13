@@ -42,3 +42,4 @@ tmp/
 # code-intel index (regenerable)
 .claude/
 .claude/.atomic-index/
+.atomic/.atomic-index/

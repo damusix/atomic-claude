@@ -93,7 +93,7 @@ func TestSummary_AggregateIsSumOfGroups(t *testing.T) {
 // counted as passing.
 func TestSummary_BrokenAtRefFailsAndIsNotPass(t *testing.T) {
 	root := buildCleanRepo(t)
-	writeFile(t, root, "context/CLAUDE.md", "# CLAUDE.md\n\n@docs/missing.md\n")
+	writeFile(t, root, "context/AGENTS.md", "# AGENTS.md\n\n@docs/missing.md\n")
 	code, out := runFromDir(t, root, []string{"config"})
 	if code != 1 {
 		t.Errorf("broken @-ref: exit %d, want 1\n%s", code, out)
@@ -102,7 +102,7 @@ func TestSummary_BrokenAtRefFailsAndIsNotPass(t *testing.T) {
 		t.Errorf("broken @-ref: want FAIL C5\n%s", out)
 	}
 	if got := groupPasses(t, out); len(got) != 1 || got[0] != 2 {
-		t.Errorf("config PASS = %v, want [2] (agent, command; not CLAUDE.md)\n%s", got, out)
+		t.Errorf("config PASS = %v, want [2] (agent, command; not AGENTS.md)\n%s", got, out)
 	}
 }
 

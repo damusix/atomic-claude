@@ -36,6 +36,13 @@ func BuildUninstallPlan(targetDir, home string) (UninstallPlan, error) {
 	embeddedSHAs := make(map[string]string, len(artifacts))
 	for _, a := range artifacts {
 		embeddedSHAs[a.Target] = a.SHA256
+		if a.Target == "CLAUDE.md" {
+			data, err := readPatchedEmbedded(a, nil)
+			if err != nil {
+				return UninstallPlan{}, err
+			}
+			embeddedSHAs[a.Target] = hexSHA256(data)
+		}
 	}
 
 	// Best-effort: nil installedTargets means a pre-framework install, where the

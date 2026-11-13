@@ -12,6 +12,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	codemcp "github.com/damusix/atomic-claude/atomic/internal/codeintel/mcp"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // Explicit paths must carry the daemon through a non-git cwd. Resolving the
@@ -141,7 +142,7 @@ func TestSocketPathFromDB_NoMemberPollution(t *testing.T) {
 	sockPath := codemcp.SocketPathFromDB(dbPath)
 	lockPath := codemcp.LockPathFromDB(dbPath)
 
-	memberIndexDir := filepath.Join(memberDir, ".claude", ".atomic-index")
+	memberIndexDir := config.IndexDir(memberDir)
 	if isUnderPath(sockPath, memberIndexDir) {
 		t.Errorf("socket path %s is under member index dir %s (pollutes member source)", sockPath, memberIndexDir)
 	}
@@ -159,11 +160,11 @@ func TestSocketPathFromDB_NoMemberPollution(t *testing.T) {
 
 func TestRepoMode_SocketUnchanged(t *testing.T) {
 	repoDir := "/some/repo"
-	dbPath := filepath.Join(repoDir, ".claude", ".atomic-index", "atomic.db")
+	dbPath := config.IndexDBPath(repoDir)
 	sockPath := codemcp.SocketPathFromDB(dbPath)
 	lockPath := codemcp.LockPathFromDB(dbPath)
 
-	expectedDir := filepath.Join(repoDir, ".claude", ".atomic-index")
+	expectedDir := config.IndexDir(repoDir)
 	if filepath.Dir(sockPath) != expectedDir {
 		t.Errorf("repo-mode socket dir: want %s, got %s", expectedDir, filepath.Dir(sockPath))
 	}

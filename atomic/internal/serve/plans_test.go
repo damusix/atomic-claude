@@ -414,7 +414,8 @@ func TestPlansAggregator_BundleFileKindClassification(t *testing.T) {
 	// about classification.
 	kinds := map[string]string{}
 	for _, f := range row.Bundles[0].Files {
-		if !strings.HasPrefix(f.RelPath, ".claude/.scratchpad/") {
+		abs := filepath.Join(root, filepath.FromSlash(f.RelPath))
+		if !strings.HasPrefix(abs, bundle.Root+string(filepath.Separator)) {
 			t.Errorf("RelPath %q is not worktree-relative", f.RelPath)
 		}
 		for _, name := range []string{"findings/lens-a.md", "options.html", "data.bin", "meta.toml"} {
@@ -1008,6 +1009,48 @@ func TestPlansAggregator_GitWorktreeListFailureIsOneCheckout(t *testing.T) {
 	}
 	if c.Branch != "" {
 		t.Errorf("checkout Branch = %q, want \"\"", c.Branch)
+	}
+}
+
+// refuseStateRoot leaves root with an unreadable selection record, so its
+// state-root ladder refuses.
+func refuseStateRoot(t *testing.T, root string) {
+	t.Helper()
+	record := config.StateLocationRecordPath(root)
+	if err := os.MkdirAll(filepath.Dir(record), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(record, []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(record) })
+	if _, err := config.RepositoryStateDir(root); err == nil {
+		t.Fatal("fixture: state root did not refuse")
+	}
+}
+
+// A checkout whose state root refuses loses its bundles, not the page: the
+// server stays up and the docs still list.
+func TestPlansAggregator_RefusingStateRootSkipsBundlesWithWarning(t *testing.T) {
+	requireGit(t)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	main := setupMainRepo(t, root)
+	writeDoc(t, main, "spec", "my-feature", "# my-feature\n", time.Now().Add(-time.Minute))
+	commitDoc(t, main)
+	refuseStateRoot(t, main)
+
+	rows, _, warnings := newTestAggregator(main).rows()
+
+	findDoc(t, findRow(t, rows, "my-feature"), "docs/spec/my-feature.md")
+	found := false
+	for _, w := range warnings {
+		found = found || strings.HasPrefix(w, "plans: skipping bundles in .: ")
+	}
+	if !found {
+		t.Errorf("warnings = %q, want one naming the refused state root", warnings)
 	}
 }
 

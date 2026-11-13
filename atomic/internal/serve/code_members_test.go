@@ -5,17 +5,63 @@ package serve
 // federation at all.
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
+// A member whose state root refuses falls back to the federation db rather
+// than exiting the server.
+func TestMemberDB_RefusingMemberFallsBackToFederationDB(t *testing.T) {
+	realmRoot := t.TempDir()
+	member := filepath.Join(realmRoot, "api")
+	if err := os.MkdirAll(member, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	refuseStateRoot(t, member)
+
+	fed := filepath.Join(realmRoot, "fed.db")
+	if got := memberDB(realmRoot, "api", fed); got != fed {
+		t.Errorf("memberDB = %q, want the federation db %q", got, fed)
+	}
+}
+
+// Members resolve on every request, so a refusing member must not repeat its
+// warning on each one.
+func TestMemberDB_RefusingMemberWarnsOnce(t *testing.T) {
+	realmRoot := t.TempDir()
+	member := filepath.Join(realmRoot, "api")
+	if err := os.MkdirAll(member, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	refuseStateRoot(t, member)
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = prev })
+	memberDB(realmRoot, "api", "")
+	memberDB(realmRoot, "api", "")
+	os.Stderr = prev
+	w.Close()
+	out, _ := io.ReadAll(r)
+
+	if n := strings.Count(string(out), "\n"); n != 1 {
+		t.Errorf("printed %d warning lines, want 1:\n%s", n, out)
+	}
+}
+
 func touchIndex(t *testing.T, repoRoot string) string {
 	t.Helper()
-	db := filepath.Join(repoRoot, ".claude", ".atomic-index", "atomic.db")
+	db := config.IndexDBPath(repoRoot)
 	if err := os.MkdirAll(filepath.Dir(db), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -60,7 +106,7 @@ func TestDiscoverCodeMembers_SelfIndexedMember(t *testing.T) {
 	if m.Prefix != "monorepo" {
 		t.Errorf("Prefix = %q, want monorepo", m.Prefix)
 	}
-	if m.DBPath != filepath.Join(realmRoot, "monorepo", ".claude", ".atomic-index", "atomic.db") {
+	if m.DBPath != config.IndexDBPath(filepath.Join(realmRoot, "monorepo")) {
 		t.Errorf("DBPath = %q, want the member self-index", m.DBPath)
 	}
 	if m.Path != filepath.Join(realmRoot, "monorepo") {
@@ -82,9 +128,9 @@ func TestDiscoverCodeMembers_RepoScope(t *testing.T) {
 	}
 }
 
-// The harness dir is configurable, so neither path may hardcode ".claude".
+// The state segment is configurable, so neither path may hardcode it.
 func TestDiscoverCodeMembers_RepoScope_UnderNonDefaultHarnessDir(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
+	restore := config.SetStateDirForTest(".pi")
 	defer restore()
 
 	root := t.TempDir()

@@ -1,0 +1,191 @@
+package omp
+
+import (
+	"fmt"
+	"path/filepath"
+
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
+)
+
+// Lifecycle binds the OMP projection, convergence, verification, and removal
+// seams for one home; the enrollment engine owns locking and recovery.
+func (a *Adapter) Lifecycle(home string) harness.Lifecycle {
+	return harness.Lifecycle{
+		ProjectFn: func(t harness.Target, req harness.PlanRequest) (harness.Plan, error) {
+			return a.project(home, t, req)
+		},
+		ConvergeFn: func(t harness.Target, p harness.Plan) (harness.Convergence, error) {
+			return a.converge(home, t, p.BatchDecision)
+		},
+		VerifyFn: func(t harness.Target) ([]harness.Assessment, error) {
+			return a.assess(home, t)
+		},
+		RemoveFn: func(t harness.Target) (harness.Removal, error) {
+			return harness.RemoveTargetResources(home, t)
+		},
+	}
+}
+
+// project builds the read-only plan for one OMP profile: its claims, the selected
+// generation, and every blocker that forbids mutation.
+func (a *Adapter) project(home string, t harness.Target, req harness.PlanRequest) (harness.Plan, error) {
+	if t.NativeRoot == "" {
+		return harness.Plan{}, fmt.Errorf("omp: project %s: %w", t.Key(), harness.ErrUnsupported)
+	}
+	cat, err := a.corpus()
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	pkg, err := BuildPackage(cat, a.Capabilities(), nil)
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	block, err := SteeringBlock(cat)
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	treeDigest, err := pkg.TreeDigest()
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	module, err := pkg.ExtensionModule()
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	blockDigest, err := SteeringDigest(block)
+	if err != nil {
+		return harness.Plan{}, err
+	}
+
+	plan := harness.Plan{Target: t, Generation: pkg.Generation, Converged: true, BatchDecision: req.BatchDecision}
+	unproven, err := mergeUnproven(pkg.Unproven, pkg.Runtime.Unproven)
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	plan.Unproven = unproven
+	for _, gap := range kindGaps(a.Capabilities()) {
+		plan.Unproven = append(plan.Unproven, gap.Surface+": "+gap.Evidence)
+	}
+	desired := map[string]string{
+		PackageResource(home):           treeDigest,
+		SteeringResource(t.NativeRoot):  blockDigest,
+		ExtensionResource(t.NativeRoot): artifacts.ProjectionDigest(module),
+	}
+	claims, err := a.Claims(home, t.NativeRoot)
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	for i := range claims {
+		if digest, ok := desired[claims[i].ID]; ok {
+			claims[i].SelectedDigest = digest
+		}
+		plan.Claims = append(plan.Claims, claims[i])
+	}
+
+	agentDir := harness.AgentDir(t.NativeRoot)
+	extensionDir := filepath.Dir(ExtensionPath(t.NativeRoot))
+	handledByPlan := func(path string) bool {
+		dir := filepath.Dir(path)
+		return dir == agentDir || dir == extensionDir || underNativeKind(t.NativeRoot, path)
+	}
+	for _, claim := range plan.Claims {
+		if handledByPlan(claim.Path) {
+			continue
+		}
+		obs, err := managedfile.Observe(claim.Path, claim.Kind)
+		if err != nil {
+			return harness.Plan{}, err
+		}
+		if obs.Conflict != managedfile.ConflictNone {
+			if obs.Conflict == managedfile.ConflictMalformedBlock && !managedfile.HasBlockTags(obs.Bytes) {
+				// User bytes with no Atomic block yet: enrollment appends one and
+				// preserves every existing byte.
+				plan.Converged = false
+				continue
+			}
+			plan.Blockers = append(plan.Blockers, fmt.Sprintf("%s carries an ambiguous %s block", claim.Path, managedfile.BlockOpen))
+			plan.Converged = false
+			continue
+		}
+		if claim.SelectedDigest == "" || obs.Digest != claim.SelectedDigest {
+			plan.Converged = false
+		}
+	}
+
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	agents, err := harness.PlanAgents(plan.Claims, ledger, t.Key(), agentDir, req.BatchDecision)
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	kinds, err := planNative(plan.Claims, ledger, t.Key(), t.NativeRoot, req.BatchDecision)
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	extension, err := harness.PlanAgents(plan.Claims, ledger, t.Key(), extensionDir, req.BatchDecision)
+	if err != nil {
+		return harness.Plan{}, err
+	}
+	plan.Blockers = append(plan.Blockers, agents.Blockers...)
+	plan.Blockers = append(plan.Blockers, kinds.Blockers...)
+	plan.Blockers = append(plan.Blockers, extension.Blockers...)
+	plan.Converged = plan.Converged && agents.Converged && kinds.Converged && extension.Converged
+	if _, err := harness.EnsureSharedGeneration(ledger, harness.KindOMP, "omp", t.Key(), PackageResource(home), "package", pkg.Generation); err != nil {
+		plan.Blockers = append(plan.Blockers, err.Error())
+	}
+	return plan, nil
+}
+
+// mergeUnproven renders the package and runtime-delivery gaps as "surface:
+// evidence" lines. A surface named by both producers is a defect, not a duplicate.
+func mergeUnproven(packageGaps, deliveryGaps []PackageGap) ([]string, error) {
+	owner := map[string]string{}
+	out := make([]string, 0, len(packageGaps)+len(deliveryGaps))
+	add := func(producer string, gaps []PackageGap) error {
+		for _, gap := range gaps {
+			if first, ok := owner[gap.Surface]; ok {
+				if first != producer {
+					return fmt.Errorf("omp: unproven surface %q is reported by both the %s and the %s producers; SessionDelivery.Unproven owns the runtime-delivery surfaces", gap.Surface, first, producer)
+				}
+				continue
+			}
+			owner[gap.Surface] = producer
+			out = append(out, gap.Surface+": "+gap.Evidence)
+		}
+		return nil
+	}
+	if err := add("package", packageGaps); err != nil {
+		return nil, err
+	}
+	if err := add("runtime delivery", deliveryGaps); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// converge applies the OMP plan through the enrollment engine.
+func (a *Adapter) converge(home string, t harness.Target, decision installstate.Decision) (harness.Convergence, error) {
+	result, err := a.Enroll(EnrollRequest{Home: home, Profile: Profile{Root: t.NativeRoot}, Decision: decision})
+	if err != nil {
+		return harness.Convergence{Target: t}, err
+	}
+	return harness.Convergence{Target: t, Status: result.Status}, nil
+}
+
+// assess reports the ownership verdict for every OMP claim, read-only.
+func (a *Adapter) assess(home string, t harness.Target) ([]harness.Assessment, error) {
+	if t.NativeRoot == "" {
+		return nil, fmt.Errorf("omp: assess %s: %w", t.Key(), harness.ErrUnsupported)
+	}
+	claims, err := a.Claims(home, t.NativeRoot)
+	if err != nil {
+		return nil, err
+	}
+	return harness.AssessAll(claims)
+}

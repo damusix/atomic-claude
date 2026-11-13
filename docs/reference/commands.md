@@ -30,7 +30,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 
 | Command | What it does |
 |---------|-------------|
-| `/commit` | Stage and commit, then ask how far to ship — or skip the prompt by passing a token: `push`, `pr`, `merge`, `squash`, or `squash merge`. With no pending changes and commits ahead of base, skips straight to the ship step. Code Claude wrote directly, outside the implement loop, gets an `atomic-reviewer` pass, on the session's model via an explicit override, before the commit lands. |
+| `/commit` | Stage and commit, then ask how far to ship — or skip the prompt by passing a token: `push`, `pr`, `merge`, `squash`, or `squash merge`. With no pending changes and commits ahead of base, skips straight to the ship step. Code Claude wrote directly, outside the implement loop, gets an `atomic-reviewer` pass before the commit lands. |
 | `/undo-commit` | Soft-undo the last commit. Refuses merge commits, initial commits, and already-pushed commits. |
 
 
@@ -39,15 +39,15 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | Command | What it does |
 |---------|-------------|
 | `/review-branch` | One-shot code review of the current branch against base. No orchestration loop, no spec required. Reviews a diff; for code nobody is changing, see `/deslop` under Maintenance. |
-| `/documentation` | Keep project docs in sync with code changes. First run bootstraps: scans for markdown files, you pick which to track as indexed surfaces. Subsequent runs match diffs against tracked surfaces and walk you through each (edit, skip, later, remind). Ship verbs run the same check automatically during commit flow. |
+| `/documentation` | Keep project docs in sync with code changes. First run bootstraps: scans for markdown files, you pick which to track as indexed surfaces. Subsequent runs match diffs against tracked surfaces and walk you through each: update now, record a follow-up for later, or skip. Ship verbs run the same check automatically during commit flow. |
 
 
 ## Project setup
 
 | Command | What it does |
 |---------|-------------|
-| `/setup-wiki` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
-| `/refresh-wiki` | Refresh the project wiki; scope is auto-detected. Repo scope: generate or update the `docs/wiki/` pages that teach Claude your repo's shape, plus one path-scoped pointer card per domain under `.claude/rules/wiki/` that names the domain's page and docs whenever Claude touches a file in it. Realm scope: run `atomic wiki scan` to classify member repos (scaffolding included), write summaries for pending repos, then re-author only the existing summaries and concerns you pick from a numbered list, and re-scan so `index.md` records the new summaries. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. Prints a per-artifact disposition and commits the wiki automatically when done — its git history is the changelog. Idempotent. |
+| `/setup-wiki` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and the project steering file. Proposes only what is missing — never overwrites. |
+| `/refresh-wiki` | Refresh the project wiki; scope is auto-detected. Repo scope: generate or update the `docs/wiki/` pages that map your repo's shape, plus one path-scoped pointer card per domain under `<state-root>/rules/wiki/` that names the domain's page and docs whenever the harness touches a file in it. Realm scope: run `atomic wiki scan` to classify member repos (scaffolding included), write summaries for pending repos, then re-author only the existing summaries and concerns you pick from a numbered list, and re-scan so `index.md` records the new summaries. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. Prints a per-artifact disposition and commits the wiki automatically when done — its git history is the changelog. Idempotent. |
 
 
 ## Maintenance
@@ -57,8 +57,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | `/deslop` | Audit the codebase as it stands — not a diff — for accumulated slop: comment noise, AI-tell prose in shipped docs, one-use abstractions, hand-rolled stdlib, duplicate helpers, dead code, swallowed errors, and drift from the repo's own stated conventions. Fans out read-only `atomic-deslopper` agents sharded by wiki domain, then writes an indexed report into a scratchpad bundle and stops. `/deslop apply <ids or tier>` is a separate invocation that fixes accepted findings through the surgical implementer behind a green test baseline, committing per batch and stopping on the first regression. Every finding carries a safety tier; the `report-only` tier — public API, dynamic references, generated files — is never auto-fixed. |
 | `/git-cleanup` | Scan for stale worktrees, branches, and optionally remote tracking refs. Shows a report and asks before deleting anything. |
 | `/watch-ci` | Spawn a background agent to monitor CI for the current branch. Reports back when it finishes. |
-| `/remind-me` | Schedule a reminder (e.g. `/remind-me 2h check deploy`). Fires via cron for durations under an hour, via Routines for an hour or more; degrades to a file-only reminder surfaced at session start when neither is available. |
-| `/follow-up` | Review pending reminders. Also used to triage stale project follow-ups with `/follow-up review`. |
+| `/follow-up` | `/follow-up <text>` records one follow-up in the resolved issue tracker, or in the local ledger when the tracker is `filesystem` or cannot take it. `/follow-up review` triages ledger entries past their review date: extend, close, promote to the tracker, or skip. Set `issue-tracker: filesystem` (`atomic workflow set issue-tracker filesystem`) to keep follow-ups local. |
 | `/session-report` | Capture what changed and why during this session. Read by the next ship command for commit message context, then deleted. |
 | `/retrospective-learning` | Session retrospective. Mines session history and the current conversation for friction signals, cross-references against installed artifacts, and walks proposed improvements one at a time. Persists a run log so later runs detect drift on past accepts. |
 
@@ -68,7 +67,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | Command | What it does |
 |---------|-------------|
 | `/atomic-help` | When you are not sure what to do next. Reads git state, figures out where you are, and recommends one action. `/atomic-help tour` runs a four-stage guided walkthrough of the whole system; bare invocation offers the tour automatically on fresh repos. |
-| `/report-issue` | Open a GitHub issue against your current repo. |
+| `/report-issue` | Open a bug report, feature request, or question in the current repo's resolved issue tracker: GitHub, GitLab, Codeberg, Linear, Jira, Trello, or the local ledger. Checks for duplicates and shows a preview before creating it. |
 | `/report-issue-with-atomic` | Open a GitHub issue against the atomic-claude repo itself. |
 
 
@@ -79,14 +78,18 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 
 | Family | What it covers | Reference |
 |--------|----------------|-----------|
+| `atomic install` · `atomic harness` | Enroll a harness instance and converge it. `atomic harness list\|status\|enroll\|adopt\|repair\|diff\|recover\|uninstall` covers the target lifecycle; `atomic harness rules status\|sync` covers per-target rule delivery. Enrollment is explicit — discovery never enrolls. | [Install](/guides/install) |
+| `atomic config` | Read and write `~/.atomic/config.toml`. `atomic config agents --harness claude\|omp\|codex\|all` sets per-agent model and effort for each harness, then converges every enrolled harness it edited. | [Agents](/reference/agents#model-and-effort) |
+| `atomic state` | Manage this repository's state root, `.atomic` by default. `atomic state adopt [--dir\|--clear]` selects a root on the harness-neutral resolution ladder; `atomic state migrate` moves Atomic's state out of legacy `.claude` (into `.atomic` by default) and stages the tracked renames. | [Concepts](/reference/concepts#state-root-resolution-order) |
+| `atomic workflow` | `atomic workflow resolve [--json]` prints the resolved source-control, issue-tracker, and worktree preferences for this directory; `atomic workflow set <key> <value> [--level profile\|realm\|repo]` writes one preference line. | [Concepts](/reference/concepts#workflow-preferences) |
 | `atomic code` | Build and query the symbol graph — where a symbol is defined, what calls it, what breaks if it changes. Also serves the graph over MCP. | [Code intelligence](/reference/code-intel) |
 | `atomic wiki` | Scan and maintain the cross-repo wiki, and register capture buckets whose docs it indexes. | [Wiki workflow](/reference/realm-wiki) |
-| `atomic bus` | Message between concurrent Claude Code sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
+| `atomic bus` | Message between concurrent agent sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
 | `atomic repl` | Drive a named Python or Node interpreter session that survives across separate Bash calls. | [REPL](/reference/repl) |
 | `atomic retro` | `atomic retro extract` writes session history since a date as one numbered markdown file for `/retrospective-learning`. | [Retro](/reference/retro) |
 | `atomic docs` | `atomic docs index` rebuilds the `<bucket-docs>` listing in a directory's `index.md` from its files' frontmatter; `--check` fails CI when it lags. | [Docs index](/reference/docs-index) |
 | `atomic serve` | Serve the wiki and code graph as a browsable site. Read-only, localhost by default. | [Serve](/reference/serve) |
 | `atomic scratchpad` | Create, look up, list, and archive slug-keyed work bundles — the shared shape behind every implement-loop scratchpad. | [Conventions](/reference/conventions) |
-| `atomic doctor` · `validate` · `update` · `migrate` | Check the install, validate artifacts, self-update against a verified checksum, apply versioned migrations. | [Install](/guides/install) |
+| `atomic doctor` · `validate` · `update` · `migrate` | Check the install and every enrolled target (26 categories), lint spec / config / bundle / artifact citations / canonical-corpus projections, self-update against a verified checksum and reconverge enrolled targets, apply versioned migrations. | [Install](/guides/install) |
 
 Run `atomic --help` for the full family list.

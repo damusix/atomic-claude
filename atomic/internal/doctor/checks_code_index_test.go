@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
@@ -15,11 +16,10 @@ import (
 // mtime. Not real SQLite — the check only stats it.
 func makeIndexDB(t *testing.T, root string, mtime time.Time) {
 	t.Helper()
-	dir := filepath.Join(root, ".claude", ".atomic-index")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	dbPath := config.IndexDBPath(root)
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		t.Fatalf("makeIndexDB mkdir: %v", err)
 	}
-	dbPath := filepath.Join(dir, "atomic.db")
 	if err := os.WriteFile(dbPath, []byte{}, 0o644); err != nil {
 		t.Fatalf("makeIndexDB write: %v", err)
 	}
@@ -203,6 +203,28 @@ func TestRunCheckCodeIndexRealmWith_AllFresh(t *testing.T) {
 	}
 	if !strings.Contains(r.Detail, "2 fresh") {
 		t.Errorf("detail = %q, want '2 fresh'", r.Detail)
+	}
+}
+
+// The freshness check reads member databases from the resolved realm root, not
+// a hard-coded <realm>/.atomic/.
+func TestRunCheckCodeIndexRealmWith_CustomRealmRoot(t *testing.T) {
+	realmRoot := t.TempDir()
+	if _, err := config.PersistStateSelection(realmRoot, "custom/state"); err != nil {
+		t.Fatal(err)
+	}
+	_ = makeRealmLayout(t, realmRoot, []realmMember{{Key: "alpha", Path: "repos/alpha"}})
+	state := filepath.Join(realmRoot, "custom", "state")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "alpha.db"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := doctor.RunCheckCodeIndexRealmWith(realmRoot, 7)
+	if r.Severity != doctor.PASS || !strings.Contains(r.Detail, "1 fresh") {
+		t.Errorf("want PASS with 1 fresh from the custom root; got %v: %s", r.Severity, r.Detail)
 	}
 }
 
@@ -429,7 +451,7 @@ func TestCheckCodeIndex_RealmAllDispatch(t *testing.T) {
 func TestCheckCodeIndex_RealmMemberDispatch(t *testing.T) {
 	_, memberDir, claudeMD := makeDispatcherFixture(t)
 
-	// No local .claude/.atomic-index here, so Resolve returns ScopeRealmMember.
+	// No local index here, so Resolve returns ScopeRealmMember.
 	t.Chdir(memberDir)
 
 	opts := doctor.Opts{

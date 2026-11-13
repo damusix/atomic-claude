@@ -10,9 +10,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// repoConfigRelDisplay returns the harness-aware relative path of the repo
-// config for display in Detail strings (".pi/atomic.toml" under a ".pi"
-// harness dir, rather than the default ".claude/atomic.toml").
+// repoConfigRelDisplay returns the repo config's path relative to the repo root,
+// for display in Detail strings.
 func repoConfigRelDisplay(root string) string {
 	abs := config.RepoConfigPath(root)
 	rel, err := filepath.Rel(root, abs)
@@ -63,15 +62,15 @@ func RunCheckRepoConfig(opts Opts) Result {
 }
 
 // scopeWikisContradiction returns a WARN detail when root declares
-// scope = "repo" while <wikis> in claudeMDPath registers root as a realm
-// root, and "" in every other case.
+// scope = "repo" while the wiki registry registers root as a realm root, else "".
+// The authoritative ~/.atomic/wikis.md always wins over the installed projection.
 func scopeWikisContradiction(root, claudeMDPath string) string {
 	cfg, _, err := config.LoadRepoConfig(config.RepoConfigPath(root))
 	if err != nil || cfg == nil || cfg.Scope != "repo" {
 		return ""
 	}
 
-	indexPaths, err := wiki.ReadWikiIndexPaths(claudeMDPath)
+	indexPaths, err := wiki.RegisteredIndexPaths(claudeMDPath)
 	if err != nil || len(indexPaths) == 0 {
 		return ""
 	}
@@ -81,10 +80,7 @@ func scopeWikisContradiction(root, claudeMDPath string) string {
 		// A registered path is <realmRoot>/wiki/index.md.
 		realmRoot := filepath.Dir(filepath.Dir(indexPath))
 		if normalizeScopeDir(realmRoot) == wantRoot {
-			return fmt.Sprintf(
-				"scope=repo conflicts with the <wikis> registry: this root is registered as a realm root in %s",
-				claudeMDPath,
-			)
+			return "scope=repo conflicts with the wiki registry: this root is registered as a realm root"
 		}
 	}
 	return ""
@@ -136,6 +132,10 @@ func RunCheckRepoConfigWith(root string) Result {
 		warns = append(warns, config.Warning{
 			Message: fmt.Sprintf("scope %q is not valid (accepted values: repo, realm)", cfg.Scope),
 		})
+	}
+
+	if err := config.ValidateSteeringMode(cfg.Steering.Claude); err != nil {
+		warns = append(warns, config.Warning{Message: err.Error()})
 	}
 
 	if cfg.Repl.IdleTimeout != "" {

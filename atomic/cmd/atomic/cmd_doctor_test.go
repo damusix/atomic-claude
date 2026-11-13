@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
@@ -48,5 +49,13 @@ func TestPostRepairExitCode_failedRecheckDoesNotClaimSuccess(t *testing.T) {
 	})
 	if got != 1 {
 		t.Errorf("exit code: got %d, want 1 — an unobservable state must not be reported as healthy", got)
+	}
+}
+
+// An OMP session on an empty home is told to install OMP, not Claude.
+func TestDoctorShortCircuitNamesTheDetectedHarness(t *testing.T) {
+	out, code := runAtomicCLIEnv(t, t.TempDir(), []string{"AGENT=1", "CI=true"}, "root", "doctor")
+	if code != 0 || !strings.Contains(out, "atomic install --harness omp") {
+		t.Fatalf("doctor = exit %d, %q; want exit 0 naming the omp install", code, out)
 	}
 }

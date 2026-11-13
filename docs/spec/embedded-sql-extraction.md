@@ -74,7 +74,7 @@ A literal passes if it satisfies a Required discriminator; DML additionally requ
 | 3 | Python harvester | `extraction/languages/python.go`, harvester tests | atomic-builder | 3-4 | `.py` file with regular and triple-quoted string DDL/DML → nodes + edges; module/class/function docstrings excluded; (a) f-string with interpolated table target (`f"SELECT a FROM {table}"`) yields zero nodes, zero refs; (b) f-string with literal table and interpolated value (`f"SELECT a FROM users WHERE id = {id}"`) yields a normal reference edge to `users` |
 | 4 | TypeScript + TSX harvester | `extraction/languages/typescript.go`, `extraction/languages/tsx.go`, harvester tests | atomic-builder | 3-4 | `.ts`/`.tsx` file with string and template-literal DDL/DML → nodes + edges; (a) template literal with interpolated table target (`` `SELECT a FROM ${table}` ``) yields zero nodes, zero refs; (b) template literal with literal table and interpolated value (`` `SELECT a FROM users WHERE id = ${id}` ``) yields a normal reference edge to `users` |
 | 5 | Corpus harness gate run | `scripts/code-eval/`, `atomic/internal/codeintel/db/crud.go` | atomic-builder | 2-3 | Extend `run-eval.sh` (or new script) to harvest all string literals from at least one real repo, run gate, report admission count; assert `GetEdgesByProvenance("embedded")` returns zero resolved phantom edges |
-| 6 | Docs + followup close | `docs/reference/code-intel.md`, `.claude/project/followups/embedded-sql-extraction.md` | atomic-builder | 1-2 | `docs/reference/code-intel.md` updated with embedded-SQL section; followup entry closed via `atomic followups close embedded-sql-extraction` |
+| 6 | Docs + followup close | `docs/reference/code-intel.md`, `<state-root>/project/followups/embedded-sql-extraction.md` (`.atomic` by default) | atomic-builder | 1-2 | `docs/reference/code-intel.md` updated with embedded-SQL section; followup entry closed via `atomic followups close embedded-sql-extraction` |
 
 ## Risks
 
@@ -89,6 +89,14 @@ A literal passes if it satisfies a Required discriminator; DML additionally requ
 ## Change log
 
 <!-- Populated on first post-approval amendment. -->
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** Checkpoint 6 names the follow-up entry as `<state-root>/project/followups/embedded-sql-extraction.md`, with `.atomic` as the default state root.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** Checkpoint 6 named `.claude/project/followups/embedded-sql-extraction.md`.
 
 ## Implementation log
 

@@ -9,7 +9,7 @@ Part 5 of the 5-part code-intelligence engine port. **Umbrella:**
 **Blocks:** nothing — this is the last part.
 
 Brand bindings (from the umbrella): commands `atomic code <verb>`; MCP prefix
-`atomic_code_*`; data dir `<projectRoot>/.claude/.atomic-index/`, file
+`atomic_code_*`; data dir `<state-root>/.atomic-index/` (`.atomic` by default), file
 `atomic.db`. Never emit the reference implementation's product name; de-brand the
 server-instructions text to `atomic` + the `atomic_code_*` tool names.
 
@@ -29,7 +29,8 @@ constants — the tiers, the 25k ceiling, the `\n####` section-boundary cut), L
 **Integration seams (design §Integration into the atomic CLI):** add
 `case "code": runCode(args[1:], repoOverride)` to `atomic/cmd/atomic/main.go`;
 `runCode` sub-dispatches with the existing `flag.FlagSet` style (no
-cobra/commander); `atomic setup` adds `.claude/.atomic-index/` to `.gitignore`;
+cobra/commander); `atomic code index` adds the repository-relative index dir to
+the root `.gitignore`;
 register `atomic code` in `CLAUDE.md` "Atomic binary subcommands", the
 `/atomic-help` binary topic, and `docs/reference/`.
 
@@ -40,8 +41,11 @@ register `atomic code` in `CLAUDE.md` "Atomic binary subcommands", the
 - [x] `atomic code <verb>` subcommands exist for index/sync/status/search/
       callers/callees/impact/node/files/affected/explore — each query verb
       with a `--json` mode — dispatched from `runCode`; `case "code"` wired into
-      the top-level switch. `atomic code index` idempotently adds
-      `.claude/.atomic-index/` to `.gitignore`. Registered in `CLAUDE.md` +
+      the top-level switch. `atomic code index` idempotently adds the
+      repository-relative index dir (`.atomic/.atomic-index/` by default) to
+      the root `.gitignore`, and adds nothing when the state root is outside
+      the repository or a `.gitignore` inside it already ignores the index
+      dir. Registered in `CLAUDE.md` +
       `/atomic-help` + `docs/reference/commands.md`.
 - [x] `atomic code mcp` subcommand exists (CP22 scope).
 - [x] MCP `initialize` returns the de-branded server-instructions text; the
@@ -49,7 +53,7 @@ register `atomic code` in `CLAUDE.md` "Atomic binary subcommands", the
       ambiguous name; the explore tool respects the exact budget tiers, the 25k
       ceiling, and the section-boundary cut.
 - [x] The MCP server is a per-project **singleton**: a tool call against a dead or
-      absent `mcp.sock` auto-starts it (flock-guarded — concurrent starts don't
+      absent `atomic.mcp.sock` auto-starts it (flock-guarded — concurrent starts don't
       double-spawn); a second client reuses the warm engine.
 - [x] A connection idle >30 min (no request; `updated_at` stale) is force-closed
       by the reaper; the server exits and **removes the socket** after 0
@@ -66,11 +70,12 @@ rationale + sequence diagram in `docs/design/code-intel-engine.md` §MCP server
 lifecycle. The contract a builder must implement:
 
 - **Socket = liveness.** Per-project unix domain socket at
-  `<projectRoot>/.claude/.atomic-index/mcp.sock`. Connectability is truth; a
+  `<state-root>/.atomic-index/atomic.mcp.sock`, beside the db
+  (`SocketPathFromDB`). Connectability is truth; a
   stale socket file whose server is dead (connect → `ECONNREFUSED`) is
   "not running". No PID file.
 - **Auto-start (flock-guarded).** Client connect path: try connect → on
-  failure/absence, `flock(<…>/.atomic-index/mcp.lock)`, re-check socket, remove
+  failure/absence, `flock(<state-root>/.atomic-index/atomic.mcp.lock)` (`LockPathFromDB`), re-check socket, remove
   stale socket file, spawn server **detached**, retry connect with bounded
   backoff. Lock prevents two simultaneous tool calls double-spawning.
 - **Connection registry.** Server holds `connID → {created_at, updated_at}`.
@@ -116,9 +121,9 @@ resolve path); the CLI prints them when profiling is enabled.
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
 | 1 | **(master CP20) Engine facade**: the struct exposing the shared query API (lifecycle, index/sync, all get*/search/traversal/context methods). Watch methods stubbed. | `internal/codeintel/engine`; ref `src/index.ts` (COPY surface); appendix M | Facade method set matches appendix M; MCP + CLI both compile against it |
-| 2 | **(master CP21) `atomic code` CLI subcommands**: `runCode` dispatch in `atomic/cmd/atomic/main.go` (existing `flag.FlagSet` style) for index/sync/status/search/callers/callees/impact/node/files/affected/explore, each query verb with `--json`, over the engine facade. Wire `case "code"` into the top-level switch; `atomic setup` adds the `.gitignore` entry. | `atomic/cmd/atomic/main.go`, `internal/codeintel/engine`, `internal/claudeinstall` (setup gitignore); ref `src/bin/` (ADAPT to atomic dispatch; SKIP commander); appendix N | `atomic code <verb>` returns correct data + `--json` on a fixture repo; `case "code"` dispatches; setup writes ignore entry |
+| 2 | **(master CP21) `atomic code` CLI subcommands**: `runCode` dispatch in `atomic/cmd/atomic/main.go` (existing `flag.FlagSet` style) for index/sync/status/search/callers/callees/impact/node/files/affected/explore, each query verb with `--json`, over the engine facade. Wire `case "code"` into the top-level switch; `atomic code index` adds the repository-relative index dir to the root `.gitignore`. | `atomic/cmd/atomic/main.go`, `internal/codeintel/engine`, `internal/codeintel/cli` (`EnsureGitignore`); ref `src/bin/` (ADAPT to atomic dispatch; SKIP commander); appendix N | `atomic code <verb>` returns correct data + `--json` on a fixture repo; `case "code"` dispatches; `atomic code index` writes the ignore entry |
 | 3 | **(master CP22) MCP server** (`atomic code mcp`): go-sdk server, the 8 tool handlers (`atomic_code_*`), the explore algorithm (`buildFlowFromNamedSymbols`, file scoring, adaptive sizing), exact budget tiers + 25k ceiling + section-boundary cut, node-tool overload handling, server-instructions verbatim (de-branded to `atomic` + `atomic_code_*`), tiny-repo tool gating. | `internal/codeintel/mcp`; ref `src/mcp/{tools,server-instructions,session}.ts` (COPY logic; ADAPT transport to go-sdk); appendix K, L | `initialize` returns instructions; explore respects budgets + cut; node returns all overloads |
-| 4 | **(master CP23) MCP singleton daemon lifecycle**: per-project unix-socket auto-managed server (see §MCP server lifecycle below for the full contract). Socket at `<projectRoot>/.claude/.atomic-index/mcp.sock`; flock-guarded auto-start on tool call; connection registry with per-request `updated_at`; in-process reaper drops connections idle >30 min; auto-shutdown + socket removal when 0 connections for 30 min. Named-constant thresholds. | `internal/codeintel/mcp`; ref `src/mcp/{daemon,proxy,engine}.ts` (ADAPT — simpler in Go) | socket liveness check; dead-socket auto-start; second client reuses warm index; idle conn reaped at 30 min; server exits + removes socket after 30 min idle; concurrent starts don't double-spawn |
+| 4 | **(master CP23) MCP singleton daemon lifecycle**: per-project unix-socket auto-managed server (see §MCP server lifecycle below for the full contract). Socket at `<state-root>/.atomic-index/atomic.mcp.sock`; flock-guarded auto-start on tool call; connection registry with per-request `updated_at`; in-process reaper drops connections idle >30 min; auto-shutdown + socket removal when 0 connections for 30 min. Named-constant thresholds. | `internal/codeintel/mcp`; ref `src/mcp/{daemon,proxy,engine}.ts` (ADAPT — simpler in Go) | socket liveness check; dead-socket auto-start; second client reuses warm index; idle conn reaped at 30 min; server exits + removes socket after 30 min idle; concurrent starts don't double-spawn |
 | 5 | **(master CP24) Validation harness**: schema-diff test, reference-exported node-id vectors, per-language extraction fixtures, synthesized-edge precision spot-check, FTS rank-order test, MCP budget tests. | `internal/codeintel/...` test files; ref `__tests__/`, `scripts/agent-eval/` (ADAPT) | Every success criterion has an automated check |
 
 ## Risks
@@ -300,3 +305,31 @@ registered `mcp` verb (`atomic code mcp --daemon --source <path> --db
 **Superseded:** The CP23 entry's "internal `__serve` verb invokes `RunDaemon`"
 clause; the daemon entry point is unchanged (`RunDaemon`), only the verb that
 reaches it changed.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The data dir reads `<state-root>/.atomic-index/`, with the
+state root `.atomic` by default. The MCP socket reads
+`<state-root>/.atomic-index/atomic.mcp.sock` and the auto-start lock
+`<state-root>/.atomic-index/atomic.mcp.lock`, the names `SocketPathFromDB`
+and `LockPathFromDB` derive from the db file. The gitignore seam, the CLI
+checkpoint row, and the success criterion name `atomic code index` adding the
+repository-relative index dir to the root `.gitignore` (`EnsureGitignore` in
+`internal/codeintel/cli`), and nothing when the state root is outside the
+repository.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the
+`.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** data dir and socket under `<projectRoot>/.claude/.atomic-index/`
+(socket `mcp.sock`, lock `mcp.lock`), with the ignore rule added by
+`atomic setup` from `internal/claudeinstall`.
+
+### 2026-11-12 — No root ignore line when a repository .gitignore covers the index
+
+**What changed:** The success criterion adds that `atomic code index` writes
+nothing when a `.gitignore` inside the repository already ignores the index
+dir; a personal excludes file does not count.
+
+**Why:** the state root's own `.gitignore` from `atomic repo init` covers it,
+and every fresh index added a redundant root line.

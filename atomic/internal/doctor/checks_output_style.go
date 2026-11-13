@@ -5,25 +5,25 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 )
 
-// checkOutputStyle implements category 14: whether the user-level outputStyle
-// key is seeded, and whether a project settings file carries a value of its
-// own. It reports what each file contains — never a computed effective
-// style, since Claude Code's per-repo file-placement rules aren't documented
-// well enough to replicate.
+// checkOutputStyle implements category 14 for every enrolled Claude target. It reports
+// file contents, never an effective style: Claude Code's placement rules are undocumented.
 func checkOutputStyle(opts Opts) Result {
-	target, err := claudeinstall.ResolveTarget("~/.claude")
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve target: %v", err)}
+	scope := claudeScopeFor(opts)
+	if scope.Skip {
+		return Result{Severity: SKIP, Detail: scope.Detail}
 	}
 	home, err := resolveHome()
 	if err != nil {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve home dir: %v", err)}
 	}
-	return RunCheckOutputStyleWith(target, home, opts.RepoRoot)
+	results := make([]Result, 0, len(scope.Roots))
+	for _, root := range scope.Roots {
+		results = append(results, RunCheckOutputStyleWith(root, home, opts.RepoRoot))
+	}
+	return combineClaudeRoots(scope, results)
 }
 
 // RunCheckOutputStyleWith runs the output-style check against explicit roots.

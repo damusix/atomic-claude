@@ -9,8 +9,10 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/scratchpad"
 	"github.com/damusix/atomic-claude/atomic/internal/where"
+	"github.com/damusix/atomic-claude/atomic/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -26,6 +28,7 @@ func buildWhereCmd(repoOverride *string) *cobra.Command {
 		},
 	}
 	c.Flags().Bool("json", false, "emit machine-readable JSON output")
+	c.Flags().String("harness", "", workflowHarnessHelp)
 	return c
 }
 
@@ -33,13 +36,22 @@ func buildWhereCmd(repoOverride *string) *cobra.Command {
 // presence, realm position, code-index scope — descriptively, with no severity.
 func runWhere(args []string, repoOverride string) {
 	fs := flag.NewFlagSet("where", flag.ContinueOnError)
-	cliutil.SetUsage(fs, "atomic where [--json]")
+	cliutil.SetUsage(fs, "atomic where [--json] [--harness claude|omp|codex]")
 	var jsonOut bool
+	var harnessFlag string
 	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON output")
+	fs.StringVar(&harnessFlag, "harness", "", workflowHarnessHelp)
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			os.Exit(0)
 		}
+		os.Exit(2)
+	}
+	chosen, err := harness.Choose(harnessFlag, func() harness.Detection {
+		return harness.Detect(harness.Environ())
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic where: %v\n", err)
 		os.Exit(2)
 	}
 
@@ -48,8 +60,8 @@ func runWhere(args []string, repoOverride string) {
 		fmt.Fprintf(os.Stderr, "atomic where: get cwd: %v\n", err)
 		os.Exit(2)
 	}
-	// --repo relocates the whole report, not only the repo_root line: branch,
-	// reports, and reminders are all derived from wherever resolution starts.
+	// --repo relocates the whole report, not only the repo_root line: branch
+	// and reports are both derived from wherever resolution starts.
 	if repoOverride != "" {
 		abs, aerr := filepath.Abs(repoOverride)
 		if aerr != nil {
@@ -76,9 +88,9 @@ func runWhere(args []string, repoOverride string) {
 	}
 
 	if jsonOut {
-		data, jerr := whereJSON(report)
+		data, jerr := whereJSON(report, cwd, home, string(chosen.Kind))
 		if jerr != nil {
-			fmt.Fprintf(os.Stderr, "atomic where: marshal json: %v\n", jerr)
+			fmt.Fprintf(os.Stderr, "atomic where: %v\n", jerr)
 			os.Exit(2)
 		}
 		fmt.Println(data)
@@ -96,9 +108,9 @@ func runWhere(args []string, repoOverride string) {
 // Branch and reports paths depend on report.RepoRoot.Path actually holding a
 // `.git` entry (report.RepoRoot itself may be a scope="repo" marker directory
 // with none); when config.BranchFromHEAD finds no `.git`, "branch" and
-// "reports" are omitted rather than guessed. reports_root/reminders/archive
+// "reports" are omitted rather than guessed. reports_root and archive
 // resolve unconditionally since they name a project home, not a branch.
-func whereJSON(report where.Report) (string, error) {
+func whereJSON(report where.Report, cwd, home, harnessKind string) (string, error) {
 	base, err := where.FormatJSON(report)
 	if err != nil {
 		return "", err
@@ -110,13 +122,23 @@ func whereJSON(report where.Report) (string, error) {
 	}
 
 	repoRoot := report.RepoRoot.Path
+	stateRoot, err := config.RepositoryStateDir(repoRoot)
+	if err != nil {
+		return "", err
+	}
 	if branch, ok := config.BranchFromHEAD(repoRoot); ok {
 		obj["branch"] = branch
 		obj["reports"] = config.ReportsDir(repoRoot, branch)
 	}
 	obj["reports_root"] = config.ReportsRoot(repoRoot)
-	obj["reminders"] = config.ProjectRemindersDir(repoRoot)
 	obj["archive"] = scratchpad.ArchiveRoot(repoRoot)
+
+	obj["state_root"] = stateRoot
+	worktrees := workflow.Worktrees(repoRoot, cwd, home, harnessKind)
+	if worktrees == "off" {
+		worktrees = ""
+	}
+	obj["worktrees"] = worktrees
 
 	data, err := json.MarshalIndent(obj, "", "  ")
 	if err != nil {

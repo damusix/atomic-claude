@@ -47,8 +47,7 @@ func FindScopeRoot(startDir, scope string) (root string, found bool) {
 		dir = abs
 	}
 	for {
-		cfg, _, err := LoadRepoConfig(RepoConfigPath(dir))
-		if err == nil && cfg.Scope == scope {
+		if holdsScopeMarker(dir, scope) {
 			return dir, true
 		}
 
@@ -58,6 +57,17 @@ func FindScopeRoot(startDir, scope string) (root string, found bool) {
 		}
 		dir = parent
 	}
+}
+
+// holdsScopeMarker reports whether dir's state root declares scope.
+func holdsScopeMarker(dir, scope string) bool {
+	for _, root := range QuietStateRoots(dir) {
+		cfg, _, err := LoadRepoConfig(filepath.Join(root, "atomic.toml"))
+		if err == nil && cfg.Scope == scope {
+			return true
+		}
+	}
+	return false
 }
 
 // ScopeMarkerOutcome enumerates what EnsureScopeMarker did to the repo

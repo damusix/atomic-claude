@@ -1,557 +1,448 @@
 ---
 type: Domain
-description: User and repo config, ~/.atomic state, scratchpad bundles, hooks, reminders, follow-ups, migration, self-update.
+description: User config at ~/.atomic, the repository-state root ladder, the Claude steering-mode key, workflow preferences, session-start and Codex PreToolUse hooks, follow-ups, scratchpad, migrations, self-update.
 tags: [state, cli]
 ---
 
 # config
 
-
 ## What it does
 
+A conversation cannot hold a value that has to outlive it. A user preference, the resolved place a repository keeps its state, a scratchpad bundle that spans several phases of one task, a follow-up finding, and the record of which release is staged all need a durable home that every [`atomic`](../../atomic) verb agrees on. Without this domain, two verbs run from the same repository could write to different directories, and a session could start with no idea which source-control host, issue tracker, or worktree folder the user works with.
 
-A conversation is not a place to keep a value that has to survive it. A preference, an install manifest, a scheduled reminder, a slug-keyed scratchpad bundle, and a record of what version is staged all need somewhere durable, and the repo-local directory they live beside cannot be a constant, because the harness that owns it varies ([`.claude`](../../.claude) for Claude Code, `.pi` for Pi).
+The domain owns every persistent value and the path each one resolves to. User config lives in `~/.atomic/config.toml`. Repository state lives under a state root that a harness-neutral ladder resolves, `<repo>/.atomic` by default, with `atomic.toml` as the repo config inside it. Per-clone state that must not be committed lives under `~/.atomic/<project-key>/`. Workflow preferences resolve from the repository, realm, and profile levels into one block that the session-start hook injects into context. The `[steering] claude` key picks the shape of the steering files Claude reads in a repository or realm, and a Codex `PreToolUse` hook hands a session the wiki cards for the files an edit touches.
 
-This domain owns every value that persists between sessions and every path those values resolve to. The schema splits across `~/.atomic/config.toml` at user scope and `<repo>/<harness.dir>/atomic.toml` at repo scope. It also owns the repo-local directory layout (`atomic repo init`), the project-keyed state home outside the repo (`~/.atomic/<project-key>/`), the `atomic scratchpad` bundle lifecycle, the session-start hook, reminders, follow-up entries, versioned migrations, self-update state, and the cold-op briefs and document skeletons compiled into the binary.
-
+The name is narrower than the domain. `config` covers more packages than [`atomic/internal/config/`](../../atomic/internal/config): `workflow`, `hooks`, `followups`, `scratchpad`, `migrate`, `selfupdate`, `repoctx`, `where`, `repoinit`, and the embedded-text packages `coldprompt`, `doctemplate`, and `dockerinit`. Its verbs are `atomic config`, `workflow`, `where`, `hooks`, `followups`, `scratchpad`, `migrate`, `update`, `repo init`, `prompt`, `template`, and `docker init`.
 
 ## How it works
 
+### Before any verb runs
 
-The repo config's own path depends on the user config, because `harness.dir` names the directory it lives in, and each repo-config table is read by a different consumer.
+`main` in [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) runs the same steps on every invocation, so a stale layout or an update banner never depends on which verb the user typed:
 
-```mermaid
-flowchart TD
-    %% source: atomic/internal/config/harness.go, repo.go, scanignore.go
-    ENV["ATOMIC_HARNESS<br/>PI_CODING_AGENT<br/>CLAUDECODE"] --> HD
-    UC["~/.atomic/config.toml<br/>harness.dir"] --> HD["harnessDir()<br/>resolved once<br/>per process"]
-    HD --> RL[".scratchpad/, project/,<br/>.atomic-index/,<br/>worktrees/"]
-    HD --> RC["RepoConfigPath:<br/>&lt;repo&gt;/&lt;harness.dir&gt;/<br/>atomic.toml"]
-    RC --> SC["scope, [realm] repos<br/>→ repoctx, where, wiki"]
-    RC --> IG["[scan], [code] ignore<br/>→ signals, docs,<br/>code-intel"]
-    RC --> RT["[repl], [comments]<br/>→ repl, code comments"]
-    RC --> SV["[serve] schema<br/>→ atomic serve"]
-```
+1. `scanNoUpdateCheck` strips `--no-update-check` from any argv position.
+2. `--version` / `-v` prints and exits.
+3. `scanRepoOverride` reads the global `--repo` from raw argv, except for `atomic migrate`, whose own `--repo` is a target path (`repoFlagExempt`). Every leaf sets `DisableFlagParsing`, so this scan is the only reader of `--repo`.
+4. `config.MigrateUserState` moves a legacy `~/.claude/.atomic/` directory to `~/.atomic/` and leaves a compat symlink at the old path. A failure warns and the verb continues.
+5. `selfupdateFastPath` prints the update banner from `state.json` and may spawn the background check (see Self-update: background check below).
+6. Cobra executes. The root `PersistentPreRunE` calls `config.ValidateStateDirEnv`, which refuses an unusable `ATOMIC_STATE_DIR` before any verb resolves a path through it.
 
-### Config schema
+### Resolving the repository-state root
 
-`atomic config list` is the only resolved-value surface. There is no rendered config file; `config.toml` is the single source of truth.
-
-| Key | Scope | Type | Default | Controls |
-|-----|-------|------|---------|----------|
-| `output.signals.max_depth` | user | int | `3` | tree depth in `atomic signals scan` |
-| `update.run_doctor` | user | bool | `true` | run doctor after `atomic update` |
-| `update.check` | user | bool | `true` | the hourly detached background version lookup |
-| `update.stage` | user | bool | `true` | once-per-version background download + checksum |
-| `update.channel` | user | string | empty (resolves to `stable`) | release channel; see Release channels |
-| `harness.dir` | user | string | [`.claude`](../../.claude) | the repo-local state-directory name |
-| `repl.idle_timeout` | user, repo | duration | `1h` | idle window before a REPL session self-terminates |
-| `code.ignore` | repo | []string | none | glob patterns excluded from the code-intel index |
-| `comments.max_lines` | repo | int (pointer) | `2` | line-count threshold above which `atomic code comments` flags an added comment run as `Over` |
-| `output_style.seed` | user | bool | `true` | whether install/update/session-start seed `outputStyle: "Atomic"` into user-level `settings.json` |
-| `scope` | repo | `repo`\|`realm` | none | declares this directory's own identity |
-| `scan.ignore` | repo | []string | none | globs dropped from the wiki scan entirely; read through `ScanGlobs` |
-| `scan.generated` | repo | []string | none | globs kept in the scan tree but marked so the inferrer skips them for domain content |
-| `serve.schema` | repo | bool (pointer) | unset (auto-detect from the index) | forces `atomic serve`'s SQL schema view on or off |
-| `realm.repos` | repo | []string | none (walks the whole realm root) | paths and globs, relative to the realm root, that `atomic wiki scan`/`stale` walk for member repos; see [`docs/wiki/wiki.md`](wiki.md) |
-
-Machine-written tables, not user-settable via `atomic config set`: `[install]` (install manifest and migration version anchor), `[claude.agents.<name>]` (per-agent model + effort override), `[pi.agents.<name>]` (Pi coding-agent override), `[bus.remotes.<name>]` (`host`, `key`, optional `ca` for one bus gateway, written by `atomic bus remote`; see [`docs/wiki/bus.md`](bus.md)). `repl.idle_timeout` is the only key present at both scopes; repo wins over user, then a built-in `1h`.
-
-`ScanGlobs` ([`atomic/internal/config/scanignore.go`](../../atomic/internal/config/scanignore.go)) returns `[scan]` as a whole table whenever it declares either list, and reads the legacy repo-root `.signalsignore` (bare lines as `ignore`, `+`-prefixed lines as `generated`) only when it declares neither. A malformed repo config also falls through to the legacy file rather than stopping the scan.
-
-### State-directory layout
-
-```
-~/.atomic/
-├── config.toml            user config (only source of truth)
-├── state.json             machine-managed self-update state
-├── profile.md             user profile, @-ref'd from CLAUDE.md
-├── backups/<ts>/          pre-write backups from claude install/update
-├── pre-install/           write-once snapshot for claude uninstall
-├── proposed/CLAUDE.md     merge target when installed CLAUDE.md diverges
-└── <project-key>/         one entry per clone (main checkout root, flattened)
-    ├── reports/<branch>/      /session-report output
-    ├── reminders/             reminder files
-    └── archive/<slug>/<created>/  retired scratchpad bundles
-
-~/.cache/atomic/staged/    downloaded release archive awaiting swap
-
-<repo>/<harness.dir>/      default .claude
-├── atomic.toml            repo config
-├── .scratchpad/<slug>/    scratchpad bundle: meta.toml + purpose-seeded files
-├── project/followups/     entries + INDEX.md + CLOSED.md
-├── .atomic-index/         code-intel SQLite db
-└── worktrees/
-```
-
-Every path under `~/.atomic/` derives from `config.Dir(home)` in [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go), whose helpers take `home` from their caller, so a test passes a temp dir. Every repo-local path derives from `harnessDir()` in [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go). `harnessDir()` and `projectHome()` ([`atomic/internal/config/projectstate.go`](../../atomic/internal/config/projectstate.go), the home behind `ProjectStateDir`) call `os.UserHomeDir` themselves. Tests reach both through the `SetHarnessDirForTest` and `SetHomeDirForTest` seams, which skip the home lookup.
-
-### Resolving `harness.dir`
-
-`harnessDir()` is a `sync.Once` cache over a ladder, most specific first:
-
-```
-ATOMIC_HARNESS env  ->  PI_CODING_AGENT=="true"  ->  CLAUDECODE=="1"  ->  config harness.dir  ->  .claude
-(name, leading dot      (.pi)                        (.claude)
- tolerated; invalid
- falls through)
-```
-
-Rung 2 precedes rung 3 deliberately: a Pi agent launched inside Claude Code exposes both fingerprints.
-
-### Resolving the project-keyed state home
-
-`ProjectStateDir(repoRoot)` is `~/.atomic/<project-key>/`, shared by every worktree of the same clone. The key is the flattened, symlink-resolved absolute path of the clone's **main checkout root**, found with no git subprocess: `mainCheckoutRoot` walks upward from `repoRoot` and reads `.git` directly.
+Every rung is harness-neutral, so one repository resolves to the same state root under Claude Code, OMP, and Codex. An `ATOMIC_STATE_DIR` override wins, and a persisted per-clone selection outranks anything found on disk.
 
 ```mermaid
 flowchart TD
-    A["mainCheckoutRoot(repoRoot)"] --> B{".git at dir?"}
-    B -->|"directory"| C["dir is the main checkout"]
-    B -->|"file"| D["read gitdir: line,<br/>walk to enclosing .git,<br/>return its parent"]
-    B -->|"absent"| E{"parent == dir?"}
-    E -->|no, walk up| B
-    E -->|"yes, fs root reached"| F["return repoRoot unchanged"]
-    B -->|"file, gitdir unreadable"| F
-    C --> G["resolveSymlinks"]
-    D --> G
-    F --> G
-    G --> H["projectKey:<br/>flatten path,<br/>/ → -"]
+    %% source: atomic/internal/config/statelocation.go (resolveLadder, chooseCandidate)
+    E{"ATOMIC_STATE_DIR set?"} -->|yes| PE["process-env"]
+    E -->|no| R{"state-location.json<br/>for the project key?"}
+    R -->|yes| REC["selection-record"]
+    R -->|no| C{"chooseCandidate:<br/>populated roots?"}
+    C -->|"destination or<br/>exactly one other"| CAND["populated root answers"]
+    C -->|none| S{"state.dir set?"}
+    S -->|yes| CFG["config-default"]
+    S -->|no| DEF["builtin-default: .atomic"]
 ```
 
-Every branch resolves through `resolveSymlinks` before it becomes the key, because git itself writes an already-resolved absolute `gitdir:` target when creating a worktree. Leaving the main-checkout branch unresolved would make a main checkout and its own worktree disagree on the key whenever the clone sits under a symlinked ancestor (macOS `/tmp` and `/var` both are). `BranchFromHEAD(repoRoot)` reads `<gitdir>/HEAD` the same way, with no upward walk (a worktree's own `HEAD` can differ from the main checkout's), and trusts a SHA only when it matches `hexSHAPattern`; only a ref name goes through `refNamePattern`, via `validateRefName`, before it is trusted as a path segment.
+The leaf labels are the `StateSource` values a `StateLocation` carries. Details the diagram does not hold:
 
-`ReportsDir(repoRoot, branch)` prefers the project-keyed `reports/<branchSegment>/` and falls back to the pre-relocation `ScratchpadDir(repoRoot)/session-reports/<branchSegment>/` only when that legacy directory already holds a report and the new one does not, so a report written before the relocation stays readable until `atomic migrate` moves it. `RemindersDir(root)` (harness.go) is a pure delegate to `ProjectRemindersDir(root)`. The legacy union lives one layer up, in [`atomic/internal/reminder/reminder.go`](../../atomic/internal/reminder/reminder.go). `unionEntries` reads both the project-keyed directory and `config.RemindersDirLegacy`, adding any legacy entry whose id the project-keyed set lacks, so `atomic reminder list` and `show` still see a pre-migration reminder. `findWritableByID` restricts `set-due` and `rm` to the project-keyed directory alone: a legacy-only id is refused with a `run atomic migrate --repo` remedy rather than promoted on write.
+| Condition | Result |
+|-----------|--------|
+| A populated destination (the configured `state.dir`, else [`.atomic`](../../.atomic)) | Answers as `config-default` or `builtin-default`; every other populated root gets a one-time stderr warning naming it as leftover state |
+| No populated destination, one other populated candidate | Answers in place as `populated-candidate` |
+| Two or more populated non-destination candidates | `ErrAmbiguousStateRoot`, whose message points at `atomic state adopt --dir <path>` |
+| A record or override value | `resolveStateDirValue`: an absolute path is used as-is (the filesystem root refused); a relative value must pass `ValidateStateDirPath` and is joined onto the repository root |
+| A record with a newer `schema_version` or an empty `state_dir` | Error |
 
-### Scratchpad `new`
+A candidate is the configured `state.dir`, [`.atomic`](../../.atomic), or [`.claude`](../../.claude), holding at least one `stateSignatureEntries` entry: `atomic.toml`, `.atomic-index`, `.scratchpad`, `project`, or `rules/wiki`. `worktrees` is deliberately not a signature, because Claude keeps linked worktrees in [`.claude`](../../.claude).
 
-The `<scratchpad-root>/<slug>/meta.toml` bundle, plus purpose-seeded files, replaces the pre-relocation `<date>-<slug>` naming, so a task worked across several phases accumulates in a shared directory instead of a new directory per phase per date.
+`ResolveStateLocation` returns errors; `repositoryStateDir` caches the answer per repository root for the process lifetime and backs every repo-local path helper; those helpers have no error channel, so `stateRoot` calls `stateRefusalExit`, which prints and exits 1. `repoctx.ResolveFrom` checks `RepositoryStateDir` first, so a refusal normally stops a verb before any helper runs. `QuietStateDir` and `QuietStateRoots` resolve a visited directory without warning or caching; on a refusal `QuietStateRoots` returns every populated candidate instead of none, which is how scope-marker discovery still reads them.
 
-`scratchpad new` is additive: a second run under another purpose extends the existing bundle and seeds only what is missing, so it never overwrites a file an earlier phase wrote.
+The selection record is written by `PersistStateSelection` (temp file, fsync, rename, fsync of the parent) and removed by `WithdrawStateSelection` only while its bytes match what the caller recorded. `atomic state adopt` drives both. With no flag it calls `SelectStateCandidate` and persists the single populated candidate through `PersistStateSelection`; when more than one candidate is populated it fails with `more than one populated state root; re-run with --dir <path>`. `--dir` persists any value `resolveStateDirValue` accepts, `--clear` calls `WithdrawStateSelection`, and the two flags are mutually exclusive. `--dry-run` reports without writing, and `--json` prints the report as JSON.
+
+### Moving state out of [`.claude`](../../.claude)
+
+`MigrateRepositoryState` moves Atomic's entries out of a legacy [`.claude`](../../.claude) root into the resolved destination. It refuses rather than merge two populated roots.
 
 ```mermaid
 flowchart TD
-    %% source: atomic/internal/scratchpad/bundle.go, atomic/cmd/atomic/cmd_scratchpad.go
-    N["scratchpad new slug<br/>--purpose p"] --> L{"meta.toml<br/>exists?"}
-    L -->|no| CR["create Meta:<br/>Slug, Created,<br/>Status active"]
-    L -->|"yes"| EX["extend:<br/>load existing Meta"]
-    CR --> SEED
-    EX --> SEED["seed only missing<br/>files and dirs from<br/>the purpose matrix"]
-    SEED --> PL{"purpose == plan?"}
-    PL -->|yes| DOC["seed docs/design/slug.md<br/>and docs/spec/slug.md"]
-    PL -->|no| APP
-    DOC --> APP["append purpose to<br/>Meta.Purposes, Save"]
+    %% source: atomic/internal/config/repostate_migrate.go (MigrateRepositoryState)
+    D{"destination holds<br/>a state signature?"} -->|yes| L1{"legacy holds state?"}
+    L1 -->|yes| CF["ErrStateMigrationConflict"]
+    L1 -->|no| RI["removeLegacyIndex"]
+    D -->|no| L2{"legacy holds state?"}
+    L2 -->|no| N["nothing to move"]
+    L2 -->|yes| MV["gitIndex.move per entry,<br/>undo on any error"]
+    MV --> IG["AppendIgnoreRule<br/>when dest is in-repo"]
+    IG --> AF["removeLegacyIndex, then<br/>AfterRepoStateMigration"]
 ```
 
-The purpose matrix (`purposeFiles`/`purposeDirs` in [`atomic/internal/scratchpad/bundle.go`](../../atomic/internal/scratchpad/bundle.go)) seeds `BRIEF.md`, `STATE.md`, `FOLLOWUPS.md` for `plan`/`implement`/`fix`, adds `CONTEXT.md` for `diagnose`, and seeds `lenses/` + `findings/` directories (no files) for `review`.
+`migrationRoots` picks the destination from the selection record, then `state.dir`, then [`.atomic`](../../.atomic); it never reads `ATOMIC_STATE_DIR`. A repository root equal to the home directory is refused with `ErrHomeStateRoot` when its [`.claude`](../../.claude) holds state, because that [`.claude`](../../.claude) is Claude's own configuration. The moved entries are `migratedEntries`: `atomic.toml`, `workflow-preferences.md`, `project`, `rules/wiki`, and `.scratchpad`. Tracked files are renamed in the git index as well as on disk, and the report lists each staged rename. The legacy `.atomic-index` is never moved: `removeLegacyIndex` deletes it unless `IndexInUse` reports a live MCP daemon, and the code index rebuilds in the new root. When the destination is not `<repo>/.atomic`, `pendingMoves` also moves `.atomic/code.toml` and any `*.db`, `*.db-wal`, and `*.db-shm` files from [`.atomic`](../../.atomic) into it. `AfterRepoStateMigration` re-projects wiki cards after the move, except when the destination's `atomic.toml` declares `scope = "realm"`. The report also names hand-wired references to the old paths in [`CLAUDE.md`](../../CLAUDE.md), `CLAUDE.local.md`, `AGENTS.md`, `.claude/settings*.json`, `.claude/hooks/`, and [`.githooks/`](../../.githooks).
 
-### Scratchpad `archive`
+`atomic state migrate` runs it directly; `atomic repo init` and `atomic update` run it through `migrateStateIfPending`, which runs only when `RepoStateMigrationPending` reports legacy state and an empty destination.
 
-`scratchpad archive` validates the bundle's own `created` date before using it as a path segment, and takes the next free suffix on a same-day collision, so an archive never lands outside the archive root and never overwrites an earlier one.
+### The project-keyed home
+
+`ProjectStateDir(repoRoot)` is `~/.atomic/<project-key>/`, shared by every worktree of one clone. It holds the selection record, `reports/<branch>/`, and `archive/`. The key comes from the clone's main checkout, found without a git subprocess, so a worktree and its main checkout always agree.
 
 ```mermaid
 flowchart TD
-    %% source: atomic/internal/scratchpad/archive.go
-    AR["Archive(root, slug):<br/>Load meta.toml"] --> VD{"ValidateDateSegment<br/>(Meta.Created) ok?"}
-    VD -->|no| ER["error, bundle<br/>left in place"]
-    VD -->|yes| ST["Status: archived,<br/>Save"]
-    ST --> MV{"archive/slug/created<br/>already taken?"}
-    MV -->|no| MOVE["rename bundle to<br/>archive/slug/created"]
-    MV -->|yes| SUF["rename to<br/>archive/slug/created-2,<br/>-3, ..."]
+    %% source: atomic/internal/config/projectstate.go (mainCheckoutRoot, projectKey)
+    A["mainCheckoutRoot"] --> B{".git at this dir?"}
+    B -->|directory| C["this dir is the<br/>main checkout"]
+    B -->|file| W{"resolveWorktreeGitFile<br/>succeeds?"}
+    W -->|"yes: follow gitdir:<br/>to enclosing .git"| K
+    W -->|no, walk stops| F
+    B -->|absent| U{"filesystem root?"}
+    U -->|no, walk up| B
+    U -->|yes| F["repoRoot unchanged"]
+    C --> K["resolveSymlinks, then<br/>flatten: / becomes -"]
+    F --> K
 ```
 
-`scratchpad.List` applies a recursive rule to both the live scratchpad root (`<slug>/meta.toml`) and the archive root (`<slug>/<created>/meta.toml`): it descends into a directory with no `meta.toml` of its own, and stops and emits at the first directory that does, so a pre-migration `reminders/` or `session-reports/` directory is skipped by the same content-based check rather than a name list. A corrupt `meta.toml` costs only its own entry, reported through a returned warning rather than the stdlib logger.
+Every branch passes through `resolveSymlinks` because git writes an already-resolved `gitdir:` target when it creates a worktree; an unresolved main-checkout path under a symlinked ancestor (macOS `/tmp`, `/var`) would key differently from its own worktree. `BranchFromHEAD` reads `<gitdir>/HEAD` for the checkout itself, with no upward walk, and validates the ref against `refNamePattern` before it becomes a path segment. `ReportsDir` prefers `reports/<branch>/` and falls back to the legacy `<state-root>/.scratchpad/session-reports/<branch>/` only when the legacy directory already holds a report and the new one does not.
 
-### Migration routing and the queryable log
+### Workflow preferences
 
-`--show-log` short-circuits before any step runs (and exits 2 when combined with `--repo` or `--realm`), and `--repo` wins over `--realm`:
+The keys `source-control`, `source-control-host`, `issue-tracker`, `issue-tracker-project`, and `worktrees` tell a session how the user works. Each level stores them in one `<workflow-preferences level='...'>` block, and `workflow.Resolve` merges the levels with the git origin into a single `level='resolved'` block.
 
 ```mermaid
 flowchart TD
-    M["atomic migrate [flags]"] --> Q{"--show-log?"}
-    Q -->|yes| SL["FormatLog(Registry, since)<br/>newest-first, TargetVersion or Date filter"]
-    Q -->|no| R{"--repo &lt;path&gt;?"}
-    R -->|yes| RM["repo-scope steps,<br/>version anchor: docs/wiki/index.md<br/>wiki-schema block"]
-    R -->|no| RE{"--realm &lt;path&gt;?"}
-    RE -->|yes| REA["install-scope steps,<br/>then per-member confirm + repo-scope"]
-    RE -->|no| IN["install-scope steps,<br/>version anchor: config.toml [install].version"]
+    %% source: docs/design/workflow-preferences.md; atomic/internal/workflow/resolve.go, origin.go, render.go; atomic/internal/hooks/hooks.go; atomic/cmd/atomic/cmd_workflow.go, cmd_where.go
+    REPO["repo: state root<br/>workflow-preferences.md"] --> RES["workflow.Resolve"]
+    REALM["realm: realm state root<br/>workflow-preferences.md"] --> RES
+    PROF["profile:<br/>~/.atomic/profile.md"] --> RES
+    ORIG["ProviderForOrigin<br/>(git remote origin)"] --> RES
+    RES --> WR["atomic workflow resolve"]
+    RES --> HK["hooks.buildBody<br/>(session-start)"]
+    RES --> WH["atomic where --json<br/>(worktrees field)"]
 ```
 
-`migrate.Run` sorts the registry ascending by semver and applies every step whose `TargetVersion` exceeds the recorded version, stopping at the first error. The registered `repo`-scope step, `scratchpadRelocate`, unconditionally runs `relocateReportsAndReminders`, which moves the legacy `session-reports/` and `reminders/` trees file-by-file to the project-keyed home (a same-relative-path collision is left in place under the legacy tree and reported, never overwritten), then `redateScratchpadBundles`, which renames a `<YYYY-MM-DD>-<slug>` directory to `<slug>` only when both `docs/design/<slug>.md` and `docs/spec/<slug>.md` confirm the stripped name as a real slug. A name those two docs do not both confirm, or that a colliding dated directory also strips to, is reported and left untouched. `FormatLog` walks `migrate.Registry` directly and renders only the entries carrying a non-empty `Summary`, so the same list serves both step execution and `--show-log`; there is no parallel log registry.
+Levels are read in the order repo, realm, profile, and the first level holding a key wins. An explicit line beats a `# detected` (soft) line at any level. Per key:
 
-### Release channels
+| Key | Precedence | Fallback |
+|-----|-----------|----------|
+| `source-control` | explicit, then origin provider, then soft | `github` |
+| `source-control-host` | explicit, then the origin host when its provider matches the resolved `source-control`, then soft | the provider's default host (`github.com`, `gitlab.com`, `bitbucket.org`, `codeberg.org`) |
+| `issue-tracker` | explicit, then soft | `derived`: the source-control value for `github`, `gitlab`, or `codeberg`, else `filesystem` |
+| `issue-tracker-project` | explicit, then soft | none |
+| `worktrees` | explicit, then soft | `auto`, rendered as a path through `config.WorktreeDir` |
 
-`atomic update` moves along `ChannelStable` or `ChannelPrerelease`, both in [`atomic/internal/selfupdate/selfupdate.go`](../../atomic/internal/selfupdate/selfupdate.go). Every update path reads the same channel: the background check, the banner, `atomic update` itself, and doctor's binary check (see Coupling).
+`config.WorktreeDir` returns `off` verbatim, uses an absolute preference as-is, joins a relative one onto the repository root, and otherwise picks `.claude/worktrees` under Claude and `<state-root>/worktrees` elsewhere. The resolved block ends with a `Read:` line naming the `atomic-git-discipline` references for the resolved source control and issue tracker plus `references/worktrees.md`.
 
-`resolveUpdateChannel` (`cmd_update.go`) resolves the channel by precedence, `--pre` first, and `runUpdate` exits 2 on either flag error:
+`Resolve` fails only when its directory is unreadable. A malformed block, a level attribute naming the wrong level, an origin host that maps to no provider, or an explicit provider that disagrees with the origin each becomes a `warning:` line. When the repo and realm resolve to the same file, one block serves both and its `level` attribute decides which it is.
+
+`atomic workflow set <key> <value> [--level profile|realm|repo]` writes one explicit line with `workflow.SetValue`, defaulting to the profile level. The profile write holds `profile.LockProfile` and ensures the `## Workflow preferences` section exists first.
+
+### Session-start hook
+
+The hook is how resolved preferences and orientation reach a session without the model running a command. A failing section is dropped rather than blocking the session.
+
+The command resolves the session root before the hooks package runs, and the workflow block is resolved inside the payload build, so one harness call returns everything the session needs. With `--format text` the command calls `SessionStartText` instead of `SessionStart`.
+
+```mermaid
+sequenceDiagram
+    %% source: atomic/cmd/atomic/cmd_hooks.go; atomic/internal/hooks/hooks.go
+    participant H as Harness
+    participant C as cmd_hooks
+    participant K as hooks
+    participant W as workflow
+    H->>C: atomic hooks session-start --harness kind, payload on stdin
+    C->>C: --cwd, else stdin cwd (1s wait)
+    C->>C: repoctx.ResolveFrom
+    C->>K: SessionStart(root, kind)
+    K->>K: profile.RefreshIfStale, SeedOutputStyleInDir when kind is claude
+    K->>K: where.Resolve for the Orientation nudge
+    K->>W: Resolve(root, kind)
+    W-->>K: resolved block
+    K-->>H: additionalContext JSON, or text with --format text
+```
+
+`hooks.Install` registers the inline command `atomic hooks session-start --harness claude` as a `SessionStart` member of the scope's `.claude/settings.json` (`--scope user|project`), and `InstallInDir` targets a `CLAUDE_CONFIG_DIR` root. Codex gets owned `SessionStart` and `PreToolUse` members in `$CODEX_HOME/hooks.json` (`codexMembers`): `atomic hooks session-start --harness codex` under `SessionStart` with matcher `startup|resume`, and `atomic hooks pre-tool-use` under `PreToolUse` with matcher `apply_patch` (see the next section). `InstallCodex` adds whichever member the file lacks; `ReplaceCodex` strips each member's handlers and re-registers it in one canonical group, keeping user handlers beside it. Settings are edited on the parsed JWCC AST, so comments and formatting survive. Uninstall removes only Atomic's handlers and any legacy `session-start-reminders.sh` wrapper; the unflagged `atomic hooks session-start` command still counts as Atomic's. `ObserveSettingsOwnedInDir` and `ObserveCodexHooksOwned` digest only the owned members, which is what the install ledger records. `CodexCanonicalDigest` covers both Codex members; `CodexLegacyDigest` covers the `SessionStart` member alone, the form a file written before the `PreToolUse` member carries. For a Codex `hooks.json`, `shapeError` requires `SessionStart` and `PreToolUse` to be arrays when present.
+
+`SeedOutputStyleInDir` writes `"outputStyle": "Atomic"` only when `output-styles/atomic.md` exists in the target and `output_style.seed` is true, and never overwrites a present `outputStyle`. It has no seeded-once marker, so a deleted key returns the next session.
+
+### Codex PreToolUse: wiki cards on edit
+
+Codex has no path-scoped rule loading, so the `PreToolUse` hook delivers the wiki pointer cards whose scope covers the files an `apply_patch` call is about to write. Each card reaches a session once, and every failure prints nothing, so a card never blocks the edit it precedes.
 
 ```mermaid
 flowchart TD
-    %% source: atomic/cmd/atomic/cmd_update.go (resolveUpdateChannel, runUpdate)
-    P{"resolveUpdateChannel:<br/>--pre set?"} -->|"yes, --channel names<br/>a different channel"| X["stderr error,<br/>exit 2"]
-    P -->|"yes"| PRE["prerelease"]
-    P -->|no| C{"--channel explicit?"}
-    C -->|yes| CV{"ValidChannel?"}
-    CV -->|no| X
-    CV -->|yes| CVV["--channel value"]
-    C -->|no| CFG{"config.toml<br/>update.channel valid?"}
-    CFG -->|yes| CFGV["config value"]
-    CFG -->|"no / unreadable"| ST["stable"]
+    %% source: atomic/internal/hooks/pretooluse.go (PreToolUse, patchPaths, matchingCards); atomic/cmd/atomic/cmd_hooks.go (runPreToolUse)
+    IN["stdin payload:<br/>session_id, cwd,<br/>tool_input.command"] --> PP["patchPaths"]
+    PP --> RC["repoctx.ResolveFrom(cwd)"]
+    RC --> MC["matchingCards:<br/>rules.LoadWiki, BindAll,<br/>NewMatcher.Match"]
+    MC --> SENT{"card ID already in<br/>session sent list?"}
+    SENT -->|all sent| NONE["print nothing"]
+    SENT -->|some fresh| WR["writeCardsSent:<br/>codex-cards-sent.json"]
+    WR --> OUT["hookSpecificOutput:<br/>additionalContext"]
 ```
 
-`--pre` never writes `config.toml`; it overrides the persisted channel for one invocation.
+| Step | Detail |
+|------|--------|
+| Payload | Decoded from at most 1 MiB of stdin. An empty `session_id` or `cwd` returns nothing. |
+| `patchPaths` | Reads the patch text for `*** Add File: `, `*** Update File: `, and `*** Move to: ` lines. |
+| `matchingCards` | Loads cards from `<state-root>/rules/wiki` for the project key, resolves a relative path against `cwd` and an absolute one through `realPath`, and skips paths outside the repository root. `cwd` and the root both pass through `filepath.EvalSymlinks` because Codex may hand over a symlinked `cwd` while Git reports the real path. Matches are deduplicated and sorted by card ID. |
+| Sent state | `config.CodexCardsSentPath` is `~/.atomic/codex-cards-sent.json`, keyed by session with `last_seen` and `cards`. Sessions unseen for more than `sentRetention` (7 days) are pruned on write. A missing or corrupt file reads as empty, so the worst case is a card sent twice. The write is a temp file and rename; a failed write returns nothing. |
+| Output | One JSON object, `hookEventName: "PreToolUse"`, with the fresh card bodies joined by blank lines as `additionalContext`. |
 
-`Lookup` reads up to `lookupMaxPages` (5) pages of `lookupPerPage` (100) releases, one `fetchReleasePage` call per page. It stops when a page returns fewer than `lookupPerPage` releases or an eligible release is found, and keeps paging past a page with no eligible entry, so a run of prereleases cannot push the newest stable release out of reach. No eligible release errors; the message names the unparseable-tag skips when there are any.
+`runPreToolUse` in [`atomic/cmd/atomic/cmd_hooks.go`](../../atomic/cmd/atomic/cmd_hooks.go) recovers any panic and always exits 0. The `pre-tool-use` subcommand replaces the root's state-dir `PersistentPreRunE` preflight with a no-op, since a preflight refusal would fail the edit.
 
-| Channel | Eligible releases | Selection across pages | Why |
-|---------|-------------------|-------------------------|-----|
-| `stable` | non-draft, non-prerelease | highest semver (`compare`) | forward-only ladder; the list endpoint orders by commit date, not version, so an interleaved hotfix published after a higher release would otherwise win |
-| `prerelease` | non-draft, prerelease or full release | most recent `PublishedAt` (falls back to list order when unset or tied) | tracks the tip of the pre-release branch; a full stable release outranks every prerelease of its own core, so selecting by version would strand a prerelease user behind it |
+### Claude steering mode
 
-`ShouldInstall(channel, current, latest)` carries the same split into the install decision: stable is forward-only (`IsNewer`), prerelease installs any tag whose `DisplayVersion` differs from what is running, even a semver-lower one, since a `-next.N` cut after a stable release of the same core is code-newer but semver-lower.
-
-### Process startup before Cobra dispatch
-
-`main` rewrites argv and runs the best-effort state steps before Cobra sees anything. Cobra never parses a global flag; Argument parsing below explains why.
+`[steering] claude` sets the shape of the repository and realm steering files Claude reads. The values are `bundlespec.SteeringModes`: `loader` (`AGENTS.md` plus a thin [`CLAUDE.md`](../../CLAUDE.md) importing it), `agents-md` (`AGENTS.md` alone), and `claude-md` ([`CLAUDE.md`](../../CLAUDE.md) alone, guidance inline). A repository overrides the user default, and the first config holding a value wins. `agents-md` relies on Claude Code 2.1.277 or later reading `AGENTS.md` when no [`CLAUDE.md`](../../CLAUDE.md) sits beside it.
 
 ```mermaid
 flowchart TD
-    %% source: atomic/cmd/atomic/main.go, rootflags.go
-    A["scanNoUpdateCheck(os.Args)"] --> V{"--version or -v?"}
-    V -->|yes| X["print version, exit 0"]
-    V -->|no| E{"repoFlagExempt?<br/>migrate, config resolve"}
-    E -->|no| R["scanRepoOverride:<br/>strip --repo,<br/>exit 2 on error"]
-    E -->|yes| B
-    R --> B["buildRootCmd,<br/>cliusage.SetRoot"]
-    B --> M["config.MigrateUserState<br/>(warns, never blocks)"]
-    M --> F["selfupdateFastPath"]
-    F --> C["rootCmd.Execute()"]
+    %% source: atomic/internal/config/repo.go (ResolveSteeringMode, ValidateSteeringMode); atomic/internal/bundlespec/bundlespec.go
+    R{"state-root atomic.toml<br/>sets steering.claude?"} -->|yes| V["ValidateSteeringMode"]
+    R -->|no| U{"~/.atomic/config.toml<br/>sets steering.claude?"}
+    U -->|yes| V
+    U -->|no| L["SteeringLoader"]
+    V -->|valid| M["that mode"]
+    V -->|unknown| ERR["error naming<br/>the config path"]
 ```
 
-`--no-update-check` is stripped from any argv position, so a trailing one still takes effect. `migrate --repo <path>` and `config resolve --repo <root>` keep their own `--repo`, because there it names a target path rather than the global context override. `MigrateUserState` and `selfupdateFastPath` both run only when `os.UserHomeDir` succeeds.
+`ResolveSteeringMode(home, root)` also errors when either config cannot be read; an empty `home` skips the user rung. `atomic config set steering.claude ""` is refused in favor of `unset`, and `Resolved` shows `loader` when the key is unset. Callers include doctor, the wiki and realm code-index writers, the Claude migration, and `convergeSteeringMode` in [`atomic/cmd/atomic/cmd_steering.go`](../../atomic/cmd/atomic/cmd_steering.go), which `atomic repo init` runs on its root (an error fails the verb) and `atomic update` runs after a swap. Converting the files on disk from one mode to another belongs to the harness domain; see [`docs/wiki/harness.md`](harness.md).
 
-### The self-update fast path
+### Scratchpad bundles
 
-The fast path performs no network I/O. `selfupdateFastPath` loads `config.toml` for `update.channel` before computing the banner decision, because `ShouldNotify` is channel-aware; an unreadable config still banners, on stable. `last_check` is stamped before the child spawns, so a crash between the stamp and the spawn skips a check rather than spawning on every later invocation.
+One bundle per slug carries a task's state across commands. `scratchpad new` is additive, so a later phase extends the bundle instead of creating a dated sibling.
+
+```mermaid
+stateDiagram-v2
+    %% source: atomic/internal/scratchpad/bundle.go, archive.go
+    [*] --> active: scratchpad new slug --purpose p
+    active --> active: new with another purpose seeds only missing files
+    active --> archived: scratchpad archive slug
+    archived --> [*]
+```
+
+A bundle is `<state-root>/.scratchpad/<slug>/` with a `meta.toml` (`slug`, `purposes`, `created`, `updated`, `status`, `description`). Unknown `meta.toml` keys survive a rewrite. Purposes seed files from `doctemplate`:
+
+| Purpose | Seeds |
+|---------|-------|
+| `plan` | `BRIEF.md`, `STATE.md`, `FOLLOWUPS.md`, plus `docs/design/<slug>.md` and `docs/spec/<slug>.md` in the repository |
+| `implement`, `fix` | `BRIEF.md`, `STATE.md`, `FOLLOWUPS.md` |
+| `diagnose` | the above plus `CONTEXT.md` |
+| `review` | `lenses/` and `findings/` directories |
+
+`Archive` sets `status = "archived"` and renames the bundle to `~/.atomic/<project-key>/archive/<slug>/<created-date>/`, taking a `-2`, `-3` suffix on a same-day collision. `List` walks to the first directory holding `meta.toml`, so the live root and the two-level archive share one walker, and a corrupt `meta.toml` costs only its own entry.
+
+### Follow-up entries
+
+The follow-ups ledger is the `filesystem` issue tracker: one markdown file per entry under `<state-root>/project/followups/`, with `INDEX.md` and `CLOSED.md` beside them. The binary knows nothing about trackers. The `atomic-git-discipline` skill reads the resolved `issue-tracker` and, for `filesystem`, maps its operations onto `atomic followups` verbs in [`context/skills/atomic-git-discipline/references/issue-tracking/filesystem.md`](../../context/skills/atomic-git-discipline/references/issue-tracking/filesystem.md).
+
+An entry is open until closed; stale is computed at render time, never stored, and a `plan` is never stale.
+
+```mermaid
+stateDiagram-v2
+    %% source: atomic/internal/followups/add.go, render.go, close_entry.go
+    [*] --> open: followups add
+    open --> stale: today passes review_by
+    open --> closed: followups close
+    stale --> closed: followups close
+    closed --> [*]
+```
+
+`Add` requires a kebab-case id, a title, an origin, and a severity (`risk`, `nit`, `question`) unless `--kind plan`. It sets `review_by` to the creation date plus 60 days and regenerates `INDEX.md`. `CloseEntry` appends a line to `CLOSED.md`, deletes the entry file, and regenerates `INDEX.md`.
+
+### Self-update: background check
+
+No invocation does network I/O in-line. The parent process reads `state.json`, and a detached child does the GitHub lookup and staging.
 
 ```mermaid
 flowchart TD
-    A["any atomic invocation"] -->|"load config for<br/>update.channel first"| B{"ShouldNotify(channel),<br/>from state.json?"}
-    B -->|yes| BN["print banner,<br/>stamp last_notified"]
-    B -->|no| G1
-    BN --> G1{"verb is update,<br/>or --no-update-check?"}
-    G1 -->|yes| R["return: no network,<br/>no child"]
-    G1 -->|no| G2{"config loaded and<br/>update.check?"}
-    G2 -->|no| R
-    G2 -->|yes| G3{"last_check within<br/>the hour?"}
-    G3 -->|yes| R
-    G3 -->|no| ST["stamp last_check,<br/>WriteState"]
-    ST -->|"WriteState fails"| R
-    ST --> SP["spawn detached<br/>atomic update --check"]
+    %% source: docs/design/selfupdate-state.md; atomic/cmd/atomic/cmd_update.go (selfupdateFastPath, runUpdateCheck); atomic/internal/selfupdate/state.go
+    A["selfupdateFastPath"] --> N{"ShouldNotify?"}
+    N -->|yes| BAN["print banner,<br/>stamp last_notified"]
+    N -->|no| G1{"update.check on and<br/>last_check over 1h?"}
+    BAN --> G1
+    G1 -->|yes| SP["stamp last_check,<br/>spawn update --check"]
+    SP -.-> CH["runUpdateCheck:<br/>write latest_version"]
+    CH --> G2{"newer, update.stage,<br/>not attempted for tag?"}
+    G2 -->|yes| ST["AcquireLock, then<br/>Stage to staged dir"]
+    ST --> S[("state.json staged")]
 ```
 
-Gate 1 is what stops the child re-spawning a grandchild: the child's own invocation carries the `update` verb, so it returns before reaching the spawn.
+The spawn is skipped for the `update` verb itself and under `--no-update-check`. `last_check` is stamped before the spawn, so a crash or a racing invocation cannot spend the hourly budget twice. `stage_attempted_for` is stamped only on a real download attempt, never on lock contention. The banner repeats at most once per `BannerWindow` (24h).
 
-### Background staging in the detached child
+### Self-update: foreground swap
 
-The spawned child spends its once-per-version staging budget on a real download attempt only, never on a manual `--check` or on lock contention.
+`atomic update` swaps the binary, then hands every post-swap step to the new binary, because the old process still embeds the old corpus.
 
 ```mermaid
 flowchart TD
-    %% source: atomic/cmd/atomic/cmd_update.go (runUpdateCheck), docs/design/selfupdate-state.md
-    K["runUpdateCheck:<br/>Client.Check(channel)"] --> W["write latest_version<br/>or last_result"]
-    W --> G{"background, newer,<br/>config loaded and<br/>update.stage?"}
-    G -->|no| Z["return"]
-    G -->|yes| A{"stage_attempted_for<br/>== tag?"}
-    A -->|yes| Z
-    A -->|no| L{"AcquireLock?"}
-    L -->|no| Z
-    L -->|yes| S["stamp<br/>stage_attempted_for,<br/>Lookup, Client.Stage"]
-    S --> F["write staged<br/>or last_result,<br/>ReleaseLock(lockedAt)"]
+    %% source: docs/design/selfupdate-state.md; atomic/cmd/atomic/cmd_update.go (runUpdateApplyOutcome, runUpdateWith)
+    LK["AcquireOrTakeoverLock"] --> LU["Lookup(channel)"]
+    LU --> SI{"ShouldInstall?"}
+    SI -->|no| UTD["up to date: post-swap<br/>steps in-process"]
+    SI -->|yes| SM{"Staged.Version<br/>equals tag?"}
+    SM -->|yes| AS["ApplyStaged"]
+    SM -->|no| AP["Apply: download,<br/>verify SHA256, swap"]
+    AS -->|"checksum fails:<br/>clear Staged"| AP
+    AS --> RX["release lock,<br/>clear Staged, re-exec<br/>with converge marker"]
+    AP --> RX
 ```
 
-`runUpdateCheck` re-reads `state.json` before the attempted-for gate, because a concurrent writer may already have superseded its first write. `Client.Check` returns no assets, so the staging branch pays for a second `Lookup` to get the full release.
+`runUpdatePostSwap` then runs, in order:
 
-### Foreground `atomic update` apply
+1. `convergeEnrolledTargets` over every enrolled harness target (skipped by `--skip-claude-update`).
+2. `migrateStateIfPending` for the repository holding the working directory.
+3. Unless `--skip-claude-update`, `convergeSteeringMode` on `cwdSteeringRoot` (that repository, else the realm root above the working directory, which need not be a Git repository), then `convergeCwdRepoCards`. A steering failure prints `atomic update: skipped steering conversion: ...` and the steps continue.
+4. `runMigrateInstall` (install-scope migrations).
+5. Doctor, unless `--no-doctor` or `update.run_doctor = false`.
 
-`runUpdateApply` prefers the staged archive but trusts it only after a fresh lookup re-verifies it, and falls back to a full download on any staged failure.
+`runUpdatePostSwap` returns 1 when the steering conversion failed, after doctor has run.
+
+The channel resolves from `--pre` or `--channel`, then `update.channel`, then `stable`. `stable` takes the highest version and only moves forward. `prerelease` takes the most recently published release and accepts a semver-lower tag, because a prerelease cut after a stable release of the same core carries newer code with a lower version. `atomic update --check` exits 1 when an update is available and 2 on a lookup error. A lock older than `StaleLockAfter` (10 minutes) can be taken over, and `--force` bypasses the lock without weakening checksum verification.
+
+### Versioned migrations
+
+`atomic migrate` applies registered steps above a recorded version, in ascending semver order, stopping at the first error.
+
+The flags route to a scope: `--realm` runs the install scope, then each confirmed member's repo scope.
 
 ```mermaid
 flowchart TD
-    %% source: atomic/cmd/atomic/cmd_update.go (runUpdateApply), docs/design/selfupdate-state.md
-    A["AcquireOrTakeoverLock<br/>(state, now, force)"] -->|refused| ERR["error naming lock age"]
-    A --> L["Lookup(channel)"]
-    L --> I{"ShouldInstall?"}
-    I -->|no| UP["release lock,<br/>'atomic is up to date'"]
-    I -->|yes| S{"Staged.Version == tag<br/>and Staged.Path<br/>!= #quot;#quot;?"}
-    S -->|yes| AS["ApplyStaged"]
-    AS -->|"verify fails:<br/>clear Staged"| AP["Client.Apply:<br/>download + swap"]
-    S -->|no| AP
-    AS -->|ok| DONE["remove staged file,<br/>stamp updated_at,<br/>ReleaseLock(acquiredAt)"]
-    AP --> DONE
+    %% source: atomic/cmd/atomic/cmd_migrate.go; atomic/internal/migrate/migrate.go, schema.go
+    M{"atomic migrate flags"} -->|"--show-log"| LOG["FormatLog,<br/>newest first"]
+    M -->|"--repo path"| RP["migrateRepoAction:<br/>wiki-schema N as N.0.0"]
+    M -->|"--realm path"| RL["runMigrateInstall, then<br/>runMigrateRealm"]
+    M -->|none| IN["runMigrateInstall:<br/>install.version"]
+    RL --> RP
 ```
 
-A failed `Lookup` or `Apply` releases the lock and returns the error. The staged file's removal is best-effort; `state.json` stays the only authority on what is staged.
+| Target | Scope | Step |
+|--------|-------|------|
+| `1.0.0` | repo | `relocateSignalsToWiki`: `.claude/project/` signals to [`docs/wiki/`](.), rewiring the `@`-ref |
+| `1.1.0` | repo | `scanIgnoreToRepoConfig`: `.signalsignore` folded into `[scan]` of the repo config, then deleted |
+| `1.2.0` | repo | `scratchpadRelocate`: `session-reports/` to `~/.atomic/<project-key>/reports/`, and dated `<YYYY-MM-DD>-<slug>` bundles renamed to `<slug>` |
 
-### Download progress and stall abort
+Repo scope records progress as the `<wiki-schema>` major in [`docs/wiki/index.md`](index.md). Install scope records `[install].version` in `config.toml` and runs only when a legacy Claude install record is present, with `Context.Root` set to `~/.claude`. `--realm` fans out over immediate subdirectories that hold [`docs/wiki/index.md`](index.md) or `.claude/project/signals.md`, asks one `prompt.Confirm` per member, and skips members already at schema 1 or higher.
 
-A download aborts only on sustained silence, never on total elapsed time, and the emitted progress reaches nothing unless a caller wires an observer.
+### User config keys
 
-```mermaid
-flowchart TD
-    %% source: atomic/internal/selfupdate/selfupdate.go (download)
-    D["Client.download:<br/>64KiB Read loop"] -->|"n>0"| RST["watchdog.Reset<br/>(StallTimeout, 30s)"]
-    RST --> ACC{"since last emit >=<br/>ProgressInterval<br/>(100ms)?"}
-    ACC -->|yes| EM["onProgress<br/>(received, total)"]
-    ACC -->|no| D
-    EM --> D
-    D -->|"AfterFunc fires,<br/>StallTimeout idle"| ST["stalled.Store(true),<br/>cancel(ctx)"]
-    ST --> ERR["download stalled:<br/>no data for Ns"]
-    D -->|"io.EOF"| FIN["final onProgress,<br/>total = received<br/>when unset"]
-```
+`atomic config set` accepts only these keys; machine-written tables are edited by their own verbs.
 
-`downloadClient()` carries no `http.Client.Timeout` because the watchdog replaces it. The shared `httpClient()` keeps the 10s `lookupTimeout` for `Lookup`. Only the archive fetch inside `Client.Apply` and `Client.Stage` forwards `c.OnProgress`; every checksum-file `download` call passes `nil`.
+| Key | Default | Controls |
+|-----|---------|----------|
+| `output.signals.max_depth` | `3` | tree depth in `atomic signals scan` |
+| `update.run_doctor` | `true` | doctor after `atomic update` |
+| `update.check` | `true` | hourly background version lookup |
+| `update.stage` | `true` | once-per-version background download |
+| `update.channel` | unset, resolves to `stable` | `stable` or `prerelease` for every update path |
+| `state.dir` | unset, displays [`.atomic`](../../.atomic) | the configured rung of the state-root ladder |
+| `repl.idle_timeout` | `1h` | REPL idle window; a repo-config value wins |
+| `output_style.seed` | `true` | `outputStyle` seeding into Claude `settings.json` |
+| `steering.claude` | unset, resolves to `loader` | user default for the Claude steering mode; a repo-config value wins |
 
-`runUpdate` is the only caller that wires a progress observer: `c.OnProgress = downloadProgressRenderer(os.Stdout, charmterm.IsTerminal(os.Stdout.Fd()))`, evaluated after the `--check` branch has already returned, so the foreground apply path gets a renderer and the `--check`-only path does not. `downloadProgressRenderer` itself returns `nil` off a TTY, since its `\r`-rewritten status line would otherwise print a new line on every tick into redirected output; on a TTY it rewrites one line in place, prints a trailing `\n` on the 100% tick, and goes quiet after. `runUpdateCheck`'s background staging call to `c.Stage` never assigns `OnProgress`, so an auto-spawned `atomic update --check` that also stages a release prints nothing regardless of TTY.
-
-### Scope discovery
-
-`FindScopeRoot` walks past `.git` boundaries, because a realm root sits above its member repos, so the walk runs to the filesystem root. It takes the first marker of the *requested* kind and continues past a missing file, a parse error, an invalid value, or a marker naming the other kind. Discovery degrades; it never fails, which is why it returns no error.
-
-`atomic where` reports independent axes: repo root and realm scope carry a `config.ScopeSource` provenance token (`none`, `marker`, `git`, `registry`, or `cwd`); repo-scope wiki presence and code-index scope report their own shape instead (`RepoScopeReport` has no `Source` field, and the code-index axis reuses `codeintel/realm`'s own scope enum). `atomic where --json` additionally reports the project-keyed state paths (`reports_root`, `reminders`, `archive`, unconditional) and, only when `report.RepoRoot.Path` itself holds a `.git` entry, `branch` and `reports` (a scope-marker root with no `.git` of its own omits both rather than guessing). `--repo <path>` relocates the whole report, branch and state paths included, to that path.
-
-### Realm position in `atomic where`
-
-The realm axis prefers a `scope = "realm"` marker over the `<wikis>` registry, and both sources classify through the same function, so they cannot disagree about one directory.
-
-```mermaid
-flowchart TD
-    %% source: atomic/internal/where/where.go, docs/design/atomic-where.md
-    A["resolveRealmScope(cwd)"] --> M{"FindScopeRoot<br/>(cwd, realm)?"}
-    M -->|"found: source marker"| C["classifyRealmPosition"]
-    M -->|none| R{"cwd under a<br/>&lt;wikis&gt; realm root?"}
-    R -->|"yes: source registry"| C
-    R -->|no| N["RealmNone"]
-    C --> P{"cwd == realm root?<br/>under a scan member?"}
-    P -->|root| RR["RealmRoot"]
-    P -->|member| RM["RealmMember"]
-    P -->|neither| RO["RealmOrphaned"]
-```
-
-The registry path takes the realm root as the grandparent of each `<wikis>` `wiki/index.md`. A marked realm with no scan yet reads no members from `wiki.ReadScanMembers`, so a subdirectory classifies as orphaned rather than erroring. The repo-scope wiki axis is separate: `resolveRepoScope` walks up for [`docs/wiki/index.md`](index.md) and stops at the first `.git` boundary.
-
-### The session-start hook payload
-
-`atomic hooks session-start` prints nothing unless there is an orientation nudge or a past-due reminder, so a session in a plain repo with no due reminders gets no injected context.
-
-```mermaid
-flowchart TD
-    %% source: atomic/internal/hooks/hooks.go
-    S["SessionStart:<br/>refreshProfile,<br/>seedOutputStyleSilent"] --> W["checkWherePosition:<br/>nil when plain"]
-    W --> R["reminder.List,<br/>filterPastDue"]
-    R --> B["buildBody:<br/>nudges, then reminders"]
-    B --> E{"body empty?"}
-    E -->|yes| N["return empty string"]
-    E -->|no| P["payload:<br/>additionalContext,<br/>suppressOutput"]
-    P --> O{"oldest surfaced<br/>> oldThresholdDay?"}
-    O -->|yes| M["add systemMessage:<br/>N reminders pending"]
-```
-
-The reminder section lists at most `maxReminders` (10) entries, each preview truncated to `previewMaxLen` (80) characters, and states the overflow. `oldThresholdDay` is 14, and the age check runs over the surfaced past-due set only, so the warning describes what Claude sees. `SessionStartText` builds the same body without the JSON envelope.
-
-### Argument parsing: flags in any position
-
-Every Cobra leaf sets `DisableFlagParsing`, so Cobra itself never parses a flag, and hands raw argv to a stdlib `flag.FlagSet`, whose `Parse` stops at the first non-flag token. `cliutil.ParseInterspersed` re-parses after each positional, so a flag before, after, or between positionals reaches the `FlagSet`, and a stray positional surfaces where the verb can reject it instead of being dropped:
-
-```mermaid
-flowchart TD
-    %% source: atomic/internal/cliutil/args.go, atomic/internal/followups/cli.go
-    A["ParseInterspersed(fs, args)"] --> S["split at first bare --<br/>into head and tail"]
-    S --> P["fs.Parse(rest)"]
-    P -->|error| E["return err,<br/>caller picks exit code"]
-    P --> R{"fs.Args() empty?"}
-    R -->|no| T["move fs.Args()[0]<br/>to positional"]
-    T --> P
-    R -->|yes| O["return positional + tail"]
-    O --> V{"more positionals<br/>than the verb takes?"}
-    V -->|yes| U["UnexpectedArgs:<br/>name extras, print usage"]
-```
-
-Everything after the first `--` is positional verbatim, including tokens that look like flags. Stdlib grammar is otherwise unchanged: single-dash flags still parse, `-h`/`--help` returns `flag.ErrHelp`, and a flag's value token is taken verbatim even when it starts with `-`. `UnexpectedArgs(fs, cmd, extra)` writes `atomic <cmd>: unexpected argument(s): [...]` and the usage to `fs.Output()`, then returns the error without exiting, so each caller keeps its own exit code.
-
-| Verb | Positionals accepted | Usage-error exit |
-|------|----------------------|------------------|
-| `followups close` | exactly one `<id>`; `--reason` in any position | 2 |
-| `followups list`, `followups add` | none; flags in any position (`rejectArgs`) | 2 |
-| `followups render`, `followups path` | none, and no flags (`bareFlagSet`) | 2 |
-| `migrate` | one, only as `--show-log <since>` (`parseMigrateArgs`) | 2 |
-| `reminder add` | text words, joined; `--due`/`--transport` after the text (`parseReminderAddArgs`) | 1 |
-
-`reminder add` keeps exit 1 because that is the `reminder` verb's existing usage-error code. A reminder text word starting with `-` errors as an unknown flag; words after `--` stay literal.
-
+Machine-written: `[install]` (version and artifact manifest), `[claude.agents.<name>]`, `[omp.agents.<name>]`, `[codex.agents.<name>]` (`atomic config agents`), and `[bus.remotes.<name>]` (`atomic bus remote`).
 
 ## Where it lives
 
+### User config and paths
 
-| Responsibility | Path | Role |
-|----------------|------|------|
-| **Schema and paths** | [`atomic/internal/config/config.go`](../../atomic/internal/config/config.go) | User `Config` struct, lenient `Load`, strict `Validate`, `Get`/`Set`/`Unset`, atomic write via `os.Rename`. Levenshtein typo suggestion on unknown keys. |
-| | [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go) | Every `~/.atomic/` path: `Dir`, `TOMLPath`, `StatePath`, `BackupDir`, `PreInstallDir`, `ProposedCLAUDEMD`, `ProfilePath`, `ProfileRelPath`. |
-| | [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go) | `harnessDir()` resolver, `resolveHarnessDirFromHome`, the repo-local path helpers, and `RemindersDir` (a pure delegate to `ProjectRemindersDir`). |
-| | [`atomic/internal/config/projectstate.go`](../../atomic/internal/config/projectstate.go) | `ProjectStateDir`, `projectHome`, `mainCheckoutRoot`, `resolveSymlinks`, `projectKey`, `ReportsRoot`/`ReportsDir`/`ReportsDirLegacy`, `ProjectRemindersDir`/`RemindersDirLegacy`, `ArchiveDir`, `BranchFromHEAD`, `validateRefName`/`parseHEAD`. |
-| | [`atomic/internal/config/pathsegment.go`](../../atomic/internal/config/pathsegment.go) | `ValidateSegment` and `ValidateDateSegment`, the allow-list every path-segment source (slug, branch, bundle-created date) calls before a value reaches `filepath.Join`. |
-| | [`atomic/internal/config/repo.go`](../../atomic/internal/config/repo.go) | `RepoConfig` (`Code`, `Comments`, `Scan`, `Scope`, `Realm`, `Repl`, `Serve`), `LoadRepoConfig`, `IgnoreMatcher`, `ValidateIdleTimeout`, `ResolveMaxLines`. |
-| | [`atomic/internal/config/scanignore.go`](../../atomic/internal/config/scanignore.go) | `ScanGlobs(root)`: the `[scan] ignore`/`generated` lists, with the legacy `.signalsignore` fallback (`LegacyScanIgnoreFile`). |
-| | [`atomic/internal/config/busremote.go`](../../atomic/internal/config/busremote.go) | `[bus.remotes.<name>]` validators (`ValidateBusRemoteName`/`Host`/`Key`/`CA`, `ValidateBusRemote`), `AddBusRemote`/`RemoveBusRemote` with `ErrBusRemoteExists`/`ErrBusRemoteNotFound`, and `ExpandHome` (leading `~`/`~/` against an injected `home`). |
-| | [`atomic/internal/config/cli.go`](../../atomic/internal/config/cli.go) | `atomic config get\|set\|unset\|list\|path\|agents\|resolve` dispatch. Holds the `ApplyAgentsHook` seam. |
-| | [`atomic/internal/config/render.go`](../../atomic/internal/config/render.go) | `Resolved(cfg)` flat dotted-key map, consumed by `atomic config list` and `atomic config get`. |
-| | [`atomic/internal/config/statemigrate.go`](../../atomic/internal/config/statemigrate.go) | `MigrateUserState(home)`: legacy `~/.claude/.atomic` to `~/.atomic`, plus the compat symlink. |
-| | [`docs/spec/atomic-state-and-config.md`](../spec/atomic-state-and-config.md) | Config schema, `~/.atomic/` layout including `<project-key>/`, `state.json` field table, precedence, validation policy. |
-| | [`docs/reference/atomic-toml.md`](../reference/atomic-toml.md) | User-facing reference for `<repo>/<harness.dir>/atomic.toml`: the `scope` marker, `[code] ignore`, `[repl] idle_timeout`, `[comments] max_lines`, and `[realm] repos` key semantics. |
-| | [`docs/spec/configurable-state-paths.md`](../spec/configurable-state-paths.md), [`docs/design/configurable-state-paths.md`](../design/configurable-state-paths.md) | The `harness.dir` key and the consumer sweep that threads it through every repo-local path; why `~/.atomic` is fixed (bootstrap cycle), why migration keeps a compat symlink, why `harness.dir` has no per-repo override. |
-| **CLI input** | [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) | Pre-Cobra argv handling (`scanNoUpdateCheck`, `--version`, `scanRepoOverride`), `cliusage.SetRoot`, `config.MigrateUserState`, then `selfupdateFastPath` before Cobra dispatch; root-command registration for every verb in this domain; the `init()` that wires `config.ApplyAgentsHook`. |
-| | [`atomic/cmd/atomic/rootflags.go`](../../atomic/cmd/atomic/rootflags.go) | `scanRepoOverride` (the global `--repo` override) and `repoFlagExemptions`, the verb paths whose own `--repo` is a target path. |
-| | [`atomic/internal/cliutil/args.go`](../../atomic/internal/cliutil/args.go) | `ParseInterspersed` (flags in any position, split at the first bare `--`) and `UnexpectedArgs` (names stray positionals, prints usage, returns the error for the caller's exit code). |
-| | [`atomic/internal/cliutil/usage.go`](../../atomic/internal/cliutil/usage.go) | `SetUsage`: double-dash flag listing for a stdlib `FlagSet`'s usage output. |
-| | [`atomic/internal/prompt/prompt.go`](../../atomic/internal/prompt/prompt.go) | Shared TTY abstraction over `huh`: `Confirm`, `Select[T]`, `IsInteractive` (stdin and stdout both terminals), and the `ErrNonInteractive`/`ErrAborted` sentinels. |
-| | [`docs/spec/cli-trailing-flags.md`](../spec/cli-trailing-flags.md) | The trailing-flag rule: `ParseInterspersed`, the per-verb positional limits, exit 2 (exit 1 for `reminder add`) on a stray argument, and the `--` terminator. |
-| **Agent overrides** | [`atomic/internal/config/agentoverride.go`](../../atomic/internal/config/agentoverride.go) | `AgentOverride{Model, Effort}`, the strict `validEfforts` enum, the lenient `validModelFormat` check. |
-| | [`atomic/internal/config/agents.go`](../../atomic/internal/config/agents.go) | The `huh` model-Input + effort-Select form behind `atomic config agents`, `bundledAgents()` (every `agent` entry of `embedded.Manifest()`, in manifest order), `applyAgentOverrides` merge, `AgentTierSelector` test seam, the `ErrNonInteractiveAgents`/`ErrAgentsAborted` sentinels. |
-| | [`atomic/internal/config/pi_agent.go`](../../atomic/internal/config/pi_agent.go) | `ResolvePiAgents(globalPath, repoPath)` merges `[pi.agents.<name>]` from user and repo into a diagnostics envelope. Separate schema from Claude's. |
-| | [`docs/spec/agents-effort-config.md`](../spec/agents-effort-config.md), [`docs/design/agents-effort-config.md`](../design/agents-effort-config.md) | Current contract for `[claude.agents.<name>]` (`AgentOverride`, strict effort, lenient model, install-time patching), and why the flat tier map grew into per-agent model + effort. |
-| | [`docs/spec/agent-model-overrides.md`](../spec/agent-model-overrides.md) | The original flat tier map, partially superseded by `agents-effort-config.md`. Its banner names the table `[agents.<name>]`; the live key is `[claude.agents.<name>]`. |
-| | [`docs/reference/agents.md`](../reference/agents.md) | User-facing `atomic config agents` walkthrough. The agent-roster half of this file belongs to the workflow domain. |
-| **Identity resolution** | [`atomic/internal/config/scope.go`](../../atomic/internal/config/scope.go) | `ValidScope`, `FindScopeRoot` (upward by-kind walk), `EnsureScopeMarker` (byte-preserving idempotent write), `ScopeSource` provenance enum. |
-| | [`atomic/internal/repoctx/repoctx.go`](../../atomic/internal/repoctx/repoctx.go) | `ResolveFrom(dir, override)` returns the working root plus its provenance: override, marker, git, cwd. `Resolve` is the provenance-discarding delegate. |
-| | [`atomic/internal/where/where.go`](../../atomic/internal/where/where.go), `format.go` | `atomic where`: independent axes, each reporting its own provenance. |
-| | [`atomic/cmd/atomic/cmd_where.go`](../../atomic/cmd/atomic/cmd_where.go) | CLI dispatch, `--repo` override (relocates the whole report), `whereJSON` (additive `branch`/`reports`/`reports_root`/`reminders`/`archive` fields). |
-| | [`atomic/internal/repoinit/repoinit.go`](../../atomic/internal/repoinit/repoinit.go) | `Init(root)` runs idempotent layout guarantees for `atomic repo init`. |
-| | [`docs/spec/scope-marker.md`](../spec/scope-marker.md), [`docs/design/scope-marker.md`](../design/scope-marker.md) | The `scope` marker: schema, by-kind walk, and the checkpoints across `repoctx`, `where`, both init verbs, and doctor; why "first marker wins" alone breaks realm discovery. |
-| | [`docs/spec/atomic-where.md`](../spec/atomic-where.md) | `atomic where`'s axes and the `--json` field set, including the project-keyed state extensions. |
-| | [`docs/spec/repo-init.md`](../spec/repo-init.md), [`docs/design/repo-init.md`](../design/repo-init.md) | The `atomic repo init` guarantees and the git-check-ignore idempotency mechanism; effect-based idempotency over literal-line matching, and the deliberately minimal managed rule set. |
-| **Scratchpad bundles** | [`atomic/internal/scratchpad/bundle.go`](../../atomic/internal/scratchpad/bundle.go) | `Meta`, `Bundle`, `Load`/`Save` (tolerant of unknown `meta.toml` keys, replayed via `extra`), `BundleRoot`, `New` (additive purpose-matrix seeding). |
-| | [`atomic/internal/scratchpad/list.go`](../../atomic/internal/scratchpad/list.go) | `List(root)`, the recursive, content-based (`meta.toml` presence) rule shared by the live and archive roots; returns entries plus non-fatal warnings. |
-| | [`atomic/internal/scratchpad/archive.go`](../../atomic/internal/scratchpad/archive.go) | `ArchiveRoot`, `HasArchive`, `Archive` (status flip + dated move with same-day `-2`/`-3` collision suffix), `nextArchiveDest`. |
-| | [`atomic/cmd/atomic/cmd_scratchpad.go`](../../atomic/cmd/atomic/cmd_scratchpad.go) | `atomic scratchpad new\|path\|list\|archive` dispatch and the testable `scratchpadDispatch`/`*Action` seams. |
-| | [`docs/spec/serve-plans-page.md`](../spec/serve-plans-page.md) | Canonical spec for `atomic scratchpad`, the project-keyed state home, `mainCheckoutRoot`/`projectKey` derivation, and the migration log fields. It shares scope with the separate `atomic serve` "Plans" surface, outside this domain. |
-| | [`docs/reference/conventions.md`](../reference/conventions.md) | User-facing description of the scratchpad, the project-keyed state home, and `atomic where --json`/`atomic migrate --show-log` as the resolution mechanism. |
-| **Migration** | [`atomic/internal/migrate/migrate.go`](../../atomic/internal/migrate/migrate.go) | `Migration` type, [`Context`](../../Context), `Run` (ascending-semver step application, floor `0.0.0`). |
-| | [`atomic/internal/migrate/registry.go`](../../atomic/internal/migrate/registry.go) | `Registry`, the ordered slice every `init()` in this package appends to. |
-| | [`atomic/internal/migrate/schema.go`](../../atomic/internal/migrate/schema.go) | `<wiki-schema>N</wiki-schema>` read/write in a repo's [`docs/wiki/index.md`](index.md), the repo-scope version anchor. |
-| | [`atomic/internal/migrate/steps.go`](../../atomic/internal/migrate/steps.go), `steps_scanignore.go` | Earlier registered steps: the signals→[`docs/wiki/`](.) relocation and `.signalsignore`→`atomic.toml [scan]` conversion. |
-| | [`atomic/internal/migrate/steps_scratchpad.go`](../../atomic/internal/migrate/steps_scratchpad.go) | The `1.2.0` repo-scope step: `scratchpadRelocate` (`relocateReportsAndReminders` + `redateScratchpadBundles`), and their helpers (`relocateTree`, `moveFileCrossDevice`, `pruneEmptyDirs`, `candidates`/`collisions`/`redateOne`). |
-| | [`atomic/internal/migrate/log.go`](../../atomic/internal/migrate/log.go) | `FormatLog(registry, since)`, newest-first rendering of log-carrying `Migration` entries, filtered by semver or `YYYY-MM-DD` date. |
-| | [`atomic/cmd/atomic/cmd_migrate.go`](../../atomic/cmd/atomic/cmd_migrate.go) | `atomic migrate [--repo <path>] [--realm <path>] [--show-log [<since>]]` routing, `parseMigrateArgs` (interspersed parse, `<since>` the only positional, exit 2 on any usage error), `migrateRepoAction`, `runMigrateRealm` (per-member confirm fan-out). |
-| | [`docs/spec/atomic-migrate-framework.md`](../spec/atomic-migrate-framework.md) | The `Migration` type, registry, `--repo`/`--realm`/`--show-log` flags, and the install/repo version-anchor split. |
-| **Session-start hook** | [`atomic/internal/hooks/hooks.go`](../../atomic/internal/hooks/hooks.go), `hooks_hujson.go` | Session-start payload plus install/uninstall of the settings.json registration. `hujson` parses settings leniently. |
-| | [`atomic/internal/hooks/outputstyle.go`](../../atomic/internal/hooks/outputstyle.go) | `SeedOutputStyle`, `ReadOutputStyle`, `RemoveOutputStyleIfAtomic`, `StyleInstalled`, `SeedEnabled`: the `outputStyle` key seed/read/remove primitives and their guards. |
-| | [`docs/spec/output-style-seed.md`](../spec/output-style-seed.md), [`docs/design/output-style-seed.md`](../design/output-style-seed.md) | The `output_style.seed` key, the install/update/session-start seed triggers, the atomic settings write, and the style-file-guarded uninstall removal; why the seed is user-level only, never a `--target` install, and carries no "seeded once" marker. |
-| **Reminders** | [`atomic/internal/reminder/reminder.go`](../../atomic/internal/reminder/reminder.go) | File-based reminder CRUD behind `atomic reminder add\|list\|show\|set-due\|rm`; `unionEntries` and `findWritableByID` implement the project-keyed/legacy union. |
-| | [`atomic/cmd/atomic/cmd_reminder.go`](../../atomic/cmd/atomic/cmd_reminder.go) | `atomic reminder` dispatch; `parseReminderAddArgs` joins the positionals into the text and honors `--due`/`--transport` in any position (exit 1 on usage error). |
-| | [`context/commands/remind-me.md`](../../context/commands/remind-me.md) | `/remind-me`: schedules a reminder file, then cron (under 1h) or Routines (1h and over). Degrades to file-only when neither scheduler is available. |
-| | [`context/commands/follow-up.md`](../../context/commands/follow-up.md) | `/follow-up [due <id> \| review]`: reviews pending reminders; `review` triages stale follow-up entries with per-item `extend\|close\|promote\|skip`. |
-| | [`docs/spec/cron-workflow.md`](../spec/cron-workflow.md) | `/remind-me` and `/follow-up`, the scheduling tools, 5-field cron expressions, jitter, 7-day expiry. |
-| **Follow-ups** | [`atomic/internal/followups/`](../../atomic/internal/followups) | YAML-frontmatter entry parser, INDEX renderer, append-only `CLOSED.md`. Serves `atomic followups path\|render\|list\|add\|close`; `cli.go` parses every verb through `cliutil.ParseInterspersed` and enforces its positional count (`rejectArgs`, `bareFlagSet`). |
-| | [`docs/spec/follow-ups-folder.md`](../spec/follow-ups-folder.md) | Folder layout, frontmatter schema, `INDEX.md` generation, `CLOSED.md` audit trail. |
-| | [`docs/spec/typed-followups.md`](../spec/typed-followups.md) | The `kind: finding` / `kind: plan` split and its staleness consequence. |
-| **Self-update** | [`atomic/internal/selfupdate/state.go`](../../atomic/internal/selfupdate/state.go) | The `~/.atomic/state.json` shape and its atomic read/write. |
-| | [`atomic/internal/selfupdate/selfupdate.go`](../../atomic/internal/selfupdate/selfupdate.go) | `ChannelStable`/`ChannelPrerelease` consts, `ValidChannel`, paginated `Lookup` (`fetchReleasePage`, up to `lookupMaxPages` × `lookupPerPage`), `Apply`, `ApplyStaged`, `Stage`, `StageDir`, the lock primitives, the pure `IsNewer`/`ShouldInstall`/`ShouldNotify` decision helpers, and `download`'s stall watchdog + throttled `OnProgress` emission. |
-| | [`atomic/internal/selfupdate/semver.go`](../../atomic/internal/selfupdate/semver.go) | `CompareSemver`/`IsValidSemver` (shared with `migrate`), and the semver §11.4 prerelease-identifier comparison: `comparePrerelease`/`compareIdentifier`/`numericIdentifier`. |
-| | [`atomic/cmd/atomic/cmd_update.go`](../../atomic/cmd/atomic/cmd_update.go) | `selfupdateFastPath` (config-then-banner, stamp-before-spawn), `resolveUpdateChannel` (`--pre` > `--channel` > config > stable), `runUpdateCheck`, `runUpdate`, `runUpdateApply`, `downloadProgressRenderer` (TTY-only `\r`-rewritten status line). |
-| | [`docs/spec/selfupdate-state.md`](../spec/selfupdate-state.md), [`docs/design/selfupdate-state.md`](../design/selfupdate-state.md) | `state.json` schema, the stamp-before-spawn detached child, once-per-version staging, the lock, the staged swap; the measured root cause and the architectures considered. |
-| **Embedded text** | [`atomic/internal/coldprompt/coldprompt.go`](../../atomic/internal/coldprompt/coldprompt.go) | `//go:embed` of briefs (`git-cleanup`, `claude-merge`, `implementer`, `reviewer`), served by `atomic prompt <name>`. `implementer` and `reviewer` are the prompt source for `/subagent-implementation`, `/subagent-diagnose`, and `/quick-fix`'s implement-review loop. |
-| | [`context/commands/git-cleanup.md`](../../context/commands/git-cleanup.md) | `/git-cleanup`: runs `atomic prompt git-cleanup` through a `general-purpose` subagent (read-only scan), presents an indexed report, confirms before deleting. |
-| | [`atomic/internal/doctemplate/doctemplate.go`](../../atomic/internal/doctemplate/doctemplate.go) | `//go:embed templates/*.md` of the document skeletons, served by `atomic template <name>` and consumed directly by `scratchpad.New`'s purpose-matrix seeding. |
-| | [`docs/spec/document-templates.md`](../spec/document-templates.md), [`docs/design/document-templates.md`](../design/document-templates.md) | The `doctemplate` skeletons, the never-improvise rule for authoring commands, the `cliusage` lockstep requirement; why skeletons are embedded rather than shipped as `context/_partials/*.md` files. |
-| | [`atomic/internal/dockerinit/dockerinit.go`](../../atomic/internal/dockerinit/dockerinit.go) | Scaffolds the Docker eval environment for `atomic docker init`. |
-| | [`docs/spec/docker-eval-environment.md`](../spec/docker-eval-environment.md) | `atomic docker init`. Companion guide: [`docs/guides/evaluations.md`](../guides/evaluations.md). |
+| Path | Role |
+|------|------|
+| [`atomic/internal/config/config.go`](../../atomic/internal/config/config.go) | `Config` schema, lenient `Load` (unknown keys warn), `Validate`, `Get`/`Set`/`Unset`, `WritePersist`. Retired `[harness]` and `[pi]` tables load silently and drop on the next write. |
+| [`atomic/internal/config/render.go`](../../atomic/internal/config/render.go) | `Resolved`: the flat map `atomic config list` prints, defaults filled in. |
+| [`atomic/internal/config/cli.go`](../../atomic/internal/config/cli.go) | `config.Run`: `get`, `set`, `unset`, `list [--json]`, `path`. |
+| [`atomic/internal/config/agentoverride.go`](../../atomic/internal/config/agentoverride.go) | `[<harness>.agents.<name>]` tables (`model`, `effort`) for `claude`, `omp`, `codex`; `AgentHarnesses`; Claude effort enum. |
+| [`atomic/internal/config/agents.go`](../../atomic/internal/config/agents.go) | `AgentFormFor`, `EditAgents`: the interactive `atomic config agents` form. |
+| [`atomic/cmd/atomic/cmd_config.go`](../../atomic/cmd/atomic/cmd_config.go) | `atomic config` wiring; `runConfigAgents` picks harnesses, then converges enrolled ones through `install`. |
+| [`atomic/internal/config/busremote.go`](../../atomic/internal/config/busremote.go) | `[bus.remotes.<name>]` validation and edits for `atomic bus remote`. |
+| [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go) | Every `~/.atomic/` path (`Dir`, `TOMLPath`, `StatePath`, `ProfilePath`, `WikisPath`, `InstallDir`, ledger, journals, transactions, backups, packages, `CodexCardsSentPath`); `ClaudeConfigDir` honors `CLAUDE_CONFIG_DIR`. |
+| [`atomic/internal/config/statemigrate.go`](../../atomic/internal/config/statemigrate.go) | `MigrateUserState`: `~/.claude/.atomic` to `~/.atomic`, copy fallback staged in `~/.atomic.migrating`. |
 
+### Repository state
+
+| Path | Role |
+|------|------|
+| [`atomic/internal/config/statelocation.go`](../../atomic/internal/config/statelocation.go) | The ladder, the selection record, candidate discovery, `MutablePathsFor`. |
+| [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go) | Repo-local path helpers on `stateRoot`: `ScratchpadDir`, `ProjectDir`, `FollowupsDir`, `IndexDir`, `IndexDBPath`, `WorktreeDir`, `RepoConfigPath`, `WorkflowPrefsPath`; `SetStateDirForTest`. |
+| [`atomic/internal/config/pathsegment.go`](../../atomic/internal/config/pathsegment.go) | `ValidateSegment`, `ValidateStateDirPath`, `ValidateDateSegment`: the allow-list for any value that becomes a path segment. |
+| [`atomic/internal/config/repostate_migrate.go`](../../atomic/internal/config/repostate_migrate.go) | `MigrateRepositoryState`, `RepoStateMigrationPending`. |
+| [`atomic/internal/config/projectstate.go`](../../atomic/internal/config/projectstate.go) | Project key, `ProjectStateDir`, `ReportsDir`, `ArchiveDir`, `BranchFromHEAD`. |
+| [`atomic/internal/config/repo.go`](../../atomic/internal/config/repo.go) | `RepoConfig` (`[code]`, `[comments]`, `[scan]`, `scope`, `[realm]`, `[repl]`, `[serve]`, `[steering]`), `LoadRepoConfig`, `IgnoreMatcher`, `ResolveMaxLines`; `steeringSection` (shared with `Config`), `ValidateSteeringMode`, `ResolveSteeringMode`. |
+| [`atomic/internal/config/scope.go`](../../atomic/internal/config/scope.go) | `scope = "repo"\|"realm"` marker: `FindScopeRoot`, `EnsureScopeMarker`. |
+| [`atomic/internal/config/scanignore.go`](../../atomic/internal/config/scanignore.go) | `ScanGlobs`: `[scan]` wins whole over a legacy `.signalsignore`. |
+| [`atomic/internal/config/ignore.go`](../../atomic/internal/config/ignore.go) | `git check-ignore` probes and `AppendIgnoreRule`. |
+| [`atomic/internal/repoctx/repoctx.go`](../../atomic/internal/repoctx/repoctx.go) | Working root: `--repo`, then a `scope="repo"` marker, then `git rev-parse --show-toplevel`, then the directory itself. |
+| [`atomic/internal/repoinit/repoinit.go`](../../atomic/internal/repoinit/repoinit.go), [`atomic/cmd/atomic/cmd_repo.go`](../../atomic/cmd/atomic/cmd_repo.go) | `atomic repo init`: state-root dirs, nested [`.gitignore`](../../.gitignore) rules, `tmp/` rule, `.claude/worktrees/` rule when Claude is enrolled or [`.claude`](../../.claude) exists, the scope marker, and `convergeSteeringMode` on the root. Never rewrites a config or rule, never commits. |
+| [`atomic/internal/where/`](../../atomic/internal/where), [`atomic/cmd/atomic/cmd_where.go`](../../atomic/cmd/atomic/cmd_where.go) | `atomic where`: repo root, repo-scope wiki, realm position, code-index scope, without git subprocesses; `--json` adds `state_root`, `worktrees`, `branch`, `reports`, `reports_root`, `archive`; `--harness claude\|omp\|codex` decides the `worktrees` field. |
+
+### Workflow and session start
+
+| Path | Role |
+|------|------|
+| [`atomic/internal/workflow/block.go`](../../atomic/internal/workflow/block.go) | Block parser, key and value validation, profile-section lookup. |
+| [`atomic/internal/workflow/resolve.go`](../../atomic/internal/workflow/resolve.go) | Level loading and per-key precedence; `Worktrees`. |
+| [`atomic/internal/workflow/origin.go`](../../atomic/internal/workflow/origin.go) | Origin URL to host and provider. |
+| [`atomic/internal/workflow/render.go`](../../atomic/internal/workflow/render.go), `set.go` | Resolved-block text and JSON; `SetValue`, `TargetPath`. |
+| [`atomic/cmd/atomic/cmd_workflow.go`](../../atomic/cmd/atomic/cmd_workflow.go) | `atomic workflow resolve [--cwd] [--harness] [--json]` and `set`. |
+| [`atomic/internal/hooks/hooks.go`](../../atomic/internal/hooks/hooks.go), `hooks_hujson.go`, `ownership.go` | Session-start payload, Claude `settings.json` registration, owned-member digests. |
+| [`atomic/internal/hooks/codex.go`](../../atomic/internal/hooks/codex.go) | Codex `hooks.json` registration of the `SessionStart` and `PreToolUse` members, owned digests, `CodexSessionStartPosition` and `CodexPreToolUsePosition`. |
+| [`atomic/internal/hooks/pretooluse.go`](../../atomic/internal/hooks/pretooluse.go) | `PreToolUse`: patch paths to matching wiki cards, the per-session sent list. |
+| [`atomic/internal/hooks/outputstyle.go`](../../atomic/internal/hooks/outputstyle.go) | `outputStyle` seeding and removal. |
+| [`atomic/cmd/atomic/cmd_hooks.go`](../../atomic/cmd/atomic/cmd_hooks.go) | `atomic hooks session-start\|pre-tool-use\|install\|uninstall`; `runPreToolUse` drops every failure and exits 0. |
+
+### Task state
+
+| Path | Role |
+|------|------|
+| [`atomic/internal/scratchpad/`](../../atomic/internal/scratchpad), [`atomic/cmd/atomic/cmd_scratchpad.go`](../../atomic/cmd/atomic/cmd_scratchpad.go) | `atomic scratchpad new\|path\|list [--archived] [--json]\|archive`. |
+| [`atomic/internal/followups/`](../../atomic/internal/followups), [`atomic/cmd/atomic/cmd_followups.go`](../../atomic/cmd/atomic/cmd_followups.go) | `atomic followups list\|add\|close\|render\|path`. |
+
+### Update and migration
+
+| Path | Role |
+|------|------|
+| [`atomic/internal/selfupdate/selfupdate.go`](../../atomic/internal/selfupdate/selfupdate.go) | Channels, `Lookup`, `Stage`, `Apply`, `ApplyStaged`, lock helpers, `ShouldInstall`, `ShouldNotify`. |
+| [`atomic/internal/selfupdate/state.go`](../../atomic/internal/selfupdate/state.go), `semver.go`, `cache.go` | `state.json` shape and atomic write, semver compare, legacy cache path. |
+| [`atomic/cmd/atomic/cmd_update.go`](../../atomic/cmd/atomic/cmd_update.go) | Fast path, background check, foreground swap, post-swap steps. |
+| [`atomic/internal/migrate/`](../../atomic/internal/migrate) | `Run`, `Registry`, the registered steps, `<wiki-schema>` read and write, `FormatLog`. |
+| [`atomic/cmd/atomic/cmd_migrate.go`](../../atomic/cmd/atomic/cmd_migrate.go) | `atomic migrate` routing. |
+
+### Embedded text and CLI plumbing
+
+| Path | Role |
+|------|------|
+| [`atomic/internal/coldprompt/`](../../atomic/internal/coldprompt), [`atomic/cmd/atomic/cmd_prompt.go`](../../atomic/cmd/atomic/cmd_prompt.go) | `atomic prompt git-cleanup\|claude-merge\|implementer\|reviewer`: briefs for a subagent starting cold, embedded and never installed. |
+| [`atomic/internal/doctemplate/`](../../atomic/internal/doctemplate), [`atomic/cmd/atomic/cmd_template.go`](../../atomic/cmd/atomic/cmd_template.go) | `atomic template <name>`: document skeletons (`brief`, `design-doc`, `diagnose-context`, `followups`, `implementation-log`, `session-report`, `spec`, `state`), also the seed source for scratchpad bundles. |
+| [`atomic/internal/dockerinit/`](../../atomic/internal/dockerinit), [`atomic/cmd/atomic/cmd_docker.go`](../../atomic/cmd/atomic/cmd_docker.go) | `atomic docker init [--target ./atomic-docker] [--force]`: Docker eval scaffolding. |
+| [`atomic/internal/prompt/prompt.go`](../../atomic/internal/prompt/prompt.go) | `Confirm` and `Select` over `huh`; `ErrNonInteractive` off a TTY, `ErrAborted` on Ctrl+C. |
+| [`atomic/internal/cliutil/`](../../atomic/internal/cliutil) | `ParseInterspersed`, `UnexpectedArgs`, `SetUsage`. |
+| [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go), `rootflags.go` | Pre-dispatch steps and root argv scanning. |
 
 ## Constraints
 
-
-**`harness.dir` resolves once per process and never per call.** Tests must use `SetHarnessDirForTest(dir)`, which bypasses the `Once` and returns a restore func. Rewriting `config.toml` mid-process will not change the resolved value.
-
-**`harness.dir` is validated at both write and read, and the read path is the one that catches hand edits.** `Set` rejects empty, `.`, `..`, and any value containing `/`. `Load` does not validate, so `resolveHarnessDirFromHome` (harness.go) re-runs `validateHarnessDir` on the stored value and falls back to [`.claude`](../../.claude) instead of erroring. Without that check, a `config.toml` hand-edited to `..` would reach `filepath.Join` unguarded in the repo-local helpers.
-
-**`scope` is the only top-level scalar in the repo schema.** Every other top-level key names a table, so `checkUnknownRepoKeys` carries a separate `repoKnownTopLevelLeaves` set for it. Adding another top-level scalar means adding it there, or it warns as unknown.
-
-**`EnsureScopeMarker` inserts above the first table header when one exists, and appends at EOF only when the file has none.** Appending ahead of a table header would land the key inside that table and it would parse as `code.scope`. The insertion point is found by tracking TOML bracket depth outside quoted strings, so an interior line of a multi-line array is not mistaken for a header. Line endings match the file's dominant convention, and every other byte is preserved. A file already declaring a different scope returns `ScopeMarkerConflict` and is never rewritten.
-
-**`atomic where` spawns zero git subprocesses.** Its repo-root axis walks for a `.git` entry with `os.Stat` rather than running `git rev-parse --show-toplevel` the way `repoctx.ResolveFrom` does, so it does not understand submodules or `GIT_DIR` overrides. `mainCheckoutRoot` and `BranchFromHEAD` in `projectstate.go` follow the same no-subprocess discipline: they read `.git`/`gitdir:`/`HEAD` bytes directly. The `atomic where` divergence disappears wherever a `scope="repo"` marker exists, since the marker wins in both packages.
-
-**Both config loaders are lenient on read and strict on write.** A missing file yields an empty config with no error, an unknown key yields a `Warning` whose `Key` holds the dotted key it names (empty on any other warning), and malformed TOML yields an error the caller degrades on. `pi` is an opaque top-level table in both schemas: its child keys are structurally arbitrary and never warn, with semantic validation left to `ResolvePiAgents`. The user schema's `opaqueSections` also holds `claude` and `bus`. A strict read would turn a hand-edited typo, or a key a newer binary wrote, into a failure of every verb that loads the file.
-
-**A user-config write keeps only what `Config` models.** `WritePersist` marshals the `Config` struct, so a table with no field is dropped on the next write: `atomic config set|unset|agents`, the install-manifest write in `claudeinstall`, install-scope migration (`atomic migrate`, and `atomic update` after its artifact refresh), and `atomic bus remote add|remove` all go through it. `Pi` (an opaque `map[string]any`) and `Bus` exist as fields for that reason; a new machine-written table needs its own field before anything writes the file.
-
-**Agent-override namespaces share a config file.** `[claude.agents.<name>]` carries `model` + `effort`, is written by `atomic config agents`, and is patched into installed agent frontmatter. `[pi.agents.<name>]` carries `model` + `thinking`, is read-only through `atomic config resolve --repo <root> --json`, and patches nothing. The Pi repo-side file is hardcoded at `<repo>/.pi/atomic.toml`, not `harness.dir`-resolved, so setting `harness.dir` never moves it: a `[pi.agents]` table placed in `<repo>/<harness.dir>/atomic.toml` under any other `harness.dir` is never read.
-
-**`[claude.agents.<name>]` accepts nested tables only.** A scalar entry is a config decode error, not a lenient fallback. `effort` is a hard `Validate` failure outside `low|medium|high|xhigh|max`; `model` never blocks loading and only rejects whitespace and control characters, so a bare model id like `claude-opus-4-8` passes. An unknown agent name is a non-fatal `AgentWarnings` entry. The known set is the install manifest's `[install.artifacts].agents`, matched by basename since `claude install` records `agents/<name>.md`; with no manifest it falls back to `bundledAgents()`. The `atomic config agents` form lists `bundledAgents()` too, so a newly bundled agent appears with no code change.
-
-**`atomic config agents` builds its own `huh` form.** It needs a multi-field form that `internal/prompt` does not expose, so it defines parallel sentinels `ErrNonInteractiveAgents` and `ErrAgentsAborted` rather than reusing `prompt.ErrNonInteractive` / `prompt.ErrAborted`. `cli.go` matches each sentinel to its own message (`requires an interactive terminal` with a run-in-a-terminal hint, or `aborted`); reusing `prompt.ErrNonInteractive` would make the form's failure indistinguishable by `errors.Is` from any other prompt's and drop the `atomic config agents:` prefix from its text. Its terminal check is `isAgentsTTY`, a test hook that defaults to `prompt.IsInteractive`. `atomic bus remote add` (`cmd_bus_remote.go`) also builds a multi-field `huh` form, gated on `prompt.IsInteractive`. Single confirms and selects route through `internal/prompt`.
-
-**`LoadState` never returns an error.** A read or unmarshal failure yields a zero-value `State`, because a corrupt state file must not block the verb the user actually invoked.
-
-**`ValidateSegment` (`pathsegment.go`) is the enforcement point for scratchpad-owned path segments.** It is an allow-list, not a deny-list: a value is rejected because it is not on the list, never because it looks hostile. Every scratchpad-adjacent source of an untrusted path segment (a slug, a bundle's `meta.toml` `created` date via `ValidateDateSegment`) routes through it before reaching `filepath.Join`; a slug or `created` value that bypassed it would let `filepath.Join` write outside the scratchpad or archive root. A failing value is always an error: never a substituted default, never a sanitized-in-place rewrite. The branch label used in `ReportsDir` goes through a separate, more permissive gate: `branchSegment` (`projectstate.go`) only replaces `/` with `-`, and the branch string itself is validated upstream by `validateRefName` in `parseHEAD`, a distinct allow-list that permits `/`, which `ValidateSegment`'s pattern would reject.
-
-**`parseHEAD` trusts only these shapes:** `ref: refs/heads/<name>` (validated against `refNamePattern`, no `..`, no leading/trailing/doubled `/`, no path component starting with `.`), a bare 40-character hex SHA (truncated to a 7-character prefix), or nothing. `HEAD` is repo-controlled state a hostile or corrupt repository can shape arbitrarily, and its content eventually becomes a path segment (`ReportsDir`), so anything outside those shapes reports `false` rather than a truncated prefix of untrusted bytes.
-
-**`ReportsDir`'s legacy fallback only fires when the legacy directory already has a report and the new one does not.** The default has to be the new home: `ReportsDir` decides where a report is written as well as read, and preferring legacy whenever the new directory was empty would write every report to legacy and then find it there forever.
-
-**`scratchpad.Archive` never overwrites an existing archive.** A same-day re-archive of a slug (created and archived again within the same calendar date) collides on `archive/<slug>/<created>/`; `nextArchiveDest` takes the next free `-2`, `-3` suffix instead. The archive is the audit trail, so losing one to a same-day repeat is not an option.
-
-**`migrate.Run`'s registry copy is never mutated, and version comparison routes through a shared function.** `Run` copies the caller's `registry` slice before sorting. An in-place sort would reorder the slice the caller still holds; a caller passing `migrate.Registry` itself would rewrite the package-level registration order that `scopedMigrations` and `FormatLog` read later in the same process. Both `migrate.Run` and `FormatLog` compare versions via `selfupdate.CompareSemver`; there is no separate semver implementation in `migrate`.
-
-**`scratchpadRelocate`'s bundle-rename half only fires on a name both docs confirm.** A `<YYYY-MM-DD>-<slug>` directory whose stripped name is not confirmed by both `docs/design/<slug>.md` and `docs/spec/<slug>.md`, or that another dated directory also strips to, is reported and left untouched. Renaming on an unconfirmed strip would collapse two dated bundles into one directory, or rename a directory whose suffix is not a slug.
-
-**The `--__background-check` marker is stripped from argv before any flag parser sees it** (`stripBackgroundCheckMarker`), so it never appears in `--help` or `cliusage`. `atomic validate artifacts` cannot flag an artifact that cites it: `looksLikeFlag` ([`atomic/internal/validate/artifacts.go`](../../atomic/internal/validate/artifacts.go)) treats a `--` token as a flag only when the next character is a letter, and `_` is not.
-
-**Lock rules differ by caller.** Background staging uses `AcquireLock` / `ReleaseLock`, where release is fenced on the caller's own `ownedSince` token so a newer holder's lock is never clobbered. Foreground `atomic update` uses `AcquireOrTakeoverLock`: a lock younger than `StaleLockAfter` (10 minutes) is refused with its age named, older is taken over, and `--force` bypasses the age check only. `--force` never touches checksum verification. `ApplyStaged` re-derives the expected checksum from a fresh `Lookup` and never trusts the staged record's own recorded hash.
-
-**A download times out on silence, never on duration.** A multi-minute archive transfer on a slow link completes; giving `downloadClient()` an `http.Client.Timeout` would bring back the abort of every download slower than that cap.
-
-**`ShouldNotify` and `Client.Check` take an explicit `channel` argument, not only the current and latest versions.** Judged without it, a machine tracking prereleases would be compared against the newest stable release instead of the prerelease tip.
-
-**Prerelease identifiers compare by semver §11.4, not raw string order.** `comparePrerelease`/`compareIdentifier`/`numericIdentifier` in [`atomic/internal/selfupdate/semver.go`](../../atomic/internal/selfupdate/semver.go) split a prerelease tag on `.` and compare each dot-identifier numerically when all-digit, lexically otherwise, so `next.10` ranks above `next.2`, where a raw string compare would rank it below. `CompareSemver` (shared with `migrate`) and `IsNewer` both go through this.
-
-**`atomic repo init` is append-only and never commits.** Its guarantees create the `.scratchpad/` and `<harness.dir>/project/` directories (no git involved), confirm ignore coverage for the harness-scoped paths by running `git check-ignore -q` against a nonexistent probe path per path (falling back to a literal line scan when git is absent or the root is not a work tree), and write the scope marker. Existing ignore content is never rewritten or reordered (`appendRule` writes the existing bytes back, then the new rule), because rewriting or reordering [`.gitignore`](../../.gitignore) would clobber user rules. The root `tmp/` guarantee is the only ignore rule not nested under `harness.dir`. The scope-marker guarantee returns an error rather than an `Action` on a conflicting existing value, so `Init` fails and the caller surfaces it.
-
-**Follow-up plans are exempt from staleness.** `kind` defaults to `finding` when absent. `--severity` is required for findings and optional for plans, `isStale` returns false unconditionally for plans, and `ListEntries --stale` excludes them. A plan is backlog with no review date to go cold against; counting it stale would put every plan into `/follow-up review`'s extend-or-close sweep on every run. `INDEX.md` renders the plans bucket first, then severity buckets. The pre-commit hook re-renders `INDEX.md` when entry files are staged.
-
-**The session-start hook is an inline command, not a script.** `Install` registers the literal string `atomic hooks session-start` in `settings.json`; nothing is written to disk. `IsInstalled(scopeRoot)` returns `(installed, drifted, err)` where `drifted` is true when a legacy wrapper-script registration is still present, alone or alongside the inline one. Best-effort ride-alongs run inside the hook and are individually silent on failure: profile refresh, the `outputStyle` seed, and an `atomic where` orientation nudge that stays quiet in the plain no-wiki, no-realm case. An erroring ride-along would block session start, which is why each one swallows its own failure. A `reminder.List` failure is the only error `SessionStart` returns in practice.
-
-**Settings-file writes are atomic and skip a read-only target rather than failing it.** `writeSettingsHujson` resolves the path through `filepath.EvalSymlinks`, writes a temp file in the resolved target's directory, and `os.Rename`s over it, so a concurrent reader never observes a partial file; a probed-unwritable target returns `skipped=true` with a nil error instead of erroring, and `Install`/`Uninstall` propagate that bool to their own callers. `SeedOutputStyle` layers independent gates on top of the same write path: it writes `outputStyle: "Atomic"` only when `output-styles/atomic.md` is installed under the target dir (`StyleInstalled`), `output_style.seed` is enabled (`SeedEnabled`, default `true`), and the `outputStyle` key is absent. Each of those is a silent no-op (`wrote=false, err=nil`), and only a malformed `settings.json` errors.
-
-**Neither `coldprompt` nor `doctemplate` is an install artifact.** Both are compiled into the binary and never written to `~/.claude`, so Claude Code cannot surface them as invocable commands. Adding a brief means editing `coldprompt.go`, not `bundlemirror/mirror.go`.
-
-**A `TestRootCmdExact<N>Verbs` test in [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go) pins the exact top-level verb count.** Adding a verb from this domain means updating that test and the matching `cliusage` entry together.
-
+- **`ATOMIC_STATE_DIR` is process-only.** It never writes the selection record and never feeds `migrationRoots`. A verb run under it reads and writes a different root from the next run without it.
+- **The repo-local helpers exit on a refused root.** `stateRoot` calls `stateRefusalExit`. A new verb that skips `repoctx.Resolve` (or `ResolveFrom`) and calls `config.ScratchpadDir` directly turns an ambiguous state root into an unexplained exit 1 instead of the adopt hint.
+- **The resolution cache lives for the process.** `repositoryStateDir` and `configuredStateDir` cache their answers; code that writes a record or `config.toml` mid-process must go through `PersistStateSelection` / `WithdrawStateSelection` / `MigrateRepositoryState`, which call `invalidateStateCache`. Tests use `SetStateDirForTest` and `SetHomeDirForTest` so they never resolve against the real home.
+- **A new state-root entry needs two lists.** `stateSignatureEntries` decides what counts as populated, and `migratedEntries` decides what moves out of [`.claude`](../../.claude). An entry in one list and not the other is either invisible to resolution or stranded in [`.claude`](../../.claude).
+- **`state.dir` must be safe segments.** `ValidateStateDirPath` rejects absolute, empty, and `..` values, and `segmentFromConfig` silently falls back to [`.atomic`](../../.atomic) on an invalid or unreadable config. Only the selection record and `ATOMIC_STATE_DIR` accept an absolute path.
+- **The project key depends on the main checkout path.** Moving or renaming a clone changes its key, so the selection record, reports, and archives under the old `~/.atomic/<project-key>/` stop resolving.
+- **Booleans and `max_depth` use explicit-presence backfill.** `Load` reads the raw TOML map to tell an absent key from an explicit `false` or `0`. A new boolean key added without that check silently becomes `false` whenever its section is missing.
+- **`repl.idle_timeout`'s default is duplicated.** `replIdleTimeoutDefault` in `config.go` mirrors `repl.DefaultIdleTimeout` by hand because `repl` imports `config`. Changing one leaves `atomic config list` showing the wrong value.
+- **Migration steps must be idempotent.** `Run` replays a step after a crash, and repo scope records only the `<wiki-schema>` major, so any repo step whose target is above `1.0.0` reruns on every `atomic migrate --repo`.
+- **The banner path never touches the network.** `selfupdateFastPath` reads `state.json` alone; any lookup belongs in the detached `update --check` child. `LoadState` returns a zero state on any read or parse error so a broken file never blocks a verb.
+- **Post-swap work must run in the new binary.** `runUpdateWith` re-execs with the converge marker after a swap. Running convergence or migrations in the old process publishes the old embedded corpus.
+- **`workflow set` refuses a level mismatch in a shared file.** When the repo and realm resolve to one `workflow-preferences.md`, writing the other level's key returns an error instead of rewriting the block's `level`.
+- **The `PreToolUse` hook must never fail an edit.** `PreToolUse` returns an empty string on every error and `runPreToolUse` recovers panics; a new step that exits non-zero or writes to stdout on failure breaks that contract.
+- **A card is marked sent before it is printed.** `writeCardsSent` runs before the output is built, so a failed write sends nothing, and a corrupt `codex-cards-sent.json` resends cards rather than blocking.
+- **An invalid `steering.claude` stops conversion, not every verb.** `ResolveSteeringMode` errors on an unknown value or an unreadable config. `atomic repo init` returns that error; `atomic update` skips conversion, finishes its other post-swap steps, and exits 1.
+- **`repo init` and `EnsureScopeMarker` never rewrite.** A repo config that already declares a different `scope` is an error. A rule already present but negated or tracked by git is reported (`negated`, `tracked`), not fixed.
 
 ## Coupling
 
-
-| Direction | Contract |
-|-----------|----------|
-| ← commands | Slash commands drive this domain's verbs. `/remind-me` writes through `atomic reminder add`; `/follow-up` runs `atomic reminder list\|show\|set-due\|rm` and `atomic followups list --stale\|close\|render`; both read the `reminders` path from `atomic where --json`. `/session-report` writes to the `reports` path from `atomic where --json` (`config.ReportsDir`), seeded by `atomic template session-report`. `/git-cleanup` dispatches `atomic prompt git-cleanup`, archives bundles through `atomic scratchpad list --json` and `atomic scratchpad archive`, and reads `reports_root`. `/atomic-plan` runs `atomic scratchpad new <topic> --purpose plan`. A change to one of these verbs' flags or JSON fields lands in those commands. |
-| → doctor | `checks_config.go` (category 9) imports both `config` and `selfupdate`: it validates `config.toml` and folds a non-empty `state.json` `last_result` into the same Result as a chronic-failure warning. A schema change to `Config` or to `UpdateState` lands here. |
-| → doctor | `checks_binary.go` (category 8) resolves the configured `update.channel` via `config.Load` before calling `Client.Check` (`binaryChannelFn`), so the binary self-check reports against the channel the user is tracking; an unreadable or invalid config falls back to stable. |
-| → doctor | `checks_repo_config.go` (category 13) imports `LoadRepoConfig`, `RepoConfigPath`, `ValidScope`, `NewIgnoreMatcher`, `ValidateIdleTimeout`, and `ResolveMaxLines` (warns on `comments.max_lines < 1`, same non-fatal contract as the other repo-config checks). It also reads `wiki.ReadWikiIndexPaths` to warn when `scope = "repo"` contradicts a `<wikis>`-registered realm root at the same path. |
-| → doctor | `checks_followups.go` and `checks_profile.go` resolve their targets through `config.FollowupsDir` / `config.ProfilePath`, so their detail strings stay correct under a non-default `harness.dir`. |
-| → doctor | `updatedoctor` reads `update.run_doctor`. Doctor also nudges "run `atomic migrate`" when the binary version exceeds `config.toml [install].version`. |
-| → doctor | [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) is the CLI-surface source of truth that `atomic validate artifacts` rule A1 lints against. `main.go` calls `cliusage.SetRoot(rootCmd)`, so the surface derives live from the Cobra tree, including this domain's `config resolve`, `repo init`, `prompt <name>`, `migrate`, `scratchpad`, and `template <name>` verbs. The hardcoded `commands` slice is the golden fixture `TestDeriveCommandsGolden` holds in sync with the tree, so renaming or adding a verb or skeleton means updating that fixture too. |
-| → bundle | `claudeinstall.loadAgentOverrides` / `readPatchedEmbedded` read `Config.Claude.Agents` and patch `model:` and `effort:` frontmatter independently at install time. New `AgentOverride` fields propagate straight into install-time patching. |
-| → bundle | `agents.go` imports `internal/embedded` and reads `embedded.Manifest()` for the agent list, so the form and the `AgentWarnings` fallback follow whatever `make bundle` embedded. |
-| → bundle | `ApplyAgentsHook` (this domain, `cli.go`) is nil by default and satisfied at runtime by `claudeinstall.ReapplyAgents`. `main.go`'s `init()` closes the wiring, because `config` cannot import `claudeinstall` without a cycle. |
-| → bundle | `atomic update` (`cmd_update.go:runUpdate`) auto-runs install-scope migration steps after artifact refresh, in semver order, before exiting. |
-| → bundle | `claudeinstall.installOrUpdate` calls `seedOutputStyleForInstall` after `Apply`, which calls `hooks.SeedOutputStyle(home, targetDir, home)` gated on the install being user-level (`targetDir` resolving to `~/.claude`) and the manifest carrying `output-styles/atomic.md`; `--dry-run` reports the intended write via `manifestHasOutputStyle`/`planOutputStyleSeed` instead of performing it. |
-| → doctor | Config-to-installed-agent drift is caught by the existing category-1 install check via `claudeinstall.Diff`, and repaired by `atomic doctor --fix`. There is no dedicated drift check. |
-| → doctor | `checks_output_style.go` (category 14) reads the user-level `outputStyle` key via `hooks.ReadOutputStyle`, warns when absent or when it names an uninstalled style, and reports any project-level `outputStyle` in `<repoRoot>/.claude/settings.json`/`settings.local.json` as a possible override (skipped when the repo root resolves to the install target). `Repairer.OutputStyleFn` / `defaultOutputStyleRepair` seed the user level on `--fix`, honoring `output_style.seed`. |
-| → code-intel | `LoadRepoConfig` and `NewIgnoreMatcher` are called by `engine.ensureIndexer` to filter indexer discovery. `codeintel/engine`, `mcp/daemon`, `realm/resolver`, and `cli/code` all derive the index path from `config.IndexDBPath` / `config.IndexDir`. |
-| → repl | This domain owns the `[repl] idle_timeout` schema at both scopes and the shared `ValidateIdleTimeout`. `internal/repl`'s `resolveIdleTimeout` consumes both and resolves repo, then user, then `1h`. |
-| → signals | `signals/tree.go` reads `output.signals.max_depth`, and derives its skip prefixes from `config.ScratchpadDir("")` / `config.ProjectDir("")` so the scan skips the harness dir under any `harness.dir`. `signals/signals.go` takes its exclude and generated globs from `config.ScanGlobs`. |
-| → serve | `serve/code_members.go` resolves member db paths via `config.IndexDBPath`. `serve/api_code_capabilities.go` reads `RepoConfig.Serve.Schema` and, when set, reports it with source `config` instead of auto-detecting the SQL schema view. `atomic serve`'s "Plans" surface ([`docs/spec/serve-plans-page.md`](../spec/serve-plans-page.md)) reads `scratchpad.List`, `config.ArchiveDir`, and the doctemplate-seeded `docs/design/<slug>.md`/`docs/spec/<slug>.md` pair this domain writes, across every git worktree of a repo. |
-| → docs-meta | `docs/docs.go` writes the doc-surfaces cache under `config.ProjectDir(root)` and drops `[scan] ignore` paths read through `config.ScanGlobs`. |
-| → wiki | `wikiInitAction` calls `config.EnsureScopeMarker(absRoot, scope)` with its validated `--scope` value; a `ScopeMarkerConflict` exits 1 without touching either file. Outcome-enum changes in `scope.go` land there. `wiki.declaredRoots` reads `RepoConfig.Realm.Repos` through `config.RepoConfigPath` and `LoadRepoConfig` and keeps only the warnings whose `Warning.Key` starts with `realm.`; discovery behavior is in [`docs/wiki/wiki.md`](wiki.md). The `<wiki-schema>N</wiki-schema>` block `migrate/schema.go` reads and writes is the same block [`docs/wiki/index.md`](index.md)'s frontmatter carries. |
-| → workflow | `/subagent-implementation` Phase 3 shells out to `atomic followups add`. Command templates seed structure via `atomic scratchpad new <slug> --purpose <p>` and `atomic template <name>`; skeletons come from the verb and are never improvised. |
-| → workflow | `atomic repo init` runs unguarded at these call sites, before the scratchpad or worktree they create: in [`context/_partials/worktree-setup.md`](../../context/_partials/worktree-setup.md) before `git worktree add`, in [`context/_partials/implement-loop.md`](../../context/_partials/implement-loop.md) and [`context/commands/deslop.md`](../../context/commands/deslop.md) before `atomic scratchpad new`, and in [`context/commands/subagent-diagnose.md`](../../context/commands/subagent-diagnose.md)'s create-scratchpad step. [`context/commands/setup-wiki.md`](../../context/commands/setup-wiki.md) proposes it as the single action covering missing [`.gitignore`](../../.gitignore) coverage for `tmp/`, [`.claude/.scratchpad/`](../../.claude/.scratchpad), and `.claude/worktrees/`. |
-| → bus | `bus/remote.Remotes` reads `[bus.remotes]` through `config.Load` and resolves `ca` with `config.ExpandHome`; `cmd_bus_remote.go` validates and writes entries through the `busremote.go` helpers and `WritePersist`, and `cmd_bus_gateway.go` checks enroll names with `ValidateBusRemoteName`. The CLI itself is documented in [`docs/wiki/bus.md`](bus.md). |
-| → doctor, code-intel, serve | `internal/cliutil` (this domain) is also called by `validate/validate.go` (`atomic validate` top-level parse), `codeintel/cli/code.go` (the `atomic code` positional verbs), and `serve/serve.go` (`parseFlags`, at most one `dir`). A change to `ParseInterspersed`'s grammar or `UnexpectedArgs`'s message lands in each of them. |
+- **harness** owns `atomic state adopt` and `atomic state migrate` ([`atomic/cmd/atomic/cmd_state.go`](../../atomic/cmd/atomic/cmd_state.go)), the enrollment ledger and install lifecycle whose paths `config/paths.go` defines, `runConfigAgents` convergence, and `convergeEnrolledTargets` after an update. It also owns the steering-mode conversion that `convergeSteeringMode` drives (`claude.ConvertScope`, `wiki.ConvertSteeringPair`, `realm.MoveCodeIndexBlock`) and the Codex hook trust records located through `CodexSessionStartPosition` and `CodexPreToolUsePosition`; see [`docs/wiki/harness.md`](harness.md). `AfterRepoStateMigration` is set by the wiki-card projection in [`atomic/cmd/atomic/cmd_cards.go`](../../atomic/cmd/atomic/cmd_cards.go) to re-project cards after a state move.
+- **code-intel** resolves its index through `config.IndexDir` / `IndexDBPath`, reads `[code] ignore` and `[comments] max_lines` from the repo config, and supplies `IndexInUse` for `removeLegacyIndex`; see [`docs/wiki/code-intel.md`](code-intel.md).
+- **signals** reads `output.signals.max_depth`, `config.ScanGlobs`, and the scratchpad and project directories as scan skip prefixes; see [`docs/wiki/signals.md`](signals.md).
+- **wiki** supplies `wiki.FindRealm` for the realm workflow level and `[realm] repos` consumption; `where` reads the realm registry `~/.atomic/wikis.md`; see [`docs/wiki/wiki.md`](wiki.md).
+- **rules**: the `PreToolUse` hook reads pointer cards through `rules.LoadWiki`, `BindAll`, and `NewMatcher`, the same cards `/refresh-wiki` writes under `<state-root>/rules/wiki/`.
+- **repl**, **bus**, and **serve** read `repl.idle_timeout`, `[bus.remotes]`, and `[serve] schema` respectively.
+- **docs-meta** writes its doc-surfaces cache under `config.ProjectDir`, which `repo init` and `MigrateRepositoryState` ignore through `DocSurfacesIgnoreRule`; see [`docs/wiki/docs-meta.md`](docs-meta.md).
+- **doctor** reports agent overrides through `config.AgentWarnings` and runs after `atomic update`; see [`docs/wiki/doctor.md`](doctor.md). The `profile` package (`profile.RefreshIfStale`, `LockProfile`, `EnsureWorkflowBlock`) is called from here but documented with its owners.
+- **Artifacts that drive this domain**: [`context/AGENTS.md`](../../context/AGENTS.md) tells every session to read the resolved `<workflow-preferences>` block and fall back to `atomic workflow resolve`; [`context/_partials/base-resolution.md`](../../context/_partials/base-resolution.md) and `resolved-provider.md` and the `atomic-git-discipline` references (`resolution.md`, `worktrees.md`, `issue-tracking/*.md`) consume the resolved keys. `/atomic-plan`, `/challenge-swarm`, `/subagent-diagnose`, `/deslop`, and [`context/_partials/implement-loop.md`](../../context/_partials/implement-loop.md) create bundles with `atomic scratchpad new`. `/follow-up` and `issue-tracking/filesystem.md` drive `atomic followups`. `implement-loop.md`, `/git-cleanup`, and `/subagent-diagnose` emit briefs with `atomic prompt`; `/atomic-plan`, `/session-report`, `/subagent-diagnose`, `implement-loop.md`, and `loop-finalize.md` use `atomic template`.
+- **Lockstep contracts**: [`.githooks/pre-commit`](../../.githooks/pre-commit) resolves the followups folder with `atomic followups path` and falls back to [`.atomic/project/followups`](../../.atomic/project/followups) only when the binary is absent or the path resolves outside the repository. That fallback must track the default state root. The workflow precedence is specified in [`docs/spec/workflow-preferences.md`](../spec/workflow-preferences.md) and the self-update state machine in [`docs/spec/selfupdate-state.md`](../spec/selfupdate-state.md); `apply` and `selfupdateFastPath` cite them.

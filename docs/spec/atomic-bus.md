@@ -87,6 +87,10 @@ can stop the exchange with `atomic bus halt`.
 - [ ] `resume` publishes an envelope with a body, not an empty string.
 - [ ] `--session` is accepted by every verb that resolves a session identity, not only `join` and
       `chat`.
+- [ ] Without `--session`, the session identity follows harness detection
+      (`docs/spec/omp-plugin-compatibility.md`): `CLAUDE_CODE_SESSION_ID` under a strong Claude
+      detection, `CODEX_THREAD_ID` under a strong Codex detection. Any other detection, an
+      ambiguous one included, reports that no session identity is available and exits 2.
 - [ ] `Member` carries `last_seen`, refreshed on any operation from that session and on an open
       subscription. `who` shows it and marks members with neither as stale.
 - [ ] `atomic bus prune [<room>]` removes stale members explicitly. Nothing reaps a member
@@ -191,7 +195,7 @@ atomic/internal/bus/paths.go
   EnsureDirs — create ~/.atomic/rooms with 0700
 
 atomic/internal/bus/identity.go
-  SessionID — read CLAUDE_CODE_SESSION_ID, error when absent
+  SessionID — --session, else the detected harness's session variable, error when absent
   State     — per-session joined rooms, persisted at ~/.atomic/bus.json (client) or
               ~/.atomic/bus-roster.json (daemon, via LoadRoster/SaveRoster — a second file so the
               CLI and serve's unlocked bus.json writers never race the daemon's own)
@@ -280,7 +284,8 @@ skills/atomic-bus/SKILL.md
 
 ```
 Flow: join
-1. client reads CLAUDE_CODE_SESSION_ID; absent and no --session -> exit 2
+1. client takes --session, else CLAUDE_CODE_SESSION_ID under Claude or CODEX_THREAD_ID under
+   Codex; none -> exit 2
 2. client takes an exclusive flock on ~/.atomic/bus.lock
 3. client dials the socket; on success it pings and compares versions
 4. no socket, or connection refused -> unlink any stale socket, spawn `atomic bus serve`
@@ -344,11 +349,22 @@ Flow: daemon lifecycle
 | Notification cap silently truncates a long message | med | Envelopes over the threshold carry `truncated` and `log`; the full body is always in the room log, and the skill documents how to fetch it. |
 | Daemon spawn fork-bombs the developer's machine under `go test` | **occurred** | `spawnServe` locates the binary with `os.Executable`, which under `go test` is `<pkg>.test` — it ignores the `bus serve` arguments, re-runs the whole suite, and each generation spawns more. Triggered once by a single call site using the package-level `EnsureDaemon` instead of the `recoveryEnsurer` seam. `spawnServe` now refuses to spawn from a test binary (`.test` suffix or `-test.*` in argv), pinned by `spawn_guard_test.go`. The seam remains the mechanism; the guard exists because forgetting it costs a machine, not a test. |
 | `chat` TUI scope creeps into a terminal-emulator rewrite | med | CP6 is last and deliberately minimal — line-oriented redraw, not a full-screen widget tree. Slipping it does not block CP1-5 or the skill. |
-| Session id absent outside Claude Code breaks scripted use | low | `--session` override on `join`, exercised by tests. |
+| Session id absent outside Claude Code and Codex breaks scripted use | low | `--session` override on every identity-resolving verb, exercised by tests. |
 | Unix-only build breaks a release target | none | `.goreleaser.yaml` builds `linux` and `darwin` only — there is no Windows target to break. `syscall.Flock` and `SysProcAttr.Setsid` are used unguarded, matching the existing precedent in `atomic/internal/codeintel/mcp/proxy.go:66,113`. No build tag and no platform stub. |
 
 
 ## Change log
+
+### 2026-11-10 — session identity follows harness detection
+
+**What changed:** `SessionID` reads `CLAUDE_CODE_SESSION_ID` under a strong Claude detection and
+`CODEX_THREAD_ID` under a strong Codex detection; any other detection reports no session identity.
+`--session` still wins, and its help names both variables.
+
+**Why:** Codex sessions had no identity without `--session`
+(`docs/spec/omp-plugin-compatibility.md`, orientation consumers).
+
+**Superseded:** identity came from `CLAUDE_CODE_SESSION_ID` alone, whatever harness was running.
 
 ### 2026-09-08 — hardening for the network gateway: `ProtocolVersion` 4, a daemon-owned roster file, the room-name guard closed
 

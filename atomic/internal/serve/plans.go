@@ -597,6 +597,10 @@ func (a *plansAggregator) build(checkouts []checkoutInfo) ([]planRow, map[string
 	seenBundleSlug := map[string]bool{}
 	for _, c := range checkouts {
 		dispPath, outside := checkoutDisplayPath(a.root, c.path)
+		if _, err := config.RepositoryStateDir(c.path); err != nil {
+			warnings = append(warnings, fmt.Sprintf("plans: skipping bundles in %s: %v", dispPath, err))
+			continue
+		}
 		entries, warns, err := scratchpad.List(config.ScratchpadDir(c.path))
 		warnings = append(warnings, warns...)
 		if err != nil {
@@ -896,6 +900,9 @@ func (a *plansAggregator) fingerprint(checkouts []checkoutInfo) string {
 			}
 		}
 
+		if _, err := config.RepositoryStateDir(c.path); err != nil {
+			continue
+		}
 		scratchpadRoot := config.ScratchpadDir(c.path)
 		_ = filepath.WalkDir(scratchpadRoot, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {

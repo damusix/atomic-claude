@@ -12,7 +12,6 @@ package where
 import (
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
@@ -73,10 +72,8 @@ type Report struct {
 	CodeIndex  realm.Resolution
 }
 
-// Resolve computes the full orientation report for cwd, reading the <wikis>
-// registry from claudeMDPath (conventionally <claudeHome>/CLAUDE.md). An
-// absent CLAUDE.md or <wikis> block is not an error — it resolves to RealmNone;
-// a non-nil error means a genuine I/O failure.
+// Resolve computes the orientation report for cwd from ~/.atomic/wikis.md, else the
+// <wikis> block at claudeMDPath. An absent registry resolves to RealmNone, not an error.
 func Resolve(cwd, claudeMDPath string) (Report, error) {
 	cwd = filepath.Clean(cwd)
 
@@ -146,48 +143,14 @@ func resolveRepoScope(cwd string) RepoScopeReport {
 // resolveRealmScope prefers the nearest scope="realm" marker, falling back to
 // the <wikis> registry.
 func resolveRealmScope(cwd, claudeMDPath string) (RealmScopeReport, error) {
-	if report, ok, err := resolveRealmScopeFromMarker(cwd); err != nil {
-		return RealmScopeReport{}, err
-	} else if ok {
-		return report, nil
-	}
-
-	return resolveRealmScopeFromRegistry(cwd, claudeMDPath)
-}
-
-// resolveRealmScopeFromMarker reports ok=false when no scope="realm" marker
-// exists at or above cwd, leaving the caller to try the <wikis> registry.
-func resolveRealmScopeFromMarker(cwd string) (RealmScopeReport, bool, error) {
-	realmRoot, found := config.FindScopeRoot(cwd, "realm")
-	if !found {
-		return RealmScopeReport{}, false, nil
-	}
-
-	indexPath := filepath.Join(realmRoot, "wiki", "index.md")
-	report, err := classifyRealmPosition(cwd, realmRoot, indexPath, config.ScopeSourceMarker)
-	return report, true, err
-}
-
-// resolveRealmScopeFromRegistry reads realm roots from the <wikis> block —
-// distinct from codeintel/realm's separate code.toml registry.
-func resolveRealmScopeFromRegistry(cwd, claudeMDPath string) (RealmScopeReport, error) {
-	indexPaths, err := wiki.ReadWikiIndexPaths(claudeMDPath)
+	loc, found, err := wiki.FindRealm(cwd, claudeMDPath)
 	if err != nil {
 		return RealmScopeReport{}, err
 	}
-
-	for _, indexPath := range indexPaths {
-		// Realm root is the grandparent of wiki/index.md.
-		realmRoot := filepath.Clean(filepath.Dir(filepath.Dir(indexPath)))
-
-		if !isUnder(cwd, realmRoot) {
-			continue
-		}
-
-		return classifyRealmPosition(cwd, realmRoot, indexPath, config.ScopeSourceRegistry)
+	if !found {
+		return RealmScopeReport{Position: RealmNone, Source: config.ScopeSourceNone}, nil
 	}
-
-	return RealmScopeReport{Position: RealmNone, Source: config.ScopeSourceNone}, nil
+	return classifyRealmPosition(cwd, loc.Root, loc.IndexPath, loc.Source)
 }
 
 // classifyRealmPosition is shared by the marker and registry paths so the two
@@ -205,22 +168,12 @@ func classifyRealmPosition(cwd, realmRoot, indexPath string, source config.Scope
 	}
 	for _, m := range members {
 		memberAbs := filepath.Clean(filepath.Join(realmRoot, m.Path))
-		if isUnder(cwd, memberAbs) {
+		if wiki.IsUnder(cwd, memberAbs) {
 			return RealmScopeReport{Position: RealmMember, RealmRoot: realmRoot, Source: source}, nil
 		}
 	}
 
 	return RealmScopeReport{Position: RealmOrphaned, RealmRoot: realmRoot, Source: source}, nil
-}
-
-// isUnder compares normalized path prefixes; it does not resolve symlinks.
-func isUnder(child, parent string) bool {
-	child = filepath.Clean(child)
-	parent = filepath.Clean(parent)
-	if child == parent {
-		return true
-	}
-	return strings.HasPrefix(child, parent+string(filepath.Separator))
 }
 
 func fileExists(path string) bool {

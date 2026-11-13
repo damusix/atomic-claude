@@ -6,9 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/install"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 )
 
 func resolveClaudeHome() (string, error) {
@@ -105,8 +109,7 @@ func defaultOutputStyleRepair(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	scopeRoot := filepath.Dir(target)
-	wrote, err := hooks.SeedOutputStyle(scopeRoot, target, home)
+	wrote, err := hooks.SeedOutputStyleInDir(target, target, home)
 	if err != nil {
 		return err
 	}
@@ -140,6 +143,47 @@ func applyManifestRepair(out io.Writer) error {
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("make -C atomic bundle: %w", err)
+	}
+	return nil
+}
+
+// convergeStepsFn is a seam so tests can observe lock acquisition by the repair.
+var convergeStepsFn = install.DefaultSteps
+
+// defaultConvergeRepair reuses the install converge planner. AssumeYes carries
+// the consent the doctor loop already obtained per item.
+func defaultConvergeRepair(home string, out io.Writer) error {
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		return fmt.Errorf("read ledger: %w", err)
+	}
+	if len(ledger.Targets) == 0 {
+		fmt.Fprintln(out, "  no enrolled targets to converge")
+		return errNonFixable
+	}
+
+	steps := convergeStepsFn(home)
+	steps.Home = home
+	steps.AssumeYes = true
+	reports, err := steps.Converge(install.ConvergeRequest{Selection: install.Selection{EnrolledOnly: true}})
+	if err != nil {
+		return err
+	}
+	blocked := false
+	for _, report := range reports {
+		switch {
+		case len(report.Blockers) > 0:
+			blocked = true
+			fmt.Fprintf(out, "  %s: %s (%s)\n", report.Target.Key(), report.Status, strings.Join(report.Blockers, "; "))
+		case report.Applied:
+			fmt.Fprintf(out, "  %s: %s applied\n", report.Target.Key(), report.Status)
+		default:
+			fmt.Fprintf(out, "  %s: %s\n", report.Target.Key(), report.Status)
+		}
+	}
+	if blocked {
+		// Matches the install verb: a blocked target is failed convergence.
+		return errNonFixable
 	}
 	return nil
 }

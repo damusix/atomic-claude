@@ -27,9 +27,11 @@ names, or output.
 
 - Resolved bindings (the `<brand>` placeholder = `atomic`):
   - **Commands:** `atomic code <verb>`.
-  - **Data dir:** `<projectRoot>/.claude/.atomic-index/` (gitignored, created by
-    `atomic setup` / first `atomic code index`).
-  - **SQLite file:** `<projectRoot>/.claude/.atomic-index/atomic.db`.
+  - **Data dir:** `<state-root>/.atomic-index/`, where the state root is the
+    repository state directory (`.atomic` by default; `atomic where --json`
+    prints it as `state_root`). Gitignored, created by the first
+    `atomic code index`.
+  - **SQLite file:** `<state-root>/.atomic-index/atomic.db`.
   - **MCP tool prefix:** `atomic_code_*` (e.g. `atomic_code_explore`,
     `atomic_code_search`).
 - The reference repo is a **read-only design anchor**. Port its *behavior*, never
@@ -56,10 +58,10 @@ on idiomatic Go runtime.
 - **Package home:** all engine code under `atomic/internal/codeintel/<pkg>`; the
   reference `context` package is renamed `codectx` (stdlib collision). The
   embedded `ts.wasm` blob lives in `internal/codeintel/grammars`.
-- **DB path (repo scope):** `<projectRoot>/.claude/.atomic-index/atomic.db`.
+- **DB path (repo scope):** `<state-root>/.atomic-index/atomic.db`.
   Project root via `internal/repoctx` / `repoOverride`. This is the canonical
   single-repo path — `engine.New(projectRoot)` and `engine.IndexPath(projectRoot)`
-  both derive it from these two constants, unchanged.
+  both derive it from `config.IndexDBPath(projectRoot)`.
 - **DB path (explicit, internal only):** `engine.NewWithDBPath(projectRoot, dbPath)`
   accepts an absolute `dbPath` independent of `projectRoot`. The scan root stays
   `projectRoot`; the SQLite file lands at `dbPath`. No user-facing `--db` flag
@@ -67,8 +69,13 @@ on idiomatic Go runtime.
   (CP3 of `docs/spec/code-intel-realm.md`). No meta row recording the source root
   is written into the DB. `engine.IndexPath(projectRoot)` is a pure function of
   the repo-scope path and is byte-for-byte unchanged.
-- **Setup:** `atomic setup` adds `.claude/.atomic-index/` to `.gitignore`; it
-  does not auto-index.
+- **Setup:** `atomic code index` appends the index directory, relative to the
+  repository, to the root `.gitignore` (`EnsureGitignore`; none when the state
+  root is outside the repository, or when a `.gitignore` inside the repository
+  already ignores the index, as the state root's own rule does after repo
+  init; a personal excludes file does not count). `atomic repo init` writes `/.atomic-index/`
+  into the state root's own `.gitignore` when the state root is inside the
+  repository, and does not auto-index.
 - **Deps (go.mod):** `modernc.org/sqlite`, `github.com/tetratelabs/wazero`, the
   tree-sitter wasm binding (forked to rebuild `ts.wasm` with all 19 grammars),
   `github.com/modelcontextprotocol/go-sdk`. `go mod tidy`; keep `CGO_ENABLED=0`.
@@ -593,7 +600,7 @@ over `GetFileDependents` from changed files to impacted test files (default dept
 indexPath, lastIndexed` (ISO8601), file/node/edge counts, backend, journal mode,
 nodes-by-kind, pending changes — the **stale-graph visibility** property that
 substitutes for v1's missing watcher. DB path:
-`<projectRoot>/.claude/.atomic-index/atomic.db`.
+`<state-root>/.atomic-index/atomic.db`.
 
 ### O. Connection pragmas (COPY order; single connection) — `src/db/index.ts:30`
 
@@ -827,3 +834,31 @@ the same pass rather than leaving the drift for a future reader to trip over.
 
 **Superseded:** the prior 31-entry list (`file` … `policy`), stale since the
 CP4 entry above.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The data dir, the SQLite file, and the repo-scope DB path now
+read `<state-root>/.atomic-index/` and `<state-root>/.atomic-index/atomic.db`,
+with the state root `.atomic` by default. The DB path derives from
+`config.IndexDBPath`. The setup line names what the code does:
+`atomic code index` appends the index dir to the root `.gitignore`, and
+`atomic repo init` writes `/.atomic-index/` into the state root's `.gitignore`.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the
+`.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the index lived at `<projectRoot>/.claude/.atomic-index/`,
+ignored by a non-existent `atomic setup` verb.
+
+### 2026-11-12 — No root ignore line when a repository .gitignore covers the index
+
+**What changed:** `atomic code index` skips the root `.gitignore` append when
+`git check-ignore` reports the index directory ignored by a `.gitignore`
+inside the repository. `core.excludesFile` and `.git/info/exclude` are
+personal and still get the repository rule.
+
+**Why:** after `atomic repo init` the state root's own `.gitignore` covers the
+index, and every fresh index added a redundant root line.
+
+**Superseded:** the append ran whenever the state root was inside the
+repository.

@@ -39,7 +39,7 @@ Rename four artifacts to clearer names. Each rename is one coherent pass: the ar
 
 - `docs/spec/**` files touched during the sweep: update only current-truth body references; `## Change log` AND `## Implementation log` sections are history and must not be rewritten (rule `rules/specs/spec-currency.md`; implementation logs narrate what specific commits did — rewriting them contradicts `git show`).
 - Never hand-edit `docs/wiki/*.md` — the signals refresh regenerates them after the loop.
-- Old names may legitimately survive in: spec change-log entries, `CHANGELOG.md`, `docs/research/`, `docs/wiki/` (until signals refresh), and `.claude/project/followups/` closed history. Everywhere else, zero occurrences.
+- Old names may legitimately survive in: spec change-log entries, `CHANGELOG.md`, `docs/research/`, `docs/wiki/` (until signals refresh), and `<state-root>/project/followups/` (`.atomic/project/followups/` by default) closed history. Everywhere else, zero occurrences.
 - Commit messages: Conventional Commits per the commit-message skill. The branch squashes to one `fix!:` commit at ship (renames of user-touchable commands/skills are breaking; release-please filters `refactor:`).
 - No AI bylines anywhere.
 
@@ -116,6 +116,14 @@ Pre-squash iteration trail (branch `feat/artifact-renames`, base `origin/next` @
 - CP5 gates: render drift 0, bundle drift 0, `go test ./...` 50 pkgs ok, vet/gofmt clean, `atomic validate` 0 FAIL, help-router MISSING-scan zero, old-name grep survivors all documented-legitimate.
 
 ## Change log
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The list of places old names may survive names follow-up history at `<state-root>/project/followups/` (`.atomic/project/followups/` by default).
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** follow-up history was located at `.claude/project/followups/`.
 
 ### 2026-07-09 — CP4 run-log path compat break (noted)
 

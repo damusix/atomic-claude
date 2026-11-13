@@ -6,10 +6,12 @@
 package serve
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
@@ -142,14 +144,25 @@ func realmCodeMembers(res realm.Resolution, realmRoot, wikiIndexPath string) []c
 	return out
 }
 
+// refusedMembers holds member roots already warned about; members resolve on
+// every request.
+var refusedMembers sync.Map
+
 // memberDB prefers the federation db, then the member's self-index, then fedDB
 // verbatim — which may be empty or nonexistent, and the caller reports that.
+// A member whose state root refuses has no self-index.
 func memberDB(realmRoot, memberRelPath, fedDB string) string {
 	if fedDB != "" && fileExists(fedDB) {
 		return fedDB
 	}
-	self := config.IndexDBPath(filepath.Join(realmRoot, memberRelPath))
-	if fileExists(self) {
+	root := filepath.Join(realmRoot, memberRelPath)
+	if _, err := config.RepositoryStateDir(root); err != nil {
+		if _, warned := refusedMembers.LoadOrStore(root, true); !warned {
+			fmt.Fprintf(os.Stderr, "atomic serve: skipping the code index of %s: %v\n", root, err)
+		}
+		return fedDB
+	}
+	if self := config.IndexDBPath(root); fileExists(self) {
 		return self
 	}
 	return fedDB

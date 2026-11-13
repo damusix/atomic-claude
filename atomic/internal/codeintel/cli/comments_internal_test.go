@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 func noStdinComments() io.Reader { return strings.NewReader("") }
@@ -244,7 +246,7 @@ func TestRunComments_ExitCode1_OverMax(t *testing.T) {
 	runGitComments(t, dir, "add", ".")
 	runGitComments(t, dir, "commit", "-m", "init")
 
-	writeFileComments(t, filepath.Join(dir, ".claude", "atomic.toml"), "[comments]\nmax_lines = 1\n")
+	writeFileComments(t, config.RepoConfigPath(dir), "[comments]\nmax_lines = 1\n")
 
 	writeFileComments(t, filepath.Join(dir, "main.go"), "package main\n\n// line one\n// line two\nfunc main() {}\n")
 

@@ -237,7 +237,7 @@ func TestResolve_Composite_RealmMemberWithOwnRepoScopeWiki(t *testing.T) {
 func TestResolve_CodeIndexScope_PassThroughUnmodified(t *testing.T) {
 	root := t.TempDir()
 	mkGitMarker(t, root)
-	dbDir := filepath.Join(root, ".claude", ".atomic-index")
+	dbDir := config.IndexDir(root)
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestFormatJSON_CarriesSameInformationAsHuman(t *testing.T) {
 
 // A marker nested inside a git repo outranks the (higher-up) git root.
 func TestResolveRepoRoot_MarkerWinsOverGit(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	gitRoot := t.TempDir()
@@ -327,7 +327,7 @@ func TestResolveRepoRoot_MarkerWinsOverGit(t *testing.T) {
 }
 
 func TestResolveRepoRoot_GitFallback_NoMarker(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -350,7 +350,7 @@ func TestResolveRepoRoot_GitFallback_NoMarker(t *testing.T) {
 }
 
 func TestResolveRepoRoot_CwdFallback_NoMarkerNoGit(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	dir := t.TempDir()
@@ -369,7 +369,7 @@ func TestResolveRepoRoot_CwdFallback_NoMarkerNoGit(t *testing.T) {
 
 // A worktree's ".git" file must resolve the same as a ".git" directory.
 func TestResolveRepoRoot_GitFileMarker_WorktreeStyle(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -393,7 +393,7 @@ func TestResolveRepoRoot_GitFileMarker_WorktreeStyle(t *testing.T) {
 
 // A marker resolves realm root with no <wikis> registration at all.
 func TestResolveRealmScope_MarkerRoot_NoWikisEntry(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	realmRoot := t.TempDir()
@@ -417,7 +417,7 @@ func TestResolveRealmScope_MarkerRoot_NoWikisEntry(t *testing.T) {
 }
 
 func TestResolveRealmScope_MarkerMember(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	realmRoot := t.TempDir()
@@ -446,7 +446,7 @@ func TestResolveRealmScope_MarkerMember(t *testing.T) {
 // A realm marked before its first /refresh-wiki has no wiki/index.md yet and
 // must degrade to orphaned rather than erroring.
 func TestResolveRealmScope_MarkerOrphaned_NoWikiIndexYet(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	realmRoot := t.TempDir()
@@ -492,7 +492,7 @@ func TestResolveRealmScope_RegistryFallback_SourceRegistry(t *testing.T) {
 }
 
 func TestResolveRealmScope_NoRealm_SourceNone(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -513,7 +513,7 @@ func TestResolveRealmScope_NoRealm_SourceNone(t *testing.T) {
 // Marker and registry resolution share classifyRealmPosition so they can never
 // classify the same directory differently. Fails if one path is special-cased.
 func TestRealmPositionClassification_MarkerAndRegistry_Agree(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	realmRoot := t.TempDir()
@@ -575,7 +575,7 @@ func TestRealmPositionClassification_MarkerAndRegistry_Agree(t *testing.T) {
 }
 
 func TestFormatHuman_RepoRootLine(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -596,7 +596,7 @@ func TestFormatHuman_RepoRootLine(t *testing.T) {
 }
 
 func TestFormatJSON_RepoRootFields(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	root := t.TempDir()
@@ -638,7 +638,7 @@ func TestFormatHuman_RegistryHint(t *testing.T) {
 		t.Errorf("expected registry-backfill hint naming `atomic wiki init --scope realm`, got:\n%s", registryHuman)
 	}
 
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 	markerRoot := t.TempDir()
 	if _, err := config.EnsureScopeMarker(markerRoot, "realm"); err != nil {

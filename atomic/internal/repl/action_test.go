@@ -947,7 +947,7 @@ func writeUserReplConfig(t *testing.T, home, content string) {
 
 // Neither config carries [repl] idle_timeout — falls back to DefaultIdleTimeout.
 func TestResolveIdleTimeout_BothAbsentDefaultsToOneHour(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	home := shortTempDir(t)
@@ -960,7 +960,7 @@ func TestResolveIdleTimeout_BothAbsentDefaultsToOneHour(t *testing.T) {
 
 // The user-level idle_timeout applies when the repo config has none.
 func TestResolveIdleTimeout_UserAppliesWhenRepoAbsent(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	home := shortTempDir(t)
@@ -975,7 +975,7 @@ func TestResolveIdleTimeout_UserAppliesWhenRepoAbsent(t *testing.T) {
 
 // A repo-level idle_timeout takes precedence over a user-level one.
 func TestResolveIdleTimeout_RepoWinsOverUser(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	home := shortTempDir(t)
@@ -992,7 +992,7 @@ func TestResolveIdleTimeout_RepoWinsOverUser(t *testing.T) {
 // A malformed repo idle_timeout is skipped in favor of a valid user-level one
 // rather than blocking session start — doctor is what surfaces the bad value.
 func TestResolveIdleTimeout_InvalidRepoFallsThroughToUser(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	home := shortTempDir(t)
@@ -1008,7 +1008,7 @@ func TestResolveIdleTimeout_InvalidRepoFallsThroughToUser(t *testing.T) {
 
 // Malformed or non-positive values at both scopes fall through to the default.
 func TestResolveIdleTimeout_InvalidBothFallsThroughToDefault(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	home := shortTempDir(t)
@@ -1027,7 +1027,7 @@ func TestResolveIdleTimeout_InvalidBothFallsThroughToDefault(t *testing.T) {
 // warning leaves a mistyped idle_timeout in effect indefinitely with nothing but
 // `atomic doctor` to reveal it. The run proceeds; the use site says so out loud.
 func TestStartAction_InvalidIdleTimeoutWarnsNamingFileAndValue(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	home := shortTempDir(t)
@@ -1059,7 +1059,7 @@ func TestStartAction_InvalidIdleTimeoutWarnsNamingFileAndValue(t *testing.T) {
 // Repo and user configs each carrying a bad value produce one line each — an
 // agent reading stderr has to be able to tell which file to fix.
 func TestStartAction_InvalidIdleTimeoutWarnsOncePerScope(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	home := shortTempDir(t)
@@ -1090,7 +1090,7 @@ func TestStartAction_InvalidIdleTimeoutWarnsOncePerScope(t *testing.T) {
 // The warning is a diagnostic, not a running commentary: a well-formed config
 // says nothing.
 func TestStartAction_ValidIdleTimeoutIsSilent(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	home := shortTempDir(t)
@@ -1114,7 +1114,7 @@ func TestStartAction_ValidIdleTimeoutIsSilent(t *testing.T) {
 // on every eval would put it in front of the code's own output, which is where
 // an agent reads results — start is the one place it is actionable.
 func TestEvalAction_InvalidIdleTimeoutIsSilent(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 
 	home := shortTempDir(t)

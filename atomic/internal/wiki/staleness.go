@@ -23,18 +23,21 @@ func ReadWikiIndexPaths(claudeMDPath string) ([]string, error) {
 	if blockStart == -1 {
 		return nil, nil
 	}
+	return blockEntries(blockContent), nil
+}
 
+// blockEntries returns the "- <path>" entries of a <wikis> block body as
+// written, skipping every other line.
+func blockEntries(blockContent string) []string {
 	var paths []string
 	for _, line := range strings.Split(blockContent, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || !strings.HasPrefix(line, "- ") {
+		if !strings.HasPrefix(line, "- ") {
 			continue
 		}
-		p := strings.TrimPrefix(line, "- ")
-		p = strings.TrimSpace(p)
-		if p != "" {
+		if p := strings.TrimSpace(strings.TrimPrefix(line, "- ")); p != "" {
 			paths = append(paths, p)
 		}
 	}
-	return paths, nil
+	return paths
 }

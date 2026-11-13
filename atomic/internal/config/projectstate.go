@@ -10,7 +10,7 @@ import (
 )
 
 // projectHomeOverride bypasses os.UserHomeDir for tests, mirroring
-// harnessDirOverride's seam.
+// stateDirOverride's seam.
 var projectHomeOverride *string
 
 // SetHomeDirForTest overrides the home directory used to derive
@@ -19,7 +19,48 @@ var projectHomeOverride *string
 func SetHomeDirForTest(dir string) func() {
 	prev := projectHomeOverride
 	projectHomeOverride = &dir
-	return func() { projectHomeOverride = prev }
+	resetStateResolutionCacheForTest()
+	return func() {
+		projectHomeOverride = prev
+		resetStateResolutionCacheForTest()
+	}
+}
+
+// IsolateHomeForTest gives TestMain a temp HOME and project home and unsets
+// StateDirEnvVar, keeping tests off the user's state; the returned func undoes it.
+func IsolateHomeForTest() func() {
+	home, err := os.MkdirTemp("", "atomic-test-home-")
+	if err != nil {
+		panic(err)
+	}
+	restoreHome := setEnvForTest("HOME", home, true)
+	restoreState := setEnvForTest(StateDirEnvVar, "", false)
+	restore := SetHomeDirForTest(home)
+	return func() {
+		restore()
+		restoreState()
+		restoreHome()
+		os.RemoveAll(home)
+	}
+}
+
+// setEnvForTest sets name to value, or unsets it when set is false, and returns
+// a func that puts back the prior value or absence.
+func setEnvForTest(name, value string, set bool) func() {
+	prev, had := os.LookupEnv(name)
+	apply := func(v string, ok bool) {
+		var err error
+		if ok {
+			err = os.Setenv(name, v)
+		} else {
+			err = os.Unsetenv(name)
+		}
+		if err != nil {
+			panic(err)
+		}
+	}
+	apply(value, set)
+	return func() { apply(prev, had) }
 }
 
 func projectHome() string {
@@ -136,6 +177,17 @@ func parseGitdirLine(content string) string {
 	return ""
 }
 
+// ProjectKey identifies repoRoot's clone across its worktrees.
+func ProjectKey(repoRoot string) string {
+	return projectKey(repoRoot)
+}
+
+// ProjectHome is the home directory project-keyed state and the install
+// ledger live under, honoring SetHomeDirForTest.
+func ProjectHome() string {
+	return projectHome()
+}
+
 // projectKey flattens mainCheckoutRoot's absolute path into a single path
 // segment safe to use as a directory name under ~/.atomic/.
 func projectKey(repoRoot string) string {
@@ -194,18 +246,6 @@ func ReportsDirLegacy(repoRoot, branch string) string {
 // project-keyed and legacy report paths flatten it identically.
 func branchSegment(branch string) string {
 	return strings.ReplaceAll(branch, "/", "-")
-}
-
-// ProjectRemindersDir returns the project-keyed reminders directory.
-// harness.go's RemindersDir delegates to this.
-func ProjectRemindersDir(repoRoot string) string {
-	return filepath.Join(ProjectStateDir(repoRoot), "reminders")
-}
-
-// RemindersDirLegacy returns the pre-relocation reminders path — harness.go's
-// RemindersDir body before it delegated here.
-func RemindersDirLegacy(repoRoot string) string {
-	return filepath.Join(ScratchpadDir(repoRoot), "reminders")
 }
 
 // ArchiveDir returns the project-keyed archive destination for a slug's bundle

@@ -106,7 +106,8 @@ func printCodeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  mcp       Run the MCP server over stdio (--daemon runs the auto-started server itself)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "All query verbs accept --json for machine-readable output.")
-	fmt.Fprintln(w, "DB path: "+config.IndexDBPath("<project>"))
+	fmt.Fprintln(w, "DB path: <state-root>/.atomic-index/atomic.db")
+	fmt.Fprintln(w, "Realm scope: <realm-state-root>/code.toml and <key>.db; a legacy <realm>/.atomic/ is still read.")
 }
 
 func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -870,40 +871,33 @@ func printSubgraph(sg types.Subgraph, asJSON bool, stdout, stderr io.Writer) int
 	return 0
 }
 
-// EnsureGitignore is idempotent: repeated runs leave exactly one entry.
+// EnsureGitignore is idempotent: repeated runs leave exactly one entry. An
+// index outside the repository, or one a .gitignore inside the repository
+// already covers, gets none.
 func EnsureGitignore(projectRoot string) error {
-	gitignorePath := filepath.Join(projectRoot, ".gitignore")
-	entry := filepath.ToSlash(config.IndexDir("")) + "/"
-
-	var existing string
-	data, err := os.ReadFile(gitignorePath)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("EnsureGitignore: read: %w", err)
+	rel, inside := config.RepoRelative(projectRoot, config.IndexDir(projectRoot))
+	if !inside {
+		return nil
 	}
-	existing = string(data)
-
-	for _, line := range strings.Split(existing, "\n") {
-		if strings.TrimSpace(line) == entry {
-			return nil // already present
-		}
+	rel = filepath.ToSlash(rel)
+	if ignoredByRepoGitignore(projectRoot, rel+"/"+config.IndexDBName) {
+		return nil
 	}
+	return config.AppendIgnoreRule(filepath.Join(projectRoot, ".gitignore"), rel+"/")
+}
 
-	// A file not ending in a newline needs one, or the entry joins the last line.
-	toAppend := entry + "\n"
-	if len(existing) > 0 && !strings.HasSuffix(existing, "\n") {
-		toAppend = "\n" + toAppend
+// ignoredByRepoGitignore does not count core.excludesFile or .git/info/exclude,
+// which are personal. path need not exist: check-ignore matches patterns only.
+func ignoredByRepoGitignore(repo, path string) bool {
+	source, ok, err := config.GitIgnoreSource(repo, path)
+	if err != nil || !ok || filepath.Base(source) != ".gitignore" {
+		return false
 	}
-
-	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("EnsureGitignore: open: %w", err)
+	if !filepath.IsAbs(source) {
+		return true
 	}
-	defer f.Close()
-
-	if _, err := f.WriteString(toAppend); err != nil {
-		return fmt.Errorf("EnsureGitignore: write: %w", err)
-	}
-	return nil
+	_, inside := config.RepoRelative(repo, source)
+	return inside
 }
 
 // runMCP is the proxy by default, and the daemon itself under --daemon, which

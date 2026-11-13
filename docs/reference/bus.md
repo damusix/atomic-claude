@@ -66,8 +66,10 @@ The name comes from where the session is running, not from `--as` alone: `<realm
 The second command is the one that makes messages arrive on their own. `recv` streams an envelope per line, so a `Monitor` on it turns each line into a prompt:
 
 ```
-Monitor(command: "atomic bus recv checkout", persistent: true)
+Monitor(command: "atomic bus recv checkout", timeout_ms: 1800000)
 ```
+
+Claude Code caps a watch at 30 minutes, so the session starts the listener again when the expiry notice arrives.
 
 Without that, a session can send but never hears anything back. It has to be asked to check.
 
@@ -200,7 +202,7 @@ Every message on the wire, and every line in a room's log, is one JSON envelope:
 A message is a summary plus a pointer, not a transport for bulk text. An investigation writeup, everything an agent tried and how each attempt failed, a proposed contract, or a long trace all belong in a markdown file. The message points at it instead:
 
 ```bash
-atomic bus send auth-fix "can't get auth working; the documented contract is wrong. All 7 attempts and how each failed: /Users/me/proj/.claude/.scratchpad/auth-probe.md" --to be
+atomic bus send auth-fix "can't get auth working; the documented contract is wrong. All 7 attempts and how each failed: /Users/me/proj/.atomic/.scratchpad/auth-probe.md" --to be
 ```
 
 The path must be **absolute**. Members run in different repos, so a relative one resolves against the receiver's cwd and silently reads the wrong file or none. Everything on the bus runs as the same user, so any readable path works.

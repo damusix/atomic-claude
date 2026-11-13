@@ -15,7 +15,7 @@ import (
 // raw document content.
 func makeFollowupsFolder(t *testing.T, root string, entries map[string]string) {
 	t.Helper()
-	dir := filepath.Join(root, ".claude", "project", "followups")
+	dir := config.FollowupsDir(root)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdirall: %v", err)
 	}
@@ -29,7 +29,7 @@ func makeFollowupsFolder(t *testing.T, root string, entries map[string]string) {
 // writeIndex writes an INDEX.md file into the followups folder.
 func writeIndex(t *testing.T, root, content string) {
 	t.Helper()
-	dir := filepath.Join(root, ".claude", "project", "followups")
+	dir := config.FollowupsDir(root)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdirall: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestCheckFollowupsWarn_StaleEntry(t *testing.T) {
 		"stale-F-1.md": staleEntry("stale-F-1", "A stale entry"),
 	})
 	// Matching INDEX, so index drift does not fire alongside staleness.
-	dir := filepath.Join(root, ".claude", "project", "followups")
+	dir := config.FollowupsDir(root)
 	entries, _, _ := followups.LoadEntriesWithErrors(dir)
 	idx := followups.Render(entries, time.Now())
 	writeIndex(t, root, idx)
@@ -124,7 +124,7 @@ func TestCheckFollowupsPass_FreshAndInSync(t *testing.T) {
 		"fresh-F-1.md": freshEntry("fresh-F-1", "A fresh entry"),
 		"fresh-F-2.md": freshEntry("fresh-F-2", "Another fresh entry"),
 	})
-	dir := filepath.Join(root, ".claude", "project", "followups")
+	dir := config.FollowupsDir(root)
 	entries, _, _ := followups.LoadEntriesWithErrors(dir)
 	today := time.Now()
 	idx := followups.Render(entries, today)
@@ -136,13 +136,13 @@ func TestCheckFollowupsPass_FreshAndInSync(t *testing.T) {
 	}
 }
 
-// Under a ".pi" harness dir, followups live at .pi/project/followups.
-func TestCheckFollowups_UnderNonDefaultHarnessDir(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
+func TestCheckFollowups_UnderNonDefaultStateDir(t *testing.T) {
+	root := t.TempDir()
+	unpinnedState := config.ProjectDir(root)
+	restore := config.SetStateDirForTest(".state")
 	defer restore()
 
-	root := t.TempDir()
-	dir := filepath.Join(root, ".pi", "project", "followups")
+	dir := filepath.Join(root, ".state", "project", "followups")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdirall: %v", err)
 	}
@@ -157,13 +157,13 @@ func TestCheckFollowups_UnderNonDefaultHarnessDir(t *testing.T) {
 
 	r := doctor.RunCheckFollowupsWith(root)
 	if r.Severity != doctor.PASS {
-		t.Errorf("severity = %v, want PASS under .pi harness (detail: %s)", r.Severity, r.Detail)
+		t.Errorf("severity = %v, want PASS under a pinned state dir (detail: %s)", r.Severity, r.Detail)
 	}
 
-	// No .claude tree exists, so a check that still hardcoded ".claude" would
+	// The unpinned state tree is absent, so a check ignoring the pin would
 	// have reported SKIP above.
-	if _, err := os.Stat(filepath.Join(root, ".claude")); !os.IsNotExist(err) {
-		t.Fatalf("test setup error: .claude should not exist, stat err=%v", err)
+	if _, err := os.Stat(unpinnedState); !os.IsNotExist(err) {
+		t.Fatalf("test setup error: %s should not exist, stat err=%v", unpinnedState, err)
 	}
 }
 

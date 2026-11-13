@@ -4,21 +4,21 @@
 ## Goal
 
 
-Decouple CLI-managed paths from Claude Code conventions (GitHub issue #150). Per-user state moves from `~/.claude/.atomic/` to `~/.atomic/` with an automatic, idempotent first-run migration (rename + compat symlink). Repo-local state paths (`.scratchpad/`, `project/`, `.atomic-index/`, `atomic.toml`, `worktrees/`) resolve through a single new config key `harness.dir` (string, default `.claude`), so `atomic config set harness.dir .pi` makes every repo verb operate on `.pi/...` instead of `.claude/...`.
+Decouple CLI-managed paths from Claude Code conventions (GitHub issue #150). Per-user state moves from `~/.claude/.atomic/` to `~/.atomic/` with an automatic, idempotent first-run migration (rename + compat symlink). Repo-local state paths (`.scratchpad/`, `project/`, `.atomic-index/`, `atomic.toml`, `rules/wiki/`, `workflow-preferences.md`) resolve through the harness-neutral state-location ladder in `docs/spec/atomic-state-and-config.md` (process-only `ATOMIC_STATE_DIR`, the persisted per-clone selection, a populated state folder, user `state.dir`, built-in `.atomic`), so one repo resolves the same root whichever harness runs it. Linked worktrees follow `config.WorktreeDir` instead: a `worktrees` preference path or `off`, else `.claude/worktrees` on Claude and `<state-root>/worktrees` on other harnesses. `harness.dir` is retired: a stored copy loads silently and is dropped on the next config write, and `atomic config set` refuses it as an unknown key.
 
 
 ## Approach
 
 
-Chosen approach: re-point the existing `internal/config` path helpers and add repo-local sibling helpers behind one process-cached harness-dir resolver; see `docs/design/configurable-state-paths.md`.
+Chosen approach: re-point the existing `internal/config` path helpers and add repo-local sibling helpers over the resolved state location; see `docs/design/configurable-state-paths.md`.
 
 
 ## Non-goals
 
 
 - No configurable user-state root: `~/.atomic` is fixed (config.toml lives inside it — bootstrap cycle).
-- No env-var override of the user-state root (`ATOMIC_STATE_DIR`) — `~/.atomic` stays fixed. `harness.dir` resolution does read env (see Outline) — that non-goal is scoped to the state root only.
-- No per-repo `harness.dir` override; the key is user-level only.
+- No env-var override of the user-state root — `~/.atomic` stays fixed. `ATOMIC_STATE_DIR` selects only the repo-local state root, never `~/.atomic`.
+- No process-fingerprint or environment-variable selection of a harness for state paths; the ladder never consults one.
 - No changes to Claude-specific integration paths: `~/.claude` install target, `.claude/settings.json` hooks path, claude-merge `~/.claude/CLAUDE.md` targets.
 - No rewrite of legacy-migration literals (`internal/migrate/steps.go` legacy signals paths, wiki legacy-signals check, `main.go` member legacy check) — they describe historical layouts and must keep matching them.
 - No sweep of `.claude/...` mentions in artifact prose (commands/agents/skills instructions) — Claude-harness content, out of scope per the issue. Only strings naming the user state dir (`~/.claude/.atomic/...`) are swept.
@@ -32,9 +32,9 @@ Chosen approach: re-point the existing `internal/config` path helpers and add re
 - [ ] Fresh machine: any `atomic` verb creates and uses `~/.atomic/`; nothing ever writes `~/.claude/.atomic/`.
 - [ ] Machine with a legacy `~/.claude/.atomic/`: the first invocation of any verb renames it to `~/.atomic/` and leaves `~/.claude/.atomic` as a symlink to `~/.atomic`; a second invocation is a no-op; old `@~/.claude/.atomic/...` refs in installed CLAUDE.md files still resolve through the symlink.
 - [ ] Migration failure (e.g. cross-device rename falls back to copy; permission error) emits one stderr warning and the invoked verb still runs; nothing panics or exits non-zero because of migration alone.
-- [ ] `atomic config set harness.dir .pi` validates and persists; `get`/`list`/`unset` work; invalid values (`foo/bar`, `.`, `..`, empty) are rejected with the standard typo-suggesting error shape.
-- [ ] With `harness.dir = .pi`: `atomic repo init` scaffolds `.pi/.scratchpad`, `.pi/project`, writes the nested `.pi/.gitignore`, and ensures `.pi/.atomic-index/` and `.pi/worktrees/` are ignored; `atomic followups` reads/writes `.pi/project/followups/`; `atomic code index` writes `<root>/.pi/.atomic-index/atomic.db` and the MCP daemon + realm resolver agree; reminders live under the project-keyed `~/.atomic/<project-key>/reminders/` (harness-independent — `harness.dir` no longer factors into the reminders path; see `docs/spec/serve-plans-page.md`), with the legacy `.pi/.scratchpad/reminders` directory still read until migrated; the repo config loads from `.pi/atomic.toml`; the signals tree skips `.pi/.scratchpad/` and `.pi/project/`.
-- [ ] Default behavior (`harness.dir` unset) is byte-identical to today: all repo-local paths resolve under `.claude/`.
+- [ ] `state.dir` accepts a repository-relative path of safe segments, such as `.config/atomic`, and rejects an absolute path, `.`, `..`, and an empty segment with the standard typo-suggesting error shape; `atomic config set` refuses the retired `harness.dir` key as an unknown key, and a stored copy of that key or of the retired `pi` table loads silently, changes no resolution, and is dropped on the next write.
+- [ ] With a state root `<dir>` chosen by the ladder: `atomic repo init` scaffolds `<dir>/.scratchpad` and `<dir>/project`, writes the nested `<dir>/.gitignore` when `<dir>` is inside the repository, and ensures `<dir>/.scratchpad/`, `<dir>/.atomic-index/`, `<dir>/project/doc-surfaces.md`, and `<dir>/worktrees/` are ignored (plus `.claude/worktrees/` through `.claude/.gitignore` when Claude is enrolled or `.claude` exists); `atomic followups` reads and writes `<dir>/project/followups/`; `atomic code index` writes `<root>/<dir>/.atomic-index/atomic.db` and the MCP daemon and realm resolver agree; the repo config loads from `<dir>/atomic.toml`; the repo-level workflow preferences load from `<dir>/workflow-preferences.md` (the profile level is the `## Workflow preferences` block in `~/.atomic/profile.md`; contract: `docs/spec/workflow-preferences.md`); the signals tree skips `<dir>/.scratchpad/` and `<dir>/project/`.
+- [ ] Default behavior (no selection record, no populated legacy folder, no `state.dir`): all repo-local paths resolve under `.atomic/`. A repository whose only populated state folder is legacy `.claude` resolves there in place until `atomic state migrate` moves it.
 - [ ] Bundled `CLAUDE.md` carries `@~/.atomic/config.resolved.md` and `@~/.atomic/profile.md`; `atomic doctor` WARNs (with an `atomic claude install` hint) when the installed CLAUDE.md still carries the legacy refs.
 - [ ] `atomic doctor` migrate category flags an unmigrated or half-migrated legacy state dir (real `~/.claude/.atomic` dir still present).
 - [ ] Grep gate: no string emitted to users or embedded in the bundle references `~/.claude/.atomic`. Repo-wide, remaining mentions live only in: legacy-migration code and its tests, doctor legacy-detection literals and their tests, spec change-log/implementation-log sections, design-doc and research-note bodies of previously shipped features (point-in-time records — each affected design doc carries a one-line status banner pointing at this feature), `CHANGELOG.md`, machine-generated `docs/wiki/**` (self-heals on the signals refresh), and this feature's own spec/design.
@@ -48,11 +48,12 @@ Chosen approach: re-point the existing `internal/config` path helpers and add re
 M atomic/internal/config/paths.go                — Dir(home) → <home>/.atomic; claudeHome param renamed home; ProfileRelPath drops the .atomic/ prefix logic to match
 A atomic/internal/config/statemigrate.go         — MigrateUserState(home): rename + symlink, copy fallback, idempotent
 A atomic/internal/config/statemigrate_test.go    — fresh / legacy / migrated / conflict / failure cases
-A atomic/internal/config/harness.go              — harnessDir() sync.Once resolver + repo-local path helpers + test seam
-A atomic/internal/config/harness_test.go         — default, .pi override, lenient load fallback
-M atomic/internal/config/config.go               — schema: harness.dir (validate strict on set, lenient on load)
-M atomic/internal/config/render.go               — config.resolved.md renderer includes harness.dir
-M atomic/internal/config/repo.go                 — RepoConfigRelPath derives from harness dir (RepoConfigPath(root) helper)
+A atomic/internal/config/harness.go              — repo-local path helpers over the resolved state location + test seam
+A atomic/internal/config/harness_test.go         — default and override roots, lenient load fallback
+A atomic/internal/config/harness_retired_test.go — retired keys and variables change no resolution
+M atomic/internal/config/config.go               — schema: state.dir (strict on set, lenient on load); retired tables load silently and drop on write
+M atomic/internal/config/render.go               — config.resolved.md renderer lists state.dir
+M atomic/internal/config/repo.go                 — RepoConfigRelPath derives from the state root (RepoConfigPath(root) helper)
 M atomic/cmd/atomic/main.go                      — early MigrateUserState call; config.* callers pass home (not home/.claude); runMigrateInstall splits its single claudeHome param into a config root (home) and an install root (home/.claude — migrate.Context.Root keeps its ~/.claude install-scope semantics); ~/.claude/.atomic help-text sweep
 M atomic/internal/signals/signals.go             — resolveConfigPath passes home (not home/.claude) to config.TOMLPath
 M atomic/internal/profile/refresh.go             — Refresh/RefreshIfStale resolve profile.md under the state root (home param, not home/.claude)
@@ -65,21 +66,20 @@ M atomic/internal/doctor/checks_profile.go       — ProfileRef → @~/.atomic/p
 M atomic/internal/doctor/checks_followups.go     — path via config.FollowupsDir
 M atomic/internal/doctor/checks_migrate.go       — new row: legacy real ~/.claude/.atomic dir present → WARN
 M atomic/internal/doctor/checks_config.go        — state-dir paths via updated helpers
-M atomic/internal/doctor/checks_repo_config.go   — Detail strings derive from the harness-aware repo-config path (no hardcoded display literal)
-M atomic/internal/reminder/reminder.go           — remindersRelPath → config.RemindersDir(root)
+M atomic/internal/doctor/checks_repo_config.go   — Detail strings derive from the state-root-aware repo-config path (no hardcoded display literal)
 M atomic/internal/followups/cli.go               — followupsFolder → config.FollowupsDir(root)
 M atomic/internal/codeintel/engine/engine.go     — indexSubDir → config.IndexDir/IndexDBPath
 M atomic/internal/codeintel/realm/resolver.go    — localIndexDB → config helper
 M atomic/internal/codeintel/mcp/daemon.go        — hardcoded db path → config helper
-M atomic/internal/codeintel/cli/code.go          — user-facing path strings reflect resolved harness dir; EnsureGitignore's index ignore entry derives from the harness dir
-M atomic/internal/docs/docs.go                   — doc-surfaces cache path derives from the harness dir (sibling of the other project/-scoped consumers)
-M atomic/internal/repoinit/repoinit.go           — scaffolded layout derives from harness dir
-M atomic/internal/signals/tree.go                — skipPrefixes derive from harness dir
+M atomic/internal/codeintel/cli/code.go          — user-facing path strings reflect the resolved state root; EnsureGitignore's index ignore entry derives from it
+M atomic/internal/docs/docs.go                   — doc-surfaces cache path derives from the state root (sibling of the other project/-scoped consumers)
+M atomic/internal/repoinit/repoinit.go           — scaffolded layout derives from the state root
+M atomic/internal/signals/tree.go                — skipPrefixes derive from the state root
 M atomic/internal/coldprompt/briefs/claude-merge.md — proposed-merge paths → ~/.atomic/proposed/CLAUDE.md
 M atomic/internal/doctemplate/templates/session-report.md — scratchpad path comment made harness-neutral
 M CLAUDE.md                                      — @-refs → @~/.atomic/...; Where-things-live row; profile prose paths
 M .claude/rules/authoring/axioms.md              — axiom 2 config path mention → ~/.atomic/config.toml
-M docs/spec/atomic-state-and-config.md           — body amended: layout → ~/.atomic, schema gains harness.dir; change-log entry
+M docs/spec/atomic-state-and-config.md           — body amended: layout → ~/.atomic, schema gains state.dir; change-log entry
 M docs/spec/atomic-binary.md, user-profile.md, uninstall.md, install-workflow.md, signals-router.md, atomic-update-doctor.md — spec bodies still naming ~/.claude/.atomic as current truth (change logs untouched)
 M README.md, docs/credits.md, docs/reference/**, docs/guides/** — public-doc current-truth mentions of the old state dir
 M docs/design/atomic-state-and-config.md, user-profile.md, uninstall.md, signals-wiki-unification.md — one-line status banner (paths below are pre-v6; points at this feature); bodies otherwise untouched (point-in-time records)
@@ -95,19 +95,22 @@ M atomic/internal/embedded/**                    — regenerated via make render
 - `atomic/internal/config/statemigrate.go`
   - `MigrateUserState` — takes the home dir (never calls os.UserHomeDir itself); rename legacy → new, then compat symlink at the old path; copy fallback stages into a sibling temp dir and renames it into place, so a partial copy never occupies `~/.atomic`; when `~/.atomic` already exists it still ensures the compat symlink (only when `~/.claude` exists and its `.atomic` entry is absent — a failed symlink is retried on the next run, and `~/.claude` itself is never created); both dirs real → prefer new, never merge; never returns a condition the caller must crash on
 - `atomic/internal/config/harness.go`
-  - `harnessDir` — once-per-process resolver via `resolveHarnessDir`'s five-rung ladder, most specific first: (1) `ATOMIC_HARNESS` env (non-empty) — explicit harness name, leading `.` tolerated/normalized, invalid value (per the same rules as Set) falls through rather than erroring; (2) `PI_CODING_AGENT == "true"` → `.pi`; (3) `CLAUDECODE == "1"` → `.claude`; (4) user config's `harness.dir`, if set; (5) built-in default `.claude`. Rung 2 before rung 3 is deliberate — a pi agent launched from within Claude Code exposes both fingerprints, and `PI_CODING_AGENT` is the more specific signal. Env is process-stable so it is safe to resolve once and cache alongside the config read; lenient on any config-load error; a stored non-empty config value is validated with the same rules as Set and falls back to `.claude` when invalid (a hand-edited `..` must never reach filepath.Join)
-  - `resolveHarnessDir` — the ladder itself, taking home as a parameter; falls through to `resolveHarnessDirFromHome` for rungs 4-5
-  - `SetHarnessDirForTest` — test seam that overrides the cached value and returns a restore func
-  - `ScratchpadDir / ProjectDir / FollowupsDir / IndexDir / IndexDBPath / WorktreesDir / RepoConfigPath / RemindersDir` — join repo root + harness dir + fixed suffix
+  - `stateRoot` — delegates to `repositoryStateDir` (`statelocation.go`) for the repository-state root, a harness-neutral ladder (process-only `ATOMIC_STATE_DIR`, the persisted per-clone selection, a populated state folder, user `state.dir`, built-in `.atomic`); no rung consults a harness variable or fingerprint, an invalid configured `state.dir` falls through to `.atomic`, and a refusal (invalid override or record, ambiguous folders) exits before reaching filepath.Join. The ladder is specified in `docs/spec/atomic-state-and-config.md`
+  - `SetStateDirForTest` — test seam that overrides the effective state segment and returns a restore func
+  - `ScratchpadDir / ProjectDir / FollowupsDir / IndexDir / IndexDBPath / RepoConfigPath / WorkflowPrefsPath` — join repo root + state root + fixed suffix
+  - `WorktreeDir(root, harness, preference)` — a preference path wins (absolute as-is, relative joined to root) and `off` returns verbatim; else `.claude/worktrees` for Claude, `<state-root>/worktrees` for other harnesses
 - `atomic/internal/config/config.go`
-  - `harness.dir` schema entry — string, default `.claude`; Set validation: single path segment, non-empty, not `.`/`..`, no separator
+  - `state.dir` schema entry — string, default `.atomic`; Set validation: repository-relative path whose every segment is non-empty and not `.`/`..`
+  - retired tables — a stored `harness.dir` key or `pi` table loads silently and is dropped on the next write; `Set` refuses `harness.dir` as unknown
+- `atomic/internal/config/statelocation.go`
+  - `repositoryStateDir` — resolves the state root through `ATOMIC_STATE_DIR`, the persisted selection record, the populated-folder rung (a populated destination wins; else exactly one other populated folder answers; two or more refuse as ambiguous), the configured `state.dir`, then `.atomic`
 - `atomic/cmd/atomic/main.go`
   - `runMigrateInstall` two-root split — config helpers receive the home dir; `migrate.Context.Root` keeps receiving `<home>/.claude` (install-scope, per D4); the shared single parameter is dissolved
 - `atomic/internal/doctor/checks_migrate.go`
   - legacy-state-dir condition — joined into the category's single migrate Result (combined-detail style, as `checks_config.go` does): WARN detail when `~/.claude/.atomic` is a real directory (not symlink); result severity is the worst of version-drift and legacy-dir conditions; PASS when neither fires
 - `atomic/internal/doctor/checks_profile.go`
   - legacy-ref detection — installed CLAUDE.md carrying `@~/.claude/.atomic/profile.md` → WARN naming `atomic claude install`
-- Consumer packages (reminder, followups, codeintel engine/daemon/realm, repoinit, signals tree, doctor followups/config checks, claudeinstall/uninstall)
+- Consumer packages (followups, codeintel engine/daemon/realm, repoinit, signals tree, doctor followups/config checks, claudeinstall/uninstall)
   - None — mechanical swap of private constants/joins for the config helpers; no new named pieces
 - `CLAUDE.md` (bundle source)
   - `@-ref` block — both refs re-pointed to `~/.atomic/`
@@ -120,8 +123,8 @@ M atomic/internal/embedded/**                    — regenerated via make render
 
 
 1. Any CLI invocation → `main()` calls `config.MigrateUserState(home)` before dispatch → legacy real dir found → rename to `~/.atomic` → symlink `~/.claude/.atomic` → proceed to the verb. Second invocation: new dir exists → immediate no-op.
-2. User → `atomic config set harness.dir .pi` → strict validation → atomic write of `config.toml` → `config.resolved.md` re-rendered including the key.
-3. Repo verb (e.g. `atomic followups list`) → `config.FollowupsDir(root)` → `harnessDir()` resolves once from user config → returns `<root>/.pi/project/followups` → verb operates there.
+2. User → `atomic config set state.dir <segment>` → strict validation → atomic write of `config.toml` → `config.resolved.md` re-rendered including the key.
+3. Repo verb (e.g. `atomic followups list`) → `config.FollowupsDir(root)` → the state-location ladder resolves the root → returns `<root>/<state-root>/project/followups` → verb operates there.
 4. `atomic doctor` → migrate category probes `~/.claude/.atomic` → real dir → WARN with migration explanation; symlink or absent → PASS. Profile category sees legacy `@-ref` in installed CLAUDE.md → WARN naming `atomic claude install`.
 5. `atomic claude install` (v6 bundle) → installs CLAUDE.md carrying `@~/.atomic/...` refs → pre-creates `~/.atomic/config.resolved.md` so the ref resolves on fresh installs.
 
@@ -132,8 +135,8 @@ M atomic/internal/embedded/**                    — regenerated via make render
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
 | 1 | User state root moves to `~/.atomic` + automatic migration | `config/paths.go`, `config/statemigrate.go` (+test), `cmd/atomic/main.go` (early call + caller signature sweep + `runMigrateInstall` two-root split + `runProfile`), `signals/signals.go` (resolveConfigPath), `profile/refresh.go`, `hooks/hooks.go` (refreshProfile), `claudeinstall/install.go`, `claudeinstall/uninstall.go`, `doctor/checks_config.go` | unit: `Dir` returns `<home>/.atomic`; migration fresh/legacy/idempotent/conflict/staged-copy-fallback/symlink-retry cases; `migrate.Context.Root` still receives `<home>/.claude`; profile refresh writes `<home>/.atomic/profile.md` through the production wiring (`runProfile` / session-start ride-along), not just package internals; existing config+install+doctor tests green against new paths |
-| 2 | `harness.dir` config key + repo-local resolver | `config/config.go`, `config/render.go`, `config/harness.go` (+test), `config/repo.go` | unit: default `.claude`; set/get/unset round-trip; invalid values rejected; renderer emits the key; helpers resolve under `.pi` via test seam |
-| 3 | Consumers thread through the resolver | `reminder/reminder.go`, `followups/cli.go`, `doctor/checks_followups.go`, `doctor/checks_repo_config.go` (Detail strings), `codeintel/engine/engine.go`, `codeintel/realm/resolver.go`, `codeintel/mcp/daemon.go`, `codeintel/cli/code.go` (incl. EnsureGitignore), `docs/docs.go`, `serve/code_members.go`, `repoinit/repoinit.go`, `signals/tree.go` | unit per consumer under a non-default harness dir; default-path behavior unchanged (existing tests green unmodified where they assert `.claude/...`) |
+| 2 | `state.dir` config key + repo-local resolver | `config/config.go`, `config/render.go`, `config/harness.go` (+test), `config/repo.go` | unit: default `.atomic`; set/get/unset round-trip; invalid values rejected; renderer emits the key; helpers resolve under an override via test seam; retired keys change no resolution |
+| 3 | Consumers thread through the resolver | `followups/cli.go`, `doctor/checks_followups.go`, `doctor/checks_repo_config.go` (Detail strings), `codeintel/engine/engine.go`, `codeintel/realm/resolver.go`, `codeintel/mcp/daemon.go`, `codeintel/cli/code.go` (incl. EnsureGitignore), `docs/docs.go`, `serve/code_members.go`, `repoinit/repoinit.go`, `signals/tree.go` | unit per consumer under a non-default state root; default-path tests assert `.atomic/...` |
 | 4 | User-facing strings, embedded text, bundle CLAUDE.md | `claudeinstall/install.go` (ProfileNudge), `doctor/checks_profile.go` (ProfileRef + legacy WARN), `coldprompt/briefs/claude-merge.md`, `doctemplate/templates/session-report.md`, `CLAUDE.md`, `.claude/rules/authoring/axioms.md`, `main.go`/`cliusage.go` help text, `make render` + `make -C atomic bundle` | grep gate: `~/.claude/.atomic` absent outside legacy-migration code/tests and change logs; render+bundle parity; doctor legacy-ref WARN unit test |
 | 5 | Doctor migrate row + spec/docs sweep | `doctor/checks_migrate.go` (+test), `docs/spec/atomic-state-and-config.md`, `docs/spec/atomic-doctor.md`, spec bodies (`atomic-binary.md`, `user-profile.md`, `uninstall.md`, `install-workflow.md`, `signals-router.md`, `atomic-update-doctor.md`), `README.md`, `docs/credits.md`, docs grep sweep (`docs/reference/`, `docs/guides/`) | doctor unit PASS/WARN paths; the feature's grep-gate success criterion satisfied repo-wide; `atomic validate` clean; spec change-log entries present |
 
@@ -147,13 +150,60 @@ M atomic/internal/embedded/**                    — regenerated via make render
 | Cross-device rename (`~/.claude` on another mount) | low | EXDEV → recursive copy fallback; doctor flags the leftover legacy dir |
 | Half-migrated state (both dirs real) | med | Prefer `~/.atomic`, never merge; doctor migrate WARN names the leftover |
 | Tests that read the real `~/.claude` (known `internal/hooks` gap) interact with migration logic | med | Migration functions take `home` as a parameter; tests inject temp homes; never call `os.UserHomeDir` inside `MigrateUserState` |
-| `harnessDir()` sync.Once caches a value tests need to vary | med | `SetHarnessDirForTest` seam resets the cache; helpers documented as process-stable |
+| The cached state segment is a value tests need to vary | med | `SetStateDirForTest` seam resets the cache; helpers documented as process-stable |
 | Import cycle pulling `internal/config` into codeintel | low | config imports only toml/doublestar/stdlib; verified no reverse dependency |
 | `cliusage.go` drift vs new key | low | A1 lint (`atomic validate artifacts`) + `TestRootCmdExact*Verbs`-style surface tests |
 | Old binaries (v5) run after migration write to the symlinked path | low | Symlink makes old-path writes land in `~/.atomic` — coherent by construction |
 
 
 ## Change log
+
+### 2026-11-12 — Rename the state-segment test seam
+
+**What changed:** The test seam `SetHarnessDirForTest` is `SetStateDirForTest` in the outline and the risk table.
+
+**Why:** the seam overrides the state-root segment, and `harness.dir` is retired.
+
+**Superseded:** the seam was named `SetHarnessDirForTest`.
+
+### 2026-11-12 — Ignore the doc-surfaces cache
+
+**What changed:** The state-root criterion lists `<dir>/project/doc-surfaces.md` among the paths `atomic repo init` ignores.
+
+**Why:** `atomic docs scan` regenerates that cache on every run. Contract: `docs/spec/repo-init.md`.
+
+**Superseded:** only `.scratchpad/`, `.atomic-index/`, and `worktrees/` were ignored under the state root.
+
+### 2026-11-11 — Name the workflow-preferences file
+
+**What changed:** The Goal's repo-local path list, the state-root success criterion, and the `harness.go` Outline entry name `<state-root>/workflow-preferences.md` and `WorkflowPrefsPath`, with the profile level in the `## Workflow preferences` block of `~/.atomic/profile.md`.
+
+**Why:** `docs/spec/workflow-preferences.md` adds a repo-level preference file under the state root.
+
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The Goal, the state-root and default-behavior criteria, the `state.dir` criterion, the `harness.go`, `config.go`, and `statelocation.go` Outline entries, and Checkpoints 2 and 3 name built-in `.atomic` and the five-rung ladder with the populated-folder rung. A legacy `.claude` that is the only populated folder resolves in place until `atomic state migrate`. `state.dir` is a repository-relative path of safe segments. `atomic repo init` writes `<dir>/.gitignore` only inside the repository and ignores `.claude/worktrees/` when Claude is enrolled or `.claude` exists. The Goal's state-root list names `rules/wiki/` and says worktrees follow `config.WorktreeDir` instead of the ladder. **Correction:** the Outline names `WorktreeDir(root, harness, preference)` with its preference and harness behavior; no `WorktreesDir` helper exists in `config/harness.go`.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** a ladder ending at built-in `.claude`, with every default repo-local path under `.claude/` and `state.dir` limited to one segment.
+
+### 2026-11-11 — Reminders removed
+
+**What changed:** The state-root criterion, Change tree, Outline, consumer list, and Checkpoint 3 drop the reminder package and `config.RemindersDir`.
+
+**Why:** `docs/spec/workflow-preferences.md` drops the reminder feature.
+
+**Removed:** `reminder/reminder.go` as a resolver consumer, `config.RemindersDir`, and the project-keyed `reminders/` path claim.
+
+### 2026-11-10 — Harness variable, Pi root, and `harness.dir` retired
+
+**What changed:** the body now describes repo-local state resolving through the harness-neutral ladder (`ATOMIC_STATE_DIR`, the per-clone selection record, user `state.dir`, built-in `.claude`) with no harness variable or fingerprint rung. `harness.dir` loads silently, is dropped on the next write, and `atomic config set harness.dir` refuses it. `ATOMIC_HARNESS` has no meaning, and `.pi` is no state candidate. The Goal, Non-goals, Success criteria, Change tree, Outline, Flows, Checkpoint 2, and Risks follow.
+
+**Why:** orientation reads environment markers and `--harness` only, there are no Pi users, and a stored key or variable must not change where a repository's state lives. The install side moved too: a bare `atomic install` installs into every installed harness, and `atomic update` adopts a legacy Claude install once.
+
+**Superseded:** `harness.dir` as the single repo-local state key, the five-rung `harnessDir` ladder with its `ATOMIC_HARNESS`, `PI_CODING_AGENT`, and `CLAUDECODE` rungs, and the `.pi` success criteria.
 
 
 ### 2026-08-20 — Reminders move off the harness-scoped path

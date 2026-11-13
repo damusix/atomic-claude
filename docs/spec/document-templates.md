@@ -10,7 +10,7 @@
 ## Non-goals
 
 
-- No template for ci-mode `CONTEXT.md` (raw log capture), `.claude/project/followups/<id>.md` (CLI-owned), or wiki pages.
+- No template for ci-mode `CONTEXT.md` (raw log capture), `<state-root>/project/followups/<id>.md` (CLI-owned; `<state-root>` is `.atomic` by default), or wiki pages.
 - No variable substitution in the verb — skeletons are static text; the LLM fills `<angle-bracket>` placeholders.
 - No bundle/install shipping of the skeleton files — they live only inside the binary.
 
@@ -124,6 +124,14 @@ Flow: loop orchestrator initializes the scratchpad
 **Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, and `atomic update` refreshes both together, so the verb is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
 
 **Superseded:** each command hard-stopped with `document template unavailable (atomic template <name> failed) — install/update the atomic binary. cannot proceed.` when the binary was absent or the verb errored.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The Non-goals line names the follow-up entry as `<state-root>/project/followups/<id>.md`, with `.atomic` as the default state root.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the follow-up entry path was `.claude/project/followups/<id>.md`.
 
 
 ## Implementation log

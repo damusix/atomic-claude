@@ -1,0 +1,261 @@
+package validate_test
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
+	"github.com/damusix/atomic-claude/atomic/internal/validate"
+)
+
+// writeProjectionCorpus materializes a minimal corpus from context/-relative
+// paths, always creating the artifact directories artifacts.Load requires.
+func writeProjectionCorpus(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, dir := range []string{"agents", "commands", "skills/atomic-sample", "output-styles", "rules"} {
+		if err := os.MkdirAll(filepath.Join(root, "context", dir), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if _, ok := files["AGENTS.md"]; !ok {
+		files["AGENTS.md"] = "# Global\n\nBody.\n"
+	}
+	for rel, content := range files {
+		p := filepath.Join(root, "context", filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir for %s: %v", rel, err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	return root
+}
+
+func projectionHasRule(findings []validate.Finding, rule string) bool {
+	for _, f := range findings {
+		if f.Rule == rule {
+			return true
+		}
+	}
+	return false
+}
+
+// A clean corpus renders for every target with no findings.
+func TestProjection_CleanCorpusPasses(t *testing.T) {
+	root := writeProjectionCorpus(t, map[string]string{
+		"agents/atomic-sample.md":        "---\nname: atomic-sample\ndescription: Sample agent.\n---\nAgent body.\n",
+		"commands/sample.md":             "---\ndescription: Sample command.\n---\nRun `atomic code search --json`.\n",
+		"skills/atomic-sample/SKILL.md":  "---\nname: atomic-sample\ndescription: Sample skill.\n---\nSkill body.\n",
+		"output-styles/atomic-sample.md": "Sample style.\n",
+		"rules/sample.md":                "---\npaths:\n  - \"**/*.go\"\n---\nRule body.\n",
+	})
+
+	findings, err := validate.RunProjectionRules(root)
+	if err != nil {
+		t.Fatalf("RunProjectionRules: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("clean corpus produced findings: %+v", findings)
+	}
+
+	// The gate is deterministic: two passes over one corpus agree.
+	again, err := validate.RunProjectionRules(root)
+	if err != nil {
+		t.Fatalf("RunProjectionRules (second pass): %v", err)
+	}
+	if len(again) != len(findings) {
+		t.Fatalf("gate output is not deterministic: %d != %d findings", len(again), len(findings))
+	}
+}
+
+// P1: a declared dependency that names nothing in the corpus fails instead of
+// projecting with a silent hole.
+func TestProjection_MissingDependencyFails(t *testing.T) {
+	root := writeProjectionCorpus(t, map[string]string{
+		"agents/atomic-sample.md": "---\nname: atomic-sample\ndescription: Sample agent.\nskills: [atomic-missing]\n---\nAgent body.\n",
+	})
+
+	findings, err := validate.RunProjectionRules(root)
+	if err != nil {
+		t.Fatalf("RunProjectionRules: %v", err)
+	}
+	if !projectionHasRule(findings, "P1") {
+		t.Fatalf("expected P1 dependency finding, got %+v", findings)
+	}
+	if !strings.Contains(findings[0].Message, "atomic-missing") {
+		t.Errorf("finding should name the unresolved dependency: %+v", findings[0])
+	}
+}
+
+// P3: a model/effort/tool restriction key that reaches a projected native
+// document is a leak, never a default.
+func TestProjection_MetadataLeakFails(t *testing.T) {
+	root := writeProjectionCorpus(t, map[string]string{
+		"commands/sample.md": "---\ndescription: Sample command.\nmodel: opus\n---\nBody.\n",
+	})
+
+	findings, err := validate.RunProjectionRules(root)
+	if err != nil {
+		t.Fatalf("RunProjectionRules: %v", err)
+	}
+	if !projectionHasRule(findings, "P3") {
+		t.Fatalf("expected P3 metadata finding, got %+v", findings)
+	}
+}
+
+// P3: a parser keyed on the target once read Codex skill Markdown as TOML and
+// reported nothing, leaving the whole Codex skill surface unchecked.
+func TestProjection_CodexSkillMetadataLeakFails(t *testing.T) {
+	root := writeProjectionCorpus(t, map[string]string{
+		"skills/atomic-sample/SKILL.md":            "---\nname: atomic-sample\ndescription: Sample skill.\n---\nSkill body.\n",
+		"skills/atomic-sample/references/notes.md": "---\nmodel: opus\n---\nNotes shipped beside the manifest.\n",
+	})
+
+	findings, err := validate.RunProjectionRules(root)
+	if err != nil {
+		t.Fatalf("RunProjectionRules: %v", err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.Rule == "P3" && f.Severity == "FAIL" && strings.Contains(f.Message, "model") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a P3 finding for the Codex skill metadata leak, got %+v", findings)
+	}
+}
+
+// P6: a Claude-only wire token that reaches another target's projected bytes
+// unclassified is a leak.
+func TestProjection_WireTokenLeakFails(t *testing.T) {
+	root := writeProjectionCorpus(t, map[string]string{
+		"agents/atomic-sample.md": "---\nname: atomic-sample\ndescription: Sample agent.\n---\nThen run `Bash` directly.\n",
+	})
+
+	findings, err := validate.RunProjectionRules(root)
+	if err != nil {
+		t.Fatalf("RunProjectionRules: %v", err)
+	}
+	if !projectionHasRule(findings, "P6") {
+		t.Fatalf("expected P6 wire-token finding, got %+v", findings)
+	}
+}
+
+// A Claude tool named in canonical steering reaches OMP and Codex as an
+// instruction they cannot follow; only the Claude adapter appends those names.
+func TestProjection_SteeringWireTokenLeakFails(t *testing.T) {
+	for _, token := range []string{"`EnterWorktree`", "`Agent`", "`AskUserQuestion`", "TaskStop", "subagent_type"} {
+		root := writeProjectionCorpus(t, map[string]string{
+			"AGENTS.md": "# Global\n\nEnter the worktree with " + token + ".\n",
+		})
+		findings, err := validate.RunProjectionRules(root)
+		if err != nil {
+			t.Fatalf("RunProjectionRules: %v", err)
+		}
+		if !projectionHasRule(findings, "P6") {
+			t.Errorf("steering naming %s: expected a P6 finding, got %+v", token, findings)
+		}
+	}
+}
+
+// The gate renders the real canonical corpus and reports no FAIL.
+func TestProjection_RealCorpusPasses(t *testing.T) {
+	var buf strings.Builder
+	code := validate.RunWithOutput([]string{"projections"}, &buf)
+	if code != 0 {
+		t.Fatalf("projections on real corpus: exit %d, want 0; output:\n%s", code, buf.String())
+	}
+	if !strings.Contains(buf.String(), "0 FAIL") {
+		t.Errorf("expected a clean summary, got:\n%s", buf.String())
+	}
+}
+
+// A clean run counts every rendered canonical source as PASS, so it reports how
+// much the gate inspected rather than an empty-looking "0 PASS".
+func TestProjection_CleanRunCountsEverySourceAsPass(t *testing.T) {
+	root := writeProjectionCorpus(t, map[string]string{
+		"agents/atomic-sample.md":        "---\nname: atomic-sample\ndescription: Sample agent.\n---\nAgent body.\n",
+		"commands/sample.md":             "---\ndescription: Sample command.\n---\nRun `atomic code search --json`.\n",
+		"skills/atomic-sample/SKILL.md":  "---\nname: atomic-sample\ndescription: Sample skill.\n---\nSkill body.\n",
+		"output-styles/atomic-sample.md": "Sample style.\n",
+		"rules/sample.md":                "---\npaths:\n  - \"**/*.go\"\n---\nRule body.\n",
+	})
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	addRepoDevMarker(t, root)
+	cat, err := artifacts.Load(root)
+	if err != nil {
+		t.Fatalf("artifacts.Load: %v", err)
+	}
+
+	code, out := runFromDir(t, root, []string{"projections", "--json"})
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	var env struct {
+		Summary struct {
+			Pass int `json:"pass"`
+			Fail int `json:"fail"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("--json output is not JSON: %v\n%s", err, out)
+	}
+	if env.Summary.Fail != 0 || env.Summary.Pass == 0 || env.Summary.Pass != len(cat.Artifacts) {
+		t.Errorf("summary = %+v, want pass %d (one per canonical source) and fail 0", env.Summary, len(cat.Artifacts))
+	}
+}
+
+// A rule only the OMP runtime index rejects still fails against its own source,
+// so the summary never counts it as a passing source.
+func TestProjection_RuntimeIndexFailureCountsAgainstTheRuleSource(t *testing.T) {
+	root := writeProjectionCorpus(t, map[string]string{
+		"rules/sample.md": "---\npaths:\n  - \"src/**.go\"\n---\nRule body.\n",
+	})
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	addRepoDevMarker(t, root)
+	cat, err := artifacts.Load(root)
+	if err != nil {
+		t.Fatalf("artifacts.Load: %v", err)
+	}
+
+	code, out := runFromDir(t, root, []string{"projections", "--json"})
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\n%s", code, out)
+	}
+	var env struct {
+		Findings []validate.Finding `json:"findings"`
+		Summary  struct {
+			Pass int `json:"pass"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("--json output is not JSON: %v\n%s", err, out)
+	}
+	for _, f := range env.Findings {
+		if f.Path != "rules/sample.md" {
+			t.Errorf("finding keyed %q, want the rule source: %+v", f.Path, f)
+		}
+	}
+	if env.Summary.Pass != len(cat.Artifacts)-1 {
+		t.Errorf("pass = %d, want %d: the failing rule source counted as a pass", env.Summary.Pass, len(cat.Artifacts)-1)
+	}
+}
+
+// projections always audits the whole corpus, so a path argument is a usage
+// error rather than a filter it would silently ignore.
+func TestProjection_RejectsPathArguments(t *testing.T) {
+	var buf strings.Builder
+	if code := validate.RunWithOutput([]string{"projections", "context/agents"}, &buf); code != 2 {
+		t.Errorf("projections with a path: exit %d, want 2\n%s", code, buf.String())
+	}
+}

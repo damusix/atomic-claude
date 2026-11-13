@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
@@ -113,7 +114,7 @@ func TestCodeGraph_MemberParam_OpensMemberDB(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
 	}
-	wantDB := filepath.Join(realmRoot, "monorepo", ".claude", ".atomic-index", "atomic.db")
+	wantDB := config.IndexDBPath(filepath.Join(realmRoot, "monorepo"))
 	if openedDB != wantDB {
 		t.Errorf("opened db %q, want member self-index %q", openedDB, wantDB)
 	}
@@ -150,7 +151,7 @@ func TestCodeGraph_NoMemberParam_SingleRepoScope(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
 	}
-	wantDB := filepath.Join(realmRoot, ".claude", ".atomic-index", "atomic.db")
+	wantDB := config.IndexDBPath(realmRoot)
 	if openedDB != wantDB {
 		t.Errorf("opened db %q, want local index %q", openedDB, wantDB)
 	}

@@ -146,7 +146,7 @@ Phase 0 and the Phase 4 verification body are mode-specific (above and below). P
 - Verification body is per-mode (see below).
 - On verified success: leave the bundle in place. This command never archives or deletes it — retirement is `atomic scratchpad archive <slug>`, run by `/git-cleanup` or a ship-verb worktree cleanup when the worktree holding it is reaped.
 - On bail-out (hard stop hit, same-failure early-bail, user abort): retain bundle in place, same as the success path — there is no separate archived-vs-retained state for this command to track.
-- FOLLOWUPS disposition: present `FOLLOWUPS.md` ledger to user per-item; user picks per row from `close` / `defer` (promote to `.claude/project/followups.md`) / `convert-to-spec`. Same flow as `/subagent-implementation` Phase 3.
+- FOLLOWUPS disposition: present `FOLLOWUPS.md` ledger to user per-item; user picks per row from `close` / `defer` (record through the `followup-sink` partial, see § FOLLOWUPS handling) / `convert-to-spec`.
 
 
 ## Brief verbosity discipline
@@ -189,7 +189,8 @@ Two normalized strings equal → "same failure". Hash for compactness; store has
 
 - During Phase 3, reviewer findings tagged non-blocking (severity 🔵 / 🟡 without blocker disposition) are appended to `FOLLOWUPS.md` by the orchestrator.
 - Carried across iterations. Reviewer may re-affirm or close prior entries.
-- At Phase 4, present per-item to user. Dispositions: `close` / `defer` (promote to `.claude/project/followups.md` with `Origin:` line) / `convert-to-spec` (open `/atomic-plan` with the entry as the brief).
+- At Phase 4, present per-item to user, with the sink preview for `defer` in the same question; that choice is the only prompt. Dispositions: `close` / `defer` / `convert-to-spec` (open `/atomic-plan` with the entry as the brief).
+- `defer` records through the `followup-sink` partial with the entry's title and severity, kind `finding`, and an origin naming this run. The sink creates an issue in the resolved issue tracker. It writes the local ledger entry `<state-root>/project/followups/<id>.md` (`.atomic` by default) instead when the tracker is `filesystem`, its `auth-check` fails, its project does not resolve to exactly one, or its `issue-create` fails, and reports why. The result line names the tracker used. Contract: `docs/spec/workflow-preferences.md`.
 
 
 ## Concurrent runs
@@ -308,3 +309,17 @@ No open follow-ups remain in the durable project ledger from this build.
 **Why:** `docs/spec/serve-plans-page.md` introduces the `atomic scratchpad` verb and a project-keyed `~/.atomic/<project-key>/archive/` as the one archive namespace; a second, command-local `.claude/.scratchpad/.archive/` namespace duplicated it and was retired outright.
 
 **Superseded:** dated `<YYYY-MM-DD>-diagnose-*` topic directories; a refuse-if-exists guard fired at mode-parse time against directory presence; `mv` to a local `.archive/<topic>/` on PASS as this command's own retirement mechanism.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The `defer` disposition records through the `followup-sink` partial: the resolved issue tracker, else the local ledger entry `<state-root>/project/followups/<id>.md`, `.atomic` by default.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`; `context/commands/subagent-diagnose.md` already defers through the sink.
+
+**Superseded:** `defer` promoted the entry to `.claude/project/followups.md` with an `Origin:` line.
+
+### 2026-11-11 — `defer` names the sink's fallback cases
+
+**What changed:** § FOLLOWUPS handling states when the sink writes the local ledger entry instead of a tracker issue (a `filesystem` tracker, a failed `auth-check`, an unresolved project, a failed `issue-create`), shows the sink preview in the disposition question, and names the tracker in the result line. Phase 4 points there instead of calling its flow the same as `/subagent-implementation` Phase 3, whose dispositions are `fix-now`, `defer`, and `drop`.
+
+**Why:** `docs/spec/workflow-preferences.md` defines the sink's fallback and preview rules; "tracker, else ledger" left the fallback conditions unstated.

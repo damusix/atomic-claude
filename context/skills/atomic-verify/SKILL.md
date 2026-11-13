@@ -1,7 +1,7 @@
 ---
 name: atomic-verify
 description: >
-  Evidence-before-claim gate. Auto-triggers when Claude is about to claim "done", "fixed",
+  Evidence-before-claim gate. Auto-triggers when the assistant is about to claim "done", "fixed",
   "passing", "complete", "ready to merge", "looks good", "should work", "should pass",
   "green", or any synonym. Iron rule: no completion claim without a fresh verification
   command run in this turn. Dispatches `atomic-reviewer` on code the main agent wrote itself,
@@ -49,7 +49,7 @@ Skip any step = lying, not verifying.
 | typecheck green | run typecheck (tsc/mypy/etc), 0 errors |
 | bug fixed | run repro that failed before, see it pass now |
 | agent task complete | check VCS diff for actual changes |
-| code I wrote myself is ready | dispatch `atomic-reviewer` (code mode, `diff: working`, model override to the session's model), 0 unaddressed 🔴 findings, state the `review:` line in the claim |
+| code I wrote myself is ready | dispatch `atomic-reviewer` (code mode, `diff: working`, one-line `intent:`), 0 unaddressed 🔴 findings, state the `review:` line in the claim |
 | regression test works | red → fix → green sequence verified |
 | spec/artifact changed | run `atomic validate spec` + `atomic validate config` + `atomic validate artifacts`, 0 FAIL |
 
@@ -63,7 +63,7 @@ Every completion claim needs a fresh command run in this turn. Watch for these m
 - Before committing or pushing — verify all signals are green
 - After a subagent reports success — check the artifacts yourself
 - Partial checks (one test out of N) are not verification — run the full suite
-- When the change touched `docs/spec/**`, `docs/design/**`, or bundled artifacts (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`), run `atomic validate spec` (when a spec changed), `atomic validate config`, and `atomic validate artifacts`. A FAIL is a gate failure with the same standing as a failing test.
+- When the change touched `docs/spec/**`, `docs/design/**`, or bundled artifacts (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `AGENTS.md`), run `atomic validate spec` (when a spec changed), `atomic validate config`, and `atomic validate artifacts`. A FAIL is a gate failure with the same standing as a failing test.
 
 ## When tempted to skip
 
@@ -80,7 +80,7 @@ Every completion claim needs a fresh command run in this turn. Watch for these m
 
 ## Boundaries
 
-- Fires only when Claude transitions from "doing" to "asserting done."
+- Fires only when the assistant transitions from "doing" to "asserting done."
 - Intent statements ("I'll fix it") are future — no gate needed yet.
 - Progress reports ("ran tests, 2 failures") are evidence without a completion claim — no gate needed.
 

@@ -1,0 +1,1 @@
+{{define "resolved-provider"}}print `{{.}}: <value> (<level>)` from the `<workflow-preferences level='resolved'>` block in context. With no resolved block, run `atomic workflow resolve` once and use its output. Read the `atomic-git-discipline` reference files its `Read:` line lists; every provider operation named here is a row in them.{{- end}}

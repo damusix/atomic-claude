@@ -3,23 +3,30 @@ package doctor
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 )
 
-// checkInstall implements category 1: install integrity, diffing every
-// embedded artifact against ~/.claude. A missing artifact FAILs, a drifted one
-// WARNs, and an absent target directory SKIPs.
+// checkInstall implements category 1: every embedded artifact diffed against each
+// enrolled Claude target. A ledger with no Claude target skips rather than fails.
 func checkInstall(opts Opts) Result {
-	target, err := claudeinstall.ResolveTarget("~/.claude")
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve target: %v", err)}
+	scope := claudeScopeFor(opts)
+	if scope.Skip {
+		return Result{Severity: SKIP, Detail: scope.Detail}
 	}
 	home, err := resolveHome()
 	if err != nil {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve home dir: %v", err)}
 	}
-	return RunCheckInstall(target, home)
+	results := make([]Result, 0, len(scope.Roots))
+	for _, root := range scope.Roots {
+		results = append(results, RunCheckInstall(root, home))
+	}
+	return combineClaudeRoots(scope, results)
 }
 
 // RunCheckInstall runs the install check against an explicit target directory
@@ -34,15 +41,22 @@ func RunCheckInstall(target, home string) Result {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("diff failed: %v", err)}
 	}
 
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		return Result{Severity: WARN, Detail: fmt.Sprintf("read ledger: %v", err)}
+	}
+	key := harness.Target{Kind: harness.KindClaude, Instance: target}.Key()
+
 	total := len(rows)
 	var missing, drifted int
 	var findings []string
 	for _, r := range rows {
-		switch r.Status {
-		case claudeinstall.DiffAbsent:
+		switch {
+		case r.Status == claudeinstall.DiffAbsent:
 			missing++
 			findings = append(findings, "missing: "+r.Artifact.Target)
-		case claudeinstall.DiffDiffer:
+		case r.Status == claudeinstall.DiffDiffer && ledger.IsLeft(key, filepath.Join(target, filepath.FromSlash(r.Artifact.Target))):
+		case r.Status == claudeinstall.DiffDiffer:
 			drifted++
 			findings = append(findings, "drifted: "+r.Artifact.Target)
 		}

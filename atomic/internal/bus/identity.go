@@ -7,11 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
 )
 
 // sessionEnvVar is the environment variable a live Claude Code session sets to a
 // UUID identifying that session.
 const sessionEnvVar = "CLAUDE_CODE_SESSION_ID"
+
+const codexThreadEnvVar = "CODEX_THREAD_ID"
 
 // SessionID identifies the current agent. Identity is keyed by session id, never
 // cwd or pid: two Claude Code sessions can run in the same directory and are
@@ -21,11 +25,19 @@ func SessionID(override string) (string, error) {
 	if override != "" {
 		return override, nil
 	}
-	id := os.Getenv(sessionEnvVar)
+	var id string
+	if d := harness.Detect(harness.Environ()); d.Confidence == harness.ConfidenceStrong {
+		switch d.Kind {
+		case harness.KindClaude:
+			id = os.Getenv(sessionEnvVar)
+		case harness.KindCodex:
+			id = os.Getenv(codexThreadEnvVar)
+		}
+	}
 	if id == "" {
 		return "", &Error{
 			Code: ExitHard,
-			Msg:  fmt.Sprintf("bus: %s is not set (not running inside a live Claude Code session); pass --session to identify this agent", sessionEnvVar),
+			Msg:  fmt.Sprintf("bus: no session identity available (%s under Claude Code, %s under Codex); pass --session to identify this agent", sessionEnvVar, codexThreadEnvVar),
 		}
 	}
 	return id, nil

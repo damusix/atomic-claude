@@ -45,48 +45,10 @@ func scanNoUpdateCheck(argv []string) (found bool, cleaned []string) {
 	return found, cleaned
 }
 
-// repoFlagExemptions are verb paths whose own --repo is a required target path,
-// not the global context override, so scanRepoOverride must not consume it:
-//
-//	migrate --repo <path>            : repo-scope migration target
-//	config resolve --repo <root>     : the repo to resolve Pi config for
-var repoFlagExemptions = [][]string{
-	{"migrate"},
-	{"config", "resolve"},
-}
-
+// repoFlagExempt: `migrate --repo <path>` is a target path, not the global
+// context override, so scanRepoOverride must not consume it.
 func repoFlagExempt(argv []string) bool {
-	prefix := verbPrefix(argv)
-	for _, exempt := range repoFlagExemptions {
-		if len(prefix) < len(exempt) {
-			continue
-		}
-		matched := true
-		for i, tok := range exempt {
-			if prefix[i] != tok {
-				matched = false
-				break
-			}
-		}
-		if matched {
-			return true
-		}
-	}
-	return false
-}
-
-// verbPrefix returns the leading run of non-flag tokens. Every invocation puts
-// the verb path and its positionals before any flag, so this identifies the
-// target verb without a full argv parse.
-func verbPrefix(argv []string) []string {
-	var out []string
-	for _, a := range argv {
-		if strings.HasPrefix(a, "-") {
-			break
-		}
-		out = append(out, a)
-	}
-	return out
+	return len(argv) > 0 && argv[0] == "migrate"
 }
 
 // scanRepoOverride is the only place the global --repo is read, since every

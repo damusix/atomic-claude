@@ -54,7 +54,7 @@ func (h *mdSearchHandler) search(query string) ([]mdMatch, bool) {
 			if path == h.navRoot {
 				return nil // never skip the root itself
 			}
-			if shouldSkipDir(d.Name()) || ignores.skipDir(path) {
+			if ignores.skipWalkDir(path) {
 				return filepath.SkipDir
 			}
 			return nil

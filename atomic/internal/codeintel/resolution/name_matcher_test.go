@@ -918,7 +918,7 @@ func seedColumn(t *testing.T, d *db.DB, filePath, tableQName, col string, line i
 	return id
 }
 
-func TestNameMatcher_CP4_SingleDotSQLResolvesToColumn(t *testing.T) {
+func TestNameMatcher_SingleDotSQLResolvesToColumn(t *testing.T) {
 	// WHY (tweak 1): a single-dot SQL reference "acct.id" must reach byQualifiedName
 	// so it can resolve to the column node acct.id. Without the tweak, byMethodCall
 	// handles single dots but excludes columns, so the ref falls through to byExactName
@@ -960,7 +960,7 @@ func TestNameMatcher_CP4_SingleDotSQLResolvesToColumn(t *testing.T) {
 	}
 }
 
-func TestNameMatcher_CP4_ExactQNamePreferred(t *testing.T) {
+func TestNameMatcher_ExactQNamePreferred(t *testing.T) {
 	// WHY (tweak 2): byQualifiedName currently returns all nodes whose QualifiedName
 	// matches OR ends with ".id". When "acct.id" is the ref, both "acct.id" and
 	// "person.id" match via the suffix rule. After tweak 2, if any candidate has
@@ -1001,7 +1001,7 @@ func TestNameMatcher_CP4_ExactQNamePreferred(t *testing.T) {
 	}
 }
 
-func TestNameMatcher_CP4_SC9_NonSQLSingleDotUnchanged(t *testing.T) {
+func TestNameMatcher_NonSQLSingleDotUnchanged(t *testing.T) {
 	// WHY: the SQL-scoped single-dot fall-through must NOT affect non-SQL languages.
 	// A Go/TS "receiver.method" ref that currently resolves via byMethodCall must
 	// continue to do so — the new path is gated strictly on LanguageSQL.
@@ -1054,7 +1054,7 @@ func TestNameMatcher_CP4_SC9_NonSQLSingleDotUnchanged(t *testing.T) {
 	}
 }
 
-func TestNameMatcher_CP4_SC9_NonSQLColumnGateBlocks(t *testing.T) {
+func TestNameMatcher_NonSQLColumnGateBlocks(t *testing.T) {
 	// WHY: the sibling test only exercises the byMethodCall-
 	// succeeds path, so removing the LanguageSQL gate leaves it green. This sibling
 	// test exercises the gate directly: a NON-SQL single-dot ref where byMethodCall

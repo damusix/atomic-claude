@@ -1,7 +1,6 @@
-# Spec: per-agent effort in the `[claude.agents]` config block
+# Spec: per-agent model and effort in the `[<harness>.agents]` config blocks
 
 Design + rationale: [`docs/design/agents-effort-config.md`](../design/agents-effort-config.md).
-Structural model to mirror: [`internal/config/pi_agent.go`](../../atomic/internal/config/pi_agent.go).
 
 This spec is read verbatim by fresh-context implementer subagents. Body = current truth;
 history is in the change log. Follow [`rules/specs/spec-currency.md`](../../rules/specs/spec-currency.md)
@@ -11,45 +10,57 @@ when amending.
 ## Summary
 
 
-Per-agent Claude overrides live in `~/.atomic/config.toml` under `[claude.agents.<name>]`,
-with two optional fields: `model` and `effort`. Both are applied to the installed agent
-frontmatter (`model:` and `effort:` keys) at install time and immediately on save. pi's
-equivalent block is renamed `[pi.agent]` → `[pi.agents]` for symmetry (config key only —
-applying it to pi's agent files remains the pi extension's job via `atomic config resolve`).
-Nothing here has shipped in a release, so there is no back-compat and no migration.
+Per-agent overrides live in `~/.atomic/config.toml` under one table per harness:
+`[claude.agents.<name>]`, `[omp.agents.<name>]`, and `[codex.agents.<name>]`, each with two
+optional fields, `model` and `effort`. Each harness adapter writes the override under its
+native keys when it projects the agent file, so every lifecycle operation that converges a
+target (install, update, repair, `harness rules sync`) applies it. `atomic config agents
+--harness claude|omp|codex|all` edits one harness's form and, on save, converges each selected
+enrolled harness through that same lifecycle. The native keys, the adapter overlay, and the
+ledger ownership of agent files are specified in
+[`omp-plugin-compatibility.md`](omp-plugin-compatibility.md); this spec owns the config shape,
+validation, and the form.
 
 
 ## Data model (`internal/config`)
 
 
-Per-agent overrides live under a harness-namespaced table, `[claude.agents.<name>]`, parallel
-to pi's `[pi.agents.<name>]`. Both harnesses read `[<harness>.agents.<name>]`; the second field
-differs because each uses its own harness's real frontmatter key (`effort` for Claude Code,
-`thinking` for pi).
+Per-agent overrides live under harness-namespaced tables. The field names are Atomic's;
+each adapter maps them to its harness's native keys.
 
     [claude.agents.atomic-implementer]
     model = "opus"
     effort = "high"
 
-Config carries a `claude` section holding the override map:
+    [omp.agents.atomic-reviewer]
+    model = "@slow"
+    effort = "high"
+
+    [codex.agents.atomic-investigator]
+    model = "gpt-5.2-codex"
+    effort = "low"
+
+Config carries one section per harness, each holding the same override map:
 
     type AgentOverride struct {
         Model  string `toml:"model,omitempty"`
         Effort string `toml:"effort,omitempty"`
     }
 
-    type claudeSection struct {
+    type agentsSection struct {
         Agents map[string]AgentOverride `toml:"agents,omitempty"`
     }
-    // Config: Claude claudeSection `toml:"claude,omitempty"`
+    // Config: Claude, OMP, Codex agentsSection under `claude`, `omp`, `codex`
+
+`AgentHarnesses` lists the three kinds in doctor's reporting order, and
+`(*Config).AgentOverrides(kind)` returns one kind's map.
 
 Nested-table decode only. There is **no** flat/scalar form and **no** migration: do not
 implement `encoding.TextUnmarshaler`, `TextMarshaler`, `EnableUnmarshalerInterface`, or an
 `unstable.Unmarshaler`. Plain struct decode/encode is the whole contract — `toml.Marshal`
-emits `[claude.agents.<name>]` tables directly.
+emits `[<harness>.agents.<name>]` tables directly.
 
-`claude` (and `pi`) are the opaque top-level sections (structural unknown-key checks skipped;
-semantic checks live in `Validate` / `AgentWarnings`). `agents` is no longer a top-level
+Semantic checks live in `Validate` and `AgentWarnings`. `agents` is not a top-level
 section, so a stale top-level `[agents]` block from a pre-rename `next` build is reported as
 an unknown key and ignored.
 
@@ -59,31 +70,37 @@ an unknown key and ignored.
 
 `Validate` (`config.go`):
 
-- **effort**: must be one of `{"", low, medium, high, xhigh, max}` per agent, else hard error:
+- **Claude effort**: must be one of `{"", low, medium, high, xhigh, max}` per agent, else hard error:
   `config: claude.agents.<name>.effort: invalid effort "<v>"; must be one of: low, medium, high, xhigh, max`.
   Empty means "no effort override".
-- **model**: lenient — never a hard failure. Drop the current `validTiers` hard-fail. An
-  empty model means "no model override". (Malformed model → warning, see below.)
+- **OMP and Codex effort**: advisory. The levels known at release are OMP `auto, inherit, off,
+  minimal, low, medium, high, xhigh, max` and Codex `none, minimal, low, medium, high, xhigh,
+  max, ultra`; either harness may add one, so a value outside the list warns and passes through.
+- **model**: lenient on every harness, never a hard failure. An empty model means "no model
+  override". (Malformed model → warning, see below.)
 
-`AgentWarnings` (`config.go`):
+`AgentWarnings` (`config.go`), per harness table:
 
-- Preserve the existing unknown-agent warning (agent name not in the known set). The known set is
+- An unknown-agent warning (agent name not in the known set). For Claude the known set is
   `[install.artifacts].agents` matched by basename (`claude install` records `agents/<name>.md`),
-  else `bundledAgents()`.
-- Add a malformed-model warning when `Model` is non-empty and contains internal whitespace
-  or control characters: `config: claude.agents.<name>.model: questionable value "<v>"; passed through as-is`.
-  Never blocks loading or install.
+  else `bundledAgents()`; for OMP and Codex it is `bundledAgents()`.
+- A malformed-model warning when `Model` is non-empty and contains internal whitespace
+  or control characters: `config: <harness>.agents.<name>.model: questionable value "<v>"; passed through as-is`.
+- An unrecognized-effort warning for an OMP or Codex effort outside its advisory list.
+- Each warning carries its harness, so `atomic doctor` category 9 ends each harness's warnings
+  with `run atomic config agents --harness <kind> to edit them`. Never blocks loading or install.
 
-`validTiers` / the tier allowlist is removed from the validation path. A validity helper for
-model format (non-empty, no internal whitespace; brackets/slashes/dots/dashes allowed) is
-used by both the warning path and the interactive input validator.
-
-Effort allowlist lives in one exported-or-package var reused by `Validate` and the
-interactive Select.
+A validity helper for model format (no internal whitespace or control characters;
+brackets/slashes/dots/dashes/`@` allowed) is used by both the warning path and the interactive
+input validator. The Claude effort set and the ordered OMP and Codex lists live in
+`agentoverride.go`, reused by validation, the warnings, and the form.
 
 
 ## Install-time patch (`internal/claudeinstall/install.go`)
 
+
+This is the legacy Claude writer (`atomic claude install` on an unadopted root). Enrolled
+targets take the override from their adapter's overlay instead.
 
 `loadAgentOverrides(home) map[string]AgentOverride` (return type changes from
 `map[string]string`).
@@ -104,51 +121,84 @@ interactive Select.
 shape — the SHA comparison must reflect both patched keys so install/plan agree.
 
 
-## Interactive form (`internal/config/agents.go`, `cli.go`)
+## Interactive form (`internal/config/agents.go`)
 
 
-`atomic config agents` presents, per bundled agent (every `agent` entry in the embedded bundle manifest, in manifest order, via `bundledAgents()`):
+`AgentFormFor(kind)` returns one harness's `AgentForm`:
 
-- a **model** `huh.NewInput()` — free text, empty = no override, validated with the lenient
-  model-format helper (empty passes; non-empty must have no internal whitespace). Placeholder
-  shows examples (e.g. `opus  |  claude-opus-4-8`). Pre-filled with the current `Model`.
-- an **effort** `huh.NewSelect[string]()` with options `(bundled default)`=`""`, `low`,
-  `medium`, `high`, `xhigh`, `max`. Pre-selected to the current `Effort`.
+| Harness | Model placeholder | Effort choices after `(no override)` | Restart note |
+|---|---|---|---|
+| `claude` | `opus \| claude-opus-4-8` | `low, medium, high, xhigh, max` | `Restart Claude Code sessions to pick up the change.` |
+| `omp` | `@slow \| anthropic/claude-opus-4-8` | the OMP advisory list | `Restart omp sessions to pick up the change.` |
+| `codex` | `gpt-5.2-codex` | the Codex advisory list | `Restart Codex sessions to pick up the change.` |
 
-Replace `applyAgentTiers` with `applyAgentOverrides(cfg *Config, selections map[string]AgentOverride) error`:
-per agent, if both fields empty → delete the entry; else validate (effort enum; model lenient)
-and store. Nil out `cfg.Claude.Agents` when empty so the `[claude.agents]` table is omitted.
+The form presents, per bundled agent (every `agent` entry in the embedded bundle manifest, in
+manifest order, via `bundledAgents()`):
 
-The selector seam (`AgentTierSelector` / `DefaultAgentTierSelector`) keeps its
-test-injection role; its signature becomes `func(cfg *Config) (map[string]AgentOverride, error)`.
-`cli.go` call sites (`AgentTierSelector`, `applyAgentOverrides`) update to the new types. The
-`ErrNonInteractiveAgents` / `ErrAgentsAborted` behavior is unchanged. Rename symbols away from
-"tier"-only naming where it now misleads (e.g. `applyAgentTiers` → `applyAgentOverrides`);
-keep the public `AgentTierSelector` name to avoid churn unless trivially safe to rename.
+- a **model** `huh.NewInput()`: free text, empty = no override, validated with the lenient
+  model-format helper. The placeholder is the harness's. Pre-filled from that harness's table.
+- an **effort** `huh.NewSelect[string]()` with `(no override)`=`""` followed by the harness's
+  effort choices. Pre-selected from that harness's table.
+
+`EditAgents(home, kind)` loads the config, runs the selector with the form and that kind's
+current table, merges the answers with `applyAgentOverrides(cfg, kind, selections)`, and writes
+through `WritePersist`. Per agent, both fields empty deletes the entry; otherwise Claude
+validates the effort enum and every harness stores the entry. An empty table is nilled so TOML
+omits it.
+
+The selector seam `AgentTierSelector` has the signature
+`func(form AgentForm, current map[string]AgentOverride) (map[string]AgentOverride, error)` and
+returns `ErrNonInteractiveAgents` without a terminal and `ErrAgentsAborted` on Ctrl+C.
+
+
+## Verb (`cmd/atomic/cmd_config.go`)
+
+
+`atomic config agents [--harness claude|omp|codex|all]` lives in `cmd/atomic`, not in
+`config.Run`, because convergence needs the harness lifecycle, which imports `config`. The
+config package carries no hook for it.
+
+- **Selection.** `--harness` wins; `all` selects every enrolled harness and refuses when none
+  is. Otherwise `harness.SelectAgentsHarness` takes a `strong` detection, else the single
+  enrolled harness. An unadopted legacy Claude root (a legacy `[install]` record without
+  `adopted = true`, root not in the ledger) counts as enrolled Claude here. Otherwise the verb
+  asks among the enrolled harnesses (all three when none is), and without a terminal refuses
+  with the enrolled kinds and a pointer to `--harness`.
+- **Usage.** A `--harness` value other than `claude`, `omp`, `codex`, or `all` exits 2.
+- **Save.** Each selected harness runs `EditAgents` with its form. An aborted form, or one
+  with no terminal, stops the run with exit 1 before the next form opens; an aborted
+  harness choice prints `aborted`. Any other failure moves on to the next harness and the
+  run exits 1.
+- **Enrolled.** The verb converges that kind's enrolled targets through
+  `install.Steps.Converge` with `EnrolledOnly`, auto-approved: lock, recovery, journal,
+  staging, apply, verification, ledger. A blocked target (a hand-edited agent file is a
+  conflict) prints its blockers and exits 1 with the config already saved.
+- **Legacy Claude.** `claudeinstall.ReapplyAgents` runs only for an unadopted legacy Claude
+  root, the one root no ledger owns.
+- **Not enrolled.** Config only; the verb prints that the change applies when that harness
+  is enrolled.
+- A converged or re-patched harness prints its form's restart note.
 
 
 ## Render (`internal/config/render.go`)
 
 
-`Render` emits, per agent with an override, up to two dotted keys under the `[claude]`
-section: `claude.agents.<name>.model` and `claude.agents.<name>.effort` (only for non-empty fields). Sorted,
-byte-stable. Surfaced on demand by `atomic config list`.
+`Render` emits, per harness and per agent with an override, up to two dotted keys:
+`<harness>.agents.<name>.model` and `<harness>.agents.<name>.effort` (only for non-empty
+fields). Sorted, byte-stable, grouped by harness. Surfaced on demand by `atomic config list`.
 
 
 ## No back-compat, no migration
 
 
-Neither the top-level `[agents]` block nor `[pi.agent]` has ever shipped in a release (both
-exist only on the unreleased `next`/v6 line), so there is no compatibility obligation and no
-migration code.
+The top-level `[agents]` block has never shipped in a release (it exists only on the
+unreleased `next`/v6 line), so there is no compatibility obligation and no migration code.
 
-- No flat/scalar entry form is accepted; `[claude.agents.<name>]` tables are the only shape.
+- No flat/scalar entry form is accepted; `[<harness>.agents.<name>]` tables are the only shape.
 - A stale top-level `[agents]` block left by a pre-rename `next` build is an unknown key:
   reported as a warning and ignored on load, and dropped from the file on the next config
-  write (no `Config` field holds it, so the struct round-trip does not preserve it — unlike
-  `[pi]`, which `Config.Pi map[string]any` preserves deliberately). It self-cleans; the user
-  re-runs `atomic config agents` to set overrides under the new key.
-- Same for a stale `[pi.agent]` block after the `[pi.agents]` rename.
+  write (no `Config` field holds it, so the struct round-trip does not preserve it). It
+  self-cleans; the user re-runs `atomic config agents` to set overrides under the new key.
 - No config schema version bump (these tables are machine-written, not in `knownKeys`).
 
 
@@ -157,23 +207,25 @@ migration code.
 
 ```text
 atomic/internal/config/
-  agentoverride.go              A  AgentOverride{Model,Effort}, validEfforts, effortOptionValues, validModelFormat (no UnmarshalText)
-  config.go                     M  claudeSection{Agents map[string]AgentOverride} under [claude]; Validate (effort-strict, model-lenient); AgentWarnings malformed-model; validTiers removed
-  pi_agent.go                   M  parser key [pi.agent] -> [pi.agents] (config key only)
-  render.go                     M  Render emits claude.agents.<name>.model / .effort
-  agents.go                     M  model Input + effort Select; applyAgentOverrides; validateModelInput; tier options removed
-  cli.go                        M  agents verb -> applyAgentOverrides
+  agentoverride.go              A  AgentOverride{Model,Effort}, AgentHarnesses, validEfforts, effortOptionValues, ordered advisoryEfforts, validModelFormat
+  config.go                     M  per-harness agentsSection; Validate (Claude effort strict, model lenient); AgentWarnings per harness, each carrying Warning.Harness
+  render.go                     M  Render emits <harness>.agents.<name>.model / .effort
+  agents.go                     M  AgentForm, AgentFormFor, EditAgents; model Input + effort Select per harness; applyAgentOverrides(cfg, kind, ...)
+  cli.go                        M  config.Run carries no agents verb and no hook
 atomic/internal/claudeinstall/
-  install.go                    M  loadAgentOverrides + patchAgentContent patch model: and effort: (setOrAppendKey); ReapplyAgents (agent-scoped re-apply)
-atomic/internal/config/
-  cli.go                        M  agents verb: after save, call ApplyAgentsHook (auto-apply)
-  config.go (or cli.go)         M  ApplyAgentsHook seam var (nil default; wired by cmd/atomic)
-atomic/cmd/atomic/main.go       M  wire ApplyAgentsHook to a claudeinstall.ReapplyAgents closure at startup
+  install.go                    M  loadAgentOverrides + patchAgentContent (legacy writer); ReapplyAgents (legacy root only)
+atomic/internal/cliusage/
+  cliusage.go                   M  config agents row: --harness
+atomic/cmd/atomic/
+  cmd_config.go                 M  config agents --harness: selection, EditAgents, lifecycle convergence, legacy ReapplyAgents
+  main.go                       M  no config hook wiring
 atomic/internal/doctor/
+  checks_config.go              M  agent warnings grouped per harness, hint `atomic config agents --harness <kind>`
   checks_install_test.go        M  regression test: config↔installed agent drift → WARN; --fix repairs
-docs/reference/agents.md        M  "Model and effort overrides" section + auto-apply + doctor-drift notes
-docs/spec/agent-model-overrides.md  M  supersession banner + change-log entry
-templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered commands/atomic-help.md + embedded bundle)
+docs/reference/agents.md        M  per-harness tables, selection, convergence, edge cases
+docs/reference/atomic-toml.md   M  agent overrides live in ~/.atomic/config.toml, one table per harness
+docs/reference/commands.md      M  atomic config row naming config agents --harness
+context/commands/atomic-help.md M  config agents row in Binary subcommands and tour Stage 4
 ```
 
 
@@ -182,26 +234,33 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
 
 - `agentoverride.go`
   - `AgentOverride` — model + effort override for one agent; TOML tags `omitempty`
-    - (no custom unmarshaler — plain struct decode from `[claude.agents.<name>]`)
-  - `validEfforts` / `effortOptionValues` — effort enum set + ordered list (shared by Validate and the Select)
-  - `validModelFormat` — lenient model shape check (non-empty, no internal whitespace/control chars)
+    - (no custom unmarshaler: plain struct decode from `[<harness>.agents.<name>]`)
+  - `validEfforts` / `effortOptionValues` — Claude effort enum set + ordered list
+  - `advisoryEfforts` — ordered OMP and Codex effort lists, shared by warnings and the form
+  - `validModelFormat` — lenient model shape check (no internal whitespace/control chars)
 - `config.go`
-  - `claudeSection` — the `[claude]` table holding `Agents map[string]AgentOverride`
-  - `Validate` — effort strict against the enum; model no hard-fail (validTiers removed)
-  - `AgentWarnings` — unknown-agent warning + malformed-model warning
+  - `agentsSection` — one per harness, holding `Agents map[string]AgentOverride`
+  - `Validate` — Claude effort strict against the enum; model no hard-fail
+  - `AgentWarnings` — unknown-agent, malformed-model, and unrecognized-effort warnings, each naming its harness
 - `render.go`
-  - `Render` — per-agent `.model`/`.effort` dotted keys, byte-stable
+  - `Render` — per-harness, per-agent `.model`/`.effort` dotted keys, byte-stable
 - `agents.go`
   - `bundledAgents` — every `agent` entry in `embedded.Manifest()`, in manifest order
+  - `AgentForm` / `AgentFormFor` — one harness's placeholder, effort choices, and restart note
+  - `EditAgents` — load, run the selector on one harness's form and table, merge, write
   - `validateModelInput` — wraps validModelFormat with the empty-is-ok rule + error message
   - `defaultAgentTierSelector` — model Input + effort Select per agent, returns `map[string]AgentOverride`
-  - `applyAgentOverrides` — merge selections into cfg.Agents; both-empty deletes; validate on store
+  - `applyAgentOverrides` — merge selections into one harness's table; both-empty deletes; Claude effort validated
 - `install.go`
   - `patchAgentContent` — set-or-append `model:` and `effort:` independently, order-preserving
   - `setOrAppendKey` — shared find-existing-or-append frontmatter helper
-  - `ReapplyAgents` — re-patch only already-installed `agents/*.md` from bundle+overrides; skips absent (no first-time install); returns changed names
-- `config` seam + `cmd/atomic`
-  - `ApplyAgentsHook` — package var in config (nil default), wired by `cmd/atomic` to a `ReapplyAgents` closure; called by the `agents` verb after save
+  - `ReapplyAgents` — re-patch only already-installed `agents/*.md` of an unadopted legacy root; skips absent (no first-time install); returns changed names
+- `cmd_config.go`
+  - `agentsHarnesses` — `--harness`, strong detection, single enrolled, interactive choice, or refusal
+  - `unadoptedLegacyClaude` — legacy `[install]` record not adopted and root not in the ledger
+  - `editAndConvergeAgents` — `EditAgents`, then lifecycle convergence, legacy re-patch, or a not-enrolled report
+- `checks_config.go`
+  - `checkConfigValidity` — agent warnings grouped per harness with `--harness <kind>` hints
 - `checks_install_test.go`
   - regression test — an installed agent whose frontmatter lacks a configured override → doctor install check WARN; `--fix` re-syncs
 
@@ -209,11 +268,14 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
 ## Flows
 
 
-1. **Read** — `config.Load` decodes `[claude.agents.<name>]` tables straight into `Config.Claude.Agents` (`map[string]AgentOverride`) by plain struct decode. No scalar form, no custom unmarshaler.
-2. **Write** — user runs `atomic config agents` → selector returns overrides → `applyAgentOverrides` mutates `cfg.Claude.Agents` → `WritePersist` → `toml.Marshal` emits `[claude.agents.<name>]` tables.
-3. **Install patch** — `atomic claude install`/`update` → `loadAgentOverrides` → for each `agents/*.md` artifact, `patchAgentContent` sets/appends `model:` (from Model) and `effort:` (from Effort), each only when set → patched bytes written to `~/.claude/agents/` and factored into the Plan SHA.
-4. **Auto-apply** — `atomic config agents` → after `WritePersist`, the `ApplyAgentsHook` runs `ReapplyAgents(~/.claude, home)`: re-patches only the agent files already present on disk (drift-only writes; absent agents skipped, no first-time install), then prints the changed count and a "restart Claude Code sessions to pick up the change" note. No-op (silent) when nothing is installed yet.
-5. **Drift detection + repair** — `atomic doctor` install-integrity check → `claudeinstall.Diff` compares each on-disk agent against `readPatchedEmbedded` (bundle patched with model+effort). A configured override missing from the installed file → SHA mismatch → WARN. `atomic doctor --fix` → idempotent `Install` re-patches. Fully deterministic (SHA + frontmatter surgery, no model). This behavior is inherited from the CP2 patch threading through `Diff`; CP6 only locks it with a test and documents it — no new doctor check.
+1. **Read**: `config.Load` decodes each `[<harness>.agents.<name>]` table straight into that harness's `Agents` map (`map[string]AgentOverride`) by plain struct decode. No scalar form, no custom unmarshaler.
+2. **Select**: user runs `atomic config agents [--harness claude|omp|codex|all]` → `agentsHarnesses` resolves the harnesses (flag, strong detection, single enrolled, interactive choice, or refusal listing the enrolled kinds).
+3. **Write**: per harness, `EditAgents` → `AgentTierSelector` with that harness's form and table → `applyAgentOverrides` mutates that table → `WritePersist` → `toml.Marshal` emits `[<harness>.agents.<name>]` tables.
+4. **Converge**: an enrolled harness → `install.Steps.Converge` (`EnrolledOnly`, that kind) → the adapter overlays the override on its agent projection → the ledger claims the written bytes; a hand-edited agent conflicts and keeps its bytes, and the verb exits 1. Then the form's restart note prints.
+5. **Legacy Claude**: Claude not enrolled but an unadopted legacy record present → `ReapplyAgents(<Claude root>, home)` re-patches the agent files already on disk → restart note.
+6. **Not enrolled**: any other harness → config only, reported as applying when that harness is enrolled.
+7. **Legacy install patch**: `atomic claude install`/`update` on an unadopted root → `loadAgentOverrides` → for each `agents/*.md` artifact, `patchAgentContent` sets/appends `model:` (from Model) and `effort:` (from Effort), each only when set → patched bytes written and factored into the Plan SHA.
+8. **Drift detection + repair**: on an unadopted legacy root, the `atomic doctor` install-integrity check → `claudeinstall.Diff` compares each on-disk agent against `readPatchedEmbedded` (bundle patched with model+effort). A configured override missing from the installed file → SHA mismatch → WARN. `atomic doctor --fix` → idempotent `Install` re-patches. Fully deterministic (SHA + frontmatter surgery, no model).
 
 
 ## Checkpoints
@@ -225,21 +287,21 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
 | CP2 | Install-time patch of `model:` + `effort:` | `internal/claudeinstall/install.go` | `loadAgentOverrides` + `patchAgentContent` handle both fields independently; effort-only patches only `effort:`; both-empty is a no-op; order preserved | model-only patch; effort-only patch (model frontmatter unchanged); both patched; neither → unchanged bytes; append when key absent; Plan SHA reflects both keys |
 | CP3 | Interactive form + render | `internal/config/agents.go` | `atomic config agents` model Input + effort Select per agent; `applyAgentOverrides`; both-empty deletes entry; `Render` emits `.model`/`.effort` dotted keys | selector seam returns overrides → applied to cfg; empty-both removes entry; render output for model-only, effort-only, both; non-interactive + abort errors preserved |
 | CP4 | Docs + discovery surfaces | `docs/reference/agents.md`; `templates/commands/atomic-help.md`; `docs/spec/agent-model-overrides.md`; regenerated `commands/` + embedded bundle | `docs/reference` `[claude.agents]` doc updated; `/atomic-help` cli topic mentions effort; prior spec superseded; design/spec committed | `atomic validate` clean; `/atomic-help` MISSING-scan clean; render+bundle parity clean |
-| CP5 | Auto-apply on `atomic config agents` | `internal/claudeinstall/install.go` (`ReapplyAgents`); `internal/config/cli.go` + `ApplyAgentsHook` seam; `cmd/atomic/main.go` (wiring) | `ReapplyAgents` re-patches only already-installed `agents/*.md` (drift-only writes; absent → skip, never a first-time install); `atomic config agents` calls the hook after save, prints changed count + restart note; silent no-op when not installed; config↛claudeinstall import cycle avoided via the hook | `ReapplyAgents` patches an installed agent's frontmatter to match config; skips an absent agent (not created); no-op when on-disk already matches; config cli test with fake hook asserts it is called + output; whole module builds (no import cycle) |
+| CP5 | Re-apply on a legacy Claude root | `internal/claudeinstall/install.go` (`ReapplyAgents`) | `ReapplyAgents` re-patches only already-installed `agents/*.md` (drift-only writes; absent → skip, never a first-time install) | `ReapplyAgents` patches an installed agent's frontmatter to match config; skips an absent agent (not created); no-op when on-disk already matches |
 | CP6 | Drift detection guard + docs | `internal/doctor/checks_install_test.go`; `docs/reference/agents.md` | The existing install-integrity check already flags config↔installed agent drift (via `Diff`→`readPatchedEmbedded`, deterministic) and `--fix` repairs it — lock with a regression test; document auto-apply + doctor drift/repair + session-restart caveat. No new doctor check (reuse-first) | doctor install check returns WARN when an installed agent lacks a configured effort/model; `applyInstallRepair`/`Install` re-syncs it to PASS; docs updated |
-| CP7 | Harness-namespaced keys + drop back-compat | `internal/config/{config,agentoverride,agents,cli,render,pi_agent}.go`; `internal/claudeinstall/install.go`; `internal/doctor/*`; docs; `templates/commands/atomic-help.md` (+ rendered/bundled) | Top-level `[agents]` → `[claude.agents.<name>]` via a `claudeSection` on Config; `[pi.agent]` → `[pi.agents]` (parser key rename ONLY — no pi agent-file writing, that stays the pi extension's job); `AgentOverride.UnmarshalText`, the flat/scalar form, the auto-migration and their tests all REMOVED; `opaqueSections`/`knownSections` carry `claude` + `pi`, not `agents`; all error/warning/render key paths say `claude.agents.<name>.…` | nested `[claude.agents.x]` decodes; a scalar under it is a decode error (no silent accept); a stale top-level `[agents]` block warns as unknown-key and is ignored; `[pi.agents.x]` resolves via `ResolvePiAgents` and `[pi.agent]` no longer does; `WritePersist` emits `[claude.agents.<name>]`; render emits `claude.agents.<name>.model/.effort`; install patch + auto-apply + doctor drift still green; whole suite + validate + render/bundle parity clean |
+| CP7 | Harness-namespaced keys + drop back-compat | `internal/config/{config,agentoverride,agents,cli,render}.go`; `internal/claudeinstall/install.go`; `internal/doctor/*`; docs; `templates/commands/atomic-help.md` (+ rendered/bundled) | Top-level `[agents]` → `[claude.agents.<name>]` via a `claudeSection` on Config; `AgentOverride.UnmarshalText`, the flat/scalar form, the auto-migration and their tests all REMOVED; `opaqueSections`/`knownSections` carry `claude`, not `agents`; all error/warning/render key paths say `claude.agents.<name>.…` | nested `[claude.agents.x]` decodes; a scalar under it is a decode error (no silent accept); a stale top-level `[agents]` block warns as unknown-key and is ignored; `WritePersist` emits `[claude.agents.<name>]`; render emits `claude.agents.<name>.model/.effort`; install patch + auto-apply + doctor drift still green; whole suite + validate + render/bundle parity clean |
+| CP8 | Per-harness forms and lifecycle convergence | `internal/config/{agentoverride,agents,cli,config}.go`; `internal/cliusage/cliusage.go`; `cmd/atomic/{cmd_config,main}.go`; `internal/doctor/checks_config.go`; docs | `atomic config agents --harness claude\|omp\|codex\|all` with the selection order above; one form per harness; a save converges enrolled targets through the lifecycle; `ReapplyAgents` only for an unadopted legacy root; config package has no `ApplyAgentsHook`; doctor hints name `--harness <kind>` | selection cases (flag, strong, single enrolled on weak/ambiguous/none, interactive choice, non-interactive refusal); each form's placeholder, efforts, restart note; blank removes; not-enrolled saves config only; an enrolled OMP agent carries the new keys and the ledger digest equals disk; a hand-edited agent conflicts; a `CLAUDE_CONFIG_DIR` root converges; doctor hint test |
 
 
 ## Non-goals
 
 
-- No behavioral change to the pi path: `[pi.agent]` → `[pi.agents]` is a config-key rename only.
-  Applying pi overrides to pi's own agent files stays the pi extension's job, consumed via
-  `atomic config resolve`. No pi agent-file writing or patching is added here.
-- No committed `agents/*.md` edits — effort is applied to the installed copy at install time.
+- No agent-file write outside the lifecycle, except `ReapplyAgents` on an unadopted legacy
+  Claude root.
+- No committed `agents/*.md` edits: the override is applied to the projected copy.
   Therefore no `make render` / `make bundle` unless a source artifact is actually touched.
-- No new config schema version, no CLI `set`/`get` support for `[claude.agents]` (unchanged: it is
-  machine-written via `atomic config agents`, not user-settable via `atomic config set`).
+- No new config schema version, no CLI `set`/`get` support for `[<harness>.agents]` tables:
+  they are machine-written via `atomic config agents`, not user-settable via `atomic config set`.
 
 
 ## Change log
@@ -318,3 +380,23 @@ matches install-manifest entries by basename, since `claude install` records `ag
 
 **Why:** the lists held 5 names while the bundle shipped 8, so new agents never appeared in the form;
 the manifest match flagged every override on an installed machine as an unknown agent.
+
+
+### 2026-11-10 — Pi block and `config resolve` retired; install entry points named
+
+**What changed:** the body no longer describes a `[pi.agents]` block, the `pi_agent.go` file, or `atomic config resolve`; only `[claude.agents.<name>]` remains. "Install time" now names `atomic claude install` and `atomic claude update` and states that `atomic install` and `atomic update` patch no agent frontmatter.
+
+**Why:** the Pi extension and its `atomic config resolve` verb were removed, and a bare `atomic install` plus update-time adoption now reach Claude through the harness engine, which ships agent files unchanged.
+
+**Superseded:** the `[pi.agent]` → `[pi.agents]` rename for symmetry, the Non-goal that left pi agent-file writing to the pi extension via `atomic config resolve`, and the Change tree row for `pi_agent.go`.
+
+
+### 2026-11-11 — Per-harness forms; save converges through the lifecycle
+
+**What changed:** the spec now covers `[claude.agents]`, `[omp.agents]`, and `[codex.agents]`. `atomic config agents --harness claude|omp|codex|all` selects harnesses by flag, strong detection, the single enrolled harness, an interactive choice, or a non-interactive refusal listing the enrolled kinds, and opens one form per harness with its own placeholder, effort choices, and restart note. The verb moved to `cmd/atomic`. A save converges each enrolled harness through `install.Steps.Converge`, so the ledger owns the overlaid agent bytes and a hand edit conflicts. `ReapplyAgents` runs only for an unadopted legacy Claude root. Each `AgentWarnings` entry names its harness, and doctor's hint becomes `atomic config agents --harness <kind>`. The Validation, Interactive form, Render, Change tree, Outline, Flows, Checkpoints (CP5 rewritten, CP8 added), and Non-goals sections describe that contract.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` CP12C. A save that patched Claude files in place left the ledger holding a digest of bytes no longer on disk, outside the lifecycle lock and journal; and OMP and Codex had no form at all.
+
+**Superseded:** `atomic config agents` edited only `[claude.agents]` and, through a `config.ApplyAgentsHook` seam wired in `cmd/atomic/main.go`, re-patched `~/.claude/agents/*.md` in place after every save; the Non-goal ruled out agent-file writing for any harness but Claude Code.
+
+**Correction:** the Change tree listed a `templates/commands/atomic-help.md` `config agents` row that `context/commands/atomic-help.md` never carried. This change adds that row (Binary subcommands table and tour Stage 4) and a `docs/reference/commands.md` `atomic config` row, and the tree names both.

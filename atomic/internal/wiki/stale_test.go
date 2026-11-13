@@ -142,7 +142,7 @@ func TestStale_IgnoresSummariesConcernsAndBuckets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if code := wiki.WikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, t.TempDir(), root, &bytes.Buffer{}); code != 0 {
+	if code := wiki.WikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, t.TempDir(), nil, root, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("bucket add returned %d", code)
 	}
 	if err := os.WriteFile(filepath.Join(root, "notes", "idea.md"), []byte("an idea\n"), 0o644); err != nil {
@@ -215,7 +215,7 @@ func TestStale_RepoRemoved(t *testing.T) {
 // Narrowing [realm] repos after a scan must surface the dropped repo as drift,
 // and a discovery warning goes to stderr without polluting the DRIFT stream.
 func TestStale_RepoOutsideDeclaredPathsIsRemoved(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 	root := t.TempDir()
 	makeCommittedRepo(t, filepath.Join(root, "agency"), "repoA")
@@ -246,7 +246,7 @@ func TestStale_RepoOutsideDeclaredPathsIsRemoved(t *testing.T) {
 }
 
 func TestScan_PrintsDiscoveryWarningsToStderr(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	defer restore()
 	root := t.TempDir()
 	makeCommittedRepo(t, filepath.Join(root, "agency"), "repoA")

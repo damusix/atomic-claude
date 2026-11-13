@@ -14,7 +14,7 @@ import (
 func cliTestRepo(t *testing.T) (root, dir string, today time.Time) {
 	t.Helper()
 	tmp := t.TempDir()
-	dir = filepath.Join(tmp, ".claude", "project", "followups")
+	dir = config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -35,10 +35,9 @@ func TestCLIPath(t *testing.T) {
 	}
 }
 
-// Run threads repoRoot through config.FollowupsDir, so a ".pi" harness moves
-// followups off the .claude default.
+// A pinned state segment moves followups off the built-in default.
 func TestCLIPath_UnderNonDefaultHarnessDir(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
+	restore := config.SetStateDirForTest(".pi")
 	defer restore()
 
 	root := t.TempDir()

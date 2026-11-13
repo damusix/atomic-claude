@@ -79,7 +79,7 @@ func TestResolveWikiRoot_UnrecognizedDashTokenDoesNotLeakIntoPositional(t *testi
 
 func TestBucketVerbs_HelpFlagPrintsUsageAndExitsZero(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
-	claudeHome := t.TempDir()
+	home := t.TempDir()
 	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
 
 	verbs := []string{"add", "list", "doc", "skill", "index"}
@@ -89,7 +89,7 @@ func TestBucketVerbs_HelpFlagPrintsUsageAndExitsZero(t *testing.T) {
 		for _, tok := range helpTokens {
 			t.Run(verb+"/"+tok, func(t *testing.T) {
 				var out bytes.Buffer
-				code := wikiAction([]string{"bucket", verb, "--root=" + root, tok}, claudeHome, root, &out)
+				code := wikiAction([]string{"bucket", verb, "--root=" + root, tok}, home, nil, root, &out)
 				if code != 0 {
 					t.Fatalf("wikiAction bucket %s %s: got exit %d, want 0; output: %q", verb, tok, code, out.String())
 				}
@@ -106,10 +106,10 @@ func TestBucketVerbs_HelpFlagPrintsUsageAndExitsZero(t *testing.T) {
 // anything else).
 func TestBucketAdd_HelpProbeCreatesNothing(t *testing.T) {
 	root := t.TempDir()
-	claudeHome := t.TempDir()
+	home := t.TempDir()
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "add", "-h"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "add", "-h"}, home, nil, root, &out)
 	if code != 0 {
 		t.Fatalf("expected exit 0 for -h, got %d; output: %q", code, out.String())
 	}
@@ -133,10 +133,10 @@ func TestBucketAdd_HelpProbeCreatesNothing(t *testing.T) {
 // TestBucketAdd_DoubleDashHelpProbeCreatesNothing is the --help counterpart.
 func TestBucketAdd_DoubleDashHelpProbeCreatesNothing(t *testing.T) {
 	root := t.TempDir()
-	claudeHome := t.TempDir()
+	home := t.TempDir()
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "add", "--help"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "add", "--help"}, home, nil, root, &out)
 	if code != 0 {
 		t.Fatalf("expected exit 0 for --help, got %d; output: %q", code, out.String())
 	}
@@ -154,14 +154,14 @@ func TestBucketAdd_DoubleDashHelpProbeCreatesNothing(t *testing.T) {
 // rejected with exit 2 across every bucket sub-verb.
 func TestBucketVerbs_UnrecognizedSingleDashTokenExits2(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
-	claudeHome := t.TempDir()
+	home := t.TempDir()
 	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
 
 	verbs := []string{"add", "list", "doc", "skill", "index"}
 	for _, verb := range verbs {
 		t.Run(verb, func(t *testing.T) {
 			var out bytes.Buffer
-			code := wikiAction([]string{"bucket", verb, "--root=" + root, "-x"}, claudeHome, root, &out)
+			code := wikiAction([]string{"bucket", verb, "--root=" + root, "-x"}, home, nil, root, &out)
 			if code != 2 {
 				t.Errorf("wikiAction bucket %s -x: got exit %d, want 2; output: %q", verb, code, out.String())
 			}
@@ -181,7 +181,7 @@ func TestWikiAction_RemovedVerbsAreUnknown(t *testing.T) {
 		r, w, _ := os.Pipe()
 		os.Stderr = w
 
-		code := wikiAction(args, t.TempDir(), root, &bytes.Buffer{})
+		code := wikiAction(args, t.TempDir(), nil, root, &bytes.Buffer{})
 
 		w.Close()
 		os.Stderr = oldStderr

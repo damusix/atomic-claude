@@ -3,9 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
@@ -32,11 +34,6 @@ const updateStageDefault = true
 // signalsMaxDepthDefault is the built-in default for output.signals.max_depth.
 const signalsMaxDepthDefault = 3
 
-// harnessDirDefault is the built-in default for harness.dir — the repo-local
-// state directory name every repo-local path helper (see harness.go) joins
-// onto a project root.
-const harnessDirDefault = ".claude"
-
 // knownKeys is the user-settable leaf keys exposed via Get/Set/Unset/Resolved.
 // Machine-written sections like [install] are excluded: not user-settable, and
 // never shown by `atomic config list`.
@@ -46,9 +43,10 @@ var knownKeys = []string{
 	"update.check",
 	"update.stage",
 	"update.channel",
-	"harness.dir",
+	"state.dir",
 	"repl.idle_timeout",
 	"output_style.seed",
+	"steering.claude",
 }
 
 // knownSchemaKeys is every recognized dotted key across all schema versions — a
@@ -69,11 +67,13 @@ var knownSchemaKeys = func() []string {
 
 // opaqueSections are top-level tables whose child keys are structurally
 // arbitrary. checkUnknownKeys accepts any child of one without a structural
-// warning; semantic validation is left to Validate / AgentWarnings.
+// warning; semantic validation is left to the section's reader.
 var opaqueSections = map[string]bool{
-	"bus":    true,
-	"claude": true,
-	"pi":     true,
+	"bus": true,
+	// harness and pi are retired tables: a stored one loads silently and the
+	// next write drops it.
+	"harness": true,
+	"pi":      true,
 }
 
 // knownSections is the known top-level table names, derived from the full schema
@@ -91,6 +91,19 @@ var knownSections = func() map[string]bool {
 	for k := range opaqueSections {
 		m[k] = true
 	}
+	for _, k := range AgentHarnesses {
+		m[k] = true
+	}
+	return m
+}()
+
+// agentTables are the `<harness>.agents` tables: their children are agent
+// names, which AgentWarnings checks instead of the schema.
+var agentTables = func() map[string]bool {
+	m := map[string]bool{}
+	for _, k := range AgentHarnesses {
+		m[k+".agents"] = true
+	}
 	return m
 }()
 
@@ -99,6 +112,8 @@ type Warning struct {
 	Message string
 	// Key is the dotted config key an unknown-key warning names; empty otherwise.
 	Key string
+	// Harness is the kind whose agent override an AgentWarnings entry names.
+	Harness string
 }
 
 func (w Warning) Error() string { return w.Message }
@@ -129,9 +144,11 @@ type updateSection struct {
 	Channel string `toml:"channel,omitempty"`
 }
 
-// harnessSection is the [harness] TOML table.
-type harnessSection struct {
-	Dir string `toml:"dir"`
+// stateSection is the [state] TOML table.
+type stateSection struct {
+	// Dir is a relative path of safe segments under each repository root.
+	// Empty means unset: the ladder falls back to `.atomic`.
+	Dir string `toml:"dir,omitempty"`
 }
 
 // outputStyleSection is the [output_style] TOML table.
@@ -155,16 +172,8 @@ type installArtifactsSection struct {
 type installSection struct {
 	Version   string                  `toml:"version"`
 	Artifacts installArtifactsSection `toml:"artifacts"`
-}
-
-// claudeSection is the [claude] table, namespaced to mirror pi's: both harnesses
-// read [<harness>.agents.<name>].
-type claudeSection struct {
-	// Agents maps a bundled agent filename to its model/effort override.
-	// Machine-written by `atomic config agents`, re-applied at install time; not
-	// user-settable via `atomic config set`. Nested-table decode only — no
-	// scalar form, no migration.
-	Agents map[string]AgentOverride `toml:"agents,omitempty"`
+	// Adopted records that a ledger adoption took over this legacy record.
+	Adopted bool `toml:"adopted,omitempty"`
 }
 
 // BusRemote is one [bus.remotes.<name>] entry: a gateway reachable with
@@ -184,21 +193,22 @@ type busSection struct {
 type Config struct {
 	Output      outputSection      `toml:"output"`
 	Update      updateSection      `toml:"update"`
-	Harness     harnessSection     `toml:"harness"`
+	State       stateSection       `toml:"state,omitempty"`
 	OutputStyle outputStyleSection `toml:"output_style"`
-	// Pi preserves the opaque [pi] tree so unrelated writes do not discard Pi
-	// agent overrides. ResolvePiAgents does the semantic validation.
-	Pi map[string]any `toml:"pi,omitempty"`
 	// Install is omitted from TOML when zero-valued (no install manifest yet).
 	Install installSection `toml:"install,omitempty"`
-	// Claude carries the Claude Code harness's per-agent overrides. Omitted
-	// from TOML when zero-valued.
-	Claude claudeSection `toml:"claude,omitempty"`
+	// Claude, OMP, and Codex carry each harness's per-agent overrides, written
+	// by `atomic config agents` and never by `atomic config set`.
+	Claude agentsSection `toml:"claude,omitempty"`
+	OMP    agentsSection `toml:"omp,omitempty"`
+	Codex  agentsSection `toml:"codex,omitempty"`
 	// Repl is the user-level idle_timeout fallback, consulted by repl only when
-	// the repo config has none. Empty means unset — unlike Harness.Dir it needs
-	// no backfill, since repl's own DefaultIdleTimeout supplies the concrete
-	// value rather than Load.
+	// the repo config has none. Empty means unset; no backfill, since repl's
+	// DefaultIdleTimeout supplies the value.
 	Repl replSection `toml:"repl,omitempty"`
+	// Steering.Claude is the user-level default Claude steering mode; empty means
+	// unset and resolves to loader.
+	Steering steeringSection `toml:"steering,omitempty"`
 	// Bus is modeled so writes that round-trip the file keep [bus.remotes].
 	Bus busSection `toml:"bus,omitempty"`
 }
@@ -214,7 +224,6 @@ func Default() *Config {
 			Check:     updateCheckDefault,
 			Stage:     updateStageDefault,
 		},
-		Harness:     harnessSection{Dir: harnessDirDefault},
 		OutputStyle: outputStyleSection{Seed: outputStyleSeedDefault},
 	}
 }
@@ -234,6 +243,10 @@ func Load(path string) (*Config, []Warning, error) {
 	var rawMap map[string]any
 	if err := toml.Unmarshal(raw, &rawMap); err != nil {
 		return nil, nil, fmt.Errorf("config: parse %s: %w", path, err)
+	}
+
+	if err := checkAgentTableShapes(rawMap); err != nil {
+		return nil, nil, fmt.Errorf("%w (in %s)", err, path)
 	}
 
 	var warns []Warning
@@ -308,11 +321,6 @@ func Load(path string) (*Config, []Warning, error) {
 	if !signalsMaxDepthExplicit {
 		cfg.Output.Signals.MaxDepth = signalsMaxDepthDefault
 	}
-	// An explicit empty harness.dir is never valid (Set/Validate reject it), so
-	// there is no absent-versus-zero collision — backfill unconditionally.
-	if cfg.Harness.Dir == "" {
-		cfg.Harness.Dir = harnessDirDefault
-	}
 
 	return cfg, warns, nil
 }
@@ -369,6 +377,9 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 				continue
 			}
 		} else {
+			if agentTables[dotted] {
+				continue
+			}
 			// Nested keys accept both leaves and known intermediate prefixes: a
 			// sub-table like "output.signals" must not warn.
 			if !knownLeaves[dotted] && !knownPrefixes[dotted] {
@@ -393,26 +404,27 @@ func Validate(cfg *Config) error {
 	if cfg.Output.Signals.MaxDepth <= 0 {
 		return fmt.Errorf("config: output.signals.max_depth must be a positive integer, got %d", cfg.Output.Signals.MaxDepth)
 	}
-	if err := validateHarnessDir(cfg.Harness.Dir); err != nil {
-		return err
+	// Empty state.dir means unset — the neutral ladder falls through.
+	if cfg.State.Dir != "" {
+		if err := ValidateStateDirPath(cfg.State.Dir); err != nil {
+			return err
+		}
 	}
 	// An empty install.version is valid — it means no [install] table yet.
 	if cfg.Install.Version != "" && !selfupdate.IsValidSemver(cfg.Install.Version) {
 		return fmt.Errorf("config: install.version %q is not a valid semver string (e.g. \"1.2.0\")", cfg.Install.Version)
 	}
-	// effort is strict: any non-empty value outside the enum fails validation.
-	// model is lenient and never blocks loading, and an unknown agent name is
-	// only a warning — both live in AgentWarnings.
-	for agentName, ov := range cfg.Claude.Agents {
-		if ov.Effort != "" && !validEfforts[ov.Effort] {
-			return fmt.Errorf("config: claude.agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
-		}
+	if err := ValidateClaudeAgentOverrides(cfg.Claude.Agents); err != nil {
+		return err
 	}
 	// Empty idle_timeout means unset; a present value must be a positive duration.
 	if cfg.Repl.IdleTimeout != "" {
 		if _, err := ValidateIdleTimeout(cfg.Repl.IdleTimeout); err != nil {
 			return err
 		}
+	}
+	if err := ValidateSteeringMode(cfg.Steering.Claude); err != nil {
+		return err
 	}
 	// Empty channel means unset and resolves to stable.
 	if cfg.Update.Channel != "" && !selfupdate.ValidChannel(cfg.Update.Channel) {
@@ -421,37 +433,44 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
-// AgentWarnings returns non-fatal warnings for [claude.agents] keys outside the
-// known bundled-agent set. An unknown key does not prevent loading — the user
-// may have a custom agent, or removed a bundled one. The known set comes from
-// the install manifest when available, else the embedded bundle.
+// AgentWarnings flags unknown agents, malformed models, and unrecognized OMP or Codex efforts.
+// Claude's known agents come from the install manifest when recorded, else the embedded bundle.
 func AgentWarnings(cfg *Config) []Warning {
-	if len(cfg.Claude.Agents) == 0 {
-		return nil
-	}
-
-	known := map[string]bool{}
-	if len(cfg.Install.Artifacts.Agents) > 0 {
-		for _, fname := range cfg.Install.Artifacts.Agents {
-			known[strings.TrimSuffix(path.Base(fname), ".md")] = true
-		}
-	} else {
-		for _, name := range bundledAgents() {
-			known[name] = true
-		}
+	bundled := map[string]bool{}
+	for _, name := range bundledAgents() {
+		bundled[name] = true
 	}
 
 	var warns []Warning
-	for agentName, ov := range cfg.Claude.Agents {
-		if !known[agentName] {
-			warns = append(warns, Warning{
-				Message: fmt.Sprintf("config: claude.agents.%s: unknown agent (not in installed set); override stored but agent must exist at apply time", agentName),
-			})
+	for _, kind := range AgentHarnesses {
+		known := bundled
+		if kind == "claude" && len(cfg.Install.Artifacts.Agents) > 0 {
+			known = map[string]bool{}
+			for _, fname := range cfg.Install.Artifacts.Agents {
+				known[strings.TrimSuffix(path.Base(fname), ".md")] = true
+			}
 		}
-		if ov.Model != "" && !validModelFormat(ov.Model) {
-			warns = append(warns, Warning{
-				Message: fmt.Sprintf("config: claude.agents.%s.model: questionable value %q; passed through as-is", agentName, ov.Model),
-			})
+		overrides := cfg.AgentOverrides(kind)
+		for _, agentName := range slices.Sorted(maps.Keys(overrides)) {
+			ov := overrides[agentName]
+			if !known[agentName] {
+				warns = append(warns, Warning{
+					Message: fmt.Sprintf("config: %s.agents.%s: unknown agent (not in installed set); override stored but agent must exist at apply time", kind, agentName),
+					Harness: kind,
+				})
+			}
+			if ov.Model != "" && !validModelFormat(ov.Model) {
+				warns = append(warns, Warning{
+					Message: fmt.Sprintf("config: %s.agents.%s.model: questionable value %q; passed through as-is", kind, agentName, ov.Model),
+					Harness: kind,
+				})
+			}
+			if levels, ok := advisoryEfforts[kind]; ok && ov.Effort != "" && !slices.Contains(levels, ov.Effort) {
+				warns = append(warns, Warning{
+					Message: fmt.Sprintf("config: %s.agents.%s.effort: unrecognized effort %q; passed through as-is", kind, agentName, ov.Effort),
+					Harness: kind,
+				})
+			}
 		}
 	}
 	return warns
@@ -476,11 +495,7 @@ func Get(cfg *Config, dottedKey string) (string, error) {
 // key (with a near-match suggestion) or a value outside the allowed enum.
 func Set(cfg *Config, dottedKey, value string) error {
 	if !isKnownKey(dottedKey) {
-		suggestion := nearMatch(dottedKey, knownKeys)
-		if suggestion != "" {
-			return fmt.Errorf("config: unknown key %q; did you mean %q?", dottedKey, suggestion)
-		}
-		return fmt.Errorf("config: unknown key %q", dottedKey)
+		return unknownKeyError(dottedKey)
 	}
 
 	switch dottedKey {
@@ -526,16 +541,24 @@ func Set(cfg *Config, dottedKey, value string) error {
 		default:
 			return fmt.Errorf("config: output_style.seed %q is not one of: false, true", value)
 		}
-	case "harness.dir":
-		if err := validateHarnessDir(value); err != nil {
+	case "state.dir":
+		if err := ValidateStateDirPath(value); err != nil {
 			return err
 		}
-		cfg.Harness.Dir = value
+		cfg.State.Dir = value
 	case "repl.idle_timeout":
 		if _, err := ValidateIdleTimeout(value); err != nil {
 			return err
 		}
 		cfg.Repl.IdleTimeout = value
+	case "steering.claude":
+		if value == "" {
+			return fmt.Errorf("config: steering.claude must not be empty; use `atomic config unset steering.claude`")
+		}
+		if err := ValidateSteeringMode(value); err != nil {
+			return err
+		}
+		cfg.Steering.Claude = value
 	case "update.channel":
 		if !selfupdate.ValidChannel(value) {
 			return fmt.Errorf("config: update.channel %q is not one of: prerelease, stable", value)
@@ -545,24 +568,11 @@ func Set(cfg *Config, dottedKey, value string) error {
 	return nil
 }
 
-// validateHarnessDir requires a single non-empty path segment, never "." or
-// "..", never containing "/".
-func validateHarnessDir(value string) error {
-	if value == "" || value == "." || value == ".." || strings.Contains(value, "/") {
-		return fmt.Errorf("config: harness.dir must be a single non-empty path segment (not \".\", \"..\", and not containing \"/\"), got %q", value)
-	}
-	return nil
-}
-
 // Unset reverts a key to its built-in default, erroring on an unknown one with a
 // near-match suggestion.
 func Unset(cfg *Config, dottedKey string) error {
 	if !isKnownKey(dottedKey) {
-		suggestion := nearMatch(dottedKey, knownKeys)
-		if suggestion != "" {
-			return fmt.Errorf("config: unknown key %q; did you mean %q?", dottedKey, suggestion)
-		}
-		return fmt.Errorf("config: unknown key %q", dottedKey)
+		return unknownKeyError(dottedKey)
 	}
 	switch dottedKey {
 	case "output.signals.max_depth":
@@ -575,10 +585,12 @@ func Unset(cfg *Config, dottedKey string) error {
 		cfg.Update.Stage = updateStageDefault
 	case "output_style.seed":
 		cfg.OutputStyle.Seed = outputStyleSeedDefault
-	case "harness.dir":
-		cfg.Harness.Dir = harnessDirDefault
+	case "state.dir":
+		cfg.State.Dir = ""
 	case "repl.idle_timeout":
 		cfg.Repl.IdleTimeout = ""
+	case "steering.claude":
+		cfg.Steering.Claude = ""
 	case "update.channel":
 		cfg.Update.Channel = ""
 	}
@@ -619,6 +631,20 @@ func WritePersist(path string, cfg *Config) error {
 		return fmt.Errorf("config: rename to %s: %w", path, err)
 	}
 	return nil
+}
+
+// unknownKeyError refuses a key set and unset cannot write, naming
+// `atomic config agents` for agent overrides and a near match otherwise.
+func unknownKeyError(dottedKey string) error {
+	for _, harness := range AgentHarnesses {
+		if strings.HasPrefix(dottedKey, harness+".agents.") {
+			return fmt.Errorf("config: %s.agents.* keys are written by `atomic config agents --harness %s`", harness, harness)
+		}
+	}
+	if suggestion := nearMatch(dottedKey, knownKeys); suggestion != "" {
+		return fmt.Errorf("config: unknown key %q; did you mean %q?", dottedKey, suggestion)
+	}
+	return fmt.Errorf("config: unknown key %q", dottedKey)
 }
 
 // isKnownKey reports whether dottedKey is in the known-keys list.

@@ -28,7 +28,7 @@ Design source: `docs/design/atomic-doctor.md`.
 - [ ] `--json` emits a stable schema (versioned via `schema_version`) for CI consumers.
 - [ ] `--fix` prompts per item (axiom 3); no batched silent mutations.
 - [ ] `--only <cat>` / `--skip <cat>` accept category indices or canonical short names.
-- [ ] Missing `~/.claude/` short-circuits to exit 0 with one informational line; no FAIL cascade.
+- [ ] A missing `~/.claude/` short-circuits to exit 0 with one informational line **only when the ledger enrolls no target**; an enrolled target — an OMP-only home included — runs the categories, with the Claude-scoped ones reporting `SKIP` instead of a false finding.
 - [ ] Repo-dev-only checks (manifest parity) are omitted entirely (no result row, no `SKIP`) when not in the atomic-claude repo, unless explicitly requested via `--only`.
 - [ ] All checks deterministic — no LLM judgment, pure Go.
 - [ ] `go test ./atomic/internal/doctor/...` covers each check + each repair with table-driven cases.
@@ -65,18 +65,30 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 |---|------------------|--------|---------------|
 | 1 | `install`        | `~/.claude/{agents,commands,skills,output-styles,rules}/` exist; per-file SHA256 matches embedded bundle manifest. | WARN drift / FAIL missing |
 | 2 | `hooks`          | `~/.claude/settings.json` contains the session-start hook payload that `atomic hooks session-start` would emit. | WARN |
-| 3 | `signals`        | `.claude/project/deterministic-signals.md` exists; `atomic signals stale --threshold <days>` exits 0. Threshold defaults to 7; overridable via `--stale-days`. | WARN |
-| 4 | `refs`           | `@.claude/project/signals.md` ref present in one of `claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md` / `claude.md` (skill search order). Only `signals.md` is @-ref'd; `deterministic-signals.md` is read on demand by the inferrer. | FAIL |
+| 3 | `signals`        | `docs/wiki/scan.md` exists; `atomic signals stale --threshold <days>` exits 0. Threshold defaults to 7; overridable via `--stale-days`. | WARN |
+| 4 | `refs`           | `@docs/wiki/index.md` ref present in one of `claude.local.md` / `CLAUDE.local.md` / `AGENTS.md` / `CLAUDE.md` / `claude.md` (the wiki pipeline's wiring order). An `AGENTS.md` hit counts only when no `CLAUDE.md` / `claude.md` sits beside it or the one beside it imports `@AGENTS.md`: a whitespace-delimited token exactly `@AGENTS.md` or `@./AGENTS.md`, outside fenced code, indented code blocks, and inline code spans. Claude Code expands an import in prose, so a prose mention counts; a code example, a code span, `@AGENTS.md.bak`, or a token with trailing punctuation such as `@AGENTS.md.` does not. Only `index.md` is @-ref'd; `scan.md` is read on demand by the inferrer. | FAIL |
 | 5 | `manifest`       | Repo-dev only (heuristic: `atomic/internal/bundlemirror/` exists). Committed `manifest.go` SHA matches what `go generate ./...` would produce — without writing. Omitted entirely outside the repo (no row, no `SKIP`) unless explicitly requested via `--only 5`. | FAIL |
-| 6 | `followups`      | If `.claude/project/followups.md` exists, every `### F-<id>` entry has an `Origin:` line and a severity bucket. | WARN |
+| 6 | `followups`      | Walks `<state-root>/project/followups/` (`config.FollowupsDir`; `.atomic` by default). Absent folder → SKIP. An entry with unparseable frontmatter, an entry past its `review_by`, or an `INDEX.md` that differs from a fresh render → WARN. | WARN |
 | 7 | `memory`         | `~/.claude/projects/<project>/memory/MEMORY.md` link targets all resolve (file exists in same dir). | WARN |
 | 8 | `binary`         | `atomic update --check` succeeds without performing update. | WARN |
 | 9 | `config`         | `~/.atomic/config.toml` parses + validates. Parse error → FAIL; invalid enum value → FAIL; unknown keys → WARN. Not auto-fixable — both remedies (edit the file, `atomic config unset <key>`) are the user's. | WARN by default; FAIL for parse error or invalid value |
-| 10 | `profile`       | `~/.atomic/profile.md` exists; `@~/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (same search order as `refs`: `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` / `claude.md`); `<deterministic lastcheck=YYYY-MM-DD>` attribute is present and within the last 30 days. Missing file → WARN; missing @-ref → WARN; missing or stale lastcheck → WARN; a candidate file still carrying the legacy `@~/.claude/.atomic/profile.md` ref → WARN naming `atomic claude install`. | WARN |
-| 11 | `code-index`    | `<projectRoot>/.claude/.atomic-index/atomic.db` freshness check. **Absence is normal — the index is opt-in — and reports PASS (informational).** DB present + mtime older than `--stale-days` (default 7) → WARN with `run 'atomic code sync'`. DB present + fresh → PASS with age detail. **Never FAIL.** | WARN |
+| 10 | `profile`       | `~/.atomic/profile.md` exists; `@~/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (`claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md` / `claude.md`); `<deterministic lastcheck=YYYY-MM-DD>` attribute is present and within the last 30 days. Missing file → WARN; missing @-ref → WARN; missing or stale lastcheck → WARN; a candidate file still carrying the legacy `@~/.claude/.atomic/profile.md` ref → WARN naming `atomic claude install`. | WARN |
+| 11 | `code-index`    | `<state-root>/.atomic-index/atomic.db` freshness check (`<state-root>` is `.atomic` under the project root by default, or an absolute directory). **Absence is normal — the index is opt-in — and reports PASS (informational).** DB present + mtime older than `--stale-days` (default 7) → WARN with `run 'atomic code sync'`. DB present + fresh → PASS with age detail. **Never FAIL.** | WARN |
 | 12 | `migrate`       | Combines two conditions into one Result (combined-detail style, as `config` does): (a) version drift — `[install].version` in `~/.atomic/config.toml` older than the running binary → WARN naming the pending migration, `Remediation: atomic migrate`; (b) legacy state dir — `~/.claude/.atomic` still a real directory (not the compat symlink left by a completed migration) → WARN naming the path and that migration runs automatically on any `atomic` verb invocation. Severity is the worst of the two; detail concatenates whichever condition(s) fired. Neither firing → PASS. | WARN |
-| 13 | `repo-config`   | `<projectRoot>/.claude/atomic.toml` validation via `config.LoadRepoConfig` + `config.NewIgnoreMatcher`. **Absence is normal — the file is optional — and reports PASS (informational).** Parse errors, unknown keys, invalid `[code] ignore` glob patterns, an invalid top-level `scope` value, and an invalid `[repl] idle_timeout` (unparseable, or zero/negative — see `config.ValidateIdleTimeout`) each report WARN with detail naming the offending value. A valid file reports PASS naming the active ignore-pattern count and, when present, the declared `scope` (e.g. `scope=repo`). The dispatcher additionally WARNs when `scope = "repo"` while the root is also registered as a realm root in the `<wikis>` block — two mechanisms making incompatible claims about one directory; an empty/uninjected CLAUDE.md path skips this sub-check. **Never FAIL** — a malformed or invalid repo config only degrades code-intel indexing/discovery to unfiltered or fallback, it never blocks the repo. | WARN |
+| 13 | `repo-config`   | `<state-root>/atomic.toml` validation (`config.RepoConfigPath`) via `config.LoadRepoConfig` + `config.NewIgnoreMatcher`. **Absence is normal — the file is optional — and reports PASS (informational).** Parse errors, unknown keys, invalid `[code] ignore` glob patterns, an invalid top-level `scope` value, and an invalid `[repl] idle_timeout` (unparseable, or zero/negative — see `config.ValidateIdleTimeout`) each report WARN with detail naming the offending value. A valid file reports PASS naming the active ignore-pattern count and, when present, the declared `scope` (e.g. `scope=repo`). The dispatcher additionally WARNs when `scope = "repo"` while the root is also registered as a realm root in the wiki registry — two mechanisms making incompatible claims about one directory; an empty/uninjected CLAUDE.md path skips this sub-check. The registry read prefers the authoritative `~/.atomic/wikis.md` and falls back to the installed `<wikis>` projection only when no authority exists, so a changed projection can never override the authority. **Never FAIL** — a malformed or invalid repo config only degrades code-intel indexing/discovery to unfiltered or fallback, it never blocks the repo. | WARN |
 | 14 | `output-style`  | Reads `outputStyle` from the install target's `settings.json` (user level). Absent with `output_style.seed` enabled → WARN, repairable. Absent with seeding disabled → WARN saying so, **not** repairable. Set to `"Atomic"` with `output-styles/atomic.md` missing from the target → WARN naming the missing file, not repairable by seeding. Any other present value → PASS reporting it, qualified as not verified against an installed style file, since a style's `name:` is not its filename. Either way, `outputStyle` found in the current repo's `.claude/settings.json` or `.claude/settings.local.json` is appended to the detail as a possible override, naming the file; that scan is skipped when the repo's `.claude` resolves to the install target itself, so running from `$HOME` never reports the user-level file as its own override. **Never computes an effective/precedence value** — reports per-file contents only, since Claude Code's file-placement rules aren't documented well enough to replicate. | WARN |
+| 15 | `targets`       | Enrolled target instances reported against read-only discovery. Enrollment (the ledger's target records) and native registration (what discovery observes) are separate facts, so both are listed as findings and their disagreement is the defect: a target record whose `native_root` is absent or that discovery does not report → WARN. A project-keyed target (`NativeRoot` empty) is never expected in profile discovery. When the session runs under a detected OMP or Codex harness with no enrolled target of that kind, the check reports `detected <kind>, not enrolled` with the remediation `atomic install --harness <kind>`, a WARN on its own or appended to another WARN's detail; `--fix` does not auto-fix it. A detected Claude harness with no Claude target is the Claude scope's leg, not this check's. Reads the shared multi-harness status once per run. | WARN |
+| 16 | `resources`     | Every ledger-owned physical resource with its `consumers` (enrolled targets that depend on it) and `visible-to` (unenrolled instances that can merely see it). Visibility is not a dependency. A consumer the ledger does not enroll → WARN. | WARN |
+| 17 | `journals`      | Unfinished lifecycle journals, previewed read-only via `installstate.SimulateRecoveries` (no lock, no write). Each journal reports its simulated action/conflict counts; a journal that cannot resolve to one safe result → WARN naming the conflicting units; otherwise WARN naming the recoverable journals. None → PASS. | WARN |
+| 18 | `capabilities`  | Each registered harness's CP0 capability record as promised rows against proven ones. Never reads a row without a retained observation as proof. A registered adapter reporting a capability record for another harness → WARN; otherwise PASS with per-harness promised/proven/partial/unproven counts. | WARN |
+| 19 | `rules`         | Every enrolled target's rule surface via the install engine's read-only `RulesStatus`: enforcement tier, owned rule resources with their recorded and observed digests, and the CP0 rule-delivery roles the projection cannot promise (uncovered operations). A conflicting or missing rule resource → WARN; an unproven role is reported, never presented as parity. | WARN |
+| 20 | `trust`         | Deliberate disablement and untrusted hook state. The Claude session-start hook registration is read via `hooks.IsInstalled`; a registered-but-drifted hook → WARN. Per-harness `skill-disablement` capability status and OMP's one unproven extension-disablement surface are reported as findings. A deliberate override is reported, never repaired. | WARN |
+| 21 | `staleness`     | Materialized resources whose recorded generation is behind the selected binary's projection (`RowStale`), and resources carrying no applied digest to compare (`RowUnverifiable`). Either → WARN; otherwise PASS naming the compared resource count. | WARN |
+| 22 | `conflicts`     | Owned resources whose native bytes match neither the recorded generation nor the selected projection — a later derivative edit, a malformed managed block, or a conflicting project card. Any conflict, or a target plan blocker, → WARN; a repair never overwrites the conflicting bytes. | WARN |
+| 23 | `shadowing`     | Projected resources a native copy duplicates. Two shapes are reported: the same owned digest delivered at two paths sharing one file name, and a Claude-native global `AGENTS.md` beside the projected `CLAUDE.md` (which the adapter is contractually forbidden to create or reference). Either → WARN; shadowing is degraded or deliberately disabled delivery, so repair never overwrites the native copy. | WARN |
+| 24 | `codex`         | The Codex native surfaces CP0 could not prove, reported read-only for every discovered or enrolled `CODEX_HOME`: plugin-hook trust (the `SessionStart` and `PreToolUse` members, each `trusted`, `modified`, `untrusted`, or `unknown`), deliberate hook disablement, mediated tool coverage, payload spill, child-session delivery, and the last successful runtime proof — each with its evidence — plus the observed native registration row from Codex's own registry and the rule-delivery roles the capability record leaves unproven. Every surface is unproven for the tested version, so the category reports rather than repairs and never fabricates a trust or coverage claim; no discovered or enrolled Codex home → PASS. | WARN |
+| 25 | `card-link`     | The repository's `.claude/rules/atomic` symlink. No repository or no link → PASS. A link that does not resolve to the existing `<state-root>/rules` → WARN. A link that resolves there but whose target text is not the relative path `atomic repo init` writes (`../../<state-root>/rules`), such as an absolute target, → WARN, because init compares the text and reports it as a conflict. Otherwise PASS naming the subdirectory-session limit. Remediation: remove the link and run `atomic repo init`. | WARN |
+| 26 | `steering`      | Whether the repository or realm's `[steering] claude` mode reaches the harnesses that read it. No repository → PASS. An unreadable config or unknown mode → WARN. `agents-md` beside a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` (Claude then skips `AGENTS.md`), or a Claude older than 2.1.277 → WARN; `claude-md` while OMP or Codex is enrolled, or a pair left in loader shape because its `AGENTS.md` holds user text → WARN. A missing `claude` binary or unparseable version is a PASS whose detail carries an `info:` note. Otherwise PASS naming the mode. | WARN |
 
 
 Category short-names are stable: editing/removing one is a spec amendment (`Removed:` log entry).
@@ -103,12 +115,12 @@ atomic doctor — integrity check  (project: <name>)
 [1] PASS  install                  36/36 files match bundle
 [2] WARN  hooks                    session-start hook missing
 [3] PASS  signals                  last scan 3d ago (threshold 7d)
-[4] FAIL  refs                     @-refs not present in CLAUDE.md, claude.local.md, CLAUDE.local.md, or claude.md
-[6] PASS  followups                no .claude/project/followups.md
+[4] FAIL  refs                     ref not present in claude.local.md, CLAUDE.local.md, AGENTS.md (when CLAUDE.md is absent or imports it), CLAUDE.md, or claude.md
+[6] SKIP  followups                no followups folder
 [7] PASS  memory                   8/8 refs resolve
 [8] PASS  binary                   v0.4.2 (latest)
 
-5 PASS, 1 WARN, 1 FAIL, 0 SKIP. exit 1.
+4 PASS, 1 WARN, 1 FAIL, 1 SKIP. exit 1.
 
 To repair: atomic doctor --fix
 ```
@@ -166,7 +178,12 @@ Bumping `schema_version` is a spec amendment.
 ## Missing `~/.claude/`
 
 
-Short-circuit before running any check:
+The missing-Claude-home gate is conditional. Doctor short-circuits — before running any check — only when `~/.claude/` is absent **and** the install ledger enrolls no target. An OMP-only home has no `~/.claude` but still owns lifecycle state, so a non-empty ledger lifts the gate and the categories run; the Claude-scoped ones report `SKIP` rather than a false finding (`install` when the target directory is absent, plus `hooks`, `profile`, and `output-style`, which read the Claude home directly). When the ledger enrolls only other harnesses, that SKIP reads `no Claude target enrolled (<harnesses> enrolled); Claude-scoped checks not applicable`, naming the enrolled harnesses.
+
+
+A ledger doctor cannot read — unreadable, undecodable, or refused as a newer schema — also lifts the gate: that read failure is the defect the multi-harness categories exist to report, and short-circuiting it to "not installed" would swallow it. Those categories then report the unreadable state themselves.
+
+Short-circuit output, when the gate holds:
 
 
 ```
@@ -193,12 +210,16 @@ Per-item confirm (axiom 3). Each repair idempotent. Print every shell command be
 | 1 | `install`   | `atomic claude install` (re-uses existing merge-required guard for `CLAUDE.md`). |
 | 2 | `hooks`     | `atomic hooks install`. |
 | 3 | `signals`   | **Cannot auto-fix.** Print: `run /refresh-wiki from Claude Code to refresh signals.` |
-| 4 | `refs`      | Ask user which file to patch (numbered list per axiom 4 if >1 candidate); append `@`-ref block. |
+| 4 | `refs`      | Ask user which file to patch (numbered list per axiom 4 if >1 candidate); append `@`-ref block. In `loader` mode Atomic's own loader is not a candidate. In every mode the mode's file is listed first after any project-local override. With no candidate, write the `[steering] claude` mode's file: `AGENTS.md` plus a thin `CLAUDE.md` loader in `loader`, `AGENTS.md` alone in `agents-md`, `CLAUDE.md` alone in `claude-md`. When the ref lands in `AGENTS.md` in `loader` mode, the loader is written, or the `@AGENTS.md` import is appended to a non-importing `CLAUDE.md`. |
 | 5 | `manifest`  | `make -C atomic bundle` (regenerates); refuses outside the atomic-claude repo. |
 | 6 | `followups` | **Cannot auto-fix.** Print malformed entries with line numbers; refuse to edit (content authorship is human). |
 | 7 | `memory`    | **Cannot auto-fix.** Print orphan refs; refuse to delete (user-authored). |
 | 8 | `binary`    | Print: `atomic update` to update. |
 | 14 | `output-style` | Seed the user-level `outputStyle` key via `hooks.SeedOutputStyle` (never a project file), and only when the check reports the warning genuinely fixable. `output_style.seed = false` and a missing style file are reported **cannot auto-fix** up front, so no repair is offered and no write is attempted. |
+| 15, 17, 19, 21 | `targets`, `journals`, `rules`, `staleness` | Converge enrolled targets through the common CP7A planner (`install.Steps.Converge`, `Selection{EnrolledOnly}`). The adapter acquires the one advisory lifecycle lock (`~/.atomic/install/operation.lock`) and recovers unresolved journals oldest-first before planning; the planner re-observes after projection, so a plan that moved on refuses rather than writing around it. The fix loop's per-item `Confirm` is the only consent prompt — the planner is handed `AssumeYes` and never prompts again. With no enrolled target the repair is **cannot auto-fix**. |
+| 16, 18, 20, 22, 23, 24 | `resources`, `capabilities`, `trust`, `conflicts`, `shadowing`, `codex` | **Cannot auto-fix.** These report owned/verbose state; a conflicting or shadowing native copy is reported and preserved, never overwritten, and an unproven native surface is reported rather than fabricated into a trust or coverage claim. |
+| 25 | `card-link` | **Cannot auto-fix.** The link is a tracked repository file; the repair prints the remediation (remove the link, run `atomic repo init`). |
+| 26 | `steering` | **Cannot auto-fix.** The remedy is a config choice; the repair prints it (set `steering.claude` to `loader`, or remove the conflicting file). |
 
 
 Skill-required and content-authored repairs degrade to printed instructions. This is the acceptable boundary: the CLI cannot dispatch a Claude skill, and cannot rewrite human authorship.
@@ -209,7 +230,7 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 
 | Code | Meaning |
 |------|---------|
-| 0 | All PASS or only WARN/SKIP. Also: `~/.claude/` missing (short-circuit). |
+| 0 | All PASS or only WARN/SKIP. Also: `~/.claude/` missing *and* no target enrolled (short-circuit). |
 | 1 | One or more FAIL. |
 | 2 | Doctor itself errored (cannot read state, conflicting flags, missing required dependency). |
 
@@ -263,6 +284,51 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 
 <!-- empty on creation; entries appended on amendment after approval -->
 
+### 2026-11-12 — Category 26 `steering`; Codex trust names both hooks
+
+**What changed:** The category table gains row 26 (`steering`) and its fix row (manual remedy). Row 24 reports trust for the `PreToolUse` member as well as `SessionStart`.
+
+**Why:** Both shipped without a body entry. Contract: `docs/spec/omp-plugin-compatibility.md`.
+
+### 2026-11-12 — Card-link target, OMP-only SKIP detail, import token
+
+**What changed:** The category table gains row 25 (`card-link`), which WARNs on a link that reaches `<state-root>/rules` through a target other than the relative one `atomic repo init` writes. The missing-Claude-home paragraph states the SKIP detail on a home that enrolls only other harnesses: it names them.
+
+Category 4 (`refs`) counts an `AGENTS.md` import only as a whitespace-delimited token exactly `@AGENTS.md` or `@./AGENTS.md`, outside fenced code, indented code blocks, and inline code spans; trailing punctuation makes it a non-import, since nothing documents that Claude strips it.
+
+**Why:** an absolute link passed doctor while `atomic repo init` reported it as a conflict, a bare SKIP on an OMP-only home read as an unchecked install, and a substring match counted a fenced example, a code span, or `@AGENTS.md.bak` as an import while missing `@./AGENTS.md`.
+
+**Superseded:** the SKIP detail ended at "Claude-scoped checks not applicable", and any `@AGENTS.md` substring counted as an import.
+
+**Correction:** category 25 shipped without a row in this table; the row is added from `checks_cardlink.go`. The `--fix` table also lacked it: category 25 is cannot-auto-fix (`fix.go`), and the row now says so.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** Category 6 (`followups`) walks `<state-root>/project/followups/` (`.atomic` by default), SKIPs when the folder is absent, and WARNs on unparseable frontmatter, stale entries, or `INDEX.md` drift; the sample output shows the SKIP and its counts. Category 11 (`code-index`) checks `<state-root>/.atomic-index/atomic.db` and category 13 (`repo-config`) checks `<state-root>/atomic.toml`. **Correction:** categories 3 and 4 name `docs/wiki/scan.md` and the `@docs/wiki/index.md` ref, the paths `checks_signals.go` and `checks_refs.go` read.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the code index and repo config under `.claude/`, a followups check over the legacy `.claude/project/followups.md`, and signals paths under `.claude/project/`.
+
+
+### 2026-11-10 — `targets` reports the detected harness when not enrolled
+
+**What changed:** Category 15 adds a finding when an OMP or Codex session runs with no enrolled target of that kind, with the remediation `atomic install --harness <kind>`. `--fix` reports it as not auto-fixable.
+
+**Why:** Multi-harness support (`docs/spec/omp-plugin-compatibility.md`): a session in an unenrolled harness otherwise passes doctor while Atomic is absent from it.
+
+### 2026-09-19 — Codex surfaces append category 24
+
+**What changed:** One category appends after the existing 1–23, whose names, severities, and indices are unchanged.
+
+- `codex` (24) — the Codex native surfaces CP0 could not prove, for every discovered or enrolled `CODEX_HOME` root. It renders the CP5 read-only seams (`codex.RuntimeState`, `RegistrationStateRow`, `RuntimeDisablementGap`, and `harness.RuleGaps` over the Codex capability record): plugin-hook trust and changed-definition re-review, deliberate hook disablement and configuration precedence, mediated tool coverage, hosted/specialized bypasses, instruction and payload limits, additional-context spill, child-session delivery, the last successful runtime proof, the observed native registration row, and every unproven rule-delivery role. Each row carries the evidence that fixes it.
+
+The category is report-only: its unproven surfaces render as PASS findings (never fabricated as supported) and it never participates in `--fix` — the repair table lists it with the other cannot-auto-fix categories. On an unreadable home, registry, or ledger the category reports the read failure as a WARN exactly like the other multi-harness categories, and `--fix` still refuses to auto-repair it. Every surface is unproven for the tested version, so a fabricated "supported" row would be worse than the reported gap. Enrollment of a Codex home publishes only the generated plugin package — native marketplace and plugin registration is Codex's own surface, observed here rather than staged — so the registration row reports what Codex's registry actually records.
+
+**Why:** CP7F of `docs/spec/omp-plugin-compatibility.md` — Codex enrollment, trust status, disablement, rule tiers, unsupported capability roles, uncovered operations, and the last runtime proof must be discoverable, and every Codex surface must be reported honestly rather than presented as parity.
+
+**Superseded:** The 2026-09-19 CP7C entry's "No Codex checks are added (CP7F)" sentence deferred this work; category 24 is that work. The `--fix` category list now names `codex` among the cannot-auto-fix categories.
+
 ### 2026-05-23 — Signals check gains router validation
 
 **What changed:** The `signals` check (category 3) now validates the signals router in addition to existing freshness checks. New validations: `signals.md` present, `signals.md` `@-ref`'d in a CLAUDE.md-family file, all domain files referenced in the router's Domains table exist on disk, no orphan domain files under `signals/`. Missing router emits WARN (not FAIL) to allow the transition period where repos still have the flat `inferred-signals.md`. Check remains anchored to cwd via `repoctx.Toplevel()` — no worktree cross-comparison.
@@ -312,7 +378,40 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 
 **Correction:** running `atomic doctor` from `$HOME` reported the user-level `settings.json` as a possible override of itself, since `repoRoot` and the install target named the same file. Found by the final audit hand-driving the binary; the check tests missed it because they inject the two roots as distinct temp directories.
 
+### 2026-09-19 — Multi-harness categories (15–23); ledger-managed `--fix`; F-4/F-5 closed
+
+**What changed:** Nine categories append after the existing 1–14, whose names, severities, and indices are unchanged. Each reports independently, reading the read-only multi-harness seams once per run:
+
+- `targets` (15) — enrolled target records against discovery (enrollment vs native registration).
+- `resources` (16) — ledger-owned resources with consumers and visibility kept separate.
+- `journals` (17) — unfinished journals previewed via `installstate.SimulateRecoveries`.
+- `capabilities` (18) — each harness's CP0 rows as promised vs proven.
+- `rules` (19) — per-target tier, rule resource digests, and uncovered rule-delivery roles via `install.Steps.RulesStatus`.
+- `trust` (20) — the Claude session-start hook trust state, per-harness skill disablement, and OMP's unproven extension disablement.
+- `staleness` (21) — materialized generations behind the selected projection.
+- `conflicts` (22) — derivative edits, malformed blocks, and conflicting cards.
+- `shadowing` (23) — a projected resource duplicated by a native copy, including a global Claude `AGENTS.md`.
+
+`--fix` gains a converge repair for `targets`, `rules`, `staleness`, and `journals`. It reuses the common CP7A converge planner (`install.Steps.Converge`), so every ledger-managed repair resolves enrolled targets, re-observes, and hands mutation to the adapter, which acquires the one advisory lifecycle lock (`operation.lock`) and recovers unresolved journals oldest-first before planning. The per-item doctor `Confirm` remains the only consent prompt; the planner receives `AssumeYes` so it never prompts twice. Purely local repairs keep their existing behavior. No Codex checks are added (CP7F).
+
+**F-5 closed:** category 13's `scope = "repo"` vs realm-registry contradiction sub-check now reads the wiki registry through `wiki.RegisteredIndexPaths`, which prefers the authoritative `~/.atomic/wikis.md` and falls back to the installed `<wikis>` projection only when no authority exists. A changed projection can no longer override the authority. **Superseded:** the prior body described the sub-check as reading the `<wikis>` block in `ClaudeMDPath` directly.
+
+**F-4 adjudicated:** session-baseline belongs to the rule-delivery surface, not the session layer alone — the Codex projection delivers bounded rule context through its proven session-baseline event. `harness.RuleGaps` now includes `RoleSessionBaseline`, so a harness whose baseline is unproven (Claude's is partial, Codex's unproven) reports it as a gap, while OMP's proven baseline drops out. Pinned by `TestRuleGapsIncludesSessionBaseline`.
+
+**Why:** CP7C of `docs/spec/omp-plugin-compatibility.md` — `atomic doctor` must report target instances, shared resources, unfinished journals, capability gaps, stale materializations, deliberate disablement or untrusted hooks, effective-content shadowing, and uncovered rule operations independently, and any ledger-managed `--fix` must use the global lock, oldest-first recovery, and the common planner rather than a second repair path.
+
+### 2026-09-19 — Correction: the missing-Claude-home short-circuit is conditional, and an unreadable ledger lifts it
+
+**What changed:** The missing-Claude-home gate is now stated as the conditional rule the code implements. Doctor short-circuits only when `~/.claude/` is absent *and* the ledger enrolls no target; the short-circuit message and `--json` contract for that empty case are unchanged, and the exit-code row now says so. An enrolled target — an OMP-only home included — runs the categories, with the Claude-scoped ones reporting `SKIP` rather than a false finding.
+
+`HasEnrolledTargets` no longer collapses a ledger load/validation error into "nothing enrolled". A ledger that is unreadable, undecodable, or refused as a newer schema also lifts the gate, so the multi-harness categories run and report the read failure through their existing unavailability detail — the same report shape they emit for any unreadable lifecycle state.
+
+**Correction:** The body described a gate the code had already made conditional (`ClaudeHomeMissing && !HasEnrolledTargets`), and said nothing about unreadable ledgers while `HasEnrolledTargets` returned false on any load error. Found by the CP7E re-review; pinned by `TestShortCircuitLiftsOnUnreadableLedger` (damaged, newer-schema, and permission-denied ledgers) alongside the existing `TestShortCircuitLiftsForEnrolledTargets` and `TestDoctorRunsHarnessCategoriesOnOMPOnlyHome`.
+
+**Superseded:** Prior body stated "Missing `~/.claude/` short-circuits to exit 0 with one informational line" as unconditional and documented only the empty-ledger output; a load or validation error on the ledger read as an absent one.
+
 ## Implementation log
+
 
 
 ### v1 — 2026-05-17
@@ -453,3 +552,20 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Why:** The pre-repair code collapsed "found problems and fixed them" and "still broken" to the same value 1, so a CI job gating on `atomic doctor --fix` could not distinguish them and always needed a second invocation to confirm green.
 
 **Superseded:** The exit code was computed once, before repairs ran, and a `--fix` run that successfully repaired every FAIL still exited 1.
+
+### 2026-11-11 — `refs` searches `AGENTS.md`
+
+**What changed:** Category 4 (`refs`), the router-ref check in category 3, and the `--fix` candidate list search `claude.local.md`, `CLAUDE.local.md`, `AGENTS.md`, `CLAUDE.md`, then `claude.md`. Categories 3 and 4 accept an `AGENTS.md` hit only when Claude loads that file: no `CLAUDE.md` / `claude.md` beside it, or one that imports `@AGENTS.md`. Category 10 (`profile`) keeps the Claude-only list.
+
+**Why:** The wiki pipeline wires `@docs/wiki/index.md` into the shared `AGENTS.md` beside a thin `CLAUDE.md` loader, so a correctly wired repository reported FAIL (audit row P-28 in `docs/research/harness-parity-audit.md`).
+
+**Superseded:** The search order was `claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md` / `claude.md`.
+
+
+### 2026-11-12 — `refs` repair follows the steering mode
+
+**What changed:** In `loader` mode the `refs` repair leaves Atomic's own loader out of the candidates and lists the mode's file first after any project-local override. With no candidate it writes the file the `[steering] claude` mode names. When the ref lands in `AGENTS.md` in `loader` mode it writes the loader, or appends the `@AGENTS.md` import to a non-importing `CLAUDE.md`. The router-ref check already accepted a ref in `AGENTS.md`, so an `agents-md` repository wired there passes, and its WARN detail now names `AGENTS.md`.
+
+**Why:** The `[steering] claude` mode changed how pairs are shaped; contract in `docs/spec/omp-plugin-compatibility.md`.
+
+**Superseded:** the repair wrote `CLAUDE.md` in every mode when no candidate existed.

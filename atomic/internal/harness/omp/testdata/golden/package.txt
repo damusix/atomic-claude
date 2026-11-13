@@ -1,0 +1,15 @@
+generation 3283af11301bdda876a9ce941dec4c7fe83ce7bb2038a6583646b31a0e4b2bec
+commands/example.md 23ff515f11bf40cf667eb438e59f64919a1e63821b85c2978a4de638637cb504 unsupported
+extensions/atomic.ts 21ed2a9ae7804917481dd481ba61373001fd6e8b3ac8e49e14baa374ba8e8324 unsupported
+rules/typescript/style.md 516f954957f1c2b9da1d26a44795a4d2d470ab395b2813b4bdadc274a3401a13 unsupported
+skills/atomic-example/SKILL.md c234c63418811d827b0a3707657cea3112f8f5aa82fecaf4b3c08046be2000c2 unsupported
+gap skill-metadata unsupported
+gap skill-references unsupported
+gap skill-disablement unsupported
+gap static-scoped-rule unsupported
+gap context-return unsupported
+unproven package install, registration, and lifecycle
+unproven package command and skill discovery
+unproven shared-package visibility
+unproven project installation scope
+unproven package uninstall and cleanup

@@ -11,18 +11,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// WikiAction is the `atomic wiki` entry point for cmd/atomic/main.go.
-func WikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
-	return wikiAction(args, claudeHome, cwd, out)
+// WikiAction is the `atomic wiki` entry point for cmd/atomic/main.go. steering
+// resolves the files the <wikis> block is projected into; only scan calls it.
+func WikiAction(args []string, home string, steering func() ([]string, error), cwd string, out io.Writer) int {
+	return wikiAction(args, home, steering, cwd, out)
 }
 
 // wikiAction is the testable seam behind WikiAction: args are everything after
-// "wiki", claudeHome and cwd are injected rather than looked up, and the exit
-// code is 0 success / 1 usage or soft error / 2 hard error.
-func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
+// "wiki", home, steering, and cwd are injected rather than looked up, and the
+// exit code is 0 success / 1 usage or soft error / 2 hard error.
+func wikiAction(args []string, home string, steering func() ([]string, error), cwd string, out io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "Usage: atomic wiki <scan|stale|linkify|bucket|init> [flags]\n")
 		return 1
@@ -31,7 +33,7 @@ func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 	verb := args[0]
 	switch verb {
 	case "scan":
-		return wikiScanAction(args[1:], claudeHome, cwd, out)
+		return wikiScanAction(args[1:], home, steering, cwd, out)
 	case "stale":
 		return wikiStaleAction(args[1:], cwd, out)
 	case "linkify":
@@ -101,13 +103,8 @@ func wikiLinkifyAction(args []string, cwd string) int {
 	return 0
 }
 
-// wikiInitAction implements `atomic wiki init --scope repo|realm [--root=<path>]`:
-// it declares the scope in .claude/atomic.toml and writes the CLAUDE.md
-// scaffold for it — docs/wiki/CLAUDE.md (steering) for repo, wiki/CLAUDE.md
-// (self-reference) for realm. Both writes no-op when the target exists.
-//
-// A marker already declaring a different scope is never rewritten: that exits 1
-// with nothing touched.
+// wikiInitAction implements `atomic wiki init --scope repo|realm [--root=<path>]`.
+// A marker already declaring a different scope exits 1 with nothing touched.
 func wikiInitAction(args []string, cwd string, out io.Writer) int {
 	fs := flag.NewFlagSet("wiki-init", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -142,14 +139,11 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
-	var path string
-	var created bool
+	var created []string
 	switch scope {
 	case "repo":
-		path = filepath.Join(absRoot, "docs", "wiki", "CLAUDE.md")
 		created, err = InitRepoScope(absRoot)
 	case "realm":
-		path = filepath.Join(absRoot, "wiki", "CLAUDE.md")
 		created, err = InitRealmScope(absRoot)
 	}
 	if err != nil {
@@ -160,8 +154,22 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 	if markerOutcome == config.ScopeMarkerCreated || markerOutcome == config.ScopeMarkerAdded {
 		fmt.Fprintf(out, "created %s\n", config.RepoConfigPath(absRoot))
 	}
-	if created {
+	for _, path := range created {
 		fmt.Fprintf(out, "created %s\n", path)
+	}
+	if scope != "repo" {
+		return 0
+	}
+	stateRoot, err := refreshRepoCards(absRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki init: %v\n", err)
+		return 1
+	}
+	// A target conflict leaves the canonical cards valid, so it only warns.
+	if ProjectRepoCards != nil {
+		if err := ProjectRepoCards(absRoot, stateRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "atomic wiki init: warning: %v\n", err)
+		}
 	}
 	return 0
 }
@@ -317,9 +325,22 @@ func wikiBucketAddAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
-	realmCLAUDE := filepath.Join(absRoot, "CLAUDE.md")
-	if err := writeCaptureSurfacesSection(realmCLAUDE, name, bucketDir); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: write CLAUDE.md section: %v\n", err)
+	mode, err := config.ResolveSteeringMode(config.ProjectHome(), absRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: %v\n", err)
+		return 1
+	}
+	steering := captureSurfacesFile(absRoot, mode)
+	if filepath.Base(steering) == bundlespec.ScopeSteering.Source && mode == bundlespec.SteeringLoader {
+		if loader := bundlespec.ScopeSteering.LoaderWithoutImport(absRoot); loader != "" {
+			fmt.Fprintf(os.Stderr, "atomic wiki bucket add: %s needs an `@AGENTS.md` line for Claude to load the capture section\n", loader)
+		} else if _, _, err := initSteeringPair(absRoot, "", mode); err != nil {
+			fmt.Fprintf(os.Stderr, "atomic wiki bucket add: write CLAUDE.md loader: %v\n", err)
+			return 1
+		}
+	}
+	if err := writeCaptureSurfacesSection(steering, name, bucketDir); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: write %s section: %v\n", filepath.Base(steering), err)
 		return 1
 	}
 
@@ -539,8 +560,9 @@ func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
 }
 
 // wikiScanAction runs Scan, declares the realm scope marker, registers the wiki
-// in ~/.claude/CLAUDE.md, and prints the deterministic stdout handoff.
-func wikiScanAction(args []string, claudeHome, cwd string, out io.Writer) int {
+// in ~/.atomic/wikis.md, projects it into steering, and prints the
+// deterministic stdout handoff.
+func wikiScanAction(args []string, home string, steering func() ([]string, error), cwd string, out io.Writer) int {
 	fs := flag.NewFlagSet("wiki-scan", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var root string
@@ -578,14 +600,42 @@ func wikiScanAction(args []string, claudeHome, cwd string, out io.Writer) int {
 
 	wikiDir := filepath.Join(absRoot, "wiki")
 
-	claudeMDPath := filepath.Join(claudeHome, "CLAUDE.md")
+	paths, err := steering()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: read enrolled targets: %v\n", err)
+		return 1
+	}
 	wikiIndexPath := filepath.Join(wikiDir, "index.md")
-	if err := RegisterWiki(claudeMDPath, wikiIndexPath); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki scan: register wiki: %v\n", err)
+	if err := RegisterAndProject(home, wikiIndexPath, paths); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: %v\n", err)
+		return 1
+	}
+	if err := reportProjectionOnlyEntries(home, paths); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: %v\n", err)
 		return 1
 	}
 
 	PrintHandoff(out, members)
 
 	return 0
+}
+
+// reportProjectionOnlyEntries warns on stderr about each steering-file entry
+// the authority does not register; the entry stays where it is.
+func reportProjectionOnlyEntries(home string, steering []string) error {
+	registry := NewWikiRegistry(home)
+	authority, err := registry.Load()
+	if err != nil {
+		return err
+	}
+	for _, path := range steering {
+		extra, err := ProjectionOnlyEntries(path, authority)
+		if err != nil {
+			return err
+		}
+		for _, entry := range extra {
+			fmt.Fprintf(os.Stderr, "atomic wiki scan: warning: %s <wikis> block diverges from %s: %s is not registered there; left in place, not imported\n", path, registry.Path(), entry)
+		}
+	}
+	return nil
 }

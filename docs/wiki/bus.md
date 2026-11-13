@@ -1,6 +1,6 @@
 ---
 type: Domain
-description: Inter-session messaging between concurrent Claude Code sessions over named rooms, via a per-user Unix-socket daemon.
+description: Inter-session messaging between concurrent agent sessions (Claude Code, Codex) over named rooms, via a per-user Unix-socket daemon.
 tags: [messaging, daemon, cli]
 ---
 
@@ -8,7 +8,7 @@ tags: [messaging, daemon, cli]
 
 ## What it does
 
-Two Claude Code sessions on one machine cannot see each other. Anything one learns reaches the other only by the human retyping it, so parallel work on the same repo either duplicates effort or collides.
+Two agent sessions on one machine cannot see each other. Anything one learns reaches the other only by the human retyping it, so parallel work on the same repo either duplicates effort or collides.
 
 `atomic bus` gives them a channel. One per-user daemon behind a Unix domain socket at `~/.atomic/bus.sock` speaks newline-delimited JSON; sessions join named rooms under a name and publish envelopes that the daemon fans out to every live subscriber. The daemon auto-spawns on first need and runs until stopped; there is no idle timer.
 
@@ -38,74 +38,27 @@ A subscription delivers only what is published after it opens. The room log is t
 
 ### Hosting a room over a network
 
-`atomic bus gateway` runs beside the daemon on a host and fronts it with an HTTP endpoint. Every room verb (see Verbs) accepts `--host <name>`, resolved against `[bus.remotes.<name>]` in `~/.atomic/config.toml` (the entry `atomic bus remote add` writes), and works unchanged against a gateway. The exceptions: `chat` stays local-only, and `stop` sends `OpShutdown`, which the gateway refuses. A gateway does not change the daemon's protocol. It opens each sealed frame, rewrites the sender's `Session` so a client can never claim someone else's identity, and forwards the plaintext request to the daemon over the same Unix socket a local session would use.
-
-One 32-byte key per enrolled machine is admission, attribution, and confidentiality at once: it is what the gateway must hold to open a frame, the key that opened a frame says which machine sent it, and the body is ciphertext to anything between the two. There are no roles: a key holder sits where a local process with socket access sits. A gateway started with `ATOMIC_BUS_KEY` set to 64 hex characters also accepts that one shared key: `Store.Pin` holds it in memory under the name `ATOMIC_BUS_KEY`, it is never written to `keys.json`, `gateway revoke` cannot remove it, and `Lookup` checks it before reading the file. Full deployment walkthrough: [`docs/guides/bus-hosting.md`](../guides/bus-hosting.md).
-
-### Admitting a frame
-
-Every check before the shutdown test fails the same way, so a caller cannot learn which admission step rejected it; only the gateway's log names the reason.
-
-```mermaid
-flowchart TD
-    %% source: docs/design/atomic-bus-network.md; atomic/internal/gateway/admission.go, gateway.go
-    B{"remote.ParseHeader<br/>ok?"} -->|yes| C{"Window.Admissible<br/>timestamp?"}
-    B -->|no| X[["ErrDrop: close,<br/>write nothing"]]
-    C -->|yes| D{"Store.Lookup<br/>key id?"}
-    C -->|no| X
-    D -->|yes| E{"remote.OpenC2S<br/>opens?"}
-    D -->|no| X
-    E -->|yes| F{"Window.Admit<br/>nonce unseen?"}
-    E -->|no| X
-    F -->|yes| G{"op is OpShutdown?"}
-    F -->|no| X
-    G -->|yes| Y["ErrShutdownRefused:<br/>sealed refusal"]
-    G -->|no| Z["rewriteSession,<br/>forward to socket"]
-```
-
-- **Before `gateway.Admit`**: `handleOp` reads the body through `http.MaxBytesReader` capped at `MaxFrameBytes` (`bus.MaxTextBytes + 64*1024`) under a 10s `readTimeout`; an oversize or unreadable body closes the connection the same silent way.
-- **After the nonce**: a body that does not decode as a `bus.Request` is also `ErrDrop`.
-- **`ErrDrop`**: `hijackClose` closes the connection with no HTTP status and no body.
-- **`AdmissionWindow`**: 120 seconds either side of gateway time, for both the timestamp check and nonce retention.
-- **`rewriteSession`**: the forwarded `Session` becomes `<key id>/<client session>`, with the client half cut to keep the whole within `bus.MaxIdentifierBytes`.
-
-### Streaming through a gateway
-
-A remote `recv` holds its own Unix connection to the daemon for as long as its HTTP response stays open, so the daemon fans out to a gateway subscriber exactly as it does to a local one.
+`atomic bus gateway` runs beside the daemon on a host and fronts it with an HTTP endpoint. Every
+verb above except `chat` (local-only) and `shutdown` (the gateway refuses it) works unchanged against
+a gateway via `--host <name>`, resolved against `[bus.remotes.<name>]` in `~/.atomic/config.toml`, the
+entry `atomic bus remote add` writes. A gateway does not change the daemon's protocol:
+it opens each sealed frame, rewrites the sender's `Session` so a client can never claim someone
+else's identity, and forwards the plaintext request to the daemon over the same Unix socket a local
+session would use.
 
 ```mermaid
-sequenceDiagram
-    %% source: docs/design/atomic-bus-network.md; atomic/internal/gateway/gateway.go
-    participant B as agent B
-    participant G as gateway
-    participant D as bus daemon
-    participant A as agent A
-    B->>G: recv, response held open
-    G->>D: held unix connection
-    A->>G: send, separate request
-    G->>D: send on a fresh connection
-    D-->>G: envelope line
-    G-->>B: sealed line, next seq
-    Note over G,B: no traffic for HeartbeatInterval (30s):<br/>sealed heartbeat, seq still advances
+flowchart LR
+    A["machine A"] -->|"sealed frame, POST /v1/op"| GW["gateway"]
+    B["machine B"] -->|"sealed frame, POST /v1/op"| GW
+    GW -->|"unix socket, rewritten Session"| D["bus daemon"]
 ```
 
-`copyStream` seals each daemon line in sequence. The heartbeat plaintext is `{"heartbeat":true}`, which the remote client recognizes by shape and drops. It keeps idle-dropping proxies from closing a quiet stream, and sealing it leaves no unauthenticated gap in the stream.
-
-### Choosing local or remote
-
-A verb run without `--host` still reaches a remote room when this session joined that room on a remote, because `resolveHost` reads the joined host back from `bus.json`.
-
-```mermaid
-flowchart TD
-    %% source: docs/design/atomic-bus-network.md; atomic/internal/bus/action.go
-    V["any room verb"] --> H{"--host passed?"}
-    H -->|yes| R["DoRemote to that<br/>[bus.remotes] entry"]
-    H -->|no| S{"session joined<br/>room on a host?"}
-    S -->|yes| R
-    S -->|no| L["local unix socket"]
-```
-
-With no resolvable session (`sessionIDOrEmpty` returns `""`), the verb stays local.
+One 32-byte key per enrolled machine is admission, attribution, and confidentiality at once: it is
+what the gateway must hold to open a frame, the key that opened a frame says which machine sent it,
+and the body is ciphertext to anything between the two. There are no roles: a key holder sits where
+a local process with socket access sits, minus `shutdown`, which the gateway refuses outright.
+Full deployment walkthrough:
+[`docs/guides/bus-hosting.md`](../guides/bus-hosting.md).
 
 ### Handing a key to a client
 
@@ -137,7 +90,7 @@ flowchart TD
     S["EnsureDaemon"] --> L["acquire flock on LockPath<br/>held for everything below"]
     L --> P{"dial + ping:<br/>version matches?"}
     P -->|yes| OK["return connected Client"]
-    P -->|"version differs"| SK["refuse: exit 6, never spawn.<br/>a peer may hold a live recv"]
+    P -->|"version differs"| SK["refuse: exit 7, never spawn.<br/>a peer may hold a live recv"]
     P -->|"no socket, or refused"| U["unlink stale socket"]
     U --> SP["spawn detached serve,<br/>poll for the socket"]
     SP --> P2{"re-probe"}
@@ -163,7 +116,7 @@ Three reactive agents in a room where nothing is addressed will answer each othe
 
 ### Verbs
 
-Derived from `buildBusCmd`. "Agent" verbs are the ones a Claude session runs for itself; "operator" verbs are for the human driving the room from a terminal. `--host` reach is covered under "Hosting a room over a network".
+Derived from `buildBusCmd`. "Agent" verbs are the ones a Claude session runs for itself; "operator" verbs are for the human driving the room from a terminal. Every verb that takes a room accepts `--host <name>` to reach a room on a `[bus.remotes.<name>]` gateway instead of the local daemon, except `chat`, which stays local-only.
 
 | Verb | Does | Who |
 |------|------|-----|
@@ -187,7 +140,7 @@ Derived from `buildBusCmd`. "Agent" verbs are the ones a Claude session runs for
 | `close <room>` | Publish a closing envelope, evict everyone, drop the room | operator |
 | `end <room> <name>` | Evict one member and close its stream, others unaffected | operator |
 | `chat <room>` | Interactive client; joins as a human member | operator |
-| `gateway [--addr] [--tls-cert] [--tls-key]` | Start the daemon and an HTTP gateway together on `--addr` (default `:8443`); also accepts the key in `ATOMIC_BUS_KEY` | operator (host) |
+| `gateway [--addr] [--tls-cert] [--tls-key]` | Start the daemon and an HTTP gateway together | operator (host) |
 | `gateway enroll [--tls-cert] <name>` | Generate a key for `<name>`, print a `[bus.remotes]` block and a commented `atomic bus remote add` line once | operator (host) |
 | `gateway revoke <name>` | Delete `<name>`'s key; a live stream from it ends within one frame | operator (host) |
 | `remote add [<name>] [--host] [--key] [--ca] [--force]` | Validate and save one `[bus.remotes.<name>]` entry; a taken name exits 4 without `--force` | operator (client) |
@@ -210,35 +163,45 @@ The daemon sets `Response.Code`, and client-side failures resolved before a roun
 | 6 | daemon unreachable |
 | 7 | room halted |
 
-The same table covers `--host`. An unknown `--host` name exits `1`, with a message pointing at `atomic bus remote list` and `atomic bus remote add`. Code `6` also fires for a protocol version skew, an unreachable gateway, and a frame the gateway refused to open. A remote client cannot distinguish the last two, by design: telling them apart would leak which admission check failed.
+The same table covers `--host`. An unknown `--host` name exits `1`, with a message pointing at
+`atomic bus remote list` and `atomic bus remote add`. Code `6` also fires for an unreachable gateway
+and a frame the gateway refused to open. A remote client cannot distinguish those two, by design:
+telling them apart would leak which admission check failed.
 
 ## Where it lives
 
+### Artifacts
+
 | Path | Role |
 |------|------|
-| **Wire protocol and paths** | |
+| [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) | Auto-fires on connect/join/message-another-session language. Owns the connect flow (join, then a persistent background listener on `recv`), the reaction policy, the trust posture for peer messages, and the truncated-notification recovery path. |
+
+### Go packages
+
+| Path | Role |
+|------|------|
 | [`atomic/internal/bus/protocol.go`](../../atomic/internal/bus/protocol.go) | Wire types (`Request`, `Response`, `Envelope`, `Member`, `RoomInfo`), `ProtocolVersion = 4`, the op constants (`AllOps`, including `OpRead` and `OpEnd`), `ExitCode` constants, and the size limits `MaxTextBytes` / `MaxIdentifierBytes` / `MaxAddressees` / `MaxAddresseesBytes`. |
 | [`atomic/internal/bus/paths.go`](../../atomic/internal/bus/paths.go) | `SocketPath`, `LockPath`, `StatePath`, `RoomLogPath`, `RosterPath`, `EnsureDirs`. Every path derives from `config.Dir(home)`. |
-| [`atomic/internal/bus/identity.go`](../../atomic/internal/bus/identity.go) | `SessionID` (reads `CLAUDE_CODE_SESSION_ID`, or `--session`); `State`, the per-session joined-room map persisted at `bus.json` (client) or `bus-roster.json` (daemon, via `LoadRoster`/`SaveRoster`). |
+| [`atomic/internal/bus/identity.go`](../../atomic/internal/bus/identity.go) | `SessionID` (`--session` first; otherwise, when `harness.Detect` reports a strong match, `CLAUDE_CODE_SESSION_ID` under Claude Code or `CODEX_THREAD_ID` under Codex, else `ExitHard`); `State`, the per-session joined-room map persisted at `bus.json` (client) or `bus-roster.json` (daemon, via `LoadRoster`/`SaveRoster`). |
+| [`atomic/internal/bus/remote/`](../../atomic/internal/bus/remote) | `frame.go`: the sealed-frame wire format, hkdf subkeys, `Seal`/`Open`, per-stream sequence. `client.go`: `Client` (`Do`, `Stream`), `Remotes` (reads `[bus.remotes]` through `config.Load`, decodes each hex key, expands `ca` with `config.ExpandHome`), reconnect backoff. Consumed by `internal/bus/action.go` and `internal/serve/api_bus.go`, never by the daemon itself. |
+| [`atomic/internal/gateway/`](../../atomic/internal/gateway) | `gateway.go`: `Run`, the HTTP listener, optional TLS, h2 disabled both sides. `admission.go`: the drop-ladder from header parse through nonce check, `Session` rewrite. `keys.go`: `Store` (`keys.json`, mtime re-read), `Enroll`, `Revoke`. `nonce.go`: the seen-nonce replay window. Imports `internal/bus/remote` for the frame format and `internal/bus` to dial the daemon's socket; nothing in `internal/bus` imports back. |
 | [`atomic/internal/bus/position.go`](../../atomic/internal/bus/position.go) | `resolvePosition` and `JoinIdentity` resolve a joining client's repo/realm via `where.Resolve`; `stackedName` builds the member name. |
-| **Daemon** | |
+| [`atomic/internal/bus/client.go`](../../atomic/internal/bus/client.go) | `Client` (`Dial`, `Do`, `Subscribe`, `Close`); `Ensurer.EnsureDaemon` (flock-guarded probe-and-spawn, stale-socket recovery, version-skew refusal); `spawnServe`. |
 | [`atomic/internal/bus/daemon.go`](../../atomic/internal/bus/daemon.go) | `Serve` and the per-op handlers. Runs until `ctx` is cancelled or a client sends `OpShutdown`. |
 | [`atomic/internal/bus/room.go`](../../atomic/internal/bus/room.go) | `Hub` / `Room`: atomic name-claim on `Join`, `Rehydrate`, halt flag, `Publish` / `PublishAsOperator`, addressee resolution, `Close`, `Prune`, `Subscribe`, `fanOut`. |
 | [`atomic/internal/bus/roomlog.go`](../../atomic/internal/bus/roomlog.go) | `Append` (the durable append-only JSONL log) and `ReadEnvelope` (scan a log for one envelope by id, no daemon involved). |
-| **Local client and CLI** | |
-| [`atomic/internal/bus/client.go`](../../atomic/internal/bus/client.go) | `Client` (`Dial`, `Do`, `Subscribe`, `Close`); `Ensurer.EnsureDaemon` (flock-guarded probe-and-spawn, stale-socket recovery, version-skew refusal); `spawnServe`. |
-| [`atomic/internal/bus/action.go`](../../atomic/internal/bus/action.go) | `BusAction` verb dispatch, every `*Action` function, and the shared `parseFlags` / `dialDaemonRecovered` / `touchLastSeen` helpers. |
+| [`atomic/internal/bus/action.go`](../../atomic/internal/bus/action.go) | `BusAction` verb dispatch, every `*Action` function, and the shared `parseFlags` / `dialDaemonRecovered` / `touchLastSeen` helpers. `ParseFlags` exports `parseFlags` for `cmd_bus_gateway.go` and `cmd_bus_remote.go`; `DoRemote` / `DoRemoteTimeout` are the remote counterpart of `Client.Do`, shared with `internal/serve`. |
 | [`atomic/internal/bus/render.go`](../../atomic/internal/bus/render.go) | `TailLine`, `MemberTable`, `RoomTable`, `colourFor` (stable per-sender ANSI colour, off when not a tty). |
 | [`atomic/internal/bus/chat.go`](../../atomic/internal/bus/chat.go) | `Chat`: interactive client loop, pinned input line, `@name` / `/who` / `/rooms` / `/halt` / `/resume` / `/quit`. |
 | [`atomic/cmd/atomic/cmd_bus.go`](../../atomic/cmd/atomic/cmd_bus.go) | `buildBusCmd` registers `bus` and its flat subcommands, plus `buildBusGatewayCmd` (`gateway`, itself runnable, with `enroll` and `revoke` children) and `buildBusRemoteCmd` (`remote`, with `add`, `list`, `test`, `remove` children); `runBus` resolves home and cwd, then calls `bus.BusAction`. |
-| **Network gateway and remote client** | |
-| [`atomic/internal/bus/remote/`](../../atomic/internal/bus/remote) | `frame.go`: the sealed-frame wire format, hkdf subkeys, `SealC2S`/`OpenC2S`/`SealS2C`/`OpenS2C`, per-stream sequence. `client.go`: `Client` (`Do`, `Stream`), `Remotes` (reads `[bus.remotes]` through `config.Load`, decodes each hex key, expands `ca` with `config.ExpandHome`), reconnect backoff. Consumed by `internal/bus/action.go` and `internal/serve/api_bus.go`, never by the daemon itself. |
-| [`atomic/internal/gateway/`](../../atomic/internal/gateway) | `gateway.go`: `Run`, the HTTP listener, optional TLS, h2 disabled both sides. `admission.go`: the drop-ladder from header parse through nonce check, `Session` rewrite. `keys.go`: `Store` (`~/.atomic/gateway/keys.json`, re-read when its mtime or size moves), `Enroll`, `Revoke`, `Pin` (the `ATOMIC_BUS_KEY` key). `nonce.go`: the seen-nonce replay window. Imports `internal/bus/remote` for the frame format and `internal/bus` to dial the daemon's socket. |
-| [`atomic/cmd/atomic/cmd_bus_gateway.go`](../../atomic/cmd/atomic/cmd_bus_gateway.go) | `gatewayAction`, `gatewayEnrollAction`, `gatewayRevokeAction`. The CLI glue for `internal/gateway`. Lives here rather than in `internal/bus/action.go` because `internal/gateway` already imports `internal/bus`, and calling it from within `internal/bus` would cycle. `gatewayEnrollAction` rejects a name `config.ValidateBusRemoteName` would reject, so every enrolled name is one `remote add` accepts. |
+| [`atomic/cmd/atomic/cmd_bus_gateway.go`](../../atomic/cmd/atomic/cmd_bus_gateway.go) | `gatewayAction`, `gatewayEnrollAction`, `gatewayRevokeAction` — the CLI glue for `internal/gateway`. Lives here rather than in `internal/bus/action.go` because `internal/gateway` already imports `internal/bus`, and calling it from within `internal/bus` would cycle. `gatewayEnrollAction` rejects a name `config.ValidateBusRemoteName` would reject, so every enrolled name is one `remote add` accepts. |
 | [`atomic/cmd/atomic/cmd_bus_remote.go`](../../atomic/cmd/atomic/cmd_bus_remote.go) | `busRemoteAddAction`, `busRemoteListAction`, `busRemoteTestAction`, `busRemoteRemoveAction`, and the `busRemoteForm` `huh` form. Load and write go through `config.Load` / `config.WritePersist`; `test` probes with `bus.DoRemoteTimeout` under `busRemoteTestTimeout = 5 * time.Second`. |
-| **Agent behavior** | |
-| [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) | Auto-fires on connect/join/message-another-session language. Owns the connect flow (join, then a Monitor on `recv`), the reaction policy, the trust posture for peer messages, and the truncated-notification recovery path. |
-| **Docs** | |
+| [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) | `{"bus", "<verb>"}` entries mirroring the CLI surface, with args, flags, and descriptions, including `gateway enroll` / `gateway revoke` and `remote add` / `list` / `test` / `remove`. |
+
+### Docs
+
+| Path | Role |
+|------|------|
 | [`docs/reference/bus.md`](../reference/bus.md) | Verb and concept reference: room model, member naming, addressed-vs-FYI, envelope fields, liveness, daemon lifecycle, exit codes, security model, remote rooms. |
 | [`docs/guides/bus-hosting.md`](../guides/bus-hosting.md) | Deployment walkthrough: running the gateway, enrolling a machine and saving it with `atomic bus remote add`, the topologies (inside a VPN, behind a proxy), what the transport protects, clock skew. |
 | [`docs/spec/atomic-bus.md`](../spec/atomic-bus.md) | Implementation contract: goal, non-goals, success criteria, checkpoints, risks. |
@@ -250,39 +213,38 @@ The same table covers `--host`. An unknown `--host` name exits `1`, with a messa
 
 **Sender identity is assigned server-side, always.** `from`, `from_kind`, `from_repo`, and `from_realm` come from the caller's roster entry in `Hub.Publish`, or from the fixed operator identity in `Hub.PublishAsOperator`, never from the wire request. `PublishAsOperator` takes no identity parameter at all, which is what makes both member impersonation and the halt bypass unreachable: a function that cannot accept an identity cannot be talked into believing one.
 
-**Halt binds agents, not humans.** `Publish` rejects a send with `ExitHalted` when the room is halted and the member's kind is not `KindHuman`. `PublishAsOperator` skips the check entirely, which is correct because its identity is pinned to the operator, and a human is the one who lifts a halt. Gating humans as well would lock the operator out of the room they halted.
+**Halt binds agents, not humans.** `Publish` rejects a send with `ExitHalted` when the room is halted and the member's kind is not `KindHuman`. `PublishAsOperator` skips the check entirely, which is correct because its identity is pinned to the operator, and a human is the one who lifts a halt.
 
-**A member's name is its position, and `--as` only adds a role.** `stackedName` builds `<realm>-<repo>-<as>`, dropping empty segments and collapsing a segment that repeats the one before it, so `--as alpha` in repo `alpha` outside a realm yields `alpha`, not `alpha-alpha` (inside realm `R` it yields `R-alpha`). `--to` resolves an exact name first, then a unique suffix or substring against the room's current members; an ambiguous fragment errors naming every candidate rather than guessing. Renaming a repo or realm changes every member name derived from it, and a `--to` written against the old name stops resolving.
+**A member's name is its position, and `--as` only adds a role.** `stackedName` builds `<realm>-<repo>-<as>`, dropping empty segments and collapsing a segment that repeats the one before it, so `--as alpha` in repo `alpha` yields `alpha`, not `alpha-alpha`. `--to` resolves an exact name first, then a unique suffix or substring against the room's current members; an ambiguous fragment errors naming every candidate rather than guessing.
 
-**Reserved names never collide with control envelopes.** `Join` refuses `"system"` (daemon control envelopes: halt/resume announcements, close, `end` notices, drop markers) and `"human"` (every `say` envelope), both through the same `reservedNames` map in `room.go`. Combined with the closed `KindAgent` / `KindHuman` enum, a real member's envelope can never be mistaken for a daemon control envelope.
+**Reserved names never collide with control envelopes.** `Join` refuses `"system"` (daemon control envelopes: halt/resume announcements, drop markers, close) and `"human"` (every `say` / `halt` / `resume` / `close` envelope), both through the same `reservedNames` map in `room.go`. Combined with the closed `KindAgent` / `KindHuman` enum, a real member's envelope can never be mistaken for a daemon control envelope.
 
-**There is no replay.** No ring buffer, no `--since`. `recv` and `tail` deliver only what is published after the subscription opens. Every envelope except the per-subscriber drop marker is appended to the room log unconditionally, whether or not anyone is subscribed, and `atomic bus read <room> <msg-id>` is the only way to recover a past message. A local read is a pure log scan (`ReadEnvelope`), so it works with the daemon down; a read against a remote host sends `OpRead`, which the host daemon answers from its own log. The verb exists because a harness notification cap can truncate a long envelope in a session's context.
+**There is no replay.** No ring buffer, no `--since`. `recv` and `tail` deliver only what is published after the subscription opens. Every envelope is appended to the room log unconditionally, whether or not anyone is subscribed, and `atomic bus read <room> <msg-id>` is the only way to recover a past message. That read is a pure log scan, so it works with the daemon down, and it exists because a harness notification cap can truncate a long envelope in a session's context.
 
 **A slow subscriber loses envelopes, but never silently.** `subscriberBuffer = 32` bounds each live subscriber's channel. A full channel drops the envelope rather than blocking the publisher; the next envelope that does fit is preceded by a synthetic drop-marker envelope from `"system"` naming how many were dropped and where the log holds them.
 
-**Staleness is a signal, not an eviction.** `staleThreshold = 10 * time.Minute` in `room.go` only feeds `who` and `prune`. A member is stale once it has no recent `LastSeen` and holds no live subscription. Nothing evicts automatically; `atomic bus prune` is the only reap. An agent that assumes auto-eviction keeps addressing a dead member and waits for a reply that never comes.
+**Staleness is a signal, not an eviction.** `staleThreshold = 10 * time.Minute` in `room.go` only feeds `who` and `prune`. A member is stale once it has no recent `LastSeen` and holds no live subscription. Nothing evicts automatically; `atomic bus prune` is the only reap.
 
-**A restarted daemon rehydrates the whole roster.** `Hub.Rehydrate` restores every room, local membership, mode, kind, repo, realm, persisted `last_seen`, and halt flag from `~/.atomic/bus-roster.json` at `Serve` startup, before accepting a connection. It skips a membership that carries a `Host`, since that is a remote room recorded in shared client state. `~/.atomic/bus.json` is a one-time migration fallback when no roster file exists yet. A member idle across a restart is still addressable. Rehydrated `LastSeen` is the persisted value, not restamped to now, so a restart cannot launder a stale member into a fresh one.
+**A restarted daemon rehydrates the whole roster.** `Hub.Rehydrate` restores every room, member, mode, kind, repo, realm, persisted `last_seen`, and halt flag from `~/.atomic/bus-roster.json` at `Serve` startup, before accepting a connection — `~/.atomic/bus.json` is a one-time migration fallback when no roster file exists yet. A member idle across a restart is still addressable. Rehydrated `LastSeen` is the persisted value, not restamped to now, so a restart cannot launder a stale member into a fresh one.
 
-**Version skew refuses rather than degrades.** `checkVersion` compares the daemon's `ProtocolVersion` against the client's and fails outright with exit `6` (`ExitUnreachable`) and ``bus: protocol version mismatch: daemon is running v%d, this client is v%d; run `atomic bus restart` to retire the old daemon, then retry``. A skew never triggers a respawn retry: the old daemon still holds the socket, and a respawn that displaced it would orphan a peer's live `recv`.
+**Version skew refuses rather than degrades.** `checkVersion` compares the daemon's `ProtocolVersion` against the client's and fails outright with `bus: protocol version mismatch: daemon is running v%d, this client is v%d; run 'atomic bus restart' to retire the old daemon, then retry`. A skew never triggers a respawn retry.
 
 **`spawnServe` refuses to run from a test binary.** Under `go test`, `os.Executable` is `<pkg>.test`, which ignores the `bus serve` arguments and re-runs the whole suite, whose tests call `EnsureDaemon` and spawn again. Each generation multiplies. The guard lives in the production path, not only in tests, because `Ensurer.Spawn` is an injectable seam and one call site forgetting to inject it is enough to fork-bomb the machine.
 
-**The room-name guard is closed on every path that reaches a room, not just `Join`.** `validRoomName` (rejecting `/`, `\`, `..`, and control characters; it accepts an empty name) is checked by `Join`, `Subscribe` (`tail`), and `Rehydrate` alike, and `roomlog.go`'s `Append` keeps its own guard as a second, independent check. `handleRead` checks it too, before scanning a log for `OpRead`, and the client side of `read` also rejects an empty name. `RoomLogPath` joins the name into a path with no check of its own, so an unguarded name would write outside `rooms/`.
+**The room-name guard is closed on every path that reaches a room, not just `Join`.** `validRoomName` (rejecting an empty name, `/`, `\`, `..`, and control characters) is checked by `Join`, `Subscribe` (`tail`), and `Rehydrate` alike, and `roomlog.go`'s `Append` keeps its own guard as a second, independent check. Previously only `Join` validated, so `tail` or a rehydrate-on-restart could still reach a path-shaped room name.
 
 **The daemon persists to a file only it writes.** `bus-roster.json` (`RosterPath`) holds the roster and halt state the daemon rehydrates on restart. It is separate from the client-owned `bus.json`, which the CLI and `serve` both write unlocked; a third unlocked writer on the same file would have raced silently across a host restart.
 
-**`Envelope.Truncated` is declared but never set.** No production code path assigns it, and the doc comment at `atomic/internal/bus/protocol.go:150` describes a cut-and-point design that is not implemented. Truncation is a display cap in the consuming harness, not something the wire does, so a consumer that checks `truncated` to detect a cut message never sees it fire. `Envelope.Log` is set only on the drop-marker envelope, where it carries the room log's path.
-
-**The daemon stays network-unaware.** `internal/gateway` imports `internal/bus` and `internal/bus/remote` to admit a frame and dial the daemon's socket; nothing in `internal/bus` imports `internal/gateway` back. Calling the gateway from `internal/bus` would create an import cycle, which is why its CLI glue lives in [`atomic/cmd/atomic/cmd_bus_gateway.go`](../../atomic/cmd/atomic/cmd_bus_gateway.go).
+**`Envelope.Truncated` is declared but never set.** No production code path assigns it. Truncation is a display cap in the consuming harness, not something the wire does. `Envelope.Log` is set only on the drop-marker envelope (`dropMarkerEnvelope` in `room.go`), where it carries `RoomLogPath` for the room.
 
 ## Coupling
 
-- **config domain.** Daemon and client state (`bus.sock`, `bus.lock`, `bus.json`, `bus-roster.json`, `rooms/*.log`) resolves through `config.Dir(home)`, called from [`atomic/internal/bus/paths.go`](../../atomic/internal/bus/paths.go). Moving `config.Dir`'s root moves that state with it. The gateway key store does not follow: `gatewayKeysPath` in [`atomic/cmd/atomic/cmd_bus_gateway.go`](../../atomic/cmd/atomic/cmd_bus_gateway.go) hardcodes `<home>/.atomic/gateway/keys.json`.
+- **config domain.** All bus state (`bus.sock`, `bus.lock`, `bus.json`, `rooms/*.log`) resolves through `config.Dir(home)`, called from [`atomic/internal/bus/paths.go`](../../atomic/internal/bus/paths.go). Moving `config.Dir`'s root moves bus's state with it.
 - **config domain, position resolution.** `position.go` calls `where.Resolve(cwd, claudeMDPath)`, reading the `<wikis>` registry from `<home>/.claude/CLAUDE.md`. A change to `where.Resolve`'s signature or to `RepoRoot` / `RealmScope` breaks member naming and position stamping.
 - **config domain, `[bus.remotes]` schema.** The config package owns the remote-gateway storage: `config.BusRemote` and the `[bus]` table on `config.Config` in [`atomic/internal/config/config.go`](../../atomic/internal/config/config.go), and the validators, `AddBusRemote`, `RemoveBusRemote`, and `ExpandHome` in [`atomic/internal/config/busremote.go`](../../atomic/internal/config/busremote.go). `bus` is an opaque section there, so `Load` does not warn on its children. Because `Config` models `[bus]`, any config write that round-trips the file keeps `[bus.remotes]`. `remote.Remotes` and every `atomic bus remote` verb read and write through that package, so a field rename there breaks `--host` resolution.
-- **serve domain.** [`atomic/internal/serve/api_bus.go`](../../atomic/internal/serve/api_bus.go) imports `internal/bus` as an in-process Go package, not a CLI shell-out. It calls `JoinIdentity`, `RoomLogPath`, `Dial`, `EnsureDaemon`, the `Op*` and `Exit*` constants, and the wire types verbatim, so a signature change there breaks serve at compile time. It also imports `internal/bus/remote` directly, for the same remote routing the CLI's `--host` uses. Serve-side detail belongs to the serve domain file.
-- **doctor domain.** The `{"bus", ...}` entries in `cliusage.go` feed the A1 artifact-citation lint. Add, rename, or remove a bus verb or flag without updating `cliusage.go` and A1 either flags a valid citation or misses an invalid one.
-- **`atomic-bus` skill and `/atomic-help`.** [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) drives an agent through `join`, then a Monitor on `recv`, then the addressed-versus-FYI reaction policy; [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md) lists the verbs. A renamed verb or flag leaves both pointing at something that no longer exists.
-- **bundle domain.** [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) is a bundle input; it must appear in the regenerated [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) output and in the discovery surfaces ([`CLAUDE.md`](../../CLAUDE.md), [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md)).
+- **serve domain.** [`atomic/internal/serve/api_bus.go`](../../atomic/internal/serve/api_bus.go) imports `internal/bus` as an in-process Go package, not a CLI shell-out. It calls `JoinIdentity`, `RoomLogPath`, `Dial`, `EnsureDaemon`, the `Op*` and `Exit*` constants, and the wire types verbatim, so a signature change there breaks serve at compile time. Serve-side detail belongs to the serve domain file.
+- **doctor domain.** `main.go` calls `cliusage.SetRoot(rootCmd)`, so `--help` and the A1 artifact-citation lint read bus verbs and flags from the live Cobra tree through `DeriveCommands`. The `{"bus", ...}` entries in `cliusage.go` are the golden table `TestDeriveCommandsGolden` checks; add, rename, or remove a bus verb or flag without updating them and that test fails.
+- **harness domain.** `identity.go` calls `harness.Detect(harness.Environ())` and, at `harness.ConfidenceStrong`, branches on `harness.KindClaude` and `harness.KindCodex` to pick the session id variable (`CODEX_THREAD_ID` for Codex). A new harness kind has no bus identity until it gets a case there.
+- **bundle domain.** [`context/skills/atomic-bus/SKILL.md`](../../context/skills/atomic-bus/SKILL.md) is a bundle input; it must appear in the regenerated [`atomic/internal/embedded/bundle/`](../../atomic/internal/embedded/bundle) output and in the discovery surfaces ([`context/AGENTS.md`](../../context/AGENTS.md), whose `## Atomic binary` section carries the `atomic bus` line, and [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md)).
+- **gateway domain.** `internal/gateway` imports `internal/bus` and `internal/bus/remote` to admit a frame and dial the daemon's socket; nothing in `internal/bus` imports `internal/gateway` back, so the daemon stays network-unaware. `internal/serve/api_bus.go` also imports `internal/bus/remote` directly, for the same remote routing the CLI's `--host` uses.
 - **Top-level verb count is pinned.** `bus` is one of the top-level Cobra verbs a `TestRootCmdExact<N>Verbs` test in [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go) pins. Renaming or removing it fails that test.
