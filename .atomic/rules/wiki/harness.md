@@ -40,13 +40,14 @@ Domain: harness. Enroll harness targets, project native artifacts, and track own
 Map:
   - docs/wiki/harness.md
 Contracts:
-  - docs/spec/omp-plugin-compatibility.md
   - docs/spec/install-workflow.md
+  - docs/spec/omp-plugin-compatibility.md
   - docs/spec/uninstall.md
 References:
   - docs/reference/concepts.md
 Guides:
   - docs/guides/install.md
+  - docs/guides/upgrade-7.md
 Research:
   - docs/research/harness-capability-matrix.md
 Designs:

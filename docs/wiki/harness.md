@@ -8,7 +8,7 @@ tags: [artifacts, lifecycle, cli]
 
 ## What it does
 
-Atomic authors one corpus under [`context/`](../../context), but a user runs it inside Claude Code, OMP, or Codex, and each reads a different file layout. This domain writes that corpus into each harness's native files and records which bytes Atomic wrote. Without that record, an update could not tell Atomic's stale file from a user's edit: it would either overwrite user bytes or refuse forever. The ledger at `~/.atomic/install/ledger.json` keeps the digest Atomic last applied to each resource, so a later edit becomes a named conflict instead of silent loss.
+Atomic authors one corpus under [`context/`](../../context), but a user runs it inside Claude Code, OMP, or Codex, and each reads a different file layout. This domain writes that corpus into each harness's native files and records which bytes Atomic wrote. Without that record, an update could not tell Atomic's stale file from a user's edit: it would either overwrite user bytes or refuse forever. The ledger at `~/.atomic/install/ledger.json` keeps the digest Atomic last applied to each resource. Managed artifacts are backed up before refresh; protected resources retain named conflicts instead of silent loss.
 
 An interrupted install must be recoverable and a refused one must leave native files untouched, so every mutating verb plans before it writes and records ownership only for bytes it has verified. Each adapter owns its native envelope; `installstate` owns the durable ordering.
 
@@ -61,7 +61,7 @@ flowchart TD
 - **dry run**: `--dry-run` reports `converged` or `enrolled` per target and opens no lock.
 - **status vocabulary**: `harness.Status` is `enrolled`, `converged`, `stale`, or `conflicted`. `printConvergeReports` treats any blocker or `conflicted` status as a failure, so a refused install exits 1 even under `--json`.
 
-`ConvergeEnrolled` (run by `atomic update`) and `RulesSync` (run by `atomic harness rules sync`) resolve targets from the ledger with `Selection.EnrolledOnly`, so they never enroll a newly discovered instance. `atomic claude install|update` routes an enrolled Claude root through the same engine with `AssumeYes` set, and an unenrolled one through the legacy `claudeinstall` writer.
+`ConvergeEnrolled` (run by `atomic update`) and `RulesSync` (run by `atomic harness rules sync`) resolve targets from the ledger with `Selection.EnrolledOnly`, so they never enroll a newly discovered instance. `atomic claude install|update` routes an enrolled Claude root through the same engine with `AssumeYes` set, and otherwise uses the legacy `claudeinstall` writer. A non-dry-run `atomic claude update` without explicit `--target` instead runs post-swap adoption and convergence when a present legacy install record is not yet adopted.
 
 ### Commit unit lifecycle
 
@@ -91,6 +91,8 @@ stateDiagram-v2
 | `conflict` | native bytes no longer match what the journal describes; recovery never overwrites them |
 
 `atomic harness recover` rolls every unresolved journal forward; `--rollback` restores the digest-verified backups instead, and `--dry-run` simulates either in memory. A journal written with `LeftSnapshot` also carries the target's whole left-unowned set, and recovery replaces the ledger's left set for each committed target with that snapshot. An older journal without the flag leaves the ledger's left set alone.
+
+If the first `StageFile` or `StageTree` fails before recording `staged`, recovery discards partial staging when the journal proves publication never began. Untouched units do not block the next install.
 
 ### Ledger model
 
@@ -166,7 +168,7 @@ Atomic owns a resource only on evidence it can verify now; a file name, a legacy
 | `unowned` | nothing verifiable; needs `--replace` or `--leave-unowned` | no |
 | `conflict` | ambiguous or malformed; blocks automatic adoption | no |
 
-`harness.PlanAgents` applies this per directory for whole-file resources (agent files, OMP native kinds, the OMP extension). An unowned file follows the batch decision. An owned file edited since Atomic wrote it blocks regardless of the decision, with `<path> was edited outside Atomic; restore or remove it to converge`. A ledger-owned file whose agent the corpus no longer ships is retired when its bytes still verify, and blocks when they do not.
+`harness.PlanAgents` applies this per directory for managed whole-file artifacts (agent files and OMP native kinds). An unowned file follows the batch decision. A ledger-recorded artifact edited since Atomic wrote it is backed up and refreshed, and a retired artifact is backed up before removal, including edited bytes. Under `--leave-unowned`, edited ledger-recorded artifacts still block. `PlanProtectedAgents` keeps the stricter policy for non-artifact resources such as the OMP extension: an edited owned file blocks under every decision with `<path> was edited outside Atomic; restore or remove it to converge`.
 
 ### Global steering: one source, a native shape per harness
 
@@ -255,7 +257,7 @@ OMP's `nativeFiles` copies a package subtree into the profile root only when its
 
 ### Agent projection and user overrides
 
-A canonical agent reaches each harness with only the metadata that harness carries, then the user's model and effort override is written under that harness's native keys; the overlaid bytes are what the ledger claims, so a changed override converges and a hand edit conflicts.
+A canonical agent reaches each harness with only the metadata that harness carries, then the user's model and effort override is written under that harness's native keys. The overlaid bytes are what the ledger claims, so a changed override converges; a hand edit is backed up before refresh unless `--leave-unowned` blocks it.
 
 | | Claude | OMP | Codex |
 |---|---|---|---|
@@ -265,6 +267,8 @@ A canonical agent reaches each harness with only the metadata that harness carri
 | Written by | `claude.GlobalArtifacts` | `harness.AgentFiles` in `omp.Enroll` | `harness.AgentFiles` in `codex.Enroll` |
 
 `checkedAgent` refuses an agent that declares any of `UserPolicyKeys` (`model`, `effort`, `tools`, `disallowedTools`, `mcpServers`), lacks a name, or names a skill the catalog cannot resolve. `harness.Overlay` writes no key for an empty override field, so no default is ever supplied. The agent-delivery row is unsupported for both OMP and Codex, so each plan reports `agent delivery` as unproven even though the files are written.
+
+The configured Codex override observation in [`docs/research/harness-capability-matrix.md`](../research/harness-capability-matrix.md) completed a named fresh child with its configured model and effort on 2026-11-15. The static `RoleAgentDelivery` row still cites the older no-override run and remains `unsupported`; that observation does not change the status reported by enrollment, status, or doctor.
 
 ### OMP session runtime
 
@@ -295,7 +299,7 @@ sequenceDiagram
 - **wired events**: `before_agent_start`, `session_switch`, and `tool_call` are wired only when their role is supported; the other three are always wired and marked observation-only in the plan, though `session_start` also starts the context load. `RegisteredEvents` reads the rendered bytes, so an audit catches a template registering an unplanned event.
 - **observation log**: with `ATOMIC_OMP_RUNTIME_LOG` set, the module appends JSON lines that `ReadRuntimeLog` parses; unset disables observation, not delivery.
 
-The extension is a ledger-owned `file` row per profile and takes the same replace-or-leave-unowned decision as an agent file.
+The extension is a ledger-owned `file` row per profile. An unowned extension follows the replace-or-leave-unowned decision, but `PlanProtectedAgents` refuses an edited owned extension under either decision.
 
 ### Codex `hooks.json` members and trust
 
@@ -318,14 +322,14 @@ Atomic owns the `SessionStart` member (matcher `startup|resume`, command `atomic
 
 `applySessionHook` saves the member's `settings` row to the ledger before the write, so a crash leaves a claim that repair, status, and uninstall can reach. A first enrollment saves the target record with it. A skipped or failed write undoes the row.
 
-`ObserveSessionHookTrust` and `ObservePreToolUseHookTrust` read `config.toml` `[hooks.state]` under the key `<hooks.json path>:<event>:<group>:<handler>` (`session_start` or `pre_tool_use`) and compare `trusted_hash` with `trustedMember.identityHash`, which mirrors Codex's own hook hash with the 600-second default timeout. The result is `trusted`, `untrusted`, `modified` (a stale trusted hash that Codex will not run), or `unknown` (including a member left unowned). The `session-context` row stays unsupported, so every Codex plan reports `session-context delivery` as unproven.
+`ObserveSessionHookTrust` and `ObservePreToolUseHookTrust` read `config.toml` `[hooks.state]` under the key `<hooks.json path>:<event>:<group>:<handler>` (`session_start` or `pre_tool_use`) and compare `trusted_hash` with `trustedMember.identityHash`, which mirrors Codex's own hook hash with the 600-second default timeout. The result is `trusted`, `untrusted`, `modified` (a stale trusted hash that Codex will not run), or `unknown` (including a member left unowned). The `session-context` row is `partial`: a trusted hook delivered workflow preferences to a primary model turn, but resume and child delivery remain unproven. Every Codex plan still reports `session-context delivery` as unproven.
 
 ### Codex edit-time cards
 
 Codex has no rule surface, so wiki cards reach a Codex session only through the `PreToolUse` member on `apply_patch`. The hook's payload handling, patch-path matching, once-per-session sent list, and fail-open exit belong to [`docs/wiki/config.md`](config.md).
 
 - **trust**: the member runs only after the user trusts it in `/hooks`; `ObservePreToolUseHookTrust` reports its state as described under the `hooks.json` members above.
-- **capability**: the `wiki-card-delivery` row is `partial` on `$CODEX_HOME/hooks.json PreToolUse apply_patch`: edits only, no observed model turn, and the member needs `/hooks` trust review. Every Codex plan therefore still reports `repository wiki pointer cards` as unproven. `RulesStatus` reports a Codex target with no recorded tier as `harness.WikiCardTier`, which is `hook-required` for any row status other than `unsupported`.
+- **capability**: the `wiki-card-delivery` row is `partial` on `$CODEX_HOME/hooks.json PreToolUse apply_patch`: a primary model turn received the matching card before its first `apply_patch`, not its second. Reads, shell edits, resume, and child delivery remain unproven, and the member needs `/hooks` trust review. Every Codex plan therefore still reports `repository wiki pointer cards` as unproven. `RulesStatus` reports a Codex target with no recorded tier as `harness.WikiCardTier`, which is `hook-required` for any row status other than `unsupported`.
 
 ### Codex plugin registration
 
@@ -350,6 +354,8 @@ sequenceDiagram
 
 `codex.converge` skips registration when `registrationCurrent` finds the marketplace, the plugin, and a cache whose tree digest matches the published plugin, and only refreshes the cache row's digest. A plugin the user removed after Atomic registered it (cache row present, plugin entry and cache gone) is reported as unproven and re-registered only under `--replace`. `config.toml` is never a ledger resource, because uninstall would then delete user configuration. At target uninstall, `RemovedFn` unregisters when the cache row was removed or discarded; a failure becomes a `Removal.Notices` line naming the `codex plugin remove` commands. `CODEX_BIN` overrides the executable.
 
+Before refreshing an existing cache, `DefaultRegister` backs it up. An unowned cache requires `--replace`; `--leave-unowned` refuses to refresh it.
+
 ### Repository wiki pointer cards
 
 Canonical cards live once at `<state-root>/rules/wiki/<domain>.md` and are committed. Claude reads them through one directory link and OMP through one committed link per card, so every clone carries the same cards and no harness needs a second authored copy.
@@ -371,7 +377,7 @@ flowchart TD
 - **Claude copy**: a state root outside the repository gets a `tree` copy at [`.claude/rules/atomic/wiki/`](../../.claude/rules/atomic/wiki), staged outside [`.claude/rules/`](../../.claude/rules) and renamed in, with `/rules/atomic/` appended to [`.claude/.gitignore`](../../.claude/.gitignore).
 - **canonical frontmatter**: OMP lists a card only by `description` and `globs`, so `wiki.renderPointerCard` writes `description`, `globs`, and `paths` into the canonical card. `rules.CardDescription` supplies the description: the first non-blank body line with heading marks stripped, else `Atomic wiki card for <domain>`. `rules.parse` skips `description` and `globs` on a wiki card, and `paths` stays the scope Atomic reads. `convergeRepoCards` re-renders older cards through `wiki.RenderRepoCards` before publishing, unless the caller has already refreshed them.
 - **OMP links**: when the resolved state root is inside the repository, `LoadProjectCards` gives each card the `LinkTarget` `../../<state-root>/rules/wiki/<domain>.md`. `PublishProjectCards` writes `.omp/rules/atomic-wiki-<domain>.md` as a relative symlink, created under a fresh random temporary name beside the entry (`symlinkTemp`, never reusing an existing entry) and renamed over it, recorded as a `symlink` row whose digest covers the link text. A link with the expected target and no row is adopted, as the Claude link is.
-- **OMP copy**: a state root outside the repository gets a generated flat file instead, with frontmatter `# generated by atomic; do not hand-edit` plus `description` and `globs`, published through the journaled transaction as a `file` row.
+- **OMP copy**: a state root outside the repository gets a generated flat file instead, with frontmatter `# generated by atomic; do not hand-edit` plus `description` and `globs`, published through the journaled transaction as a `file` row. Moving the state root outside the repository can replace an owned symlink with this copy. Publication verifies and replaces the link entry, not its canonical target; rollback restores the link.
 - **staging and ignore rules**: inside a Git repository, `exposeLinks` asks `config.GitIgnoreSource` about each link path and reports an ignored one as `<path> is ignored by <source>, so Git will not track it and OMP will skip it`. With `Stage` set, each visible link is added to the Git index together with the canonical card it points to.
 - **OMP conflicts**: an existing entry that is neither the projection, a ledger-recorded write, nor the previously generated copy (`CopyDigest`) fails with `hold bytes Atomic did not record writing` and status `conflicted`. A generated copy from an earlier version is replaced by the link without a conflict.
 - **pruning**: a dropped card's entry is removed when its row matches. An unrecorded link is removed only when it dangles and holds exactly the target Atomic would write for its name (`linkTarget`, `../../<state-root>/rules/wiki/<domain>.md`); anything else is kept and reported.
@@ -476,12 +482,12 @@ flowchart TD
 | [`atomic/internal/rules/`](../../atomic/internal/rules) | `RuleRecord` parsing, `Bind`, `CompileGlob`, `Matcher`, `Select`; `card.go` holds `CardDescription` and `YAMLString`, shared by the canonical card and the OMP copy. |
 | [`atomic/internal/artifacts/`](../../atomic/internal/artifacts) | `Catalog` (`Load` from [`context/`](../../context), `NewCatalog`), artifact kinds, delivery and tier constants, `Renderer`. |
 | [`atomic/internal/embeddedcorpus/embeddedcorpus.go`](../../atomic/internal/embeddedcorpus/embeddedcorpus.go) | `Load` builds the catalog from the embedded bundle, the source both OMP and Codex adapters publish from. |
-| [`atomic/internal/runtimeproof/`](../../atomic/internal/runtimeproof) | Bounded launches of real harness binaries against isolated homes; OMP scenarios enroll through the production adapter. Imported by its tests only. |
+| [`atomic/internal/runtimeproof/`](../../atomic/internal/runtimeproof) | Bounded launches of real harness binaries against isolated homes; OMP scenarios enroll through the production adapter. Filesystem observation skips descendants that vanish during enumeration. Imported by its tests only. |
 | [`atomic/internal/ids/ids.go`](../../atomic/internal/ids/ids.go) | `Slug` and `ShortID` helpers; imported by [`atomic/internal/bus/room.go`](../../atomic/internal/bus/room.go). |
 
 ## Constraints
 
-- **Never hand-edit an Atomic-owned file.** An owned agent, extension, or native-kind file edited outside Atomic blocks convergence for that target under every decision until it is restored or removed; a changed Codex hook member blocks until restored, removed, or `--replace`.
+- **Managed artifacts are refreshed, not preserved as overrides.** Atomic backs up owned agents and native-kind files before replacement or retirement, including edited bytes unless `--leave-unowned` blocks them. An edited owned OMP extension still blocks under every decision; a changed Codex hook member blocks until restored, removed, or `--replace`. Unowned files retain the replace-or-leave-unowned decision.
 - **Never guess a block boundary.** A file with `<atomic>` tags that do not parse as exactly one block refuses with `carries an ambiguous <atomic> block`. Fixing the tags by hand is the only path forward; Atomic appends a block only to a file that never carried tags.
 - **Codex needs `CODEX_HOME`.** With it unset, discovery returns `ErrUnsupported` and a broad `atomic install --all` silently has no Codex target; `--harness codex` reports the refusal.
 - **Do not ignore `.omp/rules/atomic-wiki-*.md`.** OMP's rule scan skips files any Git ignore source covers, judged on the link path, so an ignore rule hides every card from OMP. The links are committed beside the cards they point to; Atomic reports an ignored link and does not stage it.
@@ -504,6 +510,6 @@ flowchart TD
 - **code-intel**: `realm.MoveCodeIndexBlock` moves a realm's code-index block to the mode's file before the pair converters run.
 - **doctor**: `checks_codex.go` reports `ObserveSessionHookTrust`, `ObservePreToolUseHookTrust`, `RuntimeState`, `RegistrationStateRow`, and `KindState`; `validate/projection.go` calls `artifacts.Load` and the agent projections to audit for policy-key leaks.
 - **CLI verbs, bus, and retro**: `harness.Detect` is read by CLI verbs that name the running harness (`cmd_where.go`, `cmd_workflow.go`, `cmd_config.go`, `cmd_doctor.go`), bus identity, and retro; `bus` also uses `ids`.
-- **commands**: `/atomic-help` documents `atomic install`, `atomic harness`, `atomic update`, and uninstall; [`docs/guides/install.md`](../guides/install.md) is the user page.
+- **commands**: `/atomic-help` documents `atomic install`, `atomic harness`, `atomic update`, and uninstall; [`docs/guides/install.md`](../guides/install.md) is the user page. [`docs/guides/upgrade-7.md`](../guides/upgrade-7.md) covers the upgrade procedure.
 - **lockstep contracts**: [`docs/spec/omp-plugin-compatibility.md`](../spec/omp-plugin-compatibility.md) is the contract for this domain. `hooks.CodexSessionStartCommand`, `CodexSessionStartMatcher`, `CodexPreToolUseCommand`, and `CodexPreToolUseMatcher` must change together with `trustedMember.identityHash`, or every trusted member reads `modified`. A change to the owned member set also needs a predecessor digest like `CodexLegacyDigest`, or existing installs block instead of converging. The OMP extension's `loadSessionContext` arguments must match the flags `atomic hooks session-start` accepts.
 - **design**: [`docs/design/omp-plugin-compatibility.md`](../design/omp-plugin-compatibility.md) carries the decision record; [`docs/design/uninstall.md`](../design/uninstall.md) is a pre-v6 record of the snapshot-based Claude uninstall and describes paths this domain no longer uses.

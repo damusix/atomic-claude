@@ -135,12 +135,13 @@ agent-implementer-workflow ──> agent-code-intel, agent-search-tooling,
 
 ### Install routing
 
-`runClaudeInstall` in [`atomic/cmd/atomic/cmd_claude.go`](../../atomic/cmd/atomic/cmd_claude.go) decides between the harness install engine and the legacy writer before any write, and only the legacy path honors `--no-hooks` itself.
+`runClaude` in [`atomic/cmd/atomic/cmd_claude.go`](../../atomic/cmd/atomic/cmd_claude.go) routes an old updater's handoff through adoption before `runClaudeInstall` chooses between enrolled convergence and the legacy writer. Each route carries `--no-hooks`.
 
 ```mermaid
 flowchart TD
-    %% source: atomic/cmd/atomic/cmd_claude.go
-    T["resolveClaudeTarget"] --> R["runClaudeInstall"]
+    %% source: atomic/cmd/atomic/cmd_claude.go, atomic/cmd/atomic/cmd_update.go
+    A{"update handoff eligible?<br/>See conditions below"} -->|yes| P["runUpdatePostSwap<br/>adopt, converge enrolled"]
+    A -->|no| R["runClaudeInstall"]
     R --> E{"convergeEnrolledClaude:<br/>enrolled?"}
     E -->|yes| C["DefaultSteps.Converge<br/>AssumeYes"]
     E -->|"no, or lookup error"| L["claudeinstall.Install<br/>or Update"]
@@ -148,6 +149,8 @@ flowchart TD
     D -->|yes| OUT["return Plan"]
     D -->|no| H["hooks.InstallInDir"]
 ```
+
+The handoff branch requires `update`, no `--dry-run`, no explicitly supplied `--target`, and a readable, present legacy install record with `Adopted` false. It lets an older updater finish adoption after swapping in the replacement binary. `runUpdatePostSwap` uses `convergeEnrolledTargetsWithHooks` in [`atomic/cmd/atomic/cmd_update.go`](../../atomic/cmd/atomic/cmd_update.go) to adopt the legacy Claude install and converge enrolled targets, with `SkipHooks` carrying `--no-hooks`. Explicit `--target` (even `~/.claude`) and `--dry-run` retain the target-scoped `runClaudeInstall` route.
 
 `resolveClaudeTarget` maps an empty or `~/.claude` `--target` to `claude.DefaultConfigDir(home)`, which honors `CLAUDE_CONFIG_DIR`; any other value goes through `claudeinstall.ResolveTarget` for `~` expansion. A ledger-enrolled root converges through `install.DefaultSteps(home).Converge` with `AssumeYes` set (the verb is the user's consent) and `SkipHooks` carrying `--no-hooks`; a plan with blockers returns as an error alongside its report. `hooks.InstallInDir` returns a `skipped bool`; when it is true (a read-only `settings.json`), `runClaudeInstall` sets `HooksError` to `settings.json is read-only` and the CLI prints a non-fatal warning with `retry later with: atomic hooks install`. After a non-dry-run `install` (not `update`), `printPostInstallHint` prints one next step: run `/refresh-wiki` in each repo that wants project signals.
 

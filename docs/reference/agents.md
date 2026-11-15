@@ -80,7 +80,7 @@ The canonical agent definitions declare no model or effort. Each states behavior
 - **model** is lenient on every harness: any value without spaces or control characters passes through, and the harness resolves it at runtime.
 - **effort** is strict on Claude, where a value outside the five levels is a config error. The OMP and Codex lists are the levels known at release; a value outside them warns in `atomic doctor` and still passes through.
 
-With no override stored, the projected agent carries no model or effort key, so it inherits the session's values. An override you store applies everywhere the agent is dispatched by name, including `atomic-verify` and the ship verbs' review gate, whose `review:` line names the model that ran.
+With no override stored, the projected agent carries no model or effort key, leaving the harness to select the session's values. Atomic projects a stored override into the named agent file; runtime support depends on the harness. A Codex 0.147.0 fresh child ran with both configured values, while OMP and Claude model-level delivery remains unproven. Atomic's static Codex agent-delivery capability still reports `unsupported`; see the [capability evidence](../research/harness-capability-matrix.md#agent-delivery). Named review dispatches include `atomic-verify` and the ship verbs' review gate, whose `review:` line names the model that ran.
 
 ### Choosing the harness
 
@@ -122,7 +122,7 @@ An unadopted legacy Claude install counts as an enrolled Claude harness here. Ea
     effort = "low"
     ```
 
-2. **Convergence.** For each edited harness that is enrolled, the save converges that harness's targets through the same lifecycle `atomic harness repair` runs: the lifecycle lock, the journal, and the ledger. The adapter writes the agent file with your override under its native keys, and the ledger records the digest of exactly those bytes. Nothing is patched in place. An agent file you edited by hand is a conflict: it keeps its bytes, the verb exits 1, and the saved config waits for `atomic harness repair` after you resolve the edit.
+2. **Convergence.** For each edited harness that is enrolled, the save converges that harness's targets through the same lifecycle `atomic harness repair` runs: the lifecycle lock, the journal, and the ledger. The adapter writes the agent file with your override under its native keys, and the ledger records the digest of exactly those bytes. Installed Atomic agents are managed artifacts: a manually edited copy is backed up under `~/.atomic/backups/<operation>/` before replacement. An unowned file collision still requires the explicit replace-or-leave-unowned decision.
 3. **Not enrolled.** A harness that is not enrolled changes in config only. The verb says the change applies when that harness is enrolled, and `atomic install --harness <kind>` delivers it.
 4. **Legacy Claude.** An unadopted legacy Claude install has no ledger, so the save re-patches the agent files already in its root instead. `atomic update` adopts that install once, and from then on the save converges it like any other enrolled root.
 5. **Doctor.** `atomic doctor` category 9 warns for an override whose harness is not enrolled, whose agent delivery is `unsupported`, or whose value looks wrong. A value warning ends with `atomic config agents --harness <kind>`, naming the harness whose form fixes it.
@@ -141,5 +141,5 @@ omp.agents.atomic-reviewer.effort      = high
 | scalar entry (`atomic-implementer = "opus"`) | config parse error; nested tables are the only accepted shape |
 | running session on any harness | keeps the old agent file; restart to pick up the change |
 | Claude root under `CLAUDE_CONFIG_DIR` | converges like `~/.claude` once enrolled |
-| hand-edited agent file | conflict; the file keeps its bytes until you resolve it |
+| hand-edited managed Atomic agent | backed up before replacement; unowned collisions still require an explicit decision |
 | agents added manually to an agents directory | never touched; only Atomic's own agents carry overrides |

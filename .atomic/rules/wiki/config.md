@@ -65,6 +65,8 @@ Contracts:
 References:
   - docs/reference/atomic-toml.md
   - docs/reference/conventions.md
+Guides:
+  - docs/guides/upgrade-7.md
 Designs:
   - docs/design/output-style-seed.md
   - docs/design/workflow-preferences.md

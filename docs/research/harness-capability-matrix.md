@@ -48,7 +48,7 @@ Every target pins its own working directory and closes stdin. The default captur
 - Fresh root. The generator refuses an existing destination. Registration and extension-discovery rows assume an empty isolated home, so a reused root invalidates the before-add registry state and the discovery and dedupe counts.
 - Status scope. A `replay-manifest.json` row's `status` describes replay reproducibility — whether the recorded command re-runs and reaches its expected terminal condition — not capability support. `codex.failure` is `partial` because its target reproduces the expected model rejection; the Codex failure-semantics capability row stays `unsupported`.
 
-**Claims with no replay target.** `reload`, `user overrides`, and `numeric limits` on all three harnesses, OMP extension disablement (`--no-extensions`), OMP package install/lifecycle/scope, and every Codex runtime hook surface beyond thread creation were not exercised, so no target exists for them. They are unsupported and are not covered by any manifest row.
+**Claims with no CP0 replay target.** `reload`, `user overrides`, and `numeric limits` on all three harnesses, OMP extension disablement (`--no-extensions`), OMP package install/lifecycle/scope, and every Codex runtime hook surface beyond thread creation were not exercised in CP0, so no target exists for them. The later Codex override observation is recorded below.
 
 
 ## Tested binaries and sources
@@ -239,15 +239,15 @@ Evidence: `codex/runtime-summary.json`, `codex/runtime-untrusted-hooks-retry.jso
 ## Agent delivery
 
 
-CP0 ran no agent probe, so the `agent-delivery` row is `unsupported` for OMP `18.1.18` and Codex `0.147.0`. The OMP and Codex adapters write the agent files as ledger-owned resources, and enrollment, status, and doctor report agent delivery `unsupported` until a row below records a passing run. The Claude adapter's `agents/` delivery is not gated on this row. CP16 runs the procedures below and records the result here.
+CP0 ran no agent probe. The OMP and Codex adapters write ledger-owned agent files, but the static `RoleAgentDelivery` rows in `atomic/internal/harness/capability.go` report `unsupported`. Codex has since completed the configured override probe described below; the static row still cites the older run. The Claude adapter's `agents/` delivery is not gated on this row.
 
 | Harness | Native file | Status | Probe procedure | Expected observation | Vendor documentation |
 |---|---|---|---|---|---|
 | Claude Code | `<CLAUDE_CONFIG_DIR>/agents/<name>.md`, keys `model` and `effort` | Partial on 2.1.322: the override reached the agent file and the init event listed the agent; the model-level steps 2 and 3 need a credential and were not reached. `TestClaudeAgentOverrideIsProjectedAndTheAgentListed` | 1. In an isolated `HOME` and `CLAUDE_CONFIG_DIR`, run `atomic harness enroll claude` with `[claude.agents.atomic-investigator]` set to a model distinct from the session model. 2. Run `claude -p --output-format stream-json --verbose --forward-subagent-text` with a prompt asking it to dispatch `atomic-investigator` by name with no model argument. 3. Capture the event stream. | An `Agent` tool_use (named `Task` before Claude Code 2.1.63) carries `subagent_type: atomic-investigator`, and the assistant messages whose `parent_tool_use_id` is that tool_use name the configured model in `message.model` (that field is `unverified`). | [Claude Code subagents](https://code.claude.com/docs/en/sub-agents) |
 | OMP | `<profile agent root>/agents/<name>.md`, keys `model` and `thinking` | Partial on 18.18.3: the override reached the agent file and the `task` tool in the opening request listed the agent; OMP has no agent-listing verb, and step 3 needs a model turn and was not reached. `TestOMPAgentOverrideIsProjectedAndTheAgentListed` | 1. In an isolated `HOME`, with the profile agent root under it, run `atomic harness enroll omp` with `[omp.agents.atomic-investigator]` set to a model and a `thinking` level distinct from the session's. 2. Start `omp` in a probe repository, list the available agents, then ask it to run `atomic-investigator`. The surface that lists agents (an extension event field or an `omp` subcommand) is `unverified`. 3. Capture the provider request the child sends. | `atomic-investigator` appears in the inventory, and the child's provider request names the configured model and thinking level. | `unverified` |
-| Codex CLI | `$CODEX_HOME/agents/<name>.toml`, keys `model` and `model_reasoning_effort` | Partial on 0.147.0: the override reached the TOML and the `spawn_agent` roles in the opening request named the agent with its configured model and effort; a spawned child needs a model turn and was not reached. `TestCodexAgentOverrideIsProjectedAndTheRoleListed` | 1. In an isolated `HOME` and `CODEX_HOME`, run `atomic harness enroll codex` with `[codex.agents.atomic-investigator]` set to a model and an effort distinct from the session's. 2. Run `codex exec --json` in a probe repository, asking it to spawn `atomic-investigator`. 3. Capture the event stream. | `atomic-investigator` is listed once, from `$CODEX_HOME/agents/`, the spawned agent is `atomic-investigator`, and its turn reports the configured model and reasoning effort. | [Codex subagents](https://developers.openai.com/codex/subagents) |
+| Codex CLI | `$CODEX_HOME/agents/<name>.toml`, keys `model` and `model_reasoning_effort` | The credential-free `TestCodexAgentOverrideIsProjectedAndTheRoleListed` observed projection and role listing. A later 0.147.0 run completed a named fresh child with both configured values; see the 2026-11-15 update. The static capability remains `unsupported`. | 1. In isolated `HOME` and `CODEX_HOME`, enroll Codex and configure `atomic-investigator` using `atomic config agents --harness codex`. 2. Run `codex exec --json` with a parent model and effort distinct from the configured child values, asking it to spawn `atomic-investigator` without per-call overrides. 3. Capture parent and child session records. | The named child completes with the configured model and reasoning effort. | [Codex subagents](https://developers.openai.com/codex/subagents) |
 
-A run that cannot authenticate, as every CP0 run could not, leaves the row `unsupported` with its observation recorded.
+A run that cannot authenticate leaves its runtime outcome unproven.
 
 
 ## Session context
@@ -340,6 +340,38 @@ The tests in `atomic/internal/runtimeproof/claude_redesign_test.go` install Atom
 | Repository steering beside a user `CLAUDE.md` | Root `CLAUDE.md` and its `@AGENTS.md` import loaded | A root `CLAUDE.md` without `@AGENTS.md` loads alone; the built-in `cc-plugin-agents-md` plugin does not add `AGENTS.md`. Once `CLAUDE.md` imports `@AGENTS.md`, `AGENTS.md` and its `@docs/wiki/index.md` import load as includes |
 | Agent discovery | Not exercised | Supported at startup: the init event's `agents` lists all eight installed Atomic agents. Override delivery is in the agent-delivery row above |
 | Visibility | `InstructionsLoaded` exposed discovered files | Unchanged, plus the stream-json init event lists `tools`, `agents`, `skills`, `slash_commands`, `output_style`, and `claude_code_version`. A print run's `tools` include `Task`, `EnterWorktree`, `Monitor`, `TaskStop`, and `CronCreate`, and exclude `Agent` and `AskUserQuestion`, which the Claude steering paragraph names; whether an interactive session exposes them under those names was not observed |
+
+
+## Update 2026-11-13: live OMP and Codex model turns
+
+
+These observations supplement the credential-free probes above. Codex CLI 0.147.0 ran with `gpt-5.6-sol` at `high` effort against the installed Atomic integration. Captures are retained under `<state-root>/.scratchpad/omp-plugin-compatibility/runtime/live-model-20261113/`. Unlike the earlier startup captures, these contain completed model responses.
+
+| Capture | Observation | Remaining limit |
+|---|---|---|
+| `codex-t2.txt`, session `01a1d60e-3057-7621-9060-a9e8ad51711a` | `SessionStart` completed, and the model quoted the resolved workflow-preferences block without using tools. | Primary session only; resume and child delivery were not exercised. |
+| `codex-t3.txt`, session `01a1d60e-67f8-7710-a39e-3108e28ef2d1` | The model reported no bus wiki context before editing. After its first `apply_patch`, it quoted the delivered bus card. After a second patch in the same session, it reported no duplicate delivery. | Edits only; reads, shell edits, resume, and child delivery were not exercised. |
+| `codex-t4.txt`, parent `01a1d60f-3c8f-74e0-8e50-39d3e2d8387c` | A fresh-context `atomic-investigator` child completed a code-location query. A full-history fork with a different role was refused before that successful spawn. | Child `01a1d60f-6dc8-7342-9948-919edc89df2b` inherited `gpt-5.6-sol` and `high`; this run did not configure an override. |
+| `omp-t1.txt` | A completed model response listed Atomic commands, skills, agents, the resolved workflow block, and flat `atomic-wiki-*` rule scopes. | Listing does not prove matched rule-body delivery or an agent running with an override. The capture does not identify the OMP version. |
+
+The Codex session-baseline, pre-operation-target, context-return, and session-context rows are partial: the named primary-session behaviors were observed, but resumed and child delivery were not. Wiki-card delivery remains partial because it covers `apply_patch`, not reads or shell edits. These observations do not upgrade generic shipped-rule delivery or deterministic deny.
+
+| Capture | SHA-256 |
+|---|---|
+| `codex-t2.txt` | `d398eda48a271f0b9e786189ff370035a7e9f3ed112ca94a79e0cead32de3600` |
+| `codex-t3.txt` | `73a294a517b28802e1fbaa5e8c66516ae6211966030cf44d339c264551960de3` |
+| `codex-t4.txt` | `ba713ec78749366cdc26486fea3db9d3256ca79b5b72c34d6a0b8f74f2870d4e` |
+| `omp-t1.txt` | `a25c4f80be24705f928641a93d030e63bee71c2c32c33e9189ac052469096a06` |
+
+## Update 2026-11-15: Codex configured agent override
+
+Codex CLI 0.147.0 completed a named, fresh-context `atomic-investigator` query with an override configured through the actual interactive `atomic config agents --harness codex` form. The parent session `01a1dcbb-870f-7902-be65-12599db23c6d` ran `gpt-5.6-sol` at `high`. Its spawn call named `atomic-investigator`, used `fork_turns: none`, and supplied neither model nor effort. Child session `01a1dcbb-9ac2-7eb0-853d-adc52c0a8938` ran `gpt-5.6-terra` at `low` and returned `probe.txt:1` for `ATOMIC_OVERRIDE_PROBE`. The native agent TOML contained `model = 'gpt-5.6-terra'` and `model_reasoning_effort = 'low'`.
+
+An initial child, `01a1dcb6-e92b-7e00-bebf-1b48623dd61d`, selected `gpt-6.1-sol` at `low`, but the account rejected that model before the search. Model availability depends on the account.
+
+To reproduce, use temporary `HOME` and `CODEX_HOME` directories and a Codex account authorized for two distinct models. Enroll Codex, run `atomic config agents --harness codex` interactively, and set `atomic-investigator` to the child model and effort. Check `$CODEX_HOME/agents/atomic-investigator.toml` for both native keys. Start a new Codex session with a different parent model and effort in a repository containing a unique probe string. Ask it to spawn `atomic-investigator` in fresh context to locate the string, without passing model or effort in the spawn call. Compare the parent and child session records, spawn arguments, and completed result.
+
+This observation covers that named fresh child, not resumed sessions, rule delivery to children, or OMP and Claude model turns. Atomic's static Codex `RoleAgentDelivery` capability still reports `unsupported` and cites the older no-override run; enrollment, status, and doctor can therefore report that limitation despite this evidence.
 
 
 ## Cross-harness operational matrix

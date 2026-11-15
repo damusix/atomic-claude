@@ -55,7 +55,7 @@ For the Claude-only bundle path that skips enrollment entirely:
 atomic claude install
 ```
 
-It writes the embedded bundle (`CLAUDE.md`, agents, commands, skills, output styles, rules) into `~/.claude/`, seeds the Atomic output style into `~/.claude/settings.json`, and registers the hook (pass `--no-hooks` to skip it). This legacy route is only for an install the ledger does not own: when the resolved `~/.claude` root is enrolled, `atomic claude install|update` converges it through the install planner instead — the same lock, journal, and ledger every other lifecycle verb uses — so an un-adopted install is the only one the legacy writer still touches. On an enrolled root the refresh rewrites only bytes Atomic itself wrote. A file you chose to keep with `--leave-unowned` stays kept, and `atomic doctor` counts it as matching, until you pass `--replace` or delete it. A file Atomic owns that you or an older `atomic` binary changed stops the refresh with exit 1, naming `--replace` and `--leave-unowned`; `atomic harness repair --replace --yes` then replaces it, keeping a recovery copy under `~/.atomic/backups/`. `--no-hooks` works on either route: it never registers the hook, and leaves one already registered in place. Nothing needs adopting by hand: the next `atomic update` adopts a `claude install` into the ledger (see [updating](#updating)), and `atomic update` converges enrolled targets too.
+It writes the embedded bundle (`CLAUDE.md`, agents, commands, skills, output styles, rules) into `~/.claude/`, seeds the Atomic output style into `~/.claude/settings.json`, and registers the hook (pass `--no-hooks` to skip it). When the resolved root is enrolled, `atomic claude install|update` uses the lifecycle lock, journal, and ledger instead of the legacy writer. Managed artifacts are backed up and replaced even when edited by hand. A file explicitly kept with `--leave-unowned` stays kept until `--replace` is given, it is deleted, or the artifact leaves the corpus. Steering and settings retain their separate ownership checks. `--no-hooks` skips registration and leaves an existing hook in place. `atomic update` adopts an unadopted legacy install automatically; the refresh that an older binary invokes also completes that cutover on its first run.
 
 For a project-scoped Claude install instead of global: `atomic claude install --target ./.claude`. That route deliberately does not seed the output style, since the file it would write is committed and the choice is personal. Pick the style yourself with `/config` → **Output style** → **Atomic**, which writes the gitignored `.claude/settings.local.json`.
 
@@ -131,7 +131,7 @@ Install registers the plugin by running `codex plugin marketplace add` and `code
 
 `atomic harness status`, `diff`, `rules status`, `repair`, and `uninstall <target-key>` work exactly as they do for any other harness. A target uninstall strips the `AGENTS.md` block, removes the package tree when no other enrolled home uses it, and undoes the registration Atomic made with `codex plugin remove` and `codex plugin marketplace remove`, for whichever entries Codex still records. If those commands cannot run, the uninstall still completes and prints a `notice` line with the error and the commands to run yourself.
 
-Commands, `@` imports, output-style selection, path-scoped rule bodies, and wiki pointer cards are **unsupported** on Codex and read `WARN unsupported`: a plugin carries no command surface, Codex leaves an `@path` line literal, so the Atomic block drops its import lines, and rule bodies would need a hook event no probe has reached. Plugin-hook trust, deliberate disablement, payload limits, and child-session behavior stay unproven too. `atomic doctor`'s `codex` category (24) lists each unsupported surface with its evidence and a `fix:` line, and never repairs one.
+Commands, `@` imports, output-style selection, and automatic path-scoped rule delivery remain **unsupported** on Codex. Live model turns on codex-cli 0.147.0 verified primary-session workflow context, a matching wiki card delivered before an `apply_patch` edit, and suppression of that card on the next edit in the same session. Reads, shell edits, resumed and child-session card delivery remain unproven. A fresh named `atomic-investigator` also completed with a configured model and effort different from its parent, saved through `atomic config agents --harness codex`. Atomic's static agent-delivery capability still reports `unsupported` from the earlier probe; the [capability matrix](/research/harness-capability-matrix) records the newer proof and the remaining limits. Doctor reports capabilities separately from each hook's trust.
 
 ### Repository state selection
 
@@ -159,6 +159,8 @@ From here, you are ready to work. The [getting started guide](/guides/getting-st
 
 ## Updating
 
+Upgrading from 6.10? Follow the [6.10 to 7.0 upgrade guide](./upgrade-7.md) for backups, custom state locations, repository changes, and first-upgrade failure handling.
+
 Update the binary:
 
 ```bash
@@ -167,15 +169,17 @@ atomic update
 
 One command updates everything: it swaps the binary, then the replacement binary converges every already-enrolled harness target with its own embedded generation, and finishes with a health check that prints what to look at if anything fails. It never enrolls a harness you have not installed with `atomic install` or `atomic harness enroll`; the one exception is the one-time Claude adoption below. It is usually near-instant because a background process pre-downloads and checksum-verifies each release ahead of time; the swap re-verifies version and checksum regardless, so the binary is never stale or unverified. Convergence restores the adapter's settings defaults — for Claude it re-registers the session-start hook and re-seeds the output style if either is missing.
 
+Atomic manages its installed skills, agents, and commands. Updates back up manually edited copies before replacing them, and back up removed artifacts before deleting them. Recovery copies remain under `~/.atomic/backups/<operation>/`. Put personal behavior in your own files or supported configuration, rather than editing installed Atomic artifacts. This policy does not overwrite unrelated files, your steering text, model overrides, or hook trust settings.
+
 **A pre-multi-harness install is adopted once.** When the Claude root (`CLAUDE_CONFIG_DIR`, else `~/.claude`) is not in the ledger and `~/.atomic/config.toml` still carries the legacy `[install]` record without `adopted = true`, `atomic update` adopts it before converging, and prints:
 
 ```text
 adopting existing Claude install at <root>
 ```
 
-Adoption replaces older-version artifacts, keeping a recovery copy of each under `~/.atomic/backups/<operation>/`, and accepts a missing or corrupt pre-install snapshot. It never asks. Every later update converges the install through the ledger. A root you uninstalled is not adopted again, and a fresh `atomic claude install` clears the mark so the next update adopts it once more. `--skip-claude-update` skips the adoption along with the convergence.
+Adoption applies the same backup-and-replace policy to artifacts listed by the legacy install, including artifacts absent from the new release, and accepts a missing or corrupt pre-install snapshot. It never asks. Every later update converges the install through the ledger. A root you uninstalled is not adopted again, and a fresh `atomic claude install` clears the mark so the next update adopts it once more. `--skip-claude-update` skips the adoption along with the convergence.
 
-Adoption stops, exits 1, and names the file when it meets user content it will not overwrite. Resolve it and re-run `atomic update`:
+The new updater stops adoption, exits 1, and names the file when it meets user content it will not overwrite. The 6.10 updater only warns if this replacement-binary step fails, so the first upgrade can install the new binary without completing adoption. Read its output, resolve the named cause, and re-run `atomic update`:
 
 | Blocker | Resolve by |
 |---------|------------|
@@ -196,13 +200,15 @@ To skip the post-swap convergence, pass `--skip-claude-update` and converge manu
 atomic harness repair
 ```
 
+After a skipped first-time adoption, run `atomic update` without the flag; repair only reaches enrolled targets. On the 7.0 updater, `--skip-claude-update` does not skip repository-state migration or registered migration steps.
+
 Six useful flags for `atomic update`:
 
 - `--check` — just check if an update is available, do not download
 - `--pre` — install the newest pre-release; shorthand for `--channel prerelease`
 - `--channel <stable|prerelease>` — the long form of the same choice
 - `--no-doctor` — skip the post-update health check
-- `--skip-claude-update` — replace the binary only, skip the post-swap enrolled-target convergence
+- `--skip-claude-update` — skip target adoption and convergence, but not the separate migration steps
 - `--force` — take over an update lock held by another process; never skips checksum verification
 
 `atomic update` refuses to run if another update looks to be in progress, unless that lock is more than 10 minutes old (then it is assumed abandoned and taken over automatically). `--force` is the manual override for a lock you know is stale.
@@ -255,7 +261,16 @@ atomic config set update.run_doctor false
 
 ## Migrations
 
-`atomic update` auto-applies versioned migration steps after converging enrolled targets. These steps handle breaking changes across releases — restructured directories, updated config keys, and similar one-time transforms — and are idempotent, so re-running them is always safe.
+`atomic update` runs registered versioned transforms after target convergence. These transforms are separate from legacy harness adoption and the repository-state move:
+
+| Operation | Manual command |
+|-----------|----------------|
+| Adopt a legacy default-root Claude install after replacing the binary | `atomic claude update` |
+| Refresh already-enrolled targets | `atomic harness repair` |
+| Move the current repository's Atomic state out of `.claude` | `atomic state migrate` |
+| Run registered versioned transforms | `atomic migrate` |
+
+`atomic migrate` alone does not adopt the installation or move the repository's state root. The [upgrade guide](./upgrade-7.md) explains which operation existing 6.10 users need.
 
 To apply migrations manually (for example, after a manual binary swap or a fresh install on a machine that missed an update):
 
@@ -272,7 +287,7 @@ One migration runs automatically on every invocation rather than through `atomic
 
 ## If you already have a CLAUDE.md
 
-One check decides everything: whether your file already carries an `<atomic>...</atomic>` block. Either way, your own sections are never touched and the prior version is backed up to `~/.atomic/backups/` before any change.
+The Claude-only bundle writer used for an unenrolled `atomic claude install` checks whether the file carries an `<atomic>...</atomic>` block. It preserves your own sections and backs up the prior file under `~/.atomic/backups/` before changing the managed content.
 
 | Your `~/.claude/CLAUDE.md` | What the installer does | What you do |
 |---|---|---|
@@ -281,7 +296,7 @@ One check decides everything: whether your file already carries an `<atomic>...<
 
 The one-time merge wraps the atomic content in `<atomic>` tags, so every later update lands in the first row and applies on its own.
 
-A pre-v2 install converged through the generic adoption engine rather than the `claude` verb: `atomic install --harness claude` and `atomic harness adopt claude` classify the observed state, recover unresolved journals oldest-first, batch older-version replace-or-leave-unowned decisions (`--replace` / `--leave-unowned`), and preserve the write-once legacy pre-install snapshot. `atomic harness adopt` refuses to proceed past a corrupt snapshot until you acknowledge the limit with `--acknowledge-snapshot`. When in doubt, `--dry-run` prints the plan and writes nothing.
+The generic adoption path (`atomic install --harness claude`, `atomic harness adopt claude`, and automatic update adoption) instead appends a managed block when the steering file has no Atomic tags, preserving the existing text. It refuses ambiguous tags and pending merge candidates, recovers unresolved journals before planning, and preserves the write-once pre-install snapshot. Explicit adoption accepts `--replace` or `--leave-unowned` for an undecidable artifact and requires `--acknowledge-snapshot` for a missing or corrupt historical snapshot; automatic adoption accepts that snapshot limitation. Use `--dry-run` to inspect an explicit adoption plan without writing it.
 
 
 ## Manual install

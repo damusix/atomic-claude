@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+
+### Bug Fixes
+
+- Back up edited managed artifacts before updates and retire removed artifacts without leaving obsolete commands installed.
+- Recover transactions whose first staging operation fails.
+- Preserve canonical wiki cards when an OMP card changes from a symlink to a copy.
+- Preserve user hook handlers when removing Atomic from a shared Claude hook group.
+- Record Codex session-context, edit-time wiki-card, and configured model/effort probes without claiming resumed-session support.
+- Complete first-run adoption and migration when an older binary invokes the new Claude refresh path.
+- Keep unsupported capability warnings manual instead of reporting them fixed by doctor convergence.
+- Keep runtime evidence collection working when a harness removes temporary files during capture.
+
+### Documentation
+
+- Add the 6.10 to 7.0 upgrade guide, including custom state locations, staged repository moves, and recovery limits.
+
 ## [6.9.0](https://github.com/damusix/atomic-claude/compare/v6.8.0...v6.9.0) (2026-09-24)
 
 

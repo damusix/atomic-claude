@@ -14,6 +14,7 @@
 
 <p align="center">
  <a href="docs/guides/install.md">Install</a> &bull;
+ <a href="docs/guides/upgrade-7.md">Upgrade from 6.10</a> &bull;
  <a href="docs/reference/concepts.md">Concepts</a> &bull;
  <a href="docs/reference/workflow.md">Workflow</a> &bull;
  <a href="docs/reference/commands.md">Commands</a> &bull;
