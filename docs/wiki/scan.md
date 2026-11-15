@@ -1067,7 +1067,7 @@
 │   ├── test/ (1)
 │   │   └── install_sh_test.go (dfa131f, 229L, 6304ch, 6310B)
 │   ├── .gitignore (441c88d, 1L, 23ch, 23B)
-│   ├── CHANGELOG.md (af5a852, 801L, 63240ch, 63291B)
+│   ├── CHANGELOG.md (cf1919e, 814L, 63809ch, 63860B)
 │   ├── Makefile (49045c6, 37L, 1403ch, 1405B)
 │   ├── go.mod (65d93a2, 66L, 2783ch, 2783B)
 │   └── go.sum (8d0a711, 166L, 15028ch, 15028B)
@@ -1482,7 +1482,7 @@
 ├── Dockerfile (0e5b6e5, 61L, 2316ch, 2592B)
 ├── LICENSE (42eaf96, 21L, 1070ch, 1070B)
 ├── Makefile (e5317ab, 34L, 1257ch, 1257B)
-├── README.md (09faec6, 163L, 13222ch, 13304B)
+├── README.md (6333884, 164L, 13391ch, 13473B)
 ├── docker-compose.yml (8e77524, 12L, 261ch, 261B)
 ├── docker-entrypoint.sh (fc1c1d6, 19L, 465ch, 467B)
 ├── install.sh (e8a1a82, 238L, 8929ch, 8935B)
@@ -1490,7 +1490,7 @@
 ├── package.json (3f97322, 25L, 668ch, 668B)
 ├── release-please-config.json (6463978, 15L, 421ch, 421B)
 ├── release-please-config.next.json (9849175, 17L, 470ch, 470B)
-├── release-please-manifest.json (5561b58, 3L, 19ch, 19B)
+├── release-please-manifest.json (09822bf, 3L, 20ch, 20B)
 └── release-please-manifest.next.json (051d4ba, 3L, 26ch, 26B)
 ```
 
@@ -1507,7 +1507,7 @@
 ## Languages
 
 - Go: 268040 LOC (66%), 919 files (51%)
-- Markdown: 64158 LOC (16%), 449 files (25%)
+- Markdown: 64172 LOC (16%), 449 files (25%)
 - TypeScript: 47322 LOC (11%), 317 files (17%)
 - CSS: 7813 LOC (1%), 16 files (0%)
 - JavaScript: 7214 LOC (1%), 19 files (1%)
