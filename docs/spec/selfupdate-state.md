@@ -11,7 +11,7 @@ Every `atomic` invocation reads update state from `~/.atomic/state.json` and per
 
 
 - No auto-apply — the binary is never swapped without an explicit `atomic update`.
-- No repo-scoped `update.check` / `update.stage` override in `.claude/atomic.toml` — user config (`~/.atomic/config.toml`) only.
+- No repo-scoped `update.check` / `update.stage` override in `<state-root>/atomic.toml` (`.atomic` by default) — user config (`~/.atomic/config.toml`) only.
 - No prerelease-channel behavior change — staging follows the same channel as the check (`stable` by default).
 - No formal migration verb for the legacy `~/.cache/atomic/update.json` cache file — it is deleted opportunistically on the next state write; nothing reads it afterward.
 - No staging of the `~/.claude` artifact bundle — `atomic claude update` is untouched; only the binary is staged.
@@ -213,6 +213,14 @@ Flow: `--force`
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The Non-goals line names the repo-scoped config as `<state-root>/atomic.toml`, with `.atomic` as the default state root.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the Non-goals line named `.claude/atomic.toml`.
 
 
 ## Implementation log

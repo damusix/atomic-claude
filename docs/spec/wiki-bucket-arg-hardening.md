@@ -24,7 +24,7 @@ rejected at registration rather than created.
 
 - [ ] `atomic wiki bucket add -h` prints usage to stdout, exits 0, and creates nothing: no
       realm-root directory, no `<bucket>` entry in
-      `wiki/index.md`, no `## Capture surfaces` bullet in the realm `CLAUDE.md`
+      `wiki/index.md`, no `## Capture surfaces` bullet in the realm steering file
 - [ ] `atomic wiki bucket add --help` behaves identically
 - [ ] `-h` and `--help` behave identically for every bucket sub-verb: `list`, `doc`,
       `skill`, `index`
@@ -111,7 +111,7 @@ hardening lands in exactly one scanner.
     1. user runs `atomic wiki bucket add -h`
     2. resolveWikiRoot classifies `-h` as a help request -> returns errUsageRequested
     3. wikiBucketAddAction matches the sentinel -> prints usage to out, returns 0
-    4. no RegisterBucket call, no mkdir, no index splice, no CLAUDE.md append
+    4. no RegisterBucket call, no mkdir, no index splice, no realm steering file append
 
     Flow: unsafe name reaching registration
     1. a caller invokes RegisterBucket with a name beginning with `-`
@@ -205,3 +205,11 @@ hardening lands in exactly one scanner.
 **Why:** `bucket doc` scaffolds a slug folder with numbered stages, so the router flag and its parser have no job.
 
 **Removed:** `parseBucketDocArgs`, which consumed `--router` and delegated the rest to `resolveWikiRoot`, and the tests pinning `--router` positions. See `docs/spec/bucket-icm-structure.md`.
+
+### 2026-11-11 — Help probe names the realm steering file
+
+**What changed:** The help-probe criterion and flow say a probe writes no capture bullet to the realm steering file instead of naming the realm `CLAUDE.md`.
+
+**Why:** `bucket add` now writes the section to the realm `AGENTS.md` or `CLAUDE.md`, whichever Claude loads (`docs/spec/wiki-buckets.md`).
+
+**Superseded:** The criterion and flow named only the realm `CLAUDE.md`.

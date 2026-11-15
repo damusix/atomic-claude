@@ -10,6 +10,8 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
 
 // codeSection is the [code] TOML table in the repo config.
@@ -51,6 +53,53 @@ type realmSection struct {
 // differs (repo wins over user, see repl's resolveIdleTimeout).
 type replSection struct {
 	IdleTimeout string `toml:"idle_timeout"`
+}
+
+// steeringSection is the [steering] table, shared by RepoConfig and the
+// user-scoped Config; the repo value wins over the user one.
+type steeringSection struct {
+	Claude string `toml:"claude"`
+}
+
+// ValidateSteeringMode requires empty (unset) or one of bundlespec.SteeringModes.
+func ValidateSteeringMode(value string) error {
+	if value == "" {
+		return nil
+	}
+	names := make([]string, len(bundlespec.SteeringModes))
+	for i, m := range bundlespec.SteeringModes {
+		if string(m) == value {
+			return nil
+		}
+		names[i] = string(m)
+	}
+	return fmt.Errorf("config: steering.claude %q is not one of: %s", value, strings.Join(names, ", "))
+}
+
+// ResolveSteeringMode returns root's steering mode: its atomic.toml, else the user
+// config, else loader. A config that cannot be read, or an unknown value, errors.
+func ResolveSteeringMode(home, root string) (bundlespec.SteeringMode, error) {
+	path := RepoConfigPath(root)
+	cfg, _, err := LoadRepoConfig(path)
+	if err != nil {
+		return "", err
+	}
+	value := cfg.Steering.Claude
+	if value == "" && home != "" {
+		path = TOMLPath(home)
+		user, _, err := Load(path)
+		if err != nil {
+			return "", err
+		}
+		value = user.Steering.Claude
+	}
+	if err := ValidateSteeringMode(value); err != nil {
+		return "", fmt.Errorf("%w (in %s)", err, path)
+	}
+	if value == "" {
+		return bundlespec.SteeringLoader, nil
+	}
+	return bundlespec.SteeringMode(value), nil
 }
 
 // A pointer because absence (default, no warning) and an explicit 0 (invalid,
@@ -99,6 +148,7 @@ type RepoConfig struct {
 	Realm    realmSection    `toml:"realm"`
 	Repl     replSection     `toml:"repl"`
 	Serve    serveSection    `toml:"serve"`
+	Steering steeringSection `toml:"steering"`
 }
 
 // repoKnownSections is the set of known top-level TOML table names in the
@@ -111,6 +161,7 @@ var repoKnownSections = map[string]bool{
 	"repl":     true,
 	"scan":     true,
 	"serve":    true,
+	"steering": true,
 }
 
 // repoKnownTopLevelLeaves is the top-level scalar keys — ones naming a value
@@ -129,6 +180,7 @@ var repoKnownLeaves = map[string]bool{
 	"scan.generated":     true,
 	"scan.ignore":        true,
 	"serve.schema":       true,
+	"steering.claude":    true,
 }
 
 // LoadRepoConfig mirrors Load's contract: a missing file is an empty RepoConfig
@@ -155,7 +207,6 @@ func LoadRepoConfig(path string) (*RepoConfig, []Warning, error) {
 	if err := toml.Unmarshal(raw, cfg); err != nil {
 		return nil, warns, fmt.Errorf("config: decode %s: %w", path, err)
 	}
-
 	return cfg, warns, nil
 }
 
@@ -180,6 +231,7 @@ func checkUnknownRepoKeys(m map[string]any, prefix string) []Warning {
 				})
 				continue
 			}
+			// pi is a retired table: tolerated so old files load silently.
 			if k == "pi" {
 				continue
 			}

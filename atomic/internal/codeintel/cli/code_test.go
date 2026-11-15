@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -116,20 +117,25 @@ func TestDispatch_NoArgs_PrintsUsage(t *testing.T) {
 	}
 }
 
-func TestDispatch_NoArgs_PrintsHarnessAwareDBPath(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
-	defer restore()
+// The usage text names the state root by role: any literal directory would be
+// wrong once a record, state.dir, or ATOMIC_STATE_DIR places it elsewhere.
+func TestDispatch_NoArgs_PrintsStateRootDBPath(t *testing.T) {
+	defer config.SetStateDirForTest(".pi")()
 
-	dir := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	codecli.RunCode([]string{}, dir, &stdout, &stderr, noStdin())
+	codecli.RunCode([]string{}, t.TempDir(), &stdout, &stderr, noStdin())
 	combined := stdout.String() + stderr.String()
-	want := "DB path: <project>/.pi/.atomic-index/atomic.db"
-	if !strings.Contains(combined, want) {
-		t.Fatalf("expected usage text to contain %q, got: %s", want, combined)
+	for _, want := range []string{
+		"DB path: <state-root>/.atomic-index/atomic.db",
+		"<realm-state-root>/code.toml",
+		"legacy <realm>/.atomic/",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Errorf("usage text missing %q, got: %s", want, combined)
+		}
 	}
-	if strings.Contains(combined, ".claude/.atomic-index") {
-		t.Fatalf("usage text must not show the default-harness literal under a .pi harness, got: %s", combined)
+	if strings.Contains(combined, ".pi") || strings.Contains(combined, "<project>") {
+		t.Errorf("usage text must not name a literal state directory, got: %s", combined)
 	}
 }
 
@@ -326,13 +332,15 @@ func TestExplore_ReturnsContent(t *testing.T) {
 }
 
 func TestEnsureGitignore_Idempotent(t *testing.T) {
+	defer config.SetStateDirForTest(".seg")()
 	dir := t.TempDir()
 	gitignorePath := filepath.Join(dir, ".gitignore")
+	entry := ".seg/.atomic-index/"
 
 	must(t, codecli.EnsureGitignore(dir))
 	data, err := os.ReadFile(gitignorePath)
 	must(t, err)
-	if !strings.Contains(string(data), ".claude/.atomic-index/") {
+	if !strings.Contains(string(data), entry) {
 		t.Fatal("gitignore entry not present after first call")
 	}
 
@@ -340,13 +348,14 @@ func TestEnsureGitignore_Idempotent(t *testing.T) {
 	data2, err := os.ReadFile(gitignorePath)
 	must(t, err)
 
-	count := strings.Count(string(data2), ".claude/.atomic-index/")
+	count := strings.Count(string(data2), entry)
 	if count != 1 {
 		t.Errorf("expected exactly 1 gitignore entry, found %d:\n%s", count, string(data2))
 	}
 }
 
 func TestEnsureGitignore_CreatesFile(t *testing.T) {
+	defer config.SetStateDirForTest(".seg")()
 	dir := t.TempDir()
 	gitignorePath := filepath.Join(dir, ".gitignore")
 
@@ -358,14 +367,15 @@ func TestEnsureGitignore_CreatesFile(t *testing.T) {
 
 	data, err := os.ReadFile(gitignorePath)
 	must(t, err)
-	if !strings.Contains(string(data), ".claude/.atomic-index/") {
+	if !strings.Contains(string(data), ".seg/.atomic-index/") {
 		t.Fatalf(".gitignore created but does not contain the entry:\n%s", string(data))
 	}
 }
 
-// The written rule must track harness.dir, not a hardcoded ".claude" literal.
+// The written rule must track state.dir, not a built-in default literal.
 func TestEnsureGitignore_HarnessAware(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
+	defaultEntry := filepath.ToSlash(config.IndexDir("")) + "/"
+	restore := config.SetStateDirForTest(".pi")
 	defer restore()
 
 	dir := t.TempDir()
@@ -378,8 +388,74 @@ func TestEnsureGitignore_HarnessAware(t *testing.T) {
 	if !strings.Contains(string(data), ".pi/.atomic-index/") {
 		t.Fatalf("gitignore entry not present for .pi harness dir:\n%s", string(data))
 	}
-	if strings.Contains(string(data), ".claude/.atomic-index/") {
-		t.Fatalf("gitignore must not contain the default-harness literal under a .pi harness:\n%s", string(data))
+	if strings.Contains(string(data), defaultEntry) {
+		t.Fatalf("gitignore must not contain the default entry %q under a .pi pin:\n%s", defaultEntry, string(data))
+	}
+}
+
+// The state root's own ignore file already covers the index after repo init,
+// so the root .gitignore must not collect a redundant line.
+func TestEnsureGitignore_SkipsWhenAlreadyIgnored(t *testing.T) {
+	defer config.SetStateDirForTest(".seg")()
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	must(t, os.MkdirAll(filepath.Join(dir, ".seg"), 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, ".seg", ".gitignore"), []byte("/.atomic-index/\n"), 0o644))
+
+	must(t, codecli.EnsureGitignore(dir))
+
+	if _, err := os.Stat(filepath.Join(dir, ".gitignore")); !os.IsNotExist(err) {
+		data, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
+		t.Errorf("root .gitignore written though the index is already ignored:\n%s", data)
+	}
+}
+
+// A personal excludes file is not shared with collaborators, so it does not
+// stand in for the repository's own rule.
+func TestEnsureGitignore_WritesRuleWhenOnlyExcludesFileIgnores(t *testing.T) {
+	defer config.SetStateDirForTest(".seg")()
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	excludes := filepath.Join(t.TempDir(), "excludes")
+	must(t, os.WriteFile(excludes, []byte(".atomic-index/\n"), 0o644))
+	if out, err := exec.Command("git", "-C", dir, "config", "core.excludesFile", excludes).CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, out)
+	}
+
+	must(t, codecli.EnsureGitignore(dir))
+
+	data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	must(t, err)
+	if string(data) != ".seg/.atomic-index/\n" {
+		t.Errorf(".gitignore = %q, want the repository rule", data)
+	}
+}
+
+// A selection record naming a custom root decides the written rule; one naming
+// a root outside the repository writes none.
+func TestEnsureGitignore_FollowsSelectionRecord(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := config.PersistStateSelection(dir, "custom/state"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, codecli.EnsureGitignore(dir))
+	data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	must(t, err)
+	if string(data) != "custom/state/.atomic-index/\n" {
+		t.Errorf(".gitignore = %q, want the custom root's index rule", data)
+	}
+
+	outside := t.TempDir()
+	if _, err := config.PersistStateSelection(outside, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	must(t, codecli.EnsureGitignore(outside))
+	if _, err := os.Stat(filepath.Join(outside, ".gitignore")); err == nil {
+		t.Error("a state root outside the repository must get no repository ignore rule")
 	}
 }
 

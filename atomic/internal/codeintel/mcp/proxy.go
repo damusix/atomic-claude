@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -101,6 +102,41 @@ func ensureRunning(ctx context.Context, sourceRoot, dbPath string, opts WatchOpt
 	}
 
 	return waitLive(ctx, sockPath)
+}
+
+// SpawnLockHeld reports whether a starter holds the spawn lock beside dbPath,
+// so a daemon may be coming up without answering on its socket yet.
+func SpawnLockHeld(dbPath string) bool {
+	f, err := os.OpenFile(LockPathFromDB(dbPath), os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return true
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false
+}
+
+// TryHoldSpawnLock holds the spawn lock beside dbPath until release, without
+// waiting: ok is false on contention, err on any other failure.
+func TryHoldSpawnLock(dbPath string) (release func(), ok bool, err error) {
+	f, err := os.OpenFile(LockPathFromDB(dbPath), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, false, fmt.Errorf("hold spawn lock: %w", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("hold spawn lock: %w", err)
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, true, nil
 }
 
 func waitLive(ctx context.Context, sockPath string) error {

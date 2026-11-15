@@ -1,8 +1,8 @@
 ---
-description: Scan and clean up stale git state — worktrees, local branches, optionally remote tracking refs. Dispatches a read-only scan via `atomic prompt git-cleanup`, presents an indexed report, asks user which to clean. No destructive ops without explicit confirmation. Defaults: 30-day staleness, local-only.
+description: "Scan and clean up stale git state — worktrees, local branches, optionally remote tracking refs. Dispatches a read-only scan via `atomic prompt git-cleanup`, presents an indexed report, asks user which to clean. No destructive ops without explicit confirmation. Defaults: 30-day staleness, local-only."
 ---
 
-You orchestrate git cleanup. A generic subagent runs `atomic prompt git-cleanup` (read-only scan). You present the report. The user picks. You execute.
+You orchestrate git cleanup. The harness's default general agent runs `atomic prompt git-cleanup` (read-only scan). You present the report. The user picks. You execute.
 
 <workflow>
 
@@ -19,12 +19,7 @@ flowchart TD
 
 - **Inside a git repo?**: `git rev-parse --is-inside-work-tree`. No: `not in a git repo.`
 - **Resolve base**: used by the scout:
-
-    ```
-    BASE=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null \
-      || git config init.defaultBranch \
-      || echo main)
-    ```
+   {{ template "base-resolution" . }}
 
 - **Record current worktree**: `git rev-parse --show-toplevel`. The scout must skip it from candidates.
 
@@ -32,22 +27,22 @@ flowchart TD
 
 Default: 30 days.
 
-Check user memory for an override. The auto-memory system stores user preferences. Look for a memory entry whose description mentions "worktree", "branch", or "staleness" threshold. If found and it specifies a different value, use it. Otherwise, use 30.
+Check user memory for an override. The harness's memory mechanism stores user preferences. Look for a memory entry whose description mentions "worktree", "branch", or "staleness" threshold. If found and it specifies a different value, use it. Otherwise, use 30.
 
-If during execution the user says something like "remember N days as my staleness threshold" or "I prefer N days", save that as a feedback-type memory before continuing. Future runs pick it up automatically.
+If during execution the user says something like "remember N days as my staleness threshold" or "I prefer N days", save it to memory before continuing. Future runs pick it up automatically.
 
 ## Step 2 — Determine scope
 
-If arguments are given, target = `.claude/worktrees/<$ARGUMENTS>/` (branch + worktree inspected together) and skip to Step 4; otherwise target = `all` and continue to Step 3.
+If arguments are given, target = the worktree that `git worktree list --porcelain` reports for branch `$ARGUMENTS` (branch + worktree inspected together; the branch alone when it has none) and skip to Step 4; otherwise target = `all` and continue to Step 3. Worktrees are enumerated with `git worktree list`, never a path glob, because their location depends on the resolved `worktrees` preference.
 
 ## Step 3 — Ask about remote scope
 
-Prompt via `AskUserQuestion`:
+Ask the user:
 
 ```
 Question: Include remote branches in the staleness scan?
 Options:
-  - Local only (recommended) — scan .claude/worktrees/* and local branches
+  - Local only (recommended) — scan every worktree git worktree list reports, and local branches
   - Local + remote — also fetch and flag stale remote branches (no remote deletion)
 ```
 
@@ -55,7 +50,7 @@ Default to local-only if the user is ambiguous.
 
 ## Step 4 — Dispatch read-only scan subagent
 
-Dispatch a generic subagent via the `Agent` tool (omit `subagent_type` or use `general-purpose`).
+Dispatch the harness's default general agent, by name, in the foreground, fresh context.
 
 Prompt the subagent with:
 
@@ -63,7 +58,7 @@ Prompt the subagent with:
 Run `atomic prompt git-cleanup` and follow the brief it prints exactly.
 Scan params for this run:
   staleness_days: <N>
-  target: all | .claude/worktrees/<name>/
+  target: all | <worktree path from git worktree list>
   include_remote: true | false
   base_branch: <base>
   current_worktree_path: <absolute path>
@@ -117,7 +112,7 @@ flowchart TD
 
 ## Step 7 — Confirm `ask` items individually
 
-For each selected item with `action=ask`, prompt via `AskUserQuestion`:
+For each selected item with `action=ask`, ask the user:
 
 ```
 Question: [<N>] <type> <path-or-branch> — <reason>. Clean it up anyway?
@@ -237,7 +232,7 @@ Delete `$SCRATCH` once done.
 
 ## Open behaviors
 
-- Staleness threshold lives in memory, not config. Default 30 days. Override by telling Claude to remember a different value.
+- Staleness threshold lives in memory, not config. Default 30 days. Override by telling the assistant to remember a different value.
 - Remote scope is asked per-run when `$ARGUMENTS` is empty. Single-target runs skip the question.
 - `git worktree prune` is self-healing — running it as part of any cleanup pass also cleans up unrelated stale registrations. That's fine.
 

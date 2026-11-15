@@ -3,13 +3,13 @@
 
 Atomic documents code. A [wiki](/reference/realm-wiki) compiles a folder of repositories into one map. It points at the repos that already have their own wiki, summarizes the ones that do not, and writes up the concerns they share. That is the code side of a realm.
 
-Real work is not only code. A client engagement accumulates tickets, research you wrote chasing a problem, an email thread with the one detail that explains a bug, a PDF someone sent, a Slack export. This material is the knowledge side. You drop it into folders and register them as capture buckets. The realm `CLAUDE.md` lists each bucket folder, and every folder in a bucket has an `index.md` listing what it holds.
+Real work is not only code. A client engagement accumulates tickets, research you wrote chasing a problem, an email thread with the one detail that explains a bug, a PDF someone sent, a Slack export. This material is the knowledge side. You drop it into folders and register them as capture buckets. The realm steering file lists each bucket folder, and every folder in a bucket has an `index.md` listing what it holds.
 
 | | Provided by atomic | Yours to provide |
 |---|---|---|
 | **Code side** | `/refresh-wiki` documents the repos and writes `wiki/` (summaries, concerns); `scan`, `linkify`, and `bucket` maintain it; `stale` reports membership drift. | The member repos. |
 | **Knowledge side** | Bucket registration (`atomic wiki bucket add`), doc scaffolds (`bucket doc`, `bucket skill`), and the generated per-folder indexes (`bucket index`, also run by every scan). | The capture folders, the material in them, and each bucket's `index.md` conventions. |
-| **Glue** | The realm `CLAUDE.md` walk is a Claude Code behavior atomic relies on. | The contents of that `CLAUDE.md`: your rules, paths, and conventions. |
+| **Glue** | The realm steering walk is a harness behavior atomic relies on: `AGENTS.md` at the realm root, with the thin `CLAUDE.md` loader beside it for Claude Code. | The contents of that steering file: your rules, paths, and conventions. |
 
 The result is a Karpathy-style wiki: a knowledge base you compile with Claude instead of maintaining by hand.
 
@@ -21,7 +21,7 @@ A realm is a folder that holds repositories and the loose material around them. 
 
 ```text
 ~/work/acme/                 the realm — not a git repo
-├─ CLAUDE.md          realm rules, loaded from anywhere inside
+├─ AGENTS.md          realm rules, loaded from anywhere inside (CLAUDE.md loader beside it)
 ├─ .mcp.json          ticket / tool servers for the whole realm
 ├─ billing-api/       repo · has its own wiki → indexed
 ├─ gateway/           repo · has its own wiki → indexed
@@ -40,7 +40,7 @@ A realm is a folder that holds repositories and the loose material around them. 
 
 The repos and the `wiki/` folder are git repositories; the realm root and the capture folders are not. You commit inside each member and inside `wiki/`, never at the realm root. The capture folder names are your convention: `research` and `history` are examples, so register whatever folders fit how you already organize work.
 
-The realm `CLAUDE.md` is what makes this cohere. Claude Code walks up the directory tree when it loads `CLAUDE.md`, and the walk crosses repo boundaries. A realm-root file stays in context from any session inside the realm, including one started inside a member repo. Put your realm rules there: where each capture folder lives, what convention each follows, and a pointer to the wiki.
+The realm steering file is what makes this cohere. The harness walks up the directory tree when it loads steering (for Claude Code, the thin `CLAUDE.md` loader imports `AGENTS.md`), and the walk crosses repo boundaries, so a realm-root file stays in context from any session inside the realm, including one started inside a member repo. Put your realm rules there: where each capture folder lives, what convention each follows, and a pointer to the wiki.
 
 
 ## Capture surfaces
@@ -78,7 +78,7 @@ The listing is derived from each doc's frontmatter. A bucket doc carries six key
 
 Scaffold an item with `atomic wiki bucket doc <bucket> <slug>`. It writes `<slug>/index.md` with the frontmatter and `created` stamped, and `<slug>/01_raw/index.md` for the material you collect. Add later stages as numbered folders (`02_findings/`, `10_publish/`) when the work reaches them; the next rebuild indexes each one.
 
-`atomic wiki bucket skill <bucket>` scaffolds a `.claude/skills/<bucket>-management/` skill at the realm root, with `## Purpose` taken from the `description:` in the bucket's `index.md` and a `## Stages` placeholder. The skill loads only in Claude Code sessions started at the realm root. A session started inside a member repo reaches the bucket's `index.md` instead, through its entry under `## Capture surfaces` in the realm `CLAUDE.md`. Write the conventions in both files.
+`atomic wiki bucket skill <bucket>` scaffolds a `.claude/skills/<bucket>-management/` skill at the realm root, with `## Purpose` taken from the `description:` in the bucket's `index.md` and a `## Stages` placeholder. The skill loads only in Claude Code sessions started at the realm root. A session started inside a member repo reaches the bucket's `index.md` instead, through its entry under `## Capture surfaces` in the realm steering file. Write the conventions in both files.
 
 
 ### Example: a tickets bucket with triage
@@ -114,7 +114,7 @@ atomic wiki bucket skill tickets
 atomic wiki bucket doc tickets acme-412-login-loop
 ```
 
-Filling `description:` does not update the realm `CLAUDE.md`. Its `## Capture surfaces` bullet for the bucket keeps the `<!-- describe what this bucket is for -->` placeholder, so replace that too.
+Filling `description:` does not update the realm steering file. Its `## Capture surfaces` bullet for the bucket keeps the `<!-- describe what this bucket is for -->` placeholder, so replace that too.
 
 `bucket doc` creates `01_raw/` only. Add `02_triage/index.md` by hand when you triage the ticket, with the `title` and `description` frontmatter that `bucket doc` stamps on `01_raw/index.md`. Without frontmatter, the item's listing puts the stage under `### Unindexed` instead of beside Raw:
 
@@ -139,7 +139,7 @@ The indexes are the only thing atomic derives from a bucket. No model pass reads
 ## Running it
 
 
-1. `atomic wiki bucket add research` registers the folder once. It creates the bucket's `index.md` stub, adds the bucket to `wiki/index.md`, and writes the `## Capture surfaces` entry in the realm `CLAUDE.md`, naming the bucket's `index.md`.
+1. `atomic wiki bucket add research` registers the folder once. It creates the bucket's `index.md` stub, adds the bucket to `wiki/index.md`, and writes the `## Capture surfaces` entry, with its placeholder, in the realm steering file Claude loads, naming the bucket's `index.md`. The [bucket reference](/reference/realm-wiki#capture-buckets) lists which file it picks.
 2. `atomic wiki bucket doc research <slug>` scaffolds an item. Drop its source material into `research/<slug>/01_raw/` as work happens.
 3. `atomic wiki scan` (or `/refresh-wiki`, which runs it) rebuilds every folder's listing.
 
@@ -160,4 +160,4 @@ Everything in a realm is markdown in folders, so an Obsidian vault, any markdown
 ## Where the line is
 
 
-You own the material and the conventions: what goes in each bucket, the bucket's `index.md` description, and the realm `CLAUDE.md`. When you register a bucket, Atomic writes its `index.md` stub and the `## Capture surfaces` entry in the realm `CLAUDE.md`. On registration and on every scan, it writes a generated `<bucket-docs>` listing into an `index.md` in each non-skipped folder of the bucket, creating the file where none exists. Those `index.md` files are the one exception: every other file you drop in is yours and untouched, and text outside the listing stays as you wrote it. The [wiki workflow reference](/reference/realm-wiki) documents the full mechanism.
+You own the material and the conventions: what goes in each bucket, the bucket's `index.md` description, and the realm steering file. When you register a bucket, Atomic writes its `index.md` stub and the `## Capture surfaces` entry in the realm steering file. On registration and on every scan, it writes a generated `<bucket-docs>` listing into an `index.md` in each non-skipped folder of the bucket, creating the file where none exists. Those `index.md` files are the one exception: every other file you drop in is yours and untouched, and text outside the listing stays as you wrote it. The [wiki workflow reference](/reference/realm-wiki) documents the full mechanism.

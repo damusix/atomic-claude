@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+
+### Bug Fixes
+
+- Back up edited managed artifacts before updates and retire removed artifacts without leaving obsolete commands installed.
+- Recover transactions whose first staging operation fails.
+- Preserve canonical wiki cards when an OMP card changes from a symlink to a copy.
+- Preserve user hook handlers when removing Atomic from a shared Claude hook group.
+- Record Codex session-context, edit-time wiki-card, and configured model/effort probes without claiming resumed-session support.
+- Complete first-run adoption and migration when an older binary invokes the new Claude refresh path.
+- Keep unsupported capability warnings manual instead of reporting them fixed by doctor convergence.
+- Keep runtime evidence collection working when a harness removes temporary files during capture.
+
+### Documentation
+
+- Add the 6.10 to 7.0 upgrade guide, including custom state locations, staged repository moves, and recovery limits.
+
+## [6.10.0](https://github.com/damusix/atomic-claude/compare/v6.9.0...v6.10.0) (2026-10-01)
+
+
+### Features
+
+* **docs:** add atomic docs index [--check] ([86e0c00](https://github.com/damusix/atomic-claude/commit/86e0c00f35527b14bc1bf480cb1b6363c7f7c2c2))
+
+
+### Bug Fixes
+
+* cut index descriptions at a word boundary ([dd36c60](https://github.com/damusix/atomic-claude/commit/dd36c60e88da16a2f534269c96f1328ad3edc9cb))
+* **wiki:** write the realm scope marker on scan ([115eb37](https://github.com/damusix/atomic-claude/commit/115eb374cf40fddaba5b6da4857d5aa430c247f3))
+
 ## [6.9.0](https://github.com/damusix/atomic-claude/compare/v6.8.0...v6.9.0) (2026-09-24)
 
 

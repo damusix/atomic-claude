@@ -31,7 +31,7 @@ A bucket becomes a folder tree with an `index.md` in every directory, each holdi
 6. Text outside every `<bucket-docs>` region survives a rebuild byte-for-byte. A second bucket rebuild with no file changes writes no file (no content change, no mtime change), neither a bucket `index.md` nor the realm `wiki/index.md`. `atomic wiki scan`'s own `<wiki-scan>` and member-list splices still rewrite `wiki/index.md` on every scan. A rewritten `index.md` keeps its file mode; a created one is `0644`. The same mode rule holds for every file `atomic wiki` writes through `writeFileAtomic`. An unpaired `<bucket-docs>` tag in one directory warns, leaves that file untouched, and does not stop the walk of its siblings, its subdirectories, or other buckets.
 7. `atomic wiki bucket index` prints one `<name>: N indexed, M unindexed` line per bucket, where the counts sum the entries across every index in that bucket's tree.
 8. `atomic wiki bucket doc <bucket> <slug>` validates the slug (`[a-z0-9-]+`, and not a name the walk skips such as `build` or `node_modules`), refuses when `<bucket>/<slug>` already exists as a file or directory, then writes `<slug>/index.md` (six-key frontmatter, `created` stamped, H1, a lede comment describing the stage layout) and `<slug>/01_raw/index.md` (frontmatter with `title`, `description`, `created`), then prints the path of `<slug>/index.md`, then rebuilds the bucket's indexes (a hard rebuild error exits 1 after the path is printed). `--router` is an unrecognized flag (exit 2). The `bucket-router-claude.md` template is deleted.
-9. `atomic wiki bucket add <name>` on a folder that already holds material rebuilds that bucket's indexes before exiting, so every level is indexed on registration. Its stub and registry splice are unchanged. The `## Capture surfaces` bullet it writes in the realm `CLAUDE.md` names `<bucket>/index.md`, and the realm `<wiki-bucket-list>` links each present bucket as `<bucket>/index.md` (a missing bucket keeps its folder link and `(missing)` flag).
+9. `atomic wiki bucket add <name>` on a folder that already holds material rebuilds that bucket's indexes before exiting, so every level is indexed on registration. Its stub and registry splice are unchanged. The `## Capture surfaces` bullet it writes in the realm steering file (`docs/spec/wiki-buckets.md` names which) names `<bucket>/index.md`, and the realm `<wiki-bucket-list>` links each present bucket as `<bucket>/index.md` (a missing bucket keeps its folder link and `(missing)` flag).
 10. The per-bucket skill scaffold (`bucket skill`) describes the slug-folder and numbered-stage layout, not the single-file and router shapes.
 11. `cliusage`, the cobra `Short` strings, and `/atomic-help` describe `bucket doc` and `bucket index` as above, with no `--router`. The help-router coverage loop prints no `MISSING:` line.
 12. `docs/reference/realm-wiki.md`, `docs/guides/knowledge-base.md`, `docs/reference/docs-index.md`, `docs/reference/concepts.md`, `README.md`, the `atomic-wiki` skill and its `references/realm.md`, and `/refresh-wiki`'s bucket offer describe the merged research bucket, the stage layout, and per-level indexes, and mention no `--router` and no separate `raw` bucket. `docs/spec/bucket-doc-management.md` has its router, orphan, and one-level-walk body content rewritten or removed, with a change-log entry pointing here.
@@ -221,6 +221,14 @@ atomic/internal/wiki/templates/
 **Why:** Every other listing links a folder's `index.md`; the two realm-level entry points still named the bare folder.
 
 **Superseded:** The bullet named the bucket folder and the realm list linked it.
+
+### 2026-11-11 — Capture bullet target follows `wiki-buckets`
+
+**What changed:** Criterion 9 says the capture-surfaces bullet lands in the realm steering file and points at `docs/spec/wiki-buckets.md` for which file that is.
+
+**Why:** `bucket add` now writes the section to the realm `AGENTS.md` or `CLAUDE.md`, whichever Claude loads (audit row P-17 in `docs/research/harness-parity-audit.md`).
+
+**Superseded:** The bullet was written in the realm `CLAUDE.md`.
 
 ## Implementation log
 

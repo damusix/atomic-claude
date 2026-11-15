@@ -6,7 +6,7 @@ Status: complete on branch `code-intel-engine` (7 checkpoints, see Implementatio
 
 ## Why self-detection, not tree-sitter
 
-Decided via `/gather-evidence` (2026-06-07) and a follow-up architecture review. Summary of the evidence (full trail in `.claude/project/followups/sql-language-support.md`):
+Decided via `/gather-evidence` (2026-06-07) and a follow-up architecture review. Summary of the evidence:
 
 - A tree-sitter SQL grammar (`@derekstride/tree-sitter-sql`, ABI 14) compiles clean into our `ts.wasm` and exposes typed `create_*` nodes — **but it is Postgres/MySQL/SQLite-only**. It does not parse T-SQL (`[bracket]` identifiers = 0, `GO` = 0). The one real T-SQL grammar (`Crary-Systems/tree-sitter-tsql`) folds `CREATE` into a hidden generic blob — useless for symbol extraction — and is immature.
 - **The dialect split disappears with self-detection**: for symbol extraction we match the `CREATE <kind> <name>` preamble and the table body, not full expression grammar. One regex set covers Postgres, MySQL, SQLite, **and T-SQL** (`[dbo].[Users]`, `GO`, `CREATE OR ALTER`).
@@ -197,6 +197,12 @@ Per-checkpoint detail:
 **What changed:** Added the canonical `## Checkpoints` table (required columns `# | Checkpoint | Files/areas | Verifies`) above the existing per-checkpoint bullets. No checkpoint content changed — the bullets are retained verbatim as per-checkpoint detail.
 
 **Why:** `atomic validate` rule S5 requires a `## Checkpoints` table; this spec carried only bullets and so failed validation (and the CI Validate gate). Reconciled to the convention. The S5 check itself was also fixed the same day to accept the required columns as an ordered subsequence, so the 6-column `/atomic-plan` header passes too (follow-up `validate-checkpoint-header-drift`).
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** **Correction:** the evidence summary no longer points at `.claude/project/followups/sql-language-support.md`. That entry was deleted when the follow-up closed, and `CLOSED.md` in the follow-ups folder dates the close to 2026-06-07 in a single line, so the pointer led nowhere.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`; the review of that move found the dead pointer.
 
 ## Implementation log
 

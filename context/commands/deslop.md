@@ -48,7 +48,7 @@ flowchart TD
     git rev-parse HEAD
     git status --porcelain
     test -f docs/wiki/index.md && echo wiki=yes || echo wiki=no
-    test -f .claude/.atomic-index/atomic.db && echo index=warm || echo index=cold
+    test -f "$(atomic where --json | jq -r .state_root)/.atomic-index/atomic.db" && echo index=warm || echo index=cold
     ```
 
     A dirty tree is not a refusal — the audit is read-only — but note it in the report header, since findings are anchored to lines that uncommitted edits may have moved.
@@ -80,8 +80,9 @@ flowchart TD
 - **Merge smallest**: merge the smallest by file count until 8 remain, and say in the report which shards were merged. A run that dispatches twenty agents costs more than the report is worth.
 
 Exclude from every shard: vendored and generated trees, build output, lockfiles, and anything
-`[code] ignore` in `.claude/atomic.toml` or `.gitignore` already excludes. Auditing generated
-files produces findings nobody can act on.
+`[code] ignore` in `<state-root>/atomic.toml` or `.gitignore` already excludes. `<state-root>` is
+the `state_root` field of `atomic where --json`, `.atomic` by default. Auditing generated files
+produces findings nobody can act on.
 
 ## Scratchpad
 
@@ -96,11 +97,7 @@ tree.
 
 ## Fan out
 
-One `Agent` dispatch per shard, **all in a single message** so they run in parallel.
-
-- `subagent_type: "atomic-deslopper"`
-- `description: "Audit <shard>"`
-- `prompt`:
+One `atomic-deslopper` dispatch per shard, **all in a single message** so they run in parallel. Prompt:
 
     ```
     Audit the <shard> shard of this repo for accumulated slop. Standing-code audit, not a diff.
@@ -172,7 +169,7 @@ flowchart TD
 ## Selection
 
 `$ARGUMENTS` after `apply` names ids (`D-3 D-7`), tiers (`safe`, `guarded`), or both. Bare
-`apply` → show the counts table and ask which, via `AskUserQuestion`.
+`apply` → show the counts table and ask which in one batched question block.
 
 `report-only` findings are never selectable. Asked for explicitly → refuse per finding, one
 line each, naming the reason recorded in the report. That tier exists because the blast radius

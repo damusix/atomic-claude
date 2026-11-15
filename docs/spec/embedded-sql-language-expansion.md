@@ -92,7 +92,7 @@ Approach A. The Python/TS harvesters are provably the same walk modulo three nod
 | 2 | Config table + orchestrator wiring | `indexer/embedded_literals_config.go` (NEW), `indexer/embedded_sql_postpass.go`, `indexer/orchestrator.go` | atomic-builder | 3 | All 16 configs present; `init()` derives new host exts from `extToLanguage`+config (single source, no second ext list); generic harvester dispatched for new langs; go/py/ts/tsx registry entries unchanged; smoke e2e for one language per mode (e.g. Java, C#, Lua, Dart) producing embedded table node + ref with `Provenance: "embedded"` |
 | 3 | Per-language end-to-end coverage | `indexer/embedded_sql_lang_test.go` (NEW) | atomic-builder | 1-2 | One orchestrator-level test per remaining language (C, C++, Kotlin, Luau, ObjC, PHP, Ruby, Rust, Scala, Swift, Pascal, JavaScript): DDL → table node (file-absolute lines), DML → owned ref, `Provenance: "embedded"`; secondary forms (raw/heredoc/triple-quoted/long-bracket) where idiomatic; interpolated-table-target → zero refs and interpolated-value → real ref for the interpolation-bearing langs; one prose-rejection test |
 | 4 | Corpus / admission harness | `scripts/code-eval/embedded-sql-eval.sh`, `cmd/embedded-sql-admission/main.go` (if needed) | atomic-builder | 1-2 | Harness exercises at least one new language; zero-resolved-phantom-edge assertion holds across the expanded language set; admission count reported; existing two-condition guard (>0 nodes AND ≥1 embedded edge) preserved |
-| 5 | Docs + signals + impl log | `docs/reference/code-intel.md`, `docs/spec/embedded-sql-language-expansion.md` (impl log), `.claude/project/signals.md` | atomic-builder | 2-3 | code-intel reference notes embedded-SQL now covers 20 languages; spec impl log written; signals refreshed |
+| 5 | Docs + signals + impl log | `docs/reference/code-intel.md`, `docs/spec/embedded-sql-language-expansion.md` (impl log), `docs/wiki/` | atomic-builder | 2-3 | code-intel reference notes embedded-SQL now covers 20 languages; spec impl log written; signals refreshed |
 
 ## Risks
 
@@ -114,6 +114,14 @@ Approach A. The Python/TS harvesters are provably the same walk modulo three nod
 ## Change log
 
 <!-- Populated on first post-approval amendment. -->
+
+### 2026-11-11 — Correction: project signals live in docs/wiki
+
+**What changed:** Checkpoint 5 names `docs/wiki/` as the signals file set.
+
+**Why:** found while auditing specs for `.claude` state paths (`docs/spec/omp-plugin-compatibility.md`).
+
+**Correction:** Checkpoint 5 named `.claude/project/signals.md`, which diverged from the code. `relocateSignalsToWiki` (`atomic/internal/migrate/steps.go:19`) moves project signals from `.claude/project/` into `docs/wiki/`.
 
 ## Implementation log
 

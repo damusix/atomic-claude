@@ -125,7 +125,7 @@ func walkMarkdownFilesRecursive(dir string) []string {
 			return nil
 		}
 		if d.IsDir() {
-			if path != dir && (shouldSkipDir(d.Name()) || ignores.skipDir(path)) {
+			if path != dir && ignores.skipWalkDir(path) {
 				return filepath.SkipDir
 			}
 			return nil

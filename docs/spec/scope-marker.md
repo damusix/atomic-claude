@@ -1,4 +1,4 @@
-# Spec: scope marker in `.claude/atomic.toml`
+# Spec: scope marker in `<state-root>/atomic.toml`
 
 
 Design: [`docs/design/scope-marker.md`](../design/scope-marker.md). GitHub issue: #172.
@@ -7,8 +7,9 @@ Design: [`docs/design/scope-marker.md`](../design/scope-marker.md). GitHub issue
 ## Contract
 
 
-`.claude/atomic.toml` — resolved through `config.RepoConfigPath(root)`, so
-harness-dir aware — gains one top-level key:
+`<state-root>/atomic.toml`, resolved through `config.RepoConfigPath(root)`
+against the repository-state root (`.atomic` by default; ladder in
+`docs/spec/atomic-state-and-config.md`), gains one top-level key:
 
     scope = "repo"    # or "realm"
 
@@ -63,9 +64,13 @@ In `atomic/internal/config`:
 - `ValidScope(s string) bool` reports whether `s` is `"repo"` or `"realm"`.
 - `FindScopeRoot(startDir, scope string) (root string, found bool)` walks from
   `filepath.Clean(startDir)` upward to the filesystem root. At each level it
-  reads `RepoConfigPath(dir)` and returns `dir` when that file parses and its
-  `Scope` equals `scope`. A missing file, a parse error, an invalid `Scope`, or
-  a `Scope` naming the other kind all continue the walk. It returns no error:
+  resolves that directory's state root with `QuietStateDir(dir)` (uncached, no
+  leftover warning), reads `atomic.toml` there, and returns `dir` when that
+  file parses and its `Scope` equals `scope`. When the ladder refuses that
+  directory's state root, it reads `atomic.toml` in every populated candidate
+  folder instead, so an ambiguous directory still answers with its marker. A
+  missing file, a parse error, an invalid `Scope`, or a `Scope` naming the
+  other kind all continue the walk. It returns no error:
   discovery degrades, never fails.
 - `ScopeSource` enumerates how a root was decided, with `String()` rendering the
   lowercase token used in output: `none`, `marker`, `git`, `registry`, `cwd`.
@@ -115,7 +120,7 @@ Wiring:
   emitting an `Action` in the same shape (`created` / `ok`) so the existing
   output loop renders it unchanged. A `conflict` outcome is an error.
 - `wikiInitAction` calls `EnsureScopeMarker(absRoot, scope)` with the `--scope`
-  value it already validates, and reports it alongside the CLAUDE.md scaffold
+  value it already validates, and reports it alongside the steering scaffold
   line. Its existing scaffold no-op behavior is unchanged.
 - `wikiScanAction` calls `EnsureScopeMarker(absRoot, "realm")` after `Scan`
   succeeds. A conflict or an error is a stderr warning, and the scan continues
@@ -192,7 +197,7 @@ Two additions:
 - `Scope` present and not valid → WARN naming the value and the two accepted
   values.
 - `Scope` valid → included in the PASS detail, e.g.
-  `.claude/atomic.toml ok (scope=repo, 1 ignore pattern(s))`.
+  `.atomic/atomic.toml ok (scope=repo, 1 ignore pattern(s))`.
 
 `checkRepoConfig` additionally WARNs when `opts.RepoRoot` is a realm root
 registered in `opts.ClaudeMDPath`'s `<wikis>` block while the marker says
@@ -212,12 +217,12 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
 - `docs/reference/concepts.md` documents the discovery order and the
   marker-outranks-`<wikis>` precedence.
 - `docs/reference/wiki-workflow.md` notes that `atomic wiki init --scope realm`
-  now declares realm identity, not only the CLAUDE.md scaffold.
+  now declares realm identity, not only the steering scaffold.
 - No new verb, flag, agent, skill, or command: `/atomic-help` needs no new row.
   The `where` and `repo init` rows already exist. The existing `wiki init` row's
   one-line description is updated in both `atomic/internal/cliusage/cliusage.go`
   and `templates/commands/atomic-help.md` to name the scope marker alongside
-  the CLAUDE.md scaffold — CP2 changed what the verb does, so its description
+  the steering scaffold — CP2 changed what the verb does, so its description
   must change too.
 - `cliusage` is unchanged — no flag or verb-path is added.
 - `make render` and `make -C atomic bundle` run and their outputs are committed
@@ -311,11 +316,12 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
 **Resolving a root (`repoctx.ResolveFrom`, `where.Resolve`)**
 
 1. `repoctx` only: a non-empty `override` short-circuits everything.
-2. Walk upward from the start directory. At each level read
-   `RepoConfigPath(dir)`; a file that parses and whose `Scope` equals the kind
+2. Walk upward from the start directory. At each level read `atomic.toml`
+   under the state root `QuietStateDir(dir)` resolves, or under every populated
+   candidate folder when the ladder refuses; a file that parses and whose `Scope` equals the kind
    being asked for ends the walk at that directory, source `marker`.
-3. A missing file, a parse error, an invalid value, or the other kind
-   continues the walk. The walk ends at the filesystem root.
+3. A missing file, a parse error, an invalid value, or
+   the other kind continues the walk. The walk ends at the filesystem root.
 4. No marker → the pre-existing mechanism: `git rev-parse --show-toplevel`
    for `repoctx` (source `git`), a `.git` stat walk for `where`'s repo root
    (source `git`), the `<wikis>` block for `where`'s realm (source `registry`).
@@ -441,6 +447,23 @@ opposite and was corrected with it.
   "already exist and their one-line descriptions stay accurate" without
   naming that `wiki init`'s description needed a corresponding update.
 
+- 2026-09-19 — `wiki init` description and scaffold wording follow the loader pair
+
+  **What changed:** the `wiki init` one-line description (in
+  `atomic/internal/cliusage/cliusage.go`, `atomic/cmd/atomic/cmd_wiki.go`, and
+  the Cobra ground-truth table) now reads "Write the steering loader pair and
+  the scope marker", and CP2/CP6's "CLAUDE.md scaffold" wording became
+  "steering scaffold".
+
+  **Why:** `atomic wiki init` writes each scope's steering loader pair — the
+  shared `AGENTS.md` plus its adjacent thin `CLAUDE.md` import — so a
+  description naming only the `CLAUDE.md` scaffold under-restated what the verb
+  writes.
+
+  **Superseded:** the description named "the fixed-content CLAUDE.md scaffold";
+  the scaffold content now lives in the pair's `AGENTS.md` and `CLAUDE.md` is
+  the loader in both scopes.
+
 - 2026-09-30 — `atomic wiki scan` writes the realm marker
 
   **What changed:** `atomic wiki scan` is a third marker writer, declaring
@@ -468,3 +491,28 @@ opposite and was corrected with it.
 
   **Removed:** the staleness-nudge job and the note that a marker-only realm
   gets no nudge. See `docs/spec/realm-wiki-drop-refresh.md`.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The title, Contract, and doctor PASS example name
+`<state-root>/atomic.toml` (`.atomic` by default). CP1's `FindScopeRoot` and
+the root-resolution flow read `atomic.toml` under the state root
+`QuietStateDir(dir)` resolves at each level, and a refused state root
+continues the walk.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the
+`.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the marker at `.claude/atomic.toml`, read through
+`RepoConfigPath(dir)` at each walk level.
+
+### 2026-11-12 — A refused state root still answers with its marker
+
+**What changed:** `FindScopeRoot` and the root-resolution flow read
+`atomic.toml` in every populated candidate folder when the ladder refuses a
+directory's state root, instead of continuing the walk.
+
+**Why:** a non-git realm or repository whose state is ambiguous lost its marker
+silently, so a session entered from a subdirectory resolved the wrong root.
+
+**Superseded:** a refused state root continued the walk.

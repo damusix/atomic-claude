@@ -633,7 +633,7 @@ func TestScala_NodeCountStable(t *testing.T) {
 	}
 }
 
-func TestRegistry_For_CP8B_Languages(t *testing.T) {
+func TestRegistry_For_JVMSwiftLanguages(t *testing.T) {
 	t.Parallel()
 	reg := languages.NewRegistry()
 	tests := []struct {

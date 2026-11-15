@@ -1,12 +1,12 @@
 ---
-description: Bootstrap and maintain project documentation surfaces. Two modes: bootstrap (discover doc files, index them in CLAUDE.md) and authoring (scan for unindexed docs, match diff against indexed surfaces, walk stale/incomplete/missing items with Yes/Later/Remind/Skip).
+description: "Bootstrap and maintain project documentation surfaces. Two modes: bootstrap (discover doc files, index them in the project steering file) and authoring (scan for unindexed docs, match diff against indexed surfaces, walk stale/incomplete/missing items with Yes/Later/Skip)."
 ---
 
 Run `/documentation` to bootstrap doc surface indexing or perform a full documentation pass.
 
 ## Flags
 
-- `--print-template` — print the `## Documentation surfaces` table skeleton to stdout and exit. Paste into your CLAUDE.md to declare custom surfaces manually.
+- `--print-template` — print the `## Documentation surfaces` table skeleton to stdout and exit. Paste into your project steering file to declare custom surfaces manually.
 - `--dry-run` — print discovered/stale surfaces without applying edits or staging anything.
 - `--discover` — re-scan and offer to update the surfaces table even when a table already exists. Use after adding new doc files.
 - `<range>` — any valid git range (`HEAD~5..HEAD`, `main..feature-branch`). If omitted, defaults to `<base>..HEAD` where `<base>` is the merge-base with `main`.
@@ -26,7 +26,7 @@ If `--print-template` is present, print the following and exit:
 | `README.md` | project overview, quick start | atomic-writing |
 ```
 
-Add this section to your committed `CLAUDE.md` and fill in your project's doc files. Voice is always `atomic-writing` — the column exists to name the skill that governs the edit, not to pick between alternatives.
+Add this section to your shared project steering file (`AGENTS.md`, or the `CLAUDE.md` loader beside it) and fill in your project's doc files. Voice is always `atomic-writing` — the column exists to name the skill that governs the edit, not to pick between alternatives.
 
 ## Step 1 — Detect mode
 
@@ -40,7 +40,7 @@ flowchart TD
     D -->|no| A["Authoring: Step 5"]
 ```
 
-- **Surfaces table present?**: a `## Documentation surfaces` table in the project's committed `CLAUDE.md` at the git root, or in `claude.local.md` / `CLAUDE.local.md`.
+- **Surfaces table present?**: a `## Documentation surfaces` table in the project's steering files. Search order: a local override file → the shared project steering `AGENTS.md` → any adjacent native loader (e.g. `CLAUDE.md`). First file containing the heading wins.
 
 ## Steps 2–4 — Bootstrap
 
@@ -58,13 +58,13 @@ flowchart TD
     C --> W["Append, stage, exit"]
 ```
 
-- **Scan exits 0?**: `atomic docs scan`, then read the cache file it writes to `.claude/project/doc-surfaces.md`.
+- **Scan exits 0?**: `atomic docs scan`, then read the cache file it writes to `<state-root>/project/doc-surfaces.md` (`<state-root>` is the `state_root` field of `atomic where --json`, `.atomic` by default).
 - **Print none, exit**: `no documentation files found. Run with --discover after adding docs.`
 - **Print numbered list**: axiom 4 — plain-text indexed selection:
 
     <example>
     ```
-    Discovered N documentation files. Index these in your CLAUDE.md?
+    Discovered N documentation files. Index these in your project steering file?
 
       [1] docs/architecture/payments.md — Payments / Webhook Flow / Stripe Integration
       [2] docs/models/README.md — Data Model / Entity Relationships / Migration History
@@ -85,7 +85,7 @@ flowchart TD
     Accept or type replacement (Enter to accept):
     ```
 
-- **Append, stage, exit**: after confirming all selected surfaces, use the committed `CLAUDE.md` at the git root, creating one if none exists. Append the section, then `git add CLAUDE.md`:
+- **Append, stage, exit**: after confirming all selected surfaces, locate the target project steering file: the shared steering file (`AGENTS.md`) at the git root, or the native loader beside it, whichever exists; if neither exists, create the shared `AGENTS.md`. Append the section, then `git add <steering-file>`:
 
     ```markdown
     ## Documentation surfaces
@@ -98,7 +98,7 @@ flowchart TD
     Then print and exit:
 
     ```
-    indexed N surfaces in CLAUDE.md.
+    indexed N surfaces in the project steering file.
     Run /documentation again to walk stale or missing docs.
     ```
 
@@ -146,7 +146,7 @@ Read the `## Documentation surfaces` table. For each surface:
 - **Incomplete** — the diff adds something (new entity, new endpoint, new step) related to the surface's covers, but the surface doesn't mention it yet.
 - **Missing** — domains identified in project signals (`docs/wiki/index.md`) that have 5+ source files with no corresponding doc surface within two directory levels. Only suggest new pages in authoring mode; never during commit flow.
 
-**Code-intel blast-radius (when index is present).** If a code-intel index exists (`atomic code search` responds without error), the changed-symbol impact sweep — determining which symbols from the diff affect which doc surfaces — should be DELEGATED to a subagent (`atomic-investigator`, or a Haiku-backed `general-purpose` subagent). Brief it with the list of changed symbols and ask it to run `atomic code impact <symbol>` for each and return a compact "symbol → affected surfaces" digest. The main `/documentation` agent must NOT run `atomic code impact` inline — these queries are token-heavy and belong in a disposable subagent thread. Consume the returned digest to refine stale/incomplete classification. **Degrade:** when no index is present, fall back to the existing diff-vs-covers judgment above (no code-intel path, no error).
+**Code-intel blast-radius (when index is present).** If a code-intel index exists (`atomic code search` responds without error), the changed-symbol impact sweep — determining which symbols from the diff affect which doc surfaces — should be DELEGATED to a subagent (`atomic-investigator`, or the harness's default general agent, by name, on the economical reasoning tier). Brief it with the list of changed symbols and ask it to run `atomic code impact <symbol>` for each and return a compact "symbol → affected surfaces" digest. The main `/documentation` agent must NOT run `atomic code impact` inline — these queries are token-heavy and belong in a disposable subagent thread. Consume the returned digest to refine stale/incomplete classification. **Degrade:** when no index is present, fall back to the existing diff-vs-covers judgment above (no code-intel path, no error).
 
 If `--dry-run` was supplied, print the classifications and exit:
 
@@ -174,13 +174,12 @@ status: stale | incomplete
 reason: <why it's stale or incomplete>
 
   [y] Yes    — update now (skill edits the file, stages)
-  [l] Later  — create a follow-up entry
-  [r] Remind — schedule a reminder
+  [l] Later  — record a follow-up
   [s] Skip   — no action
 ```
 </example>
 
-Wait for the user to type one of `y`, `l`, `r`, `s`.
+Under those lines, print the sink preview of the follow-up "Later" would record. Wait for the user to type one of `y`, `l`, `s`.
 
 For each **missing** surface, print:
 
@@ -214,25 +213,9 @@ git add <path>
 
 ### Later (`l`)
 
-Create a follow-up entry:
+Record through the **Follow-up sink** below, with id `doc-<slug>-<short-hash>`, title `update <path> — <one-line reason>`, severity `nit`, kind `finding`, and origin `/documentation authoring`.
 
-```bash
-atomic followups add \
-  --id "doc-<slug>-<short-hash>" \
-  --title "update <path> — <one-line reason>" \
-  --severity nit \
-  --origin "/documentation authoring"
-```
-
-### Remind (`r`)
-
-Prompt for timing using natural-language inference (same as `/remind-me`):
-
-```
-Remind when? (e.g. "tomorrow", "after the PR", "end of week"):
-```
-
-Run `/remind-me <timing> update <path> — <reason>`.
+{{ template "followup-sink" . }}
 
 ### Skip (`s`)
 
@@ -256,7 +239,7 @@ Created docs/<module>.md.
 Add to your ## Documentation surfaces table? [y/n]
 ```
 
-If yes, append a row to the table in CLAUDE.md and stage it. Note where the new page should be linked (index page, sidebar, README).
+If yes, append a row to the table in the project steering file and stage it. Note where the new page should be linked (index page, sidebar, README).
 
 Stage the new file:
 
@@ -277,10 +260,7 @@ documentation pass complete.
     docs/api/endpoints.md — added POST /payments/refund endpoint
 
   deferred:
-    docs/architecture/payments.md — follow-up created
-
-  reminded:
-    docs/onboarding.md — reminder set for end of week
+    docs/architecture/payments.md — follow-up: <tracker> <issue URL, key, or ledger entry id>
 
   skipped:
     docs/legacy/v1.md
@@ -288,7 +268,7 @@ documentation pass complete.
   created:
     docs/notifications.md — added to surfaces table
 
-  total: <N> surfaces / <Y> updated / <L> deferred / <R> reminded / <S> skipped / <C> created
+  total: <N> surfaces / <Y> updated / <L> deferred / <S> skipped / <C> created
 ```
 </example>
 
@@ -302,7 +282,7 @@ documentation pass complete.
 - `--discover` re-runs bootstrap surface selection even when a table already exists. Use it after adding new doc directories. **Why:** surfaces grow; the table needs an explicit opt-in path to add new entries without wiping the old ones.
 - Missing detection (Step 7) runs only in authoring mode. Never during commit flow (ship verbs). **Why:** commit flow is fast-path — proposing new doc pages mid-commit breaks the user's flow and slows every commit.
 - When creating or updating a file, generate full Mermaid syntax — never describe what a diagram would look like. Every Mermaid block gets a one-sentence caption. **Why:** prose descriptions of diagrams are useless to readers and cannot be rendered; captions anchor the diagram's purpose without making the reader decode the graph first.
-- The surfaces table belongs in the committed `CLAUDE.md` so the whole team shares it. Exception: repos where `CLAUDE.md` is a bundle source (like the atomic-claude repo itself) may use `claude.local.md` instead — the bootstrap step can write there if the user directs it. **Why:** a table only one person sees provides no coordination value; the exception handles repos where `CLAUDE.md` is installed globally and must stay project-neutral.
+- The surfaces table belongs in the shared project steering file (`AGENTS.md`) so the whole team shares it. Exception: where a repo's steering file is the installed global contract — its content ships to every workspace — or where equivalent shared-surface constraints apply, the table may live in a local override file instead; the bootstrap step can write there if the user directs it. **Why:** a table only one person sees provides no coordination value; the exception keeps project-neutral installed files clean.
 - The voice rules and surface taxonomy live in `skills/atomic-documentation/SKILL.md`. This command does not duplicate them. **Why:** single source of truth — duplication drifts silently.
 
 </constraints>

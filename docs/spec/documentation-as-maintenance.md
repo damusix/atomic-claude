@@ -21,7 +21,7 @@ Replace the hardcoded artifact-index-updating behavior of `/documentation` and `
 
 ### Binary
 
-- [ ] `atomic docs scan` deterministically walks doc directories, extracts H1 + first 3 H2s per `.md` file, writes `.claude/project/doc-surfaces.md`. Cache file path is covered by `.gitignore`. Respects `.signalsignore` exclude globs.
+- [ ] `atomic docs scan` deterministically walks doc directories, extracts H1 + first 3 H2s per `.md` file, writes `<state-root>/project/doc-surfaces.md` (`.atomic` by default; `config.ProjectDir`). Respects `.signalsignore` exclude globs. The cache is git-ignored through `atomic repo init`'s managed rule `/project/doc-surfaces.md` (`docs/spec/repo-init.md`).
 - [ ] `atomic docs stale` compares cache mtime against latest doc-file mtime. Exit 0 = fresh, exit 1 = stale.
 
 ### Authoring mode (`/documentation` explicit)
@@ -36,8 +36,8 @@ Replace the hardcoded artifact-index-updating behavior of `/documentation` and `
 ### Maintenance mode (ship verb commit flow)
 
 - [ ] Reads `## Documentation surfaces` from CLAUDE instructions. If missing → skips silently (no error, no prompt).
-- [ ] Matches staged diff against "Covers" column via LLM judgment within the existing commit-flow turn (no separate dispatch). The table is already in CLAUDE.md context. User steers via Skip for false positives. Presents Yes/Later/Remind/Skip per stale/incomplete surface.
-- [ ] "Yes" → skill edits the file + stages. "Later" → `atomic followups add`. "Remind" → `/remind-me` flow. "Skip" → no action.
+- [ ] Matches staged diff against "Covers" column via LLM judgment within the existing commit-flow turn (no separate dispatch). The table is already in CLAUDE.md context. User steers via Skip for false positives. Presents Yes/Later/Skip per stale/incomplete surface.
+- [ ] "Yes" → skill edits the file + stages. "Later" → records one follow-up through the `followup-sink` partial: an issue in the resolved issue tracker, or a local ledger entry when the tracker is `filesystem` or cannot take it (contract: `docs/spec/workflow-preferences.md`). The prompt shows the sink preview under the options, so choosing "Later" is the go-ahead and no second prompt follows. "Skip" → no action.
 - [ ] Ignores surface entries with `impact_type: missing` — maintenance mode never suggests new pages.
 - [ ] When no surfaces table exists, ship verbs print a recurring hint every commit: `no documentation surfaces indexed. run /documentation to set up.` Then proceed without blocking. Hint stops appearing once the user bootstraps.
 
@@ -64,8 +64,8 @@ Replace the hardcoded artifact-index-updating behavior of `/documentation` and `
 | 1 | `atomic docs scan` + `atomic docs stale` | `atomic/internal/docs/` (new pkg, ~4 files; atomic-builder) | Tests: scan finds .md files in test fixtures, extracts headings, writes cache. Stale returns correct exit. Respects .signalsignore. |
 | 2 | CLI wiring for `docs scan` and `docs stale` | `atomic/cmd/atomic/main.go`, `main_test.go` (~2 files; atomic-surgeon) | Tests: subcommands dispatch correctly. Usage text updated. |
 | 3 | Skill rewrite: generic `atomic-documentation` | `skills/atomic-documentation/SKILL.md` (atomic-surgeon) | Grep: no hardcoded routing rows remain. Two modes documented. `impact_type` in output contract. Parser rule for unknown fields added. |
-| 4 | Command rewrite: `/documentation` bootstrap + authoring | `templates/commands/documentation.md` (atomic-builder) | Grep: bootstrap flow present. `--discover` flag documented. Authoring mode walks stale/incomplete/missing with Yes/Later/Remind/Skip. Renders via `make render`. |
-| 5 | Ship verb doc-impact partial: maintenance mode | `templates/shared/doc-impact.md` (atomic-surgeon) | Grep: reads surfaces table, Yes/Later/Remind/Skip options, ignores `missing` entries. One-time hint when no table exists. Renders via `make render`. |
+| 4 | Command rewrite: `/documentation` bootstrap + authoring | `templates/commands/documentation.md` (atomic-builder) | Grep: bootstrap flow present. `--discover` flag documented. Authoring mode walks stale/incomplete/missing with Yes/Later/Skip. Renders via `make render`. |
+| 5 | Ship verb doc-impact partial: maintenance mode | `templates/shared/doc-impact.md` (atomic-surgeon) | Grep: reads surfaces table, Yes/Later/Skip options, ignores `missing` entries. One-time hint when no table exists. Renders via `make render`. |
 | 6 | `/subagent-implementation` advisory line | `templates/commands/subagent-implementation.md` (atomic-surgeon) | Grep: Phase 3 next-steps includes `/documentation` with stale-surface count. |
 | 7 | Atomic repo migration: surfaces table to `claude.local.md` | `claude.local.md` (atomic-surgeon) | Grep: `## Documentation surfaces` table present with correct paths. |
 | 8 | CLAUDE.md + README.md + bundle regen | `CLAUDE.md`, `README.md`, `make render`, `make bundle` (atomic-builder) | CI: render + bundle drift gates pass. CLAUDE.md documents `atomic docs scan/stale` and bootstrap. README tables updated. |
@@ -85,7 +85,7 @@ Scan behavior:
 1. Read `.signalsignore` via the same function `signals` uses (export `readSignalsIgnore` or duplicate the ~25-line function).
 2. Walk directories matching: `docs/`, `doc/`, `documentation/`, `wiki/`, `ADR/`, `adr/`, `decisions/`. Also any `**/README.md`.
 3. For each `.md` file: read, call `mdparse.Sections()`, extract H1 (title) + first 3 H2s (scope). Build one-line summary: `path — H1 / H2a / H2b / H2c`.
-4. Write `.claude/project/doc-surfaces.md` with header + last-scanned timestamp + one line per surface.
+4. Write `<state-root>/project/doc-surfaces.md` with header + last-scanned timestamp + one line per surface.
 
 Stale behavior: compare cache file mtime against latest mtime of any `.md` file in scanned directories. Return stale error or nil.
 
@@ -128,11 +128,10 @@ Replace current `/documentation` with:
 2. Read diff range (user-supplied or `<base>..HEAD`).
 3. Match diff against surfaces.
 4. Classify: stale / incomplete / missing (missing only for modules with 5+ files).
-5. Walk surfaces: Yes / Later / Remind / Skip (and New for missing).
+5. Walk surfaces: Yes / Later / Skip (and New for missing).
 6. For "Yes" and "New" → skill generates content, stages files.
-7. For "Later" → `atomic followups add`.
-8. For "Remind" → natural-language `/remind-me` flow.
-9. Summary.
+7. For "Later" → record through the `followup-sink` partial with id `doc-<slug>-<short-hash>`, title `update <path> — <one-line reason>`, severity `nit`, kind `finding`, origin `/documentation authoring`. The sink preview prints under the Yes / Later / Skip options.
+8. Summary.
 
 Flags preserved: `--dry-run`, `--print-template`. Add: `--discover` (re-scan and offer to update the surfaces table, even when a table already exists).
 
@@ -145,11 +144,10 @@ Rewrite `templates/shared/doc-impact.md`:
 2. Match `git diff --cached` against "Covers" column.
 3. Ignore any surface entry with `impact_type: missing` — maintenance mode never suggests new pages.
 4. For each stale/incomplete match: present with reason + proposed change.
-5. Options: `[y] Yes` / `[l] Later` / `[r] Remind` / `[s] Skip`.
+5. Options: `[y] Yes` / `[l] Later` / `[s] Skip`, with the sink preview of the follow-up "Later" would record printed under them.
 6. Yes → invoke `atomic-documentation` skill on that surface. Skill edits + stages.
-7. Later → `atomic followups add` with title, severity=nit, origin=ship-verb doc-impact.
-8. Remind → prompt for timing using natural-language inference, create reminder via `/remind-me` flow.
-9. Skip → no action.
+7. Later → record through the `followup-sink` partial with id `doc-<slugified-path>-<short-hash>`, title `update <path> — <reason>`, severity `nit`, kind `finding`, origin `ship-verb doc-impact`. The sink creates an issue in the resolved issue tracker, or a local ledger entry when the tracker is `filesystem` or cannot take it.
+8. Skip → no action.
 
 If no surfaces matched → proceed silently (same as today's "no doc impact" path).
 
@@ -207,10 +205,45 @@ Add to `claude.local.md`:
 | Users forget to run `/documentation` bootstrap | Med | Ship verbs print a recurring hint every commit when no surfaces table exists: `no documentation surfaces indexed. run /documentation to set up.` Stops once bootstrapped. Degrades cleanly — no surfaces = no doc-impact checks. |
 | `readSignalsIgnore` is unexported | Low | Either export it or duplicate the ~25-line function. Both are cheap. |
 | Large surfaces table in CLAUDE.md wastes tokens | Low | Typical project has 5-20 doc pages. Table is ~3-5 lines per surface. Even 20 surfaces = ~60 lines = ~200 tokens. |
-| Follow-up/reminder integration adds complexity to doc-impact partial | Med | Pass-through to existing `atomic followups add` CLI and `/remind-me` command patterns — no new code paths, just invocations from the partial. |
+| Follow-up integration adds complexity to doc-impact partial | Med | "Later" composes the shared `followup-sink` partial; doc-impact and `/documentation` add no tracker logic of their own. |
+| "Later" opens a hosted issue the user expected to stay local | Med | The sink preview names the tracker before the choice, its result line names the tracker used, and `issue-tracker: filesystem` keeps follow-ups local. |
 
 
 ## Change log
+
+### 2026-11-12 — The doc-surfaces cache is ignored
+
+**What changed:** The scan criterion states the cache is git-ignored through `atomic repo init`'s managed rule `/project/doc-surfaces.md`.
+
+**Why:** the scan regenerates the cache with a timestamp on every run and nobody edits it, so a tracked copy churns every commit.
+
+**Superseded:** the cache had no ignore rule and was left to be committed.
+
+### 2026-11-11 — "Later" records through the workflow sink
+
+**What changed:** The maintenance-mode criterion, authoring step 7, doc-impact step 7, and the follow-up risk rows record "Later" through the `followup-sink` partial: an issue in the resolved issue tracker, else a local ledger entry. The sink preview prints under the Yes / Later / Skip options, so the choice is the only prompt.
+
+**Why:** `docs/spec/workflow-preferences.md` resolves an issue tracker per repository and makes the local ledger its `filesystem` fallback.
+
+**Superseded:** "Later" always ran `atomic followups add`.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The scan success criterion and scan step 4 name the cache as `<state-root>/project/doc-surfaces.md`, with `.atomic` as the default state root.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the cache was `.claude/project/doc-surfaces.md`.
+
+**Correction:** the scan criterion said the cache path is covered by `.gitignore`, and that sentence is removed. `atomic/internal/repoinit/repoinit.go:73-95` ignores only `/.scratchpad/`, `/.atomic-index/`, and `/worktrees/` under the state root, no ignore rule names `doc-surfaces`, and `git check-ignore .atomic/project/doc-surfaces.md` exits 1.
+
+### 2026-11-11 — Reminders removed
+
+**What changed:** Authoring mode and the ship-verb doc-impact partial offer Yes / Later / Skip. The success criteria, Checkpoints 4 and 5, and the follow-up risk row follow.
+
+**Why:** `docs/spec/workflow-preferences.md` drops the reminder feature.
+
+**Removed:** the "Remind" option and its `/remind-me` flow.
 
 ### 2026-10-19 — Artifacts assume atomic is installed
 

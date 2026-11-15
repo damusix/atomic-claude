@@ -1,5 +1,5 @@
 ---
-description: Bootstrap the current repo for atomic-claude use. Audits .gitignore entries, docs/ layout, and presence of CLAUDE.md. Proposes only what's missing — never overwrites. No commits.
+description: Bootstrap the current repo for atomic-claude use. Audits .gitignore entries, docs/ layout, and presence of the project steering file. Proposes only what's missing — never overwrites. No commits.
 ---
 
 You set up the repo for atomic-claude conventions. Detect first, propose second, apply only what the user confirms.
@@ -26,7 +26,7 @@ flowchart TD
 ```
 
 - **Inside a git repo?**: run in parallel with the `wiki/` check: `git rev-parse --is-inside-work-tree 2>/dev/null` and `test -d wiki && echo wiki-present || echo wiki-absent`.
-- **User inits git?**: `AskUserQuestion`:
+- **User inits git?**: ask the user:
 
     ```
     Not a git repo. Initialize one?
@@ -34,7 +34,7 @@ flowchart TD
     - No, stop
     ```
 
-- **User picks?**: `AskUserQuestion`; accept `realm` or `repo` as typed input or a button choice:
+- **User picks?**: ask the user in one batched question block; accept `realm` or `repo` as typed input or a button choice:
 
     ```
     A wiki/ directory exists inside this git repo. Which scope applies?
@@ -54,18 +54,18 @@ Inspect the repo. Build this status table:
 |-----------|----------|--------|
 | `.gitignore` exists | check `test -f .gitignore` | exists / missing |
 | `.gitignore` has `tmp/` | grep `^tmp/?$` | yes / no |
-| `.gitignore` has `.claude/.scratchpad/` | grep `^\.claude/\.scratchpad/?$` | yes / no |
-| `.claude/worktrees/` ignored | `git check-ignore -q .claude/worktrees/probe` (rule may live in nested `.claude/.gitignore`) | yes / no |
-| `CLAUDE.md` at repo root | `test -f CLAUDE.md` | exists / missing |
+| Scratchpad ignored | read `state_root` from `atomic where --json` as `<state-root>` (`.atomic` by default), then `git check-ignore -q <state-root>/.scratchpad/probe` (`atomic repo init` writes the rule to `<state-root>/.gitignore`). n/a when `<state-root>` is outside the repository | yes / no / n/a |
+| Worktrees location ignored | read `worktrees` from `atomic where --json` as `<worktrees>`, then `git check-ignore -q <worktrees>/probe` (the rule may live in a nested `.gitignore`). n/a when `<worktrees>` is empty (`off`) or absolute (outside the repository). Placement per harness: the `atomic-git-discipline` reference `references/worktrees.md` | yes / no / n/a |
+| Project steering file at repo root | `test -f AGENTS.md -o -f CLAUDE.md -o -f claude.md` | exists / missing |
 | `docs/` directory | `test -d docs` | exists / missing |
 | `docs/spec/` directory | `test -d docs/spec` | exists / missing |
 | `docs/design/` directory | `test -d docs/design` | exists / missing |
 | `README.md` at repo root | `test -f README.md` | exists / missing |
 | `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value is `atomic hooks session-start` (the inline command written by `atomic hooks install`) | registered / missing |
 | `docs/wiki/index.md` | `test -f docs/wiki/index.md` | exists / missing |
-| Signals `@-ref` wired | present in ANY of `claude.local.md`, `CLAUDE.local.md`, `CLAUDE.md` — check each with `grep -qF '@docs/wiki/index.md' <file>` (mirrors the `atomic-wiki-inferrer` search order); n/a only when none of the three files exist. Only `docs/wiki/index.md` (the compact router) is `@-ref`'d — `docs/wiki/scan.md` is too large for context on big repos and is read by the inferrer on demand. | yes / no / n/a |
+| Signals `@-ref` wired | present in the project steering files — `claude.local.md`, `CLAUDE.local.md`, the shared `AGENTS.md`, or the loader beside it, `CLAUDE.md` or `claude.md` — check each with `grep -qF '@docs/wiki/index.md' <file>` (mirrors the `atomic-wiki-inferrer` search order). A ref found only in `AGENTS.md` counts when no loader sits beside it or the loader carries `@AGENTS.md`; otherwise report `no`. n/a only when none of those files exist. Only `docs/wiki/index.md` (the compact router) is `@-ref`'d — `docs/wiki/scan.md` is too large for context on big repos and is read by the inferrer on demand. | yes / no / n/a |
 | Legacy `.signalsignore` at repo root | `test -f .signalsignore` | present (needs migrating) / absent |
-| `docs/wiki/CLAUDE.md` | `test -f docs/wiki/CLAUDE.md` | exists / missing |
+| Wiki steering file | `test -f docs/wiki/AGENTS.md -o -f docs/wiki/CLAUDE.md` | exists / missing |
 
 Classify the repo:
 
@@ -81,24 +81,24 @@ For each missing item, propose an action. Skip items already present.
 
 | Missing item | Proposed action |
 |--------------|----------------|
-| `.gitignore` missing, or any of `tmp/` / `.claude/.scratchpad/` / `.claude/worktrees/` not ignored | Run `atomic repo init` — one idempotent call covers all three (creates `.gitignore` if absent) plus the `.claude/.scratchpad/` + `.claude/.atomic-index/` + `.claude/worktrees/` rules in nested `.claude/.gitignore` and the `.claude/.scratchpad/` + `.claude/project/` dirs. |
-| `CLAUDE.md` missing | Run the survey procedure (see "CLAUDE.md survey" in Step 4). Seed every section with an agent guess from signals/README/code; user edits the guess. |
+| `.gitignore` missing, `tmp/` or `<state-root>/.scratchpad/` not ignored, or the worktrees location not ignored | Run `atomic repo init`: one idempotent call creates `.gitignore` if absent and adds the state and default worktrees ignore rules that `references/worktrees.md` lists. A location it does not cover gets the exact root `.gitignore` line `/<worktrees>/` in Step 4, with `<worktrees>` substituted (for example `/wt/` for `worktrees: wt`). |
+| Project steering file missing | Run the survey procedure (see "Project steering survey" in Step 4). Seed every section with an agent guess from signals/README/code; user edits the guess. |
 | `docs/spec/` missing | Create directory + `docs/spec/.gitkeep` (so git tracks it before any content lands). |
 | `docs/design/` missing | Create directory + `docs/design/.gitkeep`. |
 | `README.md` missing | Offer to scaffold a minimal starter. If user declines, skip — don't push it. |
 | Registration missing | Run `atomic hooks install`. |
 | Legacy wrapper-script registration present | Run `atomic hooks install` (migrates to the inline command and deletes the stale `session-start-reminders.sh` script). |
 | `docs/wiki/index.md` missing | Print: "Run `/refresh-wiki` to generate project signals." (follow-up only; setup does not invoke it). |
-| `CLAUDE.md` exists but the `@-ref` is missing | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
-| Legacy `.signalsignore` present | Point at `atomic migrate --repo .`, which folds it into `[scan]` in `.claude/atomic.toml` and removes the file. Never hand-convert it. |
-| `docs/wiki/CLAUDE.md` missing | Create `docs/wiki/CLAUDE.md` via `atomic wiki init --scope repo` (see `docs/wiki/CLAUDE.md` subsection in Step 4). Never overwrite if it exists. |
+| Project steering file exists but the `@-ref` is missing or not loaded | Append the `## Project signals (auto-loaded)` section, or the loader's `@AGENTS.md` import (see Signals subsection in Step 4). Skip this row when no steering file exists — the starter template row handles that case. |
+| Legacy `.signalsignore` present | Point at `atomic migrate --repo .`, which folds it into `[scan]` in `<state-root>/atomic.toml` and removes the file. Never hand-convert it. |
+| Wiki steering file missing | Create it via `atomic wiki init --scope repo` (see "Wiki steering pair" subsection in Step 4). Never overwrite if it exists. |
 
 Present the proposed actions as a numbered list:
 
 ```
 Proposed actions:
-  [1] Run atomic repo init (scaffolds tmp/, .claude/.scratchpad/, .claude/worktrees/ ignore rules)
-  [2] Create CLAUDE.md from atomic template
+  [1] Run atomic repo init (scaffolds tmp/, .scratchpad/, and default worktrees ignore rules)
+  [2] Create the project steering file from the atomic template
   [3] Create docs/spec/.gitkeep
   [4] Create docs/design/.gitkeep
   [5] Scaffold README.md (optional — say "skip 5" to leave it)
@@ -127,9 +127,9 @@ For each confirmed action, in order:
 
 ### `.gitignore`
 
-Run `atomic repo init`. It creates `.gitignore` if missing and appends `tmp/` when not yet effective, plus (via nested `.claude/.gitignore`) `.claude/.scratchpad/`, `.claude/.atomic-index/`, and `.claude/worktrees/`. Idempotent — re-running once everything is in place is a no-op.
+Run `atomic repo init` (rules in Step 2). If the worktrees audit row was not n/a and `git check-ignore -q <worktrees>/probe` still fails after it, print the `/<worktrees>/` line from Step 2 for the user to add; never write it.
 
-### Scan exclusions (`[scan]` in `.claude/atomic.toml`)
+### Scan exclusions (`[scan]` in `<state-root>/atomic.toml`)
 
 Nothing to scaffold. Scan exclusions live in the repo config that `atomic repo init` already created, and an empty `[scan]` table would be noise in every repo that needs no exclusions.
 
@@ -145,19 +145,21 @@ generated = ["*.pb.go", "dist/**"]
 
 If the repo still has a legacy `.signalsignore`, say so and point at `atomic migrate --repo .`, which converts it into `[scan]` and removes the file. Do not hand-convert it.
 
-### `docs/wiki/CLAUDE.md`
+### Wiki steering pair
 
 ```bash
 atomic wiki init --scope repo
 ```
 
-This is idempotent: it writes `docs/wiki/CLAUDE.md` with the default scaffold if the file does not exist, and no-ops silently if it already exists. On creation the command prints `created <path>` on stdout — relay that line, followed by `(edit to steer the inferrer).`
+This is idempotent: it writes the wiki steering scaffold if it does not exist, and no-ops silently if it already does. On creation the command prints `created <path>` on stdout — relay that line, followed by `(edit to steer the inferrer).`
 
-### `CLAUDE.md` survey
+The scaffold's canonical home is the wiki steering pair: the shared `docs/wiki/AGENTS.md`, with the `CLAUDE.md` loader beside it.
+
+### Project steering survey
 
 Refuse to overwrite if file exists (audit already gated this — defensive double-check).
 
-**Seed every section with content from the original.** Every section is seeded with an agent guess; the user edits the guess. The point of project `CLAUDE.md` is durable intent, scope, tribal knowledge, rules, processes, and external references — content global `~/.claude/CLAUDE.md` cannot carry and project signals cannot infer. Do not duplicate global principles, "where things live", or the canonical workflow. Those load globally.
+**Seed every section with content from the original.** Every section is seeded with an agent guess; the user edits the guess. The point of the project steering file is durable intent, scope, tribal knowledge, rules, processes, and external references — content the installed global contract cannot carry and project signals cannot infer. Do not duplicate global principles, "where things live", or the canonical workflow. Those load globally.
 
 **Inputs the agent reads to form guesses** (in order, stop when enough signal):
 
@@ -191,16 +193,16 @@ flowchart TD
 | # | Section | Guess source | If nothing inferable |
 |---|---------|--------------|----------------------|
 | 1 | **What this is** | First README paragraph + manifest `description` field + dominant language | "One-line purpose. Who uses it, who maintains it." prompt, asked of user |
-| 2 | **Scope boundary** | Platform support comments (`claude.local.md`-style "macOS+Linux only"), CI matrix, language exclusions | Ask user explicitly: "What is this for? What is it deliberately NOT for?" |
+| 2 | **Scope boundary** | Platform support comments (a local override file's "macOS+Linux only" style), CI matrix, language exclusions | Ask user explicitly: "What is this for? What is it deliberately NOT for?" |
 | 3 | **Tribal knowledge** | `HACK`/`FIXME`/`XXX`/`WORKAROUND` comments with surrounding context; non-standard directory layout | "No surprising patterns detected. Add gotchas as they surface." |
 | 4 | **Project rules** | Commit-message style from recent git log, lint config, pre-commit hooks, CI gates | "No repo-specific rules detected beyond global defaults." |
 | 5 | **Processes** | `Makefile` targets, `.github/workflows/*.yml` job names, release scripts, `CONTRIBUTING.md` | "No release / rollback / on-call processes detected." |
 | 6 | **External references** | URLs scraped from `README.md` matching Linear/Notion/Slack/Grafana/Sentry/Datadog domains | "No external references detected. Add Linear/Notion/Slack/dashboards as they arise." |
 
-**Render.** Assemble the accepted/edited content into this skeleton, then write to `CLAUDE.md`:
+**Render.** Assemble the accepted/edited content into this skeleton and write it to the shared steering file `AGENTS.md`:
 
 ````markdown
-# CLAUDE.md
+# AGENTS.md
 
 
 ## What this is
@@ -249,7 +251,17 @@ flowchart TD
 </atomic-signals>
 ````
 
-The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md` is NOT — it can be thousands of lines on large repos and would blow up context. `docs/wiki/CLAUDE.md` is also NOT `@-ref`'d — it is read only during inference by the `atomic-wiki-inferrer` agent.
+Then write the thin loader `CLAUDE.md` beside it, byte for byte in the shape `atomic` writes, so a later install recognizes the block as its own. The survey runs only when no steering file exists, so nothing is overwritten:
+
+```markdown
+<atomic>
+
+@AGENTS.md
+
+</atomic>
+```
+
+The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (the harness tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md` is NOT — it can be thousands of lines on large repos and would blow up context. The wiki steering file is also NOT `@-ref`'d — it is read only during inference by the `atomic-wiki-inferrer` agent.
 
 **Content that belongs in the global file, not the project file:** These live globally already — duplicating them noise-pollutes the project file:
 
@@ -281,18 +293,26 @@ Apply in this order, only for the confirmed actions:
 Run /refresh-wiki to generate project signals.
 ```
 
-**`CLAUDE.md` missing `@-ref`** — Append to the existing `CLAUDE.md`, but only when
-the ref is missing from all three candidate files (`claude.local.md`,
-`CLAUDE.local.md`, `CLAUDE.md`) — a ref already present in the project-local
-file counts as wired, mirroring the `atomic-wiki-inferrer` search order:
+**Project steering file missing `@-ref`** — Append to the existing steering file, but only when
+the ref is missing from every candidate file, checked in the `atomic-wiki-inferrer`
+search order: `claude.local.md`, `CLAUDE.local.md`, the shared `AGENTS.md`, then the
+loader beside it, `CLAUDE.md` or `claude.md`. A ref in `AGENTS.md` loads only
+through that loader, so when no override or loader carries the ref and it sits in
+`AGENTS.md`, a loader that lacks `@AGENTS.md` gets that one line appended. A
+loader that is a symlink to `AGENTS.md` is skipped, since it is `AGENTS.md`.
+
+The `[steering] claude` mode (`<state-root>/atomic.toml`, else `~/.atomic/config.toml`, else `loader`) picks the target. The script below is `loader` mode. In `agents-md` the ref goes in `AGENTS.md` and no loader is touched or created. In `claude-md` it goes in `CLAUDE.md` and no `AGENTS.md` is created; a ref there is already loaded.
 
 ```bash
-if grep -qF '@docs/wiki/index.md' claude.local.md 2>/dev/null || \
-   grep -qF '@docs/wiki/index.md' CLAUDE.local.md 2>/dev/null || \
-   grep -qF '@docs/wiki/index.md' CLAUDE.md 2>/dev/null; then
-  : # already wired somewhere — nothing to do
-elif test -f CLAUDE.md; then
-  cat >> CLAUDE.md << 'EOF'
+ref='@docs/wiki/index.md'
+if ! grep -qsF "$ref" claude.local.md CLAUDE.local.md CLAUDE.md claude.md; then
+  if ! grep -qsF "$ref" AGENTS.md; then
+    target=
+    if test -f AGENTS.md; then target=AGENTS.md
+    elif test -f CLAUDE.md; then target=CLAUDE.md
+    elif test -f claude.md; then target=claude.md
+    fi
+    test -n "$target" && cat >> "$target" << 'EOF'
 
 <atomic-signals>
 
@@ -303,11 +323,21 @@ elif test -f CLAUDE.md; then
 
 </atomic-signals>
 EOF
+  fi
+  if grep -qsF "$ref" AGENTS.md; then
+    for loader in CLAUDE.md claude.md; do
+      if test -f "$loader" && ! test -L "$loader" && ! grep -qF '@AGENTS.md' "$loader"; then
+        printf '\n@AGENTS.md\n' >> "$loader"
+      fi
+    done
+  fi
 fi
 ```
 
-Idempotent: only appends when `CLAUDE.md` exists AND the `@-ref` is missing from
-all three candidate files. Refuses silently otherwise.
+Idempotent: the ref is appended only when a steering file (the shared `AGENTS.md`, or
+the loader when no `AGENTS.md` exists) is present AND the `@-ref` is missing from
+every candidate file; the import line only when the loader lacks it.
+Nothing else in either file changes.
 
 ## Step 5 — Report
 
@@ -315,8 +345,9 @@ Final state:
 
 ```
 Applied:
-  ✓ .gitignore updated: added tmp/, .claude/.scratchpad/, .claude/worktrees/
-  ✓ CLAUDE.md created via survey (N sections accepted, M edited, K skipped)
+  ✓ .gitignore updated: added tmp/, .scratchpad/, worktrees/
+  • add to .gitignore yourself: /<worktrees>/   (location atomic repo init does not cover)
+  ✓ project steering file created via survey (N sections accepted, M edited, K skipped)
   ✓ docs/spec/ + docs/design/ created with .gitkeep
   • scope detected: repo (marker is written by /refresh-wiki into docs/wiki/index.md)
 
@@ -324,7 +355,7 @@ Skipped:
   • README.md (you said no)
 
 Next steps:
-  - Revisit CLAUDE.md as tribal knowledge accrues — skipped sections in particular.
+  - Revisit the project steering file as tribal knowledge accrues — skipped sections in particular.
   - Run /atomic-plan to start your first design or spec.
   - Commit when ready: /commit.
 ```

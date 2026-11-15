@@ -87,25 +87,25 @@ atomic/internal/x.go:3   1 line    Greet returns a greeting for name.
 atomic/internal/x.go:8   3 lines   This block handles the retry path when the upstream call tim   OVER
 ```
 
-The implementer, reviewer, and auditor each run it on their diff. See [`.claude/atomic.toml`](/reference/atomic-toml) for the `[comments] max_lines` key.
+The implementer, reviewer, and auditor each run it on their diff. See [`.atomic/atomic.toml`](/reference/atomic-toml) for the `[comments] max_lines` key.
 
 ## Where the index lives
 
-The index is a single SQLite file at `<project>/.claude/.atomic-index/atomic.db`. It is project-scoped, added to `.gitignore` on first index, and never committed. Delete the file to discard the index; rebuild with `atomic code index`.
+The index is a single SQLite file at `<state-root>/.atomic-index/atomic.db`, which is `.atomic/.atomic-index/atomic.db` under the default state root. A custom root from `ATOMIC_STATE_DIR`, `atomic state adopt`, or `state.dir` moves it with the rest of the state; the [resolution order](/reference/concepts#state-root-resolution-order) decides, and `atomic where --json` prints the resolved `state_root`. `atomic state migrate` moves Atomic's state out of legacy `.claude` (into `.atomic` by default), and `atomic repo init` and `atomic update` run it once on their own. The migration does not move the index. It deletes `.claude/.atomic-index/` and leaves the next `atomic code index` to build a fresh one in the state root. While an MCP daemon is live on the legacy index, it keeps that directory and reports it instead. The index is project-scoped, added to `.gitignore` on first index, and never committed. Delete the file to discard the index; rebuild with `atomic code index`.
 
 Because the indexer reads working-tree content, a `sync` after an edit makes the graph reflect uncommitted changes — which is why the implementation loop re-syncs after each change so a reviewer's `impact` query sees current code.
 
 
 ## Excluding files from the index
 
-A committed `.claude/atomic.toml` keeps vendored trees, generated output, and build artifacts out of the graph:
+A committed `.atomic/atomic.toml` keeps vendored trees, generated output, and build artifacts out of the graph:
 
 ```toml
 [code]
 ignore = ["vendor/**", "*.min.js"]
 ```
 
-A newly ignored file is pruned from an already-built index on the next `index` or `sync`. For the pattern-matching rules, which are not gitignore rules, and the caveat for repos that gitignore `.claude/` wholesale, see [`.claude/atomic.toml`](/reference/atomic-toml).
+A newly ignored file is pruned from an already-built index on the next `index` or `sync`. For the pattern-matching rules, which are not gitignore rules, and the caveat for repos that gitignore `.atomic/` wholesale, see [`.atomic/atomic.toml`](/reference/atomic-toml).
 
 
 ## Wiki realm federation
@@ -125,7 +125,7 @@ When you work from a wiki realm — a folder that contains multiple repositories
 
 **Filtering.** `--only <keys>` and `--exclude <keys>` (comma-separated) limit the fan-out to specific members. Filtering applies to which repos are queried, not to which symbols are returned.
 
-**Session awareness.** A `<code-index>` block written into the realm CLAUDE.md lists each member's key. When a session reads that block, it knows the realm scope, which repos are indexed, and how to apply the position-sensing rule. A routine `atomic code index` run produces no CLAUDE.md diff when membership is unchanged.
+**Session awareness.** A `<code-index>` block written into the realm root file Claude loads lists each member's key: `AGENTS.md` under the `agents-md` [steering mode](/reference/atomic-toml#steering-claude), else `CLAUDE.md`. A mode change moves the block with the conversion. When a session reads that block, it knows the realm scope, which repos are indexed, and how to apply the position-sensing rule. A routine `atomic code index` run produces no diff in that file when membership is unchanged.
 
 **Doctor check 11.** In a realm, `atomic doctor` check 11 aggregates member-db health into one summary line, naming only the repos that need action — stale members, unindexed members, or a mix. A missing index is informational (opt-in), not an error.
 
@@ -164,7 +164,7 @@ flowchart TD
         rev["atomic-reviewer"]
         sig["atomic-wiki-inferrer"]
     end
-    db[("index<br/>.claude/.atomic-index/atomic.db")]
+    db[("index<br/>.atomic/.atomic-index/atomic.db")]
     grep["sg / grep / heuristics"]
 
     plan -->|dispatch, get digest| inv

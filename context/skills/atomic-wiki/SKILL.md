@@ -3,7 +3,7 @@ name: atomic-wiki
 description: >
   Conversational wiki and capture-bucket routing. Fires when the user wants a
   place, space, or folder for notes, research, tickets, raw dumps, or knowledge
-  capture — checks the <wikis> block in ~/.claude/CLAUDE.md; if the cwd is under
+  capture — checks the <wikis> block in the harness's global steering file; if the cwd is under
   a registered realm, creates the folder as a bucket via `atomic wiki bucket add`
   rather than a bare mkdir. Also fires on "add a bucket", "set up a karpathy wiki",
   "karpathy realm", "set up a wiki for my projects", "add this to my wiki",
@@ -12,6 +12,7 @@ description: >
   realm wikis use references/realm.md pipeline (wiki/ in a separate repo).
   Not invoked by other commands — this skill is the conversational entry point
   for wiki and bucket operations; /refresh-wiki is the synthesis engine.
+  Preloaded by atomic-wiki-inferrer for its references/ pipelines.
 ---
 
 <trigger>
@@ -31,7 +32,7 @@ Conversational entry point for wiki and capture-bucket operations. Code writes s
 
 ## Realm resolution
 
-Read the `<wikis>` block in `~/.claude/CLAUDE.md` (outside `<atomic>`, CLI-managed). Each entry is a path to a registered wiki's `index.md`. The realm root is the directory containing `wiki/index.md`.
+Read the `<wikis>` block in the harness's global steering file (outside the Atomic-owned block, CLI-managed; the block is a projection of the authoritative `~/.atomic/wikis.md`). Each entry is a path to a registered wiki's `index.md`. The realm root is the directory containing `wiki/index.md`.
 
 - **cwd under a realm root** → that realm is active. Bucket operations target it.
 - **No registered realm + setup intent** → `atomic wiki scan --root <path>` bootstraps. Ask which folder is the realm root if ambiguous.
@@ -40,7 +41,7 @@ Read the `<wikis>` block in `~/.claude/CLAUDE.md` (outside `<atomic>`, CLI-manag
 
 When a full inference run is needed (refresh, summarize), the `<wiki-type>` tag in the active wiki index picks the pipeline. `<wiki-type>repo</wiki-type>` in `docs/wiki/index.md` runs `/refresh-wiki` against `references/repo.md`. `<wiki-type>realm</wiki-type>` in `wiki/index.md` runs `/refresh-wiki [root]` against `references/realm.md`. Both dispatch `atomic-wiki-inferrer` to execute the pipeline.
 
-The pipeline text lives **only** in the reference files (installed at `~/.claude/skills/atomic-wiki/references/`) — not here, and not duplicated in the agent's system prompt. When an agentic inference run is needed, the agent resolves `$HOME` via Bash and reads the appropriate reference file at its absolute path, then executes it.
+The pipeline text lives **only** in the reference files registered as this skill's `references/` — not here, and not duplicated in the agent's system prompt. `atomic-wiki-inferrer` preloads this skill through its `skills:` frontmatter, reads the reference file under the base directory the runtime reports for it, then executes it.
 
 ## Bucket creation route
 
@@ -49,9 +50,9 @@ When the user wants a folder for notes, tickets, research, or any loose material
 1. When the folder already holds material, tell the user that every folder in it will gain an `index.md`. Then run `atomic wiki bucket add <name> --root <realm-root>` — never bare `mkdir`.
    - Creates `<realm-root>/<name>/index.md` (stub: purpose line + `## Conventions` placeholder).
    - Splices a `<bucket name="<name>" path="<abs-path>"/>` entry into the `<wiki-buckets>` block in `wiki/index.md`.
-   - Writes a `## Capture surfaces` bullet naming `<bucket>/index.md` to the realm `CLAUDE.md`, creating the section on the first bucket.
+   - Writes a `## Capture surfaces` bullet naming `<bucket>/index.md` to the realm steering file Claude loads (`AGENTS.md` or `CLAUDE.md`), creating the section on the first bucket.
    - Rebuilds the bucket's indexes: every folder the index walks gets an `index.md` with a `<bucket-docs>` listing.
-2. Drive the meaning-fill: ask the user what the bucket is for, then replace the `<!-- describe what this bucket is for -->` placeholder in the realm `CLAUDE.md` `## Capture surfaces` section and write the bucket's `index.md` purpose line + `## Conventions` block to match. **Code writes structure; the model writes meaning.**
+2. Drive the meaning-fill: ask the user what the bucket is for, then replace the `<!-- describe what this bucket is for -->` placeholder in the `## Capture surfaces` section of whichever realm steering file holds it (`AGENTS.md` or `CLAUDE.md`) and write the bucket's `index.md` purpose line + `## Conventions` block to match. **Code writes structure; the model writes meaning.**
 
 Reserved name `wiki` is refused by the binary. If `<wiki-buckets>` carries `declined="true"`, `bucket add` removes the attribute when registering a new bucket.
 
@@ -94,7 +95,7 @@ Wiki repo commits happen inside `wiki/` — never the realm root.
 ## Boundaries
 
 - **Complements /refresh-wiki**: `/refresh-wiki` is the synthesis engine (repo signals refresh, realm repo summaries, concern re-auth, linkify). This skill is the conversational entry point — it registers and describes; `/refresh-wiki` synthesizes.
-- **Not invoked by other commands.** No cross-reference needed in the other direction.
+- **Not invoked by other commands.**
 - **Never bare mkdir** for capture intent in a registered realm. `atomic wiki bucket add` is the only correct path — it writes the index stub and the registry entry.
 
 </constraints>

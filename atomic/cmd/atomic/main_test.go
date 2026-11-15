@@ -22,10 +22,8 @@ var wantCobraSubcommandMeta = []struct {
 	{[]string{"signals", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error"},
 	{[]string{"signals", "diff"}, "", "Print unified diff of signals file"},
 	{[]string{"signals", "linkify"}, "", "Linkify path tokens in docs/wiki/index.md and docs/wiki/*.md"},
-	{[]string{"reminder", "add"}, "<text>", "Create a reminder file; prints assigned id"},
-	{[]string{"reminder", "list"}, "", "List all reminders"},
-	{[]string{"reminder", "show"}, "<id>", "Print body of a reminder"},
-	{[]string{"reminder", "rm"}, "<id>", "Delete a reminder"},
+	{[]string{"workflow", "resolve"}, "", "Print the resolved workflow preferences"},
+	{[]string{"workflow", "set"}, "<key> <value>", "Write one workflow preference line"},
 	{[]string{"hooks", "session-start"}, "", "Print session-start hook payload"},
 	{[]string{"hooks", "install"}, "", "Install session-start hook"},
 	{[]string{"hooks", "uninstall"}, "", "Remove session-start hook"},
@@ -91,13 +89,12 @@ var wantDelegatedSubcommandMeta = []struct {
 	{[]string{"config", "unset"}, "<key>", "Revert key to built-in default"},
 	{[]string{"config", "list"}, "", "List all resolved key=value pairs"},
 	{[]string{"config", "path"}, "", "Print path to config.toml"},
-	{[]string{"config", "agents"}, "", "Set per-agent model tiers interactively"},
-	{[]string{"config", "resolve"}, "", "Resolve Pi agent configuration"},
+	{[]string{"config", "agents"}, "[--harness <claude|omp|codex|all>]", "Set per-agent model and effort for a harness interactively"},
 	// wiki subcommands
-	{[]string{"wiki", "scan"}, "", "Scaffold wiki/, scan repos, mark realm scope, register in ~/.claude/CLAUDE.md"},
+	{[]string{"wiki", "scan"}, "", "Scaffold wiki/, scan repos, mark realm scope, register in ~/.atomic/wikis.md"},
 	{[]string{"wiki", "stale"}, "", "Report membership drift: exit 0 none, 1 drift, 2 error (DRIFT lines on stdout)"},
 	{[]string{"wiki", "linkify"}, "", "Linkify path tokens in wiki artifacts in-place"},
-	{[]string{"wiki", "init"}, "", "Write the fixed-content CLAUDE.md scaffold and the scope marker for --scope repo|realm (idempotent)"},
+	{[]string{"wiki", "init"}, "", "Write the steering loader pair and the scope marker for --scope repo|realm (idempotent)"},
 	// wiki bucket (3-level)
 	{[]string{"wiki", "bucket", "add"}, "<name>", "Register a capture bucket; create its folder and index.md stub"},
 	{[]string{"wiki", "bucket", "list"}, "", "List registered buckets as name<TAB>path"},
@@ -217,14 +214,14 @@ func assertCommandSetsEqual(t *testing.T, derived, golden []cliusage.Command) {
 
 // Catches a regression where Cobra re-adds the completion or help verbs that
 // DisableDefaultCmd and SetHelpCommand suppress, or a verb slips in unnoticed.
-func TestRootCmdExact24Verbs(t *testing.T) {
+func TestRootCmdExactVerbs(t *testing.T) {
 	var repoOverride string
 	root := buildRootCmd(&repoOverride)
 
 	want := []string{
 		"bus", "claude", "code", "config", "docker", "docs", "doctor",
-		"followups", "hooks", "migrate", "profile", "prompt", "reminder",
-		"repl", "repo", "retro", "scratchpad", "serve", "signals", "template", "update", "validate", "where", "wiki",
+		"followups", "harness", "hooks", "install", "migrate", "profile", "prompt",
+		"repl", "repo", "retro", "scratchpad", "serve", "signals", "state", "template", "update", "validate", "where", "wiki", "workflow",
 	}
 
 	var visible []string
@@ -252,6 +249,14 @@ func TestRootCmdExact24Verbs(t *testing.T) {
 		if name == "completion" || name == "help" {
 			t.Errorf("unexpected command leaked into top-level: %q", name)
 		}
+	}
+}
+
+func TestReminderVerbIsUnknown(t *testing.T) {
+	_, diag, code := runAtomicCLIFull(t, t.TempDir(), nil, "root", "reminder")
+	if code != 1 || !strings.Contains(diag, `unknown command "reminder"`) {
+		t.Errorf("exit %d, want 1 with unknown command \"reminder\":\n%s",
+			code, diag)
 	}
 }
 

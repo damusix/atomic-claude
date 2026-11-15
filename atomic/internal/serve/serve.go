@@ -26,6 +26,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // DisplayScope is the serve-level scope label derived from the realm resolver.
@@ -115,6 +116,13 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	}
 	if opts.Stderr == nil {
 		opts.Stderr = os.Stderr
+	}
+
+	// Handlers reach the served root's state through path helpers that exit
+	// the process on a refusal; refuse here, before anything is serving.
+	if _, err := config.RepositoryStateDir(opts.TargetDir); err != nil {
+		fmt.Fprintf(opts.Stderr, "atomic serve: %v\n", err)
+		return 1
 	}
 
 	scope, err := ResolveDisplayScope(opts.TargetDir, opts.ClaudeMDPath)

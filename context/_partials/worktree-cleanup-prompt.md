@@ -1,4 +1,4 @@
-{{define "worktree-cleanup-prompt"}}`git worktree list`. If the feature branch lived in a linked worktree (typically `.claude/worktrees/<feature>/`), ask via `AskUserQuestion`:
+{{define "worktree-cleanup-prompt"}}`git worktree list`. Never glob a directory; see the `atomic-git-discipline` reference `references/worktrees.md`. If the feature branch is checked out in a linked worktree (an entry other than the first, main one), ask the user:
    > Branch was checked out in worktree at `<path>`. Delete it?
    > - Yes, remove worktree
    > - No, keep it

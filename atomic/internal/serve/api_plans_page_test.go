@@ -34,6 +34,15 @@ func plansRows(t *testing.T, reg *plansRegistry, root string) []planRow {
 	return rows
 }
 
+func scratchRel(t *testing.T, root, rest string) string {
+	t.Helper()
+	rel, err := filepath.Rel(root, config.ScratchpadDir(root))
+	if err != nil {
+		t.Fatalf("rel scratchpad dir: %v", err)
+	}
+	return filepath.ToSlash(filepath.Join(rel, rest))
+}
+
 func plansPageRequest(t *testing.T, h http.Handler, worktree, path string, raw bool) *httptest.ResponseRecorder {
 	t.Helper()
 	q := url.Values{}
@@ -155,7 +164,7 @@ func TestPlansPageHandler_RawHTMLBundleFile(t *testing.T) {
 	worktreeID := row.Bundles[0].WorktreeID
 
 	h := plansPageHandler(reg)
-	rr := plansPageRequest(t, h, worktreeID, ".claude/.scratchpad/visual-slug/options.html", true)
+	rr := plansPageRequest(t, h, worktreeID, scratchRel(t, main, "visual-slug/options.html"), true)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
@@ -228,7 +237,7 @@ func TestPlansPageHandler_RawFileKindNeverSniffedToHTML(t *testing.T) {
 	worktreeID := row.Bundles[0].WorktreeID
 
 	h := plansPageHandler(reg)
-	rr := plansPageRequest(t, h, worktreeID, ".claude/.scratchpad/html-in-txt/notes.txt", true)
+	rr := plansPageRequest(t, h, worktreeID, scratchRel(t, main, "html-in-txt/notes.txt"), true)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
@@ -270,8 +279,8 @@ func TestPlansPageHandler_RawResponsesCarrySandboxCSP(t *testing.T) {
 
 	h := plansPageHandler(reg)
 	for _, relPath := range []string{
-		".claude/.scratchpad/csp-slug/notes.txt",
-		".claude/.scratchpad/csp-slug/BRIEF.md",
+		scratchRel(t, main, "csp-slug/notes.txt"),
+		scratchRel(t, main, "csp-slug/BRIEF.md"),
 	} {
 		rr := plansPageRequest(t, h, worktreeID, relPath, true)
 		if rr.Code != http.StatusOK {
@@ -320,9 +329,9 @@ func TestPlansPageHandler_RawCSPPerKind(t *testing.T) {
 		relPath string
 		want    string
 	}{
-		{".claude/.scratchpad/csp-kind-slug/mock.html", "sandbox allow-scripts"},
-		{".claude/.scratchpad/csp-kind-slug/notes.md", "sandbox"},
-		{".claude/.scratchpad/csp-kind-slug/icon.png", "sandbox"},
+		{scratchRel(t, main, "csp-kind-slug/mock.html"), "sandbox allow-scripts"},
+		{scratchRel(t, main, "csp-kind-slug/notes.md"), "sandbox"},
+		{scratchRel(t, main, "csp-kind-slug/icon.png"), "sandbox"},
 	}
 	for _, tc := range cases {
 		rr := plansPageRequest(t, h, worktreeID, tc.relPath, true)

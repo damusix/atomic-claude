@@ -1,12 +1,15 @@
 package doctor_test
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
@@ -48,6 +51,7 @@ func nopRepairer() doctor.Repairer {
 		ManifestFn:        func(io.Writer) error { return nil },
 		FollowupsRenderFn: func(io.Writer) error { return nil },
 		OutputStyleFn:     func(io.Writer) error { return nil },
+		ConvergeFn:        func(string, io.Writer) error { return nil },
 		HomeFn:            func() (string, error) { return os.TempDir(), nil },
 		IsRepoDevFn:       func() (bool, error) { return true, nil },
 		RepoRootFn:        func() string { return os.TempDir() },
@@ -244,6 +248,35 @@ func TestRepair_OutputStyle_StyleFileMissing_NonFixable(t *testing.T) {
 	}
 	if strings.Contains(sb.String(), "✓ fixed") {
 		t.Errorf("output claims fixed, got:\n%s", sb.String())
+	}
+}
+
+// A converge cannot seed a style the user disabled, so a scoped seed-disabled
+// WARN must show the config guidance instead of reporting a repair.
+func TestRepair_OutputStyle_SeedDisabledScoped_NonFixable(t *testing.T) {
+	converged := false
+	rp := nopRepairer()
+	rp.ConvergeFn = func(string, io.Writer) error { converged = true; return nil }
+
+	results := []doctor.Result{{
+		Index:    14,
+		Name:     "output-style",
+		Severity: doctor.WARN,
+		Detail:   "output style not set at user level; seeding is disabled (output_style.seed = false)",
+		Scopes:   []string{"/relocated/.claude"},
+	}}
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+
+	if converged {
+		t.Error("scoped converge ran for a seed-disabled output-style WARN")
+	}
+	if summary.Applied != 0 || summary.NonFixable != 1 {
+		t.Errorf("Applied/NonFixable = %d/%d, want 0/1", summary.Applied, summary.NonFixable)
+	}
+	if !strings.Contains(sb.String(), "atomic config set output_style.seed true") {
+		t.Errorf("the seed-disabled config guidance is missing, got:\n%s", sb.String())
 	}
 }
 
@@ -455,10 +488,64 @@ func TestRepair_Manifest_RefusesOutsideRepoDev(t *testing.T) {
 
 // -- refs repair --
 
-func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
+func writeSteeringMode(t *testing.T, root, mode string) {
+	t.Helper()
+	path := config.RepoConfigPath(root)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("[steering]\nclaude = \""+mode+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func repairNoRefs(t *testing.T, dir string) {
+	t.Helper()
+	rp := nopRepairer()
+	rp.HomeFn = func() (string, error) { return t.TempDir(), nil }
+	rp.RepoRootFn = func() string { return dir }
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	rp.Repair([]doctor.Result{makeResult(4, "refs", doctor.FAIL, "refs not present")}, doctor.Opts{Fix: true}, p, &sb)
+}
+
+// agents-md writes no loader: a CLAUDE.md beside AGENTS.md makes Claude skip it.
+func TestRepair_Refs_NoExistingCandidates_AgentsMdModeWritesAgentsMdOnly(t *testing.T) {
+	dir := t.TempDir()
+	writeSteeringMode(t, dir, "agents-md")
+	repairNoRefs(t, dir)
+
+	data, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if !strings.Contains(string(data), "@docs/wiki/index.md") {
+		t.Errorf("ref missing from AGENTS.md:\n%s", data)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Errorf("agents-md mode wrote CLAUDE.md: %v", err)
+	}
+	if r := doctor.RunCheckRefsWith(dir); r.Severity != doctor.PASS {
+		t.Errorf("refs = %q (%s), want PASS for a ref wired in AGENTS.md", r.Severity, r.Detail)
+	}
+}
+
+func TestRepair_Refs_NoExistingCandidates_ClaudeMdModeWritesClaudeMdOnly(t *testing.T) {
+	dir := t.TempDir()
+	writeSteeringMode(t, dir, "claude-md")
+	repairNoRefs(t, dir)
+
+	data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if !strings.Contains(string(data), "@docs/wiki/index.md") {
+		t.Errorf("ref missing from CLAUDE.md:\n%s", data)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Errorf("claude-md mode wrote AGENTS.md: %v", err)
+	}
+}
+
+func TestRepair_Refs_NoExistingCandidates_LoaderModeWiresAgentsMdBehindLoader(t *testing.T) {
 	dir := t.TempDir()
 
 	rp := nopRepairer()
+	rp.HomeFn = func() (string, error) { return t.TempDir(), nil }
 	rp.RepoRootFn = func() string { return dir }
 
 	results := []doctor.Result{
@@ -473,13 +560,70 @@ func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
 	if summary.Applied != 1 {
 		t.Errorf("Applied = %d, want 1", summary.Applied)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	data, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
 	if err != nil {
-		t.Fatalf("CLAUDE.md not created: %v", err)
+		t.Fatalf("AGENTS.md not created: %v", err)
 	}
-	content := string(data)
-	if !strings.Contains(content, "@docs/wiki/index.md") {
-		t.Errorf("signals ref missing from CLAUDE.md")
+	if !strings.Contains(string(data), "@docs/wiki/index.md") {
+		t.Errorf("signals ref missing from AGENTS.md")
+	}
+	// The bracketed document, not a bare import: a later mode conversion
+	// recognises only that shape as Atomic's own loader.
+	loader, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if !bytes.Equal(loader, bundlespec.ScopeSteering.LoaderDocument()) {
+		t.Errorf("loader = %q, want %q", loader, bundlespec.ScopeSteering.LoaderDocument())
+	}
+	if r := doctor.RunCheckRefsWith(dir); r.Severity != doctor.PASS {
+		t.Errorf("after repair refs = %q (%s), want PASS", r.Severity, r.Detail)
+	}
+}
+
+// A ref in the owned loader keeps CLAUDE.md beside AGENTS.md after a switch to
+// agents-md, so Claude stops reading AGENTS.md; the repair offers only AGENTS.md.
+func TestRepair_Refs_LoaderMode_ExcludesOwnedLoaderFromCandidates(t *testing.T) {
+	dir := t.TempDir()
+	loaderDoc := bundlespec.ScopeSteering.LoaderDocument()
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# shared\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), loaderDoc, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repairNoRefs(t, dir)
+
+	agents, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	loader, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if !strings.Contains(string(agents), "@docs/wiki/index.md") {
+		t.Errorf("ref missing from AGENTS.md:\n%s", agents)
+	}
+	if !bytes.Equal(loader, loaderDoc) {
+		t.Errorf("owned loader was modified:\n%s", loader)
+	}
+}
+
+// A user-authored CLAUDE.md that does not import AGENTS.md hides a ref left in
+// AGENTS.md, so the repair adds the import (Step 8 of the wiki pipeline).
+func TestRepair_Refs_LoaderMode_AddsImportToNonImportingClaudeMd(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# shared\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rp := nopRepairer()
+	rp.HomeFn = func() (string, error) { return t.TempDir(), nil }
+	rp.RepoRootFn = func() string { return dir }
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}, indexInputs: []int{1}}
+	rp.Repair([]doctor.Result{makeResult(4, "refs", doctor.FAIL, "refs not present")}, doctor.Opts{Fix: true}, p, &sb)
+
+	if r := doctor.RunCheckRefsWith(dir); r.Severity != doctor.PASS {
+		t.Errorf("after repair refs = %q (%s), want PASS", r.Severity, r.Detail)
+	}
+	claude, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if !strings.HasPrefix(string(claude), "# mine\n") || !strings.Contains(string(claude), "@AGENTS.md") {
+		t.Errorf("CLAUDE.md = %q, want user text kept and the import appended", claude)
 	}
 }
 
@@ -551,10 +695,47 @@ func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 	}
 }
 
+// The wiki pipeline wires the shared AGENTS.md ahead of its CLAUDE.md loader,
+// so the repair offers it first.
+func TestRepair_Refs_AgentsMdAndClaudeMd_OffersAgentsMdFirst(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# shared\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("@AGENTS.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rp := nopRepairer()
+	rp.RepoRootFn = func() string { return dir }
+	var sb strings.Builder
+	p := &fakePrompter{
+		decisions:   []doctor.Decision{doctor.DecisionYes},
+		indexInputs: []int{1},
+	}
+	summary := rp.Repair([]doctor.Result{makeResult(4, "refs", doctor.FAIL, "refs not present")}, doctor.Opts{Fix: true}, p, &sb)
+	if summary.Applied != 1 {
+		t.Fatalf("Applied = %d, want 1\noutput:\n%s", summary.Applied, sb.String())
+	}
+
+	agents, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	loader, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if !strings.Contains(string(agents), "@docs/wiki/index.md") {
+		t.Errorf("index 1 should patch AGENTS.md; content:\n%s", agents)
+	}
+	if string(loader) != "@AGENTS.md\n" {
+		t.Errorf("CLAUDE.md loader changed:\n%s", loader)
+	}
+	if r := doctor.RunCheckRefsWith(dir); r.Severity != doctor.PASS {
+		t.Errorf("after repair refs = %q (%s), want PASS", r.Severity, r.Detail)
+	}
+}
+
 func TestRepair_Refs_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 
 	rp := nopRepairer()
+	rp.HomeFn = func() (string, error) { return t.TempDir(), nil }
 	rp.RepoRootFn = func() string { return dir }
 
 	results := []doctor.Result{
@@ -567,9 +748,9 @@ func TestRepair_Refs_Idempotent(t *testing.T) {
 		rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	data, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
 	if err != nil {
-		t.Fatalf("CLAUDE.md not found: %v", err)
+		t.Fatalf("AGENTS.md not found: %v", err)
 	}
 	content := string(data)
 	count := strings.Count(content, "@docs/wiki/index.md")
@@ -620,6 +801,7 @@ func TestRepair_Refs_HeadingIsProjectWiki(t *testing.T) {
 	dir := t.TempDir()
 
 	rp := nopRepairer()
+	rp.HomeFn = func() (string, error) { return t.TempDir(), nil }
 	rp.RepoRootFn = func() string { return dir }
 
 	results := []doctor.Result{
@@ -629,9 +811,9 @@ func TestRepair_Refs_HeadingIsProjectWiki(t *testing.T) {
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
 	rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
-	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	data, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
 	if err != nil {
-		t.Fatalf("CLAUDE.md not created: %v", err)
+		t.Fatalf("AGENTS.md not created: %v", err)
 	}
 	content := string(data)
 	if !strings.Contains(content, "## Project wiki (auto-loaded)") {
@@ -750,5 +932,27 @@ func TestRepair_Manifest_WriterReceivesMakeOutput(t *testing.T) {
 	}
 	if !strings.Contains(sb.String(), fakeOutput) {
 		t.Errorf("writer did not receive make output; got:\n%s", sb.String())
+	}
+}
+
+// The project-local override stays the first offer, ahead of the mode's file:
+// it is the file the wiki pipeline prefers when it exists.
+func TestRepair_Refs_OverrideFileStaysFirstAheadOfModeFile(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"claude.local.md", "AGENTS.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("# x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rp := nopRepairer()
+	rp.HomeFn = func() (string, error) { return t.TempDir(), nil }
+	rp.RepoRootFn = func() string { return dir }
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}, indexInputs: []int{1}}
+	rp.Repair([]doctor.Result{makeResult(4, "refs", doctor.FAIL, "refs not present")}, doctor.Opts{Fix: true}, p, &sb)
+
+	local, _ := os.ReadFile(filepath.Join(dir, "claude.local.md"))
+	if !strings.Contains(string(local), "@docs/wiki/index.md") {
+		t.Errorf("index 1 should patch claude.local.md; content:\n%s", local)
 	}
 }

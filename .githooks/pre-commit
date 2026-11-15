@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Pre-commit hook:
 #   Stage 1 — regenerate followups INDEX.md when a staged change touches
-#              .claude/project/followups/ entry files (excluding INDEX.md).
-#              Degrades to WARN if atomic binary is absent.
+#              the follow-ups entry files (excluding INDEX.md) at the path
+#              `atomic followups path` resolves (.atomic/project/followups/).
+#              Degrades to WARN if atomic binary is absent, or resolves
+#              follow-ups outside this repo or anywhere but .atomic/ while
+#              entries under .atomic/ are staged (a binary that predates it).
 #
 # There is no render, bundle, or frontend stage. Artifacts under context/ are
 # committed in source form and expanded into atomic/internal/embedded/; the
@@ -21,25 +24,51 @@ repo_root=$(git rev-parse --show-toplevel)
 
 # --- Stage 1: regenerate follow-ups index ---
 # Regenerate follow-ups INDEX.md when any entry file (other than INDEX.md
-# itself) is staged. Skips silently if the atomic binary is not on PATH —
-# fresh clones and pre-install states should commit without failing.
+# itself) is staged. Warns and skips if the atomic binary is not on PATH,
+# so fresh clones and pre-install states commit without failing.
+followups_rel=.atomic/project/followups
+followups_dir=
+if command -v atomic >/dev/null 2>&1; then
+    followups_dir=$(atomic followups path 2>/dev/null) || followups_dir=
+    resolved_rel=${followups_dir#"$repo_root"/}
+    if [ -n "$followups_dir" ] && [[ "$resolved_rel" != /* ]] && [ -d "$repo_root/$resolved_rel" ]; then
+        followups_rel=$resolved_rel
+    else
+        followups_dir=
+    fi
+fi
+
 followups_touched=0
+default_touched=0
 for f in "${staged[@]}"; do
     case "$f" in
-        .claude/project/followups/INDEX.md) ;;
-        .claude/project/followups/*.md)
+        "$followups_rel"/INDEX.md) ;;
+        "$followups_rel"/*.md)
             followups_touched=1
-            break
+            ;;
+    esac
+    case "$f" in
+        .atomic/project/followups/INDEX.md) ;;
+        .atomic/project/followups/*.md)
+            default_touched=1
             ;;
     esac
 done
 
+# A binary that predates .atomic resolves follow-ups to another path, so the
+# staged entries under .atomic/ would otherwise commit with a stale INDEX.md.
+if [ "$default_touched" -eq 1 ] && [ "$followups_rel" != ".atomic/project/followups" ] && command -v atomic >/dev/null 2>&1; then
+    echo "pre-commit: WARN: $(atomic --version 2>/dev/null) resolves follow-ups to ${followups_dir:-elsewhere}, not .atomic/project/followups; update atomic, then run \`atomic followups render\`" >&2
+fi
+
 if [ "$followups_touched" -eq 1 ]; then
-    if command -v atomic >/dev/null 2>&1; then
-        atomic followups render >/dev/null
-        git add "$repo_root/.claude/project/followups/INDEX.md"
-        echo "pre-commit: follow-ups INDEX.md regenerated and re-staged"
-    else
+    if ! command -v atomic >/dev/null 2>&1; then
         echo "pre-commit: atomic binary not on PATH; skipping follow-ups INDEX regen" >&2
+    elif [ -z "$followups_dir" ]; then
+        echo "pre-commit: WARN: $(atomic --version 2>/dev/null) does not resolve follow-ups to $followups_rel in this repo; skipping follow-ups INDEX regen" >&2
+    else
+        atomic followups render >/dev/null
+        git add "$repo_root/$followups_rel/INDEX.md"
+        echo "pre-commit: follow-ups INDEX.md regenerated and re-staged"
     fi
 fi

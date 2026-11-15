@@ -68,7 +68,10 @@ func SeedConfig(realmRoot, wikiIndexPath string) (*Config, error) {
 
 	cfg := &Config{Members: allMembers}
 
-	cfgPath := configPath(realmRoot)
+	cfgPath, err := ConfigPath(realmRoot)
+	if err != nil {
+		return nil, fmt.Errorf("realm seed: resolve state root: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		return nil, fmt.Errorf("realm seed: mkdir %s: %w", filepath.Dir(cfgPath), err)
 	}

@@ -33,7 +33,7 @@ echo "== index $ROOT"
 (cd "$ROOT" && "$BIN" code index)
 
 echo "== seed bundle $PLAN_MEMBER/$PLAN_SLUG"
-if [ ! -f "$ROOT/$PLAN_MEMBER/.claude/.scratchpad/$PLAN_SLUG/meta.toml" ]; then
+if ! (cd "$ROOT/$PLAN_MEMBER" && "$BIN" scratchpad path "$PLAN_SLUG" >/dev/null 2>&1); then
   (cd "$ROOT/$PLAN_MEMBER" && "$BIN" scratchpad new "$PLAN_SLUG" --purpose implement)
 else
   echo "already present"

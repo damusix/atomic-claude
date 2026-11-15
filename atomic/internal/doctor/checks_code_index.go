@@ -9,6 +9,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // checkCodeIndex implements category 11: code-index freshness. The index is
@@ -31,7 +32,7 @@ func checkCodeIndex(opts Opts) Result {
 		if herr != nil {
 			return RunCheckCodeIndexWith(repoRoot, opts.StaleDays)
 		}
-		claudeMDPath = filepath.Join(home, ".claude", "CLAUDE.md")
+		claudeMDPath = filepath.Join(config.ClaudeConfigDir(home), "CLAUDE.md")
 	}
 
 	// realm.Resolve needs the real cwd, not repoRoot, to tell ScopeRealmMember
@@ -47,7 +48,7 @@ func checkCodeIndex(opts Opts) Result {
 
 	if res.Scope == realm.ScopeRealmAll || res.Scope == realm.ScopeRealmMember {
 		// ScopeRealmMember reports the aggregate too: a member is indexed in the
-		// realm db, not in a local .claude/.atomic-index.
+		// realm db, not in a local <state-root>/.atomic-index.
 		return RunCheckCodeIndexRealmWith(res.RealmRoot, opts.StaleDays)
 	}
 
@@ -120,10 +121,14 @@ func RunCheckCodeIndexRealmWith(realmRoot string, staleDays int) Result {
 		}
 	}
 
+	res, err := realm.ForRealm(realmRoot)
+	if err != nil {
+		return Result{Severity: WARN, Detail: fmt.Sprintf("realm state root error: %v", err)}
+	}
+
 	var fresh, stale, notIndexed []string
 	for _, m := range members {
-		dbPath := filepath.Join(realmRoot, ".atomic", m.Key+".db")
-		fi, serr := os.Stat(dbPath)
+		fi, serr := os.Stat(res.DBPath(m.Key))
 		if serr != nil {
 			if os.IsNotExist(serr) {
 				notIndexed = append(notIndexed, m.Key)

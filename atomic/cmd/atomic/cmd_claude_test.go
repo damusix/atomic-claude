@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
+	"github.com/damusix/atomic-claude/atomic/internal/managedfile"
 )
 
 // Install must lay the bundle and register the session-start hook in one shot;
@@ -223,5 +226,144 @@ func TestRunClaudeUninstall_ProducesPrompt(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "CLAUDE.md") {
 		t.Errorf("prompt missing 'CLAUDE.md'")
+	}
+}
+
+// Both re-apply verbs write the stored override on an enrolled root, and the
+// ledger records the written bytes, so drift and doctor agree.
+func TestEnrolledClaudeInstallAndRepairWriteOverlaidAgents(t *testing.T) {
+	home := t.TempDir()
+	if out, code := runAtomicCLI(t, home, "install", "--harness", "claude", "--yes"); code != 0 {
+		t.Fatalf("install exited %d:\n%s", code, out)
+	}
+	root := filepath.Join(home, ".claude")
+	agentPath := filepath.Join(root, "agents", "atomic-implementer.md")
+
+	for _, step := range []struct {
+		model string
+		args  []string
+	}{
+		{"opus", []string{"claude", "install"}},
+		{"haiku", []string{"harness", "repair", "--harness", "claude", "--yes"}},
+	} {
+		cfg, _, err := config.Load(config.TOMLPath(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Claude.Agents = map[string]config.AgentOverride{"atomic-implementer": {Model: step.model}}
+		if err := config.WritePersist(config.TOMLPath(home), cfg); err != nil {
+			t.Fatal(err)
+		}
+		if out, code := runAtomicCLI(t, home, step.args...); code != 0 {
+			t.Fatalf("%v exited %d:\n%s", step.args, code, out)
+		}
+		data, err := os.ReadFile(agentPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "\nmodel: "+step.model+"\n") {
+			t.Fatalf("%v left the agent without model %s:\n%s", step.args, step.model, data)
+		}
+		ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		row, ok := ledger.Find("claude:"+root, "agents/atomic-implementer.md")
+		if !ok || row.Applied.Digest != managedfile.Digest(data) {
+			t.Errorf("%v: ledger row %+v does not record the written bytes", step.args, row.Applied)
+		}
+	}
+}
+
+// An enrolled target must use the planner, which backs up edited managed
+// commands and records the restored bytes in the ledger.
+func TestRunClaudeInstallRoutesEnrolledTargetThroughConverge(t *testing.T) {
+	home := t.TempDir()
+	if out, code := runAtomicCLI(t, home, "install", "--harness", "claude", "--yes"); code != 0 {
+		t.Fatalf("install exited %d:\n%s", code, out)
+	}
+	root := filepath.Join(home, ".claude")
+
+	victim := filepath.Join(root, "commands", "commit.md")
+	selected, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const drift = "user-edited managed command\n"
+	if err := os.WriteFile(victim, []byte(drift), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runClaudeInstall(root, home, "install", false, false)
+	if err != nil {
+		t.Fatalf("enrolled install: %v", err)
+	}
+	if result.Report == "" {
+		t.Error("the enrolled target did not route through the install planner")
+	}
+	got, err := os.ReadFile(victim)
+	if err != nil || string(got) != string(selected) {
+		t.Fatalf("managed command was not restored: %q (%v)", got, err)
+	}
+	assertConvergeRecoveryCopies(t, home, map[string]string{victim: drift})
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := ledger.Find("claude:"+root, "commands/commit.md")
+	if !ok || row.Applied.Digest != managedfile.Digest(got) {
+		t.Errorf("ledger does not record the restored command: %+v", row)
+	}
+}
+
+func TestLegacyParentClaudeRefresh(t *testing.T) {
+	if os.Getenv("ATOMIC_LEGACY_REFRESH_CHILD") == "1" {
+		defer config.SetHomeDirForTest(os.Getenv("HOME"))()
+		os.Args = append([]string{"atomic"}, strings.Split(os.Getenv("ATOMIC_LEGACY_REFRESH_ARGS"), "\x1f")...)
+		main()
+		return
+	}
+
+	for _, tc := range []struct {
+		name  string
+		args  []string
+		adopt bool
+	}{
+		{"old parent", []string{"claude", "update", "--no-update-check"}, true},
+		{"old parent without hooks", []string{"claude", "update", "--no-update-check", "--no-hooks"}, true},
+		{"custom target", []string{"claude", "update", "--no-update-check", "--target", "custom", "--no-hooks"}, false},
+		{"dry run", []string{"claude", "update", "--no-update-check", "--dry-run", "--no-hooks"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			root, _ := agedLegacyClaude(t, home)
+			settings := filepath.Join(root, "settings.json")
+			before, err := os.ReadFile(settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(os.Args[0], "-test.run=^TestLegacyParentClaudeRefresh$")
+			cmd.Dir = t.TempDir()
+			cmd.Env = append(os.Environ(), "HOME="+home, "CLAUDE_CONFIG_DIR=", "PATH=", "ATOMIC_LEGACY_REFRESH_CHILD=1", "ATOMIC_LEGACY_REFRESH_ARGS="+strings.Join(tc.args, "\x1f"))
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("refresh: %v\n%s", err, out)
+			}
+			_, err = os.Stat(config.LedgerPath(home))
+			if tc.adopt {
+				if err != nil {
+					t.Fatalf("legacy refresh did not enroll target: %v\n%s", err, out)
+				}
+				assertAdoptedMarker(t, home)
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("unexpected ledger for scoped or dry-run update: %v\n%s", err, out)
+			}
+			if tc.name != "old parent" {
+				after, err := os.ReadFile(settings)
+				if err != nil || string(after) != string(before) {
+					t.Fatalf("user settings changed: %q -> %q (%v)", before, after, err)
+				}
+			}
+		})
 	}
 }

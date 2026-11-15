@@ -53,6 +53,82 @@ func TestWriteCodeIndexBlock_AbsentCLAUDEMD(t *testing.T) {
 	}
 }
 
+// Under agents-md Claude skips AGENTS.md when a CLAUDE.md sits beside it, so the
+// block goes to AGENTS.md and no CLAUDE.md appears; claude-md is the reverse.
+func TestWriteCodeIndexBlock_FollowsTheSteeringMode(t *testing.T) {
+	for mode, want := range map[string]string{
+		"loader":    "CLAUDE.md",
+		"agents-md": "AGENTS.md",
+		"claude-md": "CLAUDE.md",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, ".atomic"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cfg := "[steering]\nclaude = \"" + mode + "\"\n"
+			if err := os.WriteFile(filepath.Join(dir, ".atomic", "atomic.toml"), []byte(cfg), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			ms := members(struct{ key, path string }{"foo", "repos/foo"})
+			if err := realm.WriteCodeIndexBlock(dir, ms); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, want))
+			if err != nil || !strings.Contains(string(data), `key="foo"`) {
+				t.Fatalf("%s: err=%v content=%q", want, err, data)
+			}
+			if mode == "agents-md" {
+				if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err == nil {
+					t.Error("CLAUDE.md written in agents-md mode, hiding AGENTS.md from Claude")
+				}
+			}
+			if mode == "claude-md" {
+				if _, err := os.Stat(filepath.Join(dir, "AGENTS.md")); err == nil {
+					t.Error("AGENTS.md written in claude-md mode")
+				}
+			}
+		})
+	}
+}
+
+// Moving the block out of a file restores its bytes, so a mode change and back
+// leaves the user's text exactly as it was.
+func TestMoveCodeIndexBlock_RoundTripKeepsTheOtherFileByteIdentical(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	setMode := func(mode string) {
+		if err := os.MkdirAll(filepath.Join(dir, ".atomic"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cfg := "[steering]\nclaude = \"" + mode + "\"\n"
+		if err := os.WriteFile(filepath.Join(dir, ".atomic", "atomic.toml"), []byte(cfg), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const prose = "# Realm\n\nnotes\n"
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte(prose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setMode("loader")
+	if err := realm.WriteCodeIndexBlock(dir, members(struct{ key, path string }{"a", "repos/a"})); err != nil {
+		t.Fatal(err)
+	}
+
+	setMode("agents-md")
+	if _, err := realm.MoveCodeIndexBlock(dir); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if string(got) != prose {
+		t.Errorf("CLAUDE.md = %q, want %q", got, prose)
+	}
+	if agents, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md")); !strings.Contains(string(agents), `key="a"`) {
+		t.Errorf("AGENTS.md = %q, want the block", agents)
+	}
+}
+
 func TestWriteCodeIndexBlock_SplicesIntoExisting(t *testing.T) {
 	dir := t.TempDir()
 

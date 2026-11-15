@@ -748,7 +748,7 @@ func TestLuau_NodeCountStable(t *testing.T) {
 	}
 }
 
-func TestRegistry_For_CP8C_Languages(t *testing.T) {
+func TestRegistry_For_ScriptingLanguages(t *testing.T) {
 	t.Parallel()
 	reg := languages.NewRegistry()
 	tests := []struct {

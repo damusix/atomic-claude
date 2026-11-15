@@ -11,7 +11,7 @@ flowchart TD
     S["setup: /setup-wiki + /refresh-wiki"] --> P["plan: /atomic-plan"]
     P --> I["implement: /subagent-implementation"]
     I --> SH["ship: /commit"]
-    SH --> T["track: /remind-me, /follow-up"]
+    SH --> T["track: /follow-up"]
     T --> R["learn: /retrospective-learning"]
     R -.->|lessons become config| P
     I -->|something breaks| D["diagnose: /subagent-diagnose"]
@@ -35,6 +35,8 @@ Before your first session in a new project, two commands teach Claude what it is
 ```
 
 `/setup-wiki` audits the repo for missing conventions and proposes only what is absent; `/refresh-wiki` generates the [repo wiki](/reference/repo-wiki), the standing map Claude reads before your code. Run them once per repo; ship commands keep the wiki fresh after that.
+
+Ship verbs, `/report-issue`, and follow-ups use the source-control provider, issue tracker, and worktree directory that `atomic workflow resolve` prints. The `origin` remote usually decides them; `atomic workflow set` overrides one ([workflow preferences](/reference/concepts#workflow-preferences)).
 
 Two optional layers deepen the map. `atomic code index` builds a symbol graph the agents query for callers and blast radius ([code-intel](/reference/code-intel)), and a [realm wiki](/reference/realm-wiki) maps how a folder of repos relates, one level up. The [getting-started guide](/guides/getting-started) walks this setup step by step.
 
@@ -135,7 +137,7 @@ sequenceDiagram
     end
 ```
 
-The scratchpad in that diagram is a slug-keyed work bundle — `atomic scratchpad new <slug> --purpose implement` creates or extends it, and a later phase on the same task joins it rather than opening a new one. Artifacts resolve its path, and where session reports and reminders for this project live, via `atomic where --json` rather than constructing them. → [conventions](/reference/conventions)
+The scratchpad in that diagram is a slug-keyed work bundle — `atomic scratchpad new <slug> --purpose implement` creates or extends it, and a later phase on the same task joins it rather than opening a new one. Artifacts resolve its path, and where session reports for this project live, via `atomic where --json` rather than constructing them. → [conventions](/reference/conventions)
 
 The audit runs exactly once per task, after the docs update and before the signals refresh. A `CHANGES_REQUESTED` verdict buys one more implementer-reviewer round against its findings, never a second audit, so finalize cannot loop. It gates what per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, and commit types that misstate user-visible impact.
 
@@ -179,7 +181,7 @@ The only decision is the merge method at the end. Pass a merge verb (`/autopilot
 
 ### Editing directly, outside any verb
 
-Editing code by hand with no command around it at all skips the loop entirely — there is no builder, no reviewer inside a loop, no checkpoint. Two exits still gate it: `atomic-verify` blocks a "ready" claim, and the ship verbs' review gate blocks the commit. Both dispatch `atomic-reviewer` on the diff, with an explicit `model:` override to the session's model, and report a `review: <verdict> (atomic-reviewer on <model>)` line before the claim or the commit lands.
+Editing code by hand with no command around it at all skips the loop entirely — there is no builder, no reviewer inside a loop, no checkpoint. Two exits still gate it: `atomic-verify` blocks a "ready" claim, and the ship verbs' review gate blocks the commit. Both dispatch `atomic-reviewer` on the diff and report a `review: <verdict> (atomic-reviewer on <model>)` line before the claim or the commit lands.
 
 
 ### What the loop costs
@@ -216,13 +218,13 @@ With no pending changes and commits already ahead of base, `/commit` skips strai
 ## 5. Track what's deferred
 
 ```
-/remind-me 2h check the deploy
+/follow-up fetchUser retries ignore 429
 /follow-up review
 ```
 
-Not everything gets resolved in the same session. Reminders are time-based nudges that surface at the specified moment, or at the start of your next session if you are away. Follow-ups are non-blocking findings from implementation (risks, nits, open questions) that you parked for later. `/follow-up review` walks you through stale entries and lets you close, extend, or promote each one.
+Not everything gets resolved in the same session. Follow-ups are non-blocking findings from implementation (risks, nits, open questions) that you parked for later. `/follow-up <text>` records one in your resolved issue tracker, or in the local ledger when the tracker is `filesystem` or cannot take it; the loop's `defer` and the docs prompt's "Later" record the same way. `atomic workflow set issue-tracker filesystem --level repo` keeps a repo's follow-ups local ([workflow preferences](/reference/concepts#workflow-preferences)). `/follow-up review` walks you through stale ledger entries and lets you close, extend, or promote each one.
 
-Both mechanisms exist because shipping is not the end. The things you deferred during implementation should not silently rot.
+Follow-ups exist because shipping is not the end. The things you deferred during implementation should not silently rot.
 
 
 ## 6. Retrospective

@@ -108,19 +108,6 @@ export const FLOW: SessionSlide[] = [
         ],
     },
     {
-        id: 'remind',
-        label: 'remind',
-        command: '/remind-me check the webhook PR by thursday',
-        output: [
-            { kind: 'say', text: 'Scheduling a reminder.' },
-            { kind: 'out', text: 'thu · "check webhook PR review"' },
-            gap,
-            { kind: 'out', text: '— two days later —', tone: 'muted' },
-            { kind: 'say', text: 'Fires at your next session start:' },
-            { kind: 'out', text: '⏰ check if the webhook PR got reviewed', tone: 'ok' },
-        ],
-    },
-    {
         id: 'follow-up',
         label: 'follow-up',
         command: '/follow-up review',

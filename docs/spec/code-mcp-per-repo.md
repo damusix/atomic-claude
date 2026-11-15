@@ -15,10 +15,10 @@
 
 - [ ] A test reproduces the pre-fix failure: a daemon/proxy launched with cwd at a non-git directory (realm root) fails to bind its socket. The test is RED on current code.
 - [ ] After the fix, `atomic --repo <path> code mcp` launched from a non-git cwd binds its socket and completes the MCP `initialize` handshake (stdout carries a valid JSON-RPC `initialize` result; no "daemon did not start within 10s").
-- [ ] The daemon resolves its db from the explicit path, not cwd: a realm member → `<realm>/.atomic/<key>.db`; a standalone repo → `<repo>/.claude/.atomic-index/atomic.db`. Asserted by a test.
-- [ ] Serving a realm member via `--repo` creates no `.claude/.atomic-index/` (db, socket, or lock) inside the member's source tree. Asserted by a test.
+- [ ] The daemon resolves its db from the explicit path, not cwd: a realm member → `<realm-state-root>/<key>.db`; a standalone repo → `<state-root>/.atomic-index/atomic.db`, where the state root is the repository state directory (`.atomic` by default). Asserted by a test.
+- [ ] Serving a realm member via `--repo` creates no `<state-root>/.atomic-index/` (db, socket, or lock) inside the member's source tree. Asserted by a test.
 - [ ] Two or more MCP daemons for different member repos run simultaneously with no socket/lock collision; each serves its own graph. Asserted by a test and verified live on taxgentic (server + gui + apps) launched from the realm root.
-- [ ] Repo-mode MCP (cwd inside a standalone git repo, no `--repo`) still serves the local index; its socket/lock live in the local index dir (`<repo>/.claude/.atomic-index/`). The socket may be renamed (it is internal to the proxy/daemon pair) as long as both agree and the daemon connects.
+- [ ] Repo-mode MCP (cwd inside a standalone git repo, no `--repo`) still serves the local index; its socket/lock live in the local index dir (`<state-root>/.atomic-index/`). The socket may be renamed (it is internal to the proxy/daemon pair) as long as both agree and the daemon connects.
 - [ ] The daemon self-syncs its index on an interval (named const default 10s), bound to the daemon ctx so it stops on shutdown; `--watch-interval` overrides and `--no-watch` disables. Default asserted by a test.
 - [ ] `go test ./internal/codeintel/...` green; `go vet` clean; binary builds.
 - [ ] If a user-facing `code mcp` flag is added, `atomic/internal/cliusage/`, `templates/commands/atomic-help.md`, and `docs/reference/code-intel.md` reflect it; `make render` + `make -C atomic bundle` drift-clean.
@@ -42,7 +42,7 @@ Resolve the db from the explicit path and spawn a cwd-independent daemon that se
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| Socket-path change breaks existing repo-mode MCP | Medium | Repo-mode (local index) keeps its current socket path; only members move the socket to the db dir under `<realm>/.atomic/`. Test both paths. |
+| Socket-path change breaks existing repo-mode MCP | Medium | Repo-mode (local index) keeps its current socket path; only members move the socket to the db dir under `<realm-state-root>/`. Test both paths. |
 | Un-rejecting a daemon-mode mcp invocation re-introduces ambiguity at a realm root | Low | Only the explicit-path single-target (`--repo`, or the spawned `mcp --daemon` invocation with explicit source+db) serves; `code mcp` from a realm-root cwd with no `--repo` has no single target and stays rejected. |
 | Self-sync boots a parser pool on every change | Low | Lazy pool (already landed) only boots on a real change; gate the sync on a cheap pending-change check; a no-op tick stays sub-second. |
 | Two daemons race writing the same realm db (member MCP + a future external sync) | Low | One daemon per db; SQLite WAL + busy-timeout already configured. Out of scope to coordinate external writers. |
@@ -50,6 +50,20 @@ Resolve the db from the explicit path and spawn a cwd-independent daemon that se
 ## Change log
 
 (empty — spec created 2026-06-22)
+
+### 2026-11-12 — Correction: realm member db under the realm state root
+
+**What changed:** The daemon success criterion and the socket-path risk name `<realm-state-root>/<key>.db`.
+
+**Why:** `realm/config.go` writes there; `<realm>/.atomic/` is right only for the default `state.dir`.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The standalone-repo db, the member-tree guard, and the repo-mode socket and lock dir now name `<state-root>/.atomic-index/`, with the state root `.atomic` by default.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** those three criteria named `<repo>/.claude/.atomic-index/`.
 
 ### 2026-08-10 — Daemon mode folded into `code mcp --daemon`
 

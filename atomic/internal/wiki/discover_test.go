@@ -24,7 +24,7 @@ func discoverFixture(t *testing.T, repos ...string) string {
 
 func writeRealmTOML(t *testing.T, root, body string) {
 	t.Helper()
-	restore := config.SetHarnessDirForTest(".claude")
+	restore := config.SetStateDirForTest(".claude")
 	t.Cleanup(restore)
 	p := config.RepoConfigPath(root)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {

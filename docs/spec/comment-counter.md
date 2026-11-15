@@ -24,7 +24,7 @@ Implementation contract for GitHub issue #269. Design: `docs/design/comment-coun
 ## Success criteria
 
 
-- [ ] `[comments] max_lines` loads from `.claude/atomic.toml` as a known key; absent means 2; a value under 1 is a `Warning` and resolves to 2; `atomic doctor` category 13 reports the warning.
+- [ ] `[comments] max_lines` loads from `<state-root>/atomic.toml` (`.atomic/atomic.toml` by default) as a known key; absent means 2; a value under 1 is a `Warning` and resolves to 2; `atomic doctor` category 13 reports the warning.
 - [ ] `atomic code comments` with no flags counts the working tree against `HEAD`, including untracked files not covered by `.gitignore`; `--diff <range>` passes the range to `git diff -U0`; a range containing `..` skips the untracked pass.
 - [ ] Each listed comment carries the repo-relative path, the first added line number, the line span, and the first words of its text with comment markers stripped; consecutive comment lines in one file are one entry.
 - [ ] Line prefixes and block delimiters resolve by extension per the design table; files with an unknown extension, and `.md`, `.txt`, `.json`, are skipped; `//go:` and `#!` lines are not comments.
@@ -34,7 +34,7 @@ Implementation contract for GitHub issue #269. Design: `docs/design/comment-coun
 - [ ] `atomic code --help` and `atomic --help` list the verb with `--diff` and `--json`; `TestDeriveCommandsGolden` passes; `atomic validate artifacts` passes on the corpus.
 - [ ] `agent-comment-discipline` tells its consumers to run the counter on their diff and treat the list as a deletion worklist; `atomic-implementer` names `--diff {BASE_SHA}` and reports `comments: N added` in its signals block; `atomic-reviewer` runs it in the code-quality pass, reports `comments: N added (M over max)` under Signals verified, and treats a count that contradicts the implementer's claim as 🔴; `atomic-auditor` runs it over `<loop-base>..HEAD` in the coherence pass.
 - [ ] `context/skills/atomic-review/SKILL.md` Comment noise section instructs running the verb on the diff under review and walking its list, rather than reading the diff for comments by eye.
-- [ ] `context/CLAUDE.md` lists the verb under Atomic binary and the key in the `.claude/atomic.toml` row; `context/commands/atomic-help.md` carries the verb in the binary job table and Stage 4; the help-coverage loop prints zero `MISSING:` lines.
+- [ ] `context/AGENTS.md` lists the verb under Atomic binary and the key in the `<state-root>/atomic.toml` row; `context/commands/atomic-help.md` carries the verb in the binary job table and Stage 4; the help-coverage loop prints zero `MISSING:` lines.
 - [ ] `docs/reference/atomic-toml.md` documents the key; `docs/reference/code-intel.md` documents the verb; `docs/spec/comment-discipline.md` gains a pointer section and a dated log entry; the root `CLAUDE.md` ownership bullet for `atomic-toml.md` names `[comments]`.
 - [ ] `go test ./...`, `go vet ./...`, `gofmt -l .` clean; `atomic validate spec` and `atomic validate config` clean.
 
@@ -147,7 +147,7 @@ context/commands/atomic-help.md
   Binary subcommands — job row
   Stage 4 — one line
 
-context/CLAUDE.md
+context/AGENTS.md
   Atomic binary — comments in the code verb list
   Where things live — [comments] max_lines in the atomic.toml row
 
@@ -192,7 +192,7 @@ CLAUDE.md (root)
 **Flow: the verb**
 
 1. User or agent runs `atomic code comments [--diff <range>] [--json]`.
-2. Dispatcher resolves the git root and loads `.claude/atomic.toml` for `max_lines`.
+2. Dispatcher resolves the git root and loads `<state-root>/atomic.toml` for `max_lines`.
 3. Verb runs `git diff -U0` for the range; in working-tree mode it also lists untracked files and scans them whole.
 4. Added lines are classified by the extension's syntax into comment entries.
 5. Verb prints the report and exits 0, 1 when an entry exceeds the maximum, 2 on a git or flag error.
@@ -205,7 +205,7 @@ CLAUDE.md (root)
 |---|------------|-------------|-------|------------|----------|
 | 1 | `[comments] max_lines` key with default and doctor warning | `atomic/internal/config/repo.go`, `repo_test.go`, `atomic/internal/doctor/checks_repo_config.go`, `checks_repo_config_test.go` | atomic-implementer (mode: surgical) | ~4 | config tests: loads, defaults, warns; doctor test: WARN on `max_lines = 0` |
 | 2 | `atomic code comments` verb, dispatch, cobra, cliusage golden | `atomic/internal/codeintel/cli/comments.go`, `comments_test.go`, `code.go`, `realm.go`, `atomic/cmd/atomic/cmd_code.go`, `atomic/internal/cliusage/cliusage.go` | atomic-implementer (mode: feature) | ~6 | cli tests on git fixture repos; `TestDeriveCommandsGolden`; hand-run on this repo |
-| 3 | Agent, skill, help, and global-contract wiring | `context/_partials/agent-comment-discipline.md`, `agent-implementer-workflow.md`, `agent-signals-output.md`, `context/agents/atomic-reviewer.md`, `atomic-auditor.md`, `context/skills/atomic-review/SKILL.md`, `context/commands/atomic-help.md`, `context/CLAUDE.md` | atomic-implementer (mode: feature) | ~8 | `make -C atomic bundle` clean; `atomic validate artifacts` clean; help-coverage loop zero `MISSING:` |
+| 3 | Agent, skill, help, and global-contract wiring | `context/_partials/agent-comment-discipline.md`, `agent-implementer-workflow.md`, `agent-signals-output.md`, `context/agents/atomic-reviewer.md`, `atomic-auditor.md`, `context/skills/atomic-review/SKILL.md`, `context/commands/atomic-help.md`, `context/AGENTS.md` | atomic-implementer (mode: feature) | ~8 | `make -C atomic bundle` clean; `atomic validate artifacts` clean; help-coverage loop zero `MISSING:` |
 | 4 | Reference docs and prior spec pointer | `docs/reference/atomic-toml.md`, `docs/reference/code-intel.md`, `docs/spec/comment-discipline.md`, root `CLAUDE.md` | atomic-implementer (mode: feature) | ~4 | `atomic validate spec` clean; pages read in `atomic-writing` voice |
 
 
@@ -222,6 +222,20 @@ CLAUDE.md (root)
 
 
 ## Change log
+
+### 2026-11-12 — Correction: global contract is context/AGENTS.md
+
+**What changed:** The outline and checkpoint 3 name `context/AGENTS.md` as the global-contract file.
+
+**Why:** `context/CLAUDE.md` no longer exists; the 2026-11-11 entry fixed the success criterion but not these two spots.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** `[comments] max_lines` loads from `<state-root>/atomic.toml` (`.atomic/atomic.toml` by default) in the success criterion and the verb flow, and the global-contract criterion names `context/AGENTS.md` and its `<state-root>/atomic.toml` row.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the repo config was read from `.claude/atomic.toml`, and the criterion named `context/CLAUDE.md` and its `.claude/atomic.toml` row.
 
 ### 2026-10-19 — Artifacts assume atomic is installed
 

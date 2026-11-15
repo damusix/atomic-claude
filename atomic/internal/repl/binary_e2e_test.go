@@ -33,9 +33,11 @@ const (
 	// e2eSessionName is short on purpose: it lands inside a socket path under the
 	// sandbox HOME, and sun_path is 104 bytes on macOS.
 	e2eSessionName = "e2e"
+	// Pinned so the config location does not follow the built-in default.
+	e2eStateDir = ".e2e-state"
 )
 
-// e2eRepoConfig is the sandbox repo's .claude/atomic.toml. scope = "repo" makes
+// e2eRepoConfig is the sandbox repo's atomic.toml. scope = "repo" makes
 // scope resolution deterministic without a git repo: repoctx prefers the marker
 // over `git rev-parse`. The idle window is a leak bound, not a behavior under
 // test — a harness this test fails to stop retires itself a minute later.
@@ -174,7 +176,7 @@ func TestReplBinary_InvalidIdleTimeoutWarnsOnStart(t *testing.T) {
 	if exit != int(ExitInterpreterUnavailable) {
 		t.Fatalf("exit = %d, want %d; stderr=%s", exit, ExitInterpreterUnavailable, stderr)
 	}
-	for _, want := range []string{filepath.Join(env.repo, ".claude", "atomic.toml"), `"not-a-duration"`} {
+	for _, want := range []string{filepath.Join(env.repo, e2eStateDir, "atomic.toml"), `"not-a-duration"`} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr does not name %s; got:\n%s", want, stderr)
 		}
@@ -214,7 +216,7 @@ func buildAtomicBinary(t *testing.T) string {
 
 // newE2EEnv builds a sandbox: a temp HOME, so every session file lands there
 // rather than in the developer's real ~/.atomic, and a temp repo carrying
-// repoConfig as its .claude/atomic.toml.
+// repoConfig as its atomic.toml under e2eStateDir.
 func newE2EEnv(t *testing.T, bin, repoConfig string) *e2eEnv {
 	t.Helper()
 
@@ -223,7 +225,7 @@ func newE2EEnv(t *testing.T, bin, repoConfig string) *e2eEnv {
 	home := realPath(t, shortTempDir(t))
 	repo := realPath(t, shortTempDir(t))
 
-	configDir := filepath.Join(repo, ".claude")
+	configDir := filepath.Join(repo, e2eStateDir)
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", configDir, err)
 	}
@@ -239,15 +241,11 @@ func newE2EEnv(t *testing.T, bin, repoConfig string) *e2eEnv {
 			// The sandbox itself: os.UserHomeDir reads HOME, so every path under
 			// ~/.atomic/repl resolves inside the temp dir.
 			"HOME=" + home,
+			"ATOMIC_STATE_DIR=" + e2eStateDir,
 			"PATH=" + os.Getenv("PATH"),
 			// os.Getwd prefers PWD when it names the same directory as ".", keeping
 			// the scope root spelled exactly as asserted.
 			"PWD=" + repo,
-			// This env is the child's whole environment, so harness.dir would land
-			// on the built-in default anyway. Pinning it states the fixture's
-			// dependency out loud: the config above is written to
-			// ".claude/atomic.toml", and this is what says the binary looks there.
-			"ATOMIC_HARNESS=.claude",
 		},
 	}
 }

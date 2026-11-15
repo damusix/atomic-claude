@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
@@ -258,6 +259,11 @@ func installArtifact(t *testing.T, target string, a embedded.Artifact) {
 	data, err := embedded.FS.ReadFile(a.Source)
 	if err != nil {
 		t.Fatalf("read embedded %s: %v", a.Source, err)
+	}
+	if a.Target == "CLAUDE.md" {
+		if data, err = artifacts.ClaudeSteering(data); err != nil {
+			t.Fatalf("render Claude steering: %v", err)
+		}
 	}
 	writeFile(t, filepath.Join(target, filepath.FromSlash(a.Target)), data)
 }

@@ -35,7 +35,7 @@ under a single set of assertions.
 
 ## Exploring blast radius by hand
 
-Index one fixture (writes to `.claude/.atomic-index/atomic.db` inside the fixture dir).
+Index one fixture (writes to `.atomic/.atomic-index/atomic.db` inside the fixture dir).
 Run from the repo root, since `--repo` takes a path relative to the current directory
 (pass an absolute path to run from anywhere):
 

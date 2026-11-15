@@ -18,8 +18,7 @@ import (
 )
 
 // buildScratchpadCmd registers the scratchpad verb: new, path, list, archive.
-// --repo is the shared global root override (main.go), resolved through
-// repoOverride like buildReminderCmd.
+// --repo is the shared global root override (main.go).
 func buildScratchpadCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runScratchpad(args, *repoOverride) }
 	parent := &cobra.Command{

@@ -47,8 +47,17 @@ flowchart TD
 A `Stop` node ends the verb. A `Skip` inside a gate (review, doc impact, signals refresh) stays inside that gate. Any other `Skip` ends its whole ship step (all of push, or all of squash including its steps); the path's next ship step runs, and when none follows, the verb ends.
 
 <constraints>
-If there is an open PR and the escalation requires a merge, the new commit must be pushed before `gh pr merge` so the server-side merge includes it. Push to the PR's existing branch — do not create a new PR.
+If there is an open change request and the escalation requires a merge, the new commit must be pushed before the `change-request-merge` operation so the server-side merge includes it. Push to the change request's existing branch; do not create a new one.
 </constraints>
+
+### Resolve the provider
+
+Before any escalation path runs, {{ template "resolved-provider" "source-control" }}
+
+With `source-control: none`:
+
+- **Push and PR paths**: refuse with `no source-control provider: add a remote with git remote add origin <url>, or run atomic workflow set source-control <provider>.` and stop.
+- **Merge and squash + merge paths**: take merge-flow's local-merge path.
 
 ### Push path (`push` token or user picks Push)
 
@@ -76,7 +85,7 @@ If there is an open PR and the escalation requires a merge, the new commit must 
 
 ## Interactive path
 
-Ask via `AskUserQuestion`:
+Ask the user:
 
 > Committed. Ship further?
 > - Done — just the commit

@@ -51,6 +51,22 @@ func TestInstallRoundTrip(t *testing.T) {
 	}
 }
 
+func TestInstallAdoptedRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := Default()
+	cfg.Install.Adopted = true
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Install.Adopted {
+		t.Error("Install.Adopted = false after a write and load, want true")
+	}
+}
+
 func TestInstallVersionInvalid(t *testing.T) {
 	cfg := Default()
 	cfg.Install.Version = "not-a-semver"
@@ -1021,193 +1037,26 @@ func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
 	}
 }
 
-// [claude.agents] is machine-written and not user-settable, so Resolved omits it.
-func TestAgentsNotInConfigList(t *testing.T) {
+// Overrides are listed but stay outside the settable keys: `atomic config
+// agents` owns their writes.
+func TestAgentOverrideKeysAreNotSettable(t *testing.T) {
 	cfg := Default()
-	cfg.Claude.Agents = map[string]AgentOverride{"atomic-implementer": {Model: "haiku"}}
-	m := Resolved(cfg)
-	for k := range m {
-		if strings.HasPrefix(k, "claude.agents") {
-			t.Errorf("Resolved() contains claude.agents key %q — agents is machine-written, must not appear in config list", k)
+	if err := Set(cfg, "claude.agents.atomic-implementer.model", "opus"); err == nil {
+		t.Error("Set accepted an agent override key")
+	}
+}
+
+// A refused override key must point the user at the verb that does write it.
+func TestAgentOverrideKeysPointAtConfigAgents(t *testing.T) {
+	for _, harness := range AgentHarnesses {
+		key := harness + ".agents.atomic-implementer.model"
+		want := "atomic config agents --harness " + harness
+		if err := Set(Default(), key, "opus"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Set(%q) error = %v, want it to name %q", key, err, want)
 		}
-	}
-}
-
-// --- harness.dir ---
-
-func TestHarnessDirDefault(t *testing.T) {
-	cfg := Default()
-	if cfg.Harness.Dir != ".claude" {
-		t.Errorf("Default() Harness.Dir = %q, want \".claude\"", cfg.Harness.Dir)
-	}
-}
-
-func TestHarnessDirAbsent(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-
-	content := "[output.signals]\nmax_depth = 3\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, warns, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(warns) != 0 {
-		t.Errorf("unexpected warnings: %v", warns)
-	}
-	if cfg.Harness.Dir != ".claude" {
-		t.Errorf("absent harness.dir should default to \".claude\", got %q", cfg.Harness.Dir)
-	}
-}
-
-func TestHarnessDirExplicit(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-
-	content := "[harness]\ndir = \".pi\"\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, warns, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(warns) != 0 {
-		t.Errorf("unexpected warnings: %v", warns)
-	}
-	if cfg.Harness.Dir != ".pi" {
-		t.Errorf("Harness.Dir = %q, want \".pi\"", cfg.Harness.Dir)
-	}
-}
-
-func TestHarnessDirGetSet(t *testing.T) {
-	cfg := Default()
-	v, err := Get(cfg, "harness.dir")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if v != ".claude" {
-		t.Errorf("default Get = %q, want \".claude\"", v)
-	}
-
-	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-	v, err = Get(cfg, "harness.dir")
-	if err != nil {
-		t.Fatalf("Get after Set: %v", err)
-	}
-	if v != ".pi" {
-		t.Errorf("after Set .pi, Get = %q, want \".pi\"", v)
-	}
-}
-
-func TestHarnessDirSetValidVariants(t *testing.T) {
-	for _, v := range []string{".pi", "pi", ".claude"} {
-		cfg := Default()
-		if err := Set(cfg, "harness.dir", v); err != nil {
-			t.Errorf("Set(harness.dir, %q): unexpected error: %v", v, err)
+		if err := Unset(Default(), key); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Unset(%q) error = %v, want it to name %q", key, err, want)
 		}
-		if cfg.Harness.Dir != v {
-			t.Errorf("Harness.Dir after Set(%q) = %q, want %q", v, cfg.Harness.Dir, v)
-		}
-	}
-}
-
-func TestHarnessDirSetInvalidVariants(t *testing.T) {
-	for _, v := range []string{"foo/bar", ".", "..", ""} {
-		cfg := Default()
-		if err := Set(cfg, "harness.dir", v); err == nil {
-			t.Errorf("Set(harness.dir, %q): expected error, got nil", v)
-		}
-	}
-}
-
-func TestHarnessDirUnset(t *testing.T) {
-	cfg := Default()
-	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Unset(cfg, "harness.dir"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := Get(cfg, "harness.dir")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != ".claude" {
-		t.Errorf("after Unset got %q, want default \".claude\"", got)
-	}
-}
-
-func TestHarnessDirRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-
-	cfg := Default()
-	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-	if err := WritePersist(path, cfg); err != nil {
-		t.Fatalf("WritePersist: %v", err)
-	}
-
-	loaded, warns, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(warns) != 0 {
-		t.Errorf("unexpected warnings: %v", warns)
-	}
-	got, err := Get(loaded, "harness.dir")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got != ".pi" {
-		t.Errorf("got %q, want \".pi\"", got)
-	}
-}
-
-func TestHarnessDirValidateRejectsBadValue(t *testing.T) {
-	cfg := Default()
-	cfg.Harness.Dir = "foo/bar"
-	if err := Validate(cfg); err == nil {
-		t.Fatal("expected Validate to error on harness.dir containing '/'")
-	}
-}
-
-func TestHarnessDirNoUnknownKeyWarning(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-
-	content := "[harness]\ndir = \".pi\"\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	_, warns, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	for _, w := range warns {
-		if strings.Contains(w.Message, "harness") {
-			t.Errorf("unexpected warning for known key: %q", w.Message)
-		}
-	}
-}
-
-func TestHarnessDirUnknownKeyTypoSuggestion(t *testing.T) {
-	cfg := Default()
-	err := Set(cfg, "harness.di", ".pi") // typo: harness.di
-	if err == nil {
-		t.Fatal("expected error for unknown key, got nil")
-	}
-	if !strings.Contains(err.Error(), "harness.dir") {
-		t.Errorf("expected suggestion 'harness.dir' in error %q", err.Error())
 	}
 }
 

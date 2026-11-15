@@ -383,7 +383,7 @@ func TestPlansPageHandler_IDIsScopedToItsOwnMemberRoot(t *testing.T) {
 
 // The realm root and each member resolve to distinct project keys — a
 // realm of N member repos has N+1 distinct <project-key>s, so each root's
-// reports, reminders, and archive are its own, never the realm's.
+// reports and archive are its own, never the realm's.
 func TestPlansMembers_ProjectKeysDisjoint(t *testing.T) {
 	requireGit(t)
 	realmRoot, claudeMD := buildRealmFixture(t, "member-a", "member-b")

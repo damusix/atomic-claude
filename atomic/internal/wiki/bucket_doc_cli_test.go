@@ -22,7 +22,7 @@ import (
 func registerBucketCLI(t *testing.T, root, claudeHome, name string) {
 	t.Helper()
 	var out bytes.Buffer
-	if code := wikiAction([]string{"bucket", "add", "--root=" + root, name}, claudeHome, root, &out); code != 0 {
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, name}, claudeHome, nil, root, &out); code != 0 {
 		t.Fatalf("bucket add %q setup failed: %d; output: %q", name, code, out.String())
 	}
 }
@@ -36,7 +36,7 @@ func TestBucketDoc_HappyPathScaffoldsAndIndexesTheSlug(t *testing.T) {
 	registerBucketCLI(t, root, claudeHome, "research")
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo"}, claudeHome, nil, root, &out)
 	if code != 0 {
 		t.Fatalf("bucket doc: expected exit 0, got %d; output: %q", code, out.String())
 	}
@@ -81,7 +81,7 @@ func TestBucketDoc_ExistingSlugFolderRefusesAndLeavesItUntouched(t *testing.T) {
 	t.Cleanup(func() { os.Stderr = oldStderr })
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo"}, claudeHome, nil, root, &out)
 
 	w.Close()
 	os.Stderr = oldStderr
@@ -118,7 +118,7 @@ func TestBucketDoc_RebuildHardErrorPrintsPathAndExitsNonzero(t *testing.T) {
 	writeUnreadableAndUnpairedDirs(t, filepath.Join(root, "research"))
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo"}, claudeHome, nil, root, &out)
 	if code != 1 {
 		t.Errorf("hard rebuild error: exit %d, want 1", code)
 	}
@@ -140,7 +140,7 @@ func TestBucketDoc_RouterFlagIsUnrecognized(t *testing.T) {
 	registerBucketCLI(t, root, claudeHome, "research")
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo", "--router"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research", "seo", "--router"}, claudeHome, nil, root, &out)
 	if code != 2 {
 		t.Fatalf("bucket doc --router: got exit %d, want 2", code)
 	}
@@ -159,7 +159,7 @@ func TestBucketDoc_UnregisteredBucketRejectedListingNames(t *testing.T) {
 	registerBucketCLI(t, root, claudeHome, "notes")
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "ghost", "seo"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "ghost", "seo"}, claudeHome, nil, root, &out)
 	if code == 0 {
 		t.Fatal("expected non-zero exit for unregistered bucket")
 	}
@@ -179,7 +179,7 @@ func TestBucketDoc_MissingArgsUsageError(t *testing.T) {
 
 	var out bytes.Buffer
 	// Missing slug.
-	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "doc", "--root=" + root, "research"}, claudeHome, nil, root, &out)
 	if code == 0 {
 		t.Error("expected non-zero exit for missing slug argument")
 	}
@@ -194,7 +194,7 @@ func TestBucketSkill_WritesFileAndReportsNote(t *testing.T) {
 	registerBucketCLI(t, root, claudeHome, "research")
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "skill", "--root=" + root, "research"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "skill", "--root=" + root, "research"}, claudeHome, nil, root, &out)
 	if code != 0 {
 		t.Fatalf("bucket skill: expected exit 0, got %d; output: %q", code, out.String())
 	}
@@ -220,7 +220,7 @@ func TestBucketSkill_NoOpWhenPresent(t *testing.T) {
 	registerBucketCLI(t, root, claudeHome, "research")
 
 	var first bytes.Buffer
-	if code := wikiAction([]string{"bucket", "skill", "--root=" + root, "research"}, claudeHome, root, &first); code != 0 {
+	if code := wikiAction([]string{"bucket", "skill", "--root=" + root, "research"}, claudeHome, nil, root, &first); code != 0 {
 		t.Fatalf("first skill call failed: %d", code)
 	}
 
@@ -231,7 +231,7 @@ func TestBucketSkill_NoOpWhenPresent(t *testing.T) {
 	}
 
 	var second bytes.Buffer
-	code := wikiAction([]string{"bucket", "skill", "--root=" + root, "research"}, claudeHome, root, &second)
+	code := wikiAction([]string{"bucket", "skill", "--root=" + root, "research"}, claudeHome, nil, root, &second)
 	if code != 0 {
 		t.Fatalf("second skill call: expected exit 0, got %d; output: %q", code, second.String())
 	}
@@ -256,7 +256,7 @@ func TestBucketSkill_UnregisteredBucketRejected(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "skill", "--root=" + root, "ghost"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "skill", "--root=" + root, "ghost"}, claudeHome, nil, root, &out)
 	if code == 0 {
 		t.Fatal("expected non-zero exit for unregistered bucket")
 	}
@@ -273,7 +273,7 @@ func TestBucketIndex_AllRebuildsEveryBucketAndRealmList(t *testing.T) {
 	writeBucketCLIFile(t, filepath.Join(root, "research", "seo.md"), "---\ntitle: SEO\ndescription: Technical SEO checklist.\n---\n\nBody.\n")
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "index", "--root=" + root}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "index", "--root=" + root}, claudeHome, nil, root, &out)
 	if code != 0 {
 		t.Fatalf("bucket index (all): expected exit 0, got %d; output: %q", code, out.String())
 	}
@@ -319,7 +319,7 @@ func TestBucketIndex_SingleBucketReportsCountsAndRebuildsOnlyThatRegion(t *testi
 	writeBucketCLIFile(t, filepath.Join(root, "research", "untagged.md"), "No frontmatter here.\n")
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "index", "--root=" + root, "research"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "index", "--root=" + root, "research"}, claudeHome, nil, root, &out)
 	if code != 0 {
 		t.Fatalf("bucket index research: expected exit 0, got %d; output: %q", code, out.String())
 	}
@@ -351,7 +351,7 @@ func TestBucketIndex_CountsSumEveryIndexInTheTree(t *testing.T) {
 	for _, args := range [][]string{{"research"}, {}} {
 		var out bytes.Buffer
 		argv := append([]string{"bucket", "index", "--root=" + root}, args...)
-		if code := wikiAction(argv, claudeHome, root, &out); code != 0 {
+		if code := wikiAction(argv, claudeHome, nil, root, &out); code != 0 {
 			t.Fatalf("%v: exit %d; output: %q", argv, code, out.String())
 		}
 		if !strings.Contains(out.String(), "research: 2 indexed, 1 unindexed") {
@@ -373,7 +373,7 @@ func TestBucketIndex_HardErrorBesideUnpairedRegion(t *testing.T) {
 	writeUnreadableAndUnpairedDirs(t, filepath.Join(root, "research"))
 
 	var out bytes.Buffer
-	if code := wikiAction([]string{"bucket", "index", "--root=" + root, "research"}, claudeHome, root, &out); code != 1 {
+	if code := wikiAction([]string{"bucket", "index", "--root=" + root, "research"}, claudeHome, nil, root, &out); code != 1 {
 		t.Errorf("single bucket: an unpaired region must not mask an unreadable directory: exit %d, want 1", code)
 	}
 }
@@ -400,7 +400,7 @@ func TestBucketIndex_SingleBucketDoesNotReWalkOrReReportOtherBuckets(t *testing.
 	os.Stderr = w
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "index", "--root=" + root, "research"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "index", "--root=" + root, "research"}, claudeHome, nil, root, &out)
 
 	w.Close()
 	os.Stderr = oldStderr
@@ -456,7 +456,7 @@ func TestBucketIndex_UnregisteredBucketRejected(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "index", "--root=" + root, "ghost"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "index", "--root=" + root, "ghost"}, claudeHome, nil, root, &out)
 	if code == 0 {
 		t.Fatal("expected non-zero exit for unregistered bucket")
 	}
@@ -471,7 +471,7 @@ func TestBucketIndex_NoBucketsIsNoop(t *testing.T) {
 	writeBucketCLIFile(t, filepath.Join(root, "wiki", "index.md"), "# Wiki\n")
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "index", "--root=" + root}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "index", "--root=" + root}, claudeHome, nil, root, &out)
 	if code != 0 {
 		t.Errorf("expected exit 0 with no registered buckets, got %d; output: %q", code, out.String())
 	}

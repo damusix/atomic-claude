@@ -3,7 +3,7 @@
 
 ## Goal
 
-Replace the flat eager-loaded `inferred-signals.md` with a router-shaped `signals.md` that auto-loads a complete project orientation (framework, build commands, devops, domain index), leaving per-domain detail files on disk for the LLM to `Read` on demand. Eliminates token overflow on large repos while preserving the "Claude already knows where things live" property.
+Replace the flat eager-loaded `inferred-signals.md` with a router-shaped `docs/wiki/index.md` that auto-loads a complete project orientation (framework, build commands, devops, domain index), leaving per-domain detail files on disk for the LLM to `Read` on demand. Eliminates token overflow on large repos while preserving the "Claude already knows where things live" property.
 
 
 ## Non-goals
@@ -15,27 +15,27 @@ Replace the flat eager-loaded `inferred-signals.md` with a router-shaped `signal
 
 ## Success criteria
 
-- [ ] `signals.md` is written to `.claude/project/signals.md`; it is `@-ref`'d from the user's project `CLAUDE.md`; it loads in every session.
-- [ ] `signals.md` is always the output shape. No flat vs router mode split — one code path.
-- [ ] `signals.md` is a complete orientation document: framework/runtime, build/test/lint commands, devops/CI summary, domain route table, cross-cutting conventions.
-- [ ] Domain files (`signals/<domain>.md` or `signals/<domain>/index.md`) are written to `.claude/project/signals/` as vertical slices — one per functional concern, grouping artifacts + CLI code + docs + coupling. They are NOT `@-ref`'d; they are NOT eagerly loaded.
-- [ ] `deterministic-signals.md` remains on disk at `.claude/project/deterministic-signals.md`; it is NOT `@-ref`'d; it is NOT auto-loaded.
+- [ ] The router is written to `docs/wiki/index.md`; it is `@-ref`'d from the user's project `CLAUDE.md`; it loads in every session.
+- [ ] `docs/wiki/index.md` is always the output shape. No flat vs router mode split — one code path.
+- [ ] `docs/wiki/index.md` is a complete orientation document: framework/runtime, build/test/lint commands, devops/CI summary, domain route table, cross-cutting conventions.
+- [ ] Domain files (`docs/wiki/<domain>.md` or `docs/wiki/<domain>/index.md`) are written to `docs/wiki/` as vertical slices — one per functional concern, grouping artifacts + CLI code + docs + coupling. They are NOT `@-ref`'d; they are NOT eagerly loaded.
+- [ ] The deterministic substrate remains on disk at `docs/wiki/scan.md`; it is NOT `@-ref`'d; it is NOT auto-loaded.
 - [ ] Deterministic tree entries include per-path metadata from a single file read: content SHA (hex, 7-char truncated), line count, character count, byte size.
 - [ ] Bounded tree: entries at `≤ max_depth` are fully enumerated; entries at `max_depth + 1` show folder name + `(N files, M dirs)` only; entries `> max_depth + 1` are elided (appear only as a count in the parent summary).
 - [ ] `max_depth` defaults to `3`; `output.signals.max_depth` in `~/.atomic/config.toml` overrides it.
-- [ ] Change detection uses content SHA diff between prev and current `deterministic-signals.md`. No git commit SHA. No mtime fallback — content SHA works with or without git.
-- [ ] Deterministic scan keeps prev version as `.deterministic-signals.prev.md`. Diff between prev and current surfaces changed paths (entries with different content SHAs).
+- [ ] Change detection uses content SHA diff between prev and current `docs/wiki/scan.md`. No git commit SHA. No mtime fallback — content SHA works with or without git.
+- [ ] Deterministic scan keeps prev version as `tmp/.scan.prev.md`. Diff between prev and current surfaces changed paths (entries with different content SHAs).
 - [ ] Inference pass uses sub-agents per domain. Orchestrator dispatches one sub-agent per domain that needs writing/updating; each reads source files in its area and writes its domain file. Reviewer validates each domain file against source code. Same implement→review pattern as `/subagent-implementation`.
 - [ ] Cross-domain references (e.g. "auth talks to billing via webhooks") are wired by the orchestrator after all domain files land.
 - [ ] Domain partitioning is by functional concern (vertical slices). Structural signals inform the LLM; the LLM judges boundaries. Things that break together belong together.
 - [ ] No micro-domain consolidation threshold. Size is a secondary trigger, not the primary axis. A 3-file concern still gets a domain file.
-- [ ] Inferrer reads existing `signals/*.md` and `signals/*/index.md` as anchor on rescan; keeps filenames when underlying paths still match (naming continuity).
-- [ ] First migration from flat `inferred-signals.md`: backs up to `.claude/project/inferred-signals.md.bak`, writes `signals.md` + domain files (if needed), prints "Migrated to router shape. Review with `git diff`." Documented exception to axiom 3 (inferrer is non-interactive inside skill dispatch — no TTY for confirm prompt; backup + `git diff` is the mitigation).
+- [ ] Inferrer reads existing domain files (`docs/wiki/*.md` other than `index.md` and `scan.md`, and `docs/wiki/*/index.md`) as anchor on rescan; keeps filenames when underlying paths still match (naming continuity).
+- [ ] First migration from flat `inferred-signals.md`: backs up to `.claude/project/inferred-signals.md.bak` beside the legacy file, writes `docs/wiki/index.md` + domain files (if needed), prints "Migrated to router shape. Review with `git diff`." Documented exception to axiom 3 (inferrer is non-interactive inside skill dispatch — no TTY for confirm prompt; backup + `git diff` is the mitigation).
 - [ ] `.signalsignore` at repo root: files matching its globs are scanned (appear in tree with metadata) but flagged as generated — inferrer skips them for domain file content. Not full omission. `/setup-wiki` generates a blank `.signalsignore` with commented explanation on repo bootstrap.
-- [ ] `doctor signals` check validates: router present + `@-ref`'d; all domain files referenced in router table exist on disk; no orphan domain files under `signals/`; worktrees not cross-compared (check runs per-cwd only).
-- [ ] `CLAUDE.md` (bundled global) `@-ref` switches from `inferred-signals.md` to `signals.md`; old ref removed.
+- [ ] `doctor signals` check validates: router present + `@-ref`'d; all domain files referenced in router table exist on disk; no orphan domain files under `docs/wiki/`; worktrees not cross-compared (check runs per-cwd only).
+- [ ] The `@docs/wiki/index.md` ref lives only in project files (`claude.local.md`, `CLAUDE.md`); the bundled global contract never carries it, since it installs into every user's home.
 - [ ] `atomic-wiki-inferrer` agent prompt rewritten for orchestrator role: dispatches sub-agents per domain, runs reviewer per domain file, wires cross-domain refs.
-- [ ] `atomic-signals` skill updated to write/update `signals.md` instead of `inferred-signals.md`.
+- [ ] `atomic-signals` skill updated to write/update `docs/wiki/index.md` instead of `inferred-signals.md`.
 - [ ] `signals-workflow.md` spec gains a change-log entry noting the breaking change and pointing to this spec.
 
 
@@ -64,51 +64,51 @@ Deterministic scan feeds content-SHA-based diffs to a multi-agent inference pipe
 
 ```mermaid
 flowchart TD
-    A[atomic signals scan] -->|writes| B[deterministic-signals.md\nper-path: SHA + lines + chars + bytes]
-    B -->|diff vs .prev| C[changed paths set]
+    A[atomic signals scan] -->|writes| B[docs/wiki/scan.md\nper-path: SHA + lines + chars + bytes]
+    B -->|diff vs tmp/.scan.prev.md| C[changed paths set]
     C -->|input to| D[inferrer orchestrator]
     D -->|dispatches| E[sub-agent: auth domain]
     D -->|dispatches| F[sub-agent: billing domain]
     D -->|dispatches| G[sub-agent: cli domain]
-    E -->|writes| H[signals/auth/index.md]
-    F -->|writes| I[signals/billing.md]
-    G -->|writes| J[signals/cli/index.md]
-    D -->|assembles| K[signals.md\nrouter + orientation]
+    E -->|writes| H[docs/wiki/auth/index.md]
+    F -->|writes| I[docs/wiki/billing.md]
+    G -->|writes| J[docs/wiki/cli/index.md]
+    D -->|assembles| K[docs/wiki/index.md\nrouter + orientation]
     K -->|@-ref'd from| L[CLAUDE.md]
     H -.->|Read on demand| M[(source tree)]
     I -.->|Read on demand| M
     J -.->|Read on demand| M
 ```
 
-Only `signals.md` is auto-loaded. Domain files and the deterministic substrate are on disk; the LLM reads them on demand using standard file tools.
+Only `docs/wiki/index.md` is auto-loaded. Domain files and the deterministic substrate are on disk; the LLM reads them on demand using standard file tools.
 
 
 ## File layout
 
 ```
-.claude/project/
-├── signals.md                    # router + orientation, @-ref'd from CLAUDE.md
-├── signals/                      # domain files, NOT @-ref'd (created only when router would exceed budget)
-│   ├── auth/                     # large domain: sub-routed
-│   │   ├── index.md              # entry-point; router points here
-│   │   ├── middleware.md
-│   │   └── tokens.md
-│   ├── billing.md                # small domain: single file
-│   └── cli/                      # large domain: sub-routed
-│       ├── index.md              # entry-point
-│       ├── commands.md
-│       └── doctor.md
-├── deterministic-signals.md      # tree + per-path metadata, NOT @-ref'd
-└── deterministic-signals.prev.md # prev scan for diffing
+docs/wiki/
+├── index.md                      # router + orientation, @-ref'd from CLAUDE.md
+├── auth/                         # domain files, NOT @-ref'd (created only when router would exceed budget); large domain: sub-routed
+│   ├── index.md                  # entry-point; router points here
+│   ├── middleware.md
+│   └── tokens.md
+├── billing.md                    # small domain: single file
+├── cli/                          # large domain: sub-routed
+│   ├── index.md                  # entry-point
+│   ├── commands.md
+│   └── doctor.md
+└── scan.md                       # tree + per-path metadata, NOT @-ref'd
+tmp/
+└── .scan.prev.md                 # prev scan for diffing
 ```
 
 `@-ref` status:
 
 | File | Auto-loaded | Notes |
 |------|-------------|-------|
-| `signals.md` | YES — via `@-ref` in project `CLAUDE.md` | Router + full orientation |
-| `signals/<domain>.md` or `signals/<domain>/index.md` | NO | Read on demand |
-| `deterministic-signals.md` | NO | Substrate; consumed by inference pipeline |
+| `docs/wiki/index.md` | YES — via `@-ref` in project `CLAUDE.md` | Router + full orientation |
+| `docs/wiki/<domain>.md` or `docs/wiki/<domain>/index.md` | NO | Read on demand |
+| `docs/wiki/scan.md` | NO | Substrate; consumed by inference pipeline |
 
 
 ## Router shape
@@ -136,11 +136,11 @@ Domain table format:
 ```markdown
 | Domain  | Repo paths                         | One-liner                     | Detail              |
 |---------|------------------------------------|-------------------------------|---------------------|
-| auth    | `src/auth/`, `src/middleware/auth.ts`  | JWT + session, 2FA optional   | `.claude/project/signals/auth/index.md` |
-| billing | `src/billing/`, `prisma/schema.prisma` | Stripe-backed, webhook-driven | `.claude/project/signals/billing.md`  |
+| auth    | `src/auth/`, `src/middleware/auth.ts`  | JWT + session, 2FA optional   | `docs/wiki/auth/index.md` |
+| billing | `src/billing/`, `prisma/schema.prisma` | Stripe-backed, webhook-driven | `docs/wiki/billing.md`  |
 ```
 
-- The inferrer writes every path citation — the `Repo paths` and `Detail` columns — as a **repo-root-relative path in backticks** (e.g. `` `.claude/project/signals/auth/index.md` ``, not `signals/auth/index.md`). The code step `atomic signals linkify` (base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `[`.claude/project/signals/auth/index.md`](signals/auth/index.md)`. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target from the linkified Detail cell.
+- The inferrer writes every path citation — the `Repo paths` and `Detail` columns — as a **repo-root-relative path in backticks** (e.g. `` `docs/wiki/auth/index.md` ``, not `auth/index.md`). The code step `atomic signals linkify` (base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `[`docs/wiki/auth/index.md`](auth/index.md)`. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target from the linkified Detail cell.
 - Detail column is empty when no domain files exist (small repo, everything in router).
 
 **Budget model.** Domain files are created per functional concern (vertical slice), not when a token threshold is crossed. The ~1,000 lines / ~5k tokens threshold is a secondary signal — if a single-file router grows past it, that's a hint to look for concern boundaries, not a mechanical split trigger. After domain files exist, the router keeps all frontloaded orientation content even if it exceeds 5k tokens.
@@ -166,7 +166,7 @@ Path citations are written repo-root-relative in backticks and rendered to file-
 
 **Sub-routing (large domains only):**
 
-- Inferrer MAY split a domain into `signals/<domain>/index.md` + sibling files.
+- Inferrer MAY split a domain into `docs/wiki/<domain>/index.md` + sibling files.
 - `index.md` is the entry-point; router still points here.
 - `index.md` routes to sibling files via plain markdown links. Same pattern as the top-level router, scoped to one domain.
 - Sub-routing is recursive: same shape applies if a sub-domain grows large.
@@ -189,7 +189,7 @@ Per-path metadata format: content SHA (7-char hex prefix of SHA-256 of file byte
 
 Content-SHA-based diff between consecutive deterministic scans. Works identically with or without git — no git-specific change detection, no mtime fallback.
 
-1. `atomic signals scan` writes `deterministic-signals.md` with per-path content SHAs. Prev version saved as `.deterministic-signals.prev.md`.
+1. `atomic signals scan` writes `docs/wiki/scan.md` with per-path content SHAs. Prev version saved as `tmp/.scan.prev.md`.
 2. `diff` between prev and current surfaces entries with changed SHAs = changed paths.
 3. Inferrer orchestrator receives the changed-paths set. Identifies which domain files reference those paths. Dispatches sub-agents only for affected domains.
 4. Unaffected domains are left untouched.
@@ -229,8 +229,8 @@ flowchart TD
     O[Orchestrator] -->|reads| D[deterministic diff\nchanged paths set]
     O -->|dispatches per domain| S1[Sub-agent: domain A]
     O -->|dispatches per domain| S2[Sub-agent: domain B]
-    S1 -->|writes| F1[signals/a/index.md]
-    S2 -->|writes| F2[signals/b.md]
+    S1 -->|writes| F1[docs/wiki/a/index.md]
+    S2 -->|writes| F2[docs/wiki/b.md]
     F1 -->|reviewed by| R1[Reviewer: domain A]
     F2 -->|reviewed by| R2[Reviewer: domain B]
     R1 -->|PASS/CHANGES_REQUESTED| O
@@ -240,24 +240,24 @@ flowchart TD
 
 **Pipeline steps:**
 
-1. Orchestrator reads `deterministic-signals.md` (current) and the diff against prev. Identifies domains needing creation or update.
+1. Orchestrator reads `docs/wiki/scan.md` (current) and the diff against prev. Identifies domains needing creation or update.
 2. Dispatches one sub-agent per affected domain. Each sub-agent reads the actual source files in its area and writes (or updates) the domain file. Sub-agent scope is bounded to its domain.
 3. Reviewer validates each domain file against the source code. Same implement→review loop as `/subagent-implementation`: iterate until PASS.
 4. After all domain files pass review, orchestrator wires cross-domain references (`## What it talks to` sections) using the full picture across domains.
-5. Orchestrator assembles `signals.md` — frontloaded orientation + domain route table.
+5. Orchestrator assembles `docs/wiki/index.md` — frontloaded orientation + domain route table.
 
-On first scan (no prior `signals.md` or domain files): full pipeline runs for all inferred domains. On incremental scan: only affected domains dispatch sub-agents.
+On first scan (no prior `docs/wiki/index.md` or domain files): full pipeline runs for all inferred domains. On incremental scan: only affected domains dispatch sub-agents.
 
 
 ## Migration
 
-On first run when `inferred-signals.md` exists and `signals.md` does not:
+On first run when `inferred-signals.md` exists and `docs/wiki/index.md` does not:
 
 1. Backs up `inferred-signals.md` to `inferred-signals.md.bak` (same directory).
-2. Runs full inference pipeline: writes `signals.md` + domain files (if content exceeds budget).
+2. Runs full inference pipeline: writes `docs/wiki/index.md` + domain files (if content exceeds budget).
 3. Removes `inferred-signals.md`.
 4. Prints: `Migrated to router shape. Review with \`git diff\`.`
-5. Updates project `CLAUDE.md` `@-ref` from `inferred-signals.md` to `signals.md`.
+5. Updates project `CLAUDE.md` `@-ref` from `inferred-signals.md` to `@docs/wiki/index.md`.
 
 No per-item confirm prompt. The design doc (step 8) recommended interactive partition confirm per axiom 4; dropped because the inferrer runs non-interactively inside the `atomic-signals` skill dispatch — no TTY for a confirm prompt. Mitigation: backup file preserves the old output; `git diff` is the review surface. This is a documented exception to axiom 3.
 
@@ -266,25 +266,24 @@ No per-item confirm prompt. The design doc (step 8) recommended interactive part
 
 On rescan when domain files already exist:
 
-1. Orchestrator reads existing `signals/*.md` and `signals/*/index.md` filenames.
+1. Orchestrator reads existing domain filenames (`docs/wiki/*.md` other than `index.md` and `scan.md`, and `docs/wiki/*/index.md`).
 2. For each existing domain file, checks whether the underlying repo paths in the router table still match.
 3. If paths match: keep filename. If paths no longer match: rename (old file removed, new file written under updated name).
 4. Router table updated to reflect any renames.
 
-Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code is unchanged.
+Prevents `docs/wiki/auth.md` → `docs/wiki/identity.md` churn on reruns where code is unchanged.
 
 
 ## Affected artifacts
 
 | Contract change | Artifact | Notes |
 |----------------|----------|-------|
-| Bounded tree + per-path metadata (content SHA, lines, chars, bytes) | `atomic/internal/signals/` | CLI scan package; writes `deterministic-signals.md` with per-path metadata from single file read |
+| Bounded tree + per-path metadata (content SHA, lines, chars, bytes) | `atomic/internal/signals/` | CLI scan package; writes `docs/wiki/scan.md` with per-path metadata from single file read |
 | `max_depth` config key read | `atomic/internal/config/` | New key `output.signals.max_depth`; rendered in `config.resolved.md` |
 | Multi-agent inference pipeline: orchestrator + per-domain sub-agents + reviewers | `agents/atomic-wiki-inferrer.md` | Agent prompt rewritten for orchestrator role |
 | `.signalsignore` read + `[generated]` flagging | `atomic/internal/signals/` | Read exclusion list; flag matching paths in tree output |
-| `@-ref` wiring target switch | `skills/atomic-signals/SKILL.md` | Writes `@signals.md` not `@inferred-signals.md` |
-| `@-ref` in bundled global | `CLAUDE.md` (root, bundled) | Replace `@.claude/project/inferred-signals.md` with `@.claude/project/signals.md` |
-| `@-ref` in project-local config | `claude.local.md` (repo root, gitignored, not bundled) | Replace `@.claude/project/inferred-signals.md` with `@.claude/project/signals.md` |
+| `@-ref` wiring target switch | `skills/atomic-signals/SKILL.md` | Writes `@docs/wiki/index.md` not `@inferred-signals.md` |
+| `@-ref` in project-local config | `claude.local.md` (repo root, gitignored, not bundled) | Replace `@.claude/project/inferred-signals.md` with `@docs/wiki/index.md` |
 | Doctor signals check | `atomic/internal/doctor/checks_signals.go` | Validate router + domain file integrity |
 | Blank `.signalsignore` generation | `/setup-wiki` command | Generate commented blank file on repo bootstrap |
 | Spec breaking-change note | `docs/spec/signals-workflow.md` | Append change-log entry pointing to this spec |
@@ -297,11 +296,11 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 | 1 | Bounded tree + per-path metadata (content SHA, line count, char count, byte size) in deterministic scan | `atomic/internal/signals/tree.go`, `signals.go`, `signals_test.go` (atomic-builder) | `go test ./internal/signals/...` passes; tree output at depth 3 shows full enum with all 4 metadata fields; depth 4 shows summary; depth 5 elided; content SHA is 7-char hex of SHA-256; metadata derived from single file read |
 | 2 | `.signalsignore` read + `[generated]` flagging in scan output | `atomic/internal/signals/signals.go`, `signals_test.go` (atomic-surgeon) | Matching paths appear in tree with `[generated]` marker; content SHA still computed; `.signalsignore` absent = no exclusions; `go test ./internal/signals/...` passes |
 | 3 | `output.signals.max_depth` config key | `atomic/internal/config/config.go`, `config_test.go`, `render.go`, `render_test.go` (atomic-surgeon) | Config loads default `3`; explicit value overrides; rendered in `config.resolved.md`; `go test ./internal/config/...` passes |
-| 4 | Content-SHA diff: prev vs current deterministic scan, changed-paths extraction | `atomic/internal/signals/signals.go`, `signals_test.go` (atomic-surgeon) | Prev saved as `.prev.md`; diff output lists entries with changed SHAs; `[generated]` paths excluded from changed set; works without git; `go test ./internal/signals/...` passes |
+| 4 | Content-SHA diff: prev vs current deterministic scan, changed-paths extraction | `atomic/internal/signals/signals.go`, `signals_test.go` (atomic-surgeon) | Prev saved as `tmp/.scan.prev.md`; diff output lists entries with changed SHAs; `[generated]` paths excluded from changed set; works without git; `go test ./internal/signals/...` passes |
 | 5 | Inferrer agent prompt: orchestrator role, sub-agent dispatch, reviewer loop, cross-domain refs, router assembly, migration, naming continuity | `agents/atomic-wiki-inferrer.md` (atomic-surgeon) | Prompt describes: sub-agent dispatch per domain, reviewer validation loop, cross-domain ref wiring, router orientation sections (framework, build, devops, domain table), domain file sections, naming-continuity rule, migration instructions, `.signalsignore`/`[generated]` skip rule; `grep -c` confirms key phrases |
-| 6 | `atomic-signals` skill + bundled `CLAUDE.md` + `claude.local.md` `@-ref` switch | `skills/atomic-signals/SKILL.md`, `CLAUDE.md` (root), `claude.local.md` (atomic-surgeon) | Skill references `signals.md` not `inferred-signals.md`; `CLAUDE.md` and `claude.local.md` `@-ref`s updated; bundle regen (`make -C atomic bundle`) exits 0 |
+| 6 | `atomic-signals` skill + project `CLAUDE.md` + `claude.local.md` `@-ref` switch | `skills/atomic-signals/SKILL.md`, `CLAUDE.md` (root), `claude.local.md` (atomic-surgeon) | Skill references `docs/wiki/index.md` not `inferred-signals.md`; the project `CLAUDE.md` and `claude.local.md` `@-ref`s updated; bundle regen (`make -C atomic bundle`) exits 0 |
 | 7 | `/setup-wiki` blank `.signalsignore` generation | `commands/setup-wiki.md` (atomic-surgeon) | Command generates `.signalsignore` with commented explanation when absent; does not overwrite existing |
-| 8 | Doctor `signals` check update | `atomic/internal/doctor/checks_signals.go`, `checks_signals_test.go` (atomic-surgeon) | Validates: router present + `@-ref`'d; domain files in router table exist on disk; no orphan files in `signals/`; check runs per-cwd only (no worktree cross-compare); `go test ./internal/doctor/...` passes |
+| 8 | Doctor `signals` check update | `atomic/internal/doctor/checks_signals.go`, `checks_signals_test.go` (atomic-surgeon) | Validates: router present + `@-ref`'d; domain files in router table exist on disk; no orphan files in `docs/wiki/`; check runs per-cwd only (no worktree cross-compare); `go test ./internal/doctor/...` passes |
 | 9 | Spec cross-references + signals-workflow change-log | `docs/spec/signals-workflow.md`, `docs/spec/signals-router.md` (atomic-surgeon) | `signals-workflow.md` change-log entry appended noting breaking change + pointer to this spec; no body sections deleted; `atomic validate spec` exits 0 on both files |
 
 
@@ -310,7 +309,7 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
 | Migration axiom-3 tension: auto-migrate removes `inferred-signals.md` without per-item confirm | medium | Documented exception to axiom 3. Inferrer backs up to `.bak` before removal; `git diff` is the review surface; inferrer prints review hint. Inferrer is non-interactive inside skill dispatch (no TTY). |
-| Worktree cross-compare in doctor | low | Doctor `signals` check anchored to cwd via `repoctx.Toplevel()`. Each worktree (`.claude/worktrees/<branch>/`) carries independent `.claude/project/`. Check must not traverse sibling worktrees. |
+| Worktree cross-compare in doctor | low | Doctor `signals` check anchored to cwd via `repoctx.Toplevel()`. Each worktree (`.claude/worktrees/<branch>/`) carries independent `docs/wiki/`. Check must not traverse sibling worktrees. |
 | Generated-file churn thrashing domain files | medium | `.signalsignore` flags matching paths as `[generated]`; inferrer skips them for domain content; changed SHAs on generated files do not trigger domain refresh. |
 | Sub-agent quality on unfamiliar codebases | medium | Each sub-agent reads actual source files in its domain (not just the tree). Reviewer validates against source code. Iterate until PASS. Low-quality output is caught by the review loop. |
 | Naming continuity failure on large structural refactors | low | When paths no longer match, orchestrator writes new filename and removes old. Removes old file only after new file is fully written. |
@@ -318,6 +317,22 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 
 
 ## Change log
+
+### 2026-11-12 — Correction: the `@`-ref lives only in project files
+
+**What changed:** The bundled-global `@-ref` success criterion and its Change-tree row are replaced by the rule that the `@docs/wiki/index.md` ref lives only in project files, and checkpoint 6 names the project `CLAUDE.md`.
+
+**Why:** the bundled `context/AGENTS.md` installs into every user's global steering, so a project path there leaks into each install; the root `CLAUDE.md` rule says the ref belongs to project files.
+
+**Superseded:** the body told the bundle source to carry `@docs/wiki/index.md`.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** **Correction:** the body names the paths `docs/spec/wiki-storage-relocation.md` moved the signals files to, one for one: `.claude/project/signals.md` is `docs/wiki/index.md` (and its `@-ref` is `@docs/wiki/index.md`), `.claude/project/signals/<domain>.md` and `signals/<domain>/index.md` are `docs/wiki/<domain>.md` and `docs/wiki/<domain>/index.md`, `.claude/project/deterministic-signals.md` is `docs/wiki/scan.md`, and `.claude/project/deterministic-signals.prev.md` is `tmp/.scan.prev.md`. The Goal, success criteria, flow and pipeline diagrams, File layout, router example, sub-routing, change detection, pipeline, migration, naming continuity, contract-change table, Checkpoints 4, 6, and 8, and the worktree risk follow. The structure is unchanged. The legacy `inferred-signals.md` and its `.bak` stay named as the migration source.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`. These signals paths left `.claude/project/` for `docs/wiki/`, not for the state root; `atomic/internal/signals/signals.go` writes `docs/wiki/scan.md` and `tmp/.scan.prev.md`, and `checks_signals.go` reads `docs/wiki/index.md`.
+
+**Superseded:** the router, domain files, deterministic substrate, and prev scan under `.claude/project/`.
 
 ### 2026-09-21 — Language breakdown dropped from the router
 

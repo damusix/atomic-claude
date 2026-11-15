@@ -14,6 +14,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/db"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
@@ -501,7 +502,7 @@ func TestAPICodeFiles_ProductionRealIndex(t *testing.T) {
 	writeFile(t, filepath.Join(repoRoot, "main.go"), "package main\n\nfunc HelloWorld() {}\n")
 	writeFile(t, filepath.Join(repoRoot, "go.mod"), "module example.com/tiny\n\ngo 1.21\n")
 
-	dbDir := filepath.Join(repoRoot, ".claude", ".atomic-index")
+	dbDir := config.IndexDir(repoRoot)
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
 		t.Fatalf("mkdir dbDir: %v", err)
 	}

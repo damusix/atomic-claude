@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
@@ -23,13 +24,38 @@ func fixedClock() time.Time {
 	return time.Date(2026, 5, 16, 18, 32, 11, 0, time.UTC)
 }
 
+// readEmbedded returns the bytes an install writes for source: the embedded
+// bytes, with Claude's vocabulary paragraph rendered into global steering.
 func readEmbedded(t *testing.T, source string) []byte {
 	t.Helper()
 	data, err := fs.ReadFile(embedded.FS, source)
 	if err != nil {
 		t.Fatalf("read embedded %s: %v", source, err)
 	}
-	return data
+	if source != "bundle/CLAUDE.md" {
+		return data
+	}
+	steering, err := artifacts.ClaudeSteering(data)
+	if err != nil {
+		t.Fatalf("render Claude steering: %v", err)
+	}
+	return steering
+}
+
+// A legacy install writes the same steering the Claude adapter writes, so
+// doctor's drift check never reports an adapter-written block as drifted.
+func TestInstallWritesClaudeVocabulary(t *testing.T) {
+	target := t.TempDir()
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(target, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "`subagent_type`") {
+		t.Error("installed CLAUDE.md carries no native-vocabulary paragraph")
+	}
 }
 
 func sha256hex(data []byte) string {
@@ -352,7 +378,10 @@ func TestDiffMixed(t *testing.T) {
 
 func TestManifestSHAMatchesEmbedded(t *testing.T) {
 	for _, a := range embedded.Manifest() {
-		data := readEmbedded(t, a.Source)
+		data, err := fs.ReadFile(embedded.FS, a.Source)
+		if err != nil {
+			t.Fatal(err)
+		}
 		actual := sha256hex(data)
 		if actual != a.SHA256 {
 			t.Errorf("%s: manifest SHA = %s, actual = %s", a.Source, a.SHA256, actual)

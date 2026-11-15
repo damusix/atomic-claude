@@ -48,12 +48,12 @@ func buildMinimalRepo(t *testing.T) string {
 		t.Fatalf("write good-spec.md: %v", err)
 	}
 
-	claudeMD := `# CLAUDE.md
+	agentsMD := `# Atomic
 
 Minimal config for test.
 `
-	if err := os.WriteFile(filepath.Join(root, "context", "CLAUDE.md"), []byte(claudeMD), 0o644); err != nil {
-		t.Fatalf("write CLAUDE.md: %v", err)
+	if err := os.WriteFile(filepath.Join(root, "context", "AGENTS.md"), []byte(agentsMD), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
 	}
 
 	return root
@@ -270,10 +270,8 @@ func TestPerfBudget(t *testing.T) {
 		t.Logf("whole-repo validate run %d: %v", i+1, elapsed)
 	}
 
-	// A wall-clock budget only means something on hardware it controls. A
-	// developer machine runs this in tens of milliseconds, while a shared CI
-	// runner has measured the same work above the local budget on every
-	// attempt, so CI gets one loose enough that only the rules can breach it.
+	// Most of the cost is the projection gate; shared CI runners measured above
+	// 500 ms, so CI gets a looser budget.
 	budget := 500 * time.Millisecond
 	if os.Getenv("CI") != "" {
 		budget = 3 * time.Second

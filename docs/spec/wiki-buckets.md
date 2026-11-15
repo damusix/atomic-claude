@@ -26,7 +26,7 @@ Design: `docs/design/wiki-buckets.md`.
 | Concept | Definition |
 |---------|-----------|
 | Bucket | User-named folder at the **realm root** (sibling of `wiki/`). Registered and indexed. Never nested inside `wiki/`. |
-| Registry | Machine: managed `<wiki-buckets>` block in `wiki/index.md` (code-owned, spliced like `<wiki-scan>`). Narrative: `## Capture surfaces` section in realm `CLAUDE.md`, written on first `bucket add`. |
+| Registry | Machine: managed `<wiki-buckets>` block in `wiki/index.md` (code-owned, spliced like `<wiki-scan>`). Narrative: `## Capture surfaces` section in the realm steering file Claude loads (the realm's shared `AGENTS.md`, a legacy `CLAUDE.md` that does not import it, or the sole `CLAUDE.md` of a `claude-md` realm), written on first `bucket add`. |
 | Bucket index | `<bucket>/index.md` — purpose line + `## Conventions` block, plus the code-generated `<bucket-docs>` listing. The only place a bucket's meaning exists. |
 
 
@@ -44,7 +44,9 @@ Design: `docs/design/wiki-buckets.md`.
 ### `atomic wiki bucket add`
 
 - [ ] `atomic wiki bucket add <name>` registers a new bucket: creates `<realm-root>/<name>/` and its `index.md` (stub with purpose line + `## Conventions` placeholder, left untouched when one exists), and adds a `<bucket name="<name>" path="<abs-path>"/>` entry to the `<wiki-buckets>` block in `wiki/index.md` (spliced idempotently, like `<wiki-scan>`). It creates nothing under `wiki/` besides that entry. It then rebuilds the bucket's indexes, so every folder the walk reaches holds an `index.md` (`docs/spec/bucket-icm-structure.md` criterion 9).
-- [ ] On the first `bucket add` in a realm (no existing `## Capture surfaces` section in the realm `CLAUDE.md`), writes the `## Capture surfaces` section to realm `CLAUDE.md` listing the bucket path with a `<!-- describe what this bucket is for -->` purpose placeholder per bucket. If realm `CLAUDE.md` does not exist, `bucket add` creates it containing only the section; if it exists, the section is appended and all content outside it is preserved byte-for-byte. Subsequent adds append a bucket bullet to the section rather than overwriting it.
+- [ ] `bucket add` writes the `## Capture surfaces` section to the realm steering file Claude loads, chosen in this order: the realm `AGENTS.md` or `CLAUDE.md` (or `claude.md`) that already holds the section, `AGENTS.md` first; else `<realm>/AGENTS.md` when Claude loads it, meaning no `CLAUDE.md`/`claude.md` beside it or one that imports `@AGENTS.md` (`bundlespec.SteeringSource.LoaderWithoutImport`, the rule doctor uses); else the existing `CLAUDE.md` that does not import it. It never edits prose outside the section and never adds an import. When the section stays in `AGENTS.md` beside a `CLAUDE.md` that does not import it, `bucket add` prints one stderr warning naming that `CLAUDE.md` and the `@AGENTS.md` line it needs.
+- [ ] The section lists each bucket's `index.md` path with a `<!-- describe what this bucket is for -->` purpose placeholder. A missing target file is created containing only the section; an existing one gains the section at EOF with all content outside it preserved byte-for-byte. Subsequent adds append a bucket bullet to the section rather than overwriting it.
+- [ ] When the section goes to `AGENTS.md` and neither `<realm>/CLAUDE.md` nor `<realm>/claude.md` exists, `bucket add` writes the thin loader that imports `AGENTS.md` (`bundlespec.ScopeSteering`), so Claude loads the section. An existing loader of either name is left byte-identical.
 - [ ] If the `<wiki-buckets>` block carries a `declined="true"` attribute (the user previously declined the creation offer), `bucket add` removes the attribute as part of registering the new bucket. The offer does not re-fire after this.
 - [ ] Refuses with exit 1 and a message if `<name>` fails validation (`docs/spec/wiki-bucket-arg-hardening.md`), equals `wiki` (reserved), or is already registered in the `<wiki-buckets>` block.
 
@@ -56,7 +58,7 @@ Design: `docs/design/wiki-buckets.md`.
 ### `/refresh-wiki` bucket integration
 
 - [ ] On a realm with no `<wiki-buckets>` block, `/refresh-wiki` prompts once (axiom 4 plain-text offer) with `research`/`notes`/`tickets` as examples. User may name buckets to create; a blank/skip input records a `declined="true"` attribute on the `<wiki-buckets>` block. Offer never re-fires when the block already exists (whether populated or declined).
-- [ ] After creating buckets from the offer, `/refresh-wiki` instructs the model to fill in the narrative the code stubs cannot write: ask the user (or infer from their offer answers) what each bucket is for, then replace the purpose placeholders in the realm `CLAUDE.md` `## Capture surfaces` section and write the bucket's `index.md` purpose line + `## Conventions` block to match. A bucket left with its placeholder is reported in the disposition output as `PLACEHOLDER (unfilled)` so it isn't silently forgotten.
+- [ ] After creating buckets from the offer, `/refresh-wiki` instructs the model to fill in the narrative the code stubs cannot write: ask the user (or infer from their offer answers) what each bucket is for, then replace the purpose placeholders in the `## Capture surfaces` section of whichever realm steering file holds it (`AGENTS.md` or `CLAUDE.md`) and write the bucket's `index.md` purpose line + `## Conventions` block to match. A bucket left with its placeholder is reported in the disposition output as `PLACEHOLDER (unfilled)` so it isn't silently forgotten.
 - [ ] `/refresh-wiki` runs no inference pass over bucket content.
 
 ### Checklist + gates
@@ -73,9 +75,9 @@ The `atomic-wiki` skill (`skills/atomic-wiki/SKILL.md`) is the conversational ro
 
 **Trigger surface:** fires on capture-intent phrases ("I want a place for notes/tickets/research", "add a bucket"), karpathy-realm setup ("set up a wiki for my projects"), and wiki query/staleness phrases ("what does my wiki know about X", "is my wiki stale"). The trigger description in the skill frontmatter is the canonical list.
 
-**Realm resolution:** reads the `<wikis>` block in `~/.claude/CLAUDE.md` (CLI-managed, outside `<atomic>`). cwd under a realm root → that realm is active. No registered realm + setup intent → `atomic wiki scan --root <path>` bootstraps.
+**Realm resolution:** reads the registered realms. `~/.atomic/wikis.md` is the authority; the `<wikis>` block in each enrolled harness's global steering file (CLI-managed, outside `<atomic>`) is a projection of it (`docs/spec/wiki.md`). cwd under a realm root → that realm is active. No registered realm + setup intent → `atomic wiki scan --root <path>` bootstraps.
 
-**Bucket creation contract:** when capture intent is detected and the cwd is under a registered realm, the skill routes to `atomic wiki bucket add <name> --root <realm>` — never a bare `mkdir`. After the binary creates the structure, the skill drives the meaning-fill: asks what the bucket is for, replaces the `<!-- describe what this bucket is for -->` placeholder in realm `CLAUDE.md` `## Capture surfaces`, and writes the bucket `index.md` purpose line + `## Conventions`. Code writes structure; model writes meaning.
+**Bucket creation contract:** when capture intent is detected and the cwd is under a registered realm, the skill routes to `atomic wiki bucket add <name> --root <realm>` — never a bare `mkdir`. After the binary creates the structure, the skill drives the meaning-fill: asks what the bucket is for, replaces the `<!-- describe what this bucket is for -->` placeholder in the `## Capture surfaces` section of whichever realm steering file holds it (`AGENTS.md` or `CLAUDE.md`), and writes the bucket `index.md` purpose line + `## Conventions`. Code writes structure; model writes meaning.
 
 **Karpathy-wiki setup:** `atomic wiki scan --root` scaffolds, user names buckets (examples: `research`, `notes`, `tickets`), `atomic wiki bucket add` registers each, then `/refresh-wiki` writes the repo summaries and concerns.
 
@@ -95,7 +97,7 @@ Go verbs under `atomic wiki bucket`, with the registry spliced into `wiki/index.
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| 2 | **`atomic wiki bucket` CLI verbs**: `add`, `list` dispatch; `<wiki-buckets>` block splice in `wiki/index.md` (idempotent, spliced like `<wiki-scan>`); `## Capture surfaces` write to realm `CLAUDE.md` on first `add`; `cliusage.go` entries | `atomic/internal/wiki/bucket*.go`, `atomic/internal/wiki/action.go`, `atomic/internal/cliusage/cliusage.go` + tests | `go test ./...`: idempotent block splice, CLAUDE.md section written once, `list` prints `name<TAB>path`, `<name>=wiki` refused, double-register refused; `atomic validate artifacts` passes |
+| 2 | **`atomic wiki bucket` CLI verbs**: `add`, `list` dispatch; `<wiki-buckets>` block splice in `wiki/index.md` (idempotent, spliced like `<wiki-scan>`); `## Capture surfaces` write to the loaded realm steering file on first `add`; `cliusage.go` entries | `atomic/internal/wiki/bucket*.go`, `atomic/internal/wiki/action.go`, `atomic/internal/cliusage/cliusage.go` + tests | `go test ./...`: idempotent block splice, section written once, `list` prints `name<TAB>path`, `<name>=wiki` refused, double-register refused; `atomic validate artifacts` passes |
 | 6 | **`/refresh-wiki` bucket offer**: one-time creation offer with decline recording in `<wiki-buckets>`; placeholder fill; `PLACEHOLDER (unfilled)` disposition | `context/commands/refresh-wiki.md` | body names the offer flow (declined attr), placeholder fill, and disposition output |
 | 7 | **Contracts + discovery + docs**: `/atomic-help` rows for `atomic wiki bucket add/list`; `README.md`, `docs/reference/commands.md`, `docs/reference/realm-wiki.md` | `context/commands/atomic-help.md`, `README.md`, `docs/reference/*.md` | help-coverage no `MISSING:`; `npm run docs:build` clean |
 
@@ -105,7 +107,7 @@ Go verbs under `atomic wiki bucket`, with the registry spliced into `wiki/index.
 
 **`<wiki-buckets>` block.** Literal `<wiki-buckets>`/`</wiki-buckets>` boundaries in `wiki/index.md`. One `<bucket name="<name>" path="<abs-path>"/>` per registered bucket. Optional `declined="true"` attribute on the open tag (no children) when the user declined the creation offer. Spliced idempotently (content outside the block untouched), following the `<wiki-scan>` block pattern in `atomic/internal/wiki/wiki.go`. The block is the authority for "is this bucket registered".
 
-**`## Capture surfaces` in realm `CLAUDE.md`.** Written once on first `bucket add` — creating the file when it does not exist, appending the section when it does (content outside the section preserved byte-for-byte). Each bucket bullet carries a `<!-- describe what this bucket is for -->` purpose placeholder; code writes the structure, the `/refresh-wiki` offer flow drives the model to replace placeholders with real purpose descriptions (and matching bucket `index.md` conventions). Subsequent adds append a bullet for the new bucket path. The section is never removed by code. The upward CLAUDE.md walk makes it visible to member-repo sessions.
+**`## Capture surfaces` in the loaded realm steering file.** Written once on first `bucket add` into the file the target-selection criterion above picks: the file already holding the section, else the legacy `CLAUDE.md` that does not import `AGENTS.md`, else `AGENTS.md`. The file is created when it does not exist and the section appended when it does (content outside the section preserved byte-for-byte). When the section goes to `AGENTS.md`, a realm without `CLAUDE.md` gains the thin loader importing it; an existing `CLAUDE.md` is untouched. Each bucket bullet carries a `<!-- describe what this bucket is for -->` purpose placeholder; code writes the structure, the `/refresh-wiki` offer flow drives the model to replace placeholders with real purpose descriptions (and matching bucket `index.md` conventions). Subsequent adds append a bullet for the new bucket path. The section is never removed by code. The harness's upward steering walk makes it visible to member-repo sessions.
 
 
 ## Risks
@@ -114,7 +116,7 @@ Go verbs under `atomic wiki bucket`, with the registry spliced into `wiki/index.
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
 | `<wiki-buckets>` block clobbered by `atomic claude update` | low | Block is outside `<atomic>` in `wiki/index.md` (not in `CLAUDE.md`), so `atomic claude update`'s block-replace logic does not touch it |
-| Realm `CLAUDE.md` write crosses git boundary | low | Walk stops at the realm root by design; the write targets the realm-root `CLAUDE.md`, not any member-repo file |
+| Realm steering write crosses git boundary | low | Walk stops at the realm root by design; the write targets the realm-root `AGENTS.md` or `CLAUDE.md`, not any member-repo file |
 | `declined` attribute prevents legitimate future use | low | `atomic wiki bucket add` still works after decline — it adds the bucket and removes the `declined` attribute |
 
 
@@ -181,6 +183,14 @@ Go verbs under `atomic wiki bucket`, with the registry spliced into `wiki/index.
 
 **Superseded:** with the binary absent, the skill said so and pointed at `/refresh-wiki` and `docs/reference/realm-wiki.md`.
 
+### 2026-11-11 — Capture surfaces go to the realm steering file Claude loads
+
+**What changed:** `bucket add` writes the `## Capture surfaces` section into the realm file that already holds it (`AGENTS.md` first), else into `AGENTS.md` when Claude loads it, else into the existing `CLAUDE.md` that does not import `AGENTS.md`. When it writes `AGENTS.md` and the realm has no `CLAUDE.md` or `claude.md`, it adds the thin loader; when an `AGENTS.md` holding the section sits beside a `CLAUDE.md` that does not import it, it warns on stderr. It never edits prose outside the section or adds an import. The meaning-fill criteria and the skill contract point at whichever file holds the section. Realm resolution names `~/.atomic/wikis.md` as the authority and the `<wikis>` block as its projection.
+
+**Why:** Audit row P-17 in `docs/research/harness-parity-audit.md`: the `atomic-wiki` skill and `/refresh-wiki` told the model to fill the placeholder in `AGENTS.md`, where it did not exist. Moving it to `AGENTS.md` unconditionally would leave a realm whose `CLAUDE.md` predates the steering pair with a second section that Claude never loads. The registry moved to `wikis.md` under `docs/spec/wiki.md`.
+
+**Superseded:** The section always went to the realm `CLAUDE.md`, and realm resolution read the `<wikis>` block in `~/.claude/CLAUDE.md`.
+
 
 ## Implementation log
 
@@ -198,3 +208,10 @@ Delivered 2026-06-12 on branch `wiki-buckets` (autopilot run; 8 checkpoints + 1 
 - `4460f66` — e2e verification fixes: space-form `--root` + unknown-arg refusal, line-anchored `## Capture surfaces` matching with EOF fallback, list status field on never-promoted buckets
 
 **End-to-end verification:** full Go suite green (3 pre-existing `internal/hooks` failures are a filed environment gap, not this feature); `go vet` + `gofmt` clean; render + bundle parity clean; `atomic validate` 0 FAIL; `/atomic-help` MISSING-scan zero; VitePress docs build clean; live binary smoke in a temp realm (HOME redirected): scan → bucket add → diff exit 1 → list `(no baseline) (pending)` → `STALE bucket` → promote → diff exit 0 → list `1 files (fresh)` → stale exit 0; no writes outside the realm.
+
+
+### 2026-11-12 — Realm steering file follows the steering mode
+
+**What changed:** The realm steering file that holds `## Capture surfaces` is the file the `[steering] claude` mode makes Claude load: `claude-md` realms hold it in `CLAUDE.md` with no `AGENTS.md`. The selection order above is unchanged for `loader` and `agents-md`.
+
+**Why:** The `[steering] claude` mode changed how pairs are shaped; contract in `docs/spec/omp-plugin-compatibility.md`.

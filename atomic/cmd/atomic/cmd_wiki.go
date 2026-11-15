@@ -5,6 +5,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/codex"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/omp"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 	"github.com/spf13/cobra"
 )
@@ -33,7 +39,7 @@ func buildWikiCmd() *cobra.Command {
 		}
 		parent.AddCommand(c)
 	}
-	addSub("scan", "Scaffold wiki/, scan repos, mark realm scope, register in ~/.claude/CLAUDE.md", "", func(c *cobra.Command) {
+	addSub("scan", "Scaffold wiki/, scan repos, mark realm scope, register in ~/.atomic/wikis.md", "", func(c *cobra.Command) {
 		c.Flags().String("root", "", "root directory to scan (default: cwd)")
 	})
 	addSub("stale", "Report membership drift: exit 0 none, 1 drift, 2 error (DRIFT lines on stdout)", "", func(c *cobra.Command) {
@@ -42,7 +48,7 @@ func buildWikiCmd() *cobra.Command {
 	addSub("linkify", "Linkify path tokens in wiki artifacts in-place", "", func(c *cobra.Command) {
 		c.Flags().String("root", "", "realm root directory (default: cwd)")
 	})
-	addSub("init", "Write the fixed-content CLAUDE.md scaffold and the scope marker for --scope repo|realm (idempotent)", "", func(c *cobra.Command) {
+	addSub("init", "Write the steering loader pair and the scope marker for --scope repo|realm (idempotent)", "", func(c *cobra.Command) {
 		c.Flags().String("scope", "", "scaffold scope: repo or realm (required)")
 		c.Flags().String("root", "", "root directory (default: cwd)")
 	})
@@ -91,13 +97,40 @@ func runWiki(args []string) {
 		fmt.Fprintf(os.Stderr, "atomic wiki: resolve home dir: %v\n", err)
 		os.Exit(2)
 	}
-	claudeHome := filepath.Join(home, ".claude")
-
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki: resolve cwd: %v\n", err)
 		os.Exit(2)
 	}
 
-	os.Exit(wiki.WikiAction(args, claudeHome, cwd, os.Stdout))
+	steering := func() ([]string, error) { return wikiSteeringPaths(home) }
+	os.Exit(wiki.WikiAction(args, home, steering, cwd, os.Stdout))
+}
+
+// wikiSteeringPaths lists each enrolled target's global steering. With no
+// target enrolled, an existing CLAUDE.md in Claude's config root gets it.
+func wikiSteeringPaths(home string) ([]string, error) {
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		return nil, err
+	}
+	if len(ledger.Targets) == 0 {
+		unadopted := filepath.Join(config.ClaudeConfigDir(home), "CLAUDE.md")
+		if _, err := os.Stat(unadopted); err == nil {
+			return []string{unadopted}, nil
+		}
+		return nil, nil
+	}
+	var paths []string
+	for _, t := range ledger.Targets {
+		switch harness.Kind(t.Harness) {
+		case harness.KindClaude:
+			paths = append(paths, claude.GlobalSteeringPath(t.NativeRoot))
+		case harness.KindOMP:
+			paths = append(paths, omp.SteeringPath(t.NativeRoot))
+		case harness.KindCodex:
+			paths = append(paths, codex.SteeringPath(t.NativeRoot))
+		}
+	}
+	return paths, nil
 }

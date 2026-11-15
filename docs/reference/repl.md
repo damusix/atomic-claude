@@ -132,7 +132,7 @@ A reaped session (idle timeout) and a name that was never `start`ed produce the 
 
 A session with no `eval` activity for longer than its idle window self-terminates: the harness removes its own socket and meta files and exits 0, with no daemon or reaper process involved.
 
-The window resolves repo-first: `[repl] idle_timeout` in `.claude/atomic.toml`, else `[repl] idle_timeout` in `~/.atomic/config.toml`, else `1h`.
+The window resolves repo-first: `[repl] idle_timeout` in `.atomic/atomic.toml` (or `atomic.toml` in a [custom state root](/reference/concepts#state-root-resolution-order)), else `[repl] idle_timeout` in `~/.atomic/config.toml`, else `1h`.
 
     [repl]
     idle_timeout = "2h"

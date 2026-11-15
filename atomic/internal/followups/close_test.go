@@ -6,11 +6,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 func TestClose_HappyPath(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -45,7 +47,7 @@ func TestClose_HappyPath(t *testing.T) {
 
 func TestClose_WithReason(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -69,7 +71,7 @@ func TestClose_WithReason(t *testing.T) {
 
 func TestClose_IDMissing(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -86,7 +88,7 @@ func TestClose_IDMissing(t *testing.T) {
 
 func TestClose_RegeneratesIndex(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

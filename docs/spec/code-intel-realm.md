@@ -32,11 +32,11 @@ spec carries only what gets built.
       command fans out across all members; if cwd is inside a member directory, the
       command queries that member alone via its keyed db. Outside any realm with no
       local index, the command errors with "no index — run atomic code index".
-- [ ] **SC 2** — Repo scope: db at `<repo>/.claude/.atomic-index/atomic.db`; output,
+- [ ] **SC 2** — Repo scope: db at `<state-root>/.atomic-index/atomic.db` (`.atomic` by default); output,
       exit codes, and relative-path behavior match `4.5.0` exactly. No meta row written.
       No member repo directory is touched when operating in realm scope.
-- [ ] **SC 3** — Realm dbs at `<realm>/.atomic/<key>.db`; realm config at
-      `<realm>/.atomic/code.toml`; neither file is tracked by git (the realm root is a
+- [ ] **SC 3** — Realm dbs at `<realm-state-root>/<key>.db`; realm config at
+      `<realm-state-root>/code.toml`; neither file is tracked by git (the realm root is a
       plain container, not a git repo).
 - [ ] **SC 4** — Fan-out partial failure: a member with no db is skipped with a
       surfaced `[key] not indexed` warning line; the operation completes across all
@@ -76,7 +76,7 @@ spec carries only what gets built.
 
 Decided in `docs/design/code-intel-realm.md`: federation + automatic two-scope
 detection (position-sensing: local index → repo scope; walk-up → wiki scope) +
-`<realm>/.atomic/` storage + `<code-index>` XML awareness block in realm CLAUDE.md.
+`<realm-state-root>/` storage + `<code-index>` XML awareness block in realm CLAUDE.md.
 
 
 ## Checkpoints
@@ -90,8 +90,8 @@ role fulfills either.
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|-----------|---------------|-------|-----------|---------|
 | 1 | **Engine internal decouple** — accept explicit db path from caller, separate from source root; repo-scope default path unchanged; no public flag, no meta row | `atomic/internal/codeintel/engine/engine.go` (`:52-56` consts, `:81-88` `New`/`indexPath`, `:103-145` `Init`/`open` at `:131`, `:176-177` `IndexPath`); `atomic/internal/codeintel/cli/code.go` (`:36-96` `RunCode`, `:59` engine init, `:865-867` not-initialized guard); `atomic/cmd/atomic/main.go` (`~:1017` `runCode`) | `atomic-surgeon` | 3 | SC 2 (repo path unchanged, no meta row); SC 13 (amend `code-intel-engine.md` db-path binding) |
-| 2 | **Realm detection + `code.toml` parser** — resolver walks cwd → realm root; position-sensing (realm root vs inside member); TOML config struct | `repoctx.Resolve`; `wiki/staleness.go` `ReadWikiIndexPaths` + `where/where.go` `isUnder`; `config/config.go:78-146` `Load` as parser template; package layout implementer's choice | `atomic-builder` | 3–4 | SC 1 (position-sensing: cwd at realm root → fan out; cwd inside member → query that member alone; outside all → error); SC 3 (config at `<realm>/.atomic/code.toml`) |
-| 3 | **Realm `index` + fan-out query verbs + `--only`/`--exclude` + seeding** | `atomic/internal/codeintel/cli/code.go` (`runIndex`, `runSearch`, `runCallers`, `runCallees`, `runImpact`, `runExplore`); fan-out orchestrator (package layout implementer's choice) | `atomic-builder` | 4–6 | SC 3 (dbs at `<realm>/.atomic/<key>.db`; no member repo written); SC 4 (partial failure: skip + warn); SC 5 (`[key]` grouping, `--json`, `--only`/`--exclude`); SC 6 (seed: exclude pending/trash, append-don't-overwrite); SC 12 (no language filter) |
+| 2 | **Realm detection + `code.toml` parser** — resolver walks cwd → realm root; position-sensing (realm root vs inside member); TOML config struct | `repoctx.Resolve`; `wiki/staleness.go` `ReadWikiIndexPaths` + `where/where.go` `isUnder`; `config/config.go:78-146` `Load` as parser template; package layout implementer's choice | `atomic-builder` | 3–4 | SC 1 (position-sensing: cwd at realm root → fan out; cwd inside member → query that member alone; outside all → error); SC 3 (config at `<realm-state-root>/code.toml`) |
+| 3 | **Realm `index` + fan-out query verbs + `--only`/`--exclude` + seeding** | `atomic/internal/codeintel/cli/code.go` (`runIndex`, `runSearch`, `runCallers`, `runCallees`, `runImpact`, `runExplore`); fan-out orchestrator (package layout implementer's choice) | `atomic-builder` | 4–6 | SC 3 (dbs at `<realm-state-root>/<key>.db`; no member repo written); SC 4 (partial failure: skip + warn); SC 5 (`[key]` grouping, `--json`, `--only`/`--exclude`); SC 6 (seed: exclude pending/trash, append-don't-overwrite); SC 12 (no language filter) |
 | 4 | **`<code-index>` XML block writer + `cliusage` flag registration** | `atomic/internal/wiki/wiki.go` (`:457-479` `writeWikiScanBlock` as XML-block precedent, `:589-636` `rewriteMembersSection` as idempotent-splice template); new block writer; `atomic/internal/cliusage/cliusage.go` (`:242-306` code-verb entries, `:15-28` `Command` struct — add `--only`, `--exclude`) | `atomic-builder` | 3 | SC 7 (XML block idempotent, regen only on membership/key change); SC 9 (`atomic validate artifacts` passes; no `--db`) |
 | 5 | **Global `<atomic>` instruction ¶ + `agent-code-intel` partial realm/fan-out guidance + render + bundle** | `CLAUDE.md` (new ¶ in `## Code-intel engine`); `templates/shared/agent-code-intel.md` (scope-by-position + fan-out guidance); `make render` → `agents/`; `make -C atomic bundle` → `atomic/internal/embedded/` | `atomic-surgeon` | 4–6 | SC 8 (instruction in installed CLAUDE.md); SC 10 (`make render && git diff --exit-code`; `make bundle && git diff --exit-code`) |
 | 6 | **Doctor check 11 realm-aware + docs + `atomic-help` cli topic + README + CLAUDE.md registry + sibling-spec amendments** | `atomic/internal/doctor/checks_code_index.go` (`:36-68` `RunCheckCodeIndexWith`); `docs/reference/code-intel.md`; `docs/reference/wiki-workflow.md`; `templates/commands/atomic-help.md` (cli topic row); `README.md`; `CLAUDE.md` registry; sibling specs (`code-intel-engine.md` etc.) where CP 1 changed their db-path contract | `atomic-surgeon` | 5–6 | SC 11 (doctor realm-aware: worst severity, names only repos needing action); `atomic-help cli` row covers `--only`/`--exclude`; README + CLAUDE.md registry current; sibling specs current |
@@ -116,6 +116,23 @@ None.
 
 
 ## Change log
+
+### 2026-11-12 — Correction: realm db and config live under the realm state root
+
+**What changed:** SC 3, the storage line, and checkpoint rows 2 and 3 name `<realm-state-root>/<key>.db` and `<realm-state-root>/code.toml`.
+
+**Why:** `realm/config.go` writes under the realm state root, which differs from `<realm>/.atomic/` only for a custom `state.dir`; the body hard-coded the default.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** SC 2 places the repo-scope db at
+`<state-root>/.atomic-index/atomic.db`, with the state root `.atomic` by
+default.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the
+`.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** SC 2 named `<repo>/.claude/.atomic-index/atomic.db`.
 
 ### 2026-10-18 — isUnder citation repointed
 

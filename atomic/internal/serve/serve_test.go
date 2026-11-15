@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
@@ -75,6 +76,31 @@ func waitReady(t *testing.T, url string, timeout time.Duration) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("server at %s did not become ready within %v", url, timeout)
+}
+
+// A served root whose state root refuses stops serve at startup, before any
+// request handler could reach the path helpers' fatal backstop.
+func TestRunWithContext_RefusingServedRootExitsAtStartup(t *testing.T) {
+	root := t.TempDir()
+	record := config.StateLocationRecordPath(root)
+	if err := os.MkdirAll(filepath.Dir(record), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(record, []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(record) })
+
+	var stderr strings.Builder
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	code := serve.RunWithContext(ctx, serve.Options{TargetDir: root, Stdout: io.Discard, Stderr: &stderr})
+	if code != 1 {
+		t.Errorf("exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "selection") {
+		t.Errorf("stderr = %q, want the refusal", stderr.String())
+	}
 }
 
 // Callers must leave opts.Port at 0 and opts.Stdout nil: this helper owns stdout
@@ -272,7 +298,7 @@ func TestScopeMappingTable(t *testing.T) {
 			setup: func(t *testing.T) (string, string) {
 				dir := t.TempDir()
 				// Resolve only stats the path, so the contents are irrelevant.
-				dbPath := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
+				dbPath := config.IndexDBPath(dir)
 				writeFile(t, dbPath, "stub")
 				claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
 				writeFile(t, claudeMD, "# CLAUDE.md\n")

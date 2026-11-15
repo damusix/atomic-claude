@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
@@ -67,7 +68,7 @@ func buildSelfIndexedRealm(t *testing.T, memberPath string) (string, string) {
 	claudeMDPath := filepath.Join(realmRoot, "CLAUDE.md")
 	buildClaudeMD(t, claudeMDPath, []string{wikiIndex})
 	// What `cd member && atomic code index` would have written.
-	db := filepath.Join(realmRoot, memberPath, ".claude", ".atomic-index", "atomic.db")
+	db := config.IndexDBPath(filepath.Join(realmRoot, memberPath))
 	if err := os.MkdirAll(filepath.Dir(db), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

@@ -2,14 +2,16 @@ package wiki
 
 // Registry primitives for `atomic wiki bucket`, covering two surfaces: the
 // machine-managed <wiki-buckets> block in wiki/index.md (idempotent splice,
-// mirroring <wiki-scan>) and the ## Capture surfaces section in realm
-// CLAUDE.md, whose heading is written once and gains a bullet per bucket.
+// mirroring <wiki-scan>) and the ## Capture surfaces section in the realm
+// steering file, whose heading is written once and gains a bullet per bucket.
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
 
 const bucketsMarkerOpen = "<wiki-buckets"
@@ -172,13 +174,28 @@ func findCaptureSurfacesHeading(content string) int {
 	return idx + 1 // skip the anchoring newline
 }
 
-// writeCaptureSurfacesSection appends one bullet per bucket to realm
-// CLAUDE.md, creating the file or the section when absent and never
-// duplicating the heading. Prior content survives byte-for-byte.
-func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
-	data, err := os.ReadFile(claudeMDPath)
+// captureSurfacesFile picks the file already holding the section, else a
+// CLAUDE.md that does not import AGENTS.md, else the file mode makes Claude load.
+func captureSurfacesFile(root string, mode bundlespec.SteeringMode) string {
+	steering := bundlespec.ScopeSteering
+	agents := filepath.Join(root, steering.Source)
+	for _, path := range []string{agents, filepath.Join(root, steering.ClaudeTarget), filepath.Join(root, strings.ToLower(steering.ClaudeTarget))} {
+		if data, err := os.ReadFile(path); err == nil && findCaptureSurfacesHeading(string(data)) != -1 {
+			return path
+		}
+	}
+	if loader := steering.LoaderWithoutImport(root); loader != "" {
+		return loader
+	}
+	return filepath.Join(root, steering.GuidanceFile(mode))
+}
+
+// writeCaptureSurfacesSection adds the bucket's bullet to the section in path,
+// creating file or section when absent; other bytes survive unchanged.
+func writeCaptureSurfacesSection(path, name, absPath string) error {
+	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("capture surfaces: read %s: %w", claudeMDPath, err)
+		return fmt.Errorf("capture surfaces: read %s: %w", path, err)
 	}
 
 	bullet := fmt.Sprintf("- `%s` <!-- describe what this bucket is for -->", filepath.Join(absPath, "index.md"))
@@ -219,7 +236,7 @@ func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
 		}
 	}
 
-	return writeFileAtomic(claudeMDPath, []byte(newContent))
+	return writeFileAtomic(path, []byte(newContent))
 }
 
 // createBucketIndexStub writes <bucketDir>/index.md, or nothing when one

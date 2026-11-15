@@ -162,9 +162,6 @@ func TestProjectStateDirs_SharedAcrossWorktrees(t *testing.T) {
 	if got, want := ReportsRoot(main), ReportsRoot(wt); got != want {
 		t.Errorf("ReportsRoot(main) = %q, ReportsRoot(worktree) = %q, want equal", got, want)
 	}
-	if got, want := ProjectRemindersDir(main), ProjectRemindersDir(wt); got != want {
-		t.Errorf("ProjectRemindersDir(main) = %q, ProjectRemindersDir(worktree) = %q, want equal", got, want)
-	}
 	if got, want := ArchiveDir(main, "my-slug", "2026-08-20"), ArchiveDir(wt, "my-slug", "2026-08-20"); got != want {
 		t.Errorf("ArchiveDir(main) = %q, ArchiveDir(worktree) = %q, want equal", got, want)
 	}
@@ -175,37 +172,13 @@ func TestProjectStateDirs_SharedAcrossWorktrees(t *testing.T) {
 	}
 }
 
-func TestRemindersDir_DelegatesToProjectKeyed(t *testing.T) {
-	home := t.TempDir()
-	defer SetHomeDirForTest(home)()
-
-	root := t.TempDir()
-	main := setupMainCheckout(t, root, "wt1")
-
-	if got, want := RemindersDir(main), ProjectRemindersDir(main); got != want {
-		t.Errorf("RemindersDir(main) = %q, want delegation to ProjectRemindersDir = %q", got, want)
-	}
-}
-
-func TestRemindersDirLegacy_ResolvesPreRelocationPath(t *testing.T) {
-	root := t.TempDir()
-	restore := SetHarnessDirForTest(".claude")
-	defer restore()
-
-	got := RemindersDirLegacy(root)
-	want := filepath.Join(root, ".claude", ".scratchpad", "reminders")
-	if got != want {
-		t.Errorf("RemindersDirLegacy(root) = %q, want %q", got, want)
-	}
-}
-
 // ReportsDir falls back to the legacy branch directory only when the
 // project-keyed one has no matching report; ReportsRoot always names the
 // project-keyed parent regardless.
 func TestReportsDir_FallsBackOnlyWhenProjectKeyedEmpty(t *testing.T) {
 	home := t.TempDir()
 	defer SetHomeDirForTest(home)()
-	restoreHarness := SetHarnessDirForTest(".claude")
+	restoreHarness := SetStateDirForTest(".claude")
 	defer restoreHarness()
 
 	root := t.TempDir()
@@ -287,7 +260,7 @@ func TestMainCheckoutRoot_EmptyGitFileFallsBackToRepoRoot(t *testing.T) {
 func TestReportsDir_StrayDotfileIsNotAReport(t *testing.T) {
 	home := t.TempDir()
 	defer SetHomeDirForTest(home)()
-	restoreHarness := SetHarnessDirForTest(".claude")
+	restoreHarness := SetStateDirForTest(".claude")
 	defer restoreHarness()
 
 	root := t.TempDir()
@@ -447,7 +420,7 @@ func TestReportsDir_SlashBranchAgreesWithLegacyFlattening(t *testing.T) {
 	home := t.TempDir()
 	defer SetHomeDirForTest(home)()
 	root := t.TempDir()
-	restoreHarness := SetHarnessDirForTest(".claude")
+	restoreHarness := SetStateDirForTest(".claude")
 	defer restoreHarness()
 
 	branch := "feature/plans-page"
@@ -555,5 +528,50 @@ func TestBranchFromHEAD_TrailingDotComponentStillAccepted(t *testing.T) {
 	got, ok := BranchFromHEAD(main)
 	if !ok || got != "foo." {
 		t.Errorf("BranchFromHEAD(trailing dot) = (%q, %v), want (\"foo.\", true)", got, ok)
+	}
+}
+
+// A package's TestMain relies on this to keep every path helper off the
+// operator's real home and any inherited state-segment override.
+func TestIsolateHomeForTestSandboxesHomeAndState(t *testing.T) {
+	for _, state := range []string{"", ".elsewhere"} {
+		t.Run("state="+state, func(t *testing.T) {
+			if state != "" {
+				os.Setenv(StateDirEnvVar, state)
+				t.Cleanup(func() { os.Unsetenv(StateDirEnvVar) })
+			}
+			prevHome := os.Getenv("HOME")
+			prevOverride := projectHomeOverride
+
+			cleanup := IsolateHomeForTest()
+			home := os.Getenv("HOME")
+			if home == prevHome {
+				t.Fatalf("HOME = %q, want a fresh temp directory", home)
+			}
+			if info, err := os.Stat(home); err != nil || !info.IsDir() {
+				t.Fatalf("temp HOME %q is not a directory: %v", home, err)
+			}
+			if got := projectHome(); got != home {
+				t.Errorf("projectHome() = %q, want the temp HOME %q", got, home)
+			}
+			if _, set := os.LookupEnv(StateDirEnvVar); set {
+				t.Errorf("%s still set", StateDirEnvVar)
+			}
+
+			cleanup()
+			if _, err := os.Stat(home); !os.IsNotExist(err) {
+				t.Errorf("temp HOME %q survived cleanup: %v", home, err)
+			}
+			if got := os.Getenv("HOME"); got != prevHome {
+				t.Errorf("HOME after cleanup = %q, want %q", got, prevHome)
+			}
+			got, set := os.LookupEnv(StateDirEnvVar)
+			if set != (state != "") || got != state {
+				t.Errorf("%s after cleanup = %q (set %v), want %q", StateDirEnvVar, got, set, state)
+			}
+			if projectHomeOverride != prevOverride {
+				t.Errorf("project-home override not restored by cleanup")
+			}
+		})
 	}
 }

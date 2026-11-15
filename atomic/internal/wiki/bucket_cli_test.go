@@ -7,10 +7,13 @@ package wiki
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
 
 // setupBucketCLIRoot builds a minimal realm with a wiki/ directory and a
@@ -64,7 +67,7 @@ func TestBucketAdd_HardErrorBesideUnpairedRegionExitsNonzero(t *testing.T) {
 	writeUnreadableAndUnpairedDirs(t, filepath.Join(root, "notes"))
 
 	var out bytes.Buffer
-	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, t.TempDir(), root, &out); code != 1 {
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, t.TempDir(), nil, root, &out); code != 1 {
 		t.Errorf("an unpaired region must not mask an unreadable directory: exit %d, want 1", code)
 	}
 }
@@ -77,7 +80,7 @@ func TestBucketAdd_UnpairedRegionAloneExitsZero(t *testing.T) {
 	writeBucketCLIFile(t, filepath.Join(root, "notes", "broken", "index.md"), "<bucket-docs>\n\nno close tag\n")
 
 	var out bytes.Buffer
-	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, t.TempDir(), root, &out); code != 0 {
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, t.TempDir(), nil, root, &out); code != 0 {
 		t.Errorf("unpaired region alone: exit %d, want 0", code)
 	}
 	if _, err := os.Stat(filepath.Join(root, "notes", "index.md")); err != nil {
@@ -106,7 +109,7 @@ func TestBucketAdd_HelpProbeLeavesAllMutationSitesUntouched(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "add", "--root=" + root, "-h"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "add", "--root=" + root, "-h"}, claudeHome, nil, root, &out)
 	if code != 0 {
 		t.Fatalf("expected exit 0 for -h, got %d; output: %q", code, out.String())
 	}
@@ -553,7 +556,7 @@ func TestBucketIndexStub_PreservesExisting(t *testing.T) {
 }
 
 // TestBucketAdd_RegistersAndSplices verifies that `atomic wiki bucket add <name>`
-// via wikiAction: splices the block, writes the CLAUDE.md section, creates
+// via wikiAction: splices the block, writes the AGENTS.md section, creates
 // the bucket index.md stub.
 func TestBucketAdd_RegistersAndSplices(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
@@ -562,7 +565,7 @@ func TestBucketAdd_RegistersAndSplices(t *testing.T) {
 	writeBucketCLIFile(t, indexPath, "# Wiki\n")
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "add", "--root=" + root, "mybucket"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "add", "--root=" + root, "mybucket"}, claudeHome, nil, root, &out)
 	if code != 0 {
 		t.Fatalf("wikiAction bucket add returned %d; stderr likely has detail", code)
 	}
@@ -595,7 +598,7 @@ func TestBucketAdd_ExistingMaterialIndexedAtEveryLevel(t *testing.T) {
 	writeBucketCLIFile(t, userFile, userContent)
 
 	var out bytes.Buffer
-	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, root, &out); code != 0 {
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, nil, root, &out); code != 0 {
 		t.Fatalf("bucket add returned %d", code)
 	}
 
@@ -621,7 +624,7 @@ func TestBucketAdd_RefusesReservedNameWiki(t *testing.T) {
 	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "add", "--root=" + root, "wiki"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "add", "--root=" + root, "wiki"}, claudeHome, nil, root, &out)
 	if code == 0 {
 		t.Error("expected non-zero exit for reserved name wiki")
 	}
@@ -633,11 +636,11 @@ func TestBucketAdd_RefusesDoubleRegister(t *testing.T) {
 	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
 
 	var out bytes.Buffer
-	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "mybucket"}, claudeHome, root, &out); code != 0 {
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "mybucket"}, claudeHome, nil, root, &out); code != 0 {
 		t.Fatalf("first add failed: %d", code)
 	}
 	out.Reset()
-	code := wikiAction([]string{"bucket", "add", "--root=" + root, "mybucket"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "add", "--root=" + root, "mybucket"}, claudeHome, nil, root, &out)
 	if code == 0 {
 		t.Error("expected non-zero exit for double-register")
 	}
@@ -654,7 +657,7 @@ func TestBucketAdd_RefusesNameAlreadyInRegistry(t *testing.T) {
 	writeBucketCLIFile(t, realmCLAUDE, "# Realm\n")
 
 	var out bytes.Buffer
-	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "mybucket"}, claudeHome, root, &out); code != 1 {
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "mybucket"}, claudeHome, nil, root, &out); code != 1 {
 		t.Fatalf("expected exit 1 for a name already in the registry, got %d", code)
 	}
 
@@ -675,7 +678,7 @@ func TestBucketAdd_WritesNothingUnderWikiButIndex(t *testing.T) {
 	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
 
 	var out bytes.Buffer
-	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "mybucket"}, claudeHome, root, &out); code != 0 {
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "mybucket"}, claudeHome, nil, root, &out); code != 0 {
 		t.Fatalf("bucket add returned %d", code)
 	}
 
@@ -690,28 +693,191 @@ func TestBucketAdd_WritesNothingUnderWikiButIndex(t *testing.T) {
 	}
 }
 
-func TestBucketAdd_WritesCLAUDEMD(t *testing.T) {
+// Behind a loader CLAUDE.md, AGENTS.md is the file Claude loads, so the
+// placeholder the model fills must land there.
+func TestBucketAdd_WritesCaptureSectionToSharedAgentsMD(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
 	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
 
-	// Write a pre-existing realm CLAUDE.md.
+	realmAGENTS := filepath.Join(root, "AGENTS.md")
+	writeBucketCLIFile(t, realmAGENTS, "# Realm config\n\nexisting content\n")
 	realmCLAUDE := filepath.Join(root, "CLAUDE.md")
-	writeBucketCLIFile(t, realmCLAUDE, "# Realm config\n\nexisting content\n")
+	loader := string(bundlespec.ScopeSteering.LoaderDocument())
+	writeBucketCLIFile(t, realmCLAUDE, loader)
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, root, &out)
-	if code != 0 {
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, nil, root, &out); code != 0 {
+		t.Fatalf("bucket add failed: %d", code)
+	}
+
+	data, _ := os.ReadFile(realmAGENTS)
+	content := string(data)
+	if !strings.Contains(content, "## Capture surfaces") || !strings.Contains(content, "<!-- describe what this bucket is for -->") {
+		t.Errorf("capture section and placeholder not written to realm AGENTS.md:\n%s", content)
+	}
+	if !strings.HasPrefix(content, "# Realm config\n\nexisting content\n") {
+		t.Error("prior content not preserved in realm AGENTS.md")
+	}
+	if data, _ := os.ReadFile(realmCLAUDE); string(data) != loader {
+		t.Errorf("realm CLAUDE.md loader changed:\n%s", data)
+	}
+}
+
+// A realm from before the steering pair keeps its capture surfaces in a
+// CLAUDE.md that imports no AGENTS.md; an AGENTS.md there would never load.
+func TestBucketAdd_LegacyRealmKeepsCaptureSectionInCLAUDEMD(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	claudeHome := t.TempDir()
+	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
+	realmCLAUDE := filepath.Join(root, "CLAUDE.md")
+	prior := "# Realm\n\n## Capture surfaces\n\n- `" + filepath.Join(root, "research", "index.md") + "` <!-- notes -->\n\n## TODO\n\n- item\n"
+	writeBucketCLIFile(t, realmCLAUDE, prior)
+
+	var out bytes.Buffer
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, nil, root, &out); code != 0 {
 		t.Fatalf("bucket add failed: %d", code)
 	}
 
 	data, _ := os.ReadFile(realmCLAUDE)
 	content := string(data)
-	if !strings.Contains(content, "## Capture surfaces") {
-		t.Error("## Capture surfaces section not written to realm CLAUDE.md")
+	if strings.Count(content, "## Capture surfaces") != 1 || !strings.Contains(content, filepath.Join(root, "notes", "index.md")) {
+		t.Errorf("realm CLAUDE.md did not gain the bullet in its one section:\n%s", content)
 	}
-	if !strings.Contains(content, "# Realm config") || !strings.Contains(content, "existing content") {
-		t.Error("prior content not preserved in realm CLAUDE.md")
+	if !strings.Contains(content, "## TODO\n\n- item\n") {
+		t.Errorf("prose outside the section changed:\n%s", content)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "AGENTS.md")); err == nil {
+		t.Error("bucket add created an AGENTS.md the legacy CLAUDE.md never imports")
+	}
+}
+
+func TestBucketAdd_UnimportingCLAUDEMDGetsNewCaptureSection(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	claudeHome := t.TempDir()
+	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
+	realmCLAUDE := filepath.Join(root, "CLAUDE.md")
+	writeBucketCLIFile(t, realmCLAUDE, "# Realm\n\nrules\n")
+
+	var out bytes.Buffer
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, nil, root, &out); code != 0 {
+		t.Fatalf("bucket add failed: %d", code)
+	}
+
+	data, _ := os.ReadFile(realmCLAUDE)
+	if !strings.HasPrefix(string(data), "# Realm\n\nrules\n") || !strings.Contains(string(data), "## Capture surfaces") {
+		t.Errorf("realm CLAUDE.md = %q", data)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "AGENTS.md")); err == nil {
+		t.Error("bucket add created an AGENTS.md the CLAUDE.md never imports")
+	}
+}
+
+// One section is better than two, so an AGENTS.md that already holds it keeps
+// it; the user learns that their CLAUDE.md hides it from Claude.
+func TestBucketAdd_WarnsWhenCLAUDEMDDoesNotImportTheSectionFile(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	claudeHome := t.TempDir()
+	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
+	realmAGENTS := filepath.Join(root, "AGENTS.md")
+	writeBucketCLIFile(t, realmAGENTS, "## Capture surfaces\n\n- `"+filepath.Join(root, "research", "index.md")+"`\n")
+	realmCLAUDE := filepath.Join(root, "CLAUDE.md")
+	writeBucketCLIFile(t, realmCLAUDE, "# Realm\n")
+
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = oldStderr })
+
+	var out bytes.Buffer
+	code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, nil, root, &out)
+
+	w.Close()
+	os.Stderr = oldStderr
+	stderr, _ := io.ReadAll(r)
+
+	if code != 0 {
+		t.Fatalf("bucket add failed: %d: %s", code, stderr)
+	}
+	if data, _ := os.ReadFile(realmAGENTS); !strings.Contains(string(data), filepath.Join(root, "notes", "index.md")) {
+		t.Errorf("realm AGENTS.md lacks the new bullet:\n%s", data)
+	}
+	if data, _ := os.ReadFile(realmCLAUDE); string(data) != "# Realm\n" {
+		t.Errorf("realm CLAUDE.md changed: %q", data)
+	}
+	if !strings.Contains(string(stderr), realmCLAUDE) || !strings.Contains(string(stderr), "@AGENTS.md") {
+		t.Errorf("stderr does not name the CLAUDE.md and the missing import: %q", stderr)
+	}
+}
+
+func TestBucketAdd_AppendsToExistingAgentsMDWithoutSection(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	claudeHome := t.TempDir()
+	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
+	realmAGENTS := filepath.Join(root, "AGENTS.md")
+	prior := "# Realm rules\n\n- keep it short\n"
+	writeBucketCLIFile(t, realmAGENTS, prior)
+
+	var out bytes.Buffer
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, nil, root, &out); code != 0 {
+		t.Fatalf("bucket add failed: %d", code)
+	}
+
+	data, _ := os.ReadFile(realmAGENTS)
+	if !strings.HasPrefix(string(data), prior) || !strings.Contains(string(data), "## Capture surfaces") {
+		t.Errorf("realm AGENTS.md = %q", data)
+	}
+}
+
+// On a case-sensitive filesystem a lowercase claude.md loader is the realm's
+// loader; a second CLAUDE.md beside it would load AGENTS.md twice.
+func TestBucketAdd_LowercaseLoaderGetsNoSecondLoader(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	claudeHome := t.TempDir()
+	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
+	writeBucketCLIFile(t, filepath.Join(root, "claude.md"), string(bundlespec.ScopeSteering.LoaderDocument()))
+
+	var out bytes.Buffer
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, nil, root, &out); code != 0 {
+		t.Fatalf("bucket add failed: %d", code)
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() == "CLAUDE.md" {
+			t.Error("bucket add wrote CLAUDE.md beside the claude.md loader")
+		}
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, "AGENTS.md")); !strings.Contains(string(data), "## Capture surfaces") {
+		t.Errorf("realm AGENTS.md = %q", data)
+	}
+}
+
+// A realm with no steering yet gets the pair, so Claude loads the new section
+// through the loader.
+func TestBucketAdd_CreatesRealmSteeringPair(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	claudeHome := t.TempDir()
+	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
+
+	var out bytes.Buffer
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, nil, root, &out); code != 0 {
+		t.Fatalf("bucket add failed: %d", code)
+	}
+
+	agents, _ := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if !strings.HasPrefix(string(agents), "## Capture surfaces\n\n- `"+filepath.Join(root, "notes", "index.md")+"` <!-- describe what this bucket is for -->") {
+		t.Errorf("realm AGENTS.md = %q", agents)
+	}
+	claude, _ := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
+	if string(claude) != string(bundlespec.ScopeSteering.LoaderDocument()) {
+		t.Errorf("realm CLAUDE.md is not the loader: %q", claude)
 	}
 }
 
@@ -721,7 +887,7 @@ func TestBucketList_NoBuckets(t *testing.T) {
 	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "list", "--root=" + root}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "list", "--root=" + root}, claudeHome, nil, root, &out)
 	if code != 0 {
 		t.Errorf("expected exit 0, got %d", code)
 	}
@@ -737,12 +903,12 @@ func TestBucketList_PrintsNameAndPath(t *testing.T) {
 	writeBucketCLIFile(t, filepath.Join(bucketDir, "a.md"), "content\n")
 
 	var out bytes.Buffer
-	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "testbucket"}, claudeHome, root, &out); code != 0 {
+	if code := wikiAction([]string{"bucket", "add", "--root=" + root, "testbucket"}, claudeHome, nil, root, &out); code != 0 {
 		t.Fatalf("bucket add failed: %d", code)
 	}
 	out.Reset()
 
-	if code := wikiAction([]string{"bucket", "list", "--root=" + root}, claudeHome, root, &out); code != 0 {
+	if code := wikiAction([]string{"bucket", "list", "--root=" + root}, claudeHome, nil, root, &out); code != 0 {
 		t.Errorf("expected exit 0, got %d", code)
 	}
 	if want := "testbucket\t" + bucketDir + "\n"; out.String() != want {
@@ -750,25 +916,19 @@ func TestBucketList_PrintsNameAndPath(t *testing.T) {
 	}
 }
 
-// TestBucketAdd_FailsWhenCLAUDEMDUnwritable verifies that `bucket add` exits
-// non-zero when writeCaptureSurfacesSection fails (CLAUDE.md directory is
-// unwritable so the file cannot be created).
-func TestBucketAdd_FailsWhenCLAUDEMDUnwritable(t *testing.T) {
+func TestBucketAdd_FailsWhenAgentsMDUnwritable(t *testing.T) {
 	root, _, wikiDir := setupBucketCLIRoot(t)
 	claudeHome := t.TempDir()
 	writeBucketCLIFile(t, filepath.Join(wikiDir, "index.md"), "# Wiki\n")
 
-	// Write a CLAUDE.md that is itself a directory so WriteFile returns an
-	// error (can't write to a path that is a directory).
-	realmCLAUDE := filepath.Join(root, "CLAUDE.md")
-	if err := os.MkdirAll(realmCLAUDE, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "AGENTS.md"), 0o755); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
 	var out bytes.Buffer
-	code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, root, &out)
+	code := wikiAction([]string{"bucket", "add", "--root=" + root, "notes"}, claudeHome, nil, root, &out)
 	if code == 0 {
-		t.Error("expected non-zero exit when CLAUDE.md write fails")
+		t.Error("expected non-zero exit when AGENTS.md write fails")
 	}
 }
 
@@ -788,7 +948,7 @@ func TestBucketAdd_SpaceFormRoot_FlagBeforeName(t *testing.T) {
 
 	var out bytes.Buffer
 	// Space form, flag before positional: ["--root", realm, "mybucket"]
-	code := wikiAction([]string{"bucket", "add", "--root", realm, "mybucket"}, claudeHome, cwd, &out)
+	code := wikiAction([]string{"bucket", "add", "--root", realm, "mybucket"}, claudeHome, nil, cwd, &out)
 	if code != 0 {
 		t.Fatalf("bucket add --root <space> returned %d; output: %q", code, out.String())
 	}
@@ -829,7 +989,7 @@ func TestBucketAdd_SpaceFormRoot_NameBeforeFlag(t *testing.T) {
 
 	var out bytes.Buffer
 	// Space form, name before flag (the reported bug): ["mybucket", "--root", realm]
-	code := wikiAction([]string{"bucket", "add", "mybucket", "--root", realm}, claudeHome, cwd, &out)
+	code := wikiAction([]string{"bucket", "add", "mybucket", "--root", realm}, claudeHome, nil, cwd, &out)
 	if code != 0 {
 		t.Fatalf("bucket add <name> --root <path> returned %d; output: %q", code, out.String())
 	}
@@ -871,7 +1031,7 @@ func TestBucketVerb_RefusesUnknownArg(t *testing.T) {
 
 	var out bytes.Buffer
 	// Pass an unrecognized flag after the positional name — must be rejected.
-	code := wikiAction([]string{"bucket", "add", "--root=" + realm, "mybucket", "--unknown"}, claudeHome, cwd, &out)
+	code := wikiAction([]string{"bucket", "add", "--root=" + realm, "mybucket", "--unknown"}, claudeHome, nil, cwd, &out)
 	if code == 0 {
 		t.Error("expected non-zero exit for unrecognized extra arg --unknown")
 	}
@@ -890,7 +1050,7 @@ func TestBucketAdd_ExtraPositionalRefused(t *testing.T) {
 
 	var out bytes.Buffer
 	// Extra positional after name.
-	code := wikiAction([]string{"bucket", "add", "--root=" + realm, "mybucket", "extra"}, claudeHome, cwd, &out)
+	code := wikiAction([]string{"bucket", "add", "--root=" + realm, "mybucket", "extra"}, claudeHome, nil, cwd, &out)
 	if code == 0 {
 		t.Error("expected non-zero exit for extra positional argument")
 	}
@@ -916,7 +1076,7 @@ func TestBucketVerb_EmptyRootValueRefused(t *testing.T) {
 	}
 	for _, args := range verbs {
 		var out bytes.Buffer
-		code := wikiAction(args, claudeHome, cwd, &out)
+		code := wikiAction(args, claudeHome, nil, cwd, &out)
 		if code == 0 {
 			t.Errorf("args %v: expected non-zero exit for --root= (empty value), got 0", args)
 		}

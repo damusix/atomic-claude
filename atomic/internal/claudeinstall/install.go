@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
@@ -76,29 +77,37 @@ func patchAgentContent(target string, content []byte, overrides map[string]confi
 		return content
 	}
 	agentName := strings.TrimSuffix(filepath.Base(filepath.FromSlash(target)), ".md")
-	ov, ok := overrides[agentName]
-	if !ok || (ov.Model == "" && ov.Effort == "") {
-		return content
-	}
-
-	kvs, body, err := frontmatter.ParseOrdered(string(content))
-	if err != nil || len(kvs) == 0 {
-		// Nothing to patch — the agent runtime falls back to its built-in default.
-		return content
-	}
-
-	if ov.Model != "" {
-		kvs = setOrAppendKey(kvs, "model", ov.Model)
-	}
-	if ov.Effort != "" {
-		kvs = setOrAppendKey(kvs, "effort", ov.Effort)
-	}
-
-	result, err := frontmatter.EmitOrdered(kvs, body)
+	patched, err := OverlayFrontmatter(content, "model", "effort", overrides[agentName])
 	if err != nil {
 		return content
 	}
-	return []byte(result)
+	return patched
+}
+
+// OverlayFrontmatter sets ov under modelKey and effortKey, re-emits the frontmatter through EmitOrdered and keeps the body bytes.
+// An empty field writes no key. Legacy installs and harness adapters share it, so adoption sees identical bytes.
+func OverlayFrontmatter(content []byte, modelKey, effortKey string, ov config.AgentOverride) ([]byte, error) {
+	if ov.Model == "" && ov.Effort == "" {
+		return content, nil
+	}
+	kvs, body, err := frontmatter.ParseOrdered(string(content))
+	if err != nil {
+		return nil, err
+	}
+	if len(kvs) == 0 {
+		return nil, fmt.Errorf("agent document carries no frontmatter to overlay")
+	}
+	if ov.Model != "" {
+		kvs = setOrAppendKey(kvs, modelKey, ov.Model)
+	}
+	if ov.Effort != "" {
+		kvs = setOrAppendKey(kvs, effortKey, ov.Effort)
+	}
+	result, err := frontmatter.EmitOrdered(kvs, body)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(result), nil
 }
 
 // setOrAppendKey sets an existing key's value or appends it, preserving the
@@ -130,12 +139,15 @@ func Plan(targetDir, home string, manifest []embedded.Artifact) ([]FileAction, e
 	return plan, nil
 }
 
-// readPatchedEmbedded reads an artifact's embedded bytes with overrides applied,
-// so every caller compares and writes the same effective content.
+// readPatchedEmbedded reads an artifact's embedded bytes as the Claude adapter
+// writes them, so every caller compares and writes the same effective content.
 func readPatchedEmbedded(a embedded.Artifact, overrides map[string]config.AgentOverride) ([]byte, error) {
 	data, err := fs.ReadFile(embedded.FS, a.Source)
 	if err != nil {
 		return nil, fmt.Errorf("read embedded %s: %w", a.Source, err)
+	}
+	if a.Target == "CLAUDE.md" {
+		return artifacts.ClaudeSteering(data)
 	}
 	return patchAgentContent(a.Target, data, overrides), nil
 }
@@ -224,7 +236,7 @@ func Apply(targetDir, home string, plan []FileAction, dryRun bool, clock Clock) 
 	var backupTimestamp string
 	for _, fa := range plan {
 		if fa.Kind == ActionUpdated || fa.Kind == ActionBlockReplaced {
-			backupTimestamp = formatTimestamp(runStart)
+			backupTimestamp = config.BackupStamp(runStart)
 			break
 		}
 	}
@@ -259,6 +271,24 @@ func ensureProfileStub(home string, out io.Writer) (bool, error) {
 	}
 	fmt.Fprintln(out, ProfileNudge)
 	return true, nil
+}
+
+// SeedUserState creates, when absent, config.toml, the profile stub, and, given
+// a Claude root, that root's write-once pre-install snapshot.
+func SeedUserState(home, claudeRoot string, out io.Writer) error {
+	if claudeRoot != "" {
+		if err := writePreInstallSnapshot(claudeRoot, home, embedded.Manifest(), RealClock); err != nil {
+			return fmt.Errorf("pre-install snapshot: %w", err)
+		}
+	}
+	cfgPath := config.TOMLPath(home)
+	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+		if err := config.WritePersist(cfgPath, config.Default()); err != nil {
+			return err
+		}
+	}
+	_, err := ensureProfileStub(home, out)
+	return err
 }
 
 // populateProfile refreshes the profile fingerprint. Errors and panics are
@@ -641,13 +671,6 @@ func Report(plan []FileAction, targetDir string) string {
 	}
 
 	return sb.String()
-}
-
-// formatTimestamp renders t as RFC3339 with ':' replaced by '-', so the string
-// is safe as a directory name.
-func formatTimestamp(t time.Time) string {
-	s := t.UTC().Format(time.RFC3339)
-	return strings.ReplaceAll(s, ":", "-")
 }
 
 func hexSHA256(data []byte) string {

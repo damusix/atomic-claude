@@ -1,42 +1,44 @@
 ---
-description: Open a atomic GitHub issue via gh. Bug report or feature request — auto-detect from user's description.
+description: Open an issue in the resolved issue tracker for the current repository (GitHub, GitLab, Codeberg, Linear, Jira, Trello, or the local ledger). Bug report or feature request, auto-detected from the user's description.
 ---
 
 ## Steps
 
 <workflow>
 
-An issue is created only after `gh` is ready, no duplicate stops it, and the user approves the rendered preview.
+An issue is created only after the tracker is ready, no duplicate stops it, and the user approves the rendered preview.
 
 ```mermaid
 flowchart TD
-    G{"gh installed<br/>and authed?"} -->|no| S["Stop"]
+    R["Resolve the tracker"] -->|hosted| G{"Tracker ready?"}
+    R -->|filesystem| K
+    G -->|no| S["Stop"]
     G -->|yes| K["Classify"]
-    K --> I{"Issues enabled?"}
-    I -->|no| S
-    I -->|yes| D{"Close duplicate?"}
+    K --> D{"Close duplicate?"}
     D -->|yes| A{"User still files?"}
     D -->|no| F["Draft title,<br/>body, label"]
     A -->|no| S
     A -->|yes| F
     F --> P{"Preview approved?"}
     P -->|no| S
-    P -->|yes| C["Create, print URL"]
+    P -->|yes| C["Create, print<br/>URL or key"]
 ```
 
-- **gh installed and authed?**: `command -v gh` — if missing, tell the user to install (`brew install gh` / `winget install --id GitHub.cli` / https://cli.github.com/) then `gh auth login`. `gh auth status` — if unauthed, tell the user `gh auth login`.
+- **Resolve the tracker**: {{ template "resolved-provider" "issue-tracker" }}
+- **Tracker ready?**: skipped for `issue-tracker: filesystem`, since the local ledger has no sign-in and no project. For a hosted tracker, the `auth-check` the reference names passes, and its `project-identifier` row resolves to one project. On failure, print the reference's install or sign-in guidance and stop. When several projects are reachable and `issue-tracker-project` is unset, ask the user which one.
 - **Classify**: read the user's description: **bug** vs **feature/enhancement** vs **question**. If ambiguous, ask once.
-- **Issues enabled?**: `gh repo view --json nameWithOwner,hasIssuesEnabled`.
-- **Close duplicate?**: `gh issue list --search "<key terms>" --state all --limit 5`. On a close match, surface its URL and ask before opening a new one.
+- **Close duplicate?**: the `issue-search` operation with the key terms. On a close match, surface its URL or key and ask before opening a new one.
 - **Draft title, body, label**:
-    - Templates: `gh issue create --help` notes `--template`. When `.github/ISSUE_TEMPLATE/` has templates, prefer `--template <file>` and let the user fill in via editor; otherwise build the body inline.
+    - Templates: when the `template-location` row names templates that exist in this repository, start the body from the matching one; otherwise build it inline.
     - Title: imperative for features (`Add X`), declarative for bugs (`X crashes when Y`). ≤70 chars. No "Bug:" / "Feature:" prefix unless repo convention demands.
-    - Body: per the shape below (HEREDOC). Atomic tone — drop filler, exact symbols in backticks, no hedging, no AI bylines. Redact per the **Privacy** section as you draft — never write raw PII, secrets, or third-party identifiers into the body.
-    - Label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Verify it exists first with `gh label list --search <name>`; skip it if it doesn't (don't auto-create). User-specified labels stack on top.
-- **Preview approved?**: print the full rendered issue — title, body, target repo, labels — and get an explicit go-ahead before creating. See **Privacy**.
-- **Create, print URL**: `gh issue create --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`, then print the issue URL.
+    - Body: per the shape below. Atomic tone: drop filler, exact symbols in backticks, no hedging, no AI bylines. Redact per the **Privacy** section as you draft; never write raw PII, secrets, or third-party identifiers into the body.
+    - Label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Keep it only when the `label-list` operation reports it; never create one. User-specified labels stack on top, under the same rule. The `filesystem` ledger has no labels: a bug takes `--severity risk`, a question `--severity question`, and a feature or enhancement `--kind plan`, with a kebab-case `--id` derived from the title and `--origin "/report-issue"`.
+- **Preview approved?**: print the full rendered issue (title, body, target project, labels) and get an explicit go-ahead before creating. See **Privacy**.
+- **Create, print URL or key**: the `issue-create` operation with the title, body, and kept labels, then print the URL or key it returns. When the reference applies labels in a separate step, follow with `label-apply`.
 
 </workflow>
+
+## Privacy: redact before posting
 
 {{ template "report-issue-privacy" . }}
 

@@ -10,80 +10,72 @@ New binary verb `atomic repo init`, implemented in a new internal package
 helper — the same seam every other repo-scoped verb uses — so the verb honors the global
 `--repo` flag like the rest of the surface.
 
-Idempotent, non-destructive, never commits. Guarantees, in order:
+Idempotent, non-destructive, never commits. `<state-root>` is the repository-state root that
+`config.RepositoryStateDir` resolves (`.atomic` by default; ladder in
+`docs/spec/atomic-state-and-config.md`). Before the guarantees, the verb runs the one-time
+`atomic state migrate` out of legacy `.claude`, so the layout lands in the new root. Guarantees,
+in order:
 
-1. `.claude/.scratchpad/` directory exists (`mkdir -p` equivalent).
-2. `.claude/project/` directory exists.
-3. `.claude/.scratchpad/` is git-ignored — else append managed rule `/.scratchpad/` to
-   `.claude/.gitignore` (create the file if absent).
-4. `.claude/.atomic-index/` is git-ignored — else append managed rule `/.atomic-index/` to
+1. `<state-root>/.scratchpad/` directory exists (`mkdir -p` equivalent).
+2. `<state-root>/project/` directory exists.
+3. `<state-root>/.scratchpad/` is git-ignored, else append managed rule `/.scratchpad/` to
+   `<state-root>/.gitignore` (create the file if absent).
+4. `<state-root>/.atomic-index/` is git-ignored, else append managed rule `/.atomic-index/` to
+   `<state-root>/.gitignore`.
+5. `<state-root>/project/doc-surfaces.md` is git-ignored, else append managed rule
+   `/project/doc-surfaces.md` to `<state-root>/.gitignore`. `atomic docs scan` rewrites that
+   cache with a fresh timestamp on every run. When Git already tracks the file, the guarantee
+   reports `tracked` with the remediation `git rm --cached <path>` and leaves the index alone.
+6. `tmp/` is git-ignored, else append line `tmp/` to root `.gitignore` (create if absent).
+7. `<state-root>/worktrees/` is git-ignored, else append managed rule `/worktrees/` to
+   `<state-root>/.gitignore`.
+8. When the state root is not `.claude` and the install ledger enrolls Claude or `.claude/`
+   exists: `.claude/worktrees/` is git-ignored, else append managed rule `/worktrees/` to
    `.claude/.gitignore`.
-5. `tmp/` is git-ignored — else append line `tmp/` to root `.gitignore` (create if absent).
-6. `.claude/worktrees/` is git-ignored — else append managed rule `/worktrees/` to
-   `.claude/.gitignore`.
+9. `<state-root>/atomic.toml` declares `scope = "repo"`; a file declaring another scope is an
+   error, never a rewrite.
 
-"Is it ignored" is decided by effect: `git check-ignore -q` against a nonexistent probe path
-under the directory in question (the probe string is the builder's choice). When git is
+A state root outside the repository gets no ignore rules: guarantees 3, 4, 5, and 7 are skipped.
+
+After the guarantees, `repoInit` (`cmd_repo.go`) calls `convergeRepoCards` to publish the wiki
+pointer cards from `<state-root>/rules/wiki/`:
+
+- When `.claude/` exists or the install ledger enrolls Claude, it creates or adopts the
+  `.claude/rules/atomic` link to `<state-root>/rules` and prints a `card link:` line for a
+  created, adopted, or copied link, an appended ignore negation, or a link Git ignores.
+- When the ledger enrolls OMP, it republishes the cards into the OMP profile and prints an
+  `omp cards:` line.
+- Either step also prints, under its own label (`card link` or `omp cards`), a
+  `<label>: removed the retired card tree <path>` line for each retired tree it deleted, and a
+  `<label>: kept <path>; Atomic cannot prove it wrote it, so delete it yourself if unwanted`
+  line for each one it left in place (`printRetired`, `cmd_cards.go`).
+
+"Is it ignored" is decided by effect: `git check-ignore -q --no-index` against a nonexistent
+probe path under the directory in question (the probe string is the builder's choice), or
+against the file itself for a single-file guarantee; `--no-index` lets a tracked file read as
+covered by its rule. When the check says not ignored but the target ignore file already holds
+the exact rule line, a later rule negates it: the guarantee reports `negated`, naming the file
+and rule, and appends nothing. When git is
 unavailable or the root is not a work tree, degrade to a literal line-presence scan of the
 target ignore file (exact rule line, modulo surrounding whitespace). Named exception: the deterministic git path may be absent, so the
 weaker literal fallback is deliberate.
 
 Appends preserve existing content byte-for-byte: existing lines are never rewritten, reordered,
-or removed. When creating `.claude/.gitignore` fresh, precede rules with a single comment line
-`# managed by atomic repo init; rules are relative to .claude/`. When appending to an existing
+or removed. When creating `<state-root>/.gitignore` or `.claude/.gitignore` fresh, precede rules
+with a single comment line `# managed by atomic repo init; rules are relative to <dir>/`, where
+`<dir>` is that ignore file's repository-relative directory. When appending to an existing
 file, append only the rule line(s), separated from existing content by a newline if the file does
 not end with one.
 
 Output: one line per item, `created <path-or-rule>` or `ok <path-or-rule>` (match existing verb
-output tone, e.g. `dockerinit`). Exit 0 whether or not anything was created. Errors (unwritable
-file, etc.) exit non-zero with the failing path.
+output tone, e.g. `dockerinit`), followed by any `card link:` and `omp cards:` lines. Exit 0
+whether or not anything was created. Exit non-zero, naming the cause, on a migration error, an
+ambiguous or refused state root, a scope marker that declares another scope, a card-publish
+error, or an I/O error (unwritable file, etc.) with the failing path.
 
-`cliusage` gains `{Path: ["repo", "init"], Args: "", Flags: nil, Description: "Scaffold .claude/
-layout: dirs + nested .claude/.gitignore + root ignore rules (idempotent)"}`. `--help` renders it
+`cliusage` gains `{Path: ["repo", "init"], Args: "", Flags: nil, Description: "Scaffold the
+state-root layout: dirs + state-root .gitignore + root ignore rules (idempotent)"}`. `--help` renders it
 via the existing usage machinery.
-
-## Repo migration (this repo, one-time)
-
-Move the fifteen `.claude/*` lines (eight negations across five groups) from root `.gitignore`
-into a new tracked `.claude/.gitignore`, each translated relative to `.claude/` and anchored
-with a leading `/`. The fifteen lines sit in three spans of the root file — `.claude/.scratchpad/`
-alone (a `.worktrees/` line that stays at root follows it), then thirteen contiguous lines, then a
-separate `.claude/.atomic-index/` line further down. Exact target content of
-`.claude/.gitignore` (after any managed-header comment):
-
-```
-/.scratchpad/
-/agents/
-/commands/*
-!/commands/triage-issues.md
-/output-styles/
-/skills/*
-!/skills/atomic-cli-contrib/
-!/skills/atomic-cli-contrib/**
-!/skills/atomic-release-ci/
-!/skills/atomic-release-ci/**
-/rules/*
-!/rules/authoring/
-!/rules/authoring/**
-!/settings.local.json
-/.atomic-index/
-```
-
-Root `.gitignore` drops exactly those fifteen lines (`.claude/.scratchpad/`, `.claude/agents/`,
-`.claude/commands/*`, `!.claude/commands/triage-issues.md`, `.claude/output-styles/`,
-`.claude/skills/*`, `!.claude/skills/atomic-cli-contrib/`, `!.claude/skills/atomic-cli-contrib/**`,
-`!.claude/skills/atomic-release-ci/`, `!.claude/skills/atomic-release-ci/**`, `.claude/rules/*`,
-`!.claude/rules/authoring/`, `!.claude/rules/authoring/**`, `!.claude/settings.local.json`,
-`.claude/.atomic-index/`); everything else stays byte-identical.
-
-Acceptance: `git status --porcelain` output identical before and after the move, and a
-`git check-ignore` matrix over these paths yields identical verdicts before and after —
-ignored: `.claude/agents/x`, `.claude/commands/other.md`, `.claude/output-styles/x`,
-`.claude/skills/other/x`, `.claude/rules/other/x`, `.claude/.scratchpad/x`,
-`.claude/.atomic-index/x`; not ignored: `.claude/commands/triage-issues.md`,
-`.claude/skills/atomic-cli-contrib/SKILL.md`, `.claude/skills/atomic-release-ci/SKILL.md`,
-`.claude/rules/authoring/axioms.md`, `.claude/.gitignore`, `.claude/atomic.toml`,
-`.claude/project/followups/INDEX.md`.
 
 ## Template strip
 
@@ -95,11 +87,11 @@ mkdirs). Task-specific leaf `mkdir -p` stays. Each stripped site gains an init c
 |----------|--------|
 | `templates/commands/subagent-implementation.md` | Replace the "`.claude/.scratchpad/` must be gitignored — verify, add if missing" step with the init call. Keep `mkdir -p "$SCRATCH"`. |
 | `templates/commands/subagent-diagnose.md` | Same replacement at both gitignore-verify sites. Keep the `mkdir -p` calls. |
-| `templates/commands/setup-wiki.md` | Gitignore-audit rows for `tmp/`, `.claude/.scratchpad/`, `.claude/worktrees/`, and the signals prev-file delegate to `atomic repo init`, with no manual append. Drop the `.claude/project/.deterministic-signals.prev.md` row entirely — no Go code writes that path anymore. |
+| `templates/commands/setup-wiki.md` | Gitignore-audit rows for `tmp/`, `<state-root>/.scratchpad/`, the worktree directory, and the signals prev-file delegate to `atomic repo init`, with no manual append. Drop the `.claude/project/.deterministic-signals.prev.md` row entirely — no Go code writes that path anymore. |
 | `templates/shared/worktree-setup.md` | Single `atomic repo init` call at the top of the create-and-enter step. No gitignore-verify section, no manual append fallback, no ignore-file commit ceremony. |
 | `templates/commands/atomic-help.md` | Mention `atomic repo init` in the `cli` topic row set. |
 
-`templates/commands/remind-me.md` and `templates/commands/retrospective-learning.md` keep their leaf
+`templates/commands/retrospective-learning.md` keeps its leaf
 `mkdir -p` lines unchanged (task-specific, not layout setup). After template edits: `make render`
 + `make -C atomic bundle`; both drift gates must pass.
 
@@ -107,8 +99,7 @@ mkdirs). Task-specific leaf `mkdir -p` stays. Each stripped site gains an init c
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| 1 | `atomic/internal/repoinit` package + CLI wiring + tests | `atomic/internal/repoinit/`, `atomic/cmd/atomic/main.go`, `atomic/internal/cliusage/cliusage.go` | `go test ./...` green; `atomic repo init` runs idempotently in a scratch repo (second run all-`ok`); cold repo gets dirs + nested `.claude/.gitignore`; repo with pre-existing effective rules gets no appends; degraded (no git) path covered by test |
-| 2 | This repo's `.gitignore` migration | `.gitignore`, `.claude/.gitignore` | Acceptance matrix above passes; `git status --porcelain` unchanged |
+| 1 | `atomic/internal/repoinit` package + CLI wiring + tests | `atomic/internal/repoinit/`, `atomic/cmd/atomic/main.go`, `atomic/internal/cliusage/cliusage.go` | `go test ./...` green; `atomic repo init` runs idempotently in a scratch repo (second run all-`ok`); cold repo gets dirs + nested `<state-root>/.gitignore`; repo with pre-existing effective rules gets no appends; degraded (no git) path covered by test |
 | 3 | Template strip + help router + render/bundle | `templates/commands/subagent-implementation.md`, `templates/commands/subagent-diagnose.md`, `templates/commands/setup-wiki.md`, `templates/shared/worktree-setup.md`, `templates/commands/atomic-help.md`, `commands/*.md`, `atomic/internal/embedded/` | All table rows applied; `make render` + `make bundle` clean; `/atomic-help` MISSING-scan passes; grep shows no remaining "verify … gitignored" prose in templates; `atomic doctor` and `atomic validate` run green using the locally built binary (rule A1 lints the new `atomic repo init` citations against `cliusage`) |
 
 ## Change tree
@@ -121,8 +112,6 @@ atomic/
 │   │   └── repoinit_test.go                   A
 │   └── cliusage/cliusage.go                   M  add {repo, init} entry
 ├── cmd/atomic/main.go                         M  repo command build + dispatch
-.gitignore                                     M  drop the fifteen .claude/* lines (three spans)
-.claude/.gitignore                             A  tracked; translated rules
 templates/commands/subagent-implementation.md  M  gitignore-verify step → init call
 templates/commands/subagent-diagnose.md        M  same, two sites
 templates/commands/setup-wiki.md               M  gitignore-audit rows delegate to init
@@ -135,7 +124,7 @@ atomic/internal/embedded/                      M  regenerated bundle (make bundl
 ## Outline
 
 - `atomic/internal/repoinit/repoinit.go`
-  - `Init` — run the six guarantees in order against a resolved root; return per-item outcomes
+  - `Init` — run the guarantees in order against a resolved root; return per-item outcomes
   - `Action` — one item's outcome: what it names, `created` or `ok`
   - ignored-check helper — effect check via `git check-ignore`, literal-line fallback when git unavailable
   - append helper — add a rule line to an ignore file without touching existing content
@@ -146,16 +135,18 @@ atomic/internal/embedded/                      M  regenerated bundle (make bundl
   - repo dispatch — resolve root via `repoctx.Resolve(repoOverride)`, call `repoinit.Init`, print actions
 - `atomic/internal/cliusage/cliusage.go`
   - `{repo, init}` entry — verb path, description
-- `.claude/.gitignore` — translated rule block (Repo migration section)
-- `.gitignore` — fifteen-line removal, three spans
 - template files — per-row edits from the Template strip table
 
 ## Flows
 
-1. **User runs `atomic repo init`**: resolve root (`repoctx.Resolve`, honors `--repo`) → for each
-   of the six guarantees: check (dir exists / ignore effective) → create dir or append rule when
-   missing, else no-op → print one `created`/`ok` line per item → exit 0 (non-zero only on I/O
-   error).
+1. **User runs `atomic repo init`**: resolve root (`repoctx.Resolve`, honors `--repo`) → migrate
+   legacy `.claude` state once when pending → resolve `<state-root>` → for each of the
+   guarantees: check (dir exists / ignore effective / marker present) → create dir, append rule,
+   or write marker when missing, else no-op → print one `created`/`ok` line per item →
+   `convergeRepoCards`: ensure the `.claude/rules/atomic` link when `.claude/` exists or Claude
+   is enrolled, republish OMP cards when OMP is enrolled, print `card link:` / `omp cards:` lines
+   → exit 0 (non-zero on a migration error, an ambiguous or refused state root, a scope
+   conflict, a card-publish error, or an I/O error).
 2. **Command template needs the layout** (e.g. `/subagent-implementation` scratchpad setup):
    run `atomic repo init` (quiet, idempotent) → `mkdir -p` the task-specific leaf dir → proceed.
 3. **Degraded environment** (no git binary or root not a work tree): `Init` answers "is it
@@ -208,3 +199,48 @@ atomic/internal/embedded/                      M  regenerated bundle (make bundl
   when they run; see `docs/spec/artifacts-mermaid-flows.md`. **Superseded:** the init call ran
   only when `command -v atomic` succeeded and was skipped silently otherwise, leaf `mkdir -p` was
   the binary-absent degradation path, and `setup-wiki` kept a manual append for that case.
+- 2026-11-11 — Reminders removed. **What changed:** the leaf `mkdir -p` note names only
+  `retrospective-learning.md`. **Why:** `docs/spec/workflow-preferences.md` drops the reminder
+  feature. **Removed:** `templates/commands/remind-me.md` from that note.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The Contract guarantees, managed header, `cliusage` description, the
+`setup-wiki` Template strip row, Checkpoint 1, the `Init` Outline entry, and Flow 1 name
+`<state-root>` (`.atomic` by default) and `<state-root>/.gitignore`. Init runs the one-time
+`atomic state migrate` first, ignores `<state-root>/worktrees/`, ignores `.claude/worktrees/`
+through `.claude/.gitignore` when Claude is enrolled or `.claude/` exists, writes the
+`scope = "repo"` marker, and skips state-root ignore rules for a root outside the repository.
+After the guarantees, `convergeRepoCards` ensures the `.claude/rules/atomic` link and
+republishes OMP cards, printing `card link:` and `omp cards:` lines. The exit clause covers a
+migration error, an ambiguous or refused state root, a scope conflict, and a card-publish error.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic`
+default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** six guarantees that scaffolded and ignored `.claude/.scratchpad/`,
+`.claude/project/`, `.claude/.atomic-index/`, and `.claude/worktrees/` through
+`.claude/.gitignore`.
+
+### 2026-11-12 — Ignore the doc-surfaces cache
+
+**What changed:** Guarantee 5 ignores `<state-root>/project/doc-surfaces.md` through managed rule
+`/project/doc-surfaces.md`, reported as `<state-root>/project/doc-surfaces.md ignored`; later
+guarantees renumber. `atomic state migrate` writes the same rule. The ignored check probes the
+file itself for this guarantee and runs `git check-ignore --no-index`. A tracked cache reports
+`tracked` with a `git rm --cached` remediation; a rule a later line negates reports `negated`.
+Each such action prints its detail on the line below it.
+
+**Why:** `atomic docs scan` regenerates the cache with a timestamp on every run and nobody edits
+it, so a tracked copy churns every commit.
+
+**Superseded:** the cache was not ignored, so `repo init` left it to be committed; the ignored
+check ran without `--no-index`, and a negated rule was re-appended and reported `created`.
+
+### 2026-11-12 — Drop the one-time repo migration, document the retired-tree lines
+
+**What changed:** The `## Repo migration (this repo, one-time)` section, its checkpoint 2 row (checkpoint 3 keeps its number), and its Change tree and Outline lines are gone. The card-publish step documents the `<label>: removed the retired card tree <path>` and `<label>: kept <path>; ...` lines that `printRetired` prints.
+
+**Removed:** the section moving fifteen `.claude/*` lines from the root `.gitignore` into a tracked `.claude/.gitignore`. It was completed on 2026-07-09, and its target content no longer matches the repository.
+
+**Why:** a completed one-time move is history, and the body is forward-only; `cmd_cards.go` prints the retired-tree lines and the body omitted them.

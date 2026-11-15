@@ -1,7 +1,7 @@
 # Spec: signals workflow
 
 
-The signals workflow keeps Claude aware of the *current* shape of a project without hallucination. A Go binary (`atomic signals scan`) produces a deterministic, machine-generated snapshot. A subagent reads that snapshot and writes an inferred companion. Both files are auto-referenced from the project's `CLAUDE.md` so the harness loads them on every session.
+The signals workflow keeps Claude aware of the *current* shape of a project without hallucination. A Go binary (`atomic signals scan`) produces a deterministic, machine-generated snapshot. A subagent reads that snapshot and writes an inferred companion. The inferred router is auto-referenced from the project's steering so the harness loads it on every session.
 
 
 This spec depends on [`atomic-binary.md`](./atomic-binary.md) — the `atomic` binary is installed wherever the artifacts are, because they install through it.
@@ -12,11 +12,11 @@ This spec depends on [`atomic-binary.md`](./atomic-binary.md) — the `atomic` b
 
 | Path | Source | Purpose |
 |------|--------|---------|
-| `.claude/project/deterministic-signals.md` | `atomic signals scan` (regenerated every run) | Pure facts: tree, manifests, languages, lockfile presence |
-| `.claude/project/signals.md` | `atomic-wiki-inferrer` subagent (regenerated every run) | Inferred meaning: framework, build commands, test runner, deployment target, architectural style |
+| `docs/wiki/scan.md` | `atomic signals scan` (regenerated every run) | Pure facts: tree, manifests, languages, lockfile presence |
+| `docs/wiki/index.md` | `atomic-wiki-inferrer` subagent (regenerated every run) | Inferred meaning: framework, build commands, test runner, deployment target, architectural style |
 
 
-Both files are gitignored (project-specific, regenerated on demand). They are auto-referenced via `@`-refs from the project's `CLAUDE.md` (or `claude.local.md`) so the harness loads them on every session. The inferrer gets an incremental-diff source for free via `atomic signals diff` — a thin wrapper that delegates to `git diff` in a git repo or unix `diff` against `.deterministic-signals.prev.md` (a snapshot `scan` writes before overwriting) outside one.
+Both files are committed and regenerated on demand. `docs/wiki/index.md` is auto-referenced via `@docs/wiki/index.md` from a project-local override (`claude.local.md` or `CLAUDE.local.md`) when one exists, otherwise from the file the `[steering] claude` mode makes Claude load: the shared `AGENTS.md` behind a `CLAUDE.md` loader that imports it with `@AGENTS.md` in `loader` mode, `AGENTS.md` with no loader in `agents-md`, and `CLAUDE.md` alone in `claude-md`, so the harness loads it on every session; `docs/wiki/scan.md` is read on demand. The inferrer gets an incremental-diff source for free via `atomic signals diff` — a thin wrapper that delegates to `git diff` in a git repo or unix `diff` against `tmp/.scan.prev.md` (a snapshot `scan` writes before overwriting) outside one.
 
 
 ## Artifacts to build
@@ -33,7 +33,7 @@ Both files are gitignored (project-specific, regenerated on demand). They are au
 | `CLAUDE.md` (edit) | bundled global | this repo's root `CLAUDE.md` (the one that ships as `~/.claude/CLAUDE.md` via the embed bundle) gets a section mentioning the signals workflow so users know it exists |
 
 
-Distinct from the bundled-global `CLAUDE.md` above, the per-project `CLAUDE.md` at each user's repo root is mutated at runtime by the agent (step 8 in the agent definition) to add the `@-refs` to the project's signals files. Two different files, both named `CLAUDE.md`.
+Distinct from the bundled-global `CLAUDE.md` above, the project steering at each user's repo root is mutated at runtime by the agent (Step 8 of `context/skills/atomic-wiki/references/repo.md`): the `@docs/wiki/index.md` ref goes to a project-local override when one exists, otherwise to the shared `AGENTS.md`, and the `CLAUDE.md` loader beside `AGENTS.md` gets its `@AGENTS.md` import when it lacks one.
 
 
 ## ~~Skill: `atomic-signals`~~ (removed 2026-05-27)
@@ -51,7 +51,7 @@ Distinct from the bundled-global `CLAUDE.md` above, the per-project `CLAUDE.md` 
 ```yaml
 ---
 name: atomic-wiki-inferrer
-description: Reads deterministic-signals.md and produces signals.md — framework detection, command guesses, architectural style. Read-write but scoped to .claude/project/.
+description: Reads docs/wiki/scan.md and produces docs/wiki/index.md — framework detection, command guesses, architectural style. Read-write, scoped to the write scope in context/agents/atomic-wiki-inferrer.md.
 tools: Read, Write, Grep, Glob
 model: sonnet
 ---
@@ -64,8 +64,8 @@ model: sonnet
 Two modes:
 
 
-- **Incremental (preferred)** — `atomic signals diff` exits 1 (diff present). Read its stdout. Use the unified-diff hunk headers (`## Manifests`, `## Languages`, etc.) to identify which deterministic sections changed, then use the section dependency mapping below to find which inferred sections need updates. Read `signals.md`, edit only the dependent sections in place, leave untouched sections byte-identical.
-- **Full (first run or fallback)** — `signals.md` does not exist, or `atomic signals diff` exits 2 (no prior version available). Read `.claude/project/deterministic-signals.md` end-to-end. Write `signals.md` from scratch.
+- **Incremental (preferred)** — `atomic signals diff` exits 1 (diff present). Read its stdout. Use the unified-diff hunk headers (`## Manifests`, `## Languages`, etc.) to identify which deterministic sections changed, then use the section dependency mapping below to find which inferred sections need updates. Read `docs/wiki/index.md`, edit only the dependent sections in place, leave untouched sections byte-identical.
+- **Full (first run or fallback)** — `docs/wiki/index.md` does not exist, or `atomic signals diff` exits 2 (no prior version available). Read `docs/wiki/scan.md` end-to-end. Write `docs/wiki/index.md` from scratch.
 
 
 No custom diff format. Standard unified diff via the binary's `diff` wrapper.
@@ -84,22 +84,26 @@ Each deterministic section drives one or more inferred sections. The inferrer us
 | `Languages` | `Framework / runtime`, `Architectural style` |
 
 
-If a deterministic section changes but no inferred section depends on it, leave `signals.md` untouched and report `0 sections updated`. Always refresh the frontmatter `generated_at` timestamp.
+If a deterministic section changes but no inferred section depends on it, leave `docs/wiki/index.md` untouched and report `0 sections updated`. Always refresh the `<scan-sha>` control block.
 
 
-Input: `.claude/project/deterministic-signals.md` + `atomic signals diff` output (incremental mode).
+Input: `docs/wiki/scan.md` + `atomic signals diff` output (incremental mode).
 
 
-Output: `.claude/project/signals.md` with these sections:
+Output: `docs/wiki/index.md` with these sections:
 
 
 ```markdown
 ---
-generated_at: <ISO timestamp>
-source: .claude/project/deterministic-signals.md
+type: Index
+description: <one-line summary of the repo wiki>
 ---
 
-# Inferred signals
+<wiki-type>repo</wiki-type>
+<scan-sha><commit SHA the scan ran at></scan-sha>
+<wiki-schema>1</wiki-schema>
+
+# Project signals
 
 ## Framework / runtime
 <one line per detected framework with evidence>
@@ -134,9 +138,9 @@ source: .claude/project/deterministic-signals.md
 - **Incremental mode**: stay inside the diff. Read the `atomic signals diff` output, plus manifests cited by changed sections and new files introduced by tree changes. Do not re-read the full deterministic file or expand scope beyond what changed.
 - Every claim must cite evidence: a file path, a manifest key, a tree pattern, a grep result. Unsourced claims are forbidden.
 - **Risks / unknowns gate.** Before writing any Risks item, the agent must ask: "would one Read, Grep, or Glob resolve this?" If yes, do that instead. Banned phrasings include "not confirmed by direct read", "unclear whether", "mechanism not read", "likely … but unconfirmed", and "no X observed" when an `ls`/`find` would answer. A valid Risks item describes *what was tried and why it failed* — not "I didn't look." If no item meets this bar, write `None — repo is fully characterized within the inferred sections above.` The earlier "must be non-empty" rule is rescinded.
-- Never modify files outside `.claude/project/`.
+- Never modify files outside the active wiki root (`docs/wiki/`), `<state-root>/rules/wiki/` pointer cards, an ignore file's `rules/wiki` negation, the `@-ref` target file, and the `@AGENTS.md` import line in the `CLAUDE.md` or `claude.md` loader beside a shared `AGENTS.md` that carries the ref (`context/agents/atomic-wiki-inferrer.md`).
 - Output is plain markdown. No prose padding, no hedging.
-- Always preserve untouched sections byte-identical. The only frontmatter field that updates without a corresponding section change is `generated_at`.
+- Always preserve untouched sections byte-identical. The only field that updates without a corresponding section change is the `<scan-sha>` control block.
 
 
 ## ~~Command: `/initialize-signals`~~ (removed)
@@ -155,7 +159,7 @@ Ship verbs dispatch the `atomic-wiki-inferrer` agent in silent mode before the c
 1. Stage check (existing).
 2. If atomic signals stale exits 1:
    - Dispatch atomic-wiki-inferrer agent in silent mode.
-   - If signals regenerated, stage the resulting deterministic-signals.md + signals.md.
+   - If signals regenerated, stage the resulting docs/wiki/scan.md + docs/wiki/index.md.
 3. Continue with existing commit flow.
 ```
 
@@ -192,7 +196,7 @@ All of the above delegate to the `signals-gate` partial — the same probe `/com
 
 0. **docs-only guard.** Inspect the staged set (`git diff --cached --name-only`). If the set is empty, fall through to the staleness check (empty staged set does not mean all paths are documentation). If the set is non-empty and **every** staged path is documentation (`docs/` subtree, or a top-level `README*`/`CHANGELOG*`/`CONTRIBUTING*`/`CODE_OF_CONDUCT*`/`SECURITY*`/`LICENSE*` file), skip the refresh entirely. Any other path — source, config, `CLAUDE.md`, bundled-artifact `.md` under `agents/` `commands/` `skills/` `rules/` `output-styles/` — means it is NOT docs-only; continue. Full guard spec: [`docs/spec/signals-refresh-timing.md`](./signals-refresh-timing.md) §C2.
 1. `atomic signals stale` — act on the exit code (0 fresh → skip; 1 stale → refresh mandatory; 2 error → report and skip). Content-based, not mtime-based. **Why:** this staleness check also acts as the no-op guard when the implementation loop already refreshed — a fresh stored signals file returns exit 0, so ship-verb dispatch is skipped automatically.
-2. On exit 1, dispatch `atomic-wiki-inferrer` in silent mode, then stage `.claude/project/deterministic-signals.md` + `.claude/project/signals.md`.
+2. On exit 1, dispatch `atomic-wiki-inferrer` in silent mode, then stage `docs/wiki/scan.md` + `docs/wiki/index.md`.
 
 
 **Primary refresh point.** The `signals-gate` probe is the ad-hoc fallback. The implementation loop (`/subagent-implementation`, `/autopilot`) is the primary refresh: it runs once at finalize, scoped to the loop's SHA range via `changed_range`. Full timing contract: [`docs/spec/signals-refresh-timing.md`](./signals-refresh-timing.md).
@@ -215,15 +219,15 @@ Edit `/setup-wiki` audit table to include:
 
 | Convention | Check |
 |-----------|-------|
-| `.claude/project/deterministic-signals.md` | `test -f` |
-| `CLAUDE.md` references signals file | grep for `@.claude/project/signals.md` |
+| `docs/wiki/scan.md` | `test -f` |
+| Project steering references signals file | grep for `@docs/wiki/index.md` in `claude.local.md`, `CLAUDE.local.md`, `AGENTS.md`, then `CLAUDE.md`/`claude.md`; an `AGENTS.md` hit counts when no loader sits beside it or the loader imports `@AGENTS.md` |
 
 
 Proposed actions:
 
 
 - Signals files missing → action: run `/initialize-signals` as a follow-up.
-- `CLAUDE.md` missing `@-refs` → action: append the auto-load section (after the scan is done).
+- Project steering missing the `@-ref` → action: append the auto-load section to `AGENTS.md` (the `CLAUDE.md` loader when no `AGENTS.md` exists), and the `@AGENTS.md` import to a loader that lacks it (after the scan is done).
 
 
 ## Open follow-ups
@@ -237,13 +241,13 @@ Proposed actions:
 ## Success criteria
 
 
-- A fresh project can run `/refresh-wiki` and end with both signals files written, `CLAUDE.md` updated, and `signals.md` referenced via `@`.
+- A fresh project can run `/refresh-wiki` and end with both signals files written, `CLAUDE.md` updated, and `docs/wiki/index.md` referenced via `@`.
 - Re-running `/refresh-wiki` is a no-op (the agent detects fresh state via `atomic signals stale`).
 - A `/commit-only` that touches `src/foo.ts` regenerates signals and stages the updated docs alongside the commit.
 - A `/commit-only` that only touches `README.md` does NOT regenerate signals.
 - A `/commit-only` that touches `package.json` (or any other manifest on the trigger list) regenerates signals and stages the updated docs alongside the commit.
 - When `atomic signals scan` exits non-zero, the pipeline quotes the error and ends without inferring.
-- When `package.json` changes its `scripts.test` value, the agent's incremental path: (a) `atomic signals diff` returns the `Manifests` hunk after `atomic signals scan`, (b) the inferrer reads only that diff + the cited manifests, and (c) `signals.md` updates only `Build / test / lint commands`. Other sections of `signals.md` are byte-identical to the previous run.
+- When `package.json` changes its `scripts.test` value, the agent's incremental path: (a) `atomic signals diff` returns the `Manifests` hunk after `atomic signals scan`, (b) the inferrer reads only that diff + the cited manifests, and (c) `docs/wiki/index.md` updates only `Build / test / lint commands`. Other sections of `docs/wiki/index.md` are byte-identical to the previous run.
 
 
 ## Checkpoints
@@ -305,6 +309,14 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 
 ## Change log
 
+
+### 2026-11-12 — Correction: index.md format
+
+**What changed:** The incremental-update rule and the Output block show `docs/wiki/index.md` as OKF frontmatter (`type: Index`, `description:`) plus the `<wiki-type>`, `<scan-sha>`, and `<wiki-schema>` control blocks under a `# Project signals` heading. The `<scan-sha>` block is the always-refreshed field.
+
+**Why:** `docs/spec/wiki-storage-relocation.md` (CP3) set that format and the inferrer writes it; the body still showed the `generated_at`/`source:` frontmatter and `# Inferred signals` heading.
+
+**Superseded:** `generated_at` and `source:` frontmatter, and the `# Inferred signals` heading.
 
 ### 2026-05-17 — Collapse `claude.md` / `CLAUDE.md` to single canonical `CLAUDE.md`
 
@@ -389,3 +401,28 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **Why:** Issue #298: artifacts ship inside and install through the `atomic` binary, so the binary is always present when they run. See `docs/spec/artifacts-mermaid-flows.md`.
 
 **Superseded:** the probe's `command -v atomic` skip, the "binary not installed" skip condition, the markdown-only fallback, the `/setup-wiki` binary-on-PATH row with its install-command action, the artifact inventory's `/setup-wiki` "propose binary install" entry, and the criterion that removing the binary produced a fallback message.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** **Correction:** the body names the paths `docs/spec/wiki-storage-relocation.md` moved the signals files to, one for one: `.claude/project/deterministic-signals.md` is `docs/wiki/scan.md`, `.claude/project/signals.md` is `docs/wiki/index.md` (its `@-ref` is `@docs/wiki/index.md`), and `.deterministic-signals.prev.md` is `tmp/.scan.prev.md`. The Files produced table, agent description and write scope, modes, input, output frontmatter, commit-gate staging, setup audit, and success criteria follow. The files are committed, and only `docs/wiki/index.md` is `@-ref`'d. The structure is unchanged.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`. These signals paths left `.claude/project/` for `docs/wiki/`, not for the state root; `atomic/internal/signals/signals.go` writes `docs/wiki/scan.md` and `tmp/.scan.prev.md`, and `checks_signals.go` reads `docs/wiki/index.md`.
+
+**Superseded:** gitignored signals files under `.claude/project/`, both auto-referenced, with the inferrer scoped to `.claude/project/`.
+
+### 2026-11-11 — Router ref reaches the session through the loader
+
+**What changed:** The router ref goes to a project-local override when one exists, otherwise to the shared `AGENTS.md`. When no override or loader carries the ref and it sits in `AGENTS.md`, the pipeline appends `@AGENTS.md` to a `CLAUDE.md` or `claude.md` loader that lacks it, skips a loader that is a symlink to `AGENTS.md`, and changes nothing else in the loader. A pair created from nothing gets the `<atomic>`-wrapped loader the Claude adapter writes. The overview, Files produced, agent definition, and setup audit rows state this location, and the inferrer's write scope adds the loader.
+
+**Why:** Claude Code reads `AGENTS.md` only when no `CLAUDE.md` sits beside it, so a ref there behind a non-importing `CLAUDE.md` never loaded (audit row P-27 in `docs/research/harness-parity-audit.md`). Doctor category 4 counts such a ref only through the import (`docs/spec/atomic-doctor.md`).
+
+**Superseded:** the ref was described as living in the project `CLAUDE.md`, and the write scope ended at the single `@-ref` target file.
+
+
+### 2026-11-12 — Router ref follows the steering mode
+
+**What changed:** Step 8 of the wiki pipeline, `/setup-wiki`, `/refresh-wiki`, and the inferrer wire the router ref into the file the `[steering] claude` mode names; the loader import step runs only in `loader` mode and `claude-md` creates no `AGENTS.md`. The project-local override file is still preferred.
+
+**Why:** The `[steering] claude` mode changed how pairs are shaped; contract in `docs/spec/omp-plugin-compatibility.md`.
+
+**Superseded:** the ref was wired into `AGENTS.md` behind a loader in every mode.

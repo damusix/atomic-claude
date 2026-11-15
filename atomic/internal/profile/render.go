@@ -195,6 +195,8 @@ func writeStubSections(sb *strings.Builder) {
 	sb.WriteString("<volatile>\n")
 	sb.WriteString("- Alice (coworker) — owns billing service\n")
 	sb.WriteString("</volatile>\n")
+
+	sb.WriteString("\n" + workflowHeading + "\n\n" + emptyBlock)
 }
 
 // renderStubWithoutEnv leaves out ## Environment so the caller can append it.

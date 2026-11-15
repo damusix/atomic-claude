@@ -5,4 +5,5 @@ bin
 atomic/internal/embedded/bundle
 tmp
 node_modules
-.claude/.scratchpad
+.atomic/.scratchpad
+.atomic/.atomic-index

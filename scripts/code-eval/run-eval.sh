@@ -93,7 +93,7 @@ while IFS=$'\t' read -r id kind language url ref note; do
   echo "=== $id ($language, $kind) @ $sha ==="
 
   # fresh index, timed, capped. Cap scales with repo size (floor + per-file budget).
-  rm -rf "$DIR/.claude/.atomic-index"
+  rm -rf "$DIR/.atomic/.atomic-index" "$DIR/.claude/.atomic-index"
   nfiles=$(git -C "$DIR" ls-files 2>/dev/null | wc -l | tr -d ' ')
   cap=$(( ${nfiles:-0} / INDEX_FILE_DIV ))
   [ "$cap" -lt "$INDEX_TIMEOUT" ] && cap=$INDEX_TIMEOUT

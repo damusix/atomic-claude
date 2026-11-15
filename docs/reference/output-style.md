@@ -61,9 +61,13 @@ Three caps keep the vocabulary from sprawling. Aligned columns must sit inside a
 
 ## How it gets activated
 
-`atomic claude install` and `atomic claude update` seed `"outputStyle": "Atomic"` into `~/.claude/settings.json` when that key is absent, and the session-start hook does the same on every session. A fresh machine ends up on Atomic with no action. The seed never overwrites an existing value.
+`atomic install --harness claude`, `atomic harness enroll`, `atomic claude install`, and `atomic claude update` seed `"outputStyle": "Atomic"` into `~/.claude/settings.json` when that key is absent, and the session-start hook does the same on every session. A fresh machine ends up on Atomic with no action. The seed never overwrites an existing value.
 
 Only a user-level install seeds. `atomic claude install --target ./.claude` writes nothing, because that settings file is committed and the style is a personal choice; pick it there with `/config` instead.
+
+OMP has no separate style artifact. Each enrolled profile's native `AGENTS.md` carries one Atomic-owned block composed of the rendered Atomic steering body, a blank line, then the style body with its parsed YAML frontmatter stripped — delivered once inside steering, with no `output-styles/` artifact and no rule-surface entry.
+
+Codex works the same way: the Atomic block in `$CODEX_HOME/AGENTS.md` carries the steering body with the style always on. Selecting a different style is unsupported on Codex, and `atomic doctor` reports output-style selection as `WARN unsupported`.
 
 `/config` → **Output style** still overrides per project, writing `.claude/settings.local.json`, which wins over the user-level value. `outputStyle` is read once at session start, so a change takes effect on the next session or after `/clear`.
 

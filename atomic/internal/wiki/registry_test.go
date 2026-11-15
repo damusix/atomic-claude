@@ -2,6 +2,7 @@ package wiki
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -25,8 +26,8 @@ func TestRegistry_BlockAbsent_AppendsAfterAtomicClose(t *testing.T) {
 
 	otherTmp := t.TempDir()
 	indexPath := filepath.Join(otherTmp, "other-wiki", "index.md")
-	if err := RegisterWiki(claudeMD, indexPath); err != nil {
-		t.Fatalf("RegisterWiki: %v", err)
+	if err := RegisterAndProject(dir, indexPath, []string{claudeMD}); err != nil {
+		t.Fatalf("RegisterAndProject: %v", err)
 	}
 
 	got, err := os.ReadFile(claudeMD)
@@ -74,8 +75,8 @@ func TestRegistry_BlockAbsent_NoAtomicTag_AppendsAtEOF(t *testing.T) {
 	}
 
 	indexPath := "/my/wiki/index.md"
-	if err := RegisterWiki(claudeMD, indexPath); err != nil {
-		t.Fatalf("RegisterWiki: %v", err)
+	if err := RegisterAndProject(dir, indexPath, []string{claudeMD}); err != nil {
+		t.Fatalf("RegisterAndProject: %v", err)
 	}
 
 	got, err := os.ReadFile(claudeMD)
@@ -102,8 +103,8 @@ func TestRegistry_FileAbsent_CreatesWithBlock(t *testing.T) {
 	// Do NOT create the file.
 
 	indexPath := "/new/wiki/index.md"
-	if err := RegisterWiki(claudeMD, indexPath); err != nil {
-		t.Fatalf("RegisterWiki: %v", err)
+	if err := RegisterAndProject(dir, indexPath, []string{claudeMD}); err != nil {
+		t.Fatalf("RegisterAndProject: %v", err)
 	}
 
 	got, err := os.ReadFile(claudeMD)
@@ -127,12 +128,12 @@ func TestRegistry_Idempotent(t *testing.T) {
 	indexPath := "/idempotent/wiki/index.md"
 
 	// First call.
-	if err := RegisterWiki(claudeMD, indexPath); err != nil {
-		t.Fatalf("first RegisterWiki: %v", err)
+	if err := RegisterAndProject(dir, indexPath, []string{claudeMD}); err != nil {
+		t.Fatalf("first RegisterAndProject: %v", err)
 	}
 	// Second call.
-	if err := RegisterWiki(claudeMD, indexPath); err != nil {
-		t.Fatalf("second RegisterWiki: %v", err)
+	if err := RegisterAndProject(dir, indexPath, []string{claudeMD}); err != nil {
+		t.Fatalf("second RegisterAndProject: %v", err)
 	}
 
 	got, err := os.ReadFile(claudeMD)
@@ -160,11 +161,11 @@ func TestRegistry_NormalizedPathDedup(t *testing.T) {
 	// Spelling 2: same path via redundant path separator components.
 	indexPath2 := filepath.Join(wikiDir, ".", "index.md")
 
-	if err := RegisterWiki(claudeMD, indexPath1); err != nil {
-		t.Fatalf("first RegisterWiki: %v", err)
+	if err := RegisterAndProject(dir, indexPath1, []string{claudeMD}); err != nil {
+		t.Fatalf("first RegisterAndProject: %v", err)
 	}
-	if err := RegisterWiki(claudeMD, indexPath2); err != nil {
-		t.Fatalf("second RegisterWiki: %v", err)
+	if err := RegisterAndProject(dir, indexPath2, []string{claudeMD}); err != nil {
+		t.Fatalf("second RegisterAndProject: %v", err)
 	}
 
 	got, err := os.ReadFile(claudeMD)
@@ -194,8 +195,8 @@ func TestRegistry_AtomicBlockUntouched(t *testing.T) {
 	}
 
 	indexPath := "/some/wiki/index.md"
-	if err := RegisterWiki(claudeMD, indexPath); err != nil {
-		t.Fatalf("RegisterWiki: %v", err)
+	if err := RegisterAndProject(dir, indexPath, []string{claudeMD}); err != nil {
+		t.Fatalf("RegisterAndProject: %v", err)
 	}
 
 	got, err := os.ReadFile(claudeMD)
@@ -242,7 +243,7 @@ func TestRegistry_AtomicBlockUntouched(t *testing.T) {
 // TestRegistry_ProseMentionNotMatched verifies that a CLAUDE.md containing prose
 // mentions of `<wikis>` inside an <atomic> block — including backtick-quoted
 // examples like `<wikis>` and `</wikis>` — are NOT treated as a real bare-line
-// block. The first RegisterWiki call must create a NEW block AFTER </atomic> and
+// block. The first RegisterAndProject call must create a NEW block AFTER </atomic> and
 // must NOT write into or near the prose mention. A second call finds the created
 // block and dedups.
 func TestRegistry_ProseMentionNotMatched(t *testing.T) {
@@ -270,8 +271,8 @@ func TestRegistry_ProseMentionNotMatched(t *testing.T) {
 	indexPath := "/my/wiki/index.md"
 
 	// First call — must append a new block AFTER </atomic>, not inside <atomic>.
-	if err := RegisterWiki(claudeMD, indexPath); err != nil {
-		t.Fatalf("first RegisterWiki: %v", err)
+	if err := RegisterAndProject(dir, indexPath, []string{claudeMD}); err != nil {
+		t.Fatalf("first RegisterAndProject: %v", err)
 	}
 
 	got, err := os.ReadFile(claudeMD)
@@ -314,8 +315,8 @@ func TestRegistry_ProseMentionNotMatched(t *testing.T) {
 	}
 
 	// Second call — must dedup (the real block now exists).
-	if err := RegisterWiki(claudeMD, indexPath); err != nil {
-		t.Fatalf("second RegisterWiki: %v", err)
+	if err := RegisterAndProject(dir, indexPath, []string{claudeMD}); err != nil {
+		t.Fatalf("second RegisterAndProject: %v", err)
 	}
 
 	got2, err := os.ReadFile(claudeMD)
@@ -329,14 +330,94 @@ func TestRegistry_ProseMentionNotMatched(t *testing.T) {
 	}
 }
 
+// On an OMP-only home the block lands beside the Atomic block in the profile
+// AGENTS.md, and no Claude steering file appears.
+func TestWikiAction_ScanProjectsIntoOMPSteeringOnly(t *testing.T) {
+	home := t.TempDir()
+	agentsMD := filepath.Join(home, ".omp", "agent", "AGENTS.md")
+	if err := os.MkdirAll(filepath.Dir(agentsMD), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	atomicBlock := "<atomic>\nmanaged\n</atomic>\n"
+	if err := os.WriteFile(agentsMD, []byte(atomicBlock), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+
+	var buf bytes.Buffer
+	if code := wikiAction([]string{"scan", "--root=" + root}, home, steering(agentsMD), root, &buf); code != 0 {
+		t.Fatalf("wiki scan exit = %d:\n%s", code, buf.String())
+	}
+
+	index := filepath.Join(root, "wiki", "index.md")
+	authority, err := NewWikiRegistry(home).Load()
+	if err != nil || len(authority) != 1 || authority[0] != index {
+		t.Fatalf("authority = %v, %v; want [%s]", authority, err, index)
+	}
+	got, err := os.ReadFile(agentsMD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(got), atomicBlock) || !strings.Contains(string(got), "<wikis>\n- "+index+"\n</wikis>") {
+		t.Errorf("OMP steering = %q, want the Atomic block kept and the <wikis> block added", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude")); !os.IsNotExist(err) {
+		t.Errorf("~/.claude was created (stat err %v)", err)
+	}
+}
+
+// Only scan projects, so an unreadable ledger must not break the other verbs.
+func TestWikiAction_ResolvesSteeringOnlyForScan(t *testing.T) {
+	called := false
+	broken := func() ([]string, error) { called = true; return nil, errors.New("decode ledger") }
+	root := t.TempDir()
+
+	if code := wikiAction([]string{"bucket", "list", "--root=" + root}, t.TempDir(), broken, root, &bytes.Buffer{}); code != 0 {
+		t.Errorf("bucket list exit = %d, want 0", code)
+	}
+	if called {
+		t.Error("bucket list resolved the steering paths")
+	}
+
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	code := wikiAction([]string{"scan", "--root=" + root}, t.TempDir(), broken, root, &bytes.Buffer{})
+	w.Close()
+	os.Stderr = oldStderr
+	stderr, _ := io.ReadAll(r)
+	if code != 1 || !strings.Contains(string(stderr), "decode ledger") {
+		t.Errorf("scan exit = %d, stderr %q; want 1 naming the ledger error", code, stderr)
+	}
+}
+
+// A failed projection happens after the authority write, so it must not read
+// as a failed registration.
+func TestRegisterAndProject_ProjectionFailureKeepsTheAuthority(t *testing.T) {
+	home := t.TempDir()
+	blocker := filepath.Join(home, "not-a-dir")
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	index := filepath.Join(t.TempDir(), "wiki", "index.md")
+
+	err := RegisterAndProject(home, index, []string{filepath.Join(blocker, "AGENTS.md")})
+	if err == nil || !strings.HasPrefix(err.Error(), "project <wikis>: ") {
+		t.Fatalf("err = %v, want a projection error", err)
+	}
+	if paths, loadErr := NewWikiRegistry(home).Load(); loadErr != nil || len(paths) != 1 {
+		t.Errorf("authority = %v, %v; want the registered index", paths, loadErr)
+	}
+}
+
 // TestWikiAction_ScanWritesRegistryAndHandoff verifies that wikiAction:
 //   - calls Scan (scaffold + wiki-scan block)
-//   - writes registry entry to the temp claudeHome's CLAUDE.md
+//   - projects the registry entry into the given steering file
 //   - outputs the stdout handoff with stable labels
 func TestWikiAction_ScanWritesRegistryAndHandoff(t *testing.T) {
 	// Build a temp root with one indexed repo and one pending repo.
 	root := t.TempDir()
-	claudeHome := t.TempDir() // never writes to real ~/.claude
+	home := t.TempDir() // never writes to real ~/.claude
 
 	// indexed repo
 	indexedRepo := filepath.Join(root, "repo-indexed")
@@ -359,7 +440,7 @@ func TestWikiAction_ScanWritesRegistryAndHandoff(t *testing.T) {
 	// Capture stdout.
 	var buf bytes.Buffer
 
-	code := wikiAction([]string{"scan", "--root=" + root}, claudeHome, root, &buf)
+	code := wikiAction([]string{"scan", "--root=" + root}, home, steering(filepath.Join(home, "CLAUDE.md")), root, &buf)
 	if code != 0 {
 		t.Fatalf("wikiAction returned %d, output:\n%s", code, buf.String())
 	}
@@ -380,10 +461,9 @@ func TestWikiAction_ScanWritesRegistryAndHandoff(t *testing.T) {
 		t.Errorf("missing 'NEXT STEPS' in handoff:\n%s", out)
 	}
 
-	// Verify the registry entry in temp claudeHome.
-	claudeMD := filepath.Join(claudeHome, "CLAUDE.md")
+	claudeMD := filepath.Join(home, "CLAUDE.md")
 	if _, err := os.Stat(claudeMD); err != nil {
-		t.Fatalf("CLAUDE.md not created at temp claudeHome: %v", err)
+		t.Fatalf("CLAUDE.md not created under the temp home: %v", err)
 	}
 	claudeContent, err := os.ReadFile(claudeMD)
 	if err != nil {
@@ -397,7 +477,7 @@ func TestWikiAction_ScanWritesRegistryAndHandoff(t *testing.T) {
 
 func TestWikiAction_RootFlag(t *testing.T) {
 	root := t.TempDir()
-	claudeHome := t.TempDir()
+	home := t.TempDir()
 
 	// One pending repo.
 	repoDir := filepath.Join(root, "my-repo")
@@ -406,7 +486,7 @@ func TestWikiAction_RootFlag(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	code := wikiAction([]string{"scan", "--root=" + root}, claudeHome, "/some/other/cwd", &buf)
+	code := wikiAction([]string{"scan", "--root=" + root}, home, steering(), "/some/other/cwd", &buf)
 	if code != 0 {
 		t.Fatalf("wikiAction with --root flag returned %d, output:\n%s", code, buf.String())
 	}
@@ -419,7 +499,7 @@ func TestWikiAction_RootFlag(t *testing.T) {
 
 func TestWikiAction_NoRootFlag_UsesCwd(t *testing.T) {
 	cwd := t.TempDir()
-	claudeHome := t.TempDir()
+	home := t.TempDir()
 
 	// One pending repo.
 	repoDir := filepath.Join(cwd, "cwd-repo")
@@ -428,7 +508,7 @@ func TestWikiAction_NoRootFlag_UsesCwd(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	code := wikiAction([]string{"scan"}, claudeHome, cwd, &buf)
+	code := wikiAction([]string{"scan"}, home, steering(), cwd, &buf)
 	if code != 0 {
 		t.Fatalf("wikiAction (no root flag) returned %d, output:\n%s", code, buf.String())
 	}
@@ -447,7 +527,7 @@ func TestWikiAction_ScanWritesRealmScopeMarker(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if code := wikiAction([]string{"scan", "--root=" + root}, t.TempDir(), root, &buf); code != 0 {
+	if code := wikiAction([]string{"scan", "--root=" + root}, t.TempDir(), steering(), root, &buf); code != 0 {
 		t.Fatalf("wikiAction returned %d, output:\n%s", code, buf.String())
 	}
 
@@ -469,7 +549,7 @@ func TestWikiAction_ScanWarnsOnUnusableScopeMarker(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			claudeHome := t.TempDir()
+			home := t.TempDir()
 			path := config.RepoConfigPath(root)
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
@@ -482,7 +562,7 @@ func TestWikiAction_ScanWarnsOnUnusableScopeMarker(t *testing.T) {
 			r, w, _ := os.Pipe()
 			os.Stderr = w
 			var buf bytes.Buffer
-			code := wikiAction([]string{"scan", "--root=" + root}, claudeHome, root, &buf)
+			code := wikiAction([]string{"scan", "--root=" + root}, home, steering(), root, &buf)
 			w.Close()
 			os.Stderr = oldStderr
 			stderr, _ := io.ReadAll(r)
@@ -503,9 +583,9 @@ func TestWikiAction_ScanWarnsOnUnusableScopeMarker(t *testing.T) {
 			if string(got) != tc.content {
 				t.Errorf("marker file rewritten: got %q, want %q", got, tc.content)
 			}
-			registry, err := os.ReadFile(filepath.Join(claudeHome, "CLAUDE.md"))
-			if err != nil || !strings.Contains(string(registry), filepath.Join(root, "wiki", "index.md")) {
-				t.Errorf("wiki not registered after warning: err=%v registry=%q", err, registry)
+			registry, err := NewWikiRegistry(home).Load()
+			if err != nil || len(registry) != 1 || registry[0] != filepath.Join(root, "wiki", "index.md") {
+				t.Errorf("wiki not registered after warning: err=%v registry=%v", err, registry)
 			}
 		})
 	}

@@ -1,25 +1,52 @@
 ---
 name: atomic-git-discipline
 description: >
-  Compressed commit message and PR body generator. Cuts noise from both while preserving
-  intent and reasoning. Conventional Commits format. Subject ≤50 chars, body only when
-  "why" isn't obvious; PR bodies state only what the diff can't show, ~120 words max.
-  Use when user says "write a commit", "commit message", "generate commit", "open a PR",
-  "PR description", or invokes /atomic-git-discipline. Auto-triggers when staging changes
-  or authoring a pull request.
+  Compressed commit message and PR body generator, plus the provider references that say
+  where change requests, issues, follow-ups, and worktrees go. Conventional Commits format.
+  Subject ≤50 chars, body only when "why" isn't obvious; PR bodies state only what the diff
+  can't show, ~120 words max. Use when user says "write a commit", "commit message",
+  "generate commit", "open a PR", "PR description", files an issue, records a follow-up,
+  chooses a tracker, creates a worktree, or invokes /atomic-git-discipline. Auto-triggers
+  when staging changes or authoring a pull request. Invoked by /commit (commit-flow,
+  pr-flow, squash-flow), /implement, /subagent-implementation, /autopilot
+  (implement-loop, worktree-setup), /quick-fix (implement-loop), /deslop (worktree-setup,
+  batch commits),
+  /subagent-diagnose, and /refresh-wiki; preloaded by atomic-implementer, atomic-reviewer,
+  and atomic-auditor.
 ---
 
 <trigger>
 
 - "write a commit", "commit message", "generate commit"
-- "open a PR", "PR description", "PR body", writing `gh pr create --body`
+- "open a PR", "PR description", "PR body", opening any change request
+- Filing an issue, recording a follow-up, or choosing an issue tracker
+- Creating a worktree
 - Staging changes for commit
 - Ship verbs delegating message format
-- Read directly by subagents briefed to create a commit or open a PR (per `CLAUDE.md` Commits & PRs — subagents can't auto-fire skills)
+- Read directly by subagents briefed to create a commit or open a PR (per the global contract's Commits & PRs section — subagents can't auto-fire skills)
 
 </trigger>
 
 Write commit messages terse and exact. Conventional Commits. No fluff. Why over what.
+
+## References
+
+Provider operations live in references, loaded on demand. Before a provider operation, read the files the resolved `Read:` line names.
+
+- `references/resolution.md`: how the provider is resolved, and which file each value selects
+- `references/source-control/github.md`
+- `references/source-control/gitlab.md`
+- `references/source-control/bitbucket.md`
+- `references/source-control/codeberg.md`
+- `references/source-control/none.md`
+- `references/issue-tracking/github.md`
+- `references/issue-tracking/gitlab.md`
+- `references/issue-tracking/codeberg.md`
+- `references/issue-tracking/linear.md`
+- `references/issue-tracking/jira.md`
+- `references/issue-tracking/trello.md`
+- `references/issue-tracking/filesystem.md`: the local follow-up ledger
+- `references/worktrees.md`: where worktrees go, per harness
 
 ## Rules
 
@@ -114,7 +141,7 @@ A merge-commit merge is the exception that hides this: it keeps every commit on 
 
 - A change a reviewer would otherwise have to run to see — a UI, a docs-site page, terminal output — carries a screenshot of the new state; a fix carries a before and after pair. A change with no rendered surface carries none.
 - One line per image, after the prose, referencing the local file with a caption: `![Plans on the realm root](tmp/shots/plans-root.png)`. The caption says what the reader is looking at, not what changed.
-- The invoking ship verb uploads each file with `gh pr create --attach '<path>#<caption>'` (GitHub CLI 2.99.0 or newer) and rewrites the path into a hosted `user-attachments` URL. This skill names the files and writes the captions; it never uploads.
+- The invoking ship verb uploads each file through the `change-request-attach-images` operation of the resolved source-control reference. This skill names the files and writes the captions; it never uploads.
 
 **Omit from PR bodies:**
 
@@ -165,6 +192,6 @@ They sit alongside other trailers like `Co-authored-by:` and `Closes #N`. Do not
 
 ## Boundaries
 
-Generates the commit message or PR title and body only, including the screenshot lines a visual change needs. Does not run `git commit`, does not stage files, does not amend, does not push, does not call `gh pr create`, does not upload screenshots, does not read or delete session-report files (that is the invoking ship verb's job). Output the text as a code block ready to paste.
+Generates the commit message or PR title and body, including the screenshot lines a visual change needs, and names where the work is placed through the references. Does not run `git commit`, does not stage files, does not amend, does not push, does not open or merge a change request, does not upload screenshots, does not read or delete session-report files (that is the invoking ship verb's job). Output the text as a code block ready to paste.
 
 </constraints>

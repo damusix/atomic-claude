@@ -21,34 +21,19 @@ func init() {
 		TargetVersion: "1.2.0",
 		Scope:         "repo",
 		Up:            scratchpadRelocate,
-		Summary:       "Relocate session-reports/ and reminders/ to ~/.atomic/<project-key>/, and rename dated <YYYY-MM-DD>-<slug> scratchpad bundles to <slug> where both docs/design/<slug>.md and docs/spec/<slug>.md exist",
+		Summary:       "Relocate session-reports/ to ~/.atomic/<project-key>/, and rename dated <YYYY-MM-DD>-<slug> scratchpad bundles to <slug> where both docs/design/<slug>.md and docs/spec/<slug>.md exist",
 		Instructions:  "Run `atomic migrate --repo <path>` once per checkout; a second run is a no-op.",
 		Date:          "2026-08-20",
 	})
 }
 
-// scratchpadRelocate moves a repo's legacy session-reports/ and reminders/
-// under its scratchpad root to the project-keyed state home, then renames any
-// dated scratchpad bundle it can confirm via the checkout's own docs. Both
-// halves are idempotent by absence: a second run finds nothing to move or
-// rename.
+// scratchpadRelocate is idempotent: a second run has nothing to move.
 func scratchpadRelocate(ctx *Context) error {
-	if err := relocateReportsAndReminders(ctx.Root); err != nil {
+	legacyReports := filepath.Join(config.ScratchpadDir(ctx.Root), "session-reports")
+	if err := relocateTree(legacyReports, config.ReportsRoot(ctx.Root), "session report"); err != nil {
 		return err
 	}
 	return redateScratchpadBundles(ctx.Root)
-}
-
-func relocateReportsAndReminders(root string) error {
-	legacyReports := filepath.Join(config.ScratchpadDir(root), "session-reports")
-	if err := relocateTree(legacyReports, config.ReportsRoot(root), "session report"); err != nil {
-		return err
-	}
-	legacyReminders := config.RemindersDirLegacy(root)
-	if err := relocateTree(legacyReminders, config.ProjectRemindersDir(root), "reminder"); err != nil {
-		return err
-	}
-	return nil
 }
 
 // relocateTree moves every file under src to the identical relative path

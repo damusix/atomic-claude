@@ -9,7 +9,7 @@ binding iface, and the 19-grammar `ts.wasm`. **Blocks:** part 3 (resolution)
 onward — extraction emits the nodes + `unresolved_refs` resolution consumes.
 
 Brand bindings (from the umbrella): commands `atomic code <verb>`; data dir
-`<projectRoot>/.claude/.atomic-index/`. Never emit the reference's product name.
+`<state-root>/.atomic-index/` (`.atomic` by default). Never emit the reference's product name.
 
 ## Scope
 
@@ -156,6 +156,16 @@ Each enrichment ships with its own fixtures proving the new rows appear; no
 existing extraction test may regress.
 
 ## Change log
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The brand-binding data dir now reads
+`<state-root>/.atomic-index/`, with the state root `.atomic` by default.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the
+`.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the data dir was `<projectRoot>/.claude/.atomic-index/`.
 
 ### 2026-06-06 — EE5 representation finalized; closure-collection synthesizer activated
 

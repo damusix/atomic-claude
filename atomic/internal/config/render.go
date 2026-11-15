@@ -3,11 +3,12 @@ package config
 import (
 	"fmt"
 
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 )
 
 // Resolved returns a flat dotted-key to resolved-value map, filling in built-in
-// defaults for zero-value fields.
+// defaults for zero-value fields, plus every set agent override field.
 func Resolved(cfg *Config) map[string]string {
 	// A zero max_depth means "use default", and doubles as the zero-value-Config
 	// signal below.
@@ -37,11 +38,11 @@ func Resolved(cfg *Config) map[string]string {
 	if !outputStyleSeed && zeroValueConfig {
 		outputStyleSeed = outputStyleSeedDefault
 	}
-	// An empty harness.dir is never a valid explicit value, so it unambiguously
-	// means "use default".
-	harnessDirVal := cfg.Harness.Dir
-	if harnessDirVal == "" {
-		harnessDirVal = harnessDirDefault
+	// An empty state.dir means unset: display the segment the ladder lands on
+	// before the built-in fallback.
+	stateDirVal := cfg.State.Dir
+	if stateDirVal == "" {
+		stateDirVal = stateDirDefault
 	}
 	// An empty idle_timeout means unset — display the same default
 	// resolveIdleTimeout falls back to.
@@ -55,14 +56,31 @@ func Resolved(cfg *Config) map[string]string {
 	if channelVal == "" {
 		channelVal = selfupdate.ChannelStable
 	}
-	return map[string]string{
+	steeringVal := cfg.Steering.Claude
+	if steeringVal == "" {
+		steeringVal = string(bundlespec.SteeringLoader)
+	}
+	m := map[string]string{
 		"update.channel":           channelVal,
 		"output.signals.max_depth": fmt.Sprintf("%d", maxDepth),
 		"update.run_doctor":        fmt.Sprintf("%t", runDoctor),
 		"update.check":             fmt.Sprintf("%t", updateCheck),
 		"update.stage":             fmt.Sprintf("%t", updateStage),
 		"output_style.seed":        fmt.Sprintf("%t", outputStyleSeed),
-		"harness.dir":              harnessDirVal,
+		"state.dir":                stateDirVal,
 		"repl.idle_timeout":        idleTimeoutVal,
+		"steering.claude":          steeringVal,
 	}
+	for _, kind := range AgentHarnesses {
+		for name, ov := range cfg.AgentOverrides(kind) {
+			prefix := kind + ".agents." + name
+			if ov.Model != "" {
+				m[prefix+".model"] = ov.Model
+			}
+			if ov.Effort != "" {
+				m[prefix+".effort"] = ov.Effort
+			}
+		}
+	}
+	return m
 }

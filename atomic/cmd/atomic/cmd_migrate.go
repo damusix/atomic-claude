@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/migrate"
@@ -152,6 +153,11 @@ func runMigrateInstall(home string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	// The update trigger keys on [install].version, so a home without a legacy
+	// record neither runs install steps nor gains a version.
+	if !claudeinstall.InstallRecordOf(cfg).Present() {
+		return nil
+	}
 	ctx := &migrate.Context{Root: filepath.Join(home, ".claude")}
 	installSteps := scopedMigrations("install", migrate.Registry)
 	newVer, err := migrate.Run(cfg.Install.Version, installSteps, ctx)
@@ -159,7 +165,7 @@ func runMigrateInstall(home string) error {
 		return err
 	}
 	if newVer == cfg.Install.Version {
-		return nil // no steps applied
+		return nil
 	}
 	cfg.Install.Version = newVer
 	return config.WritePersist(cfgPath, cfg)

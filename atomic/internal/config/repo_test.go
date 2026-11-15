@@ -232,7 +232,7 @@ func TestIgnoreMatcher_NilSafe(t *testing.T) {
 
 // Uses the harness-dir test seam so it never touches the real home.
 func TestRepoConfigPath(t *testing.T) {
-	restore := SetHarnessDirForTest(".claude")
+	restore := SetStateDirForTest(".claude")
 	defer restore()
 
 	got := RepoConfigPath("/repo")

@@ -29,7 +29,7 @@ Read `docs/wiki/scan.md` end-to-end.
 
 Steering directives, when present, are provided by the caller in the dispatch prompt inside a `<steering>` block. If a `<steering>` block is present, treat its content as ground truth — steering wins over what the deterministic scan implies. If no `<steering>` block is in the prompt, proceed with pure inference.
 
-Naming continuity check: read existing `docs/wiki/*.md` domain filenames (excluding `index.md`, `scan.md`, and `CLAUDE.md`). For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
+Naming continuity check: read existing `docs/wiki/*.md` domain filenames (excluding `index.md`, `scan.md`, and the wiki steering file). For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
 
 ### Step 2b — Compute scope
 
@@ -63,7 +63,7 @@ Partition by functional concern, not by file type or directory structure. Each d
 
 Heuristic: identify commands, skills, or agents that form a cohesive unit. Find the Go packages that serve them and the docs that describe them. Things that break together belong together. Structural signals (top-level dirs, workspaces, co-located tests) inform the grouping but do not dictate it.
 
-**Code-intel corroboration (when index is present).** If `.claude/.atomic-index/atomic.db` exists, query the real import and call graph to corroborate and refine the grouping. Actual dependency edges are stronger evidence for domain boundaries than directory names: files that import each other heavily, or that share a dense call cluster, belong in the same domain even if their paths look disparate. Use broader structural queries here — the inferrer is a disposable subagent consuming output to produce a compact `docs/wiki/index.md`, not a bounded one-symbol probe. Queries to consider: `atomic code explore "<domain or subsystem>"` for a one-shot context digest of an area, `atomic code callers <entrypoint> --json` to find all consumers of a key symbol, or `atomic code callees <package-init> --json` to map what a package depends on. If the index DB is absent, fall back fully to the filename/path heuristics above — code-intel is corroborating evidence, never a hard dependency.
+**Code-intel corroboration (when index is present).** If `<state-root>/.atomic-index/atomic.db` exists (`<state-root>` is the `state_root` field of `atomic where --json`, `.atomic` by default), query the real import and call graph to corroborate and refine the grouping. Actual dependency edges are stronger evidence for domain boundaries than directory names: files that import each other heavily, or that share a dense call cluster, belong in the same domain even if their paths look disparate. Use broader structural queries here — the inferrer is a disposable subagent consuming output to produce a compact `docs/wiki/index.md`, not a bounded one-symbol probe. Queries to consider: `atomic code explore "<domain or subsystem>"` for a one-shot context digest of an area, `atomic code callers <entrypoint> --json` to find all consumers of a key symbol, or `atomic code callees <package-init> --json` to map what a package depends on. If the index DB is absent, fall back fully to the filename/path heuristics above — code-intel is corroborating evidence, never a hard dependency.
 
 Record the partitioning basis as the one-line intro above the router's `## Domains` table.
 
@@ -73,10 +73,10 @@ Each `docs/design/*.md` joins a domain too: the domain its `domain:` frontmatter
 
 ### Step 4 — Dispatch sub-agents per domain
 
-For each domain that needs writing or updating, dispatch one `atomic-wiki-writer`. Name that type explicitly on every dispatch: omitting `subagent_type` falls back to `general-purpose`, which declares no `skills:` frontmatter, so the page contract and the voice rules would reach it as a request rather than as loaded context.
+For each domain that needs writing or updating, dispatch one `atomic-wiki-writer`. Dispatch each by its stable identity, fresh context, and never leave the agent to a default — an implicitly chosen agent carries none of the wiki contract, so the page contract and the voice rules would reach it as a request rather than as loaded context.
 
 ```
-Dispatch sub-agent (atomic-wiki-writer):
+Dispatch `atomic-wiki-writer`:
 Prompt: "Write docs/wiki/<domain>.md for the <domain> domain.
 
 <source_paths>
@@ -88,7 +88,7 @@ Design docs for this domain: <list, or none>
 </design_docs>
 
 <steering>
-<include steering directives here if docs/wiki/CLAUDE.md was provided by the caller>
+<include steering directives here if the wiki steering file was provided by the caller>
 </steering>
 
 <instructions>
@@ -99,7 +99,7 @@ Design docs for this domain: <list, or none>
 - Write a domain file conforming to the domain file schema below.
 - Invoke the `atomic-writing` skill and follow it. It governs three things here, not one: the page's reading order, when a shape gets drawn instead of written, and the sentence-level voice.
 - Draw every shape the domain has. A pipeline, a lifecycle, and a request path are three claims and three diagrams, each with its own `###` sub-heading and a caption stating what it claims. There is no cap. Leaving a shape in prose is the failure to avoid, not drawing too many.
-- Before writing any Mermaid block, read `~/.claude/skills/atomic-writing/references/mermaid.md` — it picks the diagram type from the reader's question and lists what breaks rendering. Identifier labels are why it matters: a bare `verify(token)` is a parse error, `verify("token")` is not.
+- Before writing any Mermaid block, read the `atomic-writing` skill's Mermaid reference (`mermaid.md`, in that skill's own references directory) — it picks the diagram type from the reader's question and lists what breaks rendering. Identifier labels are why it matters: a bare `verify(token)` is a parse error, `verify("token")` is not.
 - Draw from the source you read, never from prose someone already wrote about it. A diagram inherits any error in the paragraph it was copied from.
 - Redraw the design diagrams. For each file in `<design_docs>`, read every Mermaid block. A block that draws current architecture (a pipeline, a data model, a request path, a lifecycle) is redrawn in `## How it works` against the source: every node label resolves to a file or symbol in the source paths (`atomic code search <label>` when the index exists, grep otherwise), the caption states the claim, and the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md` applies. A block that draws a decision (before and after, a rejected topology) stays in the design. A block whose nodes no longer resolve is dropped and reported in the concerns block as `docs/design/<file>.md:<line> — diagram no longer matches source (severity: risk)`. The redrawn block's `%% source:` comment names the design doc it came from and the source files its nodes resolve to.
 - Output only the file content. Do not summarize your process.
@@ -152,10 +152,10 @@ Sub-agents are bounded to their domain. They read source files in their area onl
 
 ### Step 5 — Reviewer validates each domain file
 
-After each sub-agent writes its domain file, dispatch a reviewer:
+After each sub-agent writes its domain file, dispatch `atomic-reviewer`, fresh context:
 
 ```
-Dispatch sub-agent (atomic-reviewer):
+Dispatch `atomic-reviewer`:
 Prompt: "Review docs/wiki/<domain>.md against the source code.
 
 Domain file path: docs/wiki/<domain>.md
@@ -193,7 +193,7 @@ flowchart TD
     I -->|yes| F["Flag unresolved,<br/>continue"]
 ```
 
-- **Writer writes domain file**: on a repeat round, dispatch the sub-agent again with the reviewer's corrections.
+- **Writer writes domain file**: on a repeat round, dispatch `atomic-wiki-writer` again with the reviewer's corrections.
 - **Flag unresolved, continue**: report the unresolved domain and its iteration count in the Step 9 orchestrator output — that is run state for the caller, not a fact about the codebase, so it stays out of the committed wiki files.
 
 ### Step 6 — Wire cross-domain references
@@ -254,7 +254,7 @@ Then write the router body (see **Router shape** below) starting with `# Project
 
 ### Step 7b — Emit wiki pointer rules
 
-After `docs/wiki/index.md` is assembled, emit one path-scoped pointer card per domain to `.claude/rules/wiki/<domain>.md`. A Claude Code `paths:` glob match injects the card into context whenever a session touches that domain, so the session gets a link to the domain's wiki page without loading wiki content by default.
+After `docs/wiki/index.md` is assembled, emit one path-scoped pointer card per domain to `<state-root>/rules/wiki/<domain>.md`. These are the canonical wiki-producer rule records: each card is parsed through the `rules` package as `rules/wiki/<domain>.md` with identity `wiki:<project-key>:<domain>`, and the harness's native `paths:` glob match injects it into context whenever a session touches that domain, so the session gets a link to the domain's wiki page without loading wiki content by default.
 
 **Scope.** Only an incremental run over existing cards emits a subset; every path ends by deleting the cards of domains the router no longer lists.
 
@@ -269,7 +269,7 @@ flowchart TD
     R --> D
 ```
 
-- **Cards exist?**: no when `.claude/rules/wiki/` is absent or holds no cards (bootstrap).
+- **Cards exist?**: no when `<state-root>/rules/wiki/` is absent or holds no cards (bootstrap).
 - **Partition every router domain**: Step 3's domain partition for every router-table domain (classification only, no writer dispatch), giving each domain a disjoint `<source_paths>` block to derive its card's globs from. No fallback to the Start-here directory or any other approximation; a domain with no `<source_paths>` after the partition is a pipeline error to report, not a guess.
 - **Emit re-dispatched domains' cards**: a non-re-dispatched domain's card and `paths:` stay untouched until its next re-dispatch.
 - **Delete orphan cards**: any card whose domain is absent from the current router table.
@@ -284,7 +284,7 @@ paths:
   - "context/agents/atomic-wiki-inferrer.md"
 ---
 
-Domain: signals. Scan, infer, and wire the project context Claude loads each session.
+Domain: signals. Scan, infer, and wire the project context the harness loads each session.
 
 Map:
   - docs/wiki/signals.md
@@ -304,27 +304,50 @@ Consult the map before changing behavior here. Behavior changes stale the pages 
 - **Closing line**: fixed literal, one physical line, verbatim: `Consult the map before changing behavior here. Behavior changes stale the pages above. Renames or removals stale mentions beyond them: grep the old name across docs/ before shipping.`
 - **Body budget**: at most twelve links, across the seven category blocks — 24 lines after frontmatter at the ceiling. The body is a fixed five-line skeleton (leading blank, domain line, blank, blank, closing line) plus one label line per non-empty category and one line per link, so a card's length is `5 + categories + links`. Nesting spends lines rather than characters, so the budget counts links while the injected token cost stays roughly what the same links cost comma-separated. A domain needing more than twelve links is over-coupled: cut the weakest rather than growing the card. Every body line is deterministic: an unchanged domain regenerates a byte-identical card, so a ship commit carries no wording churn.
 
-**Ignore-file probe.** Before writing, run `git check-ignore -v .claude/rules/wiki`. If it reports a match, append `!/rules/wiki/` and `!/rules/wiki/**` to the ignore file the probe names as the matched source. Once the negation lands, the probe reports "not ignored" on future runs and the append is skipped.
+**Ignore-file probe.** Before writing, run `git check-ignore -v <state-root>/rules/wiki`. If it reports a match, append `!/rules/wiki/` and `!/rules/wiki/**` to the ignore file the probe names as the matched source. Once the negation lands, the probe reports "not ignored" on future runs and the append is skipped.
 
 **Report.** In interactive mode, name the ignore-file edit (if any) in the Step 9 summary alongside cards emitted and cards deleted. In silent mode, produce no output, consistent with Step 9's existing rule.
 
 ### Step 8 — Ensure @-ref is wired
 
-Only `docs/wiki/index.md` is `@-ref`'d — it is the compact router that every session needs. `docs/wiki/scan.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. `docs/wiki/CLAUDE.md` (steering) is also NOT `@-ref`'d — it lazy-loads as nested memory whenever Claude reads a file under `docs/wiki/`.
+Only `docs/wiki/index.md` is `@-ref`'d — it is the compact router that every session needs. `docs/wiki/scan.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. The wiki steering file is also NOT `@-ref`'d — it lazy-loads as nested memory whenever the harness reads a file under `docs/wiki/`.
 
-The ref is appended only when no candidate file carries it, and the project-local file wins over `CLAUDE.md` when it exists.
+The ref is appended only when no candidate file carries it, and the project-local override file wins over the shared steering `AGENTS.md` when it exists. A ref in `AGENTS.md` reaches the session only through the loader beside it, so a ref left there ends by checking that loader.
+
+The `[steering] claude` mode picks the file that carries the ref: read it from `<state-root>/atomic.toml`, else `~/.atomic/config.toml`, else `loader`.
+
+| Mode | Ref target | Loader |
+|------|-----------|--------|
+| `loader` | shared `AGENTS.md` | thin `CLAUDE.md` importing it, as below |
+| `agents-md` | shared `AGENTS.md` | none; Claude reads `AGENTS.md` itself, and a `CLAUDE.md` beside it would stop that |
+| `claude-md` | `CLAUDE.md` | none; no `AGENTS.md` is created |
+
+Everything below describes `loader` mode. In `agents-md`, skip "Ensure loader import" and never write a `CLAUDE.md`. In `claude-md`, "Append to AGENTS.md" reads "Append to CLAUDE.md" and creates no `AGENTS.md`; a ref in `CLAUDE.md` is already loaded, so there is no loader step. The wiki steering pair `docs/wiki/` follows the same mode through `atomic wiki init`.
 
 ```mermaid
 flowchart TD
-    F{"Ref in any<br/>candidate file?"} -->|yes| K["Skip this step"]
-    F -->|no| L{"Local file exists?"}
-    L -->|yes| A["Append to local file"]
-    L -->|no| C["Append to CLAUDE.md"]
+    O{"Ref in an override<br/>file or the loader?"} -->|yes| K["Skip this step"]
+    O -->|no| G{"Ref in AGENTS.md?"}
+    G -->|yes| I["Ensure loader import"]
+    G -->|no| L{"Override file exists?"}
+    L -->|yes| A["Append to override file"]
+    L -->|no| C["Append to AGENTS.md"]
+    C --> I
 ```
 
-- **Ref in any candidate file?**: check, in order, for `@docs/wiki/index.md` in `claude.local.md` / `CLAUDE.local.md` (project-local, gitignored) and then `CLAUDE.md` (committed project instructions).
-- **Append to local file**: whichever of `claude.local.md` or `CLAUDE.local.md` exists (prefer `claude.local.md`).
-- **Append to CLAUDE.md**: create it only if it does not exist and the repo has `docs/wiki/`.
+- **Ref in an override file or the loader?**: check, in order, for `@docs/wiki/index.md` in `claude.local.md`, `CLAUDE.local.md` (project-local override steering files, gitignored — preferred when present), and the loader beside `AGENTS.md`, `CLAUDE.md` or `claude.md`. The shared `AGENTS.md` is checked next, because a ref there needs the loader to reach the session.
+- **Append to override file**: the project-local override steering file, when one exists (preferred).
+- **Append to AGENTS.md**: the shared project steering `AGENTS.md`. When it does not exist and the repo has `docs/wiki/`, create it, and when no `CLAUDE.md` or `claude.md` exists either, write the thin loader `CLAUDE.md` beside it, byte for byte in the shape `atomic` writes, so a later install recognizes the block as its own:
+
+    ```markdown
+    <atomic>
+
+    @AGENTS.md
+
+    </atomic>
+    ```
+
+- **Ensure loader import**: when a `CLAUDE.md` or `claude.md` sits beside `AGENTS.md` without an `@AGENTS.md` line, append the line `@AGENTS.md` to it. Change nothing else in that file. Skip a loader that is a symlink to `AGENTS.md`: it is that file. With no loader beside it, `AGENTS.md` loads on its own.
 
 **Placement:** position the `@-ref` block BEFORE behavioral rules/instructions in the target file. Signals are reference data (facts about the codebase), not instructions.
 
@@ -352,27 +375,29 @@ After all signals files are written and reviewed, run:
 atomic signals linkify
 ```
 
-This renders every repo-root-relative backtick path citation that resolves on disk (in `docs/wiki/index.md` and every `docs/wiki/*.md` domain file, excluding `docs/wiki/scan.md` and `docs/wiki/CLAUDE.md`) into a file-relative markdown link `[`path`](relpath)`. Base = repo root. It is idempotent — re-running produces a byte-identical file. Fenced code blocks are never touched, and a `[text](path)` link is not an @-ref.
+This renders every repo-root-relative backtick path citation that resolves on disk (in `docs/wiki/index.md` and every `docs/wiki/*.md` domain file, excluding `docs/wiki/scan.md` and the wiki steering file) into a file-relative markdown link `[`path`](relpath)`. Base = repo root. It is idempotent — re-running produces a byte-identical file. Fenced code blocks are never touched, and a `[text](path)` link is not an @-ref.
 
 Run this in **both** interactive and silent modes. (Realm wiki-output mode does NOT run it — `/refresh-wiki` runs `atomic wiki linkify` after the realm pass instead.)
 
-### Step 8c — Bootstrap docs/wiki/CLAUDE.md (first run only)
+### Step 8c — Scaffold steering and project the cards (every run)
 
-Run:
+Run on every repo-scope refresh:
 
 ```bash
 atomic wiki init --scope repo
 ```
 
-This is idempotent: it writes `docs/wiki/CLAUDE.md` with OKF frontmatter and the commented steering scaffold if the file does not exist, and no-ops silently if it already exists. On creation the command prints `created <path>` on stdout.
+This is idempotent: it writes the wiki steering scaffold with OKF frontmatter and the commented steering content if it does not exist, and no-ops silently if it already exists. Its canonical home is the wiki steering pair — the shared `docs/wiki/AGENTS.md` and the `CLAUDE.md` loader beside it. On creation the command prints `created <path>` on stdout.
+
+It then re-renders the Step 7b cards in canonical form and projects them to enrolled Claude and OMP targets: the `.claude/rules/atomic` link for Claude and one relative symlink `.omp/rules/atomic-wiki-<domain>.md` per card for OMP, which lists them. Stage the links with the cards; a link pruned with its card is staged as a deletion alongside the card's. When the state root lies outside the repository, OMP gets a generated regular-file copy instead: leave it untracked and never stage it. A card that does not parse exits 1; quote the error verbatim. A projection conflict prints a warning and still exits 0.
 
 ### Step 8d — Re-scan after post-scan writes
 
-Run this step only when Step 7b appended to an ignore file or Step 8 appended the `@-ref` block; those are the only post-Step-1 writes to files the scan reads. Skipping it otherwise keeps source edits made during the run out of a scan the inferrer never read. Run `atomic signals scan` again, then recompute `<scan-sha>` in `docs/wiki/index.md` with `git hash-object docs/wiki/scan.md`; `docs/wiki/` is scan-excluded, so the re-stamp does not change the scan. When the scan exits non-zero, quote its error, leave `<scan-sha>` as Step 7 wrote it, and continue to Step 9: every page and card is already written, and the commit is never blocked.
+Run this step when Step 7b appended to an ignore file, Step 8 wrote the `@-ref` or its steering pair, or Step 8c printed a `created` line or, on stderr, a `card link:` or `omp cards:` line: each of these writes files the scan reads, such as `atomic.toml`, the `.claude/rules/atomic` link, an ignore-file negation, or `.omp/.gitignore` (which the OMP migration edits). The cards under `<state-root>/rules/wiki/` and everything under `docs/wiki/` are scan-excluded, so writing them needs no re-scan. Skipping it otherwise keeps source edits made during the run out of a scan the inferrer never read. Run `atomic signals scan` again, then recompute `<scan-sha>` in `docs/wiki/index.md` with `git hash-object docs/wiki/scan.md`; the re-stamp does not change the scan. When the scan exits non-zero, quote its error, leave `<scan-sha>` as Step 7 wrote it, and continue to Step 9: every page and card is already written, and the commit is never blocked.
 
 ### Step 9 — Report (interactive only)
 
-Print one-line summary, counting `<N>` from `git diff HEAD -- docs/wiki/scan.md` (every section when `scan.md` is not yet committed; `unknown` when git is unavailable; never from `tmp/.scan.prev.md`, which Step 8d's re-scan can replace): `signals refreshed. <N> sections changed. inferrer updated <M> sections. <P> cards emitted, <Q> cards deleted<ignore-edit>.` where `<ignore-edit>` is empty when Step 7b made no ignore-file change, or `, <path> amended for rules/wiki` (e.g. `, .claude/.gitignore amended for rules/wiki`) when it did, appended to the same line, never printed as a second line. If concerns were found, return the concerns table for the caller to surface.
+Print one-line summary, counting `<N>` from `git diff HEAD -- docs/wiki/scan.md` (every section when `scan.md` is not yet committed; `unknown` when git is unavailable; never from `tmp/.scan.prev.md`, which Step 8d's re-scan can replace): `signals refreshed. <N> sections changed. inferrer updated <M> sections. <P> cards emitted, <Q> cards deleted<ignore-edit>.` where `<ignore-edit>` is empty when Step 7b made no ignore-file change, or `, <path> amended for rules/wiki` (e.g. `, .atomic/.gitignore amended for rules/wiki`) when it did, appended to the same line, never printed as a second line. If concerns were found, return the concerns table for the caller to surface.
 
 In **silent mode**, produce no output beyond writing the files.
 
@@ -404,7 +429,7 @@ Once the change set is available:
 
 1. Identify which domain files reference paths in the change set.
 2. Skip `[generated]` entries — changed content SHAs on generated-flagged files do not trigger domain refresh.
-3. Dispatch sub-agents only for affected domains. Leave unaffected domains untouched.
+3. Dispatch `atomic-wiki-writer` only for affected domains. Leave unaffected domains untouched.
 4. After all affected domain files pass reviewer, re-wire cross-domain references for changed domains only.
 5. Update `docs/wiki/index.md` to reflect any updated domain content.
 
@@ -559,15 +584,16 @@ Write repo-root-relative paths in backticks throughout; a code linkify step rend
 
 ## [generated] skip rule
 
-Entries in `docs/wiki/scan.md` marked `[generated]` must be skipped by sub-agents when writing domain file content. Generated files do not drive domain narratives. Changed content SHAs on generated-flagged paths do not trigger domain refresh. Paths matching `[scan] generated` globs in `.claude/atomic.toml` (or a legacy `.signalsignore` `+` line) are flagged `[generated]` by the deterministic scan step.
+Entries in `docs/wiki/scan.md` marked `[generated]` must be skipped by sub-agents when writing domain file content. Generated files do not drive domain narratives. Changed content SHAs on generated-flagged paths do not trigger domain refresh. Paths matching `[scan] generated` globs in `<state-root>/atomic.toml` (or a legacy `.signalsignore` `+` line) are flagged `[generated]` by the deterministic scan step.
 
 
 ## File layout
 
 ```
 docs/wiki/
-├── index.md          # router + orientation, @-ref'd from project CLAUDE.md or CLAUDE.local.md
-├── CLAUDE.md         # steering, OKF type: Steering; created on first run if absent
+├── index.md          # router + orientation, @-ref'd from the project steering pair
+├── AGENTS.md         # steering, OKF type: Steering; created on first run if absent
+├── CLAUDE.md         # thin native loader for AGENTS.md
 ├── scan.md           # deterministic substrate, NOT @-ref'd; committed with each refresh
 ├── auth.md           # domain file, OKF type: Domain
 ├── billing.md        # domain file, OKF type: Domain
@@ -583,9 +609,9 @@ Outputs:
 
 - `docs/wiki/index.md` — router + frontloaded orientation, always written.
 - `docs/wiki/<domain>.md` — per-domain detail files (OKF type: Domain).
-- `docs/wiki/CLAUDE.md` — steering file, written on first run if absent (OKF type: Steering).
+- `docs/wiki/AGENTS.md` — shared steering file, written on first run if absent (OKF type: Steering), with the thin `docs/wiki/CLAUDE.md` loader beside it.
 
-Plus the `@-ref` wiring target (one of `claude.local.md`, `CLAUDE.local.md`, or `CLAUDE.md`).
+Plus the `@-ref` wiring target (a project-local override steering file, the shared project steering `AGENTS.md`, or the native `CLAUDE.md` loader alongside it), and that loader: the `@AGENTS.md` import line Step 8 appends, or the whole file when Step 8 creates the pair.
 
 The deterministic substrate (`docs/wiki/scan.md`) is written by the scan step. Never rewrite it manually.
 
@@ -596,6 +622,6 @@ The deterministic substrate (`docs/wiki/scan.md`) is written by the scan step. N
 - Sub-agents read source files in their area. Read actual source files to verify structure — tree filenames alone are insufficient. **Why:** directory names and file extensions don't reveal internal structure; only reading the code does.
 - Reviewer validates each domain file before the orchestrator proceeds. **Why:** sub-agents can hallucinate or misread scope; reviewer is the correctness gate before content is committed to signals.
 - Never write `@-refs` in domain files or the router's Detail column — write repo-root-relative paths in backticks; `atomic signals linkify` renders them to file-relative markdown links (a `[text](path)` link is not an `@-ref`). **Why:** `@-refs` are eager and transitive — they load the referenced file into every session that reads signals, defeating the lazy-load budget model; relative links are inert until explicitly `Read`.
-- Never modify files outside `docs/wiki/`, `.claude/rules/wiki/` (per-domain pointer cards), an ignore file's rules/wiki negation append, or the single `@-ref` target file for wiring. **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
+- Never modify files outside `docs/wiki/`, `<state-root>/rules/wiki/` (per-domain pointer cards), an ignore file's rules/wiki negation append, the single `@-ref` target file for wiring, the loader beside `AGENTS.md` (Step 8's import line, or the whole file when Step 8 creates the pair), or what Step 8c's `atomic wiki init` projects (the `.claude/rules/atomic` link and its ignore negation, the `.omp/rules/atomic-wiki-<domain>.md` links, and the migration's edit of `.omp/.gitignore`). **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
 - Errors quoted exact. No paraphrasing. **Why:** paraphrased errors lose the exact token needed to `grep` for the root cause.
 - Never block a commit — if the scan fails, log it and end the run; the commit proceeds. **Why:** signals are supplemental context, not a build gate.

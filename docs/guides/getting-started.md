@@ -1,9 +1,9 @@
 # Getting started
 
 
-You have run `atomic claude install`. The binary is on your `PATH` and the bundle is in `~/.claude/`. This guide takes you from there to a first real task, in the order that pays off fastest. Each step works on its own, so you can stop after any one of them and still come out ahead.
+You have run `atomic install` (or the Claude-only `atomic claude install`). The binary is on your `PATH` and the bundle is in `~/.claude/`. This guide takes you from there to a first real task, in the order that pays off fastest. Each step works on its own, so you can stop after any one of them and still come out ahead.
 
-If you have not installed yet, start with the [install guide](/guides/install) and come back here.
+If you have not installed yet, start with the [install guide](/guides/install) and come back here. A bare `atomic install` covers every harness it finds; `--harness omp` or `CODEX_HOME=<root> atomic install --harness codex` narrows it to one. Under another harness, everything below is the same workflow.
 
 
 ### TLDR
@@ -18,7 +18,7 @@ Too lazy to read? Totally understand...
 ## Step 1 — Check the output style
 
 
-This is the one piece that needs no project setup and changes every reply, and install already turned it on. `atomic claude install` seeds `"outputStyle": "Atomic"` into `~/.claude/settings.json`, so every project without its own override starts on Atomic. Replies lose the filler and lead with the answer.
+This is the one piece that needs no project setup and changes every reply, and install already turned it on. `atomic install` seeds `"outputStyle": "Atomic"` into `~/.claude/settings.json` as part of converging the enrolled target, and the Claude-only `atomic claude install` seeds it too; a project-level install (`atomic claude install --target ./.claude`) deliberately does not. Every project without its own override starts on Atomic, so replies lose the filler and lead with the answer.
 
 Confirm it took by asking any question and watching the shape of the reply: short, structured, no preamble. `atomic doctor` reports the same thing without opening a session.
 
@@ -37,11 +37,13 @@ Open a repo you work in and run two commands.
 /refresh-wiki
 ```
 
-`/setup-wiki` audits the repo for the conventions atomic expects: the `.claude/` layout and `.gitignore` rules for scratch and worktree directories (scaffolded by one idempotent `atomic repo init` call), the `docs/` layout, and a `CLAUDE.md`. It proposes only what is missing and never overwrites. It makes no commits.
+`/setup-wiki` audits the repo for the conventions atomic expects: the state root (`.atomic/` by default; [resolution order](/reference/concepts#state-root-resolution-order)) and `.gitignore` rules for scratch and worktree directories (`.claude/worktrees/` under Claude Code, `.atomic/worktrees/` under other harnesses), the `docs/` layout, and a project steering file (`AGENTS.md`, with a `CLAUDE.md` loader beside it for Claude Code). It proposes only what is missing and never overwrites. It makes no commits. The scaffolding is one idempotent `atomic repo init` call, which also runs `atomic state migrate` once to move Atomic's state out of legacy `.claude` (into `.atomic` by default).
 
-`/refresh-wiki` is the step that stops the guessing. It walks the repo and writes a standing model of it to `docs/wiki/index.md` (with the deterministic scan at `docs/wiki/scan.md` and per-domain files beside it): the framework, the build and test and lint commands, the languages, and a map of which directories form which feature. Claude reads that model before it reads your code, so a new session knows your stack instead of inventing `npm` scripts that do not exist. Ship commands refresh the model as the repo changes, so you do not hand-maintain it. The refresh also writes one pointer card per domain under `.claude/rules/wiki/`: when Claude opens a file in a domain, the card names that domain's page, contracts, and references, and reminds it to update them on behavior changes or renames.
+`/refresh-wiki` is the step that stops the guessing. It walks the repo and writes a standing model of it to `docs/wiki/index.md` (with the deterministic scan at `docs/wiki/scan.md` and per-domain files beside it): the framework, the build and test and lint commands, the languages, and a map of which directories form which feature. Claude reads that model before it reads your code, so a new session knows your stack instead of inventing `npm` scripts that do not exist. Ship commands refresh the model as the repo changes, so you do not hand-maintain it. The refresh also writes one pointer card per domain under `<state-root>/rules/wiki/` (default `.atomic/rules/wiki/`; [resolution order](/reference/concepts#state-root-resolution-order)): when Claude opens a file in a domain, the card names that domain's page, contracts, and references, and reminds it to update them on behavior changes or renames.
 
 After this step, ask Claude something about the project. It answers from the wiki rather than from a guess.
+
+Ship commands, `/report-issue`, and follow-ups also need to know where change requests and issues go. Run `atomic workflow resolve` to see what this repo resolved to: usually the host of the `origin` remote and its issue tracker. To change one, write it at the level it belongs to, for example `atomic workflow set issue-tracker linear --level repo`. [Workflow preferences](/reference/concepts#workflow-preferences) lists the keys and levels.
 
 
 ## Step 3 — Run your first task
@@ -91,13 +93,13 @@ Once the index exists, the investigator, reviewer, and wiki agents query the gra
 ## Keeping atomic current
 
 
-One command updates both the binary and the bundle:
+One command updates the binary and every harness target you enrolled:
 
 ```text
 atomic update
 ```
 
-This fetches the latest release, verifies its checksum, replaces the binary, refreshes the bundle in `~/.claude/`, applies migrations, and finishes with a health check. The [install guide](/guides/install#updating) owns the rest: the update flags, the background staging that makes the swap near-instant, and the merge flow that protects a hand-edited `~/.claude/CLAUDE.md`.
+This fetches the latest release, verifies its checksum, replaces the binary, converges already-enrolled targets with the replacement binary's embedded generation, applies migrations, and finishes with a health check. It never enrolls a new harness; add one with `atomic install` (or `--harness <claude|omp|codex>` to name it). The one exception is a Claude install an older version wrote: the first `atomic update` adopts it once, and stops with the file to resolve if it finds user content it will not overwrite. The [install guide](/guides/install#updating) owns the rest: the blocker list, the update flags, the background staging that makes the swap near-instant, and the merge flow that protects a hand-edited `~/.claude/CLAUDE.md`.
 
 
 ## Where to go next
