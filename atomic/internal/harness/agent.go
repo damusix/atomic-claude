@@ -1,10 +1,13 @@
 package harness
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
@@ -224,17 +227,24 @@ type AgentPlan struct {
 	// Left are files Atomic never wrote that the caller chose to keep, in this
 	// operation or a recorded earlier one.
 	Left []string
-	// Retire are owned rows of agents the corpus no longer ships whose bytes
-	// are still what Atomic wrote.
+	// Retire are owned rows of agents the corpus no longer ships.
 	Retire   []installstate.Row
 	Blockers []string
 	// Converged reports that nothing under the agent directory would change.
 	Converged bool
 }
 
-// PlanAgents classifies the claims and unclaimed target rows under dir. An
-// unowned file follows decision; an owned file edited since blocks regardless.
+// PlanAgents classifies the claims and unclaimed target rows under dir.
 func PlanAgents(claims []Claim, ledger *installstate.Ledger, target, dir string, decision installstate.Decision) (AgentPlan, error) {
+	return planAgents(claims, ledger, target, dir, decision, true)
+}
+
+// PlanProtectedAgents preserves conflict behavior for non-artifact resources.
+func PlanProtectedAgents(claims []Claim, ledger *installstate.Ledger, target, dir string, decision installstate.Decision) (AgentPlan, error) {
+	return planAgents(claims, ledger, target, dir, decision, false)
+}
+
+func planAgents(claims []Claim, ledger *installstate.Ledger, target, dir string, decision installstate.Decision, managed bool) (AgentPlan, error) {
 	plan := AgentPlan{Converged: true}
 	claimed := map[string]bool{}
 	for _, c := range claims {
@@ -250,10 +260,12 @@ func PlanAgents(claims []Claim, ledger *installstate.Ledger, target, dir string,
 		case a.Evidence == EvidenceSelection:
 		case a.Evidence != EvidenceUnowned:
 			plan.Converged = false
+		case managed && c.RecordedDigest != "" && decision != installstate.DecisionLeaveUnowned:
+			plan.Converged = false
+		case decision == installstate.DecisionReplace && (managed || c.RecordedDigest == ""):
+			plan.Converged = false
 		case c.RecordedDigest != "":
 			plan.Blockers = append(plan.Blockers, c.Path+" was edited outside Atomic; restore or remove it to converge")
-		case decision == installstate.DecisionReplace:
-			plan.Converged = false
 		case decision == installstate.DecisionLeaveUnowned || decision == "" && ledger.IsLeft(target, c.Path):
 			plan.Left = append(plan.Left, c.Path)
 		default:
@@ -268,6 +280,11 @@ func PlanAgents(claims []Claim, ledger *installstate.Ledger, target, dir string,
 			if !errors.Is(err, ErrEvidenceConflict) {
 				return plan, err
 			}
+			if managed && decision != installstate.DecisionLeaveUnowned {
+				plan.Retire = append(plan.Retire, row)
+				plan.Converged = false
+				continue
+			}
 			plan.Blockers = append(plan.Blockers, row.Applied.Path+" belongs to an agent Atomic no longer ships and was edited outside Atomic; restore or remove it to converge")
 			continue
 		}
@@ -280,14 +297,26 @@ func PlanAgents(claims []Claim, ledger *installstate.Ledger, target, dir string,
 	return plan, nil
 }
 
-// RetireAgents deletes each retired file and drops its row from ledger,
-// returning the paths it removed. The caller commits the ledger.
-func RetireAgents(ledger *installstate.Ledger, rows []installstate.Row) ([]string, error) {
+// RetireAgents backs up retired files before deleting them and dropping their rows.
+func RetireAgents(home, operationID string, ledger *installstate.Ledger, rows []installstate.Row, decision installstate.Decision) ([]string, error) {
 	drop := map[installstate.Row]bool{}
 	var removed []string
 	for _, row := range rows {
-		if err := verifyOwned(row); err != nil {
+		if decision == installstate.DecisionLeaveUnowned {
+			if err := verifyOwned(row); err != nil {
+				return removed, err
+			}
+		}
+		backup, err := BackupArtifact(home, operationID, row.Applied.Path, managedfile.KindFile)
+		if err != nil {
 			return removed, err
+		}
+		obs, err := managedfile.Observe(row.Applied.Path, managedfile.KindFile)
+		if err != nil {
+			return removed, err
+		}
+		if obs.Digest != backup {
+			return removed, fmt.Errorf("harness: retired artifact %s changed before removal", row.Applied.Path)
 		}
 		if _, err := removeResource(row); err != nil {
 			return removed, err
@@ -303,6 +332,60 @@ func RetireAgents(ledger *installstate.Ledger, rows []installstate.Row) ([]strin
 	}
 	ledger.Rows = kept
 	return removed, nil
+}
+
+// BackupArtifact keeps a durable recovery copy outside the transaction cleanup.
+// Missing resources need no backup. The returned digest is for file resources.
+func BackupArtifact(home, operationID, path string, kind managedfile.Kind) (string, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	unit := fmt.Sprintf("%s-%x", filepath.Base(path), sha256.Sum256([]byte(path)))
+	dest := filepath.Join(config.BackupStampDir(home, operationID), unit)
+	if kind == managedfile.KindFile {
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("harness: refusing to back up non-regular file %s", path)
+		}
+		rec, err := managedfile.BackupFile(path, dest, operationID, time.Now())
+		return rec.Digest, err
+	}
+	if kind != managedfile.KindTree || !info.IsDir() {
+		return "", fmt.Errorf("harness: refusing to back up non-directory tree %s", path)
+	}
+	err = filepath.WalkDir(path, func(source string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(path, source)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, rel)
+		if entry.IsDir() {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			return os.MkdirAll(target, info.Mode().Perm())
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(source)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, target)
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("harness: refusing to back up non-regular file %s", source)
+		}
+		_, err = managedfile.BackupFile(source, target, operationID, time.Now())
+		return err
+	})
+	return "", err
 }
 
 // agentMarkdownPath is the native path a canonical agent's Markdown document

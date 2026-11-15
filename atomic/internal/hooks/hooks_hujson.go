@@ -61,8 +61,9 @@ func unregisterFromSettings(sfPath, command string) (skipped bool, err error) {
 		return false, nil
 	}
 
-	if err := astUnregisterSessionStart(&ast, command); err != nil {
-		return false, err
+	astStripHandlers(&ast, "SessionStart", command)
+	if command == sessionStartCommand {
+		astStripHandlers(&ast, "SessionStart", unflaggedSessionStartCommand)
 	}
 
 	return writeSettingsHujson(sfPath, ast)
@@ -294,25 +295,6 @@ func astRegisterEvent(ast *hujson.Value, event, matcher, command string) error {
 	return nil
 }
 
-// astUnregisterSessionStart drops SessionStart, then hooks, once each empties.
-func astUnregisterSessionStart(ast *hujson.Value, command string) error {
-	arr := eventArray(ast, "SessionStart")
-	if arr == nil {
-		return nil
-	}
-
-	filtered := arr.Elements[:0]
-	for _, elem := range arr.Elements {
-		if !sessionStartEntryMatchesCommand(elem, command) {
-			filtered = append(filtered, elem)
-		}
-	}
-	arr.Elements = filtered
-
-	dropEmptyEvent(ast, "SessionStart")
-	return nil
-}
-
 // astStripHandlers removes every handler running command, then any group or
 // container that removal emptied, and reports whether anything changed.
 func astStripHandlers(ast *hujson.Value, event, command string) bool {
@@ -404,31 +386,6 @@ func sessionStartMatcher(command string) string {
 		return CodexSessionStartMatcher
 	}
 	return ".*"
-}
-
-func sessionStartEntryMatchesCommand(elem hujson.Value, command string) bool {
-	std, err := hujson.Standardize(elem.Pack())
-	if err != nil {
-		return false
-	}
-	var entry map[string]any
-	if err := json.Unmarshal(std, &entry); err != nil {
-		return false
-	}
-	inner, ok := entry["hooks"].([]any)
-	if !ok {
-		return false
-	}
-	for _, h := range inner {
-		hm, ok := h.(map[string]any)
-		if !ok {
-			continue
-		}
-		if commandMatches(command, hm["command"]) {
-			return true
-		}
-	}
-	return false
 }
 
 // astRewriteCommand keeps the first from-or-to hook in place (renamed to to),

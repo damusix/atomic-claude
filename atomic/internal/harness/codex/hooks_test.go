@@ -241,7 +241,7 @@ func TestTargetUninstallStripsOnlyTheOwnedMember(t *testing.T) {
 	}
 }
 
-func TestCodexSessionContextDeliveryReadsUnsupported(t *testing.T) {
+func TestCodexSessionContextReportsUnprovenResume(t *testing.T) {
 	home, root, a := enrolledHome(t)
 	result, err := a.Enroll(EnrollRequest{Home: home, Root: root})
 	if err != nil {
@@ -262,7 +262,7 @@ func TestCodexSessionContextDeliveryReadsUnsupported(t *testing.T) {
 		t.Errorf("plan unproven %v does not report session-context delivery", plan.Unproven)
 	}
 	if _, open := harness.CodexCapabilities().Gap(harness.RoleSessionContext); !open {
-		t.Error("the Codex session-context row reads proven before a runtime probe")
+		t.Error("the Codex session-context row claims full support without a resume probe")
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -221,6 +222,25 @@ func runClaude(args []string) {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
 			os.Exit(1)
+		}
+
+		// Older updaters invoke `claude update` after swapping the binary;
+		// the global no-update-check flag is stripped before this dispatch.
+		explicitTarget := false
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "target" {
+				explicitTarget = true
+			}
+		})
+		if verb == "update" && !dryRun && !explicitTarget {
+			record, recordErr := claudeinstall.ReadInstallRecord(home)
+			if recordErr == nil && record.Present() && !record.Adopted {
+				deps := defaultUpdateDeps()
+				deps.converge = func(home string, out io.Writer) error {
+					return convergeEnrolledTargetsWithHooks(home, out, noHooks)
+				}
+				os.Exit(runUpdatePostSwap(home, true, false, deps))
+			}
 		}
 
 		result, err := runClaudeInstall(targetDir, home, verb, dryRun, noHooks)

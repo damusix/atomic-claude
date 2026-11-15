@@ -186,7 +186,7 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	if err != nil {
 		return result, err
 	}
-	extensionPlan, err := harness.PlanAgents(harness.AgentClaims([]harness.AgentFile{extensionFile(req.Profile.Root, module)}, ledger, target.Key()), ledger, target.Key(), filepath.Dir(extensionPath), req.Decision)
+	extensionPlan, err := harness.PlanProtectedAgents(harness.AgentClaims([]harness.AgentFile{extensionFile(req.Profile.Root, module)}, ledger, target.Key()), ledger, target.Key(), filepath.Dir(extensionPath), req.Decision)
 	if err != nil {
 		return result, err
 	}
@@ -313,7 +313,7 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	}
 
 	if len(mutations) == 0 {
-		result.Retired, err = retireOwned(ledger, retire, req.Profile.Root)
+		result.Retired, err = retireOwned(req.Home, operationID, ledger, retire, req.Profile.Root, req.Decision)
 		if err != nil {
 			return result, err
 		}
@@ -336,6 +336,11 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	result.JournalPath = tx.JournalPath
 
 	for _, m := range mutations {
+		if m.Kind == managedfile.KindTree || m.Kind == managedfile.KindFile {
+			if _, err := harness.BackupArtifact(req.Home, operationID, m.Path, m.Kind); err != nil {
+				return result, err
+			}
+		}
 		switch m.Kind {
 		case managedfile.KindTree:
 			if _, err := tx.StageTree(m.Unit, pkg.Render); err != nil {
@@ -356,7 +361,7 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 		}
 		result.Applied = append(result.Applied, m.Path)
 	}
-	result.Retired, err = retireOwned(ledger, retire, req.Profile.Root)
+	result.Retired, err = retireOwned(req.Home, operationID, ledger, retire, req.Profile.Root, req.Decision)
 	if err != nil {
 		return result, err
 	}

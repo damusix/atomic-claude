@@ -283,8 +283,8 @@ func OMPCapabilities() CapabilityMatrix {
 	}
 }
 
-// CodexCapabilities is the record for Codex CLI 0.147.0. No hook event was
-// reached; the kind rows come from `codex debug prompt-input`, which needs no model.
+// CodexCapabilities records Codex CLI 0.147.0; live observations supplement the
+// credential-free startup probes.
 func CodexCapabilities() CapabilityMatrix {
 	return CapabilityMatrix{
 		Harness:  KindCodex,
@@ -298,8 +298,8 @@ func CodexCapabilities() CapabilityMatrix {
 			RoleStaticScope: {
 				Role:       RoleStaticScope,
 				Status:     StatusUnsupported,
-				Limitation: "Codex has no path-scoped rule surface; the plugin's rule bodies reach the model only through a pre-operation hook, and no hook event was reached",
-				Evidence:   "codex.hook-absence; replay target codex-runtime",
+				Limitation: "Codex has no native path-scoped rule surface; the proven PreToolUse member delivers wiki cards for apply_patch edits, not the shipped rule corpus",
+				Evidence:   "codex.hook-absence; replay target codex-runtime; docs/research/harness-capability-matrix.md live model observations",
 			},
 			RoleGlobalSteering: {
 				Role:       RoleGlobalSteering,
@@ -335,21 +335,24 @@ func CodexCapabilities() CapabilityMatrix {
 			},
 			RoleSessionBaseline: {
 				Role:       RoleSessionBaseline,
-				Status:     StatusUnsupported,
-				Limitation: "thread creation occurred but no hook event ran",
-				Evidence:   "codex.hook-absence; replay target codex-runtime",
+				Status:     StatusPartial,
+				Native:     "SessionStart",
+				Limitation: "the trusted hook delivered workflow preferences to a primary model turn; resume, child delivery, and shipped rule baselines remain unproven",
+				Evidence:   "live codex-t2 session 01a1d60e-3057-7621-9060-a9e8ad51711a; docs/research/harness-capability-matrix.md",
 			},
 			RolePreOperationTargets: {
 				Role:       RolePreOperationTargets,
-				Status:     StatusUnsupported,
-				Limitation: "no hook event ran, so the documented PreToolUse payload and local-tool inventory are not runtime proof",
-				Evidence:   "codex.hook-absence; replay target codex-runtime",
+				Status:     StatusPartial,
+				Native:     "PreToolUse apply_patch",
+				Limitation: "observed only for apply_patch edits: patch headers identify card targets; read, shell, hosted, and other tool inputs remain uncovered",
+				Evidence:   "live codex-t3 session 01a1d60e-67f8-7710-a39e-3108e28ef2d1; docs/research/harness-capability-matrix.md",
 			},
 			RoleContextReturn: {
 				Role:       RoleContextReturn,
-				Status:     StatusUnsupported,
-				Limitation: "the documented additionalContext result was never exercised",
-				Evidence:   "codex.hook-absence; replay target codex-runtime",
+				Status:     StatusPartial,
+				Native:     "PreToolUse additionalContext",
+				Limitation: "a primary model turn received the matching wiki card before its first apply_patch and not its second; general rule bodies, resume, and child delivery remain unproven",
+				Evidence:   "live codex-t3 session 01a1d60e-67f8-7710-a39e-3108e28ef2d1; docs/research/harness-capability-matrix.md",
 			},
 			RoleDeterministicDeny: {
 				Role:       RoleDeterministicDeny,
@@ -361,22 +364,22 @@ func CodexCapabilities() CapabilityMatrix {
 				Role:       RoleAgentDelivery,
 				Status:     StatusUnsupported,
 				Native:     "$CODEX_HOME/agents/<name>.toml",
-				Limitation: "the opening request's spawn_agent roles named the agent from $CODEX_HOME/agents with its configured model and effort, but no model turn ran, so a spawned agent running with them was not observed",
-				Evidence:   "runtimeproof TestCodexAgentOverrideIsProjectedAndTheRoleListed, observed 2026-11-11 on codex-cli 0.147.0: the override reached the TOML and the role was listed",
+				Limitation: "atomic-investigator spawned and completed with the parent's model gpt-5.6-sol and high effort; no override was configured, so running with the agent file's model and effort keys remains unproven",
+				Evidence:   "runtimeproof TestCodexAgentOverrideIsProjectedAndTheRoleListed; live parent 01a1d60f-3c8f-74e0-8e50-39d3e2d8387c and child 01a1d60f-6dc8-7342-9948-919edc89df2b; docs/research/harness-capability-matrix.md",
 			},
 			RoleSessionContext: {
 				Role:       RoleSessionContext,
-				Status:     StatusUnsupported,
+				Status:     StatusPartial,
 				Native:     "$CODEX_HOME/hooks.json SessionStart",
-				Limitation: "once trusted, the hook's additionalContext reached the opening request at startup, but no model turn ran, so the model receiving it and resume delivery were not observed",
-				Evidence:   "runtimeproof TestCodexSessionStartHookDeliversTheResolvedWorkflowBlockOnceTrusted, observed 2026-11-11 on codex-cli 0.147.0: the trusted hook's context reached the request and the untrusted one's did not",
+				Limitation: "the trusted hook's workflow-preferences block was quoted by a primary model turn; resume and child delivery remain unproven",
+				Evidence:   "runtimeproof TestCodexSessionStartHookDeliversTheResolvedWorkflowBlockOnceTrusted; live codex-t2 session 01a1d60e-3057-7621-9060-a9e8ad51711a; docs/research/harness-capability-matrix.md",
 			},
 			RoleWikiCardDelivery: {
 				Role:       RoleWikiCardDelivery,
 				Status:     StatusPartial,
 				Native:     "$CODEX_HOME/hooks.json PreToolUse apply_patch",
-				Limitation: "edits only: Codex lists the owned member and Atomic's hash equals Codex's, and the verb emits additionalContext for an apply_patch payload, but no model turn ran, so the model receiving a card, reads, and shell edits were not observed; the member needs /hooks trust review",
-				Evidence:   "runtimeproof TestCodexPreToolUseHookIsAcceptedAndDeliversTheMatchingCard, observed 2026-11-12 on codex-cli 0.147.0; runtime/codex/codex-pre-tool-use-cards.json",
+				Limitation: "edits only: a primary model turn received the matching card before its first apply_patch and not its second; reads, shell edits, resume, and child delivery remain unproven; the member needs /hooks trust review",
+				Evidence:   "runtimeproof TestCodexPreToolUseHookIsAcceptedAndDeliversTheMatchingCard; live codex-t3 session 01a1d60e-67f8-7710-a39e-3108e28ef2d1; docs/research/harness-capability-matrix.md",
 			},
 		},
 	}

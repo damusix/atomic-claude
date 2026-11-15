@@ -320,6 +320,9 @@ func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, err
 		if err := rp.ConvergeFn(home, out); err != nil {
 			return "", err
 		}
+		if r.Name == "rules" && r.Remediation != "" {
+			return "converged rule resources; capability warnings remain: " + r.Remediation, nil
+		}
 		return "converged enrolled targets through the install planner", nil
 	default:
 		return "", fmt.Errorf("no repair for %q", r.Name)

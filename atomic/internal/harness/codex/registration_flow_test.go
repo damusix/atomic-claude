@@ -86,6 +86,68 @@ func TestConvergeRegistersThePublishedPluginOnce(t *testing.T) {
 	}
 }
 
+func TestConvergeBacksUpEditedAndRetiredCachedSkillsBeforeRegistration(t *testing.T) {
+	home := newHome(t)
+	root := newRoot(t, home)
+	var calls []RegisterRequest
+	a := newAdapter(t, root)
+	a.RegisterFn = fakeRegister(t, &calls)
+	if _, err := a.Lifecycle(home).Converge(codexTarget(root), project(t, a, home, root)); err != nil {
+		t.Fatal(err)
+	}
+	cache := CachePath(root)
+	active := filepath.Join(cache, "skills", "atomic-example", "SKILL.md")
+	retired := filepath.Join(cache, "skills", "atomic-retired", "SKILL.md")
+	writeFile(t, retired, "original retired cached skill\n")
+	if err := recordCacheOwnership(home, codexTarget(root), cache); err != nil {
+		t.Fatal(err)
+	}
+	const activeEdit = "edited cached active skill\n"
+	const retiredEdit = "edited cached retired skill\n"
+	writeFile(t, active, activeEdit)
+	writeFile(t, retired, retiredEdit)
+
+	bin := filepath.Join(t.TempDir(), "codex")
+	script := "#!/bin/sh\ncase \"$*\" in\n" +
+		"  \"plugin list --json\") echo '{\"installed\":[{\"pluginId\":\"" + PluginID() + "\",\"installed\":true,\"enabled\":true}]}' ;;\n" +
+		"  \"plugin add \"*) rm -rf \"$CACHE_ROOT\"; cp -R \"$PLUGIN_SOURCE\" \"$CACHE_ROOT\" ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(BinaryEnv, bin)
+	t.Setenv("CACHE_ROOT", cache)
+	t.Setenv("PLUGIN_SOURCE", filepath.Join(PackageResource(home), PluginRoot))
+	a.RegisterFn = DefaultRegister
+
+	if _, err := a.Lifecycle(home).Converge(codexTarget(root), project(t, a, home, root)); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, active); got == activeEdit {
+		t.Error("active cached skill was not refreshed")
+	}
+	if exists(retired) {
+		t.Error("retired cached skill remains")
+	}
+	found := map[string]bool{}
+	err := filepath.WalkDir(config.BackupDir(home), func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			found[string(data)] = true
+		}
+		return nil
+	})
+	if err != nil || !found[activeEdit] || !found[retiredEdit] {
+		t.Errorf("cached skill backups missing: active=%v retired=%v err=%v", found[activeEdit], found[retiredEdit], err)
+	}
+}
+
 // A registration that could not run is a gap the user must see with its fix,
 // never a silent success.
 func TestConvergeReportsUnperformedRegistration(t *testing.T) {

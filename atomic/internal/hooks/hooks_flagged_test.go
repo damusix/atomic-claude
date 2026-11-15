@@ -2,6 +2,7 @@ package hooks_test
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -71,5 +72,54 @@ func TestUninstallRemovesEitherForm(t *testing.T) {
 		if strings.Contains(string(raw), "session-start") {
 			t.Errorf("%q survived uninstall: %s", cmd, raw)
 		}
+	}
+}
+
+func TestRemoveOwnedMembersPreservesSharedSessionStartHandlers(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		command func(string) string
+		adopt   bool
+	}{
+		{"adopted", func(string) string { return unflaggedCmd }, true},
+		{"current", func(string) string { return flaggedCmd }, false},
+		{"unflagged", func(string) string { return unflaggedCmd }, false},
+		{"legacy script", func(dir string) string { return filepath.Join(dir, "hooks", "session-start-reminders.sh") }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := hooks.SettingsPathInDir(dir)
+			command := tc.command(dir)
+			unrelated := `"permissions" : { "allow" : [ "Read", "Bash" ] }`
+			userHandler := `{"type":"command","command":"my-notify.sh"}`
+			body := "{\n  // user settings\n  " + unrelated + ",\n  \"hooks\": {\"SessionStart\": [{\"matcher\":\".*\",\"hooks\":[" +
+				`{"type":"command","command":"` + command + `"},` + userHandler + `]}]}` + "\n}\n"
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if tc.adopt {
+				if skipped, err := hooks.InstallInDir(dir); err != nil || skipped {
+					t.Fatalf("adopt: skipped=%v err=%v", skipped, err)
+				}
+			}
+			if skipped, err := hooks.RemoveOwnedMembers(path); err != nil || skipped {
+				t.Fatalf("remove: skipped=%v err=%v", skipped, err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := string(raw)
+			for _, want := range []string{"// user settings", unrelated, userHandler, `"matcher":".*"`} {
+				if !strings.Contains(got, want) {
+					t.Errorf("missing preserved bytes %q in %s", want, got)
+				}
+			}
+			for _, removed := range []string{flaggedCmd, unflaggedCmd, filepath.Join(dir, "hooks", "session-start-reminders.sh")} {
+				if strings.Contains(got, removed) {
+					t.Errorf("Atomic command %q survived in %s", removed, got)
+				}
+			}
+		})
 	}
 }

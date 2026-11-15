@@ -328,8 +328,8 @@ func TestCheckRules(t *testing.T) {
 		withStatusSteps(t, func(h string) install.Steps {
 			return stepsWith(h, fakeAdapter{kind: harness.KindClaude, instances: []harness.Instance{claudeInstance(home, root)}})
 		})
-		if r := checkRules(Opts{Home: home}); r.Severity != PASS {
-			t.Fatalf("rules = %+v, want PASS", r)
+		if r := checkRules(Opts{Home: home}); r.Severity != PASS || r.ManualOnly {
+			t.Fatalf("rules = %+v, want healthy PASS without manual-only status", r)
 		}
 	})
 
@@ -432,6 +432,75 @@ func TestCheckRulesWarnsOnEnrolledCodexGaps(t *testing.T) {
 	}
 	if !hasFinding(strings.Join(r.Findings, "\n"), "path-scoped rule bodies") {
 		t.Errorf("rules findings = %v, want each unsupported surface listed", r.Findings)
+	}
+}
+
+func TestRulesRepairCapabilityAndResources(t *testing.T) {
+	for _, kind := range []harness.Kind{harness.KindOMP, harness.KindCodex} {
+		for _, state := range []string{"capability only", "missing", "conflict", "healthy"} {
+			t.Run(string(kind)+"/"+state, func(t *testing.T) {
+				home := t.TempDir()
+				root := filepath.Join(home, string(kind))
+				target := installstate.TargetRecord{Harness: string(kind), Instance: root, NativeRoot: root, Status: string(harness.StatusConverged)}
+				path := filepath.Join(root, "rules", "atomic", "style.md")
+				var rows []installstate.Row
+				if state != "capability only" {
+					writeRootFile(t, path, "original")
+					digest := fileDigest(t, path)
+					rows = append(rows, fileRow(target.Key(), "rules/atomic/style.md", path, digest))
+					switch state {
+					case "missing":
+						if err := os.Remove(path); err != nil {
+							t.Fatal(err)
+						}
+					case "conflict":
+						writeRootFile(t, path, "modified")
+					}
+				}
+				saveLedger(t, home, []installstate.TargetRecord{target}, rows)
+				withStatusSteps(t, func(h string) install.Steps {
+					return stepsWith(h, fakeAdapter{
+						kind:      kind,
+						instances: []harness.Instance{{Kind: kind, ID: root, NativeRoot: root, Home: h}},
+						plan:      harness.Plan{Unproven: []string{"rule delivery: unsupported"}},
+					})
+				})
+				r := checkRules(Opts{Home: home})
+				r.Name = "rules"
+				if r.Severity != WARN || !strings.Contains(r.Detail, "unsupported") {
+					t.Fatalf("rules = %+v, want capability WARN", r)
+				}
+				repairable := state == "missing" || state == "conflict"
+				if r.ManualOnly == repairable {
+					t.Errorf("ManualOnly = %v, want %v", r.ManualOnly, !repairable)
+				}
+				converged := false
+				rp := Repairer{
+					HomeFn: func() (string, error) { return home, nil },
+					ConvergeFn: func(string, io.Writer) error {
+						converged = true
+						writeRootFile(t, path, "original")
+						return nil
+					},
+				}
+				var out strings.Builder
+				summary := rp.Repair([]Result{r}, Opts{Fix: true}, stubPrompter{}, &out)
+				if converged != repairable {
+					t.Errorf("converged = %v, want %v", converged, repairable)
+				}
+				if repairable {
+					if summary.Applied != 1 || !strings.Contains(out.String(), "capability warnings remain") {
+						t.Errorf("repair summary = %+v, output = %q; want repair and explicit remaining capability warning", summary, out.String())
+					}
+					after := checkRules(Opts{Home: home})
+					if after.Severity != WARN || !after.ManualOnly || !strings.Contains(after.Detail, "unsupported") {
+						t.Errorf("after repair = %+v, want manual capability WARN", after)
+					}
+				} else if summary.NonFixable != 1 || summary.Applied != 0 || strings.Contains(out.String(), "✓ fixed") {
+					t.Errorf("repair summary = %+v, output = %q; want manual warning without fixed claim", summary, out.String())
+				}
+			})
+		}
 	}
 }
 

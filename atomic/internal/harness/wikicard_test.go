@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// The Codex row is a claim only the retained startup-level probe backs, and it
-// is partial because Codex delivers a card for edits and nothing else.
 func TestCodexWikiCardRowIsPartialEditsOnlyAndNamesItsEvidence(t *testing.T) {
 	row := CodexCapabilities().Capability(RoleWikiCardDelivery)
 	if row.Status != StatusPartial {

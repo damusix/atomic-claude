@@ -139,8 +139,12 @@ func TestCodexGuidanceAndRuleDeliveryUncovered(t *testing.T) {
 		harness.RoleContextReturn,
 		harness.RoleDeterministicDeny,
 	} {
-		if gapStatus[role] != harness.StatusUnsupported {
-			t.Errorf("rule-delivery role %s = %q, want unsupported", role, gapStatus[role])
+		want := harness.StatusPartial
+		if role == harness.RoleStaticScope || role == harness.RoleDeterministicDeny {
+			want = harness.StatusUnsupported
+		}
+		if gapStatus[role] != want {
+			t.Errorf("rule-delivery role %s = %q, want %s", role, gapStatus[role], want)
 		}
 	}
 	for _, gap := range plugin.Unproven {

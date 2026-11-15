@@ -315,12 +315,11 @@ func TestCommitUnitDurabilityOrder(t *testing.T) {
 	}
 	var steps []Step
 	tx.OnStep = func(step Step, unit string) { steps = append(steps, step) }
-	if err := tx.Begin(); err != nil {
-		t.Fatal(err)
-	}
-
 	if _, err := LoadJournal(tx.JournalPath); err != nil {
 		t.Fatalf("journal not durable at transaction start: %v", err)
+	}
+	if err := tx.Begin(); err != nil {
+		t.Fatal(err)
 	}
 
 	stage, err := tx.StageFile("global-claude", []byte(intended), 0o644)
@@ -361,7 +360,7 @@ func TestCommitUnitDurabilityOrder(t *testing.T) {
 		t.Errorf("durable backup = %q (%v)", data, err)
 	}
 
-	want := []Step{StepJournaled, StepObserved, StepBackedUp, StepPublished, StepVerified, StepUnitsCommitted, StepLedgerCommitted, StepJournalCompleted}
+	want := []Step{StepObserved, StepBackedUp, StepPublished, StepVerified, StepUnitsCommitted, StepLedgerCommitted, StepJournalCompleted}
 	if len(steps) != len(want) {
 		t.Fatalf("steps = %v, want %v", steps, want)
 	}
@@ -1001,6 +1000,29 @@ func TestTreeRecoveryCommitsAppliedTreeAndSkipsCompleted(t *testing.T) {
 	}
 	if got, err := os.ReadFile(filepath.Join(dest, "commands", "help.md")); err != nil || string(got) != "new\n" {
 		t.Errorf("completed generation was rolled back: %q (%v)", got, err)
+	}
+}
+
+func TestFailedFirstTreeStageDoesNotBlockAdoption(t *testing.T) {
+	home := newHome(t)
+	tx, _ := newTreeTransaction(t, home, "op-failed-stage", filepath.Join(home, "package"))
+	renderErr := errors.New("render failed")
+	_, err := tx.StageTree("omp-package", func(dir string) error {
+		if err := os.WriteFile(filepath.Join(dir, "partial"), []byte("partial"), 0o644); err != nil {
+			return err
+		}
+		return renderErr
+	})
+	if !errors.Is(err, renderErr) {
+		t.Fatalf("StageTree error = %v, want %v", err, renderErr)
+	}
+
+	root := filepath.Join(home, ".claude")
+	if _, err := Adopt(adoptReq(home, root, t)); err != nil {
+		t.Fatalf("Adopt after failed staging: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(tx.StageRoot())); !os.IsNotExist(err) {
+		t.Fatalf("failed transaction directory remains after adoption: %v", err)
 	}
 }
 

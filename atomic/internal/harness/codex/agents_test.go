@@ -185,14 +185,14 @@ func TestHandEditedCodexAgentConflictsAndKeepsItsBytes(t *testing.T) {
 	writeFile(t, fixtureAgentPath(root), edited)
 	storeCodexOverride(t, home, config.AgentOverride{Model: "gpt-a"})
 
-	plan, err := a.Lifecycle(home).Project(codexTarget(root), harness.PlanRequest{})
+	plan, err := a.Lifecycle(home).Project(codexTarget(root), harness.PlanRequest{BatchDecision: installstate.DecisionLeaveUnowned})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !linesContain(plan.Blockers, fixtureAgentPath(root)+" was edited outside Atomic") {
 		t.Errorf("blockers %v do not name the hand-edited agent", plan.Blockers)
 	}
-	for _, decision := range []installstate.Decision{"", installstate.DecisionReplace} {
+	for _, decision := range []installstate.Decision{installstate.DecisionLeaveUnowned} {
 		if _, err := a.Enroll(EnrollRequest{Home: home, Root: root, Decision: decision}); err == nil {
 			t.Fatalf("enroll with decision %q replaced a hand-edited agent file", decision)
 		}
@@ -200,6 +200,76 @@ func TestHandEditedCodexAgentConflictsAndKeepsItsBytes(t *testing.T) {
 	if got := readFile(t, fixtureAgentPath(root)); got != edited {
 		t.Errorf("hand edit was overwritten:\n%s", got)
 	}
+}
+func requireBackupBytes(t *testing.T, home, operation, want string) {
+	t.Helper()
+	found := false
+	err := filepath.WalkDir(config.BackupStampDir(home, operation), func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			found = found || string(data) == want
+		}
+		return nil
+	})
+	if err != nil || !found {
+		t.Errorf("backup for %q not found: %v", want, err)
+	}
+}
+
+func TestReplaceEditedManagedAgentWithBackup(t *testing.T) {
+	home, root, a := enrolledHome(t)
+	if _, err := a.Enroll(EnrollRequest{Home: home, Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	const edited = "edited managed codex agent\n"
+	writeFile(t, fixtureAgentPath(root), edited)
+	if _, err := a.Enroll(EnrollRequest{Home: home, Root: root, OperationID: "replace-agent"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, fixtureAgentPath(root)); got != string(wantOverlaid(t, config.AgentOverride{})) {
+		t.Errorf("agent not restored: %q", got)
+	}
+	requireBackupBytes(t, home, "replace-agent", edited)
+}
+
+func TestRetireEditedManagedAgentWithBackup(t *testing.T) {
+	home, root, a := enrolledHome(t)
+	if _, err := a.Enroll(EnrollRequest{Home: home, Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	const edited = "edited retired codex agent\n"
+	writeFile(t, fixtureAgentPath(root), edited)
+	renamed := renamedAgentCorpus(t)
+	a.Corpus = func() (*artifacts.Catalog, error) { return renamed, nil }
+	if _, err := a.Enroll(EnrollRequest{Home: home, Root: root, Decision: installstate.DecisionReplace, OperationID: "retire-agent"}); err != nil {
+		t.Fatal(err)
+	}
+	if exists(fixtureAgentPath(root)) {
+		t.Error("retired agent remains")
+	}
+	requireBackupBytes(t, home, "retire-agent", edited)
+}
+func TestReplaceEditedPackageTreeWithBackup(t *testing.T) {
+	home, root, a := enrolledHome(t)
+	if _, err := a.Enroll(EnrollRequest{Home: home, Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(PackageResource(home), SkillsDir, "atomic-example", "SKILL.md")
+	const edited = "edited codex package skill\n"
+	writeFile(t, path, edited)
+	if _, err := a.Enroll(EnrollRequest{Home: home, Root: root, Decision: installstate.DecisionReplace, OperationID: "replace-package"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path); got == edited {
+		t.Error("package skill still edited")
+	}
+	requireBackupBytes(t, home, "replace-package", edited)
 }
 
 const userAgent = "name = 'atomic-example'\ndeveloper_instructions = 'the user'\n"
@@ -399,7 +469,7 @@ func TestRetiredCodexRowWhoseFileIsGoneIsDropped(t *testing.T) {
 	}
 }
 
-func TestRemovedButEditedCodexAgentFileBlocks(t *testing.T) {
+func TestRemovedEditedCodexAgentConvergesByDefault(t *testing.T) {
 	home, root, a := enrolledHome(t)
 	if _, err := a.Enroll(EnrollRequest{Home: home, Root: root}); err != nil {
 		t.Fatalf("enroll: %v", err)
@@ -413,15 +483,16 @@ func TestRemovedButEditedCodexAgentFileBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !linesContain(plan.Blockers, fixtureAgentPath(root)) {
-		t.Errorf("blockers %v do not name the edited file of the removed agent", plan.Blockers)
+	if plan.Converged || len(plan.Blockers) != 0 {
+		t.Fatalf("plan = converged %v blockers %v, want unblocked retirement", plan.Converged, plan.Blockers)
 	}
-	if _, err := a.Enroll(EnrollRequest{Home: home, Root: root}); err == nil {
-		t.Fatal("enroll deleted an edited file of a removed agent")
+	if _, err := a.Enroll(EnrollRequest{Home: home, Root: root, OperationID: "retire-default"}); err != nil {
+		t.Fatal(err)
 	}
-	if got := readFile(t, fixtureAgentPath(root)); got != edited {
-		t.Errorf("the edited file was changed:\n%s", got)
+	if exists(fixtureAgentPath(root)) {
+		t.Error("retired agent remains")
 	}
+	requireBackupBytes(t, home, "retire-default", edited)
 }
 
 func TestPluginCarriesNoAgents(t *testing.T) {

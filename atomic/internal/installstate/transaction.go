@@ -69,8 +69,8 @@ type Transaction struct {
 	wrote bool
 }
 
-// NewTransaction loads the ledger and records the plan. An empty plan writes no
-// journal, because a converged operation has nothing to recover.
+// NewTransaction loads the ledger and journals a nonempty plan before creating
+// transaction directories. An empty plan has nothing to recover.
 func NewTransaction(home, operationID string, plan Plan) (*Transaction, error) {
 	if err := config.ValidateSegment("operation id", operationID); err != nil {
 		return nil, err
@@ -105,6 +105,9 @@ func NewTransaction(home, operationID string, plan Plan) (*Transaction, error) {
 	if len(plan.Mutations) == 0 {
 		return t, nil
 	}
+	if err := t.writeJournal(); err != nil {
+		return nil, err
+	}
 	for _, dir := range []string{t.StageRoot(), t.BackupRoot()} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("installstate: mkdir %s: %w", dir, err)
@@ -113,8 +116,8 @@ func NewTransaction(home, operationID string, plan Plan) (*Transaction, error) {
 	return t, nil
 }
 
-// Begin writes and fsyncs the journal that precedes every mutation. The first
-// mutation does the same; calling Begin makes the ordering explicit.
+// Begin writes and fsyncs the journal, including any changes made to the plan
+// after NewTransaction.
 func (t *Transaction) Begin() error {
 	return t.writeJournal()
 }
@@ -229,7 +232,15 @@ func (t *Transaction) PublishFile(unit string) error {
 		}
 	}
 
-	if err := t.WriteFileFn(m.Path, data, mode); err != nil {
+	write := t.WriteFileFn
+	if m.PriorSymlinkDigest != "" {
+		current, err := t.Observe(m.Path, managedfile.KindSymlink)
+		if err != nil || current.Digest != m.PriorSymlinkDigest {
+			return fmt.Errorf("installstate: link %s changed before publication", m.Path)
+		}
+		write = writeFileReplacingEntry
+	}
+	if err := write(m.Path, data, mode); err != nil {
 		return fmt.Errorf("installstate: publish %s: %w", unit, err)
 	}
 	m.AppliedSum = managedfile.Digest(data)
@@ -241,6 +252,30 @@ func (t *Transaction) PublishFile(unit string) error {
 	t.notify(StepPublished, unit)
 
 	return t.verify(m)
+}
+
+// writeFileReplacingEntry writes beside path and renames over the entry itself.
+func writeFileReplacingEntry(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(name, mode); err != nil {
+		return err
+	}
+	if err := managedfile.WriteFileAtomic(name, data, mode); err != nil {
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		return err
+	}
+	return managedfile.FsyncDir(dir)
 }
 
 // filePublishBytes splices a block into freshly observed bytes so user prose
@@ -309,9 +344,19 @@ func (t *Transaction) beginPublish(unit string) (Mutation, managedfile.Observati
 		return Mutation{}, managedfile.Observation{}, fmt.Errorf("installstate: %s has no staged projection", unit)
 	}
 
-	obs, err := t.Observe(m.Path, m.Kind)
+	kind := m.Kind
+	if m.PriorSymlinkDigest != "" {
+		if m.Kind != managedfile.KindFile {
+			return Mutation{}, managedfile.Observation{}, fmt.Errorf("installstate: symlink replacement %s is not a file mutation", unit)
+		}
+		kind = managedfile.KindSymlink
+	}
+	obs, err := t.Observe(m.Path, kind)
 	if err != nil {
 		return Mutation{}, managedfile.Observation{}, err
+	}
+	if m.PriorSymlinkDigest != "" && (!obs.Exists() || obs.Digest != m.PriorSymlinkDigest) {
+		return Mutation{}, managedfile.Observation{}, fmt.Errorf("installstate: link %s changed before publication", m.Path)
 	}
 	t.Journal.Observations = append(t.Journal.Observations, obs)
 	t.notify(StepObserved, unit)
@@ -322,6 +367,12 @@ func (t *Transaction) beginPublish(unit string) (Mutation, managedfile.Observati
 		if m.Kind == managedfile.KindTree {
 			m.Backup = filepath.Join(t.BackupRoot(), filepath.Base(m.Path))
 			m.BackupSum = obs.Digest
+		} else if m.PriorSymlinkDigest != "" {
+			backup := filepath.Join(t.BackupRoot(), unit)
+			if err := t.WriteFileFn(backup, obs.Bytes, 0o600); err != nil {
+				return Mutation{}, managedfile.Observation{}, err
+			}
+			m.Backup, m.BackupSum = backup, obs.Digest
 		} else {
 			rec, backupErr := t.BackupFn(m.Path, filepath.Join(t.BackupRoot(), unit), t.ID, t.Now())
 			if backupErr != nil {
@@ -340,6 +391,15 @@ func (t *Transaction) beginPublish(unit string) (Mutation, managedfile.Observati
 }
 
 func (t *Transaction) verify(m Mutation) error {
+	if m.PriorSymlinkDigest != "" {
+		fi, err := os.Lstat(m.Path)
+		if err != nil {
+			return err
+		}
+		if !fi.Mode().IsRegular() {
+			return fmt.Errorf("installstate: %s is not a regular file after publication", m.Path)
+		}
+	}
 	obs, err := t.Observe(m.Path, m.Kind)
 	if err != nil {
 		return err

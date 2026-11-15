@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
@@ -31,6 +32,7 @@ type RegisterRequest struct {
 	// PackageResource(Home), the published package.
 	MarketplaceRoot string
 	OperationID     string
+	Decision        installstate.Decision
 }
 
 // RegisterResult reports the native registration as `plugin list` and the
@@ -80,7 +82,7 @@ func DefaultRegister(req RegisterRequest) (RegisterResult, error) {
 
 	operationID := req.OperationID
 	if operationID == "" {
-		operationID = "codex-register"
+		operationID = fmt.Sprintf("codex-register-%d", time.Now().UTC().UnixNano())
 	}
 	lock, err := installstate.AcquireLock(req.Home, installstate.WriterIdentity{OperationID: operationID})
 	if err != nil {
@@ -110,6 +112,26 @@ func DefaultRegister(req RegisterRequest) (RegisterResult, error) {
 	if preInstalled && !preEnabled {
 		result.Installed, result.Enabled, result.State = true, false, before
 		return result, fmt.Errorf("codex: register %s: the plugin is installed but disabled; refusing to re-enable a deliberate disablement", PluginID())
+	}
+
+	ledger, err := installstate.LoadLedger(config.LedgerPath(req.Home))
+	if err != nil {
+		return result, err
+	}
+	if _, err := os.Lstat(result.CachePath); err == nil {
+		if req.Decision == installstate.DecisionLeaveUnowned {
+			if _, owned := ledger.Find(target.Key(), result.CachePath); !owned {
+				return result, fmt.Errorf("codex: register %s: left unowned cache %s unchanged", PluginID(), result.CachePath)
+			}
+		}
+		if _, owned := ledger.Find(target.Key(), result.CachePath); !owned && req.Decision != installstate.DecisionReplace {
+			return result, fmt.Errorf("codex: register %s: cache %s was not written by Atomic; rerun with --replace to replace it", PluginID(), result.CachePath)
+		}
+		if _, err := harness.BackupArtifact(req.Home, operationID, result.CachePath, managedfile.KindTree); err != nil {
+			return result, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return result, err
 	}
 
 	if _, err := run("plugin", "marketplace", "add", marketplaceRoot, "--json"); err != nil {

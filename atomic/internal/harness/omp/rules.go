@@ -662,7 +662,7 @@ func (a *Adapter) PublishProjectCards(req CardPublishRequest) (CardPublishResult
 		if cur.exists {
 			recorded, ok := ledger.Find(target.Key(), path)
 			generatedCopy := !cur.link && cur.digest == card.CopyDigest
-			if !generatedCopy && (!ok || recorded.Applied.Digest == "" || recorded.Applied.Digest != cur.digest) {
+			if !generatedCopy && (!ok || recorded.Applied.Digest == "" || recorded.Applied.Digest != cur.digest || (cur.link && recorded.Applied.Kind != managedfile.KindSymlink)) {
 				conflicts = append(conflicts, path)
 				continue
 			}
@@ -671,17 +671,22 @@ func (a *Adapter) PublishProjectCards(req CardPublishRequest) (CardPublishResult
 			links = append(links, card)
 			continue
 		}
+		var priorSymlinkDigest string
+		if cur.link {
+			priorSymlinkDigest = cur.digest
+		}
 		staged[card.Name] = card.Bytes
 		mutations = append(mutations, installstate.Mutation{
-			Unit:       card.Name,
-			Resource:   path,
-			Target:     target.Key(),
-			Consumer:   req.ProjectKey,
-			Generation: cards.Generation,
-			Tier:       string(Tier),
-			Kind:       managedfile.KindFile,
-			Path:       path,
-			Intended:   card.Digest,
+			Unit:               card.Name,
+			Resource:           path,
+			Target:             target.Key(),
+			Consumer:           req.ProjectKey,
+			Generation:         cards.Generation,
+			Tier:               string(Tier),
+			Kind:               managedfile.KindFile,
+			Path:               path,
+			Intended:           card.Digest,
+			PriorSymlinkDigest: priorSymlinkDigest,
 		})
 	}
 	if len(conflicts) > 0 {

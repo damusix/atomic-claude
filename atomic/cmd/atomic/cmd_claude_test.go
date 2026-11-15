@@ -275,8 +275,8 @@ func TestEnrolledClaudeInstallAndRepairWriteOverlaidAgents(t *testing.T) {
 	}
 }
 
-// TestRunClaudeInstallRoutesEnrolledTargetThroughConverge exists because the legacy
-// writer silently overwrote drifted owned bytes on an enrolled root.
+// An enrolled target must use the planner, which backs up edited managed
+// commands and records the restored bytes in the ledger.
 func TestRunClaudeInstallRoutesEnrolledTargetThroughConverge(t *testing.T) {
 	home := t.TempDir()
 	if out, code := runAtomicCLI(t, home, "install", "--harness", "claude", "--yes"); code != 0 {
@@ -284,32 +284,86 @@ func TestRunClaudeInstallRoutesEnrolledTargetThroughConverge(t *testing.T) {
 	}
 	root := filepath.Join(home, ".claude")
 
-	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	victim := filepath.Join(root, "commands", "commit.md")
+	selected, err := os.ReadFile(victim)
 	if err != nil {
-		t.Fatalf("ledger: %v", err)
+		t.Fatal(err)
 	}
-	var victim string
-	for _, row := range ledger.Rows {
-		if row.Target == "claude:"+root && row.Applied.Path != "" && row.Applied.Kind == managedfile.KindFile {
-			victim = row.Applied.Path
-			break
-		}
-	}
-	if victim == "" {
-		t.Fatal("enrollment recorded no owned file resource")
-	}
-	if err := os.WriteFile(victim, []byte("user drift the ledger cannot verify\n"), 0o644); err != nil {
+	const drift = "user-edited managed command\n"
+	if err := os.WriteFile(victim, []byte(drift), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	result, err := runClaudeInstall(root, home, "install", false, false)
-	if err == nil {
-		t.Fatalf("an enrolled target with a drifted owned resource converged silently: %+v", result)
+	if err != nil {
+		t.Fatalf("enrolled install: %v", err)
 	}
 	if result.Report == "" {
 		t.Error("the enrolled target did not route through the install planner")
 	}
-	if got, readErr := os.ReadFile(victim); readErr != nil || string(got) != "user drift the ledger cannot verify\n" {
-		t.Errorf("the legacy writer overwrote the drifted owned file: %q (%v)", got, readErr)
+	got, err := os.ReadFile(victim)
+	if err != nil || string(got) != string(selected) {
+		t.Fatalf("managed command was not restored: %q (%v)", got, err)
+	}
+	assertConvergeRecoveryCopies(t, home, map[string]string{victim: drift})
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := ledger.Find("claude:"+root, "commands/commit.md")
+	if !ok || row.Applied.Digest != managedfile.Digest(got) {
+		t.Errorf("ledger does not record the restored command: %+v", row)
+	}
+}
+
+func TestLegacyParentClaudeRefresh(t *testing.T) {
+	if os.Getenv("ATOMIC_LEGACY_REFRESH_CHILD") == "1" {
+		defer config.SetHomeDirForTest(os.Getenv("HOME"))()
+		os.Args = append([]string{"atomic"}, strings.Split(os.Getenv("ATOMIC_LEGACY_REFRESH_ARGS"), "\x1f")...)
+		main()
+		return
+	}
+
+	for _, tc := range []struct {
+		name  string
+		args  []string
+		adopt bool
+	}{
+		{"old parent", []string{"claude", "update", "--no-update-check"}, true},
+		{"old parent without hooks", []string{"claude", "update", "--no-update-check", "--no-hooks"}, true},
+		{"custom target", []string{"claude", "update", "--no-update-check", "--target", "custom", "--no-hooks"}, false},
+		{"dry run", []string{"claude", "update", "--no-update-check", "--dry-run", "--no-hooks"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			root, _ := agedLegacyClaude(t, home)
+			settings := filepath.Join(root, "settings.json")
+			before, err := os.ReadFile(settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(os.Args[0], "-test.run=^TestLegacyParentClaudeRefresh$")
+			cmd.Dir = t.TempDir()
+			cmd.Env = append(os.Environ(), "HOME="+home, "CLAUDE_CONFIG_DIR=", "PATH=", "ATOMIC_LEGACY_REFRESH_CHILD=1", "ATOMIC_LEGACY_REFRESH_ARGS="+strings.Join(tc.args, "\x1f"))
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("refresh: %v\n%s", err, out)
+			}
+			_, err = os.Stat(config.LedgerPath(home))
+			if tc.adopt {
+				if err != nil {
+					t.Fatalf("legacy refresh did not enroll target: %v\n%s", err, out)
+				}
+				assertAdoptedMarker(t, home)
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("unexpected ledger for scoped or dry-run update: %v\n%s", err, out)
+			}
+			if tc.name != "old parent" {
+				after, err := os.ReadFile(settings)
+				if err != nil || string(after) != string(before) {
+					t.Fatalf("user settings changed: %q -> %q (%v)", before, after, err)
+				}
+			}
+		})
 	}
 }

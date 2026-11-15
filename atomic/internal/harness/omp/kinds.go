@@ -105,8 +105,8 @@ func (p nativePlan) recordLeft(ledger *installstate.Ledger, target string) bool 
 
 // retireOwned removes the retired rows and the directories their removal
 // emptied below root, so a dropped skill leaves no empty directory behind.
-func retireOwned(ledger *installstate.Ledger, rows []installstate.Row, root string) ([]string, error) {
-	removed, err := harness.RetireAgents(ledger, rows)
+func retireOwned(home, operationID string, ledger *installstate.Ledger, rows []installstate.Row, root string, decision installstate.Decision) ([]string, error) {
+	removed, err := harness.RetireAgents(home, operationID, ledger, rows, decision)
 	for _, path := range removed {
 		harness.PruneEmptyContainers(path, root)
 	}

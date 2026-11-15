@@ -29,8 +29,8 @@ func TestReadCodexSurfacesReportsSessionHook(t *testing.T) {
 	for _, row := range state.surfaces {
 		if row.Surface == "session-context delivery" {
 			found = true
-			if row.Status != harness.StatusUnsupported {
-				t.Errorf("session-context delivery reads %s before a runtime probe", row.Status)
+			if row.Status != harness.StatusPartial {
+				t.Errorf("session-context delivery = %s, want partial because resume is unproven", row.Status)
 			}
 		}
 	}

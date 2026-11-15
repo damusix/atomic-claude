@@ -25,8 +25,12 @@ func TestRuntimeStateReportsEverySurfaceUnproven(t *testing.T) {
 		if row.Surface == "" || row.Evidence == "" {
 			t.Errorf("surface %+v is missing its identity or evidence", row)
 		}
-		if row.Status != harness.StatusUnsupported {
-			t.Errorf("surface %q reports %s; no Codex runtime row is proven for 0.147.0", row.Surface, row.Status)
+		want := harness.StatusUnsupported
+		if row.Surface == "session-context delivery" {
+			want = harness.StatusPartial
+		}
+		if row.Status != want {
+			t.Errorf("surface %q reports %s, want %s", row.Surface, row.Status, want)
 		}
 	}
 

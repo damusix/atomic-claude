@@ -523,6 +523,205 @@ func TestMigrateScopesKeepDistinctOperationJournals(t *testing.T) {
 	}
 }
 
+func TestMigrateReplacesEditedOwnedCommandWithBackup(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".claude")
+	req := migrationRequest(home, root)
+	req.AcknowledgeSnapshot = true
+	if _, err := Migrate(req); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := GlobalArtifacts(home, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var command installstate.Artifact
+	for _, artifact := range artifacts {
+		if strings.HasPrefix(artifact.ID, "commands/") && artifact.Kind == managedfile.KindFile {
+			command = artifact
+			break
+		}
+	}
+	if command.ID == "" {
+		t.Fatal("no shipped command")
+	}
+	const edited = "edited installed command\n"
+	if err := os.WriteFile(command.Path, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req.OperationID = "migrate-edited"
+	if _, err := Migrate(req); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(command.Path); err != nil || string(got) != string(command.Data) {
+		t.Errorf("command = %q, %v; want selected generation", got, err)
+	}
+	unit, err := installstate.UnitFor(command.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(config.BackupStampDir(home, req.OperationID), unit)
+	if got, err := os.ReadFile(backup); err != nil || string(got) != edited {
+		t.Errorf("backup = %q, %v; want %q", got, err, edited)
+	}
+}
+
+func TestMigrateLeavesRemovedLegacyArtifactWhenRequested(t *testing.T) {
+	home := t.TempDir()
+	root := installLegacy(t, home)
+	id := "commands/retired-legacy.md"
+	path := filepath.Join(root, filepath.FromSlash(id))
+	if err := os.WriteFile(path, []byte("personal edits\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := config.Load(config.TOMLPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Install.Artifacts.Commands = append(cfg.Install.Artifacts.Commands, id)
+	if err := config.WritePersist(config.TOMLPath(home), cfg); err != nil {
+		t.Fatal(err)
+	}
+	req := migrationRequest(home, root)
+	req.BatchDecision = installstate.DecisionLeaveUnowned
+	if _, err := Migrate(req); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "personal edits\n" {
+		t.Errorf("left artifact = %q, %v; want unchanged", got, err)
+	}
+}
+
+func TestMigrateRetiresEditedRemovedLegacyArtifactWithBackup(t *testing.T) {
+	home := t.TempDir()
+	root := installLegacy(t, home)
+	removed := "commands/retired-legacy.md"
+	removedPath := filepath.Join(root, filepath.FromSlash(removed))
+	const userBytes = "edited legacy command\n"
+	if err := os.WriteFile(removedPath, []byte(userBytes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := config.Load(config.TOMLPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Install.Artifacts.Commands = append(cfg.Install.Artifacts.Commands, removed)
+	if err := config.WritePersist(config.TOMLPath(home), cfg); err != nil {
+		t.Fatal(err)
+	}
+	before := treeDigest(t, config.PreInstallDir(home))
+	req := migrationRequest(home, root)
+	req.BatchDecision = installstate.DecisionReplace
+	plan, err := PlanMigration(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, resource := range plan.Resources {
+		if resource.ID == removed && resource.Action != installstate.ActionLeaveUnowned {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("plan does not report the removed artifact %s for retirement", removed)
+	}
+	if _, err := Migrate(req); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(removedPath); !os.IsNotExist(err) {
+		t.Errorf("removed legacy artifact remains: %v", err)
+	}
+	unit, err := installstate.UnitFor(removed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(config.BackupStampDir(home, req.OperationID), unit)
+	if got, err := os.ReadFile(backup); err != nil || string(got) != userBytes {
+		t.Errorf("backup = %q, %v; want %q", got, err, userBytes)
+	}
+	if after := treeDigest(t, config.PreInstallDir(home)); after != before {
+		t.Error("migration changed the pre-install snapshot")
+	}
+}
+
+func TestMigrateRetiresRemovedOwnedArtifacts(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".claude")
+	req := migrationRequest(home, root)
+	req.AcknowledgeSnapshot = true
+	if _, err := Migrate(req); err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := []struct {
+		name    string
+		content string
+		digest  string
+	}{
+		{"retired.md", "owned bytes\n", managedfile.Digest([]byte("owned bytes\n"))},
+		{"edited.md", "user edits\n", managedfile.Digest([]byte("older bytes\n"))},
+	}
+	for _, file := range files {
+		id := "commands/" + file.name
+		path := filepath.Join(root, filepath.FromSlash(id))
+		if err := os.WriteFile(path, []byte(file.content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ledger.Upsert(installstate.Row{
+			Target: req.Target, Resource: id, Consumer: req.Consumer,
+			Applied: installstate.AppliedValue{Path: path, Kind: managedfile.KindFile, Digest: file.digest},
+		})
+	}
+	if err := ledger.Save(config.LedgerPath(home)); err != nil {
+		t.Fatal(err)
+	}
+	unowned := filepath.Join(root, "commands", "personal.md")
+	if err := os.WriteFile(unowned, []byte("personal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(config.BackupStampDir(home, "prior"), "original")
+	if err := os.MkdirAll(filepath.Dir(backup), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req.OperationID = "migrate-next"
+	if _, err := Migrate(req); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "commands", "retired.md")); !os.IsNotExist(err) {
+		t.Errorf("retired owned artifact remains: %v", err)
+	}
+	edited := filepath.Join(root, "commands", "edited.md")
+	if _, err := os.Stat(edited); !os.IsNotExist(err) {
+		t.Errorf("edited retired artifact remains: %v", err)
+	}
+	unit, err := installstate.UnitFor("commands/edited.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		filepath.Join(config.BackupStampDir(home, req.OperationID), unit): "user edits\n",
+		unowned: "personal\n",
+		backup:  "original\n",
+	} {
+		if got, err := os.ReadFile(path); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v; want %q", path, got, err, want)
+		}
+	}
+	ledger, err = installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ledger.Find(req.Target, "commands/retired.md"); ok {
+		t.Error("retired artifact still has an ownership row")
+	}
+}
+
 func journalPaths(t *testing.T, home string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(config.JournalsDir(home))

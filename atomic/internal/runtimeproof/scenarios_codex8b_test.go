@@ -236,8 +236,12 @@ func TestCodexGlobalInstall(t *testing.T) {
 		if row.Evidence == "" {
 			t.Errorf("runtime surface %q carries no evidence", row.Surface)
 		}
-		if row.Status != harness.StatusUnsupported {
-			t.Errorf("runtime surface %q reports %s; Codex 0.147.0 proved no runtime row", row.Surface, row.Status)
+		want := harness.StatusUnsupported
+		if row.Surface == "session-context delivery" {
+			want = harness.StatusPartial
+		}
+		if row.Status != want {
+			t.Errorf("runtime surface %q reports %s, want %s", row.Surface, row.Status, want)
 		}
 	}
 	_, lookErr := exec.LookPath("codex")
@@ -1130,12 +1134,16 @@ func TestCodexPromisedCapabilitiesUnsupported(t *testing.T) {
 		t.Errorf("plugin registered hooks %+v although every justifying row is unsupported", plugin.Hooks)
 	}
 	for _, row := range codexAdapter().RuntimeState(root) {
-		if row.Status != harness.StatusUnsupported || row.Evidence == "" {
-			t.Errorf("runtime surface %q = %s (%q), want unsupported with evidence", row.Surface, row.Status, row.Evidence)
+		want := harness.StatusUnsupported
+		if row.Surface == "session-context delivery" {
+			want = harness.StatusPartial
+		}
+		if row.Status != want || row.Evidence == "" {
+			t.Errorf("runtime surface %q = %s (%q), want %s with evidence", row.Surface, row.Status, row.Evidence, want)
 		}
 	}
 
-	ev.Outcome = "every capability row outside registration is unsupported with evidence; no hook registered; no unproven surface omitted"
+	ev.Outcome = "session-context delivery is partial and other runtime surfaces remain unsupported with evidence; no plugin hook registered; no unproven surface omitted"
 	recordScenario(t, ev)
 }
 

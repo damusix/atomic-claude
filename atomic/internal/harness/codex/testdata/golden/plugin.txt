@@ -8,10 +8,10 @@ plugins/atomic/skills/atomic-example/SKILL.md c234c63418811d827b0a3707657cea3112
 gap skill-metadata unsupported
 gap skill-references unsupported
 gap skill-disablement unsupported
-gap session-baseline unsupported
+gap session-baseline partial
 gap static-scoped-rule unsupported
-gap pre-operation-targets unsupported
-gap context-return unsupported
+gap pre-operation-targets partial
+gap context-return partial
 gap deterministic-deny unsupported
 unproven plugin-hook trust and changed-definition re-review
 unproven deliberate hook disablement and config precedence

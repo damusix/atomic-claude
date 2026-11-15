@@ -394,12 +394,15 @@ func stringField(payload map[string]any, key string) string {
 	return value
 }
 
-// readTreeBounded maps every file under root to its bytes, skipping linked
-// directories and listing a file over MaxObservedFile as truncated.
+// readTreeBounded maps files under root to bytes, skipping linked directories
+// and vanished entries, and reports files over MaxObservedFile as truncated.
 func readTreeBounded(root string) (map[string]string, []string, error) {
 	files := map[string]string{}
 	var truncated []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+		if p != root && errors.Is(walkErr, fs.ErrNotExist) {
+			return nil
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -416,6 +419,9 @@ func readTreeBounded(root string) (map[string]string, []string, error) {
 			return err
 		}
 		info, err := d.Info()
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -424,6 +430,9 @@ func readTreeBounded(root string) (map[string]string, []string, error) {
 			return nil
 		}
 		data, err := os.ReadFile(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

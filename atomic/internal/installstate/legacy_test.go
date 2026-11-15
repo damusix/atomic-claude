@@ -247,7 +247,7 @@ func TestAdoptRefusesBlockedStates(t *testing.T) {
 		}
 	})
 
-	t.Run("drifted row needs an explicit decision", func(t *testing.T) {
+	t.Run("drifted row replaces while unowned artifacts require a decision", func(t *testing.T) {
 		home := newHome(t)
 		root := installLegacy(t, home)
 		ageInstall(t, home, root)
@@ -258,12 +258,19 @@ func TestAdoptRefusesBlockedStates(t *testing.T) {
 			Applied:  AppliedValue{Path: drifted, Kind: managedfile.KindFile, Digest: "0000"},
 		}})
 
-		// Mismatched row bytes are ordinary drift: adoption refuses without a
-		// decision and replaces with one, never reporting a mixed blocker.
+		// The ledger-owned command no longer needs a decision; other aged,
+		// unowned artifacts still require one.
 		undecided := adoptReq(home, root, t)
 		undecided.BatchDecision = ""
+		plan, err := PlanAdoption(undecided)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := actionFor(plan, "commands/commit.md"); got != ActionReplace {
+			t.Fatalf("drifted command action = %s, want replace", got)
+		}
 		if _, err := Adopt(undecided); !errors.Is(err, ErrAdoptionRefused) {
-			t.Fatalf("error = %v, want ErrAdoptionRefused without a decision", err)
+			t.Fatalf("error = %v, want refusal for unowned artifacts", err)
 		}
 		if _, err := Adopt(adoptReq(home, root, t)); err != nil {
 			t.Fatalf("replace-decided adoption failed: %v", err)
@@ -539,8 +546,7 @@ func TestFinishAdoptionMarkerFailureIsDistinct(t *testing.T) {
 	}
 }
 
-// An old Claude-only binary's later write must stay decidable drift, which
-// --replace repairs on the strength of the ledger's recorded bytes.
+// An old binary's later write is reported as drift and repaired from the ledger.
 func TestAdoptSurfacesOldBinaryDrift(t *testing.T) {
 	home := newHome(t)
 	root := installLegacy(t, home)
@@ -573,13 +579,10 @@ func TestAdoptSurfacesOldBinaryDrift(t *testing.T) {
 		t.Errorf("old-binary drift = %v, want the changed resource reported", drifted.Drift)
 	}
 
-	// The changed resource needs an explicit decision; repair replaces it.
+	// Ledger-owned drift is backed up and repaired without a batch decision.
 	undecided := adoptReq(home, root, t)
 	undecided.BatchDecision = ""
-	if _, err := Adopt(undecided); !errors.Is(err, ErrAdoptionRefused) {
-		t.Fatalf("error = %v, want ErrAdoptionRefused without a decision", err)
-	}
-	if _, err := Adopt(adoptReq(home, root, t)); err != nil {
+	if _, err := Adopt(undecided); err != nil {
 		t.Fatalf("repair of old-binary drift failed: %v", err)
 	}
 	got, err := os.ReadFile(driftedPath)

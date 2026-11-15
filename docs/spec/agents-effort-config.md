@@ -171,8 +171,9 @@ config package carries no hook for it.
   run exits 1.
 - **Enrolled.** The verb converges that kind's enrolled targets through
   `install.Steps.Converge` with `EnrolledOnly`, auto-approved: lock, recovery, journal,
-  staging, apply, verification, ledger. A blocked target (a hand-edited agent file is a
-  conflict) prints its blockers and exits 1 with the config already saved.
+  staging, apply, verification, ledger. A hand-edited managed Atomic agent is backed up
+  before replacement. Unowned collisions and other blocked targets print their blockers
+  and exit 1 with the config already saved.
 - **Legacy Claude.** `claudeinstall.ReapplyAgents` runs only for an unadopted legacy Claude
   root, the one root no ledger owns.
 - **Not enrolled.** Config only; the verb prints that the change applies when that harness
@@ -271,7 +272,7 @@ context/commands/atomic-help.md M  config agents row in Binary subcommands and t
 1. **Read**: `config.Load` decodes each `[<harness>.agents.<name>]` table straight into that harness's `Agents` map (`map[string]AgentOverride`) by plain struct decode. No scalar form, no custom unmarshaler.
 2. **Select**: user runs `atomic config agents [--harness claude|omp|codex|all]` → `agentsHarnesses` resolves the harnesses (flag, strong detection, single enrolled, interactive choice, or refusal listing the enrolled kinds).
 3. **Write**: per harness, `EditAgents` → `AgentTierSelector` with that harness's form and table → `applyAgentOverrides` mutates that table → `WritePersist` → `toml.Marshal` emits `[<harness>.agents.<name>]` tables.
-4. **Converge**: an enrolled harness → `install.Steps.Converge` (`EnrolledOnly`, that kind) → the adapter overlays the override on its agent projection → the ledger claims the written bytes; a hand-edited agent conflicts and keeps its bytes, and the verb exits 1. Then the form's restart note prints.
+4. **Converge**: an enrolled harness → `install.Steps.Converge` (`EnrolledOnly`, that kind) → the adapter overlays the override on its agent projection → a changed managed agent is backed up and replaced → the ledger claims the written bytes. An unowned collision still requires the explicit decision. Then the form's restart note prints.
 5. **Legacy Claude**: Claude not enrolled but an unadopted legacy record present → `ReapplyAgents(<Claude root>, home)` re-patches the agent files already on disk → restart note.
 6. **Not enrolled**: any other harness → config only, reported as applying when that harness is enrolled.
 7. **Legacy install patch**: `atomic claude install`/`update` on an unadopted root → `loadAgentOverrides` → for each `agents/*.md` artifact, `patchAgentContent` sets/appends `model:` (from Model) and `effort:` (from Effort), each only when set → patched bytes written and factored into the Plan SHA.
@@ -290,7 +291,7 @@ context/commands/atomic-help.md M  config agents row in Binary subcommands and t
 | CP5 | Re-apply on a legacy Claude root | `internal/claudeinstall/install.go` (`ReapplyAgents`) | `ReapplyAgents` re-patches only already-installed `agents/*.md` (drift-only writes; absent → skip, never a first-time install) | `ReapplyAgents` patches an installed agent's frontmatter to match config; skips an absent agent (not created); no-op when on-disk already matches |
 | CP6 | Drift detection guard + docs | `internal/doctor/checks_install_test.go`; `docs/reference/agents.md` | The existing install-integrity check already flags config↔installed agent drift (via `Diff`→`readPatchedEmbedded`, deterministic) and `--fix` repairs it — lock with a regression test; document auto-apply + doctor drift/repair + session-restart caveat. No new doctor check (reuse-first) | doctor install check returns WARN when an installed agent lacks a configured effort/model; `applyInstallRepair`/`Install` re-syncs it to PASS; docs updated |
 | CP7 | Harness-namespaced keys + drop back-compat | `internal/config/{config,agentoverride,agents,cli,render}.go`; `internal/claudeinstall/install.go`; `internal/doctor/*`; docs; `templates/commands/atomic-help.md` (+ rendered/bundled) | Top-level `[agents]` → `[claude.agents.<name>]` via a `claudeSection` on Config; `AgentOverride.UnmarshalText`, the flat/scalar form, the auto-migration and their tests all REMOVED; `opaqueSections`/`knownSections` carry `claude`, not `agents`; all error/warning/render key paths say `claude.agents.<name>.…` | nested `[claude.agents.x]` decodes; a scalar under it is a decode error (no silent accept); a stale top-level `[agents]` block warns as unknown-key and is ignored; `WritePersist` emits `[claude.agents.<name>]`; render emits `claude.agents.<name>.model/.effort`; install patch + auto-apply + doctor drift still green; whole suite + validate + render/bundle parity clean |
-| CP8 | Per-harness forms and lifecycle convergence | `internal/config/{agentoverride,agents,cli,config}.go`; `internal/cliusage/cliusage.go`; `cmd/atomic/{cmd_config,main}.go`; `internal/doctor/checks_config.go`; docs | `atomic config agents --harness claude\|omp\|codex\|all` with the selection order above; one form per harness; a save converges enrolled targets through the lifecycle; `ReapplyAgents` only for an unadopted legacy root; config package has no `ApplyAgentsHook`; doctor hints name `--harness <kind>` | selection cases (flag, strong, single enrolled on weak/ambiguous/none, interactive choice, non-interactive refusal); each form's placeholder, efforts, restart note; blank removes; not-enrolled saves config only; an enrolled OMP agent carries the new keys and the ledger digest equals disk; a hand-edited agent conflicts; a `CLAUDE_CONFIG_DIR` root converges; doctor hint test |
+| CP8 | Per-harness forms and lifecycle convergence | `internal/config/{agentoverride,agents,cli,config}.go`; `internal/cliusage/cliusage.go`; `cmd/atomic/{cmd_config,main}.go`; `internal/doctor/checks_config.go`; docs | `atomic config agents --harness claude\|omp\|codex\|all` selects per-harness forms; saving converges enrolled targets through the lifecycle; only unadopted legacy Claude roots use `ReapplyAgents`; doctor hints identify the harness | Selection and abort cases; each form's model and effort choices; blank removal; config-only unenrolled saves; overlaid native bytes match their ledger digest; edited managed agents retain recovery backups before replacement; unowned collisions remain protected; custom Claude roots converge |
 
 
 ## Non-goals
@@ -305,6 +306,16 @@ context/commands/atomic-help.md M  config agents row in Binary subcommands and t
 
 
 ## Change log
+
+### 2026-11-14 — Managed agents are backed up before replacement
+
+
+**What changed:** Saving an override backs up and replaces a hand-edited managed Atomic agent through the lifecycle. Unowned collisions retain their explicit decision requirement.
+
+**Why:** The user confirmed that installed Atomic agents are updateable distribution files, not extension points.
+
+**Superseded:** A hand edit to a ledger-owned agent blocked override convergence and retained the edited file in place.
+
 
 
 - Initial spec (autopilot run for `agents-effort-config`). `[agents]` grows from a flat

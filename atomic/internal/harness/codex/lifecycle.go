@@ -167,7 +167,7 @@ func (a *Adapter) converge(home string, t harness.Target, decision installstate.
 			return c, err
 		}
 	}
-	reg, err := a.Register(RegisterRequest{Home: home, Root: t.NativeRoot})
+	reg, err := a.Register(RegisterRequest{Home: home, Root: t.NativeRoot, Decision: decision})
 	if err != nil {
 		c.Unproven = append(c.Unproven, registrationGap(err))
 		return c, nil

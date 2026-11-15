@@ -128,7 +128,7 @@ func (a *Adapter) project(home string, t harness.Target, req harness.PlanRequest
 	if err != nil {
 		return harness.Plan{}, err
 	}
-	extension, err := harness.PlanAgents(plan.Claims, ledger, t.Key(), extensionDir, req.BatchDecision)
+	extension, err := harness.PlanProtectedAgents(plan.Claims, ledger, t.Key(), extensionDir, req.BatchDecision)
 	if err != nil {
 		return harness.Plan{}, err
 	}

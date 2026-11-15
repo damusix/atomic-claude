@@ -150,8 +150,8 @@ One path has one authority. Native harness files are projections unless the row 
 | `~/.atomic/<project-key>/state-location.json` | Project-state selection shared across worktrees | Persisted before resolution switches; retained while an unresolved journal references the selection |
 | `~/.atomic/packages/omp/atomic/` | Atomic-owned generated OMP corpus store | Published as a generated directory; no OMP discovery surface reads it, so package install, registration, and artifact discovery stay `unsupported`; shared visibility and consumers recorded separately |
 | `~/.atomic/packages/codex/atomic/` | Atomic-owned generated Codex plugin | CP0-proven native registration and hook trust verified per enrolled `CODEX_HOME`; trust is never fabricated |
-| Claude, OMP, and Codex native roots | Derived target state written only by the owning adapter | Changed owned bytes conflict; unowned bytes and user settings win |
-| OMP `<profile>/agents/*.md` and Codex `$CODEX_HOME/agents/*.toml` | Derived agent files with the user's overrides applied; written only by the owning adapter | One ledger resource per file; the claim carries the digest of the overlaid bytes, so a changed override converges and a hand edit conflicts |
+| Claude, OMP, and Codex native roots | Derived target state written only by the owning adapter | Managed artifacts are backed up and replaced on convergence; unrelated files, steering text, settings, and trust retain their ownership checks |
+| OMP `<profile>/agents/*.md` and Codex `$CODEX_HOME/agents/*.toml` | Derived agent files with the user's overrides applied; written only by the owning adapter | One ledger resource per file; changed overrides and hand edits converge to the selected generation after a recovery backup; removed artifacts are backed up before retirement |
 | Codex `$CODEX_HOME/hooks.json` owned members | Written only when the Codex adapter converges a target: the `SessionStart` entry | Same member-wise ownership as Claude `settings.json`; trust is never fabricated |
 | Claude `settings.json` owned members | Written only when the Claude adapter converges a target (converge or legacy adopt): the inline `SessionStart` registration and the `outputStyle` seed | One ledger resource whose digest covers only the owned members, so unrelated user keys never conflict and a user edit to an owned member conflicts; target and full uninstall strip exactly those members |
 | Repository/realm steering and repository rule projections | Shared `AGENTS.md` managed blocks, thin Claude loaders, and target-native generated directories | Canonical writes precede projection; one failed target becomes stale without rolling back other targets |
@@ -248,7 +248,7 @@ Discovery is read-only and classifies the observed installation before enrollmen
 | `v2-orphaned` | Generated package, registration, loader, or projection has no ledger/journal owner | Treat as unowned conflict; never auto-delete |
 | `mixed` | Legacy and v2 ownership evidence overlap or disagree | Recover v2 work, then explicitly resolve legacy evidence |
 
-Artifact names, legacy config paths, and a legacy version string do not prove ownership. The selected binary automatically recognizes exact bytes only for its own embedded generation; this design ships no historical-generation digest catalog. A uniquely parseable Atomic block is independently verifiable because migration can preserve and replace only that block. Therefore, non-block artifacts from an older version—even a structurally `legacy-complete` install—are batched for explicit replace-or-leave-unowned decisions. Unknown bytes remain preserved and backed up. A listed but missing file is drift and is recreated only after the user accepts convergence. A pending proposed Claude merge must be finished, discarded, or explicitly superseded before target adoption. A missing or corrupt pre-install snapshot requires explicit acknowledgment that historical restoration is unavailable; the v2 transaction still captures current bytes before mutation.
+Artifact names and a legacy version string do not prove content ownership. The selected binary recognizes its own embedded generation, ledger-applied bytes, and uniquely parseable Atomic blocks; no historical-generation digest catalog is required. Installed skills, agents, and commands identified by the ledger or legacy manifest are managed update inputs. Convergence backs up their current bytes before replacement or retirement, including hand edits, while unrelated files and user steering, settings, and trust remain protected. Unowned collisions still require a replace-or-leave-unowned decision. Pending Claude merges and ambiguous blocks must be resolved before adoption. A missing or corrupt pre-install snapshot requires acknowledgment for explicit adoption; automatic update adoption accepts it and still captures current bytes before mutation.
 
 Every real install, update, repair, adoption, uninstall, or ledger-managed `atomic doctor --fix` follows this preamble:
 
@@ -434,6 +434,16 @@ The strategist closed the product choices below. CP0 still records exact runtime
 
 
 ## Change log
+
+### 2026-11-14 — Back up and replace managed artifacts
+
+
+**What changed:** Managed skills, agents, and commands converge to the selected generation even after manual edits. Current bytes are backed up before replacement or retirement; unrelated files and user steering, settings, and trust remain protected.
+
+**Why:** The user confirmed that installed Atomic artifacts are updateable distribution files, not extension points.
+
+**Superseded:** A manual edit to a ledger-owned agent or other installed artifact blocked convergence until an explicit decision.
+
 
 
 ### 2026-11-12 — Claude steering modes, OMP card links, Codex edit-time cards

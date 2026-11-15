@@ -492,11 +492,16 @@ func (e adoptionFailedError) Error() string { return e.msg }
 // convergeEnrolledTargets runs the install engine over every enrolled target. The
 // plan is auto-approved because `atomic update` is the user's consent.
 func convergeEnrolledTargets(home string, out io.Writer) error {
+	return convergeEnrolledTargetsWithHooks(home, out, false)
+}
+
+func convergeEnrolledTargetsWithHooks(home string, out io.Writer, noHooks bool) error {
 	if home == "" {
 		return nil
 	}
 	steps := install.DefaultSteps(home)
 	steps.AssumeYes = true
+	steps.SkipHooks = noHooks
 	root, blockers, err := steps.AdoptLegacyClaude(func(root string) {
 		fmt.Fprintf(out, "adopting existing Claude install at %s\n", root)
 	})

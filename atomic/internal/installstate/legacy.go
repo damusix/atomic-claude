@@ -55,6 +55,8 @@ const (
 	ActionRecreate AdoptionAction = "recreate"
 	// ActionReplace overwrites an unowned artifact under an explicit decision.
 	ActionReplace AdoptionAction = "replace"
+	// ActionRetire removes an obsolete file after retaining its current bytes.
+	ActionRetire AdoptionAction = "retire"
 	// ActionLeaveUnowned preserves an unowned artifact untouched.
 	ActionLeaveUnowned AdoptionAction = "leave-unowned"
 	// ActionConflict is an ambiguous resource adoption never touches.
@@ -79,6 +81,7 @@ type AdoptionResource struct {
 	Listed   bool                 `json:"listed,omitempty"`
 	Decision Decision             `json:"decision,omitempty"`
 	Action   AdoptionAction       `json:"action"`
+	digest   string
 }
 
 // RecoverySimulation is one unresolved journal's in-memory recovery preview.
@@ -359,6 +362,9 @@ func applyAdoption(req AdoptionRequest, plan AdoptionPlan, operationID string, r
 	if err := tx.Complete(); err != nil {
 		return err
 	}
+	if err := retireAdoptionFiles(req, plan, result); err != nil {
+		return err
+	}
 	if len(mutations) == 0 {
 		result.JournalPath = ""
 		return nil
@@ -379,7 +385,7 @@ func keepRecoveryCopies(req AdoptionRequest, plan AdoptionPlan, operationID stri
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	for _, r := range plan.Resources {
-		if r.Action != ActionReplace || r.Kind != managedfile.KindFile {
+		if (r.Action != ActionReplace && r.Action != ActionRetire) || r.Kind != managedfile.KindFile {
 			continue
 		}
 		if _, err := os.Stat(r.Path); os.IsNotExist(err) {
@@ -390,9 +396,62 @@ func keepRecoveryCopies(req AdoptionRequest, plan AdoptionPlan, operationID stri
 			return err
 		}
 		dest := filepath.Join(config.BackupStampDir(req.Home, operationID), unit)
-		if _, err := managedfile.BackupFile(r.Path, dest, operationID, now()); err != nil {
+		backup, err := managedfile.BackupFile(r.Path, dest, operationID, now())
+		if err != nil {
 			return err
 		}
+		if r.Action == ActionRetire && backup.Digest != r.digest {
+			return fmt.Errorf("installstate: retired artifact %s changed before backup", r.Path)
+		}
+	}
+	return nil
+}
+
+// retireAdoptionFiles removes only the bytes backed up for this plan. Missing
+// files still release their stale ledger row, making interrupted runs retryable.
+func retireAdoptionFiles(req AdoptionRequest, plan AdoptionPlan, result *AdoptionResult) error {
+	ledger, err := LoadLedger(config.LedgerPath(req.Home))
+	if err != nil {
+		return err
+	}
+	retired := map[string]bool{}
+	for _, r := range plan.Resources {
+		if r.Action != ActionRetire {
+			continue
+		}
+		for _, row := range ledger.Rows {
+			if row.Target != req.Target && row.Applied.Path == r.Path {
+				return fmt.Errorf("installstate: retired artifact %s is owned by another target", r.Path)
+			}
+		}
+		fi, statErr := os.Lstat(r.Path)
+		if statErr != nil && !os.IsNotExist(statErr) {
+			return statErr
+		}
+		if statErr == nil {
+			if r.digest == "" || !fi.Mode().IsRegular() || !artifactParentWithinRoot(req.NativeRoot, r.Path) {
+				return fmt.Errorf("installstate: retired artifact %s changed after planning", r.Path)
+			}
+			data, readErr := os.ReadFile(r.Path)
+			if readErr != nil {
+				return readErr
+			}
+			if managedfile.Digest(data) != r.digest {
+				return fmt.Errorf("installstate: retired artifact %s changed after backup", r.Path)
+			}
+			if err := os.Remove(r.Path); err != nil {
+				return err
+			}
+			result.Applied = append(result.Applied, r.Path)
+		}
+		retired[r.ID] = true
+	}
+	before := len(ledger.Rows)
+	ledger.Rows = slices.DeleteFunc(ledger.Rows, func(row Row) bool {
+		return row.Target == req.Target && retired[row.Resource]
+	})
+	if len(ledger.Rows) != before {
+		return ledger.Save(config.LedgerPath(req.Home))
 	}
 	return nil
 }
@@ -556,18 +615,94 @@ func buildPlan(req AdoptionRequest, c Classification) AdoptionPlan {
 		case managedfile.EvidenceMissing:
 			r.Action = ActionRecreate
 		case managedfile.EvidenceLedger:
-			// The ledger proves Atomic wrote these older bytes, so no batch
-			// decision is needed to replace them.
-			r.Action = ActionReplace
+			if decision == DecisionLeaveUnowned {
+				r.Action = ActionLeaveUnowned
+			} else {
+				r.Action = ActionReplace
+			}
 		case managedfile.EvidenceUnowned:
 			switch {
 			case decision == DecisionReplace:
 				r.Action = ActionReplace
 			case decision == DecisionLeaveUnowned, decision == "" && c.V2.isLeft(req.Target, claim.Path):
 				r.Action = ActionLeaveUnowned
+			case decision == "" && claim.Kind == managedfile.KindFile && artifactPath(req.NativeRoot, claim.ID) == claim.Path && ownedArtifact(c.V2.rows, req.Target, claim.ID, claim.Path):
+				r.Action = ActionReplace
 			default:
 				r.Action = ActionLeaveUnowned
 				plan.Batch = append(plan.Batch, claim.ID)
+			}
+		}
+		plan.Resources = append(plan.Resources, r)
+	}
+
+	// Only obsolete artifact files under the native root are eligible.
+	selectedPaths := make(map[string]bool, len(req.Artifacts))
+	for _, artifact := range req.Artifacts {
+		selectedPaths[filepath.Clean(artifact.Path)] = true
+	}
+	retired := map[string]Row{}
+	for _, row := range c.V2.rows {
+		if row.Target == req.Target && row.Applied.Kind == managedfile.KindFile {
+			if _, current := selected[row.Resource]; !current && !selectedPaths[filepath.Clean(row.Applied.Path)] && artifactPath(req.NativeRoot, row.Resource) == row.Applied.Path {
+				retired[row.Resource] = row
+			}
+		}
+	}
+	rec, err := claudeinstall.ReadInstallRecord(req.Home)
+	if err != nil {
+		plan.Blockers = append(plan.Blockers, err.Error())
+	} else if !rec.Adopted && filepath.Clean(req.NativeRoot) == filepath.Clean(config.ClaudeConfigDir(req.Home)) {
+		for _, id := range c.Legacy.Listed {
+			if _, current := selected[id]; current || artifactPath(req.NativeRoot, id) == "" || selectedPaths[filepath.Clean(artifactPath(req.NativeRoot, id))] {
+				continue
+			}
+			if _, exists := retired[id]; !exists {
+				retired[id] = Row{}
+			}
+		}
+	}
+	ids := make([]string, 0, len(retired))
+	for id := range retired {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		row := retired[id]
+		path := artifactPath(req.NativeRoot, id)
+		r := AdoptionResource{ID: id, Kind: managedfile.KindFile, Path: path, Listed: slices.Contains(c.Legacy.Listed, id)}
+		r.Decision = req.Decisions[id]
+		if r.Decision == "" {
+			r.Decision = req.BatchDecision
+		}
+		fi, err := os.Lstat(path)
+		switch {
+		case os.IsNotExist(err):
+			r.Action = ActionRetire
+		case err != nil:
+			r.Action = ActionConflict
+			plan.Blockers = append(plan.Blockers, fmt.Sprintf("cannot inspect retired artifact %s: %v", path, err))
+		case !fi.Mode().IsRegular() || !artifactParentWithinRoot(req.NativeRoot, path):
+			r.Action = ActionConflict
+			plan.Blockers = append(plan.Blockers, fmt.Sprintf("retired artifact %s is not a regular file within the native root", path))
+		default:
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				r.Action = ActionConflict
+				plan.Blockers = append(plan.Blockers, fmt.Sprintf("cannot read retired artifact %s: %v", path, readErr))
+				break
+			}
+			r.digest = managedfile.Digest(data)
+			switch {
+			case r.Decision == DecisionLeaveUnowned:
+				r.Action = ActionLeaveUnowned
+			case r.Decision == DecisionReplace || row.Applied.Digest != "":
+				r.Action = ActionRetire
+			case c.V2.isLeft(req.Target, path):
+				r.Action = ActionLeaveUnowned
+			default:
+				r.Action = ActionLeaveUnowned
+				plan.Batch = append(plan.Batch, id)
 			}
 		}
 		plan.Resources = append(plan.Resources, r)
@@ -588,11 +723,50 @@ func buildPlan(req AdoptionRequest, c Classification) AdoptionPlan {
 	return plan
 }
 
+func ownedArtifact(rows []Row, target, id, path string) bool {
+	for _, row := range rows {
+		if row.Target == target && row.Resource == id && row.Applied.Path == path &&
+			row.Applied.Kind == managedfile.KindFile && row.Applied.Digest != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// artifactPath confines manifest and ledger retirement to native artifact files.
+func artifactPath(root, id string) string {
+	if root == "" || !filepath.IsLocal(filepath.FromSlash(id)) || filepath.ToSlash(filepath.Clean(filepath.FromSlash(id))) != id {
+		return ""
+	}
+	switch strings.SplitN(id, "/", 2)[0] {
+	case "agents", "commands", "skills", "output-styles", "rules":
+		if !strings.Contains(id, "/") {
+			return ""
+		}
+		return filepath.Join(root, filepath.FromSlash(id))
+	default:
+		return ""
+	}
+}
+
+func artifactParentWithinRoot(root, path string) bool {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolvedParent)
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
+}
+
 // adoptNeeded reports whether any resource needs a mutation.
 func adoptNeeded(plan AdoptionPlan) bool {
 	for _, r := range plan.Resources {
 		switch r.Action {
-		case ActionAdopt, ActionRecreate, ActionReplace:
+		case ActionAdopt, ActionRecreate, ActionReplace, ActionRetire:
 			return true
 		}
 	}

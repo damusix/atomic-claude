@@ -218,6 +218,29 @@ func TestRunObservesRootsHoldingDirectoryLinks(t *testing.T) {
 	}
 }
 
+func TestReadTreeBoundedIgnoresVanishedTargets(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "retained.txt"), []byte("retained\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("removed.txt", filepath.Join(root, "temporary.txt")); err != nil {
+		t.Fatal(err)
+	}
+	files, truncated, err := readTreeBounded(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files["retained.txt"] != "retained\n" {
+		t.Fatalf("retained file missing from snapshot: %v", files)
+	}
+	if _, ok := files["temporary.txt"]; ok {
+		t.Error("vanished target recorded as observed")
+	}
+	if len(truncated) != 0 {
+		t.Errorf("vanished target reported truncated: %v", truncated)
+	}
+}
+
 func TestRunRejectsIncompleteScenario(t *testing.T) {
 	base := scenario(t)
 	for name, mutate := range map[string]func(*Scenario){

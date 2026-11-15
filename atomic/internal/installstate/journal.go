@@ -54,6 +54,9 @@ type Mutation struct {
 	Prior      string           `json:"prior_digest,omitempty"`
 	Backup     string           `json:"backup,omitempty"`
 	BackupSum  string           `json:"backup_digest,omitempty"`
+	// PriorSymlinkDigest opts a file mutation into replacing this exact link,
+	// rather than following it. Recovery retains the link text in the backup.
+	PriorSymlinkDigest string `json:"prior_symlink_digest,omitempty"`
 	// PriorObserved records that the pre-mutation observation was journaled; a
 	// unit without it was never published, so its staging is provably unused.
 	PriorObserved bool `json:"prior_observed,omitempty"`

@@ -218,7 +218,7 @@ func (r *Recovery) forwardDecision(m Mutation) (RecoveryDecision, string, error)
 		return DecisionSkipCommitted, "completed generation is never implicitly rolled back", nil
 
 	case StateVerified, StateApplied:
-		obs, err := r.Observe(m.Path, m.Kind)
+		obs, err := r.observeMutation(m)
 		if err != nil {
 			return "", "", err
 		}
@@ -226,9 +226,9 @@ func (r *Recovery) forwardDecision(m Mutation) (RecoveryDecision, string, error)
 			return r.treeWindow(m)
 		}
 		switch {
-		case m.Intended != "" && obs.Digest == m.Intended:
+		case intendedFileOrResource(m, obs):
 			return DecisionCommitApplied, "applied bytes verified against the intended digest", nil
-		case m.BackupSum != "" && wholeDigest(obs) == m.BackupSum:
+		case priorFileOrResource(m, obs):
 			return DecisionNoop, "native bytes already hold the pre-mutation backup", nil
 		default:
 			return DecisionConflict, fmt.Sprintf("native bytes at %s (digest %s) match neither the intended digest %s nor the backup digest %s", m.Path, digestOrAbsent(obs), m.Intended, m.BackupSum), nil
@@ -241,7 +241,7 @@ func (r *Recovery) forwardDecision(m Mutation) (RecoveryDecision, string, error)
 		if !m.PriorObserved {
 			return DecisionDiscardStaging, "journal proves the staged projection was never applied", nil
 		}
-		obs, err := r.Observe(m.Path, m.Kind)
+		obs, err := r.observeMutation(m)
 		if err != nil {
 			return "", "", err
 		}
@@ -249,15 +249,15 @@ func (r *Recovery) forwardDecision(m Mutation) (RecoveryDecision, string, error)
 			return r.treeWindow(m)
 		}
 		switch {
-		case m.Intended != "" && obs.Digest == m.Intended:
+		case intendedFileOrResource(m, obs):
 			return DecisionCommitApplied, "the native write landed before the journal recorded it as applied", nil
-		case m.BackupSum != "" && wholeDigest(obs) == m.BackupSum:
+		case priorFileOrResource(m, obs):
 			return DecisionDiscardStaging, "native bytes still hold the pre-mutation backup, so the staged projection was never applied", nil
 		case m.Kind == managedfile.KindBlock && m.Prior == "" && obs.Conflict == managedfile.ConflictMalformedBlock && !managedfile.HasBlockTags(obs.Bytes):
 			// No Atomic tags before or now means the staged block never landed,
 			// so there is nothing to conflict with.
 			return DecisionDiscardStaging, "the native file still carries no Atomic block, so the staged projection was never applied", nil
-		case m.Prior != "" && obs.Digest == m.Prior:
+		case m.PriorSymlinkDigest == "" && m.Prior != "" && obs.Digest == m.Prior:
 			return DecisionDiscardStaging, "native bytes still hold the observed pre-mutation digest, so the staged projection was never applied", nil
 		case !obs.Exists() && m.BackupSum == "":
 			return DecisionDiscardStaging, "the resource is still absent and the transaction captured no pre-mutation copy", nil
@@ -340,19 +340,23 @@ func (r *Recovery) Rollback() (RecoveryResult, error) {
 			result.add(m, DecisionNoop, "no transaction backup to restore")
 			continue
 		}
-		obs, err := r.Observe(m.Path, m.Kind)
+		obs, err := r.observeMutation(m)
 		if err != nil {
 			return result, err
 		}
 		switch {
-		case m.BackupSum != "" && wholeDigest(obs) == m.BackupSum:
+		case priorFileOrResource(m, obs):
 			result.add(m, DecisionNoop, "backup bytes are already in place")
 		case rollbackTarget(m, obs):
 			rec, err := r.backupRecord(m)
 			if err != nil {
 				return result, err
 			}
-			if err := r.RestoreBackupFn(rec, m.Kind); err != nil {
+			kind := m.Kind
+			if m.PriorSymlinkDigest != "" {
+				kind = managedfile.KindSymlink
+			}
+			if err := r.RestoreBackupFn(rec, kind); err != nil {
 				result.conflict(m, fmt.Sprintf("restore backup: %v", err))
 				continue
 			}
@@ -370,10 +374,13 @@ func rollbackTarget(m Mutation, obs managedfile.Observation) bool {
 	if !obs.Exists() {
 		return m.Kind == managedfile.KindTree
 	}
+	if m.PriorSymlinkDigest != "" && obs.Kind != managedfile.KindFile {
+		return false
+	}
 	if m.AppliedSum != "" {
 		return wholeDigest(obs) == m.AppliedSum
 	}
-	return m.Kind == managedfile.KindTree && m.Intended != "" && obs.Digest == m.Intended
+	return (m.Kind == managedfile.KindTree || m.PriorSymlinkDigest != "") && m.Intended != "" && obs.Digest == m.Intended
 }
 
 // wholeDigest is a resource's whole-bytes digest, since a block observation
@@ -386,6 +393,60 @@ func wholeDigest(obs managedfile.Observation) string {
 		return obs.Digest
 	}
 	return managedfile.Digest(obs.Bytes)
+}
+
+func (r *Recovery) observeMutation(m Mutation) (managedfile.Observation, error) {
+	if m.PriorSymlinkDigest != "" {
+		fi, err := os.Lstat(m.Path)
+		if err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return r.Observe(m.Path, managedfile.KindSymlink)
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return managedfile.Observation{}, err
+		}
+	}
+	return r.Observe(m.Path, m.Kind)
+}
+
+func intendedFileOrResource(m Mutation, obs managedfile.Observation) bool {
+	return m.Intended != "" && obs.Digest == m.Intended &&
+		(m.PriorSymlinkDigest == "" || obs.Kind == managedfile.KindFile)
+}
+
+func priorFileOrResource(m Mutation, obs managedfile.Observation) bool {
+	return m.BackupSum != "" && wholeDigest(obs) == m.BackupSum &&
+		(m.PriorSymlinkDigest == "" || obs.Kind == managedfile.KindSymlink)
+}
+
+func restoreSymlinkBackup(rec managedfile.BackupRecord, _ managedfile.Kind) error {
+	data, err := os.ReadFile(rec.Path)
+	if err != nil {
+		return err
+	}
+	if managedfile.Digest(data) != rec.Digest {
+		return fmt.Errorf("installstate: symlink backup %s changed after capture", rec.Path)
+	}
+	dir := filepath.Dir(rec.Source)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(rec.Source)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Remove(name); err != nil {
+		return err
+	}
+	if err := os.Symlink(string(data), name); err != nil {
+		return err
+	}
+	defer os.Remove(name)
+	if err := os.Rename(name, rec.Source); err != nil {
+		return err
+	}
+	return managedfile.FsyncDir(dir)
 }
 
 // ConsumeJournal marks the reconciled journal completed for CleanupOperation.
@@ -477,6 +538,9 @@ func pathExists(path string) (bool, error) {
 // restoreBackup restores a file or tree backup, verifying a tree's digest
 // before the destination is touched so a tampered backup is refused.
 func restoreBackup(rec managedfile.BackupRecord, kind managedfile.Kind) error {
+	if kind == managedfile.KindSymlink {
+		return restoreSymlinkBackup(rec, kind)
+	}
 	if kind == managedfile.KindTree {
 		digest, _, err := managedfile.TreeDigest(rec.Path)
 		if err != nil {

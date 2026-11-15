@@ -216,7 +216,7 @@ Per-item confirm (axiom 3). Each repair idempotent. Print every shell command be
 | 7 | `memory`    | **Cannot auto-fix.** Print orphan refs; refuse to delete (user-authored). |
 | 8 | `binary`    | Print: `atomic update` to update. |
 | 14 | `output-style` | Seed the user-level `outputStyle` key via `hooks.SeedOutputStyle` (never a project file), and only when the check reports the warning genuinely fixable. `output_style.seed = false` and a missing style file are reported **cannot auto-fix** up front, so no repair is offered and no write is attempted. |
-| 15, 17, 19, 21 | `targets`, `journals`, `rules`, `staleness` | Converge enrolled targets through the common CP7A planner (`install.Steps.Converge`, `Selection{EnrolledOnly}`). The adapter acquires the one advisory lifecycle lock (`~/.atomic/install/operation.lock`) and recovers unresolved journals oldest-first before planning; the planner re-observes after projection, so a plan that moved on refuses rather than writing around it. The fix loop's per-item `Confirm` is the only consent prompt — the planner is handed `AssumeYes` and never prompts again. With no enrolled target the repair is **cannot auto-fix**. |
+| 15, 17, 19, 21 | `targets`, `journals`, `rules`, `staleness` | Converge enrolled targets through the common planner (`install.Steps.Converge`, `Selection{EnrolledOnly}`), under its lifecycle lock and journal recovery. The fix loop's per-item confirmation is the only consent prompt; the planner receives `AssumeYes`. With no enrolled target the repair is **cannot auto-fix**. A rules warning caused only by capability gaps or unproven surfaces is manual and never runs convergence. Missing or conflicting rule resources remain repairable; after convergence, any remaining capability warning is reported rather than claimed fixed. |
 | 16, 18, 20, 22, 23, 24 | `resources`, `capabilities`, `trust`, `conflicts`, `shadowing`, `codex` | **Cannot auto-fix.** These report owned/verbose state; a conflicting or shadowing native copy is reported and preserved, never overwritten, and an unproven native surface is reported rather than fabricated into a trust or coverage claim. |
 | 25 | `card-link` | **Cannot auto-fix.** The link is a tracked repository file; the repair prints the remediation (remove the link, run `atomic repo init`). |
 | 26 | `steering` | **Cannot auto-fix.** The remedy is a config choice; the repair prints it (set `steering.claude` to `loader`, or remove the conflicting file). |
@@ -280,6 +280,16 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 
 
 ## Change log
+
+### 2026-11-14 — Capability warnings are not resource repairs
+
+
+**What changed:** Rules warnings caused only by unsupported or unproven capabilities are manual. Missing and conflicting resources remain repairable, with remaining capability warnings reported after convergence.
+
+**Why:** Convergence cannot establish a runtime capability, so reporting those warnings as fixed was incorrect.
+
+**Superseded:** Every rules warning offered the same mutating converge regardless of its cause.
+
 
 
 <!-- empty on creation; entries appended on amendment after approval -->

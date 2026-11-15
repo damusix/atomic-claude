@@ -96,6 +96,46 @@ func TestEnrollWritesCommandsAndSkillsToProfileRoot(t *testing.T) {
 	}
 }
 
+func TestReplaceEditedManagedNativeArtifactsWithBackup(t *testing.T) {
+	home, root, a := enrolledProfile(t)
+	if _, err := a.Enroll(EnrollRequest{Home: home, Profile: Profile{Root: root}}); err != nil {
+		t.Fatal(err)
+	}
+	edited := map[string]string{
+		fixtureCommandPath(root): "edited native command\n",
+		fixtureSkillPath(root):   "edited native skill\n",
+	}
+	for path, data := range edited {
+		writeFile(t, path, data)
+	}
+	if _, err := a.Enroll(EnrollRequest{Home: home, Profile: Profile{Root: root}, Decision: installstate.DecisionReplace, OperationID: "replace-native"}); err != nil {
+		t.Fatal(err)
+	}
+	for path, data := range edited {
+		if got := readFile(t, path); got == data {
+			t.Errorf("%s still contains edited bytes", path)
+		}
+		requireBackupBytes(t, home, "replace-native", data)
+	}
+}
+
+func TestReplaceEditedPackageTreeWithBackup(t *testing.T) {
+	home, root, a := enrolledProfile(t)
+	if _, err := a.Enroll(EnrollRequest{Home: home, Profile: Profile{Root: root}}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(PackageResource(home), "skills", "atomic-example", "SKILL.md")
+	const edited = "edited package skill\n"
+	writeFile(t, path, edited)
+	if _, err := a.Enroll(EnrollRequest{Home: home, Profile: Profile{Root: root}, Decision: installstate.DecisionReplace, OperationID: "replace-package"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path); got == edited {
+		t.Error("package skill still edited")
+	}
+	requireBackupBytes(t, home, "replace-package", edited)
+}
+
 const userCommand = "the user's own command\n"
 
 func TestPreexistingUnownedCommandConflicts(t *testing.T) {

@@ -217,9 +217,14 @@ func TestCapabilityMatrixReflectsProbedRows(t *testing.T) {
 	if codex.Root.Env != "CODEX_HOME" || codex.Root.DefaultDir != "" {
 		t.Errorf("codex root = %+v", codex.Root)
 	}
-	for _, role := range []Role{RoleStaticScope, RoleSessionBaseline, RolePreOperationTargets, RoleContextReturn, RoleDeterministicDeny} {
+	for _, role := range []Role{RoleStaticScope, RoleDeterministicDeny} {
 		assertCapability(t, codex, role, StatusUnsupported, "")
 	}
+	assertCapability(t, codex, RoleSessionBaseline, StatusPartial, "SessionStart")
+	assertCapability(t, codex, RolePreOperationTargets, StatusPartial, "PreToolUse apply_patch")
+	assertCapability(t, codex, RoleContextReturn, StatusPartial, "PreToolUse additionalContext")
+	assertCapability(t, codex, RoleSessionContext, StatusPartial, "$CODEX_HOME/hooks.json SessionStart")
+	assertCapability(t, codex, RoleAgentDelivery, StatusUnsupported, "$CODEX_HOME/agents/<name>.toml")
 
 	// No harness has proven a native scoped-rule surface, so nothing may claim
 	// static-scope parity.

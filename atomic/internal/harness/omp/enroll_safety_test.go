@@ -69,8 +69,7 @@ func TestReplaceOwnsAnUnownedExtension(t *testing.T) {
 	}
 }
 
-// An extension the user edited after Atomic wrote it blocks every decision,
-// the same as an edited agent file.
+// An edited extension remains protected for every enrollment decision.
 func TestEditedExtensionBlocks(t *testing.T) {
 	home, root, a := enrolledProfile(t)
 	if _, err := a.Enroll(EnrollRequest{Home: home, Profile: Profile{Root: root}}); err != nil {

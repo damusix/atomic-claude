@@ -19,6 +19,8 @@ func checkRules(opts Opts) Result {
 
 	var findings, problems []string
 	uncovered := 0
+	repairable := false
+	capabilityWarning := false
 	for _, status := range statuses {
 		key := status.Target.Key()
 		tier := status.Tier
@@ -35,6 +37,7 @@ func checkRules(opts Opts) Result {
 			findings = append(findings, fmt.Sprintf("%s unsupported %s", key, u))
 		}
 		if n := len(status.Gaps) + len(status.Unproven); status.Target.Kind != harness.KindClaude && n > 0 {
+			capabilityWarning = true
 			problems = append(problems, fmt.Sprintf("%s: %d unsupported surface(s)", key, n))
 		}
 		for _, r := range status.Resources {
@@ -42,13 +45,20 @@ func checkRules(opts Opts) Result {
 				key, r.Resource, r.State, shortDigest(r.Applied), shortDigest(r.Observed), r.Tier))
 			switch r.State {
 			case harness.RowConflict:
+				repairable = true
 				problems = append(problems, fmt.Sprintf("%s: rule resource %s conflicts", key, r.Resource))
 			case harness.RowMissing:
+				repairable = true
 				problems = append(problems, fmt.Sprintf("%s: rule resource %s is missing", key, r.Resource))
 			}
 		}
 	}
 
 	detail := fmt.Sprintf("%d target rule surface(s), %d uncovered role(s)", len(statuses), uncovered)
-	return resultFor(detail, problems, findings)
+	result := resultFor(detail, problems, findings)
+	if capabilityWarning {
+		result.Remediation = "unsupported rule capabilities cannot be repaired by convergence"
+		result.ManualOnly = !repairable
+	}
+	return result
 }

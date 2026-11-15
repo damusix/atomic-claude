@@ -13,6 +13,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
@@ -250,17 +251,26 @@ func enrolledClaude(t *testing.T, home string) string {
 	return filepath.Join(home, ".claude")
 }
 
-// A user edit to a file Atomic owns blocks the refresh and survives it.
-func TestClaudeUpdateBlocksOnOwnedFileEdit(t *testing.T) {
+// A refresh backs up edits to owned commands and restores the selected bytes.
+func TestClaudeUpdateBacksUpOwnedFileEdit(t *testing.T) {
+	t.Chdir(t.TempDir())
 	home := t.TempDir()
 	root := enrolledClaude(t, home)
 	edited := filepath.Join(root, "commands", "commit.md")
+	selected, err := os.ReadFile(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mustWrite(t, edited, "my edit\n")
 
-	if out, code := runAtomicCLI(t, home, "claude", "update"); code != 1 {
-		t.Fatalf("exit = %d, want 1:\n%s", code, out)
+	if out, code := runAtomicCLI(t, home, "claude", "update"); code != 0 {
+		t.Fatalf("exit = %d:\n%s", code, out)
 	}
-	assertUnchanged(t, map[string]string{edited: "my edit\n"})
+	got := assertLedgerClaimsDisk(t, home, harness.Target{Kind: harness.KindClaude, Instance: root}, edited)
+	if string(got) != string(selected) {
+		t.Errorf("managed command not restored: %q", got)
+	}
+	assertConvergeRecoveryCopies(t, home, map[string]string{edited: "my edit\n"})
 }
 
 // Leaving an edited owned file unowned releases Atomic's claim on it, so
@@ -332,35 +342,30 @@ func olderBinaryRewrite(t *testing.T, home, root string) map[string]string {
 	return older
 }
 
-// An older binary's bytes match neither the selected generation nor the
-// ledger, so the refresh waits for the decision it names.
-func TestOlderBinaryRewriteWaitsForDecision(t *testing.T) {
+// An older binary's rewritten managed files are backed up and reconverged
+// without re-adopting an already owned root.
+func TestOlderBinaryRewriteConvergesOwnedRoot(t *testing.T) {
+	t.Chdir(t.TempDir())
 	home := t.TempDir()
 	root := enrolledClaude(t, home)
 	older := olderBinaryRewrite(t, home, root)
 
-	_, diag, code := runAtomicCLIFull(t, home, nil, "claude", "update")
-	if code != 1 || !strings.Contains(diag, "--replace") {
-		t.Fatalf("exit = %d, want 1 naming --replace:\n%s", code, diag)
+	out, diag, code := runAtomicCLIFull(t, home, nil, "claude", "update")
+	if code != 0 {
+		t.Fatalf("exit = %d:\n%s\n%s", code, out, diag)
 	}
-	assertUnchanged(t, older)
-
-	out, _, _ := runUpdateConverge(t, home)
 	if strings.Contains(out, "adopting existing Claude install") {
 		t.Errorf("update re-adopted the owned root:\n%s", out)
 	}
-	assertUnchanged(t, older)
-
-	if out, code := runAtomicCLI(t, home, "harness", "repair", "--replace", "--yes"); code != 0 {
-		t.Fatalf("repair --replace exited %d:\n%s", code, out)
-	}
 	assertBundleBytes(t, root)
 	assertConvergeRecoveryCopies(t, home, older)
+	assertLedgerClaimsDisk(t, home, harness.Target{Kind: harness.KindClaude, Instance: root}, filepath.Join(root, "commands", "commit.md"))
 }
 
 // A legacy install into an unrelated project clears the home-wide adopted
 // mark; that is no evidence about the owned default root.
 func TestUnrelatedLegacyInstallDoesNotReadoptOwnedRoot(t *testing.T) {
+	t.Chdir(t.TempDir())
 	home := t.TempDir()
 	root := enrolledClaude(t, home)
 	edited := filepath.Join(root, "commands", "commit.md")
@@ -374,7 +379,9 @@ func TestUnrelatedLegacyInstallDoesNotReadoptOwnedRoot(t *testing.T) {
 	if strings.Contains(out, "adopting existing Claude install at "+root) {
 		t.Errorf("update re-adopted the owned root:\n%s", out)
 	}
-	assertUnchanged(t, map[string]string{edited: "my edit\n"})
+	assertBundleBytes(t, root)
+	assertConvergeRecoveryCopies(t, home, map[string]string{edited: "my edit\n"})
+	assertLedgerClaimsDisk(t, home, harness.Target{Kind: harness.KindClaude, Instance: root}, edited)
 }
 
 // --no-hooks on an owned root never registers the session-start hook, and an

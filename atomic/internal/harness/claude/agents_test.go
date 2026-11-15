@@ -159,9 +159,8 @@ func TestGlobalArtifactsRefuseAnInvalidClaudeEffort(t *testing.T) {
 	}
 }
 
-// A stored override never licenses overwriting a hand edit: the edited agent
-// still blocks convergence and keeps its bytes.
-func TestConvergeKeepsAHandEditedAgentUnderAnOverride(t *testing.T) {
+// A managed hand edit is backed up before the selected override is applied.
+func TestConvergeBacksUpAHandEditedAgentUnderAnOverride(t *testing.T) {
 	home := newHome(t)
 	t.Setenv(ConfigDirEnv, "")
 	root := filepath.Join(home, ".claude")
@@ -176,14 +175,39 @@ func TestConvergeKeepsAHandEditedAgentUnderAnOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Blockers) == 0 {
-		t.Fatal("a hand-edited agent planned without a blocker")
+	if len(plan.Blockers) != 0 {
+		t.Fatalf("managed edit blocked convergence: %v", plan.Blockers)
 	}
-	if _, err := life.Converge(target, plan); err == nil {
-		t.Error("converge overwrote past a hand-edit blocker")
+	if _, err := life.Converge(target, plan); err != nil {
+		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(agentPath); string(got) != "hand edit\n" {
-		t.Errorf("hand edit lost:\n%s", got)
+	artifacts, err := GlobalArtifacts(home, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range artifacts {
+		if artifact.ID == overriddenAgent {
+			if got, err := os.ReadFile(agentPath); err != nil || string(got) != string(artifact.Data) {
+				t.Errorf("agent = %q, %v; want selected override", got, err)
+			}
+		}
+	}
+	unit, err := installstate.UnitFor(overriddenAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backups, err := filepath.Glob(filepath.Join(config.BackupDir(home), "*", unit))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, backup := range backups {
+		if data, err := os.ReadFile(backup); err == nil && string(data) == "hand edit\n" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("hand-edited agent was not backed up")
 	}
 }
 

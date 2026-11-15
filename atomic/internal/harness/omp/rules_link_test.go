@@ -134,6 +134,71 @@ func TestPublishProjectCardsMigratesAGeneratedCopyToALink(t *testing.T) {
 	}
 }
 
+func TestPublishProjectCardsMigratesAnOwnedLinkToACopy(t *testing.T) {
+	home := newHome(t)
+	base, state := linkRepo(t, "core")
+	if _, err := publishLinks(t, home, base, state); err != nil {
+		t.Fatalf("link publish: %v", err)
+	}
+	canonical := filepath.Join(state, "rules", "wiki", "core.md")
+	original := readFile(t, canonical)
+	outside := filepath.Join(t.TempDir(), ".atomic")
+	writeCards(t, outside, "repo-key", pointerCard("core", []string{"src/**"}, "# changed card\n"))
+	projection, err := LoadProjectCards(outside, "repo-key", base, newAdapter(t, map[string]string{}).Capabilities())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := cardFile(base, "core")
+	for i := range 2 {
+		result, err := publishLinks(t, home, base, outside)
+		if err != nil || !result.Fresh || (i == 1 && result.Applied) {
+			t.Fatalf("copy publish %d = %+v, %v", i+1, result, err)
+		}
+		if got := readFile(t, canonical); got != original {
+			t.Fatalf("canonical card changed on publish %d: got %q, want %q", i+1, got, original)
+		}
+		fi, err := os.Lstat(path)
+		if err != nil || !fi.Mode().IsRegular() {
+			t.Fatalf("copy after publish %d is not a regular file: %v, %v", i+1, fi, err)
+		}
+		if got := readFile(t, path); got != string(projection.Cards[0].Bytes) {
+			t.Fatalf("copy after publish %d = %q, want %q", i+1, got, projection.Cards[0].Bytes)
+		}
+		row, ok := linkRow(t, home, path)
+		if !ok || row.Applied.Kind != managedfile.KindFile || row.Applied.Digest != projection.Cards[0].Digest {
+			t.Fatalf("copy ledger row = %+v, %v", row, ok)
+		}
+	}
+}
+
+func TestPublishProjectCardsKeepsAnAlteredLinkWhenPublishingCopies(t *testing.T) {
+	home := newHome(t)
+	base, state := linkRepo(t, "core")
+	if _, err := publishLinks(t, home, base, state); err != nil {
+		t.Fatal(err)
+	}
+	path := cardFile(base, "core")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	foreign := filepath.Join(base, "user-card.md")
+	writeFile(t, foreign, "user card\n")
+	if err := os.Symlink(foreign, path); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), ".atomic")
+	writeCards(t, outside, "repo-key", pointerCard("core", []string{"src/**"}, "# changed card\n"))
+	if _, err := publishLinks(t, home, base, outside); err == nil {
+		t.Fatal("an altered link was replaced")
+	}
+	if got, err := os.Readlink(path); err != nil || got != foreign {
+		t.Fatalf("altered link = %q, %v; want %q", got, err, foreign)
+	}
+	if got := readFile(t, foreign); got != "user card\n" {
+		t.Fatalf("foreign target changed: %q", got)
+	}
+}
+
 func TestPublishProjectCardsKeepsAnEditedCopyAndMutatesNothing(t *testing.T) {
 	home := newHome(t)
 	base, state := linkRepo(t, "alpha", "core")

@@ -134,9 +134,10 @@ func TestConfigAgentsConvergesAnEnrolledOMPAgentThroughTheLedger(t *testing.T) {
 	}
 }
 
-// Convergence goes through the ledger, so a file the user edited by hand is a
-// conflict that keeps its bytes rather than something a save overwrites.
-func TestConfigAgentsLeavesAHandEditedAgentAsAConflict(t *testing.T) {
+// A saved override replaces an edited managed agent with a recovery copy and
+// records the resulting bytes in the ledger.
+func TestConfigAgentsBacksUpAHandEditedManagedAgent(t *testing.T) {
+	t.Chdir(t.TempDir())
 	home := t.TempDir()
 	root := installOMP(t, home)
 	path := filepath.Join(root, "agents", "atomic-investigator.md")
@@ -146,19 +147,21 @@ func TestConfigAgentsLeavesAHandEditedAgentAsAConflict(t *testing.T) {
 	}
 	stubAgentsForm(t, map[string]config.AgentOverride{"atomic-investigator": {Effort: "low"}})
 
-	code, stdout, _ := runConfigAgentsCaptured(t, home, "--harness", "omp")
-	if code == 0 {
-		t.Fatalf("a conflicting save exited 0:\n%s", stdout)
+	code, stdout, stderr := runConfigAgentsCaptured(t, home, "--harness", "omp")
+	if code != 0 {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
-	if data, _ := os.ReadFile(path); string(data) != string(edited) {
-		t.Errorf("the hand-edited agent was overwritten:\n%s", data)
+	data := assertLedgerClaimsDisk(t, home, harness.Target{Kind: harness.KindOMP, Instance: root}, path)
+	if string(data) == string(edited) || !strings.Contains(string(data), "thinking: low") {
+		t.Errorf("agent does not contain the selected override:\n%s", data)
 	}
+	assertConvergeRecoveryCopies(t, home, map[string]string{path: string(edited)})
 	cfg, _, err := config.Load(config.TOMLPath(home))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.OMP.Agents["atomic-investigator"].Effort != "low" {
-		t.Error("the override was not saved before convergence refused")
+		t.Error("the override was not saved")
 	}
 }
 

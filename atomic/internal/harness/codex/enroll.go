@@ -308,7 +308,7 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	}
 
 	if len(mutations) == 0 {
-		result.Retired, err = harness.RetireAgents(ledger, agentPlan.Retire)
+		result.Retired, err = harness.RetireAgents(req.Home, operationID, ledger, agentPlan.Retire, req.Decision)
 		if err != nil {
 			return result, err
 		}
@@ -329,6 +329,11 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 	result.JournalPath = tx.JournalPath
 
 	for _, m := range mutations {
+		if m.Kind == managedfile.KindTree || m.Kind == managedfile.KindFile {
+			if _, err := harness.BackupArtifact(req.Home, operationID, m.Path, m.Kind); err != nil {
+				return result, err
+			}
+		}
 		if m.Kind == managedfile.KindTree {
 			if _, err := tx.StageTree(m.Unit, plugin.Render); err != nil {
 				return result, err
@@ -346,7 +351,7 @@ func (a *Adapter) Enroll(req EnrollRequest) (EnrollResult, error) {
 		}
 		result.Applied = append(result.Applied, m.Path)
 	}
-	result.Retired, err = harness.RetireAgents(ledger, agentPlan.Retire)
+	result.Retired, err = harness.RetireAgents(req.Home, operationID, ledger, agentPlan.Retire, req.Decision)
 	if err != nil {
 		return result, err
 	}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 )
 
 // TestObserveRegistrationReadsCodexRegistry proves the observer reports only
@@ -186,6 +187,68 @@ func TestRegisterRefusesADisabledPluginBeforeAnyMutation(t *testing.T) {
 	if got := calls(t, log); got != "plugin list --json\n" {
 		t.Errorf("codex calls = %q, want only the read-only list", got)
 	}
+}
+
+func TestRegisterPreservesUnownedCacheCollision(t *testing.T) {
+	home, root := publishedHome(t)
+	path := filepath.Join(CachePath(root), "skills", "atomic-example", "SKILL.md")
+	const custom = "unowned custom cache skill\n"
+	writeFile(t, path, custom)
+	log := fakeCodex(t, `{"installed":[{"pluginId":"`+PluginID()+`","installed":true,"enabled":true}]}`, false)
+	if _, err := DefaultRegister(RegisterRequest{Home: home, Root: root}); err == nil {
+		t.Fatal("registration accepted an unowned cache collision")
+	}
+	if got := readFile(t, path); got != custom {
+		t.Errorf("unowned cached skill changed: %q", got)
+	}
+	if got := calls(t, log); strings.Contains(got, "plugin add ") {
+		t.Errorf("registration ran plugin add for an unowned cache: %q", got)
+	}
+}
+
+func TestRegisterLeaveUnownedCacheSkipsRegistration(t *testing.T) {
+	home, root := publishedHome(t)
+	path := filepath.Join(CachePath(root), "skills", "atomic-example", "SKILL.md")
+	const custom = "user cache to keep\n"
+	writeFile(t, path, custom)
+	log := fakeCodex(t, `{"installed":[{"pluginId":"`+PluginID()+`","installed":true,"enabled":true}]}`, false)
+	_, err := DefaultRegister(RegisterRequest{Home: home, Root: root, Decision: installstate.DecisionLeaveUnowned})
+	if err == nil || !strings.Contains(err.Error(), "left unowned cache") {
+		t.Fatalf("err = %v, want an explicit skip", err)
+	}
+	if got := readFile(t, path); got != custom {
+		t.Errorf("unowned cached skill changed: %q", got)
+	}
+	if got := calls(t, log); strings.Contains(got, "plugin add ") {
+		t.Errorf("registration ran plugin add for a left cache: %q", got)
+	}
+}
+
+func TestRegisterReplaceBacksUpUnownedCache(t *testing.T) {
+	home, root := publishedHome(t)
+	path := filepath.Join(CachePath(root), "skills", "atomic-example", "SKILL.md")
+	const custom = "unowned cache selected for replacement\n"
+	writeFile(t, path, custom)
+	fakeCodex(t, `{"installed":[{"pluginId":"`+PluginID()+`","installed":true,"enabled":true}]}`, false)
+	if _, err := DefaultRegister(RegisterRequest{Home: home, Root: root, OperationID: "replace-cache", Decision: installstate.DecisionReplace}); err != nil {
+		t.Fatal(err)
+	}
+	requireBackupBytes(t, home, "replace-cache", custom)
+}
+
+func TestRegisterKeepsCacheBackupWhenPluginAddFails(t *testing.T) {
+	home, root := publishedHome(t)
+	path := filepath.Join(CachePath(root), "skills", "atomic-example", "SKILL.md")
+	const edited = "edited cache before failed registration\n"
+	writeFile(t, path, edited)
+	if err := recordCacheOwnership(home, codexTarget(root), CachePath(root)); err != nil {
+		t.Fatal(err)
+	}
+	fakeCodex(t, `{"installed":[{"pluginId":"`+PluginID()+`","installed":true,"enabled":true}]}`, true)
+	if _, err := DefaultRegister(RegisterRequest{Home: home, Root: root, OperationID: "failed-register"}); err == nil {
+		t.Fatal("plugin add failure was not reported")
+	}
+	requireBackupBytes(t, home, "failed-register", edited)
 }
 
 // A marketplace this call added is removed again when the plugin install

@@ -82,8 +82,6 @@ func TestEnrollWritesPluginThroughTransaction(t *testing.T) {
 		t.Errorf("target record = %+v, want a converged enrollment", rec)
 	}
 
-	// The capability-disabled guarantees travel with the result: every runtime
-	// surface is unsupported, and registration is the only observed row.
 	if len(result.Surfaces) == 0 {
 		t.Fatal("enroll result reports no runtime surfaces")
 	}
@@ -94,8 +92,12 @@ func TestEnrollWritesPluginThroughTransaction(t *testing.T) {
 		if strings.Contains(surface.Surface, "registration") {
 			continue
 		}
-		if surface.Status != harness.StatusUnsupported {
-			t.Errorf("surface %q reports %s; no Codex runtime row is proven", surface.Surface, surface.Status)
+		want := harness.StatusUnsupported
+		if surface.Surface == "session-context delivery" {
+			want = harness.StatusPartial
+		}
+		if surface.Status != want {
+			t.Errorf("surface %q reports %s, want %s", surface.Surface, surface.Status, want)
 		}
 	}
 	if result.Registration.Plugin {
