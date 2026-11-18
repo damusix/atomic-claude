@@ -140,7 +140,7 @@ Domain table format:
 | billing | `src/billing/`, `prisma/schema.prisma` | Stripe-backed, webhook-driven | `docs/wiki/billing.md`  |
 ```
 
-- The inferrer writes every path citation — the `Repo paths` and `Detail` columns — as a **repo-root-relative path in backticks** (e.g. `` `docs/wiki/auth/index.md` ``, not `auth/index.md`). The code step `atomic signals linkify` (base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `[`docs/wiki/auth/index.md`](auth/index.md)`. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target from the linkified Detail cell.
+- The inferrer writes each `Repo paths` and `Detail` citation as a **repo-root-relative path in backticks**. `atomic signals linkify` applies the [exact-spelling rule](signals-wiki-linkify.md#linkify-core-code) and writes a file-relative Markdown link, for example `` [`docs/wiki/auth/index.md`](auth/index.md) ``. A Markdown link requires an explicit read; an `@`-reference loads eagerly. Doctor extracts the target from the link in the Detail cell.
 - Detail column is empty when no domain files exist (small repo, everything in router).
 
 **Budget model.** Domain files are created per functional concern (vertical slice), not when a token threshold is crossed. The ~1,000 lines / ~5k tokens threshold is a secondary signal — if a single-file router grows past it, that's a hint to look for concern boundaries, not a mechanical split trigger. After domain files exist, the router keeps all frontloaded orientation content even if it exceeds 5k tokens.
@@ -162,7 +162,7 @@ Required sections (vertical slice):
 | `## Coupling` | Bullet list: what changes here force changes in other domains. Name the other domain explicitly. Include known bugs or stale cross-references. |
 | `## Conventions worth knowing` | Domain-local convention facts |
 
-Path citations are written repo-root-relative in backticks and rendered to file-relative markdown links by `atomic signals linkify` — never `@-refs` (a `[text](path)` link is not an `@-ref`). Fact-shaped, not steering-shaped.
+Write path citations as repo-root-relative paths in backticks. The same linkify rule as for router citations applies.
 
 **Sub-routing (large domains only):**
 
@@ -317,6 +317,15 @@ Prevents `docs/wiki/auth.md` → `docs/wiki/identity.md` churn on reruns where c
 
 
 ## Change log
+
+### 2026-11-17 — Exact spelling for path citations
+
+
+**What changed:** Router and domain citations follow the shared linkify contract.
+
+**Why:** A citation with the wrong case can resolve locally and still produce a broken link on GitHub.
+
+**Superseded:** A successful disk lookup was sufficient to link a citation.
 
 ### 2026-11-12 — Correction: the `@`-ref lives only in project files
 

@@ -131,7 +131,7 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 **`## Members` linked section.** A `<wiki-member-list>` region in `wiki/index.md`; a section still carrying the legacy `<!-- wiki-members:start -->` / `<!-- wiki-members:end -->` markers is rewritten to the region on the next scan. One link per member, derived from its `<wiki-scan>` status: `indexed` → the signals file classification found (`../<repo>/docs/wiki/index.md` or the legacy `../<repo>/.claude/project/signals.md`); `summarized` → the recorded `summary` path (`repos/<repo>.md` or `repos/<repo>/`); `pending` → `../<repo>/`. Spliced idempotently like the `<wiki-scan>` block; content outside the region untouched. Written by `atomic wiki scan` so the realm is browsable after a deterministic pass, no LLM required.
 
-**`atomic wiki linkify` (code).** Renders inline-code path citations that resolve on disk into file-relative markdown links. Bases per artifact: `repos/<repo>(/<domain>).md` → `<realm>/<repo>` (from the summary's `repo:` frontmatter); `concerns/*.md` and `index.md` narrative → realm root. Idempotent (skips already-linked tokens); never touches fenced code blocks or frontmatter. A `[text](path)` link is not an `@-ref`. User-runnable and surfaced in `/atomic-help`.
+**`atomic wiki linkify` (code).** Renders inline-code path citations into file-relative Markdown links using the [exact-spelling rule](signals-wiki-linkify.md#linkify-core-code). Bases per artifact: `repos/<repo>(/<domain>).md` uses `<realm>/<repo>` from the summary's `repo:` frontmatter; `concerns/*.md` and the `index.md` narrative use the realm root. It skips fenced code blocks and frontmatter and preserves existing links, subject to the shared linkify contract. A `[text](path)` link is not an `@`-reference. The verb appears in `/atomic-help`.
 
 **`<wiki-scan>` block.** Literal `<wiki-scan ...>` / `</wiki-scan>` boundary. Open attrs `root`, `generated` (injected clock — no wall-clock reads). One `<repo .../>` per member: `path`, `status`, optional `signals`/`summary`. No fingerprints. Target `wiki/index.md`; idempotent in-place; content outside untouched. `generated` records the last scan; nothing reads it as a freshness signal.
 
@@ -160,6 +160,16 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 
 ## Change log
+
+
+### 2026-11-17 — Exact spelling for path citations
+
+
+**What changed:** Realm wiki citations follow the shared linkify contract.
+
+**Why:** A citation with the wrong case can resolve locally and still produce a broken link on GitHub.
+
+**Superseded:** A successful disk lookup was sufficient to link a citation.
 
 
 ### 2026-11-12 — Legacy signals router follows the member's state root
@@ -248,7 +258,7 @@ Three agent types run a refresh, and which type authors a page is a contract rat
 
 **Why:** Realm wikis no longer need refreshing; the session-start nudge repeated every session without producing refreshes.
 
-**Removed:** `atomic wiki stamp` and `reflects_*` fingerprints, `STALE summary` / `STALE concern` lines, `wiki.CheckStaleness`, `atomic wiki mark-dirty`, the `.dirty` marker and its `.gitignore`, and the `.dirty` clear; the closing scan stays, now before linkify. See `docs/spec/realm-wiki-drop-refresh.md`.
+**Removed:** The `stamp` and `mark-dirty` wiki subcommands, `reflects_*` fingerprints, `STALE summary` / `STALE concern` lines, `wiki.CheckStaleness`, the `.dirty` marker and its `.gitignore`, and the `.dirty` clear. The closing scan stays and runs before linkify. See `docs/spec/realm-wiki-drop-refresh.md`.
 
 ### 2026-09-30 — Scan writes the realm scope marker
 
@@ -313,9 +323,9 @@ Built across 10 checkpoints via `/autopilot` → the `/subagent-implementation` 
 
 - `71444e3` — CP1 wiki-core package (discovery, scaffold, `<wiki-scan>` block, collision, summarized-preservation)
 - `4b59005` — CP2 `atomic wiki scan` + `<wikis>` registry writer
-- `0d14f5c` — CP3 `signals scan --out` + `atomic wiki stamp` code fingerprinter
+- `0d14f5c` — CP3 `signals scan --out` + wiki `stamp` code fingerprinter
 - `513f441` — CP4 `atomic wiki stale` comparator
-- `ae3e6c5` — CP5 `CheckStaleness` + `atomic wiki mark-dirty` primitives
+- `ae3e6c5` — CP5 `CheckStaleness` + wiki `mark-dirty` primitives
 - `8895bdb` — CP6 forcing-function wiring (session-start nudge + ship-time `mark-dirty`)
 - `ee85475` — CP7 inferrer wiki-output mode
 - `acde091` — CP8 `/refresh-wiki` orchestration command

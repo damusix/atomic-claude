@@ -22,9 +22,9 @@ Make signals and wiki markdown navigable as a graph in Obsidian, a generic markd
 
 ### Linkify core (code)
 
-- [ ] A reusable linkify function takes file content + the file's absolute path + a base directory, and rewrites each **inline-code path token** (`` `path` ``) whose `join(base, token)` exists on disk into `` [`path`](relpath) ``, where `relpath = filepath.Rel(dir(file), join(base, token))`.
+- [ ] A reusable linkify function takes file content + the file's absolute path + a base directory, and rewrites each **inline-code path token** (`` `path` ``) that resolves with exact spelling into `` [`path`](relpath) ``, where `relpath = filepath.Rel(dir(file), join(base, token))`.
 - [ ] **Destination form:** a `relpath` containing a space, a tab, or a parenthesis is written in angle brackets, `` [`path`](<relpath>) ``. A bare CommonMark destination ends at the first space and must balance its parentheses, so GitHub and goldmark render the bare form as literal text. A `relpath` that needs angle brackets and also contains `<` or `>` is left as plain code, since angle brackets cannot hold either unescaped.
-- [ ] Disk resolution is the filter: a token that does not `stat` from the base (e.g. `` `atomic signals scan` ``, `` `git status` ``) is left untouched. No extension/heuristic guessing.
+- [ ] A token stays plain code unless it resolves from the base and every component of the resolved path beyond its common ancestor with the base matches an on-disk entry exactly. If permissions prevent listing a parent directory, linkify leaves the token plain. No extension or slash is required.
 - [ ] **Skip-set:** a token with any path segment in `{.git, node_modules, dist, build, target, vendor, .worktrees, tmp}` is never linked even when it resolves on disk — linking to build output or VCS internals is noise. Exact-segment match, so `.github` / `.githooks` / `.gitignore` still link.
 - [ ] **Degenerate tokens:** a token built entirely from `.` and `/` — including the empty token — is never linked. Disk resolution cannot reject these (`join(base, ".")` and `join(base, "/")` are the base itself, `".."` is its parent), but prose quoting a bare path character is never a citation, and the empty case comes from a `` `` `` span quoting text that itself contains backticks, where linking shreds the quoted string into three pieces.
 - [ ] **Gitignore layer (optional, best-effort):** `LinkifyFile` skips any token that `git check-ignore` flags under the base dir (e.g. `bin/`, `.env`, logs). Batched (one `git check-ignore --stdin` per file). Degrades to skip-set-only with no error when git is absent or the base dir is not a git work tree. The pure `Linkify` (skip-set only, no exec) remains for callers/tests that want no git dependency.
@@ -115,7 +115,7 @@ Approach A. Relative-prefix computation is a deterministic transform — code's 
 
 ### 2026-10-18 — Removed: linkify ordering against wiki stamping
 
-**What changed:** The wiki criteria no longer order `atomic wiki linkify` after `atomic wiki stamp` or tie it to `atomic wiki stale` verdicts, and the matching risk row is gone. Linkify still runs after summaries and concerns are written and still leaves frontmatter alone.
+**What changed:** The wiki criteria no longer order `atomic wiki linkify` after the removed stamping command or tie it to `atomic wiki stale` verdicts, and the matching risk row is gone. Linkify still runs after summaries and concerns are written and still leaves frontmatter alone.
 
 **Why:** Realm wikis no longer carry fingerprints, so there is no stamp step to order against and no content staleness to disturb.
 
@@ -136,3 +136,12 @@ Approach A. Relative-prefix computation is a deterministic transform — code's 
 **Why:** `atomic wiki scan` now reads the legacy router there (`docs/spec/wiki.md`).
 
 **Superseded:** the fallback was always `.claude/project/signals.md`.
+
+### 2026-11-17 — Exact spelling for path citations
+
+
+**What changed:** Linkify checks directory entry names before generating a link. Existing links are not revalidated.
+
+**Why:** On case-insensitive volumes, `Deployment` resolved to `deployment/`, producing a link that could fail on GitHub.
+
+**Superseded:** A successful filesystem lookup was sufficient to create a link.
