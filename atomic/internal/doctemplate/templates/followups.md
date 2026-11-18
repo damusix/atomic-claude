@@ -10,7 +10,7 @@ section only if the loop never produces one.
 -->
 # Follow-ups: <topic>
 
-Non-blocking findings carried across iterations. At finalization: review with the user, decide what to fix in a polish pass, what to defer to a tracked issue, what to drop.
+Non-blocking findings carried across iterations. Use the command's finalization policy to resolve them.
 
 ---
 

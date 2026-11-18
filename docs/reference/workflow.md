@@ -101,47 +101,30 @@ All four run the same loop and finalize. What differs is the policy table at the
 /subagent-implementation
 ```
 
-Claude reads the approved spec and runs an autonomous implement-then-review loop, Anthropic's evaluator-optimizer pattern applied per checkpoint. A builder agent writes code (failing test first), a reviewer agent checks it against an objective gate (the tests), and each passing checkpoint gets committed automatically.
+The orchestrator dispatches a fresh implementer and an independent reviewer for each checkpoint. The reviewer can block the checkpoint for missing intended behavior, missing required verification, or a serious defect.
 
-One iteration, plus the once-per-task audit at the end. The implementer and the reviewer never talk to each other, and only the orchestrator writes the scratchpad — the agents read the brief and report back, which is why each can run fresh-context:
+The orchestrator records non-blocking findings before deciding whether to retry or commit.
 
 ```mermaid
-sequenceDiagram
-    accTitle: One iteration of the implement-review loop, and the final audit
-    accDescr: The orchestrator writes the scratchpad files. It dispatches the implementer and the reviewer, each of which reads the brief and the spec and reports back. The orchestrator updates STATE, harvests non-blocking findings into FOLLOWUPS, commits on PASS or re-dispatches on CHANGES_REQUESTED, offers escalation to the user when stuck, and dispatches the auditor once when every checkpoint is green.
-    participant U as you
-    participant O as orchestrator
-    participant S as scratchpad (BRIEF · STATE · FOLLOWUPS)
-    participant I as implementer (fresh context)
-    participant R as reviewer (fresh context)
-    participant A as auditor (fresh context)
-    O->>S: write BRIEF — scope, spec path (once, at start)
-    O->>I: dispatch — this iteration's scope, prior findings
-    S-->>I: BRIEF + spec (read-only)
-    I-->>O: report — did, files touched, test signals
-    O->>R: dispatch — diff working tree vs BASE against the spec
-    S-->>R: BRIEF + spec (read-only)
-    R-->>O: findings + VERDICT
-    O->>S: update STATE, harvest non-blocking findings into FOLLOWUPS
-    alt PASS
-        O->>O: commit the iteration, atomic code sync
-    else CHANGES_REQUESTED
-        O->>I: next round, blocking findings as focus
-    end
-    opt same signal 2 rounds
-        O->>U: offer /pressure-test · strategist · continue
-    end
-    opt every checkpoint green
-        O->>A: audit the whole delivery — spec, commit range, STATE
-        A-->>O: PASS, or CHANGES_REQUESTED for one more round
-    end
+flowchart TD
+    accTitle: Checkpoint gates and final cleanup
+    accDescr: Each review records non-blockers before it can retry the checkpoint. The cleanup pass runs after all checkpoints pass.
+    I["Build checkpoint"] --> R["Review checkpoint"]
+    R --> L["Record non-blockers"]
+    L --> B{"Blocker?"}
+    B -->|Yes| I
+    B -->|No| C["Commit checkpoint"]
+    C -->|More checkpoints| I
+    C -->|Last checkpoint| P["Fix in-scope findings"]
+    P --> D["Update docs and verify"]
+    D --> A["Audit the delivery"]
 ```
 
 The scratchpad in that diagram is a slug-keyed work bundle — `atomic scratchpad new <slug> --purpose implement` creates or extends it, and a later phase on the same task joins it rather than opening a new one. Artifacts resolve its path, and where session reports for this project live, via `atomic where --json` rather than constructing them. → [conventions](/reference/conventions)
 
 The audit runs exactly once per task, after the docs update and before the signals refresh. A `CHANGES_REQUESTED` verdict buys one more implementer-reviewer round against its findings, never a second audit, so finalize cannot loop. It gates what per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, and commit types that misstate user-visible impact.
 
-Non-blocking findings (risks, nits, questions) accumulate in a ledger that you review at the end, so nothing gets silently dropped. When the loop gets stuck, either the same failure surviving two rounds of fixes or the reviewer flagging error-swallowing patches that dodge the bug instead of fixing it, it stops grinding and surfaces a root-cause path: a pressure-test prompt or a read-only strategist analysis you can run, rather than piling on more suppression.
+You only need to intervene during the loop when a blocker requires a decision outside the approved plan. If the same blocker survives two attempts, the orchestrator asks the strategist to investigate first. Non-blocking questions and nits stay in `FOLLOWUPS.md`; the orchestrator resolves the in-scope ones before the audit. It can offer worthwhile unrelated work once at the end.
 
 If the project is indexed, the loop uses the code-intel graph throughout. It indexes the project at the start of the task, the investigator leads with `atomic code explore` to scope each surface, the reviewer checks blast radius with `atomic code impact`, and the orchestrator runs `atomic code sync` after each committed checkpoint so the graph reflects the latest code. When no index is present the agents fall back to plain search, so the loop runs either way.
 

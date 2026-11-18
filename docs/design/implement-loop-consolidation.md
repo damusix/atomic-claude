@@ -59,9 +59,9 @@ The settings as the four commands set them today:
 | Entry gate | spec exists / small → inline / refuse | fit table | none, plans itself | fit table |
 | Worktree | ask | none | auto | ask, clean tree only |
 | Cold index | build | degrade | build | build |
-| Stuck | 2 same-signal rounds → ask | 3-iteration cap → ask | auto-strategist | 2 same-signal rounds → ask |
-| Non-blockers | ledger → user | ledger → user | fix all, ledger empty | ledger → user |
-| Finalize | verify, follow-ups, log, docs, audit, signals | verify, audit, follow-ups | verify, docs, audit, signals, ship | verify, follow-ups, log, docs, user-picked gate, signals |
+| Stuck | auto-strategist | 3-iteration cap → ask | auto-strategist | 2 same-signal rounds → ask |
+| Non-blockers | record each review; fix in scope after the last checkpoint | ledger → user | fix all, ledger empty | ledger → user |
+| Finalize | cleanup, docs, verify, audit, optional outside-scope follow-ups, log, signals, report | verify, audit, follow-ups | verify, docs, audit, signals, ship | verify, follow-ups, log, docs, user-picked gate, signals |
 | Scratchpad at end | retain | delete | retain | retain |
 
 Everything outside that table is shared loop text, and it is the same in each file. Counted by grep across the four: the `atomic template brief` seeding appears three times verbatim, the reviewer placeholder table three times, the five commit steps three times, the four-step signals block three times (`subagent-implementation.md:234-239`, `autopilot.md:96-103`, `implement.md:167-174`), the code-intel check four times, and the auditor once-only rule five times counting the agent.
@@ -195,9 +195,9 @@ Four blocks are deterministic procedures written as instructions to the model. E
 | Block today | Lines | Verb | Effect on the partial |
 |-------------|------:|------|------------------------|
 | `worktree-setup.md:69-131`: branch check, `git worktree add`, eight-row setup detection, six-row baseline-test detection, report | ~60 | `atomic worktree new <branch>` | 5.6k → 1.2k (sample below) |
-| Signals refresh staging and commit, three copies | 8 each | `atomic signals commit <topic>` | step 6 becomes "exit 1 → dispatch inferrer → verb" |
-| `subagent-implementation.md:193-220` defer arg mapping | 28 | `atomic followups promote <ledger> F-<N> --topic <slug>` | step 4 loses the long invocation |
-| Code-intel present/absent branch, four copies | 5 each | `atomic code sync --or-index` | one line, no branch |
+| Signals refresh staging and commit, three copies | 8 each | Proposed `signals commit` | step 6 becomes "exit 1 → dispatch inferrer → verb" |
+| `subagent-implementation.md:193-220` defer arg mapping | 28 | Proposed `followups promote` | step 4 loses the long invocation |
+| Code-intel present/absent branch, four copies | 5 each | Proposed `--or-index` flag for `atomic code sync` | one line, no branch |
 
 
 ## Samples
