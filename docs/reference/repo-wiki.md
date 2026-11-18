@@ -40,7 +40,7 @@ Three things trigger a refresh: `/refresh-wiki` on demand; the implementation lo
 `atomic signals scan|show|stale|diff|linkify` is the deterministic half of this pipeline, and it writes `docs/wiki/scan.md`. The verb keeps its original name from before repo-scope context and the cross-repo wiki were unified into one concept. `/refresh-wiki` calls it for you; you rarely invoke it directly.
 :::
 
-The inferrer writes backtick paths from the repo root. `atomic signals linkify` turns them into links relative to the Markdown file. A path with the wrong case stays plain code, even when the filesystem accepts it.
+The inferrer writes backtick paths from the repo root. `atomic signals linkify` turns paths that match their exact spelling on disk into links relative to the Markdown file. Missing paths and spelling mismatches stay plain code. Re-running preserves existing links, so remove any wrong-case link from an earlier run by hand.
 
 Open `docs/wiki/` in Obsidian, a Markdown server, or `atomic serve` to follow links from the router to domain pages and source files. A Markdown link stays inert until something reads it; `linkify` does not generate `@`-references.
 
