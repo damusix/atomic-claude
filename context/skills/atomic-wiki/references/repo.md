@@ -375,7 +375,7 @@ After all signals files are written and reviewed, run:
 atomic signals linkify
 ```
 
-This renders every repo-root-relative backtick path citation that resolves on disk (in `docs/wiki/index.md` and every `docs/wiki/*.md` domain file, excluding `docs/wiki/scan.md` and the wiki steering file) into a file-relative markdown link `[`path`](relpath)`. Base = repo root. It is idempotent — re-running produces a byte-identical file. Fenced code blocks are never touched, and a `[text](path)` link is not an @-ref.
+This turns repo-root-relative backtick paths into file-relative Markdown links when each path matches its exact spelling on disk. It runs on `docs/wiki/index.md` and the domain files, skipping `docs/wiki/scan.md` and the wiki steering files. It leaves fenced code blocks untouched. Re-running produces the same file, and a `[text](path)` link is not an `@`-reference.
 
 Run this in **both** interactive and silent modes. (Realm wiki-output mode does NOT run it — `/refresh-wiki` runs `atomic wiki linkify` after the realm pass instead.)
 
@@ -497,7 +497,7 @@ A fact that spans domains lives in the `## Coupling` section of the domain that 
 
 **The table keeps four columns.** `parseRouterDomains` in `atomic/internal/doctor/checks_signals.go` skips any row with fewer than four content columns and reads the domain-file link from the last one. A three-column table parses as zero domains — the missing-domain-file and orphan-domain checks then pass vacuously, reporting health they never verified.
 
-Write every path citation — the `Start here` column AND the `Detail` column — as a **repo-root-relative path in backticks** (e.g. `` `docs/wiki/auth.md` ``, NOT `wiki/auth.md`). A code step (`atomic signals linkify`, base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `` [`docs/wiki/auth.md`](docs/wiki/auth.md) ``. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target from the linkified Detail cell.
+Write path citations in both `Start here` and `Detail` as **repo-root-relative paths in backticks**, for example `` `docs/wiki/auth.md` ``. `atomic signals linkify` turns each exact on-disk match into a link relative to the Markdown file. Doctor extracts the target from the link in the Detail cell. These links require an explicit read; `@`-references load eagerly.
 
 **Budget model.** Domain files are created per functional concern (vertical slice), not when a token threshold is crossed. Size (~1,000 lines / ~5k tokens) is a secondary hint to look for concern boundaries.
 
