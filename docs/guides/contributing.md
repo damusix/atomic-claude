@@ -59,6 +59,14 @@ make hooks-uninstall # remove
 `atomic hooks install` is a separate thing — it registers a Claude Code session-start handler that injects orientation and workflow preferences. The git pre-commit hook is build automation. They share the word "hook" and nothing else.
 :::
 
+## Prereleases from `next`
+
+
+Release Please opens a version PR for eligible changes on `next`. The CI workflow squash-merges the generated PR after the Go and frontend jobs pass for its current merge result. It uses the repository owner's existing `RELEASE_PLEASE_TOKEN` so the merge triggers tagging. The release workflow uploads the binaries; `atomic update --pre` can install the new version once they are available.
+
+If the PR revision or `next` moves during CI, the merge job leaves the PR untouched. Check that CI passed for the current merge result before merging manually. Release PRs targeting `main` still require a manual merge.
+
+
 
 ## The embedded bundle
 
