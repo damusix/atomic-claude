@@ -235,7 +235,7 @@ func resolveRel(token, fileDir, baseDir string, ignored map[string]bool, entries
 		return "", false
 	}
 	resolved := filepath.Join(baseDir, token)
-	if _, err := os.Stat(resolved); err != nil || !entries.hasExactPathCase(filepath.Clean(baseDir), resolved) {
+	if _, err := os.Stat(resolved); err != nil || !entries.hasExactSpelling(filepath.Clean(baseDir), resolved) {
 		return "", false
 	}
 	rel, err := filepath.Rel(fileDir, resolved)
@@ -247,7 +247,7 @@ func resolveRel(token, fileDir, baseDir string, ignored map[string]bool, entries
 
 type directoryEntries map[string]map[string]struct{}
 
-func (entries directoryEntries) hasExactPathCase(base, path string) bool {
+func (entries directoryEntries) hasExactSpelling(base, path string) bool {
 	for path != base {
 		// A token may use ".." to reach a sibling of the base. Check only
 		// the path components beyond their common ancestor.
